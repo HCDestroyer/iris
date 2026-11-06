@@ -273,6 +273,10 @@ const (
 	// PermCanalesConfigurar: colas, uso, cola y horario de cada número de WhatsApp, horarios y
 	// feriados (no las credenciales: esas son de mensajeria.configurar).
 	PermCanalesConfigurar Permiso = "canales.configurar"
+	// PermManualesVer: buscar y leer la biblioteca de manuales y sus sugerencias.
+	PermManualesVer Permiso = "manuales.ver"
+	// PermManualesEditar: crear, editar, activar y desactivar manuales.
+	PermManualesEditar Permiso = "manuales.editar"
 )
 
 // Portal de soporte (/soporte).
@@ -391,6 +395,8 @@ var Catalogo = []DefPermiso{
 	{PermIntegracionesResolverPendiente, "Dar por resuelta a mano una acción hacia Argos que Argos rechazó o que nació incompleta (ya corregida en Argos): no vuelve a salir y lo que esperaba por ella sale"},
 	{PermIntegracionesVer, "Ver los conectores y su estado (nunca el token ni el secreto)"},
 	{PermIntegracionesVerPendientes, "Ver la cola de acciones pendientes hacia Argos y su último error"},
+	{PermManualesEditar, "Crear, editar, activar y desactivar artículos de la biblioteca de manuales"},
+	{PermManualesVer, "Buscar y leer la biblioteca de manuales y sus sugerencias para una conversación"},
 	{PermMensajeriaConfigurar, "Configurar los canales de mensajería de una empresa (WhatsApp: número, credenciales y plantillas aprobadas)"},
 	{PermMensajeriaEnviar, "Pedir avisos por la mensajería de Iris y consultar su estado (lo usa Argos con su token de integración)"},
 	{PermMensajeriaRegistrarConsentimiento, "Registrar el permiso de contacto (acepta o baja) de un cliente de Argos por un canal"},
@@ -513,7 +519,7 @@ var permisosRutas = []Permiso{PermRutasVer, PermRutasProponer, PermRutasPublicar
 // permisosAtencion son los de atender conversaciones con clientes (despacho, ventas, soporte y
 // supervisor); cada rol suma los suyos (contratos/conversaciones.md §4).
 var permisosAtencion = []Permiso{PermConversacionesVer, PermConversacionesResponder, PermConversacionesTomar,
-	PermConversacionesEtiquetar, PermConversacionesResolver}
+	PermConversacionesEtiquetar, PermConversacionesResolver, PermManualesVer}
 
 // permisosComercial son todos los del seguimiento comercial (ventas, supervisor) salvo
 // factibilidad.configurar (umbrales de la empresa: supervisor y admin).
@@ -534,7 +540,7 @@ var RolesBase = []DefRol{
 			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar,
 			PermChatVer, PermChatEnviar, PermChatSupervisar,
 			PermConversacionesSupervisar, PermConversacionesAsignar, PermConversacionesTransferir, PermConversacionesAsociar,
-			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesConfigurar, PermCanalesConfigurar},
+			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesConfigurar, PermCanalesConfigurar, PermManualesEditar},
 			slices.Concat(permisosAtencion, permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas, permisosPlantillas, permisosComercial,
 				[]Permiso{PermFactibilidadConfigurar, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer, PermEncuestasCompartir})...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
@@ -563,7 +569,7 @@ var RolesBase = []DefRol{
 	{Codigo: "lectura", Nombre: "Lectura", Descripcion: "Solo consulta",
 		Permisos: []Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer,
 			PermClientesVer, PermTicketsVer, PermOrdenesVer, PermAgendaVer, PermRutasVer, PermProspectosVer,
-			PermReportesVer, PermChatVer, PermConversacionesVer}},
+			PermReportesVer, PermChatVer, PermConversacionesVer, PermManualesVer}},
 	// Roles de los usuarios de tipo integración (decisión del líder): el token que Iris entrega
 	// a cada sistema (iris integracion crear) lleva solo lo de su contrato.
 	//  - Argos: tickets.ver, tickets.crear, ordenes.ver y sso.emitir (contratos/argosisp.md §1.2).
@@ -650,6 +656,7 @@ var modulosPermiso = map[string][2]string{
 	"empresas":       {"empresas", "Empresas"},
 	"mensajeria":     {"mensajeria", "Mensajería"},
 	"conversaciones": {"conversaciones", "Conversaciones con clientes"}, "canales": {"conversaciones", "Conversaciones con clientes"},
+	"manuales": {"conversaciones", "Conversaciones con clientes"},
 }
 
 // ModuloDe devuelve el módulo (código y nombre legible) de un permiso.

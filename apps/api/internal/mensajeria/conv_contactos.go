@@ -31,6 +31,7 @@ type ArgosAtencion interface {
 	CrearPromesa(ctx context.Context, a argos.AtencionIris, servicioID int64, venceEn time.Time, clave string) (argos.PromesaArgos, error)
 	CuentasBancarias(ctx context.Context, a argos.AtencionIris) ([]argos.CuentaBancariaArgos, error)
 	Bancos(ctx context.Context, a argos.AtencionIris) ([]argos.BancoArgos, error)
+	EquiposEnComodato(ctx context.Context, empresaID, servicioID int64) ([]argos.EquipoComodatoArgos, error)
 }
 
 func atencionDe(a alcanceConv, conv int64) argos.AtencionIris {

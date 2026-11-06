@@ -18,7 +18,7 @@ UPDATE mensajeria.colas
 SET nombre = $1, descripcion = $2, sla_respuesta_min = $3,
     sla_por_vencer_min = $4, version = version + 1, updated_at = now()
 WHERE id = $5
-RETURNING id, empresa_id, nombre, descripcion, sla_respuesta_min, sla_por_vencer_min, activa, version, created_at, updated_at
+RETURNING id, empresa_id, nombre, descripcion, sla_respuesta_min, sla_por_vencer_min, activa, version, created_at, updated_at, horario_id
 `
 
 type ActualizarColaParams struct {
@@ -49,6 +49,7 @@ func (q *Queries) ActualizarCola(ctx context.Context, arg ActualizarColaParams) 
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HorarioID,
 	)
 	return i, err
 }
@@ -427,7 +428,7 @@ func (q *Queries) BuscarContactosIris(ctx context.Context, arg BuscarContactosIr
 }
 
 const canalActivoPorPhoneNumber = `-- name: CanalActivoPorPhoneNumber :one
-SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id FROM mensajeria.canales WHERE phone_number_id = $1 AND activo
+SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario FROM mensajeria.canales WHERE phone_number_id = $1 AND activo
 `
 
 func (q *Queries) CanalActivoPorPhoneNumber(ctx context.Context, phoneNumberID string) (MensajeriaCanal, error) {
@@ -453,6 +454,8 @@ func (q *Queries) CanalActivoPorPhoneNumber(ctx context.Context, phoneNumberID s
 		&i.Usos,
 		&i.AvisosEmpresa,
 		&i.ColaID,
+		&i.HorarioID,
+		&i.FueraHorario,
 	)
 	return i, err
 }
@@ -460,7 +463,7 @@ func (q *Queries) CanalActivoPorPhoneNumber(ctx context.Context, phoneNumberID s
 const canalAvisosDeEmpresa = `-- name: CanalAvisosDeEmpresa :one
 
 
-SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id FROM mensajeria.canales
+SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario FROM mensajeria.canales
 WHERE coalesce(empresa_id, 0) = $1::bigint AND canal = $2 AND activo AND avisos_empresa
 `
 
@@ -495,12 +498,14 @@ func (q *Queries) CanalAvisosDeEmpresa(ctx context.Context, arg CanalAvisosDeEmp
 		&i.Usos,
 		&i.AvisosEmpresa,
 		&i.ColaID,
+		&i.HorarioID,
+		&i.FueraHorario,
 	)
 	return i, err
 }
 
 const canalesDeEmpresa = `-- name: CanalesDeEmpresa :many
-SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id FROM mensajeria.canales WHERE coalesce(empresa_id, 0) = $1::bigint ORDER BY NOT activo, lower(nombre), id
+SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario FROM mensajeria.canales WHERE coalesce(empresa_id, 0) = $1::bigint ORDER BY NOT activo, lower(nombre), id
 `
 
 func (q *Queries) CanalesDeEmpresa(ctx context.Context, empresa int64) ([]MensajeriaCanal, error) {
@@ -532,6 +537,8 @@ func (q *Queries) CanalesDeEmpresa(ctx context.Context, empresa int64) ([]Mensaj
 			&i.Usos,
 			&i.AvisosEmpresa,
 			&i.ColaID,
+			&i.HorarioID,
+			&i.FueraHorario,
 		); err != nil {
 			return nil, err
 		}
@@ -641,7 +648,7 @@ func (q *Queries) ClientesPorTelefonoInstantanea(ctx context.Context, arg Client
 }
 
 const colaParaActualizar = `-- name: ColaParaActualizar :one
-SELECT id, empresa_id, nombre, descripcion, sla_respuesta_min, sla_por_vencer_min, activa, version, created_at, updated_at FROM mensajeria.colas WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint FOR UPDATE
+SELECT id, empresa_id, nombre, descripcion, sla_respuesta_min, sla_por_vencer_min, activa, version, created_at, updated_at, horario_id FROM mensajeria.colas WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint FOR UPDATE
 `
 
 type ColaParaActualizarParams struct {
@@ -663,12 +670,13 @@ func (q *Queries) ColaParaActualizar(ctx context.Context, arg ColaParaActualizar
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HorarioID,
 	)
 	return i, err
 }
 
 const colaPorID = `-- name: ColaPorID :one
-SELECT id, empresa_id, nombre, descripcion, sla_respuesta_min, sla_por_vencer_min, activa, version, created_at, updated_at FROM mensajeria.colas WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint
+SELECT id, empresa_id, nombre, descripcion, sla_respuesta_min, sla_por_vencer_min, activa, version, created_at, updated_at, horario_id FROM mensajeria.colas WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint
 `
 
 type ColaPorIDParams struct {
@@ -690,6 +698,7 @@ func (q *Queries) ColaPorID(ctx context.Context, arg ColaPorIDParams) (Mensajeri
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HorarioID,
 	)
 	return i, err
 }
@@ -735,7 +744,7 @@ const configurarCanal = `-- name: ConfigurarCanal :one
 UPDATE mensajeria.canales
 SET usos = $1::text[], avisos_empresa = $2, cola_id = $3, version = version + 1, updated_at = now()
 WHERE id = $4
-RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id
+RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario
 `
 
 type ConfigurarCanalParams struct {
@@ -773,6 +782,8 @@ func (q *Queries) ConfigurarCanal(ctx context.Context, arg ConfigurarCanalParams
 		&i.Usos,
 		&i.AvisosEmpresa,
 		&i.ColaID,
+		&i.HorarioID,
+		&i.FueraHorario,
 	)
 	return i, err
 }
@@ -1042,7 +1053,7 @@ func (q *Queries) ContarIntentoMedio(ctx context.Context, arg ContarIntentoMedio
 }
 
 const conversacionClienteParaActualizar = `-- name: ConversacionClienteParaActualizar :one
-SELECT id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at FROM mensajeria.conversaciones WHERE id = $1 FOR UPDATE
+SELECT id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta FROM mensajeria.conversaciones WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) ConversacionClienteParaActualizar(ctx context.Context, id int64) (MensajeriaConversacion, error) {
@@ -1077,12 +1088,14 @@ func (q *Queries) ConversacionClienteParaActualizar(ctx context.Context, id int6
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FueraHorarioHasta,
+		&i.GuardiaHasta,
 	)
 	return i, err
 }
 
 const conversacionClientePorID = `-- name: ConversacionClientePorID :one
-SELECT id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at FROM mensajeria.conversaciones WHERE id = $1
+SELECT id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta FROM mensajeria.conversaciones WHERE id = $1
 `
 
 func (q *Queries) ConversacionClientePorID(ctx context.Context, id int64) (MensajeriaConversacion, error) {
@@ -1117,13 +1130,15 @@ func (q *Queries) ConversacionClientePorID(ctx context.Context, id int64) (Mensa
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FueraHorarioHasta,
+		&i.GuardiaHasta,
 	)
 	return i, err
 }
 
 const conversacionPorContacto = `-- name: ConversacionPorContacto :one
 
-SELECT id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at FROM mensajeria.conversaciones
+SELECT id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta FROM mensajeria.conversaciones
 WHERE coalesce(empresa_id, 0) = $1::bigint AND canal_id = $2 AND numero = $3
 FOR UPDATE
 `
@@ -1167,6 +1182,8 @@ func (q *Queries) ConversacionPorContacto(ctx context.Context, arg ConversacionP
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FueraHorarioHasta,
+		&i.GuardiaHasta,
 	)
 	return i, err
 }
@@ -1474,7 +1491,7 @@ func (q *Queries) FijarAdjuntoMensaje(ctx context.Context, arg FijarAdjuntoMensa
 }
 
 const fijarColaActiva = `-- name: FijarColaActiva :one
-UPDATE mensajeria.colas SET activa = $1, version = version + 1, updated_at = now() WHERE id = $2 RETURNING id, empresa_id, nombre, descripcion, sla_respuesta_min, sla_por_vencer_min, activa, version, created_at, updated_at
+UPDATE mensajeria.colas SET activa = $1, version = version + 1, updated_at = now() WHERE id = $2 RETURNING id, empresa_id, nombre, descripcion, sla_respuesta_min, sla_por_vencer_min, activa, version, created_at, updated_at, horario_id
 `
 
 type FijarColaActivaParams struct {
@@ -1496,6 +1513,7 @@ func (q *Queries) FijarColaActiva(ctx context.Context, arg FijarColaActivaParams
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HorarioID,
 	)
 	return i, err
 }
@@ -1562,7 +1580,7 @@ SET perfil_nombre = $1, cola_id = $2, asignado_a = $3,
     sla_avisado = $16, resuelta_en = $17, reabierta_en = $18,
     ultima_actividad = $19, version = version + $20::integer, updated_at = now()
 WHERE id = $21
-RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at
+RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta
 `
 
 type GuardarConversacionParams struct {
@@ -1644,6 +1662,8 @@ func (q *Queries) GuardarConversacion(ctx context.Context, arg GuardarConversaci
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FueraHorarioHasta,
+		&i.GuardiaHasta,
 	)
 	return i, err
 }
@@ -1740,7 +1760,7 @@ func (q *Queries) InsertarBoleta(ctx context.Context, arg InsertarBoletaParams) 
 const insertarCola = `-- name: InsertarCola :one
 INSERT INTO mensajeria.colas (empresa_id, nombre, descripcion, sla_respuesta_min, sla_por_vencer_min)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, empresa_id, nombre, descripcion, sla_respuesta_min, sla_por_vencer_min, activa, version, created_at, updated_at
+RETURNING id, empresa_id, nombre, descripcion, sla_respuesta_min, sla_por_vencer_min, activa, version, created_at, updated_at, horario_id
 `
 
 type InsertarColaParams struct {
@@ -1771,6 +1791,7 @@ func (q *Queries) InsertarCola(ctx context.Context, arg InsertarColaParams) (Men
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HorarioID,
 	)
 	return i, err
 }
@@ -1861,7 +1882,7 @@ INSERT INTO mensajeria.conversaciones (empresa_id, canal_id, numero, perfil_nomb
 VALUES ($1, $2, $3, $4, $5, $6,
     $7, $8, $9)
 ON CONFLICT DO NOTHING
-RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at
+RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta
 `
 
 type InsertarConversacionClienteParams struct {
@@ -1918,6 +1939,8 @@ func (q *Queries) InsertarConversacionCliente(ctx context.Context, arg InsertarC
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FueraHorarioHasta,
+		&i.GuardiaHasta,
 	)
 	return i, err
 }
@@ -2253,7 +2276,7 @@ func (q *Queries) InsertarVinculo(ctx context.Context, arg InsertarVinculoParams
 
 const listarColas = `-- name: ListarColas :many
 
-SELECT id, empresa_id, nombre, descripcion, sla_respuesta_min, sla_por_vencer_min, activa, version, created_at, updated_at FROM mensajeria.colas WHERE coalesce(empresa_id, 0) = $1::bigint ORDER BY lower(nombre), id
+SELECT id, empresa_id, nombre, descripcion, sla_respuesta_min, sla_por_vencer_min, activa, version, created_at, updated_at, horario_id FROM mensajeria.colas WHERE coalesce(empresa_id, 0) = $1::bigint ORDER BY lower(nombre), id
 `
 
 // Colas ---------------------------------------------------------------------------------------
@@ -2277,6 +2300,7 @@ func (q *Queries) ListarColas(ctx context.Context, empresa int64) ([]MensajeriaC
 			&i.Version,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.HorarioID,
 		); err != nil {
 			return nil, err
 		}
@@ -3259,7 +3283,7 @@ func (q *Queries) ResultadoBoleta(ctx context.Context, arg ResultadoBoletaParams
 }
 
 const resumenConversacionesCliente = `-- name: ResumenConversacionesCliente :many
-SELECT c.id, c.empresa_id, c.canal_id, c.numero, c.perfil_nombre, c.cola_id, c.asignado_a, c.asignado_en, c.estado, c.cliente_id, c.servicio_id, c.contacto_iris_id, c.prospecto_id, c.asociacion, c.cliente_verificado, c.verificado_por, c.ultimo_entrante_en, c.espera_desde, c.sla_vence_en, c.sla_avisado, c.resuelta_en, c.reabierta_en, c.ultimo_seq, c.ultimo_mensaje_id, c.ultima_actividad, c.version, c.created_at, c.updated_at,
+SELECT c.id, c.empresa_id, c.canal_id, c.numero, c.perfil_nombre, c.cola_id, c.asignado_a, c.asignado_en, c.estado, c.cliente_id, c.servicio_id, c.contacto_iris_id, c.prospecto_id, c.asociacion, c.cliente_verificado, c.verificado_por, c.ultimo_entrante_en, c.espera_desde, c.sla_vence_en, c.sla_avisado, c.resuelta_en, c.reabierta_en, c.ultimo_seq, c.ultimo_mensaje_id, c.ultima_actividad, c.version, c.created_at, c.updated_at, c.fuera_horario_hasta, c.guardia_hasta,
     ca.nombre AS canal_nombre, ca.numero AS canal_numero, ca.usos AS canal_usos,
     co.nombre AS cola_nombre, co.sla_respuesta_min, co.sla_por_vencer_min,
     u.nombre AS asignado_nombre,
@@ -3314,6 +3338,8 @@ type ResumenConversacionesClienteRow struct {
 	Version            int32
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+	FueraHorarioHasta  *time.Time
+	GuardiaHasta       *time.Time
 	CanalNombre        string
 	CanalNumero        string
 	CanalUsos          []string
@@ -3369,6 +3395,8 @@ func (q *Queries) ResumenConversacionesCliente(ctx context.Context, arg ResumenC
 			&i.Version,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.FueraHorarioHasta,
+			&i.GuardiaHasta,
 			&i.CanalNombre,
 			&i.CanalNumero,
 			&i.CanalUsos,
@@ -3470,7 +3498,7 @@ func (q *Queries) ServiciosInstantanea(ctx context.Context, clienteID int64) ([]
 }
 
 const tocarCola = `-- name: TocarCola :one
-UPDATE mensajeria.colas SET version = version + 1, updated_at = now() WHERE id = $1 RETURNING id, empresa_id, nombre, descripcion, sla_respuesta_min, sla_por_vencer_min, activa, version, created_at, updated_at
+UPDATE mensajeria.colas SET version = version + 1, updated_at = now() WHERE id = $1 RETURNING id, empresa_id, nombre, descripcion, sla_respuesta_min, sla_por_vencer_min, activa, version, created_at, updated_at, horario_id
 `
 
 func (q *Queries) TocarCola(ctx context.Context, id int64) (MensajeriaCola, error) {
@@ -3487,6 +3515,7 @@ func (q *Queries) TocarCola(ctx context.Context, id int64) (MensajeriaCola, erro
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HorarioID,
 	)
 	return i, err
 }

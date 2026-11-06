@@ -118,23 +118,25 @@ func empresasDelActor(ctx context.Context, q identidadbd.DBTX) (bool, []int64, e
 
 // Canal es un canal configurado (nunca sus credenciales).
 type Canal struct {
-	ID            int64                    `json:"id"`
-	EmpresaID     *int64                   `json:"empresaId" nullable:"true"`
-	Tipo          string                   `json:"tipo" enum:"whatsapp_cloud"`
-	Canal         string                   `json:"canal" enum:"whatsapp"`
-	Nombre        string                   `json:"nombre"`
-	Numero        string                   `json:"numero" doc:"Número remitente en E.164"`
-	PhoneNumberID string                   `json:"phoneNumberId"`
-	WabaID        string                   `json:"wabaId"`
-	Plantillas    map[string]PlantillaMeta `json:"plantillas" doc:"Plantillas aprobadas en Meta por código de Iris"`
-	Usos          []string                 `json:"usos" doc:"avisos, soporte, cobros, ventas (contratos/conversaciones.md §1)"`
-	AvisosEmpresa bool                     `json:"avisosEmpresa" doc:"Es el número por el que salen los avisos de la empresa (uno activo por empresa)"`
-	ColaID        *int64                   `json:"colaId" nullable:"true" doc:"Cola de las conversaciones nuevas de este número"`
-	Activo        bool                     `json:"activo"`
-	PausadoHasta  *time.Time               `json:"pausadoHasta" nullable:"true" doc:"Pausa automática por calidad o límite de Meta"`
-	WebhookRuta   string                   `json:"webhookRuta" doc:"Ruta del webhook a configurar en la app de Meta (sobre IRIS_BASE_URL)"`
-	Version       int32                    `json:"version"`
-	CreadoEn      time.Time                `json:"creadoEn"`
+	ID             int64                    `json:"id"`
+	EmpresaID      *int64                   `json:"empresaId" nullable:"true"`
+	Tipo           string                   `json:"tipo" enum:"whatsapp_cloud"`
+	Canal          string                   `json:"canal" enum:"whatsapp"`
+	Nombre         string                   `json:"nombre"`
+	Numero         string                   `json:"numero" doc:"Número remitente en E.164"`
+	PhoneNumberID  string                   `json:"phoneNumberId"`
+	WabaID         string                   `json:"wabaId"`
+	Plantillas     map[string]PlantillaMeta `json:"plantillas" doc:"Plantillas aprobadas en Meta por código de Iris"`
+	Usos           []string                 `json:"usos" doc:"avisos, soporte, cobros, ventas (contratos/conversaciones.md §1)"`
+	AvisosEmpresa  bool                     `json:"avisosEmpresa" doc:"Es el número por el que salen los avisos de la empresa (uno activo por empresa)"`
+	ColaID         *int64                   `json:"colaId" nullable:"true" doc:"Cola de las conversaciones nuevas de este número"`
+	HorarioID      *int64                   `json:"horarioId" nullable:"true" doc:"Horario del número"`
+	FueraDeHorario FueraDeHorario           `json:"fueraDeHorario"`
+	Activo         bool                     `json:"activo"`
+	PausadoHasta   *time.Time               `json:"pausadoHasta" nullable:"true" doc:"Pausa automática por calidad o límite de Meta"`
+	WebhookRuta    string                   `json:"webhookRuta" doc:"Ruta del webhook a configurar en la app de Meta (sobre IRIS_BASE_URL)"`
+	Version        int32                    `json:"version"`
+	CreadoEn       time.Time                `json:"creadoEn"`
 }
 
 // ListaCanales es { data, nextCursor }.
@@ -147,7 +149,8 @@ func aCanal(f mensajeriabd.MensajeriaCanal) Canal {
 	p := map[string]PlantillaMeta{}
 	_ = json.Unmarshal(f.Plantillas, &p)
 	return Canal{ID: f.ID, EmpresaID: f.EmpresaID, Tipo: f.Tipo, Canal: f.Canal, Nombre: f.Nombre, Numero: f.Numero, PhoneNumberID: f.PhoneNumberID,
-		WabaID: f.WabaID, Plantillas: p, Usos: f.Usos, AvisosEmpresa: f.AvisosEmpresa, ColaID: f.ColaID, Activo: f.Activo, PausadoHasta: f.PausadoHasta, WebhookRuta: rutaWebhookMeta(f.ID), Version: f.Version, CreadoEn: f.CreatedAt}
+		WabaID: f.WabaID, Plantillas: p, Usos: f.Usos, AvisosEmpresa: f.AvisosEmpresa, ColaID: f.ColaID,
+		HorarioID: f.HorarioID, FueraDeHorario: fueraDeHorarioDe(f.FueraHorario), Activo: f.Activo, PausadoHasta: f.PausadoHasta, WebhookRuta: rutaWebhookMeta(f.ID), Version: f.Version, CreadoEn: f.CreatedAt}
 }
 
 func rutaWebhookMeta(id int64) string {

@@ -184,6 +184,7 @@ sql:
       - internal/mensajeria/consultas.sql
       - internal/mensajeria/chat.sql
       - internal/mensajeria/conversaciones.sql
+      - internal/mensajeria/horarios.sql
     gen:
       go:
         <<: *gen

@@ -44,6 +44,7 @@ type argosFalso struct {
 	promesa     argos.PromesaArgos
 	claves      []string
 	actores     []argos.AtencionIris
+	modelos     []string
 }
 
 func (f *argosFalso) BuscarPorTelefono(_ context.Context, a argos.AtencionIris, _ string) ([]argos.ClienteTelefono, error) {
@@ -57,6 +58,16 @@ func (f *argosFalso) BuscarPorTelefono(_ context.Context, a argos.AtencionIris, 
 }
 
 func (f *argosFalso) AsegurarInstantanea(context.Context, int64, *int64) error { return nil }
+
+func (f *argosFalso) EquiposEnComodato(context.Context, int64, int64) ([]argos.EquipoComodatoArgos, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := []argos.EquipoComodatoArgos{}
+	for _, m := range f.modelos {
+		out = append(out, argos.EquipoComodatoArgos{Modelo: m})
+	}
+	return out, nil
+}
 
 func (f *argosFalso) RegistrarComprobante(_ context.Context, a argos.AtencionIris, in argos.EntradaComprobante) (argos.ComprobanteArgos, error) {
 	f.mu.Lock()
