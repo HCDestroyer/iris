@@ -583,6 +583,7 @@ verificación de identidad (§7.5); autologin a una conversación (pedido B2).
 | `numero_no_permitido` | 422 | Fase 1.1: iniciar desde un número que no es de tus colas (o inactivo) |
 | `no_es_tuya` | 403 | Fase 1.1: pasar una conversación que no tienes asignada sin ser supervisor (global o de su cola) |
 | `mismo_agente` | 422 | Fase 1.1: pasar la conversación a quien ya la tiene |
+| `asociacion_requiere_permiso` | 403 | Fase 1.1: iniciar sobre una conversación asociada a otro contacto sin `conversaciones.asociar` |
 
 ## 14. Fase 1.1 (aprobada por el PM)
 
@@ -685,7 +686,7 @@ La respuesta no se guarda en el middleware (la clave la aplica el caso).
   ventana de 24 h abierta en la existente solo se revisa la baja.
 - **Asociación de una conversación que ya existe:** se llena con el destinatario solo si estaba
   vacía (sin cliente ni contacto de Iris); si es el mismo, queda igual (y verificado). Si estaba
-  asociada a otro, cambiarla exige además `conversaciones.asociar` (si no, 403). El prospecto se
+  asociada a otro, cambiarla exige además `conversaciones.asociar` (si no, 403 `asociacion_requiere_permiso`). El prospecto se
   conserva.
 - **Orden de las revisiones:** permiso, re-autenticación (sesión de autologin), número de salida y
   reenvío del id van **antes** de consultar a Argos el contacto del cliente. Si Argos no lo puede

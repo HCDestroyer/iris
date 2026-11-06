@@ -28,7 +28,8 @@ func (m *Modulo) registrarBandeja11(api huma.API) {
 	ini.Description += " A un cliente de Argos o un contacto de Iris con permiso de contacto, desde un número de tus colas. Idempotente por `id` " +
 		"(200 + Idempotent-Replayed si se repite; 409 `mensaje_id_reutilizado` con otro contenido). Reutiliza la conversación del número " +
 		"(409 `conversacion_de_otro` si la tiene otro agente). 422 `numero_no_permitido`, `sin_contacto`, `sin_permiso`, `baja`, " +
-		"`plantilla_no_aprobada`, `cliente_fuera_de_empresa`, `servicio_fuera_de_empresa`."
+		"`plantilla_no_aprobada`, `cliente_fuera_de_empresa`, `servicio_fuera_de_empresa`; 409 `conversacion_de_otra_cola`; 403 `asociacion_requiere_permiso` " +
+		"si la conversación del número está asociada a otro contacto y no tienes conversaciones.asociar."
 	ini.Responses = map[string]*huma.Response{"200": {Description: "Reenvío del mismo id: la conversación y el mensaje tal como están ahora"}}
 	huma.Register(api, ini, func(ctx context.Context, in *cuerpoHTTP[EntradaIniciarConv]) (*salidaIniciada, error) {
 		in.Body.IdempotencyKey = in.IdempotencyKey

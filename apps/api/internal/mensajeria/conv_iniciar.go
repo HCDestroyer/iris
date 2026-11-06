@@ -600,7 +600,8 @@ func (m *Modulo) iniciar(ctx context.Context, t *auditoria.Tx, in entradaIniciar
 			}
 		}
 	case !vacia && !nucleoTiene(ctx, nucleo.PermConversacionesAsociar):
-		return ConversacionIniciada{}, nucleo.Prohibido("La conversación de ese número está asociada a otro contacto: cambiarla exige conversaciones.asociar")
+		return ConversacionIniciada{}, nucleo.NuevoProblema(http.StatusForbidden, "asociacion_requiere_permiso", "Falta permiso para cambiar la asociación",
+			"La conversación de ese número está asociada a otro contacto: cambiarla exige conversaciones.asociar")
 	default:
 		c.ClienteID, c.ServicioID, c.ContactoIrisID = in.ClienteID, in.ServicioID, in.ContactoIrisID
 		c.ClienteVerificado, c.VerificadoPor, c.Asociacion = in.ClienteID != nil, nil, nil

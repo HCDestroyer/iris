@@ -2348,7 +2348,7 @@ export interface paths {
         put?: never;
         /**
          * Escribir primero con una plantilla aprobada
-         * @description Permiso: `conversaciones.iniciar`. A un cliente de Argos o un contacto de Iris con permiso de contacto, desde un número de tus colas. Idempotente por `id` (200 + Idempotent-Replayed si se repite; 409 `mensaje_id_reutilizado` con otro contenido). Reutiliza la conversación del número (409 `conversacion_de_otro` si la tiene otro agente). 422 `numero_no_permitido`, `sin_contacto`, `sin_permiso`, `baja`, `plantilla_no_aprobada`, `cliente_fuera_de_empresa`, `servicio_fuera_de_empresa`.
+         * @description Permiso: `conversaciones.iniciar`. A un cliente de Argos o un contacto de Iris con permiso de contacto, desde un número de tus colas. Idempotente por `id` (200 + Idempotent-Replayed si se repite; 409 `mensaje_id_reutilizado` con otro contenido). Reutiliza la conversación del número (409 `conversacion_de_otro` si la tiene otro agente). 422 `numero_no_permitido`, `sin_contacto`, `sin_permiso`, `baja`, `plantilla_no_aprobada`, `cliente_fuera_de_empresa`, `servicio_fuera_de_empresa`; 409 `conversacion_de_otra_cola`; 403 `asociacion_requiere_permiso` si la conversación del número está asociada a otro contacto y no tienes conversaciones.asociar.
          */
         post: operations["iniciarConversacion"];
         delete?: never;
