@@ -316,7 +316,10 @@ function ConMotor({
         const ajena = () => {
             actual?.motor.detener();
             actual?.posiciones.detener();
-            alSesionAjena(sesion.nombre);
+            // Una verificación tardía del motor de una sesión ya cerrada no saca a quien entró después.
+            if (vivo) {
+                alSesionAjena(sesion.nombre);
+            }
         };
         abrirMotor({ usuarioId: sesion.usuarioId, empresaId: empresa }, ajena)
             .then((m) => {
