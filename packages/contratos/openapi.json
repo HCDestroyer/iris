@@ -645,10 +645,7 @@
             "items": {
               "$ref": "#/components/schemas/ColaRef"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "id": {
             "format": "int64",
@@ -1615,10 +1612,7 @@
             "items": {
               "$ref": "#/components/schemas/EventoConversacion"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "hayMas": {
             "type": "boolean"
@@ -2457,10 +2451,7 @@
             "items": {
               "$ref": "#/components/schemas/ServicioResumenConversacion"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "sincronizadoEn": {
             "format": "date-time",
@@ -2531,10 +2522,7 @@
             "items": {
               "type": "string"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "nombre": {
             "type": "string"
@@ -2568,19 +2556,13 @@
             "items": {
               "$ref": "#/components/schemas/CoincidenciaCliente"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "contactosIris": {
             "items": {
               "$ref": "#/components/schemas/ContactoIris"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           }
         },
         "required": [
@@ -2614,10 +2596,7 @@
             "items": {
               "$ref": "#/components/schemas/UsuarioRef"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "nombre": {
             "type": "string"
@@ -3151,19 +3130,13 @@
             "items": {
               "$ref": "#/components/schemas/ConteoGrupo"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "porCola": {
             "items": {
               "$ref": "#/components/schemas/ConteoGrupo"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "porEstado": {
             "additionalProperties": {
@@ -3176,10 +3149,7 @@
             "items": {
               "$ref": "#/components/schemas/ConteoGrupo"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "porVencer": {
             "format": "int64",
@@ -3560,10 +3530,7 @@
             "items": {
               "$ref": "#/components/schemas/EtiquetaRef"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "id": {
             "format": "int64",
@@ -3678,10 +3645,7 @@
             "items": {
               "$ref": "#/components/schemas/EtiquetaRef"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "id": {
             "format": "int64",
@@ -3700,10 +3664,7 @@
             "items": {
               "$ref": "#/components/schemas/ParticipanteConversacion"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "perfilNombre": {
             "description": "Nombre del perfil de WhatsApp",
@@ -3744,10 +3705,7 @@
             "items": {
               "$ref": "#/components/schemas/VinculoConversacion"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           }
         },
         "required": [
@@ -11640,10 +11598,7 @@
             "items": {
               "$ref": "#/components/schemas/AgenteConversaciones"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "nextCursor": {
             "type": [
@@ -11665,10 +11620,7 @@
             "items": {
               "$ref": "#/components/schemas/BancoOrigen"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "nextCursor": {
             "type": [
@@ -11715,10 +11667,7 @@
             "items": {
               "$ref": "#/components/schemas/ColaConversaciones"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "nextCursor": {
             "type": [
@@ -11740,10 +11689,7 @@
             "items": {
               "$ref": "#/components/schemas/CuentaBancaria"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "nextCursor": {
             "type": [
@@ -11765,10 +11711,7 @@
             "items": {
               "$ref": "#/components/schemas/EtiquetaConversacion"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "nextCursor": {
             "type": [
@@ -11790,10 +11733,7 @@
             "items": {
               "$ref": "#/components/schemas/NumeroConversaciones"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "nextCursor": {
             "type": [
@@ -11840,10 +11780,7 @@
             "items": {
               "$ref": "#/components/schemas/PlantillaDisponible"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "nextCursor": {
             "type": [
@@ -11865,10 +11802,7 @@
             "items": {
               "$ref": "#/components/schemas/RespuestaRapida"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "nextCursor": {
             "type": [
@@ -12267,10 +12201,7 @@
             "items": {
               "$ref": "#/components/schemas/UsuarioRef"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "motivoFalla": {
             "type": [
@@ -12570,10 +12501,7 @@
             "items": {
               "type": "string"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "version": {
             "description": "Para POST /canales/{id}/configurar",
@@ -14405,10 +14333,7 @@
             "items": {
               "$ref": "#/components/schemas/ContactoIris"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "nextCursor": {
             "description": "Cursor de la página siguiente; null si no hay más",
@@ -14457,10 +14382,7 @@
             "items": {
               "$ref": "#/components/schemas/ConversacionCliente"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "nextCursor": {
             "description": "Cursor de la página siguiente; null si no hay más",
@@ -14691,10 +14613,7 @@
             "items": {
               "$ref": "#/components/schemas/MensajeConversacion"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "nextCursor": {
             "description": "Cursor de la página siguiente; null si no hay más",
@@ -16286,10 +16205,7 @@
             "items": {
               "$ref": "#/components/schemas/Variable"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "vistaPrevia": {
             "description": "Texto de referencia con {{variable}}",
@@ -36269,7 +36185,22 @@
         },
         "responses": {
           "200": {
-            "description": "Reenvío del mismo id"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MensajeConversacion"
+                }
+              }
+            },
+            "description": "Reenvío del mismo id: el mensaje tal como está ahora",
+            "headers": {
+              "Idempotent-Replayed": {
+                "schema": {
+                  "description": "true si el id ya se había recibido",
+                  "type": "string"
+                }
+              }
+            }
           },
           "201": {
             "content": {
@@ -36403,7 +36334,22 @@
         },
         "responses": {
           "200": {
-            "description": "Reenvío del mismo id"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MensajeConversacion"
+                }
+              }
+            },
+            "description": "Reenvío del mismo id: la nota tal como está ahora",
+            "headers": {
+              "Idempotent-Replayed": {
+                "schema": {
+                  "description": "true si el id ya se había recibido",
+                  "type": "string"
+                }
+              }
+            }
           },
           "201": {
             "content": {

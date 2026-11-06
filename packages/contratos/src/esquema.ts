@@ -5813,7 +5813,7 @@ export interface components {
             tipo: "foto" | "firma" | "documento";
         };
         AgenteConversaciones: {
-            colas: components["schemas"]["ColaRef"][] | null;
+            colas: components["schemas"]["ColaRef"][];
             /** Format: int64 */
             id: number;
             nombre: string;
@@ -6123,7 +6123,7 @@ export interface components {
             nextCursor: string;
         };
         CambiosConversaciones: {
-            data: components["schemas"]["EventoConversacion"][] | null;
+            data: components["schemas"]["EventoConversacion"][];
             hayMas: boolean;
             /** @description Siempre presente: el cursor de la siguiente consulta (o el id para Last-Event-ID) */
             nextCursor: string;
@@ -6420,7 +6420,7 @@ export interface components {
             /** Format: int64 */
             id: number;
             nombre: string;
-            servicios: components["schemas"]["ServicioResumenConversacion"][] | null;
+            servicios: components["schemas"]["ServicioResumenConversacion"][];
             /** Format: date-time */
             sincronizadoEn: string;
         };
@@ -6439,7 +6439,7 @@ export interface components {
             clienteId: number;
             codigo: string;
             /** @description telefono, movil, contacto_servicio (contacto en sitio de un servicio: no es el titular) */
-            coincideEn: string[] | null;
+            coincideEn: string[];
             nombre: string;
             /**
              * @description instantanea: Argos no respondió y se buscó en la copia local
@@ -6450,8 +6450,8 @@ export interface components {
         CoincidenciasConv: {
             /** @description false: Argos no respondió (o no hay conector) y se usó la instantánea */
             argosConsultado: boolean;
-            clientes: components["schemas"]["CoincidenciaCliente"][] | null;
-            contactosIris: components["schemas"]["ContactoIris"][] | null;
+            clientes: components["schemas"]["CoincidenciaCliente"][];
+            contactosIris: components["schemas"]["ContactoIris"][];
         };
         ColaConversaciones: {
             activa: boolean;
@@ -6460,7 +6460,7 @@ export interface components {
             empresaId: number | null;
             /** Format: int64 */
             id: number;
-            miembros: components["schemas"]["UsuarioRef"][] | null;
+            miembros: components["schemas"]["UsuarioRef"][];
             nombre: string;
             /**
              * Format: int32
@@ -6631,12 +6631,12 @@ export interface components {
              * @description Mensajes del cliente sin leer en las asignadas a ti
              */
             noLeidosMias: number;
-            porCanal: components["schemas"]["ConteoGrupo"][] | null;
-            porCola: components["schemas"]["ConteoGrupo"][] | null;
+            porCanal: components["schemas"]["ConteoGrupo"][];
+            porCola: components["schemas"]["ConteoGrupo"][];
             porEstado: {
                 [key: string]: number;
             };
-            porEtiqueta: components["schemas"]["ConteoGrupo"][] | null;
+            porEtiqueta: components["schemas"]["ConteoGrupo"][];
             /** Format: int64 */
             porVencer: number;
             /** Format: int64 */
@@ -6764,7 +6764,7 @@ export interface components {
             empresaId: number | null;
             /** @enum {string} */
             estado: "abierta" | "esperando_cliente" | "resuelta";
-            etiquetas: components["schemas"]["EtiquetaRef"][] | null;
+            etiquetas: components["schemas"]["EtiquetaRef"][];
             /** Format: int64 */
             id: number;
             /**
@@ -6803,7 +6803,7 @@ export interface components {
             empresaId: number | null;
             /** @enum {string} */
             estado: "abierta" | "esperando_cliente" | "resuelta";
-            etiquetas: components["schemas"]["EtiquetaRef"][] | null;
+            etiquetas: components["schemas"]["EtiquetaRef"][];
             /** Format: int64 */
             id: number;
             /**
@@ -6813,7 +6813,7 @@ export interface components {
             noLeidos: number;
             /** @description Teléfono del contacto en E.164 */
             numero: string;
-            participantes: components["schemas"]["ParticipanteConversacion"][] | null;
+            participantes: components["schemas"]["ParticipanteConversacion"][];
             /** @description Nombre del perfil de WhatsApp */
             perfilNombre: string | null;
             /** Format: date-time */
@@ -6827,7 +6827,7 @@ export interface components {
             ventana: components["schemas"]["VentanaConversacion"];
             /** Format: int32 */
             version: number;
-            vinculos: components["schemas"]["VinculoConversacion"][] | null;
+            vinculos: components["schemas"]["VinculoConversacion"][];
         };
         CopiaArgos: {
             /** @description true: Argos eliminó al cliente y la copia quedó solo con los ids */
@@ -9878,11 +9878,11 @@ export interface components {
             series: string[] | null;
         };
         ListaAgentes: {
-            data: components["schemas"]["AgenteConversaciones"][] | null;
+            data: components["schemas"]["AgenteConversaciones"][];
             nextCursor: string | null;
         };
         ListaBancos: {
-            data: components["schemas"]["BancoOrigen"][] | null;
+            data: components["schemas"]["BancoOrigen"][];
             nextCursor: string | null;
         };
         ListaCanales: {
@@ -9890,19 +9890,19 @@ export interface components {
             nextCursor: string | null;
         };
         ListaColas: {
-            data: components["schemas"]["ColaConversaciones"][] | null;
+            data: components["schemas"]["ColaConversaciones"][];
             nextCursor: string | null;
         };
         ListaCuentasBancarias: {
-            data: components["schemas"]["CuentaBancaria"][] | null;
+            data: components["schemas"]["CuentaBancaria"][];
             nextCursor: string | null;
         };
         ListaEtiquetas: {
-            data: components["schemas"]["EtiquetaConversacion"][] | null;
+            data: components["schemas"]["EtiquetaConversacion"][];
             nextCursor: string | null;
         };
         ListaNumeros: {
-            data: components["schemas"]["NumeroConversaciones"][] | null;
+            data: components["schemas"]["NumeroConversaciones"][];
             nextCursor: string | null;
         };
         ListaPlantillas: {
@@ -9910,11 +9910,11 @@ export interface components {
             nextCursor: string | null;
         };
         ListaPlantillasConv: {
-            data: components["schemas"]["PlantillaDisponible"][] | null;
+            data: components["schemas"]["PlantillaDisponible"][];
             nextCursor: string | null;
         };
         ListaRespuestasRapidas: {
-            data: components["schemas"]["RespuestaRapida"][] | null;
+            data: components["schemas"]["RespuestaRapida"][];
             nextCursor: string | null;
         };
         MFAConfigurado: {
@@ -10048,7 +10048,7 @@ export interface components {
             id: string;
             /** Format: date-time */
             leidoEn: string | null;
-            menciones: components["schemas"]["UsuarioRef"][] | null;
+            menciones: components["schemas"]["UsuarioRef"][];
             motivoFalla: string | null;
             plantilla?: components["schemas"]["PlantillaMensaje"];
             /** Format: int64 */
@@ -10135,7 +10135,7 @@ export interface components {
             id: number;
             nombre: string;
             numero: string;
-            usos: string[] | null;
+            usos: string[];
             /**
              * Format: int32
              * @description Para POST /canales/{id}/configurar
@@ -10787,7 +10787,7 @@ export interface components {
             nextCursor: string | null;
         };
         PaginaContactoIris: {
-            data: components["schemas"]["ContactoIris"][] | null;
+            data: components["schemas"]["ContactoIris"][];
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
@@ -10797,7 +10797,7 @@ export interface components {
             nextCursor: string | null;
         };
         PaginaConversacionCliente: {
-            data: components["schemas"]["ConversacionCliente"][] | null;
+            data: components["schemas"]["ConversacionCliente"][];
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
@@ -10842,7 +10842,7 @@ export interface components {
             nextCursor: string | null;
         };
         PaginaMensajeConversacion: {
-            data: components["schemas"]["MensajeConversacion"][] | null;
+            data: components["schemas"]["MensajeConversacion"][];
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
@@ -11292,7 +11292,7 @@ export interface components {
             codigo: string;
             /** @description Nombre de la plantilla en Meta */
             nombre: string;
-            variables: components["schemas"]["Variable"][] | null;
+            variables: components["schemas"]["Variable"][];
             /** @description Texto de referencia con {{variable}} */
             vistaPrevia: string;
         };
@@ -22904,12 +22904,15 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Reenvío del mismo id */
+            /** @description Reenvío del mismo id: el mensaje tal como está ahora */
             200: {
                 headers: {
+                    "Idempotent-Replayed"?: string;
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["MensajeConversacion"];
+                };
             };
             /** @description Created */
             201: {
@@ -22995,12 +22998,15 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Reenvío del mismo id */
+            /** @description Reenvío del mismo id: la nota tal como está ahora */
             200: {
                 headers: {
+                    "Idempotent-Replayed"?: string;
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["MensajeConversacion"];
+                };
             };
             /** @description Created */
             201: {

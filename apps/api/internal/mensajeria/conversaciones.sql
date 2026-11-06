@@ -533,6 +533,18 @@ WHERE coalesce(empresa_id, 0) = @empresa::bigint AND telefono = @telefono
 ORDER BY ocurrido_en DESC, (estado = 'baja') DESC, id DESC
 LIMIT 1;
 
+-- name: BajaDelClientePendiente :one
+-- La baja más reciente que pidió el propio cliente y que ningún acepta posterior anuló (aunque
+-- después haya otras bajas de agentes).
+SELECT b.id FROM mensajeria.consentimientos_numero b
+WHERE coalesce(b.empresa_id, 0) = @empresa::bigint AND b.telefono = @telefono AND b.estado = 'baja' AND b.origen = 'cliente'
+  AND NOT EXISTS (
+    SELECT 1 FROM mensajeria.consentimientos_numero a
+    WHERE coalesce(a.empresa_id, 0) = @empresa::bigint AND a.telefono = @telefono AND a.estado = 'acepta'
+      AND (a.ocurrido_en, a.id) > (b.ocurrido_en, b.id))
+ORDER BY b.ocurrido_en DESC, b.id DESC
+LIMIT 1;
+
 -- name: InsertarConsentimientoNumero :one
 INSERT INTO mensajeria.consentimientos_numero (empresa_id, telefono, estado, origen, ocurrido_en, registrado_por, motivo)
 VALUES (sqlc.narg('empresa_id'), @telefono, @estado, @origen, @ocurrido_en, sqlc.narg('registrado_por'), sqlc.narg('motivo'))

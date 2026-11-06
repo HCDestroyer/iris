@@ -189,6 +189,38 @@ func TestConvConsentimientoPorNumero(t *testing.T) {
 	if b.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'conversaciones.consentimiento_numero' AND entrada::text LIKE '%Lo pidió por teléfono%'`) != 1 {
 		t.Fatal("motivo auditado")
 	}
+	// Una baja de agente después de la del cliente no la tapa: sigue pidiendo motivo.
+	*b.reloj = b.reloj.Add(time.Minute)
+	b.texto(num, "wamid.k3", "BAJA")
+	*b.reloj = b.reloj.Add(time.Second)
+	b.exigir(b.api(b.agente, http.MethodPost, consent, map[string]any{"estado": "baja"}), http.StatusOK)
+	*b.reloj = b.reloj.Add(time.Second)
+	b.exigir(b.api(b.supervisor, http.MethodPost, consent, map[string]any{"estado": "acepta"}), http.StatusUnprocessableEntity,
+		"type", "urn:iris:problema:baja_del_cliente")
+	// El motivo cuenta letras, no bytes: «ñáéíó» son 5.
+	b.exigir(b.api(b.supervisor, http.MethodPost, consent, map[string]any{"estado": "acepta", "motivo": "ñáé"}), http.StatusUnprocessableEntity)
+	b.exigir(b.api(b.supervisor, http.MethodPost, consent, map[string]any{"estado": "acepta", "motivo": "ñáéíó"}), http.StatusOK)
+	// Un BAJA que llega tarde (hora de Meta anterior a ese acepta) igual le gana: cuenta desde que llega.
+	*b.reloj = b.reloj.Add(time.Second)
+	tarde := strings.Replace(b.mensajeCliente(num, "wamid.k4", `"type":"text","text":{"body":"BAJA"}`),
+		fmt.Sprintf(`"timestamp":"%d"`, b.reloj.Unix()), fmt.Sprintf(`"timestamp":"%d"`, b.reloj.Add(-time.Hour).Unix()), 1)
+	b.webhook(tarde)
+	var vigente string
+	if err := b.bd.QueryRow(b.ctx, `SELECT estado FROM mensajeria.consentimientos_numero WHERE telefono = $1
+		ORDER BY ocurrido_en DESC, (estado = 'baja') DESC, id DESC LIMIT 1`, "+"+num).Scan(&vigente); err != nil {
+		t.Fatal(err)
+	}
+	if vigente != "baja" {
+		t.Fatalf("BAJA tardío: vigente %s", vigente)
+	}
+	b.exigir(b.api(b.agente, http.MethodPost, ruta, pl()), http.StatusUnprocessableEntity, "type", "urn:iris:problema:baja")
+	// Auditoría de actualizar el contacto: el largo de la nota, nunca el texto.
+	b.exigir(b.api(b.agente, http.MethodPost, fmt.Sprintf("/contactos-iris/%d/actualizar", contacto),
+		map[string]any{"version": 1, "nombre": "Proveedor Y", "tipo": "proveedor", "nota": "nota muy privada"}), http.StatusOK)
+	if b.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'conversaciones.actualizar_contacto_iris' AND entidad_id = $1
+		AND entrada->>'largo_nota' = '16' AND entrada::text NOT LIKE '%muy privada%'`, fmt.Sprint(contacto)) != 1 {
+		t.Fatal("auditoría de actualizar contacto")
+	}
 }
 
 // Un cliente de Argos asociado (y verificado) que escribe BAJA no recibe plantillas, ni dentro ni
