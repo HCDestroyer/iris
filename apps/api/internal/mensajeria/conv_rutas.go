@@ -3,6 +3,7 @@ package mensajeria
 import (
 	"context"
 	"net/http"
+	"slices"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
@@ -118,6 +119,51 @@ func respMensaje(r MensajeConvEnviado, err error) (*salidaMensajeConv, error) {
 		s.Status, s.Repetido = http.StatusOK, "true"
 	}
 	return s, nil
+}
+
+// conReenvio son las operaciones cuyo 200 es el reenvío del mismo id.
+var conReenvio = map[string]bool{"responderConversacion": true, "notaConversacion": true}
+
+// ConReenvio dice si la operación tiene un 200 de reenvío (para la prueba del contrato).
+func ConReenvio(operacion string) bool { return conReenvio[operacion] }
+
+// reenvioConCuerpo: el 200 de un reenvío (mismo id) declara el mismo cuerpo y cabeceras que el 201.
+func reenvioConCuerpo(api huma.API, operacion string) {
+	for _, item := range api.OpenAPI().Paths {
+		if o := item.Post; o != nil && o.OperationID == operacion {
+			if c, r := o.Responses["201"], o.Responses["200"]; c != nil && r != nil {
+				r.Content, r.Headers = c.Content, c.Headers
+			}
+		}
+	}
+}
+
+// esquemasBandeja son las respuestas de la bandeja cuyas listas salen siempre [] (los casos de uso
+// inicializan los slices). huma publica los slices como array|null; aquí se corrige el contrato.
+var esquemasBandeja = []string{
+	"AgenteConversaciones", "CambiosConversaciones", "ClienteResumenConversacion", "CoincidenciaCliente", "CoincidenciasConv",
+	"ColaConversaciones", "ContadoresConversaciones", "ConversacionCliente", "ConversacionClienteDetalle", "ListaAgentes",
+	"ListaBancos", "ListaColas", "ListaCuentasBancarias", "ListaEtiquetas", "ListaNumeros", "ListaPlantillasConv",
+	"ListaRespuestasRapidas", "MensajeConversacion", "NumeroConversaciones", "PaginaContactoIris", "PaginaConversacionCliente",
+	"PaginaMensajeConversacion", "PlantillaDisponible",
+}
+
+// EsquemasBandeja devuelve los nombres (para la prueba del contrato).
+func EsquemasBandeja() []string { return slices.Clone(esquemasBandeja) }
+
+func listasNoNulas(api huma.API) {
+	todos := api.OpenAPI().Components.Schemas.Map()
+	for _, nombre := range esquemasBandeja {
+		s, ok := todos[nombre]
+		if !ok {
+			continue
+		}
+		for _, p := range s.Properties {
+			if p.Type == huma.TypeArray {
+				p.Nullable = false
+			}
+		}
+	}
 }
 
 func (m *Modulo) registrarConversaciones(api huma.API) {
@@ -274,17 +320,19 @@ func (m *Modulo) registrarConversaciones(api huma.API) {
 		http.StatusCreated, http.StatusNotFound, http.StatusConflict)
 	env.Description += " Idempotente por `id` (200 + Idempotent-Replayed si se repite; 409 `mensaje_id_reutilizado` con otro contenido). Texto y adjuntos solo " +
 		"dentro de la ventana de 24 h (422 `fuera_de_ventana`); fuera, una plantilla aprobada en el número (422 `plantilla_no_aprobada`) con permiso de contacto (422 `sin_permiso`, `baja`)."
-	env.Responses = map[string]*huma.Response{"200": {Description: "Reenvío del mismo id"}}
+	env.Responses = map[string]*huma.Response{"200": {Description: "Reenvío del mismo id: el mensaje tal como está ahora"}}
 	huma.Register(api, env, func(ctx context.Context, in *idCuerpoHTTP[EntradaResponder]) (*salidaMensajeConv, error) {
 		in.Body.ConversacionID, in.Body.IdempotencyKey = in.ID, in.IdempotencyKey
 		return respMensaje(k.Responder.Ejecutar(ctx, in.Body))
 	})
+	reenvioConCuerpo(api, env.OperationID)
 	nota := op("notaConversacion", http.MethodPost, base+"/{id}/notas", "Nota interna (con menciones)", resp, http.StatusCreated, http.StatusNotFound, http.StatusConflict)
-	nota.Responses = map[string]*huma.Response{"200": {Description: "Reenvío del mismo id"}}
+	nota.Responses = map[string]*huma.Response{"200": {Description: "Reenvío del mismo id: la nota tal como está ahora"}}
 	huma.Register(api, nota, func(ctx context.Context, in *idCuerpoHTTP[EntradaNota]) (*salidaMensajeConv, error) {
 		in.Body.ConversacionID, in.Body.IdempotencyKey = in.ID, in.IdempotencyKey
 		return respMensaje(k.Anotar.Ejecutar(ctx, in.Body))
 	})
+	reenvioConCuerpo(api, nota.OperationID)
 	huma.Register(api, op("leerConversacionCliente", http.MethodPost, base+"/{id}/leer", "Marcar leído hasta un mensaje", ver, http.StatusOK, http.StatusNotFound),
 		func(ctx context.Context, in *idCuerpoHTTP[EntradaLeerConv]) (*cuerpo[LecturaConv], error) {
 			in.Body.ID = in.ID

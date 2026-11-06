@@ -218,4 +218,5 @@ func (m *Modulo) Registrar(api huma.API) {
 
 	m.registrarChat(api)
 	m.registrarConversaciones(api)
+	listasNoNulas(api)
 }
