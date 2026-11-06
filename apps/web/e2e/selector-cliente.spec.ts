@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, EMPRESAS, conSesion, simularApi } from "./api-falsa";
-import { abrirSugerencias, buscarSugerencias, elegirSugerencia, esperarResaltada } from "./controles";
+import { abrirSugerencias, buscarSugerencias, elegirConEnter, elegirSugerencia } from "./controles";
 import { abrirCuenta } from "./ayudas";
 
 /*
@@ -137,8 +137,7 @@ test("por IP elige el servicio de esa IP; vacío y error con «Reintentar»", as
     await expect(page.getByText("Ningún cliente coincide con «falla»")).toBeVisible();
 
     await buscarSugerencias(buscar, "10.20.31.9");
-    await esperarResaltada(buscar, /Ana Morales/);
-    await buscar.press("Enter");
+    await elegirConEnter(buscar, /Ana Morales/);
     await expect(dialogo.getByTestId("servicio-elegido")).toContainText("SV-503-B");
 });
 
@@ -181,8 +180,7 @@ test("«Cambiar cliente» abierto no manda el anterior en silencio; «Dejar el c
     await dialogo.getByLabel("Asunto").fill("Sin servicio");
     const buscar = dialogo.getByRole("combobox", { name: "Cliente en Argos" });
     await buscarSugerencias(buscar, "Castillo");
-    await esperarResaltada(buscar, /María Castillo/);
-    await buscar.press("Enter");
+    await elegirConEnter(buscar, /María Castillo/);
     await expect(dialogo.getByTestId("servicio-elegido")).toContainText("SV-501");
     const crear = dialogo.getByRole("button", { name: "Crear ticket" });
     await expect(crear).toBeEnabled();

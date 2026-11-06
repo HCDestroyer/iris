@@ -35,6 +35,8 @@ test.describe("bandeja de tickets", () => {
     });
 
     test("filtros y vistas guardadas", async ({ page, context, baseURL }) => {
+        // Recorre varios filtros con listas y fechas de HeroUI (abrir, elegir, cerrar): más tiempo.
+        test.slow();
         await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/tickets");

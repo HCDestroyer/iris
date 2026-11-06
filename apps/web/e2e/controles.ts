@@ -169,3 +169,19 @@ export async function esperarResaltada(campo: Locator, nombre: RegExp): Promise<
         await expect(caja.getByRole("option", { name: nombre }).first()).toHaveAttribute("data-focused", "true", { timeout: 1500 });
     }).toPass({ intervals: [100, 200, 400] });
 }
+
+/**
+ * Elige con el teclado la opción resaltada: espera el resaltado y pulsa Enter. Si la lista se cerró
+ * justo antes (en el teléfono, un desplazamiento tardío al enfocar), Enter no hace nada (nunca envía
+ * el formulario) y se repite. Se da por elegida cuando el campo se va (el selector de cliente pasa a
+ * confirmar) o queda con el texto de la opción.
+ */
+export async function elegirConEnter(campo: Locator, nombre: RegExp): Promise<void> {
+    const elegida = async () => (await campo.count()) === 0 || nombre.test(await campo.inputValue());
+    await expect(async () => {
+        if (await elegida()) return;
+        await esperarResaltada(campo, nombre);
+        await campo.press("Enter");
+        await expect.poll(elegida, { timeout: 1500 }).toBe(true);
+    }).toPass({ intervals: [100, 200, 400] });
+}

@@ -39,6 +39,8 @@ test.describe("tablero de órdenes", () => {
     });
 
     test("filtros (estado, tipo, técnico, fecha, zona) y vista por columnas", async ({ page, context, baseURL }, info) => {
+        // Recorre varios filtros con listas y fechas de HeroUI (abrir, elegir, cerrar): más tiempo.
+        test.slow();
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/ordenes");

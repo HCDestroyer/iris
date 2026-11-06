@@ -190,7 +190,10 @@ function Busqueda({
     useEffect(() => {
         apagadoRef.current = alConectorApagado;
     }, [alConectorApagado]);
-    const aMedias = pendiente ? MOTIVO_CONFIRMAR_CLIENTE : texto.trim() !== "" ? MOTIVO_BUSQUEDA_SIN_ELEGIR : null;
+    // Con el conector apagado no hay cliente que elegir: la pantalla pide el contacto y lo escrito
+    // no bloquea el envío.
+    const conectorApagado = estado?.tipo === "error" && estado.error instanceof ErrorApi && estado.error.codigo === "conector_apagado";
+    const aMedias = pendiente ? MOTIVO_CONFIRMAR_CLIENTE : texto.trim() !== "" && !conectorApagado ? MOTIVO_BUSQUEDA_SIN_ELEGIR : null;
     useEffect(() => {
         alAMedias(aMedias);
     }, [alAMedias, aMedias]);
