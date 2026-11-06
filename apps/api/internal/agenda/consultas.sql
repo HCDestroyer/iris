@@ -481,7 +481,7 @@ WHERE tecnico_id = @tecnico_id AND empresa_id IS NOT DISTINCT FROM sqlc.narg(emp
 -- name: VincularArgosTecnico :one
 UPDATE agenda.tecnicos
 SET argos_id_externo = @id_externo, argos_correo = sqlc.narg(correo), argos_nombre = sqlc.narg(nombre),
-    argos_vinculado_en = @vinculado_en, argos_vinculado_por = sqlc.narg(vinculado_por), version = version + 1, updated_at = now()
+    bodega_id = sqlc.narg(bodega_id), argos_vinculado_en = @vinculado_en, argos_vinculado_por = sqlc.narg(vinculado_por), version = version + 1, updated_at = now()
 WHERE id = @id AND version = @version
 RETURNING *;
 

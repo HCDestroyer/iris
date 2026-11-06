@@ -347,3 +347,8 @@ WHERE t.argos_id_externo = ANY(@ids::text[])
 -- El vínculo con Argos de la ficha de agenda (activa) del usuario: id_externo y correo de Argos.
 SELECT coalesce(argos_id_externo, '')::text AS id_externo, coalesce(argos_correo, '')::text AS correo
 FROM agenda.tecnicos WHERE usuario_id = @usuario_id AND activo;
+
+-- name: IDsExternosVinculados :many
+-- Usuarios de Argos ya vinculados a una ficha de agenda (en cualquier empresa: el vínculo es único).
+-- Solo los ids, para el selector «sin vincular».
+SELECT argos_id_externo::text AS id_externo FROM agenda.tecnicos WHERE argos_id_externo IS NOT NULL;
