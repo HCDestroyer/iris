@@ -2,12 +2,13 @@
 // falso con las formas del contrato y el marco completo (encabezado, barra discreta, vista y barra
 // inferior), en claro u oscuro. El lienzo de firma se reemplaza (ver `firmaFalsa`): la firma con el
 // dedo y su PNG se validan en un teléfono.
-import type { InventarioCampo, MiBodega, OrdenCampo, Paquete, Traslado } from "@iris/sync";
+import { ErrorTransporte, type InventarioCampo, type LibresCampo, type MiBodega, type OrdenCampo, type OrdenCampoTomada, type OrdenesLibres, type OrdenLibre, type Paquete, type Traslado } from "@iris/sync";
 import { itemDePrueba, ordenDePrueba, paqueteDePrueba, type Montaje } from "@iris/sync/pruebas";
 import { render, screen } from "@testing-library/react-native";
 import { ProveedorCampo, type ServiciosNativos, type Vista } from "../src/campo/contexto";
 import { ProveedorAgenda } from "../src/campo/agenda";
 import { ProveedorInventario } from "../src/campo/inventario";
+import { ProveedorLibres } from "../src/campo/libres";
 import { Marco } from "../src/pantallas/Marco";
 import type { SesionCampo } from "../src/sesion/sesion";
 import { TemaDePrueba } from "./raiz";
@@ -20,7 +21,18 @@ export const sesion: SesionCampo = {
     modoEmpresa: "sin_conector",
     empresaActiva: null,
     verificadoEn: Date.now(),
-    permisos: ["campo.sincronizar", "ordenes.registrar", "ordenes.llegar", "ordenes.cerrar", "ordenes.pausar", "ordenes.reanudar"],
+    permisos: [
+        "campo.sincronizar",
+        "ordenes.registrar",
+        "ordenes.llegar",
+        "ordenes.cerrar",
+        "ordenes.pausar",
+        "ordenes.reanudar",
+        "agenda.crear_tarea",
+        "agenda.completar_tarea",
+        "agenda.anular_tarea",
+        "ordenes.tomar",
+    ],
 };
 
 /** Paquete sin ruta con una orden de visita y un ítem obligatorio. */
@@ -103,10 +115,39 @@ export function bodegaDePrueba(): MiBodega {
     };
 }
 
+/** Órdenes libres de prueba (`GET /campo/ordenes-libres`, `POST /ordenes/{id}/tomar`). */
+export class LibresFalso implements LibresCampo {
+    ordenes: OrdenLibre[] = [];
+    /** id → quién la tomó primero (409 `orden_ya_tomada`). */
+    tomadasPorOtro = new Map<number, string>();
+    tomadas: number[] = [];
+    lecturas = 0;
+
+    async listar(): Promise<OrdenesLibres> {
+        this.lecturas += 1;
+        const data = this.ordenes.filter((o) => !this.tomadas.includes(o.id));
+        return { data, nextCursor: null, total: data.length, orden: "distancia", zonas: [{ id: 3, nombre: "Zona Norte" }] };
+    }
+
+    async tomar(id: number): Promise<OrdenCampoTomada> {
+        const o = this.ordenes.find((x) => x.id === id);
+        if (!o) {
+            throw new ErrorTransporte("http", "No encontrada", 404, { type: "urn:iris:problema:no_encontrado", title: "No encontrada", status: 404 });
+        }
+        const otro = this.tomadasPorOtro.get(id);
+        if (otro) {
+            throw new ErrorTransporte("http", "Ya tomada", 409, { type: "urn:iris:problema:orden_ya_tomada", title: "Ya tomada", status: 409, tomadaPor: { id: 999, nombre: otro } });
+        }
+        this.tomadas.push(id);
+        return { ...o, tecnicoId: 5 };
+    }
+}
+
 export interface OpcionesArnes {
     esquema?: "light" | "dark";
     vista?: Vista;
     inventario?: InventarioFalso;
+    libres?: LibresFalso;
     servicios?: Partial<ServiciosNativos>;
     enLinea?: () => boolean;
     /** Otra sesión (p. ej. sin `ordenes.registrar`). */
@@ -119,19 +160,22 @@ export interface OpcionesArnes {
 
 export async function abrirCampo(m: Montaje, o: OpcionesArnes = {}) {
     const inventario = o.inventario ?? new InventarioFalso();
+    const libres = o.libres ?? new LibresFalso();
     const servicios: ServiciosNativos = { tomarFoto: async () => null, posicion: async () => null, enLinea: o.enLinea ?? (() => true), ...o.servicios };
     await render(
         <TemaDePrueba esquema={o.esquema ?? "light"} {...(o.margen ? { margen: o.margen } : {})}>
             <ProveedorCampo motor={m.motor} sesion={o.sesion ?? sesion} servicios={servicios} cerrarSesion={o.cerrarSesion ?? (async () => undefined)} vistaInicial={o.vista ?? { tipo: "lista" }}>
                 <ProveedorInventario inventario={inventario}>
                     <ProveedorAgenda leer={inventario.agenda}>
-                        <Marco empresa={null} alSesionVencida={jest.fn()} />
+                        <ProveedorLibres api={libres}>
+                            <Marco empresa={null} alSesionVencida={jest.fn()} />
+                        </ProveedorLibres>
                     </ProveedorAgenda>
                 </ProveedorInventario>
             </ProveedorCampo>
         </TemaDePrueba>,
     );
-    return { inventario };
+    return { inventario, libres };
 }
 
 /**

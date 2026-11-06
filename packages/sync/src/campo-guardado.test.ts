@@ -1,8 +1,7 @@
 // La isla de los pasos (registro de borradores, «Guardar y seguir» solo con cambios y su
 // confirmación) y la orden en pausa de solo lectura (reglas que comparten la PWA y la app nativa).
 import { describe, expect, it, vi } from "vitest";
-import { accionesDe, accionesRapidas, avisoGuardado, estadoIslaPasos, MS_GUARDADO, RegistroBorradores, type Borrador } from "./campo";
-import { ordenDePrueba } from "./pruebas/fabricas";
+import { accionesDe, avisoGuardado, estadoIslaPasos, MS_GUARDADO, RegistroBorradores, type Borrador } from "./campo";
 
 function borrador(etiqueta: string, inicial: string, validar: (v: string) => true | string = () => true) {
     const estado = { escrito: inicial, guardado: "", guardadas: 0 };
@@ -170,11 +169,5 @@ describe("orden en pausa: solo lectura", () => {
         expect(accionesDe({ estado: "en_sitio", tipo: "instalacion", reasignada: false })).toMatchObject({ trabajo: true, enPausa: false, instalar: true, agregarFormulario: true });
         // Reasignada: ni siquiera «en pausa» (ya no es suya).
         expect(accionesDe({ estado: "pausada", tipo: "visita", reasignada: true }).enPausa).toBe(false);
-    });
-
-    it("el «+» no ofrece agregar formulario a una orden pausada", () => {
-        const ordenes = [ordenDePrueba(1, { estado: "pausada" }), ordenDePrueba(2, { estado: "en_sitio" })].map((o) => ({ ...o, reasignada: false }));
-        const r = accionesRapidas(ordenes, [], ["ordenes.registrar"]);
-        expect(r.formulario?.ordenes.map((o) => o.orden.id)).toEqual([2]);
     });
 });

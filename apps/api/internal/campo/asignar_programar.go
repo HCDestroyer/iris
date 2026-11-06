@@ -55,69 +55,88 @@ func (m *Modulo) nuevoAsignarOrden() *auditoria.Caso[EntradaAsignarOrden, Orden]
 			if err := exigirEstado(antes, "asignar", EstadoPendiente, EstadoProgramada, EstadoEnCamino); err != nil {
 				return antes, "", err
 			}
-			bodega := antes.BodegaID
-			if in.BodegaID != nil {
-				bodega = in.BodegaID
-			}
-			if mismoID(antes.TecnicoID, in.TecnicoID) && mismoID(antes.CuadrillaID, in.CuadrillaID) && mismoID(antes.BodegaID, bodega) {
-				return antes, "", nucleo.ReglaNegocio("sin_cambios", "La orden ya tiene esa asignación")
-			}
-			despues := antes
-			despues.TecnicoID, despues.CuadrillaID, despues.BodegaID = in.TecnicoID, in.CuadrillaID, bodega
-			if in.CuadrillaID != nil && !mismoID(antes.CuadrillaID, in.CuadrillaID) {
-				if err := agenda.ValidarCuadrilla(ctx, t, "cuadrillaId", *in.CuadrillaID, antes.EmpresaID); err != nil {
-					return antes, "", err
-				}
-			}
-			if in.TecnicoID != nil {
-				if err := validarTecnico(ctx, t, q, *in.TecnicoID, despues); err != nil {
-					return antes, "", err
-				}
-			}
-			if !mismoID(antes.TecnicoID, in.TecnicoID) {
-				despues.AsignadaEn = nil
-				if in.TecnicoID != nil {
-					despues.AsignadaEn = &ahora
-				}
-				switch {
-				case in.TecnicoID == nil && antes.Estado != EstadoPendiente:
-					// Sin técnico no hay programación que sostener: se libera la cita.
-					despues.Estado, despues.EnCaminoEn = EstadoPendiente, nil
-					if err := m.cfg.Agenda.QuitarCita(ctx, t, antes.ID, fmt.Sprintf("La orden %s quedó sin técnico", antes.Numero)); err != nil {
-						return antes, "", err
-					}
-				case antes.Estado == EstadoEnCamino:
-					// El nuevo técnico todavía no salió.
-					despues.Estado, despues.EnCaminoEn = EstadoProgramada, nil
-				}
-				// La misma cita pasa al nuevo técnico: la agenda valida su turno, ausencias,
-				// solapes y capacidad, y emite orden.programada.
-				if in.TecnicoID != nil && despues.Estado == EstadoProgramada && antes.ProgramadaInicio != nil && antes.ProgramadaFin != nil {
-					if _, err := m.cfg.Agenda.ReservarCita(ctx, t, agenda.Reserva{OrdenID: antes.ID, Numero: antes.Numero,
-						EmpresaID: antes.EmpresaID, TipoID: antes.TipoID, CuadrillaID: despues.CuadrillaID, TecnicoID: *in.TecnicoID,
-						Inicio: *antes.ProgramadaInicio, Fin: *antes.ProgramadaFin, Origen: "asignar"}); err != nil {
-						return antes, "", err
-					}
-				}
-			}
-			f, err := guardar(ctx, t, q, antes, despues)
-			if err != nil {
-				return f, "", err
-			}
-			if err := historial(ctx, t, q, f.ID, "asignada", nil, nil, nil, map[string]any{
-				"tecnico_id": f.TecnicoID, "cuadrilla_id": f.CuadrillaID, "bodega_id": f.BodegaID,
-				"tecnico_anterior": antes.TecnicoID, "cuadrilla_anterior": antes.CuadrillaID,
-			}, ahora); err != nil {
-				return f, "", err
-			}
-			if err := t.Emitir("orden.asignada", map[string]any{
-				"orden_id": f.ID, "tecnico_id": f.TecnicoID, "cuadrilla_id": f.CuadrillaID,
-				"tecnico_anterior_id": antes.TecnicoID,
-			}); err != nil {
-				return f, "", err
-			}
-			return f, "", cambioDeEstado(ctx, t, q, antes, f, ptr("asignación"), nil, ahora)
+			f, err := m.asignar(ctx, t, q, antes, in, OrigenAsignar, nil, ahora)
+			return f, "", err
 		})
+}
+
+// Origen de una asignación (orden.asignada y el historial).
+const (
+	OrigenAsignar = "asignar" // despacho, ordenes.asignar
+	OrigenTomar   = "tomar"   // el técnico tomó una orden libre, ordenes.tomar
+)
+
+// asignar es la lógica de la asignación, común a ordenes.asignar y ordenes.tomar: valida la
+// cuadrilla y el técnico, libera o pasa la cita, guarda la orden con su historial y emite
+// orden.asignada (con su origen y motivo) y, si cambió, orden.estado_cambiada. antes viene
+// tomada con candado y con las reglas de la acción ya verificadas.
+func (m *Modulo) asignar(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, antes campobd.CampoOrden, in EntradaAsignarOrden, origen string, motivo *string, ahora time.Time) (campobd.CampoOrden, error) {
+	bodega := antes.BodegaID
+	if in.BodegaID != nil {
+		bodega = in.BodegaID
+	}
+	if mismoID(antes.TecnicoID, in.TecnicoID) && mismoID(antes.CuadrillaID, in.CuadrillaID) && mismoID(antes.BodegaID, bodega) {
+		return antes, nucleo.ReglaNegocio("sin_cambios", "La orden ya tiene esa asignación")
+	}
+	despues := antes
+	despues.TecnicoID, despues.CuadrillaID, despues.BodegaID = in.TecnicoID, in.CuadrillaID, bodega
+	if in.CuadrillaID != nil && !mismoID(antes.CuadrillaID, in.CuadrillaID) {
+		if err := agenda.ValidarCuadrilla(ctx, t, "cuadrillaId", *in.CuadrillaID, antes.EmpresaID); err != nil {
+			return antes, err
+		}
+	}
+	if in.TecnicoID != nil {
+		if err := validarTecnico(ctx, t, q, *in.TecnicoID, despues); err != nil {
+			return antes, err
+		}
+	}
+	if !mismoID(antes.TecnicoID, in.TecnicoID) {
+		despues.AsignadaEn = nil
+		if in.TecnicoID != nil {
+			despues.AsignadaEn = &ahora
+		}
+		switch {
+		case in.TecnicoID == nil && antes.Estado != EstadoPendiente:
+			// Sin técnico no hay programación que sostener: se libera la cita.
+			despues.Estado, despues.EnCaminoEn = EstadoPendiente, nil
+			if err := m.cfg.Agenda.QuitarCita(ctx, t, antes.ID, fmt.Sprintf("La orden %s quedó sin técnico", antes.Numero)); err != nil {
+				return antes, err
+			}
+		case antes.Estado == EstadoEnCamino:
+			// El nuevo técnico todavía no salió.
+			despues.Estado, despues.EnCaminoEn = EstadoProgramada, nil
+		}
+		// La misma cita pasa al nuevo técnico: la agenda valida su turno, ausencias,
+		// solapes y capacidad, y emite orden.programada.
+		if in.TecnicoID != nil && despues.Estado == EstadoProgramada && antes.ProgramadaInicio != nil && antes.ProgramadaFin != nil {
+			if _, err := m.cfg.Agenda.ReservarCita(ctx, t, agenda.Reserva{OrdenID: antes.ID, Numero: antes.Numero,
+				EmpresaID: antes.EmpresaID, TipoID: antes.TipoID, CuadrillaID: despues.CuadrillaID, TecnicoID: *in.TecnicoID,
+				Inicio: *antes.ProgramadaInicio, Fin: *antes.ProgramadaFin, Origen: "asignar"}); err != nil {
+				return antes, err
+			}
+		}
+	}
+	f, err := guardar(ctx, t, q, antes, despues)
+	if err != nil {
+		return f, err
+	}
+	if err := historial(ctx, t, q, f.ID, "asignada", nil, nil, motivo, map[string]any{
+		"tecnico_id": f.TecnicoID, "cuadrilla_id": f.CuadrillaID, "bodega_id": f.BodegaID,
+		"tecnico_anterior": antes.TecnicoID, "cuadrilla_anterior": antes.CuadrillaID, "origen": origen,
+	}, ahora); err != nil {
+		return f, err
+	}
+	if err := t.Emitir("orden.asignada", map[string]any{
+		"orden_id": f.ID, "tecnico_id": f.TecnicoID, "cuadrilla_id": f.CuadrillaID,
+		"tecnico_anterior_id": antes.TecnicoID, "origen": origen, "motivo": motivo,
+	}); err != nil {
+		return f, err
+	}
+	motivoEstado := ptr("asignación")
+	if motivo != nil {
+		motivoEstado = motivo
+	}
+	return f, cambioDeEstado(ctx, t, q, antes, f, motivoEstado, nil, ahora)
 }
 
 // nuevoProgramarOrden arma ordenes.programar (pendiente → programada) u ordenes.reprogramar
@@ -223,7 +242,7 @@ func (m *Modulo) nuevoProgramarOrden(re bool) *auditoria.Caso[EntradaProgramarOr
 			if !mismoID(antes.TecnicoID, f.TecnicoID) {
 				if err := t.Emitir("orden.asignada", map[string]any{
 					"orden_id": f.ID, "tecnico_id": f.TecnicoID, "cuadrilla_id": f.CuadrillaID,
-					"tecnico_anterior_id": antes.TecnicoID,
+					"tecnico_anterior_id": antes.TecnicoID, "origen": verbo,
 				}); err != nil {
 					return f, "", err
 				}

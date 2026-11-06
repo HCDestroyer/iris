@@ -22,6 +22,9 @@ export const TECNICO: Schema<"Usuario"> = {
 export const TECNICO_B: Schema<"Usuario"> = { ...TECNICO, id: 52, nombre: "Beatriz Sosa", correo: "beatriz@iris.test" };
 
 export const PERMISOS_TECNICO: Schema<"Permiso">[] = [
+    "agenda.anular_tarea",
+    "agenda.completar_tarea",
+    "agenda.crear_tarea",
     "adjuntos.subir",
     "adjuntos.ver",
     "campo.sincronizar",
@@ -32,6 +35,7 @@ export const PERMISOS_TECNICO: Schema<"Permiso">[] = [
     "ordenes.pausar",
     "ordenes.reanudar",
     "ordenes.registrar",
+    "ordenes.tomar",
     "ordenes.ver_propias",
 ];
 

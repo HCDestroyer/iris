@@ -5,6 +5,7 @@
 import type { OrdenCampo } from "@iris/sync";
 import {
     citasDelDia,
+    tareasDelDia,
     citasPorDia,
     hoyEnGuatemala,
     horaCorta,
@@ -27,6 +28,7 @@ import { useAgenda } from "../campo/agenda";
 import { useCampo } from "../campo/contexto";
 import { useCargarAlAbrir } from "../campo/inventario";
 import { useTema } from "../tema/tema";
+import { TarjetaTarea } from "./Tareas";
 
 function useOrdenesAgenda(): { ordenes: OrdenCampo[] | null; hoy: string } {
     const { estado } = useCampo();
@@ -68,6 +70,8 @@ export function AgendaDia({ dia }: { dia: string | undefined }) {
     const fecha = dia ?? mananaEnGuatemala();
     const tira = tiraSemana(hoy);
     const citas = ordenes ? citasDelDia(ordenes, fecha) : null;
+    const { estado } = useCampo();
+    const tareas = tareasDelDia(estado.tareas, fecha);
     return (
         <Pila espacio={16}>
             <View style={estilos.filaTitulo}>
@@ -84,13 +88,16 @@ export function AgendaDia({ dia }: { dia: string | undefined }) {
             </View>
             <TiraSemana elegido={fecha} dias={tira} cuentas={ordenes ? citasPorDia(ordenes, tira.map((d) => d.fecha)) : null} />
             <EstadoLectura sinDatos={!citas} />
-            {!citas ? null : citas.length === 0 ? (
+            {!citas ? null : citas.length === 0 && tareas.length === 0 ? (
                 <Aviso tono="neutral" icono={CalendarX} titulo="Sin citas ese día">
                     Si despacho te programa algo, aparecerá aquí.
                 </Aviso>
-            ) : (
+            ) : citas.length > 0 ? (
                 <ListaCitas citas={citas} />
-            )}
+            ) : null}
+            {tareas.map((t) => (
+                <TarjetaTarea key={t.id} tarea={t} />
+            ))}
         </Pila>
     );
 }
@@ -98,6 +105,7 @@ export function AgendaDia({ dia }: { dia: string | undefined }) {
 export function AgendaSemana() {
     const { ordenes, hoy } = useOrdenesAgenda();
     const { colores } = useTema();
+    const { estado } = useCampo();
     const tira = tiraSemana(hoy);
     return (
         <Pila espacio={16}>
@@ -116,6 +124,9 @@ export function AgendaSemana() {
                                   <Text style={[estilos.textoResumen, { color: colores.textoSuave }]}>{resumenDia(citas)}</Text>
                               </View>
                               {citas.length > 0 ? <ListaCitas citas={citas} /> : null}
+                              {tareasDelDia(estado.tareas, d.fecha).map((t) => (
+                                  <TarjetaTarea key={t.id} tarea={t} />
+                              ))}
                           </View>
                       );
                   })

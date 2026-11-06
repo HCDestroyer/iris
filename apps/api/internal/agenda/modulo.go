@@ -23,6 +23,7 @@ func init() {
 	nucleo.RegistrarTablaConEmpresa("agenda.cuadrillas")
 	nucleo.RegistrarTablaConEmpresa("agenda.citas")
 	nucleo.RegistrarTablaConEmpresa("agenda.rutas")
+	nucleo.RegistrarTablaConEmpresa("agenda.tareas")
 }
 
 // Config del módulo.
@@ -45,6 +46,8 @@ type Config struct {
 // Modulo reúne los casos de uso de agenda.
 type Modulo struct {
 	cfg Config
+	// ordenes valida la orden ligada a una tarea (campo; UsarOrdenes).
+	ordenes OrdenesTareas
 
 	ListarZonas      *auditoria.Caso[EntradaListarCatalogo, nucleo.Pagina[Zona]]
 	CrearZona        *auditoria.Caso[EntradaCrearZona, Zona]
@@ -84,6 +87,12 @@ type Modulo struct {
 	Publicar    *auditoria.Caso[EntradaPublicarRuta, RutaDetalle]
 	VerRuta     *auditoria.Caso[EntradaVerRuta, RutaDetalle]
 	ListarRutas *auditoria.Caso[EntradaListarRutas, nucleo.Pagina[Ruta]]
+
+	// Tareas propias del técnico (tareas.go).
+	CrearTarea     *auditoria.Caso[EntradaCrearTarea, RespuestaTarea]
+	CompletarTarea *auditoria.Caso[EntradaCompletarTarea, RespuestaTarea]
+	AnularTarea    *auditoria.Caso[EntradaAnularTarea, RespuestaTarea]
+	ListarTareas   *auditoria.Caso[EntradaListarTareas, nucleo.Pagina[TareaAgenda]]
 }
 
 // Nuevo arma el módulo.
@@ -133,6 +142,10 @@ func Nuevo(cfg Config) *Modulo {
 	m.Publicar = m.nuevoPublicarRuta()
 	m.VerRuta = m.nuevoVerRuta()
 	m.ListarRutas = m.nuevoListarRutas()
+	m.CrearTarea = m.nuevoCrearTarea()
+	m.CompletarTarea = m.nuevoCompletarTarea()
+	m.AnularTarea = m.nuevoAnularTarea()
+	m.ListarTareas = m.nuevoListarTareas()
 	return m
 }
 

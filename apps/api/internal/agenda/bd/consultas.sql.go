@@ -9,6 +9,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -222,6 +223,55 @@ func (q *Queries) AnularAusencia(ctx context.Context, arg AnularAusenciaParams) 
 		&i.CreadaPor,
 		&i.AnuladaEn,
 		&i.AnuladaPor,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const anularTarea = `-- name: AnularTarea :one
+UPDATE agenda.tareas SET estado = 'anulada', anulada_en = $1, anulada_por = $2, motivo = $3,
+    version = version + 1, updated_at = now()
+WHERE id = $4 AND version = $5
+RETURNING id, empresa_id, tecnico_id, creada_por, que, inicio, duracion_min, fin, orden_id, cliente_id, origen, estado, completada_en, completada_por, anulada_en, anulada_por, motivo, version, created_at, updated_at
+`
+
+type AnularTareaParams struct {
+	AnuladaEn  *time.Time
+	AnuladaPor *int64
+	Motivo     *string
+	ID         uuid.UUID
+	Version    int32
+}
+
+func (q *Queries) AnularTarea(ctx context.Context, arg AnularTareaParams) (AgendaTarea, error) {
+	row := q.db.QueryRow(ctx, anularTarea,
+		arg.AnuladaEn,
+		arg.AnuladaPor,
+		arg.Motivo,
+		arg.ID,
+		arg.Version,
+	)
+	var i AgendaTarea
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.TecnicoID,
+		&i.CreadaPor,
+		&i.Que,
+		&i.Inicio,
+		&i.DuracionMin,
+		&i.Fin,
+		&i.OrdenID,
+		&i.ClienteID,
+		&i.Origen,
+		&i.Estado,
+		&i.CompletadaEn,
+		&i.CompletadaPor,
+		&i.AnuladaEn,
+		&i.AnuladaPor,
+		&i.Motivo,
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -691,6 +741,71 @@ func (q *Queries) CitasParaRuta(ctx context.Context, arg CitasParaRutaParams) ([
 	return items, nil
 }
 
+const clienteArgosEnEmpresa = `-- name: ClienteArgosEnEmpresa :one
+SELECT EXISTS (SELECT 1 FROM integracion.argos_clientes
+               WHERE id = $1 AND (empresa_id = $2::bigint OR $2::bigint = ANY(empresas)))
+`
+
+type ClienteArgosEnEmpresaParams struct {
+	ID        int64
+	EmpresaID int64
+}
+
+// El cliente está en la instantánea de Argos de la empresa (propio o compartido).
+func (q *Queries) ClienteArgosEnEmpresa(ctx context.Context, arg ClienteArgosEnEmpresaParams) (bool, error) {
+	row := q.db.QueryRow(ctx, clienteArgosEnEmpresa, arg.ID, arg.EmpresaID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const completarTarea = `-- name: CompletarTarea :one
+UPDATE agenda.tareas SET estado = 'completada', completada_en = $1, completada_por = $2,
+    version = version + 1, updated_at = now()
+WHERE id = $3 AND version = $4
+RETURNING id, empresa_id, tecnico_id, creada_por, que, inicio, duracion_min, fin, orden_id, cliente_id, origen, estado, completada_en, completada_por, anulada_en, anulada_por, motivo, version, created_at, updated_at
+`
+
+type CompletarTareaParams struct {
+	CompletadaEn  *time.Time
+	CompletadaPor *int64
+	ID            uuid.UUID
+	Version       int32
+}
+
+func (q *Queries) CompletarTarea(ctx context.Context, arg CompletarTareaParams) (AgendaTarea, error) {
+	row := q.db.QueryRow(ctx, completarTarea,
+		arg.CompletadaEn,
+		arg.CompletadaPor,
+		arg.ID,
+		arg.Version,
+	)
+	var i AgendaTarea
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.TecnicoID,
+		&i.CreadaPor,
+		&i.Que,
+		&i.Inicio,
+		&i.DuracionMin,
+		&i.Fin,
+		&i.OrdenID,
+		&i.ClienteID,
+		&i.Origen,
+		&i.Estado,
+		&i.CompletadaEn,
+		&i.CompletadaPor,
+		&i.AnuladaEn,
+		&i.AnuladaPor,
+		&i.Motivo,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const crearAusencia = `-- name: CrearAusencia :one
 
 INSERT INTO agenda.ausencias (tecnico_id, inicio, fin, motivo, detalle, creada_por)
@@ -886,6 +1001,70 @@ func (q *Queries) CrearRuta(ctx context.Context, arg CrearRutaParams) (AgendaRut
 		&i.PublicadaEn,
 		&i.ReemplazadaEn,
 		&i.ReemplazadaPorID,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const crearTarea = `-- name: CrearTarea :one
+
+INSERT INTO agenda.tareas (id, empresa_id, tecnico_id, creada_por, que, inicio, duracion_min, fin, orden_id, cliente_id, origen)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+ON CONFLICT (id) DO NOTHING
+RETURNING id, empresa_id, tecnico_id, creada_por, que, inicio, duracion_min, fin, orden_id, cliente_id, origen, estado, completada_en, completada_por, anulada_en, anulada_por, motivo, version, created_at, updated_at
+`
+
+type CrearTareaParams struct {
+	ID          uuid.UUID
+	EmpresaID   *int64
+	TecnicoID   int64
+	CreadaPor   *int64
+	Que         string
+	Inicio      time.Time
+	DuracionMin int32
+	Fin         time.Time
+	OrdenID     *int64
+	ClienteID   *int64
+	Origen      string
+}
+
+// Tareas propias del técnico ------------------------------------------------------
+// Idempotente por id (uuid del teléfono): si ya existe no hace nada y no devuelve fila.
+func (q *Queries) CrearTarea(ctx context.Context, arg CrearTareaParams) (AgendaTarea, error) {
+	row := q.db.QueryRow(ctx, crearTarea,
+		arg.ID,
+		arg.EmpresaID,
+		arg.TecnicoID,
+		arg.CreadaPor,
+		arg.Que,
+		arg.Inicio,
+		arg.DuracionMin,
+		arg.Fin,
+		arg.OrdenID,
+		arg.ClienteID,
+		arg.Origen,
+	)
+	var i AgendaTarea
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.TecnicoID,
+		&i.CreadaPor,
+		&i.Que,
+		&i.Inicio,
+		&i.DuracionMin,
+		&i.Fin,
+		&i.OrdenID,
+		&i.ClienteID,
+		&i.Origen,
+		&i.Estado,
+		&i.CompletadaEn,
+		&i.CompletadaPor,
+		&i.AnuladaEn,
+		&i.AnuladaPor,
+		&i.Motivo,
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -1505,6 +1684,86 @@ func (q *Queries) ListarRutas(ctx context.Context, arg ListarRutasParams) ([]Lis
 			&i.TecnicoCuadrillaID,
 			&i.Paradas,
 			&i.FueraDeVentana,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listarTareas = `-- name: ListarTareas :many
+SELECT id, empresa_id, tecnico_id, creada_por, que, inicio, duracion_min, fin, orden_id, cliente_id, origen, estado, completada_en, completada_por, anulada_en, anulada_por, motivo, version, created_at, updated_at FROM agenda.tareas
+WHERE ($1::boolean OR empresa_id IS NOT DISTINCT FROM $2::bigint)
+  AND inicio >= $3 AND inicio < $4
+  AND ($5::boolean OR tecnico_id = ANY($6::bigint[]))
+  AND ($7::boolean OR estado <> 'anulada')
+  AND (NOT $8::boolean OR (inicio, id) > ($9::timestamptz, $10::uuid))
+ORDER BY inicio, id
+LIMIT $11
+`
+
+type ListarTareasParams struct {
+	TodasEmpresas   bool
+	EmpresaID       *int64
+	Desde           time.Time
+	Hasta           time.Time
+	TodosTecnicos   bool
+	Tecnicos        []int64
+	IncluirAnuladas bool
+	ConCursor       bool
+	CursorInicio    time.Time
+	CursorID        uuid.UUID
+	Limite          int32
+}
+
+// Tareas de la empresa que empiezan en [desde, hasta), de los técnicos dados (o de todos con
+// @todos_tecnicos), por inicio e id (cursor).
+func (q *Queries) ListarTareas(ctx context.Context, arg ListarTareasParams) ([]AgendaTarea, error) {
+	rows, err := q.db.Query(ctx, listarTareas,
+		arg.TodasEmpresas,
+		arg.EmpresaID,
+		arg.Desde,
+		arg.Hasta,
+		arg.TodosTecnicos,
+		arg.Tecnicos,
+		arg.IncluirAnuladas,
+		arg.ConCursor,
+		arg.CursorInicio,
+		arg.CursorID,
+		arg.Limite,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AgendaTarea
+	for rows.Next() {
+		var i AgendaTarea
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.TecnicoID,
+			&i.CreadaPor,
+			&i.Que,
+			&i.Inicio,
+			&i.DuracionMin,
+			&i.Fin,
+			&i.OrdenID,
+			&i.ClienteID,
+			&i.Origen,
+			&i.Estado,
+			&i.CompletadaEn,
+			&i.CompletadaPor,
+			&i.AnuladaEn,
+			&i.AnuladaPor,
+			&i.Motivo,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -2485,6 +2744,136 @@ func (q *Queries) Solapes(ctx context.Context, arg SolapesParams) ([]SolapesRow,
 			&i.EmpresaID,
 			&i.Inicio,
 			&i.Fin,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const tareaPorID = `-- name: TareaPorID :one
+SELECT id, empresa_id, tecnico_id, creada_por, que, inicio, duracion_min, fin, orden_id, cliente_id, origen, estado, completada_en, completada_por, anulada_en, anulada_por, motivo, version, created_at, updated_at FROM agenda.tareas WHERE id = $1
+`
+
+func (q *Queries) TareaPorID(ctx context.Context, id uuid.UUID) (AgendaTarea, error) {
+	row := q.db.QueryRow(ctx, tareaPorID, id)
+	var i AgendaTarea
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.TecnicoID,
+		&i.CreadaPor,
+		&i.Que,
+		&i.Inicio,
+		&i.DuracionMin,
+		&i.Fin,
+		&i.OrdenID,
+		&i.ClienteID,
+		&i.Origen,
+		&i.Estado,
+		&i.CompletadaEn,
+		&i.CompletadaPor,
+		&i.AnuladaEn,
+		&i.AnuladaPor,
+		&i.Motivo,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const tareaPorIDParaActualizar = `-- name: TareaPorIDParaActualizar :one
+SELECT id, empresa_id, tecnico_id, creada_por, que, inicio, duracion_min, fin, orden_id, cliente_id, origen, estado, completada_en, completada_por, anulada_en, anulada_por, motivo, version, created_at, updated_at FROM agenda.tareas WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) TareaPorIDParaActualizar(ctx context.Context, id uuid.UUID) (AgendaTarea, error) {
+	row := q.db.QueryRow(ctx, tareaPorIDParaActualizar, id)
+	var i AgendaTarea
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.TecnicoID,
+		&i.CreadaPor,
+		&i.Que,
+		&i.Inicio,
+		&i.DuracionMin,
+		&i.Fin,
+		&i.OrdenID,
+		&i.ClienteID,
+		&i.Origen,
+		&i.Estado,
+		&i.CompletadaEn,
+		&i.CompletadaPor,
+		&i.AnuladaEn,
+		&i.AnuladaPor,
+		&i.Motivo,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const tareasDelTecnico = `-- name: TareasDelTecnico :many
+SELECT id, empresa_id, tecnico_id, creada_por, que, inicio, duracion_min, fin, orden_id, cliente_id, origen, estado, completada_en, completada_por, anulada_en, anulada_por, motivo, version, created_at, updated_at FROM agenda.tareas
+WHERE tecnico_id = $1 AND estado <> 'anulada'
+  AND ($2::boolean OR empresa_id IS NOT DISTINCT FROM $3::bigint)
+  AND inicio < $4 AND (inicio >= $5 OR estado = 'pendiente')
+ORDER BY inicio, id
+LIMIT 500
+`
+
+type TareasDelTecnicoParams struct {
+	TecnicoID     int64
+	TodasEmpresas bool
+	EmpresaID     *int64
+	Hasta         time.Time
+	Desde         time.Time
+}
+
+// Tareas vivas (no anuladas) del técnico en la empresa que empiezan antes de @hasta: las de
+// @desde en adelante y las pendientes atrasadas.
+func (q *Queries) TareasDelTecnico(ctx context.Context, arg TareasDelTecnicoParams) ([]AgendaTarea, error) {
+	rows, err := q.db.Query(ctx, tareasDelTecnico,
+		arg.TecnicoID,
+		arg.TodasEmpresas,
+		arg.EmpresaID,
+		arg.Hasta,
+		arg.Desde,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AgendaTarea
+	for rows.Next() {
+		var i AgendaTarea
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.TecnicoID,
+			&i.CreadaPor,
+			&i.Que,
+			&i.Inicio,
+			&i.DuracionMin,
+			&i.Fin,
+			&i.OrdenID,
+			&i.ClienteID,
+			&i.Origen,
+			&i.Estado,
+			&i.CompletadaEn,
+			&i.CompletadaPor,
+			&i.AnuladaEn,
+			&i.AnuladaPor,
+			&i.Motivo,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}

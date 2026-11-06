@@ -95,17 +95,20 @@ func (m *Modulo) aplicarTraslado(ctx context.Context, s *OpSync, op OperacionLot
 	return m.rechazar(ctx, s, 0, p)
 }
 
-// grupoDe: la orden de la operación o, en traslado.recibir, el traslado como clave negativa.
-func grupoDe(op OperacionLote) int64 {
-	if op.Tipo != OpTrasladoRecibir {
-		return op.OrdenID
+// grupoDe: la orden de la operación, el traslado (traslado.recibir) o la tarea (tarea.*).
+func grupoDe(op OperacionLote) string {
+	switch {
+	case esOpTarea(op.Tipo):
+		return "tarea:" + tareaDe(op)
+	case op.Tipo != OpTrasladoRecibir:
+		return "orden:" + strconv.FormatInt(op.OrdenID, 10)
 	}
 	if v, ok := op.Datos["trasladoId"]; ok {
 		if n, err := strconv.ParseInt(stringDe(v), 10, 64); err == nil && n > 0 {
-			return -n
+			return "traslado:" + strconv.FormatInt(n, 10)
 		}
 	}
-	return -1 << 62
+	return "traslado:?"
 }
 
 func stringDe(v any) string {
@@ -123,6 +126,9 @@ func stringDe(v any) string {
 func queBloquea(op OperacionLote) string {
 	if op.Tipo == OpTrasladoRecibir {
 		return "este traslado"
+	}
+	if esOpTarea(op.Tipo) {
+		return "esta tarea"
 	}
 	return "esta orden"
 }

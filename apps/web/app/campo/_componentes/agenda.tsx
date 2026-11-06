@@ -1,12 +1,13 @@
 "use client";
 
-import type { OrdenCampo } from "@iris/sync";
+import type { OrdenCampo, TareaVista } from "@iris/sync";
 import {
     citasDelDia,
     citasPorDia,
     mananaEnGuatemala,
     nombreCliente,
     resumenDia,
+    tareasDelDia,
     textoFormularios,
     tiraSemana,
     tituloAgenda,
@@ -23,6 +24,7 @@ import { TIPOS_ORDEN } from "@/lib/campo/textos";
 import { useAgenda } from "./agenda-datos";
 import { useCampo } from "./contexto";
 import { ErrorLectura, useCargarAlAbrir } from "./inventario";
+import { TarjetaTarea } from "./tareas";
 
 /** Órdenes para la agenda: hoy, las del teléfono (con lo hecho sin señal); los demás días, lo leído. */
 function useOrdenesAgenda(): { ordenes: OrdenCampo[] | null; hoy: string } {
@@ -83,6 +85,8 @@ export function AgendaDia({ dia }: { dia: string | undefined }) {
     const fecha = dia ?? mananaEnGuatemala();
     const tira = tiraSemana(hoy);
     const citas = ordenes ? citasDelDia(ordenes, fecha) : null;
+    const { estado } = useCampo();
+    const tareas = tareasDelDia(estado.tareas, fecha);
     return (
         <section aria-labelledby="titulo-agenda" className="grid gap-4" data-slot="agenda-dia">
             <div className="flex items-center justify-between gap-3">
@@ -97,11 +101,12 @@ export function AgendaDia({ dia }: { dia: string | undefined }) {
             </div>
             <TiraSemana elegido={fecha} dias={tira} cuentas={ordenes ? citasPorDia(ordenes, tira.map((d) => d.fecha)) : null} />
             <EstadoLectura sinDatos={!citas} />
-            {!citas ? null : citas.length === 0 ? (
+            {!citas ? null : citas.length === 0 && tareas.length === 0 ? (
                 <EstadoVacio icono={CalendarX} titulo="Sin citas ese día" descripcion="Si despacho te programa algo, aparecerá aquí." />
-            ) : (
+            ) : citas.length > 0 ? (
                 <ListaCitas citas={citas} />
-            )}
+            ) : null}
+            <TareasDelDia tareas={tareas} />
         </section>
     );
 }
@@ -110,6 +115,7 @@ export function AgendaDia({ dia }: { dia: string | undefined }) {
 export function AgendaSemana() {
     useLecturaSemana();
     const { ordenes, hoy } = useOrdenesAgenda();
+    const { estado } = useCampo();
     const tira = tiraSemana(hoy);
     return (
         <section aria-labelledby="titulo-semana" className="grid gap-4" data-slot="agenda-semana">
@@ -122,6 +128,7 @@ export function AgendaSemana() {
                 ? null
                 : tira.map((d) => {
                     const citas = citasDelDia(ordenes, d.fecha);
+                    const tareas = tareasDelDia(estado.tareas, d.fecha);
                     return (
                         <section key={d.fecha} aria-label={d.largo} className="grid gap-2">
                             <h3 className="flex items-baseline justify-between gap-2 text-[0.8125rem] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
@@ -129,10 +136,27 @@ export function AgendaSemana() {
                                 <span className="font-medium tracking-normal normal-case">{resumenDia(citas)}</span>
                             </h3>
                             {citas.length > 0 ? <ListaCitas citas={citas} /> : null}
+                            <TareasDelDia tareas={tareas} />
                         </section>
                     );
                 })}
         </section>
+    );
+}
+
+/** Tareas propias del día (también sin señal: están en el teléfono). */
+function TareasDelDia({ tareas }: { tareas: readonly TareaVista[] }) {
+    if (tareas.length === 0) {
+        return null;
+    }
+    return (
+        <ul className="grid gap-2" aria-label="Tareas propias">
+            {tareas.map((t) => (
+                <li key={t.id}>
+                    <TarjetaTarea tarea={t} />
+                </li>
+            ))}
+        </ul>
     );
 }
 

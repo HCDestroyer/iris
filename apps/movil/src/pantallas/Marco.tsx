@@ -16,6 +16,8 @@ import { useCampo, useEstadoPosiciones } from "../campo/contexto";
 import type { EstadoRastreo } from "../campo/ubicacion";
 import { activarHuella, CODIGO_CAMBIO_CONTRASENA, debeOfrecerHuella } from "../sesion/sesion";
 import { useTema } from "../tema/tema";
+import { OrdenesLibres } from "./OrdenesLibres";
+import { NuevaTarea } from "./Tareas";
 import { AgendaDia, AgendaSemana } from "./Agenda";
 import { BarraCompacta, Encabezado } from "./Encabezado";
 import { AvisoIsla, IslaMenu, IslaPasos } from "./Isla";
@@ -155,6 +157,10 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
                     <AgendaDia dia={vista.dia} />
                 ) : vista.tipo === "semana" ? (
                     <AgendaSemana />
+                ) : vista.tipo === "nueva_tarea" ? (
+                    <NuevaTarea />
+                ) : vista.tipo === "libres" ? (
+                    <OrdenesLibres />
                 ) : (
                     <ListaOrdenes carga={carga} bajarPaquete={() => bajarPaquete(true)} />
                 )}
