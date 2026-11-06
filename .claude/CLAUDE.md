@@ -216,10 +216,10 @@ Una tarea está terminada solo si:
 | `chat.mensaje_enviado` | mensajeria (chat) | conversacion_id, mensaje_id, empresa_id, tipo, cuadrilla_id, orden_id, autor_id, seq, contenido (texto, foto, ubicacion), enviado_en, destinatarios[]; nunca el texto |
 | `chat.mensaje_eliminado` | mensajeria (chat) | conversacion_id, mensaje_id, empresa_id, autor_id, eliminado_en |
 | `canal_mensajeria.creado` / `canal_mensajeria.actualizado` / `canal_mensajeria.activado` / `canal_mensajeria.desactivado` / `canal_mensajeria.calidad` | mensajeria | canal_id, empresa_id; tipo, canal (creado); campos[] (actualizado); evento, pausado_hasta (calidad) |
-| `conversacion.creada` | mensajeria (bandeja) | conversacion_id, empresa_id (o null), canal_id, cola_id (o null), cliente_id (o null), asociacion (automatica o null) |
+| `conversacion.creada` | mensajeria (bandeja) | conversacion_id, empresa_id (o null), canal_id, cola_id (o null), cliente_id (o null), asociacion (automatica o null), origen (cliente, agente) |
 | `conversacion.mensaje_recibido` / `conversacion.mensaje_enviado` / `conversacion.mensaje_fallido` | mensajeria (bandeja) | conversacion_id, mensaje_id, empresa_id; canal_id, tipo, cliente_id, asignado_a, cola_id (recibido); autor_id, tipo, plantilla, respuesta_rapida_id (o null) (enviado); motivo (numero_invalido, rechazado_por_canal, fuera_de_ventana, agotado), autor_id (fallido); nunca el texto |
 | `conversacion.nota_agregada` / `conversacion.mencion` | mensajeria (bandeja) | conversacion_id, mensaje_id, empresa_id, autor_id; menciones[] (nota); usuario_id (mención, uno por mencionado) |
-| `conversacion.asignada` / `conversacion.transferida` | mensajeria (bandeja) | conversacion_id, empresa_id, actor_id; usuario_id (o null), anterior_id (o null), origen (tomar, asignar, responder) (asignada); de_cola_id, a_cola_id, asignado_a (transferida) |
+| `conversacion.asignada` / `conversacion.transferida` | mensajeria (bandeja) | conversacion_id, empresa_id, actor_id; usuario_id (o null), anterior_id (o null), origen (tomar, asignar, responder, pasar, iniciar), disponible y nota_id (pasar) (asignada); de_cola_id, a_cola_id, asignado_a (transferida) |
 | `conversacion.etiquetada` / `conversacion.resuelta` / `conversacion.reabierta` | mensajeria (bandeja) | conversacion_id, empresa_id, actor_id (o null); etiquetas[], anteriores[] (etiquetada); asignado_a (resuelta, reabierta); origen (cliente, agente) (reabierta) |
 | `conversacion.cliente_asociado` / `conversacion.cliente_confirmado` | mensajeria (bandeja) | conversacion_id, empresa_id, cliente_id (o null al desasociar), actor_id; servicio_id, asociacion (asociado) |
 | `conversacion.vinculo_creado` | mensajeria (bandeja) | conversacion_id, empresa_id, tipo (ticket, orden, prospecto, boleta, promesa), entidad_id, referencia, actor_id |
@@ -231,6 +231,13 @@ Una tarea está terminada solo si:
 | `horario.creado` / `horario.actualizado` | mensajeria (bandeja) | horario_id, empresa_id; nombre (creado); campos[], activo (actualizado) |
 | `conversacion.fuera_de_horario` / `conversacion.guardia_avisada` | mensajeria (bandeja) | conversacion_id, empresa_id; mensaje_id, hasta (fuera de horario); usuario_id, motivo (etiqueta, falla_masiva) (guardia) |
 | `manual.creado` / `manual.actualizado` / `manual.enviado` / `manual.enlace_revocado` | mensajeria (bandeja) | manual_id, empresa_id; visibilidad (creado); campos[], activo (actualizado); conversacion_id, mensaje_id, modo (enlace, texto) (enviado); enlace_id, conversacion_id, actor_id (revocado) |
+| `conversacion.iniciada` | mensajeria (bandeja) | conversacion_id, empresa_id, canal_id, cola_id, mensaje_id, plantilla, autor_id, nueva, cliente_id (o null), contacto_iris_id (o null) |
+| `conversacion.aviso_sin_atender` | mensajeria (bandeja, mantenimiento) | conversacion_id, empresa_id, cola_id, usuarios[], bot_contesta_en (o null) |
+| `conversacion.bot_atendio` / `conversacion.menu_elegido` | mensajeria (bandeja) | conversacion_id, empresa_id; cola_id, motivo (sin_confirmacion, sin_disponibles, fuera_de_horario), mensaje_id (o null), menu (bot_atendio); opcion, texto, de_cola_id, a_cola_id, etiquetas[] (menu_elegido) |
+| `agente.disponibilidad_cambiada` | mensajeria (bandeja) | usuario_id, empresa_id, estado, origen (manual, cierre_sesion, inactividad, horario), anterior, desde |
+| `conversaciones.ajustes_cambiados` | mensajeria (bandeja) | empresa_id, campos[], minutos_inactividad |
+| `dispositivo.registrado` / `dispositivo.quitado` | notificaciones | dispositivo_id, usuario_id, empresa_id, token_fin; plataforma, app_version, nuevo (registrado); motivo (usuario, sesion_cerrada, token_invalido, otro_usuario, sin_acceso) (quitado); nunca el token |
+| `notificaciones.preferencias_cambiadas` | notificaciones | usuario_id, campos[], version |
 
 El detalle de cada payload vive en `.claude/integration/contratos/eventos.md`.
 
