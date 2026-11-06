@@ -4,6 +4,7 @@ import type { Schema } from "@iris/contratos";
 import { conSesionTecnico, simularApiCampo, type ApiCampo } from "./api-campo";
 import { alResumen, avisoCampo, empezarTrabajo, irAPaso, pestanaCampo, type Paso } from "./ayudas-campo";
 import { ordenesDelDia, TECNICO } from "./datos-campo";
+import { elegirOpcion } from "./controles";
 
 /*
  * Formularios y pausa en la app de campo (teléfono, claro y oscuro; API simulada tipada): varios
@@ -175,7 +176,7 @@ test.describe("en el teléfono", () => {
         await sinSenal(context, api, true);
         await page.getByRole("button", { name: "Pausar" }).click();
         const dialogo = page.getByRole("dialog", { name: "Pausar OT-000102" });
-        await dialogo.getByLabel("Motivo").selectOption("otro");
+        await elegirOpcion(dialogo.getByLabel("Motivo"), "otro");
         await dialogo.getByRole("button", { name: "Pausar" }).click();
         await expect(dialogo.getByText("Con «Otro motivo» explica qué pasa")).toBeVisible();
         await dialogo.getByLabel("Nota").fill("El cliente pidió volver después del almuerzo");
@@ -229,7 +230,7 @@ test.describe("en el teléfono", () => {
 
         await page.getByRole("button", { name: "Pausar" }).click();
         const dialogo = page.getByRole("dialog", { name: "Pausar OT-000102" });
-        await dialogo.getByLabel("Motivo").selectOption("esperando_material");
+        await elegirOpcion(dialogo.getByLabel("Motivo"), "esperando_material");
         await dialogo.getByRole("button", { name: "Pausar" }).click();
         await expect(notificacion(page)).toContainText("Turno terminado: no tienes órdenes en curso");
         await expect(indicador).toHaveText("Fuera de turno");

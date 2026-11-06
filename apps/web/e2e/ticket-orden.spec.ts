@@ -1,6 +1,7 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { ADMIN, conSesion, simularApi } from "./api-falsa";
+import { elegirOpcion, escribirFecha, escribirHora, esperarOpcion } from "./controles";
 
 /*
  * Ticket y orden de la mano (pedido 3 del PM): «Crear orden y asignar» desde el ticket, igualar
@@ -19,10 +20,10 @@ test.describe("ticket y orden de la mano", () => {
         await page.getByRole("link", { name: "Crear orden y asignar" }).click();
         await expect(page).toHaveURL(/\/ordenes\/nueva\?ticket=1$/);
         const dialogo = page.getByRole("form", { name: "Crear orden y asignar" });
-        await expect(dialogo.getByLabel("Tipo")).toHaveValue("visita");
+        await esperarOpcion(dialogo.getByLabel("Tipo"), "visita");
         await expect(dialogo.getByLabel("Trabajo a realizar")).toHaveValue("Sin internet desde la mañana");
-        await expect(dialogo.getByLabel("Técnico")).toHaveValue("");
-        await expect(dialogo.getByLabel("Cuadrilla")).toHaveValue("");
+        await esperarOpcion(dialogo.getByLabel("Técnico"), "");
+        await esperarOpcion(dialogo.getByLabel("Cuadrilla"), "");
 
         // Sin técnico ni cuadrilla: no deja guardar y lo explica junto al botón.
         await expect(dialogo.getByRole("button", { name: "Crear y asignar" })).toBeDisabled();
@@ -31,13 +32,13 @@ test.describe("ticket y orden de la mano", () => {
         expect(api.peticiones.some((p) => p.metodo === "POST" && p.ruta.endsWith("/crear-orden"))).toBe(false);
 
         // Con fecha pero sin técnico, tampoco.
-        await dialogo.getByLabel("Cuadrilla").selectOption("1");
-        await dialogo.getByLabel("Fecha").fill("2026-11-20");
-        await dialogo.getByLabel("Hora").fill("10:30");
+        await elegirOpcion(dialogo.getByLabel("Cuadrilla"), "1");
+        await escribirFecha(dialogo, "Fecha", "2026-11-20");
+        await escribirHora(dialogo, "Hora", "10:30");
         await dialogo.getByRole("button", { name: "Crear y asignar" }).click();
         await expect(dialogo.getByText("Para programar la visita elige el técnico")).toBeVisible();
 
-        await dialogo.getByLabel("Técnico").selectOption(String(LUCIA));
+        await elegirOpcion(dialogo.getByLabel("Técnico"), String(LUCIA));
         await page.screenshot({ path: path.join(carpeta, `25-orden-desde-ticket-${info.project.name}.png`) });
         await dialogo.getByRole("button", { name: "Crear y asignar" }).click();
         await expect(page).toHaveURL(/\/ordenes\/1000$/);
@@ -81,9 +82,9 @@ test.describe("ticket y orden de la mano", () => {
         await page.getByRole("link", { name: "Crear orden y asignar" }).click();
         await expect(page).toHaveURL(/\/ordenes\/nueva\?ticket=1$/);
         const dialogo = page.getByRole("form", { name: "Crear orden y asignar" });
-        await expect(dialogo.getByLabel("Técnico")).toHaveValue(String(LUCIA));
-        await dialogo.getByLabel("Técnico").selectOption("");
-        await dialogo.getByLabel("Cuadrilla").selectOption("2");
+        await esperarOpcion(dialogo.getByLabel("Técnico"), String(LUCIA));
+        await elegirOpcion(dialogo.getByLabel("Técnico"), "");
+        await elegirOpcion(dialogo.getByLabel("Cuadrilla"), "2");
         await dialogo.getByRole("button", { name: "Crear y asignar" }).click();
         await expect(page).toHaveURL(/\/ordenes\/1000$/);
         await expect(page.getByTestId("tecnico")).toHaveText("Sin técnico");

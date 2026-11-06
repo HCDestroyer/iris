@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Aviso, Boton, Campo, CampoArea, Casilla, Esqueleto, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { Aviso, Boton, Campo, CampoArea, CampoBusqueda, Casilla, Esqueleto, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { Save, Search, ShieldAlert } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -104,14 +104,7 @@ export function FormularioRol({ inicial, edicion = false, textoGuardar, alGuarda
                             {elegidos.length === 1 ? "1 permiso elegido" : `${elegidos.length} permisos elegidos`}
                         </span>
                     </div>
-                    <Campo
-                        etiqueta="Buscar permiso"
-                        type="search"
-                        value={buscar}
-                        onChange={(e) => setBuscar(e.target.value)}
-                        placeholder="tickets, cerrar, ver…"
-                        autoComplete="off"
-                    />
+                    <CampoBusqueda etiqueta="Buscar permiso" valor={buscar} alCambiar={setBuscar} placeholder="tickets, cerrar, ver…" />
                 </TarjetaEncabezado>
                 <TarjetaContenido className="grid gap-5">
                     {grupos.map((g) => {

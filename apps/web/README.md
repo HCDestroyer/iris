@@ -159,10 +159,13 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
   el único del panel (alta rápida de ticket y nueva orden). Busca mientras se escribe en Argos
   (`GET /clientes?q=&servicios=true`: nombre, código, teléfono, NIT/CUI, dirección) o por IP
   (`resolver-ip` + ficha); cada resultado con código, dirección, teléfono, empresa y servicios con
-  su estado; recientes por usuario y empresa en `localStorage`; teclado (↑ ↓ Inicio Fin Enter
-  Esc); vacío con mensaje, error con «Reintentar», `stale` y conector apagado; en el teléfono,
-  hoja a pantalla completa. Con varios servicios pide cuál (o «sin servicio específico») y manda
-  `servicioId`.
+  su estado; recientes por usuario y empresa en `localStorage`; teclado (↑ ↓ Enter Esc); vacío
+  con mensaje, error con «Reintentar» bajo el campo, `stale` y conector apagado. Es el
+  `Autocompletar` (HeroUI `ComboBox`): la lista cabe en el ancho del teléfono. Con varios
+  servicios pide cuál (`ListaOpciones`, o «sin servicio específico») y manda `servicioId`.
+- **Pruebas con los controles de HeroUI** (`e2e/controles.ts`): `elegirOpcion` en lugar de
+  `selectOption`, `esperarOpcion` en lugar de `toHaveValue` en una lista, `textosOpciones` /
+  `abrirOpciones`, y `escribirFecha` / `escribirHora` / `esperarValorCampo` para fechas y horas.
 - **Formularios en modales**: `DialogoProtegido` (confirma antes de descartar cambios),
   `BotonEnviar` (deshabilitado con «Falta elegir…» mientras falte una selección obligatoria),
   `DialogoConfirmar` en las acciones destructivas (desactivar buzón o plantilla) y `errors[]` del

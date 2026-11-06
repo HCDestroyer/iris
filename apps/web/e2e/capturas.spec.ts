@@ -2,6 +2,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { ADMIN, BLOQUEADO, CON_MFA, CONSULTA, CONTRASENA, EMPRESAS, LECTOR, conSesion, simularApi } from "./api-falsa";
 import { abrirMenu, entrar } from "./ayudas";
+import { buscarSugerencias } from "./controles";
 
 // Capturas para revisión visual: IRIS_CAPTURAS=<carpeta> (por defecto test-results/capturas).
 const carpeta = process.env.IRIS_CAPTURAS ?? path.join("test-results", "capturas");
@@ -61,9 +62,14 @@ test("capturas de tickets y empresa activa", async ({ page, context, baseURL }, 
     await page.screenshot({ path: nombre("12-barra-superior"), clip: { x: 0, y: 0, width: page.viewportSize()?.width ?? 390, height: 64 } });
 
     await page.getByRole("link", { name: "Nuevo ticket" }).click();
-    await page.getByRole("form", { name: "Nuevo ticket" }).getByLabel("Cliente en Argos").click();
-    await page.getByRole("combobox", { name: "Buscar cliente" }).fill("Castillo");
-    await expect(page.getByRole("option", { name: /María Castillo/ })).toBeVisible();
+    // Recién llegada la pantalla, lo escrito antes de que React tome el campo no busca: se reintenta.
+    // Se vacía antes: escribir el mismo texto otra vez no cambia nada y no vuelve a abrir la lista.
+    await expect(async () => {
+        const cliente = page.getByRole("form", { name: "Nuevo ticket" }).getByRole("combobox", { name: "Cliente en Argos" });
+        await cliente.fill("");
+        await buscarSugerencias(cliente, "Castillo");
+        await expect(page.getByRole("option", { name: /María Castillo/ })).toBeVisible({ timeout: 2000 });
+    }).toPass();
     await page.screenshot({ path: nombre("13-alta-rapida") });
     await page.keyboard.press("Escape");
 

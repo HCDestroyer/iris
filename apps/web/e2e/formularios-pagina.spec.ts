@@ -3,6 +3,7 @@ import { simularAccesos } from "./api-accesos";
 import { ADMIN, CON_MFA, ELENA, LECTOR, VENDEDORA, conSesion, simularApi } from "./api-falsa";
 import { simularUsuarios } from "./api-usuarios";
 import { pestana } from "./ayudas";
+import { boton, elegirOpcion, esperarOpcion } from "./controles";
 
 /*
  * Fase 2 de la interfaz: los formularios de más de 3 campos van en pantalla propia
@@ -34,16 +35,18 @@ async function un422(page: Page, ruta: string, campo: string, mensaje: string) {
  * «Seguir editando» conserva lo escrito en `campo`.
  */
 async function protegeLaSalida(page: Page, campo: Locator, valor: string, miga: string) {
+    // Un campo de texto se mira con `toHaveValue`; una lista (`Selector`), por su `data-valor`.
+    const sigue = async () => ((await campo.getAttribute("data-slot")) === "select-trigger" ? esperarOpcion(campo, valor) : expect(campo).toHaveValue(valor));
     await page.goBack();
     await expect(descartar(page)).toBeVisible();
     await descartar(page).getByRole("button", { name: "Seguir editando" }).click();
     await expect(descartar(page)).toHaveCount(0);
-    await expect(campo).toHaveValue(valor);
+    await sigue();
 
     await migas(page).getByRole("link", { name: miga }).click();
     await expect(descartar(page)).toBeVisible();
     await descartar(page).getByRole("button", { name: "Seguir editando" }).click();
-    await expect(campo).toHaveValue(valor);
+    await sigue();
 }
 
 test.describe("formularios en pantalla propia", () => {
@@ -129,7 +132,7 @@ test.describe("formularios en pantalla propia", () => {
         await expect(f.getByRole("button", { name: "Crear y asignar" })).toBeDisabled();
         await expect(f.getByText("Falta elegir el técnico o la cuadrilla para guardar.")).toBeVisible();
 
-        await f.getByLabel("Cuadrilla").selectOption("1");
+        await elegirOpcion(f.getByLabel("Cuadrilla"), "1");
         await f.getByRole("button", { name: "Cancelar" }).click();
         await descartar(page).getByRole("button", { name: "Descartar cambios" }).click();
         await expect(page).toHaveURL(/\/tickets\/1$/);
@@ -150,7 +153,7 @@ test.describe("formularios en pantalla propia", () => {
         await f.getByRole("button", { name: "Agregar rol" }).click();
         await expect(f.getByRole("button", { name: "Crear usuario" })).toBeDisabled();
         await expect(f.getByText("Falta elegir el rol de cada fila para guardar.")).toBeVisible();
-        await f.getByLabel("Rol 1", { exact: true }).selectOption({ label: "Mesa de ayuda" });
+        await elegirOpcion(f.getByLabel("Rol 1", { exact: true }), { label: "Mesa de ayuda" });
         await expect(f.getByRole("button", { name: "Crear usuario" })).toBeEnabled();
         await protegeLaSalida(page, f.getByLabel("Nombre", { exact: true }), "Inés Ajú", "Usuarios");
         await f.getByLabel("Correo", { exact: true }).fill("ines@iris.test");
@@ -190,6 +193,8 @@ test.describe("formularios en pantalla propia", () => {
     });
 
     test("Nuevo técnico, Editar técnico y Nueva ausencia", async ({ page, context, baseURL }) => {
+        // Recorre varias pantallas con listas, fechas y horas de HeroUI (abrir, elegir, cerrar): más tiempo.
+        test.slow();
         await simularApi(page, { despacho: true });
         await conSesion(context, baseURL ?? "", ADMIN.correo);
 
@@ -197,8 +202,8 @@ test.describe("formularios en pantalla propia", () => {
         await page.getByRole("link", { name: "Nuevo técnico" }).click();
         const f = page.getByRole("form", { name: "Nuevo técnico" });
         await expect(f.getByRole("button", { name: "Crear técnico" })).toHaveAccessibleDescription("Falta elegir el usuario y la cuadrilla para guardar.");
-        await f.getByLabel("Usuario", { exact: true }).selectOption({ label: "Pablo Xol · pablo@iris.test" });
-        await f.getByLabel("Cuadrilla", { exact: true }).selectOption({ label: "Cuadrilla Sur" });
+        await elegirOpcion(f.getByLabel("Usuario", { exact: true }), { label: "Pablo Xol · pablo@iris.test" });
+        await elegirOpcion(f.getByLabel("Cuadrilla", { exact: true }), { label: "Cuadrilla Sur" });
         await f.getByLabel("Teléfono", { exact: true }).fill("5555 1234");
         await protegeLaSalida(page, f.getByLabel("Teléfono", { exact: true }), "5555 1234", "Técnicos");
         await un422(page, "/api/v1/tecnicos", "body.telefono", "Ese teléfono ya es de otro técnico");
@@ -230,7 +235,7 @@ test.describe("formularios en pantalla propia", () => {
         const a = page.getByRole("form", { name: "Ausencia de Lucía Ramírez" });
         await expect(migas(page)).toContainText("Lucía Ramírez");
         await expect(a.getByRole("button", { name: "Registrar ausencia" })).toHaveAccessibleDescription("Falta elegir el motivo para guardar.");
-        await a.getByLabel("Motivo", { exact: true }).selectOption({ label: "Vacaciones" });
+        await elegirOpcion(a.getByLabel("Motivo", { exact: true }), { label: "Vacaciones" });
         await a.getByLabel("Detalle (opcional)").fill("Viaje familiar");
         await protegeLaSalida(page, a.getByLabel("Detalle (opcional)"), "Viaje familiar", "Lucía Ramírez");
         await un422(page, "/api/v1/tecnicos/21/ausencias", "body.detalle", "El detalle no puede llevar enlaces");
@@ -244,6 +249,8 @@ test.describe("formularios en pantalla propia", () => {
     });
 
     test("Nuevo prospecto y Cotización", async ({ page, context, baseURL }) => {
+        // Recorre varias pantallas con listas, fechas y horas de HeroUI (abrir, elegir, cerrar): más tiempo.
+        test.slow();
         await simularApi(page, { comercialConector: true });
         await conSesion(context, baseURL ?? "", VENDEDORA.correo);
 
@@ -273,9 +280,9 @@ test.describe("formularios en pantalla propia", () => {
         await expect(migas(page)).toContainText("Bruno Díaz");
         await expect(c.getByRole("button", { name: "Guardar cotización" })).toBeDisabled();
         await expect(c.getByText("Falta elegir el plan para guardar.")).toBeVisible();
-        await c.getByLabel("Plan").selectOption("72");
+        await elegirOpcion(c.getByLabel("Plan"), "72");
         await expect(c.getByRole("button", { name: "Guardar cotización" })).toBeEnabled();
-        await protegeLaSalida(page, c.getByLabel("Plan"), "72", "Bruno Díaz");
+        await protegeLaSalida(page, boton(c.getByLabel("Plan")), "72", "Bruno Díaz");
         await un422(page, "/api/v1/prospectos/2/cotizaciones", "body.notas", "Las notas no pueden pasar de 2000 caracteres");
         await c.getByRole("button", { name: "Guardar cotización" }).click();
         await expect(c.getByText("Las notas no pueden pasar de 2000 caracteres")).toBeVisible();

@@ -183,13 +183,14 @@ export function HojaEstado({ seccion, alCerrar, pedirEmpresa }: { seccion: IdInd
                         <div className="min-w-0 flex-1">
                             <Interruptor
                                 etiqueta="Compartir mi ubicación"
-                                descripcion={
+                                ayuda={
                                     enTurno
                                         ? `Encendida · despacho te ve en el mapa mientras estás en turno. ${textoIndicador(ubicacion.estado)}.`
                                         : `Apagada · ${textoIndicador(ubicacion.estado)}. Al encenderla empieza tu turno: un punto por minuto con la app abierta.`
                                 }
-                                seleccionado={enTurno}
-                                alCambiar={cambiarUbicacion}
+                                checked={enTurno}
+                                onChange={(e) => cambiarUbicacion(e.target.checked)}
+                                className="min-h-12 content-center"
                             />
                         </div>
                     </div>

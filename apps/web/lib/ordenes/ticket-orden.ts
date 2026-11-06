@@ -14,7 +14,7 @@ export const MENSAJE_ASIGNACION_REQUERIDA = "Elige un técnico o una cuadrilla";
 const PATRON_FECHA = /^\d{4}-\d{2}-\d{2}$/;
 const PATRON_HORA = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
-/** Id numérico opcional desde un `<select>` (vacío = ninguno). */
+/** Id numérico opcional desde una lista (`Selector`; vacío = ninguno). */
 const idOpcional = z
     .string()
     .trim()

@@ -127,8 +127,15 @@ dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`avis
 | `Pestanas` | `Tabs` | Fichas con pestañas; con `href`, cada pestaña tiene URL |
 | `ProveedorAvisosEmergentes`, `avisar`, `useAvisoEmergente`, `cerrarAviso` | `Toast` | Panel sólido (HeroUI usa `surface`, translúcida en oscuro) |
 | `Migas` | `Breadcrumbs` | |
+| `Selector`, `CampoSelector` | `Select`, `Select.Trigger`, `Select.Value`, `Select.Indicator`, `Select.Popover`, `ListBox`, `ListBox.Item`, `Label` | Se escriben con `<option>` como antes. `register`, `reset` y `setValue` siguen sirviendo: el `ref` va a un input oculto con el `name` y cada escritura de `value` mueve la opción (`control-nativo.tsx`); `onChange(e)` recibe `e.target.value`. El botón lleva `data-valor`. Chevron de Lucide. En el teléfono la lista es un popover del ancho del campo que no se sale de la pantalla |
 | `SelectorFecha`, `SelectorRangoFechas` | `DatePicker`, `DateRangePicker` | |
-| `Autocompletar` | `ComboBox` | |
+| `CampoFecha`, `CampoHora` | `DatePicker` (con `DateField` y `Calendar`), `TimeField` | Reemplazan a `<Campo type="date">` y `type="time"` con la misma forma (`register` o `value` + `onChange`). Valores `AAAA-MM-DD` y `HH:MM` (24 h): hora local de Guatemala, a UTC al enviar |
+| `Autocompletar` | `ComboBox` | Con `alBuscar` busca en el servidor: `cargando`, `sinResultados`, `cabeceraLista` («Recientes») y opciones con `contenido` propio; la primera queda resaltada al llegar los resultados y Enter la elige. Enter nunca envía el formulario desde el campo. Salir del campo o Escape no borran lo escrito. `SelectorCliente` avisa con `alBuscarSinElegir` si hay una búsqueda sin elegir o «Cambiar cliente» abierto, y el formulario no se envía hasta elegir, borrar o «Dejar el cliente elegido» |
+| `ListaOpciones` | `ListBox` (`onAction`) | Elegir una tarjeta entre pocas (servicio del cliente): flechas, Enter y clic |
+| `Interruptor` | `Switch`, `Switch.Content`, `Switch.Control`, `Switch.Thumb` | Ajustes de encendido/apagado que cambian lo que sigue. Con `register` como `Casilla` |
+| `CampoNumero` | `NumberField` (+ `DecrementButton` / `IncrementButton` con `conPasos`) | Cantidades y montos; el formulario recibe el texto del número (`"250.5"`) |
+| `CampoBusqueda` | `SearchField` (`SearchIcon`, `Input`, `ClearButton`) | Lupa y «X» de Lucide; Escape borra |
+| `AvatarUsuario` | `Avatar`, `Avatar.Fallback` | Iniciales (decorativo: el nombre va al lado) |
 | `Entrada`, `Campo` | `Input` | Un `<input>` nativo: sirve con `register` |
 | `AreaTexto`, `CampoArea` | `TextArea` | |
 | `Etiqueta` | `Label` | |
@@ -142,14 +149,54 @@ dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`avis
 
 | Envoltorio o componente | Por qué |
 | --- | --- |
-| `Selector` y `CampoSelector` siguen siendo un `<select>` nativo (con el estilo de campo de HeroUI), no el `Select` | El `Select` de HeroUI dibuja un botón y una lista propia y deja un `<select>` oculto: `register` de react-hook-form dejaría de recibir el evento nativo y `reset` no movería la opción elegida; unas 80 pruebas usan `selectOption` sobre el control nativo; y en el teléfono el `<select>` nativo abre el selector del sistema, que es más cómodo para el técnico. Para listas largas o búsqueda está `Autocompletar` (`ComboBox`) |
 | `Table.Content`, `Table.Header`, `Table.Row`, `Table.Cell` (la rejilla de React Aria) | Es una colección con `role="grid"` y teclado propio: las filas de Iris llevan enlaces y botones libres y se arman con condiciones. Se usan `Table` y `Table.ScrollContainer` y las piezas de estilo; la rejilla queda para cuando una pantalla necesite orden o selección |
 | `CloseButton` y los íconos por defecto de `Alert`, `Checkbox`, `Toast`… | Traen sus propios SVG; la identidad pide solo íconos de Lucide. Se pasan los de Lucide (`X`, `Check`, `CircleCheck`, los del tono) |
 | `Pagination` | Las listas de Iris paginan por cursor (`?cursor=&limit=`, regla 7): no hay número de páginas. Sigue «Cargar más» (`PieLista`) |
 | `SearchField` de HeroUI en el buscador global | El buscador es un `Autocomplete` de React Aria con foco virtual; usa el `SearchField` de React Aria que conecta con él. Cambiarlo no mejora nada visible |
-| `Switch`, `Avatar`, `ProgressBar`, `Accordion`, `Slider`, `NumberField`, `InputOTP`… | Hoy ninguna pantalla del panel tiene esa pieza (no hay interruptores, fotos de perfil, barras de progreso ni acordeones): usarlos sería rediseñar pantallas. Están disponibles para agregarlos a `packages/ui` con nombre en español cuando una pantalla los pida |
+| `Accordion` / `Disclosure` | El único «ver más» del panel («Ver revisiones» de la cotización) ya es un `Boton` con `aria-expanded` y el contenido abajo de la fila de acciones; un `Disclosure` pondría el contenido pegado al botón |
+| `ProgressBar`, `Slider`, `InputOTP`… | No reemplazan nada hecho a mano que lo pida (el avance del técnico en Inicio es una barra de 6 px con `role="progressbar"`; el código MFA es un `Campo` de 6 cifras). Están disponibles para agregarlos a `packages/ui` con nombre en español cuando una pantalla los pida |
 | `Camara`, `VisorEscaner`, `LienzoFirma`, `LogoIris`, `MarcaIris` | No tienen equivalente en HeroUI (cámara con `<input capture>`, escáner con `BarcodeDetector`/ZXing, firma con pointer events, logo). Siguen como estaban, con los tokens del tema y `Boton` por dentro |
 | Animación de salida de modal, hoja y confirmación | Se desmontan en el acto: con salida animada, un Escape o un clic inmediato le llegaría a la capa que se está yendo |
+
+## Auditoría de controles (nov. 2026)
+
+Pedido del PM: «¿toda la versión web usa ya los componentes de HeroUI?». Se buscó en `apps/web`
+(sin pruebas) `<select>`, `<input>`, `<button>`, `<textarea>`, `<dialog>`, `role="dialog"`,
+`role="combobox"` y `role="listbox"`, y los `<input type="date|time">` de `Campo`. Lo que quedaba
+se pasó a HeroUI:
+
+| Antes | Ahora (`@iris/ui`) | Pieza de HeroUI | Dónde |
+| --- | --- | --- | --- |
+| `<select>` nativo con estilo de campo | `Selector`, `CampoSelector` | `Select` + `ListBox` | Unas 47 pantallas con listas (filtros, formularios, diálogos, chips de la bandeja, empresa activa) y, por ser el mismo envoltorio, la app de campo |
+| `<Campo type="date">` / `<Entrada type="date">` | `CampoFecha` | `DatePicker` | Reportes, encuestas, historial de accesos, tablero de órdenes, despacho (día), programar orden, crear orden desde ticket, mover cita, ausencia, próxima acción y vigencia de la cotización |
+| `<Campo type="time">` | `CampoHora` | `TimeField` | Programar orden, crear orden desde ticket, mover cita, ausencia y próxima acción |
+| Combobox y listas hechos a mano en el selector de cliente (`role="combobox"`, `role="listbox"`, `role="option"`, teclado propio) | `Autocompletar` con búsqueda en el servidor + `ListaOpciones` | `ComboBox` + `ListBox` | Alta rápida de ticket y nueva orden. Ya no abre un diálogo: la lista sale bajo el campo (cabe en 390 px) |
+| Lupa encima de una `Entrada type="search"` / `Campo type="search"` | `CampoBusqueda` | `SearchField` | Bandeja de tickets, tablero de órdenes, comercial, técnicos, buscar usuario (nuevo técnico) y buscar permiso (roles) |
+| `Casilla` para prender o apagar un ajuste | `Interruptor` | `Switch` | «Enviar las respuestas por correo» (buzón), «Todo el día» (ausencia), «Pide la firma del cliente» (plantilla) |
+| `Campo inputMode="decimal"` para cantidades y montos | `CampoNumero` | `NumberField` | Cotización: cantidad (con − y +), precio unitario y monto a restar |
+| Círculo de iniciales hecho a mano | `AvatarUsuario` | `Avatar` | Cuenta al pie de la barra lateral y «Equipo hoy» en Inicio |
+
+**Quedan, con su motivo:**
+
+| Qué | Dónde | Por qué |
+| --- | --- | --- |
+| Visor del escáner (`role="dialog"` propio) | `app/campo/_componentes/escaner-equipo.tsx` (I4) | Cámara en vivo con recuadro y `BarcodeDetector`/ZXing: no hay pieza de HeroUI. Por dentro usa `Boton` y `Hoja` |
+| `Camara`, `LienzoFirma`, `VisorEscaner` | `packages/ui` | `<input capture>`, lienzo con pointer events y video: sin equivalente en HeroUI |
+| Turnos «Desde» / «Hasta» como `Campo` de texto (`08:00`) | `componentes/equipo/formulario-turnos.tsx` | Un turno puede terminar a las `24:00`, y `TimeField` solo llega a 23:59 |
+| Puertos, ids de zona o de bodega, latitud y longitud como `Campo` | Buzón, tablero, técnico, crear orden, prospecto | Son identificadores o coordenadas con su propio formato, no cantidades: `NumberField` los formatearía |
+| «Ver revisiones» | Cotización | Ya es un `Boton` con `aria-expanded` (ver arriba) |
+| `<label>` del chip de filtro | Bandeja de tickets | Solo etiqueta al `Selector` del chip (`htmlFor`); el `Selector` la suma a su nombre |
+| Puntos de técnicos y órdenes en el mapa | `componentes/despacho/mapa.tsx`, `app/(panel)/mapa` | Son marcadores de MapLibre dibujados en el mapa, no controles de formulario |
+
+En las pruebas, `e2e/controles.ts` trae las ayudas para estas piezas: `elegirOpcion` (en lugar
+de `selectOption`), `esperarOpcion`, `textosOpciones` y `abrirOpciones` para el `Select`, y
+`escribirFecha`, `escribirHora` y `esperarValorCampo` para los segmentos de fecha y hora, y
+`elegirSugerencia` para tocar una opción del `Autocompletar` (su lista no es modal y React Aria la
+cierra si la página se desplaza: espera a que la opción se vea entera).
+
+Un `CampoFecha` avisa cada vez que una parte (día, mes o año) deja una fecha válida, no solo al
+terminar como el `<input type="date">`: un filtro que lleva la fecha a la URL no debe volver a
+montar el campo con cada cambio (perdería el foco a medio escribir; ver `Periodo` en Reportes).
 
 ## Nuevo diseño del panel (nov. 2026, hecho)
 
@@ -179,7 +226,7 @@ Reemplaza lo que dicen las fases 1 y 3 donde no coincida.
   `lib/inicio/equipo.ts`), «Tickets por día» y «SLA por categoría» (`reportes.ver`). Cada bloque
   aparece solo con su permiso y, si su lectura falla, dice «Reintentar» sin números.
 - **Tickets:** lista a todo el ancho; pestañas de vistas con contador (Activos, Asignados a mí, Sin
-  asignar, En espera, Todos y las propias), filtros como chips (listas nativas) y, con
+  asignar, En espera, Todos y las propias), filtros como chips (listas `Selector`) y, con
   `tickets.asignar`, selección múltiple con «Asignar…» (una acción por ticket, con su `version`; si
   alguno falla, se dice cuál).
 - **Ficha del ticket:** barra de acciones (`toolbar`): Asignar, Escalar, Crear orden, Resolver

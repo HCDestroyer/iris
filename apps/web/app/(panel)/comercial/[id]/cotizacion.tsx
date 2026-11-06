@@ -8,6 +8,8 @@ import {
     Boton,
     Campo,
     CampoArea,
+    CampoFecha,
+    CampoNumero,
     CampoSelector,
     Casilla,
     Esqueleto,
@@ -332,13 +334,13 @@ function FormCotizacion({ detalle, planes, recargar }: Props & { planes: Schema<
                                 <Campo etiqueta="Descripción" error={e?.descripcion?.message} {...formulario.register(`lineas.${i}.descripcion`)} />
                             )}
                             <div className="grid gap-3 sm:grid-cols-2">
-                                {esPlan ? null : <Campo etiqueta="Cantidad" inputMode="decimal" error={e?.cantidad?.message} {...formulario.register(`lineas.${i}.cantidad`)} />}
+                                {esPlan ? null : <CampoNumero etiqueta="Cantidad" conPasos minimo={0} error={e?.cantidad?.message} {...formulario.register(`lineas.${i}.cantidad`)} />}
                                 {esPlan && planElegido && planElegido.precio !== null ? (
                                     <p className="self-end pb-2 text-sm text-muted-foreground">Precio de Argos: {textoMonto(planElegido.precio)} al mes</p>
                                 ) : (
-                                    <Campo
+                                    <CampoNumero
                                         etiqueta={l?.tipo === "descuento" ? "Monto a restar" : "Precio unitario"}
-                                        inputMode="decimal"
+                                        minimo={0}
                                         placeholder="0.00"
                                         error={e?.precioUnitario?.message}
                                         {...formulario.register(`lineas.${i}.precioUnitario`)}
@@ -368,7 +370,7 @@ function FormCotizacion({ detalle, planes, recargar }: Props & { planes: Schema<
             </SeccionFormulario>
             <SeccionFormulario titulo="2. Vigencia y notas">
             <div className="grid gap-4 sm:grid-cols-2">
-                <Campo etiqueta="Vigente hasta (opcional)" type="date" ayuda="Si lo dejas vacío, 15 días." error={errors.vigenteDia?.message} {...formulario.register("vigenteDia")} />
+                <CampoFecha etiqueta="Vigente hasta (opcional)" ayuda="Si lo dejas vacío, 15 días." error={errors.vigenteDia?.message} {...formulario.register("vigenteDia")} />
             </div>
             <CampoArea etiqueta="Notas (opcional)" rows={2} error={errors.notas?.message} {...formulario.register("notas")} />
             <p className="flex items-center gap-1.5 text-sm text-muted-foreground">

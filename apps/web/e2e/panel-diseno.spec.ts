@@ -4,6 +4,7 @@ import { ADMIN, CONSULTA, conSesion, simularApi } from "./api-falsa";
 import { abrirMenu, barraInferior, esTelefono, hojaMas, menu } from "./ayudas";
 import { JORGE, LUCIA } from "./datos-agenda";
 import { simularTeselas } from "./teselas";
+import { abrirOpciones, cerrarOpciones, elegirOpcion, esperarOpcion } from "./controles";
 
 /*
  * Nuevo diseño del panel (nov. 2026): una sola estructura (barra lateral con contadores y «Mis
@@ -52,7 +53,7 @@ test.describe("estructura del panel", () => {
 
         // «Mis vistas»: una vista guardada en la bandeja aparece en la barra lateral y abre la bandeja con sus filtros.
         await page.goto("/tickets");
-        await page.getByLabel("Prioridad").selectOption("critica");
+        await elegirOpcion(page.getByLabel("Prioridad"), "critica");
         await page.getByRole("group", { name: "Vistas" }).getByRole("button", { name: "Guardar vista" }).click();
         await page.getByRole("dialog").getByLabel("Nombre de la vista").fill("Críticas");
         await page.getByRole("dialog").getByRole("button", { name: "Guardar vista" }).click();
@@ -61,7 +62,7 @@ test.describe("estructura del panel", () => {
         const misVistas = page.getByRole("navigation", { name: "Mis vistas" }).filter({ visible: true });
         await misVistas.getByRole("link", { name: "Críticas" }).click();
         await expect(page).toHaveURL(/\/tickets\?vista=v-/);
-        await expect(page.getByLabel("Prioridad")).toHaveValue("critica");
+        await esperarOpcion(page.getByLabel("Prioridad"), "critica");
         await expect(page.locator("[data-ticket]").filter({ visible: true })).toHaveCount(1);
     });
 
@@ -156,7 +157,7 @@ test.describe("Tickets", () => {
         await captura(page, info, "03-tickets-seleccion");
         await barra.getByRole("button", { name: "Asignar…" }).click();
         const dialogo = page.getByRole("dialog", { name: "Asignar 2 tickets" });
-        await dialogo.getByLabel("Responsable").selectOption(String(ADMIN.id));
+        await elegirOpcion(dialogo.getByLabel("Responsable"), String(ADMIN.id));
         await dialogo.getByRole("button", { name: "Asignar" }).click();
         await expect(dialogo).toHaveCount(0);
         await expect(avisos(page).getByRole("alertdialog").filter({ hasText: "2 tickets asignados a Ana López" })).toBeVisible();
@@ -266,9 +267,10 @@ test.describe("Mapa", () => {
         await tarjeta.getByRole("button", { name: "Asignar orden" }).click();
         const dialogo = page.getByRole("dialog", { name: "Asignar a Jorge Méndez" });
         await expect(dialogo.getByRole("button", { name: "Asignar" })).toBeDisabled();
-        const opcion = dialogo.getByLabel("Orden").locator("option").nth(1);
-        const valor = await opcion.getAttribute("value");
-        await dialogo.getByLabel("Orden").selectOption(valor ?? "");
+        const ordenes = await abrirOpciones(dialogo.getByLabel("Orden"));
+        const valor = await ordenes.getByRole("option").nth(1).getAttribute("data-valor");
+        await cerrarOpciones(page);
+        await elegirOpcion(dialogo.getByLabel("Orden"), { value: valor ?? "" });
         await dialogo.getByRole("button", { name: "Asignar" }).click();
         await expect(dialogo).toHaveCount(0);
         const envio = api.peticiones.find((p) => p.metodo === "POST" && p.ruta === `/api/v1/ordenes/${valor}/asignar`);

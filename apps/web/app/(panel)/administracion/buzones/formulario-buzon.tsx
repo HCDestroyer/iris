@@ -1,17 +1,6 @@
 "use client";
 
-import {
-    avisar,
-    Aviso,
-    Boton,
-    Campo,
-    CampoSelector,
-    Casilla,
-    FormularioPagina,
-    liberarProteccion,
-    Pestanas,
-    SeccionFormulario,
-} from "@iris/ui";
+import { avisar, Aviso, Boton, Campo, CampoSelector, FormularioPagina, Interruptor, liberarProteccion, Pestanas, SeccionFormulario } from "@iris/ui";
 import { Inbox, KeyRound, RotateCw, Send, ShieldAlert } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, type ChangeEvent, type ReactNode } from "react";
@@ -318,7 +307,7 @@ export function FormularioBuzon({ buzon }: Props) {
                         contenido: (
                             <div className="grid gap-4">
                                 <Seccion titulo="Salida (SMTP)">
-                                    <Casilla
+                                    <Interruptor
                                         etiqueta="Enviar las respuestas por correo"
                                         ayuda="Sin SMTP, las respuestas de los agentes quedan en el ticket y no salen por correo."
                                         {...form.register("conSmtp")}

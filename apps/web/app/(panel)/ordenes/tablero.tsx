@@ -1,7 +1,7 @@
 "use client";
 
-import { Boton, CampoSelector, Entrada, Etiqueta, GrupoSegmentado, Tarjeta } from "@iris/ui";
-import { Columns3, List, Plus, Search } from "lucide-react";
+import { Boton, CampoBusqueda, CampoFecha, CampoSelector, Entrada, Etiqueta, GrupoSegmentado, Tarjeta } from "@iris/ui";
+import { Columns3, List, Plus } from "lucide-react";
 import Link from "next/link";
 import { useId, useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
@@ -22,8 +22,6 @@ export function Tablero() {
     const pendientes = usePendientesAbiertos();
     const [filtros, setFiltros] = useState<FiltrosOrdenes>(FILTROS_ORDENES_INICIALES);
     const [vista, setVista] = useState<Vista>(() => (leerLocal(CLAVE_VISTA) === "columnas" ? "columnas" : "lista"));
-    const idBuscar = useId();
-    const idFecha = useId();
     const idZona = useId();
     const q = useDiferido(filtros.q, 350);
     const zona = useDiferido(filtros.zona, 350);
@@ -53,21 +51,14 @@ export function Tablero() {
             />
 
             <Tarjeta className="mb-4 grid grid-cols-2 gap-3 p-4 lg:grid-cols-[minmax(12rem,1.3fr)_repeat(5,minmax(0,1fr))]">
-                <div className="col-span-2 grid gap-1.5 lg:col-span-1">
-                    <Etiqueta htmlFor={idBuscar}>Buscar</Etiqueta>
-                    <span className="relative">
-                        <Search aria-hidden className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-                        <Entrada
-                            id={idBuscar}
-                            type="search"
-                            placeholder="Número, dirección o contacto"
-                            className="pl-9 sm:text-sm"
-                            maxLength={120}
-                            value={filtros.q}
-                            onChange={(e) => cambiar({ q: e.target.value })}
-                        />
-                    </span>
-                </div>
+                <CampoBusqueda
+                    etiqueta="Buscar"
+                    className="col-span-2 lg:col-span-1"
+                    placeholder="Número, dirección o contacto"
+                    maxLength={120}
+                    valor={filtros.q}
+                    alCambiar={(q) => cambiar({ q })}
+                />
                 <CampoSelector etiqueta="Estado" value={filtros.estado} onChange={(e) => cambiar({ estado: e.target.value as FiltrosOrdenes["estado"] })}>
                     <option value="todos">Todos</option>
                     <option value="activas">Activas</option>
@@ -107,10 +98,7 @@ export function Tablero() {
                             </option>
                         ))}
                 </CampoSelector>
-                <div className="grid gap-1.5">
-                    <Etiqueta htmlFor={idFecha}>Fecha programada</Etiqueta>
-                    <Entrada id={idFecha} type="date" className="sm:text-sm" value={filtros.fecha} onChange={(e) => cambiar({ fecha: e.target.value })} />
-                </div>
+                <CampoFecha etiqueta="Fecha programada" value={filtros.fecha} onChange={(e) => cambiar({ fecha: e.target.value })} />
                 <div className="grid gap-1.5">
                     <Etiqueta htmlFor={idZona}>Zona</Etiqueta>
                     <Entrada

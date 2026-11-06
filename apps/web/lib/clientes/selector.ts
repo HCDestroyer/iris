@@ -108,22 +108,6 @@ function navegador(): Storage | undefined {
     }
 }
 
-/** Índice activo tras una tecla de la lista (con vuelta al principio/fin); `null` si no aplica. */
-export function moverIndice(actual: number, total: number, tecla: string): number | null {
-    if (total === 0) return null;
-    switch (tecla) {
-        case "ArrowDown":
-            return actual < 0 ? 0 : (actual + 1) % total;
-        case "ArrowUp":
-            return actual <= 0 ? total - 1 : actual - 1;
-        case "Home":
-            return 0;
-        case "End":
-            return total - 1;
-        default:
-            return null;
-    }
-}
 
 /** Nombres de las empresas del cliente según las de la sesión («Cable Norte, Fibra Sur»). */
 export function nombresEmpresas(cliente: ClienteResumen, empresas: readonly { id: number; nombre: string }[]): string | null {

@@ -1,6 +1,7 @@
 import path from "node:path";
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
 import { ADMIN, conSesion, simularApi, type ApiFalsa } from "./api-falsa";
+import { abrirSugerencias, elegirOpcion, elegirSugerencia, esperarOpcion } from "./controles";
 
 /*
  * Bodega de Argos por nombre (contrato 0.6.4): en el formulario del técnico se elige de la lista de
@@ -15,27 +16,8 @@ const captura = (page: Page, info: TestInfo, que: string) => page.screenshot({ p
 const pantalla = (page: Page, nombre: string | RegExp) => page.getByRole("form", { name: nombre });
 const ultima = (api: ApiFalsa, ruta: string, metodo = "GET") => api.peticiones.filter((p) => p.ruta === ruta && p.metodo === metodo).at(-1);
 
-/*
- * El `Autocompletar` (ComboBox de React Aria) cierra su lista si la página se desplaza (en el
- * teléfono, al enfocar el campo): se abre con flecha abajo y se elige con un clic «virtual», que no
- * desplaza (como las ayudas de la rama de HeroUI del panel).
- */
-async function abrirLista(campo: Locator): Promise<Locator> {
-    await expect(async () => {
-        if ((await campo.getAttribute("aria-expanded")) !== "true") await campo.press("ArrowDown");
-        expect(await campo.getAttribute("aria-expanded")).toBe("true");
-    }).toPass({ intervals: [100, 200, 400] });
-    return campo.page().locator(`[id="${(await campo.getAttribute("aria-controls")) ?? ""}"]`);
-}
-
-async function elegir(campo: Locator, texto: string): Promise<void> {
-    await expect(async () => {
-        if ((await campo.inputValue()) === texto) return;
-        const lista = await abrirLista(campo);
-        await lista.getByRole("option").filter({ hasText: texto }).first().dispatchEvent("click", undefined, { timeout: 2000 });
-        await expect.poll(() => campo.inputValue(), { timeout: 1500 }).toBe(texto);
-    }).toPass({ intervals: [100, 200, 400] });
-}
+/** Elige la bodega por su texto completo (clic «virtual» en la opción; ver `e2e/controles.ts`). */
+const elegir = (campo: Locator, texto: string) => elegirSugerencia(campo, new RegExp(texto.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 
 async function sinDesborde(page: Page) {
     const ancho = page.viewportSize()?.width ?? 0;
@@ -57,18 +39,18 @@ test.describe("bodega de Argos por nombre", () => {
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/tecnicos/nuevo");
         const d = pantalla(page, "Nuevo técnico");
-        await d.getByLabel("Usuario", { exact: true }).selectOption({ label: "Pablo Xol · pablo@iris.test" });
-        await d.getByLabel("Cuadrilla", { exact: true }).selectOption({ label: "Cuadrilla Sur" });
+        await elegirOpcion(d.getByLabel("Usuario", { exact: true }), { label: "Pablo Xol · pablo@iris.test" });
+        await elegirOpcion(d.getByLabel("Cuadrilla", { exact: true }), { label: "Cuadrilla Sur" });
         // Ya no hay número a mano: un selector con búsqueda.
         await expect(d.getByLabel("Número de bodega en Argos")).toHaveCount(0);
         const bodega = d.getByRole("combobox", { name: "Bodega en Argos" });
-        const opciones = (await abrirLista(bodega)).getByRole("option");
+        const opciones = (await abrirSugerencias(bodega)).getByRole("option");
         // Solo los de Argos sin ficha (Jorge ya está vinculado); Pedro no tiene bodega en esta empresa.
         await expect(opciones).toHaveCount(2);
         await expect(opciones.filter({ hasText: "Jorge Méndez" })).toHaveCount(0);
         await expect(opciones.filter({ hasText: "Pedro Sic" })).toHaveAttribute("aria-disabled", "true");
         await bodega.fill("norte");
-        const filtradas = (await abrirLista(bodega)).getByRole("option");
+        const filtradas = (await abrirSugerencias(bodega)).getByRole("option");
         await expect(filtradas).toHaveCount(1);
         await captura(page, info, "bodega-argos-selector");
         await elegir(bodega, "Bodega Norte · Lucía Ramírez");
@@ -115,8 +97,8 @@ test.describe("bodega de Argos por nombre", () => {
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/tecnicos/nuevo");
         const d = pantalla(page, "Nuevo técnico");
-        await d.getByLabel("Usuario", { exact: true }).selectOption({ label: "Pablo Xol · pablo@iris.test" });
-        await d.getByLabel("Cuadrilla", { exact: true }).selectOption({ label: "Cuadrilla Sur" });
+        await elegirOpcion(d.getByLabel("Usuario", { exact: true }), { label: "Pablo Xol · pablo@iris.test" });
+        await elegirOpcion(d.getByLabel("Cuadrilla", { exact: true }), { label: "Cuadrilla Sur" });
         await elegir(d.getByRole("combobox", { name: "Bodega en Argos" }), "Bodega Norte · Lucía Ramírez");
         // La ficha nueva es la 900 del simulado: su vínculo responde 503 una vez.
         api.responderProblema("/api/v1/tecnicos/900/vincular-argos", { type: "urn:iris:problema:argos_no_disponible", title: "Argos no responde", status: 503 }, 1);
@@ -173,7 +155,7 @@ test.describe("bodega de Argos por nombre", () => {
         await expect(page).toHaveURL(/\/tecnicos\/nuevo\?argos=77$/);
         const d = pantalla(page, "Nuevo técnico");
         // El correo de Argos coincide con un usuario de Iris sin ficha: queda elegido.
-        await expect(d.getByLabel("Usuario", { exact: true })).toHaveValue("16");
+        await esperarOpcion(d.getByLabel("Usuario", { exact: true }), "16");
         await expect(d.getByRole("combobox", { name: "Bodega en Argos" })).toHaveValue("Bodega Norte · Lucía Ramírez");
     });
 });

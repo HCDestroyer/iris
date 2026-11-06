@@ -147,8 +147,8 @@ test("Nueva tarea sin señal: aparece en Hoy con borde punteado, se envía al vo
     await page
         .getByLabel("Qué vas a hacer")
         .fill("Recoger material en bodega central");
-    // Hora de 24 h en segmentos (es-GT): hora y minuto.
-    const hora = page.locator('[data-slot="selector-hora"]');
+    // Hora de 24 h en segmentos (es-GT): hora y minuto (`CampoHora`).
+    const hora = page.locator('[data-slot="campo-hora"]');
     await expect(hora).toContainText(/^Hora/);
     await hora.getByRole("spinbutton").first().click();
     await page.keyboard.type("1200");

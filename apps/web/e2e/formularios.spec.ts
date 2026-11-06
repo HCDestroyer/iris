@@ -2,6 +2,7 @@ import path from "node:path";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { ADMIN, CSRF, DESPACHO, LECTOR, conSesion, simularApi, type ApiFalsa } from "./api-falsa";
 import { irA } from "./ayudas";
+import { boton, elegirOpcion, escribirHora, textosOpciones } from "./controles";
 
 /*
  * Plantillas de formulario, varios formularios por orden y pausa (PR #29): editor con versiones,
@@ -33,7 +34,7 @@ test.describe("plantillas de formulario", () => {
         await expect(plantilla(page, "encuesta_vieja")).toHaveCount(0);
         await page.getByLabel("Incluir las inactivas").check();
         await expect(plantilla(page, "encuesta_vieja")).toContainText("Inactiva");
-        await page.getByLabel("Tipo de orden").selectOption("visita");
+        await elegirOpcion(page.getByLabel("Tipo de orden"), "visita");
         await expect(plantilla(page, "visita_diagnostico")).toBeVisible();
         await expect(plantilla(page, "seguridad")).toBeVisible();
         await expect(plantilla(page, "instalacion_basica")).toHaveCount(0);
@@ -89,7 +90,7 @@ test.describe("plantillas de formulario", () => {
         await items.nth(0).getByLabel("Pregunta o indicación").fill("Potencia óptica");
         await items.nth(0).getByLabel("Pregunta o indicación").blur();
         await expect(items.nth(0).getByLabel("Código del ítem")).toHaveValue("potencia_optica");
-        await items.nth(0).getByLabel("Tipo de respuesta").selectOption("medicion");
+        await elegirOpcion(items.nth(0).getByLabel("Tipo de respuesta"), "medicion");
         await items.nth(0).getByLabel("Unidad (opcional)").fill("dBm");
         await items.nth(0).getByLabel("Obligatorio para cerrar la orden").check();
         await form.getByRole("button", { name: "Agregar ítem" }).click();
@@ -97,7 +98,7 @@ test.describe("plantillas de formulario", () => {
         await items.nth(1).getByLabel("Pregunta o indicación").blur();
         await expect(items.nth(1).getByLabel("Código del ítem")).toHaveValue("estado_del_poste");
         await items.nth(1).getByLabel("Código del ítem").fill("estado_poste");
-        await items.nth(1).getByLabel("Tipo de respuesta").selectOption("seleccion");
+        await elegirOpcion(items.nth(1).getByLabel("Tipo de respuesta"), "seleccion");
         await items.nth(1).getByLabel("Opciones").fill("Bueno\nBueno");
         await form.getByRole("button", { name: "Crear plantilla" }).click();
         await expect(form.getByText("Hay opciones repetidas")).toBeVisible();
@@ -209,14 +210,13 @@ test.describe("formularios de la orden", () => {
 
         await formularios.getByRole("button", { name: "Agregar formulario" }).click();
         const dialogo = page.getByRole("dialog", { name: "Agregar formulario" });
-        const opciones = dialogo.getByLabel("Formulario", { exact: true }).locator("option");
-        await expect(opciones).toHaveText(["Elige…", "Seguridad en altura · v1 · común"]);
+        await expect.poll(() => textosOpciones(dialogo.getByLabel("Formulario", { exact: true }))).toEqual(["Elige…", "Seguridad en altura · v1 · común"]);
         expect(api.peticiones.filter((p) => p.ruta === "/api/v1/plantillas").at(-1)?.query.get("tipo")).toBe("cambio_equipo");
         // Sin formulario elegido no se puede agregar: botón deshabilitado y el motivo a la vista.
         await expect(dialogo.getByRole("button", { name: "Agregar" })).toBeDisabled();
         await expect(dialogo.getByRole("button", { name: "Agregar" })).toHaveAccessibleDescription("Falta elegir el formulario para guardar.");
-        await expect(dialogo.getByLabel("Formulario", { exact: true })).toHaveAccessibleDescription("Elige el formulario que llenará el técnico.");
-        await dialogo.getByLabel("Formulario", { exact: true }).selectOption({ label: "Seguridad en altura · v1 · común" });
+        await expect(boton(dialogo.getByLabel("Formulario", { exact: true }))).toHaveAccessibleDescription("Elige el formulario que llenará el técnico.");
+        await elegirOpcion(dialogo.getByLabel("Formulario", { exact: true }), { label: "Seguridad en altura · v1 · común" });
         await dialogo.getByRole("button", { name: "Agregar" }).click();
         await expect(formularios.locator('[data-formulario="seguridad"]')).toContainText("Agregado por despacho");
         expect(posts(api, "/ordenes/4/formularios")[0]?.cuerpo).toEqual({ version: 5, plantillaId: 2 });
@@ -231,13 +231,13 @@ test.describe("formularios de la orden", () => {
         await page.goto("/ordenes/4?pestana=formularios");
         await page.getByTestId("formularios").getByRole("button", { name: "Agregar formulario" }).click();
         const dialogo = page.getByRole("dialog", { name: "Agregar formulario" });
-        const opciones = dialogo.getByLabel("Formulario", { exact: true }).locator("option");
-        await expect(opciones).toHaveCount(51);
-        await expect(dialogo.getByLabel("Formulario", { exact: true }).locator("option", { hasText: "Relleno 51" })).toHaveCount(0);
+        const formulario = dialogo.getByLabel("Formulario", { exact: true });
+        await expect.poll(async () => (await textosOpciones(formulario)).length).toBe(51);
+        expect((await textosOpciones(formulario)).some((t) => t.startsWith("Relleno 51"))).toBe(false);
         await dialogo.getByRole("button", { name: "Cargar más" }).click();
-        await expect(opciones).toHaveCount(61);
+        await expect.poll(async () => (await textosOpciones(formulario)).length).toBe(61);
         await expect(dialogo.getByRole("button", { name: "Cargar más" })).toHaveCount(0);
-        await dialogo.getByLabel("Formulario", { exact: true }).selectOption({ label: "Relleno 55 · v1 · común" });
+        await elegirOpcion(dialogo.getByLabel("Formulario", { exact: true }), { label: "Relleno 55 · v1 · común" });
         await dialogo.getByRole("button", { name: "Agregar" }).click();
         await expect(page.getByTestId("formularios").locator('[data-formulario="relleno_55"]')).toContainText("Agregado por despacho");
         const lecturas = api.peticiones.filter((p) => p.ruta === "/api/v1/plantillas");
@@ -266,7 +266,7 @@ test.describe("pausa", () => {
         const acciones = page.getByRole("group", { name: "Acciones de la orden" });
         await acciones.getByRole("button", { name: "Pausar" }).click();
         const dialogo = page.getByRole("dialog", { name: "Pausar la orden" });
-        await dialogo.getByLabel("Motivo").selectOption("otro");
+        await elegirOpcion(dialogo.getByLabel("Motivo"), "otro");
         await dialogo.getByRole("button", { name: "Pausar" }).click();
         await expect(dialogo.getByText("Con «Otro», explica el motivo")).toBeVisible();
         await dialogo.getByLabel("Nota").fill("El cliente fue a traer la llave del techo");
@@ -299,10 +299,10 @@ test.describe("pausa", () => {
         if (o) Object.assign(o, { estado: "pausada", pausadaDesde: "en_sitio", pausadaEn: new Date().toISOString() });
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/ordenes");
-        await page.getByLabel("Estado", { exact: true }).selectOption("activas");
+        await elegirOpcion(page.getByLabel("Estado", { exact: true }), "activas");
         await page.getByRole("radio", { name: "Columnas" }).click();
         await expect(page.locator('[data-columna="pausada"]')).toContainText("OT-000005");
-        await page.getByLabel("Estado", { exact: true }).selectOption("pausada");
+        await elegirOpcion(page.getByLabel("Estado", { exact: true }), "pausada");
         await expect(page.locator('[data-columna="pausada"]')).toContainText("OT-000005");
     });
 
@@ -324,7 +324,7 @@ test.describe("pausa", () => {
         await expect(d.getByRole("button", { name: "Reprogramar" })).toBeVisible();
         await expect(d.getByLabel("Solo cambiar el técnico, a la misma hora")).toHaveCount(0);
         await d.getByLabel("Motivo", { exact: true }).fill("Lluvia fuerte, se mueve a la tarde");
-        await d.getByLabel("Hora", { exact: true }).fill("15:30");
+        await escribirHora(d, "Hora", "15:30");
         await d.getByRole("button", { name: "Reprogramar" }).click();
         await expect(page.getByTestId("movida")).toContainText("OT-000003 reprogramada");
         expect(posts(api, "/ordenes/3/reprogramar")[0]?.cuerpo).toMatchObject({ version: 3, motivo: "Lluvia fuerte, se mueve a la tarde" });
