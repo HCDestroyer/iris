@@ -181,11 +181,17 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
             return !v;
         });
     }
+    function abrirAyuda() {
+        setPestana("ayuda");
+        if (alLado) setFichaVisible(true);
+        else setHojaAbierta(true);
+    }
 
     const [refSeccion, anchoSeccion] = useAncho<HTMLElement>();
     const visiblesPendientes = pendientesSinConfirmar(pendientes, mensajes);
-    // Puente hacia el compositor: reintentar un pendiente desde el hilo.
+    // Puentes hacia el compositor: reintentar un pendiente desde el hilo y usar un manual de la ficha.
     const reintentar = useRef<((p: Pendiente) => void) | null>(null);
+    const usarTexto = useRef<((t: string) => void) | null>(null);
 
     if (detalle.estado === "error") {
         return (
@@ -217,6 +223,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
     const ficha = (
         <FichaCliente
             conv={conv}
+            identidad={identidad}
             pestana={pestana}
             alCambiarPestana={setPestana}
             alActualizar={(c) => {
@@ -224,6 +231,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                 void refrescarDetalle();
             }}
             recargar={refrescarDetalle}
+            alUsarTexto={(t) => usarTexto.current?.(t)}
         />
     );
     return (
@@ -246,7 +254,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                             <span className="truncate tabular-nums">{formatearNumero(conv.numero)}</span>
                         </span>
                     </div>
-                    <AccionesConversacion conv={conv} estrecho={anchoSeccion > 0 && anchoSeccion < 480} alActualizar={aplicarConversacion} recargar={refrescarDetalle} />
+                    <AccionesConversacion conv={conv} estrecho={anchoSeccion > 0 && anchoSeccion < 480} alActualizar={aplicarConversacion} recargar={refrescarDetalle} abrirAyuda={abrirAyuda} />
                     <Boton
                         variante="contorno"
                         tamano="icono-sm"
@@ -307,7 +315,9 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                         }}
                         alActualizar={aplicarConversacion}
                         recargar={refrescarDetalle}
+                        abrirAyuda={abrirAyuda}
                         registrarReintento={(f) => (reintentar.current = f)}
+                        registrarUsarTexto={(f) => (usarTexto.current = f)}
                     />
                 ) : (
                     <p className="border-t border-border bg-card px-4 py-3 text-sm text-muted-foreground">
