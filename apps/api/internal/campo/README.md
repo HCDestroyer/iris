@@ -48,6 +48,15 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   (programada/en_camino/en_sitio, con `motivoFalla`), `cancelar` (no final, con motivo), `reabrir`
   (fallida o cancelada → pendiente; una cerrada no se reabre: ya tuvo efectos en Argos).
   Fuera de su estado, 422 `transicion_invalida`; con `version` vieja, 409.
+- **Notas editables** (`notas.go`, `ordenes.editar_nota` y `ordenes.eliminar_nota`, permiso
+  `ordenes.registrar`): `POST /ordenes/{id}/notas/{nota}/editar { version, texto }` y
+  `/eliminar { version }`. Solo su autor, o despacho y supervisión con `ordenes.asignar` que cubra
+  la orden (403 `nota_ajena`). Cada nota lleva `version` (409 `conflicto_version`); eliminar es
+  lógico (`eliminada_en`, `eliminada_por`: sale de la orden y queda en la auditoría con su diff) y
+  repetirlo no cambia nada; editar una eliminada, 409 `nota_eliminada`. En cualquier estado. Desde
+  el lote, `nota.editar` / `nota.eliminar` (`{ notaId, versionNota }`, contratos/sync.md). No
+  emiten evento: las notas no tienen consumidores fuera de Iris (el feed avisa al teléfono por la
+  versión de la orden).
 - **Trabajo** (`ordenes.registrar`): `checklist`, `notas`, `materiales`, `equipos-instalados`,
   `equipos-retirados`, `firma`, `adjuntos`. Checklist, materiales, equipos y firma con la orden en
   curso; notas y adjuntos en cualquier estado. Cada uno sube la versión. Notas, materiales y

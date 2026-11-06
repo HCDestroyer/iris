@@ -179,10 +179,9 @@ test.describe("en el teléfono", () => {
         await dialogo.getByLabel("Nota").fill("El cliente pidió volver después del almuerzo");
         await dialogo.getByRole("button", { name: "Pausar" }).click();
 
-        const pausada = page.getByTestId("orden-pausada");
-        await expect(pausada).toContainText("Orden en pausa: Otro motivo");
-        await expect(pausada).toContainText("El cliente pidió volver después del almuerzo");
-        await expect(page.locator('[data-slot="insignia-estado"]', { hasText: "Pausada" }).first()).toBeVisible();
+        // En el resumen, solo el aviso «En pausa desde HH:MM · motivo» (con «Otro», la nota) y «Reanudar».
+        await expect(page.getByTestId("pausa-orden")).toHaveText("En pausa desde 10:00 · El cliente pidió volver después del almuerzo");
+        await expect(page.locator('[data-slot="linea-estado"]')).toContainText("Pausada");
         for (const nombre of ["No se pudo", "Llegué", "En camino", "Pausar"]) {
             await expect(page.getByRole("button", { name: nombre, exact: true })).toHaveCount(0);
         }
@@ -197,11 +196,11 @@ test.describe("en el teléfono", () => {
         await irAPaso(page, "Firma del cliente y cierre");
         await expect(page.getByTestId("orden-pausada")).toBeVisible();
         await expect(page.getByRole("button", { name: /Cerrar orden|Firmar y cerrar/ })).toHaveCount(0);
-        await alResumen(page);
-
         await page.clock.fastForward("15:00");
         await expect(page.getByTestId("tiempo-pausado").first()).toContainText("15 min en total");
-        await pausada.getByRole("button", { name: "Reanudar" }).click();
+        await alResumen(page);
+
+        await page.getByRole("button", { name: "Reanudar" }).click();
         await expect(page.getByRole("button", { name: "No se pudo" })).toBeVisible();
         await expect(page.getByTestId("tiempo-pausado")).toContainText("Tiempo pausado en esta visita: 15 min");
 

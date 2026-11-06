@@ -174,7 +174,13 @@ function HojaNota({ orden, nota, puedeCambiar, meta, alCerrar }: { orden: OrdenV
                 <Contador texto={texto} />
                 <View style={estilos.fila}>
                     <View style={estilos.flex}>
-                        <Boton variante="secundario" alPresionar={alCerrar}>
+                        <Boton
+                            variante="secundario"
+                            alPresionar={() => {
+                                form.reset({ texto: nota.texto });
+                                setModo("ver");
+                            }}
+                        >
                             Cancelar
                         </Boton>
                     </View>

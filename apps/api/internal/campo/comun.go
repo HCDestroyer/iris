@@ -229,6 +229,7 @@ func tomar(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, id int64, p
 //     su alcance).
 //   - cancelada: 409 orden_cancelada, salvo las notas (agregar, editar, eliminar) y
 //     adjunto.registrar (evidencia).
+//
 // esEvidencia: operaciones que una orden cancelada (o pausada) sigue aceptando.
 func esEvidencia(tipo string) bool {
 	switch tipo {

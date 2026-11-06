@@ -32,15 +32,20 @@ export function Notas({
     const { sesion } = useCampo();
     const ahora = useAhora(60_000);
     const notas = notasOrdenadas(orden);
-    const [abiertaId, setAbiertaId] = useState<string | null>(null);
-    const abierta = notas.find((n) => n.id === abiertaId) ?? null;
+    // La hoja se cierra con su animación (desmontarla abierta deja el fondo del modal): queda montada
+    // con la nota que se abrió (la versión al día si sigue en la orden; si se acaba de eliminar, esa).
+    const [elegida, setElegida] = useState<NotaOrden | null>(null);
+    const [visible, setVisible] = useState(false);
+    // Cada apertura empieza viendo la nota (no en «Editar»).
+    const [vez, setVez] = useState(0);
+    const abierta = elegida ? (notas.find((n) => n.id === elegida.id) ?? elegida) : null;
     return (
         <Tarjeta data-slot="notas-orden">
             <TarjetaContenido className="grid gap-0 p-4">
                 <div className="flex min-h-12 items-center justify-between gap-3 border-b border-border pb-3">
                     <h2 className="text-base font-semibold">Notas</h2>
                     {editable ? (
-                        <Boton variante="secundario" className="h-11 rounded-full px-4 md:h-11" aria-label="Agregar nota" onClick={() => alAgregar(true)}>
+                        <Boton variante="secundario" className="h-11 rounded-full px-4 md:h-11" aria-label="Agregar una nota" onClick={() => alAgregar(true)}>
                             <Plus aria-hidden />
                             Agregar
                         </Boton>
@@ -57,7 +62,11 @@ export function Notas({
                                         data-slot="nota"
                                         aria-label={`Nota: ${n.texto}. ${meta.corta}`}
                                         className="grid h-auto min-h-12 w-full justify-start gap-1 rounded-none px-0 py-3 text-left text-base font-normal whitespace-normal md:h-auto"
-                                        onClick={() => setAbiertaId(n.id)}
+                                        onClick={() => {
+                                            setElegida(n);
+                                            setVez((v) => v + 1);
+                                            setVisible(true);
+                                        }}
                                     >
                                         <span className="line-clamp-3 whitespace-pre-wrap">{n.texto}</span>
                                         <span className="text-sm text-muted-foreground">
@@ -76,11 +85,13 @@ export function Notas({
             <HojaNuevaNota orden={orden} abierto={agregando} alCambiar={alAgregar} />
             {abierta ? (
                 <HojaNota
+                    key={`${abierta.id}-${vez}`}
+                    abierto={visible}
                     orden={orden}
                     nota={abierta}
                     puedeCambiar={editable && puedeCambiarNota(abierta, sesion.usuarioId, sesion.permisos)}
                     meta={metaNota(abierta, sesion.usuarioId, ahora).larga}
-                    alCerrar={() => setAbiertaId(null)}
+                    alCerrar={() => setVisible(false)}
                 />
             ) : null}
         </Tarjeta>
@@ -115,7 +126,7 @@ function HojaNuevaNota({ orden, abierto, alCambiar }: { orden: OrdenVista; abier
                 }
             }}
             cambios={form.formState.isDirty}
-            titulo="Nueva nota"
+            titulo="Agregar nota"
             descripcion={`Para ${orden.numero}. Despacho la ve; el cliente no.`}
         >
             <form onSubmit={enviar} className="grid gap-2" noValidate>
@@ -136,7 +147,21 @@ function HojaNuevaNota({ orden, abierto, alCambiar }: { orden: OrdenVista; abier
  * cambia la misma hoja al formulario con el contador; «Eliminar» pregunta antes. «Atrás» cierra la
  * hoja (o la pregunta).
  */
-function HojaNota({ orden, nota, puedeCambiar, meta, alCerrar }: { orden: OrdenVista; nota: NotaOrden; puedeCambiar: boolean; meta: string; alCerrar: () => void }) {
+function HojaNota({
+    abierto,
+    orden,
+    nota,
+    puedeCambiar,
+    meta,
+    alCerrar,
+}: {
+    abierto: boolean;
+    orden: OrdenVista;
+    nota: NotaOrden;
+    puedeCambiar: boolean;
+    meta: string;
+    alCerrar: () => void;
+}) {
     const { motor, ejecutar } = useCampo();
     const [editando, setEditando] = useState(false);
     const [eliminando, setEliminando] = useState(false);
@@ -158,9 +183,10 @@ function HojaNota({ orden, nota, puedeCambiar, meta, alCerrar }: { orden: OrdenV
     return (
         <>
             <HojaCampo
-                abierto={!eliminando}
+                abierto={abierto && !eliminando}
                 alCambiar={(a) => {
                     if (!a) {
+                        setEditando(false);
                         alCerrar();
                     }
                 }}
@@ -173,7 +199,15 @@ function HojaNota({ orden, nota, puedeCambiar, meta, alCerrar }: { orden: OrdenV
                         <CampoArea etiqueta="Texto de la nota" rows={5} autoFocus error={form.formState.errors.texto?.message} {...form.register("texto")} />
                         <Contador texto={texto} />
                         <div className="grid grid-cols-2 gap-2 pt-2">
-                            <Boton variante="secundario" tamano="lg" className="rounded-full" onClick={() => alCerrar()}>
+                            <Boton
+                                variante="secundario"
+                                tamano="lg"
+                                className="rounded-full"
+                                onClick={() => {
+                                    form.reset({ texto: nota.texto });
+                                    setEditando(false);
+                                }}
+                            >
                                 Cancelar
                             </Boton>
                             <Boton tamano="lg" type="submit" className="rounded-full" disabled={form.formState.isSubmitting || sinCambios}>
@@ -204,7 +238,7 @@ function HojaNota({ orden, nota, puedeCambiar, meta, alCerrar }: { orden: OrdenV
                 )}
             </HojaCampo>
             <DialogoConfirmar
-                open={eliminando}
+                open={abierto && eliminando}
                 onOpenChange={(a) => {
                     if (!a) {
                         setEliminando(false);

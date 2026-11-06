@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import type { OrdenCampo } from "@iris/sync";
-import { conSesionTecnico, simularApiCampo } from "./api-campo";
+import { conSesionTecnico, declinarUbicacion, simularApiCampo } from "./api-campo";
 import { avisoCampo } from "./ayudas-campo";
 import { ordenesDelDia, TECNICO } from "./datos-campo";
 
@@ -67,7 +67,7 @@ test("encabezado: ←, número con «● Estado · Tipo · ventana» y «⋯» c
     await expect(encabezado(page).getByRole("button", { name: "Mis órdenes" })).toBeVisible();
     await encabezado(page).getByRole("button", { name: "Más acciones de la orden" }).click();
     const menu = page.getByRole("menu");
-    await expect(menu.getByRole("menuitem")).toHaveText(["Agregar nota", "Historial del cliente", "Copiar dirección"]);
+    await expect(menu.getByRole("menuitem")).toHaveText(["Agregar nota", "Agregar formulario", "Historial del cliente", "Copiar dirección"]);
     await menu.getByRole("menuitem", { name: "Copiar dirección" }).click();
     await expect(avisoCampo(page)).toContainText("Dirección copiada");
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("6a avenida 12-34, zona 1, Guatemala");
@@ -75,9 +75,9 @@ test("encabezado: ←, número con «● Estado · Tipo · ventana» y «⋯» c
     // «Agregar nota» desde el menú abre la misma hoja que la tarjeta.
     await encabezado(page).getByRole("button", { name: "Más acciones de la orden" }).click();
     await page.getByRole("menuitem", { name: "Agregar nota" }).click();
-    await expect(hoja(page, "Nueva nota")).toBeVisible();
+    await expect(hoja(page, "Agregar nota")).toBeVisible();
     await page.goBack();
-    await expect(hoja(page, "Nueva nota")).toHaveCount(0);
+    await expect(hoja(page, "Agregar nota")).toHaveCount(0);
     await expect(page).toHaveURL(/orden=101/);
 
     // Historial del cliente (con señal): sus órdenes que fueron del técnico.
@@ -125,6 +125,7 @@ test("programada: «Empezar trabajo» y [En camino | No se pudo]; «En camino» 
     const grupo = page.getByRole("group", { name: "Más acciones de la orden" });
     await expect(grupo.getByRole("button")).toHaveText(["En camino", "No se pudo"]);
     await grupo.getByRole("button", { name: "En camino" }).click();
+    await declinarUbicacion(page);
     await expect(encabezado(page).locator('[data-slot="linea-estado"]')).toHaveText(/^En camino · /);
     await expect.poll(() => api.lotes.flatMap((l) => l.operaciones ?? []).map((o) => o.tipo)).toContain("orden.iniciar_camino");
     await expect(grupo.getByRole("button")).toHaveText(["Pausar", "No se pudo"]);
@@ -183,17 +184,18 @@ test("notas: agregar, ver, editar con contador, eliminar con pregunta; «Atrás�
     await expect(pregunta).toContainText("Queda registrada en el historial de la orden.");
     await page.goBack();
     await expect(pregunta).toHaveCount(0);
+    // Vuelve a la nota (no se eliminó).
+    await expect(hoja(page, "Nota")).toBeVisible();
     await expect(lista.locator('[data-slot="nota"]')).toHaveCount(2);
-    await lista.locator('[data-slot="nota"]').last().click();
     await hoja(page, "Nota").getByRole("button", { name: "Eliminar" }).click();
     await pregunta.getByRole("button", { name: "Eliminar" }).click();
     await expect(lista.locator('[data-slot="nota"]')).toHaveCount(1);
     await expect.poll(() => api.lotes.flatMap((l) => l.operaciones ?? []).filter((o) => o.tipo === "nota.eliminar").map((o) => o.datos)).toEqual([{ notaId: MIA.id, versionNota: 2 }]);
 
     // Agregar desde la tarjeta.
-    await notas(page).getByRole("button", { name: "Agregar nota" }).click();
-    await hoja(page, "Nueva nota").getByLabel("Nueva nota").fill("Medí -18,5 dBm en la roseta.");
-    await hoja(page, "Nueva nota").getByRole("button", { name: "Agregar nota" }).click();
+    await notas(page).getByRole("button", { name: "Agregar una nota" }).click();
+    await hoja(page, "Agregar nota").getByLabel("Nueva nota").fill("Medí -18,5 dBm en la roseta.");
+    await hoja(page, "Agregar nota").getByRole("button", { name: "Agregar nota" }).click();
     await expect(lista.locator('[data-slot="nota"]')).toHaveCount(2);
 });
 
@@ -214,8 +216,8 @@ test("capturas de la orden (390 px y 1280 px)", async ({ page }, info) => {
     await hoja(page, "Nota").getByRole("button", { name: "Editar" }).click();
     await expect(hoja(page, "Editar nota")).toBeVisible();
     await page.screenshot({ path: nombre("04-editar") });
+    // «Cancelar» vuelve a la nota.
     await hoja(page, "Editar nota").getByRole("button", { name: "Cancelar" }).click();
-    await notas(page).locator('[data-slot="nota"]').last().click();
     await hoja(page, "Nota").getByRole("button", { name: "Eliminar" }).click();
     await expect(page.getByRole("alertdialog", { name: "¿Eliminar la nota?" })).toBeVisible();
     await page.screenshot({ path: nombre("05-eliminar") });

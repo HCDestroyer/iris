@@ -39,6 +39,8 @@ const PUNTO: Record<string, string> = {
 export function EncabezadoOrden({ orden, alVolver, alAgregarNota }: { orden: OrdenVista; alVolver: () => void; alAgregarNota: (() => void) | null }) {
     const { notificar, sesion } = useCampo();
     const [historial, setHistorial] = useState(false);
+    // Cada apertura lee de nuevo (otra instancia), pero la hoja se cierra con su animación.
+    const [vezHistorial, setVezHistorial] = useState(0);
     const [formulario, setFormulario] = useState(false);
     const sinFormulario = motivoSinFormulario(orden, sesion.permisos);
     const e = encabezadoOrden(orden);
@@ -100,7 +102,10 @@ export function EncabezadoOrden({ orden, alVolver, alAgregarNota }: { orden: Ord
                         </span>
                     </MenuDesplegableElemento>
                     {clienteId !== null ? (
-                        <MenuDesplegableElemento icono={History} className="min-h-12 text-base" onSelect={() => setHistorial(true)}>
+                        <MenuDesplegableElemento icono={History} className="min-h-12 text-base" onSelect={() => {
+                                setVezHistorial((v) => v + 1);
+                                setHistorial(true);
+                            }}>
                             Historial del cliente
                         </MenuDesplegableElemento>
                     ) : null}
@@ -112,7 +117,7 @@ export function EncabezadoOrden({ orden, alVolver, alAgregarNota }: { orden: Ord
                 </MenuDesplegableContenido>
             </MenuDesplegable>
             <HojaAgregarFormulario orden={orden} abierto={formulario} alCambiar={setFormulario} />
-            {historial && clienteId !== null ? <HojaHistorial orden={orden} clienteId={clienteId} alCerrar={() => setHistorial(false)} /> : null}
+            {vezHistorial > 0 && clienteId !== null ? <HojaHistorial key={vezHistorial} abierto={historial} orden={orden} clienteId={clienteId} alCerrar={() => setHistorial(false)} /> : null}
         </header>
     );
 }
@@ -235,7 +240,7 @@ export function ProveedorHistorial({ leer, children }: { leer: LeerHistorial; ch
 type EstadoHistorial = { estado: "cargando" } | { estado: "lista"; ordenes: OrdenHistorial[] } | { estado: "error"; texto: string };
 
 /** Hoja «Historial del cliente»: sus órdenes que fueron del técnico, con «Reintentar» si falla. */
-function HojaHistorial({ orden, clienteId, alCerrar }: { orden: OrdenVista; clienteId: number; alCerrar: () => void }) {
+function HojaHistorial({ abierto, orden, clienteId, alCerrar }: { abierto: boolean; orden: OrdenVista; clienteId: number; alCerrar: () => void }) {
     const leer = useContext(ContextoHistorial);
     const [estado, setEstado] = useState<EstadoHistorial>(leer ? { estado: "cargando" } : { estado: "error", texto: "El historial no está disponible en este teléfono." });
     // Solo con señal y sin guardar: se lee al abrir la hoja (y con «Reintentar»).
@@ -261,7 +266,7 @@ function HojaHistorial({ orden, clienteId, alCerrar }: { orden: OrdenVista; clie
     };
     const nombre = orden.cliente?.nombre ?? orden.contacto.nombre ?? "el cliente";
     return (
-        <HojaCampo abierto alCambiar={(a) => !a && alCerrar()} titulo="Historial del cliente" descripcion={`Las órdenes de ${nombre} que fueron tuyas.`}>
+        <HojaCampo abierto={abierto} alCambiar={(a) => !a && alCerrar()} titulo="Historial del cliente" descripcion={`Las órdenes de ${nombre} que fueron tuyas.`}>
             {estado.estado === "cargando" ? (
                 <Cargando visible texto="Leyendo el historial…" />
             ) : estado.estado === "error" ? (
