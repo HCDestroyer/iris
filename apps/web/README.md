@@ -179,7 +179,17 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
   arreglos de la query van separados por coma (`estado=nuevo,abierto`); errores problem+json →
   `ErrorApi` (`codigo`, `estado`, `errores[]`, `reintentarEn`).
 - **Proxy** (`app/api/[...ruta]/route.ts`): `/api/*` → `IRIS_API_URL/api/*` en tiempo de
-  ejecución, así las cookies son del mismo origen y la imagen sirve en cualquier entorno.
+  ejecución, así las cookies son del mismo origen y la imagen sirve en cualquier entorno. Pasa la
+  señal del navegador: cerrar un flujo SSE corta la petición a la API.
+- **Conversaciones** (`/conversaciones`, `componentes/conversaciones`, `lib/conversaciones`):
+  bandeja con clientes por WhatsApp (contratos/conversaciones.md) a todo el ancho, con el menú
+  como riel. Lista (filtros en un botón, Mías / Sin asignar / Todas), conversación (asignar,
+  tomar, ayuda, pasar a otra cola, resolver, etiquetas; compositor con nota interna, plantillas
+  fuera de la ventana de 24 h, adjuntos, respuestas rápidas) y ficha del cliente (Argos,
+  ticket, orden, boleta, promesa; sin cliente: asociar, prospecto o contacto de Iris). Tiempo
+  real con SSE leído con `fetch` y sondeo (`lib/conversaciones/tiempo-real.ts`); antes de abrir
+  el flujo, sondear, guardar un borrador o enviar se verifica con `GET /yo` que la sesión es la
+  misma. «Respuestas rápidas» en Administración. Contador de no leídos en la barra lateral.
 
 No emite ni consume eventos.
 
