@@ -22274,6 +22274,17 @@
       "UltimoMensajeResumen": {
         "additionalProperties": false,
         "properties": {
+          "automatico": {
+            "description": "Saliente sin autor: el bot o la respuesta de fuera de horario",
+            "enum": [
+              "bot",
+              "fuera_de_horario"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "creadoEn": {
             "format": "date-time",
             "type": "string"
@@ -22310,6 +22321,7 @@
           "tipo",
           "texto",
           "evento",
+          "automatico",
           "creadoEn"
         ],
         "type": "object"
@@ -22629,11 +22641,16 @@
           },
           "nombre": {
             "type": "string"
+          },
+          "obligatoria": {
+            "description": "Hay que mandarla (hoy todas las del catálogo)",
+            "type": "boolean"
           }
         },
         "required": [
           "nombre",
-          "formato"
+          "formato",
+          "obligatoria"
         ],
         "type": "object"
       },

@@ -28,6 +28,9 @@ const (
 type Variable struct {
 	Nombre  string `json:"nombre"`
 	Formato string `json:"formato" enum:"monto,moneda,fecha,instante,texto" doc:"monto: decimal con dos decimales (\"250.00\"); moneda: ISO 4217; fecha: YYYY-MM-DD (Guatemala); instante: fecha o fecha y hora; texto: 1 a 200 caracteres"`
+	// Obligatoria: hay que mandarla. Hoy todas lo son (Meta exige todos los parámetros de una
+	// plantilla aprobada); una opcional que falte no se valida.
+	Obligatoria bool `json:"obligatoria" doc:"Hay que mandarla (hoy todas las del catálogo)"`
 }
 
 // Plantilla de aviso.
@@ -57,7 +60,7 @@ const (
 func vars(pares ...string) []Variable {
 	v := make([]Variable, 0, len(pares)/2)
 	for i := 0; i+1 < len(pares); i += 2 {
-		v = append(v, Variable{Nombre: pares[i], Formato: pares[i+1]})
+		v = append(v, Variable{Nombre: pares[i], Formato: pares[i+1], Obligatoria: true})
 	}
 	return v
 }
@@ -144,7 +147,9 @@ func (p Plantilla) validarVariables(v map[string]string) error {
 		valor, ok := v[d.Nombre]
 		campo := "variables." + d.Nombre
 		if !ok {
-			errs = append(errs, nucleo.ErrorCampo{Field: campo, Message: "Falta la variable", Rule: "requerida"})
+			if d.Obligatoria {
+				errs = append(errs, nucleo.ErrorCampo{Field: campo, Message: "Falta la variable", Rule: "requerida"})
+			}
 			continue
 		}
 		if msg := validarFormato(d.Formato, valor); msg != "" {

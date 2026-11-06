@@ -130,11 +130,13 @@ type SLAConversacion struct {
 
 // UltimoMensajeResumen es la vista previa en la lista.
 type UltimoMensajeResumen struct {
-	Direccion string    `json:"direccion" enum:"entrante,saliente,nota,sistema"`
-	Tipo      string    `json:"tipo"`
-	Texto     *string   `json:"texto" nullable:"true" doc:"Primeros 140 caracteres (texto plano)"`
-	Evento    *string   `json:"evento" nullable:"true" doc:"Mensaje de sistema: su tipo"`
-	CreadoEn  time.Time `json:"creadoEn"`
+	Direccion string  `json:"direccion" enum:"entrante,saliente,nota,sistema"`
+	Tipo      string  `json:"tipo"`
+	Texto     *string `json:"texto" nullable:"true" doc:"Primeros 140 caracteres (texto plano)"`
+	Evento    *string `json:"evento" nullable:"true" doc:"Mensaje de sistema: su tipo"`
+	// Automatico: el mismo valor que en MensajeConversacion (la lista muestra «Bot: …»).
+	Automatico *string   `json:"automatico" nullable:"true" enum:"bot,fuera_de_horario" doc:"Saliente sin autor: el bot o la respuesta de fuera de horario"`
+	CreadoEn   time.Time `json:"creadoEn"`
 }
 
 // ConversacionCliente es una conversación con un cliente tal como la ve un usuario.
@@ -485,7 +487,7 @@ func (m *Modulo) resumirConvs(ctx context.Context, q *mensajeriabd.Queries, usua
 			v.Titulo = f.Numero
 		}
 		if f.UltimoDireccion != nil && f.UltimoCreadoEn != nil {
-			u := &UltimoMensajeResumen{Direccion: *f.UltimoDireccion, CreadoEn: *f.UltimoCreadoEn}
+			u := &UltimoMensajeResumen{Direccion: *f.UltimoDireccion, CreadoEn: *f.UltimoCreadoEn, Automatico: f.UltimoAutomatico}
 			if f.UltimoTipo != nil {
 				u.Tipo = *f.UltimoTipo
 			}

@@ -13874,6 +13874,11 @@ export interface components {
             servidorEn: string;
         };
         UltimoMensajeResumen: {
+            /**
+             * @description Saliente sin autor: el bot o la respuesta de fuera de horario
+             * @enum {string|null}
+             */
+            automatico: "bot" | "fuera_de_horario" | null;
             /** Format: date-time */
             creadoEn: string;
             /** @enum {string} */
@@ -13985,6 +13990,8 @@ export interface components {
              */
             formato: "monto" | "moneda" | "fecha" | "instante" | "texto";
             nombre: string;
+            /** @description Hay que mandarla (hoy todas las del catálogo) */
+            obligatoria: boolean;
         };
         VentanaConversacion: {
             /** @description Se puede mandar texto y adjuntos; si no, solo plantillas aprobadas */

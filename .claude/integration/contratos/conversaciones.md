@@ -854,7 +854,11 @@ la segunda, el bot deja de insistir.
   `{ disponibles: UsuarioRef[] (hasta 5), totalDisponibles, botContestaEn (o null),
   botMotivo (sin_confirmacion | sin_disponibles | null), botAtendio }` para «2 disponibles en
   Soporte», «Nadie disponible en Cobros» y «Bot en 12 min».
-- `MensajeConversacion.automatico`: `"bot"` | `"fuera_de_horario"` | `null`.
+- `MensajeConversacion.automatico`: `"bot"` | `"fuera_de_horario"` | `null`; el mismo valor en
+  `ConversacionCliente.ultimoMensaje.automatico` (la lista muestra «Bot: …»).
+- `Variable` (en las plantillas de la conversación, del número y de `GET /plantillas`) trae
+  `obligatoria: bool`. Hoy todas son `true` (Meta exige todos los parámetros de una plantilla
+  aprobada); el panel debe pedir solo las obligatorias.
 - Eventos de sistema nuevos (`evento.tipo`): `aviso_sin_atender`, `bot_atendio`, `menu_elegido`,
   `pasada`, `iniciada`. `EventoSistema` suma `minutos` y `disponibles` (enteros, opcionales).
 - Tipo nuevo del flujo (SSE y `/cambios`): `aviso_sin_atender` (solo a los avisados).
