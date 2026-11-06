@@ -6,7 +6,7 @@ import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
 import { AppState, ScrollView, StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { escucharPlano } from "./campo/plano";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import "./global.css";
 import { Aviso, Boton, Cargando, Pila, useAltoTeclado } from "./componentes";
@@ -14,6 +14,7 @@ import type { ServiciosNativos } from "./campo/contexto";
 import { tomarFoto, vaciarCacheFotos } from "./campo/foto";
 import { gpsNativo, posicionSiPermitida, ubicacionPermitida } from "./campo/gps-nativo";
 import { useVolverTrasAusencia } from "./campo/bloqueo";
+import { escucharPlano } from "./campo/plano";
 import { abrirMotor, borrarBase, borrarCachesChat } from "./campo/motor";
 import { entorno } from "./entorno";
 import { AppCampo, type DependenciasCampo } from "./pantallas/AppCampo";
@@ -94,17 +95,20 @@ function dependenciasNativas(): DependenciasCampo {
 
 /**
  * `GestureHandlerRootView` va por fuera de todo (lo pide HeroUI Native y Gesture Handler 3); dentro,
- * el área segura y el tema (HeroUI con Horus).
+ * el área segura, el seguimiento del teclado y el tema (HeroUI con Horus).
  */
 export default function App() {
     return (
         <GestureHandlerRootView style={estilos.raiz}>
             <SafeAreaProvider>
-                <ProveedorTema>
-                    <RecuperarError claves={() => entorno().claves} gps={gpsNativo}>
-                        <Raiz />
-                    </RecuperarError>
-                </ProveedorTema>
+                {/* Sigue el teclado con edge-to-edge (también dentro de un `Modal`): `EvitarTeclado`, `useAltoTeclado`. */}
+                <KeyboardProvider>
+                    <ProveedorTema>
+                        <RecuperarError claves={() => entorno().claves} gps={gpsNativo}>
+                            <Raiz />
+                        </RecuperarError>
+                    </ProveedorTema>
+                </KeyboardProvider>
             </SafeAreaProvider>
         </GestureHandlerRootView>
     );
