@@ -123,7 +123,11 @@ var cuadrado = map[string]any{"type": "Polygon", "coordinates": []any{[]any{
 // fichaCon da ficha al usuario (en la cuadrilla) con turnos de lunes a viernes de 08:00 a 17:00.
 func fichaCon(t *testing.T, e entorno, ctx context.Context, usuario int64, cuadrilla *int64) agenda.TecnicoDetalle {
 	t.Helper()
-	f := deber(e.ag.CrearTecnico.Ejecutar(ctx, agenda.EntradaCrearTecnico{UsuarioID: usuario, CuadrillaID: cuadrilla, BodegaID: ptr(int64(9))}))(t)
+	f := deber(e.ag.CrearTecnico.Ejecutar(ctx, agenda.EntradaCrearTecnico{UsuarioID: usuario, CuadrillaID: cuadrilla}))(t)
+	// La bodega 9 sin pasar por Argos (la bodega a mano se verifica en Argos: tecnicos_bodega_test.go).
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `UPDATE agenda.tecnicos SET bodega_id = 9 WHERE id = $1`, f.ID); err != nil {
+		t.Fatal(err)
+	}
 	turnos := []agenda.Turno{}
 	for d := int16(1); d <= 5; d++ {
 		turnos = append(turnos, agenda.Turno{Dia: d, Inicio: "08:00", Fin: "17:00"})

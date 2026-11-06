@@ -16,6 +16,7 @@ import {
     valoresAusencia,
     valoresTecnico,
     vinculoPorPedir,
+    bodegaAMano,
     valoresTurnos,
 } from "./esquemas";
 import { conflictosDe, cuadriculaMes, etiquetaMes, inicioMes, resumenPorDia, sinTecnicoPorDia, sumarMeses, textoConflicto, trozos, unirCalendarios, vistaDeUrl } from "./mes";
@@ -184,13 +185,29 @@ describe("formulario de técnico", () => {
     it("cuerpos de crear y editar (la edición conserva la base leída)", () => {
         const v = { usuarioId: "3", cuadrillaId: "2", telefono: " 5555-1234 ", habilidades: "fibra, Altura", bodegaId: "", argosIdExterno: "" };
         expect(entradaCrearTecnico(v)).toEqual({ usuarioId: 3, cuadrillaId: 2, habilidades: ["altura", "fibra"], telefono: "5555-1234" });
+        // La misma bodega no se manda (la API deja la que tiene).
         expect(entradaEditarTecnico({ ...v, telefono: "", bodegaId: "30" }, tecnico)).toEqual({
             version: 4,
             cuadrillaId: 2,
             habilidades: ["altura", "fibra"],
-            bodegaId: 30,
             baseLat: 14.6,
             baseLon: -90.5,
+        });
+    });
+
+    it("la bodega la fija el vínculo: a mano solo sin vínculo (ni por pedir) y si cambió", () => {
+        const vinculado = { ...tecnico, argos: { idExterno: "77", nombre: "Lucía", correo: "l@argos.test", vinculadoEn: "2026-10-28T15:00:00Z" } };
+        expect(bodegaAMano({ bodegaId: "31", argosIdExterno: "" }, tecnico)).toBe(31);
+        expect(bodegaAMano({ bodegaId: "30", argosIdExterno: "" }, tecnico)).toBeNull();
+        expect(bodegaAMano({ bodegaId: "31", argosIdExterno: "78" }, tecnico)).toBeNull();
+        expect(bodegaAMano({ bodegaId: "31", argosIdExterno: "77" }, vinculado)).toBeNull();
+        expect(bodegaAMano({ bodegaId: "", argosIdExterno: "" })).toBeNull();
+        expect(bodegaAMano({ bodegaId: "12", argosIdExterno: "" })).toBe(12);
+        // Alta con un técnico de Argos elegido: sin bodegaId (la fija vincular-argos).
+        expect(entradaCrearTecnico({ usuarioId: "3", cuadrillaId: "2", telefono: "", habilidades: "", bodegaId: "30", argosIdExterno: "77" })).toEqual({
+            usuarioId: 3,
+            cuadrillaId: 2,
+            habilidades: [],
         });
     });
 

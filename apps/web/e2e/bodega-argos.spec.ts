@@ -76,11 +76,15 @@ test.describe("bodega de Argos por nombre", () => {
         await sinDesborde(page);
         await d.getByRole("button", { name: "Crear técnico" }).click();
         await expect(d).toHaveCount(0);
-        expect(ultima(api, "/api/v1/tecnicos", "POST")?.cuerpo).toMatchObject({ usuarioId: 14, cuadrillaId: 2, bodegaId: 30 });
+        // La bodega no va con la ficha: la fija el servidor al vincular.
+        const alta = ultima(api, "/api/v1/tecnicos", "POST")?.cuerpo;
+        expect(alta).toMatchObject({ usuarioId: 14, cuadrillaId: 2 });
+        expect(alta).not.toHaveProperty("bodegaId");
         const nueva = api.equipo.tecnicos.find((t) => t.usuarioId === 14);
         const vincular = ultima(api, `/api/v1/tecnicos/${nueva?.id ?? 0}/vincular-argos`, "POST");
         expect(vincular?.cuerpo).toEqual({ version: 1, idExterno: "77" });
         expect(vincular?.idempotencia).toBeTruthy();
+        expect(nueva?.bodegaId).toBe(30);
         await expect(page.getByRole("alertdialog").filter({ hasText: "Técnico Pablo Xol creado" })).toBeVisible();
         await expect(page.getByTestId("vinculo-argos")).toContainText("Vinculado con Lucía Ramírez");
     });
@@ -104,6 +108,26 @@ test.describe("bodega de Argos por nombre", () => {
         await d.getByRole("button", { name: "Mantener Jorge Méndez" }).click();
         await expect(fija).toContainText("Bodega 31 · Jorge Méndez");
         await expect(d.getByRole("button", { name: "Guardar cambios" })).toBeDisabled();
+    });
+
+    test("si el vínculo falla, la ficha queda sin bodega y el aviso ofrece «Reintentar vínculo»", async ({ page, context, baseURL }) => {
+        const api = await conArgos(page);
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto("/tecnicos/nuevo");
+        const d = pantalla(page, "Nuevo técnico");
+        await d.getByLabel("Usuario", { exact: true }).selectOption({ label: "Pablo Xol · pablo@iris.test" });
+        await d.getByLabel("Cuadrilla", { exact: true }).selectOption({ label: "Cuadrilla Sur" });
+        await elegir(d.getByRole("combobox", { name: "Bodega en Argos" }), "Bodega Norte · Lucía Ramírez");
+        // La ficha nueva es la 900 del simulado: su vínculo responde 503 una vez.
+        api.responderProblema("/api/v1/tecnicos/900/vincular-argos", { type: "urn:iris:problema:argos_no_disponible", title: "Argos no responde", status: 503 }, 1);
+        await d.getByRole("button", { name: "Crear técnico" }).click();
+        const aviso = page.getByRole("alertdialog").filter({ hasText: "La ficha se guardó sin bodega" });
+        await expect(aviso).toBeVisible();
+        await expect(page.getByTestId("vinculo-argos")).toContainText("Sin vincular");
+        expect(api.equipo.tecnicos.find((t) => t.id === 900)?.bodegaId).toBeNull();
+        await aviso.getByRole("button", { name: "Reintentar vínculo" }).click();
+        await expect(page.getByTestId("vinculo-argos")).toContainText("Vinculado con Lucía Ramírez");
+        expect(api.equipo.tecnicos.find((t) => t.id === 900)?.bodegaId).toBe(30);
     });
 
     test("si Argos no responde: error con «Reintentar» y el número a mano solo como respaldo", async ({ page, context, baseURL }, info) => {
@@ -145,7 +169,8 @@ test.describe("bodega de Argos por nombre", () => {
         await sinDesborde(page);
 
         await page.getByRole("link", { name: "Crear ficha de Lucía Ramírez" }).click();
-        await expect(page).toHaveURL(/\/tecnicos\/nuevo\?argos=77/);
+        // Solo el id en la URL: el correo sale de la fila de Argos que devuelve la API.
+        await expect(page).toHaveURL(/\/tecnicos\/nuevo\?argos=77$/);
         const d = pantalla(page, "Nuevo técnico");
         // El correo de Argos coincide con un usuario de Iris sin ficha: queda elegido.
         await expect(d.getByLabel("Usuario", { exact: true })).toHaveValue("16");

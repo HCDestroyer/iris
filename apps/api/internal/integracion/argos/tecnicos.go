@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	argosbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/bd"
@@ -198,6 +199,12 @@ type previoTecnicos struct {
 // maxPaginasSinVincular acota las páginas de Argos que lee una llamada con sinVincular.
 const maxPaginasSinVincular = 10
 
+// plazoListaTecnicos: tope por defecto de una llamada con sinVincular (Config.PlazoListaTecnicos).
+const plazoListaTecnicos = 15 * time.Second
+
+// FijarPlazoListaTecnicos cambia el tope de la lectura con sinVincular (pruebas).
+func (m *Modulo) FijarPlazoListaTecnicos(d time.Duration) { m.cfg.PlazoListaTecnicos = d }
+
 // ListarTecnicosArgos: fase 1 (permiso y conector ≥ 1.6.0), llamada a Argos fuera de transacción y
 // fase 2 (marca los ya vinculados, audita la lectura de datos personales).
 type ListarTecnicosArgos struct {
@@ -306,9 +313,20 @@ func (l *ListarTecnicosArgos) Ejecutar(ctx context.Context, in EntradaTecnicosAr
 		f.pagina, f.err = cli.TecnicosInventario(ctx, in.Cursor, limite)
 		return l.final.Ejecutar(ctx, f)
 	}
+	plazo := l.m.cfg.PlazoListaTecnicos
+	if plazo <= 0 {
+		plazo = plazoListaTecnicos
+	}
+	// El tope vale solo para las llamadas a Argos: la auditoría final usa ctx.
+	lectura, cancelar := context.WithTimeout(ctx, plazo)
+	defer cancelar()
 	cursor := in.Cursor
 	for range maxPaginasSinVincular {
-		pag, err := cli.TecnicosInventario(ctx, cursor, limite)
+		if lectura.Err() != nil && len(f.pagina.Data) > 0 {
+			f.pagina.NextCursor = cursor
+			break
+		}
+		pag, err := cli.TecnicosInventario(lectura, cursor, limite)
 		if err != nil {
 			if len(f.pagina.Data) == 0 {
 				f.err = err

@@ -28,6 +28,8 @@ type Props = {
     errorBodega: string | undefined;
     /** Técnico de Argos a dejar elegido al aparecer en la lista («Crear ficha» desde Argos). */
     preferido?: string | null;
+    /** La fila del preferido tal como la devolvió la API (su correo busca el usuario de Iris). */
+    alEncontrarPreferido?: (a: TecnicoArgos) => void;
 };
 
 const LIMITE = 100;
@@ -39,7 +41,7 @@ const LIMITE = 100;
  * vinculado se muestra fijo con «Cambiar». Si Argos no puede dar la lista (apagado, caído o
  * anterior a 1.6.0), el error con «Reintentar» y el número de bodega a mano como respaldo.
  */
-export function SelectorBodegaArgos({ tecnico, valor, alElegir, registroBodega, errorBodega, preferido = null }: Props) {
+export function SelectorBodegaArgos({ tecnico, valor, alElegir, registroBodega, errorBodega, preferido = null, alEncontrarPreferido }: Props) {
     const { puede, yo } = useSesion();
     const empresa = yo.empresaActiva?.id ?? null;
     const vinculado = tecnico?.argos ?? null;
@@ -90,6 +92,7 @@ export function SelectorBodegaArgos({ tecnico, valor, alElegir, registroBodega, 
             errorBodega={errorBodega}
             preferido={preferido}
             empresa={empresa}
+            {...(alEncontrarPreferido ? { alEncontrarPreferido } : {})}
             {...(vinculado
                 ? {
                       alMantener: () => {
@@ -111,6 +114,7 @@ function Lista({
     preferido,
     empresa,
     alMantener,
+    alEncontrarPreferido,
 }: Omit<Props, "preferido"> & { preferido: string | null; empresa: number | null; alMantener?: () => void }) {
     const lista = usePaginado<TecnicoArgos>((cursor, signal) =>
         resolver(
@@ -123,7 +127,10 @@ function Lista({
     const { primera, items } = lista;
     const encontrado = preferido !== null ? items.find((a) => a.idExterno === preferido) : undefined;
     useEffect(() => {
-        if (encontrado && encontrado.enEmpresa) elegir(encontrado);
+        if (encontrado && encontrado.enEmpresa) {
+            elegir(encontrado);
+            alEncontrarPreferido?.(encontrado);
+        }
         // Solo al aparecer en la lista: elegir otro después no se pisa.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [encontrado?.idExterno]);
@@ -133,6 +140,7 @@ function Lista({
             alElegir(null);
             return;
         }
+        // La bodega (bodegaId) es informativa: la fija el servidor al vincular.
         alElegir({ idExterno: a.idExterno, bodegaId: bodegaEnEmpresa(a, empresa)?.id ?? null, texto: textoBodegaTecnico(a, empresa) });
     }
 
@@ -206,7 +214,7 @@ function Lista({
                         ? "Argos no tiene técnicos con bodega sin ficha en Iris. Crea su bodega técnico en Argos."
                         : manual !== null
                           ? `Hoy: bodega ${manual}, escrita a mano. Elige su técnico de Argos para dejarla por nombre y vinculada.`
-                          : "Técnicos de Argos con bodega y aún sin ficha. Al guardar queda vinculado: sus consumos salen de esa bodega."
+                          : "Técnicos de Argos con bodega y aún sin ficha. Al guardar queda vinculado y Iris toma su bodega de Argos."
                 }
             />
             <div className="flex flex-wrap items-center gap-2">

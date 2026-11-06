@@ -205,6 +205,7 @@ export function apiEquipo(agenda: EscenarioAgenda, ordenes: OrdenDetalle[]): Api
         // --- Técnicos: alta --------------------------------------------------------------
         if (partes.length === 1) {
             if (!puede("agenda.crear_tecnico")) return prohibido(route);
+            if (typeof b.bodegaId === "number" && !puede("agenda.vincular_argos")) return prohibido(route);
             const c = candidatos.find((x) => x.usuarioId === b.usuarioId);
             if (!c) return validacion(route, "usuarioId", "El usuario no existe o ya tiene ficha");
             if (typeof b.telefono === "string" && (b.telefono.match(/\d/g) ?? []).length < 7) return validacion(route, "telefono", "El teléfono necesita al menos 7 dígitos");
@@ -270,8 +271,14 @@ export function apiEquipo(agenda: EscenarioAgenda, ordenes: OrdenDetalle[]): Api
         if (b.version !== t.version) return conflicto(route);
         if (accion === "editar") {
             if (!puede("agenda.editar_tecnico")) return prohibido(route);
+            // Como la API: bodegaId ausente deja la que tiene; vinculada, otra es 422; a mano, con
+            // agenda.vincular_argos.
+            if (typeof b.bodegaId === "number" && b.bodegaId !== t.bodegaId) {
+                if (t.argos) return problema(route, { type: "urn:iris:problema:bodega_por_vinculo", title: "Bodega por vínculo", status: 422 }).then(() => true);
+                if (!puede("agenda.vincular_argos")) return prohibido(route);
+                t.bodegaId = b.bodegaId;
+            }
             t.cuadrillaId = typeof b.cuadrillaId === "number" ? b.cuadrillaId : null;
-            t.bodegaId = typeof b.bodegaId === "number" ? b.bodegaId : null;
             t.habilidades = Array.isArray(b.habilidades) ? (b.habilidades as string[]) : [];
             t.telefono = typeof b.telefono === "string" ? b.telefono : "";
             t.baseLat = typeof b.baseLat === "number" ? b.baseLat : null;
@@ -291,6 +298,8 @@ export function apiEquipo(agenda: EscenarioAgenda, ordenes: OrdenDetalle[]): Api
             if (u.vinculadoA && u.vinculadoA.tecnicoId !== t.id) return problema(route, { type: "urn:iris:problema:argos_vinculado_a_otro", title: "Vinculado a otra ficha", status: 409 }).then(() => true);
             for (const x of argos.usuarios) if (x.vinculadoA?.tecnicoId === t.id) delete x.vinculadoA;
             u.vinculadoA = { tecnicoId: t.id, usuarioId: t.usuarioId };
+            // La bodega la fija el servidor: la activa de ese usuario de Argos.
+            t.bodegaId = (u.bodegas ?? []).find((x) => x.activa)?.id ?? t.bodegaId;
             t.argos = { idExterno: u.idExterno, nombre: u.nombre, correo: u.correo, vinculadoEn: new Date().toISOString() };
         } else if (accion === "desvincular-argos") {
             if (!puede("agenda.desvincular_argos")) return prohibido(route);

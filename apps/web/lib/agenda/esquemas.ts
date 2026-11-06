@@ -92,25 +92,37 @@ export function vinculoPorPedir(v: Pick<ValoresTecnico, "argosIdExterno">, t: Pi
 }
 
 function comunesTecnico(v: ValoresTecnico) {
-    const bodega = v.bodegaId.trim();
     const telefono = v.telefono.trim();
     return {
         cuadrillaId: Number(v.cuadrillaId),
         habilidades: habilidadesDeTexto(v.habilidades),
-        ...(bodega !== "" ? { bodegaId: Number(bodega) } : {}),
         ...(telefono !== "" ? { telefono } : {}),
     };
 }
 
+/**
+ * La bodega la decide el servidor: la fija `vincular-argos`. Solo se manda `bodegaId` escrita a
+ * mano (respaldo cuando Argos no da la lista), sin un vínculo por pedir, sin vínculo en la ficha y
+ * si cambió. Ausente, la API deja la que tenga.
+ */
+export function bodegaAMano(v: Pick<ValoresTecnico, "bodegaId" | "argosIdExterno">, t?: Pick<Tecnico, "argos" | "bodegaId">): number | null {
+    const bodega = v.bodegaId.trim();
+    if (bodega === "" || !ID.test(bodega) || v.argosIdExterno.trim() !== "" || t?.argos) return null;
+    return Number(bodega) === t?.bodegaId ? null : Number(bodega);
+}
+
 export function entradaCrearTecnico(v: ValoresTecnico): Schema<"EntradaCrearTecnico"> {
-    return { usuarioId: Number(v.usuarioId), ...comunesTecnico(v) };
+    const bodega = bodegaAMano(v);
+    return { usuarioId: Number(v.usuarioId), ...comunesTecnico(v), ...(bodega !== null ? { bodegaId: bodega } : {}) };
 }
 
 /** La edición reemplaza la ficha: la base (lat/lon) se conserva tal como se leyó. */
 export function entradaEditarTecnico(v: ValoresTecnico, t: Tecnico): Schema<"EntradaEditarTecnico"> {
+    const bodega = bodegaAMano(v, t);
     return {
         version: t.version,
         ...comunesTecnico(v),
+        ...(bodega !== null ? { bodegaId: bodega } : {}),
         ...(t.baseLat !== null && t.baseLon !== null ? { baseLat: t.baseLat, baseLon: t.baseLon } : {}),
     };
 }

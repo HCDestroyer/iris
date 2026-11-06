@@ -5232,7 +5232,7 @@
             "type": "number"
           },
           "bodegaId": {
-            "description": "Bodega del técnico en Argos",
+            "description": "Bodega del técnico en Argos, a mano (respaldo): solo con agenda.vincular_argos (si no, 403) y si Argos dice que es de la empresa activa (422 bodega_invalida). Lo normal es no mandarla y vincular la ficha (vincular-argos la fija)",
             "format": "int64",
             "minimum": 1,
             "type": "integer"
@@ -5865,6 +5865,7 @@
             "type": "number"
           },
           "bodegaId": {
+            "description": "Ausente = la que tiene. Con la ficha vinculada a Argos la fija el vínculo: otra es 422 bodega_por_vinculo. Sin vínculo, cambiarla a mano exige agenda.vincular_argos (403) y que Argos diga que es de la empresa activa (422 bodega_invalida)",
             "format": "int64",
             "minimum": 1,
             "type": "integer"
@@ -38644,7 +38645,7 @@
         "x-permiso": "agenda.ver"
       },
       "post": {
-        "description": "Permiso: `agenda.crear_tecnico`. El usuario debe ser una persona activa con `ordenes.ver_propias` u `ordenes.ver` que opere en la empresa activa. Nace sin turnos. Emite `tecnico.creado`.",
+        "description": "Permiso: `agenda.crear_tecnico`. El usuario debe ser una persona activa con `ordenes.ver_propias` u `ordenes.ver` que opere en la empresa activa. Nace sin turnos. La bodega se fija al vincularla con Argos; `bodegaId` a mano exige `agenda.vincular_argos` (403) y que Argos la tenga en la empresa activa (422 `bodega_invalida`). Emite `tecnico.creado`.",
         "operationId": "crearTecnico",
         "parameters": [
           {
@@ -39822,7 +39823,7 @@
     },
     "/api/v1/tecnicos/{id}/editar": {
       "post": {
-        "description": "Permiso: `agenda.editar_tecnico`. Reemplaza cuadrilla, bodega, habilidades y base. Emite `tecnico.actualizado`.",
+        "description": "Permiso: `agenda.editar_tecnico`. Reemplaza cuadrilla, habilidades y base. La bodega ausente queda como está; con la ficha vinculada la fija el vínculo (otra: 422 `bodega_por_vinculo`); a mano exige `agenda.vincular_argos` (403) y que Argos la tenga en la empresa activa (422 `bodega_invalida`). Emite `tecnico.actualizado`.",
         "operationId": "editarTecnico",
         "parameters": [
           {

@@ -2,8 +2,10 @@ package argos_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 )
@@ -130,6 +132,48 @@ func TestSelectorTecnicosArgosNombreYSinVincular(t *testing.T) {
 	}
 	// Sin permiso de vincular: 403.
 	e.usuario("supervisor").pedir(http.MethodGet, "/api/v1/integraciones/argosisp/tecnicos?sinVincular=true", nil).problema(t, 403, "prohibido")
+}
+
+// Argos lento: la lectura con sinVincular tiene un tope global; al vencer entrega lo leído con su
+// nextCursor (la página que no alcanzó queda como siguiente).
+func TestSelectorTecnicosArgosLentoEntregaLoLeido(t *testing.T) {
+	e := nuevoEntorno(t)
+	xs := []tecnicoArgos064{}
+	for i := range 12 {
+		id := fmt.Sprintf("u-l%d", i)
+		xs = append(xs, tecnicoArgos064{IDExterno: id, Correo: id + "@argos.gt", Nombre: "Técnico " + id, Bodegas: []bodegaArgos064{{ID: int64(700 + i), EmpresaID: 1, Activa: true, Nombre: "Bodega " + id}}})
+	}
+	e.argos.con(func() {
+		e.argos.version = "1.9.0"
+		e.argos.tecnicos = comoMapas(t, xs)
+	})
+	admin, _, _ := e.conectado()
+	// 2 por página (simulado) y limit 10: haría falta leer 5 páginas; cada una tarda 300 ms y el tope
+	// es de 700 ms, así que alcanzan 2 (4 técnicos).
+	e.argos.con(func() { e.argos.retrasoTecnicos = 300 * time.Millisecond })
+	e.mod.FijarPlazoListaTecnicos(700 * time.Millisecond)
+	defer e.mod.FijarPlazoListaTecnicos(0)
+	inicio := time.Now()
+	r := admin.pedir(http.MethodGet, "/api/v1/integraciones/argosisp/tecnicos?limit=10&sinVincular=true", nil, "X-Iris-Empresa", "1")
+	if r.status != 200 {
+		t.Fatalf("lento: %d %s", r.status, r.crudo)
+	}
+	if d := time.Since(inicio); d > 2*time.Second {
+		t.Fatalf("debía cortar al vencer el tope: %s", d)
+	}
+	data := r.cuerpo["data"].([]any)
+	if len(data) == 0 || len(data) >= 10 || len(data)%2 != 0 {
+		t.Fatalf("debía entregar las páginas leídas: %d %s", len(data), r.crudo)
+	}
+	if r.cuerpo["nextCursor"] != fmt.Sprint(len(data)) {
+		t.Fatalf("el cursor debía apuntar a la página que no alcanzó: %v (%d leídos)", r.cuerpo["nextCursor"], len(data))
+	}
+	// Desde ese cursor, sin retraso, sigue donde quedó.
+	e.argos.con(func() { e.argos.retrasoTecnicos = 0 })
+	sig := admin.pedir(http.MethodGet, fmt.Sprintf("/api/v1/integraciones/argosisp/tecnicos?limit=2&sinVincular=true&cursor=%v", r.cuerpo["nextCursor"]), nil, "X-Iris-Empresa", "1")
+	if sig.status != 200 || sig.cuerpo["data"].([]any)[0].(map[string]any)["idExterno"] != fmt.Sprintf("u-l%d", len(data)) {
+		t.Fatalf("siguiente: %s", sig.crudo)
+	}
 }
 
 // Argos caído o conector apagado: problema claro (el panel muestra «Reintentar» y el campo a mano).

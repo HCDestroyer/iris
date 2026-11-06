@@ -2896,8 +2896,8 @@ const vincularArgosTecnico = `-- name: VincularArgosTecnico :one
 
 UPDATE agenda.tecnicos
 SET argos_id_externo = $1, argos_correo = $2, argos_nombre = $3,
-    argos_vinculado_en = $4, argos_vinculado_por = $5, version = version + 1, updated_at = now()
-WHERE id = $6 AND version = $7
+    bodega_id = $4, argos_vinculado_en = $5, argos_vinculado_por = $6, version = version + 1, updated_at = now()
+WHERE id = $7 AND version = $8
 RETURNING id, usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, activo, version, created_at, updated_at, telefono, argos_id_externo, argos_correo, argos_nombre, argos_vinculado_en, argos_vinculado_por
 `
 
@@ -2905,6 +2905,7 @@ type VincularArgosTecnicoParams struct {
 	IDExterno    *string
 	Correo       *string
 	Nombre       *string
+	BodegaID     *int64
 	VinculadoEn  *time.Time
 	VinculadoPor *int64
 	ID           int64
@@ -2917,6 +2918,7 @@ func (q *Queries) VincularArgosTecnico(ctx context.Context, arg VincularArgosTec
 		arg.IDExterno,
 		arg.Correo,
 		arg.Nombre,
+		arg.BodegaID,
 		arg.VinculadoEn,
 		arg.VinculadoPor,
 		arg.ID,

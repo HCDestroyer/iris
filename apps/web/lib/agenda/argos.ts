@@ -93,7 +93,7 @@ export function textoErrorVinculo(error: unknown): string | undefined {
     }
 }
 
-/** Alta de la ficha con el técnico de Argos precargado (su bodega elegida y su correo en la búsqueda). */
-export function rutaCrearFicha(a: Pick<TecnicoArgos, "idExterno" | "correo">): string {
-    return `/tecnicos/nuevo?${new URLSearchParams({ argos: a.idExterno, correo: a.correo }).toString()}`;
+/** Alta de la ficha con el técnico de Argos precargado (su correo se lee de la API, no de la URL). */
+export function rutaCrearFicha(a: Pick<TecnicoArgos, "idExterno">): string {
+    return `/tecnicos/nuevo?${new URLSearchParams({ argos: a.idExterno }).toString()}`;
 }
