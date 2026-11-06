@@ -8,6 +8,8 @@ import { Suspense, useCallback, useEffect, useId, useState, useSyncExternalStore
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { limpiarClientesRecientes } from "@/lib/clientes/selector";
+import { limpiarBorradores } from "@/lib/conversaciones/borradores";
+import { useNoLeidosConversaciones } from "@/lib/conversaciones/contador";
 import { requiereCambio, rutaCambiarContrasena, suscribirCambioRequerido } from "@/lib/cuenta/sesion";
 import { guardarEmpresa, limpiarEmpresa, suscribirProblemasEmpresa } from "@/lib/empresa";
 import { menuAgrupado, repartoTelefono } from "@/lib/menu";
@@ -183,6 +185,15 @@ function Estructura({ children }: { children: ReactNode }) {
 const CONSULTA_ESCRITORIO = "(min-width: 1024px)";
 
 /**
+ * Pantallas de ancho completo (la bandeja de conversaciones): la barra lateral se compacta a riel
+ * de íconos (sin tocar la preferencia guardada) y el contenido usa todo el ancho y el alto que
+ * queda bajo la barra superior, sin márgenes. En el teléfono las migas no se repiten arriba: la
+ * pantalla tiene su título y su «Atrás».
+ */
+const RUTAS_ANCHO_COMPLETO = ["/conversaciones"];
+export const esAnchoCompleto = (ruta: string) => RUTAS_ANCHO_COMPLETO.includes(ruta);
+
+/**
  * Región de avisos en el teléfono: dentro de la barra superior (56 px), desde el borde izquierdo
  * hasta antes del buscador (y de «Avisos» y «Crear», a su derecha); el texto en letra pequeña y hasta dos líneas para que quepa.
  */
@@ -224,13 +235,21 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
     const router = useRouter();
     const grupos = menuAgrupado(permisos);
     const telefono = repartoTelefono(permisos);
-    const [contraida, setContraida] = useState(leerContraida);
+    const [contraidaGuardada, setContraida] = useState(leerContraida);
+    const anchoCompleto = esAnchoCompleto(ruta);
+    // En la bandeja el menú va como riel; «Expandir menú» lo abre solo mientras sigas ahí.
+    const [expandidaEn, setExpandidaEn] = useState<string | null>(null);
+    const contraida = anchoCompleto ? expandidaEn !== ruta : contraidaGuardada;
     const [masAbierto, setMasAbierto] = useState(false);
     const [cerrando, setCerrando] = useState(false);
     const [errorCerrar, setErrorCerrar] = useState<unknown>(null);
     const idBarra = useId();
 
     function alternarContraida() {
+        if (anchoCompleto) {
+            setExpandidaEn((e) => (e === ruta ? null : ruta));
+            return;
+        }
         setContraida((c) => {
             guardarContraida(!c);
             return !c;
@@ -250,14 +269,16 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
                 return;
             }
         }
-        // Los clientes recientes del selector no sobreviven a la sesión.
+        // Los clientes recientes del selector y los borradores de la bandeja no sobreviven a la sesión.
         limpiarClientesRecientes();
+        limpiarBorradores();
         router.replace("/entrar");
         router.refresh();
     }
 
     const resumen = useResumenTickets();
-    const contadores = { "/tickets": contadorDe(resumen, "activos") };
+    const noLeidos = useNoLeidosConversaciones(puede(["conversaciones.ver"]) && (yo.modoEmpresa === "sin_conector" || yo.empresaActiva !== undefined), `${yo.empresaActiva?.id ?? 0}`);
+    const contadores = { "/tickets": contadorDe(resumen, "activos"), "/conversaciones": noLeidos };
 
     return (
         <div className={cn("min-h-dvh bg-background-secondary text-[0.875rem]", contraida ? "lg:pl-16" : "lg:pl-60")}>
@@ -317,15 +338,25 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
                 <BotonCrear />
             </header>
 
-            <main id="contenido" className="mx-auto max-w-[96rem] p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:px-6 sm:pt-5 sm:pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:pb-7">
-                <div className="lg:hidden">
-                    <MigasPanel />
-                </div>
+            <main
+                id="contenido"
+                data-ancho-completo={anchoCompleto || undefined}
+                className={
+                    anchoCompleto
+                        ? "min-w-0"
+                        : "mx-auto max-w-[96rem] p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:px-6 sm:pt-5 sm:pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:pb-7"
+                }
+            >
+                {anchoCompleto ? null : (
+                    <div className="lg:hidden">
+                        <MigasPanel />
+                    </div>
+                )}
                 {errorCerrar ? (
                     <Aviso
                         tono="error"
                         titulo="No se pudo cerrar la sesión"
-                        className="mb-4"
+                        className={anchoCompleto ? "m-3" : "mb-4"}
                         accion={
                             <Boton variante="secundario" tamano="sm" onClick={cerrarSesion}>
                                 <RotateCw />

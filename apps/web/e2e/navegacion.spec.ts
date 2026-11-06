@@ -30,7 +30,7 @@ test("menú agrupado; en escritorio se contrae a íconos (con globo) y lo recuer
     }
     // La operación va arriba sin título visible; Tickets lleva su contador (del resumen de la bandeja).
     await expect(nav.getByText("Operación")).toHaveClass(/sr-only/);
-    await expect(nav.getByRole("list", { name: "Operación" }).getByRole("link")).toHaveText([/^Inicio$/, /^Tickets\d+$/, /^Órdenes y tareas$/, /^Agenda$/, /^Mapa$/, /^Técnicos$/]);
+    await expect(nav.getByRole("list", { name: "Operación" }).getByRole("link")).toHaveText([/^Inicio$/, /^Tickets\d+$/, /^Conversaciones\d*$/, /^Órdenes y tareas$/, /^Agenda$/, /^Mapa$/, /^Técnicos$/]);
     await expect(nav.getByRole("link", { name: /^Tickets/ }).locator('[data-slot="contador"]')).toHaveText(/^\d+$/);
     await expect(nav.getByRole("list", { name: "Negocio" }).getByRole("link")).toHaveText(["Comercial", "Encuestas", "Reportes"]);
     await expect(nav.getByRole("list", { name: "Administración" }).getByRole("link")).toHaveText(["Usuarios", "Administración"]);

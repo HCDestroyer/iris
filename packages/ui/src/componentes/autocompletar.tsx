@@ -136,7 +136,7 @@ export function Autocompletar({
         <ComboBox
             data-slot="autocompletar"
             {...(testid ? { "data-testid": testid } : {})}
-            className={cn("grid w-full gap-1.5", className)}
+            className={cn("grid w-full min-w-0 grid-cols-1 gap-1.5", className)}
             selectedKey={valor}
             onSelectionChange={(clave: Key | null) => {
                 const elegida = clave === null ? null : String(clave);
@@ -158,13 +158,13 @@ export function Autocompletar({
             isInvalid={Boolean(error)}
         >
             <Label className="text-sm font-medium">{etiqueta}</Label>
-            <ComboBox.InputGroup className="relative">
+            <ComboBox.InputGroup className="relative min-w-0">
                 {conLupa ? <Search aria-hidden className="pointer-events-none absolute top-1/2 left-3 z-10 size-4 -translate-y-1/2 text-muted-foreground" /> : null}
                 <Input
                     id={ids.idCampo}
                     aria-describedby={ids.control["aria-describedby"]}
                     placeholder={placeholder}
-                    className={cn("h-10", conLupa && "pl-9")}
+                    className={cn("h-10 min-w-0", conLupa && "pl-9")}
                     autoComplete="off"
                     onKeyDown={sinEnviarConEnter}
                     {...(autoFocus ? { autoFocus } : {})}

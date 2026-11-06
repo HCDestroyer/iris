@@ -5,6 +5,7 @@ import { Camara } from "./componentes/camara";
 import { abrirEscaner, admiteLinterna, lectorNativo, VisorEscaner, type Lector } from "./componentes/escaner";
 import { hayFirma, MAX_SVG_FIRMA, simplificar, trazosASvg, type Trazo } from "./componentes/firma";
 import { LienzoFirma } from "./componentes/lienzo-firma";
+import { SelectorArchivo } from "./componentes/selector-archivo";
 
 describe("firma", () => {
     it("convierte trazos a un SVG con viewBox del lienzo y rutas M/L", () => {
@@ -57,6 +58,15 @@ describe("firma", () => {
         expect(html).toContain('aria-label="Firma del cliente: vacía"');
         expect(html).toContain("touch-none");
         expect(html).toContain("Borrar firma");
+    });
+});
+
+describe("SelectorArchivo", () => {
+    it("input de archivo sin cámara, oculto pero enfocable, con su nombre", () => {
+        const html = renderToStaticMarkup(<SelectorArchivo etiqueta="Adjuntar archivo" accept="image/*,application/pdf" alElegir={() => undefined} />);
+        expect(html).toMatch(/<label[^>]*title="Adjuntar archivo"[^>]*data-slot="selector-archivo"/);
+        expect(html).toMatch(/<input[^>]*type="file" accept="image\/\*,application\/pdf"[^>]*aria-label="Adjuntar archivo" class="sr-only"/);
+        expect(html).not.toContain("capture");
     });
 });
 

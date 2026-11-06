@@ -135,6 +135,7 @@ dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`avis
 | `Interruptor` | `Switch`, `Switch.Content`, `Switch.Control`, `Switch.Thumb` | Ajustes de encendido/apagado que cambian lo que sigue. Con `register` como `Casilla` |
 | `CampoNumero` | `NumberField` (+ `DecrementButton` / `IncrementButton` con `conPasos`) | Cantidades y montos; el formulario recibe el texto del número (`"250.5"`) |
 | `CampoBusqueda` | `SearchField` (`SearchIcon`, `Input`, `ClearButton`) | Lupa y «X» de Lucide; Escape borra |
+| `SelectorArchivo` | — (`<input type="file">` oculto en su `<label>`, como `Camara`) | Adjuntar sin cámara (compositor de la bandeja); clip de Lucide; se limpia tras elegir |
 | `AvatarUsuario` | `Avatar`, `Avatar.Fallback` | Iniciales (decorativo: el nombre va al lado) |
 | `Entrada`, `Campo` | `Input` | Un `<input>` nativo: sirve con `register` |
 | `AreaTexto`, `CampoArea` | `TextArea` | |
@@ -243,6 +244,34 @@ Reemplaza lo que dicen las fases 1 y 3 donde no coincida.
   Técnicos · Órdenes · Red, leyenda (en sitio, en camino, sin señal, orden sin asignar) y tarjeta
   del técnico (orden actual, siguiente, «Asignar orden» y «Ruta»). «Red» queda vacía hasta que haya
   una lectura de la red de Horus (`.claude/integration/i3.md`).
+
+## Bandeja de conversaciones (nov. 2026)
+
+Diseño aprobado por el PM («compactar menús, mejor integración y que nada se vea cortado»):
+
+- **Ancho completo:** en `/conversaciones` la barra lateral pasa a riel de íconos (sin tocar la
+  preferencia guardada; «Expandir menú» la abre mientras sigas ahí) y la bandeja ocupa todo el
+  alto bajo la barra superior (`esAnchoCompleto` en `componentes/panel.tsx`).
+- **Tres columnas** con consultas de contenedor (`@container`), no de ventana: lista · conversación
+  · ficha desde 1100 px de bandeja; debajo, la ficha va en una hoja; debajo de 700 px, lista **o**
+  conversación (con «Atrás») y la barra inferior se oculta dentro de la conversación.
+- **Lista:** dos líneas por fila con elipsis, punto de color del número sobre el avatar
+  (`tonoDeCanal`: soporte = marca, cobros = alerta, avisos = info, ventas = éxito), punto de SLA,
+  iniciales de quien la tiene y no leídos. Filtros en **un solo botón con contador**
+  (`PanelEmergente`); segmentado Mías / Sin asignar / Todas con su cifra (`GrupoSegmentado` con
+  `contador`). Todo va en la URL (`?c=41&vista=mias&canal=4`).
+- **Conversación:** cabecera de una línea con el grupo [Asignado ▾ | Ayuda ▾ | Resolver | ⋯]; en
+  el teléfono solo [Asignado][⋯]. Burbujas, notas internas en amarillo punteado y eventos de sistema
+  centrados. Compositor único (Responder / Nota interna, tiempo de la ventana de 24 h, adjuntar,
+  manuales, plantillas, respuestas rápidas y emoji, «Enviar» en tinta). Enter envía, Mayús + Enter
+  baja de línea. Fuera de la ventana solo ofrece plantillas aprobadas, explicado en una línea.
+- **Tiempo real:** `lib/conversaciones/tiempo-real.ts` (flujo SSE leído con `fetch` y sondeo con
+  el mismo cursor). **Antes de abrir el flujo, de sondear, de guardar un borrador y de enviar se
+  verifica con `GET /yo` que la sesión del navegador sigue siendo de quien está en pantalla**
+  (`lib/conversaciones/sesion.ts`); si cambió, nada sale y la pantalla pide recargar.
+- **Pruebas de «nada cortado»:** `e2e/desbordes.ts` (`esperarSinDesbordes`) falla si la página
+  se desplaza a lo ancho, si algo queda fuera de la ventana o si un texto se sale de su caja sin
+  elipsis.
 
 ## Navegación del panel (fase 1, hecha)
 

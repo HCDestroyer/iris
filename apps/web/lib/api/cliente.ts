@@ -1,5 +1,6 @@
 import { crearCliente, type ClienteIris } from "@iris/contratos";
 import { limpiarClientesRecientes } from "../clientes/selector";
+import { limpiarBorradores } from "../conversaciones/borradores";
 import { CODIGO_CAMBIO_REQUERIDO, notificarCambioRequerido } from "../cuenta/sesion";
 import { CABECERA_EMPRESA, empresaGuardada, esProblemaEmpresa, notificarProblemaEmpresa, type ProblemaEmpresa } from "../empresa";
 import { ErrorApi, errorDesdeRespuesta, errorSinConexion } from "./errores";
@@ -108,8 +109,10 @@ export function crearClienteIris(opciones: OpcionesCliente = {}): ClienteIris {
         },
         async onResponse({ request, response }) {
             if (response.status === 401) {
-                // Sin sesión: no quedan clientes recientes (datos de clientes) en este navegador.
+                // Sin sesión: no quedan clientes recientes (datos de clientes) ni borradores de
+                // la bandeja en este navegador.
                 limpiarClientesRecientes();
+                limpiarBorradores();
             }
             const codigo = await codigoProblema(response);
             if (codigo !== undefined && esProblemaEmpresa(codigo)) {

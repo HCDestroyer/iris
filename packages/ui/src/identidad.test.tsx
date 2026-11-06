@@ -58,4 +58,11 @@ describe("GrupoSegmentado", () => {
         expect(html).toMatch(/role="radio" aria-checked="false">En curso</);
         expect(html).toContain("data-selected:shadow-[0_0_0_1px_var(--hx-primary)]");
     });
+
+    it("con contador lo muestra discreto junto a la etiqueta («Mías 4»)", () => {
+        const html = renderToStaticMarkup(
+            <GrupoSegmentado etiqueta="Vista" opciones={[{ valor: "mias", etiqueta: "Mías", contador: 4 }]} valor="mias" alCambiar={() => undefined} />,
+        );
+        expect(html).toMatch(/<span class="truncate">Mías<\/span><span class="[^"]*text-muted-foreground[^"]*" data-slot="contador">4<\/span>/);
+    });
 });
