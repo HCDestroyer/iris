@@ -132,14 +132,23 @@ export function normalizarPunto(punto: PuntoPosicion): PuntoPosicion | null {
     return limpio;
 }
 
-/** `Retry-After` en segundos o como fecha HTTP → ms de espera (`null` si no se entiende). */
-export function msDeRetryAfter(valor: string | null | undefined, ahora: number): number | null {
+/** Tope de una espera pedida con `Retry-After` (un valor enorme desbordaría `setTimeout`). */
+export const RETRY_AFTER_MAX_MS = 5 * 60_000;
+
+/**
+ * `Retry-After` en segundos o como fecha HTTP → ms de espera (`null` si no se entiende), nunca más
+ * de `maximoMs` (5 min): `setTimeout` con más de ~24,8 días se dispara al instante.
+ */
+export function msDeRetryAfter(valor: string | null | undefined, ahora: number, maximoMs = RETRY_AFTER_MAX_MS): number | null {
     const texto = valor?.trim() ?? "";
+    let ms: number | null = null;
     if (/^\d+$/.test(texto)) {
-        return Number(texto) * 1000;
+        ms = Number(texto) * 1000;
+    } else {
+        const fecha = texto ? Date.parse(texto) : Number.NaN;
+        ms = Number.isNaN(fecha) ? null : Math.max(0, fecha - ahora);
     }
-    const fecha = texto ? Date.parse(texto) : Number.NaN;
-    return Number.isNaN(fecha) ? null : Math.max(0, fecha - ahora);
+    return ms === null ? null : Math.min(Number.isFinite(ms) ? ms : maximoMs, maximoMs);
 }
 
 function aCable(local: PosicionLocal): PuntoPosicion {

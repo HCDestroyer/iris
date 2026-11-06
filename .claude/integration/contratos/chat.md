@@ -167,8 +167,12 @@ data: {"id":"1543","tipo":"mensaje_nuevo",…}
   la app pasa al sondeo. Las lecturas del feed de los flujos van por un semáforo (16 a la vez).
 - 410 `cursor_vencido` (el cursor es anterior a la retención de 7 días): EventSource no reintenta;
   recarga las conversaciones y abre el flujo sin cursor. 401/403: no reintentes.
-- El panel usa `EventSource` con la cookie (`withCredentials` si el origen difiere). La app usa un
-  cliente SSE con cabeceras (Bearer), o el sondeo.
+- El panel usa `EventSource` con la cookie (`withCredentials` si el origen difiere). La app nativa lee
+  el flujo con `expo/fetch` (`crearFlujoFetch` de `@iris/sync/chat`): la misma cookie de sesión que el
+  resto de sus llamadas (no usa Bearer), `X-Iris-Empresa`, `X-Iris-Canal`, `X-Iris-App` y
+  `Last-Event-ID`/`?desde=`; solo en primer plano y con un flujo a la vez. Sin latido en 60 s corta y
+  reconecta; un flujo de menos de 5 s es corto y el siguiente espera el doble (3 s a 30 s); tras 3
+  cortos, sondeo. 401/403 detienen; 429/503, sondeo con espera.
 
 ### Sondeo: `GET /cambios?cursor=<id>&limit=`
 
