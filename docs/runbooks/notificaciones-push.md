@@ -163,4 +163,3 @@ Para compilar en local, copia el archivo a `apps/movil/google-services.json` ant
 iniciales por remitente), ni versión pública con título propio, ni `setWhen`. Hacerlo pide un *config
 plugin* con un `FirebaseMessagingService` propio en Kotlin; queda para una siguiente versión, a
 validar en un teléfono.
-

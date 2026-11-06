@@ -506,7 +506,9 @@ configure_fcm() {
     [ -n "$FCM_CREDENTIALS" ] || return 0
     # Absolute path: a name that starts with "-" is never read as an option (and -- below too).
     FCM_CREDENTIALS="$(realpath -e -- "$FCM_CREDENTIALS")" || die "cannot find the Firebase credentials: $FCM_CREDENTIALS"
-    [ -f "$FCM_CREDENTIALS" ] && [ -r "$FCM_CREDENTIALS" ] || die "cannot read the Firebase credentials: $FCM_CREDENTIALS"
+    if [ ! -f "$FCM_CREDENTIALS" ] || [ ! -r "$FCM_CREDENTIALS" ]; then
+        die "cannot read the Firebase credentials: $FCM_CREDENTIALS"
+    fi
     if ! grep -Eq -- '"type"[[:space:]]*:[[:space:]]*"service_account"' "$FCM_CREDENTIALS" || ! grep -q -- '"private_key"' "$FCM_CREDENTIALS"; then
         die "$FCM_CREDENTIALS is not a Google service account JSON (Firebase console > Project settings > Service accounts > Generate new private key)"
     fi
