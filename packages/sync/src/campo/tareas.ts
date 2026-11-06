@@ -145,8 +145,11 @@ export function horaTarea(t: Pick<Tarea, "inicio">): string {
 }
 
 /**
- * Entrada de la lista del día: una orden (por la hora de su cita) o una tarea propia, intercaladas
- * por hora. Las órdenes sin hora van al final en el orden en que llegaron (el de la ruta).
+ * Entrada de la lista del día: una orden o una tarea propia. Las órdenes conservan EXACTAMENTE el
+ * orden en que llegan (el de las paradas con ruta publicada; el de la cita sin ruta): nunca se
+ * mueven entre sí. Cada tarea va antes de la primera orden cuya hora (`horaDe`: la llegada
+ * estimada con ruta o el inicio de la cita) sea posterior a su inicio; si ninguna, al final. Las
+ * tareas entre sí, por inicio.
  */
 export type EntradaDia<O, T = Tarea> =
     | { tipo: "orden"; clave: string; orden: O }
@@ -160,33 +163,34 @@ export function intercalarTareas<
     horaDe: (o: O) => string | null | undefined,
     tareas: readonly T[],
 ): EntradaDia<O, T>[] {
-    const entradas: {
-        inicio: string | null;
-        i: number;
-        e: EntradaDia<O, T>;
-    }[] = [
-        ...ordenes.map((orden, i) => ({
-            inicio: horaDe(orden) ?? null,
-            i,
-            e: { tipo: "orden" as const, clave: `orden-${orden.id}`, orden },
-        })),
-        ...tareas.map((tarea, i) => ({
-            inicio: tarea.inicio,
-            i: ordenes.length + i,
-            e: { tipo: "tarea" as const, clave: `tarea-${tarea.id}`, tarea },
-        })),
-    ];
-    entradas.sort((a, b) => {
-        if (a.inicio === null || b.inicio === null) {
-            return a.inicio === b.inicio
-                ? a.i - b.i
-                : a.inicio === null
-                  ? 1
-                  : -1;
-        }
-        return Date.parse(a.inicio) - Date.parse(b.inicio) || a.i - b.i;
+    const pendientes = [...tareas].sort(
+        (a, b) =>
+            Date.parse(a.inicio) - Date.parse(b.inicio) ||
+            a.id.localeCompare(b.id),
+    );
+    const salida: EntradaDia<O, T>[] = [];
+    const tarea = (t: T): EntradaDia<O, T> => ({
+        tipo: "tarea",
+        clave: `tarea-${t.id}`,
+        tarea: t,
     });
-    return entradas.map((x) => x.e);
+    for (const orden of ordenes) {
+        const hora = horaDe(orden);
+        const ms = hora ? Date.parse(hora) : Number.NaN;
+        if (!Number.isNaN(ms)) {
+            while (
+                pendientes.length > 0 &&
+                Date.parse(pendientes[0]?.inicio ?? "") < ms
+            ) {
+                const t = pendientes.shift();
+                if (t) {
+                    salida.push(tarea(t));
+                }
+            }
+        }
+        salida.push({ tipo: "orden", clave: `orden-${orden.id}`, orden });
+    }
+    return [...salida, ...pendientes.map(tarea)];
 }
 
 // ---------------------------------------------------------------------------------------------

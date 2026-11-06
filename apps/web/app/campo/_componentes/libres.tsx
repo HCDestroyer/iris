@@ -243,6 +243,7 @@ export function OrdenesLibresPantalla() {
                             Cancelar
                         </Boton>
                         <Boton
+                            variante="tinta"
                             tamano="lg"
                             className={BOTON_TINTA}
                             disabled={ocupado}

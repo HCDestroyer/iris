@@ -133,6 +133,35 @@ describe("tareas en Hoy y Agenda", () => {
         ).toEqual(["orden-1", "tarea-t1", "orden-2", "orden-3"]);
     });
 
+    it("nunca reordena las órdenes (orden de la ruta): la tarea entra antes de la primera posterior", () => {
+        // Ruta publicada: 103 (09:00) antes que 101 (10:10, fuera de su ventana) y 102 (08:30 sin estimado).
+        const ordenes = [
+            { id: 103, hora: "2026-11-05T15:00:00Z" },
+            { id: 101, hora: "2026-11-05T16:10:00Z" },
+            { id: 102, hora: "2026-11-05T14:30:00Z" },
+        ];
+        const tareas = [
+            tarea("tarde", "2026-11-06T05:30:00Z"),
+            tarea("temprano", "2026-11-05T15:30:00Z"),
+            tarea("antes", "2026-11-05T14:00:00Z"),
+        ];
+        expect(
+            intercalarTareas(ordenes, (o) => o.hora, tareas).map(
+                (e) => e.clave,
+            ),
+        ).toEqual([
+            "tarea-antes",
+            "orden-103",
+            "tarea-temprano",
+            "orden-101",
+            "orden-102",
+            "tarea-tarde",
+        ]);
+        expect(
+            intercalarTareas(ordenes, (o) => o.hora, []).map((e) => e.clave),
+        ).toEqual(["orden-103", "orden-101", "orden-102"]);
+    });
+
     it("solo las del día (Guatemala), sin anuladas", () => {
         const tareas = [
             tarea("a", "2026-11-06T05:00:00Z"),

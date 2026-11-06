@@ -28,7 +28,13 @@ export function ListaOrdenes({ carga, bajarPaquete }: { carga: CargaPaquete; baj
     const { siguiente, despues, terminadas } = resumenHoy(estado.ordenes);
     // Las tareas propias de hoy van intercaladas por hora en «Después» (borde punteado).
     const tareas = tareasDelDia(estado.tareas, hoyEnGuatemala());
-    const entradas = intercalarTareas(despues, (o) => o.cita?.inicio ?? o.programadaInicio, tareas);
+    // Las órdenes quedan en su orden (paradas o cita); cada tarea entra antes de la primera cuya hora
+    // (llegada estimada con ruta, inicio de la cita sin ruta) sea posterior.
+    const entradas = intercalarTareas(
+        despues,
+        (o) => (conRuta ? paradaDe(estado.ruta, o.id)?.llegadaEstimada : null) ?? o.cita?.inicio ?? o.programadaInicio,
+        tareas,
+    );
     const posicion = (o: OrdenVista) => (conRuta ? (estado.ruta?.ordenIds?.indexOf(o.id) ?? -1) + 1 || null : null);
 
     return (

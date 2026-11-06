@@ -287,7 +287,7 @@ function FilaAccion({ slot, icono: Icono, titulo, detalle, cuenta = null, alPres
             aria-label={cuenta !== null ? `${titulo} (${cuenta})` : titulo}
             onClick={alPresionar}
         >
-            <span aria-hidden className="grid size-11 shrink-0 place-content-center rounded-2xl bg-[var(--campo-panel-2)] text-foreground">
+            <span aria-hidden className="grid size-11 shrink-0 place-content-center rounded-2xl bg-[color-mix(in_srgb,var(--hx-text)_8%,transparent)] text-foreground">
                 <Icono className="size-5" />
             </span>
             <span className="grid flex-1 gap-0.5">

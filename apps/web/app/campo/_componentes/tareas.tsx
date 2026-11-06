@@ -28,9 +28,8 @@ import { useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { useCampo } from "./contexto";
 
-/** Botón primario «tinta» del diseño: fondo del texto, texto invertido. */
-export const BOTON_TINTA =
-    "h-[3.25rem] w-full rounded-full bg-[var(--campo-tinta)] text-base font-semibold text-[var(--campo-sobre-tinta)] hover:opacity-90";
+/** Primario del diseño: la variante «tinta» de `Boton`, en píldora de 52 px. */
+export const BOTON_TINTA = "h-[3.25rem] w-full rounded-full text-base md:h-[3.25rem]";
 
 /** «Nueva tarea»: pantalla propia (formulario de más de 3 campos), también sin señal. */
 export function NuevaTarea() {
@@ -180,6 +179,7 @@ export function NuevaTarea() {
                 </p>
                 <Boton
                     type="submit"
+                    variante="tinta"
                     tamano="lg"
                     className={BOTON_TINTA}
                     disabled={form.formState.isSubmitting}
