@@ -1,15 +1,15 @@
 "use client";
 
 import type { OrdenCampo } from "@iris/sync";
-import { sumarDias } from "@iris/sync/campo";
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import { lecturaUnica, sumarDias, type CargarLectura } from "@iris/sync/campo";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { hoyEnGuatemala } from "@/lib/campo/fechas";
 import type { Lectura } from "./inventario-datos";
 
 /** La semana leída: desde hoy hasta `hasta` (7 días). */
 export type SemanaLeida = { desde: string; hasta: string; ordenes: OrdenCampo[] };
 
-type ContextoAgenda = { semana: Lectura<SemanaLeida>; cargarSemana: () => Promise<void> };
+type ContextoAgenda = { semana: Lectura<SemanaLeida>; cargarSemana: CargarLectura };
 
 const Contexto = createContext<ContextoAgenda | null>(null);
 
@@ -28,23 +28,30 @@ export function useAgenda(): ContextoAgenda {
  */
 export function ProveedorAgenda({ leer, children }: { leer: (hasta: string) => Promise<OrdenCampo[]>; children: ReactNode }) {
     const [semana, setSemana] = useState<Lectura<SemanaLeida>>({ estado: "inactiva", datos: null, error: null, leidoEn: null });
-    const enCurso = useRef<Promise<void> | null>(null);
-    const cargarSemana = useCallback(() => {
-        if (enCurso.current) {
-            return enCurso.current;
-        }
-        const desde = hoyEnGuatemala();
-        const hasta = sumarDias(desde, 6);
-        setSemana((l) => ({ estado: "cargando", datos: l.datos, error: null, leidoEn: l.leidoEn }));
-        const p = leer(hasta)
-            .then((ordenes) => setSemana({ estado: "lista", datos: { desde, hasta, ordenes }, error: null, leidoEn: Date.now() }))
-            .catch((error: unknown) => setSemana((l) => ({ estado: "error", datos: l.datos, error, leidoEn: l.leidoEn })))
-            .finally(() => {
-                enCurso.current = null;
-            });
-        enCurso.current = p;
-        return p;
-    }, [leer]);
+    // Una lectura a la vez; con `otraVez` (al volver la señal) se lee otra al terminar la que corre.
+    // Al desmontar (cerrar sesión, otro motor) se detiene: nada pendiente se lanza ni se aplica.
+    const lectura = useMemo(
+        () =>
+            lecturaUnica((vigente) => {
+                const desde = hoyEnGuatemala();
+                const hasta = sumarDias(desde, 6);
+                setSemana((l) => ({ estado: "cargando", datos: l.datos, error: null, leidoEn: l.leidoEn }));
+                return leer(hasta)
+                    .then((ordenes) => {
+                        if (vigente()) {
+                            setSemana({ estado: "lista", datos: { desde, hasta, ordenes }, error: null, leidoEn: Date.now() });
+                        }
+                    })
+                    .catch((error: unknown) => {
+                        if (vigente()) {
+                            setSemana((l) => ({ estado: "error", datos: l.datos, error, leidoEn: l.leidoEn }));
+                        }
+                    });
+            }),
+        [leer],
+    );
+    useEffect(() => () => lectura.detener(), [lectura]);
+    const cargarSemana = lectura.cargar;
     const valor = useMemo(() => ({ semana, cargarSemana }), [semana, cargarSemana]);
     return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;
 }

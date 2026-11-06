@@ -1,7 +1,8 @@
 "use client";
 
 import type { InventarioCampo, MiBodega, Traslado } from "@iris/sync";
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import { lecturaUnica, type CargarLectura } from "@iris/sync/campo";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 /** Lectura de la API guardada en memoria mientras la app está abierta (sin señal se ve la última). */
 export type Lectura<T> =
@@ -13,8 +14,8 @@ const INACTIVA = { estado: "inactiva", datos: null, error: null, leidoEn: null }
 type ContextoInventario = {
     traslados: Lectura<Traslado[]>;
     bodega: Lectura<MiBodega>;
-    cargarTraslados: () => Promise<void>;
-    cargarBodega: () => Promise<void>;
+    cargarTraslados: CargarLectura;
+    cargarBodega: CargarLectura;
 };
 
 const Contexto = createContext<ContextoInventario | null>(null);
@@ -27,23 +28,30 @@ export function useInventario(): ContextoInventario {
     return c;
 }
 
-function useLectura<T>(leer: () => Promise<T>): [Lectura<T>, () => Promise<void>] {
+function useLectura<T>(leer: () => Promise<T>): [Lectura<T>, CargarLectura] {
     const [lectura, setLectura] = useState<Lectura<T>>(INACTIVA);
-    const enCurso = useRef<Promise<void> | null>(null);
-    const cargar = useCallback(() => {
-        if (enCurso.current) {
-            return enCurso.current;
-        }
-        setLectura((l) => ({ estado: "cargando", datos: l.datos, error: null, leidoEn: l.leidoEn }));
-        const p = leer()
-            .then((datos) => setLectura({ estado: "lista", datos, error: null, leidoEn: Date.now() }))
-            .catch((error: unknown) => setLectura((l) => ({ estado: "error", datos: l.datos, error, leidoEn: l.leidoEn })))
-            .finally(() => {
-                enCurso.current = null;
-            });
-        enCurso.current = p;
-        return p;
-    }, [leer]);
+    // Una lectura a la vez; con `otraVez` (al volver la señal) se lee otra al terminar la que corre.
+    // Al desmontar (cerrar sesión, otro motor) se detiene: nada pendiente se lanza ni se aplica.
+    const unica = useMemo(
+        () =>
+            lecturaUnica((vigente) => {
+                setLectura((l) => ({ estado: "cargando", datos: l.datos, error: null, leidoEn: l.leidoEn }));
+                return leer()
+                    .then((datos) => {
+                        if (vigente()) {
+                            setLectura({ estado: "lista", datos, error: null, leidoEn: Date.now() });
+                        }
+                    })
+                    .catch((error: unknown) => {
+                        if (vigente()) {
+                            setLectura((l) => ({ estado: "error", datos: l.datos, error, leidoEn: l.leidoEn }));
+                        }
+                    });
+            }),
+        [leer],
+    );
+    useEffect(() => () => unica.detener(), [unica]);
+    const cargar = unica.cargar;
     return [lectura, cargar];
 }
 
