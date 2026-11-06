@@ -18,7 +18,7 @@ SET nombre = $1, numero = $2, phone_number_id = $3, waba_id = $4,
     credenciales_cifradas = $5, plantillas = $6,
     version = version + 1, updated_at = now()
 WHERE id = $7
-RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario
+RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot
 `
 
 type ActualizarCanalParams struct {
@@ -64,6 +64,7 @@ func (q *Queries) ActualizarCanal(ctx context.Context, arg ActualizarCanalParams
 		&i.ColaID,
 		&i.HorarioID,
 		&i.FueraHorario,
+		&i.Bot,
 	)
 	return i, err
 }
@@ -316,7 +317,7 @@ func (q *Queries) BloquearRemitente(ctx context.Context, remitente string) error
 const canalPorID = `-- name: CanalPorID :one
 
 
-SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario FROM mensajeria.canales WHERE id = $1
+SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot FROM mensajeria.canales WHERE id = $1
 `
 
 // Mensajería (contrato Iris ↔ ArgosISP 0.6.0 §6). sqlc: mensajeriabd.
@@ -346,12 +347,13 @@ func (q *Queries) CanalPorID(ctx context.Context, id int64) (MensajeriaCanal, er
 		&i.ColaID,
 		&i.HorarioID,
 		&i.FueraHorario,
+		&i.Bot,
 	)
 	return i, err
 }
 
 const canalPorIDParaActualizar = `-- name: CanalPorIDParaActualizar :one
-SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario FROM mensajeria.canales WHERE id = $1 FOR UPDATE
+SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot FROM mensajeria.canales WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) CanalPorIDParaActualizar(ctx context.Context, id int64) (MensajeriaCanal, error) {
@@ -379,12 +381,13 @@ func (q *Queries) CanalPorIDParaActualizar(ctx context.Context, id int64) (Mensa
 		&i.ColaID,
 		&i.HorarioID,
 		&i.FueraHorario,
+		&i.Bot,
 	)
 	return i, err
 }
 
 const canalesActivosDeEmpresas = `-- name: CanalesActivosDeEmpresas :many
-SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario FROM mensajeria.canales
+SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot FROM mensajeria.canales
 WHERE activo AND ($1::boolean OR coalesce(empresa_id, 0) = ANY($2::bigint[]))
 ORDER BY id
 `
@@ -425,6 +428,7 @@ func (q *Queries) CanalesActivosDeEmpresas(ctx context.Context, arg CanalesActiv
 			&i.ColaID,
 			&i.HorarioID,
 			&i.FueraHorario,
+			&i.Bot,
 		); err != nil {
 			return nil, err
 		}
@@ -715,7 +719,7 @@ func (q *Queries) EnviadosRecientes(ctx context.Context, arg EnviadosRecientesPa
 const fijarCanalActivo = `-- name: FijarCanalActivo :one
 UPDATE mensajeria.canales SET activo = $1, version = version + 1, updated_at = now()
 WHERE id = $2
-RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario
+RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot
 `
 
 type FijarCanalActivoParams struct {
@@ -748,6 +752,7 @@ func (q *Queries) FijarCanalActivo(ctx context.Context, arg FijarCanalActivoPara
 		&i.ColaID,
 		&i.HorarioID,
 		&i.FueraHorario,
+		&i.Bot,
 	)
 	return i, err
 }
@@ -857,7 +862,7 @@ INSERT INTO mensajeria.canales (id, empresa_id, tipo, canal, nombre, numero, pho
 OVERRIDING SYSTEM VALUE
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
     $9, $10, $11, $12::text[], $13, $14)
-RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario
+RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot
 `
 
 type InsertarCanalParams struct {
@@ -917,6 +922,7 @@ func (q *Queries) InsertarCanal(ctx context.Context, arg InsertarCanalParams) (M
 		&i.ColaID,
 		&i.HorarioID,
 		&i.FueraHorario,
+		&i.Bot,
 	)
 	return i, err
 }
@@ -1028,7 +1034,7 @@ func (q *Queries) InsertarWebhookSalida(ctx context.Context, arg InsertarWebhook
 }
 
 const listarCanales = `-- name: ListarCanales :many
-SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario FROM mensajeria.canales
+SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot FROM mensajeria.canales
 WHERE ($1::boolean OR coalesce(empresa_id, 0) = ANY($2::bigint[]))
 ORDER BY id
 `
@@ -1069,6 +1075,7 @@ func (q *Queries) ListarCanales(ctx context.Context, arg ListarCanalesParams) ([
 			&i.ColaID,
 			&i.HorarioID,
 			&i.FueraHorario,
+			&i.Bot,
 		); err != nil {
 			return nil, err
 		}

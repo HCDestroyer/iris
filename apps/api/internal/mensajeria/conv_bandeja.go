@@ -14,6 +14,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
 
 // Bandeja: lista con filtros, contadores, detalle, mensajes, lectura y las acciones de asignación,
@@ -178,6 +179,9 @@ type NumeroConversaciones struct {
 	HorarioID     *int64   `json:"horarioId" nullable:"true"`
 	// FueraDeHorario: lo que hace el número con el horario cerrado.
 	FueraDeHorario FueraDeHorario `json:"fueraDeHorario"`
+	// Bot: lo que hace el número cuando no hay agentes (§14.6).
+	Bot     BotNumero `json:"bot"`
+	Iniciar bool      `json:"iniciar" doc:"Puedes iniciar conversaciones desde este número (conversaciones.iniciar y número de una de tus colas)"`
 }
 
 // ListaNumeros es { data, nextCursor }.
@@ -194,14 +198,23 @@ func nuevoListarNumeros(*Modulo) *auditoria.Caso[struct{}, ListaNumeros] {
 			if err != nil {
 				return ListaNumeros{}, err
 			}
-			fs, err := mensajeriabd.New(t).CanalesDeEmpresa(ctx, a.empresa)
+			q := mensajeriabd.New(t)
+			fs, err := q.CanalesDeEmpresa(ctx, a.empresa)
+			if err != nil {
+				return ListaNumeros{}, err
+			}
 			out := ListaNumeros{Data: make([]NumeroConversaciones, 0, len(fs))}
 			for _, f := range fs {
+				inicia, err := puedeIniciarDesde(ctx, q, a, f)
+				if err != nil {
+					return ListaNumeros{}, err
+				}
 				out.Data = append(out.Data, NumeroConversaciones{ID: f.ID, Nombre: f.Nombre, Numero: f.Numero, Usos: f.Usos, AvisosEmpresa: f.AvisosEmpresa,
 					ColaID: f.ColaID, Activo: f.Activo, Version: f.Version,
-					HorarioID: f.HorarioID, FueraDeHorario: fueraDeHorarioDe(f.FueraHorario)})
+					HorarioID: f.HorarioID, FueraDeHorario: fueraDeHorarioDe(f.FueraHorario), Bot: botDe(f.Bot),
+					Iniciar: inicia && contexto.PermisosDe(ctx).Tiene(string(nucleo.PermConversacionesIniciar))})
 			}
-			return out, err
+			return out, nil
 		},
 	})
 }
@@ -211,7 +224,11 @@ type AgenteConversaciones struct {
 	ID        int64     `json:"id"`
 	Nombre    string    `json:"nombre"`
 	Supervisa bool      `json:"supervisa" doc:"Tiene conversaciones.supervisar: ve todas las colas"`
-	Colas     []ColaRef `json:"colas"`
+	Colas     []ColaRef `json:"colas" doc:"Colas de las que es miembro"`
+	// ColasSupervisadas: colas que supervisa sin el permiso global (§14.1).
+	ColasSupervisadas []ColaRef            `json:"colasSupervisadas"`
+	Abiertas          int64                `json:"abiertas" doc:"Conversaciones activas (no resueltas) asignadas a esta persona en la empresa"`
+	Disponibilidad    DisponibilidadAgente `json:"disponibilidad"`
 }
 
 // ListaAgentes es { data, nextCursor }.
@@ -222,7 +239,7 @@ type ListaAgentes struct {
 
 // EntradaAgentes filtra por cola.
 type EntradaAgentes struct {
-	ColaID int64 `query:"colaId" minimum:"0" doc:"Los miembros de la cola y quienes supervisan"`
+	ColaID int64 `query:"colaId" minimum:"0" doc:"Los miembros y supervisores de la cola y los supervisores globales"`
 }
 
 func nuevoListarAgentes(*Modulo) *auditoria.Caso[EntradaAgentes, ListaAgentes] {
@@ -242,7 +259,8 @@ func nuevoListarAgentes(*Modulo) *auditoria.Caso[EntradaAgentes, ListaAgentes] {
 			for _, f := range fs {
 				ids = append(ids, f.ID)
 			}
-			colas := map[int64][]ColaRef{}
+			colas, supervisadas, abiertas := map[int64][]ColaRef{}, map[int64][]ColaRef{}, map[int64]int64{}
+			disp := map[int64]DisponibilidadAgente{}
 			if len(ids) > 0 {
 				cs, err := q.ColasDeUsuarios(ctx, mensajeriabd.ColasDeUsuariosParams{Usuarios: ids, Empresa: a.empresa})
 				if err != nil {
@@ -251,17 +269,41 @@ func nuevoListarAgentes(*Modulo) *auditoria.Caso[EntradaAgentes, ListaAgentes] {
 				for _, c := range cs {
 					colas[c.UsuarioID] = append(colas[c.UsuarioID], ColaRef{ID: c.ID, Nombre: c.Nombre})
 				}
+				ss, err := q.ColasSupervisadasDeUsuarios(ctx, mensajeriabd.ColasSupervisadasDeUsuariosParams{Usuarios: ids, Empresa: a.empresa})
+				if err != nil {
+					return ListaAgentes{}, err
+				}
+				for _, c := range ss {
+					if c.UsuarioID != nil {
+						supervisadas[*c.UsuarioID] = append(supervisadas[*c.UsuarioID], ColaRef{ID: c.ID, Nombre: c.Nombre})
+					}
+				}
+				as, err := q.AbiertasDeUsuarios(ctx, mensajeriabd.AbiertasDeUsuariosParams{Empresa: a.empresa, Usuarios: ids})
+				if err != nil {
+					return ListaAgentes{}, err
+				}
+				for _, x := range as {
+					abiertas[x.UsuarioID] = x.Total
+				}
+				if disp, err = disponibilidades(ctx, q, a.empresa, ids); err != nil {
+					return ListaAgentes{}, err
+				}
 			}
 			out := ListaAgentes{Data: []AgenteConversaciones{}}
+			es := func(c ColaRef) bool { return c.ID == in.ColaID }
 			for _, f := range fs {
-				cs := colas[f.ID]
+				cs, ss := colas[f.ID], supervisadas[f.ID]
 				if cs == nil {
 					cs = []ColaRef{}
 				}
-				if in.ColaID > 0 && !f.Supervisa && !slices.ContainsFunc(cs, func(c ColaRef) bool { return c.ID == in.ColaID }) {
+				if ss == nil {
+					ss = []ColaRef{}
+				}
+				if in.ColaID > 0 && !f.Supervisa && !slices.ContainsFunc(cs, es) && !slices.ContainsFunc(ss, es) {
 					continue
 				}
-				out.Data = append(out.Data, AgenteConversaciones{ID: f.ID, Nombre: f.Nombre, Supervisa: f.Supervisa, Colas: cs})
+				out.Data = append(out.Data, AgenteConversaciones{ID: f.ID, Nombre: f.Nombre, Supervisa: f.Supervisa, Colas: cs, ColasSupervisadas: ss,
+					Abiertas: abiertas[f.ID], Disponibilidad: dispDe(disp, f.ID)})
 			}
 			return out, nil
 		},
@@ -272,6 +314,7 @@ func nuevoListarAgentes(*Modulo) *auditoria.Caso[EntradaAgentes, ListaAgentes] {
 type PlantillaDisponible struct {
 	Codigo      string     `json:"codigo"`
 	Nombre      string     `json:"nombre" doc:"Nombre de la plantilla en Meta"`
+	Categoria   string     `json:"categoria" enum:"servicio,marketing,autenticacion" doc:"Categoría de Meta (servicio = utility)"`
 	Variables   []Variable `json:"variables"`
 	VistaPrevia string     `json:"vistaPrevia" doc:"Texto de referencia con {{variable}}"`
 }
@@ -299,14 +342,7 @@ func nuevoPlantillasConv(*Modulo) *auditoria.Caso[EntradaConversacion, ListaPlan
 			if err != nil {
 				return ListaPlantillasConv{}, err
 			}
-			aprobadas := plantillasDeCanal(canal)
-			out := ListaPlantillasConv{Data: []PlantillaDisponible{}}
-			for _, p := range Catalogo {
-				if pm, ok := aprobadas[p.Codigo]; ok {
-					out.Data = append(out.Data, PlantillaDisponible{Codigo: p.Codigo, Nombre: pm.Nombre, Variables: p.Variables, VistaPrevia: p.Texto})
-				}
-			}
-			return out, nil
+			return plantillasDisponibles(canal), nil
 		},
 	})
 }
@@ -506,7 +542,19 @@ func (m *Modulo) accionConv(ctx context.Context, t *auditoria.Tx, id int64, vers
 	if err := cambio(a, q, &c); err != nil {
 		return ConversacionClienteDetalle{}, err
 	}
+	// Tomar, asignar, pasar, transferir o resolver cancelan el aviso y el bot de la espera.
+	limpiar := !mismoID(antes.AsignadoA, c.AsignadoA) || !mismoID(antes.ColaID, c.ColaID) || (c.Estado == EstadoConvResuelta && antes.Estado != EstadoConvResuelta)
+	bot := c
 	if c, err = guardarConv(ctx, q, c, true); err != nil {
+		return ConversacionClienteDetalle{}, err
+	}
+	c.BotEsperaEn, c.BotVenceEn, c.BotMotivo, c.BotAtendioEn, c.BotMenu = bot.BotEsperaEn, bot.BotVenceEn, bot.BotMotivo, bot.BotAtendioEn, bot.BotMenu
+	if limpiar {
+		if err := limpiarEspera(ctx, q, &c); err != nil {
+			return ConversacionClienteDetalle{}, err
+		}
+	}
+	if err := m.tocarActividad(ctx, q, a); err != nil {
 		return ConversacionClienteDetalle{}, err
 	}
 	t.RegistrarCambios("conversacion", c.ID, auditableConv(antes), auditableConv(c))
@@ -529,7 +577,8 @@ func actorNombre(ctx context.Context, q *mensajeriabd.Queries, id int64) *string
 	return &u.Nombre
 }
 
-// puedeAtender: el agente atiende conversaciones en la empresa y ve la cola (miembro o supervisa).
+// puedeAtender: el agente atiende conversaciones en la empresa y ve la cola (miembro o supervisor
+// de la cola, o supervisor global).
 func puedeAtender(ctx context.Context, t *auditoria.Tx, c mensajeriabd.MensajeriaConversacion, usuario int64) (UsuarioRef, error) {
 	u, sup, err := usuarioAtiende(ctx, t, empresaDeConv(c), usuario)
 	if err != nil {
@@ -538,7 +587,7 @@ func puedeAtender(ctx context.Context, t *auditoria.Tx, c mensajeriabd.Mensajeri
 	if sup || c.ColaID == nil {
 		return u, nil
 	}
-	miembro, err := mensajeriabd.New(t).EsMiembroCola(ctx, mensajeriabd.EsMiembroColaParams{ColaID: *c.ColaID, UsuarioID: usuario})
+	miembro, err := atiendeCola(ctx, mensajeriabd.New(t), *c.ColaID, usuario)
 	if err != nil {
 		return u, err
 	}
@@ -585,9 +634,19 @@ func nuevoTomarConv(m *Modulo) *auditoria.Caso[EntradaAccionConv, ConversacionCl
 
 func nuevoAsignarConv(m *Modulo) *auditoria.Caso[EntradaAsignarConv, ConversacionClienteDetalle] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaAsignarConv, ConversacionClienteDetalle]{
-		Accion: "conversaciones.asignar", Permiso: nucleo.PermConversacionesAsignar,
+		// conversaciones.asignar o supervisor de la cola de la conversación (§14.1): se revisa adentro.
+		Accion: "conversaciones.asignar", Permiso: nucleo.PermConversacionesVer,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaAsignarConv) (ConversacionClienteDetalle, error) {
 			return m.accionConv(ctx, t, in.ID, in.Version, func(a alcanceConv, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
+				if !contexto.PermisosDe(ctx).Tiene(string(nucleo.PermConversacionesAsignar)) {
+					sup, err := supervisaColaDe(ctx, q, *c, a.usuario)
+					if err != nil {
+						return err
+					}
+					if !sup {
+						return nucleo.Prohibido("Falta el permiso conversaciones.asignar (o supervisar la cola de la conversación)")
+					}
+				}
 				anterior := c.AsignadoA
 				if (anterior == nil && in.UsuarioID == nil) || (anterior != nil && in.UsuarioID != nil && *anterior == *in.UsuarioID) {
 					return nil

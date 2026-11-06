@@ -252,6 +252,11 @@ const (
 	PermConversacionesSupervisar Permiso = "conversaciones.supervisar"
 	// PermConversacionesResponder: enviar mensajes y plantillas, notas internas con menciones.
 	PermConversacionesResponder Permiso = "conversaciones.responder"
+	// PermConversacionesIniciar: escribir primero (plantilla aprobada) a un cliente o contacto con
+	// permiso de contacto. Sensible: manda mensajes a clientes por iniciativa propia.
+	PermConversacionesIniciar Permiso = "conversaciones.iniciar"
+	// PermConversacionesPasar: pasar la conversación que tienes a un compañero de la cola.
+	PermConversacionesPasar Permiso = "conversaciones.pasar"
 	// PermConversacionesTomar: asignarse una conversación sin asignar.
 	PermConversacionesTomar Permiso = "conversaciones.tomar"
 	// PermConversacionesAsignar: asignar una conversación a otro agente o quitar la asignación.
@@ -307,7 +312,7 @@ var PermisosSensibles = map[Permiso]bool{
 	PermFactibilidadConfigurar: true, PermPortalEmitir: true, PermSSOEmitir: true,
 	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true, PermMensajeriaConfigurar: true, PermCanalesConfigurar: true, PermConversacionesConfigurar: true,
 	PermConversacionesRegistrarPromesa: true, PermConversacionesRegistrarBoleta: true, PermConversacionesSupervisar: true,
-	PermCampoConfigurar: true,
+	PermConversacionesIniciar: true, PermCampoConfigurar: true,
 }
 
 // EsSensible indica si el permiso es de administración (PermisosSensibles).
@@ -370,6 +375,8 @@ var Catalogo = []DefPermiso{
 	{PermConversacionesAsociar, "Asociar una conversación a un cliente de Argos y administrar los contactos propios de Iris"},
 	{PermConversacionesConfigurar, "Administrar las etiquetas y las respuestas rápidas de las conversaciones de la empresa"},
 	{PermConversacionesEtiquetar, "Poner y quitar etiquetas a una conversación"},
+	{PermConversacionesIniciar, "Escribir primero por WhatsApp, con una plantilla aprobada, a un cliente o contacto con permiso de contacto desde un número de tus colas"},
+	{PermConversacionesPasar, "Pasar la conversación que tienes a un compañero de la misma cola, con una nota interna"},
 	{PermConversacionesRegistrarBoleta, "Mandar a Argos la boleta de pago que envió el cliente por WhatsApp (caja la aprueba en Argos)"},
 	{PermConversacionesRegistrarPromesa, "Simular y pedir a Argos una promesa de pago desde una conversación (Argos decide)"},
 	{PermConversacionesResolver, "Resolver y reabrir conversaciones"},
@@ -521,7 +528,7 @@ var permisosRutas = []Permiso{PermRutasVer, PermRutasProponer, PermRutasPublicar
 
 // permisosAtencion son los de atender conversaciones con clientes (despacho, ventas, soporte y
 // supervisor); cada rol suma los suyos (contratos/conversaciones.md §4).
-var permisosAtencion = []Permiso{PermConversacionesVer, PermConversacionesResponder, PermConversacionesTomar,
+var permisosAtencion = []Permiso{PermConversacionesVer, PermConversacionesResponder, PermConversacionesTomar, PermConversacionesPasar,
 	PermConversacionesEtiquetar, PermConversacionesResolver, PermManualesVer}
 
 // permisosComercial son todos los del seguimiento comercial (ventas, supervisor) salvo
@@ -543,7 +550,8 @@ var RolesBase = []DefRol{
 			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar,
 			PermChatVer, PermChatEnviar, PermChatSupervisar,
 			PermConversacionesSupervisar, PermConversacionesAsignar, PermConversacionesTransferir, PermConversacionesAsociar,
-			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesConfigurar, PermCanalesConfigurar, PermManualesEditar, PermManualesRevocarEnlace},
+			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesConfigurar, PermCanalesConfigurar, PermManualesEditar, PermManualesRevocarEnlace,
+			PermConversacionesIniciar},
 			slices.Concat(permisosAtencion, permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas, permisosPlantillas, permisosComercial,
 				[]Permiso{PermFactibilidadConfigurar, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer, PermEncuestasCompartir})...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
@@ -565,10 +573,10 @@ var RolesBase = []DefRol{
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosSubir, PermAdjuntosVer, PermEncuestasVer, PermEncuestasCompartir,
 			PermChatVer, PermChatEnviar, PermConversacionesTransferir, PermConversacionesAsociar,
-			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa}, slices.Concat(permisosTickets, permisosAtencion)...)},
+			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesIniciar}, slices.Concat(permisosTickets, permisosAtencion)...)},
 	{Codigo: "ventas", Nombre: "Ventas", Descripcion: "Seguimiento comercial",
 		Permisos: append([]Permiso{PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosVer, PermAdjuntosSubir, PermAgendaVer,
-			PermConversacionesTransferir, PermConversacionesAsociar}, slices.Concat(permisosComercial, permisosAtencion)...)},
+			PermConversacionesTransferir, PermConversacionesAsociar, PermConversacionesIniciar}, slices.Concat(permisosComercial, permisosAtencion)...)},
 	{Codigo: "lectura", Nombre: "Lectura", Descripcion: "Solo consulta",
 		Permisos: []Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer,
 			PermClientesVer, PermTicketsVer, PermOrdenesVer, PermAgendaVer, PermRutasVer, PermProspectosVer,

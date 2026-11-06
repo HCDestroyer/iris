@@ -65,6 +65,19 @@ type casosConv struct {
 	Boleta       *auditoria.Caso[EntradaBoleta, Boleta]
 	Promesas     *Promesas
 	Cambios      *auditoria.Caso[EntradaCambiosConv, CambiosConversaciones]
+
+	// Fase 1.1 (§14).
+	Supervisores    *auditoria.Caso[EntradaSupervisoresCola, ColaConversaciones]
+	Pasar           *auditoria.Caso[EntradaPasarConv, PaseConversacion]
+	Iniciar         *IniciarConv
+	Destinatarios   *auditoria.Caso[EntradaDestinatarios, ListaDestinatarios]
+	Destinatario    *auditoria.Caso[EntradaDestinatario, Destinatario]
+	PlantillasCanal *auditoria.Caso[EntradaCanalConv, ListaPlantillasConv]
+	VerDisp         *auditoria.Caso[struct{}, MiDisponibilidad]
+	FijarDisp       *auditoria.Caso[EntradaDisponibilidad, MiDisponibilidad]
+	Latido          *auditoria.Caso[struct{}, latidoDisponibilidad]
+	VerAjustes      *auditoria.Caso[struct{}, AjustesBandeja]
+	FijarAjustes    *auditoria.Caso[EntradaAjustesBandeja, AjustesBandeja]
 }
 
 func nuevosCasosConv(m *Modulo) casosConv {
@@ -85,6 +98,9 @@ func nuevosCasosConv(m *Modulo) casosConv {
 		ContactoIris: nuevoContactoIrisConv(m), Confirmar: nuevoConfirmarCliente(m), ConsentNum: nuevoConsentimientoNumero(m), EditarContac: nuevoActualizarContactoIris(m), UnirContacto: nuevoUnirContacto(m),
 		Contactos: nuevoBuscarContactos(m), CrearTicket: nuevoCrearTicketConv(m), CrearOrden: nuevoCrearOrdenConv(m),
 		CrearProspec: nuevoCrearProspectoConv(m), Boleta: nuevoRegistrarBoleta(m), Promesas: nuevasPromesas(m), Cambios: nuevoCambiosConv(m),
+		Supervisores: nuevoSupervisoresCola(m), Pasar: nuevoPasarConv(m), Iniciar: nuevoIniciarConv(m), Destinatarios: nuevoBuscarDestinatarios(m),
+		Destinatario: nuevoVerDestinatario(m), PlantillasCanal: nuevoPlantillasCanal(m), VerDisp: nuevoVerDisponibilidad(m),
+		FijarDisp: nuevoFijarDisponibilidad(m), Latido: nuevoLatido(m), VerAjustes: nuevoVerAjustes(m), FijarAjustes: nuevoFijarAjustes(m),
 	}
 }
 
@@ -122,7 +138,7 @@ func respMensaje(r MensajeConvEnviado, err error) (*salidaMensajeConv, error) {
 }
 
 // conReenvio son las operaciones cuyo 200 es el reenvío del mismo id.
-var conReenvio = map[string]bool{"responderConversacion": true, "notaConversacion": true, "enviarManualConversacion": true}
+var conReenvio = map[string]bool{"responderConversacion": true, "notaConversacion": true, "enviarManualConversacion": true, "iniciarConversacion": true}
 
 // ConReenvio dice si la operación tiene un 200 de reenvío (para la prueba del contrato).
 func ConReenvio(operacion string) bool { return conReenvio[operacion] }
@@ -149,6 +165,8 @@ var esquemasBandeja = []string{
 	// PR B: horarios y manuales.
 	"Horario", "ListaHorarios", "Manual", "ManualResumen", "ListaManuales", "ManualSugerido", "ListaSugeridos", "ListaEnlacesManual",
 	"FueraDeHorario", "GuardiaFueraDeHorario", "FeriadoHorario", "FranjaHorario",
+	// Fase 1.1.
+	"BotNumero", "OpcionMenuBot", "EsperaConversacion", "ListaDestinatarios", "ConversacionIniciada", "PaseConversacion", "Canal",
 }
 
 // EsquemasBandeja devuelve los nombres (para la prueba del contrato).
@@ -207,6 +225,14 @@ func (m *Modulo) registrarConversaciones(api huma.API) {
 		func(ctx context.Context, in *idHTTP) (*cuerpo[ColaConversaciones], error) {
 			return responder(k.DesactivarCola.Ejecutar(ctx, EntradaIDConv{ID: in.ID}))
 		})
+
+	sup := op("supervisoresColaConversaciones", http.MethodPost, "/colas/{id}/supervisores", "Fijar los supervisores de una cola", canalesConf,
+		http.StatusOK, http.StatusNotFound, http.StatusConflict)
+	sup.Description += " Ven, asignan y pasan todo lo de la cola sin ser miembros (§14.1). `asistenteIa: true`: 422 `no_disponible_aun` (fase 3)."
+	huma.Register(api, sup, func(ctx context.Context, in *idCuerpoHTTP[EntradaSupervisoresCola]) (*cuerpo[ColaConversaciones], error) {
+		in.Body.ID = in.ID
+		return responder(k.Supervisores.Ejecutar(ctx, in.Body))
+	})
 
 	huma.Register(api, op("listarEtiquetasConversaciones", http.MethodGet, "/etiquetas", "Etiquetas de conversaciones", ver, http.StatusOK),
 		func(ctx context.Context, _ *struct{}) (*cuerpo[ListaEtiquetas], error) {
@@ -285,7 +311,7 @@ func (m *Modulo) registrarConversaciones(api huma.API) {
 		})
 	eventos := op("eventosConversaciones", http.MethodGet, base+"/eventos", "Tiempo real de la bandeja (Server-Sent Events)", ver,
 		http.StatusOK, http.StatusGone, http.StatusTooManyRequests, http.StatusServiceUnavailable)
-	eventos.Description += " Igual que el flujo del chat: `id` (cursor), `event` (mensaje_nuevo, mensaje_actualizado, conversacion_actualizada, mencion, guardia), " +
+	eventos.Description += " Igual que el flujo del chat: `id` (cursor), `event` (mensaje_nuevo, mensaje_actualizado, conversacion_actualizada, mencion, guardia, aviso_sin_atender), " +
 		"`data` (un EventoConversacion). Last-Event-ID o ?desde=; latido cada 25 s; cierre a los 30 min; revalidación de la sesión."
 	eventos.Responses = map[string]*huma.Response{"200": {Description: "Flujo de eventos",
 		Content: map[string]*huma.MediaType{"text/event-stream": {Schema: &huma.Schema{Type: huma.TypeString}}}}}
@@ -307,6 +333,7 @@ func (m *Modulo) registrarConversaciones(api huma.API) {
 			m.transmitirConv(r.Context(), w, f, sub, quitar)
 		}}, nil
 	})
+	m.registrarBandeja11(api)
 	huma.Register(api, op("verConversacionCliente", http.MethodGet, base+"/{id}", "Una conversación con vínculos, participantes y el resumen del cliente",
 		ver, http.StatusOK, http.StatusNotFound), func(ctx context.Context, in *EntradaConversacion) (*cuerpo[ConversacionClienteDetalle], error) {
 		return responder(k.Ver.Ejecutar(ctx, *in))
@@ -350,11 +377,20 @@ func (m *Modulo) registrarConversaciones(api huma.API) {
 			in.Body.ID = in.ID
 			return responder(k.Tomar.Ejecutar(ctx, in.Body))
 		})
-	huma.Register(api, accion("asignarConversacion", "asignar", "Asignar a un agente (o quitar)", nucleo.PermConversacionesAsignar),
+	asig := accion("asignarConversacion", "asignar", "Asignar a un agente (o quitar)", nucleo.PermConversacionesAsignar)
+	asig.Description += " También lo puede usar un supervisor de la cola de la conversación sin el permiso (§14.1)."
+	huma.Register(api, asig,
 		func(ctx context.Context, in *idCuerpoHTTP[EntradaAsignarConv]) (*cuerpo[ConversacionClienteDetalle], error) {
 			in.Body.ID = in.ID
 			return responder(k.Asignar.Ejecutar(ctx, in.Body))
 		})
+	pasar := accion("pasarConversacion", "pasar", "Pasar a un compañero de la cola", nucleo.PermConversacionesPasar)
+	pasar.Description += " Quien la tiene, o un supervisor (global o de la cola), a un miembro o supervisor de la cola, aunque no esté disponible " +
+		"(`destinoDisponible`). 403 `no_es_tuya`; 422 `mismo_agente`, `usuario_no_disponible` (§14.4)."
+	huma.Register(api, pasar, func(ctx context.Context, in *idCuerpoHTTP[EntradaPasarConv]) (*cuerpo[PaseConversacion], error) {
+		in.Body.ID = in.ID
+		return responder(k.Pasar.Ejecutar(ctx, in.Body))
+	})
 	huma.Register(api, accion("transferirConversacion", "transferir", "Pasar a otra cola con un resumen", nucleo.PermConversacionesTransferir),
 		func(ctx context.Context, in *idCuerpoHTTP[EntradaTransferirConv]) (*cuerpo[ConversacionClienteDetalle], error) {
 			in.Body.ID = in.ID

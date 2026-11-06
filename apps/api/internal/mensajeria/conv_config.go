@@ -77,6 +77,8 @@ type EntradaConfigurarCanal struct {
 	HorarioID     *int64   `json:"horarioId,omitempty" minimum:"1" nullable:"true" doc:"Horario del número (null = siempre abierto; el de la cola manda si lo tiene)"`
 	// FueraDeHorario: qué hacer con el horario cerrado (ausente = no cambia).
 	FueraDeHorario *FueraDeHorario `json:"fueraDeHorario,omitempty"`
+	// Bot: cuando no hay agentes (ausente = no cambia; §14.6).
+	Bot *BotNumero `json:"bot,omitempty"`
 }
 
 func validarUsos(usos []string, avisos bool) error {
@@ -158,6 +160,14 @@ func nuevoConfigurarCanal(m *Modulo) *auditoria.Caso[EntradaConfigurarCanal, Can
 				}
 			}
 			fueraCrudo, _ := json.Marshal(fuera)
+			bot := botDe(antes.Bot)
+			if in.Bot != nil {
+				bot = *in.Bot
+				if err := validarBot(ctx, t, empresa, &bot); err != nil {
+					return Canal{}, err
+				}
+			}
+			botCrudo, _ := json.Marshal(bot)
 			fijarEmpresaCanal(t, antes.EmpresaID)
 			if in.AvisosEmpresa && antes.Activo {
 				if err := fijarAvisos(ctx, t, q, antes.EmpresaID, antes.ID); err != nil {
@@ -167,15 +177,18 @@ func nuevoConfigurarCanal(m *Modulo) *auditoria.Caso[EntradaConfigurarCanal, Can
 			if _, err := q.ConfigurarCanal(ctx, mensajeriabd.ConfigurarCanalParams{ID: in.ID, Usos: in.Usos, AvisosEmpresa: in.AvisosEmpresa, ColaID: in.ColaID}); err != nil {
 				return Canal{}, conflictoCanal(err)
 			}
-			f, err := q.ConfigurarHorarioCanal(ctx, mensajeriabd.ConfigurarHorarioCanalParams{ID: in.ID, HorarioID: in.HorarioID, FueraHorario: fueraCrudo})
+			if _, err := q.ConfigurarHorarioCanal(ctx, mensajeriabd.ConfigurarHorarioCanalParams{ID: in.ID, HorarioID: in.HorarioID, FueraHorario: fueraCrudo}); err != nil {
+				return Canal{}, err
+			}
+			f, err := q.ConfigurarBotCanal(ctx, mensajeriabd.ConfigurarBotCanalParams{ID: in.ID, Bot: botCrudo})
 			if err != nil {
 				return Canal{}, err
 			}
 			campos := t.RegistrarCambios("canal_mensajeria", f.ID,
 				map[string]any{"usos": antes.Usos, "avisos_empresa": antes.AvisosEmpresa, "cola_id": antes.ColaID, "horario_id": antes.HorarioID,
-					"fuera_horario": json.RawMessage(antes.FueraHorario)},
+					"fuera_horario": json.RawMessage(antes.FueraHorario), "bot": json.RawMessage(antes.Bot)},
 				map[string]any{"usos": f.Usos, "avisos_empresa": f.AvisosEmpresa, "cola_id": f.ColaID, "horario_id": f.HorarioID,
-					"fuera_horario": json.RawMessage(f.FueraHorario)})
+					"fuera_horario": json.RawMessage(f.FueraHorario), "bot": json.RawMessage(f.Bot)})
 			if campos == nil {
 				campos = []string{}
 			}
@@ -196,6 +209,11 @@ type ColaConversaciones struct {
 	SLAPorVencerMin *int32       `json:"slaPorVencerMin" nullable:"true" doc:"Cuánto antes de vencer pasa a «por vencer» (null = 25 % del SLA)"`
 	HorarioID       *int64       `json:"horarioId" nullable:"true" doc:"Horario de la cola (manda sobre el del número)"`
 	Miembros        []UsuarioRef `json:"miembros"`
+	Supervisores    []UsuarioRef `json:"supervisores" doc:"Ven, asignan y pasan todo lo de la cola sin ser miembros"`
+	Disponibles     []int64      `json:"disponibles" doc:"Ids de los miembros y supervisores disponibles ahora"`
+	// Minutos del bot de la cola (null = los del número).
+	BotSinConfirmacionMin *int32 `json:"botSinConfirmacionMin" nullable:"true" doc:"Minutos sin que nadie la tome antes de que conteste el bot (null = los del número)"`
+	BotSinDisponiblesMin  *int32 `json:"botSinDisponiblesMin" nullable:"true" doc:"Minutos sin agentes disponibles antes de que el bot tome la conversación (null = los del número)"`
 	Activa          bool         `json:"activa"`
 	Version         int32        `json:"version"`
 }
@@ -211,7 +229,8 @@ func aCola(f mensajeriabd.MensajeriaCola, miembros []UsuarioRef) ColaConversacio
 		miembros = []UsuarioRef{}
 	}
 	return ColaConversaciones{ID: f.ID, EmpresaID: f.EmpresaID, Nombre: f.Nombre, Descripcion: f.Descripcion, SLARespuestaMin: f.SlaRespuestaMin,
-		SLAPorVencerMin: f.SlaPorVencerMin, HorarioID: f.HorarioID, Miembros: miembros, Activa: f.Activa, Version: f.Version}
+		SLAPorVencerMin: f.SlaPorVencerMin, HorarioID: f.HorarioID, Miembros: miembros, Supervisores: []UsuarioRef{}, Disponibles: []int64{},
+		BotSinConfirmacionMin: f.BotSinConfirmacionMin, BotSinDisponiblesMin: f.BotSinDisponiblesMin, Activa: f.Activa, Version: f.Version}
 }
 
 func colasConMiembros(ctx context.Context, q *mensajeriabd.Queries, fs []mensajeriabd.MensajeriaCola) ([]ColaConversaciones, error) {
@@ -229,11 +248,52 @@ func colasConMiembros(ctx context.Context, q *mensajeriabd.Queries, fs []mensaje
 			miembros[mi.ColaID] = append(miembros[mi.ColaID], UsuarioRef{ID: mi.ID, Nombre: mi.Nombre})
 		}
 	}
+	supervisores := map[int64][]UsuarioRef{}
+	personas := map[int64][]int64{} // empresa → miembros y supervisores
+	if len(ids) > 0 {
+		ss, err := q.SupervisoresDeColas(ctx, ids)
+		if err != nil {
+			return nil, err
+		}
+		for _, s := range ss {
+			supervisores[s.ColaID] = append(supervisores[s.ColaID], UsuarioRef{ID: s.ID, Nombre: s.Nombre})
+		}
+	}
+	for _, f := range fs {
+		e := empresaDeCola(f)
+		for _, u := range append(slices.Clone(miembros[f.ID]), supervisores[f.ID]...) {
+			personas[e] = append(personas[e], u.ID)
+		}
+	}
+	disp := map[int64]map[int64]DisponibilidadAgente{}
+	for e, us := range personas {
+		d, err := disponibilidades(ctx, q, e, us)
+		if err != nil {
+			return nil, err
+		}
+		disp[e] = d
+	}
 	out := make([]ColaConversaciones, 0, len(fs))
 	for _, f := range fs {
-		out = append(out, aCola(f, miembros[f.ID]))
+		c := aCola(f, miembros[f.ID])
+		if s := supervisores[f.ID]; s != nil {
+			c.Supervisores = s
+		}
+		for _, u := range append(slices.Clone(c.Miembros), c.Supervisores...) {
+			if dispDe(disp[empresaDeCola(f)], u.ID).Estado == Disponible && !slices.Contains(c.Disponibles, u.ID) {
+				c.Disponibles = append(c.Disponibles, u.ID)
+			}
+		}
+		out = append(out, c)
 	}
 	return out, nil
+}
+
+func empresaDeCola(f mensajeriabd.MensajeriaCola) int64 {
+	if f.EmpresaID == nil {
+		return 0
+	}
+	return *f.EmpresaID
 }
 
 // EntradaCola crea o actualiza una cola.
@@ -245,6 +305,9 @@ type EntradaCola struct {
 	SLARespuestaMin *int32 `json:"slaRespuestaMin,omitempty" minimum:"1" maximum:"10080" nullable:"true"`
 	SLAPorVencerMin *int32 `json:"slaPorVencerMin,omitempty" minimum:"1" maximum:"10080" nullable:"true"`
 	HorarioID       *int64 `json:"horarioId,omitempty" minimum:"1" nullable:"true" doc:"Horario de la cola (al actualizar, ausente = sin horario)"`
+	// Minutos del bot de la cola (al actualizar, ausente = los del número).
+	BotSinConfirmacionMin *int32 `json:"botSinConfirmacionMin,omitempty" minimum:"1" maximum:"1440" nullable:"true"`
+	BotSinDisponiblesMin  *int32 `json:"botSinDisponiblesMin,omitempty" minimum:"1" maximum:"1440" nullable:"true"`
 }
 
 // EntradaMiembrosCola fija los miembros.
@@ -287,7 +350,8 @@ func nuevoListarColas(*Modulo) *auditoria.Caso[struct{}, ListaColas] {
 
 func colaAuditable(c ColaConversaciones) map[string]any {
 	return map[string]any{"nombre": c.Nombre, "descripcion": c.Descripcion, "sla_respuesta_min": c.SLARespuestaMin,
-		"sla_por_vencer_min": c.SLAPorVencerMin, "horario_id": c.HorarioID}
+		"sla_por_vencer_min": c.SLAPorVencerMin, "horario_id": c.HorarioID, "bot_sin_confirmacion_min": c.BotSinConfirmacionMin,
+		"bot_sin_disponibles_min": c.BotSinDisponiblesMin}
 }
 
 func nuevoCrearCola(m *Modulo) *auditoria.Caso[EntradaCola, ColaConversaciones] {
@@ -309,6 +373,11 @@ func nuevoCrearCola(m *Modulo) *auditoria.Caso[EntradaCola, ColaConversaciones] 
 			}
 			if in.HorarioID != nil {
 				if f, err = q.FijarHorarioCola(ctx, mensajeriabd.FijarHorarioColaParams{ID: f.ID, HorarioID: in.HorarioID}); err != nil {
+					return ColaConversaciones{}, err
+				}
+			}
+			if in.BotSinConfirmacionMin != nil || in.BotSinDisponiblesMin != nil {
+				if f, err = q.FijarBotCola(ctx, mensajeriabd.FijarBotColaParams{ID: f.ID, SinConfirmacion: in.BotSinConfirmacionMin, SinDisponibles: in.BotSinDisponiblesMin}); err != nil {
 					return ColaConversaciones{}, err
 				}
 			}
@@ -355,6 +424,9 @@ func nuevoActualizarCola(m *Modulo) *auditoria.Caso[EntradaCola, ColaConversacio
 				return ColaConversaciones{}, conflictoNombre(err, "una cola")
 			}
 			if f, err = q.FijarHorarioCola(ctx, mensajeriabd.FijarHorarioColaParams{ID: f.ID, HorarioID: in.HorarioID}); err != nil {
+				return ColaConversaciones{}, err
+			}
+			if f, err = q.FijarBotCola(ctx, mensajeriabd.FijarBotColaParams{ID: f.ID, SinConfirmacion: in.BotSinConfirmacionMin, SinDisponibles: in.BotSinDisponiblesMin}); err != nil {
 				return ColaConversaciones{}, err
 			}
 			cs, err := colasConMiembros(ctx, q, []mensajeriabd.MensajeriaCola{f})
