@@ -70,6 +70,37 @@ type Adaptador interface {
 	Aprobada(codigo string) bool
 	// EnviarPlantilla manda el aviso. Un *ErrorCanal dice si se reintenta.
 	EnviarPlantilla(ctx context.Context, m Mensaje) (Resultado, error)
+	// EnviarConversacion manda un mensaje de una conversación con un cliente (texto, medio o
+	// plantilla; contratos/conversaciones.md §8).
+	EnviarConversacion(ctx context.Context, m MensajeSaliente) (Resultado, error)
+}
+
+// MensajeSaliente es un mensaje de una conversación listo para salir.
+type MensajeSaliente struct {
+	ID      uuid.UUID
+	Destino string // E.164
+	Texto   *string
+	// Plantilla (con sus variables) en lugar de texto.
+	Plantilla *Plantilla
+	Variables map[string]string
+	// Medio con Texto como pie.
+	Medio *MedioSaliente
+}
+
+// MedioSaliente es un archivo del módulo de adjuntos.
+type MedioSaliente struct {
+	// Tipo: imagen, documento, audio o video.
+	Tipo   string
+	Mime   string
+	Nombre string
+	Datos  []byte
+}
+
+func (simulado) EnviarConversacion(_ context.Context, m MensajeSaliente) (Resultado, error) {
+	if strings.HasSuffix(m.Destino, "0000") {
+		return Resultado{}, &ErrorCanal{Motivo: MotivoNumeroInvalido, Detalle: "simulado: número inválido"}
+	}
+	return Resultado{ProveedorID: "sim-" + m.ID.String(), Entregado: true}, nil
 }
 
 // Simulado ----------------------------------------------------------------------------------
@@ -120,10 +151,10 @@ type resuelto struct {
 	fila      *mensajeriabd.MensajeriaCanal
 }
 
-// resolver elige el canal de la empresa para el medio: el configurado y activo o, sin él y con
-// Simulado, el simulado. nil = ningún canal (canal_no_disponible).
+// resolver elige el canal de la empresa para el medio: el número de avisos de la empresa (activo)
+// o, sin él y con Simulado, el simulado. nil = ningún canal (canal_no_disponible).
 func (m *Modulo) resolver(ctx context.Context, q *mensajeriabd.Queries, empresa int64, medio string) (*resuelto, error) {
-	f, err := q.CanalActivoDeEmpresa(ctx, mensajeriabd.CanalActivoDeEmpresaParams{EmpresaID: empresa, Canal: medio})
+	f, err := q.CanalAvisosDeEmpresa(ctx, mensajeriabd.CanalAvisosDeEmpresaParams{EmpresaID: empresa, Canal: medio})
 	switch {
 	case err == nil:
 		return m.resueltoDe(f)

@@ -221,6 +221,42 @@ un job, y el SSE vive en `cmd/mensajeria`), sus ids no dan un cursor por usuario
 para reanudar. El feed del chat es una tabla propia con id creciente en orden de COMMIT por empresa
 y `NOTIFY iris_chat` en la misma transacción.
 
+## Conversaciones con clientes (I1, servicio de mensajería)
+
+Contrato de la API en `contratos/conversaciones.md`. Ninguno lleva el texto de un mensaje ni el
+teléfono del contacto (se leen por `conversacion_id` / `mensaje_id`). No salen hacia Argos ni Horus.
+El tiempo real del panel va por el feed propio (`mensajeria.conv_eventos`, SSE y
+`GET /conversaciones/cambios`), no por el outbox.
+
+| Evento | Payload | Cuándo |
+| --- | --- | --- |
+| `conversacion.creada` | `conversacion_id`, `empresa_id` (o null), `canal_id`, `cola_id` (o null), `cliente_id` (o null), `asociacion` (`automatica` o null) | Primer mensaje de un número a un número de la empresa. |
+| `conversacion.mensaje_recibido` | `conversacion_id`, `mensaje_id`, `empresa_id`, `canal_id`, `tipo`, `cliente_id`, `asignado_a`, `cola_id` | Cada mensaje nuevo del cliente (el mismo wamid dos veces no emite). |
+| `conversacion.mensaje_enviado` | `conversacion_id`, `mensaje_id`, `empresa_id`, `autor_id`, `tipo`, `plantilla` (o null), `respuesta_rapida_id` (o null) | Un agente respondió (queda en cola hacia WhatsApp). Un reenvío del mismo id no emite. |
+| `conversacion.mensaje_fallido` | `conversacion_id`, `mensaje_id`, `empresa_id`, `motivo` (`numero_invalido`, `rechazado_por_canal`, `fuera_de_ventana`, `agotado`), `autor_id` | WhatsApp no lo entregó. |
+| `conversacion.nota_agregada` | `conversacion_id`, `mensaje_id`, `empresa_id`, `autor_id`, `menciones[]` | Nota interna. |
+| `conversacion.mencion` | `conversacion_id`, `mensaje_id`, `empresa_id`, `usuario_id`, `autor_id` | Uno por mencionado (para el futuro push). |
+| `conversacion.asignada` | `conversacion_id`, `empresa_id`, `usuario_id` (o null), `anterior_id` (o null), `origen` (`tomar`, `asignar`, `responder`), `actor_id` | Tomar, asignar o responder una sin asignar. |
+| `conversacion.transferida` | `conversacion_id`, `empresa_id`, `de_cola_id`, `a_cola_id`, `asignado_a`, `actor_id` | Pasar a otra cola (el resumen queda como nota). |
+| `conversacion.etiquetada` | `conversacion_id`, `empresa_id`, `etiquetas[]`, `anteriores[]`, `actor_id` | Fijar etiquetas. |
+| `conversacion.resuelta` | `conversacion_id`, `empresa_id`, `actor_id`, `asignado_a` | Resolver. |
+| `conversacion.reabierta` | `conversacion_id`, `empresa_id`, `origen` (`cliente`, `agente`), `asignado_a`, `actor_id` (agente) | El cliente escribió a una resuelta, o reabrir a mano. |
+| `conversacion.cliente_asociado` | `conversacion_id`, `empresa_id`, `cliente_id` (o null al desasociar), `servicio_id`, `asociacion`, `actor_id` | Asociar o desasociar (la automática va en `conversacion.creada`). |
+| `conversacion.vinculo_creado` | `conversacion_id`, `empresa_id`, `tipo` (`ticket`, `orden`, `prospecto`, `boleta`, `promesa`), `entidad_id`, `referencia`, `actor_id` | Algo creado desde la conversación (además del evento del módulo dueño: `ticket.creado`, `orden.creada`…). |
+| `conversacion.sla_vencido` | `conversacion_id`, `empresa_id`, `cola_id`, `asignado_a`, `vence_en`, `espera_desde` | Una vez por espera (mantenimiento). |
+| `conversacion.cliente_confirmado` | `conversacion_id`, `empresa_id`, `cliente_id`, `actor_id` | Un supervisor confirma una asociación manual cuyo número no coincide con el cliente. |
+| `contacto_iris.consentimiento` | `contacto_iris_id`, `empresa_id`, `estado` (`acepta`, `baja`), `origen` (`agente`) | Permiso de contacto por número de un contacto de Iris. |
+| `contacto_iris.creado` / `contacto_iris.unido` | `contacto_iris_id`, `empresa_id`; `tipo`, `conversacion_id` (creado); `cliente_id`, `conversaciones[]` (unido) | Contacto propio de Iris; unido a su ficha de Argos. |
+| `cola.creada` / `cola.actualizada` | `cola_id`, `empresa_id`; `nombre` (creada); `campos[]`, `activa` (actualizada) | Configuración. |
+| `etiqueta.creada` / `etiqueta.actualizada` | `etiqueta_id`, `empresa_id`; `nombre` (creada); `campos[]`, `activa` (actualizada) | Configuración. |
+| `respuesta_rapida.creada` / `respuesta_rapida.actualizada` | `respuesta_id`, `empresa_id`; `atajo` (creada); `campos[]`, `activa` (actualizada) | Configuración. |
+| `boleta.registrada` | `boleta_id`, `conversacion_id`, `empresa_id`, `cliente_id`, `servicio_id` | El agente la mandó (queda `por_enviar`). |
+| `boleta.registrada_en_argos` / `boleta.fallida` | `boleta_id`, `conversacion_id`, `empresa_id`; `comprobante_id` / `detalle` | Argos la aceptó (comprobante pendiente de caja) o la rechazó por negocio (o se agotaron los reintentos). |
+| `promesa.solicitada` | `promesa_id`, `conversacion_id`, `empresa_id`, `cliente_id`, `servicio_id`, `estado` (`activa`, `rechazada`, `pendiente_aprobacion`), `promesa_argos_id` | Iris pidió la promesa y Argos decidió. |
+
+`canal_mensajeria.actualizado` (ya existente) también sale al configurar uso, cola o número de avisos
+(`campos[]` con `usos`, `avisos_empresa`, `cola_id`), y para el número que deja de ser el de avisos.
+
 ## Soporte (I2)
 
 Emite el módulo `soporte`, con `empresa_id` = la empresa del ticket (null sin conector). Las fechas van en UTC (RFC 3339).

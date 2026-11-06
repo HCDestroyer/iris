@@ -23,7 +23,8 @@ aprobada, permiso de contacto, límites, horario).
 | `GET /avisos/{id}` | `mensajeria.enviar` | Estado del aviso; una integración solo ve los suyos (si no, 404). |
 | `POST /consentimientos` | `mensajeria.registrar_consentimiento` | §6.4. 201 nuevo, 200 repetición; `{ consentimiento_id, estado_vigente }`. |
 | `GET /plantillas` | `mensajeria.ver` | §6.3 con variables y medios aprobados. |
-| `GET/POST /canales`, `POST /canales/{id}/actualizar\|activar\|desactivar` | `mensajeria.configurar` | WhatsApp Cloud API por empresa (credenciales cifradas, nunca se devuelven). |
+| `GET/POST /canales`, `POST /canales/{id}/actualizar\|activar\|desactivar` | `mensajeria.configurar` | WhatsApp Cloud API: **varios números por empresa** (credenciales cifradas, nunca se devuelven). |
+| `POST /canales/{id}/configurar` | `canales.configurar` | Usos (avisos, soporte, cobros, ventas), cola y número de avisos de la empresa (uno activo). |
 | `GET/POST /canales/{id}/webhook` | público | Verificación y webhook de Meta (`X-Hub-Signature-256`). |
 
 ## Reglas (§6.5)
@@ -113,3 +114,56 @@ Contrato completo (endpoints, payloads, SSE, reglas de la cola sin conexión):
 Emite `chat.conversacion_creada`, `chat.mensaje_enviado` (con `destinatarios[]` para el futuro emisor
 de push) y `chat.mensaje_eliminado`. No emite `chat.leido` (ver `contratos/eventos.md`). No consume
 eventos.
+
+## Bandeja de conversaciones con clientes (fase 1, sin IA)
+
+Contrato completo: `.claude/integration/contratos/conversaciones.md`. Código en `conv_*.go` y
+`conversaciones.sql`; rutas bajo `/api/v1/mensajeria` (`/conversaciones`, `/colas`, `/etiquetas`,
+`/respuestas-rapidas`, `/contactos-iris`). Permisos `conversaciones.*` y `canales.configurar`.
+
+- **Números:** varios por empresa (`usos[]`, `cola_id`); `avisos_empresa` marca el único por el que
+  salen los avisos de Argos (`CanalAvisosDeEmpresa`). El número que existía quedó como avisos+soporte.
+- **Entrantes:** el webhook de Meta ya guardado en `mensajeria.entrantes` se procesa en el job: cada
+  mensaje del número entra a la conversación de (empresa, número, contacto) (`recibirMensaje`),
+  deduplicado por wamid; se asocia sola si el número coincide con un solo cliente de la instantánea.
+  Los medios se descargan de Meta en `mensajeria.descargar_medio` y quedan en el módulo de adjuntos
+  (entidad `conversacion`, `adjuntos.GuardarCompleto`). «Respondió al aviso …» si el cliente contesta
+  un aviso de ese número.
+- **Salientes:** `POST /conversaciones/{id}/mensajes` (idempotente por id del cliente) deja el mensaje
+  `en_cola`; `mensajeria.enviar_mensaje` lo manda (texto, medio subido a `/media`, o plantilla).
+  Ventana de 24 h, plantillas aprobadas en el número y permiso de contacto (§8 del contrato). Los
+  estados de Meta (`sent`, `delivered`, `read`, `failed`) nunca retroceden.
+- **Alcance:** solo personas con sesión del panel y `conversaciones.ver` (`alcanceConvDe`): tokens
+  de API e integraciones reciben 404 en toda lectura y acción. Luego `conv_visible` — supervisión
+  (todas), asignada a mí, de mis colas, sin cola, o participante (mencionado). Lo demás es 404.
+- **Cliente verificado:** la asociación automática o la manual cuyo número es un teléfono del
+  cliente en la instantánea quedan verificadas; la manual sin coincidencia la confirma un
+  supervisor (`confirmar-cliente`). Sin verificar: ni plantillas fuera de ventana, ni boletas, ni
+  promesas. Contactos de Iris: permiso por número (`mensajeria.consentimientos_numero`); `BAJA` por
+  chat también lo registra (antes de guardar el mensaje).
+- **Medios:** el tipo de un medio entrante sale de sus bytes (`http.DetectContentType`); las boletas
+  solo aceptan JPEG, PNG, WebP o PDF por firma.
+- **Varios números en una app de Meta:** configura `override_callback_uri` por número en Meta
+  (`…/canales/{id}/webhook`). Un cambio de otro `phone_number_id` que llegue a un canal se pasa al
+  canal activo de ese número solo si es de la misma empresa y comparte el `app_secret` que verificó
+  la firma; si no, se descarta.
+- **Estados:** abierta → esperando_cliente (al responder) → resuelta; el cliente reabre. SLA por cola
+  (`espera_desde`, `sla_vence_en`; por vencer = 25 % o lo configurado); el mantenimiento emite
+  `conversacion.sla_vencido` una vez por espera.
+- **Acciones:** crear ticket, orden y prospecto reutilizan `soporte.CrearTicket`, `campo.CrearOrden`
+  y `comercial.CrearProspecto` en la misma transacción (cmd/mensajeria los arma; River con
+  `SkipUnknownJobCheck` porque sus jobs los trabaja cmd/worker). Boletas: `mensajeria.boletas` y el
+  despacho del reloj (`POST /comprobantes` multipart a Argos, reintentos 1 min…12 h). Promesas:
+  sincrónicas contra Argos fuera de transacción (`iris:promesa:<id>`). Cabeceras `X-Iris-Actor` y
+  `X-Iris-Conversacion` (§7.1).
+- **Contactos:** solo el id del cliente de Argos (los datos salen de la instantánea); coincidencias
+  por teléfono con `GET /clientes?telefono=` (o la instantánea si Argos no responde); contactos
+  propios de Iris (`mensajeria.contactos_iris`) que se unen a la ficha de Argos.
+- **Tiempo real:** feed `mensajeria.conv_eventos` + `NOTIFY iris_conversaciones` + SSE
+  (`GET /conversaciones/eventos`) y sondeo (`/conversaciones/cambios`), con los mismos topes y
+  revalidación que el chat; purga a los 7 días (`chat_estado.conv_purgados_hasta`).
+- **Auditoría:** cada acción; el texto de los mensajes y notas nunca (solo id, tipo y hash).
+
+Emite (detalle en `contratos/eventos.md`, «Conversaciones con clientes»): `conversacion.*`,
+`contacto_iris.*` (también `contacto_iris.consentimiento`), `cola.*`, `etiqueta.*`, `respuesta_rapida.*`, `boleta.*`, `promesa.solicitada`.
+No consume eventos (los webhooks `comprobante.*` / `promesa.*` de Argos quedan para la fase 1.1).

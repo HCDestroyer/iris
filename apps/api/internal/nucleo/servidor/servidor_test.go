@@ -418,7 +418,7 @@ func TestVersionConflicto(t *testing.T) {
 	c.entrar(correoAdmin)
 
 	ruta := fmt.Sprintf("/api/v1/usuarios/%d/editar", id)
-	r := c.pedir(http.MethodPost, ruta, map[string]any{"version": 1, "nombre": "Nuevo nombre", "roles": []map[string]any{{"rol": "soporte", "zonaId": 3}}})
+	r := c.pedir(http.MethodPost, ruta, map[string]any{"version": 1, "nombre": "Nuevo nombre", "roles": []map[string]any{{"rol": "lectura", "zonaId": 3}}})
 	if r.status != 200 || r.cuerpo["version"] != float64(2) || r.cuerpo["nombre"] != "Nuevo nombre" {
 		t.Fatalf("editar: %d %s", r.status, r.crudo)
 	}

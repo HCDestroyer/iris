@@ -36,6 +36,22 @@ func (m *Modulo) PurgarFeedChat(ctx context.Context, bd nucleo.BD) error {
 
 func (m *Modulo) FijarTrasLeerCabeza(f func()) { m.trasLeerCabeza = f }
 
+func (m *Modulo) ProcesarMensaje(ctx context.Context, id uuid.UUID, ultimo bool) (time.Duration, error) {
+	return m.procesarMensaje(ctx, id, ultimo)
+}
+
+func (m *Modulo) DescargarMedio(ctx context.Context, id uuid.UUID, ultimo bool) error {
+	return m.descargarMedio(ctx, id, ultimo)
+}
+
+func (m *Modulo) VencerSLA(ctx context.Context) (int, error) {
+	return m.vencerSLA.Ejecutar(ctx, struct{}{})
+}
+
+func (m *Modulo) DespacharBoletas(ctx context.Context, bd nucleo.BD) error {
+	return m.despacharBoletas(ctx, bd)
+}
+
 func (m *Modulo) PurgarFotosSinEnviar(ctx context.Context, bd nucleo.BD) error {
 	return m.purgarFotosSinEnviar(ctx, bd)
 }
