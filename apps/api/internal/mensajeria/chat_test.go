@@ -36,6 +36,8 @@ type persona struct {
 	correo  string
 	// cookie: sesión del panel (en lugar del token) para abrirSSE.
 	cookie string
+	// csrf: el token CSRF de esa sesión (peticiones que cambian estado con cookie).
+	csrf string
 }
 
 // persona crea un usuario con roles y empresas, y su token (con sus permisos).

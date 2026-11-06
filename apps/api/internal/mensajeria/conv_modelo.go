@@ -110,6 +110,7 @@ type ContactoConversacion struct {
 	ContactoIrisID *int64  `json:"contactoIrisId" nullable:"true"`
 	ProspectoID    *int64  `json:"prospectoId" nullable:"true"`
 	Asociacion     *string `json:"asociacion" nullable:"true" enum:"automatica,manual" doc:"automatica: una sola coincidencia del número en la instantánea de Argos"`
+	Verificado     bool    `json:"verificado" doc:"El número coincide con un teléfono del cliente en Argos (o lo confirmó un supervisor). Sin verificar: ni plantillas fuera de ventana, ni boletas, ni promesas"`
 }
 
 // VentanaConversacion es la ventana de 24 h de WhatsApp.
@@ -256,10 +257,13 @@ type alcanceConv struct {
 	supervisa bool
 }
 
+// alcanceConvDe exige una persona con sesión (no un token de API ni una integración) y
+// conversaciones.ver: cualquier lectura o acción sobre conversaciones (también las que piden otro
+// permiso, como tickets.crear) pasa por aquí. Si no, 404 (no se revela que existe).
 func alcanceConvDe(ctx context.Context) (alcanceConv, error) {
 	actor := contexto.ActorDe(ctx)
-	if !actor.EsUsuario() {
-		return alcanceConv{}, nucleo.Prohibido("La bandeja es de los usuarios de Iris")
+	if actor.Tipo != contexto.ActorUsuario || actor.ID == 0 || !contexto.PermisosDe(ctx).Tiene(string(nucleo.PermConversacionesVer)) {
+		return alcanceConv{}, conversacionClienteNoEncontrada()
 	}
 	a := alcanceConv{usuario: actor.ID}
 	if contexto.EmpresasDe(ctx).Estado == contexto.EmpresaActiva {
@@ -323,7 +327,8 @@ func guardarConv(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.Me
 	}
 	return q.GuardarConversacion(ctx, mensajeriabd.GuardarConversacionParams{ID: c.ID, PerfilNombre: c.PerfilNombre, ColaID: c.ColaID,
 		AsignadoA: c.AsignadoA, AsignadoEn: c.AsignadoEn, Estado: c.Estado, ClienteID: c.ClienteID, ServicioID: c.ServicioID,
-		ContactoIrisID: c.ContactoIrisID, ProspectoID: c.ProspectoID, Asociacion: c.Asociacion, UltimoEntranteEn: c.UltimoEntranteEn,
+		ContactoIrisID: c.ContactoIrisID, ProspectoID: c.ProspectoID, Asociacion: c.Asociacion, ClienteVerificado: c.ClienteVerificado,
+		VerificadoPor: c.VerificadoPor, UltimoEntranteEn: c.UltimoEntranteEn,
 		EsperaDesde: c.EsperaDesde, SlaVenceEn: c.SlaVenceEn, SlaAvisado: c.SlaAvisado, ResueltaEn: c.ResueltaEn, ReabiertaEn: c.ReabiertaEn,
 		UltimaActividad: c.UltimaActividad, SubeVersion: sube})
 }
@@ -385,7 +390,7 @@ func ventanaDe(ultimoEntrante *time.Time, ahora time.Time) VentanaConversacion {
 
 func contactoDeConv(c mensajeriabd.MensajeriaConversacion) ContactoConversacion {
 	k := ContactoConversacion{Tipo: "desconocido", ClienteID: c.ClienteID, ServicioID: c.ServicioID, ContactoIrisID: c.ContactoIrisID,
-		ProspectoID: c.ProspectoID, Asociacion: c.Asociacion}
+		ProspectoID: c.ProspectoID, Asociacion: c.Asociacion, Verificado: c.ClienteID != nil && c.ClienteVerificado}
 	switch {
 	case c.ClienteID != nil:
 		k.Tipo = "cliente"
@@ -418,7 +423,7 @@ func (m *Modulo) resumirConvs(ctx context.Context, q *mensajeriabd.Queries, usua
 	porID := make(map[int64]ConversacionCliente, len(filas))
 	for _, f := range filas {
 		c := mensajeriabd.MensajeriaConversacion{ID: f.ID, ClienteID: f.ClienteID, ServicioID: f.ServicioID, ContactoIrisID: f.ContactoIrisID,
-			ProspectoID: f.ProspectoID, Asociacion: f.Asociacion}
+			ProspectoID: f.ProspectoID, Asociacion: f.Asociacion, ClienteVerificado: f.ClienteVerificado}
 		v := ConversacionCliente{ID: f.ID, EmpresaID: f.EmpresaID, Version: f.Version,
 			Canal:  CanalRef{ID: f.CanalID, Nombre: f.CanalNombre, Numero: f.CanalNumero, Usos: f.CanalUsos},
 			Numero: f.Numero, PerfilNombre: f.PerfilNombre, Contacto: contactoDeConv(c), Estado: f.Estado, ReabiertaEn: f.ReabiertaEn,
