@@ -116,6 +116,10 @@ type Config struct {
 	Comercial *comercial.Modulo
 	// MaxMedioEntrante: bytes de un archivo que manda el cliente (25 MB).
 	MaxMedioEntrante int64
+	// BaseURL pública de Iris (IRIS_BASE_URL): los enlaces de manuales para el cliente.
+	BaseURL string
+	// EnlaceManual: cuánto vale un enlace público a un manual (30 días).
+	EnlaceManual time.Duration
 }
 
 // Modulo reúne los casos de uso.
@@ -138,6 +142,8 @@ type Modulo struct {
 	Chat casosChat
 	// Bandeja de conversaciones con clientes.
 	Conv casosConv
+	// Horarios y manuales (PR B).
+	Horarios casosHorarios
 	// difusorConv despierta los flujos SSE de la bandeja (NOTIFY iris_conversaciones).
 	difusorConv *difusor
 	// alRecibir: lo que pasa después de guardar un mensaje del cliente (fuera de horario, PR B).
@@ -231,6 +237,9 @@ func Nuevo(cfg Config) *Modulo {
 	if cfg.MaxMedioEntrante <= 0 {
 		cfg.MaxMedioEntrante = 25 << 20
 	}
+	if cfg.EnlaceManual <= 0 {
+		cfg.EnlaceManual = 30 * 24 * time.Hour
+	}
 	m := &Modulo{cfg: cfg, difusor: nuevoDifusor(), difusorConv: nuevoDifusor(), lecturas: make(chan struct{}, cfg.ChatLecturas)}
 	m.EnviarAviso = nuevoEnviarAviso(m)
 	m.VerAviso = nuevoVerAviso(m)
@@ -260,6 +269,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.resultadoBoleta = nuevoResultadoBoleta(m)
 	m.vencerSLA = nuevoVencerSLA(m)
 	m.permisoBoleta = nuevoPermisoBoleta()
+	m.alRecibir = m.alRecibirFueraDeHorario
+	m.Horarios = nuevosCasosHorarios(m)
 	return m
 }
 
