@@ -3,6 +3,8 @@
 // `crypto.subtle` ni `crypto.getRandomValues`: el SHA-256 de los adjuntos y el azar del UUID v7
 // vienen de `expo-crypto`.
 import {
+    CABECERA_APP,
+    CABECERA_CANAL,
     CODIGO_SESION_AJENA,
     ColaPosiciones,
     crearGeneradorUuid7,
@@ -20,14 +22,17 @@ import {
     type OrdenCampo,
     type OrdenHistorial,
     type Transporte,
+    valorCabeceraApp,
 } from "@iris/sync";
-import { crearTransporteChatApi, MotorChat } from "@iris/sync/chat";
+import { crearFlujoFetch, crearTransporteChatApi, MotorChat, type AbrirFlujoChat } from "@iris/sync/chat";
 import { AlmacenSqlite } from "@iris/sync/sqlite";
 import { File, Paths } from "expo-file-system";
 import * as Crypto from "expo-crypto";
 import { deleteDatabaseAsync, openDatabaseAsync } from "expo-sqlite";
 import { Platform } from "react-native";
+import { CABECERA_EMPRESA } from "../api/cliente";
 import { VERSION_APP } from "../api/version";
+import { entorno } from "../entorno";
 import { cliente, verificarDueno } from "../sesion/sesion";
 
 export interface ClaveMotor {
@@ -165,9 +170,30 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void, a
             Crypto.getRandomValues(bytes);
         }),
         verificarIdentidad,
-        abrirFlujo: null,
+        abrirFlujo: flujoChat(clave.empresaId),
     });
     return { motor, posiciones, almacen, nombre, inventario, agenda, libres, historial, chat };
+}
+
+/**
+ * Flujo SSE del chat con `expo/fetch`: las mismas cabeceras que el cliente de la API (canal, app y la
+ * empresa fija de este motor) y la cookie de la sesión, que `expo/fetch` comparte con `fetch`. Sin
+ * `fetchFlujo` (pruebas) no hay flujo y el motor sondea `/cambios` cada 12 s.
+ */
+export function flujoChat(empresaId: number | null): AbrirFlujoChat | null {
+    const e = entorno();
+    if (!e.fetchFlujo) {
+        return null;
+    }
+    return crearFlujoFetch({
+        baseUrl: e.baseUrl,
+        fetch: e.fetchFlujo,
+        cabeceras: () => ({
+            [CABECERA_CANAL]: "campo",
+            [CABECERA_APP]: valorCabeceraApp(VERSION_APP, Platform.OS),
+            ...(empresaId !== null ? { [CABECERA_EMPRESA]: String(empresaId) } : {}),
+        }),
+    });
 }
 
 /**

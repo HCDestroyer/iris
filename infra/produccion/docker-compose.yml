@@ -51,6 +51,13 @@ x-api-env: &api-env
 x-api-volumes: &api-volumes
   - ${IRIS_DIR:-/opt/iris}/certs:/run/iris/certs:ro
 
+# api and worker only (never mensajeria or migrar): x-api-volumes plus the Firebase service account
+# JSON for push notifications (install.sh --fcm-credentials), read-only.
+# IRIS_FCM_CREDENCIALES=/run/iris/secrets/fcm-service-account.json in the .env.
+x-api-volumes-push: &api-volumes-push
+  - ${IRIS_DIR:-/opt/iris}/certs:/run/iris/certs:ro
+  - ${IRIS_DIR:-/opt/iris}/secrets:/run/iris/secrets:ro
+
 x-api-depende: &api-depende
   postgres:
     condition: service_healthy
@@ -163,7 +170,7 @@ services:
     logging: *logging
     env_file: *api-env-file
     environment: *api-env
-    volumes: *api-volumes
+    volumes: *api-volumes-push
     depends_on: *api-depende
     healthcheck:
       test: [CMD, /usr/local/bin/iris, salud]
@@ -212,7 +219,7 @@ services:
     logging: *logging
     env_file: *api-env-file
     environment: *api-env
-    volumes: *api-volumes
+    volumes: *api-volumes-push
     depends_on: *api-depende
 
   web:

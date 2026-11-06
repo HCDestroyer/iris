@@ -1456,6 +1456,58 @@ type MensajeriaWebhooksSalida struct {
 	UpdatedAt      time.Time
 }
 
+type NotificacionesDispositivo struct {
+	ID            int64
+	UsuarioID     int64
+	EmpresaID     *int64
+	SesionID      *int64
+	TokenApiID    *int64
+	Plataforma    string
+	Token         string
+	TokenHash     []byte
+	TokenFin      string
+	AppVersion    string
+	UltimoEnvioEn *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type NotificacionesEnvio struct {
+	ID            int64
+	EventoID      uuid.UUID
+	Evento        string
+	DispositivoID int64
+	UsuarioID     int64
+	EmpresaID     *int64
+	Tipo          string
+	Clave         *string
+	Datos         []byte
+	Estado        string
+	Motivo        *string
+	Intentos      int32
+	FcmMensaje    *string
+	EnviadoEn     *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type NotificacionesPreferencia struct {
+	UsuarioID       int64
+	Chat            bool
+	Mencion         bool
+	Orden           bool
+	Bandeja         bool
+	Contenido       string
+	NoMolestar      bool
+	NoMolestarDesde int32
+	NoMolestarHasta int32
+	UrgenteIgual    bool
+	ZonaHoraria     string
+	Version         int32
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
 type NucleoAcceso struct {
 	ID          int64
 	UsuarioID   *int64

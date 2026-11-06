@@ -586,6 +586,13 @@ export function ConversacionChat({ id }: { id: number }) {
                         {!estado.enLinea ? " · sin señal" : ""}
                     </Text>
                 </View>
+                {/* Discreto: un punto y «en vivo» solo con el flujo SSE abierto; con sondeo, nada. */}
+                {estado.enLinea && estado.tiempoReal === "sse" ? (
+                    <View style={estilos.enVivo} accessible accessibilityLabel="Chat en vivo" testID="chat-en-vivo">
+                        <View style={[estilos.puntoVivo, { backgroundColor: colores.exito }]} />
+                        <Text style={{ color: colores.textoSuave, fontSize: 12 }}>en vivo</Text>
+                    </View>
+                ) : null}
             </View>
             <ScrollView
                 ref={lista}
@@ -625,6 +632,8 @@ const estilos = StyleSheet.create({
     iniciales: { fontSize: 16, fontWeight: "700" },
     encabezado: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingBottom: 12, borderBottomWidth: 1 },
     tituloConversacion: { fontSize: 16, fontWeight: "600" },
+    enVivo: { flexDirection: "row", alignItems: "center", gap: 6 },
+    puntoVivo: { width: 8, height: 8, borderRadius: 4 },
     hilo: { paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
     columnaBurbuja: { maxWidth: "80%", gap: 4 },
     derecha: { alignSelf: "flex-end", alignItems: "flex-end" },

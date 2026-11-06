@@ -199,3 +199,10 @@ sql:
           mensajeria_respuestas_rapida: MensajeriaRespuestaRapida
           mensajeria_cola: MensajeriaCola
           mensajeria_cola_supervisore: MensajeriaColaSupervisor
+  - <<: *base
+    queries: internal/notificaciones/consultas.sql
+    gen:
+      go:
+        <<: *gen
+        package: notificacionesbd
+        out: internal/notificaciones/bd

@@ -37,6 +37,9 @@ type Deps struct {
 	// Delegados: prefijo de ruta → handler de otro proceso (ProxyHacia), que se atiende antes de la
 	// identidad y la idempotencia (las aplica el destino). La API delega /api/v1/mensajeria.
 	Delegados map[string]http.Handler
+	// NotificacionesPush da el estado del push para /salud (configurado, sin_configurar, error);
+	// nil = no se informa.
+	NotificacionesPush func() string
 }
 
 // Nuevo devuelve el handler y la API (para leer el OpenAPI).
@@ -112,6 +115,8 @@ type estadoSalud struct {
 	Body struct {
 		Estado  string `json:"estado" enum:"ok"`
 		Version string `json:"version"`
+		// Estado de las notificaciones push (no cambia `estado`: sin push, la API funciona igual).
+		NotificacionesPush string `json:"notificacionesPush,omitempty" enum:"configurado,sin_configurar,error" doc:"Push a la app por FCM: sin_configurar sin IRIS_FCM_PROYECTO e IRIS_FCM_CREDENCIALES; error si las credenciales no se pueden leer"`
 	}
 }
 
@@ -122,6 +127,9 @@ func registrarSistema(api huma.API, d Deps) {
 	}, func(context.Context, *struct{}) (*estadoSalud, error) {
 		s := &estadoSalud{}
 		s.Body.Estado, s.Body.Version = "ok", d.Version
+		if d.NotificacionesPush != nil {
+			s.Body.NotificacionesPush = d.NotificacionesPush()
+		}
 		return s, nil
 	})
 

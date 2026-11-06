@@ -156,6 +156,8 @@ export interface OpcionesArnes {
     sesion?: SesionCampo;
     /** Chat interno (con `chat.ver`); sin él la app no ofrece el chat. */
     chat?: MotorChat;
+    /** Primer/segundo plano para el chat (la app pasa `escucharPlano`, sobre AppState). */
+    alCambiarPlano?: (fn: (alFrente: boolean) => void) => () => void;
     /** Margen seguro del teléfono (barra de estado, muesca); sin él, 0 en todos los lados. */
     margen?: { top: number; bottom: number; left: number; right: number };
     /** «Cerrar sesión» de la app (por defecto, no hace nada). */
@@ -173,7 +175,7 @@ export async function abrirCampo(m: Montaje, o: OpcionesArnes = {}) {
                     <ProveedorAgenda leer={inventario.agenda}>
                         <ProveedorLibres api={libres}>
                             {o.chat ? (
-                                <ProveedorChat chat={o.chat}>
+                                <ProveedorChat chat={o.chat} alCambiarPlano={o.alCambiarPlano}>
                                     <Marco empresa={null} alSesionVencida={jest.fn()} />
                                 </ProveedorChat>
                             ) : (
