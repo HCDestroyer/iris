@@ -1168,6 +1168,17 @@ type MensajeriaConsentimiento struct {
 	CreatedAt      time.Time
 }
 
+type MensajeriaConsentimientosNumero struct {
+	ID            int64
+	EmpresaID     *int64
+	Telefono      string
+	Estado        string
+	Origen        string
+	OcurridoEn    time.Time
+	RegistradoPor *int64
+	CreatedAt     time.Time
+}
+
 type MensajeriaContactoIris struct {
 	ID        int64
 	EmpresaID *int64
@@ -1195,32 +1206,34 @@ type MensajeriaConvEvento struct {
 }
 
 type MensajeriaConversacion struct {
-	ID               int64
-	EmpresaID        *int64
-	CanalID          int64
-	Numero           string
-	PerfilNombre     *string
-	ColaID           *int64
-	AsignadoA        *int64
-	AsignadoEn       *time.Time
-	Estado           string
-	ClienteID        *int64
-	ServicioID       *int64
-	ContactoIrisID   *int64
-	ProspectoID      *int64
-	Asociacion       *string
-	UltimoEntranteEn *time.Time
-	EsperaDesde      *time.Time
-	SlaVenceEn       *time.Time
-	SlaAvisado       bool
-	ResueltaEn       *time.Time
-	ReabiertaEn      *time.Time
-	UltimoSeq        int64
-	UltimoMensajeID  pgtype.UUID
-	UltimaActividad  time.Time
-	Version          int32
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID                int64
+	EmpresaID         *int64
+	CanalID           int64
+	Numero            string
+	PerfilNombre      *string
+	ColaID            *int64
+	AsignadoA         *int64
+	AsignadoEn        *time.Time
+	Estado            string
+	ClienteID         *int64
+	ServicioID        *int64
+	ContactoIrisID    *int64
+	ProspectoID       *int64
+	Asociacion        *string
+	ClienteVerificado bool
+	VerificadoPor     *int64
+	UltimoEntranteEn  *time.Time
+	EsperaDesde       *time.Time
+	SlaVenceEn        *time.Time
+	SlaAvisado        bool
+	ResueltaEn        *time.Time
+	ReabiertaEn       *time.Time
+	UltimoSeq         int64
+	UltimoMensajeID   pgtype.UUID
+	UltimaActividad   time.Time
+	Version           int32
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 type MensajeriaConversacionEtiqueta struct {

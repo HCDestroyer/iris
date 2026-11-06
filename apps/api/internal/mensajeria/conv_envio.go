@@ -119,10 +119,23 @@ func plantillasDeCanal(c mensajeriabd.MensajeriaCanal) map[string]PlantillaMeta 
 // permiso vigente acepta (§6.4 del contrato con Argos).
 func permisoPlantilla(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaConversacion, fueraDeVentana bool) error {
 	if c.ClienteID == nil {
+		// Contacto de Iris (o desconocido): el permiso es por número.
+		v, err := q.ConsentimientoNumeroVigente(ctx, mensajeriabd.ConsentimientoNumeroVigenteParams{Empresa: empresaDeConv(c), Telefono: c.Numero})
+		switch {
+		case err == nil && v.Estado == "baja":
+			return reglaConv(MotivoBaja, "Ese número pidió no recibir mensajes por WhatsApp")
+		case err == nil && v.Estado == "acepta" && c.ContactoIrisID != nil:
+			return nil
+		case err != nil && !errors.Is(err, pgx.ErrNoRows):
+			return err
+		}
 		if fueraDeVentana {
-			return reglaConv(MotivoSinPermiso, "Fuera de la ventana de 24 h solo se escribe a un cliente de Argos con permiso de contacto")
+			return reglaConv(MotivoSinPermiso, "Fuera de la ventana de 24 h solo se escribe a un cliente de Argos (o a un contacto de Iris) con permiso de contacto")
 		}
 		return nil
+	}
+	if fueraDeVentana && !c.ClienteVerificado {
+		return clienteSinConfirmar()
 	}
 	v, err := q.ConsentimientoVigente(ctx, mensajeriabd.ConsentimientoVigenteParams{EmpresaID: empresaDeConv(c), ClienteID: *c.ClienteID, Canal: CanalWhatsApp})
 	switch {
@@ -137,6 +150,10 @@ func permisoPlantilla(ctx context.Context, q *mensajeriabd.Queries, c mensajeria
 		return reglaConv(MotivoBaja, "El cliente pidió no recibir mensajes por WhatsApp")
 	}
 	return nil
+}
+
+func clienteSinConfirmar() *nucleo.Problema {
+	return reglaConv("cliente_sin_confirmar", "El número no coincide con un teléfono del cliente en Argos: un supervisor debe confirmar la asociación")
 }
 
 func tipoDeMime(mime string) string {
@@ -259,9 +276,22 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 			if c.Estado == EstadoConvAbierta {
 				c.Estado = EstadoConvEsperando
 			}
+			asignada := false
+			if c.AsignadoA == nil {
+				// Decisión del líder (pendiente del PM): si nadie la tiene, queda con quien responde.
+				if _, err := puedeAtender(ctx, t, c, a.usuario); err == nil {
+					c.AsignadoA, c.AsignadoEn, asignada = &a.usuario, &ahora, true
+				}
+			}
 			c.EsperaDesde, c.SlaVenceEn, c.SlaAvisado = nil, nil, false
-			if c, err = guardarConv(ctx, q, c, antes != c.Estado); err != nil {
+			if c, err = guardarConv(ctx, q, c, antes != c.Estado || asignada); err != nil {
 				return MensajeConvEnviado{}, err
+			}
+			if asignada {
+				if err := t.Emitir("conversacion.asignada", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID, "usuario_id": a.usuario,
+					"anterior_id": nil, "origen": "responder", "actor_id": a.usuario}); err != nil {
+					return MensajeConvEnviado{}, err
+				}
 			}
 			if err := m.emitirEventoConv(ctx, t, c, EventoConvActualizada, nil, nil); err != nil {
 				return MensajeConvEnviado{}, err
@@ -464,6 +494,14 @@ func nuevoPrepararMensaje(m *Modulo) *auditoria.Caso[uuid.UUID, mensajePreparado
 				p, ok := PlantillaPorCodigo(*f.Plantilla)
 				if !ok {
 					return mensajePreparado{Accion: accionNada}, m.fallarMensaje(ctx, t, f, c, MotivoRechazado, "plantilla desconocida")
+				}
+				// Pudo quedar retenida (número pausado): el permiso de contacto se revisa de nuevo.
+				if err := permisoPlantilla(ctx, q, c, !ventanaDe(c.UltimoEntranteEn, ahora).Abierta); err != nil {
+					var pr *nucleo.Problema
+					if errors.As(err, &pr) {
+						return mensajePreparado{Accion: accionNada}, m.fallarMensaje(ctx, t, f, c, pr.Codigo(), pr.Detail)
+					}
+					return mensajePreparado{}, err
 				}
 				vars := map[string]string{}
 				_ = json.Unmarshal(f.Variables, &vars)

@@ -6,8 +6,12 @@ código en `apps/api/internal/mensajeria/conv_*.go`). Lo usa el panel (I3, «Con
 `*Conversacion*`, `*Cola*`, `*Etiqueta*`, `*RespuestaRapida*`, `*ContactoIris*`, `*Horario*`,
 `*Manual*`): no los copies a mano.
 
-Base: `/api/v1/mensajeria`. La API la reenvía tal cual al proceso de mensajería. Auth: cookie
-`HttpOnly` del panel o `Authorization: Bearer`. Multiempresa: la empresa activa (`X-Iris-Empresa`
+Base: `/api/v1/mensajeria`. La API la reenvía tal cual al proceso de mensajería. Auth: la bandeja
+es de **personas con sesión del panel** (cookie `HttpOnly` + CSRF) y `conversaciones.ver`: toda
+lectura y acción sobre una conversación (también las que piden otro permiso, como `crear-ticket`
+con `tickets.crear`, boletas, promesas o adjuntos de la entidad `conversacion`) responde **404** a
+un token de API (`Authorization: Bearer`, aunque sea de un supervisor), a un usuario de
+integración (`integracion_argos`, `integracion_horus`) y a quien no tiene `conversaciones.ver`. Multiempresa: la empresa activa (`X-Iris-Empresa`
 si el usuario tiene varias); todo lo de aquí lleva `empresa_id` y se filtra por ella. Errores RFC
 9457 (`type: urn:iris:problema:<codigo>`). Listas `{ data, nextCursor }` con `?cursor=&limit=`.
 Las acciones son `POST …/<verbo>` (nunca PATCH de estado) y aceptan `Idempotency-Key`; las que
@@ -44,6 +48,14 @@ Una empresa tiene **varios números** (`mensajeria.canales`), cada uno con:
 - Uso, cola, número de avisos y (PR B) horario: `POST /canales/{id}/configurar`
   `{ version, usos, avisosEmpresa, colaId, horarioId?, fueraDeHorario? }` con `canales.configurar`.
 - 409 `canal_existente` solo si el `phoneNumberId` ya está en otro número activo.
+- **Varios números en la misma app de Meta.** Meta manda los webhooks de todos los números de una
+  app a una sola URL, salvo que cada número tenga la suya: configura en Meta, por número,
+  `override_callback_uri` = `…/api/v1/mensajeria/canales/{id}/webhook` (Graph API
+  `POST /{waba_id}/subscribed_apps` con `override_callback_uri` y `verify_token`, o por número con
+  `POST /{phone_number_id}` `webhook_configuration.override_callback_uri`). Si aun así llega a un
+  canal un cambio de otro `phone_number_id`, Iris lo pasa al número activo de ese
+  `phone_number_id` **solo** si es de la misma empresa y tiene el mismo `app_secret` con el que se
+  verificó la firma; si no, lo descarta (queda anotado en el entrante).
 
 ## 2. Colas, etiquetas y respuestas rápidas
 
@@ -105,6 +117,10 @@ Los objetos opcionales (`cola`, `asignado`, `ultimoMensaje`, `clienteResumen` y,
 instantánea de lectura o de `GET /clientes/{id}` de la API, nunca de una copia), `contacto_iris`
 (§5.2), `prospecto` o `desconocido`. `asociacion`: `automatica` (una sola coincidencia exacta del
 número en la instantánea de Argos de la empresa al llegar el primer mensaje) o `manual`.
+`verificado`: el número de la conversación es un teléfono del cliente en la instantánea
+(`telefono`, `movil` o `contacto_telefono`), o un supervisor confirmó la asociación (§5.1). Sin
+verificar no hay plantillas fuera de la ventana, boletas ni promesas a su nombre (422
+`cliente_sin_confirmar`).
 
 **Detalle** (`GET /conversaciones/{id}`): lo anterior más `vinculos[]` (tickets, órdenes,
 prospectos, boletas y promesas creados desde la conversación: `{ tipo, id, referencia, creadoEn }`,
@@ -163,7 +179,9 @@ El webhook de Meta que ya existe (`POST /canales/{id}/webhook`) guarda el cuerpo
   video o sticker. El medio se descarga de Meta en otro job y queda en el módulo de adjuntos
   (entidad `conversacion`); mientras tanto el mensaje trae `adjunto.estado = pendiente`. Si Meta no
   lo entrega en 5 intentos queda `rechazado`;
-- `BAJA` / `ALTO` siguen dando de baja los avisos (§6.4) y además quedan como mensaje;
+- `BAJA` / `ALTO` se procesan **antes** que el mensaje: registran la baja del número en la
+  empresa (`mensajeria.consentimientos_numero`, origen `cliente`; vale también para contactos de
+  Iris), dan de baja los avisos (§6.4) y luego quedan como mensaje (sin respuesta automática);
 - si responde (`context.id`) a un aviso de ese número, o recibió un aviso de ese número en las
   últimas 72 h, se agrega el evento `respondio_aviso`;
 - `perfilNombre` se toma de `contacts[].profile.name`.
@@ -204,7 +222,11 @@ Lo que no se ve responde **404**. Roles base:
 | `lectura` | ver, manuales.ver |
 | `admin` | todos |
 
-Los usuarios de integración no reciben ninguno en esta fase.
+Los usuarios de integración no reciben ninguno en esta fase, y los tokens de API no entran a la
+bandeja (404 aunque el usuario tenga los permisos). Son **sensibles** (asignarlos pide
+re-autenticación): `conversaciones.supervisar`, `conversaciones.registrar_boleta`,
+`conversaciones.registrar_promesa` y `conversaciones.configurar`; por eso asignar los roles
+`soporte` o `supervisor` también la pide.
 
 ## 5. Contactos
 
@@ -220,6 +242,11 @@ Los usuarios de integración no reciben ninguno en esta fase.
   (`conversaciones.asociar`): Iris asegura la instantánea del cliente (y valida que sea de la
   empresa y que el servicio sea suyo; si no, 422 `cliente_fuera_de_empresa` /
   `servicio_fuera_de_empresa`). Solo guarda el id. Evento `conversacion.cliente_asociado`.
+  Queda `verificado` si el número coincide con un teléfono del cliente en la instantánea; si no,
+  queda sin verificar.
+- `POST /conversaciones/{id}/confirmar-cliente` `{ version }` (`conversaciones.supervisar`):
+  confirma una asociación manual sin coincidencia (`verificado: true`, evento de sistema
+  `cliente_confirmado`, outbox `conversacion.cliente_confirmado`). 422 `sin_cliente` sin cliente.
 - `POST /conversaciones/{id}/desasociar` `{ version }`: quita cliente, contacto de Iris y prospecto.
 
 ### 5.2 Contacto de Iris
@@ -233,7 +260,8 @@ Iris**, no una copia de Argos: `nombre`, `tipo` (`proveedor`, `personal`, `prosp
 | `GET /contactos-iris?q=` | `conversaciones.ver` | Buscar por nombre o número |
 | `POST /conversaciones/{id}/contacto-iris` | `conversaciones.asociar` | Crea el contacto con el número de la conversación y lo asocia `{ version, nombre, tipo, nota? }` |
 | `POST /contactos-iris/{id}/actualizar` | `conversaciones.asociar` | Nombre, tipo, nota (`version`) |
-| `POST /contactos-iris/{id}/unir-cliente` | `conversaciones.asociar` | `{ version, clienteId }`: se volvió cliente. Sus conversaciones pasan a `contacto.tipo = cliente` con ese id (evento `contacto_iris.unido`). El contacto queda como historial (`clienteId`, `unidoEn`) |
+| `POST /contactos-iris/{id}/unir-cliente` | `conversaciones.asociar` | `{ version, clienteId }`: se volvió cliente. Sus conversaciones pasan a `contacto.tipo = cliente` con ese id (evento `contacto_iris.unido`), verificadas solo si el número coincide en la instantánea. El contacto queda como historial (`clienteId`, `unidoEn`) |
+| `POST /contactos-iris/{id}/consentimiento` | `conversaciones.asociar` | `{ estado: "acepta" \| "baja" }` → `{ telefono, estado, ocurridoEn }`: permiso de contacto por WhatsApp de ese número en la empresa (origen `agente`; evento `contacto_iris.consentimiento`). Con `acepta` vigente se le pueden mandar plantillas fuera de la ventana (§8). La baja por chat (§3.4) también cuenta |
 
 ### 5.3 Prospecto
 
@@ -265,7 +293,10 @@ fechaDeposito, nota? }`. Para el formulario: `GET /conversaciones/cuentas-bancar
 `conversaciones.registrar_boleta`, leídas de Argos en el momento (no se guardan; Argos caído: 503).
 El adjunto se elige de los mensajes de la conversación (`MensajeConversacion.adjunto.id`); no hay
 lista aparte. `adjuntoId` es una imagen o PDF de **esta** conversación (la que mandó el
-cliente o una que subió el agente). Exige cliente asociado (422 `sin_cliente`). Iris guarda la
+cliente o una que subió el agente), y sus **bytes** deben ser JPEG, PNG, WebP o PDF (se revisan
+con la firma del archivo, no con el tipo que declara Meta o el navegador; si no, 422
+`adjunto_no_listo`). Exige cliente asociado (422 `sin_cliente`) y verificado (422
+`cliente_sin_confirmar`). Iris guarda la
 boleta (`mensajeria.boletas`, uuid) y la manda a Argos en un job (`POST /comprobantes` multipart,
 `Idempotency-Key = iris:boleta:<id>`, `X-Iris-Actor: usuario:<id>`, `X-Iris-Conversacion:
 <conversacion id>`, `canal_contacto = whatsapp`, `leido_por = persona`), con reintentos a 1 min,
@@ -276,6 +307,8 @@ la conversación cuando lleguen (ver «Pendiente» en §12).
 
 ### 6.5 Promesa (contrato con Argos §7.4)
 
+Simular y pedir exigen cliente verificado (422 `cliente_sin_confirmar`) y que `servicioId` sea del
+cliente en la empresa (como al asociar: 422 `servicio_fuera_de_empresa`).
 `{ servicioId, venceEl: "AAAA-MM-DD" }` (día prometido; Iris manda a Argos el final de ese día en
 hora de Guatemala). Sincrónica: Iris llama a Argos fuera de su transacción
 (`Idempotency-Key = iris:promesa:<id>`) y guarda el resultado: `activa`, `rechazada` (con `regla` y
@@ -335,7 +368,7 @@ quién la tiene; el panel recarga la conversación).
 
 | Método y ruta | Permiso | Cuerpo | Notas |
 | --- | --- | --- | --- |
-| `POST /conversaciones/{id}/tomar` | `tomar` | `{ version }` | Solo si está sin asignar (409 `ya_asignada`). Tomar la propia: 200 sin cambios |
+| `POST /conversaciones/{id}/tomar` | `tomar` | `{ version }` | Solo si está sin asignar (409 `ya_asignada`) y eres miembro de su cola, supervisas o no tiene cola (si no, 422 `usuario_no_disponible`, igual que asignar). Tomar la propia: 200 sin cambios |
 | `POST /conversaciones/{id}/asignar` | `asignar` | `{ version, usuarioId \| null }` | El agente debe tener `conversaciones.ver`, ser de la empresa y miembro de la cola (o supervisar); si no, 422 `usuario_no_disponible`. Le llega `asignada` por el flujo |
 | `POST /conversaciones/{id}/transferir` | `transferir` | `{ version, colaId, resumen, conservarAsignacion? }` | `resumen` obligatorio (1–1000), queda como nota interna. Por defecto queda sin asignar |
 | `POST /conversaciones/{id}/etiquetar` | `etiquetar` | `{ version, etiquetaIds[] }` | Fija el conjunto (máx. 10; solo etiquetas activas de la empresa) |
@@ -361,11 +394,17 @@ quién la tiene; el panel recarga la conversación).
 - **Ventana de 24 h:** texto y adjuntos solo si el cliente escribió en las últimas 24 h; fuera de
   ella, 422 `fuera_de_ventana` y solo se puede mandar una **plantilla aprobada en ese número**
   (`mensajeria.canales.plantillas`; si no, 422 `plantilla_no_aprobada`).
-- **Permiso de contacto:** una plantilla fuera de ventana exige cliente de Argos asociado con
-  permiso vigente `acepta` en WhatsApp (§6.4 del contrato con Argos): si no, 422 `sin_permiso` o
-  `baja`. Dentro de la ventana el cliente inició la conversación y no hace falta.
-- Un mensaje con `baja` vigente del cliente nunca sale como plantilla. Un número pausado por
-  calidad (§6.5) retiene el envío hasta que se libera.
+- **Permiso de contacto:** una plantilla fuera de ventana exige (a) cliente de Argos asociado y
+  **verificado** (§3.1; si no, 422 `cliente_sin_confirmar`) con permiso vigente `acepta` en
+  WhatsApp (§6.4 del contrato con Argos), o (b) contacto de Iris con permiso `acepta` registrado
+  por número (§5.2). Si no, 422 `sin_permiso` o `baja`. Dentro de la ventana el cliente inició la
+  conversación y no hace falta (salvo baja del número).
+- Un mensaje con `baja` vigente nunca sale como plantilla. Un número pausado por calidad (§6.5)
+  retiene el envío hasta que se libera; al salir se revisa otra vez el permiso y, si ya no lo
+  hay, queda `fallido` con motivo `baja`, `sin_permiso` o `cliente_sin_confirmar`.
+- **Responder asigna** (decisión del líder, pendiente del PM): si nadie tiene la conversación y
+  quien responde puede atenderla (miembro de la cola, supervisa o sin cola), queda asignada a él
+  (evento `conversacion.asignada` con `origen: responder`).
 - Sale por un job (`en_cola` → `enviado` → `entregado` → `leido` | `fallido`). Fallas temporales se
   reintentan (8 veces) y al final `agotado`.
 - Adjuntos: imagen, documento, audio o video del módulo de adjuntos, entidad `conversacion`, ya
@@ -482,8 +521,8 @@ mensaje.
 `conversacion.mensaje_fallido`, `conversacion.nota_agregada`, `conversacion.mencion`,
 `conversacion.asignada`, `conversacion.transferida`, `conversacion.etiquetada`,
 `conversacion.resuelta`, `conversacion.reabierta`, `conversacion.cliente_asociado`,
-`conversacion.vinculo_creado`, `conversacion.sla_vencido`, `contacto_iris.creado`,
-`contacto_iris.unido`, `cola.creada` / `cola.actualizada`, `etiqueta.creada` / `.actualizada`,
+`conversacion.vinculo_creado`, `conversacion.sla_vencido`, `conversacion.cliente_confirmado`,
+`contacto_iris.creado`, `contacto_iris.unido`, `contacto_iris.consentimiento`, `cola.creada` / `cola.actualizada`, `etiqueta.creada` / `.actualizada`,
 `respuesta_rapida.creada` / `.actualizada`, `boleta.registrada`, `boleta.registrada_en_argos`,
 `boleta.fallida`, `promesa.solicitada`; PR B: `horario.creado` / `.actualizado`, `conversacion.fuera_de_horario`,
 `conversacion.guardia_avisada`, `manual.creado` / `.actualizado` / `.enviado`.
@@ -507,6 +546,7 @@ verificación de identidad (§7.5); autologin a una conversación (pedido B2).
 | `cola_inactiva` | 422 | Transferir a una cola desactivada |
 | `adjunto_no_listo` | 422 | El adjunto no está completo o no es de la conversación |
 | `sin_cliente` | 422 | Boleta o promesa sin cliente asociado |
+| `cliente_sin_confirmar` | 422 | Asociación manual sin coincidencia de número, sin confirmar por un supervisor: plantilla fuera de ventana, boleta o promesa |
 | `numero_avisos_requiere_uso` | 422 | `avisosEmpresa` sin `avisos` en `usos` |
 | `manual_interno` | 422 | Enviar al cliente un manual interno (PR B) |
 | `disponible_en_fase_2` | 422 | Activar el asistente (PR B) |

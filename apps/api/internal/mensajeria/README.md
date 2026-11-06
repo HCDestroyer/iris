@@ -133,8 +133,20 @@ Contrato completo: `.claude/integration/contratos/conversaciones.md`. Código en
   `en_cola`; `mensajeria.enviar_mensaje` lo manda (texto, medio subido a `/media`, o plantilla).
   Ventana de 24 h, plantillas aprobadas en el número y permiso de contacto (§8 del contrato). Los
   estados de Meta (`sent`, `delivered`, `read`, `failed`) nunca retroceden.
-- **Alcance:** `conv_visible` — supervisión (todas), asignada a mí, de mis colas, sin cola, o
-  participante (mencionado). Lo demás es 404.
+- **Alcance:** solo personas con sesión del panel y `conversaciones.ver` (`alcanceConvDe`): tokens
+  de API e integraciones reciben 404 en toda lectura y acción. Luego `conv_visible` — supervisión
+  (todas), asignada a mí, de mis colas, sin cola, o participante (mencionado). Lo demás es 404.
+- **Cliente verificado:** la asociación automática o la manual cuyo número es un teléfono del
+  cliente en la instantánea quedan verificadas; la manual sin coincidencia la confirma un
+  supervisor (`confirmar-cliente`). Sin verificar: ni plantillas fuera de ventana, ni boletas, ni
+  promesas. Contactos de Iris: permiso por número (`mensajeria.consentimientos_numero`); `BAJA` por
+  chat también lo registra (antes de guardar el mensaje).
+- **Medios:** el tipo de un medio entrante sale de sus bytes (`http.DetectContentType`); las boletas
+  solo aceptan JPEG, PNG, WebP o PDF por firma.
+- **Varios números en una app de Meta:** configura `override_callback_uri` por número en Meta
+  (`…/canales/{id}/webhook`). Un cambio de otro `phone_number_id` que llegue a un canal se pasa al
+  canal activo de ese número solo si es de la misma empresa y comparte el `app_secret` que verificó
+  la firma; si no, se descarta.
 - **Estados:** abierta → esperando_cliente (al responder) → resuelta; el cliente reabre. SLA por cola
   (`espera_desde`, `sla_vence_en`; por vencer = 25 % o lo configurado); el mantenimiento emite
   `conversacion.sla_vencido` una vez por espera.
@@ -153,5 +165,5 @@ Contrato completo: `.claude/integration/contratos/conversaciones.md`. Código en
 - **Auditoría:** cada acción; el texto de los mensajes y notas nunca (solo id, tipo y hash).
 
 Emite (detalle en `contratos/eventos.md`, «Conversaciones con clientes»): `conversacion.*`,
-`contacto_iris.*`, `cola.*`, `etiqueta.*`, `respuesta_rapida.*`, `boleta.*`, `promesa.solicitada`.
+`contacto_iris.*` (también `contacto_iris.consentimiento`), `cola.*`, `etiqueta.*`, `respuesta_rapida.*`, `boleta.*`, `promesa.solicitada`.
 No consume eventos (los webhooks `comprobante.*` / `promesa.*` de Argos quedan para la fase 1.1).

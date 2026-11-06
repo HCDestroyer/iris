@@ -161,7 +161,8 @@ SELECT * FROM mensajeria.contactos_iris WHERE id = ANY (@ids::bigint[]);
 
 -- name: PasarConversacionesACliente :many
 UPDATE mensajeria.conversaciones
-SET cliente_id = @cliente_id, servicio_id = NULL, asociacion = 'manual', version = version + 1, updated_at = now()
+SET cliente_id = @cliente_id, servicio_id = NULL, asociacion = 'manual', cliente_verificado = false, verificado_por = NULL,
+    version = version + 1, updated_at = now()
 WHERE contacto_iris_id = @contacto_iris_id
 RETURNING id;
 
@@ -173,9 +174,9 @@ WHERE coalesce(empresa_id, 0) = @empresa::bigint AND canal_id = @canal_id AND nu
 FOR UPDATE;
 
 -- name: InsertarConversacionCliente :one
-INSERT INTO mensajeria.conversaciones (empresa_id, canal_id, numero, perfil_nombre, cola_id, cliente_id, asociacion, ultima_actividad)
+INSERT INTO mensajeria.conversaciones (empresa_id, canal_id, numero, perfil_nombre, cola_id, cliente_id, asociacion, cliente_verificado, ultima_actividad)
 VALUES (sqlc.narg('empresa_id'), @canal_id, @numero, sqlc.narg('perfil_nombre'), sqlc.narg('cola_id'), sqlc.narg('cliente_id'),
-    sqlc.narg('asociacion'), @ultima_actividad)
+    sqlc.narg('asociacion'), @cliente_verificado, @ultima_actividad)
 ON CONFLICT DO NOTHING
 RETURNING *;
 
@@ -198,6 +199,7 @@ UPDATE mensajeria.conversaciones
 SET perfil_nombre = sqlc.narg('perfil_nombre'), cola_id = sqlc.narg('cola_id'), asignado_a = sqlc.narg('asignado_a'),
     asignado_en = sqlc.narg('asignado_en'), estado = @estado, cliente_id = sqlc.narg('cliente_id'), servicio_id = sqlc.narg('servicio_id'),
     contacto_iris_id = sqlc.narg('contacto_iris_id'), prospecto_id = sqlc.narg('prospecto_id'), asociacion = sqlc.narg('asociacion'),
+    cliente_verificado = @cliente_verificado, verificado_por = sqlc.narg('verificado_por'),
     ultimo_entrante_en = sqlc.narg('ultimo_entrante_en'), espera_desde = sqlc.narg('espera_desde'), sla_vence_en = sqlc.narg('sla_vence_en'),
     sla_avisado = @sla_avisado, resuelta_en = sqlc.narg('resuelta_en'), reabierta_en = sqlc.narg('reabierta_en'),
     ultima_actividad = @ultima_actividad, version = version + @sube_version::integer, updated_at = now()
@@ -524,3 +526,17 @@ UPDATE mensajeria.chat_estado
 SET conv_purgados_hasta = GREATEST(conv_purgados_hasta, COALESCE((SELECT max(id) FROM borrados), 0))
 WHERE id = 1
 RETURNING conv_purgados_hasta;
+
+-- name: ConsentimientoNumeroVigente :one
+SELECT * FROM mensajeria.consentimientos_numero
+WHERE coalesce(empresa_id, 0) = @empresa::bigint AND telefono = @telefono
+ORDER BY ocurrido_en DESC, (estado = 'baja') DESC, id DESC
+LIMIT 1;
+
+-- name: InsertarConsentimientoNumero :one
+INSERT INTO mensajeria.consentimientos_numero (empresa_id, telefono, estado, origen, ocurrido_en, registrado_por)
+VALUES (sqlc.narg('empresa_id'), @telefono, @estado, @origen, @ocurrido_en, sqlc.narg('registrado_por'))
+RETURNING *;
+
+-- name: CanalActivoPorPhoneNumber :one
+SELECT * FROM mensajeria.canales WHERE phone_number_id = @phone_number_id AND activo;
