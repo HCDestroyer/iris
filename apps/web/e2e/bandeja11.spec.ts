@@ -147,6 +147,7 @@ test.describe("bandeja 1.1", () => {
         await expect(resultados.getByRole("radio", { name: "Carlos Cifuentes, No acepta mensajes: se dio de baja" })).toBeDisabled();
         await expect(resultados.getByRole("radio", { name: "Carlos Pérez, Sin número de WhatsApp en Argos" })).toBeDisabled();
         await expect(resultados.locator('[data-opcion="cliente:3877"]')).toContainText("No acepta mensajes: se dio de baja");
+        await expect(resultados.getByRole("radio", { name: "Carlos Toj, La atiende otra cola" })).toBeDisabled();
         await resultados.locator('[data-opcion="cliente:4101"]').click();
         await expect(resultados.getByRole("radio", { name: "Carlos Ruiz, acepta mensajes" })).toBeChecked();
         await elegirOpcion(form.getByLabel("Plantilla aprobada"), { label: "Confirmar visita técnica" });
@@ -214,6 +215,8 @@ test.describe("bandeja 1.1", () => {
         const api = await abrir(page, "/administracion/numeros/3/configurar");
         const form = page.getByRole("form", { name: "Configurar Soporte" });
         await expect(form.getByRole("heading", { name: "Cuando no hay agentes" })).toBeVisible();
+        await expect(form.getByRole("switch", { name: /Activar bot/ })).toBeChecked();
+        await expect(form.locator('[data-slot="bot-detalle"]')).toHaveAttribute("data-activo", "true");
         await expect(form.getByRole("radio", { name: "Bot" })).toBeChecked();
         await expect(form.getByRole("radio", { name: "Agente autónomo (fase 3)" })).toBeDisabled();
         await expect(form.getByLabel("Minutos sin confirmación")).toHaveValue("30");

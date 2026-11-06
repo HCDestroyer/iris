@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { avanceEspera, estaDisponible, minutosParaBot, personasDeCola, supervisaCola, textoCarga, textoCuentaRegresiva, textoDisponibles, textoEventoBot } from "./atencion";
+import { avanceEspera, estaDisponible, minutosParaBot, personasDeCola, supervisaCola, textoCarga, textoCuentaRegresiva, textoDisponibles, textoEventoBot, textoMotivoDestinatario } from "./atencion";
 import type { Agente } from "./tipos";
 
 const SOPORTE = { id: 2, nombre: "Soporte" };
@@ -28,7 +28,8 @@ describe("«¿Alguien la atiende?»", () => {
     it("dice la cuenta regresiva larga y corta", () => {
         expect(textoCuentaRegresiva(12)).toBe("El bot contestará en 12 min");
         expect(textoCuentaRegresiva(12, true)).toBe("Bot en 12 min");
-        expect(textoCuentaRegresiva(0)).toBe("El bot está por contestar");
+        expect(textoCuentaRegresiva(0)).toBe("El bot contestará en un momento");
+        expect(textoCuentaRegresiva(minutosParaBot("2026-11-06T16:30:00Z", ahora) ?? 0, true)).toBe("Bot en un momento");
     });
 
     it("calcula el avance de la espera entre 0 y 1", () => {
@@ -70,6 +71,15 @@ describe("disponibles por cola", () => {
         expect(supervisaCola(lista[4], 2)).toBe(true);
         expect(supervisaCola(lista[4], 3)).toBe(false);
         expect(supervisaCola(lista[0], 2)).toBe(false);
+    });
+});
+
+describe("motivos de un destinatario", () => {
+    it("dice por qué no se le puede escribir", () => {
+        expect(textoMotivoDestinatario(null)).toBe("Acepta mensajes");
+        expect(textoMotivoDestinatario("baja")).toBe("No acepta mensajes: se dio de baja");
+        expect(textoMotivoDestinatario("sin_contacto")).toBe("Sin número de WhatsApp en Argos");
+        expect(textoMotivoDestinatario("conversacion_de_otra_cola")).toBe("La atiende otra cola");
     });
 });
 

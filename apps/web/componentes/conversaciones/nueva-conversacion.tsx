@@ -381,6 +381,21 @@ function VistaPrevia({ plantilla, valores, nombre, canal, cola }: { plantilla: P
 /** Error del envío con lo que se puede hacer. */
 function ErrorEnvio({ error }: { error: unknown }) {
     const e = error instanceof ErrorApi ? error : null;
+    if (e?.codigo === "conversacion_de_otra_cola") {
+        return (
+            <Aviso tono="warning" titulo="La atiende otra cola">
+                {e.detalle ?? "Ese contacto ya tiene una conversación en este número que atiende otra cola. Pídele a su supervisor que te la pase."}
+            </Aviso>
+        );
+    }
+    // Cambiar a quién está asociada la conversación existente exige `conversaciones.asociar`.
+    if (e?.estado === 403) {
+        return (
+            <Aviso tono="error" titulo="No puedes cambiar el contacto de esa conversación">
+                Ya hay una conversación con este número asociada a otro cliente o contacto, y cambiarla exige el permiso para asociar contactos. Pídeselo a un supervisor.
+            </Aviso>
+        );
+    }
     if (e?.codigo === "conversacion_de_otro") {
         return (
             <Aviso tono="warning" titulo="Ese contacto ya tiene una conversación con otra persona">

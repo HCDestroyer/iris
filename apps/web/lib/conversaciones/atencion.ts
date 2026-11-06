@@ -12,9 +12,12 @@ export function minutosParaBot(botContestaEn: string | null | undefined, ahora: 
     return Math.max(0, Math.ceil(ms / 60_000));
 }
 
-/** «El bot contestará en 12 min» (o «Bot en 12 min»), o que está por contestar. */
+/**
+ * «El bot contestará en 12 min» (o «Bot en 12 min»). El barrido del servidor corre cada minuto:
+ * pasada la hora y sin respuesta del bot, «en un momento» (nunca un número negativo).
+ */
 export function textoCuentaRegresiva(minutos: number, corto = false): string {
-    if (minutos <= 0) return corto ? "Bot ya" : "El bot está por contestar";
+    if (minutos <= 0) return corto ? "Bot en un momento" : "El bot contestará en un momento";
     return corto ? `Bot en ${minutos} min` : `El bot contestará en ${minutos} min`;
 }
 
@@ -111,6 +114,8 @@ export function textoMotivoDestinatario(motivo: MotivoDestinatario | null): stri
             return "No es cliente de esta empresa";
         case "conversacion_de_otro":
             return "Ya tiene una conversación con otra persona";
+        case "conversacion_de_otra_cola":
+            return "La atiende otra cola";
         case "numero_no_permitido":
             return "Ese número de salida no es de tus colas";
         default:
