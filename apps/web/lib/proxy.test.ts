@@ -2,6 +2,20 @@ import { describe, expect, it } from "vitest";
 import { cabecerasCliente, redesConfiables, reenviar } from "./proxy";
 
 describe("proxy /api → IRIS_API_URL", () => {
+    it("pasa la señal del navegador a la API: cerrar un flujo SSE corta la petición de atrás", async () => {
+        let senal: AbortSignal | null | undefined;
+        const fetchFalso: typeof fetch = async (_url, init) => {
+            senal = init?.signal;
+            return new Response("", { status: 200, headers: { "Content-Type": "text/event-stream" } });
+        };
+        const control = new AbortController();
+        const peticion = new Request("http://panel.test/api/v1/mensajeria/conversaciones/eventos", { signal: control.signal });
+        await reenviar(peticion, fetchFalso, "http://api");
+        expect(senal?.aborted).toBe(false);
+        control.abort();
+        expect(senal?.aborted).toBe(true);
+    });
+
     it("reenvía método, ruta, query, cuerpo, cookies y CSRF; devuelve todas las Set-Cookie", async () => {
         let recibida: { url: string; init: RequestInit } | undefined;
         const fetchFalso: typeof fetch = async (url, init) => {

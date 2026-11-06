@@ -128,6 +128,9 @@ export async function reenviar(peticion: Request, fetchApi: typeof fetch = fetch
             body: conCuerpo ? await peticion.arrayBuffer() : undefined,
             redirect: "manual",
             cache: "no-store",
+            // Si el navegador cierra (p. ej. un EventSource de la bandeja), se corta también la
+            // petición a la API: un flujo SSE abandonado no ocupa uno de los 5 por usuario.
+            signal: peticion.signal,
         });
     } catch {
         return problemaProxy(502, "api_no_disponible", "La API no responde", "No se pudo contactar a la API de Iris. Inténtalo de nuevo en un momento.");
