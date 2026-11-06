@@ -234,6 +234,9 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                 {soloPlantilla ? (
                     <div className="grid gap-2 px-3 pt-2 pb-2.5">
                         <p className="text-sm text-muted-foreground">El cliente no escribe hace más de 24 h: WhatsApp solo deja mandarle una plantilla aprobada en este número.</p>
+                        {conv.contacto.tipo === "cliente" && !conv.contacto.verificado ? (
+                            <p className="text-sm text-warning">Falta que un supervisor confirme el cliente para mandarle plantillas.</p>
+                        ) : null}
                         <SelectorPlantilla conv={conv} identidad={identidad} alEnviado={alConfirmado} alActualizar={alActualizar} principal />
                     </div>
                 ) : (
