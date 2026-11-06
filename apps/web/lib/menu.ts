@@ -124,7 +124,6 @@ export const MENU: readonly EntradaMenu[] = [
             "agenda.desactivar_zona",
             "conversaciones.configurar",
             "canales.configurar",
-            "manuales.ver",
         ],
     },
 ];

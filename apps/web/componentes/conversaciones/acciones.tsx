@@ -23,7 +23,7 @@ import {
     MenuDesplegableSeparador,
     useCambiosSinGuardar,
 } from "@iris/ui";
-import { ArrowLeftRight, AtSign, BookOpen, Check, ChevronDown, Ellipsis, LifeBuoy, RotateCcw, RotateCw, Tag, Unlink, User, UserCheck, UserMinus, UserPlus } from "lucide-react";
+import { ArrowLeftRight, AtSign, Check, ChevronDown, Ellipsis, LifeBuoy, RotateCcw, RotateCw, Tag, Unlink, User, UserCheck, UserMinus, UserPlus } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useForm, type FieldValues, type Path, type UseFormSetError } from "react-hook-form";
 import { z } from "zod";
@@ -44,7 +44,6 @@ type Props = {
     estrecho: boolean;
     alActualizar: (c: Conversacion) => void;
     recargar: () => Promise<void>;
-    abrirAyuda: () => void;
 };
 
 const BASE = "/api/v1/mensajeria/conversaciones/{id}";
@@ -56,7 +55,7 @@ const ruta = (c: Conversacion, clave: string) => ({ path: { id: c.id }, header: 
  * demás adentro). Cada acción es explícita (`POST …/<verbo>`), con `version` e `Idempotency-Key`,
  * y avisa al terminar.
  */
-export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, abrirAyuda }: Props) {
+export function AccionesConversacion({ conv, estrecho, alActualizar, recargar }: Props) {
     const { yo, puede } = useSesion();
     const [dialogo, setDialogo] = useState<Dialogo>(null);
     const [ocupado, setOcupado] = useState(false);
@@ -166,11 +165,6 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
             {p.transferir ? (
                 <MenuDesplegableElemento icono={ArrowLeftRight} onSelect={() => setDialogo("transferir")}>
                     Pasar a otra cola
-                </MenuDesplegableElemento>
-            ) : null}
-            {puede(["manuales.ver"]) ? (
-                <MenuDesplegableElemento icono={BookOpen} onSelect={abrirAyuda}>
-                    Buscar en los manuales
                 </MenuDesplegableElemento>
             ) : null}
         </>

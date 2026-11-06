@@ -1,4 +1,4 @@
-import { ClipboardList, DatabaseZap, History, KeyRound, Mail, Map as IconoMapa, Plug, ShieldCheck, Smartphone, Users, Zap, Phone, CalendarClock, BookOpen, type LucideIcon } from "lucide-react";
+import { ClipboardList, DatabaseZap, History, KeyRound, Mail, Map as IconoMapa, Plug, ShieldCheck, Smartphone, Users, Zap, type LucideIcon } from "lucide-react";
 import { PERMISOS_CUADRILLAS, PERMISOS_ZONAS } from "@/lib/agenda/permisos";
 import type { Permiso } from "@/lib/menu";
 
@@ -12,27 +12,6 @@ export const SECCIONES: readonly Seccion[] = [
         descripcion: "Correos que abren tickets y servidor de salida de las respuestas.",
         icono: Mail,
         permisos: ["buzones.ver"],
-    },
-    {
-        href: "/administracion/numeros",
-        titulo: "Números de WhatsApp",
-        descripcion: "Uso, cola, horario y fuera de horario de cada número de la empresa.",
-        icono: Phone,
-        permisos: ["canales.configurar"],
-    },
-    {
-        href: "/administracion/horarios",
-        titulo: "Horarios",
-        descripcion: "Franjas por día y feriados de los números y las colas.",
-        icono: CalendarClock,
-        permisos: ["canales.configurar"],
-    },
-    {
-        href: "/administracion/manuales",
-        titulo: "Biblioteca de manuales",
-        descripcion: "Guías para el equipo y para enviar al cliente desde la bandeja.",
-        icono: BookOpen,
-        permisos: ["manuales.ver"],
     },
     {
         href: "/administracion/respuestas-rapidas",

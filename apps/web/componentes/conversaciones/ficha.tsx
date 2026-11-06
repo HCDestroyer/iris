@@ -28,7 +28,6 @@ import { api, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { cabeceraIdem } from "@/lib/conversaciones/api";
 import { CLASE_ETIQUETA, formatearNumero, horaLista, iniciales } from "@/lib/conversaciones/presentacion";
-import type { Identidad } from "@/lib/conversaciones/sesion";
 import type { Conversacion, ConversacionDetalle } from "@/lib/conversaciones/tipos";
 import { haceCuanto } from "@/lib/fechas";
 import { erroresACampos } from "@/lib/formularios";
@@ -36,21 +35,17 @@ import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
 import { SelectorCliente } from "@/componentes/clientes/selector-cliente";
-import { AyudaManuales } from "./ayuda";
 import { useAhora } from "./reloj";
 
-export type PestanaFicha = "resumen" | "historial" | "ayuda";
+export type PestanaFicha = "resumen" | "historial";
 
 type Props = {
     conv: ConversacionDetalle;
-    identidad: Identidad;
     pestana: PestanaFicha;
     alCambiarPestana: (p: PestanaFicha) => void;
     /** Una acción devolvió la conversación (asociar, contacto…): la bandeja y el detalle se actualizan. */
     alActualizar: (c: Conversacion) => void;
     recargar: () => Promise<void>;
-    /** «Usar en la respuesta» (manuales): pasa el texto al compositor. */
-    alUsarTexto: (t: string) => void;
 };
 
 const BASE = "/api/v1/mensajeria/conversaciones/{id}";
@@ -61,11 +56,9 @@ const BASE = "/api/v1/mensajeria/conversaciones/{id}";
  * Sin cliente: coincidencias por el número con «Asociar», buscar en Argos, crear prospecto o
  * guardar un contacto de Iris.
  */
-export function FichaCliente({ conv, identidad, pestana, alCambiarPestana, alActualizar, recargar, alUsarTexto }: Props) {
-    const { puede } = useSesion();
+export function FichaCliente({ conv, pestana, alCambiarPestana, alActualizar, recargar }: Props) {
     const conCliente = conv.contacto.tipo === "cliente";
-    const conAyuda = puede(["manuales.ver"]);
-    const actual = pestana === "ayuda" && !conAyuda ? "resumen" : pestana;
+    const actual = pestana;
     return (
         <div className="flex min-h-0 flex-col" data-slot="ficha-cliente">
             {conCliente ? <CabeceraCliente conv={conv} alActualizar={alActualizar} /> : <SinCliente conv={conv} alActualizar={alActualizar} />}
@@ -74,7 +67,6 @@ export function FichaCliente({ conv, identidad, pestana, alCambiarPestana, alAct
                     [
                         ["resumen", "Resumen"],
                         ["historial", "Historial"],
-                        ...(conAyuda ? ([["ayuda", "Ayuda"]] as const) : []),
                     ] as const
                 ).map(([id, texto]) => (
                     <Boton
@@ -91,7 +83,7 @@ export function FichaCliente({ conv, identidad, pestana, alCambiarPestana, alAct
                     </Boton>
                 ))}
             </nav>
-            {actual === "historial" ? <Historial conv={conv} /> : actual === "ayuda" ? <AyudaManuales conv={conv} identidad={identidad} alUsarTexto={alUsarTexto} /> : <Resumen conv={conv} recargar={recargar} />}
+            {actual === "historial" ? <Historial conv={conv} /> : <Resumen conv={conv} recargar={recargar} />}
         </div>
     );
 }
