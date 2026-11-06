@@ -16,10 +16,28 @@ import (
 type argosTecnicosFalso struct {
 	tecnicos map[string]agenda.TecnicoArgosVerificado
 	llamadas int
+	// bodegas: id → empresa de las bodegas que Argos conoce (GET /bodegas/:id).
+	bodegas map[int64]int64
+	// caido: Argos no responde (503 argos_no_disponible).
+	caido bool
+	// consultasBodega: llamadas a BodegaDeEmpresa.
+	consultasBodega int
+}
+
+func (a *argosTecnicosFalso) BodegaDeEmpresa(_ context.Context, empresa, bodega int64) (bool, error) {
+	a.consultasBodega++
+	if a.caido {
+		return false, nucleo.NuevoProblema(http.StatusServiceUnavailable, "argos_no_disponible", "Argos no responde", "Mantenimiento")
+	}
+	e, ok := a.bodegas[bodega]
+	return ok && (empresa == 0 || e == empresa), nil
 }
 
 func (a *argosTecnicosFalso) BuscarTecnico(_ context.Context, id string) (agenda.TecnicoArgosVerificado, error) {
 	a.llamadas++
+	if a.caido {
+		return agenda.TecnicoArgosVerificado{}, nucleo.NuevoProblema(http.StatusServiceUnavailable, "argos_no_disponible", "Argos no responde", "Mantenimiento")
+	}
 	if t, ok := a.tecnicos[id]; ok {
 		return t, nil
 	}
@@ -58,7 +76,7 @@ func TestVincularTecnicoConArgos(t *testing.T) {
 	problema(t, err, http.StatusUnprocessableEntity, "tecnico_sin_bodega")
 
 	v := deber(ag.VincularArgos.Ejecutar(ca, agenda.EntradaVincularArgos{ID: f.ID, Version: f.Version, IDExterno: " u-" + sufijo + " "}))(t)
-	if v.Argos == nil || v.Argos.IDExterno != "u-"+sufijo || v.Argos.Correo != "tec@argos.gt" || v.Version != f.Version+1 {
+	if v.Argos == nil || v.Argos.IDExterno != "u-"+sufijo || v.Argos.Correo != "tec@argos.gt" || v.Version != f.Version+1 || v.BodegaID == nil || *v.BodegaID != 31 {
 		t.Fatalf("vínculo: %+v", v.Argos)
 	}
 	if n := contar(t, `SELECT count(*) FROM integracion.outbox WHERE evento = 'tecnico.argos_vinculado'

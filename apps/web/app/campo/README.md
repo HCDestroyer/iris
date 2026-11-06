@@ -106,7 +106,11 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
 - **Detalle:** cliente, llamar, «Cómo llegar» (app de mapas con las coordenadas), servicio,
   comodato, notas; «En camino» / «Llegué» con GPS si se permite; en sitio: checklist (sí/no,
   texto, número, medición, foto), fotos (≤ 1600 px, ~300 KB, hora y GPS del EXIF), materiales
-  de la bodega de la orden, equipos (instalar/retirar según el tipo, escáner por campo o a mano), firma
+  de la bodega de la orden (`_componentes/materiales.tsx`: `Autocompletar` que busca por nombre o
+  código sin tildes, con lo que queda y la modalidad de cada uno; el comodato no se registra como
+  material y manda a «Equipos» con su serie; cantidad con − / + de 48 px, atajos +5 / +10 y «Te
+  quedarían…» o el aviso de que supera la existencia; todo con las existencias del paquete, sin
+  señal también; lógica en `materiales.ts` de `@iris/sync/campo`), equipos (instalar/retirar según el tipo, escáner por campo o a mano), firma
   (SVG a la API y PNG como adjunto), cerrar o «No se pudo» con motivo. Lo que no vale para el
   estado o el tipo no se muestra (`lib/campo/reglas.ts`).
 - **Ubicación en vivo** (`lib/campo/ubicacion.ts`, `_componentes/ubicacion.tsx`): en turno y con

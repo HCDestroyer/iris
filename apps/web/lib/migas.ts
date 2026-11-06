@@ -39,6 +39,7 @@ const ETIQUETAS: Readonly<Record<string, string>> = {
     "/ordenes/nueva": "Nueva orden",
     "/usuarios/nuevo": "Nuevo usuario",
     "/tecnicos/nuevo": "Nuevo técnico",
+    "/tecnicos/argos": "Técnicos de Argos sin ficha",
     "/comercial/nuevo": "Nuevo prospecto",
 };
 

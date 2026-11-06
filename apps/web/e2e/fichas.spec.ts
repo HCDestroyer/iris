@@ -143,9 +143,9 @@ test.describe("vínculo del técnico con Argos", () => {
         const opciones = await abrirOpciones(usuario);
         await expect(opciones.getByRole("option")).toHaveText([
             "Elige el usuario…",
-            "Lucía Ramírez · lucia@argos.test · bodega 30",
-            "Jorge Méndez · jorge@argos.test · bodega 31 · ya vinculado a otra ficha",
-            "Pedro Sic · pedro@argos.test · bodega 40 · sin bodega en esta empresa",
+            "Lucía Ramírez · lucia@argos.test · Bodega Norte",
+            "Jorge Méndez · jorge@argos.test · Bodega Sur · ya vinculado a otra ficha",
+            "Pedro Sic · pedro@argos.test · Bodega Xela · sin bodega en esta empresa",
         ]);
         await expect(opciones.getByRole("option", { name: /Jorge Méndez/ })).toBeDisabled();
         await expect(opciones.getByRole("option", { name: /Pedro Sic/ })).toBeDisabled();
