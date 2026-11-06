@@ -233,7 +233,7 @@ for (const [franja, instante] of [
         const api = await simularApiCampo(page, { ordenes: [], ordenesFuturas: ordenesFuturas(ahora) });
         await page.goto("/campo");
         await expect(page.getByText("Jueves 5 de noviembre")).toBeVisible();
-        await page.getByRole("navigation", { name: "Día" }).getByRole("link", { name: /^Mañana/ }).click();
+        await page.getByRole("radiogroup", { name: "Día" }).getByRole("radio", { name: /^Mañana/ }).click();
         await expect(page.getByRole("heading", { name: "Mañana, vie 6" })).toBeVisible();
         await expect(page.getByTestId("resumen-dia")).toHaveText("2 citas · 3 h");
         // El sábado 7 (pasado mañana) tiene el retiro: la semana se pidió por día de Guatemala.
