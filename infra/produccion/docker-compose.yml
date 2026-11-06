@@ -50,6 +50,9 @@ x-api-env: &api-env
 
 x-api-volumes: &api-volumes
   - ${IRIS_DIR:-/opt/iris}/certs:/run/iris/certs:ro
+  # Push notifications: the Firebase service account JSON (install.sh --fcm-credentials), read-only.
+  # IRIS_FCM_CREDENCIALES=/run/iris/secrets/fcm-service-account.json in the .env.
+  - ${IRIS_DIR:-/opt/iris}/secrets:/run/iris/secrets:ro
 
 x-api-depende: &api-depende
   postgres:

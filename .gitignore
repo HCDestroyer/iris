@@ -32,6 +32,9 @@ playwright/.cache/
 *.pem
 *.key
 !infra/imagenes/sin-ca.pem
+# Cuenta de servicio de Firebase (push) que monta el compose de dev
+infra/secretos/*
+!infra/secretos/.gitkeep
 
 # Datos locales de infra (OSRM descargado fuera del volumen, respaldos, certificados de dev)
 infra/osrm/datos/

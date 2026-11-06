@@ -33,6 +33,21 @@ mismo_almacen() { # <descripción> <argumentos de docker compose…>
     echo "$desc: mensajería y worker con el almacén de adjuntos de la API"
 }
 mismo_almacen "compose de producción" --env-file "$tmp/.env" -f "$aqui/docker-compose.yml"
+
+# Notificaciones push: la API (estado en /salud) y el worker (envío) montan de solo lectura la carpeta
+# de secretos con el JSON de la cuenta de servicio de Firebase, y el .env de ejemplo trae IRIS_FCM_*
+# vacías (push apagado por defecto; docs/runbooks/notificaciones-push.md).
+secretos="$(docker compose --env-file "$tmp/.env" -f "$aqui/docker-compose.yml" config --format json | jq -r '
+    . as $c | ["api", "worker"][] as $s
+    | select([$c.services[$s].volumes // [] | .[] | select(.target == "/run/iris/secrets" and .read_only == true)] | length != 1) | $s')"
+if [ -n "$secretos" ]; then
+    echo "compose de producción: sin /run/iris/secrets de solo lectura en: $secretos" >&2
+    exit 1
+fi
+for v in IRIS_FCM_PROYECTO IRIS_FCM_CREDENCIALES; do
+    grep -qE "^$v=$" "$aqui/.env.example" || { echo "$v debe estar vacía en infra/produccion/.env.example" >&2; exit 1; }
+done
+echo "compose de producción: secretos de push montados de solo lectura en api y worker"
 mismo_almacen "compose de dev" -f "$aqui/../docker-compose.yml" --env-file "$aqui/../../.env.example" --profile app
 
 "$aqui/package.sh" 0.0.0 "$tmp/dist" > /dev/null
