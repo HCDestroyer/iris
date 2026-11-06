@@ -13,6 +13,7 @@ export * from "./esquemas";
 export * from "./fechas";
 export * from "./guardado";
 export * from "./inicio";
+export * from "./materiales";
 export * from "./pasos";
 export * from "./traslados";
 export * from "./reglas";

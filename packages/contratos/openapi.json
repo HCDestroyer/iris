@@ -8272,6 +8272,10 @@
             "format": "double",
             "type": "number"
           },
+          "codigo": {
+            "description": "Código (SKU) del producto en Argos; vacío si Argos no lo manda",
+            "type": "string"
+          },
           "descripcion": {
             "type": "string"
           },
@@ -8387,6 +8391,10 @@
               "array",
               "null"
             ]
+          },
+          "nombre": {
+            "description": "Nombre de la bodega en Argos (bodega_nombre); vacío si Argos no lo manda",
+            "type": "string"
           }
         },
         "required": [

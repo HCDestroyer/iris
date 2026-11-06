@@ -91,3 +91,29 @@ export async function firmarEn(page: Page, nombre: RegExp | string = /Firma del 
     }
     await page.mouse.up();
 }
+
+/*
+ * Material del paso «Materiales y equipos»: un `Autocompletar` (ComboBox de React Aria). Su lista
+ * se cierra si la página se desplaza (en el teléfono, al enfocar el campo): se abre con flecha
+ * abajo y se elige con un clic «virtual», que no desplaza.
+ */
+export async function abrirMateriales(page: Page, buscar = ""): Promise<Locator> {
+    const campo = page.getByRole("combobox", { name: "Material" });
+    if (buscar !== "") await campo.fill(buscar);
+    await expect(async () => {
+        if ((await campo.getAttribute("aria-expanded")) !== "true") await campo.press("ArrowDown");
+        expect(await campo.getAttribute("aria-expanded")).toBe("true");
+    }).toPass({ intervals: [100, 200, 400] });
+    return page.locator(`[id="${(await campo.getAttribute("aria-controls")) ?? ""}"]`);
+}
+
+/** Elige el material por su nombre (escribe `buscar` antes, si se da: nombre o código). */
+export async function elegirMaterial(page: Page, nombre: string, buscar = ""): Promise<void> {
+    const campo = page.getByRole("combobox", { name: "Material" });
+    await expect(async () => {
+        if ((await campo.inputValue()) === nombre && (await page.getByTestId("material-elegido").count()) > 0) return;
+        const lista = await abrirMateriales(page, buscar);
+        await lista.getByRole("option").filter({ hasText: nombre }).first().dispatchEvent("click", undefined, { timeout: 2000 });
+        await expect(page.getByTestId("material-elegido")).toContainText(nombre, { timeout: 1500 });
+    }).toPass({ intervals: [100, 200, 400] });
+}

@@ -7561,6 +7561,8 @@ export interface components {
         Existencia: {
             /** Format: double */
             cantidad: number;
+            /** @description Código (SKU) del producto en Argos; vacío si Argos no lo manda */
+            codigo?: string;
             descripcion: string;
             /**
              * @description Modalidad del producto en Argos (≥ 1.6.0): comodato (va como equipo, con serie), consumible_gasto o consumible_cobro (Argos lo cobra al cliente al consumirlo). Vacía con un Argos anterior
@@ -7594,6 +7596,8 @@ export interface components {
             /** Format: int64 */
             bodegaId: number;
             lineas: components["schemas"]["Existencia"][] | null;
+            /** @description Nombre de la bodega en Argos (bodega_nombre); vacío si Argos no lo manda */
+            nombre?: string;
         };
         Factibilidad: {
             /**

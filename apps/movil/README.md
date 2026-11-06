@@ -51,7 +51,8 @@ adjuntos. Lo que agrega lo nativo: cámara del sistema, escáner de códigos y G
 - **La orden paso a paso:** resumen (cliente, avisos, pausa con motivo / reanudar, avance, notas,
   «No se pudo») → «Empezar trabajo» → **Llegada** (En camino y Llegué, con GPS si hay permiso) ·
   **Checklist** (formularios de todos los tipos; agregar y quitar) · **Materiales y equipos**
-  (bodega, serie/MAC escaneadas, comodato) · **Fotos**, cada
+  (búsqueda por nombre o código en la bodega del paquete con lo que queda y la modalidad, el
+  comodato a «Equipos», cantidad con − / + de 48 px y atajos; serie/MAC escaneadas, comodato) · **Fotos**, cada
   paso en su vista, guardado en el teléfono al tocar (texto y números, al salir del campo), con
   «N de 4 pasos listos» y la **isla de pasos** (`IslaPasos`, la misma píldora que la de menú):
   «Anterior» · un primario que avanza (`estadoIslaPasos` de `@iris/sync/campo`). **Sin cambios no
