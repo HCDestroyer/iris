@@ -24,6 +24,8 @@ func (m *Modulo) RegistrarWorkers(w *river.Workers, bd nucleo.BD) {
 	river.AddWorker(w, &trabajadorEntrante{m: m, bd: bd})
 	river.AddWorker(w, &trabajadorDespacho{m: m, bd: bd})
 	river.AddWorker(w, &trabajadorMantenimiento{m: m, bd: bd})
+	river.AddWorker(w, &trabajadorMensaje{m: m, bd: bd})
+	river.AddWorker(w, &trabajadorMedio{m: m, bd: bd})
 }
 
 // ArgsMantenimiento: avisos sin acuse (agotado), webhooks de Meta que quedaron sin procesar y la
@@ -54,6 +56,12 @@ func (w *trabajadorMantenimiento) Work(ctx context.Context, _ *river.Job[ArgsMan
 		return err
 	}
 	if err := w.m.purgarFotosSinEnviar(ctx, w.bd); err != nil {
+		return err
+	}
+	if err := w.m.purgarFeedConv(ctx, w.bd); err != nil {
+		return err
+	}
+	if _, err := w.m.vencerSLA.Ejecutar(ctx, struct{}{}); err != nil {
 		return err
 	}
 	ids, err := mensajeriabd.New(w.bd).EntrantesPendientes(ctx, w.m.ahora().Add(-5*time.Minute))

@@ -9,9 +9,12 @@ import (
 	"io"
 	"log/slog"
 	"mime"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -298,20 +301,67 @@ func (c *Cliente) Escribir(ctx context.Context, metodo, ruta string, cuerpo any,
 	return c.una(ctx, metodo, ruta, nil, cuerpo, destino, clave)
 }
 
-func (c *Cliente) una(ctx context.Context, metodo, ruta string, consulta url.Values, cuerpo any, destino any, clave string) error {
-	ctx, cancelar := context.WithTimeout(ctx, c.timeout)
-	defer cancelar()
-	u := c.base + "/api/v1" + ruta
-	if len(consulta) > 0 {
-		u += "?" + consulta.Encode()
+// Archivo es el archivo de una escritura multipart/form-data.
+type Archivo struct {
+	Campo  string
+	Nombre string
+	Mime   string
+	Datos  []byte
+}
+
+// EscribirMultipart es Escribir con un cuerpo multipart/form-data (campos de texto y un archivo),
+// p. ej. POST /comprobantes de Argos (contrato §7.2). Un solo intento, con Idempotency-Key.
+func (c *Cliente) EscribirMultipart(ctx context.Context, ruta string, campos map[string]string, archivo Archivo, clave string, destino any) error {
+	if clave == "" {
+		return errors.New("conector: una escritura necesita Idempotency-Key")
 	}
+	var b bytes.Buffer
+	mw := multipart.NewWriter(&b)
+	nombres := make([]string, 0, len(campos))
+	for k := range campos {
+		nombres = append(nombres, k)
+	}
+	slices.Sort(nombres)
+	for _, k := range nombres {
+		if err := mw.WriteField(k, campos[k]); err != nil {
+			return err
+		}
+	}
+	h := textproto.MIMEHeader{}
+	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name=%q; filename=%q`, archivo.Campo, archivo.Nombre))
+	h.Set("Content-Type", archivo.Mime)
+	part, err := mw.CreatePart(h)
+	if err != nil {
+		return err
+	}
+	if _, err := part.Write(archivo.Datos); err != nil {
+		return err
+	}
+	if err := mw.Close(); err != nil {
+		return err
+	}
+	return c.unaCuerpo(ctx, http.MethodPost, ruta, nil, &b, mw.FormDataContentType(), destino, clave)
+}
+
+func (c *Cliente) una(ctx context.Context, metodo, ruta string, consulta url.Values, cuerpo any, destino any, clave string) error {
 	var lector io.Reader
+	tipo := ""
 	if cuerpo != nil {
 		b, err := json.Marshal(cuerpo)
 		if err != nil {
 			return err
 		}
-		lector = bytes.NewReader(b)
+		lector, tipo = bytes.NewReader(b), "application/json"
+	}
+	return c.unaCuerpo(ctx, metodo, ruta, consulta, lector, tipo, destino, clave)
+}
+
+func (c *Cliente) unaCuerpo(ctx context.Context, metodo, ruta string, consulta url.Values, lector io.Reader, tipo string, destino any, clave string) error {
+	ctx, cancelar := context.WithTimeout(ctx, c.timeout)
+	defer cancelar()
+	u := c.base + "/api/v1" + ruta
+	if len(consulta) > 0 {
+		u += "?" + consulta.Encode()
 	}
 	req, err := http.NewRequestWithContext(ctx, metodo, u, lector)
 	if err != nil {
@@ -319,8 +369,8 @@ func (c *Cliente) una(ctx context.Context, metodo, ruta string, consulta url.Val
 	}
 	req.Header.Set("Accept", "application/json, application/problem+json")
 	req.Header.Set("User-Agent", c.userAgent)
-	if cuerpo != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if tipo != "" {
+		req.Header.Set("Content-Type", tipo)
 	}
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)

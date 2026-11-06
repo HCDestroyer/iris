@@ -204,11 +204,25 @@ func nuevoProcesarMeta(m *Modulo) *auditoria.Caso[int64, struct{}] {
 						continue
 					}
 					for _, s := range ch.Value.Statuses {
+						// Primero un mensaje de una conversación; si no, un aviso.
+						if ok, err := m.estadoMensajeConv(ctx, t, q, canal, s, ahora); err != nil || ok {
+							if err != nil {
+								return struct{}{}, err
+							}
+							continue
+						}
 						if err := m.aplicarEstado(ctx, t, q, canal, s, ahora); err != nil {
 							return struct{}{}, err
 						}
 					}
+					perfiles := map[string]string{}
+					for _, c := range ch.Value.Contacts {
+						perfiles[c.WaID] = c.Profile.Name
+					}
 					for _, msg := range ch.Value.Messages {
+						if err := m.recibirMensaje(ctx, t, fila, msg, perfiles[msg.From], ahora); err != nil {
+							return struct{}{}, err
+						}
 						if msg.Type != "text" || !palabrasBaja[palabraDe(msg.Text.Body)] {
 							continue
 						}

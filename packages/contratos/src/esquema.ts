@@ -1557,6 +1557,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/canales/{id}/configurar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Uso, cola y número de avisos de un número
+         * @description Permiso: `canales.configurar`. Sin credenciales (esas son de mensajeria.configurar). Marcar `avisosEmpresa` lo quita del número anterior de la empresa (422 `numero_avisos_requiere_uso` sin el uso avisos).
+         */
+        post: operations["configurarCanalMensajeria"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/canales/{id}/desactivar": {
         parameters: {
             query?: never;
@@ -1805,6 +1825,110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/colas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Colas de conversaciones (con miembros)
+         * @description Permiso: `conversaciones.ver`.
+         */
+        get: operations["listarColasConversaciones"];
+        put?: never;
+        /**
+         * Crear una cola
+         * @description Permiso: `canales.configurar`.
+         */
+        post: operations["crearColaConversaciones"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/colas/{id}/activar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Activar una cola
+         * @description Permiso: `canales.configurar`.
+         */
+        post: operations["activarColaConversaciones"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/colas/{id}/actualizar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Nombre, descripción y SLA de una cola
+         * @description Permiso: `canales.configurar`.
+         */
+        post: operations["actualizarColaConversaciones"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/colas/{id}/desactivar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Desactivar una cola
+         * @description Permiso: `canales.configurar`.
+         */
+        post: operations["desactivarColaConversaciones"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/colas/{id}/miembros": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fijar los agentes de una cola
+         * @description Permiso: `canales.configurar`.
+         */
+        post: operations["miembrosColaConversaciones"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/consentimientos": {
         parameters: {
             query?: never;
@@ -1825,6 +1949,734 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/contactos-iris": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Buscar contactos de Iris
+         * @description Permiso: `conversaciones.ver`.
+         */
+        get: operations["buscarContactosIris"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/contactos-iris/{id}/actualizar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Actualizar un contacto de Iris
+         * @description Permiso: `conversaciones.asociar`.
+         */
+        post: operations["actualizarContactoIris"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/contactos-iris/{id}/unir-cliente": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unir el contacto a su ficha de Argos
+         * @description Permiso: `conversaciones.asociar`.
+         */
+        post: operations["unirContactoIris"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bandeja de conversaciones con clientes
+         * @description Permiso: `conversaciones.ver`. Las que ves (tus colas, sin cola, asignadas a ti o en que te mencionaron; todas con conversaciones.supervisar), de la más reciente a la más vieja.
+         */
+        get: operations["listarConversacionesClientes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/agentes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Agentes que atienden conversaciones
+         * @description Permiso: `conversaciones.ver`.
+         */
+        get: operations["agentesConversaciones"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/bancos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bancos de origen (Argos §7.2)
+         * @description Permiso: `conversaciones.registrar_boleta`.
+         */
+        get: operations["bancosConversaciones"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/cambios": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cambios de la bandeja desde un cursor (sondeo)
+         * @description Permiso: `conversaciones.ver`.
+         */
+        get: operations["cambiosConversaciones"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/canales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Números de WhatsApp de la empresa (sin credenciales)
+         * @description Permiso: `conversaciones.ver`.
+         */
+        get: operations["numerosConversaciones"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/contadores": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Contadores de la bandeja
+         * @description Permiso: `conversaciones.ver`.
+         */
+        get: operations["contadoresConversaciones"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/cuentas-bancarias": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cuentas de la empresa que reciben depósitos (Argos §7.2)
+         * @description Permiso: `conversaciones.registrar_boleta`.
+         */
+        get: operations["cuentasBancariasConversaciones"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/eventos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tiempo real de la bandeja (Server-Sent Events)
+         * @description Permiso: `conversaciones.ver`. Igual que el flujo del chat: `id` (cursor), `event` (mensaje_nuevo, mensaje_actualizado, conversacion_actualizada, mencion, guardia), `data` (un EventoConversacion). Last-Event-ID o ?desde=; latido cada 25 s; cierre a los 30 min; revalidación de la sesión.
+         */
+        get: operations["eventosConversaciones"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Una conversación con vínculos, participantes y el resumen del cliente
+         * @description Permiso: `conversaciones.ver`.
+         */
+        get: operations["verConversacionCliente"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/asignar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Asignar a un agente (o quitar)
+         * @description Permiso: `conversaciones.asignar`.
+         */
+        post: operations["asignarConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/asociar-cliente": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Asociar un cliente de Argos (solo su id)
+         * @description Permiso: `conversaciones.asociar`.
+         */
+        post: operations["asociarClienteConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/boletas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mandar a Argos la boleta del cliente
+         * @description Permiso: `conversaciones.registrar_boleta`. Queda `por_enviar` y sale a Argos (POST /comprobantes) con reintentos; caja la aprueba o rechaza en Argos. 422 `sin_cliente`, `adjunto_no_listo`.
+         */
+        post: operations["registrarBoletaConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/coincidencias": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Clientes de Argos y contactos de Iris con el mismo número
+         * @description Permiso: `conversaciones.ver`.
+         */
+        get: operations["coincidenciasConversacion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/contacto-iris": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Guardar como contacto de Iris
+         * @description Permiso: `conversaciones.asociar`.
+         */
+        post: operations["contactoIrisConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/crear-orden": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Crear una orden ligada a la conversación
+         * @description Permiso: `ordenes.crear`.
+         */
+        post: operations["crearOrdenConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/crear-prospecto": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Crear un prospecto desde la conversación
+         * @description Permiso: `prospectos.crear`.
+         */
+        post: operations["crearProspectoConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/crear-ticket": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Crear un ticket ligado a la conversación
+         * @description Permiso: `tickets.crear`.
+         */
+        post: operations["crearTicketConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/desasociar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Quitar cliente, contacto de Iris y prospecto
+         * @description Permiso: `conversaciones.asociar`.
+         */
+        post: operations["desasociarConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/etiquetar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fijar las etiquetas
+         * @description Permiso: `conversaciones.etiquetar`.
+         */
+        post: operations["etiquetarConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/leer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Marcar leído hasta un mensaje
+         * @description Permiso: `conversaciones.ver`.
+         */
+        post: operations["leerConversacionCliente"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/mensajes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Mensajes de una conversación (seq ascendente)
+         * @description Permiso: `conversaciones.ver`.
+         */
+        get: operations["mensajesConversacion"];
+        put?: never;
+        /**
+         * Responder al cliente
+         * @description Permiso: `conversaciones.responder`. Idempotente por `id` (200 + Idempotent-Replayed si se repite; 409 `mensaje_id_reutilizado` con otro contenido). Texto y adjuntos solo dentro de la ventana de 24 h (422 `fuera_de_ventana`); fuera, una plantilla aprobada en el número (422 `plantilla_no_aprobada`) con permiso de contacto (422 `sin_permiso`, `baja`).
+         */
+        post: operations["responderConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/notas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Nota interna (con menciones)
+         * @description Permiso: `conversaciones.responder`.
+         */
+        post: operations["notaConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/plantillas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Plantillas aprobadas en el número de la conversación
+         * @description Permiso: `conversaciones.responder`.
+         */
+        get: operations["plantillasConversacion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/promesas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pedir a Argos una promesa de pago
+         * @description Permiso: `conversaciones.registrar_promesa`. Argos decide (activa, rechazada o pendiente_aprobacion) y la respuesta lo dice. 409 `promesa_abierta`; 503 si Argos no responde (nada queda a medias).
+         */
+        post: operations["registrarPromesaConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/promesas/simular": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Política de Argos para una promesa (sin crear nada)
+         * @description Permiso: `conversaciones.registrar_promesa`.
+         */
+        post: operations["simularPromesaConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/reabrir": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reabrir una resuelta
+         * @description Permiso: `conversaciones.resolver`.
+         */
+        post: operations["reabrirConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/resolver": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolver
+         * @description Permiso: `conversaciones.resolver`.
+         */
+        post: operations["resolverConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/tomar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Tomar una conversación sin asignar
+         * @description Permiso: `conversaciones.tomar`.
+         */
+        post: operations["tomarConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/transferir": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pasar a otra cola con un resumen
+         * @description Permiso: `conversaciones.transferir`.
+         */
+        post: operations["transferirConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/etiquetas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Etiquetas de conversaciones
+         * @description Permiso: `conversaciones.ver`.
+         */
+        get: operations["listarEtiquetasConversaciones"];
+        put?: never;
+        /**
+         * Crear una etiqueta
+         * @description Permiso: `conversaciones.configurar`.
+         */
+        post: operations["crearEtiquetaConversaciones"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/etiquetas/{id}/activar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Activar una etiqueta
+         * @description Permiso: `conversaciones.configurar`.
+         */
+        post: operations["activarEtiquetaConversaciones"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/etiquetas/{id}/actualizar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Actualizar una etiqueta
+         * @description Permiso: `conversaciones.configurar`.
+         */
+        post: operations["actualizarEtiquetaConversaciones"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/etiquetas/{id}/desactivar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Desactivar una etiqueta
+         * @description Permiso: `conversaciones.configurar`.
+         */
+        post: operations["desactivarEtiquetaConversaciones"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/plantillas": {
         parameters: {
             query?: never;
@@ -1839,6 +2691,90 @@ export interface paths {
         get: operations["listarPlantillasMensajeria"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/respuestas-rapidas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Respuestas rápidas (las de la cola y las generales)
+         * @description Permiso: `conversaciones.responder`.
+         */
+        get: operations["listarRespuestasRapidas"];
+        put?: never;
+        /**
+         * Crear una respuesta rápida
+         * @description Permiso: `conversaciones.configurar`.
+         */
+        post: operations["crearRespuestaRapida"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/respuestas-rapidas/{id}/activar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Activar una respuesta rápida
+         * @description Permiso: `conversaciones.configurar`.
+         */
+        post: operations["activarRespuestaRapida"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/respuestas-rapidas/{id}/actualizar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Actualizar una respuesta rápida
+         * @description Permiso: `conversaciones.configurar`.
+         */
+        post: operations["actualizarRespuestaRapida"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/respuestas-rapidas/{id}/desactivar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Desactivar una respuesta rápida
+         * @description Permiso: `conversaciones.configurar`.
+         */
+        post: operations["desactivarRespuestaRapida"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4774,6 +5710,15 @@ export interface components {
             id: string;
             url_descarga: string;
         };
+        AdjuntoMensaje: {
+            /** @enum {string} */
+            estado: "pendiente" | "subiendo" | "completo" | "rechazado";
+            id: string;
+            mime: string;
+            /** Format: int64 */
+            tamano: number;
+            urlDescarga: string;
+        };
         AdjuntoOrden: {
             descripcion: string;
             id: string;
@@ -4786,6 +5731,14 @@ export interface components {
             ocurridoEn: string;
             /** @enum {string} */
             tipo: "foto" | "firma" | "documento";
+        };
+        AgenteConversaciones: {
+            colas: components["schemas"]["ColaRef"][] | null;
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+            /** @description Tiene conversaciones.supervisar: ve todas las colas */
+            supervisa: boolean;
         };
         AjustesCampo: {
             /** Format: int64 */
@@ -4969,6 +5922,11 @@ export interface components {
             /** Format: int64 */
             servicio_id: number | null;
         };
+        BancoOrigen: {
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+        };
         Bodega: {
             /** Format: int64 */
             empresaId: number;
@@ -4987,6 +5945,21 @@ export interface components {
             id: number;
             /** @description Nombre de la bodega en Argos (contrato 0.6.4). Vacío con un Argos anterior: se muestra «Bodega <id>» */
             nombre: string;
+        };
+        Boleta: {
+            /**
+             * Format: int64
+             * @description Id del comprobante en Argos
+             */
+            comprobanteId: number | null;
+            /** Format: date-time */
+            creadaEn: string;
+            detalle: string | null;
+            /** @enum {string} */
+            estado: "por_enviar" | "registrada" | "fallida" | "aprobada" | "rechazada";
+            id: string;
+            monto: string;
+            referencia: string;
         };
         Buzon: {
             activo: boolean;
@@ -5069,10 +6042,23 @@ export interface components {
             /** @description Siempre presente: el cursor para la siguiente consulta (o el id para Last-Event-ID) */
             nextCursor: string;
         };
+        CambiosConversaciones: {
+            data: components["schemas"]["EventoConversacion"][] | null;
+            hayMas: boolean;
+            /** @description Siempre presente: el cursor de la siguiente consulta (o el id para Last-Event-ID) */
+            nextCursor: string;
+        };
         Canal: {
             activo: boolean;
+            /** @description Es el número por el que salen los avisos de la empresa (uno activo por empresa) */
+            avisosEmpresa: boolean;
             /** @enum {string} */
             canal: "whatsapp";
+            /**
+             * Format: int64
+             * @description Cola de las conversaciones nuevas de este número
+             */
+            colaId: number | null;
             /** Format: date-time */
             creadoEn: string;
             /** Format: int64 */
@@ -5094,11 +6080,22 @@ export interface components {
             };
             /** @enum {string} */
             tipo: "whatsapp_cloud";
+            /** @description avisos, soporte, cobros, ventas (contratos/conversaciones.md §1) */
+            usos: string[] | null;
             /** Format: int32 */
             version: number;
             wabaId: string;
             /** @description Ruta del webhook a configurar en la app de Meta (sobre IRIS_BASE_URL) */
             webhookRuta: string;
+        };
+        CanalRef: {
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+            /** @description Número remitente en E.164 */
+            numero: string;
+            /** @description avisos, soporte, cobros, ventas */
+            usos: string[] | null;
         };
         CandidatoTecnico: {
             correo: string;
@@ -5338,6 +6335,15 @@ export interface components {
             /** @description Nombre de la zona del cliente en Argos */
             zonaNombre: string;
         };
+        ClienteResumenConversacion: {
+            codigo: string;
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+            servicios: components["schemas"]["ServicioResumenConversacion"][] | null;
+            /** Format: date-time */
+            sincronizadoEn: string;
+        };
         Cobertura: {
             /** @description false = no hay datos para dibujar cobertura (motivo); nunca suponer «sin cobertura» */
             disponible: boolean;
@@ -5347,6 +6353,52 @@ export interface components {
             motor: string;
             routers: components["schemas"]["RouterCobertura"][] | null;
             umbrales: components["schemas"]["Umbrales"];
+        };
+        CoincidenciaCliente: {
+            /** Format: int64 */
+            clienteId: number;
+            codigo: string;
+            /** @description telefono, movil, contacto_servicio (contacto en sitio de un servicio: no es el titular) */
+            coincideEn: string[] | null;
+            nombre: string;
+            /**
+             * @description instantanea: Argos no respondió y se buscó en la copia local
+             * @enum {string}
+             */
+            origen: "argos" | "instantanea";
+        };
+        CoincidenciasConv: {
+            /** @description false: Argos no respondió (o no hay conector) y se usó la instantánea */
+            argosConsultado: boolean;
+            clientes: components["schemas"]["CoincidenciaCliente"][] | null;
+            contactosIris: components["schemas"]["ContactoIris"][] | null;
+        };
+        ColaConversaciones: {
+            activa: boolean;
+            descripcion: string;
+            /** Format: int64 */
+            empresaId: number | null;
+            /** Format: int64 */
+            id: number;
+            miembros: components["schemas"]["UsuarioRef"][] | null;
+            nombre: string;
+            /**
+             * Format: int32
+             * @description Cuánto antes de vencer pasa a «por vencer» (null = 25 % del SLA)
+             */
+            slaPorVencerMin: number | null;
+            /**
+             * Format: int32
+             * @description Minutos para contestar un mensaje del cliente (null = sin SLA)
+             */
+            slaRespuestaMin: number | null;
+            /** Format: int32 */
+            version: number;
+        };
+        ColaRef: {
+            /** Format: int64 */
+            id: number;
+            nombre: string;
         };
         Comodato: {
             disponible: boolean;
@@ -5437,9 +6489,79 @@ export interface components {
             /** @description false = el ticket nació de un correo cuyo remitente no se pudo autenticar (DMARC/DKIM); mostrarlo como no verificado */
             verificado: boolean;
         };
+        ContactoConversacion: {
+            /**
+             * @description automatica: una sola coincidencia del número en la instantánea de Argos
+             * @enum {string|null}
+             */
+            asociacion: "automatica" | "manual" | null;
+            /**
+             * Format: int64
+             * @description Cliente en Argos
+             */
+            clienteId: number | null;
+            /** Format: int64 */
+            contactoIrisId: number | null;
+            /** Format: int64 */
+            prospectoId: number | null;
+            /**
+             * Format: int64
+             * @description Servicio en Argos
+             */
+            servicioId: number | null;
+            /** @enum {string} */
+            tipo: "cliente" | "contacto_iris" | "prospecto" | "desconocido";
+        };
+        ContactoIris: {
+            /**
+             * Format: int64
+             * @description Cliente de Argos al que se unió
+             */
+            clienteId: number | null;
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+            nota: string;
+            telefono: string;
+            /** @enum {string} */
+            tipo: "proveedor" | "personal" | "prospecto" | "otro";
+            /** Format: date-time */
+            unidoEn: string | null;
+            /** Format: int32 */
+            version: number;
+        };
         ContactoOrden: {
             nombre: string | null;
             telefono: string | null;
+        };
+        ContadoresConversaciones: {
+            /** Format: int64 */
+            mias: number;
+            /**
+             * Format: int64
+             * @description Mensajes del cliente sin leer en las asignadas a ti
+             */
+            noLeidosMias: number;
+            porCanal: components["schemas"]["ConteoGrupo"][] | null;
+            porCola: components["schemas"]["ConteoGrupo"][] | null;
+            porEstado: {
+                [key: string]: number;
+            };
+            porEtiqueta: components["schemas"]["ConteoGrupo"][] | null;
+            /** Format: int64 */
+            porVencer: number;
+            /** Format: int64 */
+            sinAsignar: number;
+            /** Format: int64 */
+            todas: number;
+            /** Format: int64 */
+            vencidas: number;
+        };
+        ConteoGrupo: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            total: number;
         };
         Contrato: {
             /** Format: int64 */
@@ -5539,6 +6661,84 @@ export interface components {
             ultima_actividad: string;
             /** @description Ausente si aún no hay mensajes */
             ultimo_mensaje?: components["schemas"]["VistaPreviaChat"];
+        };
+        ConversacionCliente: {
+            /** @description Ausente: sin asignar */
+            asignado?: components["schemas"]["UsuarioRef"];
+            canal: components["schemas"]["CanalRef"];
+            /** @description Ausente: sin cola */
+            cola?: components["schemas"]["ColaRef"];
+            contacto: components["schemas"]["ContactoConversacion"];
+            /** Format: date-time */
+            creadaEn: string;
+            /** Format: int64 */
+            empresaId: number | null;
+            /** @enum {string} */
+            estado: "abierta" | "esperando_cliente" | "resuelta";
+            etiquetas: components["schemas"]["EtiquetaRef"][] | null;
+            /** Format: int64 */
+            id: number;
+            /**
+             * Format: int64
+             * @description Mensajes del cliente después de tu lectura
+             */
+            noLeidos: number;
+            /** @description Teléfono del contacto en E.164 */
+            numero: string;
+            /** @description Nombre del perfil de WhatsApp */
+            perfilNombre: string | null;
+            /** Format: date-time */
+            reabiertaEn: string | null;
+            sla: components["schemas"]["SLAConversacion"];
+            /** @description Cliente de Argos > contacto de Iris > perfil de WhatsApp > número */
+            titulo: string;
+            /** Format: date-time */
+            ultimaActividad: string;
+            ultimoMensaje?: components["schemas"]["UltimoMensajeResumen"];
+            ventana: components["schemas"]["VentanaConversacion"];
+            /** Format: int32 */
+            version: number;
+        };
+        ConversacionClienteDetalle: {
+            /** @description Ausente: sin asignar */
+            asignado?: components["schemas"]["UsuarioRef"];
+            canal: components["schemas"]["CanalRef"];
+            /** @description Ausente sin cliente o sin instantánea */
+            clienteResumen?: components["schemas"]["ClienteResumenConversacion"];
+            /** @description Ausente: sin cola */
+            cola?: components["schemas"]["ColaRef"];
+            contacto: components["schemas"]["ContactoConversacion"];
+            /** Format: date-time */
+            creadaEn: string;
+            /** Format: int64 */
+            empresaId: number | null;
+            /** @enum {string} */
+            estado: "abierta" | "esperando_cliente" | "resuelta";
+            etiquetas: components["schemas"]["EtiquetaRef"][] | null;
+            /** Format: int64 */
+            id: number;
+            /**
+             * Format: int64
+             * @description Mensajes del cliente después de tu lectura
+             */
+            noLeidos: number;
+            /** @description Teléfono del contacto en E.164 */
+            numero: string;
+            participantes: components["schemas"]["ParticipanteConversacion"][] | null;
+            /** @description Nombre del perfil de WhatsApp */
+            perfilNombre: string | null;
+            /** Format: date-time */
+            reabiertaEn: string | null;
+            sla: components["schemas"]["SLAConversacion"];
+            /** @description Cliente de Argos > contacto de Iris > perfil de WhatsApp > número */
+            titulo: string;
+            /** Format: date-time */
+            ultimaActividad: string;
+            ultimoMensaje?: components["schemas"]["UltimoMensajeResumen"];
+            ventana: components["schemas"]["VentanaConversacion"];
+            /** Format: int32 */
+            version: number;
+            vinculos: components["schemas"]["VinculoConversacion"][] | null;
         };
         CopiaArgos: {
             /** @description true: Argos eliminó al cliente y la copia quedó solo con los ids */
@@ -5654,6 +6854,14 @@ export interface components {
             version: number;
             /** @description Zonas que atiende; vacío = todas */
             zonaIds: number[] | null;
+        };
+        CuentaBancaria: {
+            banco: string;
+            /** Format: int64 */
+            id: number;
+            moneda: string;
+            nombre: string;
+            numero: string;
         };
         CuerpoEnviarMensaje: {
             /** @description Una foto registrada antes en POST /api/v1/adjuntos con entidad chat_conversacion y entidadId = la conversación (puede seguir subiéndose) */
@@ -5887,6 +7095,10 @@ export interface components {
              */
             usuario_id: number;
         };
+        EntradaAccionConv: {
+            /** Format: int32 */
+            version: number;
+        };
         EntradaAceptarCotizacion: {
             /**
              * Format: int32
@@ -5943,6 +7155,14 @@ export interface components {
             /** Format: int32 */
             version: number;
             wabaId?: string;
+        };
+        EntradaActualizarContactoIris: {
+            nombre: string;
+            nota?: string;
+            /** @enum {string} */
+            tipo: "proveedor" | "personal" | "prospecto" | "otro";
+            /** Format: int32 */
+            version: number;
         };
         EntradaAgregarFormulario: {
             /**
@@ -6006,6 +7226,15 @@ export interface components {
              */
             version: number;
         };
+        EntradaAsignarConv: {
+            /**
+             * Format: int64
+             * @description null = quitar la asignación
+             */
+            usuarioId: number | null;
+            /** Format: int32 */
+            version: number;
+        };
         EntradaAsignarOrden: {
             /**
              * Format: int64
@@ -6054,6 +7283,14 @@ export interface components {
              */
             version: number;
         };
+        EntradaAsociarCliente: {
+            /** Format: int64 */
+            clienteId: number;
+            /** Format: int64 */
+            servicioId?: number | null;
+            /** Format: int32 */
+            version: number;
+        };
         EntradaAutorizar: {
             /** @description Dirección del panel del otro sistema (https://host[:puerto]); se normaliza al origen */
             panelUrl: string;
@@ -6092,6 +7329,33 @@ export interface components {
             variables?: {
                 [key: string]: string;
             };
+        };
+        EntradaBoleta: {
+            /** @description Imagen o PDF de esta conversación (la que mandó el cliente) */
+            adjuntoId: string;
+            /**
+             * Format: int64
+             * @description Obligatorio con transferencia y ach
+             */
+            bancoOrigenId?: number;
+            /**
+             * Format: int64
+             * @description Cuenta de la empresa (GET /cuentas-bancarias de Argos)
+             */
+            cuentaBancariaId: number;
+            /**
+             * Format: date
+             * @description AAAA-MM-DD, no futura
+             */
+            fechaDeposito: string;
+            /** @enum {string} */
+            metodo: "deposito" | "transferencia" | "ach" | "remesa";
+            /** @description Decimal con 2 decimales, en GTQ */
+            monto: string;
+            nota?: string;
+            referencia: string;
+            /** Format: int64 */
+            servicioId?: number;
         };
         EntradaBorrarVinculoSSO: {
             motivo?: string;
@@ -6191,6 +7455,19 @@ export interface components {
              */
             version: number;
         };
+        EntradaCola: {
+            descripcion?: string;
+            nombre: string;
+            /** Format: int32 */
+            slaPorVencerMin?: number | null;
+            /** Format: int32 */
+            slaRespuestaMin?: number | null;
+            /**
+             * Format: int32
+             * @description Obligatoria al actualizar
+             */
+            version?: number;
+        };
         EntradaCompletarAutorizacion: {
             /** @description Origen de la API del otro sistema (si aprobó); debe estar en la lista de orígenes */
             api?: string;
@@ -6211,6 +7488,19 @@ export interface components {
         EntradaConectar: {
             /** @description Enlace de conexión generado en el otro sistema: https://<sistema>/conectar#<código> (15 min, un solo uso) */
             enlace: string;
+        };
+        EntradaConfigurarCanal: {
+            /** @description El número por el que salen los avisos de la empresa (uno solo; marcarlo lo quita del anterior). Exige avisos en usos */
+            avisosEmpresa: boolean;
+            /**
+             * Format: int64
+             * @description ColaConversaciones de las conversaciones nuevas (null = sin cola)
+             */
+            colaId?: number | null;
+            /** @description avisos, soporte, cobros, ventas */
+            usos: string[] | null;
+            /** Format: int32 */
+            version: number;
         };
         EntradaConfirmarSolucion: {
             /**
@@ -6254,6 +7544,14 @@ export interface components {
             nombre?: string;
             telefono?: string;
         };
+        EntradaContactoIrisConv: {
+            nombre: string;
+            nota?: string;
+            /** @enum {string} */
+            tipo: "proveedor" | "personal" | "prospecto" | "otro";
+            /** Format: int32 */
+            version: number;
+        };
         EntradaContactoOrden: {
             nombre?: string;
             telefono?: string;
@@ -6278,6 +7576,13 @@ export interface components {
         EntradaCrearCanal: {
             /** @description App secret de la app de Meta (verifica X-Hub-Signature-256; solo escritura) */
             appSecret: string;
+            /** @description Número de avisos de la empresa. Por defecto, sí cuando la empresa no tiene otro y usos incluye avisos */
+            avisosEmpresa?: boolean;
+            /**
+             * Format: int64
+             * @description Cola de las conversaciones nuevas
+             */
+            colaId?: number | null;
             /**
              * Format: int64
              * @description Empresa de Argos (null solo en modo sin conector)
@@ -6294,6 +7599,8 @@ export interface components {
             };
             /** @description Token de acceso del usuario del sistema de Meta (solo escritura) */
             token: string;
+            /** @description avisos, soporte, cobros, ventas (por defecto avisos y soporte) */
+            usos?: string[] | null;
             /** @description Token de verificación del webhook que se escribe en Meta (solo escritura) */
             verifyToken: string;
             /** @description WhatsApp Business Account ID */
@@ -6901,6 +8208,24 @@ export interface components {
              */
             version: number;
         };
+        EntradaEtiqueta: {
+            /**
+             * @description neutro por defecto
+             * @enum {string}
+             */
+            color?: "neutro" | "marca" | "info" | "exito" | "alerta" | "peligro";
+            nombre: string;
+            /**
+             * Format: int32
+             * @description Obligatoria al actualizar
+             */
+            version?: number;
+        };
+        EntradaEtiquetarConv: {
+            etiquetaIds: number[] | null;
+            /** Format: int32 */
+            version: number;
+        };
         EntradaFactibilidad: {
             notas?: string;
             /**
@@ -7057,6 +8382,9 @@ export interface components {
             /** @description numero y medicion (dBm, Mbps…) */
             unidad?: string;
         };
+        EntradaLeerConv: {
+            hastaMensajeId: string;
+        };
         EntradaLinea: {
             /** @description Por defecto 1 */
             cantidad?: string;
@@ -7110,6 +8438,11 @@ export interface components {
              */
             version?: number;
         };
+        EntradaMiembrosCola: {
+            usuarioIds: number[] | null;
+            /** Format: int32 */
+            version: number;
+        };
         EntradaMotivo: {
             motivo: string;
             /**
@@ -7118,6 +8451,14 @@ export interface components {
              */
             version: number;
         };
+        EntradaNota: {
+            /** @description uuid v7 generado en el cliente */
+            id: string;
+            /** @description Usuarios mencionados: pasan a ver la conversación y reciben aviso */
+            menciones?: number[] | null;
+            /** @description Nota interna en texto plano (nunca sale a WhatsApp) */
+            texto: string;
+        };
         EntradaNotaInterna: {
             cuerpo: string;
             /**
@@ -7125,6 +8466,27 @@ export interface components {
              * @description Versión leída (opcional); si se envía y cambió, 409
              */
             version?: number;
+        };
+        EntradaOrdenConv: {
+            /** Format: int64 */
+            cuadrillaId?: number;
+            descripcion?: string;
+            /** @description Obligatoria si no sale de la instantánea de Argos */
+            direccion?: string;
+            /**
+             * Format: int64
+             * @description Por defecto, el de la conversación
+             */
+            servicioId?: number;
+            /**
+             * Format: int64
+             * @description Ticket de origen (p. ej. el creado desde la conversación)
+             */
+            ticketId?: number;
+            /** @enum {string} */
+            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
+            /** Format: int64 */
+            zonaId?: number;
         };
         EntradaPausar: {
             /** @enum {string} */
@@ -7216,6 +8578,15 @@ export interface components {
              */
             version: number;
         };
+        EntradaPromesa: {
+            /** Format: int64 */
+            servicioId: number;
+            /**
+             * Format: date
+             * @description Día prometido (AAAA-MM-DD); Iris manda el final de ese día en hora de Guatemala
+             */
+            venceEl: string;
+        };
         EntradaProponerRuta: {
             /** @description Día local (YYYY-MM-DD, America/Guatemala); hoy por defecto */
             fecha?: string;
@@ -7231,6 +8602,49 @@ export interface components {
              * @description Versión del borrador que se rehace (opcional); si cambió, 409
              */
             version?: number;
+        };
+        EntradaProspectoConv: {
+            /** Format: email */
+            correo?: string;
+            direccion: string;
+            /** @description NIT o DPI */
+            documento?: string;
+            /**
+             * Format: int64
+             * @description Empresa en Argos: la activa (otra: 422 empresa_no_coincide); solo el sistema la elige aquí
+             */
+            empresaId?: number;
+            /** Format: double */
+            lat?: number;
+            /** Format: double */
+            lon?: number;
+            nombre: string;
+            notas?: string;
+            /**
+             * @description Por defecto panel (desde el panel) u otro; argos solo la integración de Argos o el sistema
+             * @enum {string}
+             */
+            origen?: "panel" | "web" | "referido" | "argos" | "otro";
+            /** @description Quién lo refirió, campaña… */
+            origenDetalle?: string;
+            /**
+             * Format: int64
+             * @description Plan de Argos que le interesa
+             */
+            planInteresId?: number;
+            planInteresNombre?: string;
+            /** @description Como lo valida Argos (contrato 0.5.0): Guatemala, 8 dígitos que empiezan en 2–7 con +502 opcional; o internacional, + y 8–15 dígitos. Se guarda normalizado (+502 5512-3344); otro formato, 422 validacion (rule telefono) */
+            telefono?: string;
+            /**
+             * Format: int64
+             * @description Responsable de ventas; exige prospectos.asignar
+             */
+            vendedorId?: number;
+            /**
+             * Format: int64
+             * @description Zona (Argos o local). Con alcance por zona, obligatoria y tuya
+             */
+            zonaId?: number;
         };
         EntradaPublicarRuta: {
             /**
@@ -7373,6 +8787,12 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        EntradaResolverConv: {
+            /** @description Nota interna de cierre */
+            nota?: string;
+            /** Format: int32 */
+            version: number;
+        };
         EntradaResolverManualHTTPBody: {
             /**
              * @description Obligatorio si un cargo de un producto del consumo lo espera: liberar (sale hacia Argos) o resolver_tambien (Argos ya lo cobró: queda resuelto_manual y no sale)
@@ -7392,6 +8812,21 @@ export interface components {
              * @description Versión leída; si cambió, 409
              */
             version: number;
+        };
+        EntradaResponder: {
+            /** @description Adjunto completo de esta conversación (POST /api/v1/adjuntos, entidad conversacion) */
+            adjuntoId?: string;
+            /** @description uuid v7 generado en el cliente: el servidor es idempotente por él */
+            id: string;
+            /** @description Plantilla aprobada en el número (la única opción fuera de la ventana de 24 h) */
+            plantilla?: components["schemas"]["PlantillaMensaje"];
+            /**
+             * Format: int64
+             * @description Si el texto salió de una respuesta rápida (métricas)
+             */
+            respuestaRapidaId?: number;
+            /** @description Texto plano (o pie del adjunto) */
+            texto?: string;
         };
         EntradaResponderEncuesta: {
             /**
@@ -7420,6 +8855,18 @@ export interface components {
              */
             version?: number;
         };
+        EntradaRespuestaRapida: {
+            atajo: string;
+            /** Format: int64 */
+            colaId?: number | null;
+            texto: string;
+            titulo: string;
+            /**
+             * Format: int32
+             * @description Obligatoria al actualizar
+             */
+            version?: number;
+        };
         EntradaRevocarToken: {
             motivo?: string;
         };
@@ -7433,6 +8880,41 @@ export interface components {
             tls: "tls" | "starttls";
             /** @description Sin usuario no se autentica */
             usuario?: string;
+        };
+        EntradaSimularPromesa: {
+            /** Format: int64 */
+            servicioId: number;
+            /**
+             * Format: date
+             * @description Día prometido (AAAA-MM-DD)
+             */
+            venceEl?: string;
+        };
+        EntradaTicketConv: {
+            asunto: string;
+            /** Format: int64 */
+            categoriaId?: number;
+            /** @description Primer mensaje público del ticket */
+            descripcion?: string;
+            /** @enum {string} */
+            prioridad?: "baja" | "media" | "alta" | "critica";
+            /**
+             * Format: int64
+             * @description Por defecto, el de la conversación
+             */
+            servicioId?: number;
+            /** Format: int64 */
+            zonaId?: number;
+        };
+        EntradaTransferirConv: {
+            /** Format: int64 */
+            colaId: number;
+            /** @description Por defecto queda sin asignar */
+            conservarAsignacion?: boolean;
+            /** @description Queda como nota interna para la otra cola */
+            resumen: string;
+            /** Format: int32 */
+            version: number;
         };
         EntradaTransicion: {
             motivo?: string;
@@ -7461,6 +8943,12 @@ export interface components {
             version: number;
             /** Format: int32 */
             viableM: number;
+        };
+        EntradaUnirContacto: {
+            /** Format: int64 */
+            clienteId: number;
+            /** Format: int32 */
+            version: number;
         };
         EntradaUsarMaterial: {
             /**
@@ -7597,6 +9085,23 @@ export interface components {
             estado: "ok";
             version: string;
         };
+        EtiquetaConversacion: {
+            activa: boolean;
+            /** @enum {string} */
+            color: "neutro" | "marca" | "info" | "exito" | "alerta" | "peligro";
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+            /** Format: int32 */
+            version: number;
+        };
+        EtiquetaRef: {
+            /** @enum {string} */
+            color: "neutro" | "marca" | "info" | "exito" | "alerta" | "peligro";
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+        };
         EventoChat: {
             /** @description conversacion_actualizada */
             conversacion?: components["schemas"]["ConversacionChat"];
@@ -7617,6 +9122,25 @@ export interface components {
             ocurrido_en: string;
             /** @enum {string} */
             tipo: "mensaje_nuevo" | "mensaje_eliminado" | "leido" | "conversacion_actualizada";
+        };
+        EventoConversacion: {
+            /** @description conversacion_actualizada, mencion y guardia (como la ves ahora) */
+            conversacion?: components["schemas"]["ConversacionCliente"];
+            /** Format: int64 */
+            conversacionId: number;
+            /** @description Cursor del feed (el id de SSE / Last-Event-ID) */
+            id: string;
+            /** @description mensaje_nuevo, mensaje_actualizado, mencion y guardia (estado actual del mensaje) */
+            mensaje?: components["schemas"]["MensajeConversacion"];
+            /**
+             * Format: int64
+             * @description Tus no leídos de la conversación al leer el evento
+             */
+            noLeidos: number;
+            /** Format: date-time */
+            ocurridoEn: string;
+            /** @enum {string} */
+            tipo: "mensaje_nuevo" | "mensaje_actualizado" | "conversacion_actualizada" | "mencion" | "guardia";
         };
         EventoOrden: {
             a: string | null;
@@ -7661,6 +9185,19 @@ export interface components {
             id: number;
             motivo: string | null;
             /** @description creado, estado, asignado, factibilidad, cotizacion, contrato, alta… */
+            tipo: string;
+        };
+        EventoSistema: {
+            actorNombre?: string;
+            asignadoNombre?: string;
+            colaNombre?: string;
+            detalle?: string;
+            entidadId?: string;
+            /** @description respondio_aviso: la plantilla del aviso */
+            plantilla?: string;
+            /** @description TK-…, OT-…, PR-… */
+            referencia?: string;
+            /** @description conversacion_creada, asignada, tomada, transferida, resuelta, reabierta, etiquetada, cliente_asociado, contacto_iris_creado, ticket_creado, orden_creada, prospecto_creado, boleta_registrada, boleta_fallida, promesa_creada, respondio_aviso, fuera_de_horario, guardia_avisada, manual_enviado */
             tipo: string;
         };
         EventoTicket: {
@@ -8146,6 +9683,12 @@ export interface components {
             /** Format: int64 */
             usuario_id: number;
         };
+        LecturaConv: {
+            /** Format: int64 */
+            conversacionId: number;
+            /** Format: int64 */
+            noLeidos: number;
+        };
         LecturaMiembroChat: {
             hasta_mensaje_id: string;
             /** Format: int64 */
@@ -8202,12 +9745,44 @@ export interface components {
             productoId: number;
             series: string[] | null;
         };
+        ListaAgentes: {
+            data: components["schemas"]["AgenteConversaciones"][] | null;
+            nextCursor: string | null;
+        };
+        ListaBancos: {
+            data: components["schemas"]["BancoOrigen"][] | null;
+            nextCursor: string | null;
+        };
         ListaCanales: {
             data: components["schemas"]["Canal"][] | null;
             nextCursor: string | null;
         };
+        ListaColas: {
+            data: components["schemas"]["ColaConversaciones"][] | null;
+            nextCursor: string | null;
+        };
+        ListaCuentasBancarias: {
+            data: components["schemas"]["CuentaBancaria"][] | null;
+            nextCursor: string | null;
+        };
+        ListaEtiquetas: {
+            data: components["schemas"]["EtiquetaConversacion"][] | null;
+            nextCursor: string | null;
+        };
+        ListaNumeros: {
+            data: components["schemas"]["NumeroConversaciones"][] | null;
+            nextCursor: string | null;
+        };
         ListaPlantillas: {
             data: components["schemas"]["PlantillaVigente"][] | null;
+            nextCursor: string | null;
+        };
+        ListaPlantillasConv: {
+            data: components["schemas"]["PlantillaDisponible"][] | null;
+            nextCursor: string | null;
+        };
+        ListaRespuestasRapidas: {
+            data: components["schemas"]["RespuestaRapida"][] | null;
             nextCursor: string | null;
         };
         MFAConfigurado: {
@@ -8321,6 +9896,37 @@ export interface components {
             /** @description Ausente si no comparte ubicación */
             ubicacion?: components["schemas"]["UbicacionChat"];
         };
+        MensajeConversacion: {
+            adjunto?: components["schemas"]["AdjuntoMensaje"];
+            /** @description Saliente y nota; ausente en entrante, sistema y respuestas automáticas */
+            autor?: components["schemas"]["UsuarioRef"];
+            /** Format: int64 */
+            conversacionId: number;
+            /** Format: date-time */
+            creadoEn: string;
+            /** @enum {string} */
+            direccion: "entrante" | "saliente" | "nota" | "sistema";
+            /** Format: date-time */
+            entregadoEn: string | null;
+            /** Format: date-time */
+            enviadoEn: string | null;
+            /** @enum {string|null} */
+            estadoEntrega: "en_cola" | "enviado" | "entregado" | "leido" | "fallido" | null;
+            evento?: components["schemas"]["EventoSistema"];
+            id: string;
+            /** Format: date-time */
+            leidoEn: string | null;
+            menciones: components["schemas"]["UsuarioRef"][] | null;
+            motivoFalla: string | null;
+            plantilla?: components["schemas"]["PlantillaMensaje"];
+            /** Format: int64 */
+            seq: number;
+            /** @description Texto plano: nunca se interpreta como HTML */
+            texto: string | null;
+            /** @enum {string} */
+            tipo: "texto" | "imagen" | "documento" | "audio" | "video" | "ubicacion" | "plantilla" | "contacto" | "sistema";
+            ubicacion?: components["schemas"]["UbicacionChat"];
+        };
         MensajePortal: {
             adjuntos: string[] | null;
             autorNombre: string;
@@ -8377,6 +9983,22 @@ export interface components {
             /** Format: date-time */
             ocurridoEn: string;
             texto: string;
+        };
+        NumeroConversaciones: {
+            activo: boolean;
+            avisosEmpresa: boolean;
+            /** Format: int64 */
+            colaId: number | null;
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+            numero: string;
+            usos: string[] | null;
+            /**
+             * Format: int32
+             * @description Para POST /canales/{id}/configurar
+             */
+            version: number;
         };
         ObjetivoSLA: {
             /** @enum {string} */
@@ -9022,8 +10644,18 @@ export interface components {
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
+        PaginaContactoIris: {
+            data: components["schemas"]["ContactoIris"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
         PaginaConversacionChat: {
             data: components["schemas"]["ConversacionChat"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
+        PaginaConversacionCliente: {
+            data: components["schemas"]["ConversacionCliente"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
@@ -9064,6 +10696,11 @@ export interface components {
         };
         PaginaMensajeChat: {
             data: components["schemas"]["MensajeChat"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
+        PaginaMensajeConversacion: {
+            data: components["schemas"]["MensajeConversacion"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
@@ -9307,6 +10944,13 @@ export interface components {
             /** @description La orden sigue en este técnico y día; false = se movió después de proponer */
             vigente: boolean;
         };
+        ParticipanteConversacion: {
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+            /** @enum {string} */
+            origen: "mencion" | "guardia";
+        };
         PausaOrden: {
             /**
              * Format: int64
@@ -9463,7 +11107,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.ver" | "integraciones.ver_pendientes" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.ver" | "integraciones.ver_pendientes" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -9501,6 +11145,14 @@ export interface components {
             items: components["schemas"]["ItemPlantilla"][] | null;
             nombre: string;
             requiereFirma: boolean;
+        };
+        PlantillaDisponible: {
+            codigo: string;
+            /** @description Nombre de la plantilla en Meta */
+            nombre: string;
+            variables: components["schemas"]["Variable"][] | null;
+            /** @description Texto de referencia con {{variable}} */
+            vistaPrevia: string;
         };
         PlantillaFormulario: {
             /** @description Solo las activas se pueden agregar a una orden; los formularios ya agregados siguen */
@@ -9604,6 +11256,12 @@ export interface components {
             /** @description De la más nueva a la más vieja */
             versiones: components["schemas"]["VersionPlantilla"][] | null;
         };
+        PlantillaMensaje: {
+            codigo: string;
+            variables: {
+                [key: string]: string;
+            };
+        };
         PlantillaMeta: {
             /** @description Código de idioma de la plantilla en Meta (es, es_MX…) */
             idioma: string;
@@ -9705,6 +11363,19 @@ export interface components {
             tomadaPor?: components["schemas"]["PersonaProblema"];
             /** @description URI estable del tipo de problema (urn:iris:problema:<codigo>) */
             type: string;
+        };
+        PromesaConv: {
+            /** Format: date-time */
+            creadaEn: string;
+            /** @enum {string} */
+            estado: "activa" | "rechazada" | "pendiente_aprobacion";
+            id: string;
+            monto: string | null;
+            motivo: string | null;
+            /** Format: int64 */
+            promesaArgosId: number | null;
+            regla: string | null;
+            venceEl: string;
         };
         PropuestaTicket: {
             /** @enum {string} */
@@ -10090,6 +11761,23 @@ export interface components {
             /** Format: date-time */
             servidorEn: string;
         };
+        RespuestaRapida: {
+            activa: boolean;
+            /** @description /visita */
+            atajo: string;
+            /**
+             * Format: int64
+             * @description null = todas las colas
+             */
+            colaId: number | null;
+            /** Format: int64 */
+            id: number;
+            /** @description Texto plano; {{nombre}} lo reemplaza el panel */
+            texto: string;
+            titulo: string;
+            /** Format: int32 */
+            version: number;
+        };
         RespuestaTarea: {
             /** @enum {string} */
             aviso?: "tarea_ya_completada" | "tarea_ya_anulada";
@@ -10445,6 +12133,20 @@ export interface components {
             version: number;
             zonaHoraria: string | null;
         };
+        SLAConversacion: {
+            /**
+             * Format: date-time
+             * @description Primer mensaje del cliente sin contestar
+             */
+            esperaDesde: string | null;
+            /**
+             * @description sin: nada pendiente o la cola no tiene SLA
+             * @enum {string}
+             */
+            estado: "sin" | "en_tiempo" | "por_vencer" | "vencido";
+            /** Format: date-time */
+            venceEn: string | null;
+        };
         Servicio: {
             /** Format: int64 */
             clienteId: number;
@@ -10532,6 +12234,14 @@ export interface components {
             /** @description Último plan conocido; vacío si Iris no tenía la instantánea */
             planNombre: string;
         };
+        ServicioResumenConversacion: {
+            codigo: string;
+            estado: string;
+            /** Format: int64 */
+            id: number;
+            plan: string;
+            zona: string;
+        };
         ServidorIMAP: {
             carpeta: string;
             /** @description Carpeta a la que se mueve cada correo ya guardado; null = solo se marca leído */
@@ -10611,6 +12321,16 @@ export interface components {
             tokensRevocados: number;
             /** Format: int64 */
             usuarioId: number;
+        };
+        SimulacionPromesaConv: {
+            /** @description plazo_max_dias, fecha_maxima, max_por_periodo, en_periodo, deuda_vencida… */
+            limites: unknown;
+            /** @description Lo vencido que cubriría */
+            monto: unknown;
+            motivo: string | null;
+            regla: string | null;
+            /** @description aprobada, rechazada o pendiente_aprobacion */
+            resultado: string;
         };
         Tarea: {
             /** Format: date-time */
@@ -11043,6 +12763,17 @@ export interface components {
             /** Format: date-time */
             servidorEn: string;
         };
+        UltimoMensajeResumen: {
+            /** Format: date-time */
+            creadoEn: string;
+            /** @enum {string} */
+            direccion: "entrante" | "saliente" | "nota" | "sistema";
+            /** @description Mensaje de sistema: su tipo */
+            evento: string | null;
+            /** @description Primeros 140 caracteres (texto plano) */
+            texto: string | null;
+            tipo: string;
+        };
         Umbrales: {
             /** Format: int64 */
             empresaId: number | null;
@@ -11132,6 +12863,11 @@ export interface components {
             idExterno: string;
             nombre: string;
         };
+        UsuarioRef: {
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+        };
         Variable: {
             /**
              * @description monto: decimal con dos decimales ("250.00"); moneda: ISO 4217; fecha: YYYY-MM-DD (Guatemala); instante: fecha o fecha y hora; texto: 1 a 200 caracteres
@@ -11139,6 +12875,15 @@ export interface components {
              */
             formato: "monto" | "moneda" | "fecha" | "instante" | "texto";
             nombre: string;
+        };
+        VentanaConversacion: {
+            /** @description Se puede mandar texto y adjuntos; si no, solo plantillas aprobadas */
+            abierta: boolean;
+            /**
+             * Format: date-time
+             * @description 24 h después del último mensaje del cliente
+             */
+            cierraEn: string | null;
         };
         VersionPlantilla: {
             /** Format: date-time */
@@ -11166,6 +12911,19 @@ export interface components {
             nombre: string;
             /** Format: date-time */
             vinculadoEn: string;
+        };
+        VinculoConversacion: {
+            /** Format: date-time */
+            creadoEn: string;
+            id: string;
+            /** @description TK-004812, OT-000102, PR-000001… */
+            referencia: string;
+            /** @enum {string} */
+            tipo: "ticket" | "orden" | "prospecto" | "boleta" | "promesa";
+        };
+        VinculoCreado: {
+            conversacion: components["schemas"]["ConversacionClienteDetalle"];
+            vinculo: components["schemas"]["VinculoConversacion"];
         };
         VinculoIris: {
             /**
@@ -17465,6 +19223,89 @@ export interface operations {
             };
         };
     };
+    configurarCanalMensajeria: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaConfigurarCanal"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Canal"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     desactivarCanalMensajeria: {
         parameters: {
             query?: never;
@@ -18501,6 +20342,440 @@ export interface operations {
             };
         };
     };
+    listarColasConversaciones: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaColas"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearColaConversaciones: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCola"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColaConversaciones"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    activarColaConversaciones: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColaConversaciones"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    actualizarColaConversaciones: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCola"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColaConversaciones"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    desactivarColaConversaciones: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColaConversaciones"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    miembrosColaConversaciones: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaMiembrosCola"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColaConversaciones"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     registrarConsentimiento: {
         parameters: {
             query?: never;
@@ -18580,6 +20855,2818 @@ export interface operations {
             };
         };
     };
+    buscarContactosIris: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaContactoIris"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    actualizarContactoIris: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaActualizarContactoIris"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContactoIris"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    unirContactoIris: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaUnirContacto"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContactoIris"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarConversacionesClientes: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+                vista?: "mias" | "sin_asignar" | "todas";
+                canalId?: number;
+                colaId?: number;
+                etiquetaId?: number;
+                estado?: "abierta" | "esperando_cliente" | "resuelta" | "activas" | "todas";
+                sla?: "por_vencer" | "vencido";
+                /** @description Nombre, número o referencia (TK-004812) */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaConversacionCliente"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    agentesConversaciones: {
+        parameters: {
+            query?: {
+                /** @description Los miembros de la cola y quienes supervisan */
+                colaId?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaAgentes"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    bancosConversaciones: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaBancos"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    cambiosConversaciones: {
+        parameters: {
+            query?: {
+                /** @description El nextCursor anterior o el id del último evento SSE. Vacío: la cabeza (sin eventos) */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CambiosConversaciones"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Gone */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    numerosConversaciones: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaNumeros"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    contadoresConversaciones: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContadoresConversaciones"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    cuentasBancariasConversaciones: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaCuentasBancarias"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    eventosConversaciones: {
+        parameters: {
+            query?: {
+                /** @description Igual que Last-Event-ID, para clientes que no pueden fijar cabeceras. Sin los dos: desde ahora */
+                desde?: string;
+            };
+            header?: {
+                /** @description El id del último evento recibido (lo manda EventSource al reconectar) */
+                "Last-Event-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Flujo de eventos */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Gone */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verConversacionCliente: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionClienteDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    asignarConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAsignarConv"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionClienteDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    asociarClienteConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAsociarCliente"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionClienteDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    registrarBoletaConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaBoleta"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Boleta"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    coincidenciasConversacion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoincidenciasConv"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    contactoIrisConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaContactoIrisConv"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionClienteDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearOrdenConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaOrdenConv"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VinculoCreado"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearProspectoConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaProspectoConv"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VinculoCreado"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearTicketConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaTicketConv"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VinculoCreado"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    desasociarConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAccionConv"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionClienteDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    etiquetarConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEtiquetarConv"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionClienteDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    leerConversacionCliente: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaLeerConv"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LecturaConv"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    mensajesConversacion: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+                direccion?: "anteriores" | "siguientes";
+                /** @description Ancla sin cursor */
+                desdeSeq?: number;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaMensajeConversacion"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    responderConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaResponder"];
+            };
+        };
+        responses: {
+            /** @description Reenvío del mismo id */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    "Idempotent-Replayed"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MensajeConversacion"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    notaConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaNota"];
+            };
+        };
+        responses: {
+            /** @description Reenvío del mismo id */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    "Idempotent-Replayed"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MensajeConversacion"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    plantillasConversacion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaPlantillasConv"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    registrarPromesaConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaPromesa"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromesaConv"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    simularPromesaConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaSimularPromesa"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SimulacionPromesaConv"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    reabrirConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAccionConv"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionClienteDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    resolverConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaResolverConv"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionClienteDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    tomarConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAccionConv"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionClienteDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    transferirConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaTransferirConv"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionClienteDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarEtiquetasConversaciones: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaEtiquetas"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearEtiquetaConversaciones: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEtiqueta"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EtiquetaConversacion"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    activarEtiquetaConversaciones: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EtiquetaConversacion"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    actualizarEtiquetaConversaciones: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEtiqueta"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EtiquetaConversacion"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    desactivarEtiquetaConversaciones: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EtiquetaConversacion"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     listarPlantillasMensajeria: {
         parameters: {
             query?: {
@@ -18612,6 +23699,363 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarRespuestasRapidas: {
+        parameters: {
+            query?: {
+                /** @description Las de esta cola y las generales */
+                colaId?: number;
+                q?: string;
+                /** @description También las desactivadas (para administrarlas) */
+                incluirInactivas?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaRespuestasRapidas"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearRespuestaRapida: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaRespuestaRapida"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaRapida"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    activarRespuestaRapida: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaRapida"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    actualizarRespuestaRapida: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaRespuestaRapida"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaRapida"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    desactivarRespuestaRapida: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaRapida"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

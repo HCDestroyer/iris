@@ -22,6 +22,7 @@ var registroAdjuntosChat sync.Once
 // chat.enviar. Si no, 404 como la conversación.
 func RegistrarAdjuntos() {
 	registroAdjuntosChat.Do(func() {
+		registrarAdjuntosConversacion()
 		adjuntos.RegistrarEntidadAdjuntable(EntidadAdjuntosChat, func(ctx context.Context, db adjuntos.DBTX, id string, uso adjuntos.Uso) (int64, error) {
 			conv, err := strconv.ParseInt(id, 10, 64)
 			if err != nil || conv <= 0 {

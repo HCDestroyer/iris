@@ -1014,6 +1014,30 @@ type MensajeriaAviso struct {
 	UpdatedAt      time.Time
 }
 
+type MensajeriaBoleta struct {
+	ID               uuid.UUID
+	EmpresaID        *int64
+	ConversacionID   int64
+	ClienteID        int64
+	ServicioID       *int64
+	AdjuntoID        uuid.UUID
+	Metodo           string
+	CuentaBancariaID int64
+	BancoOrigenID    *int64
+	Referencia       string
+	Monto            pgtype.Numeric
+	FechaDeposito    pgtype.Date
+	Nota             *string
+	Estado           string
+	ComprobanteID    *int64
+	Detalle          *string
+	Intentos         int32
+	ProximoIntento   time.Time
+	RegistradaPor    *int64
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
 type MensajeriaCanale struct {
 	ID                   int64
 	EmpresaID            *int64
@@ -1031,6 +1055,9 @@ type MensajeriaCanale struct {
 	Version              int32
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
+	Usos                 []string
+	AvisosEmpresa        bool
+	ColaID               *int64
 }
 
 type MensajeriaChatConversacione struct {
@@ -1051,6 +1078,7 @@ type MensajeriaChatConversacione struct {
 type MensajeriaChatEstado struct {
 	ID                   int16
 	EventosPurgadosHasta int64
+	ConvPurgadosHasta    int64
 }
 
 type MensajeriaChatEvento struct {
@@ -1101,6 +1129,25 @@ type MensajeriaChatMiembro struct {
 	UpdatedAt      time.Time
 }
 
+type MensajeriaCola struct {
+	ID              int64
+	EmpresaID       *int64
+	Nombre          string
+	Descripcion     string
+	SlaRespuestaMin *int32
+	SlaPorVencerMin *int32
+	Activa          bool
+	Version         int32
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+type MensajeriaColaMiembro struct {
+	ColaID    int64
+	UsuarioID int64
+	CreatedAt time.Time
+}
+
 type MensajeriaConsentimiento struct {
 	ID             int64
 	EmpresaID      int64
@@ -1116,6 +1163,123 @@ type MensajeriaConsentimiento struct {
 	CreatedAt      time.Time
 }
 
+type MensajeriaContactosIri struct {
+	ID        int64
+	EmpresaID *int64
+	Nombre    string
+	Tipo      string
+	Telefono  string
+	Nota      string
+	ClienteID *int64
+	UnidoEn   *time.Time
+	CreadoPor *int64
+	Version   int32
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type MensajeriaConvEvento struct {
+	ID             int64
+	EmpresaID      *int64
+	ConversacionID int64
+	Tipo           string
+	MensajeID      *uuid.UUID
+	UsuarioID      *int64
+	OcurridoEn     time.Time
+	CreatedAt      time.Time
+}
+
+type MensajeriaConversacionEtiqueta struct {
+	ConversacionID int64
+	EtiquetaID     int64
+	CreatedAt      time.Time
+}
+
+type MensajeriaConversacionLectura struct {
+	ConversacionID int64
+	UsuarioID      int64
+	HastaSeq       int64
+	LeidoEn        time.Time
+}
+
+type MensajeriaConversacionMensaje struct {
+	ID                uuid.UUID
+	ConversacionID    int64
+	EmpresaID         *int64
+	Seq               int64
+	Direccion         string
+	Tipo              string
+	Texto             *string
+	AdjuntoID         *uuid.UUID
+	MedioID           *string
+	Lat               *float64
+	Lon               *float64
+	Plantilla         *string
+	Variables         []byte
+	AutorID           *int64
+	Menciones         []int64
+	Evento            []byte
+	RespuestaRapidaID *int64
+	EstadoEntrega     *string
+	MotivoFalla       *string
+	DetalleFalla      *string
+	ProveedorID       *string
+	Intentos          int32
+	HashContenido     []byte
+	IdempotencyKey    *string
+	CreadoEn          time.Time
+	EnviadoEn         *time.Time
+	EntregadoEn       *time.Time
+	LeidoEn           *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type MensajeriaConversacionParticipante struct {
+	ConversacionID int64
+	UsuarioID      int64
+	Origen         string
+	CreatedAt      time.Time
+}
+
+type MensajeriaConversacionVinculo struct {
+	ConversacionID int64
+	Tipo           string
+	EntidadID      string
+	Referencia     string
+	CreadoPor      *int64
+	CreatedAt      time.Time
+}
+
+type MensajeriaConversacione struct {
+	ID               int64
+	EmpresaID        *int64
+	CanalID          int64
+	Numero           string
+	PerfilNombre     *string
+	ColaID           *int64
+	AsignadoA        *int64
+	AsignadoEn       *time.Time
+	Estado           string
+	ClienteID        *int64
+	ServicioID       *int64
+	ContactoIrisID   *int64
+	ProspectoID      *int64
+	Asociacion       *string
+	UltimoEntranteEn *time.Time
+	EsperaDesde      *time.Time
+	SlaVenceEn       *time.Time
+	SlaAvisado       bool
+	ResueltaEn       *time.Time
+	ReabiertaEn      *time.Time
+	UltimoSeq        int64
+	UltimoMensajeID  *uuid.UUID
+	UltimaActividad  time.Time
+	Version          int32
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
 type MensajeriaEntrante struct {
 	ID          int64
 	CanalID     int64
@@ -1125,6 +1289,48 @@ type MensajeriaEntrante struct {
 	Error       *string
 	Intentos    int32
 	CreatedAt   time.Time
+}
+
+type MensajeriaEtiqueta struct {
+	ID        int64
+	EmpresaID *int64
+	Nombre    string
+	Color     string
+	Activa    bool
+	Version   int32
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type MensajeriaPromesa struct {
+	ID             uuid.UUID
+	EmpresaID      *int64
+	ConversacionID int64
+	ClienteID      int64
+	ServicioID     int64
+	VenceEl        pgtype.Date
+	Estado         string
+	PromesaArgosID *int64
+	Monto          *string
+	Regla          *string
+	Motivo         *string
+	IdempotencyKey *string
+	HashPeticion   []byte
+	SolicitadaPor  *int64
+	CreatedAt      time.Time
+}
+
+type MensajeriaRespuestasRapida struct {
+	ID        int64
+	EmpresaID *int64
+	ColaID    *int64
+	Atajo     string
+	Titulo    string
+	Texto     string
+	Activa    bool
+	Version   int32
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 type MensajeriaWebhooksSalida struct {

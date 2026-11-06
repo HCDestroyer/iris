@@ -2,10 +2,6 @@
 
 -- Canales -------------------------------------------------------------------------------------
 
--- name: CanalActivoDeEmpresa :one
-SELECT * FROM mensajeria.canales
-WHERE coalesce(empresa_id, 0) = @empresa_id::bigint AND canal = @canal AND activo;
-
 -- name: CanalPorID :one
 SELECT * FROM mensajeria.canales WHERE id = $1;
 
@@ -27,10 +23,10 @@ SELECT nextval(pg_get_serial_sequence('mensajeria.canales', 'id'))::bigint;
 
 -- name: InsertarCanal :one
 INSERT INTO mensajeria.canales (id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id,
-    credenciales_cifradas, plantillas, creado_por)
+    credenciales_cifradas, plantillas, creado_por, usos, avisos_empresa, cola_id)
 OVERRIDING SYSTEM VALUE
 VALUES (@id, @empresa_id, @tipo, @canal, @nombre, @numero, @phone_number_id, @waba_id,
-    @credenciales_cifradas, @plantillas, @creado_por)
+    @credenciales_cifradas, @plantillas, @creado_por, @usos::text[], @avisos_empresa, sqlc.narg('cola_id'))
 RETURNING *;
 
 -- name: ActualizarCanal :one
