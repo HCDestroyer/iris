@@ -19,8 +19,12 @@ import { resumirFranjas } from "@/lib/horarios/franjas";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
 import { idDeParametro } from "@/lib/parametros";
+import { leerCanalesConBot } from "@/lib/conversaciones/api-11";
+import type { NumeroConBot } from "@/lib/conversaciones/contrato-11";
+import { cuerpoCuandoNoHayAgentes, esquemaCuandoNoHayAgentes, MINUTOS_SIN_CONFIRMACION, MINUTOS_SIN_DISPONIBLES } from "@/lib/conversaciones/menu-bot";
+import { SeccionBot } from "./bot";
 
-type Canal = Schema<"NumeroConversaciones">;
+type Canal = NumeroConBot;
 const USOS = ["soporte", "cobros", "ventas", "avisos"] as const;
 
 /** Espejo del validador del servidor (`POST /canales/{id}/configurar`, contrato §1 y §10.2). */
@@ -36,6 +40,7 @@ export const esquemaNumero = z
         guardiaUsuarioId: z.string(),
         guardiaEtiquetas: z.array(z.number()),
         fallaMasiva: z.boolean(),
+        bot: esquemaCuandoNoHayAgentes,
     })
     .superRefine((v, ctx) => {
         if (v.avisosEmpresa && !v.usos.includes("avisos")) ctx.addIssue({ code: "custom", path: ["avisosEmpresa"], message: "Marca también el uso «Avisos»" });
@@ -43,7 +48,11 @@ export const esquemaNumero = z
         if (v.guardia && !v.guardiaUsuarioId) ctx.addIssue({ code: "custom", path: ["guardiaUsuarioId"], message: "Elige quién está de guardia" });
         if (v.guardia && v.guardiaEtiquetas.length === 0 && !v.fallaMasiva) ctx.addIssue({ code: "custom", path: ["fallaMasiva"], message: "Elige cuándo avisar: falla masiva o una etiqueta" });
     });
-type Valores = z.infer<typeof esquemaNumero>;
+export type ValoresNumero = z.infer<typeof esquemaNumero>;
+type Valores = ValoresNumero;
+
+/** Saludo de un número que aún no tiene bot: el del contrato (§14.6). */
+const SALUDO_INICIAL = "Gracias por escribir. En este momento todos nuestros agentes están ocupados; te respondemos en cuanto se libere uno.";
 
 /** `/administracion/numeros/[id]/configurar`: uso, cola, horario y fuera de horario (más de 3 campos: pantalla propia). */
 export function ConfigurarNumero() {
@@ -51,13 +60,13 @@ export function ConfigurarNumero() {
     const lectura = useLectura(async (signal) => {
         if (id === null) return null;
         const [canales, colas, horarios, agentes, etiquetas] = await Promise.all([
-            resolver(api().GET("/api/v1/mensajeria/conversaciones/canales", { signal })),
+            leerCanalesConBot(signal),
             resolver(api().GET("/api/v1/mensajeria/colas", { signal })),
             resolver(api().GET("/api/v1/mensajeria/horarios", { signal })),
             resolver(api().GET("/api/v1/mensajeria/conversaciones/agentes", { signal })),
             resolver(api().GET("/api/v1/mensajeria/etiquetas", { signal })),
         ]);
-        const canal = (canales.data ?? []).find((c) => c.id === id);
+        const canal = canales.find((c) => c.id === id);
         return canal ? { canal, colas: colas.data ?? [], horarios: horarios.data ?? [], agentes: agentes.data ?? [], etiquetas: (etiquetas.data ?? []).filter((e) => e.activa) } : null;
     });
     useNombreEnMigas(lectura.estado === "listo" ? lectura.datos?.canal.nombre : null);
@@ -98,6 +107,15 @@ function Formulario({
             guardiaUsuarioId: f?.guardia?.usuarioId ? String(f.guardia.usuarioId) : "",
             guardiaEtiquetas: f?.guardia?.etiquetaIds ?? [],
             fallaMasiva: f?.guardia?.fallaMasiva ?? false,
+            bot: {
+                activo: canal.bot?.activo ?? false,
+                atiende: canal.bot?.atiende ?? "bot",
+                saludo: canal.bot?.saludo ?? SALUDO_INICIAL,
+                conMenu: (canal.bot?.menu ?? []).length > 0,
+                menu: (canal.bot?.menu ?? []).map((o) => ({ texto: o.texto, colaId: String(o.colaId), etiquetaIds: o.etiquetaIds ?? [] })),
+                minutosSinConfirmacion: String(canal.bot?.minutosSinConfirmacion ?? MINUTOS_SIN_CONFIRMACION),
+                minutosSinDisponibles: String(canal.bot?.minutosSinDisponibles ?? MINUTOS_SIN_DISPONIBLES),
+            },
         },
     });
     const v = useWatch({ control: form.control });
@@ -122,6 +140,8 @@ function Formulario({
                             guardia: { activa: d.guardia, usuarioId: d.guardiaUsuarioId ? Number(d.guardiaUsuarioId) : null, etiquetaIds: d.guardiaEtiquetas, fallaMasiva: d.fallaMasiva },
                             asistente: { activo: false },
                         },
+                        // PROVISIONAL: `bot` (§14.6) aún no está en el cuerpo generado.
+                        ...({ bot: cuerpoCuandoNoHayAgentes(d.bot) } as object),
                     },
                 }),
             );
@@ -131,7 +151,7 @@ function Formulario({
             router.replace("/administracion/numeros");
         } catch (e) {
             clave.trasError(e);
-            if (!erroresACampos(e, ["usos", "avisosEmpresa", "colaId", "horarioId", "mensaje"], form.setError)) setError(e);
+            if (!erroresACampos(e, ["usos", "avisosEmpresa", "colaId", "horarioId", "mensaje", "bot.saludo", "bot.menu", "bot.minutosSinConfirmacion", "bot.minutosSinDisponibles", "bot.atiende"], form.setError)) setError(e);
         }
     }
 
@@ -203,6 +223,7 @@ function Formulario({
                     </Link>
                 </p>
             </SeccionFormulario>
+            <SeccionBot control={form.control} register={form.register} setValue={form.setValue} errores={errores} colas={colas} etiquetas={etiquetas} enviado={form.formState.isSubmitted} />
             <SeccionFormulario titulo="Fuera de horario">
                 <Interruptor etiqueta="Responder con un mensaje" ayuda="Una sola vez por noche aunque el cliente escriba varias veces; nunca a quien se dio de baja." {...form.register("responder")} />
                 {v.responder ? <CampoArea etiqueta="Mensaje automático" rows={3} maxLength={1000} error={errores.mensaje?.message} {...form.register("mensaje")} /> : null}

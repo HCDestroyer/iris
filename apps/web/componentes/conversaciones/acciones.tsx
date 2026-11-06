@@ -16,6 +16,7 @@ import {
     DialogoPie,
     DialogoProtegido,
     Interruptor,
+    ListaEleccion,
     MenuDesplegable,
     MenuDesplegableContenido,
     MenuDesplegableDisparador,
@@ -24,7 +25,7 @@ import {
     useCambiosSinGuardar,
 } from "@iris/ui";
 import { ArrowLeftRight, AtSign, BookOpen, Check, ChevronDown, Ellipsis, LifeBuoy, RotateCcw, RotateCw, Tag, Unlink, User, UserCheck, UserMinus, UserPlus } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useForm, type FieldValues, type Path, type UseFormSetError } from "react-hook-form";
 import { z } from "zod";
 import { api, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
@@ -35,9 +36,13 @@ import type { Conversacion } from "@/lib/conversaciones/tipos";
 import { erroresACampos } from "@/lib/formularios";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useSesion } from "@/lib/sesion";
+import { pasarConversacion } from "@/lib/conversaciones/api-11";
+import { estaDisponible, personasDeCola, supervisaCola, textoCarga, textoMotivoNoDisponible } from "@/lib/conversaciones/atencion";
+import { PERMISO_PASAR, type ConversacionPasada } from "@/lib/conversaciones/contrato-11";
 import { agentesDeCola, useCatalogos } from "./catalogos";
+import { AvatarDisponible, EstadoDisponible } from "./disponibilidad";
 
-type Dialogo = "asignar" | "transferir" | "etiquetar" | "mencionar" | "ayuda" | "desasociar" | null;
+type Dialogo = "asignar" | "pasar" | "transferir" | "etiquetar" | "mencionar" | "ayuda" | "desasociar" | null;
 
 type Props = {
     conv: Conversacion;
@@ -59,6 +64,8 @@ const ruta = (c: Conversacion, clave: string) => ({ path: { id: c.id }, header: 
  */
 export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, abrirAyuda }: Props) {
     const { yo, puede } = useSesion();
+    const { agentes } = useCatalogos();
+    const yoAgente = agentes.estado === "listo" ? agentes.datos.find((a) => a.id === yo.usuario.id) : undefined;
     const [dialogo, setDialogo] = useState<Dialogo>(null);
     const [ocupado, setOcupado] = useState(false);
     const [errorRapido, setErrorRapido] = useState<unknown>(null);
@@ -66,12 +73,18 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
     const resuelta = conv.estado === "resuelta";
     const p = {
         tomar: puede(["conversaciones.tomar"]) && !conv.asignado,
-        asignar: puede(["conversaciones.asignar"]),
+        // Desde la 1.1 también asigna el supervisor de la cola (§14.1).
+        asignar: puede(["conversaciones.asignar"]) || supervisaCola(yoAgente, conv.cola?.id),
         transferir: puede(["conversaciones.transferir"]),
         etiquetar: puede(["conversaciones.etiquetar"]),
         resolver: puede(["conversaciones.resolver"]),
         mencionar: puede(["conversaciones.responder"]),
         asociar: puede(["conversaciones.asociar"]) && conv.contacto.tipo !== "desconocido",
+        // «Pasar a…» (§14.4): quien la tiene, o un supervisor global o de su cola.
+        pasar:
+            puede([PERMISO_PASAR]) &&
+            !resuelta &&
+            (mia || puede(["conversaciones.supervisar"]) || supervisaCola(yoAgente, conv.cola?.id)),
     };
 
     /** Acción de un toque (tomar, resolver, reabrir, quitar asignación), con aviso y «Deshacer» si se puede. */
@@ -214,6 +227,17 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
                             ) : null}
                             {estrecho ? elementosAyuda : null}
                             {estrecho ? <MenuDesplegableSeparador /> : null}
+                            {p.asignar ? (
+                                <MenuDesplegableElemento icono={UserPlus} onSelect={() => setDialogo("asignar")} textValue="Asignar…" className="h-auto py-2">
+                                    <OpcionConDetalle titulo="Asignar…" detalle={`A cualquiera de ${conv.cola ? `la cola ${conv.cola.nombre}` : "la empresa"}.`} />
+                                </MenuDesplegableElemento>
+                            ) : null}
+                            {p.pasar ? (
+                                <MenuDesplegableElemento icono={ArrowLeftRight} onSelect={() => setDialogo("pasar")} textValue="Pasar a…" className="h-auto py-2">
+                                    <OpcionConDetalle titulo="Pasar a…" detalle={`A un compañero de ${conv.cola?.nombre ?? "la empresa"}, con una nota.`} />
+                                </MenuDesplegableElemento>
+                            ) : null}
+                            {p.asignar || p.pasar ? <MenuDesplegableSeparador /> : null}
                             {p.etiquetar ? (
                                 <MenuDesplegableElemento icono={Tag} onSelect={() => setDialogo("etiquetar")}>
                                     Etiquetas…
@@ -230,6 +254,7 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
             </div>
             {errorRapido ? <ErrorRapido error={errorRapido} cerrar={() => setErrorRapido(null)} recargar={recargar} /> : null}
             {dialogo === "asignar" ? <DialogoAsignar conv={conv} cerrar={() => setDialogo(null)} alHecho={alActualizar} recargar={recargar} /> : null}
+            {dialogo === "pasar" ? <DialogoPasar conv={conv} cerrar={() => setDialogo(null)} alHecho={alActualizar} recargar={recargar} /> : null}
             {dialogo === "transferir" ? <DialogoTransferir conv={conv} cerrar={() => setDialogo(null)} alHecho={alActualizar} recargar={recargar} /> : null}
             {dialogo === "etiquetar" ? <DialogoEtiquetas conv={conv} cerrar={() => setDialogo(null)} alHecho={alActualizar} recargar={recargar} /> : null}
             {dialogo === "mencionar" || dialogo === "ayuda" ? <DialogoMencion conv={conv} ayuda={dialogo === "ayuda"} cerrar={() => setDialogo(null)} /> : null}
@@ -251,6 +276,16 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
                 }}
             />
         </>
+    );
+}
+
+/** Opción del menú con una línea que explica a quién llega. */
+function OpcionConDetalle({ titulo, detalle }: { titulo: string; detalle: string }) {
+    return (
+        <span className="grid min-w-0">
+            <span className="font-medium">{titulo}</span>
+            <span className="text-xs text-muted-foreground">{detalle}</span>
+        </span>
     );
 }
 
@@ -563,5 +598,130 @@ function DialogoMencion({ conv, ayuda, cerrar }: { conv: Conversacion; ayuda: bo
                 </form>
             </DialogoContenido>
         </DialogoProtegido>
+    );
+}
+
+const esquemaPasar = z.object({
+    usuarioId: z.string().min(1, "Elige a quién pasarla"),
+    nota: z.string().trim().max(1000, "Hasta 1000 caracteres"),
+});
+
+/**
+ * «Pasar a…» (§14.4): un compañero de la cola con su punto de disponibilidad y sus conversaciones
+ * abiertas, y una nota opcional. Se puede pasar a alguien «No disponible»: se avisa que la verá
+ * cuando vuelva a estar disponible.
+ */
+function DialogoPasar(props: PropsDialogo) {
+    const { conv } = props;
+    const { yo } = useSesion();
+    const { agentes } = useCatalogos();
+    const refrescar = agentes.refrescar;
+    // La disponibilidad no llega por el flujo: se relee al abrir el diálogo.
+    useEffect(() => void refrescar(), [refrescar]);
+    const form = useForm({ resolver: zodResolver(esquemaPasar), defaultValues: { usuarioId: "", nota: "" } });
+    useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
+    const elegido = form.watch("usuarioId");
+    const resultado = useRef<ConversacionPasada | null>(null);
+    const lista = agentes.estado === "listo" ? personasDeCola(agentes.datos, conv.cola?.id).filter((a) => a.id !== conv.asignado?.id && a.id !== yo.usuario.id) : [];
+    const destino = lista.find((a) => String(a.id) === elegido);
+    const primero = destino?.nombre.split(" ")[0];
+    const cola = conv.cola?.nombre ?? "la empresa";
+    const mia = conv.asignado?.id === yo.usuario.id;
+    const descripcion = mia
+        ? `${conv.titulo} sigue en ${cola} y deja de ser tuya.`
+        : conv.asignado
+          ? `${conv.titulo} sigue en ${cola} y deja de ser de ${conv.asignado.nombre}.`
+          : `${conv.titulo} sigue en ${cola}.`;
+    return (
+        <DialogoCorto {...props} titulo="Pasar a…" descripcion={descripcion}>
+            {(enviar, pie) => (
+                <form
+                    noValidate
+                    aria-label="Pasar a…"
+                    className="grid gap-4"
+                    onSubmit={form.handleSubmit((d) =>
+                        enviar(
+                            async (clave) => {
+                                const nota = d.nota.trim();
+                                const r = await pasarConversacion(conv.id, { version: conv.version, usuarioId: Number(d.usuarioId), ...(nota ? { nota } : {}) }, clave);
+                                resultado.current = r;
+                                return r.conversacion;
+                            },
+                            ["usuarioId", "nota"],
+                            form.setError,
+                            (c) => {
+                                const r = resultado.current;
+                                const nombre = r?.destino.nombre ?? destino?.nombre ?? "tu compañero";
+                                return r && !r.destinoDisponible ? `${c.titulo}: pasó a ${nombre}. La verá cuando vuelva a estar disponible` : `${c.titulo}: pasó a ${nombre}`;
+                            },
+                        ),
+                    )}
+                >
+                    {agentes.estado === "error" ? (
+                        <Aviso
+                            tono="error"
+                            titulo="No se pudo leer el equipo"
+                            accion={
+                                <Boton variante="secundario" tamano="sm" onClick={agentes.reintentar}>
+                                    <RotateCw />
+                                    Reintentar
+                                </Boton>
+                            }
+                        />
+                    ) : agentes.estado === "cargando" ? (
+                        <p className="text-sm text-muted-foreground" role="status">
+                            Leyendo el equipo…
+                        </p>
+                    ) : lista.length === 0 ? (
+                        <Aviso tono="warning" titulo={`No hay más personas en ${cola}`}>
+                            Agrega miembros a la cola en Administración.
+                        </Aviso>
+                    ) : (
+                        <ListaEleccion
+                            leyenda={`Compañero de ${cola}`}
+                            nombre="usuarioId"
+                            valor={elegido || undefined}
+                            alCambiar={(v) => form.setValue("usuarioId", v, { shouldDirty: true, shouldValidate: form.formState.isSubmitted })}
+                            error={form.formState.errors.usuarioId?.message}
+                            className="max-h-[min(18rem,40dvh)] overflow-y-auto"
+                            opciones={lista.map((a) => {
+                                const disponible = estaDisponible(a);
+                                const supervisa = supervisaCola(a, conv.cola?.id) && !(a.colas ?? []).some((c) => c.id === conv.cola?.id);
+                                const detalle = disponible ? textoCarga(a, supervisa) : [textoMotivoNoDisponible(a.disponibilidad.origen), textoCarga(a, supervisa)].filter(Boolean).join(" · ");
+                                return {
+                                    valor: String(a.id),
+                                    texto: `${a.nombre}, ${disponible ? "disponible" : "no disponible"}`,
+                                    atenuada: !disponible,
+                                    contenido: (
+                                        <>
+                                            <AvatarDisponible nombre={a.nombre} disponible={disponible} />
+                                            <span className="grid min-w-0">
+                                                <span className="truncate font-semibold">{a.nombre}</span>
+                                                {detalle ? <span className="truncate text-xs text-muted-foreground">{detalle}</span> : null}
+                                            </span>
+                                        </>
+                                    ),
+                                    fin: <EstadoDisponible disponible={disponible} className="max-[24rem]:sr-only" />,
+                                };
+                            })}
+                        />
+                    )}
+                    {destino && !estaDisponible(destino) ? (
+                        <Aviso tono="warning" titulo={`${primero} está No disponible`}>
+                            La verá cuando vuelva a estar disponible.
+                        </Aviso>
+                    ) : null}
+                    <CampoArea
+                        etiqueta="Nota (opcional)"
+                        ayuda={`Queda como nota interna${primero ? ` para ${primero}` : ""}.`}
+                        rows={2}
+                        maxLength={1000}
+                        error={form.formState.errors.nota?.message}
+                        {...form.register("nota")}
+                    />
+                    {pie(primero ? `Pasar a ${primero}` : "Pasar", form.formState.isSubmitting, elegido ? [] : ["a quién pasarla"])}
+                </form>
+            )}
+        </DialogoCorto>
     );
 }

@@ -106,3 +106,7 @@ export type PlantillaCanal = {
     variables: { nombre: string; formato: string; obligatoria: boolean }[];
     vistaPrevia: string;
 };
+
+/** Permisos nuevos de la fase 1.1 (§4): aún no están en el enum generado. */
+export const PERMISO_INICIAR = "conversaciones.iniciar" as Schema<"Permiso">;
+export const PERMISO_PASAR = "conversaciones.pasar" as Schema<"Permiso">;

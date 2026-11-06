@@ -36,6 +36,8 @@ import { erroresACampos } from "@/lib/formularios";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
+import type { DetalleConEquipo } from "@/lib/conversaciones/contrato-11";
+import { AvatarDisponible, EstadoDisponible } from "./disponibilidad";
 import { SelectorCliente } from "@/componentes/clientes/selector-cliente";
 import { AyudaManuales } from "./ayuda";
 import { useAhora } from "./reloj";
@@ -295,6 +297,8 @@ function Vinculo({ v }: { v: NonNullable<ConversacionDetalle["vinculos"]>[number
 }
 
 function Resumen({ conv }: { conv: ConversacionDetalle; recargar: () => Promise<void> }) {
+    // Fase 1.1: supervisores y equipo de la cola en el detalle (contrato §14.1).
+    const equipo = conv as DetalleConEquipo;
     const abiertos = (conv.vinculos ?? []).filter((v) => v.tipo === "ticket" || v.tipo === "orden").slice(-3);
     return (
         <div>
@@ -322,6 +326,12 @@ function Resumen({ conv }: { conv: ConversacionDetalle; recargar: () => Promise<
                     <dd className="truncate text-right">{conv.cola?.nombre ?? "Sin cola"}</dd>
                     <dt className="text-muted-foreground">Asignada</dt>
                     <dd className="truncate text-right">{conv.asignado?.nombre ?? "Sin asignar"}</dd>
+                    {(equipo.supervisores ?? []).length > 0 ? (
+                        <>
+                            <dt className="text-muted-foreground">Supervisan</dt>
+                            <dd className="truncate text-right">{(equipo.supervisores ?? []).map((p) => p.nombre).join(", ")}</dd>
+                        </>
+                    ) : null}
                     {(conv.participantes ?? []).length > 0 ? (
                         <>
                             <dt className="text-muted-foreground">También</dt>
@@ -330,6 +340,24 @@ function Resumen({ conv }: { conv: ConversacionDetalle; recargar: () => Promise<
                     ) : null}
                 </dl>
             </Seccion>
+            {conv.cola && (equipo.equipo ?? []).length > 0 ? (
+                <Seccion titulo={`Disponibles en ${conv.cola.nombre}`}>
+                    <ul className="grid gap-2" aria-label={`Equipo de ${conv.cola.nombre}`}>
+                        {[...(equipo.equipo ?? [])]
+                            .sort((a, b) => Number(b.disponible) - Number(a.disponible) || a.nombre.localeCompare(b.nombre, "es"))
+                            .map((m) => (
+                                <li key={m.id} className="flex min-w-0 items-center gap-2.5 text-[0.8125rem]">
+                                    <AvatarDisponible nombre={m.nombre} disponible={m.disponible} />
+                                    <span className="min-w-0 flex-1 truncate">
+                                        {m.nombre}
+                                        {m.rol === "supervisor" ? <span className="text-muted-foreground"> · supervisa</span> : null}
+                                    </span>
+                                    <EstadoDisponible disponible={m.disponible} />
+                                </li>
+                            ))}
+                    </ul>
+                </Seccion>
+            ) : null}
         </div>
     );
 }

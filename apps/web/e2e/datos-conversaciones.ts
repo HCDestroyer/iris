@@ -1,4 +1,5 @@
 import type { Schema } from "@iris/contratos";
+import type { ConversacionConEspera, Espera, MensajeAutomatico } from "../lib/conversaciones/contrato-11";
 
 /*
  * Datos de la bandeja de conversaciones para las pruebas, tipados con packages/contratos
@@ -19,6 +20,14 @@ export const CANAL_VENTAS = { id: 5, nombre: "Ventas", numero: "+50222000031", u
 export const CANAL_AVISOS = { id: 2, nombre: "Avisos", numero: "+50222000005", usos: ["avisos", "soporte"] };
 
 export const ANDREA = { id: 1, nombre: "Ana López" };
+export const ROSA = { id: 9, nombre: "Rosa Sánchez" };
+export const LAURA = { id: 12, nombre: "Laura Méndez" };
+export const MARIO = { id: 15, nombre: "Mario Ixcot" };
+
+/** Espera de una conversación sin asignar (fase 1.1, §14.6). */
+export function espera(datos: Partial<Espera> = {}): Espera {
+    return { disponibles: [], totalDisponibles: 0, botContestaEn: null, botMotivo: null, botAtendio: false, ...datos };
+}
 
 export function conversacion(datos: Partial<Conversacion> & Pick<Conversacion, "id" | "titulo">): Conversacion {
     return {
@@ -66,7 +75,8 @@ export const CONVERSACIONES: Conversacion[] = [
         ultimoMensaje: { direccion: "entrante", tipo: "imagen", texto: null, evento: null, creadoEn: hace(7) },
         noLeidos: 1,
         ultimaActividad: hace(7),
-    }),
+        espera: espera({ botMotivo: "sin_disponibles", botContestaEn: en(1) }),
+    } as Partial<ConversacionConEspera> & Pick<Conversacion, "id" | "titulo">),
     conversacion({
         id: 43,
         titulo: "+50255440018",
@@ -79,7 +89,8 @@ export const CONVERSACIONES: Conversacion[] = [
         ultimoMensaje: { direccion: "entrante", tipo: "texto", texto: "¿Tienen fibra en San Lucas?", evento: null, creadoEn: hace(25) },
         noLeidos: 1,
         ultimaActividad: hace(25),
-    }),
+        espera: espera({ disponibles: [LAURA], totalDisponibles: 1, botAtendio: true }),
+    } as Partial<ConversacionConEspera> & Pick<Conversacion, "id" | "titulo">),
     conversacion({
         id: 44,
         titulo: "Ferretería El Tornillo, Sociedad Anónima de Capital Variable",
@@ -98,6 +109,29 @@ export const CONVERSACIONES: Conversacion[] = [
         },
         ultimaActividad: hace(26 * 60),
     }),
+    // Fase 1.1: sin asignar, se avisó a los disponibles de Soporte y el bot contesta en 12 min.
+    conversacion({
+        id: 45,
+        titulo: "Julio Coy",
+        numero: "+50255300045",
+        contacto: { tipo: "cliente", clienteId: 5530, servicioId: 55300, contactoIrisId: null, prospectoId: null, asociacion: "automatica", verificado: true },
+        sla: { estado: "en_tiempo", venceEn: en(12), esperaDesde: hace(18) },
+        ultimoMensaje: { direccion: "entrante", tipo: "texto", texto: "Se me fue el internet otra vez", evento: null, creadoEn: hace(11) },
+        noLeidos: 3,
+        ultimaActividad: hace(11),
+        espera: espera({ disponibles: [ROSA, LAURA], totalDisponibles: 2, botContestaEn: en(12), botMotivo: "sin_confirmacion" }),
+    } as Partial<ConversacionConEspera> & Pick<Conversacion, "id" | "titulo">),
+    // Fase 1.1: nadie la tomó y contestó el bot.
+    conversacion({
+        id: 46,
+        titulo: "Diana García",
+        numero: "+50255600046",
+        contacto: { tipo: "cliente", clienteId: 6012, servicioId: 60120, contactoIrisId: null, prospectoId: null, asociacion: "automatica", verificado: true },
+        sla: { estado: "en_tiempo", venceEn: en(20), esperaDesde: hace(84) },
+        ultimoMensaje: { direccion: "entrante", tipo: "texto", texto: "Ok, gracias", evento: null, creadoEn: hace(53) },
+        ultimaActividad: hace(53),
+        espera: espera({ disponibles: [ROSA, LAURA], totalDisponibles: 2, botMotivo: "sin_confirmacion", botAtendio: true }),
+    } as Partial<ConversacionConEspera> & Pick<Conversacion, "id" | "titulo">),
 ];
 
 export function detalle(c: Conversacion, extra: Partial<Detalle> = {}): Detalle {
@@ -140,6 +174,31 @@ export function mensaje(conversacionId: number, datos: Partial<Mensaje> & Pick<M
 }
 
 export function mensajesDe(id: number): Mensaje[] {
+    if (id === 45) {
+        return [
+            mensaje(45, { direccion: "sistema", evento: { tipo: "conversacion_creada", colaNombre: "Soporte" }, creadoEn: hace(18) }),
+            mensaje(45, { direccion: "entrante", texto: "Buenas, se me fue el internet otra vez", creadoEn: hace(18) }),
+            mensaje(45, { direccion: "sistema", evento: { tipo: "aviso_sin_atender", colaNombre: "Soporte", disponibles: 2 } as Schema<"EventoSistema">, creadoEn: hace(18) }),
+            mensaje(45, { direccion: "entrante", texto: "¿Me pueden ayudar?", creadoEn: hace(11) }),
+        ];
+    }
+    if (id === 46) {
+        const bot: MensajeAutomatico = mensaje(46, {
+            direccion: "saliente",
+            texto: "Gracias por escribir. En este momento todos nuestros agentes están ocupados; te respondemos en cuanto se libere uno.",
+            estadoEntrega: "entregado",
+            creadoEn: hace(54),
+        });
+        bot.automatico = "bot";
+        return [
+            mensaje(46, { direccion: "sistema", evento: { tipo: "conversacion_creada", colaNombre: "Soporte" }, creadoEn: hace(84) }),
+            mensaje(46, { direccion: "entrante", texto: "Hola, quiero cambiar mi plan a 200 Mb, ¿cuánto cuesta?", creadoEn: hace(84) }),
+            mensaje(46, { direccion: "sistema", evento: { tipo: "aviso_sin_atender", colaNombre: "Soporte", disponibles: 3 } as Schema<"EventoSistema">, creadoEn: hace(84) }),
+            mensaje(46, { direccion: "sistema", evento: { tipo: "bot_atendio", detalle: "sin_confirmacion", minutos: 30 } as Schema<"EventoSistema">, creadoEn: hace(54) }),
+            bot,
+            mensaje(46, { direccion: "entrante", texto: "Ok, gracias", creadoEn: hace(53) }),
+        ];
+    }
     if (id !== 41) return [mensaje(id, { direccion: "entrante", texto: "Hola, ¿me ayudan?", creadoEn: hace(10) })];
     return [
         mensaje(41, { direccion: "sistema", evento: { tipo: "conversacion_creada", colaNombre: "Soporte" }, creadoEn: hace(220) }),

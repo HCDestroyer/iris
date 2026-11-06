@@ -15,6 +15,7 @@ import { useSesion } from "@/lib/sesion";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { useNombreEnMigas } from "@/componentes/migas-panel";
 import { AccionesConversacion } from "./acciones";
+import { AvisoAtencion, pideAtencion } from "./atencion";
 import type { OyenteFeed } from "./bandeja";
 import { Compositor } from "./compositor";
 import { PildoraCanal } from "./filtros";
@@ -278,6 +279,11 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                         <PanelRight />
                     </Boton>
                 </header>
+                {pideAtencion(conv) && !detenido ? (
+                    <div className="shrink-0 px-3 pt-3 @min-[700px]/conv:px-4">
+                        <AvisoAtencion conv={conv} ahora={ahora} alHecho={aplicarConversacion} />
+                    </div>
+                ) : null}
                 {detenido ? (
                     <Aviso
                         tono="warning"

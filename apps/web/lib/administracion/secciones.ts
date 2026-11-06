@@ -1,4 +1,4 @@
-import { ClipboardList, DatabaseZap, History, KeyRound, Mail, Map as IconoMapa, Plug, ShieldCheck, Smartphone, Users, Zap, Phone, CalendarClock, BookOpen, type LucideIcon } from "lucide-react";
+import { ClipboardList, DatabaseZap, History, KeyRound, Mail, Map as IconoMapa, Plug, ShieldCheck, Smartphone, Users, Zap, Phone, CalendarClock, BookOpen, Inbox, Settings2, type LucideIcon } from "lucide-react";
 import { PERMISOS_CUADRILLAS, PERMISOS_ZONAS } from "@/lib/agenda/permisos";
 import type { Permiso } from "@/lib/menu";
 
@@ -18,6 +18,20 @@ export const SECCIONES: readonly Seccion[] = [
         titulo: "Números de WhatsApp",
         descripcion: "Uso, cola, horario y fuera de horario de cada número de la empresa.",
         icono: Phone,
+        permisos: ["canales.configurar"],
+    },
+    {
+        href: "/administracion/colas",
+        titulo: "Colas",
+        descripcion: "Miembros, supervisores y tiempos del bot de cada cola de la bandeja.",
+        icono: Inbox,
+        permisos: ["canales.configurar"],
+    },
+    {
+        href: "/administracion/bandeja",
+        titulo: "Ajustes de la bandeja",
+        descripcion: "Minutos de inactividad para pasar a No disponible.",
+        icono: Settings2,
         permisos: ["canales.configurar"],
     },
     {

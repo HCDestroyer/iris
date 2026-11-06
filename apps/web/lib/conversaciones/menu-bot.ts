@@ -27,7 +27,7 @@ export const esquemaOpcionMenu = z.object({
 export const esquemaCuandoNoHayAgentes = z
     .object({
         activo: z.boolean(),
-        atiende: z.enum(["bot", "agente_autonomo"]).refine((v) => v === "bot", "El agente autónomo llega en la fase 3"),
+        atiende: z.enum(["bot", "agente_autonomo"]).refine((v): boolean => v === "bot", "El agente autónomo llega en la fase 3"),
         saludo: z.string().trim().min(1, "Escribe el saludo del bot").max(1024, "Hasta 1024 caracteres"),
         conMenu: z.boolean(),
         menu: z.array(esquemaOpcionMenu).max(MAX_OPCIONES_MENU, `Hasta ${MAX_OPCIONES_MENU} opciones`),
