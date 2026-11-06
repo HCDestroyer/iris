@@ -4,6 +4,7 @@
 import {
     CODIGO_SESION_AJENA,
     ColaPosiciones,
+    crearHistorialApi,
     crearInventarioApi,
     crearLibresApi,
     crearSubidorApi,
@@ -16,6 +17,7 @@ import {
     type InventarioCampo,
     type LibresCampo,
     type OrdenCampo,
+    type OrdenHistorial,
 } from "@iris/sync";
 import type { MotorChat } from "@iris/sync/chat";
 import { AlmacenDexie } from "@iris/sync/dexie";
@@ -49,6 +51,8 @@ export interface MotorAbierto {
     agenda: (hasta: string) => Promise<OrdenCampo[]>;
     /** Chat interno del equipo (misma base, misma verificación del dueño). */
     chat: MotorChat;
+    /** «Historial del cliente» del menú de la orden (solo con señal). */
+    historialCliente: (clienteId: number) => Promise<OrdenHistorial[]>;
     /** Órdenes libres y tomar una (solo con señal; nunca por la cola). */
     libres: LibresCampo;
 }
@@ -105,6 +109,11 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void, o
         await verificarIdentidad();
         return (await transporte.obtenerPaquete(hasta)).datos.ordenes ?? [];
     };
+    const leerHistorial = crearHistorialApi(cliente, app);
+    const historialCliente = async (clienteId: number) => {
+        await verificarIdentidad();
+        return leerHistorial(clienteId);
+    };
     const apiLibres = crearLibresApi(cliente, app);
     const libres: LibresCampo = {
         listar: async (cursor) => {
@@ -117,7 +126,7 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void, o
         },
     };
     const chat = await abrirChat({ usuarioId: clave.usuarioId, almacen, cliente, app, verificarIdentidad, conFlujo: opciones.flujoChat ?? true });
-    return { motor, posiciones, almacen, inventario, agenda, libres, chat };
+    return { motor, posiciones, almacen, inventario, agenda, libres, historialCliente, chat };
 }
 
 /** Estado de la cola de posiciones para React. */

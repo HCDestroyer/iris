@@ -25,6 +25,7 @@ import {
     type SesionCampo,
 } from "@/lib/campo/sesion";
 import { avisoSinConexion } from "@iris/sync/campo";
+import { ProveedorHistorial } from "./acciones-orden";
 import { ProveedorAgenda } from "./agenda-datos";
 import { ProveedorChat } from "./chat-datos";
 import { EntrarCampo } from "./entrar";
@@ -432,18 +433,20 @@ function ConMotor({
                 <ProveedorInventario inventario={abierto.inventario}>
                     <ProveedorAgenda leer={abierto.agenda}>
                         <ProveedorLibres api={abierto.libres}>
-                            {/* Sin `chat.ver` (rol lectura u otro) el chat no arranca ni se ofrece. */}
-                            {sesion.permisos?.includes("chat.ver") ? (
-                                <ProveedorChat chat={abierto.chat} puedeEnviar={sesion.permisos.includes("chat.enviar")}>
-                                    <TurnoAutomatico rastreador={rastreador} />
-                                    <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
-                                </ProveedorChat>
-                            ) : (
-                                <>
-                                    <TurnoAutomatico rastreador={rastreador} />
-                                    <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
-                                </>
-                            )}
+                            <ProveedorHistorial leer={abierto.historialCliente}>
+                                {/* Sin `chat.ver` (rol lectura u otro) el chat no arranca ni se ofrece. */}
+                                {sesion.permisos?.includes("chat.ver") ? (
+                                    <ProveedorChat chat={abierto.chat} puedeEnviar={sesion.permisos.includes("chat.enviar")}>
+                                        <TurnoAutomatico rastreador={rastreador} />
+                                        <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
+                                    </ProveedorChat>
+                                ) : (
+                                    <>
+                                        <TurnoAutomatico rastreador={rastreador} />
+                                        <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
+                                    </>
+                                )}
+                            </ProveedorHistorial>
                         </ProveedorLibres>
                     </ProveedorAgenda>
                 </ProveedorInventario>

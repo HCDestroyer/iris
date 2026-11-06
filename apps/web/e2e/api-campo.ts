@@ -38,6 +38,8 @@ export interface OpcionesCampo {
      * ese día»), van en el paquete solo si la fecha pedida llega a su día (Guatemala).
      */
     ordenesFuturas?: OrdenCampo[];
+    /** Órdenes pasadas para «Historial del cliente» (`GET /ordenes?clienteId=`), además de las del día. */
+    historial?: OrdenCampo[];
     /** Permisos de GET /yo (por defecto, los del rol `tecnico`). */
     permisos?: Schema<"Permiso">[];
     /** Ajuste de la empresa: los técnicos toman órdenes libres (paquete y cambios). */
@@ -346,8 +348,33 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
                 );
                 break;
             case "nota.agregar":
-                o.notas = [...(o.notas ?? []), { id: op.id, texto: String(d.texto), ocurridoEn: cuando, autorId: TECNICO.id, autorNombre: TECNICO.nombre, canal: "campo" }];
+                o.notas = [...(o.notas ?? []), { id: op.id, texto: String(d.texto), ocurridoEn: cuando, autorId: TECNICO.id, autorNombre: TECNICO.nombre, canal: "campo", version: 1, editadaEn: null }];
                 break;
+            case "nota.editar":
+            case "nota.eliminar": {
+                // Como la API: solo el autor (el técnico no tiene ordenes.asignar); con la versión de la nota.
+                const nota = (o.notas ?? []).find((n) => n.id === d.notaId);
+                if (!nota) {
+                    if (op.tipo === "nota.eliminar") {
+                        break; // ya eliminada: sin cambios
+                    }
+                    rechazadas.add(ordenId);
+                    return conOrden({ id: op.id, estado: "rechazada", error: problema("nota_eliminada", 409, "La nota ya se eliminó") });
+                }
+                if (nota.autorId !== TECNICO.id) {
+                    rechazadas.add(ordenId);
+                    return conOrden({ id: op.id, estado: "rechazada", error: problema("nota_ajena", 403, "Nota de otra persona") });
+                }
+                if (nota.version !== d.versionNota) {
+                    rechazadas.add(ordenId);
+                    return conOrden({ id: op.id, estado: "rechazada", error: problema("conflicto_version", 409, "Conflicto de versión") });
+                }
+                o.notas =
+                    op.tipo === "nota.eliminar"
+                        ? (o.notas ?? []).filter((n) => n.id !== nota.id)
+                        : (o.notas ?? []).map((n) => (n.id === nota.id ? { ...n, texto: String(d.texto), version: n.version + 1, editadaEn: cuando } : n));
+                break;
+            }
             case "material.usar":
                 o.materiales = [
                     ...(o.materiales ?? []),
@@ -710,6 +737,26 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
             const data = [...api.traslados.values()].filter((t) => !estado || t.estado === estado).map((t) => structuredClone(t));
             const r: Schema<"PaginaTraslados"> = { data, nextCursor: null };
             return json(route, r);
+        }
+        if (ruta === "/api/v1/ordenes" && metodo === "GET") {
+            // Historial del cliente (ordenes.ver_propias): las del técnico con ese cliente.
+            const clienteId = Number(url.searchParams.get("clienteId"));
+            const data: Schema<"Orden">[] = [...(opciones.historial ?? []), ...api.ordenes.values()]
+                .filter((o) => (o.cliente?.id ?? o.clienteId) === clienteId)
+                .map((o) => {
+                    // Solo la forma de `Orden` (sin lo del paquete de campo).
+                    const c: Partial<OrdenCampo> = structuredClone(o);
+                    delete c.checklist;
+                    delete c.notas;
+                    delete c.materiales;
+                    delete c.equipos;
+                    delete c.adjuntos;
+                    delete c.comodato;
+                    delete c.cliente;
+                    delete c.servicio;
+                    return c as Schema<"Orden">;
+                });
+            return json(route, { data, nextCursor: null });
         }
         if (ruta === "/api/v1/campo/inventario/mi-bodega" && metodo === "GET") {
             if (api.fallarBodega) {

@@ -139,6 +139,7 @@ test.describe("nube de sincronización del encabezado", () => {
         await expect(page.getByTestId("estado-conexion")).toHaveText("Sin conexión");
 
         await page.getByRole("link", { name: /OT-000102/ }).click();
+        await page.locator('[data-slot="notas-orden"]').getByRole("button", { name: "Agregar una nota" }).click();
         await page.getByLabel("Nueva nota").fill("Portón verde");
         await page.getByRole("button", { name: "Agregar nota" }).click();
         await expect(nube(page)).toHaveAttribute("data-forma", "sin_senal_pendientes");
@@ -159,6 +160,7 @@ test.describe("nube de sincronización del encabezado", () => {
         const api = await simularApiCampo(page);
         api.rechazar((op) => op.tipo === "nota.agregar", problema("validacion", 422, "Datos no válidos"));
         await page.goto("/campo?orden=102");
+        await page.locator('[data-slot="notas-orden"]').getByRole("button", { name: "Agregar una nota" }).click();
         await page.getByLabel("Nueva nota").fill("Nota rechazada");
         await page.getByRole("button", { name: "Agregar nota" }).click();
         await expect(page.getByTestId("pendientes-por-enviar")).toHaveText("1 rechazado", { timeout: 15_000 });

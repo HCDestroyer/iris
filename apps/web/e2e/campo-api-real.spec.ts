@@ -105,6 +105,7 @@ test("dos técnicos en el mismo navegador contra la API real: la cola de A no sa
     await a.route("**/api/**", (r) => r.abort("internetdisconnected"));
     await a.evaluate(() => window.dispatchEvent(new Event("offline")));
     await a.getByRole("link", { name: /OT-000002/ }).click();
+    await a.locator('[data-slot="notas-orden"]').getByRole("button", { name: "Agregar una nota" }).click();
     await a.getByLabel("Nueva nota").fill("Nota de A sin señal");
     await a.getByRole("button", { name: "Agregar nota" }).click();
     await expect(a.getByTestId("pendientes-por-enviar")).toHaveText("1 pendiente por enviar");

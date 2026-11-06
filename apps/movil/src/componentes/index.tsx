@@ -849,6 +849,35 @@ export function CampoMensaje({ etiqueta, valor, alCambiar, placeholder, testID }
     );
 }
 
+/**
+ * Grupo de botones unidos (como `GrupoBotones` de `@iris/ui`): acciones hermanas de igual peso bajo
+ * la acción principal («Pausar | No se pudo»). Cada uno de 48 px, con un separador fino.
+ */
+export function GrupoBotones({ etiqueta, botones, testID }: { etiqueta: string; testID?: string; botones: { texto: string; icono: LucideIcon; alPresionar: () => void; peligro?: boolean; deshabilitado?: boolean; testID?: string }[] }) {
+    const { colores, campo } = useTema();
+    return (
+        <View accessibilityLabel={etiqueta} testID={testID} style={[estilos.grupo, { borderColor: colores.borde, backgroundColor: campo.panel }]}>
+            {botones.map((b, i) => {
+                const color = b.peligro ? colores.tono.error : colores.texto;
+                const Icono = b.icono;
+                return (
+                    <Tocable
+                        key={b.texto}
+                        etiqueta={b.texto}
+                        alPresionar={b.alPresionar}
+                        {...(b.deshabilitado === undefined ? {} : { deshabilitado: b.deshabilitado })}
+                        {...(b.testID ? { testID: b.testID } : {})}
+                        estilo={[estilos.botonGrupo, i > 0 ? { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: colores.borde } : null]}
+                    >
+                        <Icono size={18} color={color} />
+                        <Text style={[estilos.textoGrupo, { color }]}>{b.texto}</Text>
+                    </Tocable>
+                );
+            })}
+        </View>
+    );
+}
+
 export function Fila({ children, entre }: { children: ReactNode; entre?: boolean }) {
     return <View style={entre ? estilos.filaEntre : estilos.filaEnvuelta}>{children}</View>;
 }
@@ -948,5 +977,8 @@ const estilos = StyleSheet.create({
     textoAccionToast: { fontWeight: "600", fontSize: 13 },
     cerrarToast: { minWidth: ZONA_TACTIL, minHeight: ZONA_TACTIL, borderRadius: 22 },
     redondo: { alignItems: "center", justifyContent: "center" },
+    grupo: { flexDirection: "row", borderWidth: 1, borderRadius: 999, overflow: "hidden" },
+    botonGrupo: { flex: 1, minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 12 },
+    textoGrupo: { fontSize: 16, fontWeight: "600" },
     textoRedondo: { fontSize: 15, fontWeight: "600" },
 });

@@ -67,6 +67,7 @@ test("la cola de A nunca se envía con la sesión de B, no se pierde y A no ve �
     await page.getByRole("button", { name: "En camino" }).click();
     await declinarUbicacion(page);
     await alResumen(page);
+    await page.locator('[data-slot="notas-orden"]').getByRole("button", { name: "Agregar una nota" }).click();
     await page.getByLabel("Nueva nota").fill("Nota de Tomás");
     await page.getByRole("button", { name: "Agregar nota" }).click();
     await expect(page.getByTestId("pendientes-por-enviar")).toHaveText("2 pendientes por enviar");

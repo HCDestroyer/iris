@@ -227,7 +227,18 @@ func tomar(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, id int64, p
 //   - reasignada: ya no es del técnico del teléfono, pero lo fue (feed de cambios) → 409
 //     orden_reasignada. Si nunca fue suya, sigue la verificación normal (404 o, para despacho,
 //     su alcance).
-//   - cancelada: 409 orden_cancelada, salvo nota.agregar y adjunto.registrar (evidencia).
+//   - cancelada: 409 orden_cancelada, salvo las notas (agregar, editar, eliminar) y
+//     adjunto.registrar (evidencia).
+//
+// esEvidencia: operaciones que una orden cancelada (o pausada) sigue aceptando.
+func esEvidencia(tipo string) bool {
+	switch tipo {
+	case OpNotaAgregar, OpNotaEditar, OpNotaEliminar, OpAdjuntoRegistrar:
+		return true
+	}
+	return false
+}
+
 func reglasDelLote(ctx context.Context, q *campobd.Queries, f campobd.CampoOrden, s *OpSync) error {
 	actor := contexto.ActorDe(ctx)
 	if !propia(ctx, f) && actor.EsUsuario() {
@@ -240,7 +251,7 @@ func reglasDelLote(ctx context.Context, q *campobd.Queries, f campobd.CampoOrden
 		}
 	}
 	// Solo si el actor la ve: si no, la verificación normal responde 404 (sin oráculo).
-	if f.Estado == EstadoCancelada && visible(ctx, f) && s.Tipo != OpNotaAgregar && s.Tipo != OpAdjuntoRegistrar {
+	if f.Estado == EstadoCancelada && visible(ctx, f) && !esEvidencia(s.Tipo) {
 		return ordenCancelada()
 	}
 	return nil

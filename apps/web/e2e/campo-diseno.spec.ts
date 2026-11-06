@@ -149,6 +149,7 @@ test("el encabezado se va al bajar y vuelve compacto al subir; la isla se encoge
 test("la nube del encabezado: sin señal con algo por enviar crece; su hoja lleva a «Por enviar»; nada sobre la isla", async ({ page, context }, info) => {
     const api = await simularApiCampo(page, { ordenes: conUnaEnSitio() });
     await page.goto("/campo?orden=101");
+    await page.locator('[data-slot="notas-orden"]').getByRole("button", { name: "Agregar una nota" }).click();
     await page.getByLabel("Nueva nota").fill("Perro bravo en el portón");
     api.sinRed = true;
     await context.setOffline(true);

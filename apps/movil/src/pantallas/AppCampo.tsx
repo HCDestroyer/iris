@@ -11,6 +11,7 @@ import { StyleSheet, View } from "react-native";
 import { ErrorApi } from "../api/errores";
 import { Aviso, Cargando } from "../componentes";
 import { ProveedorAgenda, type LeerAgenda } from "../campo/agenda";
+import { ProveedorHistorial, type LeerHistorial } from "../campo/historial";
 import { ProveedorInventario } from "../campo/inventario";
 import { ProveedorLibres } from "../campo/libres";
 import { ProveedorCampo, useEstadoMotor, useEstadoPosiciones, type CerrarSesion, type ServiciosNativos } from "../campo/contexto";
@@ -29,6 +30,8 @@ export interface MotorDeSesion {
     agenda: LeerAgenda;
     /** Chat interno del equipo (misma base). */
     chat: MotorChat;
+    /** «Historial del cliente» (lectura de la API con señal). */
+    historial?: LeerHistorial;
     /** Órdenes libres y tomar una (con señal). */
     libres: LibresCampo;
     /** Archivo de la base (lo lee la tarea del GPS con la app cerrada). */
@@ -279,14 +282,16 @@ function CampoAbierto({
             <ProveedorInventario inventario={abierto.inventario}>
                 <ProveedorAgenda leer={abierto.agenda}>
                     <ProveedorLibres api={abierto.libres}>
-                        {/* Sin `chat.ver` el chat no arranca ni se ofrece. */}
-                        {sesion.permisos?.includes("chat.ver") ? (
-                            <ProveedorChat chat={abierto.chat} puedeEnviar={sesion.permisos.includes("chat.enviar")} red={deps.red} alCambiarPlano={deps.alCambiarPlano}>
+                        <ProveedorHistorial leer={abierto.historial ?? null}>
+                            {/* Sin `chat.ver` el chat no arranca ni se ofrece. */}
+                            {sesion.permisos?.includes("chat.ver") ? (
+                                <ProveedorChat chat={abierto.chat} puedeEnviar={sesion.permisos.includes("chat.enviar")} red={deps.red} alCambiarPlano={deps.alCambiarPlano}>
+                                    <Marco empresa={nombreEmpresa} alSesionVencida={sesionVencida} {...(cambiarEmpresa ? { cambiarEmpresa } : {})} />
+                                </ProveedorChat>
+                            ) : (
                                 <Marco empresa={nombreEmpresa} alSesionVencida={sesionVencida} {...(cambiarEmpresa ? { cambiarEmpresa } : {})} />
-                            </ProveedorChat>
-                        ) : (
-                            <Marco empresa={nombreEmpresa} alSesionVencida={sesionVencida} {...(cambiarEmpresa ? { cambiarEmpresa } : {})} />
-                        )}
+                            )}
+                        </ProveedorHistorial>
                     </ProveedorLibres>
                 </ProveedorAgenda>
             </ProveedorInventario>

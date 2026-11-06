@@ -144,6 +144,21 @@ export function crearInventarioApi(cliente: ClienteIris, app?: IdentidadApp): In
     };
 }
 
+/** Una orden del historial del cliente (las que ve el técnico: las suyas). */
+export type OrdenHistorial = Schema<"Orden">;
+
+/**
+ * «Historial del cliente» del menú de la orden (solo con señal, sin guardar): `GET /ordenes?clienteId=`
+ * con el alcance del técnico (`ordenes.ver_propias`: las órdenes de ese cliente que fueron suyas),
+ * las más recientes primero.
+ */
+export function crearHistorialApi(cliente: ClienteIris, app?: IdentidadApp): (clienteId: number) => Promise<OrdenHistorial[]> {
+    return async (clienteId) => {
+        const { datos } = await resolver(cliente.GET("/api/v1/ordenes", { params: { query: { clienteId, limit: 20 } }, headers: conApp(app) }));
+        return [...(datos.data ?? [])].sort((a, b) => (b.programadaInicio ?? b.actualizadoEn).localeCompare(a.programadaInicio ?? a.actualizadoEn));
+    };
+}
+
 /**
  * Órdenes libres (el técnico toma una; requiere señal, nunca va por la cola): `GET
  * /campo/ordenes-libres` y `POST /ordenes/{id}/tomar`. Si otro la tomó primero, `tomar` lanza

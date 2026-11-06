@@ -48,14 +48,26 @@ export function PausaOrden({
 }
 
 /** Aviso «Orden en pausa» con el motivo, el tiempo pausado y «Reanudar». */
-function OrdenPausada({ orden, segundos, puedeReanudar, enPasos }: { orden: OrdenVista; segundos: number; puedeReanudar: boolean; enPasos: boolean }) {
+/** «Reanudar»: vuelve a estar en curso (y levanta «Dejar de compartir ubicación»). */
+export function useReanudar(orden: OrdenVista): () => Promise<void> {
     const { motor, ejecutar, rastreo } = useCampo();
-    const reanudar = async () => {
+    return async () => {
         if (await ejecutar(() => motor.registrar("orden.reanudar", orden.id, {}), "Orden reanudada")) {
             // Acción del propio técnico: levanta su «Dejar de compartir ubicación».
             void rastreo?.accionPropia();
         }
     };
+}
+
+/** «Tiempo pausado en esta visita» (fuera de pausa, si la hubo). */
+export function TiempoPausado({ orden }: { orden: OrdenVista }) {
+    const ahora = useAhora();
+    const total = segundosPausada(orden, ahora);
+    return total > 0 ? <Texto suave testID="tiempo-pausado">Tiempo pausado en esta visita: {duracionCorta(total)}</Texto> : null;
+}
+
+function OrdenPausada({ orden, segundos, puedeReanudar, enPasos }: { orden: OrdenVista; segundos: number; puedeReanudar: boolean; enPasos: boolean }) {
+    const reanudar = useReanudar(orden);
     const pausa = (orden.pausas ?? []).find((p) => p.fin === null);
     const motivo = pausa ? MOTIVOS_PAUSA[pausa.motivo] : undefined;
     return (
@@ -84,8 +96,21 @@ function OrdenPausada({ orden, segundos, puedeReanudar, enPasos }: { orden: Orde
 }
 
 function PausarOrden({ orden }: { orden: OrdenVista }) {
-    const { motor, ejecutar } = useCampo();
     const [abierto, setAbierto] = useState(false);
+    return (
+        <>
+            <Boton variante="secundario" icono={CirclePause} alPresionar={() => setAbierto(true)}>
+                Pausar
+            </Boton>
+            <HojaPausar orden={orden} abierto={abierto} alCambiar={setAbierto} />
+        </>
+    );
+}
+
+/** Hoja «Pausar» (motivo y nota), abierta desde «Pausar» del resumen o de la llegada. */
+export function HojaPausar({ orden, abierto, alCambiar }: { orden: OrdenVista; abierto: boolean; alCambiar: (abierto: boolean) => void }) {
+    const { motor, ejecutar } = useCampo();
+    const setAbierto = alCambiar;
     const form = useForm<DatosPausar>({ resolver: zodResolver(esquemaPausar), defaultValues: { nota: "" } });
     const enviar = form.handleSubmit(async (d) => {
         if (await ejecutar(() => motor.registrar("orden.pausar", orden.id, { motivo: d.motivo, ...(d.nota ? { nota: d.nota } : {}) }), "Orden pausada")) {
@@ -95,9 +120,6 @@ function PausarOrden({ orden }: { orden: OrdenVista }) {
     });
     return (
         <>
-            <Boton variante="secundario" icono={CirclePause} alPresionar={() => setAbierto(true)}>
-                Pausar
-            </Boton>
             <Dialogo
                 abierto={abierto}
                 alCerrar={() => {

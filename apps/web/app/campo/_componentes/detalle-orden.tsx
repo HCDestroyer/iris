@@ -1,44 +1,42 @@
 "use client";
 
 import type { OrdenVista } from "@iris/sync";
-import { estadoPasos, faltantesAntesDeFirmar, llego, PASOS_ORDEN, progresoPasos, puedeReanudar, siguientePaso, TITULOS_PASO, urlDeVista, type PasoOrden } from "@iris/sync/campo";
+import { estadoPasos, faltantesAntesDeFirmar, llego, PASOS_ORDEN, progresoPasos, puedeReanudar, TITULOS_PASO, urlDeVista, type PasoOrden } from "@iris/sync/campo";
 import { Aviso, Boton, Cargando, EstadoVacio, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo, cn } from "@iris/ui";
 import {
     ArrowLeft,
     CircleCheck,
     CircleDashed,
     FileQuestion,
-    ListChecks,
     Lock,
     MapPin,
     MapPinCheck,
     Navigation,
     PenLine,
     Phone,
-    Play,
     Route,
 } from "lucide-react";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { ListaTelefonos } from "@/componentes/clientes/telefonos";
 import { useAhora } from "@/componentes/tickets/insignias";
-import { horaCorta, ventanaCita } from "@/lib/campo/fechas";
+import { horaCorta } from "@/lib/campo/fechas";
 import { enlaceComoLlegar } from "@/lib/campo/gps";
 import { accionesDe } from "@/lib/campo/reglas";
-import { AVISOS_SERVIDOR, OPERACIONES, TIPOS_ORDEN } from "@/lib/campo/textos";
+import { AVISOS_SERVIDOR, OPERACIONES } from "@/lib/campo/textos";
 import { haceTiempo } from "@/lib/datos/presentacion";
 import { enlaceTel, principal, telefonos } from "@/lib/datos/telefono";
 import { formatearFecha } from "@/lib/fechas";
 import { Checklist } from "./checklist";
-import { FallarOrden, PasoCierre } from "./cierre";
+import { PasoCierre } from "./cierre";
 import { AbrirChatOrden } from "./chat";
 import { useCampo, useOrden } from "./contexto";
 import { Equipos } from "./equipos";
 import { FotosOrden } from "./fotos";
 import { InsigniaOrden } from "./insignias";
 import { Materiales } from "./materiales";
+import { AccionesPrincipales, EncabezadoOrden, useMarcarEstado } from "./acciones-orden";
 import { Notas } from "./notas";
-import { PausaOrden } from "./pausa";
-import { AVISO_TURNO_INICIADO, useUbicacion } from "./ubicacion";
+import { PausaOrden, TiempoPausado } from "./pausa";
 
 export function DetalleOrden({ id, paso }: { id: number; paso?: PasoOrden | undefined }) {
     const { navegar, estado } = useCampo();
@@ -61,53 +59,31 @@ export function DetalleOrden({ id, paso }: { id: number; paso?: PasoOrden | unde
     return paso ? <PasoDeOrden orden={orden} paso={paso} /> : <ResumenOrden orden={orden} />;
 }
 
-/** Resumen: cliente, avisos, pausa, avance y «Empezar trabajo» (o «Continuar trabajo»). */
+/**
+ * Resumen (decisión del PM): ← | número y «● Estado · Tipo · ventana» | «⋯»; la acción principal
+ * en «tinta» con [Pausar | No se pudo] debajo (o el aviso de pausa y «Reanudar»), el cliente con
+ * «Cómo llegar» y «Llamar», el avance y las notas.
+ */
 function ResumenOrden({ orden }: { orden: OrdenVista }) {
-    const { navegar, sesion } = useCampo();
+    const { navegar } = useCampo();
     const acciones = accionesDe(orden);
-    const inicio = orden.cita?.inicio ?? orden.programadaInicio;
-    const fin = orden.cita?.fin ?? orden.programadaFin;
-    const ventana = ventanaCita(orden.cita);
     const nombre = orden.cliente?.nombre ?? orden.contacto.nombre ?? "Cliente sin nombre";
-    const trabajable = acciones.iniciarCamino || acciones.llegar || acciones.trabajo;
-    const empezado = llego(orden);
+    const [agregandoNota, setAgregandoNota] = useState(false);
 
     return (
         <article aria-labelledby="titulo-orden" className="grid gap-4">
-            <header className="flex items-center gap-3">
-                <BotonVolver etiqueta="Mis órdenes" alPresionar={() => navegar({ tipo: "lista" })} />
-                <div className="grid min-w-0 gap-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                        <h1 id="titulo-orden" className="font-mono text-xl font-semibold">
-                            {orden.numero}
-                        </h1>
-                        <InsigniaOrden estado={orden.estado} />
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                    {TIPOS_ORDEN[orden.tipo]}
-                    {inicio ? ` · cita ${horaCorta(inicio)}${fin ? `–${horaCorta(fin)}` : ""}` : ""}
-                    {ventana ? ` · llegada acordada ${ventana}` : ""}
-                    </p>
-                </div>
-            </header>
-
+            <EncabezadoOrden orden={orden} alVolver={() => navegar({ tipo: "lista" })} alAgregarNota={acciones.notas ? () => setAgregandoNota(true) : null} />
             <AvisosOrden orden={orden} />
             {orden.estado === "pendiente" ? (
                 <Aviso tono="neutral" titulo="Esperando programación">
                     Despacho todavía no le dio hora a esta orden.
                 </Aviso>
             ) : null}
-            {trabajable ? (
-                <Boton tamano="lg" className="h-[3.25rem] w-full rounded-full text-base" onClick={() => navegar({ tipo: "orden", id: orden.id, paso: empezado ? siguientePaso(orden) : "llegada" })}>
-                    {empezado ? <ListChecks aria-hidden /> : <Play aria-hidden />}
-                    {empezado ? "Continuar trabajo" : "Empezar trabajo"}
-                </Boton>
-            ) : null}
-            <PausaOrden orden={orden} pausar={acciones.pausar} reanudar={acciones.reanudar} puedeReanudar={puedeReanudar(sesion.permisos)} />
+            <AccionesPrincipales orden={orden} />
+            {acciones.enPausa ? null : <TiempoPausado orden={orden} />}
             <Cliente orden={orden} nombre={nombre} />
             {orden.estado !== "pendiente" ? <ProgresoOrden orden={orden} /> : null}
-            <Notas orden={orden} editable={acciones.notas} />
-            {acciones.fallar ? <FallarOrden orden={orden} /> : null}
+            <Notas orden={orden} editable={acciones.notas} agregando={agregandoNota} alAgregar={setAgregandoNota} />
         </article>
     );
 }
@@ -434,43 +410,43 @@ function Cliente({ orden, nombre }: { orden: OrdenVista; nombre: string }) {
     const lon = orden.lon ?? orden.cliente?.lon ?? null;
     const comoLlegar = enlaceComoLlegar(lat, lon, orden.direccion);
     return (
-        <Tarjeta>
-            <TarjetaEncabezado>
-                <TarjetaTitulo>{nombre}</TarjetaTitulo>
-            </TarjetaEncabezado>
-            <TarjetaContenido className="grid gap-3 text-sm">
-                {orden.direccion ? (
-                    <p className="flex items-start gap-2">
-                        <MapPin aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                        {orden.direccion}
-                    </p>
-                ) : null}
-                {orden.servicio ? (
-                    <p className="text-muted-foreground">
-                        Servicio {orden.servicio.codigo || `#${orden.servicio.id}`}
-                        {orden.servicio.plan ? ` · ${orden.servicio.plan}` : ""}
-                        {orden.servicio.estado ? ` · ${orden.servicio.estado.replaceAll("_", " ")}` : ""}
-                    </p>
-                ) : null}
-                {orden.descripcion ? <p className="whitespace-pre-wrap">{orden.descripcion}</p> : null}
-                <div className="grid grid-cols-2 gap-2">
-                    {llamar ? (
-                        <Boton asChild variante="secundario" tamano="lg">
-                            <a href={llamar}>
-                                <Phone aria-hidden />
-                                Llamar
-                            </a>
-                        </Boton>
-                    ) : null}
-                    {comoLlegar ? (
-                        <Boton asChild variante="secundario" tamano="lg">
-                            <a href={comoLlegar} target="_blank" rel="noopener noreferrer">
-                                <Route aria-hidden />
-                                Cómo llegar
-                            </a>
-                        </Boton>
-                    ) : null}
+        <Tarjeta data-slot="cliente-orden">
+            <TarjetaContenido className="grid gap-3 p-4 text-sm">
+                <div className="flex items-start gap-3">
+                    <div className="grid min-w-0 flex-1 gap-1">
+                        <h2 className="text-lg font-semibold tracking-[-0.01em]">{nombre}</h2>
+                        {orden.direccion ? (
+                            <p className="flex items-start gap-1.5 text-base text-muted-foreground">
+                                <MapPin aria-hidden className="mt-1 size-4 shrink-0" />
+                                {orden.direccion}
+                            </p>
+                        ) : null}
+                        {orden.servicio ? (
+                            <p className="text-muted-foreground">
+                                {orden.servicio.codigo || `Servicio #${orden.servicio.id}`}
+                                {orden.servicio.plan ? ` · ${orden.servicio.plan}` : ""}
+                                {orden.servicio.estado ? ` · ${orden.servicio.estado.replaceAll("_", " ")}` : ""}
+                            </p>
+                        ) : null}
+                    </div>
+                    <div className="flex shrink-0 gap-2">
+                        {comoLlegar ? (
+                            <Boton asChild variante="secundario" className="size-12 rounded-full bg-[var(--campo-panel-2)] p-0 shadow-none md:size-12 [&_svg]:size-5">
+                                <a href={comoLlegar} target="_blank" rel="noopener noreferrer" aria-label="Cómo llegar" title="Cómo llegar">
+                                    <Route aria-hidden />
+                                </a>
+                            </Boton>
+                        ) : null}
+                        {llamar ? (
+                            <Boton asChild variante="secundario" className="size-12 rounded-full bg-[var(--campo-panel-2)] p-0 shadow-none md:size-12 [&_svg]:size-5">
+                                <a href={llamar} aria-label="Llamar" title="Llamar">
+                                    <Phone aria-hidden />
+                                </a>
+                            </Boton>
+                        ) : null}
+                    </div>
                 </div>
+                {orden.descripcion ? <p className="whitespace-pre-wrap">{orden.descripcion}</p> : null}
                 <AbrirChatOrden ordenId={orden.id} />
                 {lista.length > 0 ? <ListaTelefonos telefonos={lista} /> : null}
                 {orden.cliente ? (
@@ -484,30 +460,7 @@ function Cliente({ orden, nombre }: { orden: OrdenVista; nombre: string }) {
 }
 
 function AccionesEstado({ orden, camino, llegar }: { orden: OrdenVista; camino: boolean; llegar: boolean }) {
-    const { motor, ejecutar } = useCampo();
-    const ubicacion = useUbicacion();
-    const [ocupado, setOcupado] = useState<null | "camino" | "llegar">(null);
-    const correr = async (cual: "camino" | "llegar") => {
-        setOcupado(cual);
-        // Con GPS si el técnico lo permite (explicado antes de que el teléfono pregunte); sin él,
-        // la acción se registra igual en la cola sin conexión.
-        const p = await ubicacion.posicionParaAccion();
-        const datos = p ? { lat: p.lat, lon: p.lon, precision: p.precision } : {};
-        // Salir hacia el cliente o llegar es estar en turno: empieza la ubicación en vivo, con aviso
-        // (solo si el técnico aceptó la explicación y dio el permiso).
-        const empiezaTurno = ubicacion.turnoEmpezariaSolo();
-        const texto =
-            cual === "camino" ? (p ? "En camino, con ubicación" : "En camino, sin ubicación") : p ? "Llegada registrada con ubicación" : "Llegada registrada sin ubicación";
-        const guardada = await ejecutar(
-            () => motor.registrar(cual === "camino" ? "orden.iniciar_camino" : "orden.llegar", orden.id, datos),
-            empiezaTurno ? `${texto}. ${AVISO_TURNO_INICIADO}` : texto,
-        );
-        if (guardada) {
-            // Fuera de turno lo empieza (si puede); en turno, lo mantiene hasta la última orden.
-            ubicacion.iniciarTurnoSolo();
-        }
-        setOcupado(null);
-    };
+    const { correr, ocupado } = useMarcarEstado(orden);
     return (
         <div className="grid grid-cols-2 gap-2">
             {camino ? (

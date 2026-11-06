@@ -6,6 +6,7 @@ import {
     CODIGO_SESION_AJENA,
     ColaPosiciones,
     crearGeneradorUuid7,
+    crearHistorialApi,
     crearInventarioApi,
     crearLibresApi,
     crearSubidorApi,
@@ -17,6 +18,7 @@ import {
     type InventarioCampo,
     type LibresCampo,
     type OrdenCampo,
+    type OrdenHistorial,
     type Transporte,
 } from "@iris/sync";
 import { crearTransporteChatApi, MotorChat } from "@iris/sync/chat";
@@ -52,6 +54,8 @@ export interface MotorAbierto {
      * la respuesta y no da `response.body` como flujo, así que no puede leer `GET /chat/eventos`.
      */
     chat: MotorChat;
+    /** «Historial del cliente» del menú de la orden (`GET /ordenes?clienteId=`, solo con señal). */
+    historial: (clienteId: number) => Promise<OrdenHistorial[]>;
     /** Órdenes libres y tomar una (solo con señal; nunca por la cola). */
     libres: LibresCampo;
 }
@@ -135,6 +139,11 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void, a
         await verificarIdentidad();
         return (await transporte.obtenerPaquete(hasta)).datos.ordenes ?? [];
     };
+    const leerHistorial = crearHistorialApi(api, app);
+    const historial = async (clienteId: number) => {
+        await verificarIdentidad();
+        return leerHistorial(clienteId);
+    };
     const apiLibres = crearLibresApi(api, app);
     const libres: LibresCampo = {
         listar: async (cursor) => {
@@ -158,7 +167,7 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void, a
         verificarIdentidad,
         abrirFlujo: null,
     });
-    return { motor, posiciones, almacen, nombre, inventario, agenda, libres, chat };
+    return { motor, posiciones, almacen, nombre, inventario, agenda, libres, historial, chat };
 }
 
 /**

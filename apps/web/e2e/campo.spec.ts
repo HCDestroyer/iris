@@ -80,8 +80,8 @@ test("detalle: cliente, «Cómo llegar», llamar y solo las acciones válidas", 
     await expect(page.getByRole("heading", { name: "OT-000101" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Cómo llegar" })).toHaveAttribute("href", "https://www.google.com/maps/dir/?api=1&destination=14.6407,-90.5133");
     await expect(page.getByRole("link", { name: "Llamar" })).toHaveAttribute("href", "tel:+50255551234");
-    // El resumen no tiene las acciones de trabajo: «Empezar trabajo» lleva a la llegada.
-    await expect(page.getByRole("button", { name: "En camino" })).toHaveCount(0);
+    // Programada: «Empezar trabajo» (lleva a la llegada) y [En camino | No se pudo] debajo.
+    await expect(page.getByRole("group", { name: "Más acciones de la orden" }).getByRole("button")).toHaveText(["En camino", "No se pudo"]);
     await empezarTrabajo(page);
     await expect(page).toHaveURL(/\/campo\?orden=101&paso=llegada$/);
     await expect(page.getByRole("button", { name: "En camino" })).toBeVisible();
@@ -231,6 +231,7 @@ test("un rechazo del servidor queda visible con su motivo y se puede descartar o
     // Sin permiso de ubicación: la acción se registra igual, sin GPS.
     await declinarUbicacion(page);
     await alResumen(page);
+    await page.locator('[data-slot="notas-orden"]').getByRole("button", { name: "Agregar una nota" }).click();
     await page.getByLabel("Nueva nota").fill("Cliente pide llegar después de las 3");
     await page.getByRole("button", { name: "Agregar nota" }).click();
     await expect(porEnviar(page)).toHaveText("2 pendientes por enviar");

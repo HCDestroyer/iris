@@ -40,6 +40,22 @@ export async function empezarTrabajo(page: Page) {
     await page.getByRole("button", { name: /^(Empezar|Continuar) trabajo$/ }).click();
 }
 
+/**
+ * «Agregar formulario» del menú «⋯» de la orden (decisión del PM: ya no va al final del checklist).
+ * Desde un paso, primero vuelve al resumen; luego regresa al paso donde estaba.
+ */
+export async function agregarFormularioDesdeMenu(page: Page): Promise<Locator> {
+    const enPaso = await page.getByRole("button", { name: /^Resumen de OT-/ }).isVisible();
+    if (enPaso) {
+        await alResumen(page);
+    }
+    await page.getByRole("button", { name: "Más acciones de la orden" }).click();
+    await page.getByRole("menuitem", { name: /^Agregar formulario/ }).click();
+    const dialogo = page.getByRole("dialog", { name: "Agregar formulario" });
+    await expect(dialogo).toBeVisible();
+    return dialogo;
+}
+
 /** Del paso al resumen de la orden. */
 export async function alResumen(page: Page) {
     await page.getByRole("button", { name: /^Resumen de OT-/ }).click();

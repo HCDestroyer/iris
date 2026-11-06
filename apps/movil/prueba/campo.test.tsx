@@ -132,12 +132,15 @@ describe.each(["light", "dark"] as const)("app de campo (%s)", (esquema) => {
 
         await fireEvent.press(screen.getByRole("radio", { name: "Mal clima" }));
         await fireEvent.press(screen.getByRole("button", { name: "Confirmar pausa" }));
-        expect(await screen.findByTestId("orden-pausada")).toHaveTextContent(/Orden en pausa: Mal clima/);
+        // En el resumen: solo el aviso naranja «En pausa desde HH:MM · motivo» y «Reanudar».
+        expect(await screen.findByTestId("pausa-orden")).toHaveProp("accessibilityLabel", expect.stringMatching(/^En pausa desde \d{2}:\d{2} · Mal clima$/));
         expect(m.motor.obtenerEstado().cola.at(-1)).toMatchObject({ tipo: "orden.pausar", datos: { motivo: "clima" } });
         expect(screen.queryByRole("button", { name: /Cerrar orden/ })).toBeNull();
         expect(screen.queryByRole("button", { name: /Llegué/ })).toBeNull();
+        expect(screen.queryByTestId("accion-principal")).toBeNull();
+        expect(screen.queryByTestId("grupo-acciones")).toBeNull();
 
-        await fireEvent.press(within(screen.getByTestId("orden-pausada")).getByRole("button", { name: /Reanudar/ }));
+        await fireEvent.press(screen.getByTestId("reanudar"));
         await waitFor(() => expect(m.motor.obtenerOrden(1)?.estado).toBe("en_sitio"));
         expect(await screen.findByRole("button", { name: /Continuar trabajo/ })).toBeTruthy();
         expect(tipos(m)).toEqual(["orden.pausar", "orden.reanudar"]);

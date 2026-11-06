@@ -62,6 +62,14 @@ type conID[T any] struct {
 
 type vacio struct{}
 
+// conNota: POST /ordenes/{id}/notas/{nota}/editar y /eliminar.
+type conNota[T any] struct {
+	nucleo.ConIdempotencia
+	ID   int64  `path:"id" minimum:"1"`
+	Nota string `path:"nota" format:"uuid" doc:"Nota de la orden (notas[].id)"`
+	Body T
+}
+
 // conTomar: POST /ordenes/{id}/tomar no lleva cuerpo.
 type conTomar struct {
 	nucleo.ConIdempotencia
@@ -260,7 +268,7 @@ func (m *Modulo) Registrar(api huma.API) {
 	m.registrarPlantillas(api)
 	// Datos de operaciones del lote que no son el cuerpo de una acción del panel: se publican
 	// como componentes para que packages/sync los tome del contrato.
-	for _, v := range []any{EntradaAgregarFormularioCampo{}, EntradaQuitarFormularioCampo{}} {
+	for _, v := range []any{EntradaAgregarFormularioCampo{}, EntradaQuitarFormularioCampo{}, EntradaEditarNotaCampo{}, EntradaEliminarNotaCampo{}} {
 		api.OpenAPI().Components.Schemas.Schema(reflect.TypeOf(v), true, "")
 	}
 
@@ -269,6 +277,33 @@ func (m *Modulo) Registrar(api huma.API) {
 		nucleo.PermOrdenesRegistrar), m.MarcarChecklist.Ejecutar, func(e *EntradaMarcarChecklist, id int64) { e.ID, e.Sync = id, nil })
 	registrarAccion(api, accion("agregarNotaOrden", "notas", "Agregar una nota a la orden",
 		"En cualquier estado.", nucleo.PermOrdenesRegistrar), m.AgregarNota.Ejecutar, func(e *EntradaAgregarNota, id int64) { e.ID, e.Sync = id, nil })
+	editarNota := accion("editarNotaOrden", "notas/{nota}/editar", "Editar una nota de la orden",
+		"En cualquier estado. Solo su autor, o despacho y supervisión con `ordenes.asignar` que cubra la orden (403 `nota_ajena`). Con la `version` de la nota: 409 `conflicto_version` si cambió, 409 `nota_eliminada` si se eliminó; 404 `nota_no_encontrada`. El mismo texto no cambia nada.",
+		nucleo.PermOrdenesRegistrar)
+	huma.Register(api, editarNota, func(ctx context.Context, in *conNota[EntradaEditarNota]) (*cuerpo[Orden], error) {
+		nota, err := uuid.Parse(in.Nota)
+		if err != nil {
+			return nil, campoInvalido("nota", "Debe ser un uuid", "uuid")
+		}
+		e := in.Body
+		if err := sinNulos(e); err != nil {
+			return nil, err
+		}
+		e.ID, e.NotaID, e.Sync = in.ID, nota, nil
+		return responder(m.EditarNota.Ejecutar(ctx, e))
+	})
+	eliminarNota := accion("eliminarNotaOrden", "notas/{nota}/eliminar", "Eliminar una nota de la orden",
+		"En cualquier estado. Sale de la orden y queda en su historial (auditoría). Mismas reglas que editar; eliminar una ya eliminada responde la orden sin cambios.",
+		nucleo.PermOrdenesRegistrar)
+	huma.Register(api, eliminarNota, func(ctx context.Context, in *conNota[EntradaEliminarNota]) (*cuerpo[Orden], error) {
+		nota, err := uuid.Parse(in.Nota)
+		if err != nil {
+			return nil, campoInvalido("nota", "Debe ser un uuid", "uuid")
+		}
+		e := in.Body
+		e.ID, e.NotaID, e.Sync = in.ID, nota, nil
+		return responder(m.EliminarNota.Ejecutar(ctx, e))
+	})
 	registrarAccion(api, accion("usarMaterialOrden", "materiales", "Registrar material usado",
 		"Producto de Argos desde la bodega de la orden.", nucleo.PermOrdenesRegistrar), m.UsarMaterialPanel,
 		func(e *EntradaUsarMaterial, id int64) { e.ID, e.Sync = id, nil })
