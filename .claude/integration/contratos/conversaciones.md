@@ -295,11 +295,34 @@ vencidas, porCanal[{ id, total }], porCola[{ id, total }], porEtiqueta[{ id, tot
 porEstado{ abierta, esperando_cliente } }`, sobre las activas que ve el usuario. `noLeidosMias` es
 el número de mensajes del cliente sin leer en las asignadas a él.
 
+### 7.2.1 Catálogos para la bandeja (`conversaciones.ver`)
+
+- `GET /conversaciones/canales` → `{ data: [{ id, nombre, numero, usos[], avisosEmpresa, colaId,
+  activo }] }`: los números de la empresa sin credenciales ni ids de Meta (para el filtro «Número»
+  y el color de cada uno). `contadores.porCanal[]` trae solo `{ id, total }`: se cruza con esta
+  lista.
+- `GET /conversaciones/agentes?colaId=` → `{ data: [{ id, nombre, supervisa, colas[{ id, nombre }]
+  }] }`: usuarios persona activos de la empresa con `conversaciones.ver` (con `colaId`, los miembros
+  de esa cola más los que supervisan). Sirve para asignar, mencionar y «pedir ayuda al supervisor».
+  **Quién supervisa** es quien tiene `conversaciones.supervisar` (rol supervisor o admin): ve y
+  supervisa todas las colas de la empresa; en la fase 1 no hay supervisor por cola.
+- `GET /conversaciones/{id}/plantillas` (`conversaciones.responder`) → `{ data: [{ codigo, nombre,
+  variables[{ nombre, formato, obligatoria }], vistaPrevia }] }`: las plantillas aprobadas en el
+  número de esa conversación (`nombre` = la de Meta; `vistaPrevia` = el texto de referencia con
+  `{{variable}}`). Fuera de la ventana de 24 h es lo único que se puede mandar.
+- `GET /colas`, `GET /etiquetas` (§2) y `GET /respuestas-rapidas` (`conversaciones.responder`).
+
+**Adjuntos del agente:** `POST /api/v1/adjuntos` acepta `entidad: "conversacion"`, `entidadId` = id
+de la conversación, para quien tiene `adjuntos.subir` y `conversaciones.responder` y **ve** la
+conversación (si no, 404). Ver o descargar exige `adjuntos.ver` y `conversaciones.ver`. Los roles
+soporte, ventas, despacho y supervisor tienen `adjuntos.subir`. Los medios que manda el cliente
+también quedan con esa entidad (los registra el sistema).
+
 ### 7.3 Acciones de la bandeja
 
 Todas exigen ver la conversación (si no, 404) y llevan `version` (409 `conflicto_version`). Dos
-agentes que toman la misma a la vez: gana uno; el otro recibe 409 `ya_asignada` con
-`errors[0].value` = quién la tiene.
+agentes que toman la misma a la vez: gana uno; el otro recibe 409 `ya_asignada` (el `detail` dice
+quién la tiene; el panel recarga la conversación).
 
 | Método y ruta | Permiso | Cuerpo | Notas |
 | --- | --- | --- | --- |
