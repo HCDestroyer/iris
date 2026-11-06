@@ -331,17 +331,20 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             case "reabrir":
                 return responder(() => (c.estado = "abierta"));
             case "desasociar":
-                return responder(() => (c.contacto = { tipo: "desconocido", clienteId: null, servicioId: null, contactoIrisId: null, prospectoId: null, asociacion: null }));
+                return responder(() => (c.contacto = { tipo: "desconocido", clienteId: null, servicioId: null, contactoIrisId: null, prospectoId: null, asociacion: null, verificado: false }));
             case "asociar-cliente":
                 return responder(() => {
-                    c.contacto = { tipo: "cliente", clienteId: cuerpo.clienteId as number, servicioId: (cuerpo.servicioId as number | undefined) ?? null, contactoIrisId: null, prospectoId: null, asociacion: "manual" };
+                    c.contacto = { tipo: "cliente", clienteId: cuerpo.clienteId as number, servicioId: (cuerpo.servicioId as number | undefined) ?? null, contactoIrisId: null, prospectoId: null, asociacion: "manual", verificado: cuerpo.clienteId === 5101 };
                     c.titulo = cuerpo.clienteId === 5101 ? "Luis Herrera" : "Lucía Herrera";
                 });
             case "contacto-iris":
                 return responder(() => {
-                    c.contacto = { tipo: "contacto_iris", clienteId: null, servicioId: null, contactoIrisId: 77, prospectoId: null, asociacion: "manual" };
+                    c.contacto = { tipo: "contacto_iris", clienteId: null, servicioId: null, contactoIrisId: 77, prospectoId: null, asociacion: "manual", verificado: false };
                     c.titulo = String(cuerpo.nombre);
                 });
+            case "confirmar-cliente":
+                if (!puede("conversaciones.supervisar")) return (await prohibido(), true);
+                return responder(() => (c.contacto = { ...c.contacto, verificado: true }));
             case "leer":
                 c.noLeidos = 0;
                 return (await json(route, { conversacionId: c.id, noLeidos: 0 }), true);

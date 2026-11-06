@@ -154,6 +154,8 @@ export function textoEvento(e: EventoSistema): string {
             return `${actor} cambió las etiquetas`;
         case "cliente_asociado":
             return e.actorNombre ? `${actor} asoció el cliente${ref ? ` ${ref}` : ""}` : "Cliente asociado por su número";
+        case "cliente_confirmado":
+            return `${actor} confirmó el cliente`;
         case "contacto_iris_creado":
             return `${actor} guardó el contacto${ref ? ` ${ref}` : ""}`;
         case "ticket_creado":

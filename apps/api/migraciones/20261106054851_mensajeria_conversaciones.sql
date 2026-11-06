@@ -69,6 +69,20 @@ CREATE TABLE mensajeria.respuestas_rapidas (
 );
 CREATE UNIQUE INDEX respuestas_rapidas_atajo_uk ON mensajeria.respuestas_rapidas (coalesce(empresa_id, 0), atajo);
 
+-- Permisos de contacto por número (contactos de Iris que no son clientes de Argos). Solo inserción:
+-- el vigente es el de ocurrido_en más reciente (a igual ocurrido_en, la baja manda).
+CREATE TABLE mensajeria.consentimientos_numero (
+    id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    empresa_id     bigint,
+    telefono       text        NOT NULL CHECK (telefono ~ '^\+[1-9][0-9]{6,14}$'),
+    estado         text        NOT NULL CHECK (estado IN ('acepta', 'baja')),
+    origen         text        NOT NULL CHECK (origen IN ('cliente', 'agente')),
+    ocurrido_en    timestamptz NOT NULL,
+    registrado_por bigint REFERENCES nucleo.usuarios (id),
+    created_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX consentimientos_numero_idx ON mensajeria.consentimientos_numero (coalesce(empresa_id, 0), telefono, ocurrido_en DESC);
+
 -- Contactos propios de Iris (proveedores, personal, quien aún no es cliente). No es una copia de
 -- Argos: cliente_id solo se llena al unirlo a la ficha de Argos.
 CREATE TABLE mensajeria.contactos_iris (
@@ -105,6 +119,10 @@ CREATE TABLE mensajeria.conversaciones (
     contacto_iris_id   bigint REFERENCES mensajeria.contactos_iris (id),
     prospecto_id       bigint REFERENCES comercial.prospectos (id),
     asociacion         text CHECK (asociacion IS NULL OR asociacion IN ('automatica', 'manual')),
+    -- El número coincide con un teléfono del cliente en la instantánea (o lo confirmó un
+    -- supervisor). Sin esto no hay plantillas fuera de ventana, boletas ni promesas a su nombre.
+    cliente_verificado boolean     NOT NULL DEFAULT false,
+    verificado_por     bigint REFERENCES nucleo.usuarios (id),
     -- Ventana de 24 h: último mensaje del cliente.
     ultimo_entrante_en timestamptz,
     -- SLA: primer mensaje del cliente sin contestar (null = nada pendiente) y su vencimiento.
@@ -303,6 +321,7 @@ DROP TABLE mensajeria.conversacion_participantes;
 DROP TABLE mensajeria.conversacion_etiquetas;
 DROP TABLE mensajeria.conversaciones;
 DROP TABLE mensajeria.contactos_iris;
+DROP TABLE mensajeria.consentimientos_numero;
 DROP TABLE mensajeria.respuestas_rapidas;
 DROP TABLE mensajeria.etiquetas;
 DROP INDEX mensajeria.canales_avisos_uk;

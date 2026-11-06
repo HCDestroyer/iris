@@ -13,13 +13,14 @@ import {
     Cargando,
     cn,
     DialogoCerrar,
+    DialogoConfirmar,
     DialogoContenido,
     DialogoPie,
     DialogoProtegido,
     InsigniaEstado,
     useCambiosSinGuardar,
 } from "@iris/ui";
-import { AlertTriangle, Banknote, CalendarClock, ClipboardList, ExternalLink, Link2, LifeBuoy, RotateCw, UserPlus, UserRound, Wrench } from "lucide-react";
+import { AlertTriangle, ShieldCheck, Banknote, CalendarClock, ClipboardList, ExternalLink, Link2, LifeBuoy, RotateCw, UserPlus, UserRound, Wrench } from "lucide-react";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
@@ -103,11 +104,14 @@ function CabeceraCliente({ conv, alActualizar }: { conv: ConversacionDetalle; al
     const servicio = (r?.servicios ?? []).find((s) => s.id === conv.contacto.servicioId) ?? r?.servicios?.[0];
     const [accion, setAccion] = useState<"ticket" | "promesa" | null>(null);
     const nombre = r?.nombre ?? conv.titulo;
-    const acciones: { id: string; etiqueta: string; icono: typeof LifeBuoy; permitido: boolean; href?: string; alPresionar?: () => void }[] = [
+    // Asociación manual sin coincidencia del número: hasta que un supervisor la confirme no hay
+    // boletas, promesas ni plantillas fuera de la ventana a nombre del cliente (§5.1).
+    const sinConfirmar = !conv.contacto.verificado;
+    const acciones: { id: string; etiqueta: string; icono: typeof LifeBuoy; permitido: boolean; bloqueada?: boolean; href?: string; alPresionar?: () => void }[] = [
         { id: "ticket", etiqueta: "Ticket", icono: LifeBuoy, permitido: puede(["tickets.crear"]), alPresionar: () => setAccion("ticket") },
         { id: "orden", etiqueta: "Orden", icono: Wrench, permitido: puede(["ordenes.crear"]), href: `/conversaciones/${conv.id}/orden` },
-        { id: "boleta", etiqueta: "Boleta", icono: Banknote, permitido: puede(["conversaciones.registrar_boleta"]), href: `/conversaciones/${conv.id}/boleta` },
-        { id: "promesa", etiqueta: "Promesa", icono: CalendarClock, permitido: puede(["conversaciones.registrar_promesa"]), alPresionar: () => setAccion("promesa") },
+        { id: "boleta", etiqueta: "Boleta", icono: Banknote, permitido: puede(["conversaciones.registrar_boleta"]), bloqueada: sinConfirmar, href: `/conversaciones/${conv.id}/boleta` },
+        { id: "promesa", etiqueta: "Promesa", icono: CalendarClock, permitido: puede(["conversaciones.registrar_promesa"]), bloqueada: sinConfirmar, alPresionar: () => setAccion("promesa") },
     ];
     const visibles = acciones.filter((a) => a.permitido);
     return (
@@ -170,6 +174,13 @@ function CabeceraCliente({ conv, alActualizar }: { conv: ConversacionDetalle; al
                             </>
                         );
                         const clase = "flex h-auto min-w-0 flex-col items-center gap-1 rounded-[0.625rem] px-0.5 py-2 text-[0.71875rem] font-semibold";
+                        if (a.bloqueada) {
+                            return (
+                                <Boton key={a.id} variante="fantasma" className={clase} disabled title="Falta que un supervisor confirme el cliente">
+                                    {contenido}
+                                </Boton>
+                            );
+                        }
                         return a.href ? (
                             <Boton key={a.id} asChild variante="fantasma" className={clase}>
                                 <Link href={a.href}>{contenido}</Link>
@@ -182,10 +193,65 @@ function CabeceraCliente({ conv, alActualizar }: { conv: ConversacionDetalle; al
                     })}
                 </div>
             ) : null}
+            {sinConfirmar ? <ClienteSinConfirmar conv={conv} alActualizar={alActualizar} /> : null}
             {r ? <p className="text-xs text-muted-foreground">Datos de Argos {haceCuanto(r.sincronizadoEn, ahora)}</p> : null}
             {accion === "ticket" ? <DialogoTicket conv={conv} cerrar={() => setAccion(null)} alHecho={alActualizar} /> : null}
             {accion === "promesa" ? <DialogoPromesa conv={conv} cerrar={() => setAccion(null)} /> : null}
         </div>
+    );
+}
+
+/**
+ * Cliente asociado a mano cuyo número no está entre sus teléfonos en Argos: queda pendiente de
+ * confirmar. Quien supervisa lo confirma (`POST …/confirmar-cliente`); los demás ven por qué
+ * boleta, promesa y plantillas fuera de la ventana están bloqueadas.
+ */
+function ClienteSinConfirmar({ conv, alActualizar }: { conv: ConversacionDetalle; alActualizar: (c: Conversacion) => void }) {
+    const { puede } = useSesion();
+    const [confirmar, setConfirmar] = useState(false);
+    const [error, setError] = useState<unknown>(null);
+    const supervisa = puede(["conversaciones.supervisar"]);
+    return (
+        <Aviso
+            tono="warning"
+            titulo="Cliente pendiente de confirmar"
+            data-testid="cliente-sin-confirmar"
+            accion={
+                supervisa ? (
+                    <Boton variante="secundario" tamano="sm" onClick={() => setConfirmar(true)}>
+                        <ShieldCheck />
+                        Confirmar
+                    </Boton>
+                ) : undefined
+            }
+        >
+            Este número no es un teléfono del cliente en Argos. Hasta que un supervisor lo confirme no se pueden mandar boletas, promesas ni plantillas fuera de la ventana de 24 h.
+            {error ? <span className="mt-1 block text-error">{mensajeDeError(error).titulo}</span> : null}
+            <DialogoConfirmar
+                open={confirmar}
+                onOpenChange={setConfirmar}
+                titulo={`¿Confirmar que ${conv.titulo} escribe desde este número?`}
+                descripcion={`${formatearNumero(conv.numero)} quedará como verificado para este cliente: se podrán registrar boletas, promesas y mandar plantillas.`}
+                textoConfirmar="Confirmar cliente"
+                alConfirmar={async () => {
+                    setError(null);
+                    try {
+                        const c = await resolver(
+                            api().POST(`${BASE}/confirmar-cliente`, {
+                                params: { path: { id: conv.id }, header: cabeceraIdem(nuevaClaveIdempotencia()) },
+                                body: { version: conv.version },
+                            }),
+                        );
+                        avisar({ titulo: `Cliente de ${c.titulo} confirmado` });
+                        alActualizar(c);
+                        setConfirmar(false);
+                    } catch (e) {
+                        setError(e);
+                        setConfirmar(false);
+                    }
+                }}
+            />
+        </Aviso>
     );
 }
 

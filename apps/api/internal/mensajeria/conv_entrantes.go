@@ -241,7 +241,8 @@ func (m *Modulo) conversacionDe(ctx context.Context, t *auditoria.Tx, canal mens
 		perfilNombre = nombrePtr(recortar(perfil, 120))
 	}
 	c, err = q.InsertarConversacionCliente(ctx, mensajeriabd.InsertarConversacionClienteParams{EmpresaID: canal.EmpresaID, CanalID: canal.ID,
-		Numero: numero, PerfilNombre: perfilNombre, ColaID: cola, ClienteID: cliente, Asociacion: asociacion, UltimaActividad: ahora})
+		Numero: numero, PerfilNombre: perfilNombre, ColaID: cola, ClienteID: cliente, Asociacion: asociacion, ClienteVerificado: cliente != nil,
+		UltimaActividad: ahora})
 	if errors.Is(err, pgx.ErrNoRows) {
 		c, err = q.ConversacionPorContacto(ctx, mensajeriabd.ConversacionPorContactoParams{Empresa: empresa, CanalID: canal.ID, Numero: numero})
 		return c, false, err
@@ -609,11 +610,18 @@ func (m *Modulo) bajarDeMeta(ctx context.Context, medio, token string) ([]byte, 
 	if len(datos) == 0 {
 		return nil, "", errMedioPermanente{motivo: "medio vacío"}
 	}
-	mime := strings.ToLower(strings.TrimSpace(strings.Split(info.MimeType, ";")[0]))
-	if mime == "" {
-		mime = http.DetectContentType(datos)
+	return datos, mimeDeBytes(datos, info.MimeType), nil
+}
+
+// mimeDeBytes: el tipo que dicen los bytes (imágenes, PDF…). Lo que Meta declara solo se usa para
+// audio y video que los bytes no identifican; nunca para hacer pasar algo por imagen o PDF.
+func mimeDeBytes(datos []byte, declarado string) string {
+	detectado := strings.ToLower(strings.TrimSpace(strings.Split(http.DetectContentType(datos), ";")[0]))
+	decl := strings.ToLower(strings.TrimSpace(strings.Split(declarado, ";")[0]))
+	if detectado == "application/octet-stream" && (strings.HasPrefix(decl, "audio/") || strings.HasPrefix(decl, "video/")) {
+		return decl
 	}
-	return datos, mime, nil
+	return detectado
 }
 
 type cerrarYCancelar struct {

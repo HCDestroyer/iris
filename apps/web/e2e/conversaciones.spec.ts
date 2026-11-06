@@ -237,4 +237,21 @@ test.describe("bandeja de conversaciones", () => {
         await expect(page.getByText("Luis Herrera asociado a la conversación")).toBeVisible();
         await esperarSinDesbordes(page);
     });
+
+    test("cliente asociado a mano sin coincidencia: pendiente de confirmar hasta que un supervisor lo confirma", async ({ page }) => {
+        await abrir(page, ADMIN.correo, "/conversaciones?c=44");
+        if (esTelefono(page)) await page.getByRole("button", { name: "Ver la ficha del cliente" }).click();
+        const ficha = esTelefono(page) ? page.getByRole("dialog", { name: "Ficha del cliente" }) : page.getByRole("complementary", { name: "Ficha del cliente" });
+        const aviso = ficha.getByTestId("cliente-sin-confirmar");
+        await expect(aviso).toContainText("Cliente pendiente de confirmar");
+        await expect(ficha.getByRole("button", { name: "Boleta" })).toBeDisabled();
+        await expect(ficha.getByRole("button", { name: "Promesa" })).toBeDisabled();
+        await expect(ficha).toBeInViewport({ ratio: 1 });
+        await esperarSinDesbordes(page);
+        await aviso.getByRole("button", { name: "Confirmar" }).click();
+        await page.getByRole("alertdialog").getByRole("button", { name: "Confirmar cliente" }).click();
+        await expect(page.getByText(/Cliente de .* confirmado/)).toBeVisible();
+        await expect(ficha.getByTestId("cliente-sin-confirmar")).toHaveCount(0);
+        await expect(ficha.getByRole("button", { name: "Promesa" })).toBeEnabled();
+    });
 });

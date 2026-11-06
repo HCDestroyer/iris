@@ -134,7 +134,9 @@ function FormPlantilla({ conv, identidad, plantilla, volver, alEnviado }: { conv
             ? "La sesión de este navegador cambió: no se envió."
             : e instanceof ErrorApi && (e.codigo === "sin_permiso" || e.codigo === "baja")
               ? "El cliente no tiene permiso de contacto vigente por WhatsApp (o se dio de baja)."
-              : e instanceof ErrorApi && e.codigo === "plantilla_no_aprobada"
+              : e instanceof ErrorApi && e.codigo === "cliente_sin_confirmar"
+                ? "Falta que un supervisor confirme el cliente de esta conversación."
+                : e instanceof ErrorApi && e.codigo === "plantilla_no_aprobada"
                 ? "Esta plantilla ya no está aprobada en este número."
                 : mensajeDeError(e).titulo;
 
