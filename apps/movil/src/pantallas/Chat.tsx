@@ -29,7 +29,7 @@ import { ArrowLeft, Ban, Camera, ChevronRight, ClipboardList, MapPin, MessageCir
 import { useEffect, useRef, useState, type ComponentRef, type ReactNode } from "react";
 import { Image, Linking, RefreshControl, ScrollView, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Aviso, Boton, BotonRedondo, CampoMensaje, Cargando, Dialogo, Pila, Texto, Titulo, Tocable, TocableLargo, useAltoTeclado } from "../componentes";
+import { Aviso, Boton, BotonRedondo, CampoMensaje, Cargando, Dialogo, EvitarTeclado, Pila, Texto, Titulo, Tocable, TocableLargo, useAltoTeclado } from "../componentes";
 import { useChat, useChatOpcional, useConversacion } from "../campo/chat";
 import { useCampo } from "../campo/contexto";
 import { entorno } from "../entorno";
@@ -495,7 +495,6 @@ export function ConversacionChat({ id }: { id: number }) {
     const { navegar, notificar, atras } = useCampo();
     const { campo, colores } = useTema();
     const margen = useSafeAreaInsets();
-    const teclado = useAltoTeclado();
     const v = useConversacion(id);
     const lista = useRef<ComponentRef<typeof ScrollView>>(null);
     const alFinal = useRef(true);
@@ -573,7 +572,9 @@ export function ConversacionChat({ id }: { id: number }) {
         );
     }
     return (
-        <View style={[estilos.pantalla, { backgroundColor: campo.lienzo, paddingBottom: teclado }]} testID="conversacion-chat">
+        // El hilo se acorta y el compositor queda sobre el teclado (edge-to-edge en Android e iOS).
+        <EvitarTeclado estilo={{ backgroundColor: campo.lienzo }} testID="conversacion-chat-teclado">
+        <View style={[estilos.pantalla, { backgroundColor: campo.lienzo }]} testID="conversacion-chat">
             <View style={[estilos.encabezado, { paddingTop: margen.top + 12, backgroundColor: campo.panel, borderColor: colores.borde }]}>
                 <BotonRedondo icono={ArrowLeft} etiqueta="Volver" alPresionar={volver} fondo={campo.panel2} tinta={colores.texto} />
                 <View style={estilos.flex}>
@@ -602,6 +603,7 @@ export function ConversacionChat({ id }: { id: number }) {
             {c && puedeEnviar ? <Compositor conversacionId={id} placeholder={c.tipo === "orden" ? "Escribe a despacho…" : c.tipo === "cuadrilla" ? "Escribe a tu cuadrilla…" : `Escribe a ${tituloConversacion(c)}…`} /> : null}
             <MenuMensaje m={menu} alCerrar={() => setMenu(null)} />
         </View>
+        </EvitarTeclado>
     );
 }
 

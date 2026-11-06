@@ -8,6 +8,9 @@ jest.mock("react-native-safe-area-context", () => jest.requireActual("react-nati
 // El simulacro oficial de Worklets: Gesture Handler 3 pide al cargar el runtime de UI, que la
 // versión web de Worklets no tiene.
 jest.mock("react-native-worklets", () => jest.requireActual("react-native-worklets/src/mock"));
+// El simulacro oficial de react-native-keyboard-controller (sin módulo nativo): `KeyboardAvoidingView`
+// es un `View` que conserva sus props (`behavior`) y `useKeyboardState` lee `KeyboardController.state()`.
+jest.mock("react-native-keyboard-controller", () => jest.requireActual("react-native-keyboard-controller/jest"));
 
 // En Jest no corre el compilador de Uniwind (lo hace Metro al empaquetar): las clases no dan
 // estilos y Uniwind avisa una vez que no encuentra `--theme` (el tema de HeroUI). Solo ese aviso se

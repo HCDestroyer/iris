@@ -16,6 +16,7 @@ import { Chip } from "heroui-native/chip";
 import { Description } from "heroui-native/description";
 import { FieldError } from "heroui-native/field-error";
 import { Input } from "heroui-native/input";
+import { InputGroup } from "heroui-native/input-group";
 import { InputOTP } from "heroui-native/input-otp";
 import { Label } from "heroui-native/label";
 import { PressableFeedback } from "heroui-native/pressable-feedback";
@@ -27,7 +28,8 @@ import { TextField } from "heroui-native/text-field";
 import { Toast, useToast } from "heroui-native/toast";
 import { CircleAlert, CircleCheck, Eye, EyeOff, Info, TriangleAlert, X, type LucideIcon } from "lucide-react-native";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Keyboard, Modal, Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle } from "react-native";
+import { Modal, ScrollView, StyleSheet, Text, useWindowDimensions, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle } from "react-native";
+import { KeyboardAvoidingView, useKeyboardState } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Path, Rect } from "react-native-svg";
 import { useTema } from "../tema/tema";
@@ -35,6 +37,10 @@ import { CLARO } from "../tema/tokens";
 
 /** Alto mínimo de cualquier zona táctil (WCAG 2.5.8 y guía de Iris: 44 px; con guante, más). */
 export const ZONA_TACTIL = 44;
+/** Alto de todo campo de texto de la app (login, contraseña, búsqueda, notas): 48 px. */
+export const ALTO_CAMPO = 48;
+/** Tamaño de los iconos dentro de un campo (sobre, candado, lupa, ojo). */
+export const TAMANO_ICONO_CAMPO = 20;
 
 export type Variante = "primario" | "tinta" | "secundario" | "fantasma" | "peligro";
 
@@ -159,9 +165,18 @@ export function Campo({ etiqueta, valor, alCambiar, error, ayuda, sufijo, icono:
             <Label>
                 <Label.Text className="text-sm font-semibold text-foreground">{etiqueta}</Label.Text>
             </Label>
-            <View style={estilos.filaCampo}>
-                {Icono ? <Icono size={20} color={invalido ? colores.error : colores.textoSuave} /> : null}
-                <Input
+            {/*
+              * `InputGroup` de HeroUI Native: el icono (adorno inicial) y la unidad o el ojo (adorno
+              * final) van dentro de la caja, centrados, y la caja ocupa todo el ancho. HeroUI mide los
+              * adornos y le da ese relleno al texto (nunca se monta encima).
+              */}
+            <InputGroup isDisabled={editable === false} testID={testID ? `${testID}-caja` : undefined}>
+                {Icono ? (
+                    <InputGroup.Prefix isDecorative style={estilos.adornoInicio} testID={testID ? `${testID}-icono` : undefined}>
+                        <Icono size={TAMANO_ICONO_CAMPO} color={invalido ? colores.error : colores.textoSuave} />
+                    </InputGroup.Prefix>
+                ) : null}
+                <InputGroup.Input
                     accessibilityLabel={etiqueta}
                     value={valor}
                     onChangeText={alCambiar}
@@ -169,24 +184,28 @@ export function Campo({ etiqueta, valor, alCambiar, error, ayuda, sufijo, icono:
                     placeholderTextColor={colores.textoTenue}
                     secureTextEntry={secreto && !visible}
                     testID={testID}
-                    className="flex-1 px-3 text-base"
+                    className="text-base"
                     style={estilos.entrada}
                     // Una contraseña nunca pasa por el corrector ni el diccionario del teclado.
                     {...(secreto ? { autoCorrect: false, spellCheck: false, autoCapitalize: "none" as const } : {})}
                     {...resto}
                 />
-                {sufijo ? <Text className="text-sm text-muted">{sufijo}</Text> : null}
-                {secreto ? (
-                    <BotonIcono
-                        variante="fantasma"
-                        icono={visible ? EyeOff : Eye}
-                        etiqueta={visible ? "Ocultar contraseña" : "Mostrar contraseña"}
-                        seleccionado={visible}
-                        colorIcono={colores.textoSuave}
-                        alPresionar={() => setVisible((v) => !v)}
-                    />
+                {sufijo || secreto ? (
+                    <InputGroup.Suffix style={secreto ? estilos.adornoFinBoton : estilos.adornoFin} testID={testID ? `${testID}-fin` : undefined}>
+                        {sufijo ? <Text className="text-sm text-muted">{sufijo}</Text> : null}
+                        {secreto ? (
+                            <Tocable
+                                etiqueta={visible ? "Ocultar contraseña" : "Mostrar contraseña"}
+                                seleccionado={visible}
+                                alPresionar={() => setVisible((v) => !v)}
+                                estilo={estilos.ojo}
+                            >
+                                {visible ? <EyeOff size={TAMANO_ICONO_CAMPO} color={colores.textoSuave} /> : <Eye size={TAMANO_ICONO_CAMPO} color={colores.textoSuave} />}
+                            </Tocable>
+                        ) : null}
+                    </InputGroup.Suffix>
                 ) : null}
-            </View>
+            </InputGroup>
             {ayuda && !invalido ? <Description className="text-[13px] text-muted">{ayuda}</Description> : null}
             {invalido ? (
                 <View style={estilos.filaError}>
@@ -469,21 +488,32 @@ export function Opciones<T extends string>({
     );
 }
 
+/** El alto del teclado si está abierto (0 si no): el selector es estable para no re-suscribirse. */
+const altoSiAbierto = (s: { isVisible: boolean; height: number }) => (s.isVisible ? s.height : 0);
+
 /**
- * Alto del teclado del teléfono mientras está abierto (0 cerrado). Con edge-to-edge (Android 15+)
- * la ventana ya no se encoge sola: quien tenga un campo abajo lo usa para quedar por encima.
+ * Alto del teclado del teléfono mientras está abierto (0 cerrado), de `react-native-keyboard-controller`.
+ * Con edge-to-edge (Expo 54+, obligatorio en Android 16) `adjustResize` ya no encoge la ventana, y los
+ * eventos `Keyboard` de React Native no sirven: en Android restan la barra de navegación (el campo
+ * queda tapado ese alto) y dentro de un `Modal` (otra ventana) ni llegan. Esta medida es la del
+ * teclado sobre la pantalla entera, también dentro de un `Modal`.
  */
 export function useAltoTeclado(): number {
-    const [alto, setAlto] = useState(0);
-    useEffect(() => {
-        const abrir = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", (e) => setAlto(e.endCoordinates.height));
-        const cerrar = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide", () => setAlto(0));
-        return () => {
-            abrir.remove();
-            cerrar.remove();
-        };
-    }, []);
-    return alto;
+    return useKeyboardState(altoSiAbierto);
+}
+
+/**
+ * Contenedor que deja el contenido encima del teclado: el `KeyboardAvoidingView` de
+ * `react-native-keyboard-controller` con `behavior="padding"` en Android **y** iOS (el de React
+ * Native en Android, sin `behavior`, no hace nada con edge-to-edge). Funciona también dentro de un
+ * `Modal`: la librería sigue el teclado de esa ventana.
+ */
+export function EvitarTeclado({ children, estilo, testID }: { children: ReactNode; estilo?: StyleProp<ViewStyle>; testID?: string }) {
+    return (
+        <KeyboardAvoidingView behavior="padding" style={[estilos.flex, estilo]} testID={testID}>
+            {children}
+        </KeyboardAvoidingView>
+    );
 }
 
 export interface PropsDialogo {
@@ -503,7 +533,7 @@ export interface PropsDialogo {
  * Hoja modal desde abajo, con título, «X» para cerrar, descripción y su propio desplazamiento. Es el
  * `Modal` de React Native (no el `Dialog` de HeroUI) para que el «Atrás» de Android la cierre en vez
  * de cambiar de vista debajo; por dentro lleva la capa flotante de Horus (sólida, `bg-overlay`).
- * Con el teclado abierto la hoja sube por encima de él. Con `cambios`, la «X» y «Atrás» preguntan
+ * Con el teclado abierto la hoja sube por encima de él (`EvitarTeclado`), con el campo y la lista dentro. Con `cambios`, la «X» y «Atrás» preguntan
  * «¿Descartar los cambios?» antes de cerrar (y un segundo «Atrás» sigue editando).
  */
 export function Dialogo({ abierto, alCerrar, titulo, descripcion, children, cambios = false, fijo, testID = "dialogo" }: PropsDialogo) {
@@ -527,7 +557,8 @@ export function Dialogo({ abierto, alCerrar, titulo, descripcion, children, camb
     const altoMaximo = Math.max(240, (height - teclado - margen.top - 12) * (teclado > 0 ? 1 : 0.9));
     return (
         <Modal visible={abierto} transparent animationType="slide" onRequestClose={intentarCerrar} testID={testID}>
-            <View className="flex-1 justify-end bg-backdrop" testID={`${testID}-velo`} style={[estilos.velo, { paddingBottom: teclado }]}>
+            <EvitarTeclado testID={`${testID}-teclado`}>
+            <View className="flex-1 justify-end bg-backdrop" testID={`${testID}-velo`} style={estilos.velo}>
                 <View
                     accessibilityViewIsModal
                     className="border border-border bg-overlay"
@@ -579,6 +610,7 @@ export function Dialogo({ abierto, alCerrar, titulo, descripcion, children, camb
                     </ScrollView>
                 </View>
             </View>
+            </EvitarTeclado>
         </Modal>
     );
 }
@@ -935,8 +967,11 @@ const estilos = StyleSheet.create({
     boton: { minHeight: 48, minWidth: ZONA_TACTIL, borderRadius: 6 },
     botonIcono: { minHeight: 48, minWidth: 48, borderRadius: 6 },
     campo: { gap: 6 },
-    filaCampo: { flexDirection: "row", alignItems: "center", gap: 8 },
-    entrada: { minHeight: 48 },
+    entrada: { minHeight: ALTO_CAMPO },
+    adornoInicio: { paddingStart: 14, paddingEnd: 2 },
+    adornoFin: { paddingStart: 2, paddingEnd: 14 },
+    adornoFinBoton: { paddingStart: 0, paddingEnd: 0, flexDirection: "row", gap: 4 },
+    ojo: { width: ALTO_CAMPO, height: ALTO_CAMPO, minHeight: ALTO_CAMPO, alignItems: "center", justifyContent: "center", borderRadius: 6 },
     encoger: { flexShrink: 1 },
     interruptor: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 12 },
     etiquetaInterruptor: { fontSize: 15, fontWeight: "600" },
