@@ -17,6 +17,10 @@ import {
     operacionRecibirTraslado,
     type CambiosConTurno,
     type DatosPorTipo,
+    type DatosPorTipoTarea,
+    type OperacionTareaCable,
+    type Tarea,
+    type TipoOperacionTarea,
     type LineaRecepcion,
     type PlantillaFormulario,
     type Existencias,
@@ -29,7 +33,7 @@ import {
     type TipoOperacion,
 } from "./contrato";
 import { codigoProblema, ErrorSync, ErrorTransporte } from "./errores";
-import { grupoTraslado, type AdjuntoLocal, type AvisoServidor, type MetaSync, type OperacionLocal, type OperacionTrasladoLocal, type OrdenLocal, type TurnoDelDia } from "./modelo";
+import { grupoTarea, grupoTraslado, tareaDeOperacion, type OperacionTareaLocal, type AdjuntoLocal, type AvisoServidor, type MetaSync, type OperacionLocal, type OperacionTrasladoLocal, type OrdenLocal, type TurnoDelDia } from "./modelo";
 import { calcularEspera, ESPERA_POR_DEFECTO, relojSistema, type OpcionesEspera, type Reloj } from "./reloj";
 import type { RespuestaApi, Subidor, Transporte } from "./transporte";
 import { crearGeneradorUuid7 } from "./uuid7";
@@ -175,6 +179,13 @@ export interface EstadoSync {
     plantillas: readonly PlantillaFormulario[];
     /** Operaciones aplicadas con aviso (`version_anterior`, `pausa_ajustada`): el técnico las ve y las descarta. */
     avisos: readonly AvisoServidor[];
+    /**
+     * Tareas propias del técnico: las del servidor con lo que queda en la cola aplicado (una nueva
+     * aparece al momento; completar o anular cambian su estado). Sin las anuladas. Por inicio.
+     */
+    tareas: readonly TareaVista[];
+    /** La empresa permite tomar órdenes libres y el técnico tiene el permiso (requiere señal). */
+    tomarLibres: boolean;
     fecha: string | null;
     ultimaSincronizacion: number | null;
     /** Pasaron 7 días sin sincronizar: se borró lo del servidor y hay que bajar el paquete. */
@@ -213,6 +224,71 @@ export interface EntradaRecepcion {
     firma: Uint8Array;
     /** Solo si faltó algo: por línea lo recibido y las series que no llegaron. */
     lineas?: LineaRecepcion[];
+}
+
+/** Tarea en la vista: la del servidor o la local, con lo que queda por enviar. */
+export type TareaVista = Tarea & {
+    /** Operaciones suyas por enviar (la tarea nueva sin señal tiene al menos su `tarea.crear`). */
+    pendientes: number;
+    /** Alguna operación suya fue rechazada (el técnico decide en «Por enviar»). */
+    rechazada: boolean;
+};
+
+/** Aplica a las tareas del servidor las operaciones de tarea de la cola, en orden. */
+export function tareasConCola(servidor: readonly Tarea[], ops: readonly OperacionLocal[], tecnicoId: number, ahora: string): TareaVista[] {
+    const porId = new Map<string, TareaVista>(servidor.map((t) => [t.id, { ...t, pendientes: 0, rechazada: false }]));
+    for (const op of ops) {
+        if (op.tipo !== "tarea.crear" && op.tipo !== "tarea.completar" && op.tipo !== "tarea.anular") {
+            continue;
+        }
+        const id = tareaDeOperacion(op);
+        const rechazada = op.estado === "rechazada";
+        const pendiente = op.estado === "pendiente" ? 1 : 0;
+        if (op.tipo === "tarea.crear") {
+            const previa = porId.get(id);
+            if (previa) {
+                porId.set(id, { ...previa, pendientes: previa.pendientes + pendiente, rechazada: previa.rechazada || rechazada });
+                continue;
+            }
+            const inicio = new Date(op.datos.inicio);
+            // Local hasta que la API la confirme (sin técnico ni autor: es del dueño del teléfono).
+            porId.set(id, {
+                id,
+                empresaId: null,
+                tecnicoId,
+                creadaPor: null,
+                que: op.datos.que.trim(),
+                inicio: op.datos.inicio,
+                fin: new Date(inicio.getTime() + op.datos.duracionMin * 60_000).toISOString(),
+                duracionMin: op.datos.duracionMin,
+                ordenId: op.datos.ordenId ?? null,
+                clienteId: op.datos.clienteId ?? null,
+                origen: "campo",
+                estado: "pendiente",
+                completadaEn: null,
+                anuladaEn: null,
+                motivo: null,
+                version: 0,
+                creadoEn: ahora,
+                pendientes: pendiente,
+                rechazada,
+            });
+            continue;
+        }
+        const t = porId.get(id);
+        if (!t) {
+            continue;
+        }
+        const conCola = { ...t, pendientes: t.pendientes + pendiente, rechazada: t.rechazada || rechazada };
+        if (op.estado !== "pendiente" || t.estado !== "pendiente") {
+            porId.set(id, conCola);
+        } else if (op.tipo === "tarea.completar") {
+            porId.set(id, { ...conCola, estado: "completada", completadaEn: op.ocurridoEn });
+        } else {
+            porId.set(id, { ...conCola, estado: "anulada", anuladaEn: op.ocurridoEn, motivo: op.datos.motivo ?? null });
+        }
+    }
+    return [...porId.values()].filter((t) => t.estado !== "anulada").sort((a, b) => a.inicio.localeCompare(b.inicio) || a.id.localeCompare(b.id));
 }
 
 type Oyente = (estado: EstadoSync) => void;
@@ -271,6 +347,11 @@ function renombrarFormulario(op: OperacionLocal, renombres: ReadonlyMap<string, 
 }
 
 function aCable(op: OperacionLocal): OperacionCable {
+    if (op.tipo === "tarea.crear" || op.tipo === "tarea.completar" || op.tipo === "tarea.anular") {
+        // Sin `ordenId` ni `versionBase`: la API la agrupa por tarea.
+        const cable: OperacionTareaCable = { id: op.id, tipo: op.tipo, ocurridoEn: op.ocurridoEn, datos: op.datos } as OperacionTareaCable;
+        return cable as unknown as OperacionCable;
+    }
     if (op.tipo === "traslado.recibir") {
         // Sin `ordenId` ni `versionBase`: la API la agrupa por traslado.
         return operacionRecibirTraslado(op.id, op.datos, op.ocurridoEn) as unknown as OperacionCable;
@@ -479,6 +560,44 @@ export class MotorSync {
             this.despertar();
             return { operacion, avisos };
     
+        });
+    }
+
+    /**
+     * Encola una operación de tarea propia (`tarea.crear`, `tarea.completar`, `tarea.anular`). En
+     * `tarea.crear` el id de la operación es el de la tarea: aparece en la vista al momento. Se
+     * agrupa por tarea (`grupoTarea`): un rechazo solo detiene lo que sigue de esa tarea.
+     */
+    async registrarTarea<T extends TipoOperacionTarea>(tipo: T, datos: DatosPorTipoTarea[T]): Promise<OperacionTareaLocal> {
+        return this.local(async () => {
+            const id = this.generarId();
+            const tareaId = tipo === "tarea.crear" ? id : (datos as DatosPorTipoTarea["tarea.completar"]).tareaId;
+            if (tipo !== "tarea.crear") {
+                const actual = this.calcularEstado().tareas.find((t) => t.id === tareaId);
+                if (!actual) {
+                    throw new ErrorSync("tarea_desconocida", "La tarea ya no está en el teléfono");
+                }
+                if (actual.estado !== "pendiente") {
+                    throw new ErrorSync("tarea_cerrada", actual.estado === "completada" ? "La tarea ya está hecha" : "La tarea está anulada");
+                }
+            }
+            const secuencia = this.meta.secuencia + 1;
+            const operacion = {
+                id,
+                tipo,
+                ordenId: grupoTarea(tareaId),
+                versionBase: 0,
+                ocurridoEn: this.ocurridoAhora(),
+                datos,
+                secuencia,
+                estado: "pendiente",
+                error: null,
+                intentos: 0,
+            } as OperacionTareaLocal;
+            await this.guardar({ operaciones: { poner: [operacion] }, meta: { secuencia } });
+            this.emitir();
+            this.despertar();
+            return operacion;
         });
     }
 
@@ -742,7 +861,7 @@ export class MotorSync {
             this.guardar({
                 ordenes: { borrar: [...this.ordenes.keys()] },
                 adjuntos: { borrar: [...this.adjuntos.values()].filter((a) => a.estado === "subido").map((a) => a.id) },
-                meta: { cursor: null, fecha: null, existencias: null, ruta: null, turno: null, plantillas: null },
+                meta: { cursor: null, fecha: null, existencias: null, ruta: null, turno: null, plantillas: null, tareas: null, tomarLibres: false },
             }),
         );
         this.emitir();
@@ -769,6 +888,8 @@ export class MotorSync {
                     // Sin `turno` = ese día no trabaja según la agenda (o no tiene ficha).
                     turno: paquete.turno ? { ...paquete.turno, fecha: paquete.fecha } : null,
                     plantillas: paquete.plantillas ?? [],
+                    tareas: paquete.tareas ?? [],
+                    tomarLibres: paquete.tomarLibres ?? false,
                 },
             });
         });
@@ -1002,7 +1123,7 @@ export class MotorSync {
         const conOps = this.ordenesConOps();
         await this.guardar({
             ordenes: { borrar: [...this.ordenes.keys()].filter((id) => !conOps.has(id)) },
-            meta: { cursor: null, fecha: null, existencias: null, ruta: null, turno: null, plantillas: null },
+            meta: { cursor: null, fecha: null, existencias: null, ruta: null, turno: null, plantillas: null, tareas: null, tomarLibres: false },
         });
     }
 
@@ -1385,6 +1506,8 @@ export class MotorSync {
         /** Órdenes (grupos) con una operación en espera propia en este lote. */
         const esperando = new Set<number>();
         const avisos: AvisoServidor[] = [];
+        /** Tareas como quedaron en el servidor (tarea.* aplicadas en este lote). */
+        const tareasNuevas = new Map<string, Tarea>();
         let avance = false;
 
         for (const op of lote) {
@@ -1431,6 +1554,12 @@ export class MotorSync {
             const orden = leerOrden(op.ordenId);
             if (r.estado === "aplicada" || r.estado === "duplicada") {
                 borrar.push(op.id);
+                if (r.tarea) {
+                    tareasNuevas.set(r.tarea.tarea.id, r.tarea.tarea);
+                    if (r.aviso === "solapa_con" && op.tipo === "tarea.crear") {
+                        avisos.push({ id: op.id, ordenId: op.ordenId, tipo: op.tipo, aviso: r.aviso });
+                    }
+                }
                 if (op.tipo !== "traslado.recibir" && (r.aviso === "version_anterior" || r.aviso === "pausa_ajustada")) {
                     avisos.push({ id: op.id, ordenId: op.ordenId, tipo: op.tipo, aviso: r.aviso });
                 }
@@ -1488,6 +1617,10 @@ export class MotorSync {
         if (avisos.length > 0) {
             meta.avisos = [...this.meta.avisos, ...avisos];
         }
+        if (tareasNuevas.size > 0) {
+            const previas = (this.meta.tareas ?? []).filter((t) => !tareasNuevas.has(t.id));
+            meta.tareas = [...previas, ...tareasNuevas.values()];
+        }
         await this.guardar({
             operaciones: { poner: ponerFinal, borrar: borrarFinal },
             ordenes: { poner: [...ordenes.values()] },
@@ -1538,6 +1671,9 @@ export class MotorSync {
                     ...(turno && fecha !== null ? { turno: { ...turno, fecha } } : {}),
                     // El catálogo de cambios reemplaza al guardado (una desactivada ya no se ofrece).
                     ...(datos.plantillas !== undefined ? { plantillas: datos.plantillas ?? [] } : {}),
+                    // Las tareas de cambios reemplazan a las guardadas (así llegan las del supervisor).
+                    ...(datos.tareas !== undefined ? { tareas: datos.tareas ?? [] } : {}),
+                    ...(datos.tomarLibres !== undefined ? { tomarLibres: datos.tomarLibres } : {}),
                 },
             });
             this.emitir();
@@ -1733,6 +1869,8 @@ export class MotorSync {
             turno: this.meta.turno,
             plantillas: this.meta.plantillas ?? [],
             avisos: this.meta.avisos,
+            tareas: tareasConCola(this.meta.tareas ?? [], ops, 0, this.ocurridoAhora()),
+            tomarLibres: this.meta.tomarLibres ?? false,
             fecha: this.meta.fecha,
             ultimaSincronizacion: this.meta.ultimaSincronizacion,
             caducado: this.meta.fecha === null && this.meta.ultimaSincronizacion !== null,

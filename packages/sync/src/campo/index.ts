@@ -14,5 +14,6 @@ export * from "./inicio";
 export * from "./pasos";
 export * from "./traslados";
 export * from "./reglas";
+export * from "./tareas";
 export * from "./textos";
 export * from "./vista";

@@ -28,7 +28,11 @@ export type Vista =
     /** Agenda de un día con la tira de la semana; sin `dia`, mañana. */
     | { tipo: "agenda"; dia?: string }
     /** Los 7 días desde hoy, agrupados. */
-    | { tipo: "semana" };
+    | { tipo: "semana" }
+    /** «Nueva tarea» (tarea propia, desde el «+»): pantalla propia, también sin señal. */
+    | { tipo: "nueva_tarea" }
+    /** «Órdenes libres» (desde el «+»): requiere señal. */
+    | { tipo: "libres" };
 
 /** Botones de la isla en orden (el «+» va al centro, entre «Por recibir» y «Agenda»). */
 export const PESTANAS: readonly { id: Pestana; texto: string; vista: Vista }[] = [
@@ -82,6 +86,10 @@ export function vistaDeUrl(busqueda: string): Vista {
         }
         case "semana":
             return { tipo: "semana" };
+        case "nueva_tarea":
+            return { tipo: "nueva_tarea" };
+        case "libres":
+            return { tipo: "libres" };
         default:
             return { tipo: "lista" };
     }
@@ -107,6 +115,8 @@ export function pestanaDe(v: Vista): Pestana | null {
     switch (v.tipo) {
         case "lista":
         case "orden":
+        case "nueva_tarea":
+        case "libres":
             return "hoy";
         case "recibir":
         case "traslado":
