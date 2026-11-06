@@ -24,14 +24,15 @@ import {
     useCambiosSinGuardar,
 } from "@iris/ui";
 import { ArrowLeftRight, AtSign, BookOpen, Check, ChevronDown, Ellipsis, LifeBuoy, RotateCcw, RotateCw, Tag, Unlink, User, UserCheck, UserMinus, UserPlus } from "lucide-react";
-import { useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useForm, type FieldValues, type Path, type UseFormSetError } from "react-hook-form";
 import { z } from "zod";
-import { api, claveTrasError, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
+import { api, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { cabeceraIdem, nuevoIdMensaje } from "@/lib/conversaciones/api";
 import type { Conversacion } from "@/lib/conversaciones/tipos";
 import { erroresACampos } from "@/lib/formularios";
+import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useSesion } from "@/lib/sesion";
 import { agentesDeCola, useCatalogos } from "./catalogos";
 
@@ -287,18 +288,18 @@ type PropsDialogo = { conv: Conversacion; cerrar: () => void; alHecho: (c: Conve
 
 /** Diálogo corto (1 a 3 campos) con su envío, conflicto de versión y aviso al terminar. */
 function DialogoCorto({ titulo, descripcion, conv, cerrar, alHecho, recargar, children }: PropsDialogo & { titulo: string; descripcion?: string; children: (enviar: Envio, pie: (etiqueta: string, enviando: boolean, faltan?: readonly string[]) => ReactNode) => ReactNode }) {
-    const clave = useRef(nuevaClaveIdempotencia());
+    const clave = useClaveIdempotencia();
     const [error, setError] = useState<unknown>(null);
     const enviar: Envio = async (peticion, campos, setErrorCampo, aviso) => {
         setError(null);
         try {
-            const c = await peticion(clave.current);
-            clave.current = nuevaClaveIdempotencia();
+            const c = await peticion(clave.actual());
+            clave.renovar();
             avisar({ titulo: aviso(c) });
             alHecho(c);
             cerrar();
         } catch (e) {
-            clave.current = claveTrasError(e, clave.current);
+            clave.trasError(e);
             if (!erroresACampos(e, campos, setErrorCampo)) setError(e);
         }
     };

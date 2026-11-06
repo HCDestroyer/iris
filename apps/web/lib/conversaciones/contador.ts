@@ -13,15 +13,15 @@ const INTERVALO_MS = 60_000;
  * vista y al cambiar de empresa (`clave`).
  */
 export function useNoLeidosConversaciones(activo: boolean, clave: string): number | undefined {
-    const [n, setN] = useState<number | undefined>(undefined);
+    // Lo leído lleva su clave: al cambiar de empresa no se muestra el número de la anterior.
+    const [leido, setN] = useState<{ clave: string; n: number | undefined }>({ clave: "", n: undefined });
     useEffect(() => {
-        setN(undefined);
         if (!activo) return;
         const control = new AbortController();
         const leer = () =>
             leerContadores(control.signal).then(
-                (c) => !control.signal.aborted && setN(c.noLeidosMias),
-                () => !control.signal.aborted && setN(undefined),
+                (c) => !control.signal.aborted && setN({ clave, n: c.noLeidosMias }),
+                () => !control.signal.aborted && setN({ clave, n: undefined }),
             );
         void leer();
         const id = window.setInterval(() => document.visibilityState === "visible" && void leer(), INTERVALO_MS);
@@ -30,5 +30,5 @@ export function useNoLeidosConversaciones(activo: boolean, clave: string): numbe
             window.clearInterval(id);
         };
     }, [activo, clave]);
-    return n || undefined;
+    return (activo && leido.clave === clave && leido.n) || undefined;
 }

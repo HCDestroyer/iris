@@ -39,24 +39,6 @@ export function BibliotecaManuales() {
         if (p.toString() !== params.toString()) router.replace(`${ruta}${p.toString() ? `?${p}` : ""}`, { scroll: false });
     }, [q, params, router, ruta]);
 
-    const lista = useLecturaManuales(q, visibilidad);
-    const [ver, setVer] = useState<Manual | null>(null);
-    const [desactivar, setDesactivar] = useState<Manual | null>(null);
-    const [error, setError] = useState<unknown>(null);
-
-    async function alternar(m: Manual) {
-        setError(null);
-        try {
-            const opciones = { params: { path: { id: m.id }, header: { "Idempotency-Key": nuevaClaveIdempotencia() } }, body: { version: m.version } };
-            await resolver(m.activo ? api().POST("/api/v1/mensajeria/manuales/{id}/desactivar", opciones) : api().POST("/api/v1/mensajeria/manuales/{id}/activar", opciones));
-            avisar({ titulo: avisoEstado(m.titulo, !m.activo) });
-            setDesactivar(null);
-            await lista.refrescar();
-        } catch (e) {
-            setError(e);
-        }
-    }
-
     return (
         <>
             <EncabezadoPagina
@@ -91,6 +73,38 @@ export function BibliotecaManuales() {
                     ]}
                 />
             </div>
+            <Resultados key={`${q}|${visibilidad}`} q={q} visibilidad={visibilidad} edita={edita} />
+        </>
+    );
+}
+
+/** Resultados de una búsqueda: se remonta con cada búsqueda o filtro (y vuelve a leer). */
+function Resultados({ q, visibilidad, edita }: { q: string; visibilidad: Visibilidad; edita: boolean }) {
+    const lista = useLectura(async (signal) => {
+        const r = await resolver(
+            api().GET("/api/v1/mensajeria/manuales", { params: { query: { ...(q ? { q } : {}), ...(visibilidad !== "todas" ? { visibilidad } : {}), incluirInactivos: true } }, signal }),
+        );
+        return r.data ?? [];
+    });
+    const [ver, setVer] = useState<Manual | null>(null);
+    const [desactivar, setDesactivar] = useState<Manual | null>(null);
+    const [error, setError] = useState<unknown>(null);
+
+    async function alternar(m: Manual) {
+        setError(null);
+        try {
+            const opciones = { params: { path: { id: m.id }, header: { "Idempotency-Key": nuevaClaveIdempotencia() } }, body: { version: m.version } };
+            await resolver(m.activo ? api().POST("/api/v1/mensajeria/manuales/{id}/desactivar", opciones) : api().POST("/api/v1/mensajeria/manuales/{id}/activar", opciones));
+            avisar({ titulo: avisoEstado(m.titulo, !m.activo) });
+            setDesactivar(null);
+            await lista.refrescar();
+        } catch (e) {
+            setError(e);
+        }
+    }
+
+    return (
+        <>
             {error ? (
                 <Aviso tono="error" titulo="No se pudo cambiar" className="mb-3">
                     {mensajeDeError(error).titulo}
@@ -163,25 +177,6 @@ export function BibliotecaManuales() {
             />
         </>
     );
-}
-
-function useLecturaManuales(q: string, visibilidad: Visibilidad) {
-    const clave = `${q}|${visibilidad}`;
-    const [ultima, setUltima] = useState(clave);
-    const lectura = useLectura(async (signal) => {
-        const r = await resolver(
-            api().GET("/api/v1/mensajeria/manuales", { params: { query: { ...(q ? { q } : {}), ...(visibilidad !== "todas" ? { visibilidad } : {}), incluirInactivos: true } }, signal }),
-        );
-        return r.data ?? [];
-    });
-    const { reintentar } = lectura;
-    useEffect(() => {
-        if (clave !== ultima) {
-            setUltima(clave);
-            reintentar();
-        }
-    }, [clave, ultima, reintentar]);
-    return lectura;
 }
 
 /** Leer un manual: el cuerpo con la vista segura del Markdown (sin HTML crudo). */

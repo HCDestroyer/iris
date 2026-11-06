@@ -70,24 +70,25 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
 
     // Mensajes: la última página y las anteriores a pedido; el feed agrega y actualiza.
     const [mensajes, setMensajes] = useState<Mensaje[]>([]);
-    const [estadoMensajes, setEstadoMensajes] = useState<"cargando" | "listo" | unknown>("cargando");
+    // El estado de la lectura lleva su intento: «Reintentar» vuelve a «cargando» sin un efecto.
+    const [lecturaMensajes, setEstadoMensajes] = useState<{ intento: number; estado: "listo" | unknown }>({ intento: -1, estado: "listo" });
     const [cursorAnteriores, setCursorAnteriores] = useState<string | null>(null);
     const [cargandoAnteriores, setCargandoAnteriores] = useState(false);
     const [errorAnteriores, setErrorAnteriores] = useState(false);
     const [pendientes, setPendientes] = useState<Pendiente[]>([]);
     const [intento, setIntento] = useState(0);
 
+    const estadoMensajes = lecturaMensajes.intento === intento ? lecturaMensajes.estado : "cargando";
     useEffect(() => {
         const control = new AbortController();
-        setEstadoMensajes("cargando");
         leerMensajes(id, undefined, control.signal).then(
             (p) => {
                 if (control.signal.aborted) return;
                 setMensajes((m) => fusionarMensajes(m, p.data ?? []));
                 setCursorAnteriores(p.nextCursor ?? null);
-                setEstadoMensajes("listo");
+                setEstadoMensajes({ intento, estado: "listo" });
             },
-            (e: unknown) => !control.signal.aborted && setEstadoMensajes(e ?? new Error("error")),
+            (e: unknown) => !control.signal.aborted && setEstadoMensajes({ intento, estado: e ?? new Error("error") }),
         );
         return () => control.abort();
     }, [id, intento]);
@@ -118,7 +119,9 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
         [alActualizar, detalle, id, reemplazarDetalle],
     );
     const aplicarRef = useRef(aplicarConversacion);
-    aplicarRef.current = aplicarConversacion;
+    useEffect(() => {
+        aplicarRef.current = aplicarConversacion;
+    });
 
     useEffect(
         () =>

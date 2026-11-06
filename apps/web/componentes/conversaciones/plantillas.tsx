@@ -4,7 +4,7 @@ import { Aviso, Boton, Campo, Cargando, PanelEmergente } from "@iris/ui";
 import { ArrowLeft, FileText, RotateCw, Send } from "lucide-react";
 import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
@@ -108,7 +108,7 @@ function FormPlantilla({ conv, identidad, plantilla, volver, alEnviado }: { conv
     const form = useForm<Record<string, string>>({ resolver: zodResolver(esquema), defaultValues: Object.fromEntries(variables.map((v) => [v.nombre, ""])) });
     const [id] = useState(nuevoIdMensaje);
     const [error, setError] = useState<unknown>(null);
-    const valores = form.watch();
+    const valores = useWatch({ control: form.control });
 
     async function enviar(datos: Record<string, string>) {
         setError(null);
@@ -141,7 +141,7 @@ function FormPlantilla({ conv, identidad, plantilla, volver, alEnviado }: { conv
                 <ArrowLeft />
                 Otras plantillas
             </Boton>
-            <p className="rounded-lg bg-background-secondary p-2.5 text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">{vistaConVariables(plantilla.vistaPrevia, valores)}</p>
+            <p className="rounded-lg bg-background-secondary p-2.5 text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">{vistaConVariables(plantilla.vistaPrevia, valores as Record<string, string>)}</p>
             {variables.map((v) => (
                 <Campo
                     key={v.nombre}

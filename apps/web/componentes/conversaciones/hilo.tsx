@@ -53,7 +53,11 @@ export function Hilo({ mensajes, pendientes, ahora, hayAnteriores, cargandoAnter
         return () => el.removeEventListener("scroll", alDesplazar);
     }, []);
 
-    let diaPrevio = "";
+    // Separador de día antes del primer mensaje de cada día (hora de Guatemala).
+    const separadores = mensajes.map((m, i) => {
+        const anterior = mensajes[i - 1];
+        return !anterior || diaLocal(Date.parse(anterior.creadoEn)) !== diaLocal(Date.parse(m.creadoEn)) ? separadorDia(m.creadoEn, ahora) : null;
+    });
     return (
         <div
             ref={caja}
@@ -71,10 +75,8 @@ export function Hilo({ mensajes, pendientes, ahora, hayAnteriores, cargandoAnter
                     </Boton>
                 </div>
             ) : null}
-            {mensajes.map((m) => {
-                const dia = diaLocal(Date.parse(m.creadoEn));
-                const separador = dia !== diaPrevio ? separadorDia(m.creadoEn, ahora) : null;
-                diaPrevio = dia;
+            {mensajes.map((m, i) => {
+                const separador = separadores[i];
                 return (
                     <Fragment key={m.id}>
                         {separador ? <p className="self-center py-1.5 text-[0.71875rem] font-semibold tracking-wide text-muted-foreground uppercase">{separador}</p> : null}

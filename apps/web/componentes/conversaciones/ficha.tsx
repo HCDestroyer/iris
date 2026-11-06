@@ -21,10 +21,10 @@ import {
 } from "@iris/ui";
 import { AlertTriangle, Banknote, CalendarClock, ClipboardList, ExternalLink, Link2, LifeBuoy, RotateCw, UserPlus, UserRound, Wrench } from "lucide-react";
 import Link from "next/link";
-import { useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { api, claveTrasError, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
+import { api, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { cabeceraIdem } from "@/lib/conversaciones/api";
 import { CLASE_ETIQUETA, formatearNumero, horaLista, iniciales } from "@/lib/conversaciones/presentacion";
@@ -32,6 +32,7 @@ import type { Identidad } from "@/lib/conversaciones/sesion";
 import type { Conversacion, ConversacionDetalle } from "@/lib/conversaciones/tipos";
 import { haceCuanto } from "@/lib/fechas";
 import { erroresACampos } from "@/lib/formularios";
+import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
 import { SelectorCliente } from "@/componentes/clientes/selector-cliente";
@@ -424,7 +425,7 @@ const esquemaContacto = z.object({
 function DialogoContactoIris({ conv, cerrar, alHecho }: { conv: ConversacionDetalle; cerrar: () => void; alHecho: (c: Conversacion) => void }) {
     const form = useForm({ resolver: zodResolver(esquemaContacto), defaultValues: { nombre: conv.perfilNombre ?? "", tipo: "otro" as const, nota: "" } });
     useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
-    const clave = useRef(nuevaClaveIdempotencia());
+    const clave = useClaveIdempotencia();
     const [error, setError] = useState<unknown>(null);
     return (
         <DialogoProtegido open onOpenChange={(a) => !a && cerrar()}>
@@ -437,7 +438,7 @@ function DialogoContactoIris({ conv, cerrar, alHecho }: { conv: ConversacionDeta
                         try {
                             const c = await resolver(
                                 api().POST(`${BASE}/contacto-iris`, {
-                                    params: { path: { id: conv.id }, header: cabeceraIdem(clave.current) },
+                                    params: { path: { id: conv.id }, header: cabeceraIdem(clave.actual()) },
                                     body: { version: conv.version, nombre: d.nombre.trim(), tipo: d.tipo, ...(d.nota.trim() ? { nota: d.nota.trim() } : {}) },
                                 }),
                             );
@@ -445,7 +446,7 @@ function DialogoContactoIris({ conv, cerrar, alHecho }: { conv: ConversacionDeta
                             alHecho(c);
                             cerrar();
                         } catch (e) {
-                            clave.current = claveTrasError(e, clave.current);
+                            clave.trasError(e);
                             if (!erroresACampos(e, ["nombre", "tipo", "nota"], form.setError)) setError(e);
                         }
                     })}
@@ -488,7 +489,7 @@ const esquemaTicket = z.object({
 function DialogoTicket({ conv, cerrar, alHecho }: { conv: ConversacionDetalle; cerrar: () => void; alHecho: (c: Conversacion) => void }) {
     const form = useForm({ resolver: zodResolver(esquemaTicket), defaultValues: { asunto: "", descripcion: conv.ultimoMensaje?.direccion === "entrante" ? (conv.ultimoMensaje.texto ?? "") : "" } });
     useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
-    const clave = useRef(nuevaClaveIdempotencia());
+    const clave = useClaveIdempotencia();
     const [error, setError] = useState<unknown>(null);
     return (
         <DialogoProtegido open onOpenChange={(a) => !a && cerrar()}>
@@ -501,7 +502,7 @@ function DialogoTicket({ conv, cerrar, alHecho }: { conv: ConversacionDetalle; c
                         try {
                             const r = await resolver(
                                 api().POST(`${BASE}/crear-ticket`, {
-                                    params: { path: { id: conv.id }, header: cabeceraIdem(clave.current) },
+                                    params: { path: { id: conv.id }, header: cabeceraIdem(clave.actual()) },
                                     body: { asunto: d.asunto.trim(), ...(d.descripcion.trim() ? { descripcion: d.descripcion.trim() } : {}) },
                                 }),
                             );
@@ -509,7 +510,7 @@ function DialogoTicket({ conv, cerrar, alHecho }: { conv: ConversacionDetalle; c
                             alHecho(r.conversacion);
                             cerrar();
                         } catch (e) {
-                            clave.current = claveTrasError(e, clave.current);
+                            clave.trasError(e);
                             if (!erroresACampos(e, ["asunto", "descripcion"], form.setError)) setError(e);
                         }
                     })}
@@ -553,7 +554,7 @@ function DialogoPromesa({ conv, cerrar }: { conv: ConversacionDetalle; cerrar: (
         defaultValues: { servicioId: String(conv.contacto.servicioId ?? (servicios.length === 1 ? (servicios[0]?.id ?? "") : "")), venceEl: "" },
     });
     useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
-    const clave = useRef(nuevaClaveIdempotencia());
+    const clave = useClaveIdempotencia();
     const [error, setError] = useState<unknown>(null);
     const [simulacion, setSimulacion] = useState<{ texto: string; permitida: boolean } | null>(null);
     const [simulando, setSimulando] = useState(false);
@@ -590,14 +591,14 @@ function DialogoPromesa({ conv, cerrar }: { conv: ConversacionDetalle; cerrar: (
                         try {
                             const r = await resolver(
                                 api().POST(`${BASE}/promesas`, {
-                                    params: { path: { id: conv.id }, header: cabeceraIdem(clave.current) },
+                                    params: { path: { id: conv.id }, header: cabeceraIdem(clave.actual()) },
                                     body: { servicioId: Number(d.servicioId), venceEl: d.venceEl },
                                 }),
                             );
                             avisar({ titulo: r.estado === "activa" ? "Promesa registrada en Argos" : r.estado === "pendiente_aprobacion" ? "Promesa enviada: espera aprobación en Argos" : "Argos rechazó la promesa" });
                             cerrar();
                         } catch (e) {
-                            clave.current = claveTrasError(e, clave.current);
+                            clave.trasError(e);
                             if (!erroresACampos(e, ["servicioId", "venceEl"], form.setError)) setError(e);
                         }
                     })}

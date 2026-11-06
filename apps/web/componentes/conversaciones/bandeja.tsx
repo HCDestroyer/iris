@@ -48,30 +48,42 @@ export function Bandeja() {
     );
 
     // Lista: primera página por filtros; el feed la mantiene al día.
-    const [lista, setLista] = useState<EstadoLista>({ estado: "cargando" });
-    const [cargandoMas, setCargandoMas] = useState(false);
-    const [errorMas, setErrorMas] = useState<unknown>(null);
+    // La lista guardada lleva la clave de sus filtros: con otros filtros (o «Reintentar») se ve
+    // «cargando» hasta que llega la suya, sin vaciarla dentro de un efecto.
     const [intento, setIntento] = useState(0);
+    const claveLista = `${urlDeFiltros(filtros, null)}#${intento}`;
+    const [guardada, setLista] = useState<EstadoLista & { clave: string }>({ clave: "", estado: "cargando" });
+    const lista: EstadoLista = guardada.clave === claveLista ? guardada : { estado: "cargando" };
+    const [cargandoMas, setCargandoMas] = useState(false);
+    const [errorMasGuardado, setErrorMas] = useState<{ clave: string; error: unknown } | null>(null);
+    const errorMas = errorMasGuardado?.clave === claveLista ? errorMasGuardado.error : null;
     const filtrosRef = useRef(filtros);
-    filtrosRef.current = filtros;
-    const claveFiltros = urlDeFiltros(filtros, null);
+    const claveRef = useRef(claveLista);
+    useEffect(() => {
+        filtrosRef.current = filtros;
+        claveRef.current = claveLista;
+    });
 
     useEffect(() => {
         const control = new AbortController();
-        setLista({ estado: "cargando" });
-        setErrorMas(null);
+        const clave = claveLista;
         leerLista(filtrosRef.current, undefined, control.signal).then(
-            (p) => !control.signal.aborted && setLista({ estado: "listo", items: unirConversaciones(p.data ?? []), cursor: p.nextCursor ?? null }),
-            (error: unknown) => !control.signal.aborted && setLista({ estado: "error", error }),
+            (p) => !control.signal.aborted && setLista({ clave, estado: "listo", items: unirConversaciones(p.data ?? []), cursor: p.nextCursor ?? null }),
+            (error: unknown) => !control.signal.aborted && setLista({ clave, estado: "error", error }),
         );
         return () => control.abort();
-    }, [claveFiltros, intento]);
+    }, [claveLista]);
 
     /** Relee la primera página sin pasar por «cargando» (tras volver la conexión o recargar el feed). */
     const refrescarLista = useCallback(async () => {
         try {
             const p = await leerLista(filtrosRef.current, undefined);
-            setLista((l) => (l.estado === "listo" ? { ...l, items: unirConversaciones(p.data ?? [], l.items) } : { estado: "listo", items: unirConversaciones(p.data ?? []), cursor: p.nextCursor ?? null }));
+            const clave = claveRef.current;
+            setLista((l) =>
+                l.clave === clave && l.estado === "listo"
+                    ? { ...l, items: unirConversaciones(p.data ?? [], l.items) }
+                    : { clave, estado: "listo", items: unirConversaciones(p.data ?? []), cursor: p.nextCursor ?? null },
+            );
         } catch {
             // Lo leído sigue a la vista; el indicador del feed dice si no hay conexión.
         }
@@ -83,9 +95,9 @@ export function Bandeja() {
         setErrorMas(null);
         try {
             const p = await leerLista(filtros, lista.cursor);
-            setLista((l) => (l.estado === "listo" ? { estado: "listo", items: unirConversaciones(l.items, p.data ?? []), cursor: p.nextCursor ?? null } : l));
+            setLista((l) => (l.estado === "listo" ? { ...l, items: unirConversaciones(l.items, p.data ?? []), cursor: p.nextCursor ?? null } : l));
         } catch (e) {
-            setErrorMas(e);
+            setErrorMas({ clave: claveLista, error: e });
         } finally {
             setCargandoMas(false);
         }
@@ -122,7 +134,9 @@ export function Bandeja() {
     const [estadoFeed, setEstadoFeed] = useState<EstadoFeed>("conectando");
     const [detenido, setDetenido] = useState<"sin_sesion" | "sin_permiso" | "sesion_cambiada" | null>(null);
     const aplicarRef = useRef(aplicar);
-    aplicarRef.current = aplicar;
+    useEffect(() => {
+        aplicarRef.current = aplicar;
+    });
 
     useEffect(() => {
         let primera = true;
