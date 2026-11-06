@@ -74,6 +74,23 @@ describe("textos de rechazo", () => {
         expect(describirCampo("equipos.retirar", "")).toBe("Registra el equipo retirado.");
         expect(describirCampo("datos.cantidad", "Debe ser mayor que 0")).toBe("Debe ser mayor que 0");
     });
+    it("el mensaje en inglés del validador de esquema nunca llega al técnico", () => {
+        const problema = {
+            type: "urn:iris:problema:validacion",
+            title: "Datos inválidos",
+            status: 422,
+            errors: [
+                { field: "datos.", message: "expected required property versionNota to be present", rule: "esquema" },
+                { field: "datos.texto", message: "expected length <= 4000", rule: "esquema" },
+            ],
+        };
+        expect(textoProblema(problema)).toBe("Algún dato no es válido.");
+        expect(detallesProblema(problema)).toEqual([
+            "Falta un dato; toca «Rehacer» para enviarlo de nuevo.",
+            "Un dato no tiene el formato esperado; toca «Rehacer» para enviarlo de nuevo o «Descartar».",
+        ]);
+        expect(describirCampo("datos.", "expected required property notaId to be present")).toBe("Falta un dato; toca «Rehacer» para enviarlo de nuevo.");
+    });
     it("un código desconocido usa el detalle de la API", () => {
         expect(textoProblema({ type: "urn:iris:problema:otro", title: "Otro", status: 422, detail: "Algo pasó" })).toBe("Algo pasó");
         expect(textoProblema(null)).toBe("El servidor no aceptó la acción.");

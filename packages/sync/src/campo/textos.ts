@@ -149,8 +149,31 @@ function etiquetaItem(orden: Pick<OrdenCampo, "checklist"> | null | undefined, c
     return orden?.checklist?.find((i) => i.codigo === codigo)?.etiqueta ?? codigo;
 }
 
-/** Un `errors[].field` del problema, explicado (lo que falta o lo que está mal). */
-export function describirCampo(campo: string, mensaje: string, orden?: Pick<OrdenCampo, "checklist"> | null): string {
+/** Lo que el técnico lee cuando al envío le faltó un dato (p. ej. `versionNota`). */
+export const TEXTO_FALTA_DATO = "Falta un dato; toca «Rehacer» para enviarlo de nuevo.";
+/** Lo que el técnico lee cuando un dato no tiene la forma que pide la API. */
+export const TEXTO_DATO_INVALIDO = "Un dato no tiene el formato esperado; toca «Rehacer» para enviarlo de nuevo o «Descartar».";
+
+/**
+ * Mensaje en inglés del validador de esquema de la API (`expected required property … to be
+ * present`, `expected number >= 1`…): nunca llega tal cual al técnico.
+ */
+function esMensajeDelValidador(mensaje: string, regla?: string): boolean {
+    return regla === "esquema" || /^(expected|unexpected)\b/i.test(mensaje.trim());
+}
+
+function mensajeDelValidador(mensaje: string): string {
+    return /\brequired\b/i.test(mensaje) ? TEXTO_FALTA_DATO : TEXTO_DATO_INVALIDO;
+}
+
+/**
+ * Un `errors[].field` del problema, explicado (lo que falta o lo que está mal). Con `regla`
+ * (`errors[].rule`) `esquema`, o un mensaje en inglés del validador, da un texto en español.
+ */
+export function describirCampo(campo: string, mensaje: string, orden?: Pick<OrdenCampo, "checklist"> | null, regla?: string): string {
+    if (mensaje && esMensajeDelValidador(mensaje, regla)) {
+        return mensajeDelValidador(mensaje);
+    }
     const [raiz, ...resto] = campo.split(".");
     const clave = resto.join(".");
     switch (raiz) {
@@ -180,7 +203,8 @@ export function describirCampo(campo: string, mensaje: string, orden?: Pick<Orde
 
 /** Motivo completo de un rechazo: el código en claro y, debajo, cada cosa que falta o está mal. */
 export function detallesProblema(problema: Problema | null | undefined, orden?: Pick<OrdenCampo, "checklist"> | null): string[] {
-    return (problema?.errors ?? []).map((e) => describirCampo(e.field, e.message, orden));
+    // Sin repetir: dos datos que faltan se leen como una sola línea.
+    return [...new Set((problema?.errors ?? []).map((e) => describirCampo(e.field, e.message, orden, e.rule)))];
 }
 
 /** Ítem que falta en el cierre, por formulario (`formularios.<id>.checklist.<código>`). */

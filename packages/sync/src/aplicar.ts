@@ -15,6 +15,19 @@ import type {
 import type { OperacionLocal } from "./modelo";
 
 /** Tipos que la API acepta como evidencia aunque la orden esté cancelada (§3). */
+/**
+ * Versión de nota que acepta la API (`versionNota`: entero ≥ 1). Las órdenes guardadas por la app
+ * antes de 0.16 traen las notas sin `version` (la API aún no la mandaba).
+ */
+export function versionNotaValida(version: unknown): version is number {
+    return typeof version === "number" && Number.isInteger(version) && version >= 1;
+}
+
+/** La orden guardada tiene alguna nota sin versión válida: hay que volver a bajarla del servidor. */
+export function notasSinVersion(orden: Pick<OrdenCampo, "notas">): boolean {
+    return (orden.notas ?? []).some((n) => !versionNotaValida(n.version));
+}
+
 export const TIPOS_EVIDENCIA: ReadonlySet<TipoOperacion> = new Set<TipoOperacion>(["nota.agregar", "nota.editar", "nota.eliminar", "adjunto.registrar"]);
 
 /** Estado al que lleva cada operación que cambia el estado de la orden. */
@@ -251,7 +264,10 @@ export function aplicarOperacion(orden: OrdenCampo, op: OperacionLocal): OrdenCa
         }
         case "nota.editar": {
             // Como el servidor: sube la versión de la nota (la siguiente edición la manda así).
-            const notas = (orden.notas ?? []).map((n) => (n.id === op.datos.notaId ? { ...n, texto: op.datos.texto, version: n.version + 1, editadaEn: op.ocurridoEn } : n));
+            // Sin versión (caché anterior a 0.16) queda sin versión: así el motor no la inventa.
+            const notas = (orden.notas ?? []).map((n) =>
+                n.id === op.datos.notaId ? { ...n, texto: op.datos.texto, version: versionNotaValida(n.version) ? n.version + 1 : n.version, editadaEn: op.ocurridoEn } : n,
+            );
             return { ...orden, notas };
         }
         case "nota.eliminar":
