@@ -10,8 +10,10 @@ import {
     ESTADOS_PAUSABLES,
     ESTADOS_TERMINALES,
     formularioConRespuestas,
+    notasSinVersion,
     TIPOS_BLOQUEADOS_EN_PAUSA,
     TIPOS_EVIDENCIA,
+    versionNotaValida,
 } from "./aplicar";
 import {
     operacionRecibirTraslado,
@@ -22,6 +24,7 @@ import {
     type Tarea,
     type TipoOperacionTarea,
     type LineaRecepcion,
+    type NotaOrden,
     type PlantillaFormulario,
     type Existencias,
     type OperacionCable,
@@ -32,7 +35,7 @@ import {
     type TipoAdjunto,
     type TipoOperacion,
 } from "./contrato";
-import { codigoProblema, ErrorSync, ErrorTransporte } from "./errores";
+import { codigoProblema, ErrorSync, ErrorTransporte, PREFIJO_PROBLEMA } from "./errores";
 import { grupoTarea, grupoTraslado, tareaDeOperacion, type OperacionTareaLocal, type AdjuntoLocal, type AvisoServidor, type MetaSync, type OperacionLocal, type OperacionTrasladoLocal, type OrdenLocal, type TurnoDelDia } from "./modelo";
 import { calcularEspera, ESPERA_POR_DEFECTO, relojSistema, type OpcionesEspera, type Reloj } from "./reloj";
 import type { RespuestaApi, Subidor, Transporte } from "./transporte";
@@ -451,6 +454,11 @@ export class MotorSync {
     private chocadas = new Set<string>();
     private choque: Problema | null = null;
     private despertarPedido = false;
+    /**
+     * Órdenes guardadas por una app anterior a 0.16 (notas sin `version`) que ya se volvieron a
+     * bajar en esta sesión: si siguen así (no vienen en el paquete), no se insiste en cada pasada.
+     */
+    private readonly refrescadas = new Set<number>();
 
     private constructor(opciones: OpcionesMotor, meta: MetaSync) {
         this.almacen = opciones.almacen;
@@ -520,9 +528,18 @@ export class MotorSync {
      * Encola una acción: primero la guarda en el almacén (si falla, lanza y no queda nada),
      * luego la aplica a la vista y despierta el envío.
      */
-    async registrar<T extends TipoOperacion>(tipo: T, ordenId: number, datos: DatosPorTipo[T]): Promise<ResultadoRegistro> {
+    async registrar<T extends TipoOperacion>(tipo: T, ordenId: number, entradaOriginal: DatosPorTipo[T]): Promise<ResultadoRegistro> {
         return this.local(async () => {
+            // Se trabaja sobre una copia: completar `versionNota` o `versionId` nunca toca los datos de quien llama.
+            const datos = { ...entradaOriginal } as DatosPorTipo[T];
             const vista = this.validarAccion(tipo, ordenId, datos);
+            if (tipo === "nota.editar" || tipo === "nota.eliminar") {
+                // La versión de la nota que ve el técnico (ya validada): nunca sale sin `versionNota`.
+                const entrada = datos as DatosPorTipo["nota.eliminar"];
+                if (!versionNotaValida(entrada.versionNota)) {
+                    entrada.versionNota = (vista.notas ?? []).find((n) => n.id === entrada.notaId)?.version ?? entrada.versionNota;
+                }
+            }
             const avisos: Aviso[] = [];
             let plantilla: PlantillaFormulario | undefined;
             if (tipo === "orden.agregar_formulario") {
@@ -761,14 +778,34 @@ export class MotorSync {
     /**
      * Rehace una operación rechazada en su mismo lugar de la cola: id nuevo, `versionBase` actual
      * y, si se pasan, datos corregidos. Conserva `ocurridoEn` (cuándo lo hizo el técnico).
+     *
+     * Una edición o eliminación de nota (rechazada por versión o por un dato que faltaba) primero
+     * vuelve a bajar la orden del servidor y va con la versión que trae: la base local puede ser
+     * vieja (p. ej. guardada antes de 0.16, sin `version`). Sin señal usa la base si tiene versión;
+     * si no, lanza `nota_sin_version` y la operación queda rechazada, sin cambios.
      */
     async rehacer<T extends TipoOperacion>(id: string, datos?: DatosPorTipo[T]): Promise<OperacionLocal> {
-        const op = this.opDecidible(id);
+        let op = this.opDecidible(id);
+        let datosNuevos: OperacionLocal["datos"] | undefined = datos;
+        if (op.tipo === "nota.editar" || op.tipo === "nota.eliminar") {
+            // La versión que el técnico revisó (la de la base antes de volver a bajarla).
+            const revisada = this.notaDeOp(op)?.version;
+            const refresco = await this.refrescarDelServidor();
+            op = this.opDecidible(id);
+            const actual = this.notaDeOp(op);
+            if (refresco === "ok" && versionNotaValida(revisada) && actual && versionNotaValida(actual.version) && actual.version !== revisada) {
+                // Despacho la cambió entre que el técnico revisó el conflicto y tocó «Rehacer»: no se
+                // pisa en silencio (contratos/sync.md). Queda rechazada con el texto nuevo a la vista.
+                await this.marcarNotaCambiada(op, actual.texto);
+                throw new ErrorSync("nota_cambiada", `La nota cambió en el servidor mientras la revisabas. Ahora dice: «${resumirTexto(actual.texto)}». Revísala y toca «Rehacer» otra vez, o «Descartar».`);
+            }
+            datosNuevos = this.datosNotaRehecha(op, datos as Partial<DatosPorTipo["nota.editar"]> | undefined, refresco);
+        }
         const orden = this.ordenes.get(op.ordenId);
         const nueva = {
             ...sinEspera(op),
             id: this.generarId(),
-            datos: datos ?? conVersionNotaActual(op, orden?.base),
+            datos: datosNuevos ?? op.datos,
             versionBase: orden?.base.version ?? op.versionBase,
             estado: "pendiente",
             error: null,
@@ -871,28 +908,7 @@ export class MotorSync {
 
     /** Baja el paquete del día (`GET /campo/paquete`) y reemplaza lo del servidor. */
     cargarPaquete(fecha: string): Promise<void> {
-        return this.serializar(async () => {
-            await this.verificar();
-            const { datos: paquete } = await this.llamar(() => this.transporte.obtenerPaquete(fecha));
-            const ordenes = paquete.ordenes ?? [];
-            const enPaquete = new Set(ordenes.map((o) => o.id));
-            const conOps = this.ordenesConOps();
-            const borrar = [...this.ordenes.keys()].filter((id) => !enPaquete.has(id) && !conOps.has(id));
-            await this.guardar({
-                ordenes: { poner: ordenes.map((base) => ({ id: base.id, base, reasignada: false })), borrar },
-                meta: {
-                    cursor: paquete.cursor,
-                    fecha: paquete.fecha,
-                    existencias: paquete.existencias,
-                    ruta: paquete.ruta ?? null,
-                    // Sin `turno` = ese día no trabaja según la agenda (o no tiene ficha).
-                    turno: paquete.turno ? { ...paquete.turno, fecha: paquete.fecha } : null,
-                    plantillas: paquete.plantillas ?? [],
-                    tareas: paquete.tareas ?? [],
-                    tomarLibres: paquete.tomarLibres ?? false,
-                },
-            });
-        });
+        return this.serializar(() => this.bajarPaquete(fecha));
     }
 
     /**
@@ -908,6 +924,7 @@ export class MotorSync {
             const sinRespuesta = new Set<string>();
             this.chocadas.clear();
             this.choque = null;
+            await this.refrescarCacheAnterior();
             await this.enviarPendientes(sinRespuesta);
             const errorSubida = await this.subirAdjuntos();
             await this.enviarPendientes(sinRespuesta);
@@ -1684,6 +1701,124 @@ export class MotorSync {
         }
     }
 
+    // --- Internos: paquete y caché anterior --------------------------------------------------
+
+    /** `GET /campo/paquete`: reemplaza lo del servidor (las órdenes con cola se conservan). */
+    private async bajarPaquete(fecha: string): Promise<void> {
+        await this.verificar();
+        const { datos: paquete } = await this.llamar(() => this.transporte.obtenerPaquete(fecha));
+        const ordenes = paquete.ordenes ?? [];
+        const enPaquete = new Set(ordenes.map((o) => o.id));
+        const conOps = this.ordenesConOps();
+        const borrar = [...this.ordenes.keys()].filter((id) => !enPaquete.has(id) && !conOps.has(id));
+        await this.guardar({
+            ordenes: { poner: ordenes.map((base) => ({ id: base.id, base, reasignada: false })), borrar },
+            meta: {
+                cursor: paquete.cursor,
+                fecha: paquete.fecha,
+                existencias: paquete.existencias,
+                ruta: paquete.ruta ?? null,
+                // Sin `turno` = ese día no trabaja según la agenda (o no tiene ficha).
+                turno: paquete.turno ? { ...paquete.turno, fecha: paquete.fecha } : null,
+                plantillas: paquete.plantillas ?? [],
+                tareas: paquete.tareas ?? [],
+                tomarLibres: paquete.tomarLibres ?? false,
+            },
+        });
+    }
+
+    /**
+     * Órdenes guardadas por una app anterior a 0.16 (notas sin `version`): vuelve a bajar el
+     * paquete del día antes de enviar, así la vista y lo que se encole llevan la versión. Sin red
+     * (o sin sesión) corta la pasada como cualquier llamada; otro error de la API no la detiene y
+     * no se insiste hasta que el motor se vuelva a abrir.
+     */
+    private async refrescarCacheAnterior(): Promise<void> {
+        const fecha = this.meta.fecha;
+        const viejas = [...this.ordenes.values()].filter((o) => !this.refrescadas.has(o.id) && notasSinVersion(o.base)).map((o) => o.id);
+        if (fecha === null || viejas.length === 0) {
+            return;
+        }
+        try {
+            await this.bajarPaquete(fecha);
+        } catch (e) {
+            if (!(e instanceof ErrorTransporte) || e.tipo === "red" || e.esDeSesion || e.esDeEmpresa) {
+                throw e;
+            }
+        }
+        for (const id of viejas) {
+            this.refrescadas.add(id);
+        }
+        this.emitir();
+    }
+
+    /**
+     * Vuelve a bajar el paquete del día para «Rehacer»: `ok`, `sin_paquete`, `red` (sin señal) o
+     * `api` (la API respondió con error). Sin sesión o sin empresa válida lanza (hay que entrar).
+     */
+    private async refrescarDelServidor(): Promise<"ok" | "sin_paquete" | "red" | "api"> {
+        const fecha = this.meta.fecha;
+        if (fecha === null) {
+            return "sin_paquete";
+        }
+        try {
+            await this.serializar(() => this.bajarPaquete(fecha));
+            return "ok";
+        } catch (e) {
+            if (!(e instanceof ErrorTransporte) || e.esDeSesion || e.esDeEmpresa) {
+                throw e;
+            }
+            return e.tipo === "red" ? "red" : "api";
+        }
+    }
+
+    /** La nota de una operación de nota: en la base (lo del servidor) o, si es de un `nota.agregar` en cola, en la vista. */
+    private notaDeOp(op: OperacionLocal): NotaOrden | undefined {
+        if (op.tipo !== "nota.editar" && op.tipo !== "nota.eliminar") {
+            return undefined;
+        }
+        const notaId = op.datos.notaId;
+        return this.ordenes.get(op.ordenId)?.base.notas?.find((n) => n.id === notaId) ?? this.obtenerOrden(op.ordenId)?.notas?.find((n) => n.id === notaId);
+    }
+
+    /** Deja la operación rechazada con `conflicto_version` y el texto que trae ahora el servidor. */
+    private async marcarNotaCambiada(op: OperacionLocal, texto: string): Promise<void> {
+        const error: Problema = {
+            type: `${PREFIJO_PROBLEMA}conflicto_version`,
+            title: "Conflicto de versión",
+            status: 409,
+            detail: `La nota cambió en el servidor: «${resumirTexto(texto)}»`,
+        };
+        await this.guardar({ operaciones: { poner: [{ ...op, estado: "rechazada", error } as OperacionLocal] } });
+        this.emitir();
+    }
+
+    /**
+     * Datos de una nota rehecha con la versión de la base (lo último del servidor); si la nota es
+     * de un `nota.agregar` aún en cola, la de la vista. Nunca devuelve una `versionNota` inválida.
+     */
+    private datosNotaRehecha(op: OperacionLocal, datos: Partial<DatosPorTipo["nota.editar"]> | undefined, refresco: "ok" | "sin_paquete" | "red" | "api"): OperacionLocal["datos"] {
+        if (op.tipo !== "nota.editar" && op.tipo !== "nota.eliminar") {
+            return { ...op.datos, ...datos } as OperacionLocal["datos"];
+        }
+        const nota = this.notaDeOp(op);
+        if (!nota) {
+            throw new ErrorSync("nota_desconocida", "Esa nota ya no está en la orden: toca «Descartar».");
+        }
+        if (!versionNotaValida(nota.version)) {
+            throw new ErrorSync(
+                "nota_sin_version",
+                refresco === "ok"
+                    ? "No se pudo leer la versión de la nota en el servidor. Toca «Descartar» y vuelve a editarla."
+                    : refresco === "api"
+                      ? "El servidor no respondió bien al traer la nota. Toca «Rehacer» otra vez en un momento."
+                      : "Sin conexión: no se pudo traer la nota del servidor. Conéctate y toca «Rehacer» otra vez.",
+            );
+        }
+        const versionNota = datos?.versionNota !== undefined && versionNotaValida(datos.versionNota) ? datos.versionNota : nota.version;
+        return { ...op.datos, ...datos, versionNota } as OperacionLocal["datos"];
+    }
+
     // --- Internos: estado -----------------------------------------------------------------
 
     private ordenesConOps(): Set<number> {
@@ -1728,6 +1863,14 @@ export class MotorSync {
                 const nota = (vista.notas ?? []).find((n) => n.id === notaId);
                 if (!nota) {
                     throw new ErrorSync("nota_desconocida", "Esa nota ya no está en la orden");
+                }
+                if (!versionNotaValida(nota.version)) {
+                    // Orden guardada por una app anterior a 0.16: se pide al bucle que la vuelva a bajar.
+                    this.reintentarAhora();
+                    throw new ErrorSync(
+                        "nota_sin_version",
+                        "Esta nota se guardó con una versión anterior de la app. Conéctate para actualizar la orden y vuelve a intentarlo.",
+                    );
                 }
                 if (tipo === "nota.editar" && (datos as DatosPorTipo["nota.editar"]).texto.trim() === nota.texto.trim()) {
                     throw new ErrorSync("sin_cambios", "La nota no cambió");
@@ -1893,14 +2036,8 @@ export class MotorSync {
     }
 }
 
-/**
- * «Rehacer» una edición o eliminación de nota rechazada por `conflicto_version`: el técnico ya vio
- * cómo quedó en el servidor, así que va con la versión de la nota que tiene ahora la base.
- */
-function conVersionNotaActual(op: OperacionLocal, base: OrdenCampo | undefined): OperacionLocal["datos"] {
-    if (op.tipo !== "nota.editar" && op.tipo !== "nota.eliminar") {
-        return op.datos;
-    }
-    const nota = (base?.notas ?? []).find((n) => n.id === op.datos.notaId);
-    return nota ? { ...op.datos, versionNota: nota.version } : op.datos;
+/** Un texto de nota en una línea y corto, para un aviso (nunca se registra). */
+function resumirTexto(texto: string, maximo = 120): string {
+    const linea = texto.replace(/\s+/g, " ").trim();
+    return linea.length > maximo ? `${linea.slice(0, maximo - 1)}…` : linea;
 }
