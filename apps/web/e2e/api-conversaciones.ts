@@ -71,9 +71,15 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
     ];
     const canales: Schema<"NumeroConversaciones">[] = [CANAL_SOPORTE, CANAL_COBROS, CANAL_VENTAS, CANAL_AVISOS].map((c) => ({ ...c, avisosEmpresa: c.id === 2, colaId: null, activo: true }));
 
+    /** Como el servidor: `mensaje_*` trae el mensaje y luego `conversacion_actualizada` la conversación. */
     function emitir(tipo: Evento["tipo"], c: Conversacion, m?: Mensaje) {
+        const base = { conversacionId: c.id, ocurridoEn: new Date().toISOString(), noLeidos: c.noLeidos };
+        if (m) {
+            cursor += 1;
+            eventos.push({ id: String(cursor), tipo, ...base, mensaje: m });
+        }
         cursor += 1;
-        eventos.push({ id: String(cursor), tipo, conversacionId: c.id, ocurridoEn: new Date().toISOString(), noLeidos: c.noLeidos, conversacion: structuredClone(c), ...(m ? { mensaje: m } : {}) });
+        eventos.push({ id: String(cursor), tipo: "conversacion_actualizada", ...base, conversacion: structuredClone(c) });
     }
 
     function filtrar(q: URLSearchParams): Conversacion[] {

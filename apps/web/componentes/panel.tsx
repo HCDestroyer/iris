@@ -9,6 +9,7 @@ import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { limpiarClientesRecientes } from "@/lib/clientes/selector";
 import { limpiarBorradores } from "@/lib/conversaciones/borradores";
+import { useNoLeidosConversaciones } from "@/lib/conversaciones/contador";
 import { requiereCambio, rutaCambiarContrasena, suscribirCambioRequerido } from "@/lib/cuenta/sesion";
 import { guardarEmpresa, limpiarEmpresa, suscribirProblemasEmpresa } from "@/lib/empresa";
 import { menuAgrupado, repartoTelefono } from "@/lib/menu";
@@ -276,7 +277,8 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
     }
 
     const resumen = useResumenTickets();
-    const contadores = { "/tickets": contadorDe(resumen, "activos") };
+    const noLeidos = useNoLeidosConversaciones(puede(["conversaciones.ver"]) && (yo.modoEmpresa === "sin_conector" || yo.empresaActiva !== undefined), `${yo.empresaActiva?.id ?? 0}`);
+    const contadores = { "/tickets": contadorDe(resumen, "activos"), "/conversaciones": noLeidos };
 
     return (
         <div className={cn("min-h-dvh bg-background-secondary text-[0.875rem]", contraida ? "lg:pl-16" : "lg:pl-60")}>

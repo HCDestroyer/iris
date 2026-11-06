@@ -1,4 +1,4 @@
-import { ClipboardList, DatabaseZap, History, KeyRound, Mail, Map as IconoMapa, Plug, ShieldCheck, Smartphone, Users, type LucideIcon } from "lucide-react";
+import { ClipboardList, DatabaseZap, History, KeyRound, Mail, Map as IconoMapa, Plug, ShieldCheck, Smartphone, Users, Zap, type LucideIcon } from "lucide-react";
 import { PERMISOS_CUADRILLAS, PERMISOS_ZONAS } from "@/lib/agenda/permisos";
 import type { Permiso } from "@/lib/menu";
 
@@ -12,6 +12,13 @@ export const SECCIONES: readonly Seccion[] = [
         descripcion: "Correos que abren tickets y servidor de salida de las respuestas.",
         icono: Mail,
         permisos: ["buzones.ver"],
+    },
+    {
+        href: "/administracion/respuestas-rapidas",
+        titulo: "Respuestas rápidas",
+        descripcion: "Textos que los agentes mandan con un toque en la bandeja de conversaciones.",
+        icono: Zap,
+        permisos: ["conversaciones.configurar"],
     },
     {
         href: "/administracion/plantillas",
