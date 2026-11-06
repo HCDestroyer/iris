@@ -146,6 +146,8 @@ type Modulo struct {
 	ReabrirOrden        *auditoria.Caso[EntradaMotivo, Orden]
 	MarcarChecklist     *auditoria.Caso[EntradaMarcarChecklist, Orden]
 	AgregarNota         *auditoria.Caso[EntradaAgregarNota, Orden]
+	EditarNota          *auditoria.Caso[EntradaEditarNota, Orden]
+	EliminarNota        *auditoria.Caso[EntradaEliminarNota, Orden]
 	UsarMaterial        *auditoria.Caso[EntradaUsarMaterial, Orden]
 	InstalarEquipo      *auditoria.Caso[EntradaEquipo, Orden]
 	RetirarEquipo       *auditoria.Caso[EntradaEquipo, Orden]
@@ -246,6 +248,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.ReabrirOrden = m.nuevoReabrirOrden()
 	m.MarcarChecklist = m.nuevoMarcarChecklist()
 	m.AgregarNota = m.nuevoAgregarNota()
+	m.EditarNota = m.nuevoEditarNota()
+	m.EliminarNota = m.nuevoEliminarNota()
 	m.UsarMaterial = m.nuevoUsarMaterial()
 	m.InstalarEquipo = m.nuevoEquipo(AccionInstalar)
 	m.RetirarEquipo = m.nuevoEquipo(AccionRetirar)

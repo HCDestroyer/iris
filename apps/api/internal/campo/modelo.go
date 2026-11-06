@@ -154,12 +154,14 @@ type PausaOrden struct {
 
 // NotaOrden: nota de la orden (técnico o despacho).
 type NotaOrden struct {
-	ID          uuid.UUID `json:"id" doc:"Id de la operación del lote que la creó (o uno v7 del servidor)"`
-	Texto       string    `json:"texto"`
-	AutorID     *int64    `json:"autorId" nullable:"true"`
-	AutorNombre string    `json:"autorNombre"`
-	Canal       string    `json:"canal"`
-	OcurridoEn  time.Time `json:"ocurridoEn"`
+	ID          uuid.UUID  `json:"id" doc:"Id de la operación del lote que la creó (o uno v7 del servidor)"`
+	Texto       string     `json:"texto"`
+	AutorID     *int64     `json:"autorId" nullable:"true"`
+	AutorNombre string     `json:"autorNombre"`
+	Canal       string     `json:"canal"`
+	OcurridoEn  time.Time  `json:"ocurridoEn"`
+	Version     int32      `json:"version" doc:"Para editarla o eliminarla (409 si cambió)"`
+	EditadaEn   *time.Time `json:"editadaEn" nullable:"true" doc:"Última edición (null si nunca se editó)"`
 }
 
 // MaterialOrden: material usado (producto de Argos).

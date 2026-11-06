@@ -3,7 +3,7 @@
 // agregó el técnico sin respuestas. Tipos de ítem: sí/no, selección, texto, número, medición y foto.
 import { formularioConRespuestas, valorDe, type FormularioOrden, type ItemChecklist, type OrdenVista, type PlantillaFormulario } from "@iris/sync";
 import { esquemaNumeroItem, faltantesPorFormulario, ORIGENES_FORMULARIO } from "@iris/sync/campo";
-import { Camera, Check, CircleAlert, CircleDashed, FilePlus2, Trash2, X } from "lucide-react-native";
+import { Camera, Check, CircleAlert, CircleDashed, Trash2, X } from "lucide-react-native";
 import { useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Boton, Campo, Dialogo, Insignia, Opciones, Tarjeta, Texto } from "../../componentes";
@@ -26,9 +26,9 @@ export function Checklist({ orden, editable, agregar }: { orden: OrdenVista; edi
     const sueltos = items.filter((i) => !i.formularioId || !conFormulario.has(i.formularioId));
     const rechazoCierre = estado.rechazos.find((op) => op.ordenId === orden.id && op.tipo === "orden.cerrar");
     const faltan = new Map(faltantesPorFormulario(rechazoCierre?.error).map((f) => [claveFaltante(f.formularioId, f.codigo), f.mensaje]));
-    const disponibles = estado.plantillas.filter((p) => p.activa && !formularios.some((f) => f.plantillaId === p.id));
-    if (items.length === 0 && !agregar) {
-        return null;
+    if (items.length === 0) {
+        // Sin formularios: dónde se agregan (si se puede).
+        return agregar ? <Texto suave>Esta orden no tiene formularios. Agrégalos con «Agregar formulario» del menú «⋯» de la orden.</Texto> : null;
     }
     return (
         <View style={estilos.pila} accessibilityLabel="Formularios">
@@ -40,7 +40,6 @@ export function Checklist({ orden, editable, agregar }: { orden: OrdenVista; edi
                     <ListaItems orden={orden} items={sueltos} editable={editable} faltan={faltan} />
                 </Tarjeta>
             ) : null}
-            {agregar ? <AgregarFormulario orden={orden} disponibles={disponibles} /> : null}
         </View>
     );
 }
@@ -98,9 +97,15 @@ function ListaItems({ orden, items, editable, faltan }: { orden: OrdenVista; ite
     );
 }
 
-function AgregarFormulario({ orden, disponibles }: { orden: OrdenVista; disponibles: readonly PlantillaFormulario[] }) {
-    const { motor, ejecutar } = useCampo();
-    const [abierto, setAbierto] = useState(false);
+/**
+ * Sumar un formulario del catálogo del teléfono (versión que se ve = la que se guarda), desde
+ * «Agregar formulario» del menú «⋯» de la orden. También sin señal.
+ */
+export function HojaAgregarFormulario({ orden, abierto, alCambiar }: { orden: OrdenVista; abierto: boolean; alCambiar: (abierto: boolean) => void }) {
+    const { motor, ejecutar, estado } = useCampo();
+    const setAbierto = alCambiar;
+    const formularios = orden.formularios ?? [];
+    const disponibles = estado.plantillas.filter((p) => p.activa && !formularios.some((f) => f.plantillaId === p.id));
     const agregar = async (p: PlantillaFormulario) => {
         if (await ejecutar(() => motor.registrar("orden.agregar_formulario", orden.id, { plantillaId: p.id, versionId: p.versionId }), `«${p.nombre}» agregado`)) {
             setAbierto(false);
@@ -108,10 +113,7 @@ function AgregarFormulario({ orden, disponibles }: { orden: OrdenVista; disponib
     };
     return (
         <>
-            <Boton variante="secundario" icono={FilePlus2} alPresionar={() => setAbierto(true)}>
-                Agregar formulario
-            </Boton>
-            <Dialogo abierto={abierto} alCerrar={() => setAbierto(false)} titulo="Agregar formulario" descripcion="Elige uno del catálogo. Se guarda en el teléfono y se envía al volver la señal.">
+            <Dialogo abierto={abierto} alCerrar={() => setAbierto(false)} titulo="Agregar formulario" testID="hoja-agregar-formulario" descripcion="Elige uno del catálogo. Se guarda en el teléfono y se envía al volver la señal.">
                 {disponibles.length === 0 ? (
                     <Texto suave>No hay más formularios en el catálogo del teléfono.</Texto>
                 ) : (
