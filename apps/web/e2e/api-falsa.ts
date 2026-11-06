@@ -2,6 +2,7 @@ import type { Schema } from "@iris/contratos";
 import type { BrowserContext, Page, Route } from "@playwright/test";
 import { apiAgenda, type ApiAgenda } from "./api-agenda";
 import { apiComercial, type ApiComercial } from "./api-comercial";
+import { apiConversaciones, PERMISOS_CONVERSACIONES, type ApiConversaciones, type OpcionesConversaciones } from "./api-conversaciones";
 import { apiEncuestas, type ApiEncuestas } from "./api-encuestas";
 import { apiReportes, type ApiReportes } from "./api-reportes";
 import { apiSSO, type ApiSSO } from "./api-sso";
@@ -203,6 +204,9 @@ export const PERMISOS_ADMIN: Permiso[] = [
     // Empresas del usuario (e2e/api-usuarios.ts).
     "usuarios.asignar_empresa",
     "usuarios.quitar_empresa",
+    // Bandeja de conversaciones (e2e/api-conversaciones.ts).
+    ...PERMISOS_CONVERSACIONES,
+    "adjuntos.subir",
 ];
 
 const permisosPorCorreo: Record<string, Permiso[]> = {
@@ -212,7 +216,7 @@ const permisosPorCorreo: Record<string, Permiso[]> = {
     [CON_MFA.correo]: ["usuarios.ver"],
     [LECTOR.correo]: [],
     [SOPORTE.correo]: ["clientes.ver", "clientes.estado_cuenta", "encuestas.compartir", "encuestas.ver", "usuarios.ver", ...PERMISOS_TICKETS],
-    [CONSULTA.correo]: ["agenda.ver", "clientes.ver", "prospectos.ver", "reportes.ver", "rutas.ver", "tickets.ver", "usuarios.ver"],
+    [CONSULTA.correo]: ["conversaciones.ver", "agenda.ver", "clientes.ver", "prospectos.ver", "reportes.ver", "rutas.ver", "tickets.ver", "usuarios.ver"],
     [VENDEDORA.correo]: PERMISOS_VENTAS,
     // Con integraciones.conectar pero sin empresas.todas: no puede conectar (la API exige rol global).
     [SUPERVISOR_ZONA.correo]: [...PERMISOS_BUZONES, "integraciones.conectar", "integraciones.ver", "tickets.ver"],
@@ -267,6 +271,8 @@ export type OpcionesApi = {
      * en la OT-000008, un consumo corregible (técnico sin vincular) y otro hecho con sus cargos.
      */
     argos050?: boolean;
+    /** Bandeja de conversaciones (e2e/api-conversaciones.ts). */
+    conversaciones?: OpcionesConversaciones;
 };
 
 export type Peticion = { metodo: string; ruta: string; query: URLSearchParams; empresa: string | undefined; idempotencia: string | undefined; cuerpo: unknown };
@@ -306,6 +312,8 @@ export type ApiFalsa = {
     cuenta: Pick<ApiCuenta, "cambiarVersion" | "sacarDelAlcance" | "reinicios">;
     /** Reportes: hacer que el próximo CSV responda 422 `exportacion_excedida`. */
     reportes: Pick<ApiReportes, "exportacionExcedida">;
+    /** Bandeja de conversaciones: conversaciones, mensajes, lo enviado y mensajes del cliente. */
+    conversaciones: Pick<ApiConversaciones, "conversaciones" | "mensajes" | "enviados" | "mensajeDelCliente">;
     /** Encuestas: lista, respuestas públicas y peticiones públicas que llevaron sesión. */
     encuestas: Pick<ApiEncuestas, "encuestas" | "publicasConSesion" | "respuestas" | "enlacesPedidos">;
     /** Autologin desde Argos, re-autenticación, vínculos y conectores. */
@@ -331,6 +339,7 @@ const OPERATIVAS = [
     "/api/v1/contratos",
     "/api/v1/reportes",
     "/api/v1/encuestas",
+    "/api/v1/mensajeria",
 ];
 
 const DIA_GT = (ms: number) => new Date(ms - 6 * 3_600_000).toISOString().slice(0, 10);
@@ -432,6 +441,8 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     const comercial = apiComercial({ conector: opciones.comercialConector === true });
     const reportes = apiReportes();
     const encuestas = apiEncuestas();
+    const enlaceActor = { id: 0 };
+    const conversaciones = apiConversaciones(() => enlaceActor.id, opciones.conversaciones);
     const listables = [...(PAGINA_1.data ?? []), ...(PAGINA_2.data ?? [])];
     const cuenta = apiCuenta(() => [...usuarios, ...listables.filter((u) => !usuarios.some((x) => x.id === u.id))]);
     const sso = apiSSO({
@@ -783,6 +794,10 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         if (await encuestas.manejar({ route, metodo, ruta, query: url.searchParams, puede })) {
             return;
         }
+        enlaceActor.id = actual.id;
+        if (await conversaciones.manejar({ route, metodo, ruta, query: url.searchParams, cuerpo, idempotencia: cabeceras["idempotency-key"], puede })) {
+            return;
+        }
         if (await reportes.manejar({ route, metodo, ruta, query: url.searchParams, puede })) {
             return;
         }
@@ -952,6 +967,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             reautenticaciones: () => sso.reautenticaciones,
             descartes: () => sso.descartes,
         },
+        conversaciones: { conversaciones: conversaciones.conversaciones, mensajes: conversaciones.mensajes, enviados: conversaciones.enviados, mensajeDelCliente: conversaciones.mensajeDelCliente },
         encuestas: { encuestas: encuestas.encuestas, publicasConSesion: encuestas.publicasConSesion, respuestas: encuestas.respuestas, enlacesPedidos: encuestas.enlacesPedidos },
         cuenta: { cambiarVersion: cuenta.cambiarVersion, sacarDelAlcance: cuenta.sacarDelAlcance, reinicios: cuenta.reinicios },
         cambiarVersionOrden: (ordenId) => {

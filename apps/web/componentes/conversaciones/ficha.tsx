@@ -61,7 +61,7 @@ export function FichaCliente({ conv, pestana, alCambiarPestana, alActualizar, re
     const conCliente = conv.contacto.tipo === "cliente";
     return (
         <div className="flex min-h-0 flex-col" data-slot="ficha-cliente">
-            {conCliente ? <CabeceraCliente conv={conv} /> : <SinCliente conv={conv} alActualizar={alActualizar} />}
+            {conCliente ? <CabeceraCliente conv={conv} alActualizar={alActualizar} /> : <SinCliente conv={conv} alActualizar={alActualizar} />}
             <nav aria-label="Secciones de la ficha" className="flex gap-4 border-b border-border px-4">
                 {(
                     [
@@ -88,7 +88,7 @@ export function FichaCliente({ conv, pestana, alCambiarPestana, alActualizar, re
     );
 }
 
-function CabeceraCliente({ conv }: { conv: ConversacionDetalle }) {
+function CabeceraCliente({ conv, alActualizar }: { conv: ConversacionDetalle; alActualizar: (c: Conversacion) => void }) {
     const { puede } = useSesion();
     const ahora = useAhora(60_000);
     const r = conv.clienteResumen;
@@ -175,7 +175,7 @@ function CabeceraCliente({ conv }: { conv: ConversacionDetalle }) {
                 </div>
             ) : null}
             {r ? <p className="text-xs text-muted-foreground">Datos de Argos {haceCuanto(r.sincronizadoEn, ahora)}</p> : null}
-            {accion === "ticket" ? <DialogoTicket conv={conv} cerrar={() => setAccion(null)} /> : null}
+            {accion === "ticket" ? <DialogoTicket conv={conv} cerrar={() => setAccion(null)} alHecho={alActualizar} /> : null}
             {accion === "promesa" ? <DialogoPromesa conv={conv} cerrar={() => setAccion(null)} /> : null}
         </div>
     );
@@ -273,6 +273,13 @@ function Historial({ conv }: { conv: ConversacionDetalle }) {
     );
 }
 
+/** Dónde coincide el número: el contacto de un servicio no es el titular (contrato §5.1). */
+export function textoCoincidencia(en: readonly string[]): string {
+    if (en.includes("telefono") || en.includes("movil")) return "teléfono del cliente";
+    if (en.includes("contacto_servicio")) return "contacto de un servicio";
+    return "";
+}
+
 /** Sin cliente asociado: coincidencias por el número, buscar en Argos, prospecto o contacto de Iris. */
 function SinCliente({ conv, alActualizar }: { conv: ConversacionDetalle; alActualizar: (c: Conversacion) => void }) {
     const { puede } = useSesion();
@@ -349,21 +356,19 @@ function SinCliente({ conv, alActualizar }: { conv: ConversacionDetalle; alActua
                             ) : (
                                 <ul className="grid gap-1.5">
                                     {coincidencias.datos.clientes.map((c) => (
-                                        <li key={c.id} className="flex min-w-0 items-center gap-2.5 rounded-[0.625rem] border border-border p-2">
+                                        <li key={c.clienteId} className="flex min-w-0 items-center gap-2.5 rounded-[0.625rem] border border-border p-2">
                                             <span aria-hidden className="flex size-[1.875rem] shrink-0 items-center justify-center rounded-full bg-elevated text-[0.6875rem] font-semibold">
                                                 {iniciales(c.nombre)}
                                             </span>
                                             <span className="flex min-w-0 flex-1 flex-col">
                                                 <span className="truncate text-[0.8125rem] font-semibold">{c.nombre}</span>
                                                 <span className="truncate text-[0.71875rem] text-muted-foreground">
-                                                    {(c.coincideEn ?? []).includes("contacto_servicio") && !(c.coincideEn ?? []).some((x) => x !== "contacto_servicio")
-                                                        ? "Contacto de un servicio"
-                                                        : (c.servicios?.[0] ? `${c.servicios[0].plan} · ${c.servicios[0].zona}` : "Sin servicio en esta empresa")}
+                                                    {[c.codigo, textoCoincidencia(c.coincideEn ?? []), c.origen === "instantanea" ? "datos locales" : null].filter(Boolean).join(" · ")}
                                                 </span>
                                             </span>
-                                            <Boton variante="secundario" tamano="sm" className="shrink-0" disabled={asociando !== null} onClick={() => void asociar(c.id, c.servicios?.length === 1 ? (c.servicios[0]?.id ?? null) : null)}>
+                                            <Boton variante="secundario" tamano="sm" className="shrink-0" disabled={asociando !== null} onClick={() => void asociar(c.clienteId, null)}>
                                                 <Link2 />
-                                                {asociando === c.id ? "Asociando…" : "Asociar"}
+                                                {asociando === c.clienteId ? "Asociando…" : "Asociar"}
                                             </Boton>
                                         </li>
                                     ))}
@@ -467,11 +472,14 @@ function DialogoContactoIris({ conv, cerrar, alHecho }: { conv: ConversacionDeta
     );
 }
 
-const esquemaTicket = z.object({ descripcion: z.string().max(4000, "Hasta 4000 caracteres") });
+const esquemaTicket = z.object({
+    asunto: z.string().trim().min(3, "Escribe el asunto").max(200, "Hasta 200 caracteres"),
+    descripcion: z.string().max(4000, "Hasta 4000 caracteres"),
+});
 
-/** Ticket desde la conversación (cliente y servicio de la conversación); un campo: la descripción. */
-function DialogoTicket({ conv, cerrar }: { conv: ConversacionDetalle; cerrar: () => void }) {
-    const form = useForm({ resolver: zodResolver(esquemaTicket), defaultValues: { descripcion: "" } });
+/** Ticket desde la conversación (cliente y servicio de la conversación): asunto y descripción. */
+function DialogoTicket({ conv, cerrar, alHecho }: { conv: ConversacionDetalle; cerrar: () => void; alHecho: (c: Conversacion) => void }) {
+    const form = useForm({ resolver: zodResolver(esquemaTicket), defaultValues: { asunto: "", descripcion: conv.ultimoMensaje?.direccion === "entrante" ? (conv.ultimoMensaje.texto ?? "") : "" } });
     useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
     const clave = useRef(nuevaClaveIdempotencia());
     const [error, setError] = useState<unknown>(null);
@@ -487,18 +495,20 @@ function DialogoTicket({ conv, cerrar }: { conv: ConversacionDetalle; cerrar: ()
                             const r = await resolver(
                                 api().POST(`${BASE}/crear-ticket`, {
                                     params: { path: { id: conv.id }, header: cabeceraIdem(clave.current) },
-                                    body: { ...(d.descripcion.trim() ? { descripcion: d.descripcion.trim() } : {}) },
+                                    body: { asunto: d.asunto.trim(), ...(d.descripcion.trim() ? { descripcion: d.descripcion.trim() } : {}) },
                                 }),
                             );
                             avisar({ titulo: `Ticket ${r.vinculo.referencia} creado` });
+                            alHecho(r.conversacion);
                             cerrar();
                         } catch (e) {
                             clave.current = claveTrasError(e, clave.current);
-                            if (!erroresACampos(e, ["descripcion"], form.setError)) setError(e);
+                            if (!erroresACampos(e, ["asunto", "descripcion"], form.setError)) setError(e);
                         }
                     })}
                 >
-                    <CampoArea etiqueta="Descripción (opcional)" ayuda="Si la dejas vacía, se usa el último mensaje del cliente." rows={4} maxLength={4000} error={form.formState.errors.descripcion?.message} {...form.register("descripcion")} />
+                    <Campo etiqueta="Asunto" maxLength={200} autoComplete="off" error={form.formState.errors.asunto?.message} {...form.register("asunto")} />
+                    <CampoArea etiqueta="Descripción (opcional)" rows={4} maxLength={4000} error={form.formState.errors.descripcion?.message} {...form.register("descripcion")} />
                     {error ? (
                         <Aviso tono="error" titulo="No se pudo crear el ticket">
                             {mensajeDeError(error).titulo}

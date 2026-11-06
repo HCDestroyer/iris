@@ -151,7 +151,9 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
         leido.current = ultimoEntrante;
         void api()
             .POST("/api/v1/mensajeria/conversaciones/{id}/leer", { params: { path: { id } }, body: { hastaMensajeId: ultimoEntrante } })
-            .then(({ data }) => data && aplicarRef.current(data))
+            .then(({ data }) => {
+                if (data && conv) aplicarRef.current({ ...conv, noLeidos: data.noLeidos });
+            })
             .catch(() => {
                 leido.current = null;
             });

@@ -12,8 +12,8 @@ import { useSesion } from "@/lib/sesion";
  * compartidos por la lista, los filtros, la conversación y los diálogos: números, agentes, colas,
  * etiquetas activas y respuestas rápidas (solo con `conversaciones.responder`).
  */
-export type CanalBandeja = Schema<"CanalBandeja">;
-export type Agente = Schema<"AgenteBandeja">;
+export type CanalBandeja = Schema<"NumeroConversaciones">;
+export type Agente = Schema<"AgenteConversaciones">;
 
 type Catalogos = {
     canales: Lectura<CanalBandeja[]>;

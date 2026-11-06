@@ -11,4 +11,4 @@ export type Etiqueta = Schema<"EtiquetaConversacion">;
 export type Cola = Schema<"ColaConversaciones">;
 export type RespuestaRapida = Schema<"RespuestaRapida">;
 export type Contadores = Schema<"ContadoresConversaciones">;
-export type EventoBandeja = Schema<"EventoConversaciones">;
+export type EventoBandeja = Schema<"EventoConversacion">;

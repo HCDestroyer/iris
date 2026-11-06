@@ -14,7 +14,7 @@ import type { Conversacion, Mensaje } from "@/lib/conversaciones/tipos";
 import { useLectura } from "@/lib/lectura";
 import type { Schema } from "@iris/contratos";
 
-type Plantilla = Schema<"PlantillaConversacion">;
+type Plantilla = Schema<"PlantillaDisponible">;
 
 /** Vista previa con las variables puestas (`{{nombre}}` → lo escrito, o el hueco tal cual). */
 export function vistaConVariables(vista: string, valores: Record<string, string>): string {
