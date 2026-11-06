@@ -42,7 +42,7 @@ func TestCanjeMandaReceptorArgos(t *testing.T) {
 	e.conectado()
 	var canje map[string]any
 	e.argos.con(func() { canje = e.argos.canjes[len(e.argos.canjes)-1] })
-	if argos.ContratoIris != "0.6.3" || canje["receptor_argos"] != true || canje["contrato"] != argos.ContratoIris {
+	if argos.ContratoIris != "0.6.4" || canje["receptor_argos"] != true || canje["contrato"] != argos.ContratoIris {
 		t.Fatalf("canje: receptor_argos=%v contrato=%v", canje["receptor_argos"], canje["contrato"])
 	}
 }
