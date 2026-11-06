@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -108,12 +109,18 @@ func (i inventarioArgos) Existencias(ctx context.Context, empresaID, bodegaID in
 		cant, _ := l.Cantidad.Float64()
 		desc := l.Descripcion
 		if desc == "" {
+			desc = l.ProductoNombre
+		}
+		if desc == "" {
 			desc = l.Nombre
 		}
 		if desc == "" && l.Producto != nil {
 			desc = l.Producto.Nombre
 		}
-		salida = append(salida, Existencia{ProductoID: l.IDProducto(), Descripcion: desc, Cantidad: cant, Unidad: l.Unidad, Modalidad: l.ModalidadValida()})
+		salida = append(salida, Existencia{
+			ProductoID: l.IDProducto(), Descripcion: desc, Codigo: strings.TrimSpace(l.ProductoSKU), BodegaNombre: strings.TrimSpace(l.BodegaNombre),
+			Cantidad: cant, Unidad: l.Unidad, Modalidad: l.ModalidadValida(),
+		})
 	}
 	return salida, nil
 }
