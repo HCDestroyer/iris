@@ -3,6 +3,7 @@
 // las interfaces que se inyectan: almacén, transporte y flujo SSE).
 import type { Schema } from "@iris/contratos";
 import type { CambiosTabla } from "../almacen";
+import type { ErrorTransporte } from "../errores";
 import type { RespuestaApi } from "../transporte";
 
 export type ConversacionChat = Schema<"ConversacionChat">;
@@ -137,8 +138,12 @@ export interface TransporteChat {
 export interface OyentesFlujo {
     alAbrir(): void;
     alEvento(evento: EventoChat): void;
-    /** El flujo terminó (el servidor lo cerró, se cortó la red o respondió un error). */
-    alCerrar(): void;
+    /**
+     * El flujo terminó (el servidor lo cerró, se cortó la red o respondió un error). Quien ve el
+     * estado HTTP (el flujo con `fetch` de la app nativa) pasa el error: 401/403 detienen el chat y
+     * 429/503 esperan; `EventSource` no lo sabe y no pasa nada (el sondeo que sigue lo descubre).
+     */
+    alCerrar(error?: ErrorTransporte): void;
 }
 
 export interface FlujoChat {
@@ -146,7 +151,7 @@ export interface FlujoChat {
 }
 
 /**
- * Abre `GET /chat/eventos` desde `desde` (o desde ahora). La PWA usa `EventSource`; quien no puede
- * leer un flujo (la app nativa con el `fetch` de React Native) no pasa ninguno y se sondea.
+ * Abre `GET /chat/eventos` desde `desde` (o desde ahora). La PWA usa `EventSource`; la app nativa,
+ * `crearFlujoFetch` sobre `expo/fetch` (lee el cuerpo por partes). Sin flujo se sondea.
  */
 export type AbrirFlujoChat = (desde: string | null, oyentes: OyentesFlujo) => FlujoChat;

@@ -6,6 +6,7 @@ import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
 import { AppState, ScrollView, StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { escucharPlano } from "./campo/plano";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import "./global.css";
 import { Aviso, Boton, Cargando, Pila, useAltoTeclado } from "./componentes";
@@ -83,10 +84,7 @@ function dependenciasNativas(): DependenciasCampo {
             const s = AppState.addEventListener("change", (e) => e === "active" && fn());
             return () => s.remove();
         },
-        alCambiarPlano: (fn) => {
-            const s = AppState.addEventListener("change", (e) => fn(e === "active"));
-            return () => s.remove();
-        },
+        alCambiarPlano: escucharPlano,
         cerrarSesionApi,
         vaciarCacheFotos,
         olvidarSesionGuardada,

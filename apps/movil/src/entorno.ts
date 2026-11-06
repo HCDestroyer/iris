@@ -1,6 +1,7 @@
 // Dependencias del teléfono que la app inyecta (y las pruebas reemplazan): origen de la API,
 // almacén de claves (lo no sensible: sesión guardada, empresa elegida, rastreo), almacén seguro (el
 // token CSRF de la sesión) y `fetch`. Las implementaciones nativas están en `entorno-nativo.ts`.
+import type { FetchFlujo } from "@iris/sync/chat";
 
 /** Clave-valor síncrono (`expo-sqlite/kv-store`): solo datos no sensibles. */
 export interface AlmacenClaves {
@@ -33,6 +34,11 @@ export interface Entorno {
     claves: AlmacenClaves;
     secreto: AlmacenSecreto;
     fetch: typeof globalThis.fetch;
+    /**
+     * `fetch` que entrega el cuerpo por partes (`expo/fetch`) para el flujo SSE del chat. Comparte
+     * las cookies de la sesión con `fetch`. Sin él (pruebas), el chat sondea `/cambios`.
+     */
+    fetchFlujo?: FetchFlujo;
     /** Sin ella (pruebas, teléfono sin biometría) no se ofrece «Usar huella». */
     biometria?: Biometria;
 }
