@@ -5874,11 +5874,17 @@
         "additionalProperties": false,
         "properties": {
           "estado": {
-            "description": "El contacto aceptó (o pidió no recibir) mensajes por WhatsApp",
+            "description": "El contacto aceptó (o pidió no recibir) mensajes por WhatsApp. acepta exige conversaciones.supervisar",
             "enum": [
               "acepta",
               "baja"
             ],
+            "type": "string"
+          },
+          "motivo": {
+            "description": "Obligatorio para registrar acepta sobre una baja que pidió el propio cliente (queda auditado)",
+            "maxLength": 300,
+            "minLength": 5,
             "type": "string"
           }
         },

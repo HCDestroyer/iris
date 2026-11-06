@@ -778,7 +778,7 @@ func (q *Queries) ConfigurarCanal(ctx context.Context, arg ConfigurarCanalParams
 }
 
 const consentimientoNumeroVigente = `-- name: ConsentimientoNumeroVigente :one
-SELECT id, empresa_id, telefono, estado, origen, ocurrido_en, registrado_por, created_at FROM mensajeria.consentimientos_numero
+SELECT id, empresa_id, telefono, estado, origen, ocurrido_en, registrado_por, motivo, created_at FROM mensajeria.consentimientos_numero
 WHERE coalesce(empresa_id, 0) = $1::bigint AND telefono = $2
 ORDER BY ocurrido_en DESC, (estado = 'baja') DESC, id DESC
 LIMIT 1
@@ -800,6 +800,7 @@ func (q *Queries) ConsentimientoNumeroVigente(ctx context.Context, arg Consentim
 		&i.Origen,
 		&i.OcurridoEn,
 		&i.RegistradoPor,
+		&i.Motivo,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -1776,9 +1777,9 @@ func (q *Queries) InsertarCola(ctx context.Context, arg InsertarColaParams) (Men
 }
 
 const insertarConsentimientoNumero = `-- name: InsertarConsentimientoNumero :one
-INSERT INTO mensajeria.consentimientos_numero (empresa_id, telefono, estado, origen, ocurrido_en, registrado_por)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, empresa_id, telefono, estado, origen, ocurrido_en, registrado_por, created_at
+INSERT INTO mensajeria.consentimientos_numero (empresa_id, telefono, estado, origen, ocurrido_en, registrado_por, motivo)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, empresa_id, telefono, estado, origen, ocurrido_en, registrado_por, motivo, created_at
 `
 
 type InsertarConsentimientoNumeroParams struct {
@@ -1788,6 +1789,7 @@ type InsertarConsentimientoNumeroParams struct {
 	Origen        string
 	OcurridoEn    time.Time
 	RegistradoPor *int64
+	Motivo        *string
 }
 
 func (q *Queries) InsertarConsentimientoNumero(ctx context.Context, arg InsertarConsentimientoNumeroParams) (MensajeriaConsentimientosNumero, error) {
@@ -1798,6 +1800,7 @@ func (q *Queries) InsertarConsentimientoNumero(ctx context.Context, arg Insertar
 		arg.Origen,
 		arg.OcurridoEn,
 		arg.RegistradoPor,
+		arg.Motivo,
 	)
 	var i MensajeriaConsentimientosNumero
 	err := row.Scan(
@@ -1808,6 +1811,7 @@ func (q *Queries) InsertarConsentimientoNumero(ctx context.Context, arg Insertar
 		&i.Origen,
 		&i.OcurridoEn,
 		&i.RegistradoPor,
+		&i.Motivo,
 		&i.CreatedAt,
 	)
 	return i, err

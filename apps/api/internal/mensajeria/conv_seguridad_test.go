@@ -150,7 +150,9 @@ func TestConvConsentimientoPorNumero(t *testing.T) {
 	b.exigir(b.api(b.agente, http.MethodPost, ruta, pl()), http.StatusUnprocessableEntity, "type", "urn:iris:problema:sin_permiso")
 	consent := fmt.Sprintf("/contactos-iris/%d/consentimiento", contacto)
 	b.exigir(b.api(b.lectura, http.MethodPost, consent, map[string]any{"estado": "acepta"}), http.StatusForbidden)
-	b.exigir(b.api(b.agente, http.MethodPost, consent, map[string]any{"estado": "acepta"}), http.StatusOK, "estado", "acepta")
+	// acepta es de supervisión (sensible); un agente solo registra bajas.
+	b.exigir(b.api(b.agente, http.MethodPost, consent, map[string]any{"estado": "acepta"}), http.StatusForbidden)
+	b.exigir(b.api(b.supervisor, http.MethodPost, consent, map[string]any{"estado": "acepta"}), http.StatusOK, "estado", "acepta")
 	b.exigir(b.api(b.agente, http.MethodPost, ruta, pl()), http.StatusCreated, "tipo", "plantilla")
 	// Otra queda en cola; si antes de salir el número pide baja, al enviarla se revisa y falla «baja».
 	r = b.api(b.agente, http.MethodPost, ruta, pl())
@@ -166,7 +168,8 @@ func TestConvConsentimientoPorNumero(t *testing.T) {
 	if estado != "fallido" || motivo != "baja" {
 		t.Fatalf("plantilla retenida con baja: %s %s", estado, motivo)
 	}
-	b.exigir(b.api(b.agente, http.MethodPost, consent, map[string]any{"estado": "acepta"}), http.StatusOK)
+	*b.reloj = b.reloj.Add(time.Second)
+	b.exigir(b.api(b.supervisor, http.MethodPost, consent, map[string]any{"estado": "acepta"}), http.StatusOK)
 	// Escribe BAJA: queda la baja del número (origen cliente) y ya no sale.
 	*b.reloj = b.reloj.Add(time.Minute)
 	b.texto(num, "wamid.k2", "BAJA")
@@ -175,6 +178,62 @@ func TestConvConsentimientoPorNumero(t *testing.T) {
 	}
 	*b.reloj = b.reloj.Add(25 * time.Hour)
 	b.exigir(b.api(b.agente, http.MethodPost, ruta, pl()), http.StatusUnprocessableEntity, "type", "urn:iris:problema:baja")
+	// La baja que pidió el cliente no se anula sin motivo, ni siquiera un supervisor.
+	b.exigir(b.api(b.supervisor, http.MethodPost, consent, map[string]any{"estado": "acepta"}), http.StatusUnprocessableEntity,
+		"type", "urn:iris:problema:baja_del_cliente")
+	r = b.api(b.supervisor, http.MethodPost, consent, map[string]any{"estado": "acepta", "motivo": "Lo pidió por teléfono el 6/11"})
+	b.exigir(r, http.StatusOK, "estado", "acepta")
+	if b.contar(`SELECT count(*) FROM mensajeria.consentimientos_numero WHERE telefono = $1 AND estado = 'acepta' AND motivo IS NOT NULL`, "+"+num) != 1 {
+		t.Fatal("motivo guardado")
+	}
+	if b.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'conversaciones.consentimiento_numero' AND entrada::text LIKE '%Lo pidió por teléfono%'`) != 1 {
+		t.Fatal("motivo auditado")
+	}
+}
+
+// Un cliente de Argos asociado (y verificado) que escribe BAJA no recibe plantillas, ni dentro ni
+// fuera de la ventana, aunque Argos tenga acepta.
+func TestConvBajaPorChatDeUnCliente(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	num := numeroCliente()
+	cliente := b.cliente(1, "+"+num)
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_clientes (id, empresa_id, nombre, movil, sincronizado_en, empresas)
+		VALUES ($1, 1, 'Ana Pérez', $2, now(), '{1}')`, cliente, "+"+num); err != nil {
+		t.Fatal(err)
+	}
+	b.texto(num, "wamid.q1", "Hola")
+	c := b.conv(num)
+	if k := c["contacto"].(map[string]any); k["clienteId"] == nil || k["verificado"] != true {
+		t.Fatalf("asociado y verificado: %v", k)
+	}
+	b.exigir(b.consentir(cliente, "acepta", b.reloj.Add(-time.Hour)), http.StatusCreated)
+	p, _ := mensajeria.PlantillaPorCodigo("bienvenida")
+	vars := map[string]string{}
+	for _, x := range p.Variables {
+		vars[x.Nombre] = ejemploVariable(x.Formato)
+	}
+	ruta := "/conversaciones/" + cid(c) + "/mensajes"
+	pl := func() map[string]any {
+		return map[string]any{"id": nuevoID(), "plantilla": map[string]any{"codigo": "bienvenida", "variables": vars}}
+	}
+	b.exigir(b.api(b.agente, http.MethodPost, ruta, pl()), http.StatusCreated)
+	*b.reloj = b.reloj.Add(time.Minute)
+	b.texto(num, "wamid.q2", "BAJA")
+	// Dentro de la ventana.
+	b.exigir(b.api(b.agente, http.MethodPost, ruta, pl()), http.StatusUnprocessableEntity, "type", "urn:iris:problema:baja")
+	// Fuera de la ventana, con acepta en Argos posterior a nada de lo de Iris.
+	*b.reloj = b.reloj.Add(25 * time.Hour)
+	b.exigir(b.api(b.agente, http.MethodPost, ruta, pl()), http.StatusUnprocessableEntity, "type", "urn:iris:problema:baja")
+}
+
+// Configurar un número también es solo de personas con sesión.
+func TestConvConfigurarCanalSoloPersonas(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	tk := b.entorno.persona([]int64{1}, rolBase("supervisor"))
+	b.exigir(b.api(tk, http.MethodPost, fmt.Sprintf("/canales/%d/configurar", b.canal.ID), map[string]any{"version": b.canal.Version, "usos": []string{"soporte"}, "avisosEmpresa": false, "colaId": b.cola}),
+		http.StatusNotFound)
+	b.exigir(b.api(b.supervisor, http.MethodPost, fmt.Sprintf("/canales/%d/configurar", b.canal.ID), map[string]any{"version": b.canal.Version, "usos": []string{"soporte"}, "avisosEmpresa": false, "colaId": b.cola}),
+		http.StatusOK)
 }
 
 // Varios números en la misma app de Meta: un cambio de otro phone_number_id va a su canal solo si es

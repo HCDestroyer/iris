@@ -42,8 +42,10 @@ type argosFalso struct {
 	comprobante int64
 	errComprob  error
 	promesa     argos.PromesaArgos
-	claves      []string
-	actores     []argos.AtencionIris
+	// alCrearPromesa corre mientras «Argos» atiende la promesa (fuera de la transacción de Iris).
+	alCrearPromesa func()
+	claves         []string
+	actores        []argos.AtencionIris
 }
 
 func (f *argosFalso) BuscarPorTelefono(_ context.Context, a argos.AtencionIris, _ string) ([]argos.ClienteTelefono, error) {
@@ -87,6 +89,9 @@ func (f *argosFalso) CrearPromesa(_ context.Context, _ argos.AtencionIris, _ int
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.claves = append(f.claves, clave)
+	if f.alCrearPromesa != nil {
+		f.alCrearPromesa()
+	}
 	return f.promesa, nil
 }
 
@@ -843,6 +848,21 @@ func TestConvBoletaYPromesa(t *testing.T) {
 		t.Fatal("la repetición volvió a pedir a Argos")
 	}
 	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/promesas/simular", pr), http.StatusOK, "resultado", "aprobada")
+	// Si mientras Argos respondía la conversación perdió la verificación (o cambió de cliente): 409.
+	b.argos.alCrearPromesa = func() {
+		if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.conversaciones SET cliente_verificado = false WHERE id = $1`, cid(c)); err != nil {
+			t.Error(err)
+		}
+	}
+	b.exigir(b.apiClave(b.agente, http.MethodPost, ruta+"/promesas", "promesa-2", map[string]any{"servicioId": cliente * 10, "venceEl": "2026-11-21"}),
+		http.StatusConflict, "type", "urn:iris:problema:cliente_cambiado")
+	b.argos.alCrearPromesa = nil
+	// Desasociar quita también la verificación.
+	d := b.api(b.supervisor, http.MethodPost, ruta+"/desasociar", map[string]any{"version": ver(b.conv(num))})
+	b.exigir(d, http.StatusOK)
+	if d.cuerpo["contacto"].(map[string]any)["verificado"] != false || b.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND (cliente_verificado OR verificado_por IS NOT NULL)`, cid(c)) != 0 {
+		t.Fatalf("desasociar deja verificado: %v", d.cuerpo["contacto"])
+	}
 	if n := b.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'promesa.solicitada' AND payload->>'conversacion_id' = $1`, cid(c)); n != 1 {
 		t.Fatalf("promesa.solicitada: %d", n)
 	}
