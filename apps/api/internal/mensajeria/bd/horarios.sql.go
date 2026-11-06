@@ -189,7 +189,7 @@ const configurarHorarioCanal = `-- name: ConfigurarHorarioCanal :one
 UPDATE mensajeria.canales
 SET horario_id = $1, fuera_horario = $2, version = version + 1, updated_at = now()
 WHERE id = $3
-RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario
+RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot
 `
 
 type ConfigurarHorarioCanalParams struct {
@@ -223,6 +223,7 @@ func (q *Queries) ConfigurarHorarioCanal(ctx context.Context, arg ConfigurarHora
 		&i.ColaID,
 		&i.HorarioID,
 		&i.FueraHorario,
+		&i.Bot,
 	)
 	return i, err
 }
@@ -359,7 +360,7 @@ func (q *Queries) FijarGuardia(ctx context.Context, arg FijarGuardiaParams) erro
 }
 
 const fijarHorarioCola = `-- name: FijarHorarioCola :one
-UPDATE mensajeria.colas SET horario_id = $1, version = version + 1, updated_at = now() WHERE id = $2 RETURNING id, empresa_id, nombre, descripcion, sla_respuesta_min, sla_por_vencer_min, activa, version, created_at, updated_at, horario_id
+UPDATE mensajeria.colas SET horario_id = $1, version = version + 1, updated_at = now() WHERE id = $2 RETURNING id, empresa_id, nombre, descripcion, sla_respuesta_min, sla_por_vencer_min, activa, version, created_at, updated_at, horario_id, bot_sin_confirmacion_min, bot_sin_disponibles_min
 `
 
 type FijarHorarioColaParams struct {
@@ -382,6 +383,8 @@ func (q *Queries) FijarHorarioCola(ctx context.Context, arg FijarHorarioColaPara
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.HorarioID,
+		&i.BotSinConfirmacionMin,
+		&i.BotSinDisponiblesMin,
 	)
 	return i, err
 }

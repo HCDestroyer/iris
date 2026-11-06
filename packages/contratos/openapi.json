@@ -641,11 +641,26 @@
       "AgenteConversaciones": {
         "additionalProperties": false,
         "properties": {
+          "abiertas": {
+            "description": "Conversaciones activas (no resueltas) asignadas a esta persona en la empresa",
+            "format": "int64",
+            "type": "integer"
+          },
           "colas": {
+            "description": "Colas de las que es miembro",
             "items": {
               "$ref": "#/components/schemas/ColaRef"
             },
             "type": "array"
+          },
+          "colasSupervisadas": {
+            "items": {
+              "$ref": "#/components/schemas/ColaRef"
+            },
+            "type": "array"
+          },
+          "disponibilidad": {
+            "$ref": "#/components/schemas/DisponibilidadAgente"
           },
           "id": {
             "format": "int64",
@@ -663,7 +678,30 @@
           "id",
           "nombre",
           "supervisa",
-          "colas"
+          "colas",
+          "colasSupervisadas",
+          "abiertas",
+          "disponibilidad"
+        ],
+        "type": "object"
+      },
+      "AjustesBandeja": {
+        "additionalProperties": false,
+        "properties": {
+          "minutosInactividad": {
+            "description": "Sin actividad en estos minutos, el agente pasa a no_disponible (15 por defecto)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "version": {
+            "description": "0 si nunca se cambiaron",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "minutosInactividad",
+          "version"
         ],
         "type": "object"
       },
@@ -1350,6 +1388,59 @@
         ],
         "type": "object"
       },
+      "BotNumero": {
+        "additionalProperties": false,
+        "properties": {
+          "activo": {
+            "description": "Aviso «¿Alguien la atiende?» y bot en horario (fuera de horario manda fueraDeHorario)",
+            "type": "boolean"
+          },
+          "atiende": {
+            "description": "agente_autonomo: fase 3 (422 no_disponible_aun)",
+            "enum": [
+              "bot",
+              "agente_autonomo"
+            ],
+            "type": "string"
+          },
+          "menu": {
+            "description": "Menú simple: el cliente contesta con el número de la opción",
+            "items": {
+              "$ref": "#/components/schemas/OpcionMenuBot"
+            },
+            "maxItems": 9,
+            "type": "array"
+          },
+          "minutosSinConfirmacion": {
+            "description": "Con agentes disponibles: minutos sin que nadie la tome antes de que conteste el bot (30)",
+            "format": "int32",
+            "maximum": 1440,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "minutosSinDisponibles": {
+            "description": "Sin agentes disponibles: minutos después del saludo antes de que el bot tome la conversación (3)",
+            "format": "int32",
+            "maximum": 1440,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "saludo": {
+            "description": "Texto plano del saludo del bot",
+            "maxLength": 1024,
+            "type": "string"
+          }
+        },
+        "required": [
+          "activo",
+          "atiende",
+          "minutosSinConfirmacion",
+          "minutosSinDisponibles",
+          "saludo",
+          "menu"
+        ],
+        "type": "object"
+      },
       "Buzon": {
         "additionalProperties": false,
         "properties": {
@@ -1652,6 +1743,10 @@
             "description": "Es el número por el que salen los avisos de la empresa (uno activo por empresa)",
             "type": "boolean"
           },
+          "bot": {
+            "$ref": "#/components/schemas/BotNumero",
+            "description": "Cuando no hay agentes (contratos/conversaciones.md §14.6)"
+          },
           "canal": {
             "enum": [
               "whatsapp"
@@ -1728,10 +1823,7 @@
             "items": {
               "type": "string"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "version": {
             "format": "int32",
@@ -1760,6 +1852,7 @@
           "colaId",
           "horarioId",
           "fueraDeHorario",
+          "bot",
           "activo",
           "pausadoHasta",
           "webhookRuta",
@@ -2604,8 +2697,32 @@
           "activa": {
             "type": "boolean"
           },
+          "botSinConfirmacionMin": {
+            "description": "Minutos sin que nadie la tome antes de que conteste el bot (null = los del número)",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "botSinDisponiblesMin": {
+            "description": "Minutos sin agentes disponibles antes de que el bot tome la conversación (null = los del número)",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "descripcion": {
             "type": "string"
+          },
+          "disponibles": {
+            "description": "Ids de los miembros y supervisores disponibles ahora",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
           },
           "empresaId": {
             "format": "int64",
@@ -2651,6 +2768,13 @@
               "null"
             ]
           },
+          "supervisores": {
+            "description": "Ven, asignan y pasan todo lo de la cola sin ser miembros",
+            "items": {
+              "$ref": "#/components/schemas/UsuarioRef"
+            },
+            "type": "array"
+          },
           "version": {
             "format": "int32",
             "type": "integer"
@@ -2665,6 +2789,10 @@
           "slaPorVencerMin",
           "horarioId",
           "miembros",
+          "supervisores",
+          "disponibles",
+          "botSinConfirmacionMin",
+          "botSinDisponiblesMin",
           "activa",
           "version"
         ],
@@ -3553,6 +3681,10 @@
               "null"
             ]
           },
+          "espera": {
+            "$ref": "#/components/schemas/EsperaConversacion",
+            "description": "Ausente si está asignada o resuelta: quién está disponible en la cola y cuándo contesta el bot"
+          },
           "estado": {
             "enum": [
               "abierta",
@@ -3668,6 +3800,17 @@
               "null"
             ]
           },
+          "equipo": {
+            "description": "Miembros y supervisores de su cola con su disponibilidad (sin cola, [])",
+            "items": {
+              "$ref": "#/components/schemas/MiembroEquipo"
+            },
+            "type": "array"
+          },
+          "espera": {
+            "$ref": "#/components/schemas/EsperaConversacion",
+            "description": "Ausente si está asignada o resuelta: quién está disponible en la cola y cuándo contesta el bot"
+          },
           "estado": {
             "enum": [
               "abierta",
@@ -3718,6 +3861,13 @@
           "sla": {
             "$ref": "#/components/schemas/SLAConversacion"
           },
+          "supervisores": {
+            "description": "Supervisores de su cola",
+            "items": {
+              "$ref": "#/components/schemas/UsuarioRef"
+            },
+            "type": "array"
+          },
           "titulo": {
             "description": "Cliente de Argos \u003e contacto de Iris \u003e perfil de WhatsApp \u003e número",
             "type": "string"
@@ -3746,6 +3896,8 @@
         "required": [
           "vinculos",
           "participantes",
+          "supervisores",
+          "equipo",
           "id",
           "empresaId",
           "version",
@@ -3762,6 +3914,27 @@
           "noLeidos",
           "ultimaActividad",
           "creadaEn"
+        ],
+        "type": "object"
+      },
+      "ConversacionIniciada": {
+        "additionalProperties": false,
+        "properties": {
+          "conversacion": {
+            "$ref": "#/components/schemas/ConversacionClienteDetalle"
+          },
+          "mensaje": {
+            "$ref": "#/components/schemas/MensajeConversacion"
+          },
+          "nueva": {
+            "description": "Se creó la conversación (si no, se reutilizó la del número)",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "conversacion",
+          "mensaje",
+          "nueva"
         ],
         "type": "object"
       },
@@ -4269,6 +4442,85 @@
         ],
         "type": "object"
       },
+      "Destinatario": {
+        "additionalProperties": false,
+        "properties": {
+          "codigo": {
+            "description": "Código del cliente en Argos (null en un contacto de Iris)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "conversacionId": {
+            "description": "Con canalId: la conversación que ya existe de ese número en ese canal",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "detalle": {
+            "description": "Contacto de Iris: su tipo (proveedor, personal, prospecto, otro)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Cliente en Argos o contacto de Iris",
+            "format": "int64",
+            "type": "integer"
+          },
+          "motivo": {
+            "description": "Por qué no (los códigos de POST /conversaciones/iniciar)",
+            "enum": [
+              "sin_contacto",
+              "sin_permiso",
+              "baja",
+              "cliente_fuera_de_empresa",
+              "conversacion_de_otro",
+              "numero_no_permitido"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "numero": {
+            "description": "El número al que saldría (E.164); null si no tiene",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "puede": {
+            "type": "boolean"
+          },
+          "tipo": {
+            "enum": [
+              "cliente",
+              "contacto_iris"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tipo",
+          "id",
+          "nombre",
+          "codigo",
+          "detalle",
+          "numero",
+          "puede",
+          "motivo",
+          "conversacionId"
+        ],
+        "type": "object"
+      },
       "DestinoSSO": {
         "additionalProperties": false,
         "properties": {
@@ -4359,6 +4611,41 @@
           "resueltosConSla",
           "resueltosEnSla",
           "vencidos"
+        ],
+        "type": "object"
+      },
+      "DisponibilidadAgente": {
+        "additionalProperties": false,
+        "properties": {
+          "desde": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "disponible",
+              "no_disponible"
+            ],
+            "type": "string"
+          },
+          "origen": {
+            "description": "Qué la dejó así",
+            "enum": [
+              "manual",
+              "cierre_sesion",
+              "inactividad",
+              "horario"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "estado",
+          "origen",
+          "desde"
         ],
         "type": "object"
       },
@@ -5093,6 +5380,27 @@
         ],
         "type": "object"
       },
+      "EntradaAjustesBandeja": {
+        "additionalProperties": false,
+        "properties": {
+          "minutosInactividad": {
+            "format": "int32",
+            "maximum": 480,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "minutosInactividad"
+        ],
+        "type": "object"
+      },
       "EntradaAnularAusencia": {
         "additionalProperties": false,
         "properties": {
@@ -5720,6 +6028,24 @@
       "EntradaCola": {
         "additionalProperties": false,
         "properties": {
+          "botSinConfirmacionMin": {
+            "format": "int32",
+            "maximum": 1440,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "botSinDisponiblesMin": {
+            "format": "int32",
+            "maximum": 1440,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "descripcion": {
             "maxLength": 300,
             "type": "string"
@@ -5834,6 +6160,9 @@
           "avisosEmpresa": {
             "description": "El número por el que salen los avisos de la empresa (uno solo; marcarlo lo quita del anterior). Exige avisos en usos",
             "type": "boolean"
+          },
+          "bot": {
+            "$ref": "#/components/schemas/BotNumero"
           },
           "colaId": {
             "description": "Cola de las conversaciones nuevas (null = sin cola)",
@@ -7062,6 +7391,29 @@
         ],
         "type": "object"
       },
+      "EntradaDisponibilidad": {
+        "additionalProperties": false,
+        "properties": {
+          "estado": {
+            "enum": [
+              "disponible",
+              "no_disponible"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "description": "La de GET /conversaciones/disponibilidad (0 la primera vez)",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "estado",
+          "version"
+        ],
+        "type": "object"
+      },
       "EntradaEditarBuzon": {
         "additionalProperties": false,
         "properties": {
@@ -8190,6 +8542,49 @@
         ],
         "type": "object"
       },
+      "EntradaIniciarConv": {
+        "additionalProperties": false,
+        "properties": {
+          "canalId": {
+            "description": "Número de salida (de una de tus colas)",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "clienteId": {
+            "description": "Cliente de Argos (o contactoIrisId)",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "contactoIrisId": {
+            "description": "Contacto de Iris (o clienteId)",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "id": {
+            "description": "uuid v7 generado en el cliente (id del mensaje): el servidor es idempotente por él",
+            "type": "string"
+          },
+          "plantilla": {
+            "$ref": "#/components/schemas/PlantillaMensaje",
+            "description": "Plantilla aprobada en el número"
+          },
+          "servicioId": {
+            "description": "Servicio del cliente (opcional)",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "canalId",
+          "plantilla"
+        ],
+        "type": "object"
+      },
       "EntradaIniciarSesion": {
         "additionalProperties": false,
         "properties": {
@@ -8600,6 +8995,32 @@
         },
         "required": [
           "tipo"
+        ],
+        "type": "object"
+      },
+      "EntradaPasarConv": {
+        "additionalProperties": false,
+        "properties": {
+          "nota": {
+            "description": "Nota interna para quien la recibe",
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "usuarioId": {
+            "description": "Compañero de la cola (miembro o supervisor de la cola)",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "usuarioId"
         ],
         "type": "object"
       },
@@ -9568,6 +9989,38 @@
         ],
         "type": "object"
       },
+      "EntradaSupervisoresCola": {
+        "additionalProperties": false,
+        "properties": {
+          "asistenteIa": {
+            "description": "Fase 3: un asistente de IA como supervisor (hoy 422 no_disponible_aun)",
+            "type": "boolean"
+          },
+          "usuarioIds": {
+            "description": "Personas que supervisan la cola (ven, asignan y pasan todo lo de la cola)",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "maxItems": 20,
+            "type": [
+              "array",
+              "null"
+            ],
+            "uniqueItems": true
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "usuarioIds"
+        ],
+        "type": "object"
+      },
       "EntradaTicketConv": {
         "additionalProperties": false,
         "properties": {
@@ -10001,6 +10454,52 @@
         ],
         "type": "object"
       },
+      "EsperaConversacion": {
+        "additionalProperties": false,
+        "properties": {
+          "botAtendio": {
+            "description": "El bot ya contestó en esta espera",
+            "type": "boolean"
+          },
+          "botContestaEn": {
+            "description": "Cuándo contesta el bot si nadie la toma (cuenta regresiva)",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "botMotivo": {
+            "enum": [
+              "sin_confirmacion",
+              "sin_disponibles"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "disponibles": {
+            "description": "Disponibles en la cola (hasta 5); sin cola, en la empresa",
+            "items": {
+              "$ref": "#/components/schemas/UsuarioRef"
+            },
+            "type": "array"
+          },
+          "totalDisponibles": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "disponibles",
+          "totalDisponibles",
+          "botContestaEn",
+          "botMotivo",
+          "botAtendio"
+        ],
+        "type": "object"
+      },
       "EstadoCuenta": {
         "additionalProperties": false,
         "properties": {
@@ -10302,7 +10801,8 @@
               "mensaje_actualizado",
               "conversacion_actualizada",
               "mencion",
-              "guardia"
+              "guardia",
+              "aviso_sin_atender"
             ],
             "type": "string"
           }
@@ -10475,8 +10975,18 @@
           "detalle": {
             "type": "string"
           },
+          "disponibles": {
+            "description": "aviso_sin_atender: a cuántos se avisó",
+            "format": "int64",
+            "type": "integer"
+          },
           "entidadId": {
             "type": "string"
+          },
+          "minutos": {
+            "description": "bot_atendio: minutos que esperó",
+            "format": "int32",
+            "type": "integer"
           },
           "plantilla": {
             "description": "respondio_aviso: la plantilla del aviso",
@@ -10487,7 +10997,7 @@
             "type": "string"
           },
           "tipo": {
-            "description": "conversacion_creada, asignada, tomada, transferida, resuelta, reabierta, etiquetada, cliente_asociado, contacto_iris_creado, ticket_creado, orden_creada, prospecto_creado, boleta_registrada, boleta_fallida, promesa_creada, respondio_aviso, fuera_de_horario, guardia_avisada, manual_enviado",
+            "description": "conversacion_creada, asignada, tomada, transferida, resuelta, reabierta, etiquetada, cliente_asociado, contacto_iris_creado, ticket_creado, orden_creada, prospecto_creado, boleta_registrada, boleta_fallida, promesa_creada, respondio_aviso, fuera_de_horario, guardia_avisada, manual_enviado; 1.1: aviso_sin_atender, bot_atendio, menu_elegido, pasada, iniciada",
             "type": "string"
           }
         },
@@ -12162,6 +12672,28 @@
         ],
         "type": "object"
       },
+      "ListaDestinatarios": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Destinatario"
+            },
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
       "ListaEnlacesManual": {
         "additionalProperties": false,
         "properties": {
@@ -12851,6 +13383,17 @@
           "adjunto": {
             "$ref": "#/components/schemas/AdjuntoMensaje"
           },
+          "automatico": {
+            "description": "Saliente sin autor: el bot o la respuesta de fuera de horario",
+            "enum": [
+              "bot",
+              "fuera_de_horario"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "autor": {
             "$ref": "#/components/schemas/UsuarioRef",
             "description": "Saliente y nota; ausente en entrante, sistema y respuestas automáticas"
@@ -12969,7 +13512,8 @@
           "creadoEn",
           "enviadoEn",
           "entregadoEn",
-          "leidoEn"
+          "leidoEn",
+          "automatico"
         ],
         "type": "object"
       },
@@ -13089,6 +13633,90 @@
           "trasladosPendientes",
           "kardex",
           "leidoEn"
+        ],
+        "type": "object"
+      },
+      "MiDisponibilidad": {
+        "additionalProperties": false,
+        "properties": {
+          "desde": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "disponible",
+              "no_disponible"
+            ],
+            "type": "string"
+          },
+          "horarioHasta": {
+            "description": "Cierre de tu horario de trabajo: a esa hora pasas a no_disponible",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "minutosInactividad": {
+            "description": "Sin actividad en estos minutos pasas a no_disponible",
+            "format": "int32",
+            "type": "integer"
+          },
+          "origen": {
+            "enum": [
+              "manual",
+              "cierre_sesion",
+              "inactividad",
+              "horario"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "description": "0 si nunca la cambiaste",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "estado",
+          "origen",
+          "desde",
+          "horarioHasta",
+          "minutosInactividad",
+          "version"
+        ],
+        "type": "object"
+      },
+      "MiembroEquipo": {
+        "additionalProperties": false,
+        "properties": {
+          "disponible": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "rol": {
+            "enum": [
+              "miembro",
+              "supervisor"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nombre",
+          "rol",
+          "disponible"
         ],
         "type": "object"
       },
@@ -13217,6 +13845,9 @@
           "avisosEmpresa": {
             "type": "boolean"
           },
+          "bot": {
+            "$ref": "#/components/schemas/BotNumero"
+          },
           "colaId": {
             "format": "int64",
             "type": [
@@ -13237,6 +13868,10 @@
           "id": {
             "format": "int64",
             "type": "integer"
+          },
+          "iniciar": {
+            "description": "Puedes iniciar conversaciones desde este número (conversaciones.iniciar y número de una de tus colas)",
+            "type": "boolean"
           },
           "nombre": {
             "type": "string"
@@ -13266,7 +13901,9 @@
           "activo",
           "version",
           "horarioId",
-          "fueraDeHorario"
+          "fueraDeHorario",
+          "bot",
+          "iniciar"
         ],
         "type": "object"
       },
@@ -13329,6 +13966,39 @@
           "estado",
           "inicio",
           "fin"
+        ],
+        "type": "object"
+      },
+      "OpcionMenuBot": {
+        "additionalProperties": false,
+        "properties": {
+          "colaId": {
+            "description": "Cola a la que pasa la conversación",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "etiquetaIds": {
+            "description": "Etiquetas que se le ponen",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "maxItems": 5,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "texto": {
+            "description": "Lo que ve el cliente (p. ej. Ventas)",
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "texto",
+          "colaId",
+          "etiquetaIds"
         ],
         "type": "object"
       },
@@ -16257,6 +16927,27 @@
         ],
         "type": "object"
       },
+      "PaseConversacion": {
+        "additionalProperties": false,
+        "properties": {
+          "conversacion": {
+            "$ref": "#/components/schemas/ConversacionClienteDetalle"
+          },
+          "destino": {
+            "$ref": "#/components/schemas/UsuarioRef"
+          },
+          "destinoDisponible": {
+            "description": "false: se pasó a alguien no disponible (el panel avisa)",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "conversacion",
+          "destino",
+          "destinoDisponible"
+        ],
+        "type": "object"
+      },
       "PausaOrden": {
         "additionalProperties": false,
         "properties": {
@@ -16689,6 +17380,8 @@
           "conversaciones.asociar",
           "conversaciones.configurar",
           "conversaciones.etiquetar",
+          "conversaciones.iniciar",
+          "conversaciones.pasar",
           "conversaciones.registrar_boleta",
           "conversaciones.registrar_promesa",
           "conversaciones.resolver",
@@ -16946,6 +17639,15 @@
       "PlantillaDisponible": {
         "additionalProperties": false,
         "properties": {
+          "categoria": {
+            "description": "Categoría de Meta (servicio = utility)",
+            "enum": [
+              "servicio",
+              "marketing",
+              "autenticacion"
+            ],
+            "type": "string"
+          },
           "codigo": {
             "type": "string"
           },
@@ -16967,6 +17669,7 @@
         "required": [
           "codigo",
           "nombre",
+          "categoria",
           "variables",
           "vistaPrevia"
         ],
@@ -33917,6 +34620,129 @@
         "x-permiso": "canales.configurar"
       }
     },
+    "/api/v1/mensajeria/colas/{id}/supervisores": {
+      "post": {
+        "description": "Permiso: `canales.configurar`. Ven, asignan y pasan todo lo de la cola sin ser miembros (§14.1). `asistenteIa: true`: 422 `no_disponible_aun` (fase 3).",
+        "operationId": "supervisoresColaConversaciones",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaSupervisoresCola"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColaConversaciones"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fijar los supervisores de una cola",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "canales.configurar"
+      }
+    },
     "/api/v1/mensajeria/consentimientos": {
       "post": {
         "description": "Permiso: `mensajeria.registrar_consentimiento`. Idempotency-Key obligatoria (`argos:consentimiento:\u003cempresa_id\u003e:\u003ccliente_id\u003e:\u003ccanal\u003e:\u003cocurrido_en\u003e`). 201 si es nuevo, 200 si es una repetición; los dos con `{ consentimiento_id, estado_vigente }`. Manda el registro con `ocurrido_en` más reciente: un `acepta` más viejo se guarda pero no gana a una `baja` más nueva. 422 `cliente_fuera_de_empresa` si el cliente no es de una empresa de la integración (según la instantánea de Argos).",
@@ -34676,12 +35502,12 @@
         "operationId": "agentesConversaciones",
         "parameters": [
           {
-            "description": "Los miembros de la cola y quienes supervisan",
+            "description": "Los miembros y supervisores de la cola y los supervisores globales",
             "explode": false,
             "in": "query",
             "name": "colaId",
             "schema": {
-              "description": "Los miembros de la cola y quienes supervisan",
+              "description": "Los miembros y supervisores de la cola y los supervisores globales",
               "format": "int64",
               "minimum": 0,
               "type": "integer"
@@ -34753,6 +35579,178 @@
           "mensajeria"
         ],
         "x-permiso": "conversaciones.ver"
+      }
+    },
+    "/api/v1/mensajeria/conversaciones/ajustes": {
+      "get": {
+        "description": "Permiso: `conversaciones.ver`.",
+        "operationId": "verAjustesConversaciones",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AjustesBandeja"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ajustes de la bandeja de la empresa",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "conversaciones.ver"
+      },
+      "post": {
+        "description": "Permiso: `canales.configurar`.",
+        "operationId": "fijarAjustesConversaciones",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaAjustesBandeja"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AjustesBandeja"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cambiar los ajustes de la bandeja",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "canales.configurar"
       }
     },
     "/api/v1/mensajeria/conversaciones/bancos": {
@@ -35003,6 +36001,99 @@
         "x-permiso": "conversaciones.ver"
       }
     },
+    "/api/v1/mensajeria/conversaciones/canales/{id}/plantillas": {
+      "get": {
+        "description": "Permiso: `conversaciones.iniciar`.",
+        "operationId": "plantillasNumeroConversaciones",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListaPlantillasConv"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Plantillas aprobadas en un número de tus colas",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "conversaciones.iniciar"
+      }
+    },
     "/api/v1/mensajeria/conversaciones/contadores": {
       "get": {
         "description": "Permiso: `conversaciones.ver`.",
@@ -35145,9 +36236,474 @@
         "x-permiso": "conversaciones.registrar_boleta"
       }
     },
+    "/api/v1/mensajeria/conversaciones/destinatario": {
+      "get": {
+        "description": "Permiso: `conversaciones.iniciar`.",
+        "operationId": "destinatarioConversacion",
+        "parameters": [
+          {
+            "explode": false,
+            "in": "query",
+            "name": "canalId",
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "clienteId",
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "contactoIrisId",
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Destinatario"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Si se le puede escribir a un cliente o contacto",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "conversaciones.iniciar"
+      }
+    },
+    "/api/v1/mensajeria/conversaciones/destinatarios": {
+      "get": {
+        "description": "Permiso: `conversaciones.iniciar`. Hasta 20, con `puede` y `motivo` de cada uno (los códigos de iniciar). Con `canalId` evalúa también el número de salida.",
+        "operationId": "destinatariosConversacion",
+        "parameters": [
+          {
+            "description": "Nombre, código o dígitos del teléfono",
+            "explode": false,
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "description": "Nombre, código o dígitos del teléfono",
+              "maxLength": 80,
+              "minLength": 2,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Número de salida: suma conversacion_de_otro, numero_no_permitido y conversacionId",
+            "explode": false,
+            "in": "query",
+            "name": "canalId",
+            "schema": {
+              "description": "Número de salida: suma conversacion_de_otro, numero_no_permitido y conversacionId",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 10,
+              "format": "int64",
+              "maximum": 20,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListaDestinatarios"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Buscar a quién escribir (clientes de Argos y contactos de Iris)",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "conversaciones.iniciar"
+      }
+    },
+    "/api/v1/mensajeria/conversaciones/disponibilidad": {
+      "get": {
+        "description": "Permiso: `conversaciones.ver`.",
+        "operationId": "verDisponibilidadConversaciones",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MiDisponibilidad"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Tu disponibilidad en la bandeja",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "conversaciones.ver"
+      },
+      "post": {
+        "description": "Permiso: `conversaciones.ver`. `version` la del GET (0 la primera vez; 409 `conflicto_version`). Pasa sola a no_disponible al cerrar sesión, por inactividad o al terminar tu horario.",
+        "operationId": "fijarDisponibilidadConversaciones",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaDisponibilidad"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MiDisponibilidad"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ponerte disponible o no disponible",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "conversaciones.ver"
+      }
+    },
+    "/api/v1/mensajeria/conversaciones/disponibilidad/latido": {
+      "post": {
+        "description": "Permiso: `conversaciones.ver`. Sin cuerpo. Solo anota la actividad (no audita, no emite eventos ni cambia el estado) y responde tu disponibilidad.",
+        "operationId": "latidoConversaciones",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MiDisponibilidad"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Actividad del panel (cada ~60 s)",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "conversaciones.ver"
+      }
+    },
     "/api/v1/mensajeria/conversaciones/eventos": {
       "get": {
-        "description": "Permiso: `conversaciones.ver`. Igual que el flujo del chat: `id` (cursor), `event` (mensaje_nuevo, mensaje_actualizado, conversacion_actualizada, mencion, guardia), `data` (un EventoConversacion). Last-Event-ID o ?desde=; latido cada 25 s; cierre a los 30 min; revalidación de la sesión.",
+        "description": "Permiso: `conversaciones.ver`. Igual que el flujo del chat: `id` (cursor), `event` (mensaje_nuevo, mensaje_actualizado, conversacion_actualizada, mencion, guardia, aviso_sin_atender), `data` (un EventoConversacion). Last-Event-ID o ?desde=; latido cada 25 s; cierre a los 30 min; revalidación de la sesión.",
         "operationId": "eventosConversaciones",
         "parameters": [
           {
@@ -35269,6 +36825,145 @@
         "x-permiso": "conversaciones.ver"
       }
     },
+    "/api/v1/mensajeria/conversaciones/iniciar": {
+      "post": {
+        "description": "Permiso: `conversaciones.iniciar`. A un cliente de Argos o un contacto de Iris con permiso de contacto, desde un número de tus colas. Idempotente por `id` (200 + Idempotent-Replayed si se repite; 409 `mensaje_id_reutilizado` con otro contenido). Reutiliza la conversación del número (409 `conversacion_de_otro` si la tiene otro agente). 422 `numero_no_permitido`, `sin_contacto`, `sin_permiso`, `baja`, `plantilla_no_aprobada`, `cliente_fuera_de_empresa`, `servicio_fuera_de_empresa`.",
+        "operationId": "iniciarConversacion",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaIniciarConv"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversacionIniciada"
+                }
+              }
+            },
+            "description": "Reenvío del mismo id: la conversación y el mensaje tal como están ahora",
+            "headers": {
+              "Idempotent-Replayed": {
+                "schema": {
+                  "description": "true si el id ya se había recibido",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversacionIniciada"
+                }
+              }
+            },
+            "description": "Created",
+            "headers": {
+              "Idempotent-Replayed": {
+                "schema": {
+                  "description": "true si el id ya se había recibido",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Escribir primero con una plantilla aprobada",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "conversaciones.iniciar"
+      }
+    },
     "/api/v1/mensajeria/conversaciones/{id}": {
       "get": {
         "description": "Permiso: `conversaciones.ver`.",
@@ -35364,7 +37059,7 @@
     },
     "/api/v1/mensajeria/conversaciones/{id}/asignar": {
       "post": {
-        "description": "Permiso: `conversaciones.asignar`.",
+        "description": "Permiso: `conversaciones.asignar`. También lo puede usar un supervisor de la cola de la conversación sin el permiso (§14.1).",
         "operationId": "asignarConversacion",
         "parameters": [
           {
@@ -37520,6 +39215,129 @@
           "mensajeria"
         ],
         "x-permiso": "conversaciones.responder"
+      }
+    },
+    "/api/v1/mensajeria/conversaciones/{id}/pasar": {
+      "post": {
+        "description": "Permiso: `conversaciones.pasar`. Quien la tiene, o un supervisor (global o de la cola), a un miembro o supervisor de la cola, aunque no esté disponible (`destinoDisponible`). 403 `no_es_tuya`; 422 `mismo_agente`, `usuario_no_disponible` (§14.4).",
+        "operationId": "pasarConversacion",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaPasarConv"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaseConversacion"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Pasar a un compañero de la cola",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "conversaciones.pasar"
       }
     },
     "/api/v1/mensajeria/conversaciones/{id}/plantillas": {

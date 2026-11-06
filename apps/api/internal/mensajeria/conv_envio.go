@@ -290,7 +290,17 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 				}
 			}
 			c.EsperaDesde, c.SlaVenceEn, c.SlaAvisado = nil, nil, false
+			bot := c
 			if c, err = guardarConv(ctx, q, c, antes != c.Estado || asignada); err != nil {
+				return MensajeConvEnviado{}, err
+			}
+			c.BotEsperaEn, c.BotVenceEn, c.BotMotivo, c.BotAtendioEn, c.BotMenu = bot.BotEsperaEn, bot.BotVenceEn, bot.BotMotivo, bot.BotAtendioEn, bot.BotMenu
+			if asignada {
+				if err := limpiarEspera(ctx, q, &c); err != nil {
+					return MensajeConvEnviado{}, err
+				}
+			}
+			if err := m.tocarActividad(ctx, q, a); err != nil {
 				return MensajeConvEnviado{}, err
 			}
 			if asignada {
@@ -372,6 +382,9 @@ func nuevoAnotar(m *Modulo) *auditoria.Caso[EntradaNota, MensajeConvEnviado] {
 				return MensajeConvEnviado{}, err
 			}
 			if _, err := guardarConv(ctx, q, c, false); err != nil {
+				return MensajeConvEnviado{}, err
+			}
+			if err := m.tocarActividad(ctx, q, a); err != nil {
 				return MensajeConvEnviado{}, err
 			}
 			t.Anotar(map[string]any{"mensaje_id": f.ID})

@@ -27,7 +27,7 @@ import (
 // EventoConversacion es un cambio del feed: el mismo cuerpo en SSE (data) y en /cambios.
 type EventoConversacion struct {
 	ID             string               `json:"id" doc:"Cursor del feed (el id de SSE / Last-Event-ID)"`
-	Tipo           string               `json:"tipo" enum:"mensaje_nuevo,mensaje_actualizado,conversacion_actualizada,mencion,guardia"`
+	Tipo           string               `json:"tipo" enum:"mensaje_nuevo,mensaje_actualizado,conversacion_actualizada,mencion,guardia,aviso_sin_atender"`
 	ConversacionID int64                `json:"conversacionId"`
 	OcurridoEn     time.Time            `json:"ocurridoEn"`
 	NoLeidos       int64                `json:"noLeidos" doc:"Tus no leídos de la conversación al leer el evento"`

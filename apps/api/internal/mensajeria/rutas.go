@@ -37,7 +37,7 @@ func IdempotenciaPropia(r *http.Request) bool {
 
 // rutaConvPropia: responder y anotar en una conversación con un cliente (la clave queda en el
 // mensaje; la respuesta trae el texto) y pedir una promesa (la aplica el caso).
-var rutaConvPropia = regexp.MustCompile(`^` + regexp.QuoteMeta(Prefijo) + `/conversaciones/[0-9]+/(mensajes|notas|promesas|enviar-manual)$`)
+var rutaConvPropia = regexp.MustCompile(`^` + regexp.QuoteMeta(Prefijo) + `/conversaciones/([0-9]+/(mensajes|notas|promesas|enviar-manual)|iniciar)$`)
 
 var rutaChatPropia = regexp.MustCompile(`^` + regexp.QuoteMeta(Prefijo) +
 	`/chat/(conversaciones/[0-9]+/mensajes|directas|cuadrillas/[0-9]+/abrir|ordenes/[0-9]+/abrir)$`)

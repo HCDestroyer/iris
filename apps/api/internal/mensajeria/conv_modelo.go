@@ -51,6 +51,7 @@ const (
 	EventoConvActualizada       = "conversacion_actualizada"
 	EventoConvMencion           = "mencion"
 	EventoConvGuardia           = "guardia"
+	EventoConvAvisoSinAtender   = "aviso_sin_atender"
 )
 
 // CanalConversaciones: LISTEN/NOTIFY del feed de la bandeja (carga: la empresa, «0» sin empresa).
@@ -67,7 +68,8 @@ const VentanaWhatsApp = 24 * time.Hour
 
 func init() {
 	for _, t := range []string{"mensajeria.colas", "mensajeria.etiquetas", "mensajeria.respuestas_rapidas", "mensajeria.contactos_iris",
-		"mensajeria.conversaciones", "mensajeria.conversacion_mensajes", "mensajeria.conv_eventos", "mensajeria.boletas", "mensajeria.promesas"} {
+		"mensajeria.conversaciones", "mensajeria.conversacion_mensajes", "mensajeria.conv_eventos", "mensajeria.boletas", "mensajeria.promesas",
+		"mensajeria.disponibilidad", "mensajeria.ajustes_bandeja"} {
 		nucleo.RegistrarTablaConEmpresa(t)
 	}
 }
@@ -153,9 +155,27 @@ type ConversacionCliente struct {
 	Ventana         VentanaConversacion   `json:"ventana"`
 	SLA             SLAConversacion       `json:"sla"`
 	UltimoMensaje   *UltimoMensajeResumen `json:"ultimoMensaje,omitempty"`
+	Espera          *EsperaConversacion   `json:"espera,omitempty" doc:"Ausente si está asignada o resuelta: quién está disponible en la cola y cuándo contesta el bot"`
 	NoLeidos        int64                 `json:"noLeidos" doc:"Mensajes del cliente después de tu lectura"`
 	UltimaActividad time.Time             `json:"ultimaActividad"`
 	CreadaEn        time.Time             `json:"creadaEn"`
+}
+
+// EsperaConversacion es lo que el panel muestra de una conversación sin asignar (fase 1.1).
+type EsperaConversacion struct {
+	Disponibles      []UsuarioRef `json:"disponibles" doc:"Disponibles en la cola (hasta 5); sin cola, en la empresa"`
+	TotalDisponibles int64        `json:"totalDisponibles"`
+	BotContestaEn    *time.Time   `json:"botContestaEn" nullable:"true" doc:"Cuándo contesta el bot si nadie la toma (cuenta regresiva)"`
+	BotMotivo        *string      `json:"botMotivo" nullable:"true" enum:"sin_confirmacion,sin_disponibles"`
+	BotAtendio       bool         `json:"botAtendio" doc:"El bot ya contestó en esta espera"`
+}
+
+// MiembroEquipo es un miembro o supervisor de la cola de la conversación.
+type MiembroEquipo struct {
+	ID         int64  `json:"id"`
+	Nombre     string `json:"nombre"`
+	Rol        string `json:"rol" enum:"miembro,supervisor"`
+	Disponible bool   `json:"disponible"`
 }
 
 // VinculoConversacion es algo creado desde la conversación.
@@ -197,6 +217,8 @@ type ConversacionClienteDetalle struct {
 	Vinculos       []VinculoConversacion       `json:"vinculos"`
 	Participantes  []ParticipanteConversacion  `json:"participantes"`
 	ClienteResumen *ClienteResumenConversacion `json:"clienteResumen,omitempty" doc:"Ausente sin cliente o sin instantánea"`
+	Supervisores   []UsuarioRef                `json:"supervisores" doc:"Supervisores de su cola"`
+	Equipo         []MiembroEquipo             `json:"equipo" doc:"Miembros y supervisores de su cola con su disponibilidad (sin cola, [])"`
 }
 
 // AdjuntoMensaje es el archivo de un mensaje (módulo de adjuntos).
@@ -216,7 +238,7 @@ type PlantillaMensaje struct {
 
 // EventoSistema es un mensaje de sistema («Andrea creó TK-004812»): el panel arma el texto.
 type EventoSistema struct {
-	Tipo           string  `json:"tipo" doc:"conversacion_creada, asignada, tomada, transferida, resuelta, reabierta, etiquetada, cliente_asociado, contacto_iris_creado, ticket_creado, orden_creada, prospecto_creado, boleta_registrada, boleta_fallida, promesa_creada, respondio_aviso, fuera_de_horario, guardia_avisada, manual_enviado"`
+	Tipo           string  `json:"tipo" doc:"conversacion_creada, asignada, tomada, transferida, resuelta, reabierta, etiquetada, cliente_asociado, contacto_iris_creado, ticket_creado, orden_creada, prospecto_creado, boleta_registrada, boleta_fallida, promesa_creada, respondio_aviso, fuera_de_horario, guardia_avisada, manual_enviado; 1.1: aviso_sin_atender, bot_atendio, menu_elegido, pasada, iniciada"`
 	ActorNombre    *string `json:"actorNombre,omitempty"`
 	AsignadoNombre *string `json:"asignadoNombre,omitempty"`
 	ColaNombre     *string `json:"colaNombre,omitempty"`
@@ -224,6 +246,8 @@ type EventoSistema struct {
 	EntidadID      *string `json:"entidadId,omitempty"`
 	Plantilla      *string `json:"plantilla,omitempty" doc:"respondio_aviso: la plantilla del aviso"`
 	Detalle        *string `json:"detalle,omitempty"`
+	Minutos        *int32  `json:"minutos,omitempty" doc:"bot_atendio: minutos que esperó"`
+	Disponibles    *int64  `json:"disponibles,omitempty" doc:"aviso_sin_atender: a cuántos se avisó"`
 }
 
 // MensajeConversacion es un mensaje de la conversación.
@@ -246,6 +270,7 @@ type MensajeConversacion struct {
 	EnviadoEn      *time.Time        `json:"enviadoEn" nullable:"true"`
 	EntregadoEn    *time.Time        `json:"entregadoEn" nullable:"true"`
 	LeidoEn        *time.Time        `json:"leidoEn" nullable:"true"`
+	Automatico     *string           `json:"automatico" nullable:"true" enum:"bot,fuera_de_horario" doc:"Saliente sin autor: el bot o la respuesta de fuera de horario"`
 }
 
 // Alcance -------------------------------------------------------------------------------------
@@ -429,6 +454,7 @@ func (m *Modulo) resumirConvs(ctx context.Context, q *mensajeriabd.Queries, usua
 		etiquetas[e.ConversacionID] = append(etiquetas[e.ConversacionID], EtiquetaRef{ID: e.ID, Nombre: e.Nombre, Color: e.Color})
 	}
 	ahora := m.ahora()
+	disp := map[[2]int64][]UsuarioRef{}
 	porID := make(map[int64]ConversacionCliente, len(filas))
 	for _, f := range filas {
 		c := mensajeriabd.MensajeriaConversacion{ID: f.ID, ClienteID: f.ClienteID, ServicioID: f.ServicioID, ContactoIrisID: f.ContactoIrisID,
@@ -475,6 +501,14 @@ func (m *Modulo) resumirConvs(ctx context.Context, q *mensajeriabd.Queries, usua
 			}
 			v.UltimoMensaje = u
 		}
+		if f.AsignadoA == nil && f.Estado != EstadoConvResuelta {
+			e, err := esperaDe(ctx, q, disp, f.EmpresaID, f.ColaID)
+			if err != nil {
+				return nil, err
+			}
+			e.BotContestaEn, e.BotMotivo, e.BotAtendio = f.BotVenceEn, f.BotMotivo, f.BotAtendioEn != nil
+			v.Espera = &e
+		}
 		porID[f.ID] = v
 	}
 	salida := make([]ConversacionCliente, 0, len(ids))
@@ -497,6 +531,29 @@ func (m *Modulo) resumirConv(ctx context.Context, q *mensajeriabd.Queries, usuar
 	return cs[0], nil
 }
 
+// esperaDe arma los disponibles de la cola de una conversación que espera (con caché por cola).
+func esperaDe(ctx context.Context, q *mensajeriabd.Queries, cache map[[2]int64][]UsuarioRef, empresa, cola *int64) (EsperaConversacion, error) {
+	e := int64(0)
+	if empresa != nil {
+		e = *empresa
+	}
+	clave := [2]int64{e, -1}
+	if cola != nil {
+		clave[1] = *cola
+	}
+	us, ok := cache[clave]
+	if !ok {
+		var err error
+		if us, err = disponiblesDe(ctx, q, e, cola); err != nil {
+			return EsperaConversacion{}, err
+		}
+		cache[clave] = us
+	}
+	out := EsperaConversacion{Disponibles: []UsuarioRef{}, TotalDisponibles: int64(len(us))}
+	out.Disponibles = append(out.Disponibles, us[:min(len(us), maxDisponiblesEspera)]...)
+	return out, nil
+}
+
 // detalleConv arma el detalle de una conversación.
 func (m *Modulo) detalleConv(ctx context.Context, q *mensajeriabd.Queries, usuario int64, c mensajeriabd.MensajeriaConversacion) (ConversacionClienteDetalle, error) {
 	r, err := m.resumirConv(ctx, q, usuario, c.ID)
@@ -504,6 +561,9 @@ func (m *Modulo) detalleConv(ctx context.Context, q *mensajeriabd.Queries, usuar
 		return ConversacionClienteDetalle{}, err
 	}
 	d := ConversacionClienteDetalle{ConversacionCliente: r, Vinculos: []VinculoConversacion{}, Participantes: []ParticipanteConversacion{}}
+	if d.Supervisores, d.Equipo, err = equipoDeCola(ctx, q, empresaDeConv(c), c.ColaID); err != nil {
+		return d, err
+	}
 	vs, err := q.VinculosDeConversacion(ctx, c.ID)
 	if err != nil {
 		return d, err
@@ -590,7 +650,7 @@ func mensajesConv(ctx context.Context, q *mensajeriabd.Queries, filas []mensajer
 func aMensajeConv(f mensajeriabd.MensajeriaConversacionMensaje, nombres map[int64]string, estados map[uuid.UUID]mensajeriabd.EstadosAdjuntosRow) MensajeConversacion {
 	m := MensajeConversacion{ID: f.ID, ConversacionID: f.ConversacionID, Seq: f.Seq, Direccion: f.Direccion, Tipo: f.Tipo, Texto: f.Texto,
 		EstadoEntrega: f.EstadoEntrega, MotivoFalla: f.MotivoFalla, Menciones: []UsuarioRef{}, CreadoEn: f.CreadoEn, EnviadoEn: f.EnviadoEn,
-		EntregadoEn: f.EntregadoEn, LeidoEn: f.LeidoEn}
+		EntregadoEn: f.EntregadoEn, LeidoEn: f.LeidoEn, Automatico: f.Automatico}
 	if f.AutorID != nil {
 		m.Autor = &UsuarioRef{ID: *f.AutorID, Nombre: nombres[*f.AutorID]}
 	}
@@ -644,6 +704,7 @@ type nuevoMensaje struct {
 	clave         *string
 	creadoEn      time.Time
 	estadoEntrega *string
+	automatico    *string
 }
 
 // agregarMensaje asigna el seq (la conversación debe estar bloqueada), lo guarda y lo pone en el
@@ -681,7 +742,7 @@ func (m *Modulo) agregarMensaje(ctx context.Context, t *auditoria.Tx, c *mensaje
 	f, err := q.InsertarMensajeConversacion(ctx, mensajeriabd.InsertarMensajeConversacionParams{ID: n.id, ConversacionID: c.ID, EmpresaID: c.EmpresaID,
 		Seq: seq, Direccion: n.direccion, Tipo: n.tipo, Texto: n.texto, AdjuntoID: pgUUID(n.adjunto), MedioID: n.medio, Lat: n.lat, Lon: n.lon,
 		Plantilla: n.plantilla, Variables: n.variables, AutorID: n.autor, Menciones: n.menciones, Evento: evento, RespuestaRapidaID: n.respuesta,
-		EstadoEntrega: n.estadoEntrega, ProveedorID: n.proveedor, HashContenido: n.hash, IdempotencyKey: n.clave, CreadoEn: n.creadoEn})
+		EstadoEntrega: n.estadoEntrega, ProveedorID: n.proveedor, HashContenido: n.hash, IdempotencyKey: n.clave, CreadoEn: n.creadoEn, Automatico: n.automatico})
 	if err != nil {
 		return f, err
 	}

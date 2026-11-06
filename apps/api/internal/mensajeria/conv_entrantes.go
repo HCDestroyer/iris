@@ -287,7 +287,7 @@ func (m *Modulo) conservarAsignacion(ctx context.Context, t *auditoria.Tx, c *me
 	if sup || c.ColaID == nil {
 		return nil
 	}
-	miembro, err := mensajeriabd.New(t).EsMiembroCola(ctx, mensajeriabd.EsMiembroColaParams{ColaID: *c.ColaID, UsuarioID: *c.AsignadoA})
+	miembro, err := atiendeCola(ctx, mensajeriabd.New(t), *c.ColaID, *c.AsignadoA)
 	if err != nil {
 		return err
 	}
