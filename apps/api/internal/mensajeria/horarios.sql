@@ -116,10 +116,25 @@ WHERE cliente_id = @cliente_id AND (sqlc.narg('empresa')::bigint IS NULL OR empr
   AND estado IN ('nuevo', 'abierto', 'en_espera')
 ORDER BY id DESC LIMIT 5;
 
--- name: InsertarEnlaceManual :exec
-INSERT INTO mensajeria.manual_enlaces (hash_token, manual_id, empresa_id, conversacion_id, vence_en)
-VALUES (@hash_token, @manual_id, sqlc.narg('empresa_id'), sqlc.narg('conversacion_id'), @vence_en);
+-- name: InsertarEnlaceManual :one
+INSERT INTO mensajeria.manual_enlaces (hash_token, manual_id, empresa_id, conversacion_id, enviado_por, vence_en)
+VALUES (@hash_token, @manual_id, sqlc.narg('empresa_id'), sqlc.narg('conversacion_id'), sqlc.narg('enviado_por'), @vence_en)
+RETURNING id;
 
 -- name: ManualPorEnlace :one
 SELECT m.*, e.vence_en FROM mensajeria.manual_enlaces e JOIN mensajeria.manuales m ON m.id = e.manual_id
-WHERE e.hash_token = @hash_token;
+WHERE e.hash_token = @hash_token AND e.revocado_en IS NULL;
+
+-- name: EnlacesManualDeConversacion :many
+SELECT e.id, e.manual_id, m.titulo, e.enviado_por, e.vence_en, e.revocado_en, e.revocado_por, e.created_at
+FROM mensajeria.manual_enlaces e JOIN mensajeria.manuales m ON m.id = e.manual_id
+WHERE e.conversacion_id = @conversacion_id
+ORDER BY e.id DESC LIMIT 100;
+
+-- name: EnlaceManualParaRevocar :one
+SELECT id, manual_id, empresa_id, conversacion_id, vence_en, revocado_en, revocado_por, created_at
+FROM mensajeria.manual_enlaces WHERE id = @id FOR UPDATE;
+
+-- name: RevocarEnlaceManual :exec
+UPDATE mensajeria.manual_enlaces SET revocado_en = @revocado_en, revocado_por = @revocado_por
+WHERE id = @id AND revocado_en IS NULL;

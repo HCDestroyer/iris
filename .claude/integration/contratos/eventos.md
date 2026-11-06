@@ -259,6 +259,7 @@ El tiempo real del panel va por el feed propio (`mensajeria.conv_eventos`, SSE y
 | `conversacion.guardia_avisada` | `conversacion_id`, `empresa_id`, `usuario_id`, `motivo` (`etiqueta`, `falla_masiva`) | Una vez por conversación y ventana cerrada; para el futuro push (PR B). |
 | `manual.creado` / `manual.actualizado` | `manual_id`, `empresa_id`; `visibilidad` (creado); `campos[]`, `activo` (actualizado) | Biblioteca (PR B). |
 | `manual.enviado` | `manual_id`, `conversacion_id`, `empresa_id`, `mensaje_id`, `modo` (`enlace`, `texto`) | Se mandó al cliente (PR B). |
+| `manual.enlace_revocado` | `enlace_id`, `manual_id`, `conversacion_id`, `empresa_id`, `actor_id` | Un supervisor revocó el enlace público (PR B). |
 
 `canal_mensajeria.actualizado` (ya existente) también sale al configurar uso, cola o número de avisos
 (`campos[]` con `usos`, `avisos_empresa`, `cola_id`), y para el número que deja de ser el de avisos.

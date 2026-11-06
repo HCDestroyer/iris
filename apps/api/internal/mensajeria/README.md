@@ -185,8 +185,11 @@ No consume eventos (los webhooks `comprobante.*` / `promesa.*` de Argos quedan p
   su motivo: etiqueta de la conversación, equipo del servicio (Argos, `EquiposEnComodato`) y ticket
   abierto del cliente (`soporte.tickets`, solo lectura). Enviar al cliente solo los de visibilidad
   `cliente`: enlace público (`mensajeria.manual_enlaces`, solo el hash del token, 30 días) servido como
-  HTML mínimo con todo el texto escapado y CSP cerrada, o el texto. Es la base de conocimiento del
-  asistente de la fase 2.
+  HTML mínimo con todo el texto escapado y CSP cerrada, o el texto. Cada enlace se puede revocar
+  (`manuales.revocar_enlace`, `revocado_en`). Excluye `/api/v1/mensajeria/publico/manuales/*` de los
+  access logs del proxy: el token va en la ruta. Es la base de conocimiento del asistente de la fase 2.
+- **Fuera de horario y bajas:** la palabra BAJA se registra antes de guardar el mensaje, así que
+  quien la escribe no recibe la respuesta automática; tampoco un número con baja vigente.
 
 Emite además `horario.*`, `conversacion.fuera_de_horario`, `conversacion.guardia_avisada`,
-`manual.creado`, `manual.actualizado` y `manual.enviado`.
+`manual.creado`, `manual.actualizado`, `manual.enviado` y `manual.enlace_revocado`.

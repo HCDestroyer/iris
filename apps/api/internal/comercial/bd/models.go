@@ -1340,10 +1340,14 @@ type MensajeriaHorario struct {
 
 type MensajeriaManualEnlace struct {
 	HashToken      []byte
+	ID             int64
 	ManualID       int64
 	EmpresaID      *int64
 	ConversacionID *int64
+	EnviadoPor     *int64
 	VenceEn        time.Time
+	RevocadoEn     *time.Time
+	RevocadoPor    *int64
 	CreatedAt      time.Time
 }
 

@@ -227,6 +227,85 @@ func (q *Queries) ConfigurarHorarioCanal(ctx context.Context, arg ConfigurarHora
 	return i, err
 }
 
+const enlaceManualParaRevocar = `-- name: EnlaceManualParaRevocar :one
+SELECT id, manual_id, empresa_id, conversacion_id, vence_en, revocado_en, revocado_por, created_at
+FROM mensajeria.manual_enlaces WHERE id = $1 FOR UPDATE
+`
+
+type EnlaceManualParaRevocarRow struct {
+	ID             int64
+	ManualID       int64
+	EmpresaID      *int64
+	ConversacionID *int64
+	VenceEn        time.Time
+	RevocadoEn     *time.Time
+	RevocadoPor    *int64
+	CreatedAt      time.Time
+}
+
+func (q *Queries) EnlaceManualParaRevocar(ctx context.Context, id int64) (EnlaceManualParaRevocarRow, error) {
+	row := q.db.QueryRow(ctx, enlaceManualParaRevocar, id)
+	var i EnlaceManualParaRevocarRow
+	err := row.Scan(
+		&i.ID,
+		&i.ManualID,
+		&i.EmpresaID,
+		&i.ConversacionID,
+		&i.VenceEn,
+		&i.RevocadoEn,
+		&i.RevocadoPor,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const enlacesManualDeConversacion = `-- name: EnlacesManualDeConversacion :many
+SELECT e.id, e.manual_id, m.titulo, e.enviado_por, e.vence_en, e.revocado_en, e.revocado_por, e.created_at
+FROM mensajeria.manual_enlaces e JOIN mensajeria.manuales m ON m.id = e.manual_id
+WHERE e.conversacion_id = $1
+ORDER BY e.id DESC LIMIT 100
+`
+
+type EnlacesManualDeConversacionRow struct {
+	ID          int64
+	ManualID    int64
+	Titulo      string
+	EnviadoPor  *int64
+	VenceEn     time.Time
+	RevocadoEn  *time.Time
+	RevocadoPor *int64
+	CreatedAt   time.Time
+}
+
+func (q *Queries) EnlacesManualDeConversacion(ctx context.Context, conversacionID *int64) ([]EnlacesManualDeConversacionRow, error) {
+	rows, err := q.db.Query(ctx, enlacesManualDeConversacion, conversacionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EnlacesManualDeConversacionRow
+	for rows.Next() {
+		var i EnlacesManualDeConversacionRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ManualID,
+			&i.Titulo,
+			&i.EnviadoPor,
+			&i.VenceEn,
+			&i.RevocadoEn,
+			&i.RevocadoPor,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const etiquetasDeConversacion = `-- name: EtiquetasDeConversacion :many
 SELECT etiqueta_id FROM mensajeria.conversacion_etiquetas WHERE conversacion_id = $1
 `
@@ -414,9 +493,10 @@ func (q *Queries) HorarioPorIDSinEmpresa(ctx context.Context, id int64) (Mensaje
 	return i, err
 }
 
-const insertarEnlaceManual = `-- name: InsertarEnlaceManual :exec
-INSERT INTO mensajeria.manual_enlaces (hash_token, manual_id, empresa_id, conversacion_id, vence_en)
-VALUES ($1, $2, $3, $4, $5)
+const insertarEnlaceManual = `-- name: InsertarEnlaceManual :one
+INSERT INTO mensajeria.manual_enlaces (hash_token, manual_id, empresa_id, conversacion_id, enviado_por, vence_en)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id
 `
 
 type InsertarEnlaceManualParams struct {
@@ -424,18 +504,22 @@ type InsertarEnlaceManualParams struct {
 	ManualID       int64
 	EmpresaID      *int64
 	ConversacionID *int64
+	EnviadoPor     *int64
 	VenceEn        time.Time
 }
 
-func (q *Queries) InsertarEnlaceManual(ctx context.Context, arg InsertarEnlaceManualParams) error {
-	_, err := q.db.Exec(ctx, insertarEnlaceManual,
+func (q *Queries) InsertarEnlaceManual(ctx context.Context, arg InsertarEnlaceManualParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertarEnlaceManual,
 		arg.HashToken,
 		arg.ManualID,
 		arg.EmpresaID,
 		arg.ConversacionID,
+		arg.EnviadoPor,
 		arg.VenceEn,
 	)
-	return err
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const insertarHorario = `-- name: InsertarHorario :one
@@ -601,7 +685,7 @@ func (q *Queries) ManualParaActualizar(ctx context.Context, arg ManualParaActual
 
 const manualPorEnlace = `-- name: ManualPorEnlace :one
 SELECT m.id, m.empresa_id, m.titulo, m.resumen, m.cuerpo, m.etiquetas, m.equipo, m.visibilidad, m.activo, m.busqueda, m.creado_por, m.version, m.created_at, m.updated_at, e.vence_en FROM mensajeria.manual_enlaces e JOIN mensajeria.manuales m ON m.id = e.manual_id
-WHERE e.hash_token = $1
+WHERE e.hash_token = $1 AND e.revocado_en IS NULL
 `
 
 type ManualPorEnlaceRow struct {
@@ -812,6 +896,22 @@ func (q *Queries) ManualesPorEtiquetas(ctx context.Context, arg ManualesPorEtiqu
 		return nil, err
 	}
 	return items, nil
+}
+
+const revocarEnlaceManual = `-- name: RevocarEnlaceManual :exec
+UPDATE mensajeria.manual_enlaces SET revocado_en = $1, revocado_por = $2
+WHERE id = $3 AND revocado_en IS NULL
+`
+
+type RevocarEnlaceManualParams struct {
+	RevocadoEn  *time.Time
+	RevocadoPor *int64
+	ID          int64
+}
+
+func (q *Queries) RevocarEnlaceManual(ctx context.Context, arg RevocarEnlaceManualParams) error {
+	_, err := q.db.Exec(ctx, revocarEnlaceManual, arg.RevocadoEn, arg.RevocadoPor, arg.ID)
+	return err
 }
 
 const routerCaidoDelCliente = `-- name: RouterCaidoDelCliente :one

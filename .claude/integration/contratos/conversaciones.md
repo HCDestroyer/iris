@@ -206,7 +206,7 @@ Los estados de entrega (`sent`, `delivered`, `read`, `failed`) de los mensajes s
 | `conversaciones.registrar_promesa` | Simular y pedir a Argos una promesa de pago (§6.5) |
 | `conversaciones.configurar` | Etiquetas y respuestas rápidas de la empresa |
 | `canales.configurar` | Colas, uso, cola y horario de cada número; horarios y feriados (PR B) |
-| `manuales.ver` / `manuales.editar` | Biblioteca de manuales (PR B) |
+| `manuales.ver` / `manuales.editar` / `manuales.revocar_enlace` | Biblioteca de manuales; revocar un enlace público enviado (PR B) |
 
 Crear ticket, orden o prospecto desde la conversación exige además el permiso del caso que se
 reutiliza (`tickets.crear`, `ordenes.crear`, `prospectos.crear`).
@@ -218,7 +218,7 @@ Lo que no se ve responde **404**. Roles base:
 | `soporte` | ver, responder, tomar, transferir, etiquetar, resolver, asociar, registrar_boleta, registrar_promesa, manuales.ver |
 | `ventas` | ver, responder, tomar, transferir, etiquetar, resolver, asociar, manuales.ver |
 | `despacho` | ver, responder, tomar, etiquetar, resolver, manuales.ver |
-| `supervisor` | todos los de arriba + supervisar, asignar, configurar, canales.configurar, manuales.editar |
+| `supervisor` | todos los de arriba + supervisar, asignar, configurar, canales.configurar, manuales.editar, manuales.revocar_enlace |
 | `lectura` | ver, manuales.ver |
 | `admin` | todos |
 
@@ -515,8 +515,15 @@ panel lo muestra sin HTML crudo), `resumen`, `etiquetas[]` (texto libre, en min�
 | `GET /conversaciones/{id}/manuales-sugeridos` | `manuales.ver` | Sugerencias por reglas, cada una con su `motivo`: `etiqueta` (comparte una etiqueta con la conversación, por nombre), `equipo` (el equipo del servicio coincide), `ticket_abierto` (comparte una palabra con el asunto de un ticket abierto del cliente). Hasta 5 |
 | `POST /conversaciones/{id}/enviar-manual` | `conversaciones.responder` | `{ id, manualId, modo: "enlace" \| "texto" }`. Solo artículos `cliente` (si no, 422 `manual_interno`). `enlace`: URL pública firmada (`/api/v1/mensajeria/publico/manuales/{token}`, vence a los 30 días) en un mensaje; `texto`: el cuerpo en texto plano. Respeta la ventana de 24 h |
 
+| `GET /conversaciones/{id}/manual-enlaces` | `conversaciones.ver` | `{ data: [{ id, manualId, titulo, enviadoPor?, venceEn, revocadoEn, creadoEn }] }`: enlaces enviados en la conversación (nunca el token) |
+| `POST /manual-enlaces/{id}/revocar` | `manuales.revocar_enlace` (supervisor) | Revoca ese enlace (desde ya responde 410). Solo de conversaciones que ves (si no, 404). Revocar uno ya revocado: 200 sin cambios. Evento `manual.enlace_revocado` |
+
 `GET /api/v1/mensajeria/publico/manuales/{token}` (público): el artículo para el cliente en HTML
-mínimo y seguro, o 410 si el enlace venció o el artículo se desactivó.
+mínimo y seguro, o 410 si el enlace venció, se revocó o el artículo se desactivó.
+
+**Operación:** el token va en la ruta. Excluye `/api/v1/mensajeria/publico/manuales/*` de los
+access logs del proxy (o enmascara el último segmento) y de cualquier herramienta que guarde URLs
+(APM, analítica). La API no registra rutas; Iris guarda solo el SHA-256 del token.
 
 ## 12. Eventos (outbox)
 
@@ -531,7 +538,7 @@ mensaje.
 `contacto_iris.creado`, `contacto_iris.unido`, `contacto_iris.consentimiento`, `cola.creada` / `cola.actualizada`, `etiqueta.creada` / `.actualizada`,
 `respuesta_rapida.creada` / `.actualizada`, `boleta.registrada`, `boleta.registrada_en_argos`,
 `boleta.fallida`, `promesa.solicitada`; PR B: `horario.creado` / `.actualizado`, `conversacion.fuera_de_horario`,
-`conversacion.guardia_avisada`, `manual.creado` / `.actualizado` / `.enviado`.
+`conversacion.guardia_avisada`, `manual.creado` / `.actualizado` / `.enviado` / `.enlace_revocado`.
 
 **Pendiente (fase 1.1, decisión abierta):** consumir los webhooks de Argos `comprobante.aprobado` /
 `.rechazado` y `promesa.*` para mover la boleta y la promesa en la conversación y avisar al cliente

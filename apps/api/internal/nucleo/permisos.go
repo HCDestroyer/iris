@@ -277,6 +277,8 @@ const (
 	PermManualesVer Permiso = "manuales.ver"
 	// PermManualesEditar: crear, editar, activar y desactivar manuales.
 	PermManualesEditar Permiso = "manuales.editar"
+	// PermManualesRevocarEnlace: revocar un enlace público de un manual ya enviado.
+	PermManualesRevocarEnlace Permiso = "manuales.revocar_enlace"
 )
 
 // Portal de soporte (/soporte).
@@ -396,6 +398,7 @@ var Catalogo = []DefPermiso{
 	{PermIntegracionesVer, "Ver los conectores y su estado (nunca el token ni el secreto)"},
 	{PermIntegracionesVerPendientes, "Ver la cola de acciones pendientes hacia Argos y su último error"},
 	{PermManualesEditar, "Crear, editar, activar y desactivar artículos de la biblioteca de manuales"},
+	{PermManualesRevocarEnlace, "Revocar el enlace público de un manual enviado a un cliente"},
 	{PermManualesVer, "Buscar y leer la biblioteca de manuales y sus sugerencias para una conversación"},
 	{PermMensajeriaConfigurar, "Configurar los canales de mensajería de una empresa (WhatsApp: número, credenciales y plantillas aprobadas)"},
 	{PermMensajeriaEnviar, "Pedir avisos por la mensajería de Iris y consultar su estado (lo usa Argos con su token de integración)"},
@@ -540,7 +543,7 @@ var RolesBase = []DefRol{
 			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar,
 			PermChatVer, PermChatEnviar, PermChatSupervisar,
 			PermConversacionesSupervisar, PermConversacionesAsignar, PermConversacionesTransferir, PermConversacionesAsociar,
-			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesConfigurar, PermCanalesConfigurar, PermManualesEditar},
+			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesConfigurar, PermCanalesConfigurar, PermManualesEditar, PermManualesRevocarEnlace},
 			slices.Concat(permisosAtencion, permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas, permisosPlantillas, permisosComercial,
 				[]Permiso{PermFactibilidadConfigurar, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer, PermEncuestasCompartir})...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
