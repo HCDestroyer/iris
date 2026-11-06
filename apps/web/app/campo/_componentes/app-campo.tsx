@@ -318,7 +318,10 @@ function ConMotor({
             actual?.motor.detener();
             actual?.posiciones.detener();
             actual?.chat.detener();
-            alSesionAjena(sesion.nombre);
+            // Una verificación tardía del motor de una sesión ya cerrada no saca a quien entró después.
+            if (vivo) {
+                alSesionAjena(sesion.nombre);
+            }
         };
         // EventSource no lleva `X-Iris-Empresa`: con varias empresas el chat sondea.
         abrirMotor({ usuarioId: sesion.usuarioId, empresaId: empresa }, ajena, { flujoChat: sesion.empresas.length <= 1 })

@@ -98,6 +98,34 @@ describe.each(["light", "dark"] as const)("«Por recibir» y «Mi bodega» (%s)"
         expect(await screen.findByText("No tienes nada por recibir")).toBeTruthy();
     });
 
+    it("vuelve la señal con una lectura condenada en vuelo: al terminar esa, se lee otra vez (no queda «conéctate» con señal)", async () => {
+        const m = await montar();
+        const inventario = new InventarioFalso();
+        // La primera lectura queda en vuelo hasta que la prueba la suelta (fallando, sin señal).
+        let soltar: (e: unknown) => void = () => undefined;
+        const original = inventario.porRecibir;
+        let primera = true;
+        inventario.porRecibir = () => {
+            if (primera) {
+                primera = false;
+                inventario.lecturas.traslados += 1;
+                return new Promise((_, mal) => {
+                    soltar = mal;
+                });
+            }
+            return original();
+        };
+        await abrirCampo(m, { esquema, inventario, vista: { tipo: "recibir" } });
+        await waitFor(() => expect(inventario.lecturas.traslados).toBe(1));
+        // Se va la señal y vuelve con la primera todavía en vuelo.
+        await act(async () => m.motor.establecerConexion(false));
+        await act(async () => m.motor.establecerConexion(true));
+        await act(async () => soltar(new ErrorTransporte("red", "Sin señal")));
+        expect(await screen.findByText("No tienes nada por recibir")).toBeTruthy();
+        expect(screen.queryByTestId("error-lectura")).toBeNull();
+        expect(inventario.lecturas.traslados).toBe(2);
+    });
+
     it("«Mi bodega» en «Yo»: solo lectura; si falla dice por qué y «Reintentar» la lee", async () => {
         const m = await montar();
         const inventario = new InventarioFalso();

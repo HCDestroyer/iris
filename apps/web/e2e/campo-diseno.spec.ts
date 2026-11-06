@@ -26,14 +26,14 @@ const isla = (page: Page) => page.getByRole("navigation", { name: "Secciones de 
 const notificacion = (page: Page) => avisoCampo(page);
 
 /** Día `n` días después de hoy en Guatemala, a las `hora` (UTC) de ese día. */
-function diaMas(n: number, hora: string): string {
-    const hoy = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Guatemala", year: "numeric", month: "2-digit", day: "2-digit" }).format(Date.now());
+function diaMas(n: number, hora: string, ahora = Date.now()): string {
+    const hoy = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Guatemala", year: "numeric", month: "2-digit", day: "2-digit" }).format(ahora);
     const d = new Date(Date.parse(`${hoy}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
     return `${d}T${hora}Z`;
 }
 
 /** Mañana: una instalación con formulario y un cambio de equipo sin formulario; pasado mañana, un retiro. */
-function ordenesFuturas(): OrdenCampo[] {
+function ordenesFuturas(ahora = Date.now()): OrdenCampo[] {
     const [base] = ordenesDelDia();
     if (!base) {
         throw new Error("sin órdenes de prueba");
@@ -48,16 +48,16 @@ function ordenesFuturas(): OrdenCampo[] {
             contacto: { nombre: "Rosa Lima", telefono: "5555-1118" },
             direccion: "Zona 7",
             formularios: [],
-            programadaInicio: diaMas(1, "17:00:00"),
-            programadaFin: diaMas(1, "18:00:00"),
+            programadaInicio: diaMas(1, "17:00:00", ahora),
+            programadaFin: diaMas(1, "18:00:00", ahora),
         }),
         otra(117, {
             tipo: "instalacion",
             contacto: { nombre: "Luis Ortiz", telefono: "5555-1117" },
             direccion: "Mixco",
-            cita: { tecnicoId: base.tecnicoId ?? 51, inicio: diaMas(1, "14:30:00"), fin: diaMas(1, "16:30:00"), ventanaInicio: diaMas(1, "14:00:00"), ventanaFin: diaMas(1, "16:00:00") },
+            cita: { tecnicoId: base.tecnicoId ?? 51, inicio: diaMas(1, "14:30:00", ahora), fin: diaMas(1, "16:30:00", ahora), ventanaInicio: diaMas(1, "14:00:00", ahora), ventanaFin: diaMas(1, "16:00:00", ahora) },
         }),
-        otra(119, { tipo: "retiro", contacto: { nombre: "Ana Pérez", telefono: "5555-1119" }, programadaInicio: diaMas(2, "15:00:00"), programadaFin: diaMas(2, "16:00:00") }),
+        otra(119, { tipo: "retiro", contacto: { nombre: "Ana Pérez", telefono: "5555-1119" }, programadaInicio: diaMas(2, "15:00:00", ahora), programadaFin: diaMas(2, "16:00:00", ahora) }),
     ];
 }
 
@@ -220,6 +220,29 @@ test("Mañana sin señal: dice que no se pudo leer, con «Reintentar» y sin con
     await context.setOffline(false);
     await expect(page.getByTestId("resumen-dia")).toHaveText("2 citas · 3 h");
 });
+
+// Con el reloj fijo en las dos franjas: 01:30 UTC (19:30 del jueves en Guatemala, en UTC ya es
+// viernes) y 23:30 UTC (17:30 en Guatemala, mismo día). «Mañana» es el viernes en las dos.
+for (const [franja, instante] of [
+    ["01:30 UTC (19:30 GT)", "2026-11-06T01:30:00Z"],
+    ["23:30 UTC (17:30 GT)", "2026-11-05T23:30:00Z"],
+] as const) {
+    test(`Mañana a las ${franja}: el viernes 6 con sus citas y el sábado 7 con el retiro`, async ({ page }) => {
+        const ahora = Date.parse(instante);
+        await page.clock.setFixedTime(ahora);
+        const api = await simularApiCampo(page, { ordenes: [], ordenesFuturas: ordenesFuturas(ahora) });
+        await page.goto("/campo");
+        await expect(page.getByText("Jueves 5 de noviembre")).toBeVisible();
+        await page.getByRole("navigation", { name: "Día" }).getByRole("link", { name: /^Mañana/ }).click();
+        await expect(page.getByRole("heading", { name: "Mañana, vie 6" })).toBeVisible();
+        await expect(page.getByTestId("resumen-dia")).toHaveText("2 citas · 3 h");
+        // El sábado 7 (pasado mañana) tiene el retiro: la semana se pidió por día de Guatemala.
+        await page.getByRole("navigation", { name: "Semana" }).getByRole("link", { name: "sábado, 7 de noviembre" }).click();
+        await expect(page.locator('[data-slot="agenda-dia"] ol > li')).toHaveCount(1);
+        await expect(page.locator('[data-slot="agenda-dia"] ol > li')).toContainText("Retiro · Ana Pérez");
+        expect(api.peticiones.filter((p) => p.ruta === "/api/v1/agenda")).toHaveLength(0);
+    });
+}
 
 test("pasos: chips, tarjetas de 28 px, − / + en materiales y el aviso desde arriba", async ({ page }, info) => {
     await simularApiCampo(page, { ordenes: conUnaEnSitio() });

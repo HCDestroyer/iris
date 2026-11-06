@@ -4,7 +4,7 @@
 // día»), leída con señal y en memoria como «Por recibir»; no toca la cola ni el paquete guardado.
 // Como la PWA (`app/campo/_componentes/agenda-datos.tsx`).
 import type { OrdenCampo } from "@iris/sync";
-import { hoyEnGuatemala, sumarDias } from "@iris/sync/campo";
+import { hoyEnGuatemala, sumarDias, type CargarLectura } from "@iris/sync/campo";
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from "react";
 import { useLectura, type Lectura } from "./inventario";
 
@@ -15,7 +15,7 @@ export type LeerAgenda = (hasta: string) => Promise<OrdenCampo[]>;
 
 interface ContextoAgenda {
     semana: Lectura<SemanaLeida>;
-    cargarSemana: () => Promise<void>;
+    cargarSemana: CargarLectura;
 }
 
 const Contexto = createContext<ContextoAgenda | null>(null);
