@@ -231,6 +231,7 @@ test("un rechazo del servidor queda visible con su motivo y se puede descartar o
     // Sin permiso de ubicación: la acción se registra igual, sin GPS.
     await declinarUbicacion(page);
     await alResumen(page);
+    await page.locator('[data-slot="notas-orden"]').getByRole("button", { name: "Agregar nota" }).click();
     await page.getByLabel("Nueva nota").fill("Cliente pide llegar después de las 3");
     await page.getByRole("button", { name: "Agregar nota" }).click();
     await expect(porEnviar(page)).toHaveText("2 pendientes por enviar");

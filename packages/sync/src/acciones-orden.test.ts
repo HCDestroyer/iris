@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accionesPantallaOrden, contadorNota, cuandoNota, encabezadoOrden, metaNota, notasOrdenadas, puedeCambiarNota } from "./campo";
+import { accionesPantallaOrden, contadorNota, cuandoNota, encabezadoOrden, metaNota, motivoSinFormulario, notasOrdenadas, puedeCambiarNota } from "./campo";
 import type { NotaOrden } from "./contrato";
 import type { OrdenVista } from "./motor";
 import { ordenDePrueba } from "./pruebas/fabricas";
@@ -72,6 +72,20 @@ describe("pantalla de la orden", () => {
         for (const o of [vista({ estado: "cerrada" }), vista({ estado: "cancelada" }), vista({ estado: "en_sitio", reasignada: true })]) {
             expect(accionesPantallaOrden(o, true)).toMatchObject({ principal: null, grupo: [] });
         }
+    });
+});
+
+describe("«Agregar formulario» en el menú «⋯»", () => {
+    const P = ["ordenes.registrar"];
+    it("con el trabajo empezado se puede; si no, deshabilitado con el motivo", () => {
+        expect(motivoSinFormulario(vista({ estado: "en_camino" }), P)).toBeNull();
+        expect(motivoSinFormulario(vista({ estado: "en_sitio" }), P)).toBeNull();
+        expect(motivoSinFormulario(vista({ estado: "programada" }), P)).toBe("Disponible con el trabajo empezado (en camino o en sitio).");
+        expect(motivoSinFormulario(vista({ estado: "pausada" }), P)).toBe("La orden está pausada: primero reanúdala.");
+        expect(motivoSinFormulario(vista({ estado: "cerrada" }), P)).toBe("Esta orden ya no admite formularios.");
+        expect(motivoSinFormulario(vista({ estado: "en_sitio", reasignada: true }), P)).toBe("Esta orden ya no admite formularios.");
+        expect(motivoSinFormulario(vista({ estado: "en_sitio" }), [])).toBe("Tu usuario no puede registrar trabajo en las órdenes.");
+        expect(motivoSinFormulario(vista({ estado: "en_sitio" }), undefined)).not.toBeNull();
     });
 });
 

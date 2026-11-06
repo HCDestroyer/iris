@@ -185,7 +185,9 @@ function SiguienteOrden({ orden, posicion, parada }: { orden: OrdenVista; posici
             </Tocable>
             <View style={estilos.botonesHeroe}>
                 <View style={estilos.flex}>
+                    {/* La acción principal en «tinta», como en la orden (decisión del PM). */}
                     <Boton
+                        variante="tinta"
                         icono={principal.texto === "Empezar trabajo" ? Play : principal.texto === "Continuar trabajo" ? ListChecks : ChevronRight}
                         alPresionar={() => navegar(principal.vista)}
                         estilo={estilos.botonPrincipal}

@@ -36,9 +36,9 @@ import { CLARO } from "../tema/tokens";
 /** Alto mínimo de cualquier zona táctil (WCAG 2.5.8 y guía de Iris: 44 px; con guante, más). */
 export const ZONA_TACTIL = 44;
 
-export type Variante = "primario" | "secundario" | "fantasma" | "peligro";
+export type Variante = "primario" | "tinta" | "secundario" | "fantasma" | "peligro";
 
-const VARIANTE_HEROUI = { primario: "primary", secundario: "outline", fantasma: "ghost", peligro: "danger" } as const;
+const VARIANTE_HEROUI = { primario: "primary", tinta: "primary", secundario: "outline", fantasma: "ghost", peligro: "danger" } as const;
 
 export interface PropsBoton {
     children: ReactNode;
@@ -58,9 +58,17 @@ export interface PropsBoton {
  * texto puede ocupar dos líneas: el alto crece, nunca se corta.
  */
 export function Boton({ children, alPresionar, variante = "primario", icono: Icono, deshabilitado, cargando, etiqueta, estilo, testID }: PropsBoton) {
-    const { colores } = useTema();
+    const { colores, campo } = useTema();
     const texto =
-        variante === "primario" ? colores.sobrePrimario : variante === "peligro" ? colores.fondo : variante === "secundario" ? colores.texto : colores.primario;
+        variante === "primario"
+            ? colores.sobrePrimario
+            : variante === "tinta"
+              ? campo.sobreTinta
+              : variante === "peligro"
+                ? colores.fondo
+                : variante === "secundario"
+                  ? colores.texto
+                  : colores.primario;
     const inactivo = deshabilitado === true || cargando === true;
     return (
         <Button
@@ -71,7 +79,8 @@ export function Boton({ children, alPresionar, variante = "primario", icono: Ico
             accessibilityState={{ disabled: inactivo, busy: cargando === true }}
             testID={testID}
             className="h-auto rounded-lg px-4 py-2"
-            style={[estilos.boton, estilo]}
+            // «Tinta»: la acción principal neutra de la orden (negro en claro, casi blanco en oscuro).
+            style={[estilos.boton, variante === "tinta" ? { backgroundColor: campo.tinta } : null, estilo]}
         >
             {cargando ? <Spinner size="sm" color={texto} /> : Icono ? <Icono color={texto} size={18} /> : null}
             <Button.Label className={variante === "fantasma" ? "shrink text-center font-semibold text-accent" : "shrink text-center font-semibold"} style={{ color: texto }}>
@@ -770,6 +779,35 @@ export function BotonRedondo({
     );
 }
 
+/**
+ * Grupo de botones unidos (como `GrupoBotones` de `@iris/ui`): acciones hermanas de igual peso bajo
+ * la acción principal («Pausar | No se pudo»). Cada uno de 48 px, con un separador fino.
+ */
+export function GrupoBotones({ etiqueta, botones, testID }: { etiqueta: string; testID?: string; botones: { texto: string; icono: LucideIcon; alPresionar: () => void; peligro?: boolean; deshabilitado?: boolean; testID?: string }[] }) {
+    const { colores, campo } = useTema();
+    return (
+        <View accessibilityLabel={etiqueta} testID={testID} style={[estilos.grupo, { borderColor: colores.borde, backgroundColor: campo.panel }]}>
+            {botones.map((b, i) => {
+                const color = b.peligro ? colores.tono.error : colores.texto;
+                const Icono = b.icono;
+                return (
+                    <Tocable
+                        key={b.texto}
+                        etiqueta={b.texto}
+                        alPresionar={b.alPresionar}
+                        {...(b.deshabilitado === undefined ? {} : { deshabilitado: b.deshabilitado })}
+                        {...(b.testID ? { testID: b.testID } : {})}
+                        estilo={[estilos.botonGrupo, i > 0 ? { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: colores.borde } : null]}
+                    >
+                        <Icono size={18} color={color} />
+                        <Text style={[estilos.textoGrupo, { color }]}>{b.texto}</Text>
+                    </Tocable>
+                );
+            })}
+        </View>
+    );
+}
+
 export function Fila({ children, entre }: { children: ReactNode; entre?: boolean }) {
     return <View style={entre ? estilos.filaEntre : estilos.filaEnvuelta}>{children}</View>;
 }
@@ -868,5 +906,8 @@ const estilos = StyleSheet.create({
     textoAccionToast: { fontWeight: "600", fontSize: 13 },
     cerrarToast: { minWidth: ZONA_TACTIL, minHeight: ZONA_TACTIL, borderRadius: 22 },
     redondo: { alignItems: "center", justifyContent: "center" },
+    grupo: { flexDirection: "row", borderWidth: 1, borderRadius: 999, overflow: "hidden" },
+    botonGrupo: { flex: 1, minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 12 },
+    textoGrupo: { fontSize: 16, fontWeight: "600" },
     textoRedondo: { fontSize: 15, fontWeight: "600" },
 });

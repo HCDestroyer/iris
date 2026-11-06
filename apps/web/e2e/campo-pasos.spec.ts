@@ -135,6 +135,7 @@ test.describe("barra de estado discreta", () => {
         await expect(barra(page)).toHaveCount(0);
 
         await page.getByRole("link", { name: /OT-000102/ }).click();
+        await page.locator('[data-slot="notas-orden"]').getByRole("button", { name: "Agregar nota" }).click();
         await page.getByLabel("Nueva nota").fill("Portón verde");
         await page.getByRole("button", { name: "Agregar nota" }).click();
         await expect(barra(page)).toBeVisible();
@@ -153,6 +154,7 @@ test.describe("barra de estado discreta", () => {
         const api = await simularApiCampo(page);
         api.rechazar((op) => op.tipo === "nota.agregar", problema("validacion", 422, "Datos no válidos"));
         await page.goto("/campo?orden=102");
+        await page.locator('[data-slot="notas-orden"]').getByRole("button", { name: "Agregar nota" }).click();
         await page.getByLabel("Nueva nota").fill("Nota rechazada");
         await page.getByRole("button", { name: "Agregar nota" }).click();
         await expect(page.getByTestId("pendientes-por-enviar")).toHaveText("1 rechazado", { timeout: 15_000 });

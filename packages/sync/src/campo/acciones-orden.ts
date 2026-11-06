@@ -1,10 +1,12 @@
 // Acciones de la pantalla de la orden y notas editables (decisión del PM, nov 2026), las mismas en
 // la PWA y en la app nativa: el encabezado «● Estado · Tipo · ventana», la acción principal en
 // «tinta» con su grupo debajo, el aviso de pausa y lo que muestra cada nota.
+import { ESTADOS_TERMINALES } from "../aplicar";
 import type { NotaOrden } from "../contrato";
 import type { OrdenVista } from "../motor";
 import { horaCorta, ventanaCita, ZONA } from "./fechas";
 import { llego } from "./pasos";
+import { PERMISO_AGREGAR_FORMULARIO } from "./inicio";
 import { accionesDe } from "./reglas";
 import { ESTADOS_TEXTO, MOTIVOS_PAUSA, TIPOS_ORDEN, type TonoEstado } from "./textos";
 
@@ -69,6 +71,28 @@ export function accionesPantallaOrden(orden: OrdenVista, puedeReanudar: boolean)
         pausa: null,
         reanudar: false,
     };
+}
+
+/**
+ * «Agregar formulario» del menú «⋯»: `null` si se puede (con `ordenes.registrar`, orden propia en
+ * camino o en sitio), o el motivo con que el ítem aparece deshabilitado. Las mismas reglas que el
+ * «+» de la isla (`accionesRapidas`); también sin señal.
+ */
+export function motivoSinFormulario(orden: OrdenVista, permisos: readonly string[] | undefined): string | null {
+    if (!permisos?.includes(PERMISO_AGREGAR_FORMULARIO)) {
+        return "Tu usuario no puede registrar trabajo en las órdenes.";
+    }
+    const a = accionesDe(orden);
+    if (a.agregarFormulario) {
+        return null;
+    }
+    if (a.enPausa) {
+        return "La orden está pausada: primero reanúdala.";
+    }
+    if (orden.reasignada || ESTADOS_TERMINALES.has(orden.estado)) {
+        return "Esta orden ya no admite formularios.";
+    }
+    return "Disponible con el trabajo empezado (en camino o en sitio).";
 }
 
 // Notas ------------------------------------------------------------------------------------------

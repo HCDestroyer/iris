@@ -191,7 +191,7 @@ export function escenarioOrdenes(ahora: number, empresas: readonly number[], { a
                 { itemId: 13, formularioId: "f-1", codigo: "navega", etiqueta: "El cliente navega", tipo: "si_no", obligatorio: true, unidad: "", posicion: 3, valor: true as never, marcadoPor: TECNICO_ID, ocurridoEn: t(9.5) },
                 { itemId: 14, formularioId: "f-1", codigo: "comentario", etiqueta: "Comentario del cliente", tipo: "texto", obligatorio: false, unidad: "", posicion: 4, valor: null, marcadoPor: null, ocurridoEn: null },
             ],
-            notas: [{ id: "n1", texto: "El cliente pidió el router en la sala.", autorId: TECNICO_ID, autorNombre: "Lucía Ramírez", canal: "campo", ocurridoEn: t(9.2) }],
+            notas: [{ id: "n1", texto: "El cliente pidió el router en la sala.", autorId: TECNICO_ID, autorNombre: "Lucía Ramírez", canal: "campo", ocurridoEn: t(9.2), version: 1, editadaEn: null }],
             materiales: [
                 { id: "m1", productoId: 801, descripcion: "Cable drop 1 hilo (m)", cantidad: 85, bodegaId: 30, excedeExistencia: false, modalidad: "consumible_gasto", ocurridoEn: t(9.3) },
                 { id: "m2", productoId: 802, descripcion: "Conector SC/APC", cantidad: 2, bodegaId: 30, excedeExistencia: true, modalidad: "consumible_cobro", ocurridoEn: t(9.3) },

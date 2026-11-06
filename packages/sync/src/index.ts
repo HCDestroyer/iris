@@ -28,6 +28,8 @@ export {
     crearTransporteApi,
     crearTransportePosicionesApi,
     crearInventarioApi,
+    crearHistorialApi,
+    type OrdenHistorial,
     type InventarioCampo,
     valorCabeceraApp,
     type IdentidadApp,

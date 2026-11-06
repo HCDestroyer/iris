@@ -25,6 +25,7 @@ import {
     type SesionCampo,
 } from "@/lib/campo/sesion";
 import { avisoSinConexion } from "@iris/sync/campo";
+import { ProveedorHistorial } from "./acciones-orden";
 import { ProveedorAgenda } from "./agenda-datos";
 import { EntrarCampo } from "./entrar";
 import { ProveedorCampo, type CerrarSesion } from "./contexto";
@@ -419,8 +420,10 @@ function ConMotor({
             <ProveedorCampo motor={abierto.motor} sesion={sesion} cerrarSesion={cerrarSesion}>
                 <ProveedorInventario inventario={abierto.inventario}>
                     <ProveedorAgenda leer={abierto.agenda}>
-                        <TurnoAutomatico rastreador={rastreador} />
-                        <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
+                        <ProveedorHistorial leer={abierto.historialCliente}>
+                            <TurnoAutomatico rastreador={rastreador} />
+                            <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
+                        </ProveedorHistorial>
                     </ProveedorAgenda>
                 </ProveedorInventario>
             </ProveedorCampo>

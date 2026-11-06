@@ -217,7 +217,8 @@ function SiguienteOrden({ orden, posicion, parada }: { orden: OrdenVista; posici
                 </span>
             </a>
             <div className="flex gap-2.5">
-                <Boton tamano="lg" className="h-[3.25rem] flex-1 rounded-full text-[0.9375rem]" onClick={() => navegar(principalAccion.vista)}>
+                {/* La acción principal en «tinta», como en la orden (decisión del PM). */}
+                <Boton variante="tinta" tamano="lg" className="h-[3.25rem] flex-1 rounded-full text-[0.9375rem]" onClick={() => navegar(principalAccion.vista)}>
                     <IconoAccion aria-hidden />
                     {principalAccion.texto}
                 </Boton>

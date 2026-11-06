@@ -15,7 +15,7 @@ import {
     TarjetaEncabezado,
     TarjetaTitulo,
 } from "@iris/ui";
-import { Check, CircleAlert, CircleDashed, FilePlus2, Trash2, X } from "lucide-react";
+import { Check, CircleAlert, CircleDashed, Trash2, X } from "lucide-react";
 import { useId, useRef, useState } from "react";
 import { esquemaNumeroItem } from "@/lib/campo/esquemas";
 import { faltantesPorFormulario, ORIGENES_FORMULARIO } from "@/lib/campo/textos";
@@ -29,8 +29,8 @@ const claveFaltante = (formularioId: string | undefined, codigo: string) => `${f
 
 /**
  * Formularios de la orden: cada uno con sus ítems (el checklist viene plano con `formularioId`),
- * su versión y su origen. «Agregar formulario» suma uno del catálogo (también sin señal) y
- * «Quitar» solo el que agregó el técnico sin respuestas.
+ * su versión y su origen. «Quitar» solo el que agregó el técnico sin respuestas. Para sumar uno
+ * del catálogo, «Agregar formulario» del menú «⋯» de la orden (`HojaAgregarFormulario`).
  */
 export function Checklist({ orden, editable, agregar }: { orden: OrdenVista; editable: boolean; agregar: boolean }) {
     const { estado } = useCampo();
@@ -41,10 +41,10 @@ export function Checklist({ orden, editable, agregar }: { orden: OrdenVista; edi
     // Lo que el servidor dijo que falta para cerrar (`cierre_incompleto`), por formulario.
     const rechazoCierre = estado.rechazos.find((op) => op.ordenId === orden.id && op.tipo === "orden.cerrar");
     const faltan = new Map(faltantesPorFormulario(rechazoCierre?.error).map((f) => [claveFaltante(f.formularioId, f.codigo), f.mensaje]));
-    const disponibles = estado.plantillas.filter((p) => p.activa && !formularios.some((f) => f.plantillaId === p.id));
 
-    if (items.length === 0 && !agregar) {
-        return null;
+    if (items.length === 0) {
+        // Sin formularios: dónde se agregan (si se puede).
+        return agregar ? <p className="text-sm text-muted-foreground">Esta orden no tiene formularios. Agrégalos con «Agregar formulario» del menú «⋯» de la orden.</p> : null;
     }
     return (
         <section aria-label="Formularios" className="grid gap-4">
@@ -69,7 +69,6 @@ export function Checklist({ orden, editable, agregar }: { orden: OrdenVista; edi
                     </TarjetaContenido>
                 </Tarjeta>
             ) : null}
-            {agregar ? <AgregarFormulario orden={orden} disponibles={disponibles} /> : null}
         </section>
     );
 }
@@ -154,10 +153,15 @@ function ListaItems({
     );
 }
 
-/** Sumar un formulario del catálogo del teléfono (versión que se ve = la que se guarda). */
-function AgregarFormulario({ orden, disponibles }: { orden: OrdenVista; disponibles: readonly PlantillaFormulario[] }) {
-    const { motor, ejecutar } = useCampo();
-    const [abierto, setAbierto] = useState(false);
+/**
+ * Sumar un formulario del catálogo del teléfono (versión que se ve = la que se guarda), desde
+ * «Agregar formulario» del menú «⋯» de la orden. También sin señal.
+ */
+export function HojaAgregarFormulario({ orden, abierto, alCambiar }: { orden: OrdenVista; abierto: boolean; alCambiar: (abierto: boolean) => void }) {
+    const { motor, ejecutar, estado } = useCampo();
+    const setAbierto = alCambiar;
+    const formularios = orden.formularios ?? [];
+    const disponibles = estado.plantillas.filter((p) => p.activa && !formularios.some((f) => f.plantillaId === p.id));
     const agregar = async (p: PlantillaFormulario) => {
         const ok = await ejecutar(() => motor.registrar("orden.agregar_formulario", orden.id, { plantillaId: p.id, versionId: p.versionId }), `«${p.nombre}» agregado`);
         if (ok) {
@@ -166,10 +170,6 @@ function AgregarFormulario({ orden, disponibles }: { orden: OrdenVista; disponib
     };
     return (
         <>
-            <Boton variante="secundario" tamano="lg" onClick={() => setAbierto(true)}>
-                <FilePlus2 aria-hidden />
-                Agregar formulario
-            </Boton>
             <HojaCampo abierto={abierto} alCambiar={setAbierto} titulo="Agregar formulario" descripcion="Elige uno del catálogo. Se guarda en el teléfono y se envía al volver la señal.">
                 {disponibles.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No hay más formularios en el catálogo del teléfono.</p>

@@ -2,7 +2,7 @@ import path from "node:path";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import type { Schema } from "@iris/contratos";
 import { conSesionTecnico, simularApiCampo, type ApiCampo } from "./api-campo";
-import { alResumen, avisoCampo, empezarTrabajo, irAPaso, pestanaCampo, type Paso } from "./ayudas-campo";
+import { agregarFormularioDesdeMenu, alResumen, avisoCampo, empezarTrabajo, irAPaso, pestanaCampo, type Paso } from "./ayudas-campo";
 import { ordenesDelDia, TECNICO } from "./datos-campo";
 
 /*
@@ -100,10 +100,10 @@ test.describe("en el teléfono", () => {
         await expect(visita.getByRole("button", { name: "Quitar" })).toHaveCount(0);
 
         await sinSenal(context, api, true);
-        await page.getByRole("button", { name: "Agregar formulario" }).click();
-        const dialogo = page.getByRole("dialog", { name: "Agregar formulario" });
+        const dialogo = await agregarFormularioDesdeMenu(page);
         await expect(dialogo).toContainText("Versión 2 · 2 ítems");
         await dialogo.getByRole("button", { name: /Inventario de equipos/ }).click();
+        await irAPaso(page, "Checklist");
         await expect(notificacion(page)).toContainText("«Inventario de equipos» agregado. Se enviará al volver la señal.");
 
         const inventario = page.getByTestId("formulario-inventario");
@@ -131,8 +131,8 @@ test.describe("en el teléfono", () => {
         const api = await simularApiCampo(page, { ordenes: ordenesConFormularios(), plantillas: [INVENTARIO] });
         await abrirOrden(page);
         await sinSenal(context, api, true);
-        await page.getByRole("button", { name: "Agregar formulario" }).click();
-        await page.getByRole("dialog", { name: "Agregar formulario" }).getByRole("button", { name: /Inventario de equipos/ }).click();
+        await (await agregarFormularioDesdeMenu(page)).getByRole("button", { name: /Inventario de equipos/ }).click();
+        await irAPaso(page, "Checklist");
         await page.getByTestId("formulario-inventario").getByRole("button", { name: "Quitar" }).click();
         await expect(page.getByTestId("formulario-inventario")).toHaveCount(0);
         await sinSenal(context, api, false);
@@ -146,8 +146,8 @@ test.describe("en el teléfono", () => {
         const api = await simularApiCampo(page, { ordenes: ordenesConFormularios(), plantillas: [INVENTARIO] });
         await abrirOrden(page);
         await sinSenal(context, api, true);
-        await page.getByRole("button", { name: "Agregar formulario" }).click();
-        await page.getByRole("dialog", { name: "Agregar formulario" }).getByRole("button", { name: /Inventario de equipos/ }).click();
+        await (await agregarFormularioDesdeMenu(page)).getByRole("button", { name: /Inventario de equipos/ }).click();
+        await irAPaso(page, "Checklist");
         api.plantillas = [];
         await sinSenal(context, api, false);
         await expect.poll(() => api.resultados.map((r) => r.estado), { timeout: 30_000 }).toEqual(["rechazada"]);
@@ -160,9 +160,7 @@ test.describe("en el teléfono", () => {
         await page.getByRole("button", { name: "Descartar" }).click();
         await pestanaCampo(page, "Hoy");
         await page.getByRole("link", { name: /OT-000102/ }).click();
-        await irAPaso(page, "Checklist");
-        await page.getByRole("button", { name: "Agregar formulario" }).click();
-        await expect(page.getByRole("dialog", { name: "Agregar formulario" })).toContainText("No hay más formularios en el catálogo del teléfono.");
+        await expect(await agregarFormularioDesdeMenu(page)).toContainText("No hay más formularios en el catálogo del teléfono.");
     });
 
     test("pausa sin señal con motivo y nota, deja los pasos de solo lectura, muestra el tiempo pausado y reanuda", async ({ page, context }) => {
@@ -301,13 +299,15 @@ test("capturas de formularios y pausa", async ({ page, context, baseURL }, info)
     );
     await simularApiCampo(page, { ordenes, plantillas: [INVENTARIO] });
     await abrirOrden(page, "OT-000102", null);
-    await expect(page.getByTestId("orden-pausada")).toContainText("Orden en pausa: Esperando material");
+    await expect(page.getByTestId("pausa-orden")).toContainText("Esperando material");
     await page.screenshot({ path: nombre("01-pausada"), fullPage: true });
-    await irAPaso(page, "Checklist");
-    // En pausa el checklist es de solo lectura: para agregar un formulario, primero se reanuda.
-    await expect(page.getByRole("button", { name: "Agregar formulario" })).toHaveCount(0);
-    await page.getByTestId("orden-pausada").getByRole("button", { name: "Reanudar" }).click();
-    await page.getByRole("button", { name: "Agregar formulario" }).click();
-    await expect(page.getByRole("dialog", { name: "Agregar formulario" })).toBeVisible();
+    // En pausa, «Agregar formulario» del menú «⋯» sale deshabilitado con el motivo: primero se reanuda.
+    await page.getByRole("button", { name: "Más acciones de la orden" }).click();
+    const item = page.getByRole("menuitem", { name: /^Agregar formulario/ });
+    await expect(item).toHaveAttribute("aria-disabled", "true");
+    await expect(item).toContainText("La orden está pausada: primero reanúdala.");
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Reanudar" }).click();
+    await agregarFormularioDesdeMenu(page);
     await page.screenshot({ path: nombre("02-agregar") });
 });

@@ -2,7 +2,7 @@
 // los parámetros y las respuestas los tipa el OpenAPI de la API. Quien crea el cliente decide
 // las credenciales (cookie + `X-CSRF-Token` en la PWA, Bearer en Expo) y la empresa activa
 // (`X-Iris-Empresa`); aquí se agrega el canal `X-Iris-Canal: campo` a toda petición.
-import type { ClienteIris } from "@iris/contratos";
+import type { ClienteIris, Schema } from "@iris/contratos";
 import type { MiBodega, Problema, Traslado } from "./contrato";
 import { ErrorTransporte } from "./errores";
 import type { TransportePosiciones } from "./posiciones";
@@ -141,6 +141,21 @@ export function crearInventarioApi(cliente: ClienteIris, app?: IdentidadApp): In
             const { datos } = await resolver(cliente.GET("/api/v1/campo/inventario/mi-bodega", { headers: conApp(app) }));
             return datos;
         },
+    };
+}
+
+/** Una orden del historial del cliente (las que ve el técnico: las suyas). */
+export type OrdenHistorial = Schema<"Orden">;
+
+/**
+ * «Historial del cliente» del menú de la orden (solo con señal, sin guardar): `GET /ordenes?clienteId=`
+ * con el alcance del técnico (`ordenes.ver_propias`: las órdenes de ese cliente que fueron suyas),
+ * las más recientes primero.
+ */
+export function crearHistorialApi(cliente: ClienteIris, app?: IdentidadApp): (clienteId: number) => Promise<OrdenHistorial[]> {
+    return async (clienteId) => {
+        const { datos } = await resolver(cliente.GET("/api/v1/ordenes", { params: { query: { clienteId, limit: 20 } }, headers: conApp(app) }));
+        return [...(datos.data ?? [])].sort((a, b) => (b.programadaInicio ?? b.actualizadoEn).localeCompare(a.programadaInicio ?? a.actualizadoEn));
     };
 }
 

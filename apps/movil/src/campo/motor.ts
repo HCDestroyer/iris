@@ -6,6 +6,7 @@ import {
     CODIGO_SESION_AJENA,
     ColaPosiciones,
     crearGeneradorUuid7,
+    crearHistorialApi,
     crearInventarioApi,
     crearSubidorApi,
     crearTransporteApi,
@@ -15,6 +16,7 @@ import {
     type IdentidadApp,
     type InventarioCampo,
     type OrdenCampo,
+    type OrdenHistorial,
     type Transporte,
 } from "@iris/sync";
 import { AlmacenSqlite } from "@iris/sync/sqlite";
@@ -42,6 +44,8 @@ export interface MotorAbierto {
     inventario: InventarioCampo;
     /** Agenda de «Mañana» y «Semana» (`GET /campo/paquete?fecha=hasta`, solo con señal; ver `campo/agenda.tsx`). */
     agenda: (hasta: string) => Promise<OrdenCampo[]>;
+    /** «Historial del cliente» del menú de la orden (`GET /ordenes?clienteId=`, solo con señal). */
+    historial: (clienteId: number) => Promise<OrdenHistorial[]>;
 }
 
 /** El transporte de la API, avisando cada respuesta correcta de paquete o cambios. */
@@ -123,7 +127,12 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void, a
         await verificarIdentidad();
         return (await transporte.obtenerPaquete(hasta)).datos.ordenes ?? [];
     };
-    return { motor, posiciones, almacen, nombre, inventario, agenda };
+    const leerHistorial = crearHistorialApi(api, app);
+    const historial = async (clienteId: number) => {
+        await verificarIdentidad();
+        return leerHistorial(clienteId);
+    };
+    return { motor, posiciones, almacen, nombre, inventario, agenda, historial };
 }
 
 /** Cierra y borra la base del teléfono (cerrar sesión en un teléfono compartido). */

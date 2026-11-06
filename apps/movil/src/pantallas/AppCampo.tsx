@@ -9,6 +9,7 @@ import { StyleSheet, View } from "react-native";
 import { ErrorApi } from "../api/errores";
 import { Aviso, Cargando } from "../componentes";
 import { ProveedorAgenda, type LeerAgenda } from "../campo/agenda";
+import { ProveedorHistorial, type LeerHistorial } from "../campo/historial";
 import { ProveedorInventario } from "../campo/inventario";
 import { ProveedorCampo, useEstadoMotor, useEstadoPosiciones, type CerrarSesion, type ServiciosNativos } from "../campo/contexto";
 import { ordenesEnCurso, RastreoUbicacion, registrarReceptor, type EstadoRastreo, type GpsFondo } from "../campo/ubicacion";
@@ -24,6 +25,8 @@ export interface MotorDeSesion {
     inventario: InventarioCampo;
     /** Agenda de «Mañana» y «Semana» (lectura de la API con señal). */
     agenda: LeerAgenda;
+    /** «Historial del cliente» (lectura de la API con señal). */
+    historial?: LeerHistorial;
     /** Archivo de la base (lo lee la tarea del GPS con la app cerrada). */
     nombre: string;
     /** Cierra la conexión con la base. */
@@ -264,7 +267,9 @@ function CampoAbierto({
         >
             <ProveedorInventario inventario={abierto.inventario}>
                 <ProveedorAgenda leer={abierto.agenda}>
-                    <Marco empresa={nombreEmpresa} alSesionVencida={sesionVencida} {...(cambiarEmpresa ? { cambiarEmpresa } : {})} />
+                    <ProveedorHistorial leer={abierto.historial ?? null}>
+                        <Marco empresa={nombreEmpresa} alSesionVencida={sesionVencida} {...(cambiarEmpresa ? { cambiarEmpresa } : {})} />
+                    </ProveedorHistorial>
                 </ProveedorAgenda>
             </ProveedorInventario>
         </ProveedorCampo>
