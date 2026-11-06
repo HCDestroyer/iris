@@ -100,6 +100,44 @@ describe.each(["light", "dark"] as const)("chat en tiempo real (%s)", (esquema) 
         }
     });
 
+    it("si la app ya arranca en segundo plano, no abre el flujo hasta volver al frente", async () => {
+        const app = simularAppState();
+        const estadoOriginal = AppState.currentState;
+        Object.defineProperty(AppState, "currentState", { value: "background", configurable: true, writable: true });
+        try {
+            const flujo = flujoFalso();
+            const { m, chat } = await conChat(flujo.abrir);
+            await abrirCampo(m, { esquema, chat, alCambiarPlano: escucharPlano, vista: { tipo: "chat" } });
+            await act(async () => {
+                await vaciarPromesas(20);
+            });
+            expect(flujo.abiertos()).toBe(0);
+            expect(chat.obtenerEstado().tiempoReal).toBe("detenido");
+            await app.cambiar("active");
+            expect(flujo.abiertos()).toBe(1);
+        } finally {
+            Object.defineProperty(AppState, "currentState", { value: estadoOriginal, configurable: true, writable: true });
+            app.restaurar();
+        }
+    });
+
+    it("escucharPlano avisa el estado inicial solo si no está al frente", () => {
+        const estadoOriginal = AppState.currentState;
+        const app = simularAppState();
+        try {
+            for (const [estado, esperado] of [["active", []], [undefined, []], ["inactive", [false]], ["background", [false]]] as const) {
+                Object.defineProperty(AppState, "currentState", { value: estado, configurable: true, writable: true });
+                const avisos: boolean[] = [];
+                const quitar = escucharPlano((v) => avisos.push(v));
+                expect(avisos).toEqual(esperado);
+                quitar();
+            }
+        } finally {
+            Object.defineProperty(AppState, "currentState", { value: estadoOriginal, configurable: true, writable: true });
+            app.restaurar();
+        }
+    });
+
     it("la conversación dice «en vivo» con el flujo abierto y nada con sondeo", async () => {
         const flujo = flujoFalso();
         const { m, chat } = await conChat(flujo.abrir);

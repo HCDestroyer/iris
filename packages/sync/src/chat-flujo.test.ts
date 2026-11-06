@@ -3,7 +3,7 @@
 // sondeo. El servidor es un `fetch` falso que entrega el cuerpo por partes (ReadableStream).
 import { afterEach, describe, expect, it } from "vitest";
 import { AlmacenChatMemoria } from "./chat/almacen-memoria";
-import { crearFlujoFetch, crearLectorSSE, type FetchFlujo, type RespuestaFlujo } from "./chat/flujo-fetch";
+import { crearFlujoFetch, crearLectorSSE, ErrorSSEGrande, MAX_LINEA, type FetchFlujo, type RespuestaFlujo } from "./chat/flujo-fetch";
 import { MotorChat } from "./chat/motor";
 import type { EventoChat, OyentesFlujo } from "./chat/tipos";
 import type { ErrorTransporte } from "./errores";
@@ -115,7 +115,54 @@ describe("lector SSE", () => {
     });
 });
 
+describe("lector SSE con topes", () => {
+    it("una línea de más de 1 MiB sin salto lanza ErrorSSEGrande (no crece sin límite)", () => {
+        const l = crearLectorSSE();
+        const grande = "x".repeat(1024 * 1024 + 1);
+        expect(() => l.agregar(`data: ${grande}`)).toThrow(ErrorSSEGrande);
+        // A trozos también: el resto nunca pasa de MAX_LINEA.
+        const l2 = crearLectorSSE();
+        expect(() => {
+            for (let i = 0; i < 20; i += 1) {
+                l2.agregar("y".repeat(MAX_LINEA / 8));
+            }
+        }).toThrow(ErrorSSEGrande);
+    });
+
+    it("un evento con más de 256 KiB de data lanza ErrorSSEGrande", () => {
+        const l = crearLectorSSE();
+        const linea = `data: ${"z".repeat(60 * 1024)}\n`;
+        expect(() => l.agregar(`event: leido\n${linea.repeat(5)}\n`)).toThrow(ErrorSSEGrande);
+    });
+});
+
 describe("crearFlujoFetch", () => {
+    it("un trozo de más de 1 MiB sin salto corta el flujo con «Evento SSE demasiado grande»", async () => {
+        const f = fetchFalso();
+        const { o, registro } = oyentes();
+        crearFlujoFetch({ baseUrl: "https://iris.prueba", fetch: f.fetch, programar: () => 0, cancelar: () => undefined })(null, o);
+        await vaciarPromesas(5);
+        f.flujos[0]?.empujar(`data: ${"x".repeat(1024 * 1024 + 10)}`);
+        await vaciarPromesas(10);
+        expect(registro.cerrado).toBe(1);
+        expect(registro.error?.tipo).toBe("red");
+        expect(registro.error?.message).toBe("Evento SSE demasiado grande");
+        expect(f.flujos[0]?.senal.aborted).toBe(true);
+    });
+
+    it("al terminar vacía el decodificador: un evento cuyo último carácter llega partido no se pierde", async () => {
+        const f = fetchFalso();
+        const { o, registro } = oyentes();
+        crearFlujoFetch({ baseUrl: "https://iris.prueba", fetch: f.fetch, programar: () => 0, cancelar: () => undefined })(null, o);
+        await vaciarPromesas(5);
+        f.flujos[0]?.empujar(eventoTexto("9").slice(0, -1));
+        f.flujos[0]?.empujar("\n");
+        f.flujos[0]?.terminar();
+        await vaciarPromesas(10);
+        expect(registro.eventos.map((e) => e.id)).toEqual(["9"]);
+        expect(registro.cerrado).toBe(1);
+    });
+
     it("abre con las cabeceras de la app, Last-Event-ID y ?desde=, y entrega los eventos conocidos", async () => {
         const f = fetchFalso();
         const t = temporizador();
@@ -265,6 +312,29 @@ describe("motor del chat con el flujo de la app nativa", () => {
         await vaciarPromesas(20);
         expect(f.flujos).toHaveLength(3);
         expect(motor.obtenerEstado().tiempoReal).toBe("sondeo");
+    });
+
+    it("429 con Retry-After: 99999999 espera 5 min (no un bucle) antes de volver a abrir el flujo", async () => {
+        let veces = 0;
+        const f = fetchFalso(() => {
+            veces += 1;
+            return veces === 1 ? { status: 429, cuerpo: { type: "urn:iris:problema:demasiados_flujos", title: "Demasiados flujos", status: 429 }, cabeceras: { "Retry-After": "99999999" } } : null;
+        });
+        const { motor, reloj } = await montar(f);
+        expect(veces).toBe(1);
+        await reloj.avanzar(60_000);
+        await vaciarPromesas(20);
+        expect(veces).toBe(1);
+        await reloj.avanzar(4 * 60_000 - 1);
+        await vaciarPromesas(20);
+        expect(veces).toBe(1);
+        // A los 5 min (el tope) vuelve a probar el flujo y abre.
+        for (let i = 0; i < 3 && veces === 1; i += 1) {
+            await reloj.avanzar(12_000);
+            await vaciarPromesas(20);
+        }
+        expect(veces).toBe(2);
+        expect(motor.obtenerEstado().tiempoReal).toBe("sse");
     });
 
     it("sin red el flujo cae y el sondeo pone al día", async () => {

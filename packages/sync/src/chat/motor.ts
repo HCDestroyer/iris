@@ -975,23 +975,29 @@ export class MotorChat {
     }
 
     private async correrTiempoReal(senal: AbortSignal): Promise<void> {
+        // Un bucle ya detenido (segundo plano) no vuelve a cambiar el estado al terminar lo que esperaba.
+        const fijar = (modo: ModoTiempoReal) => {
+            if (!senal.aborted) {
+                this.fijarTiempoReal(modo);
+            }
+        };
         let fallos = 0;
         let fallosFlujo = 0;
         let flujoBloqueadoHasta = 0;
         while (!senal.aborted && !this.sesionCerrada) {
             if (!this.enLinea) {
-                this.fijarTiempoReal("sin_conexion");
+                fijar("sin_conexion");
                 await this.dormir(10 * MINUTO_MS, senal);
                 continue;
             }
             try {
                 if (this.meta.cursor === null) {
-                    this.fijarTiempoReal("conectando");
+                    fijar("conectando");
                     await this.verificar();
                     await this.arrancarFeed();
                 }
                 if (this.abrirFlujo && this.reloj.ahora() >= flujoBloqueadoHasta) {
-                    this.fijarTiempoReal("conectando");
+                    fijar("conectando");
                     await this.verificar();
                     if (senal.aborted) {
                         break;
@@ -1016,7 +1022,7 @@ export class MotorChat {
                     const espera = fallosFlujo === 0 ? this.reconexionMs : Math.min(ESPERA_FLUJO_MAX_MS, this.reconexionMs * 2 ** (fallosFlujo - 1));
                     await this.dormir(espera, senal);
                 } else {
-                    this.fijarTiempoReal("sondeo");
+                    fijar("sondeo");
                     await this.verificar();
                     await this.sondearHastaAlDia();
                     fallos = 0;
@@ -1031,7 +1037,7 @@ export class MotorChat {
                     this.sesionCerrada = esSesion(e) || this.sesionCerrada;
                     this.alFallarLectura(e, false);
                     this.bucleTiempo = null;
-                    this.fijarTiempoReal("detenido");
+                    fijar("detenido");
                     return;
                 }
                 const retry = esEspera(e) && e instanceof ErrorTransporte ? msDeRetryAfter(e.cabeceras?.get("Retry-After"), this.reloj.ahora()) : null;
@@ -1040,8 +1046,11 @@ export class MotorChat {
                 if (e instanceof ErrorTransporte && e.status === 503) {
                     // `flujos_agotados`: el proceso no da más flujos; se sondea un rato.
                     flujoBloqueadoHasta = this.reloj.ahora() + Math.max(espera, 5 * MINUTO_MS);
+                } else if (e instanceof ErrorTransporte && e.status === 429) {
+                    // `demasiados_flujos` (o sondeo limitado): no se vuelve a abrir el flujo antes de la hora pedida.
+                    flujoBloqueadoHasta = Math.max(flujoBloqueadoHasta, this.reloj.ahora() + espera);
                 }
-                this.fijarTiempoReal(this.abrirFlujo ? "conectando" : "sondeo");
+                fijar(this.abrirFlujo ? "conectando" : "sondeo");
                 await this.dormir(Math.max(1000, espera), senal);
             }
         }

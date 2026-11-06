@@ -21,17 +21,37 @@ export const SIN_LATIDO_MS = 60_000;
 
 export type EventoSSE = { id: string | undefined; tipo: string; datos: string };
 
+/** Tope de una línea del flujo (en caracteres) y de los `data:` de un evento: 64 KiB y 256 KiB. */
+export const MAX_LINEA = 64 * 1024;
+export const MAX_EVENTO = 256 * 1024;
+
+/** El flujo mandó una línea o un evento más grande que los topes: se corta y se reconecta. */
+export class ErrorSSEGrande extends Error {
+    constructor() {
+        super("Evento SSE demasiado grande");
+        this.name = "ErrorSSEGrande";
+    }
+}
+
 /**
  * Lector incremental de `text/event-stream` (WHATWG «Server-sent events» §9.2.6): recibe trozos de
  * texto y devuelve los eventos que cerró (línea en blanco). Los comentarios (`: latido`) se ignoran.
+ * Solo guarda la línea a medias (nunca más de `MAX_LINEA`) y cada trozo se recorre una vez; una
+ * línea o un evento más grandes lanzan `ErrorSSEGrande`.
  */
 export function crearLectorSSE(): { agregar: (trozo: string) => EventoSSE[] } {
     let resto = "";
+    /** El trozo anterior terminó en CR: si este empieza con LF, es el mismo salto (CRLF). */
+    let crPendiente = false;
     let id: string | undefined;
     let tipo = "";
     let datos: string[] = [];
+    let tamanoDatos = 0;
     let hayDatos = false;
     const linea = (texto: string, salida: EventoSSE[]) => {
+        if (texto.length > MAX_LINEA) {
+            throw new ErrorSSEGrande();
+        }
         if (texto === "") {
             if (hayDatos) {
                 salida.push({ id, tipo: tipo || "message", datos: datos.join("\n") });
@@ -39,6 +59,7 @@ export function crearLectorSSE(): { agregar: (trozo: string) => EventoSSE[] } {
             id = undefined;
             tipo = "";
             datos = [];
+            tamanoDatos = 0;
             hayDatos = false;
             return;
         }
@@ -52,6 +73,10 @@ export function crearLectorSSE(): { agregar: (trozo: string) => EventoSSE[] } {
             valor = valor.slice(1);
         }
         if (campo === "data") {
+            tamanoDatos += valor.length + 1;
+            if (tamanoDatos > MAX_EVENTO) {
+                throw new ErrorSSEGrande();
+            }
             datos.push(valor);
             hayDatos = true;
         } else if (campo === "event") {
@@ -64,14 +89,29 @@ export function crearLectorSSE(): { agregar: (trozo: string) => EventoSSE[] } {
     return {
         agregar(trozo) {
             const salida: EventoSSE[] = [];
-            let texto = resto + trozo;
-            // Un CR al final puede ser la mitad de un CRLF: se guarda para el siguiente trozo.
-            const guardaCR = texto.endsWith("\r");
-            if (guardaCR) {
-                texto = texto.slice(0, -1);
+            let inicio = 0;
+            if (crPendiente && trozo.startsWith("\n")) {
+                inicio = 1;
             }
-            const partes = texto.split(/\r\n|\n|\r/);
-            resto = (partes.pop() ?? "") + (guardaCR ? "\r" : "");
+            crPendiente = false;
+            // Solo el último salto del trozo: lo de antes son líneas completas, lo de después la mitad de una.
+            const ultimo = Math.max(trozo.lastIndexOf("\n"), trozo.lastIndexOf("\r"));
+            if (ultimo < inicio) {
+                resto += trozo.slice(inicio);
+                if (resto.length > MAX_LINEA) {
+                    throw new ErrorSSEGrande();
+                }
+                return salida;
+            }
+            const completas = resto + trozo.slice(inicio, ultimo + 1);
+            resto = trozo.slice(ultimo + 1);
+            if (resto.length > MAX_LINEA) {
+                throw new ErrorSSEGrande();
+            }
+            // Un CR al final puede ser la mitad de un CRLF: el LF del siguiente trozo no es otra línea.
+            crPendiente = trozo[ultimo] === "\r";
+            const partes = completas.split(/\r\n|\n|\r/);
+            partes.pop();
             for (const p of partes) {
                 linea(p, salida);
             }
@@ -181,11 +221,23 @@ export function crearFlujoFetch(o: OpcionesFlujoFetch): AbrirFlujoChat {
                         void lector.cancel().catch(() => undefined);
                         return;
                     }
-                    if (done) {
-                        break;
+                    // Al terminar se vacía el decodificador (un carácter partido al final).
+                    const texto = done ? decodificador.decode() : decodificador.decode(value, { stream: true });
+                    if (!done) {
+                        renovar();
                     }
-                    renovar();
-                    for (const e of sse.agregar(decodificador.decode(value, { stream: true }))) {
+                    let eventos: EventoSSE[];
+                    try {
+                        eventos = sse.agregar(texto);
+                    } catch (e) {
+                        if (e instanceof ErrorSSEGrande) {
+                            void lector.cancel().catch(() => undefined);
+                            fin(new ErrorTransporte("red", e.message));
+                            return;
+                        }
+                        throw e;
+                    }
+                    for (const e of eventos) {
                         if (!TIPOS_EVENTO.has(e.tipo)) {
                             continue;
                         }
@@ -197,6 +249,9 @@ export function crearFlujoFetch(o: OpcionesFlujoFetch): AbrirFlujoChat {
                             continue;
                         }
                         oyentes.alEvento(evento);
+                    }
+                    if (done) {
+                        break;
                     }
                 }
                 fin();

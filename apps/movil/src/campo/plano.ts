@@ -3,9 +3,12 @@
 // abre ni cierra dos veces seguidas: una sola conexión y nada de batería en segundo plano.
 import { AppState, type AppStateStatus } from "react-native";
 
+const enSegundoPlano = (estado: string | null | undefined) => estado === "background" || estado === "inactive";
+
 export function escucharPlano(fn: (alFrente: boolean) => void): () => void {
-    // Sin estado conocido (arranque) cuenta como al frente: el motor arranca así.
-    let alFrente = AppState.currentState !== "background" && AppState.currentState !== "inactive";
+    // El motor del chat arranca «al frente». Si la app ya empezó en segundo plano (o inactiva), se le
+    // avisa al suscribirse para que no abra el flujo; sin estado conocido (arranque), al frente.
+    let alFrente = !enSegundoPlano(AppState.currentState);
     const s = AppState.addEventListener("change", (e: AppStateStatus) => {
         const ahora = e === "active";
         if (ahora !== alFrente) {
@@ -13,5 +16,8 @@ export function escucharPlano(fn: (alFrente: boolean) => void): () => void {
             fn(ahora);
         }
     });
+    if (!alFrente) {
+        fn(false);
+    }
     return () => s.remove();
 }
