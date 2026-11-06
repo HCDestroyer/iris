@@ -147,8 +147,14 @@ export async function buscarSugerencias(campo: Locator, texto: string): Promise<
  * cerró en el camino, no cae en otro control (un Enter con la lista cerrada enviaría el formulario).
  * Se da por elegida cuando el campo se va (el selector de cliente pasa a confirmar) o queda con el
  * texto de la opción; si no, vuelve a abrir la lista y repite.
+ *
+ * Antes espera a que el campo esté en pantalla: «el campo se fue» solo vale como elegida después de
+ * haberlo visto. Si el campo aún no se montó (su lista todavía carga y se ve un esqueleto), contarlo
+ * como elegido devolvía sin elegir nada (la prueba de la bodega de Argos seguía con el formulario
+ * sin cambios).
  */
 export async function elegirSugerencia(campo: Locator, nombre: RegExp): Promise<void> {
+    await expect(campo).toBeEditable();
     const elegida = async () => (await campo.count()) === 0 || nombre.test(await campo.inputValue());
     await expect(async () => {
         if (await elegida()) return;
@@ -174,9 +180,11 @@ export async function esperarResaltada(campo: Locator, nombre: RegExp): Promise<
  * Elige con el teclado la opción resaltada: espera el resaltado y pulsa Enter. Si la lista se cerró
  * justo antes (en el teléfono, un desplazamiento tardío al enfocar), Enter no hace nada (nunca envía
  * el formulario) y se repite. Se da por elegida cuando el campo se va (el selector de cliente pasa a
- * confirmar) o queda con el texto de la opción.
+ * confirmar) o queda con el texto de la opción. Como `elegirSugerencia`, espera antes a que el
+ * campo esté en pantalla.
  */
 export async function elegirConEnter(campo: Locator, nombre: RegExp): Promise<void> {
+    await expect(campo).toBeEditable();
     const elegida = async () => (await campo.count()) === 0 || nombre.test(await campo.inputValue());
     await expect(async () => {
         if (await elegida()) return;
