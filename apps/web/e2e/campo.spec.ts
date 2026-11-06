@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 import { aceptarUbicacion, conSesionTecnico, declinarUbicacion, simularApiCampo, type ApiCampo } from "./api-campo";
 import { abrirPorEnviar, alResumen, avisoCampo, empezarTrabajo, firmarEn, guardarAlSalirDelCampo, irAPaso, pestanaCampo } from "./ayudas-campo";
-import { CABLE, TECNICO } from "./datos-campo";
+import { CABLE } from "./datos-campo";
 
 /*
  * App de campo (/campo) en el teléfono (390 px, claro y oscuro): sin conexión con
