@@ -71,7 +71,7 @@ type EntradaConfigurarCanal struct {
 	Version       int32    `json:"version" minimum:"1"`
 	Usos          []string `json:"usos" minItems:"1" maxItems:"4" uniqueItems:"true" doc:"avisos, soporte, cobros, ventas"`
 	AvisosEmpresa bool     `json:"avisosEmpresa" doc:"El número por el que salen los avisos de la empresa (uno solo; marcarlo lo quita del anterior). Exige avisos en usos"`
-	ColaID        *int64   `json:"colaId,omitempty" minimum:"1" nullable:"true" doc:"ColaConversaciones de las conversaciones nuevas (null = sin cola)"`
+	ColaID        *int64   `json:"colaId,omitempty" minimum:"1" nullable:"true" doc:"Cola de las conversaciones nuevas (null = sin cola)"`
 }
 
 func validarUsos(usos []string, avisos bool) error {
@@ -417,7 +417,7 @@ func nuevoCambioCola(m *Modulo, accion string, activa bool) *auditoria.Caso[Entr
 
 // Etiquetas ---------------------------------------------------------------------------------------
 
-// EtiquetaConversacion de conversaciones.
+// EtiquetaConversacion es una etiqueta de conversaciones.
 type EtiquetaConversacion struct {
 	ID      int64  `json:"id"`
 	Nombre  string `json:"nombre"`
