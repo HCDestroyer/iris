@@ -35,6 +35,11 @@ const ETIQUETAS: Readonly<Record<string, string>> = {
     "/administracion/roles": "Roles y permisos",
     "/administracion/roles/nuevo": "Nuevo rol",
     "/administracion/buzones/nuevo": "Nuevo buzón",
+    "/administracion/numeros": "Números de WhatsApp",
+    "/administracion/horarios": "Horarios",
+    "/administracion/horarios/nuevo": "Nuevo horario",
+    "/administracion/manuales": "Biblioteca de manuales",
+    "/administracion/manuales/nuevo": "Nuevo manual",
     "/administracion/respuestas-rapidas": "Respuestas rápidas",
     "/administracion/respuestas-rapidas/nueva": "Nueva respuesta",
     // Formularios en pantalla propia (fase 2).
@@ -54,6 +59,9 @@ const SUBPANTALLAS: readonly (readonly [RegExp, string])[] = [
     [/^\/comercial\/[^/]+\/cotizacion$/, "Cotización"],
     [/^\/administracion\/buzones\/[^/]+\/editar$/, "Editar buzón"],
     [/^\/administracion\/respuestas-rapidas\/[^/]+\/editar$/, "Editar respuesta"],
+    [/^\/administracion\/numeros\/[^/]+\/configurar$/, "Configurar número"],
+    [/^\/administracion\/horarios\/[^/]+\/editar$/, "Editar horario"],
+    [/^\/administracion\/manuales\/[^/]+\/editar$/, "Editar manual"],
 ];
 
 /** Fichas: la etiqueta mientras no se conoce el nombre del registro. */

@@ -220,6 +220,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
     const ficha = (
         <FichaCliente
             conv={conv}
+            identidad={identidad}
             pestana={pestana}
             alCambiarPestana={setPestana}
             alActualizar={(c) => {

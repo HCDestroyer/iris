@@ -167,9 +167,11 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
                     Pasar a otra cola
                 </MenuDesplegableElemento>
             ) : null}
-            <MenuDesplegableElemento icono={BookOpen} onSelect={abrirAyuda}>
-                Buscar en los manuales
-            </MenuDesplegableElemento>
+            {puede(["manuales.ver"]) ? (
+                <MenuDesplegableElemento icono={BookOpen} onSelect={abrirAyuda}>
+                    Buscar en los manuales
+                </MenuDesplegableElemento>
+            ) : null}
         </>
     );
 
