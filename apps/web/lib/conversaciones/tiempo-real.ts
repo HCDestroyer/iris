@@ -296,6 +296,15 @@ export function iniciarFeed<E extends EventoFeed>(opciones: OpcionesFeed<E>, alL
     async function bucle() {
         let espera = plazos.esperaMin;
         let listo = false;
+        // 410 seguidos: el primero recarga al instante; si se repite, se espera con backoff.
+        let vencidosSeguidos = 0;
+        async function trasVencido() {
+            if (vencidosSeguidos > 0) {
+                await reloj.esperar(espera, senal);
+                espera = Math.min(espera * 2, plazos.esperaMax);
+            }
+            vencidosSeguidos++;
+        }
         while (!senal.aborted) {
             try {
                 // Reconectar tras un cierre normal (cada 30 min) no es «conectando»: sigue al día.
@@ -312,9 +321,11 @@ export function iniciarFeed<E extends EventoFeed>(opciones: OpcionesFeed<E>, alL
                     siguiente = await sondear();
                 }
                 if (siguiente === "vencido") {
+                    await trasVencido();
                     await vencido();
                     continue;
                 }
+                vencidosSeguidos = 0;
                 if (siguiente === "red") {
                     cambiar("sin_conexion");
                     await reloj.esperar(espera, senal);
@@ -343,6 +354,7 @@ export function iniciarFeed<E extends EventoFeed>(opciones: OpcionesFeed<E>, alL
                 }
                 if (e === 410) {
                     try {
+                        await trasVencido();
                         await vencido();
                     } catch {
                         // Se reintenta en la vuelta siguiente.
