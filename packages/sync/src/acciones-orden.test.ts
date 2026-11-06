@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { accionesPantallaOrden, contadorNota, cuandoNota, encabezadoOrden, metaNota, motivoSinFormulario, notasOrdenadas, puedeCambiarNota } from "./campo";
-import type { NotaOrden } from "./contrato";
+import type { NotaOrden, PausaOrden } from "./contrato";
 import type { OrdenVista } from "./motor";
 import { ordenDePrueba } from "./pruebas/fabricas";
 
@@ -50,12 +50,8 @@ describe("pantalla de la orden", () => {
     });
 
     it("pausada: solo el aviso «En pausa desde HH:MM · motivo» y «Reanudar» (si tiene el permiso)", () => {
-        const pausada = vista({
-            estado: "pausada",
-            pausadaDesde: "en_sitio",
-            pausadaEn: "2026-10-28T18:10:00Z",
-            pausas: [{ id: 1, motivo: "esperando_material", nota: null, desdeEstado: "en_sitio", inicio: "2026-10-28T18:10:00Z", fin: null, duracionSeg: null, cierre: null, pausadaPor: 5, cerradaPor: null }],
-        });
+        const pausa: PausaOrden = { id: 1, motivo: "esperando_material", nota: null, desdeEstado: "en_sitio", inicio: "2026-10-28T18:10:00Z", fin: null, duracionSeg: null, cierre: null, pausadaPor: 5, cerradaPor: null };
+        const pausada = vista({ estado: "pausada", pausadaDesde: "en_sitio", pausadaEn: "2026-10-28T18:10:00Z", pausas: [pausa] });
         expect(accionesPantallaOrden(pausada, true)).toEqual({
             principal: null,
             grupo: [],
@@ -64,7 +60,7 @@ describe("pantalla de la orden", () => {
         });
         expect(accionesPantallaOrden(pausada, false).reanudar).toBe(false);
         // Con «Otro motivo», la nota es el motivo.
-        const otro = vista({ ...pausada, pausas: [{ ...pausada.pausas![0]!, motivo: "otro", nota: "Almuerzo" }] });
+        const otro = vista({ ...pausada, pausas: [{ ...pausa, motivo: "otro", nota: "Almuerzo" }] });
         expect(accionesPantallaOrden(otro, true).pausa?.texto).toBe("En pausa desde 12:10 · Almuerzo");
     });
 
