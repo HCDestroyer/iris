@@ -4,6 +4,7 @@ import { ADMIN, ASIGNADOR, CONSULTA, LECTOR, conSesion, simularApi, type ApiFals
 import { avisoError, enlaceMenu } from "./ayudas";
 import { JORGE, LUCIA, ROSA } from "./datos-agenda";
 import { simularTeselas } from "./teselas";
+import { abrirOpciones, cerrarOpciones, elegirOpcion, escribirHora, esperarOpcion, esperarValorCampo } from "./controles";
 
 const carpeta = process.env.IRIS_CAPTURAS ?? path.join("test-results", "capturas");
 const captura = (page: Page, info: TestInfo, que: string) => page.screenshot({ path: path.join(carpeta, `${que}-${info.project.name}.png`), fullPage: true });
@@ -120,15 +121,15 @@ test.describe("agenda", () => {
         await expect(cita(page, "OT-000003")).toBeVisible();
         await captura(page, info, "41-agenda-semana");
 
-        await page.getByLabel("Cuadrilla").selectOption({ label: "Cuadrilla Sur" });
+        await elegirOpcion(page.getByLabel("Cuadrilla"), { label: "Cuadrilla Sur" });
         await expect.poll(() => ultima(api, "/api/v1/agenda")?.query.get("cuadrillaId")).toBe("2");
         expect(ultima(api, "/api/v1/tecnicos")?.query.get("cuadrillaId")).toBe("2");
         await expect(fila(page, ROSA).first()).toBeVisible();
         await expect(fila(page, LUCIA)).toHaveCount(0);
         await expect(cita(page, "OT-000003")).toHaveCount(0);
 
-        await page.getByLabel("Cuadrilla").selectOption({ label: "Todas" });
-        await page.getByLabel("Zona").selectOption({ label: "Mixco" });
+        await elegirOpcion(page.getByLabel("Cuadrilla"), { label: "Todas" });
+        await elegirOpcion(page.getByLabel("Zona"), { label: "Mixco" });
         await expect.poll(() => ultima(api, "/api/v1/agenda")?.query.get("zonaId")).toBe("5");
         expect(ultima(api, "/api/v1/agenda")?.query.get("cuadrillaId")).toBeNull();
         await expect(page.getByText("No hay técnicos en este filtro")).toHaveCount(0);
@@ -141,14 +142,14 @@ test.describe("agenda", () => {
         const hoy = hoyGt();
         if (enTelefono(info)) {
             await abrirMover(page, info, "OT-000003");
-            await dialogo(page).getByLabel("Técnico", { exact: true }).selectOption(String(JORGE));
-            await dialogo(page).getByLabel("Hora", { exact: true }).fill("15:30");
+            await elegirOpcion(dialogo(page).getByLabel("Técnico", { exact: true }), String(JORGE));
+            await escribirHora(dialogo(page), "Hora", "15:30");
         } else {
             await soltarEn(page, cita(page, "OT-000003"), JORGE, "15:30");
             await expect(dialogo(page)).toBeVisible();
-            await expect(dialogo(page).getByLabel("Técnico", { exact: true })).toHaveValue(String(JORGE));
-            await expect(dialogo(page).getByLabel("Hora", { exact: true })).toHaveValue("15:30");
-            await expect(dialogo(page).getByLabel("Día", { exact: true })).toHaveValue(hoy);
+            await esperarOpcion(dialogo(page).getByLabel("Técnico", { exact: true }), String(JORGE));
+            await esperarValorCampo(dialogo(page), "Hora", "15:30");
+            await esperarValorCampo(dialogo(page), "Día", hoy);
         }
         await expect(dialogo(page).getByRole("heading", { name: "Mover a… · OT-000003" })).toBeVisible();
         await expect(dialogo(page).getByTestId("disponibilidad")).toContainText("Jorge Méndez tiene libre ese horario (60 min).");
@@ -179,18 +180,20 @@ test.describe("agenda", () => {
         const enviar = d.getByRole("button", { name: "Reprogramar" });
         await d.getByLabel("Motivo", { exact: true }).fill("Pedido del cliente");
 
-        await d.getByLabel("Técnico", { exact: true }).selectOption(String(ROSA));
+        await elegirOpcion(d.getByLabel("Técnico", { exact: true }), String(ROSA));
         await expect(d.getByTestId("disponibilidad")).toContainText("Rosa Ajú: Está ausente ese día.");
-        await expect(d.getByLabel("Técnico", { exact: true }).locator(`option[value="${ROSA}"]`)).toContainText("Está ausente ese día");
+        const tecnicos = await abrirOpciones(d.getByLabel("Técnico", { exact: true }));
+        await expect(tecnicos.locator(`[role="option"][data-valor="${ROSA}"]`)).toContainText("Está ausente ese día");
+        await cerrarOpciones(page);
         await expect(enviar).toBeDisabled();
 
-        await d.getByLabel("Técnico", { exact: true }).selectOption(String(JORGE));
-        await d.getByLabel("Hora", { exact: true }).fill("14:30");
+        await elegirOpcion(d.getByLabel("Técnico", { exact: true }), String(JORGE));
+        await escribirHora(d, "Hora", "14:30");
         await expect(d.getByTestId("disponibilidad")).toContainText("Ese horario no está libre para Jorge Méndez (60 min). Libre: 07:00–08:00, 09:00–14:00 y 15:00–17:00.");
         await expect(enviar).toBeDisabled();
         await captura(page, info, "43-mover-no-disponible");
 
-        await d.getByLabel("Hora", { exact: true }).fill("15:00");
+        await escribirHora(d, "Hora", "15:00");
         await expect(enviar).toBeEnabled();
         api.responderProblema(
             "/api/v1/ordenes/3/reprogramar",
@@ -200,8 +203,8 @@ test.describe("agenda", () => {
         await enviar.click();
         await expect(d.getByRole("alert")).toContainText("No se pudo reprogramar la orden");
         await expect(d.getByRole("alert")).toContainText("Jorge Méndez ya tiene 6 retiros ese día (máximo 6)");
-        await expect(d.getByLabel("Técnico", { exact: true })).toHaveValue(String(JORGE));
-        await expect(d.getByLabel("Hora", { exact: true })).toHaveValue("15:00");
+        await esperarOpcion(d.getByLabel("Técnico", { exact: true }), String(JORGE));
+        await esperarValorCampo(d, "Hora", "15:00");
         await expect(d.getByLabel("Motivo", { exact: true })).toHaveValue("Pedido del cliente");
         await captura(page, info, "44-mover-422");
         const primera = ultima(api, "/api/v1/ordenes/3/reprogramar", "POST")?.idempotencia;
@@ -222,14 +225,14 @@ test.describe("agenda", () => {
         const d = dialogo(page);
         await expect(d.getByText("No se pudo comprobar la disponibilidad")).toBeVisible();
         await d.getByLabel("Motivo", { exact: true }).fill("Reacomodo de ruta");
-        await d.getByLabel("Hora", { exact: true }).fill("18:00");
+        await escribirHora(d, "Hora", "18:00");
         await d.getByRole("button", { name: "Reprogramar" }).click();
         await expect(d.getByRole("alert")).toContainText("La visita (18:00–19:00) queda fuera del turno de Lucía Ramírez (07:00–17:00)");
-        await expect(d.getByLabel("Hora", { exact: true })).toHaveValue("18:00");
+        await esperarValorCampo(d, "Hora", "18:00");
         await d.getByRole("button", { name: "Reintentar" }).click();
         await expect(d.getByTestId("disponibilidad")).toContainText("Ese horario no está libre para Lucía Ramírez");
 
-        await d.getByLabel("Hora", { exact: true }).fill("15:00");
+        await escribirHora(d, "Hora", "15:00");
         await expect(d.getByTestId("disponibilidad")).toContainText("tiene libre ese horario");
         api.cambiarVersionOrden(3);
         await d.getByRole("button", { name: "Reprogramar" }).click();
@@ -253,12 +256,12 @@ test.describe("agenda", () => {
         const bandeja = page.getByTestId("sin-programar");
         if (enTelefono(info)) {
             await bandeja.getByRole("button", { name: "Programar OT-000002" }).click();
-            await dialogo(page).getByLabel("Técnico", { exact: true }).selectOption(String(LUCIA));
-            await dialogo(page).getByLabel("Hora", { exact: true }).fill("15:00");
+            await elegirOpcion(dialogo(page).getByLabel("Técnico", { exact: true }), String(LUCIA));
+            await escribirHora(dialogo(page), "Hora", "15:00");
         } else {
             await soltarEn(page, bandeja.locator('[data-sin-programar="OT-000002"]'), LUCIA, "15:00");
-            await expect(dialogo(page).getByLabel("Técnico", { exact: true })).toHaveValue(String(LUCIA));
-            await expect(dialogo(page).getByLabel("Hora", { exact: true })).toHaveValue("15:00");
+            await esperarOpcion(dialogo(page).getByLabel("Técnico", { exact: true }), String(LUCIA));
+            await esperarValorCampo(dialogo(page), "Hora", "15:00");
         }
         await expect(dialogo(page).getByLabel("Motivo", { exact: true })).toHaveCount(0);
         await expect(dialogo(page).getByTestId("disponibilidad")).toContainText("Lucía Ramírez tiene libre ese horario");
@@ -271,12 +274,12 @@ test.describe("agenda", () => {
         if (enTelefono(info)) {
             await bandeja.getByRole("button", { name: "Programar OT-000010" }).click();
             await dialogo(page).getByLabel("Asignar el técnico sin programar la visita").check();
-            await dialogo(page).getByLabel("Técnico", { exact: true }).selectOption(String(JORGE));
+            await elegirOpcion(dialogo(page).getByLabel("Técnico", { exact: true }), String(JORGE));
         } else {
             // Soltar en el nombre del técnico: solo asignar.
             await bandeja.locator('[data-sin-programar="OT-000010"]').dragTo(page.locator(`[data-cabecera-tecnico="${JORGE}"]`).filter({ visible: true }));
             await expect(dialogo(page).getByLabel("Asignar el técnico sin programar la visita")).toBeChecked();
-            await expect(dialogo(page).getByLabel("Técnico", { exact: true })).toHaveValue(String(JORGE));
+            await esperarOpcion(dialogo(page).getByLabel("Técnico", { exact: true }), String(JORGE));
         }
         await expect(dialogo(page).getByLabel("Hora", { exact: true })).toHaveCount(0);
         await dialogo(page).getByRole("button", { name: "Asignar" }).click();
@@ -297,13 +300,13 @@ test.describe("agenda", () => {
             // Soltar en su nombre sí: asignar.
             await cita(page, "OT-000003").dragTo(page.locator(`[data-cabecera-tecnico="${JORGE}"]`).filter({ visible: true }));
             await expect(dialogo(page)).toBeVisible();
-            await expect(dialogo(page).getByLabel("Técnico", { exact: true })).toHaveValue(String(JORGE));
+            await esperarOpcion(dialogo(page).getByLabel("Técnico", { exact: true }), String(JORGE));
         }
         const d = dialogo(page);
         await expect(d.getByLabel("Hora", { exact: true })).toHaveCount(0);
         await expect(d.getByRole("checkbox")).toHaveCount(0);
         await expect(d.getByText("No tienes permiso para esta acción")).toHaveCount(0);
-        await d.getByLabel("Técnico", { exact: true }).selectOption(String(JORGE));
+        await elegirOpcion(d.getByLabel("Técnico", { exact: true }), String(JORGE));
         await d.getByRole("button", { name: "Asignar" }).click();
         await expect(page.getByTestId("movida")).toContainText("OT-000003 asignada: Jorge Méndez");
         expect(ultima(api, "/api/v1/ordenes/3/asignar", "POST")?.cuerpo).toEqual({ version: 3, tecnicoId: JORGE, cuadrillaId: 1 });
@@ -374,7 +377,7 @@ test.describe("despacho", () => {
 
         // Ruta publicada de Lucía: llegada estimada frente a la real, desvío y los dos trazos.
         const ruta = page.getByTestId("seccion-ruta");
-        await ruta.getByLabel("Técnico de la ruta").selectOption({ label: "Lucía Ramírez" });
+        await elegirOpcion(ruta.getByLabel("Técnico de la ruta"), { label: "Lucía Ramírez" });
         await expect(ruta.locator('[data-estado-ruta="publicada"]')).toBeVisible();
         expect(ultima(api, "/api/v1/rutas")?.query.get("tecnicoId")).toBe(String(LUCIA));
         expect(ultima(api, "/api/v1/rutas")?.query.get("fecha")).toBe(hoyGt());
@@ -445,7 +448,7 @@ test.describe("despacho", () => {
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/despacho");
         const ruta = page.getByTestId("seccion-ruta");
-        await ruta.getByLabel("Técnico de la ruta").selectOption({ label: "Jorge Méndez" });
+        await elegirOpcion(ruta.getByLabel("Técnico de la ruta"), { label: "Jorge Méndez" });
         await expect(ruta.locator('[data-estado-ruta="borrador"]')).toBeVisible();
         await expect(ruta.getByTestId("ruta-degradada")).toContainText("Tiempos aproximados");
         await expect(ruta.getByTestId("ruta-degradada")).toContainText("no hay servicio de rutas configurado");
@@ -494,7 +497,7 @@ test.describe("despacho", () => {
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/despacho");
         const ruta = page.getByTestId("seccion-ruta");
-        await ruta.getByLabel("Técnico de la ruta").selectOption({ label: "Rosa Ajú" });
+        await elegirOpcion(ruta.getByLabel("Técnico de la ruta"), { label: "Rosa Ajú" });
         await expect(ruta.getByTestId("sin-ruta")).toContainText("Rosa Ajú no tiene ruta para este día.");
         await ruta.getByRole("button", { name: "Proponer ruta" }).click();
         await expect(ruta.getByRole("alert")).toContainText("Rosa Ajú no tiene citas programadas ese día");
@@ -502,10 +505,10 @@ test.describe("despacho", () => {
         await context.clearCookies();
         await conSesion(context, baseURL ?? "", CONSULTA.correo);
         await page.goto("/despacho");
-        await ruta.getByLabel("Técnico de la ruta").selectOption({ label: "Jorge Méndez" });
+        await elegirOpcion(ruta.getByLabel("Técnico de la ruta"), { label: "Jorge Méndez" });
         await expect(ruta.locator('[data-estado-ruta="borrador"]')).toBeVisible();
         await expect(ruta.getByRole("button", { name: /proponer|publicar|subir|bajar/i })).toHaveCount(0);
-        await ruta.getByLabel("Técnico de la ruta").selectOption({ label: "Rosa Ajú" });
+        await elegirOpcion(ruta.getByLabel("Técnico de la ruta"), { label: "Rosa Ajú" });
         await expect(ruta.getByTestId("sin-ruta")).toBeVisible();
         await expect(ruta.getByRole("button", { name: "Proponer ruta" })).toHaveCount(0);
     });

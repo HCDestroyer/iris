@@ -1,7 +1,7 @@
 "use client";
 
 import type { Schema } from "@iris/contratos";
-import { Boton, cn, Esqueleto, InsigniaEstado, Tarjeta } from "@iris/ui";
+import { AvatarUsuario, Boton, cn, Esqueleto, InsigniaEstado, Tarjeta } from "@iris/ui";
 import { ChevronRight, ClipboardList, Inbox, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -514,9 +514,7 @@ function EquipoHoy({
                                 data-tecnico={f.usuarioId}
                                 data-estado-tecnico={f.estado}
                             >
-                                <span aria-hidden className="grid size-8 place-items-center rounded-full bg-elevated text-[0.6875rem] font-semibold">
-                                    {iniciales(f.nombre)}
-                                </span>
+                                <AvatarUsuario nombre={f.nombre} />
                                 <span className="grid min-w-0 gap-1.5">
                                     <span className="flex justify-between gap-2">
                                         <span className="truncate text-[0.8125rem] font-semibold">{f.nombre}</span>
@@ -543,12 +541,6 @@ function EquipoHoy({
             )}
         </Bloque>
     );
-}
-
-function iniciales(nombre: string): string {
-    const partes = nombre.trim().split(/\s+/).filter(Boolean);
-    const letras = partes.length >= 2 ? [partes[0], partes[partes.length - 1]] : partes;
-    return letras.map((p) => p?.[0]?.toUpperCase() ?? "").join("") || "?";
 }
 
 /* ---------------------------------------------------------------- Gráficos */

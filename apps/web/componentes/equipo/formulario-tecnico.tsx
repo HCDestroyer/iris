@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { avisar, Aviso, Boton, Campo, CampoSelector, FormularioPagina, liberarProteccion, SeccionFormulario } from "@iris/ui";
+import { avisar, Aviso, Boton, Campo, CampoBusqueda, CampoSelector, FormularioPagina, liberarProteccion, SeccionFormulario } from "@iris/ui";
 import { RotateCw, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -197,13 +197,12 @@ export function FormularioTecnico({ tecnico, cuadrillas, zonas, volverA, usuario
         >
             {editando ? null : (
                 <SeccionFormulario titulo="1. Usuario">
-                    <Campo
+                    <CampoBusqueda
                         etiqueta="Buscar usuario"
-                        type="search"
                         placeholder="Nombre o correo"
-                        value={busqueda}
-                        onChange={(e) => {
-                            setBusqueda(e.target.value);
+                        valor={busqueda}
+                        alCambiar={(texto) => {
+                            setBusqueda(texto);
                             // La lista cambia: lo elegido se vuelve a elegir de la nueva.
                             if (form.getValues("usuarioId") !== "") form.setValue("usuarioId", "", { shouldDirty: true });
                         }}

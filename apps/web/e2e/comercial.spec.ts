@@ -3,6 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, CONSULTA, CSRF, LECTOR, VENDEDORA, conSesion, simularApi, type ApiFalsa } from "./api-falsa";
 import { avisoError, pestana } from "./ayudas";
 import { simularTeselas } from "./teselas";
+import { elegirOpcion, escribirFecha, escribirHora, textosOpciones } from "./controles";
 
 /*
  * Panel comercial (Fase 4.2): embudo, lista y mapa; alta rápida; detalle con factibilidad,
@@ -54,7 +55,7 @@ test.describe("embudo y lista", () => {
 
         await page.getByRole("radio", { name: "Lista" }).click();
         await expect(page).toHaveURL(/vista=lista/);
-        await page.getByLabel("Vendedor").selectOption("mios");
+        await elegirOpcion(page.getByLabel("Vendedor"), "mios");
         await expect(page).toHaveURL(/responsable=mios/);
         const tabla = page.getByRole("table", { name: "Prospectos" });
         await expect(tabla.getByRole("row")).toHaveCount(4);
@@ -76,7 +77,7 @@ test.describe("embudo y lista", () => {
         await page.goto("/comercial");
         await expect(page.getByRole("radiogroup", { name: "Vista" })).toHaveCount(0);
         await expect(page.getByRole("list", { name: "Prospectos" }).getByRole("link")).toHaveCount(25);
-        await page.getByLabel("Estado").selectOption("cotizado");
+        await elegirOpcion(page.getByLabel("Estado"), "cotizado");
         const lista = page.getByRole("list", { name: "Prospectos" });
         await expect(lista.getByRole("link")).toHaveCount(1);
         await expect(lista.getByText("Cotizado")).toBeVisible();
@@ -141,7 +142,7 @@ test.describe("alta rápida", () => {
         await expect(dialogo.getByText("Indica latitud y longitud juntas")).toBeVisible();
         await dialogo.getByLabel("Longitud").fill("-90.5");
         await dialogo.getByLabel("Teléfono").fill("5555-9999");
-        await dialogo.getByLabel("Zona").selectOption({ label: "Centro" });
+        await elegirOpcion(dialogo.getByLabel("Zona"), { label: "Centro" });
         await dialogo.getByRole("button", { name: "Crear prospecto" }).click();
         await expect(dialogo.getByText("Ya hay un prospecto con ese teléfono")).toBeVisible();
         await dialogo.getByLabel("Nombre").fill("Hugo Sánchez");
@@ -197,7 +198,14 @@ test.describe("del prospecto al cliente", () => {
         await lineas.nth(0).getByLabel("Descripción").fill("Fibra 50");
         await lineas.nth(0).getByLabel("Precio unitario").fill("199.99");
         await lineas.nth(1).getByLabel("Descripción").fill("Instalación");
-        await lineas.nth(1).getByLabel("Precio unitario").fill("150");
+        // El campo no redondea: tres decimales llegan tal cual y el esquema (espejo de la API) los rechaza.
+        const precio = lineas.nth(1).getByLabel("Precio unitario");
+        await precio.fill("150.255");
+        await dCot.getByRole("button", { name: "Guardar cotización" }).click();
+        await expect(lineas.nth(1).getByText("Usa un monto como 250 o 250.50")).toBeVisible();
+        await expect(precio).toHaveValue("150.255");
+        expect(posts(api, "/cotizaciones")).toHaveLength(0);
+        await precio.fill("150");
         await expect(dCot.getByText("Los totales los calcula Iris al guardar.")).toBeVisible();
         await dCot.getByRole("button", { name: "Guardar cotización" }).click();
         await expect(cot.getByTestId("total-mensual")).toContainText("199.99");
@@ -258,8 +266,8 @@ test.describe("del prospecto al cliente", () => {
         await pestana(page, "Cotización");
         await page.getByTestId("cotizacion").getByRole("link", { name: "Cotizar" }).click();
         const dCot = page.getByRole("form", { name: "Cotizar" });
-        await expect(dCot.getByLabel("Plan").locator("option", { hasText: "descontinuado" })).toHaveCount(0);
-        await dCot.getByLabel("Plan").selectOption("72");
+        expect((await textosOpciones(dCot.getByLabel("Plan"))).some((t) => t.includes("descontinuado"))).toBe(false);
+        await elegirOpcion(dCot.getByLabel("Plan"), "72");
         await expect(dCot.getByText(/Precio de Argos: Q\s?400\.00 al mes/)).toBeVisible();
         await dCot.getByRole("button", { name: "Descuento" }).click();
         const lineas = dCot.getByRole("list", { name: "Líneas" }).getByRole("listitem");
@@ -307,7 +315,7 @@ test.describe("del prospecto al cliente", () => {
         await expect(dGanar.getByRole("button", { name: "Ganar" })).toBeDisabled();
         await expect(dGanar.getByRole("button", { name: "Ganar" })).toHaveAccessibleDescription("Falta elegir el router del servicio para guardar.");
         expect(posts(api, "/ganar")).toHaveLength(0);
-        await dGanar.getByLabel("Router del servicio").selectOption({ label: "R-Norte" });
+        await elegirOpcion(dGanar.getByLabel("Router del servicio"), { label: "R-Norte" });
         await dGanar.getByRole("button", { name: "Ganar" }).click();
         await expect(page.getByTestId("alta").getByText("Creando el cliente en Argos")).toBeVisible();
         expect(posts(api, "/ganar")[0]?.cuerpo).toEqual({ version: 1, routerId: 501 });
@@ -400,11 +408,11 @@ test.describe("del prospecto al cliente", () => {
         const actividades = page.getByTestId("actividades");
         await actividades.getByRole("button", { name: "Registrar" }).click();
         const form = page.getByRole("form", { name: "Nueva actividad" });
-        await form.getByLabel("Tipo").selectOption("visita");
+        await elegirOpcion(form.getByLabel("Tipo"), "visita");
         await form.getByLabel("Qué pasó").fill("Visité la casa, hay poste enfrente");
         await form.getByLabel("Próxima acción (opcional)").fill("Enviar cotización");
-        await form.getByLabel("Día de la próxima acción").fill("2026-11-03");
-        await form.getByLabel("Hora (opcional)").fill("10:30");
+        await escribirFecha(form, "Día de la próxima acción", "2026-11-03");
+        await escribirHora(form, "Hora (opcional)", "10:30");
         await form.getByRole("button", { name: "Guardar actividad" }).click();
         await expect(actividades.getByText("Visité la casa, hay poste enfrente")).toBeVisible();
         await expect(actividades.getByText("Próxima: Enviar cotización")).toBeVisible();

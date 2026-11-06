@@ -3,6 +3,7 @@ import { simularAccesos } from "./api-accesos";
 import { ADMIN, CON_MFA, DESPACHO, ELENA, LECTOR, conSesion, simularApi } from "./api-falsa";
 import { simularUsuarios } from "./api-usuarios";
 import { pestana } from "./ayudas";
+import { abrirOpciones, cerrarOpciones, elegirOpcion } from "./controles";
 
 /*
  * Fase 3 de la interfaz: fichas con pestañas (la elegida en la URL), acciones del ticket y de la
@@ -139,16 +140,18 @@ test.describe("vínculo del técnico con Argos", () => {
         await page.getByRole("button", { name: "Vincular con Argos" }).click();
         const dialogo = page.getByRole("dialog", { name: "Vincular con Argos" });
         const usuario = dialogo.getByLabel("Usuario de Argos");
-        await expect(usuario.locator("option")).toHaveText([
+        const opciones = await abrirOpciones(usuario);
+        await expect(opciones.getByRole("option")).toHaveText([
             "Elige el usuario…",
             "Lucía Ramírez · lucia@argos.test · Bodega Norte",
             "Jorge Méndez · jorge@argos.test · Bodega Sur · ya vinculado a otra ficha",
             "Pedro Sic · pedro@argos.test · Bodega Xela · sin bodega en esta empresa",
         ]);
-        await expect(usuario.locator("option", { hasText: "Jorge Méndez" })).toBeDisabled();
-        await expect(usuario.locator("option", { hasText: "Pedro Sic" })).toBeDisabled();
+        await expect(opciones.getByRole("option", { name: /Jorge Méndez/ })).toBeDisabled();
+        await expect(opciones.getByRole("option", { name: /Pedro Sic/ })).toBeDisabled();
+        await cerrarOpciones(page);
         await expect(dialogo.getByRole("button", { name: "Vincular" })).toHaveAccessibleDescription("Falta elegir el usuario de Argos para guardar.");
-        await usuario.selectOption("77");
+        await elegirOpcion(usuario, "77");
         await dialogo.getByRole("button", { name: "Vincular" }).click();
         await expect(dialogo).toHaveCount(0);
         await expect(avisos(page).getByRole("alertdialog").filter({ hasText: "Lucía Ramírez quedó vinculado con Argos" })).toBeVisible();

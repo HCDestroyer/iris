@@ -1,7 +1,7 @@
 "use client";
 
-import { Boton, Entrada, Esqueleto, Etiqueta, GrupoSegmentado, Selector } from "@iris/ui";
-import { Columns3, List, Map as IconoMapa, Plus, Search, X } from "lucide-react";
+import { Boton, CampoBusqueda, Esqueleto, Etiqueta, GrupoSegmentado, Selector } from "@iris/ui";
+import { Columns3, List, Map as IconoMapa, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useId, useState, type ReactNode } from "react";
@@ -121,13 +121,7 @@ function BarraFiltros({
     const usuarios = (catalogos.usuarios ?? []).filter((u) => u.id !== yoId && u.tipo === "persona");
     return (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(12rem,2fr)_repeat(4,minmax(8rem,1fr))_auto] lg:items-end" role="group" aria-label="Filtros">
-            <div className="grid gap-1.5">
-                <Etiqueta htmlFor={`${id}-q`}>Buscar</Etiqueta>
-                <div className="relative">
-                    <Search aria-hidden className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-                    <Entrada id={`${id}-q`} type="search" value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Nombre, teléfono, dirección…" className="pl-9" />
-                </div>
-            </div>
+            <CampoBusqueda id={`${id}-q`} etiqueta="Buscar" valor={texto} alCambiar={setTexto} placeholder="Nombre, teléfono, dirección…" />
             {vista !== "embudo" ? (
                 <Filtro id={`${id}-estado`} etiqueta="Estado" valor={filtros.estado} alCambiar={(v) => cambiar({ estado: v as EstadoProspecto | "" })}>
                     <option value="">Todos</option>

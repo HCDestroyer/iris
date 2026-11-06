@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Aviso, Boton, Campo, CampoArea, CampoSelector, Casilla, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie, cn, iconoPorTono } from "@iris/ui";
+import { Aviso, Boton, CampoArea, CampoFecha, CampoHora, CampoSelector, Casilla, cn, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie, iconoPorTono } from "@iris/ui";
 import { ExternalLink, LoaderCircle, RotateCw } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
@@ -174,8 +174,8 @@ export function DialogoMoverOrden({ movible, destino, desaparecida, filas, hoy, 
                     ) : null}
                     {!soloAsignar ? (
                         <div className="grid grid-cols-2 gap-3">
-                            <Campo etiqueta="Día" type="date" error={errores.fecha?.message ?? vivos.fecha} {...form.register("fecha")} />
-                            <Campo etiqueta="Hora" type="time" step={900} error={errores.hora?.message ?? vivos.hora} {...form.register("hora")} />
+                            <CampoFecha etiqueta="Día" error={errores.fecha?.message ?? vivos.fecha} {...form.register("fecha")} />
+                            <CampoHora etiqueta="Hora" error={errores.hora?.message ?? vivos.hora} {...form.register("hora")} />
                         </div>
                     ) : null}
                     {!soloAsignar ? <p className="-mt-2 text-sm text-muted-foreground">Hora de Guatemala. Se conserva la duración de la cita.</p> : null}

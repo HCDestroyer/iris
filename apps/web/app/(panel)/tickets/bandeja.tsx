@@ -1,8 +1,8 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Aviso, Boton, Campo, cn, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie, Entrada, Selector } from "@iris/ui";
-import { BookmarkPlus, Plus, Search, X } from "lucide-react";
+import { Aviso, Boton, Campo, CampoBusqueda, cn, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie, Selector } from "@iris/ui";
+import { BookmarkPlus, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useId, useState, type ReactNode } from "react";
@@ -88,7 +88,7 @@ function Chip({ etiqueta, activo, children }: { etiqueta: string; activo: boolea
 }
 
 const claseSelectorChip =
-    "w-auto [&_select]:h-[1.875rem] [&_select]:border-0 [&_select]:bg-transparent [&_select]:pl-1 [&_select]:text-xs [&_select]:font-semibold [&_select]:text-foreground [&_select]:shadow-none";
+    "w-auto [&_button]:h-[1.875rem] [&_button]:min-h-0 [&_button]:w-auto [&_button]:border-0 [&_button]:bg-transparent [&_button]:pl-1 [&_button]:text-xs [&_button]:font-semibold [&_button]:text-foreground [&_button]:shadow-none [&_[data-slot=select-value]]:text-xs";
 
 function Bandeja({ clienteId, vistaInicial }: { clienteId: number | null; vistaInicial: string | null }) {
     const { yo, puede } = useSesion();
@@ -193,19 +193,17 @@ function Bandeja({ clienteId, vistaInicial }: { clienteId: number | null; vistaI
 
             <section aria-label="Lista" className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
                 <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2.5" role="group" aria-label="Filtros">
-                    <span className="relative min-w-0 flex-[1_1_14rem] sm:max-w-72">
-                        <Search aria-hidden className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-                        <Entrada
-                            id={idBuscar}
-                            type="search"
-                            aria-label="Buscar"
-                            placeholder="Número, asunto o contacto"
-                            className="h-8 rounded-lg pl-8 text-[0.8125rem]"
-                            maxLength={120}
-                            value={filtros.q}
-                            onChange={(e) => cambiar({ q: e.target.value })}
-                        />
-                    </span>
+                    <CampoBusqueda
+                        id={idBuscar}
+                        etiqueta="Buscar"
+                        etiquetaVisible={false}
+                        tamano="sm"
+                        className="flex-[1_1_14rem] sm:max-w-72"
+                        placeholder="Número, asunto o contacto"
+                        maxLength={120}
+                        valor={filtros.q}
+                        alCambiar={(q) => cambiar({ q })}
+                    />
                     <Chip etiqueta="Estado" activo={filtros.estado !== FILTROS_INICIALES.estado}>
                         {(id) => (
                             <Selector

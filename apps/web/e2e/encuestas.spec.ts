@@ -3,6 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { TOKENS } from "./api-encuestas";
 import { ADMIN, CONSULTA, conSesion, simularApi } from "./api-falsa";
 import { avisoError, irA, sinEntradas } from "./ayudas";
+import { elegirOpcion } from "./controles";
 
 /*
  * Encuesta de satisfacción (Fase 5 · punto 2): página pública `/encuesta#<token>` sin sesión
@@ -228,7 +229,7 @@ test.describe("panel", () => {
         await expect(page.getByRole("checkbox", { name: "1 · Muy mal" })).toBeChecked();
         await page.getByRole("checkbox", { name: "2 · Mal" }).click();
         await expect(page).toHaveURL(/calificacion=1%2C2/);
-        await page.getByRole("combobox", { name: "Tipo" }).selectOption("orden");
+        await elegirOpcion(page.getByLabel("Tipo"), "orden");
         await expect(page).toHaveURL(/entidad=orden/);
         // Espera la consulta con los dos filtros (la de solo calificación puede llegar antes).
         await expect
@@ -240,7 +241,7 @@ test.describe("panel", () => {
         await expect(filas.first()).toContainText("OT-000001");
         for (const f of await filas.all()) await expect(f).toContainText("Alerta");
 
-        await page.getByRole("combobox", { name: "Estado" }).selectOption("pendiente");
+        await elegirOpcion(page.getByLabel("Estado"), "pendiente");
         await expect(page.getByText("Ninguna encuesta con estos filtros")).toBeVisible();
         await page.getByRole("button", { name: "Quitar filtros" }).click();
         await expect(page).toHaveURL(/\/encuestas$/);
@@ -273,7 +274,7 @@ test.describe("panel", () => {
         await expect(page.getByRole("region", { name: "Distribución" }).getByRole("row").filter({ hasText: "Mal (2)" })).toContainText("Alerta");
         await expect(page.getByRole("region", { name: "Por tipo" })).toContainText("Órdenes");
 
-        await page.getByRole("combobox", { name: "Tipo" }).selectOption("orden");
+        await elegirOpcion(page.getByLabel("Tipo"), "orden");
         await expect(page).toHaveURL(/entidad=orden/);
         await expect.poll(() => api.peticiones.filter((p) => p.ruta === "/api/v1/reportes/satisfaccion").at(-1)?.query.get("entidad")).toBe("orden");
         await expect(page.locator('[data-indicador="Respondidas"]')).toContainText("30 de 50 enviadas");
