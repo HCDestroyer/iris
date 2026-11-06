@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	argosbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/bd"
@@ -44,11 +45,13 @@ func (i *IDExterno) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// BodegaTecnicoArgos es una bodega de tipo técnico de un usuario de Argos.
+// BodegaTecnicoArgos es una bodega de tipo técnico de un usuario de Argos. Nombre llega desde el
+// contrato 0.6.4 (A22); un Argos anterior no lo manda (vacío).
 type BodegaTecnicoArgos struct {
-	ID        int64 `json:"id"`
-	EmpresaID int64 `json:"empresa_id"`
-	Activa    *bool `json:"activa"`
+	ID        int64  `json:"id"`
+	EmpresaID int64  `json:"empresa_id"`
+	Activa    *bool  `json:"activa"`
+	Nombre    string `json:"nombre"`
 }
 
 // EsActiva: activa = true o no informado (Argos solo lista las del alcance).
@@ -145,15 +148,17 @@ func (m *Modulo) BuscarTecnico(ctx context.Context, idExterno string) (TecnicoAr
 
 // EntradaTecnicosArgos: página de los técnicos de Argos.
 type EntradaTecnicosArgos struct {
-	Cursor string `query:"cursor" maxLength:"500" doc:"nextCursor de la página anterior (de Argos)"`
-	Limit  int    `query:"limit" minimum:"1" maximum:"100" default:"50"`
+	Cursor      string `query:"cursor" maxLength:"500" doc:"nextCursor de la página anterior (de Argos)"`
+	Limit       int    `query:"limit" minimum:"1" maximum:"100" default:"50"`
+	SinVincular bool   `query:"sinVincular" doc:"Solo los que ninguna ficha de Iris tiene vinculados (en cualquier empresa). Iris lee de Argos las páginas que hagan falta para llenar limit (hasta 10 por llamada)"`
 }
 
 // BodegaTecnico es una bodega técnico de un usuario de Argos.
 type BodegaTecnico struct {
-	ID        int64 `json:"id" doc:"Id de la bodega en Argos"`
-	EmpresaID int64 `json:"empresaId"`
-	Activa    bool  `json:"activa"`
+	ID        int64  `json:"id" doc:"Id de la bodega en Argos"`
+	EmpresaID int64  `json:"empresaId"`
+	Activa    bool   `json:"activa"`
+	Nombre    string `json:"nombre" doc:"Nombre de la bodega en Argos (contrato 0.6.4). Vacío con un Argos anterior: se muestra «Bodega <id>»"`
 }
 
 // VinculoIris: el técnico de Iris ya vinculado a ese usuario de Argos.
@@ -185,27 +190,54 @@ type entradaTecnicosFinal struct {
 	err    error
 }
 
+// previoTecnicos: el conector y, con sinVincular, los id_externo ya vinculados a alguna ficha.
+type previoTecnicos struct {
+	conector   conector.Leido
+	vinculados map[string]bool
+}
+
+// maxPaginasSinVincular acota las páginas de Argos que lee una llamada con sinVincular.
+const maxPaginasSinVincular = 10
+
+// plazoListaTecnicos: tope por defecto de una llamada con sinVincular (Config.PlazoListaTecnicos).
+const plazoListaTecnicos = 15 * time.Second
+
+// FijarPlazoListaTecnicos cambia el tope de la lectura con sinVincular (pruebas).
+func (m *Modulo) FijarPlazoListaTecnicos(d time.Duration) { m.cfg.PlazoListaTecnicos = d }
+
 // ListarTecnicosArgos: fase 1 (permiso y conector ≥ 1.6.0), llamada a Argos fuera de transacción y
 // fase 2 (marca los ya vinculados, audita la lectura de datos personales).
 type ListarTecnicosArgos struct {
 	m      *Modulo
-	previo *auditoria.Caso[EntradaTecnicosArgos, conector.Leido]
+	previo *auditoria.Caso[EntradaTecnicosArgos, previoTecnicos]
 	final  *auditoria.Caso[entradaTecnicosFinal, PaginaTecnicosArgos]
 }
 
 func nuevoListarTecnicosArgos(m *Modulo) *ListarTecnicosArgos {
 	l := &ListarTecnicosArgos{m: m}
-	l.previo = auditoria.Nuevo(auditoria.Caso[EntradaTecnicosArgos, conector.Leido]{
-		Accion: "agenda.ver_tecnicos_argos", Permiso: nucleo.PermAgendaVincularArgos, AuditarExito: soloLecturas[conector.Leido],
-		Logica: func(ctx context.Context, t *auditoria.Tx, _ EntradaTecnicosArgos) (conector.Leido, error) {
+	l.previo = auditoria.Nuevo(auditoria.Caso[EntradaTecnicosArgos, previoTecnicos]{
+		Accion: "agenda.ver_tecnicos_argos", Permiso: nucleo.PermAgendaVincularArgos, AuditarExito: soloLecturas[previoTecnicos],
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaTecnicosArgos) (previoTecnicos, error) {
 			c, err := m.conectorActivo(ctx, t)
 			if err != nil {
-				return c, err
+				return previoTecnicos{}, err
 			}
 			if !SoportaInventarioTecnico(c.VersionRemota) {
-				return c, SinInventarioTecnico()
+				return previoTecnicos{}, SinInventarioTecnico()
 			}
-			return c, nil
+			p := previoTecnicos{conector: c}
+			if in.SinVincular {
+				// El vínculo es único en todas las empresas: uno de otra ficha tampoco se puede elegir.
+				ids, err := argosbd.New(t).IDsExternosVinculados(ctx)
+				if err != nil {
+					return p, err
+				}
+				p.vinculados = make(map[string]bool, len(ids))
+				for _, id := range ids {
+					p.vinculados[id] = true
+				}
+			}
+			return p, nil
 		},
 	})
 	l.final = auditoria.Nuevo(auditoria.Caso[entradaTecnicosFinal, PaginaTecnicosArgos]{
@@ -236,7 +268,7 @@ func nuevoListarTecnicosArgos(m *Modulo) *ListarTecnicosArgos {
 				}
 				for _, b := range x.Bodegas {
 					if visible(b.EmpresaID) {
-						d.Bodegas = append(d.Bodegas, BodegaTecnico{ID: b.ID, EmpresaID: b.EmpresaID, Activa: b.EsActiva()})
+						d.Bodegas = append(d.Bodegas, BodegaTecnico{ID: b.ID, EmpresaID: b.EmpresaID, Activa: b.EsActiva(), Nombre: strings.TrimSpace(b.Nombre)})
 					}
 				}
 				if len(d.Bodegas) == 0 {
@@ -247,6 +279,9 @@ func nuevoListarTecnicosArgos(m *Modulo) *ListarTecnicosArgos {
 					if v.IDExterno == d.IDExterno {
 						d.VinculadoA = &VinculoIris{TecnicoID: v.ID, UsuarioID: v.UsuarioID}
 					}
+				}
+				if in.SinVincular && d.VinculadoA != nil {
+					continue
 				}
 				r.Data = append(r.Data, d)
 			}
@@ -260,9 +295,11 @@ func nuevoListarTecnicosArgos(m *Modulo) *ListarTecnicosArgos {
 	return l
 }
 
-// Ejecutar lee una página de técnicos de Argos.
+// Ejecutar lee una página de técnicos de Argos. Con sinVincular, salta los ya vinculados y sigue
+// leyendo páginas de Argos (hasta maxPaginasSinVincular) para llenar el límite; nextCursor es el de la
+// última página leída.
 func (l *ListarTecnicosArgos) Ejecutar(ctx context.Context, in EntradaTecnicosArgos) (PaginaTecnicosArgos, error) {
-	c, err := l.previo.Ejecutar(ctx, in)
+	p, err := l.previo.Ejecutar(ctx, in)
 	if err != nil {
 		return PaginaTecnicosArgos{}, err
 	}
@@ -271,7 +308,45 @@ func (l *ListarTecnicosArgos) Ejecutar(ctx context.Context, in EntradaTecnicosAr
 		limite = 50
 	}
 	f := entradaTecnicosFinal{EntradaTecnicosArgos: in}
-	f.pagina, f.err = l.m.clienteDe(c).TecnicosInventario(ctx, in.Cursor, limite)
+	cli := l.m.clienteDe(p.conector)
+	if !in.SinVincular {
+		f.pagina, f.err = cli.TecnicosInventario(ctx, in.Cursor, limite)
+		return l.final.Ejecutar(ctx, f)
+	}
+	plazo := l.m.cfg.PlazoListaTecnicos
+	if plazo <= 0 {
+		plazo = plazoListaTecnicos
+	}
+	// El tope vale solo para las llamadas a Argos: la auditoría final usa ctx.
+	lectura, cancelar := context.WithTimeout(ctx, plazo)
+	defer cancelar()
+	cursor := in.Cursor
+	for range maxPaginasSinVincular {
+		if lectura.Err() != nil && len(f.pagina.Data) > 0 {
+			f.pagina.NextCursor = cursor
+			break
+		}
+		pag, err := cli.TecnicosInventario(lectura, cursor, limite)
+		if err != nil {
+			if len(f.pagina.Data) == 0 {
+				f.err = err
+			} else {
+				// Lo ya leído se entrega; la página que falló queda como siguiente.
+				f.pagina.NextCursor = cursor
+			}
+			break
+		}
+		for _, x := range pag.Data {
+			if !p.vinculados[string(x.IDExterno)] {
+				f.pagina.Data = append(f.pagina.Data, x)
+			}
+		}
+		f.pagina.NextCursor = pag.NextCursor
+		if pag.NextCursor == "" || len(f.pagina.Data) >= limite {
+			break
+		}
+		cursor = pag.NextCursor
+	}
 	return l.final.Ejecutar(ctx, f)
 }
 

@@ -120,7 +120,16 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
   `editar_tecnico`, `activar/desactivar_tecnico`, `fijar_turnos`, `registrar/anular_ausencia`):
   lista con búsqueda, cuadrilla y estado; alta (usuario de `GET /tecnicos/candidatos`, cuadrilla
   obligatoria —define sus zonas—, teléfono, habilidades, bodega), edición, activar/desactivar con
-  confirmación; ficha con turnos semanales (sin cruces, hasta 24:00, atajo L–V 08–17) y ausencias
+  confirmación. **Bodega en Argos** por nombre (contrato 0.6.4,
+  `componentes/equipo/selector-bodega-argos.tsx`): con `agenda.vincular_argos`, un `Autocompletar`
+  con los técnicos de Argos sin ficha (`GET /integraciones/argosisp/tecnicos?sinVincular=true`) como
+  «Bodega Norte · Juan Pérez»; al guardar, la ficha queda con esa bodega y se vincula con
+  `POST /tecnicos/{id}/vincular-argos` (si eso falla, la ficha ya quedó y un aviso lo dice). El ya
+  vinculado se ve fijo con «Cambiar». Si Argos no puede dar la lista (apagado, caído o < 1.6.0), el
+  error con «Reintentar» y el número de bodega a mano como único respaldo; sin el permiso, la bodega
+  se ve de solo lectura. **Técnicos de Argos sin ficha** (`/tecnicos/argos`, `agenda.vincular_argos`):
+  lista con sus bodegas por nombre y «Crear ficha», que abre el alta con la bodega elegida y el correo
+  de Argos en la búsqueda del usuario; ficha con turnos semanales (sin cruces, hasta 24:00, atajo L–V 08–17) y ausencias
   (registrar «todo el día» o con hora; lista las citas que quedan dentro; anular).
   **Cuadrillas** y **Zonas** en `/administracion/cuadrillas` y `/administracion/zonas`.
 - **Formularios en diálogo** (`componentes/cierre-seguro.tsx`): las selecciones obligatorias dejan

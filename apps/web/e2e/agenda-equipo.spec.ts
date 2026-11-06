@@ -229,7 +229,7 @@ test.describe("técnicos", () => {
         await d.getByLabel("Teléfono", { exact: true }).fill("4444 0000");
         await guardar.click();
         await expect(d).toHaveCount(0);
-        await expect.poll(() => ultima(api, "/api/v1/tecnicos/21/editar", "POST")?.cuerpo).toMatchObject({ version: 1, cuadrillaId: 1, telefono: "4444 0000", habilidades: ["fibra"], bodegaId: 30 });
+        await expect.poll(() => ultima(api, "/api/v1/tecnicos/21/editar", "POST")?.cuerpo).toEqual({ version: 1, cuadrillaId: 1, telefono: "4444 0000", habilidades: ["fibra"] });
         // Al guardar, la ficha del técnico.
         await expect(page).toHaveURL(/\/tecnicos\/21$/);
         await expect(page.getByText("4444 0000")).toBeVisible();

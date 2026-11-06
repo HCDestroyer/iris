@@ -277,9 +277,18 @@ partes (ficha, ticket, orden, comercial y app de campo).
     él y sus webhooks firmados con el secreto anterior se aceptan (se guardan en el conector nuevo).
     Se revoca con la primera respuesta 2xx de una llamada con el `atk_` nuevo, o a las 24 h (job), o
     al desactivar el nuevo (`conector/README.md`, `reconexion.go`).
+- **Contrato 0.6.4.** `ContratoIris = "0.6.4"` (A22): cada elemento de `bodegas[]` de
+  `GET /inventario/tecnicos` trae `nombre`. Iris lo pasa como `bodegas[].nombre` en su selector; con
+  un Argos anterior llega vacío y el panel muestra «Bodega <id>». Es compatible: nada más cambia.
 - **Técnicos de Argos** (`tecnicos.go`). `GET /api/v1/integraciones/argosisp/tecnicos`
   (`agenda.vincular_argos`) es el proxy paginado de `GET /inventario/tecnicos` para el selector
-  del vínculo; marca `enEmpresa` y `vinculadoA`. `BuscarTecnico` (lo usa agenda al vincular)
+  del vínculo; marca `enEmpresa` y `vinculadoA`. Con `?sinVincular=true` salta los que ya tiene
+  una ficha (de cualquier empresa: el vínculo es único) y lee de Argos hasta 10 páginas para llenar
+  `limit`; si una página falla después de leer otras, entrega lo leído con esa página como
+  `nextCursor`. Lo usan el formulario del técnico (selector de bodega por nombre) y la vista
+  «Técnicos de Argos sin ficha». Si el conector está apagado: 503 `conector_apagado`; si Argos no
+  responde: 502/503 del conector (la UI muestra «Reintentar» y deja el número de bodega a mano solo
+  en ese caso). `BuscarTecnico` (lo usa agenda al vincular)
   recorre las páginas. `IDExterno` acepta texto o número y se guarda como texto.
 - **Instantánea**: `referencia` del cliente; `referencia`, `contacto_nombre` y
   `contacto_telefono` del servicio (`contactoTelefonos` normalizados en la API).
