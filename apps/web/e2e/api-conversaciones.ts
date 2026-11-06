@@ -51,9 +51,9 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
     const enviados: { ruta: string; cuerpo: unknown; idempotencia: string | undefined }[] = [];
 
     const colas: Schema<"ColaConversaciones">[] = [
-        { id: 2, empresaId: 1, nombre: "Soporte", descripcion: "", slaRespuestaMin: 10, slaPorVencerMin: null, miembros: [ANDREA, { id: 9, nombre: "Rosa Sánchez" }], activa: true, version: 1 },
-        { id: 3, empresaId: 1, nombre: "Caja", descripcion: "", slaRespuestaMin: 30, slaPorVencerMin: null, miembros: [ANDREA], activa: true, version: 1 },
-        { id: 4, empresaId: 1, nombre: "Ventas", descripcion: "", slaRespuestaMin: 60, slaPorVencerMin: null, miembros: [], activa: true, version: 1 },
+        { id: 2, empresaId: 1, nombre: "Soporte", descripcion: "", slaRespuestaMin: 10, slaPorVencerMin: null, horarioId: null, miembros: [ANDREA, { id: 9, nombre: "Rosa Sánchez" }], activa: true, version: 1 },
+        { id: 3, empresaId: 1, nombre: "Caja", descripcion: "", slaRespuestaMin: 30, slaPorVencerMin: null, horarioId: null, miembros: [ANDREA], activa: true, version: 1 },
+        { id: 4, empresaId: 1, nombre: "Ventas", descripcion: "", slaRespuestaMin: 60, slaPorVencerMin: null, horarioId: null, miembros: [], activa: true, version: 1 },
     ];
     const etiquetas: Schema<"EtiquetaConversacion">[] = [
         { id: 3, nombre: "Sin servicio", color: "peligro", activa: true, version: 1 },
@@ -75,6 +75,13 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         colaId: c.id === 4 ? 3 : c.id === 5 ? 4 : 2,
         activo: true,
         version: 1,
+        horarioId: c.id === 4 ? 2 : 1,
+        fueraDeHorario: {
+            responder: true,
+            mensaje: "Gracias por escribir. Atendemos de 6:00 a 22:00; te respondemos al abrir.",
+            guardia: { activa: c.id === 3, usuarioId: c.id === 3 ? 12 : null, etiquetaIds: c.id === 3 ? [5] : [], fallaMasiva: c.id === 3 },
+            asistente: { activo: false },
+        },
     }));
     const configurados: unknown[] = [];
     const consentimientos: unknown[] = [];
