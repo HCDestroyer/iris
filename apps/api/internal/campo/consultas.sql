@@ -662,11 +662,13 @@ FROM agenda.tecnicos t WHERE t.usuario_id = @usuario_id AND t.activo;
 
 -- name: OrdenesLibres :many
 -- Órdenes de la empresa sin técnico y pendientes (las que admiten asignación sin cita), de las
--- zonas o cuadrillas dadas. Hasta 1000: el orden por distancia se calcula en Go.
+-- zonas o cuadrillas dadas: con cuadrilla, solo si es una de ellas; sin cuadrilla, por la zona
+-- (como esTomable). Hasta 1000: el orden por distancia se calcula en Go.
 SELECT * FROM campo.ordenes
 WHERE tecnico_id IS NULL AND estado = 'pendiente'
   AND (@todas_empresas::boolean OR empresa_id IS NOT DISTINCT FROM sqlc.narg(empresa_id)::bigint)
-  AND (zona_id = ANY(@zonas::bigint[]) OR cuadrilla_id = ANY(@cuadrillas::bigint[]))
+  AND (CASE WHEN cuadrilla_id IS NOT NULL THEN cuadrilla_id = ANY(@cuadrillas::bigint[])
+            ELSE zona_id = ANY(@zonas::bigint[]) END)
 ORDER BY id
 LIMIT 1000;
 

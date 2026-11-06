@@ -242,13 +242,17 @@ func (m *Modulo) CrearTareaEnTx(ctx context.Context, t *auditoria.Tx, in Entrada
 	f, err := q.CrearTarea(ctx, agendabd.CrearTareaParams{ID: in.ID, EmpresaID: empresa, TecnicoID: tecnico, CreadaPor: actorUsuario(t),
 		Que: que, Inicio: inicio, DuracionMin: in.DuracionMin, Fin: fin, OrdenID: in.OrdenID, ClienteID: cliente, Origen: in.Origen})
 	if errors.Is(err, pgx.ErrNoRows) {
-		// El id ya existe: un reintento del mismo autor devuelve la tarea; otro, 409.
+		// El id ya existe: un reintento del mismo autor, técnico y empresa devuelve la tarea; si no,
+		// 409 tarea_ajena sin devolver nada de la otra (puede ser de otra empresa).
 		previa, err := q.TareaPorID(ctx, in.ID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return RespuestaTarea{}, tareaAjena()
+		}
 		if err != nil {
 			return RespuestaTarea{}, err
 		}
-		if !mismoID(previa.CreadaPor, actorUsuario(t)) || previa.TecnicoID != tecnico {
-			return RespuestaTarea{}, nucleo.Conflicto("tarea_ajena", "Ese id ya es de otra tarea; genera uno nuevo")
+		if !mismoID(previa.EmpresaID, empresa) || !mismoID(previa.CreadaPor, actorUsuario(t)) || previa.TecnicoID != tecnico {
+			return RespuestaTarea{}, tareaAjena()
 		}
 		r, err := m.respuestaTarea(ctx, q, previa)
 		r.Duplicada = true
@@ -268,6 +272,11 @@ func (m *Modulo) CrearTareaEnTx(ctx context.Context, t *auditoria.Tx, in Entrada
 	return r, t.Emitir("tarea.creada", map[string]any{"tarea_id": f.ID, "empresa_id": f.EmpresaID, "tecnico_id": f.TecnicoID,
 		"creada_por": f.CreadaPor, "inicio": f.Inicio, "fin": f.Fin, "duracion_min": f.DuracionMin, "orden_id": f.OrdenID,
 		"cliente_id": f.ClienteID, "origen": f.Origen, "solapa_con": len(r.SolapaCon)})
+}
+
+// tareaAjena: el id del cliente ya es de otra tarea (de otro autor, técnico o empresa).
+func tareaAjena() *nucleo.Problema {
+	return nucleo.Conflicto("tarea_ajena", "Ese id ya es de otra tarea; genera uno nuevo")
 }
 
 // respuestaTarea arma la respuesta con las citas vivas del técnico que se cruzan (de otra empresa,

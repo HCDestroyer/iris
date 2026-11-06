@@ -3,6 +3,8 @@ package campo_test
 import (
 	"context"
 	"errors"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -138,7 +140,9 @@ func TestTomarOrdenLibre(t *testing.T) {
 		t.Fatalf("el segundo: %v (%+v)", perdedor, p)
 	}
 	o := deber(e.m.VerOrden.Ejecutar(cd, campo.EntradaVerOrden{ID: cerca.ID}))(t)
-	if o.TecnicoID == nil || *o.TecnicoID != ganador || o.BodegaID == nil || *o.BodegaID != 900 || o.Estado != campo.EstadoPendiente {
+	// Sin cuadrilla: queda con la del técnico que la tomó.
+	if o.TecnicoID == nil || *o.TecnicoID != ganador || o.BodegaID == nil || *o.BodegaID != 900 || o.Estado != campo.EstadoPendiente ||
+		o.CuadrillaID == nil || *o.CuadrillaID != cuadrilla {
 		t.Fatalf("tomada: %+v", o.Orden)
 	}
 	ev := ultimo(t, eventosDe(t, cerca.ID), "orden.asignada")
@@ -159,7 +163,56 @@ func TestTomarOrdenLibre(t *testing.T) {
 	if l := deber(e.m.OrdenesLibres.Ejecutar(ca, campo.EntradaOrdenesLibres{}))(t); l.Total != 2 {
 		t.Fatalf("quedan: %+v", l)
 	}
+	// Una orden que ya no está abierta (cerrada por otro técnico de la misma zona): el mismo 404 que
+	// una inexistente, sin número ni nombre (no se enumeran órdenes ni técnicos por id).
+	cerrada := nueva(681, nil, nil)
+	exec("UPDATE campo.ordenes SET estado = 'cerrada', tecnico_id = $2, finalizada_en = now(), resultado = 'exitosa' WHERE id = $1", cerrada.ID, b)
+	for _, id := range []int64{cerrada.ID, 999_999_999} {
+		_, err = e.m.TomarOrden.Ejecutar(ca, campo.EntradaTomarOrden{ID: id})
+		if p := problemaDe(t, err, 404, "no_encontrado"); p.TomadaPor != nil || strings.Contains(p.Detail, cerrada.Numero) || strings.Contains(p.Title, cerrada.Numero) {
+			t.Fatalf("404 con datos: %+v", p)
+		}
+	}
+	// Con cuadrilla, solo es libre para los de ESA cuadrilla (aunque sea de su zona): no sale en
+	// la lista y tomarla responde 404.
+	var otraCuadrilla int64
+	if err := pool.QueryRow(context.Background(),
+		"INSERT INTO agenda.cuadrillas (empresa_id, nombre) VALUES ($1, 'Sur ' || $2) RETURNING id", empresa, pruebas.Unico()).Scan(&otraCuadrilla); err != nil {
+		t.Fatal(err)
+	}
+	exec("INSERT INTO agenda.cuadrilla_zonas (cuadrilla_id, zona_id) VALUES ($1, 681)", otraCuadrilla)
+	deOtra := nueva(681, nil, nil)
+	deLaSuya := nueva(681, nil, nil)
+	exec("UPDATE campo.ordenes SET cuadrilla_id = $2 WHERE id = $1", deOtra.ID, otraCuadrilla)
+	exec("UPDATE campo.ordenes SET cuadrilla_id = $2 WHERE id = $1", deLaSuya.ID, cuadrilla)
+	ids := []int64{}
+	for _, x := range deber(e.m.OrdenesLibres.Ejecutar(ca, campo.EntradaOrdenesLibres{}))(t).Data {
+		ids = append(ids, x.ID)
+	}
+	if slices.Contains(ids, deOtra.ID) || !slices.Contains(ids, deLaSuya.ID) {
+		t.Fatalf("libres con cuadrilla: %v", ids)
+	}
+	_, err = e.m.TomarOrden.Ejecutar(ca, campo.EntradaTomarOrden{ID: deOtra.ID})
+	problema(t, err, 404, "no_encontrado")
+	if o := deber(e.m.TomarOrden.Ejecutar(ca, campo.EntradaTomarOrden{ID: deLaSuya.ID}))(t); o.CuadrillaID == nil || *o.CuadrillaID != cuadrilla {
+		t.Fatalf("la de su cuadrilla: %+v", o)
+	}
+	// Pendiente y tomada por otro (sigue abierta): 409 con su nombre.
+	_, err = e.m.TomarOrden.Ejecutar(cb, campo.EntradaTomarOrden{ID: deLaSuya.ID})
+	if p := problemaDe(t, err, 409, "orden_ya_tomada"); p.TomadaPor == nil || p.TomadaPor.ID != a || p.TomadaPor.Nombre == "" {
+		t.Fatalf("tomada por otro: %+v", p)
+	}
+
 	// Despacho (sin ordenes.tomar) no usa esta lectura.
 	_, err = e.m.OrdenesLibres.Ejecutar(cd, campo.EntradaOrdenesLibres{})
 	problema(t, err, 403, "prohibido")
+}
+
+// problemaDe: el problema completo (con tomadaPor y detail) tras comprobar status y código.
+func problemaDe(t *testing.T, err error, status int, codigo string) *nucleo.Problema {
+	t.Helper()
+	problema(t, err, status, codigo)
+	var p *nucleo.Problema
+	errors.As(err, &p)
+	return p
 }

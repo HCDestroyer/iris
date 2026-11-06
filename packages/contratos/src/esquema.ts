@@ -413,7 +413,7 @@ export interface paths {
         };
         /**
          * Órdenes libres que el técnico puede tomar
-         * @description Permiso: `ordenes.tomar`. Solo si la empresa lo permite (ajuste `tecnicosTomanLibres`; si no, 403 `libres_apagado`). Órdenes pendientes y sin técnico de la empresa activa, de tu cuadrilla o de las zonas que atiende (tu ficha de agenda), ordenadas por distancia en línea recta a tu última posición conocida (las sin coordenadas al final) o, sin posición, por fecha. Cursor (`?cursor=&limit=`): `{ data, nextCursor, total }`.
+         * @description Permiso: `ordenes.tomar`. Solo si la empresa lo permite (ajuste `tecnicosTomanLibres`; si no, 403 `libres_apagado`). Órdenes pendientes y sin técnico de la empresa activa: una orden con cuadrilla solo si es la tuya; sin cuadrilla, de las zonas que atiende tu cuadrilla (tu ficha de agenda). Ordenadas por distancia en línea recta a tu última posición conocida (las sin coordenadas al final) o, sin posición, por fecha. Cursor (`?cursor=&limit=`): `{ data, nextCursor, total }`.
          */
         get: operations["ordenesLibresCampo"];
         put?: never;
@@ -2380,7 +2380,7 @@ export interface paths {
         put?: never;
         /**
          * Tomar una orden libre (el técnico)
-         * @description Permiso: `ordenes.tomar`. Si la empresa lo permite (403 `libres_apagado`), el técnico se asigna una orden pendiente y sin técnico de su cuadrilla o de las zonas que atiende (fuera de ellas, 404), con la lógica de `ordenes.asignar`. Si otro la tomó primero (o despacho la asignó), 409 `orden_ya_tomada` con `tomadaPor` (id y nombre). Ya tuya: 200 sin cambios. Requiere conexión (no va por el lote). Emite `orden.asignada` (origen `tomar`, motivo `tomada`).
+         * @description Permiso: `ordenes.tomar`. Si la empresa lo permite (403 `libres_apagado`), el técnico se asigna una orden pendiente y sin técnico con la lógica de `ordenes.asignar`. Una orden con cuadrilla solo es libre para los técnicos de ESA cuadrilla; sin cuadrilla vale la zona, y al tomarla queda con la cuadrilla del técnico. Fuera de su cuadrilla o de sus zonas, o en un estado que no sea abierto (pendiente, programada, en camino), el mismo 404 que una orden inexistente (sin número ni nombre). Abierta y ya tomada por otro (o asignada por despacho): 409 `orden_ya_tomada` con `tomadaPor` (id y nombre). Ya tuya: 200 sin cambios. Requiere conexión (no va por el lote). Emite `orden.asignada` (origen `tomar`, motivo `tomada`).
          */
         post: operations["tomarOrden"];
         delete?: never;

@@ -2993,7 +2993,8 @@ const ordenesLibres = `-- name: OrdenesLibres :many
 SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg, datos_argos_cambiados_en, datos_argos_campos, referencia, datos_argos_entrante_id FROM campo.ordenes
 WHERE tecnico_id IS NULL AND estado = 'pendiente'
   AND ($1::boolean OR empresa_id IS NOT DISTINCT FROM $2::bigint)
-  AND (zona_id = ANY($3::bigint[]) OR cuadrilla_id = ANY($4::bigint[]))
+  AND (CASE WHEN cuadrilla_id IS NOT NULL THEN cuadrilla_id = ANY($3::bigint[])
+            ELSE zona_id = ANY($4::bigint[]) END)
 ORDER BY id
 LIMIT 1000
 `
@@ -3001,18 +3002,19 @@ LIMIT 1000
 type OrdenesLibresParams struct {
 	TodasEmpresas bool
 	EmpresaID     *int64
-	Zonas         []int64
 	Cuadrillas    []int64
+	Zonas         []int64
 }
 
 // Órdenes de la empresa sin técnico y pendientes (las que admiten asignación sin cita), de las
-// zonas o cuadrillas dadas. Hasta 1000: el orden por distancia se calcula en Go.
+// zonas o cuadrillas dadas: con cuadrilla, solo si es una de ellas; sin cuadrilla, por la zona
+// (como esTomable). Hasta 1000: el orden por distancia se calcula en Go.
 func (q *Queries) OrdenesLibres(ctx context.Context, arg OrdenesLibresParams) ([]CampoOrden, error) {
 	rows, err := q.db.Query(ctx, ordenesLibres,
 		arg.TodasEmpresas,
 		arg.EmpresaID,
-		arg.Zonas,
 		arg.Cuadrillas,
+		arg.Zonas,
 	)
 	if err != nil {
 		return nil, err

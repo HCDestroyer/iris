@@ -18,7 +18,11 @@ import (
 
 // Órdenes libres: si la empresa lo permite (ajuste tecnicos_toman_libres, apagado por defecto), el
 // técnico ve las órdenes pendientes y sin técnico de su cuadrilla o de las zonas que atiende
-// (GET /campo/ordenes-libres) y toma una (POST /ordenes/{id}/tomar). Tomar reutiliza la lógica de
+// (GET /campo/ordenes-libres). Una orden con cuadrilla es libre solo para los técnicos de ESA
+// cuadrilla (despacho ya la encaminó); sin cuadrilla, vale la zona, y al tomarla queda con la
+// cuadrilla del técnico. Fuera de eso, y en cualquier estado que no sea abierto (pendiente,
+// programada, en camino), tomar responde el mismo 404 que una orden inexistente: sin número ni
+// nombre (no se enumeran órdenes ni técnicos con ids secuenciales) y toma una (POST /ordenes/{id}/tomar). Tomar reutiliza la lógica de
 // ordenes.asignar (asignar) con el técnico = el actor, bajo el candado de la orden: si otro la tomó
 // primero, 409 orden_ya_tomada con tomadaPor. Requiere conexión: no va por el lote (dos técnicos
 // sin señal no pueden saber quién llegó primero).
@@ -189,17 +193,19 @@ func (e EntradaTomarOrden) ordenID() int64 { return e.ID }
 
 // tomables: la cuadrilla y las zonas de donde el técnico puede tomar órdenes libres: las de su
 // ficha de agenda activa (su cuadrilla y las zonas que atiende) y, si ordenes.tomar le llega con
-// alcance por zona o cuadrilla, esas. Sin ficha ni alcance, ninguna (falla cerrado).
-func tomables(ctx context.Context, q *campobd.Queries, usuario int64) (zonas, cuadrillas []int64, err error) {
+// alcance por zona o cuadrilla, esas. Sin ficha ni alcance, ninguna (falla cerrado). `propia` es
+// la cuadrilla de su ficha (la que recibe una orden sin cuadrilla al tomarla).
+func tomables(ctx context.Context, q *campobd.Queries, usuario int64) (zonas, cuadrillas []int64, propia *int64, err error) {
 	zonas, cuadrillas = []int64{}, []int64{}
 	f, err := q.ZonasDeTecnico(ctx, usuario)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 	case err != nil:
-		return nil, nil, err
+		return nil, nil, nil, err
 	default:
 		if f.CuadrillaID != nil {
 			cuadrillas = append(cuadrillas, *f.CuadrillaID)
+			propia = f.CuadrillaID
 		}
 		zonas = append(zonas, f.Zonas...)
 	}
@@ -208,11 +214,21 @@ func tomables(ctx context.Context, q *campobd.Queries, usuario int64) (zonas, cu
 	}
 	slices.Sort(zonas)
 	slices.Sort(cuadrillas)
-	return slices.Compact(zonas), slices.Compact(cuadrillas), nil
+	return slices.Compact(zonas), slices.Compact(cuadrillas), propia, nil
 }
 
+// esTomable: con cuadrilla, solo para los de esa cuadrilla; sin cuadrilla, por la zona.
 func esTomable(f campobd.CampoOrden, zonas, cuadrillas []int64) bool {
-	return (f.ZonaID != nil && slices.Contains(zonas, *f.ZonaID)) || (f.CuadrillaID != nil && slices.Contains(cuadrillas, *f.CuadrillaID))
+	if f.CuadrillaID != nil {
+		return slices.Contains(cuadrillas, *f.CuadrillaID)
+	}
+	return f.ZonaID != nil && slices.Contains(zonas, *f.ZonaID)
+}
+
+// abiertaParaTomar: estados en que una orden puede estar libre o tomada por otro. En cualquier
+// otro (en sitio, pausada, cerrada, fallida, cancelada) tomar responde 404 sin datos.
+func abiertaParaTomar(f campobd.CampoOrden) bool {
+	return f.Estado == EstadoPendiente || f.Estado == EstadoProgramada || f.Estado == EstadoEnCamino
 }
 
 // claveLibre ordena la lista: grupo 0 (con distancia) por metros; grupo 1 por fecha programada
@@ -270,7 +286,7 @@ func (m *Modulo) nuevoOrdenesLibres() *auditoria.Caso[EntradaOrdenesLibres, Orde
 			if err != nil {
 				return salida, err
 			}
-			zonas, cuadrillas, err := tomables(ctx, q, actor.ID)
+			zonas, cuadrillas, _, err := tomables(ctx, q, actor.ID)
 			if err != nil {
 				return salida, err
 			}
@@ -399,12 +415,17 @@ func (m *Modulo) nuevoTomarOrden() *auditoria.Caso[EntradaTomarOrden, Orden] {
 			if propia(ctx, antes) {
 				return antes, "", nil // ya es suya (reintento): sin cambios
 			}
-			zonas, cuadrillas, err := tomables(ctx, q, actor.ID)
+			// Primero el estado y la zona, luego el técnico: fuera de eso, el mismo 404 que una
+			// orden inexistente (ni número ni nombre de quién la tiene).
+			if !abiertaParaTomar(antes) {
+				return antes, "", noEncontrada()
+			}
+			zonas, cuadrillas, cuadrillaPropia, err := tomables(ctx, q, actor.ID)
 			if err != nil {
 				return antes, "", err
 			}
 			if !esTomable(antes, zonas, cuadrillas) {
-				return antes, "", noEncontrada() // fuera de su zona: no revela que existe
+				return antes, "", noEncontrada() // fuera de su zona o de su cuadrilla: no revela que existe
 			}
 			t.FijarEmpresa(deref(antes.EmpresaID))
 			if antes.TecnicoID != nil {
@@ -423,8 +444,13 @@ func (m *Modulo) nuevoTomarOrden() *auditoria.Caso[EntradaTomarOrden, Orden] {
 			} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 				return antes, "", err
 			}
+			// Sin cuadrilla, queda con la del técnico (si tiene).
+			cuadrilla := antes.CuadrillaID
+			if cuadrilla == nil {
+				cuadrilla = cuadrillaPropia
+			}
 			f, err := m.asignar(ctx, t, q, antes, EntradaAsignarOrden{ID: antes.ID, Version: antes.Version, TecnicoID: &actor.ID,
-				CuadrillaID: antes.CuadrillaID, BodegaID: bodega}, OrigenTomar, ptr("tomada"), ahora)
+				CuadrillaID: cuadrilla, BodegaID: bodega}, OrigenTomar, ptr("tomada"), ahora)
 			return f, "", err
 		})
 }

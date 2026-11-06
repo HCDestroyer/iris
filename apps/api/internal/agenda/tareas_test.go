@@ -280,3 +280,24 @@ func TestTareaPropiaSinConexion(t *testing.T) {
 		t.Fatalf("tareas en cambios: %+v", c.Tareas)
 	}
 }
+
+// Revisión de seguridad: el mismo id de tarea reutilizado desde otra empresa (mismo autor y
+// técnico) no devuelve la de la otra empresa: 409 tarea_ajena.
+func TestTareaPropiaIDDeOtraEmpresa(t *testing.T) {
+	registrarEmpresas(t, 47, 48)
+	e := nuevoEntorno()
+	tec := usuarioCon(t, rol("tecnico"))
+	asignarEmpresa(t, tec, 47, 48)
+	id := nuevoID()
+	en47 := contexto.ConCanal(enEmpresa(t, tec, 47, "tecnico"), contexto.CanalCampo)
+	r := deber(e.ag.CrearTarea.Ejecutar(en47, agenda.EntradaCrearTarea{ID: id, DatosTarea: datosTarea("Revisar caja", gt(2, 9, 0), 30)}))(t)
+	if r.Tarea.EmpresaID == nil || *r.Tarea.EmpresaID != 47 {
+		t.Fatalf("tarea en 47: %+v", r.Tarea)
+	}
+	en48 := contexto.ConCanal(enEmpresa(t, tec, 48, "tecnico"), contexto.CanalCampo)
+	got, err := e.ag.CrearTarea.Ejecutar(en48, agenda.EntradaCrearTarea{ID: id, DatosTarea: datosTarea("Otra", gt(2, 9, 0), 30)})
+	problema(t, err, 409, "tarea_ajena")
+	if got.Tarea.Que != "" {
+		t.Fatalf("devolvió la tarea de la otra empresa: %+v", got.Tarea)
+	}
+}
