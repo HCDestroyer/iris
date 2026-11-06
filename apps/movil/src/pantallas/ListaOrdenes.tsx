@@ -4,7 +4,7 @@
 // da `@iris/sync` (ruta publicada o hora de la cita). Con error al bajar el paquete se ve
 // «Reintentar» y nunca un total inventado.
 import type { OrdenVista, RutaCampo } from "@iris/sync";
-import { accionPrincipal, anilloAvance, ESTADOS_TEXTO, horaCorta, mosaicoPorRecibir, mosaicoRuta, nombreCliente, resumenHoy, TIPOS_ORDEN, ventanaCita } from "@iris/sync/campo";
+import { accionPrincipal, anilloAvance, ESTADOS_TEXTO, horaCorta, hoyEnGuatemala, intercalarTareas, mosaicoPorRecibir, mosaicoRuta, nombreCliente, resumenHoy, tareasDelDia, TIPOS_ORDEN, ventanaCita } from "@iris/sync/campo";
 import { CalendarX, ChevronRight, Clock, CloudUpload, ListChecks, MapPin, Phone, Play, RefreshCw, Route, TriangleAlert, UserX } from "lucide-react-native";
 import { Linking, StyleSheet, Text, View } from "react-native";
 import Svg, { Circle } from "react-native-svg";
@@ -14,6 +14,7 @@ import { ICONOS_ESTADO } from "../campo/iconos";
 import { useInventario } from "../campo/inventario";
 import { useTema } from "../tema/tema";
 import { enlaceComoLlegar } from "./orden/DetalleOrden";
+import { TarjetaTarea } from "./Tareas";
 
 export type CargaPaquete = { estado: "inactiva" | "cargando" | "lista" } | { estado: "error"; mensaje: string };
 
@@ -27,6 +28,9 @@ export function ListaOrdenes({ carga, bajarPaquete }: { carga: CargaPaquete; baj
     const { colores } = useTema();
     const conRuta = (estado.ruta?.ordenIds?.length ?? 0) > 0;
     const { siguiente, despues, terminadas } = resumenHoy(estado.ordenes);
+    // Las tareas propias de hoy van intercaladas por hora en «Después» (borde punteado).
+    const tareas = tareasDelDia(estado.tareas, hoyEnGuatemala());
+    const entradas = intercalarTareas(despues, (o) => o.cita?.inicio ?? o.programadaInicio, tareas);
     const posicion = (o: OrdenVista) => (conRuta ? (estado.ruta?.ordenIds?.indexOf(o.id) ?? -1) + 1 || null : null);
 
     return (
@@ -60,7 +64,7 @@ export function ListaOrdenes({ carga, bajarPaquete }: { carga: CargaPaquete; baj
                 />
             ) : null}
 
-            {estado.ordenes.length === 0 ? (
+            {estado.ordenes.length === 0 && tareas.length === 0 ? (
                 carga.estado === "cargando" || carga.estado === "inactiva" ? (
                     <Texto suave>Cargando tus órdenes…</Texto>
                 ) : (
@@ -72,14 +76,18 @@ export function ListaOrdenes({ carga, bajarPaquete }: { carga: CargaPaquete; baj
                 <View accessibilityLabel="Órdenes del día" style={estilos.lista}>
                     {siguiente ? <SiguienteOrden orden={siguiente} posicion={posicion(siguiente)} parada={paradaDe(estado.ruta, siguiente.id)} /> : null}
                     <Mosaicos />
-                    {despues.length > 0 ? (
+                    {entradas.length > 0 ? (
                         <View accessibilityLabel="Después" style={estilos.seccion}>
                             <Text accessibilityRole="header" style={[estilos.tituloSeccion, { color: colores.textoSuave }]}>
                                 DESPUÉS
                             </Text>
-                            {despues.map((o) => (
-                                <FilaOrden key={o.id} orden={o} posicion={posicion(o)} parada={paradaDe(estado.ruta, o.id)} />
-                            ))}
+                            {entradas.map((e) =>
+                                e.tipo === "orden" ? (
+                                    <FilaOrden key={e.clave} orden={e.orden} posicion={posicion(e.orden)} parada={paradaDe(estado.ruta, e.orden.id)} />
+                                ) : (
+                                    <TarjetaTarea key={e.clave} tarea={e.tarea} />
+                                ),
+                            )}
                         </View>
                     ) : null}
                 </View>
