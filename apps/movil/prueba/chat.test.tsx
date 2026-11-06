@@ -167,4 +167,18 @@ describe.each(["light", "dark"] as const)("chat interno (%s)", (esquema) => {
         expect(await screen.findByText("Chat de la orden con despacho · el cliente no lo ve")).toBeTruthy();
         expect(servidor.llamadasA("abrirOrden").map(([id]) => id)).toContain(1);
     });
+
+    it("«Chat de la orden» del menú «⋯» va tras «Agregar formulario» y abre su hilo", async () => {
+        const { m, chat, servidor } = await conChat();
+        await abrirCampo(m, { esquema, chat, vista: { tipo: "orden", id: 1 } });
+        await fireEvent.press(await screen.findByTestId("menu-orden"));
+        const ids = screen.getAllByTestId(/^opcion-/).map((o) => o.props.testID as string);
+        expect(ids[ids.indexOf("opcion-Agregar formulario") + 1]).toBe("opcion-Chat de la orden");
+        await fireEvent.press(screen.getByTestId("opcion-Chat de la orden"));
+        await act(async () => {
+            await vaciarPromesas(10);
+        });
+        expect(await screen.findByText("Chat de la orden con despacho · el cliente no lo ve")).toBeTruthy();
+        expect(servidor.llamadasA("abrirOrden").map(([id]) => id)).toContain(1);
+    });
 });

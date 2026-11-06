@@ -88,7 +88,12 @@ export function EntradaChat({ variante = "fila" }: { variante?: "fila" | "redond
 }
 
 /** «Abrir chat de la orden» (`POST /chat/ordenes/{id}/abrir`); sin señal, el hilo ya guardado. */
-export function AbrirChatOrden({ ordenId }: { ordenId: number }) {
+/**
+ * Abre (o crea) la conversación de la orden: con la conocida y sin señal va directo; si no, la pide
+ * al servidor. `null` sin chat, o sin `chat.enviar` y sin conversación conocida. Lo usan el botón
+ * del detalle y «Chat de la orden» del menú «⋯».
+ */
+export function useAbrirChatOrden(ordenId: number): { abrir: () => Promise<void>; abriendo: boolean; noLeidos: number } | null {
     const contexto = useChatOpcional();
     const { navegar, notificar, servicios } = useCampo();
     const [abriendo, setAbriendo] = useState(false);
@@ -115,9 +120,17 @@ export function AbrirChatOrden({ ordenId }: { ordenId: number }) {
             setAbriendo(false);
         }
     };
-    const n = conocida?.no_leidos ?? 0;
+    return { abrir, abriendo, noLeidos: conocida?.no_leidos ?? 0 };
+}
+
+export function AbrirChatOrden({ ordenId }: { ordenId: number }) {
+    const chatOrden = useAbrirChatOrden(ordenId);
+    if (!chatOrden) {
+        return null;
+    }
+    const n = chatOrden.noLeidos;
     return (
-        <Boton variante="secundario" icono={MessageCircle} cargando={abriendo} alPresionar={() => void abrir()} testID="abrir-chat-orden">
+        <Boton variante="secundario" icono={MessageCircle} cargando={chatOrden.abriendo} alPresionar={() => void chatOrden.abrir()} testID="abrir-chat-orden">
             {n > 0 ? `Abrir chat de la orden · ${textoContador(n)} sin leer` : "Abrir chat de la orden"}
         </Boton>
     );

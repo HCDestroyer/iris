@@ -73,7 +73,12 @@ export function EntradaChat({ variante = "fila", className }: { variante?: "fila
 }
 
 /** «Abrir chat de la orden» (`POST /chat/ordenes/{id}/abrir`); sin señal, el hilo ya guardado. */
-export function AbrirChatOrden({ ordenId }: { ordenId: number }) {
+/**
+ * Abre (o crea) la conversación de la orden: con la conocida y sin señal va directo; si no, la pide
+ * al servidor. `null` sin chat, o sin `chat.enviar` y sin conversación conocida. Lo usan el botón
+ * del detalle y «Chat de la orden» del menú «⋯».
+ */
+export function useAbrirChatOrden(ordenId: number): { abrir: () => Promise<void>; abriendo: boolean; noLeidos: number } | null {
     const contexto = useChatOpcional();
     const { navegar, notificar } = useCampo();
     const [abriendo, setAbriendo] = useState(false);
@@ -82,7 +87,6 @@ export function AbrirChatOrden({ ordenId }: { ordenId: number }) {
     }
     const { chat } = contexto;
     const conocida = chat.conversacionDeOrden(ordenId);
-    const noLeidos = conocida?.no_leidos ?? 0;
     const abrir = async () => {
         if (conocida && !navigator.onLine) {
             navegar({ tipo: "conversacion", id: conocida.id });
@@ -102,6 +106,15 @@ export function AbrirChatOrden({ ordenId }: { ordenId: number }) {
             setAbriendo(false);
         }
     };
+    return { abrir, abriendo, noLeidos: conocida?.no_leidos ?? 0 };
+}
+
+export function AbrirChatOrden({ ordenId }: { ordenId: number }) {
+    const chatOrden = useAbrirChatOrden(ordenId);
+    if (!chatOrden) {
+        return null;
+    }
+    const { abrir, abriendo, noLeidos } = chatOrden;
     return (
         <Boton variante="secundario" tamano="lg" className="h-12 w-full justify-start rounded-full md:h-12" disabled={abriendo} onClick={() => void abrir()}>
             <MessageCircle aria-hidden />

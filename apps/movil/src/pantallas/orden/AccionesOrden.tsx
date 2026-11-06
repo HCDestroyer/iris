@@ -1,12 +1,14 @@
 // Acciones de la orden (decisión del PM, como la PWA): encabezado ← | número con «● Estado · Tipo ·
 // ventana» | «⋯» (Agregar nota, Agregar formulario —deshabilitado con el motivo si no aplica—,
-// Historial del cliente, Copiar dirección; el chat de la orden entra tras «Agregar formulario»); la acción principal en
+// Chat de la orden —abre o crea su conversación, con los no leídos—, Historial del cliente, Copiar
+// dirección); la acción principal en
 // «tinta» con [Pausar | No se pudo] debajo ([En camino | No se pudo] si está programada) y, en
 // pausa, el aviso naranja «En pausa desde HH:MM · motivo» con solo «Reanudar». Las reglas vienen de
 // `accionesPantallaOrden` y `encabezadoOrden` de `@iris/sync/campo`.
 import { ErrorTransporte, type OrdenHistorial, type OrdenVista } from "@iris/sync";
+import { textoContador } from "@iris/sync/chat";
 import { accionesPantallaOrden, encabezadoOrden, motivoSinFormulario, ESTADOS_TEXTO, fechaHoraCorta, puedeReanudar, TIPOS_ORDEN, textoProblema } from "@iris/sync/campo";
-import { ArrowLeft, CircleX, Clock, Copy, Ellipsis, FilePlus2, History, ListChecks, Navigation, PauseCircle, PenLine, Play, type LucideIcon } from "lucide-react-native";
+import { ArrowLeft, CircleX, Clock, Copy, Ellipsis, FilePlus2, History, ListChecks, MessageCircle, Navigation, PauseCircle, PenLine, Play, type LucideIcon } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import { Share, StyleSheet, Text, View } from "react-native";
 import { Aviso, Boton, BotonRedondo, Cargando, Dialogo, GrupoBotones, Texto, Tocable } from "../../componentes";
@@ -14,6 +16,7 @@ import { useCampo } from "../../campo/contexto";
 import { useLeerHistorial } from "../../campo/historial";
 import { botonTrabajo } from "../../campo/pasos";
 import { useTema } from "../../tema/tema";
+import { useAbrirChatOrden } from "../Chat";
 import { HojaAgregarFormulario } from "./Checklist";
 import { HojaFallar } from "./Cierre";
 import { HojaPausar, useReanudar } from "./Pausa";
@@ -27,6 +30,7 @@ export function EncabezadoOrden({ orden, alVolver, alAgregarNota }: { orden: Ord
     const sinFormulario = motivoSinFormulario(orden, sesion.permisos);
     const e = encabezadoOrden(orden);
     const clienteId = orden.cliente?.id ?? orden.clienteId ?? null;
+    const chatOrden = useAbrirChatOrden(orden.id);
     // Sin módulo de portapapeles en la app (sin dependencias nuevas): la hoja de compartir del
     // sistema trae «Copiar».
     const copiar = () => void Share.share({ message: orden.direccion }).catch(() => undefined);
@@ -34,9 +38,12 @@ export function EncabezadoOrden({ orden, alVolver, alAgregarNota }: { orden: Ord
         setMenu(false);
         accion();
     };
-    const opciones: { texto: string; icono: LucideIcon; alPresionar: () => void; motivo?: string }[] = [
+    const opciones: { texto: string; icono: LucideIcon; alPresionar: () => void; motivo?: string; nota?: string }[] = [
         ...(alAgregarNota ? [{ texto: "Agregar nota", icono: PenLine, alPresionar: elegir(alAgregarNota) }] : []),
         { texto: "Agregar formulario", icono: FilePlus2, alPresionar: elegir(() => setFormulario(true)), ...(sinFormulario ? { motivo: sinFormulario } : {}) },
+        ...(chatOrden
+            ? [{ texto: "Chat de la orden", icono: MessageCircle, alPresionar: elegir(() => void chatOrden.abrir()), ...(chatOrden.noLeidos > 0 ? { nota: `${textoContador(chatOrden.noLeidos)} sin leer` } : {}) }]
+            : []),
         ...(clienteId !== null ? [{ texto: "Historial del cliente", icono: History, alPresionar: elegir(() => setHistorial(true)) }] : []),
         ...(orden.direccion ? [{ texto: "Copiar dirección", icono: Copy, alPresionar: elegir(copiar) }] : []),
     ];
@@ -57,11 +64,12 @@ export function EncabezadoOrden({ orden, alVolver, alAgregarNota }: { orden: Ord
             <BotonRedondo icono={Ellipsis} etiqueta="Más acciones de la orden" fondo={campo.panel} tinta={colores.texto} borde={colores.borde} alPresionar={() => setMenu(true)} testID="menu-orden" />
             <Dialogo abierto={menu} alCerrar={() => setMenu(false)} titulo={`Más acciones de ${orden.numero}`} testID="hoja-menu-orden">
                 {opciones.map((o) => (
-                    <Tocable key={o.texto} etiqueta={o.motivo ? `${o.texto}: ${o.motivo}` : o.texto} alPresionar={o.alPresionar} deshabilitado={Boolean(o.motivo)} estilo={[estilos.opcion, o.motivo ? estilos.deshabilitada : null]} testID={`opcion-${o.texto}`}>
+                    <Tocable key={o.texto} etiqueta={o.motivo ? `${o.texto}: ${o.motivo}` : o.nota ? `${o.texto}, ${o.nota}` : o.texto} alPresionar={o.alPresionar} deshabilitado={Boolean(o.motivo)} estilo={[estilos.opcion, o.motivo ? estilos.deshabilitada : null]} testID={`opcion-${o.texto}`}>
                         <o.icono size={20} color={o.motivo ? colores.textoSuave : colores.texto} />
                         <View style={estilos.flex}>
                             <Text style={[estilos.textoOpcion, { color: o.motivo ? colores.textoSuave : colores.texto }]}>{o.texto}</Text>
                             {o.motivo ? <Text style={[estilos.motivo, { color: colores.textoSuave }]}>{o.motivo}</Text> : null}
+                            {o.nota ? <Text style={[estilos.motivo, { color: colores.tono.info }]}>{o.nota}</Text> : null}
                         </View>
                     </Tocable>
                 ))}

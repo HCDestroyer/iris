@@ -207,6 +207,20 @@ test("«Abrir chat de la orden» desde el detalle abre su hilo", async ({ page }
     expect(chat.servidor.llamadasA("abrirOrden").map(([id]) => id)).toContain(101);
 });
 
+test("«Chat de la orden» del menú «⋯» va tras «Agregar formulario» y abre su hilo", async ({ page }) => {
+    const { chat } = await montar(page);
+    await page.goto("/campo?orden=101");
+    await page.getByRole("button", { name: "Más acciones de la orden" }).click();
+    const opciones = page.getByRole("menuitem");
+    const textos = await opciones.allTextContents();
+    const formulario = textos.findIndex((t) => t.startsWith("Agregar formulario"));
+    expect(formulario).toBeGreaterThanOrEqual(0);
+    expect(textos[formulario + 1]).toMatch(/^Chat de la orden/);
+    await page.getByRole("menuitem", { name: /Chat de la orden/ }).click();
+    await expect(page.getByText("Chat de la orden con despacho · el cliente no lo ve")).toBeVisible();
+    expect(chat.servidor.llamadasA("abrirOrden").map(([id]) => id)).toContain(101);
+});
+
 test("«Nuevo mensaje» abre una directa con alguien conocido", async ({ page }) => {
     const { chat } = await montar(page);
     await page.goto("/campo?vista=chat");
