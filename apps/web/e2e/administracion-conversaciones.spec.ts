@@ -144,4 +144,39 @@ test.describe("administración de la bandeja", () => {
         if (esTelefono(page)) await page.getByRole("button", { name: "Cerrar la ficha" }).click();
         await expect(page.getByRole("textbox", { name: /Mensaje para/ })).toHaveValue(/1\. Revisa si hay falla en la zona\./);
     });
+
+    test("enviar un manual: tras un fallo de red repite el id (un solo WhatsApp); tras un 422, uno nuevo", async ({ page }) => {
+        const api = await abrir(page, "/conversaciones?c=41");
+        const claves: { id: string; clave: string | undefined }[] = [];
+        await page.route("**/api/v1/mensajeria/conversaciones/41/enviar-manual", async (r) => {
+            if (r.request().method() !== "POST") return r.fallback();
+            claves.push({ id: (r.request().postDataJSON() as { id: string }).id, clave: r.request().headers()["idempotency-key"] });
+            if (claves.length === 1) return r.abort("internetdisconnected");
+            if (claves.length === 3) {
+                return r.fulfill({ status: 422, contentType: "application/problem+json", body: JSON.stringify({ type: "urn:iris:problema:validacion", title: "No válido", status: 422 }) });
+            }
+            return r.fallback();
+        });
+        if (esTelefono(page)) await page.getByRole("button", { name: "Ver la ficha del cliente" }).click();
+        else await page.getByRole("button", { name: "Manuales" }).click();
+        const ficha = esTelefono(page) ? page.getByRole("dialog", { name: "Ficha del cliente" }) : page.getByRole("complementary", { name: "Ficha del cliente" });
+        if (esTelefono(page)) await ficha.getByRole("button", { name: "Ayuda" }).click();
+        const manual = ficha.getByRole("region", { name: "Sugeridos para esta conversación" }).locator('[data-manual="2"]');
+        const enviar = manual.getByRole("button", { name: "Enviar al cliente" });
+        await enviar.click();
+        await expect(manual).toContainText("Sin conexión");
+        await enviar.click();
+        await expect(page.getByText("Enviaste «Reiniciar la ONU ZTE F670L» a Carlos Ruiz")).toBeVisible();
+        // Mismo id y misma clave: si el primero llegó, el servidor no manda un segundo WhatsApp.
+        expect(claves[1]?.id).toBe(claves[0]?.id);
+        expect(claves.every((c) => c.clave === c.id)).toBe(true);
+        expect(api.conversaciones.enviados.filter((e) => e.ruta.endsWith("/enviar-manual"))).toHaveLength(1);
+        // Tras un éxito, el siguiente envío es otro; y tras un 422 va otro id.
+        await enviar.click();
+        await expect(manual).toContainText("No válido");
+        await enviar.click();
+        await expect.poll(() => claves.length).toBe(4);
+        expect(claves[2]?.id).not.toBe(claves[1]?.id);
+        expect(claves[3]?.id).not.toBe(claves[2]?.id);
+    });
 });

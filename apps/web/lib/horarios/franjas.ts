@@ -4,9 +4,11 @@
  * dos). Textos cortos para la lista de números y validación espejo del servidor.
  */
 
+import type { Schema } from "@iris/contratos";
+
 export type FranjaEditable = { dias: number[]; inicio: string; fin: string };
-/** Franja como la devuelve la API (`dias` puede venir `null`). */
-type FranjaApi = { dias?: readonly number[] | null; inicio: string; fin: string };
+/** Franja como la devuelve la API. */
+type FranjaApi = Schema<"FranjaHorario">;
 
 const CORTOS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 const LARGOS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];

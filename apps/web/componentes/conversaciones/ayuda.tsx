@@ -8,7 +8,8 @@ import { useState } from "react";
 import { MarkdownSeguro, markdownATexto } from "@/componentes/manuales/markdown";
 import { api, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
-import { cabeceraIdem, nuevoIdMensaje } from "@/lib/conversaciones/api";
+import { cabeceraIdem } from "@/lib/conversaciones/api";
+import { useIdEnvio } from "@/lib/conversaciones/id-envio";
 import { esSesionCambiada, verificarSesion, type Identidad } from "@/lib/conversaciones/sesion";
 import type { Conversacion } from "@/lib/conversaciones/tipos";
 import { useDiferido } from "@/lib/diferido";
@@ -150,11 +151,13 @@ function Articulo({
     }
     const IconoMotivo = m?.icono ?? Tag;
     const paraCliente = manual.visibilidad === "cliente";
+    const envio = useIdEnvio();
 
     async function enviar() {
         setEnviando(true);
         setError(null);
-        const id = nuevoIdMensaje();
+        // Sin red se repite el id (el servidor no manda un segundo WhatsApp); tras una respuesta, otro.
+        const id = envio.actual();
         try {
             await verificarSesion(identidad);
             await resolver(
@@ -163,9 +166,11 @@ function Articulo({
                     body: { id, manualId: manual.id, modo: "enlace" },
                 }),
             );
+            envio.renovar();
             avisar({ titulo: `Enviaste «${manual.titulo}» a ${conv.titulo}` });
             alEnviar();
         } catch (e) {
+            envio.trasError(e);
             setError(
                 esSesionCambiada(e)
                     ? "La sesión de este navegador cambió: no se envió."
