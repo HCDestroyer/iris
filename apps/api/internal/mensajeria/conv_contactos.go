@@ -28,6 +28,8 @@ type ArgosAtencion interface {
 	RegistrarComprobante(ctx context.Context, a argos.AtencionIris, in argos.EntradaComprobante) (argos.ComprobanteArgos, error)
 	SimularPromesa(ctx context.Context, a argos.AtencionIris, servicioID int64, venceEn *time.Time) (argos.SimulacionPromesa, error)
 	CrearPromesa(ctx context.Context, a argos.AtencionIris, servicioID int64, venceEn time.Time, clave string) (argos.PromesaArgos, error)
+	CuentasBancarias(ctx context.Context, a argos.AtencionIris) ([]argos.CuentaBancariaArgos, error)
+	Bancos(ctx context.Context, a argos.AtencionIris) ([]argos.BancoArgos, error)
 }
 
 func atencionDe(a alcanceConv, conv int64) argos.AtencionIris {
@@ -73,7 +75,7 @@ type CoincidenciasConv struct {
 }
 
 type convLeida struct {
-	ID      int64  `json:"conversacion_id"`
+	ID      int64 `json:"conversacion_id"`
 	alcance alcanceConv
 	conv    mensajeriabd.MensajeriaConversacion
 }

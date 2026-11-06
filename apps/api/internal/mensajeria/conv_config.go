@@ -176,8 +176,8 @@ type ColaConversaciones struct {
 
 // ListaColas es { data, nextCursor }.
 type ListaColas struct {
-	Data       []ColaConversaciones  `json:"data"`
-	NextCursor *string `json:"nextCursor" nullable:"true"`
+	Data       []ColaConversaciones `json:"data"`
+	NextCursor *string              `json:"nextCursor" nullable:"true"`
 }
 
 func aCola(f mensajeriabd.MensajeriaCola, miembros []UsuarioRef) ColaConversaciones {
@@ -429,7 +429,7 @@ type EtiquetaConversacion struct {
 // ListaEtiquetas es { data, nextCursor }.
 type ListaEtiquetas struct {
 	Data       []EtiquetaConversacion `json:"data"`
-	NextCursor *string    `json:"nextCursor" nullable:"true"`
+	NextCursor *string                `json:"nextCursor" nullable:"true"`
 }
 
 // EntradaEtiqueta crea o actualiza una etiqueta.
@@ -691,4 +691,3 @@ func nuevoCambioRespuesta(_ *Modulo, accion string, activa bool) *auditoria.Caso
 		},
 	})
 }
-

@@ -174,6 +174,7 @@ type NumeroConversaciones struct {
 	AvisosEmpresa bool     `json:"avisosEmpresa"`
 	ColaID        *int64   `json:"colaId" nullable:"true"`
 	Activo        bool     `json:"activo"`
+	Version       int32    `json:"version" doc:"Para POST /canales/{id}/configurar"`
 }
 
 // ListaNumeros es { data, nextCursor }.
@@ -194,7 +195,7 @@ func nuevoListarNumeros(*Modulo) *auditoria.Caso[struct{}, ListaNumeros] {
 			out := ListaNumeros{Data: make([]NumeroConversaciones, 0, len(fs))}
 			for _, f := range fs {
 				out.Data = append(out.Data, NumeroConversaciones{ID: f.ID, Nombre: f.Nombre, Numero: f.Numero, Usos: f.Usos, AvisosEmpresa: f.AvisosEmpresa,
-					ColaID: f.ColaID, Activo: f.Activo})
+					ColaID: f.ColaID, Activo: f.Activo, Version: f.Version})
 			}
 			return out, err
 		},

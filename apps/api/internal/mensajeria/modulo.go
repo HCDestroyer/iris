@@ -151,6 +151,7 @@ type Modulo struct {
 	prepararBoleta   *auditoria.Caso[uuid.UUID, boletaPorEnviar]
 	resultadoBoleta  *auditoria.Caso[resultadoBoleta, struct{}]
 	vencerSLA        *auditoria.Caso[struct{}, int]
+	permisoBoleta    *auditoria.Caso[struct{}, alcanceConv]
 	// difusor despierta los flujos SSE con el NOTIFY iris_chat (EscucharChat).
 	difusor *difusor
 	// lecturas: semáforo de las lecturas del feed de los flujos SSE (ChatLecturas).
@@ -258,6 +259,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.prepararBoleta = nuevoPrepararBoleta(m)
 	m.resultadoBoleta = nuevoResultadoBoleta(m)
 	m.vencerSLA = nuevoVencerSLA(m)
+	m.permisoBoleta = nuevoPermisoBoleta()
 	return m
 }
 

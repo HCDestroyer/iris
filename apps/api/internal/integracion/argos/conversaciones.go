@@ -115,8 +115,44 @@ func (m *Modulo) RegistrarComprobante(ctx context.Context, a AtencionIris, in En
 		campos["empresa_id"] = strconv.FormatInt(a.EmpresaID, 10)
 	}
 	var r ComprobanteArgos
-	err = cli.Cliente.EscribirMultipart(ctx, "/comprobantes", campos, in.Archivo, in.Clave, &r)
+	err = cli.EscribirMultipart(ctx, "/comprobantes", campos, in.Archivo, in.Clave, &r)
 	return r, err
+}
+
+// CuentaBancariaArgos es una cuenta de la empresa que recibe depósitos (GET /cuentas-bancarias).
+type CuentaBancariaArgos struct {
+	ID        int64           `json:"id"`
+	Nombre    string          `json:"nombre"`
+	Banco     json.RawMessage `json:"banco"`
+	Numero    string          `json:"numero"`
+	Moneda    string          `json:"moneda"`
+	EmpresaID *int64          `json:"empresa_id"`
+}
+
+// BancoArgos es un banco de origen (GET /bancos).
+type BancoArgos struct {
+	ID     int64  `json:"id"`
+	Nombre string `json:"nombre"`
+}
+
+// CuentasBancarias: GET /cuentas-bancarias?activa=true (§7.2, cuentas_bancarias.ver).
+func (m *Modulo) CuentasBancarias(ctx context.Context, a AtencionIris) ([]CuentaBancariaArgos, error) {
+	cli, err := m.clienteAtencion(ctx, a)
+	if err != nil {
+		return nil, err
+	}
+	p, err := conector.ListaDe[CuentaBancariaArgos](ctx, cli.Cliente, "/cuentas-bancarias", url.Values{"activa": {"true"}, "limit": {"100"}})
+	return p.Data, err
+}
+
+// Bancos: GET /bancos (§7.2).
+func (m *Modulo) Bancos(ctx context.Context, a AtencionIris) ([]BancoArgos, error) {
+	cli, err := m.clienteAtencion(ctx, a)
+	if err != nil {
+		return nil, err
+	}
+	p, err := conector.ListaDe[BancoArgos](ctx, cli.Cliente, "/bancos", url.Values{"limit": {"200"}})
+	return p.Data, err
 }
 
 // SimulacionPromesa es la respuesta de POST /promesas/simular (§7.4), tal cual para el panel.
@@ -139,7 +175,7 @@ func (m *Modulo) SimularPromesa(ctx context.Context, a AtencionIris, servicioID 
 		cuerpo["vence_en"] = venceEn.UTC().Format(time.RFC3339)
 	}
 	var r SimulacionPromesa
-	err = cli.Cliente.Pedir(ctx, "POST", "/promesas/simular", nil, cuerpo, true, &r)
+	err = cli.Pedir(ctx, "POST", "/promesas/simular", nil, cuerpo, true, &r)
 	return r, err
 }
 
@@ -161,6 +197,6 @@ func (m *Modulo) CrearPromesa(ctx context.Context, a AtencionIris, servicioID in
 		return PromesaArgos{}, err
 	}
 	var r PromesaArgos
-	err = cli.Cliente.Escribir(ctx, "POST", "/promesas", map[string]any{"servicio_id": servicioID, "vence_en": venceEn.UTC().Format(time.RFC3339)}, clave, &r)
+	err = cli.Escribir(ctx, "POST", "/promesas", map[string]any{"servicio_id": servicioID, "vence_en": venceEn.UTC().Format(time.RFC3339)}, clave, &r)
 	return r, err
 }

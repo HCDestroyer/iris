@@ -96,14 +96,38 @@ type metaFalso struct {
 	srv    *httptest.Server
 	mu     sync.Mutex
 	envios []map[string]any
+	medios int
 	error  atomic.Int32 // código de error de Meta a responder (0 = ninguno)
 }
+
+// medioFalso es la «foto» que Meta entrega al descargar un medio.
+var medioFalso = []byte("\xff\xd8\xff\xe0 foto del modem")
 
 func nuevoMeta(t *testing.T) *metaFalso {
 	f := &metaFalso{}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Header.Get("Authorization") != "Bearer token-de-meta-0123456789abcdef" {
 			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		// Medios: GET /{media_id} (url) y GET /descarga/… (los bytes); POST …/media (subida).
+		if req.Method == http.MethodGet {
+			switch {
+			case strings.HasPrefix(req.URL.Path, "/descarga/"):
+				w.Header().Set("Content-Type", "image/jpeg")
+				_, _ = w.Write(medioFalso)
+			case strings.HasSuffix(req.URL.Path, "perdido"):
+				w.WriteHeader(http.StatusNotFound)
+			default:
+				_, _ = fmt.Fprintf(w, `{"url":%q,"mime_type":"image/jpeg","file_size":%d}`, f.srv.URL+"/descarga"+req.URL.Path, len(medioFalso))
+			}
+			return
+		}
+		if strings.HasSuffix(req.URL.Path, "/media") {
+			f.mu.Lock()
+			f.medios++
+			f.mu.Unlock()
+			_, _ = fmt.Fprint(w, `{"id":"media-subida"}`)
 			return
 		}
 		var c map[string]any

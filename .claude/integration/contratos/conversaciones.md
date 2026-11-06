@@ -255,7 +255,12 @@ agregan un mensaje de sistema y un vínculo. Exigen ver la conversación y el pe
 ### 6.4 Boleta (contrato con Argos §7.2)
 
 `{ adjuntoId, servicioId?, metodo, cuentaBancariaId, bancoOrigenId?, referencia, monto,
-fechaDeposito, nota? }`. `adjuntoId` es una imagen o PDF de **esta** conversación (la que mandó el
+fechaDeposito, nota? }`. Para el formulario: `GET /conversaciones/cuentas-bancarias` →
+`{ data: [{ id, nombre, banco, numero, moneda }] }` (las activas en GTQ de la empresa activa) y
+`GET /conversaciones/bancos` → `{ data: [{ id, nombre }] }`, las dos con
+`conversaciones.registrar_boleta`, leídas de Argos en el momento (no se guardan; Argos caído: 503).
+El adjunto se elige de los mensajes de la conversación (`MensajeConversacion.adjunto.id`); no hay
+lista aparte. `adjuntoId` es una imagen o PDF de **esta** conversación (la que mandó el
 cliente o una que subió el agente). Exige cliente asociado (422 `sin_cliente`). Iris guarda la
 boleta (`mensajeria.boletas`, uuid) y la manda a Argos en un job (`POST /comprobantes` multipart,
 `Idempotency-Key = iris:boleta:<id>`, `X-Iris-Actor: usuario:<id>`, `X-Iris-Conversacion:

@@ -31,6 +31,9 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
+	"github.com/HCDestroyer/iris/apps/api/internal/campo"
+	"github.com/HCDestroyer/iris/apps/api/internal/comercial"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
@@ -40,6 +43,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/config"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/servidor"
+	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
 	"github.com/HCDestroyer/iris/apps/api/migraciones"
 )
 
@@ -99,7 +103,8 @@ func servir(ctx context.Context, cfg config.Config, ent mensajeria.Entorno, log 
 	if ent.Simulado {
 		log.Warn("IRIS_MENSAJERIA_SIMULADO=true: las empresas sin canal usan el canal simulado (nada sale a WhatsApp). Solo desarrollo y CI")
 	}
-	// El conector Argos de este proceso solo lee contactos (instantánea, §2.2) y no recibe webhooks.
+	// El conector Argos de este proceso lee contactos (instantánea, §2.2) y, para la bandeja, busca por
+	// teléfono y pide comprobantes y promesas (§7). No recibe webhooks.
 	conectorArgos := argos.Nuevo(argos.Config{
 		Cifrador: cif, BaseURL: cfg.BaseURL, Timeout: cfg.ArgosTimeout, VentanaWebhook: cfg.WebhookVentana,
 		PermitirHTTP: cfg.ConectoresPermitirHTTP, Version: version, RedesPermitidas: cfg.ArgosRedesPermitidas, Origenes: cfg.ArgosOrigenes,
@@ -113,13 +118,23 @@ func servir(ctx context.Context, cfg config.Config, ent mensajeria.Entorno, log 
 		almacen = nil
 	}
 	var cliente *river.Client[pgx.Tx]
+	encolar := func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
+		return integracion.Encolar(cliente)(ctx, tx, args)
+	}
+	// Bandeja: crear ticket, orden y prospecto desde una conversación reutiliza los casos de soporte,
+	// campo y comercial en la misma transacción. Sus jobs (correo, pendientes…) se insertan en sus
+	// colas y los trabaja cmd/worker (por eso SkipUnknownJobCheck).
+	sop := soporte.Nuevo(soporte.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Cifrador: cif, Encolar: encolar})
+	cmp := campo.Nuevo(campo.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Soporte: sop,
+		Agenda: agenda.Nuevo(agenda.Config{Argos: agenda.TecnicosDeArgos(conectorArgos)})})
+	com := comercial.Nuevo(comercial.Config{Planes: comercial.PlanesDeArgos(conectorArgos), Altas: comercial.AltasDeArgos(conectorArgos),
+		Campo: cmp, Encolar: encolar})
 	m := mensajeria.Nuevo(mensajeria.Config{
+		Argos: conectorArgos, Soporte: sop, Campo: cmp, Comercial: com,
 		Almacen: almacen, ChatSSEMax: ent.ChatSSEMax,
 		Cifrador: cif, Contactos: conectorArgos, Simulado: ent.Simulado, LimiteDiario: ent.LimiteDiario, PorMinuto: ent.PorMinuto,
 		Silencio: ent.Silencio, MetaURL: ent.MetaURL, HTTPArgos: conector.NuevoHTTP(cfg.ArgosRedesPermitidas), Version: version,
-		Encolar: func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
-			return integracion.Encolar(cliente)(ctx, tx, args)
-		},
+		Encolar: encolar,
 	})
 	workers := river.NewWorkers()
 	m.RegistrarWorkers(workers, pool)
@@ -127,6 +142,8 @@ func servir(ctx context.Context, cfg config.Config, ent mensajeria.Entorno, log 
 		Schema: migraciones.EsquemaRiver, Logger: log,
 		Queues:  map[string]river.QueueConfig{mensajeria.Cola: {MaxWorkers: 5}},
 		Workers: workers,
+		// Los casos de soporte, campo y comercial que usa la bandeja encolan jobs que trabaja cmd/worker.
+		SkipUnknownJobCheck: true,
 	})
 	if err != nil {
 		return err
@@ -137,6 +154,8 @@ func servir(ctx context.Context, cfg config.Config, ent mensajeria.Entorno, log 
 	go mensajeria.Reloj(ctx, cliente, log)
 	// Chat: LISTEN iris_chat despierta los flujos SSE (GET /chat/eventos) de este proceso.
 	go m.EscucharChat(ctx, pool, log)
+	// Bandeja: LISTEN iris_conversaciones despierta los flujos SSE (GET /conversaciones/eventos).
+	go m.EscucharConversaciones(ctx, pool, log)
 
 	clavesIdem, err := nucleo.ClavesIdempotencia(cfg.ClaveCifrado, cfg.ClaveCifradoAnterior)
 	if err != nil {

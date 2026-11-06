@@ -67,16 +67,14 @@ func (m *Modulo) asegurarCliente(ctx context.Context, previo *auditoria.Caso[Ent
 
 // EntradaTicketConv es POST /conversaciones/{id}/crear-ticket.
 type EntradaTicketConv struct {
-	ID          int64   `json:"-"`
-	Asunto      string  `json:"asunto" minLength:"3" maxLength:"200"`
-	Descripcion string  `json:"descripcion,omitempty" maxLength:"20000" doc:"Primer mensaje público del ticket"`
-	CategoriaID *int64  `json:"categoriaId,omitempty" minimum:"1"`
-	Prioridad   string  `json:"prioridad,omitempty" enum:"baja,media,alta,critica"`
-	ServicioID  *int64  `json:"servicioId,omitempty" minimum:"1" doc:"Por defecto, el de la conversación"`
-	ZonaID      *int64  `json:"zonaId,omitempty" minimum:"1"`
-	Clave       string  `json:"-"`
-	actor       int64   `json:"-"`
-	conv        *string `json:"-"`
+	ID          int64  `json:"-"`
+	Asunto      string `json:"asunto" minLength:"3" maxLength:"200"`
+	Descripcion string `json:"descripcion,omitempty" maxLength:"20000" doc:"Primer mensaje público del ticket"`
+	CategoriaID *int64 `json:"categoriaId,omitempty" minimum:"1"`
+	Prioridad   string `json:"prioridad,omitempty" enum:"baja,media,alta,critica"`
+	ServicioID  *int64 `json:"servicioId,omitempty" minimum:"1" doc:"Por defecto, el de la conversación"`
+	ZonaID      *int64 `json:"zonaId,omitempty" minimum:"1"`
+	Clave       string `json:"-"`
 }
 
 // VinculoCreado es la respuesta de las acciones: lo creado y la conversación al día.
@@ -484,12 +482,12 @@ func (m *Modulo) enviarBoleta(ctx context.Context, id uuid.UUID) error {
 		monto, _ = v.(string)
 	}
 	ext := ".jpg"
-	switch {
-	case p.mime == "application/pdf":
+	switch p.mime {
+	case "application/pdf":
 		ext = ".pdf"
-	case p.mime == "image/png":
+	case "image/png":
 		ext = ".png"
-	case p.mime == "image/webp":
+	case "image/webp":
 		ext = ".webp"
 	}
 	in := argos.EntradaComprobante{ClienteID: f.ClienteID, ServicioID: f.ServicioID, Metodo: f.Metodo, CuentaBancariaID: f.CuentaBancariaID,
@@ -498,10 +496,9 @@ func (m *Modulo) enviarBoleta(ctx context.Context, id uuid.UUID) error {
 		Clave: "iris:boleta:" + f.ID.String()}
 	r, errArgos := m.cfg.Argos.RegistrarComprobante(ctx, p.a, in)
 	res := resultadoBoleta{ID: id}
-	switch {
-	case errArgos == nil:
+	if errArgos == nil {
 		res.ComprobanteID = &r.ID
-	default:
+	} else {
 		res.Error, res.Temporal = resumenErrorArgos(errArgos)
 	}
 	_, err = m.resultadoBoleta.Ejecutar(context.WithoutCancel(ctx), res)

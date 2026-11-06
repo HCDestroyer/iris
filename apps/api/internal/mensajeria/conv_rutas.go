@@ -6,7 +6,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
-	"github.com/google/uuid"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -132,7 +131,9 @@ func (m *Modulo) registrarConversaciones(api huma.API) {
 		return responder(k.ConfigurarCanal.Ejecutar(ctx, in.Body))
 	})
 	huma.Register(api, op("listarColasConversaciones", http.MethodGet, "/colas", "Colas de conversaciones (con miembros)", ver, http.StatusOK),
-		func(ctx context.Context, _ *struct{}) (*cuerpo[ListaColas], error) { return responder(k.ListarColas.Ejecutar(ctx, struct{}{})) })
+		func(ctx context.Context, _ *struct{}) (*cuerpo[ListaColas], error) {
+			return responder(k.ListarColas.Ejecutar(ctx, struct{}{}))
+		})
 	huma.Register(api, op("crearColaConversaciones", http.MethodPost, "/colas", "Crear una cola", canalesConf, http.StatusCreated, http.StatusConflict),
 		func(ctx context.Context, in *cuerpoHTTP[EntradaCola]) (*cuerpo[ColaConversaciones], error) {
 			return responder(k.CrearCola.Ejecutar(ctx, in.Body))
@@ -212,9 +213,21 @@ func (m *Modulo) registrarConversaciones(api huma.API) {
 			return responder(k.Contadores.Ejecutar(ctx, struct{}{}))
 		})
 	huma.Register(api, op("numerosConversaciones", http.MethodGet, base+"/canales", "Números de WhatsApp de la empresa (sin credenciales)", ver, http.StatusOK),
-		func(ctx context.Context, _ *struct{}) (*cuerpo[ListaNumeros], error) { return responder(k.Numeros.Ejecutar(ctx, struct{}{})) })
+		func(ctx context.Context, _ *struct{}) (*cuerpo[ListaNumeros], error) {
+			return responder(k.Numeros.Ejecutar(ctx, struct{}{}))
+		})
 	huma.Register(api, op("agentesConversaciones", http.MethodGet, base+"/agentes", "Agentes que atienden conversaciones", ver, http.StatusOK),
-		func(ctx context.Context, in *EntradaAgentes) (*cuerpo[ListaAgentes], error) { return responder(k.Agentes.Ejecutar(ctx, *in)) })
+		func(ctx context.Context, in *EntradaAgentes) (*cuerpo[ListaAgentes], error) {
+			return responder(k.Agentes.Ejecutar(ctx, *in))
+		})
+	huma.Register(api, op("cuentasBancariasConversaciones", http.MethodGet, base+"/cuentas-bancarias", "Cuentas de la empresa que reciben depósitos (Argos §7.2)",
+		nucleo.PermConversacionesRegistrarBoleta, http.StatusOK), func(ctx context.Context, _ *struct{}) (*cuerpo[ListaCuentasBancarias], error) {
+		return responder(m.CuentasBancarias(ctx))
+	})
+	huma.Register(api, op("bancosConversaciones", http.MethodGet, base+"/bancos", "Bancos de origen (Argos §7.2)",
+		nucleo.PermConversacionesRegistrarBoleta, http.StatusOK), func(ctx context.Context, _ *struct{}) (*cuerpo[ListaBancos], error) {
+		return responder(m.Bancos(ctx))
+	})
 	huma.Register(api, op("cambiosConversaciones", http.MethodGet, base+"/cambios", "Cambios de la bandeja desde un cursor (sondeo)", ver, http.StatusOK, http.StatusGone),
 		func(ctx context.Context, in *EntradaCambiosConv) (*cuerpo[CambiosConversaciones], error) {
 			return responder(k.Cambios.Ejecutar(ctx, *in))
@@ -383,5 +396,3 @@ func (m *Modulo) registrarConversaciones(api huma.API) {
 		return responder(k.Promesas.Crear(ctx, in.Body))
 	})
 }
-
-var _ = uuid.Nil

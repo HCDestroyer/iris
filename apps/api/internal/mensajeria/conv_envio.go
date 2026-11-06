@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -19,7 +18,6 @@ import (
 	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
-	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
 
 // Responder y anotar (contratos/conversaciones.md §8): el mensaje queda en_cola y sale por el job
@@ -580,6 +578,3 @@ func (m *Modulo) procesarMensaje(ctx context.Context, id uuid.UUID, ultimo bool)
 	}
 	return 0, nil
 }
-
-var _ = http.StatusOK
-var _ = contexto.ActorDe
