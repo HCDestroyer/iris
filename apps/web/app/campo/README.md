@@ -32,6 +32,16 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
     pendientes, sin datos del servidor, y la app no los muestra sin entrar. Sin señal no navega a
     /entrar (no está en caché): muestra «Cerraste sesión en este teléfono» y cierra la sesión en la
     API al volver la señal.
+- **«Yo»** (diseño aprobado por el PM, nov 2026; `_componentes/yo.tsx` y `cuenta.tsx`, igual que
+  la app nativa): nombre y «Rol · Empresa» de `GET /yo`; **Apariencia** Teléfono · Claro · Oscuro
+  con `next-themes` (`iris-tema` en el navegador, la clase `.dark` puesta antes de pintar: sin
+  parpadeo); **Seguridad** con «Cambiar contraseña» (`?vista=yo&seccion=contrasena`) y
+  «Verificación en dos pasos» (`?vista=yo&seccion=dos_pasos`) en pantallas propias (salir con
+  cambios pregunta: botón, «Atrás» del navegador y recargar), con las mismas reglas que la nativa
+  (`@iris/sync/campo` `cuenta.ts`: 422 por campo, 429 que lleva a entrar, sin señal no se intenta,
+  `POST /yo/mfa` una vez por intento, «Copiar clave» que se borra del portapapeles a los 45 s); y
+  **Este teléfono** con «Mi bodega», «Por enviar», actualizar, cambiar de empresa y «Cerrar
+  sesión» de contorno rojo.
 - **Navegación:** isla de menú Hoy · Por recibir · «+» · Agenda · Yo; cada vista y cada paso con
   su URL (`@iris/sync/campo` `vista.ts`). El estado es un punto con todo enviado y crece como
   píldora encima de la isla solo cuando hace falta (por enviar, rechazos, sesión vencida, empresa
@@ -190,5 +200,8 @@ permiso, un punto por minuto con el reloj de Playwright, sin señal y de vuelta,
 turno de la agenda con el reloj de Playwright; `e2e/campo-formularios.spec.ts`: formularios y pausa
 sin señal, rechazos y cierre incompleto por formulario; `e2e/campo-escaner.spec.ts`: escáner por campo
 con cámara y `BarcodeDetector` simulados, en escritorio y teléfono, claro y oscuro (con
+`IRIS_CAPTURAS=<carpeta>` deja capturas); `e2e/campo-yo.spec.ts`: «Yo» con la apariencia (los
+tres modos, guardada y sin parpadeo al recargar), cambiar contraseña (ayudas, 422, 429, sin señal,
+salir con cambios) y los dos pasos completos, en 390 y 1280 px, claro y oscuro (con
 `IRIS_CAPTURAS=<carpeta>` deja capturas); `e2e/capturas-campo.spec.ts`; `e2e/campo-api-real.spec.ts` contra la API Go
 con `IRIS_E2E_API_REAL=1 IRIS_E2E_TECNICO=<correo>:<contraseña>`).

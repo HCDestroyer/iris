@@ -15,8 +15,8 @@ import {
 import { CircleAlert, CircleCheck, Minus, PackageCheck, Plus, ScanBarcode, Search } from "lucide-react-native";
 import { useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
-import { StyleSheet, Text, View } from "react-native";
-import { Aviso, Boton, BotonRedondo, Campo, Insignia, Opciones, Tarjeta, Texto, Tocable } from "../../componentes";
+import { StyleSheet, View } from "react-native";
+import { Aviso, Boton, BotonRedondo, Campo, Insignia, Opciones, Tarjeta, Texto } from "../../componentes";
 import { useCampo } from "../../campo/contexto";
 import { useTema } from "../../tema/tema";
 
@@ -195,14 +195,9 @@ function FormularioMaterial({ orden, lineas }: { orden: OrdenVista; lineas: read
                                 </View>
                             ) : null}
                             {tipo.ayuda ? <Texto suave>{tipo.ayuda}</Texto> : null}
-                            <Tocable
-                                etiqueta="Registrar material"
-                                alPresionar={() => void enviar()}
-                                deshabilitado={form.formState.isSubmitting}
-                                estilo={[estilos.registrar, { backgroundColor: campo.tinta }]}
-                            >
-                                <Text style={[estilos.textoRegistrar, { color: campo.sobreTinta }]}>{form.formState.isSubmitting ? "Registrando…" : "Registrar material"}</Text>
-                            </Tocable>
+                            <Boton variante="tinta" cargando={form.formState.isSubmitting} alPresionar={() => void enviar()} estilo={estilos.pildora}>
+                                Registrar material
+                            </Boton>
                         </>
                     )}
                 </View>
@@ -222,6 +217,4 @@ const estilos = StyleSheet.create({
     boton: { paddingTop: 24 },
     atajos: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
     pildora: { borderRadius: 999, minHeight: 48 },
-    registrar: { minHeight: 52, borderRadius: 999, alignItems: "center", justifyContent: "center", paddingHorizontal: 20 },
-    textoRegistrar: { fontSize: 16, fontWeight: "600" },
 });

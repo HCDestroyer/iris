@@ -162,8 +162,9 @@ function FormularioMaterial({ orden, lineas }: { orden: OrdenVista; lineas: read
                                 />
                                 <Boton
                                     type="button"
+                                    variante="tinta"
                                     aria-label="Agregar uno"
-                                    className="mt-[1.625rem] size-12 shrink-0 rounded-full bg-[var(--campo-tinta)] p-0 text-[var(--campo-sobre-tinta)] shadow-none md:size-12"
+                                    className="mt-[1.625rem] size-12 shrink-0 rounded-full p-0 md:size-12"
                                     onClick={() => cambiar(1)}
                                 >
                                     <Plus aria-hidden />
@@ -190,12 +191,7 @@ function FormularioMaterial({ orden, lineas }: { orden: OrdenVista; lineas: read
                                 )
                             ) : null}
                             {tipo.ayuda ? <p className="text-xs text-muted-foreground">{tipo.ayuda}</p> : null}
-                            <Boton
-                                tamano="lg"
-                                type="submit"
-                                className="min-h-12 rounded-full bg-[var(--campo-tinta)] text-[var(--campo-sobre-tinta)] shadow-none"
-                                disabled={form.formState.isSubmitting}
-                            >
+                            <Boton tamano="lg" type="submit" variante="tinta" className="min-h-12 rounded-full" disabled={form.formState.isSubmitting}>
                                 Registrar material
                             </Boton>
                         </>
