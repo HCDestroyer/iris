@@ -7534,7 +7534,7 @@ export interface components {
             avisosEmpresa: boolean;
             /**
              * Format: int64
-             * @description ColaConversaciones de las conversaciones nuevas (null = sin cola)
+             * @description Cola de las conversaciones nuevas (null = sin cola)
              */
             colaId?: number | null;
             /** @description avisos, soporte, cobros, ventas */
