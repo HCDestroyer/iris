@@ -97,6 +97,10 @@ cierra nunca: se resuelve y se reabre.
   "noLeidos": 2, "ultimaActividad": "…", "creadaEn": "…" }
 ```
 
+Los objetos opcionales (`cola`, `asignado`, `ultimoMensaje`, `clienteResumen` y, en los mensajes,
+`autor`, `adjunto`, `ubicacion`, `plantilla`, `evento`) van **ausentes** cuando no aplican (no
+`null`): huma no publica objetos anulables. Los escalares opcionales sí van `null`.
+
 `contacto.tipo`: `cliente` (cliente de Argos: solo su id; nombre, servicio, saldo y zona salen de la
 instantánea de lectura o de `GET /clientes/{id}` de la API, nunca de una copia), `contacto_iris`
 (§5.2), `prospecto` o `desconocido`. `asociacion`: `automatica` (una sola coincidencia exacta del
@@ -480,8 +484,8 @@ mensaje.
 `conversacion.resuelta`, `conversacion.reabierta`, `conversacion.cliente_asociado`,
 `conversacion.vinculo_creado`, `conversacion.sla_vencido`, `contacto_iris.creado`,
 `contacto_iris.unido`, `cola.creada` / `cola.actualizada`, `etiqueta.creada` / `.actualizada`,
-`respuesta_rapida.creada` / `.actualizada`, `boleta.registrada` / `boleta.fallida`,
-`promesa.solicitada`; PR B: `horario.creado` / `.actualizado`, `conversacion.fuera_de_horario`,
+`respuesta_rapida.creada` / `.actualizada`, `boleta.registrada`, `boleta.registrada_en_argos`,
+`boleta.fallida`, `promesa.solicitada`; PR B: `horario.creado` / `.actualizado`, `conversacion.fuera_de_horario`,
 `conversacion.guardia_avisada`, `manual.creado` / `.actualizado` / `.enviado`.
 
 **Pendiente (fase 1.1, decisión abierta):** consumir los webhooks de Argos `comprobante.aprobado` /
