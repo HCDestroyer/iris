@@ -77,6 +77,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         version: 1,
     }));
     const configurados: unknown[] = [];
+    const consentimientos: unknown[] = [];
 
     /** Como el servidor: `mensaje_*` trae el mensaje y luego `conversacion_actualizada` la conversación. */
     function emitir(tipo: Evento["tipo"], c: Conversacion, m?: Mensaje) {
@@ -161,7 +162,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         const cuerpo = (x.cuerpo ?? {}) as Record<string, unknown>;
         const prohibido = () => problema(route, P("permiso_denegado", 403, "Sin permiso"));
         if (await administrar(x.route, metodo, ruta, query, cuerpo, puede)) return true;
-        if (!ruta.startsWith(`${BASE}/conversaciones`) && ![`${BASE}/colas`, `${BASE}/etiquetas`, `${BASE}/respuestas-rapidas`].includes(ruta)) return false;
+        if (!ruta.startsWith(`${BASE}/conversaciones`) && !ruta.startsWith(`${BASE}/contactos-iris/`) && ![`${BASE}/colas`, `${BASE}/etiquetas`, `${BASE}/respuestas-rapidas`].includes(ruta)) return false;
         if (!puede("conversaciones.ver")) return (await prohibido(), true);
 
         if (metodo === "GET") {
@@ -192,6 +193,18 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                 await route.fulfill({ status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-store" }, body: cuerpoSSE });
                 return true;
             }
+        }
+
+        const cons = /^\/api\/v1\/mensajeria\/contactos-iris\/(\d+)\/consentimiento$/.exec(ruta);
+        if (cons && metodo === "POST") {
+            if (cuerpo.estado === "acepta" && !puede("conversaciones.supervisar")) return (await problema(route, P("permiso_denegado", 403, "Sin permiso")), true);
+            const motivo = typeof cuerpo.motivo === "string" ? cuerpo.motivo : "";
+            // El contacto 77 se dio de baja él mismo: volver a permitirlo exige motivo.
+            if (cuerpo.estado === "acepta" && Number(cons[1]) === 77 && motivo.length < 5) {
+                return (await problema(route, P("baja_del_cliente", 422, "La baja la pidió el cliente")), true);
+            }
+            consentimientos.push(cuerpo);
+            return (await json(route, { estado: cuerpo.estado, ocurridoEn: new Date().toISOString(), telefono: "+50255550077" }), true);
         }
 
         const m = /^\/api\/v1\/mensajeria\/conversaciones\/(\d+)(?:\/(.+))?$/.exec(ruta);
@@ -372,7 +385,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         return false;
     }
 
-    return { manejar, conversaciones, mensajes, enviados, mensajeDelCliente, canales, configurados, respuestas };
+    return { manejar, conversaciones, mensajes, enviados, mensajeDelCliente, canales, configurados, respuestas, consentimientos };
 }
 
 export type ApiConversaciones = ReturnType<typeof apiConversaciones>;

@@ -339,6 +339,106 @@ function Historial({ conv }: { conv: ConversacionDetalle }) {
     );
 }
 
+const esquemaPermiso = z.object({ motivo: z.string().trim().max(300, "Hasta 300 caracteres") });
+
+/**
+ * Permiso de contacto por WhatsApp de un contacto de Iris (§5.2): con «acepta» vigente se le pueden
+ * mandar plantillas fuera de la ventana. Darlo de baja lo puede quien asocia; permitirlo, solo quien
+ * supervisa, y con motivo si la baja la pidió el propio cliente (422 `baja_del_cliente`).
+ */
+function PermisoContacto({ contactoId, titulo }: { contactoId: number; titulo: string }) {
+    const { puede } = useSesion();
+    const [dialogo, setDialogo] = useState<"acepta" | "baja" | null>(null);
+    if (!puede(["conversaciones.asociar"])) return null;
+    return (
+        <div className="grid gap-1.5" data-testid="permiso-contacto">
+            <p className="text-xs text-muted-foreground">Fuera de la ventana de 24 h solo se le pueden mandar plantillas si dio permiso de contacto por WhatsApp.</p>
+            <div className="flex flex-wrap gap-1.5">
+                {puede(["conversaciones.supervisar"]) ? (
+                    <Boton variante="secundario" tamano="sm" onClick={() => setDialogo("acepta")}>
+                        <ShieldCheck />
+                        Permitir contacto
+                    </Boton>
+                ) : null}
+                <Boton variante="peligro" tamano="sm" onClick={() => setDialogo("baja")}>
+                    Dar de baja
+                </Boton>
+            </div>
+            {dialogo ? <DialogoPermiso contactoId={contactoId} titulo={titulo} estado={dialogo} cerrar={() => setDialogo(null)} /> : null}
+        </div>
+    );
+}
+
+function DialogoPermiso({ contactoId, titulo, estado, cerrar }: { contactoId: number; titulo: string; estado: "acepta" | "baja"; cerrar: () => void }) {
+    const form = useForm({ resolver: zodResolver(esquemaPermiso), defaultValues: { motivo: "" } });
+    useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
+    const clave = useClaveIdempotencia();
+    const [pideMotivo, setPideMotivo] = useState(false);
+    const [error, setError] = useState<unknown>(null);
+    return (
+        <DialogoProtegido open onOpenChange={(a) => !a && cerrar()}>
+            <DialogoContenido
+                titulo={estado === "acepta" ? "Permitir contacto por WhatsApp" : "Dar de baja el contacto por WhatsApp"}
+                descripcion={estado === "acepta" ? `${titulo} podrá recibir plantillas fuera de la ventana de 24 h.` : `${titulo} no recibirá plantillas ni avisos por WhatsApp.`}
+            >
+                <form
+                    noValidate
+                    className="grid gap-4"
+                    onSubmit={form.handleSubmit(async (d) => {
+                        setError(null);
+                        const motivo = d.motivo.trim();
+                        if (pideMotivo && motivo.length < 5) {
+                            form.setError("motivo", { message: "Escribe por qué (al menos 5 caracteres): la baja la pidió el cliente" });
+                            return;
+                        }
+                        try {
+                            await resolver(
+                                api().POST("/api/v1/mensajeria/contactos-iris/{id}/consentimiento", {
+                                    params: { path: { id: contactoId }, header: cabeceraIdem(clave.actual()) },
+                                    body: { estado, ...(motivo.length >= 5 ? { motivo } : {}) },
+                                }),
+                            );
+                            clave.renovar();
+                            avisar({ titulo: estado === "acepta" ? `${titulo}: contacto por WhatsApp permitido` : `${titulo}: dado de baja por WhatsApp` });
+                            cerrar();
+                        } catch (e) {
+                            clave.trasError(e);
+                            if (e instanceof ErrorApi && e.codigo === "baja_del_cliente") {
+                                setPideMotivo(true);
+                                form.setError("motivo", { message: "La baja la pidió el propio cliente: escribe por qué se vuelve a permitir" });
+                            } else if (!erroresACampos(e, ["motivo"], form.setError)) setError(e);
+                        }
+                    })}
+                >
+                    <CampoArea
+                        etiqueta={pideMotivo ? "Motivo" : "Motivo (opcional)"}
+                        ayuda={estado === "acepta" ? "Queda en la auditoría. Es obligatorio si la baja la pidió el cliente." : undefined}
+                        rows={2}
+                        maxLength={300}
+                        error={form.formState.errors.motivo?.message}
+                        {...form.register("motivo")}
+                    />
+                    {error ? (
+                        <Aviso tono="error" titulo="No se pudo guardar">
+                            {mensajeDeError(error).titulo}
+                        </Aviso>
+                    ) : null}
+                    <DialogoPie>
+                        <DialogoCerrar asChild>
+                            <Boton variante="contorno" disabled={form.formState.isSubmitting}>
+                                Cancelar
+                            </Boton>
+                        </DialogoCerrar>
+                        <BotonEnviar enviando={form.formState.isSubmitting} textoEnviando="Guardando…">
+                            {estado === "acepta" ? "Permitir" : "Dar de baja"}
+                        </BotonEnviar>
+                    </DialogoPie>
+                </form>
+            </DialogoContenido>
+        </DialogoProtegido>
+    );
+}
+
 /** Dónde coincide el número: el contacto de un servicio no es el titular (contrato §5.1). */
 export function textoCoincidencia(en: readonly string[]): string {
     if (en.includes("telefono") || en.includes("movil")) return "teléfono del cliente";
@@ -398,6 +498,7 @@ function SinCliente({ conv, alActualizar }: { conv: ConversacionDetalle; alActua
                     </span>
                 </div>
             )}
+            {conv.contacto.tipo === "contacto_iris" && conv.contacto.contactoIrisId ? <PermisoContacto contactoId={conv.contacto.contactoIrisId} titulo={conv.titulo} /> : null}
             {asocia ? (
                 <>
                     <div className="grid min-w-0 grid-cols-1 [&_[data-testid=selector-cliente]]:grid-cols-1">
@@ -678,8 +779,14 @@ function DialogoPromesa({ conv, cerrar }: { conv: ConversacionDetalle; cerrar: (
                         </Aviso>
                     ) : null}
                     {error ? (
-                        <Aviso tono="error" titulo={error instanceof ErrorApi && error.codigo === "argos_no_disponible" ? "Argos no responde" : "No se pudo"}>
-                            {error instanceof ErrorApi && error.codigo === "argos_no_disponible" ? "No quedó nada a medias. Vuelve a intentarlo en un momento." : mensajeDeError(error).titulo}
+                        <Aviso tono="error" titulo={error instanceof ErrorApi && error.codigo === "argos_no_disponible" ? "Argos no responde" : error instanceof ErrorApi && error.codigo === "cliente_cambiado" ? "El cliente cambió mientras Argos respondía" : "No se pudo"}>
+                            {error instanceof ErrorApi && error.codigo === "argos_no_disponible"
+                                ? "No quedó nada a medias. Vuelve a intentarlo en un momento."
+                                : error instanceof ErrorApi && error.codigo === "cliente_cambiado"
+                                  ? "Revisa en Argos si la promesa quedó registrada antes de volver a pedirla."
+                                  : error instanceof ErrorApi && error.codigo === "cliente_sin_confirmar"
+                                    ? "Falta que un supervisor confirme el cliente de esta conversación."
+                                    : mensajeDeError(error).titulo}
                         </Aviso>
                     ) : null}
                     <DialogoPie>
