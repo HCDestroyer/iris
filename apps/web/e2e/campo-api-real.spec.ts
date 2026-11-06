@@ -38,7 +38,7 @@ test("OT de instalación de la semilla, sin conexión y de vuelta, contra la API
     await context.setGeolocation({ latitude: 14.6407, longitude: -90.5133, accuracy: 12 });
     await page.goto("/campo");
     // La entrada del técnico es de la propia app (no la del panel).
-    await expect(page.getByRole("heading", { name: "Hola, técnico" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Iris Campo" })).toBeVisible();
     await entrar(page, correo, contrasena);
     await expect(page).toHaveURL(/\/campo$/);
     const tarjeta = page.getByRole("link", { name: /OT-000001/ });

@@ -19,7 +19,7 @@ import { HojaCampo } from "./hoja";
 
 /*
  * Entrada del técnico en la PWA (diseño «Login C · Combinada», nov 2026), igual que la app nativa y
- * en un solo paso: logo y «Hola, técnico», la tarjeta con correo y contraseña (o el usuario
+ * en un solo paso: logo centrado con «Iris Campo» (opción B del PM, 0.17), la tarjeta con correo y contraseña (o el usuario
  * recordado con «¿No eres tú?» y solo la contraseña), el ojo, errores en línea, «Entrar» y
  * «¿Olvidaste tu contraseña?», y el aviso «Sin conexión». El código de 6 casillas solo si
  * `POST /sesion` responde `mfaRequerido`. Es de la app de campo (vive en /campo, bajo su service
@@ -163,7 +163,7 @@ export function EntrarCampo({ alEntrar, motivo = null, sinConexion = null }: Pro
                     <ArrowLeft aria-hidden />
                 </Boton>
                 <div className="grid gap-2">
-                    <h1 id="titulo-codigo" className="text-[2rem] leading-[1.05] font-bold tracking-[-0.03em]">
+                    <h1 id="titulo-codigo" className="text-[1.375rem] leading-7 font-bold tracking-[-0.01em]">
                         Código de verificación
                     </h1>
                     <p className="text-muted-foreground">Solo te lo pedimos porque tienes la verificación en dos pasos activa.</p>
@@ -177,7 +177,7 @@ export function EntrarCampo({ alEntrar, motivo = null, sinConexion = null }: Pro
                             <CampoCodigo etiqueta="Escribe los 6 dígitos de tu app de autenticación" valor={field.value} alCambiar={field.onChange} error={errors.codigo?.message} name="codigo" />
                         )}
                     />
-                    <Boton type="submit" tamano="lg" disabled={isSubmitting} className="h-[3.25rem] w-full rounded-full text-base md:h-[3.25rem]">
+                    <Boton type="submit" variante="tinta" tamano="lg" disabled={isSubmitting} className="h-12 w-full text-base md:h-12">
                         {isSubmitting ? "Verificando…" : "Verificar"}
                     </Boton>
                 </Tarjeta>
@@ -188,10 +188,10 @@ export function EntrarCampo({ alEntrar, motivo = null, sinConexion = null }: Pro
     const { errors, isSubmitting } = credenciales.formState;
     return (
         <div className="grid gap-6" data-slot="entrar-campo">
-            <div className="grid gap-2">
-                <LogoIris className="size-14" titulo="Iris" />
-                <h1 className="text-[2rem] leading-[1.05] font-bold tracking-[-0.03em]">Hola, técnico</h1>
-                <p className="text-muted-foreground">Entra para ver tus órdenes de hoy.</p>
+            <div className="grid justify-items-center gap-2.5 pt-6 pb-2 text-center" data-slot="marca-entrar">
+                <LogoIris className="size-16" titulo="Iris" />
+                <h1 className="text-[1.375rem] leading-7 font-bold tracking-[-0.01em]">Iris Campo</h1>
+                <p className="text-muted-foreground">Entra con tu cuenta de técnico.</p>
             </div>
             {bloqueado ? (
                 <Aviso tono="warning" icono={Clock} titulo={`Demasiados intentos, espera ${formatearEspera(bloqueo.restante)}`}>
@@ -251,7 +251,7 @@ export function EntrarCampo({ alEntrar, motivo = null, sinConexion = null }: Pro
                         error={errors.contrasena?.message}
                         {...credenciales.register("contrasena")}
                     />
-                    <Boton type="submit" tamano="lg" disabled={isSubmitting || bloqueado} className="h-[3.25rem] w-full rounded-full text-base md:h-[3.25rem]">
+                    <Boton type="submit" variante="tinta" tamano="lg" disabled={isSubmitting || bloqueado} className="h-12 w-full text-base md:h-12">
                         {isSubmitting ? "Entrando…" : "Entrar"}
                     </Boton>
                     <Boton variante="fantasma" tamano="lg" className="h-12 w-full text-primary md:h-12" onClick={() => setOlvido(true)}>
@@ -270,7 +270,7 @@ export function EntrarCampo({ alEntrar, motivo = null, sinConexion = null }: Pro
                         <CircleHelp aria-hidden className="mt-0.5 size-5 shrink-0 text-primary" />
                         <span>Pídele a tu supervisor o al administrador de Iris que te asigne una contraseña temporal. Al entrar con ella, Iris te pedirá cambiarla.</span>
                     </p>
-                    <Boton tamano="lg" className="h-12 w-full rounded-full" onClick={() => setOlvido(false)}>
+                    <Boton variante="tinta" tamano="lg" className="h-12 w-full" onClick={() => setOlvido(false)}>
                         Entendido
                     </Boton>
                 </div>

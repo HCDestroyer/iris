@@ -34,6 +34,7 @@ import {
 import { ApiFalsa, problema, usuario } from "./api-falsa";
 import { abrirCampo, avisoArriba } from "./arnes";
 import { montar } from "@iris/sync/pruebas";
+import { crearTema } from "../src/tema/tokens";
 import { TemaDePrueba } from "./raiz";
 
 const TOMAS = { nombre: "Tomás Herrera", correo: "tomas.herrera@redcom.gt" };
@@ -58,11 +59,18 @@ describe.each(["light", "dark"] as const)("entrada del técnico (%s)", (esquema)
         return alEntrar;
     };
 
-    it("sin recordar: logo, «Hola, técnico», correo y contraseña con su teclado, el ojo y sin huella ni Argos", async () => {
+    it("sin recordar: logo centrado con «Iris Campo» (opción B), correo y contraseña con su teclado, el ojo y sin huella ni Argos", async () => {
         await pantalla();
-        expect(screen.getByLabelText("Iris")).toBeTruthy();
-        expect(screen.getByRole("header", { name: "Hola, técnico" })).toBeTruthy();
-        expect(screen.getByText("Entra para ver tus órdenes de hoy.")).toBeTruthy();
+        expect(within(screen.getByTestId("marca-entrar")).getByLabelText("Iris")).toBeTruthy();
+        expect(StyleSheet.flatten(screen.getByTestId("marca-entrar").props.style)).toMatchObject({ alignItems: "center" });
+        expect(screen.getByRole("header", { name: "Iris Campo" })).toBeTruthy();
+        expect(screen.getByText("Entra con tu cuenta de técnico.")).toBeTruthy();
+        expect(screen.queryByText("Hola, técnico")).toBeNull();
+        // «Entrar» en tinta (la acción principal de la app de campo), con la esquina de Horus, no píldora.
+        const tema = crearTema(esquema === "dark");
+        expect(StyleSheet.flatten(screen.getByTestId("boton-entrar").props.style)).toMatchObject({ backgroundColor: tema.campo.tinta, borderRadius: 6 });
+        // Correo y contraseña: el icono y el ojo dentro de su caja.
+        expect(within(screen.getByTestId("tarjeta-entrar")).getAllByLabelText(/^(Correo|Contraseña)$/)).toHaveLength(2);
         const correo = screen.getByLabelText("Correo");
         expect(correo).toHaveProp("keyboardType", "email-address");
         expect(correo).toHaveProp("autoCapitalize", "none");
@@ -163,7 +171,7 @@ describe.each(["light", "dark"] as const)("entrada del técnico (%s)", (esquema)
         expect(await screen.findByText("Código incorrecto o ya usado. Revisa tu app de autenticación.")).toBeTruthy();
         expect(api.peticiones[1]?.cuerpo).toEqual({ codigo: "123456" });
         await fireEvent.press(screen.getByRole("button", { name: "Volver" }));
-        expect(await screen.findByRole("header", { name: "Hola, técnico" })).toBeTruthy();
+        expect(await screen.findByRole("header", { name: "Iris Campo" })).toBeTruthy();
     });
 });
 
