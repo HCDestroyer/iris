@@ -264,7 +264,7 @@ for (const [franja, instante] of [
         await page.getByRole("navigation", { name: "Día" }).getByRole("link", { name: /^Mañana/ }).click();
         await expect(page.getByRole("heading", { name: "Mañana, vie 6" })).toBeVisible();
         await expect(page.getByTestId("resumen-dia")).toHaveText("2 citas · 3 h");
-        // El miércoles 11 (el último de la tira) tiene el retiro: la semana se pidió por día de Guatemala.
+        // El sábado 7 (pasado mañana) tiene el retiro: la semana se pidió por día de Guatemala.
         await page.getByRole("navigation", { name: "Semana" }).getByRole("link", { name: "sábado, 7 de noviembre" }).click();
         await expect(page.locator('[data-slot="agenda-dia"] ol > li')).toHaveCount(1);
         await expect(page.locator('[data-slot="agenda-dia"] ol > li')).toContainText("Retiro · Ana Pérez");

@@ -350,38 +350,66 @@ export function accionesRapidas<O extends OrdenFormulario>(
 // Lecturas con señal (agenda, «Por recibir», «Mi bodega»)
 // ---------------------------------------------------------------------------------------------
 
-/**
- * Una lectura a la vez: pedirla mientras otra corre devuelve la que corre. Con `otraVez` (al
- * volver la señal) no se conforma con la que corre, que pudo empezar un instante antes de que el
- * teléfono supiera que no había señal y está condenada: al terminar esa, se lee una vez más.
- */
 /** Pide la lectura; `otraVez` al volver la señal (ver `lecturaUnica`). */
 export type CargarLectura = (opciones?: { otraVez?: boolean }) => Promise<void>;
 
-export function lecturaUnica(correr: () => Promise<void>): CargarLectura {
+export interface LecturaUnica {
+    cargar: CargarLectura;
+    /**
+     * Al desmontar o cerrar sesión: no lanza nada más (ni la repetición pendiente) y `vigente()`
+     * pasa a `false` para que lo que llegue tarde no se aplique.
+     */
+    detener: () => void;
+}
+
+/**
+ * Una lectura a la vez: pedirla mientras otra corre devuelve la que corre (o la repetición ya
+ * pedida). Con `otraVez` (al volver la señal) no se conforma con la que corre, que pudo empezar un
+ * instante antes de que el teléfono supiera que no había señal y está condenada: al terminar esa,
+ * se lee una vez más. `correr` recibe `vigente`: falso tras `detener()`.
+ */
+export function lecturaUnica(correr: (vigente: () => boolean) => Promise<void>): LecturaUnica {
     let enCurso: Promise<void> | null = null;
     let repetir: Promise<void> | null = null;
+    let detenida = false;
+    const vigente = () => !detenida;
     const lanzar = (): Promise<void> => {
-        const p = correr().finally(() => {
-            enCurso = null;
+        const p = correr(vigente).finally(() => {
+            if (enCurso === p) {
+                enCurso = null;
+            }
         });
         enCurso = p;
         return p;
     };
-    return (opciones) => {
+    const cargar: CargarLectura = (opciones) => {
+        if (detenida) {
+            return Promise.resolve();
+        }
+        if (repetir) {
+            // Ya hay una repetición esperando: es la que deja todo al día.
+            return repetir;
+        }
         if (!enCurso) {
             return lanzar();
         }
         if (!opciones?.otraVez) {
-            return repetir ?? enCurso;
+            return enCurso;
         }
         // Una sola repetición, sin importar cuántas veces la pidan mientras tanto.
-        repetir ??= enCurso
+        const r: Promise<void> = enCurso
             .catch(() => undefined)
             .then(() => {
                 repetir = null;
-                return lanzar();
+                return detenida ? undefined : lanzar();
             });
-        return repetir;
+        repetir = r;
+        return r;
+    };
+    return {
+        cargar,
+        detener: () => {
+            detenida = true;
+        },
     };
 }

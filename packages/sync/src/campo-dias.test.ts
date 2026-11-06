@@ -51,7 +51,7 @@ describe("lecturaUnica", () => {
 
     it("una a la vez: sin `otraVez` devuelve la que corre; con `otraVez` (volvió la señal) lee una vez más al terminar, aunque la primera falle", async () => {
         const llamadas: ReturnType<typeof diferida>[] = [];
-        const leer = lecturaUnica(() => {
+        const { cargar: leer } = lecturaUnica(() => {
             const d = diferida();
             llamadas.push(d);
             return d.promesa;
@@ -74,5 +74,44 @@ describe("lecturaUnica", () => {
         // Sin otra en curso, se lee enseguida.
         void leer();
         expect(llamadas).toHaveLength(3);
+    });
+
+    it("con la repetición ya pedida, pedirla otra vez devuelve esa (nunca dos lecturas a la vez)", async () => {
+        const llamadas: ReturnType<typeof diferida>[] = [];
+        const { cargar } = lecturaUnica(() => {
+            const d = diferida();
+            llamadas.push(d);
+            return d.promesa;
+        });
+        void cargar().catch(() => undefined);
+        const repetida = cargar({ otraVez: true });
+        llamadas[0]?.resolver();
+        // Entre que termina la primera y arranca la repetición, otra petición no lanza una tercera.
+        expect(cargar()).toBe(repetida);
+        await vaciarPromesas(10);
+        expect(llamadas).toHaveLength(2);
+    });
+
+    it("`detener()` con la repetición pendiente: `correr` no se vuelve a llamar, `vigente()` es falso y cargar no hace nada", async () => {
+        const llamadas: ReturnType<typeof diferida>[] = [];
+        const vigencias: (() => boolean)[] = [];
+        const { cargar, detener } = lecturaUnica((vigente) => {
+            vigencias.push(vigente);
+            const d = diferida();
+            llamadas.push(d);
+            return d.promesa;
+        });
+        void cargar().catch(() => undefined);
+        const repetida = cargar({ otraVez: true });
+        // Cierra sesión con la lectura en vuelo y la repetición pedida.
+        detener();
+        expect(vigencias[0]?.()).toBe(false);
+        llamadas[0]?.rechazar(new Error("sin señal"));
+        await expect(repetida).resolves.toBeUndefined();
+        await vaciarPromesas(10);
+        expect(llamadas).toHaveLength(1);
+        await cargar();
+        await cargar({ otraVez: true });
+        expect(llamadas).toHaveLength(1);
     });
 });

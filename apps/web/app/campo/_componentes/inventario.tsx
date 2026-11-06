@@ -101,6 +101,17 @@ export function useCargarAlAbrir<T>(lectura: Lectura<T>, cargar: CargarLectura) 
         // Solo al abrir la vista o al volver la señal.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sinSenal]);
+    // El navegador avisa que volvió la red aunque el motor no haya llegado a marcar «sin señal»
+    // (la lectura falló antes de que se enterara): si quedó en error, se lee otra vez.
+    const enError = lectura.estado === "error";
+    useEffect(() => {
+        if (!enError) {
+            return undefined;
+        }
+        const alVolver = () => void cargar({ otraVez: true });
+        window.addEventListener("online", alVolver);
+        return () => window.removeEventListener("online", alVolver);
+    }, [enError, cargar]);
     return lectura;
 }
 

@@ -2,7 +2,7 @@
 
 import type { OrdenCampo } from "@iris/sync";
 import { lecturaUnica, sumarDias, type CargarLectura } from "@iris/sync/campo";
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { hoyEnGuatemala } from "@/lib/campo/fechas";
 import type { Lectura } from "./inventario-datos";
 
@@ -28,19 +28,30 @@ export function useAgenda(): ContextoAgenda {
  */
 export function ProveedorAgenda({ leer, children }: { leer: (hasta: string) => Promise<OrdenCampo[]>; children: ReactNode }) {
     const [semana, setSemana] = useState<Lectura<SemanaLeida>>({ estado: "inactiva", datos: null, error: null, leidoEn: null });
-    // Una lectura a la vez; la pedida mientras otra corre (p. ej. al volver la señal) se hace al terminar.
-    const cargarSemana = useMemo(
+    // Una lectura a la vez; con `otraVez` (al volver la señal) se lee otra al terminar la que corre.
+    // Al desmontar (cerrar sesión, otro motor) se detiene: nada pendiente se lanza ni se aplica.
+    const lectura = useMemo(
         () =>
-            lecturaUnica(() => {
+            lecturaUnica((vigente) => {
                 const desde = hoyEnGuatemala();
                 const hasta = sumarDias(desde, 6);
                 setSemana((l) => ({ estado: "cargando", datos: l.datos, error: null, leidoEn: l.leidoEn }));
                 return leer(hasta)
-                    .then((ordenes) => setSemana({ estado: "lista", datos: { desde, hasta, ordenes }, error: null, leidoEn: Date.now() }))
-                    .catch((error: unknown) => setSemana((l) => ({ estado: "error", datos: l.datos, error, leidoEn: l.leidoEn })));
+                    .then((ordenes) => {
+                        if (vigente()) {
+                            setSemana({ estado: "lista", datos: { desde, hasta, ordenes }, error: null, leidoEn: Date.now() });
+                        }
+                    })
+                    .catch((error: unknown) => {
+                        if (vigente()) {
+                            setSemana((l) => ({ estado: "error", datos: l.datos, error, leidoEn: l.leidoEn }));
+                        }
+                    });
             }),
         [leer],
     );
+    useEffect(() => () => lectura.detener(), [lectura]);
+    const cargarSemana = lectura.cargar;
     const valor = useMemo(() => ({ semana, cargarSemana }), [semana, cargarSemana]);
     return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;
 }

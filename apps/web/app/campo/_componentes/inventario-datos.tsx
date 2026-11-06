@@ -2,7 +2,7 @@
 
 import type { InventarioCampo, MiBodega, Traslado } from "@iris/sync";
 import { lecturaUnica, type CargarLectura } from "@iris/sync/campo";
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 /** Lectura de la API guardada en memoria mientras la app está abierta (sin señal se ve la última). */
 export type Lectura<T> =
@@ -30,17 +30,28 @@ export function useInventario(): ContextoInventario {
 
 function useLectura<T>(leer: () => Promise<T>): [Lectura<T>, CargarLectura] {
     const [lectura, setLectura] = useState<Lectura<T>>(INACTIVA);
-    // Una lectura a la vez; la pedida mientras otra corre (p. ej. al volver la señal) se hace al terminar.
-    const cargar = useMemo(
+    // Una lectura a la vez; con `otraVez` (al volver la señal) se lee otra al terminar la que corre.
+    // Al desmontar (cerrar sesión, otro motor) se detiene: nada pendiente se lanza ni se aplica.
+    const unica = useMemo(
         () =>
-            lecturaUnica(() => {
+            lecturaUnica((vigente) => {
                 setLectura((l) => ({ estado: "cargando", datos: l.datos, error: null, leidoEn: l.leidoEn }));
                 return leer()
-                    .then((datos) => setLectura({ estado: "lista", datos, error: null, leidoEn: Date.now() }))
-                    .catch((error: unknown) => setLectura((l) => ({ estado: "error", datos: l.datos, error, leidoEn: l.leidoEn })));
+                    .then((datos) => {
+                        if (vigente()) {
+                            setLectura({ estado: "lista", datos, error: null, leidoEn: Date.now() });
+                        }
+                    })
+                    .catch((error: unknown) => {
+                        if (vigente()) {
+                            setLectura((l) => ({ estado: "error", datos: l.datos, error, leidoEn: l.leidoEn }));
+                        }
+                    });
             }),
         [leer],
     );
+    useEffect(() => () => unica.detener(), [unica]);
+    const cargar = unica.cargar;
     return [lectura, cargar];
 }
 
