@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { CampoArea } from "./componentes/area-texto";
 import { Casilla } from "./componentes/casilla";
 import { GrupoOpciones } from "./componentes/grupo-opciones";
+import { ListaEleccion } from "./componentes/lista-eleccion";
 import { CampoSelector } from "./componentes/selector";
 
 describe("campos de formulario", () => {
@@ -60,5 +61,27 @@ describe("campos de formulario", () => {
         expect(html).toMatch(/aria-describedby="[^"]*-error"[^>]*role="radiogroup"/);
         expect(html).toContain("Muy mal");
         expect(html).toContain("Elige una calificación");
+    });
+
+    it("ListaEleccion: radios reales con contenido propio; la deshabilitada no se elige y la atenuada sí", () => {
+        const html = renderToStaticMarkup(
+            <ListaEleccion
+                leyenda="Compañero de Soporte"
+                nombre="usuario"
+                opciones={[
+                    { valor: "1", texto: "Rodrigo Sánchez, disponible", contenido: <span>Rodrigo Sánchez</span>, fin: <span>Disponible</span> },
+                    { valor: "2", texto: "Mario Ixcot, no disponible", contenido: <span>Mario Ixcot</span>, atenuada: true },
+                    { valor: "3", texto: "Carlos Cifuentes, no acepta mensajes", contenido: <span>Carlos Cifuentes</span>, deshabilitada: true },
+                ]}
+                valor="2"
+                alCambiar={() => undefined}
+            />,
+        );
+        expect(html).toMatch(/role="radiogroup"/);
+        expect(html.match(/type="radio"/g)).toHaveLength(3);
+        expect(html).toMatch(/<input[^>]*aria-label="Mario Ixcot, no disponible"[^>]*name="usuario" checked=""/);
+        expect(html).toMatch(/<input[^>]*aria-label="Carlos Cifuentes, no acepta mensajes"[^>]*disabled=""/);
+        expect(html).not.toMatch(/<input[^>]*aria-label="Mario Ixcot, no disponible"[^>]*disabled=""/);
+        expect(html).toContain('data-elegida="true"');
     });
 });

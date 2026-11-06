@@ -10,12 +10,14 @@ import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { limpiarClientesRecientes } from "@/lib/clientes/selector";
 import { limpiarBorradores } from "@/lib/conversaciones/borradores";
 import { useNoLeidosConversaciones } from "@/lib/conversaciones/contador";
+import { ProveedorDisponibilidad, useDisponibilidad } from "@/lib/conversaciones/disponibilidad";
 import { requiereCambio, rutaCambiarContrasena, suscribirCambioRequerido } from "@/lib/cuenta/sesion";
 import { guardarEmpresa, limpiarEmpresa, suscribirProblemasEmpresa } from "@/lib/empresa";
 import { menuAgrupado, repartoTelefono } from "@/lib/menu";
 import { ProveedorSesion, useSesion, useYo } from "@/lib/sesion";
 import { contadorDe, ProveedorResumenTickets, useResumenTickets } from "@/lib/tickets/resumen";
 import { BarraInferior } from "./barra-inferior";
+import { ControlDisponibilidad } from "./conversaciones/disponibilidad";
 import { BuscadorGlobal } from "./buscador-global";
 import { MenuCuentaLista, MenuUsuarioLateral, ProveedorCuenta } from "./cuenta/menu-usuario";
 import { BotonAvisos, BotonCrear } from "./barra-superior";
@@ -174,12 +176,25 @@ function Estructura({ children }: { children: ReactNode }) {
         <ProveedorRutas navegar={router.push}>
             <ProveedorMigas>
                 <ProveedorCuenta>
-                    <EstructuraPanel>{children}</EstructuraPanel>
+                    <DisponibilidadSiAplica>
+                        <EstructuraPanel>{children}</EstructuraPanel>
+                    </DisponibilidadSiAplica>
                 </ProveedorCuenta>
             </ProveedorMigas>
             <AvisosDelPanel />
         </ProveedorRutas>
     );
+}
+
+/**
+ * Disponibilidad en la bandeja (fase 1.1): solo para quien ve conversaciones y con la empresa
+ * activa resuelta. La clave la vuelve a leer al cambiar de empresa.
+ */
+function DisponibilidadSiAplica({ children }: { children: ReactNode }) {
+    const { yo, puede } = useSesion();
+    const activa = puede(["conversaciones.ver"]) && (yo.modoEmpresa === "sin_conector" || yo.empresaActiva !== undefined);
+    if (!activa) return children;
+    return <ProveedorDisponibilidad key={yo.empresaActiva?.id ?? 0}>{children}</ProveedorDisponibilidad>;
 }
 
 const CONSULTA_ESCRITORIO = "(min-width: 1024px)";
@@ -244,6 +259,7 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
     const [cerrando, setCerrando] = useState(false);
     const [errorCerrar, setErrorCerrar] = useState<unknown>(null);
     const idBarra = useId();
+    const disponibilidad = useDisponibilidad();
 
     function alternarContraida() {
         if (anchoCompleto) {
@@ -259,6 +275,9 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
     async function cerrarSesion() {
         setCerrando(true);
         setErrorCerrar(null);
+        // Al cerrar sesión dejas de estar disponible en la bandeja (lo dice el servidor; si no
+        // responde en 2 s, la sesión se cierra igual).
+        await disponibilidad?.alSalir();
         try {
             await resolver(api().DELETE("/api/v1/sesion"));
         } catch (error) {
@@ -374,6 +393,12 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
             {/* Teléfono: la barra lateral entera va en la hoja «Más». */}
             <BarraInferior entradas={telefono.barra} masAbierto={masAbierto} alCambiarMas={setMasAbierto}>
                 <div className="mt-2 flex flex-1 flex-col gap-6">
+                    {disponibilidad ? (
+                        <section aria-label="Tu disponibilidad" className="grid gap-2 rounded-xl border border-border bg-card p-3">
+                            <span className="text-xs font-medium text-dimmed">Conversaciones</span>
+                            <ControlDisponibilidad />
+                        </section>
+                    ) : null}
                     <Navegacion grupos={grupos} contadores={contadores} alNavegar={() => setMasAbierto(false)} />
                     <Suspense>
                         <MisVistas alNavegar={() => setMasAbierto(false)} />
