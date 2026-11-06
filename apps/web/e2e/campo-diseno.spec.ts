@@ -3,13 +3,13 @@ import { expect, test, type Page } from "@playwright/test";
 import type { Schema } from "@iris/contratos";
 import { conSesionTecnico, simularApiCampo } from "./api-campo";
 import { avisoCampo, elegirMaterial, irAPaso, pestanaCampo } from "./ayudas-campo";
-import { ordenesDelDia, PERMISOS_TECNICO } from "./datos-campo";
+import { ordenesDelDia } from "./datos-campo";
 
 /*
  * Diseño «combinada» de la app del técnico (nov 2026), en el teléfono (390 px) claro y oscuro:
  * encabezado que se va al bajar y vuelve compacto al subir, «Hoy» con la siguiente orden en grande,
- * mosaicos y «Después», la isla de menú con la píldora de estado, la hoja del «+» (agregar
- * formulario con «Deshacer»; tarea propia «Próximamente»), «Mañana» y «Semana» con la tira de 7
+ * mosaicos y «Después», la isla de menú con la píldora de estado (la hoja del «+» está en
+ * campo-mas.spec.ts), «Mañana» y «Semana» con la tira de 7
  * días, y los pasos con chips, − / + en materiales y los avisos que entran desde arriba.
  * Con IRIS_CAPTURAS=<carpeta> deja las capturas para el PM.
  */
@@ -165,39 +165,6 @@ test("la píldora sobre la isla: sin señal con algo por enviar, y lleva a «Por
     api.sinRed = false;
     await context.setOffline(false);
     await expect(pildora).toHaveCount(0, { timeout: 15_000 });
-});
-
-test("«+»: agregar formulario a la orden en curso, con «Deshacer»; la tarea propia aún no", async ({ page }, info) => {
-    const api = await simularApiCampo(page, { ordenes: conUnaEnSitio(), plantillas: [PRUEBA_VELOCIDAD] });
-    await page.goto("/campo");
-    await isla(page).getByRole("button", { name: "Acciones rápidas" }).click();
-    const hoja = page.getByRole("dialog", { name: "Acciones rápidas" });
-    await expect(hoja.getByRole("heading", { name: "Agregar formulario" })).toBeVisible();
-    // Una sola orden en curso: ya elegida.
-    await expect(hoja).toContainText("OT-000102");
-    await expect(hoja.locator('[data-slot="accion-tarea"]')).toContainText("Próximamente");
-    await hoja.getByRole("radiogroup", { name: "Plantilla" }).getByRole("radio", { name: /Prueba de velocidad/ }).click();
-    await captura(page, "03-hoja-mas", info.project.name);
-    await hoja.getByRole("button", { name: "Agregar «Prueba de velocidad»" }).click();
-    await expect(hoja).toHaveCount(0);
-    await expect(notificacion(page)).toContainText("«Prueba de velocidad» agregado a OT-000102");
-    // «Deshacer» quita justo ese formulario (orden.quitar_formulario con su id).
-    await notificacion(page).getByRole("button", { name: "Deshacer" }).click();
-    await expect(notificacion(page)).toContainText("«Prueba de velocidad» quitado");
-    await expect
-        .poll(() => api.lotes.flatMap((l) => l.operaciones ?? []).map((o) => o.tipo), { timeout: 15_000 })
-        .toEqual(["orden.agregar_formulario", "orden.quitar_formulario"]);
-    const [agregar, quitar] = api.lotes.flatMap((l) => l.operaciones ?? []);
-    expect(quitar?.datos).toEqual({ formularioId: agregar?.id });
-});
-
-test("«+» sin el permiso ordenes.registrar no ofrece agregar formulario", async ({ page }) => {
-    await simularApiCampo(page, { ordenes: conUnaEnSitio(), plantillas: [PRUEBA_VELOCIDAD], permisos: PERMISOS_TECNICO.filter((p) => p !== "ordenes.registrar") });
-    await page.goto("/campo");
-    await isla(page).getByRole("button", { name: "Acciones rápidas" }).click();
-    const hoja = page.getByRole("dialog", { name: "Acciones rápidas" });
-    await expect(hoja.locator('[data-slot="accion-tarea"]')).toBeVisible();
-    await expect(hoja.getByRole("heading", { name: "Agregar formulario" })).toHaveCount(0);
 });
 
 test("Mañana y Semana: tira de 7 días y citas en bloques, leídas con señal", async ({ page }, info) => {

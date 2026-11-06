@@ -6,6 +6,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	campobd "github.com/HCDestroyer/iris/apps/api/internal/campo/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/formato"
@@ -119,6 +120,9 @@ type Paquete struct {
 	Turno       *TurnoCampo  `json:"turno,omitempty" doc:"Turno del técnico ese día según su ficha de agenda, sin las ausencias; ausente = no trabaja ese día"`
 	// Plantillas: el catálogo que el técnico puede agregar a sus órdenes sin señal.
 	Plantillas []PlantillaFormulario `json:"plantillas" required:"false" doc:"Catálogo de plantillas activas de la empresa (y las comunes), en su versión actual, para orden.agregar_formulario"`
+	// Tareas propias del técnico (agenda) y si puede tomar órdenes libres (hoja del «+»).
+	Tareas      []agenda.Tarea `json:"tareas" required:"false" doc:"Tus tareas propias (no anuladas) de hoy hasta el día del paquete, y las pendientes atrasadas, por inicio"`
+	TomarLibres bool           `json:"tomarLibres" required:"false" doc:"La empresa permite tomar órdenes libres y tienes ordenes.tomar (GET /campo/ordenes-libres)"`
 }
 
 // TurnoCampo: el turno del día (UTC). Un turno partido trae varios tramos.
@@ -162,6 +166,8 @@ type Cambios struct {
 	// Plantillas: el catálogo como está ahora (reemplaza el del paquete).
 	Plantillas []PlantillaFormulario `json:"plantillas" required:"false" doc:"Catálogo de plantillas activas como está ahora: reemplaza el del paquete (una desactivada ya no se ofrece)"`
 	// Recepciones: estado de las recepciones de traslados del técnico (contrato 0.5.0; I1).
+	Tareas      []agenda.Tarea               `json:"tareas" required:"false" doc:"Tus tareas propias (no anuladas) de hoy a 7 días, y las pendientes atrasadas, como están ahora: reemplazan las del paquete"`
+	TomarLibres bool                         `json:"tomarLibres" required:"false" doc:"Como en el paquete, ahora"`
 	Recepciones []inventario.EstadoRecepcion `json:"recepciones,omitempty" doc:"Tus recepciones de órdenes de traslado (traslado.recibir) de los últimos 7 días y cómo van: esperando_firma, enviando, recibida, rechazada (codigo: traslado_cancelado, traslado_de_otro_tecnico, lineas_invalidas, firma_invalida…) o agotada. Ausente sin conector o si no hay"`
 }
 
@@ -227,8 +233,12 @@ func (m *Modulo) nuevoLeerPaquete() *auditoria.Caso[EntradaPaquete, Paquete] {
 			if err != nil {
 				return Paquete{}, err
 			}
+			tareas, err := m.tareasDelTecnico(ctx, t, actor.ID, hasta)
+			if err != nil {
+				return Paquete{}, err
+			}
 			t.Anotar(map[string]any{"fecha": inicioDia.Format("2006-01-02"), "ordenes": ids})
-			return Paquete{Turno: turno, Plantillas: plantillas,
+			return Paquete{Turno: turno, Plantillas: plantillas, Tareas: tareas, TomarLibres: tomarLibresDe(ctx, q),
 				Fecha: inicioDia.Format("2006-01-02"), ServidorEn: ahora, Cursor: cursorDe(ultimo), Ordenes: ordenes,
 				Existencias: Existencias{Bodegas: []ExistenciasBodega{}}, Ruta: ruta,
 			}, nil
@@ -265,7 +275,13 @@ func (m *Modulo) nuevoLeerCambios() *auditoria.Caso[EntradaCambios, Cambios] {
 			if err != nil {
 				return Cambios{}, err
 			}
-			salida := Cambios{Cambios: []CambioOrden{}, Cursor: cursorDe(desde), Plantillas: plantillas}
+			hoy := m.ahora().In(m.cfg.ZonaHoraria)
+			tareas, err := m.tareasDelTecnico(ctx, t, actor.ID, time.Date(hoy.Year(), hoy.Month(), hoy.Day()+8, 0, 0, 0, 0, m.cfg.ZonaHoraria))
+			if err != nil {
+				return Cambios{}, err
+			}
+			salida := Cambios{Cambios: []CambioOrden{}, Cursor: cursorDe(desde), Plantillas: plantillas, Tareas: tareas,
+				TomarLibres: tomarLibresDe(ctx, q)}
 			if len(filas) > limite {
 				filas, salida.HayMas = filas[:limite], true
 			}
@@ -324,6 +340,14 @@ func (m *Modulo) nuevoLeerCambios() *auditoria.Caso[EntradaCambios, Cambios] {
 			return salida, m.rutaDeHoyEnCambios(ctx, t, q, &salida)
 		},
 	})
+}
+
+// tareasDelTecnico: sus tareas propias desde hoy (America/Guatemala) hasta `hasta`, y las
+// pendientes atrasadas.
+func (m *Modulo) tareasDelTecnico(ctx context.Context, t *auditoria.Tx, tecnico int64, hasta time.Time) ([]agenda.Tarea, error) {
+	hoy := m.ahora().In(m.cfg.ZonaHoraria)
+	desde := time.Date(hoy.Year(), hoy.Month(), hoy.Day(), 0, 0, 0, 0, m.cfg.ZonaHoraria)
+	return m.cfg.Agenda.TareasDelTecnico(ctx, t, tecnico, desde, hasta)
 }
 
 // turnoCampo: el turno del técnico ese día (agenda), para encender y apagar la ubicación.

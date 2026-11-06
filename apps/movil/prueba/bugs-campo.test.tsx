@@ -288,9 +288,9 @@ describe.each(["light", "dark"] as const)("reporte del PM (%s)", (esquema) => {
         // La hoja del «+» también tiene su «X».
         await abrirCampo(m, { esquema });
         await fireEvent.press(screen.getByRole("button", { name: "Acciones rápidas" }));
-        expect(await screen.findByRole("header", { name: "Acciones rápidas" })).toBeTruthy();
+        expect(await screen.findByRole("header", { name: "¿Qué quieres hacer?" })).toBeTruthy();
         await fireEvent.press(screen.getByRole("button", { name: "Cerrar" }));
-        await waitFor(() => expect(screen.queryByRole("header", { name: "Acciones rápidas" })).toBeNull());
+        await waitFor(() => expect(screen.queryByRole("header", { name: "¿Qué quieres hacer?" })).toBeNull());
     });
 
     it("buscar: filtra en vivo al escribir y la hoja sube por encima del teclado con el campo fijo arriba", async () => {

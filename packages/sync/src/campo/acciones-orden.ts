@@ -6,7 +6,6 @@ import type { NotaOrden } from "../contrato";
 import type { OrdenVista } from "../motor";
 import { horaCorta, ventanaCita, ZONA } from "./fechas";
 import { llego } from "./pasos";
-import { PERMISO_AGREGAR_FORMULARIO } from "./inicio";
 import { accionesDe } from "./reglas";
 import { ESTADOS_TEXTO, MOTIVOS_PAUSA, TIPOS_ORDEN, type TonoEstado } from "./textos";
 
@@ -72,6 +71,9 @@ export function accionesPantallaOrden(orden: OrdenVista, puedeReanudar: boolean)
         reanudar: false,
     };
 }
+
+/** Permiso con el que la API acepta `orden.agregar_formulario` (el técnico lo tiene en su rol base). */
+export const PERMISO_AGREGAR_FORMULARIO = "ordenes.registrar";
 
 /**
  * «Agregar formulario» del menú «⋯»: `null` si se puede (con `ordenes.registrar`, orden propia en

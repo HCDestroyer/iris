@@ -8,6 +8,7 @@ import {
     crearGeneradorUuid7,
     crearHistorialApi,
     crearInventarioApi,
+    crearLibresApi,
     crearSubidorApi,
     crearTransporteApi,
     crearTransportePosicionesApi,
@@ -15,6 +16,7 @@ import {
     MotorSync,
     type IdentidadApp,
     type InventarioCampo,
+    type LibresCampo,
     type OrdenCampo,
     type OrdenHistorial,
     type Transporte,
@@ -46,6 +48,8 @@ export interface MotorAbierto {
     agenda: (hasta: string) => Promise<OrdenCampo[]>;
     /** «Historial del cliente» del menú de la orden (`GET /ordenes?clienteId=`, solo con señal). */
     historial: (clienteId: number) => Promise<OrdenHistorial[]>;
+    /** Órdenes libres y tomar una (solo con señal; nunca por la cola). */
+    libres: LibresCampo;
 }
 
 /** El transporte de la API, avisando cada respuesta correcta de paquete o cambios. */
@@ -132,7 +136,18 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void, a
         await verificarIdentidad();
         return leerHistorial(clienteId);
     };
-    return { motor, posiciones, almacen, nombre, inventario, agenda, historial };
+    const apiLibres = crearLibresApi(api, app);
+    const libres: LibresCampo = {
+        listar: async (cursor) => {
+            await verificarIdentidad();
+            return apiLibres.listar(cursor);
+        },
+        tomar: async (id) => {
+            await verificarIdentidad();
+            return apiLibres.tomar(id);
+        },
+    };
+    return { motor, posiciones, almacen, nombre, inventario, agenda, libres, historial };
 }
 
 /** Cierra y borra la base del teléfono (cerrar sesión en un teléfono compartido). */

@@ -182,8 +182,8 @@ function cambiarEstado(orden: OrdenCampo, op: OperacionLocal, destino: EstadoOrd
 }
 
 export function aplicarOperacion(orden: OrdenCampo, op: OperacionLocal): OrdenCampo {
-    if (op.tipo === "traslado.recibir") {
-        // No es de una orden.
+    if (op.tipo === "traslado.recibir" || op.tipo === "tarea.crear" || op.tipo === "tarea.completar" || op.tipo === "tarea.anular") {
+        // No son de una orden.
         return orden;
     }
     const destino = TRANSICIONES[op.tipo];

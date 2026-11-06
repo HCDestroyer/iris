@@ -6,6 +6,7 @@ import {
     ColaPosiciones,
     crearHistorialApi,
     crearInventarioApi,
+    crearLibresApi,
     crearSubidorApi,
     crearTransporteApi,
     crearTransportePosicionesApi,
@@ -14,6 +15,7 @@ import {
     type EstadoPosiciones,
     type EstadoSync,
     type InventarioCampo,
+    type LibresCampo,
     type OrdenCampo,
     type OrdenHistorial,
 } from "@iris/sync";
@@ -47,6 +49,8 @@ export interface MotorAbierto {
     agenda: (hasta: string) => Promise<OrdenCampo[]>;
     /** «Historial del cliente» del menú de la orden (solo con señal). */
     historialCliente: (clienteId: number) => Promise<OrdenHistorial[]>;
+    /** Órdenes libres y tomar una (solo con señal; nunca por la cola). */
+    libres: LibresCampo;
 }
 
 /**
@@ -106,7 +110,18 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void): 
         await verificarIdentidad();
         return leerHistorial(clienteId);
     };
-    return { motor, posiciones, almacen, inventario, agenda, historialCliente };
+    const apiLibres = crearLibresApi(cliente, app);
+    const libres: LibresCampo = {
+        listar: async (cursor) => {
+            await verificarIdentidad();
+            return apiLibres.listar(cursor);
+        },
+        tomar: async (id) => {
+            await verificarIdentidad();
+            return apiLibres.tomar(id);
+        },
+    };
+    return { motor, posiciones, almacen, inventario, agenda, libres, historialCliente };
 }
 
 /** Estado de la cola de posiciones para React. */

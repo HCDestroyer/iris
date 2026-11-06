@@ -3,7 +3,7 @@
 // las credenciales (cookie + `X-CSRF-Token` en la PWA, Bearer en Expo) y la empresa activa
 // (`X-Iris-Empresa`); aquí se agrega el canal `X-Iris-Canal: campo` a toda petición.
 import type { ClienteIris, Schema } from "@iris/contratos";
-import type { MiBodega, Problema, Traslado } from "./contrato";
+import type { MiBodega, OrdenesLibres, Problema, Traslado } from "./contrato";
 import { ErrorTransporte } from "./errores";
 import type { TransportePosiciones } from "./posiciones";
 import type { RespuestaApi, Subidor, Transporte } from "./transporte";
@@ -156,6 +156,34 @@ export function crearHistorialApi(cliente: ClienteIris, app?: IdentidadApp): (cl
     return async (clienteId) => {
         const { datos } = await resolver(cliente.GET("/api/v1/ordenes", { params: { query: { clienteId, limit: 20 } }, headers: conApp(app) }));
         return [...(datos.data ?? [])].sort((a, b) => (b.programadaInicio ?? b.actualizadoEn).localeCompare(a.programadaInicio ?? a.actualizadoEn));
+    };
+}
+
+/**
+ * Órdenes libres (el técnico toma una; requiere señal, nunca va por la cola): `GET
+ * /campo/ordenes-libres` y `POST /ordenes/{id}/tomar`. Si otro la tomó primero, `tomar` lanza
+ * `ErrorTransporte` con el 409 `orden_ya_tomada` (y `problema.tomadaPor`).
+ */
+export interface LibresCampo {
+    listar(cursor?: string): Promise<OrdenesLibres>;
+    tomar(ordenId: number): Promise<OrdenCampoTomada>;
+}
+
+/** La orden tomada tal como la devuelve la API (`Orden`). */
+export type OrdenCampoTomada = Schema<"Orden">;
+
+export function crearLibresApi(cliente: ClienteIris, app?: IdentidadApp): LibresCampo {
+    return {
+        async listar(cursor) {
+            const { datos } = await resolver(
+                cliente.GET("/api/v1/campo/ordenes-libres", { params: { query: { limit: 50, ...(cursor ? { cursor } : {}) } }, headers: conApp(app) }),
+            );
+            return datos;
+        },
+        async tomar(ordenId) {
+            const { datos } = await resolver(cliente.POST("/api/v1/ordenes/{id}/tomar", { params: { path: { id: ordenId } }, headers: conApp(app) }));
+            return datos;
+        },
     };
 }
 

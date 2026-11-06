@@ -3,8 +3,7 @@
 // bajar se encoge y al subir vuelve. Encima, la píldora de estado (`avisoIsla` de `@iris/sync/campo`,
 // la barra discreta de la fase 4): sin señal con algo por enviar, un rechazo, la sesión vencida o
 // la empresa no válida. El «+» abre la hoja de acciones rápidas con lo que ya tiene API.
-import type { PlantillaFormulario } from "@iris/sync";
-import { accionesDe, accionesRapidas, avisoIsla, contadoresPestanas, estadoIslaPasos, nombreCliente, pestanaDe, PESTANAS, type PasoOrden, type Pestana, type PrimarioIsla, type Vista } from "@iris/sync/campo";
+import { accionesDe, accionesRapidas, avisoIsla, contadoresPestanas, estadoIslaPasos, pestanaDe, PESTANAS, type PasoOrden, type Pestana, type PrimarioIsla, type Vista } from "@iris/sync/campo";
 import {
     ArrowLeft,
     ArrowRight,
@@ -12,9 +11,10 @@ import {
     CalendarClock,
     CalendarDays,
     Check,
+    ChevronRight,
     CircleCheck,
     CloudUpload,
-    FilePlus2,
+    Hand,
     House,
     KeyRound,
     PackageOpen,
@@ -26,12 +26,13 @@ import {
     WifiOff,
     type LucideIcon,
 } from "lucide-react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { Boton, BotonRedondo, Dialogo, Insignia, Opciones, Texto, Tocable } from "../componentes";
+import { Boton, BotonRedondo, Dialogo, Texto, Tocable } from "../componentes";
 import { useGuardarPaso, useRecienGuardado, useSinGuardar } from "../campo/borradores";
 import { useCampo, useOrden } from "../campo/contexto";
 import { useCargarAlAbrir, useInventario } from "../campo/inventario";
+import { useLibres } from "../campo/libres";
 import { useTema } from "../tema/tema";
 
 const ICONOS: Record<Pestana, LucideIcon> = { hoy: House, recibir: PackageOpen, agenda: CalendarDays, yo: UserRound };
@@ -84,7 +85,7 @@ export function IslaMenu({ encogida, abajo }: { encogida: boolean; abajo: number
                     {PESTANAS.slice(2).map(boton)}
                 </View>
             </View>
-            {/* Se monta al abrir: cada vez empieza sin elegir (con una sola orden, ya elegida). */}
+            {/* Se monta al abrir: cada vez relee el contador de órdenes libres. */}
             {acciones ? <HojaAcciones alCerrar={() => setAcciones(false)} /> : null}
         </>
     );
@@ -207,111 +208,62 @@ export function AvisoIsla({ abajo, alEntrar, alElegirEmpresa }: { abajo: number;
 }
 
 /**
- * Hoja del «+» con lo que ya tiene API: «Agregar formulario» a una orden con el trabajo empezado
- * (`orden.agregar_formulario`, también sin señal; solo con `ordenes.registrar`) y «Agendar tarea
- * propia», deshabilitada hasta que exista en la API.
+ * Hoja del «+» (diseño aprobado por el PM, nov 2026): «Agendar tarea propia» (también sin señal) y
+ * «Tomar una orden libre» con su contador (requiere señal; oculta si la empresa no lo permite o sin
+ * permiso). «Agregar formulario» vive en el menú «⋯» de la orden.
  */
 function HojaAcciones({ alCerrar }: { alCerrar: () => void }) {
-    const { estado, sesion, motor, ejecutar } = useCampo();
-    const { campo, colores } = useTema();
-    const r = accionesRapidas(estado.ordenes, estado.plantillas, sesion.permisos);
-    const ordenes = r.formulario?.ordenes ?? [];
-    const [elegidaId, setOrdenId] = useState<string | null>(null);
-    // Con una sola orden donde se puede, va elegida (también si llega después de abrir la hoja).
-    const ordenId = elegidaId ?? (ordenes.length === 1 ? String(ordenes[0]?.orden.id) : null);
-    const [plantillaId, setPlantillaId] = useState<string | null>(null);
-    const [ocupado, setOcupado] = useState(false);
-    const elegida = ordenes.find((o) => String(o.orden.id) === ordenId) ?? null;
-    const plantilla: PlantillaFormulario | null = elegida?.plantillas.find((p) => String(p.id) === plantillaId) ?? null;
-
-    const agregar = async () => {
-        if (!elegida || !plantilla) {
-            return;
+    const { estado, sesion, navegar } = useCampo();
+    const { libres, cargarLibres } = useLibres();
+    const r = accionesRapidas(sesion.permisos, estado.tomarLibres);
+    const enLinea = estado.conexion !== "sin_conexion";
+    useEffect(() => {
+        if (r.libres && enLinea) {
+            void cargarLibres();
         }
-        setOcupado(true);
-        const orden = elegida.orden;
-        const ok = await ejecutar(
-            () => motor.registrar("orden.agregar_formulario", orden.id, { plantillaId: plantilla.id, versionId: plantilla.versionId }),
-            `«${plantilla.nombre}» agregado a ${orden.numero}`,
-            {
-                // El formulario lleva el id de la operación: quitarlo es el inverso exacto.
-                deshacer: (res) => () => void ejecutar(() => motor.registrar("orden.quitar_formulario", orden.id, { formularioId: res.operacion.id }), `«${plantilla.nombre}» quitado`),
-            },
-        );
-        setOcupado(false);
-        if (ok) {
-            alCerrar();
-        }
+    }, [r.libres, enLinea, cargarLibres]);
+    const ir = (v: Vista) => {
+        alCerrar();
+        navegar(v);
     };
-
+    const total = libres.estado === "lista" ? (libres.datos?.total ?? null) : null;
     return (
-        <Dialogo abierto alCerrar={alCerrar} titulo="Acciones rápidas" cambios={plantillaId !== null && !ocupado}>
-            {r.formulario ? (
-                <View testID="accion-formulario" style={[estilos.accion, { backgroundColor: campo.panel2 }]}>
-                    <View style={estilos.filaAccion}>
-                        <View style={[estilos.iconoAccion, { backgroundColor: colores.primario }]}>
-                            <FilePlus2 size={20} color={colores.sobrePrimario} />
-                        </View>
-                        <View style={estilos.flex}>
-                            <Text accessibilityRole="header" style={[estilos.tituloAccion, { color: colores.texto }]}>
-                                Agregar formulario
-                            </Text>
-                            <Texto suave>A una orden con el trabajo empezado. Se guarda en el teléfono.</Texto>
-                        </View>
-                    </View>
-                    {ordenes.length === 0 ? (
-                        <Texto suave>Ninguna orden en camino o en sitio: empieza una (o reanuda la pausada) para agregarle un formulario.</Texto>
-                    ) : (
-                        <>
-                            {ordenes.length > 1 ? (
-                                <Opciones
-                                    etiqueta="Orden"
-                                    columna
-                                    valor={ordenId}
-                                    alCambiar={(v) => {
-                                        setOrdenId(v);
-                                        setPlantillaId(null);
-                                    }}
-                                    opciones={ordenes.map(({ orden }) => ({ valor: String(orden.id), etiqueta: `${orden.numero} · ${nombreCliente(orden)}` }))}
-                                />
-                            ) : elegida ? (
-                                <Texto>
-                                    {elegida.orden.numero} · {nombreCliente(elegida.orden)}
-                                </Texto>
-                            ) : null}
-                            {elegida ? (
-                                elegida.plantillas.length === 0 ? (
-                                    <Texto suave>Esta orden ya tiene todos los formularios del catálogo.</Texto>
-                                ) : (
-                                    <Opciones
-                                        etiqueta="Plantilla"
-                                        columna
-                                        valor={plantillaId}
-                                        alCambiar={setPlantillaId}
-                                        opciones={elegida.plantillas.map((p) => ({ valor: String(p.id), etiqueta: p.nombre, detalle: `Versión ${p.numeroVersion}` }))}
-                                    />
-                                )
-                            ) : null}
-                            <Boton deshabilitado={!plantilla} cargando={ocupado} alPresionar={() => void agregar()} estilo={estilos.redondeado}>
-                                {plantilla ? `Agregar «${plantilla.nombre}»` : "Elige una plantilla"}
-                            </Boton>
-                        </>
-                    )}
+        <Dialogo abierto alCerrar={alCerrar} titulo="¿Qué quieres hacer?">
+            {r.tarea ? (
+                <FilaAccion testID="accion-tarea" icono={CalendarClock} titulo="Agendar tarea propia" detalle="Algo tuyo: recoger material, revisar una caja…" alPresionar={() => ir({ tipo: "nueva_tarea" })} />
+            ) : null}
+            {r.libres ? (
+                <FilaAccion
+                    testID="accion-libres"
+                    icono={Hand}
+                    titulo="Tomar una orden libre"
+                    detalle={enLinea ? "Órdenes de tu zona sin técnico" : "Necesita señal"}
+                    cuenta={total}
+                    alPresionar={() => ir({ tipo: "libres" })}
+                />
+            ) : null}
+        </Dialogo>
+    );
+}
+
+function FilaAccion({ testID, icono: Icono, titulo, detalle, cuenta = null, alPresionar }: { testID: string; icono: LucideIcon; titulo: string; detalle: string; cuenta?: number | null; alPresionar: () => void }) {
+    const { campo, colores } = useTema();
+    return (
+        <Tocable etiqueta={cuenta !== null ? `${titulo} (${cuenta})` : titulo} alPresionar={alPresionar} testID={testID} estilo={estilos.filaAccion}>
+            <View style={[estilos.iconoAccion, { backgroundColor: campo.panel2 }]}>
+                <Icono size={22} color={colores.texto} />
+            </View>
+            <View style={estilos.flex}>
+                <Text style={[estilos.tituloAccion, { color: colores.texto }]}>{titulo}</Text>
+                <Texto suave>{detalle}</Texto>
+            </View>
+            {cuenta !== null && cuenta > 0 ? (
+                <View style={[estilos.cuentaAccion, { backgroundColor: campo.tinta }]}>
+                    <Text style={[estilos.textoContador, { color: campo.sobreTinta, fontSize: 13 }]}>{cuenta > 99 ? "99+" : String(cuenta)}</Text>
                 </View>
             ) : null}
-            <View testID="accion-tarea" accessibilityState={{ disabled: true }} style={estilos.accion}>
-                <View style={estilos.filaAccion}>
-                    <View style={[estilos.iconoAccion, { backgroundColor: campo.panel2 }]}>
-                        <CalendarClock size={20} color={colores.textoSuave} />
-                    </View>
-                    <View style={estilos.flex}>
-                        <Text style={[estilos.tituloAccion, { color: colores.textoSuave }]}>Agendar tarea propia</Text>
-                        <Texto suave>Aparecerá en tu agenda y la verá tu supervisor.</Texto>
-                    </View>
-                </View>
-                <Insignia tono="neutral" icono={CalendarClock} texto={r.tarea.motivo} />
-            </View>
-        </Dialogo>
+            <ChevronRight size={20} color={colores.textoSuave} />
+        </Tocable>
     );
 }
 
@@ -345,11 +297,10 @@ const estilos = StyleSheet.create({
     },
     textoPildora: { fontSize: 13, fontWeight: "600" },
     encoger: { flexShrink: 1 },
-    accion: { gap: 12, padding: 12, borderRadius: 22 },
-    filaAccion: { flexDirection: "row", alignItems: "center", gap: 12 },
-    iconoAccion: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
-    tituloAccion: { fontSize: 15, fontWeight: "600" },
-    redondeado: { borderRadius: 999 },
+    filaAccion: { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 14, paddingHorizontal: 4, borderRadius: 18 },
+    iconoAccion: { width: 48, height: 48, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+    tituloAccion: { fontSize: 17, fontWeight: "700" },
+    cuentaAccion: { minWidth: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
     primario: { borderRadius: 999, minWidth: 150, paddingHorizontal: 20 },
     cuenta: { fontSize: 13, fontWeight: "700" },
     guardado: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 44, paddingHorizontal: 6 },

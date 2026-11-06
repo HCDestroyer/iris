@@ -123,6 +123,29 @@ type AgendaRutaParada struct {
 	UpdatedAt       time.Time
 }
 
+type AgendaTarea struct {
+	ID            uuid.UUID
+	EmpresaID     *int64
+	TecnicoID     int64
+	CreadaPor     *int64
+	Que           string
+	Inicio        time.Time
+	DuracionMin   int32
+	Fin           time.Time
+	OrdenID       *int64
+	ClienteID     *int64
+	Origen        string
+	Estado        string
+	CompletadaEn  *time.Time
+	CompletadaPor *int64
+	AnuladaEn     *time.Time
+	AnuladaPor    *int64
+	Motivo        *string
+	Version       int32
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
 type AgendaTecnico struct {
 	ID                int64
 	UsuarioID         int64
@@ -193,6 +216,15 @@ type AuditoriaCambio struct {
 	Antes     []byte
 	Despues   []byte
 	CreatedAt time.Time
+}
+
+type CampoAjuste struct {
+	ID                  int64
+	EmpresaID           *int64
+	TecnicosTomanLibres bool
+	Version             int32
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type CampoDispositivo struct {

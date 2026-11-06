@@ -194,6 +194,15 @@ type Modulo struct {
 	AplicarDatosArgos   *auditoria.Caso[EntradaAplicarDatosArgos, Orden]
 	DescartarDatosArgos *auditoria.Caso[EntradaDescartarDatosArgos, Orden]
 
+	// Tareas propias desde el lote (tareas.go), órdenes libres y ajustes de la app (libres.go).
+	TareaCrearLote     *auditoria.Caso[entradaTareaLote, agenda.RespuestaTarea]
+	TareaCompletarLote *auditoria.Caso[entradaTareaLote, agenda.RespuestaTarea]
+	TareaAnularLote    *auditoria.Caso[entradaTareaLote, agenda.RespuestaTarea]
+	OrdenesLibres      *auditoria.Caso[EntradaOrdenesLibres, OrdenesLibres]
+	TomarOrden         *auditoria.Caso[EntradaTomarOrden, Orden]
+	VerAjustes         *auditoria.Caso[struct{}, AjustesCampo]
+	FijarAjustes       *auditoria.Caso[EntradaFijarAjustes, AjustesCampo]
+
 	// Ticket y orden de la mano (ticket_orden.go).
 	CrearOrdenDeTicket *auditoria.Caso[EntradaCrearOrdenDeTicket, Orden]
 	IgualarAsignacion  *auditoria.Caso[EntradaIgualarAsignacion, AsignacionTicketOrden]
@@ -279,6 +288,15 @@ func Nuevo(cfg Config) *Modulo {
 	m.DescartarDatosArgos = m.nuevoDescartarDatosArgos()
 	m.CrearOrdenDeTicket = m.nuevoCrearOrdenDeTicket()
 	m.IgualarAsignacion = m.nuevoIgualarAsignacion()
+	m.TareaCrearLote = m.nuevoTareaLote("agenda.crear_tarea", nucleo.PermAgendaCrearTarea)
+	m.TareaCompletarLote = m.nuevoTareaLote("agenda.completar_tarea", nucleo.PermAgendaCompletarTarea)
+	m.TareaAnularLote = m.nuevoTareaLote("agenda.anular_tarea", nucleo.PermAgendaAnularTarea)
+	m.OrdenesLibres = m.nuevoOrdenesLibres()
+	m.TomarOrden = m.nuevoTomarOrden()
+	m.VerAjustes = m.nuevoVerAjustes()
+	m.FijarAjustes = m.nuevoFijarAjustes()
+	// Las tareas de agenda se ligan a órdenes que el actor ve (reglas de campo).
+	cfg.Agenda.UsarOrdenes(m)
 	return m
 }
 
