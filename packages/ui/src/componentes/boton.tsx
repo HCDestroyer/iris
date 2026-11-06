@@ -6,12 +6,13 @@ import { isValidElement, type ComponentProps, type MouseEvent, type ReactElement
 import { cn } from "../utilidades";
 import { Ranura } from "./ranura";
 
-export type VarianteBoton = "primario" | "secundario" | "contorno" | "fantasma" | "peligro" | "enlace";
+export type VarianteBoton = "primario" | "tinta" | "secundario" | "contorno" | "fantasma" | "peligro" | "enlace";
 export type TamanoBoton = "md" | "sm" | "lg" | "icono" | "icono-sm";
 
 /** Variante de Iris → variante de HeroUI (`Button variant`). */
 const VARIANTE_HEROUI = {
     primario: "primary",
+    tinta: "primary",
     secundario: "tertiary",
     contorno: "outline",
     fantasma: "ghost",
@@ -26,6 +27,8 @@ const VARIANTE_HEROUI = {
 const AJUSTE_VARIANTE: Record<VarianteBoton, string> = {
     // La acción primaria de la vista: única con halo (solo en oscuro, por token).
     primario: "shadow-glow hover:shadow-glow-fuerte",
+    // Acción principal en tinta (app de campo): fondo del color del texto y texto del fondo, sin halo.
+    tinta: "shadow-none hover:shadow-none [--hx-glow-brand:transparent] [--button-bg:var(--hx-text)] [--button-fg:var(--hx-bg)] [--button-bg-hover:color-mix(in_oklab,var(--hx-text)_88%,var(--hx-bg))] [--button-bg-pressed:color-mix(in_oklab,var(--hx-text)_80%,var(--hx-bg))]",
     secundario: "text-foreground shadow-[0_0_0_1px_var(--hx-border)]",
     contorno: "",
     fantasma: "",
