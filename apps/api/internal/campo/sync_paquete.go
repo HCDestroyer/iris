@@ -73,6 +73,7 @@ type Existencias struct {
 // ExistenciasBodega son las existencias de una bodega.
 type ExistenciasBodega struct {
 	BodegaID int64        `json:"bodegaId"`
+	Nombre   string       `json:"nombre,omitempty" doc:"Nombre de la bodega en Argos (bodega_nombre); vacío si Argos no lo manda"`
 	Lineas   []Existencia `json:"lineas"`
 }
 
@@ -523,7 +524,13 @@ func (m *Modulo) completarInventario(ctx context.Context, ordenes []*OrdenCampo,
 			existencias.Motivo, existencias.Bodegas = motivoInventario(err), []ExistenciasBodega{}
 			return
 		}
-		existencias.Bodegas = append(existencias.Bodegas, ExistenciasBodega{BodegaID: b, Lineas: noNulo(lineas)})
+		eb := ExistenciasBodega{BodegaID: b, Lineas: noNulo(lineas)}
+		for _, l := range lineas {
+			if eb.Nombre == "" {
+				eb.Nombre = l.BodegaNombre
+			}
+		}
+		existencias.Bodegas = append(existencias.Bodegas, eb)
 	}
 	existencias.Disponible = true
 }
