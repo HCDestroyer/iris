@@ -130,13 +130,13 @@ func (m *Modulo) Registrar(api huma.API) {
 			return responder(m.VerTecnico.Ejecutar(ctx, *in))
 		})
 	crearTecnico := operacion("crearTecnico", http.MethodPost, "/api/v1/tecnicos", "Dar de alta la ficha de agenda de un técnico", nucleo.PermAgendaCrearTecnico, http.StatusCreated)
-	crearTecnico.Description += " El usuario debe ser una persona activa con `ordenes.ver_propias` u `ordenes.ver` que opere en la empresa activa. Nace sin turnos. Emite `tecnico.creado`."
+	crearTecnico.Description += " El usuario debe ser una persona activa con `ordenes.ver_propias` u `ordenes.ver` que opere en la empresa activa. Nace sin turnos. La bodega se fija al vincularla con Argos; `bodegaId` a mano exige `agenda.vincular_argos` (403) y que Argos la tenga en la empresa activa (422 `bodega_invalida`). Emite `tecnico.creado`."
 	huma.Register(api, crearTecnico, func(ctx context.Context, in *conClave[EntradaCrearTecnico]) (*cuerpo[TecnicoDetalle], error) {
-		return responder(m.CrearTecnico.Ejecutar(ctx, in.Body))
+		return responder(m.CrearTecnicoVerificado(ctx, in.Body))
 	})
 	registrarConID(api, accion("editarTecnico", "/api/v1/tecnicos/{id}/editar", "Editar la ficha de un técnico",
-		"Reemplaza cuadrilla, bodega, habilidades y base. Emite `tecnico.actualizado`.", nucleo.PermAgendaEditarTecnico),
-		m.EditarTecnico.Ejecutar, func(e *EntradaEditarTecnico, id int64) { e.ID = id })
+		"Reemplaza cuadrilla, habilidades y base. La bodega ausente queda como está; con la ficha vinculada la fija el vínculo (otra: 422 `bodega_por_vinculo`); a mano exige `agenda.vincular_argos` (403) y que Argos la tenga en la empresa activa (422 `bodega_invalida`). Emite `tecnico.actualizado`.", nucleo.PermAgendaEditarTecnico),
+		m.EditarTecnicoVerificado, func(e *EntradaEditarTecnico, id int64) { e.ID = id })
 	registrarConID(api, accion("activarTecnico", "/api/v1/tecnicos/{id}/activar", "Activar la ficha de un técnico", "", nucleo.PermAgendaActivarTecnico),
 		m.ActivarTecnico.Ejecutar, func(e *EntradaVersion, id int64) { e.ID = id })
 	registrarConID(api, accion("desactivarTecnico", "/api/v1/tecnicos/{id}/desactivar", "Desactivar la ficha de un técnico",

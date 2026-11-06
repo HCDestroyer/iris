@@ -50,12 +50,17 @@ export function habilidadesDeTexto(texto: string): string[] {
     return salida.sort();
 }
 
-export type ValoresTecnico = { usuarioId: string; cuadrillaId: string; telefono: string; habilidades: string; bodegaId: string };
+/**
+ * `argosIdExterno`: el técnico de Argos elegido en el selector de bodega (vacío = sin cambio de
+ * vínculo). Al guardar, si cambió, se vincula con `POST /tecnicos/{id}/vincular-argos` y `bodegaId`
+ * queda con la bodega de ese técnico en la empresa activa.
+ */
+export type ValoresTecnico = { usuarioId: string; cuadrillaId: string; telefono: string; habilidades: string; bodegaId: string; argosIdExterno: string };
 
 /** Alta (`conUsuario`) o edición de la ficha. La cuadrilla es obligatoria: define las zonas que atiende. */
 export function esquemaTecnico(conUsuario: boolean) {
     return z
-        .object({ usuarioId: z.string(), cuadrillaId: z.string(), telefono: z.string(), habilidades: z.string(), bodegaId: z.string() })
+        .object({ usuarioId: z.string(), cuadrillaId: z.string(), telefono: z.string(), habilidades: z.string(), bodegaId: z.string(), argosIdExterno: z.string().max(100) })
         .superRefine((d, ctx) => {
             if (conUsuario && !ID.test(d.usuarioId)) ctx.addIssue({ code: "custom", path: ["usuarioId"], message: "Elige el usuario del técnico" });
             if (!ID.test(d.cuadrillaId)) ctx.addIssue({ code: "custom", path: ["cuadrillaId"], message: "Elige la cuadrilla: define las zonas que atiende" });
@@ -75,29 +80,49 @@ export function valoresTecnico(t?: Tecnico): ValoresTecnico {
         telefono: t?.telefono ?? "",
         habilidades: (t?.habilidades ?? []).join(", "),
         bodegaId: t?.bodegaId ? String(t.bodegaId) : "",
+        argosIdExterno: t?.argos?.idExterno ?? "",
     };
 }
 
+/** El vínculo con Argos que hay que pedir al guardar: el elegido, si no es el que ya tiene. */
+export function vinculoPorPedir(v: Pick<ValoresTecnico, "argosIdExterno">, t: Pick<Tecnico, "argos">): string | null {
+    const elegido = v.argosIdExterno.trim();
+    if (elegido === "" || elegido === t.argos?.idExterno) return null;
+    return elegido;
+}
+
 function comunesTecnico(v: ValoresTecnico) {
-    const bodega = v.bodegaId.trim();
     const telefono = v.telefono.trim();
     return {
         cuadrillaId: Number(v.cuadrillaId),
         habilidades: habilidadesDeTexto(v.habilidades),
-        ...(bodega !== "" ? { bodegaId: Number(bodega) } : {}),
         ...(telefono !== "" ? { telefono } : {}),
     };
 }
 
+/**
+ * La bodega la decide el servidor: la fija `vincular-argos`. Solo se manda `bodegaId` escrita a
+ * mano (respaldo cuando Argos no da la lista), sin un vínculo por pedir, sin vínculo en la ficha y
+ * si cambió. Ausente, la API deja la que tenga.
+ */
+export function bodegaAMano(v: Pick<ValoresTecnico, "bodegaId" | "argosIdExterno">, t?: Pick<Tecnico, "argos" | "bodegaId">): number | null {
+    const bodega = v.bodegaId.trim();
+    if (bodega === "" || !ID.test(bodega) || v.argosIdExterno.trim() !== "" || t?.argos) return null;
+    return Number(bodega) === t?.bodegaId ? null : Number(bodega);
+}
+
 export function entradaCrearTecnico(v: ValoresTecnico): Schema<"EntradaCrearTecnico"> {
-    return { usuarioId: Number(v.usuarioId), ...comunesTecnico(v) };
+    const bodega = bodegaAMano(v);
+    return { usuarioId: Number(v.usuarioId), ...comunesTecnico(v), ...(bodega !== null ? { bodegaId: bodega } : {}) };
 }
 
 /** La edición reemplaza la ficha: la base (lat/lon) se conserva tal como se leyó. */
 export function entradaEditarTecnico(v: ValoresTecnico, t: Tecnico): Schema<"EntradaEditarTecnico"> {
+    const bodega = bodegaAMano(v, t);
     return {
         version: t.version,
         ...comunesTecnico(v),
+        ...(bodega !== null ? { bodegaId: bodega } : {}),
         ...(t.baseLat !== null && t.baseLon !== null ? { baseLat: t.baseLat, baseLon: t.baseLon } : {}),
     };
 }

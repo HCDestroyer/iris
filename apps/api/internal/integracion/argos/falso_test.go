@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // argosFalso es un servidor de Argos que cumple el contrato (§1.3 y §2.1) para las pruebas.
@@ -61,11 +62,13 @@ type argosFalso struct {
 	panelURL string
 	// Contrato 0.5.0 (Argos ≥ 1.6.0): version vacía = Argos 1.5.x (no conoce las rutas nuevas ni
 	// informa versión). contrato: el que registró para Iris (canje o PUT …/contrato).
-	version   string
-	contrato  string
-	tecnicos  []map[string]any
-	planes    []map[string]any
-	contratos int // PUT /integraciones/iris/contrato recibidos
+	version  string
+	contrato string
+	tecnicos []map[string]any
+	// retrasoTecnicos: cuánto tarda cada página de GET /inventario/tecnicos (Argos lento).
+	retrasoTecnicos time.Duration
+	planes          []map[string]any
+	contratos       int // PUT /integraciones/iris/contrato recibidos
 	// webhookURL: el receptor que responde el canje (vacío = el de su propio host).
 	webhookURL string
 	// sinWebhook: el canje no devuelve el bloque webhook (Argos fuera de contrato, 0.6.2).
@@ -156,7 +159,16 @@ func (a *argosFalso) rutas050(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/integraciones/iris/estado", solo16(func(w http.ResponseWriter, _ *http.Request) {
 		escribir(w, map[string]any{"version_argos": a.version, "contrato": a.contrato, "activo": true})
 	}))
-	mux.HandleFunc("GET /api/v1/inventario/tecnicos", solo16(func(w http.ResponseWriter, r *http.Request) { a.paginar(w, r, a.tecnicos) }))
+	mux.HandleFunc("GET /api/v1/inventario/tecnicos", solo16(func(w http.ResponseWriter, r *http.Request) {
+		if a.retrasoTecnicos > 0 {
+			select {
+			case <-time.After(a.retrasoTecnicos):
+			case <-r.Context().Done():
+				return
+			}
+		}
+		a.paginar(w, r, a.tecnicos)
+	}))
 	mux.HandleFunc("GET /api/v1/planes", a.conToken(func(w http.ResponseWriter, r *http.Request) { a.paginar(w, r, a.planes) }))
 }
 

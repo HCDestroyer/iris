@@ -1,7 +1,7 @@
 "use client";
 
 import { Boton, Campo, CampoSelector, Esqueleto, EstadoVacio, GrupoSegmentado, Tarjeta } from "@iris/ui";
-import { HardHat, Map as IconoMapa, Pencil, Phone, Plus, UserRound, Users } from "lucide-react";
+import { HardHat, Map as IconoMapa, Pencil, Phone, Plus, UserRound, Users, Warehouse } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { AvisoCatalogos } from "@/componentes/despacho/catalogos";
@@ -56,6 +56,14 @@ export function PantallaTecnicos() {
                                 <Link href="/administracion/zonas">
                                     <IconoMapa />
                                     Zonas
+                                </Link>
+                            </Boton>
+                        ) : null}
+                        {puede(["agenda.vincular_argos"]) ? (
+                            <Boton asChild variante="secundario">
+                                <Link href="/tecnicos/argos">
+                                    <Warehouse />
+                                    Técnicos de Argos sin ficha
                                 </Link>
                             </Boton>
                         ) : null}

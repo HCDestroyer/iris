@@ -27,7 +27,7 @@ func (m *Modulo) Registrar(api huma.API) {
 	// Técnicos de Argos con bodega (contrato 0.5.0 §3.3): selector del vínculo de agenda.
 	tecnicos := conector.Operacion(conector.EtiquetaIntegraciones, "listarTecnicosArgos", http.MethodGet, "/api/v1/integraciones/argosisp/tecnicos",
 		"Técnicos de Argos con bodega (selector del vínculo)", nucleo.PermAgendaVincularArgos, http.StatusOK, http.StatusBadGateway, http.StatusServiceUnavailable)
-	tecnicos.Description += " Proxy paginado de `GET /inventario/tecnicos` de Argos (≥ 1.6.0; si no, 422 `argos_sin_inventario_tecnico`). Cada uno trae sus bodegas, si tiene bodega activa en la empresa activa (`enEmpresa`: solo así se puede vincular) y la ficha de Iris que ya lo tiene (`vinculadoA`). Lectura auditada (correos)." + descConectorApagado
+	tecnicos.Description += " Proxy paginado de `GET /inventario/tecnicos` de Argos (≥ 1.6.0; si no, 422 `argos_sin_inventario_tecnico`). Cada uno trae sus bodegas, si tiene bodega activa en la empresa activa (`enEmpresa`: solo así se puede vincular) y la ficha de Iris que ya lo tiene (`vinculadoA`). Cada bodega trae su `nombre` (contrato 0.6.4; vacío con un Argos anterior). Con `sinVincular=true` solo los que ninguna ficha tiene (para elegir la bodega por nombre al dar de alta o editar un técnico). Si Argos no responde: 502/503 `argos_no_disponible` (el panel muestra «Reintentar» y deja el número de bodega a mano). Lectura auditada (correos)." + descConectorApagado
 	huma.Register(api, tecnicos, func(ctx context.Context, in *EntradaTecnicosArgos) (*conector.Cuerpo[PaginaTecnicosArgos], error) {
 		return conector.Responder(m.ListarTecnicosArgos.Ejecutar(ctx, *in))
 	})
