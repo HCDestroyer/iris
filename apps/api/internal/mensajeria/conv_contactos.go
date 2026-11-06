@@ -2,6 +2,7 @@ package mensajeria
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strconv"
@@ -240,6 +241,13 @@ func nuevoAsociarCliente(m *Modulo) *AsociarCliente {
 					return err
 				}
 				c.ClienteID, c.ServicioID, c.Asociacion = &in.ClienteID, in.ServicioID, nombrePtr("manual")
+				// Verificada solo si el número es un teléfono del cliente en la instantánea; si no,
+				// un supervisor la confirma (POST …/confirmar-cliente).
+				coincide, err := numeroDelCliente(ctx, q, empresaDeConv(*c), c.Numero, in.ClienteID)
+				if err != nil {
+					return err
+				}
+				c.ClienteVerificado, c.VerificadoPor = coincide, nil
 				if err := m.sistema(ctx, t, c, EventoSistema{Tipo: "cliente_asociado", ActorNombre: actorNombre(ctx, q, a.usuario),
 					EntidadID: nombrePtr(strconv.FormatInt(in.ClienteID, 10))}); err != nil {
 					return err
@@ -250,6 +258,87 @@ func nuevoAsociarCliente(m *Modulo) *AsociarCliente {
 		},
 	})
 	return k
+}
+
+// numeroDelCliente: el número es el teléfono, el móvil o el contacto de un servicio del cliente en
+// la instantánea de la empresa.
+func numeroDelCliente(ctx context.Context, q *mensajeriabd.Queries, empresa int64, numero string, cliente int64) (bool, error) {
+	cs, err := q.ClientesPorTelefonoInstantanea(ctx, mensajeriabd.ClientesPorTelefonoInstantaneaParams{Digitos: soloDigitos(numero), Empresa: empresa})
+	if err != nil {
+		return false, err
+	}
+	for _, x := range cs {
+		if x.ID == cliente {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func nuevoConfirmarCliente(m *Modulo) *auditoria.Caso[EntradaAccionConv, ConversacionClienteDetalle] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaAccionConv, ConversacionClienteDetalle]{
+		Accion: "conversaciones.confirmar_cliente", Permiso: nucleo.PermConversacionesSupervisar,
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaAccionConv) (ConversacionClienteDetalle, error) {
+			return m.accionConv(ctx, t, in.ID, in.Version, func(a alcanceConv, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
+				if c.ClienteID == nil {
+					return reglaConv("sin_cliente", "La conversación no tiene cliente asociado")
+				}
+				if c.ClienteVerificado {
+					return nil
+				}
+				c.ClienteVerificado, c.VerificadoPor = true, &a.usuario
+				if err := m.sistema(ctx, t, c, EventoSistema{Tipo: "cliente_confirmado", ActorNombre: actorNombre(ctx, q, a.usuario),
+					EntidadID: nombrePtr(strconv.FormatInt(*c.ClienteID, 10))}); err != nil {
+					return err
+				}
+				return t.Emitir("conversacion.cliente_confirmado", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID,
+					"cliente_id": c.ClienteID, "actor_id": a.usuario})
+			})
+		},
+	})
+}
+
+// EntradaConsentimientoNumero es POST /contactos-iris/{id}/consentimiento.
+type EntradaConsentimientoNumero struct {
+	ID     int64  `json:"-"`
+	Estado string `json:"estado" enum:"acepta,baja" doc:"El contacto aceptó (o pidió no recibir) mensajes por WhatsApp"`
+}
+
+// ConsentimientoNumero es el permiso vigente de un número.
+type ConsentimientoNumero struct {
+	Telefono   string    `json:"telefono"`
+	Estado     string    `json:"estado" enum:"acepta,baja"`
+	OcurridoEn time.Time `json:"ocurridoEn"`
+}
+
+func nuevoConsentimientoNumero(m *Modulo) *auditoria.Caso[EntradaConsentimientoNumero, ConsentimientoNumero] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaConsentimientoNumero, ConsentimientoNumero]{
+		Accion: "conversaciones.consentimiento_numero", Permiso: nucleo.PermConversacionesAsociar,
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaConsentimientoNumero) (ConsentimientoNumero, error) {
+			a, err := alcanceConvDe(ctx)
+			if err != nil {
+				return ConsentimientoNumero{}, err
+			}
+			q := mensajeriabd.New(t)
+			k, err := q.ContactoIrisParaActualizar(ctx, mensajeriabd.ContactoIrisParaActualizarParams{ID: in.ID, Empresa: a.empresa})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ConsentimientoNumero{}, nucleo.NoEncontrado("El contacto no existe")
+			}
+			if err != nil {
+				return ConsentimientoNumero{}, err
+			}
+			t.FijarEmpresa(a.empresa)
+			t.FijarEntidad("contacto_iris", k.ID)
+			f, err := q.InsertarConsentimientoNumero(ctx, mensajeriabd.InsertarConsentimientoNumeroParams{EmpresaID: k.EmpresaID, Telefono: k.Telefono,
+				Estado: in.Estado, Origen: "agente", OcurridoEn: m.ahora(), RegistradoPor: &a.usuario})
+			if err != nil {
+				return ConsentimientoNumero{}, err
+			}
+			t.RegistrarCambios("contacto_iris", k.ID, nil, map[string]any{"consentimiento": f.Estado})
+			return ConsentimientoNumero{Telefono: f.Telefono, Estado: f.Estado, OcurridoEn: f.OcurridoEn},
+				t.Emitir("contacto_iris.consentimiento", map[string]any{"contacto_iris_id": k.ID, "empresa_id": k.EmpresaID, "estado": f.Estado, "origen": "agente"})
+		},
+	})
 }
 
 // Ejecutar asocia el cliente.
@@ -310,6 +399,11 @@ func nuevoContactoIrisConv(m *Modulo) *auditoria.Caso[EntradaContactoIrisConv, C
 			})
 		},
 	})
+}
+
+// MarshalJSON: sin la nota.
+func (e EntradaContactoIrisConv) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]any{"id": e.ID, "version": e.Version, "nombre": e.Nombre, "tipo": e.Tipo, "largo_nota": len([]rune(e.Nota))})
 }
 
 // EntradaActualizarContactoIris es POST /contactos-iris/{id}/actualizar.
@@ -402,6 +496,9 @@ func nuevoUnirContacto(m *Modulo) *UnirContacto {
 			for _, id := range convs {
 				c, err := q.ConversacionClienteParaActualizar(ctx, id)
 				if err != nil {
+					return ContactoIris{}, err
+				}
+				if c.ClienteVerificado, err = numeroDelCliente(ctx, q, empresaDeConv(c), c.Numero, in.ClienteID); err != nil {
 					return ContactoIris{}, err
 				}
 				if err := m.sistema(ctx, t, &c, EventoSistema{Tipo: "cliente_asociado", ActorNombre: actorNombre(ctx, q, a.usuario),

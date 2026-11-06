@@ -113,6 +113,10 @@ func nuevoMeta(t *testing.T) *metaFalso {
 		// Medios: GET /{media_id} (url) y GET /descarga/… (los bytes); POST …/media (subida).
 		if req.Method == http.MethodGet {
 			switch {
+			case strings.HasPrefix(req.URL.Path, "/descarga/") && strings.HasSuffix(req.URL.Path, "texto"):
+				// Dice ser una foto, pero no lo es.
+				w.Header().Set("Content-Type", "image/jpeg")
+				_, _ = w.Write([]byte("<html>no soy una imagen</html>"))
 			case strings.HasPrefix(req.URL.Path, "/descarga/"):
 				w.Header().Set("Content-Type", "image/jpeg")
 				_, _ = w.Write(medioFalso)

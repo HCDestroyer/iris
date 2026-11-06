@@ -195,14 +195,28 @@ func nuevoProcesarMeta(m *Modulo) *auditoria.Caso[int64, struct{}] {
 				return struct{}{}, err
 			}
 			// Una app de Meta puede servir a varias empresas: solo cuenta lo que es del número de este
-			// canal (si no, una baja escrita al número de B quedaría registrada en A).
+			// canal (si no, una baja escrita al número de B quedaría registrada en A), o de otro número
+			// activo de la misma empresa con el mismo app_secret (el que verificó la firma).
 			ajenos := 0
+			hermanos := map[string]*mensajeriabd.MensajeriaCanal{}
 			for _, en := range w.Entry {
 				for _, ch := range en.Changes {
-					if ch.Value.Metadata.PhoneNumberID != fila.PhoneNumberID {
-						ajenos++
-						continue
+					fila := fila
+					if pid := ch.Value.Metadata.PhoneNumberID; pid != fila.PhoneNumberID {
+						h, ok := hermanos[pid]
+						if !ok {
+							if h, err = m.canalHermano(ctx, q, fila, pid); err != nil {
+								return struct{}{}, err
+							}
+							hermanos[pid] = h
+						}
+						if h == nil {
+							ajenos++
+							continue
+						}
+						fila = *h
 					}
+					canal := fila.ID
 					for _, s := range ch.Value.Statuses {
 						// Primero un mensaje de una conversación; si no, un aviso.
 						if ok, err := m.estadoMensajeConv(ctx, t, q, canal, s, ahora); err != nil || ok {
@@ -220,13 +234,14 @@ func nuevoProcesarMeta(m *Modulo) *auditoria.Caso[int64, struct{}] {
 						perfiles[c.WaID] = c.Profile.Name
 					}
 					for _, msg := range ch.Value.Messages {
+						// La baja primero: así el mensaje ya llega con el número dado de baja (sin
+						// respuestas automáticas a quien pide no recibir mensajes).
+						if msg.Type == "text" && palabrasBaja[palabraDe(msg.Text.Body)] {
+							if err := m.bajaPorChat(ctx, t, q, fila, e.ID, "+"+strings.TrimPrefix(msg.From, "+"), instanteMeta(msg.Timestamp, ahora)); err != nil {
+								return struct{}{}, err
+							}
+						}
 						if err := m.recibirMensaje(ctx, t, fila, msg, perfiles[msg.From], ahora); err != nil {
-							return struct{}{}, err
-						}
-						if msg.Type != "text" || !palabrasBaja[palabraDe(msg.Text.Body)] {
-							continue
-						}
-						if err := m.bajaPorChat(ctx, t, q, canal, e.ID, "+"+strings.TrimPrefix(msg.From, "+"), instanteMeta(msg.Timestamp, ahora)); err != nil {
 							return struct{}{}, err
 						}
 					}
@@ -282,9 +297,45 @@ func (m *Modulo) aplicarEstado(ctx context.Context, t *auditoria.Tx, q *mensajer
 	return nil
 }
 
-// bajaPorChat registra la baja de cada cliente al que este canal le avisó a ese número (origen
-// cliente) y emite contacto.baja hacia Argos.
-func (m *Modulo) bajaPorChat(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Queries, canal, entrante int64, numero string, cuando time.Time) error {
+// canalHermano: el canal activo de otro phone_number_id, solo si es de la misma empresa que el
+// canal que recibió el webhook y comparte su app_secret (la firma ya se verificó con él). Si no, nil.
+func (m *Modulo) canalHermano(ctx context.Context, q *mensajeriabd.Queries, fila mensajeriabd.MensajeriaCanal, pid string) (*mensajeriabd.MensajeriaCanal, error) {
+	if pid == "" {
+		return nil, nil
+	}
+	h, err := q.CanalActivoPorPhoneNumber(ctx, pid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if h.ID == fila.ID || h.EmpresaID == nil || fila.EmpresaID == nil || *h.EmpresaID != *fila.EmpresaID {
+		return nil, nil
+	}
+	a, err := m.credencialesDe(fila)
+	if err != nil {
+		return nil, err
+	}
+	b, err := m.credencialesDe(h)
+	if err != nil {
+		return nil, err
+	}
+	if a.AppSecret == "" || subtle.ConstantTimeCompare([]byte(a.AppSecret), []byte(b.AppSecret)) != 1 {
+		return nil, nil
+	}
+	return &h, nil
+}
+
+// bajaPorChat registra la baja del número en la empresa del canal (vale también para contactos de
+// Iris) y la de cada cliente al que este canal le avisó a ese número (origen cliente), que emite
+// contacto.baja hacia Argos.
+func (m *Modulo) bajaPorChat(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Queries, fila mensajeriabd.MensajeriaCanal, entrante int64, numero string, cuando time.Time) error {
+	canal := fila.ID
+	if _, err := q.InsertarConsentimientoNumero(ctx, mensajeriabd.InsertarConsentimientoNumeroParams{EmpresaID: fila.EmpresaID, Telefono: numero,
+		Estado: "baja", Origen: "cliente", OcurridoEn: cuando}); err != nil {
+		return err
+	}
 	clientes, err := q.ClientesAvisadosEn(ctx, mensajeriabd.ClientesAvisadosEnParams{CanalID: &canal, Destino: &numero})
 	if err != nil {
 		return err

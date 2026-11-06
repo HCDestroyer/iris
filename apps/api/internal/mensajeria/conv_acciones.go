@@ -77,6 +77,12 @@ type EntradaTicketConv struct {
 	Clave       string `json:"-"`
 }
 
+// MarshalJSON: sin la descripción (puede tener datos del cliente).
+func (e EntradaTicketConv) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]any{"id": e.ID, "asunto": e.Asunto, "categoria_id": e.CategoriaID, "prioridad": e.Prioridad,
+		"servicio_id": e.ServicioID, "zona_id": e.ZonaID, "largo_descripcion": len([]rune(e.Descripcion))})
+}
+
 // VinculoCreado es la respuesta de las acciones: lo creado y la conversación al día.
 type VinculoCreado struct {
 	Vinculo      VinculoConversacion        `json:"vinculo"`
@@ -258,6 +264,17 @@ type EntradaBoleta struct {
 	Nota             *string   `json:"nota,omitempty" maxLength:"500"`
 }
 
+// MarshalJSON: sin la nota.
+func (e EntradaBoleta) MarshalJSON() ([]byte, error) {
+	largo := 0
+	if e.Nota != nil {
+		largo = len([]rune(*e.Nota))
+	}
+	return json.Marshal(map[string]any{"id": e.ID, "adjunto_id": e.AdjuntoID, "servicio_id": e.ServicioID, "metodo": e.Metodo,
+		"cuenta_bancaria_id": e.CuentaBancariaID, "banco_origen_id": e.BancoOrigenID, "referencia": e.Referencia, "monto": e.Monto,
+		"fecha_deposito": e.FechaDeposito, "largo_nota": largo})
+}
+
 // Boleta es una boleta mandada (o por mandar) a Argos.
 type Boleta struct {
 	ID            uuid.UUID `json:"id"`
@@ -303,6 +320,9 @@ func nuevoRegistrarBoleta(m *Modulo) *auditoria.Caso[EntradaBoleta, Boleta] {
 				if c.ClienteID == nil {
 					return reglaConv("sin_cliente", "Asocia la conversación a un cliente de Argos antes de registrar su boleta")
 				}
+				if !c.ClienteVerificado {
+					return clienteSinConfirmar()
+				}
 				servicio := c.ServicioID
 				if in.ServicioID != nil {
 					servicio = in.ServicioID
@@ -310,10 +330,9 @@ func nuevoRegistrarBoleta(m *Modulo) *auditoria.Caso[EntradaBoleta, Boleta] {
 				if err := clienteEnEmpresa(ctx, q, empresaDeConv(*c), *c.ClienteID, servicio); err != nil {
 					return err
 				}
-				adj, err := adjuntos.DeEntidad(ctx, t, in.AdjuntoID, EntidadAdjuntosConversacion, strconv.FormatInt(c.ID, 10))
-				if err != nil || adj.Estado != adjuntos.EstadoCompleto || adj.Tamano > 5<<20 ||
-					(!strings.HasPrefix(adj.Mime, "image/") && adj.Mime != "application/pdf") {
-					return reglaConv("adjunto_no_listo", "La boleta debe ser una imagen o un PDF completo de esta conversación, de hasta 5 MB")
+				datos, _, err := adjuntos.Contenido(ctx, m.cfg.Almacen, t, in.AdjuntoID, EntidadAdjuntosConversacion, strconv.FormatInt(c.ID, 10), 5<<20)
+				if err != nil || !esMimeBoleta(http.DetectContentType(datos)) {
+					return reglaConv("adjunto_no_listo", "La boleta debe ser una imagen JPG, PNG o WebP o un PDF completo de esta conversación, de hasta 5 MB")
 				}
 				id, err := uuid.NewV7()
 				if err != nil {
@@ -338,6 +357,15 @@ func nuevoRegistrarBoleta(m *Modulo) *auditoria.Caso[EntradaBoleta, Boleta] {
 			return b, err
 		},
 	})
+}
+
+// esMimeBoleta: los tipos que Argos acepta como comprobante (§7.2), según los bytes.
+func esMimeBoleta(mime string) bool {
+	switch strings.ToLower(strings.TrimSpace(strings.Split(mime, ";")[0])) {
+	case "image/jpeg", "image/png", "image/webp", "application/pdf":
+		return true
+	}
+	return false
 }
 
 // Despacho de boletas: el reloj del proceso las manda a Argos (POST /comprobantes multipart) con
@@ -625,6 +653,9 @@ func nuevasPromesas(m *Modulo) *Promesas {
 			if c.ClienteID == nil {
 				return previaPromesa{}, reglaConv("sin_cliente", "Asocia la conversación a un cliente de Argos antes de pedir una promesa")
 			}
+			if !c.ClienteVerificado {
+				return previaPromesa{}, clienteSinConfirmar()
+			}
 			if in.Clave != "" {
 				f, err := q.PromesaPorClave(ctx, mensajeriabd.PromesaPorClaveParams{SolicitadaPor: &a.usuario, IdempotencyKey: &in.Clave})
 				switch {
@@ -711,6 +742,16 @@ func (k *Promesas) Simular(ctx context.Context, in EntradaSimularPromesa) (Simul
 	}
 	if l.conv.ClienteID == nil {
 		return SimulacionPromesaConv{}, reglaConv("sin_cliente", "Asocia la conversación a un cliente de Argos")
+	}
+	if !l.conv.ClienteVerificado {
+		return SimulacionPromesaConv{}, clienteSinConfirmar()
+	}
+	// El servicio debe ser del cliente de la conversación en la empresa (como al crearla).
+	if err := k.m.cfg.Argos.AsegurarInstantanea(ctx, *l.conv.ClienteID, &in.ServicioID); err != nil {
+		return SimulacionPromesaConv{}, err
+	}
+	if err := clienteEnEmpresa(ctx, mensajeriabd.New(nucleo.BDDe(ctx)), l.alcance.empresa, *l.conv.ClienteID, &in.ServicioID); err != nil {
+		return SimulacionPromesaConv{}, err
 	}
 	var vence *time.Time
 	if in.VenceEl != nil {

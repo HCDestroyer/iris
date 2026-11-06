@@ -135,6 +135,12 @@ func (m *Modulo) responderFueraDeHorario(ctx context.Context, t *auditoria.Tx, c
 			return nil
 		}
 	}
+	// Ni a un número dado de baja (la palabra BAJA se registra antes de guardar el mensaje).
+	if v, err := q.ConsentimientoNumeroVigente(ctx, mensajeriabd.ConsentimientoNumeroVigenteParams{Empresa: empresaDeConv(*c), Telefono: c.Numero}); err == nil && v.Estado == "baja" {
+		return nil
+	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
 	texto := recortar(f.Mensaje, MaxTextoWhatsApp)
 	msg, err := m.agregarMensaje(ctx, t, c, nuevoMensaje{direccion: DirSaliente, tipo: "texto", texto: &texto, estadoEntrega: nombrePtr(EntregaEnCola)})
 	if err != nil {

@@ -53,6 +53,8 @@ type casosConv struct {
 	Asociar      *AsociarCliente
 	Desasociar   *auditoria.Caso[EntradaAccionConv, ConversacionClienteDetalle]
 	ContactoIris *auditoria.Caso[EntradaContactoIrisConv, ConversacionClienteDetalle]
+	Confirmar    *auditoria.Caso[EntradaAccionConv, ConversacionClienteDetalle]
+	ConsentNum   *auditoria.Caso[EntradaConsentimientoNumero, ConsentimientoNumero]
 	EditarContac *auditoria.Caso[EntradaActualizarContactoIris, ContactoIris]
 	UnirContacto *UnirContacto
 	Contactos    *auditoria.Caso[EntradaBuscarContactos, nucleo.Pagina[ContactoIris]]
@@ -79,7 +81,7 @@ func nuevosCasosConv(m *Modulo) casosConv {
 		Responder: nuevoResponder(m), Anotar: nuevoAnotar(m), Tomar: nuevoTomarConv(m), Asignar: nuevoAsignarConv(m),
 		Transferir: nuevoTransferirConv(m), Etiquetar: nuevoEtiquetarConv(m), Resolver: nuevoResolverConv(m), Reabrir: nuevoReabrirConv(m),
 		Coincidencia: nuevoBuscarCoincidencias(m), Asociar: nuevoAsociarCliente(m), Desasociar: nuevoDesasociar(m),
-		ContactoIris: nuevoContactoIrisConv(m), EditarContac: nuevoActualizarContactoIris(m), UnirContacto: nuevoUnirContacto(m),
+		ContactoIris: nuevoContactoIrisConv(m), Confirmar: nuevoConfirmarCliente(m), ConsentNum: nuevoConsentimientoNumero(m), EditarContac: nuevoActualizarContactoIris(m), UnirContacto: nuevoUnirContacto(m),
 		Contactos: nuevoBuscarContactos(m), CrearTicket: nuevoCrearTicketConv(m), CrearOrden: nuevoCrearOrdenConv(m),
 		CrearProspec: nuevoCrearProspectoConv(m), Boleta: nuevoRegistrarBoleta(m), Promesas: nuevasPromesas(m), Cambios: nuevoCambiosConv(m),
 	}
@@ -333,6 +335,18 @@ func (m *Modulo) registrarConversaciones(api huma.API) {
 			in.Body.ID = in.ID
 			return responder(k.Asociar.Ejecutar(ctx, in.Body))
 		})
+	confCli := accion("confirmarClienteConversacion", "confirmar-cliente", "Confirmar el cliente asociado a mano (el número no coincide en Argos)",
+		nucleo.PermConversacionesSupervisar)
+	confCli.Description += " Solo supervisión. Hasta confirmarlo no hay plantillas fuera de la ventana, boletas ni promesas a su nombre (422 `cliente_sin_confirmar`)."
+	huma.Register(api, confCli, func(ctx context.Context, in *idCuerpoHTTP[EntradaAccionConv]) (*cuerpo[ConversacionClienteDetalle], error) {
+		in.Body.ID = in.ID
+		return responder(k.Confirmar.Ejecutar(ctx, in.Body))
+	})
+	huma.Register(api, op("consentimientoContactoIris", http.MethodPost, "/contactos-iris/{id}/consentimiento", "Permiso de contacto de un contacto de Iris (por número)",
+		nucleo.PermConversacionesAsociar, http.StatusOK, http.StatusNotFound), func(ctx context.Context, in *idCuerpoHTTP[EntradaConsentimientoNumero]) (*cuerpo[ConsentimientoNumero], error) {
+		in.Body.ID = in.ID
+		return responder(k.ConsentNum.Ejecutar(ctx, in.Body))
+	})
 	huma.Register(api, accion("desasociarConversacion", "desasociar", "Quitar cliente, contacto de Iris y prospecto", nucleo.PermConversacionesAsociar),
 		func(ctx context.Context, in *idCuerpoHTTP[EntradaAccionConv]) (*cuerpo[ConversacionClienteDetalle], error) {
 			in.Body.ID = in.ID

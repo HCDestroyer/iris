@@ -236,7 +236,7 @@ El tiempo real del panel va por el feed propio (`mensajeria.conv_eventos`, SSE y
 | `conversacion.mensaje_fallido` | `conversacion_id`, `mensaje_id`, `empresa_id`, `motivo` (`numero_invalido`, `rechazado_por_canal`, `fuera_de_ventana`, `agotado`), `autor_id` | WhatsApp no lo entregó. |
 | `conversacion.nota_agregada` | `conversacion_id`, `mensaje_id`, `empresa_id`, `autor_id`, `menciones[]` | Nota interna. |
 | `conversacion.mencion` | `conversacion_id`, `mensaje_id`, `empresa_id`, `usuario_id`, `autor_id` | Uno por mencionado (para el futuro push). |
-| `conversacion.asignada` | `conversacion_id`, `empresa_id`, `usuario_id` (o null), `anterior_id` (o null), `origen` (`tomar`, `asignar`), `actor_id` | Tomar o asignar. |
+| `conversacion.asignada` | `conversacion_id`, `empresa_id`, `usuario_id` (o null), `anterior_id` (o null), `origen` (`tomar`, `asignar`, `responder`), `actor_id` | Tomar, asignar o responder una sin asignar. |
 | `conversacion.transferida` | `conversacion_id`, `empresa_id`, `de_cola_id`, `a_cola_id`, `asignado_a`, `actor_id` | Pasar a otra cola (el resumen queda como nota). |
 | `conversacion.etiquetada` | `conversacion_id`, `empresa_id`, `etiquetas[]`, `anteriores[]`, `actor_id` | Fijar etiquetas. |
 | `conversacion.resuelta` | `conversacion_id`, `empresa_id`, `actor_id`, `asignado_a` | Resolver. |
@@ -244,6 +244,8 @@ El tiempo real del panel va por el feed propio (`mensajeria.conv_eventos`, SSE y
 | `conversacion.cliente_asociado` | `conversacion_id`, `empresa_id`, `cliente_id` (o null al desasociar), `servicio_id`, `asociacion`, `actor_id` | Asociar o desasociar (la automática va en `conversacion.creada`). |
 | `conversacion.vinculo_creado` | `conversacion_id`, `empresa_id`, `tipo` (`ticket`, `orden`, `prospecto`, `boleta`, `promesa`), `entidad_id`, `referencia`, `actor_id` | Algo creado desde la conversación (además del evento del módulo dueño: `ticket.creado`, `orden.creada`…). |
 | `conversacion.sla_vencido` | `conversacion_id`, `empresa_id`, `cola_id`, `asignado_a`, `vence_en`, `espera_desde` | Una vez por espera (mantenimiento). |
+| `conversacion.cliente_confirmado` | `conversacion_id`, `empresa_id`, `cliente_id`, `actor_id` | Un supervisor confirma una asociación manual cuyo número no coincide con el cliente. |
+| `contacto_iris.consentimiento` | `contacto_iris_id`, `empresa_id`, `estado` (`acepta`, `baja`), `origen` (`agente`) | Permiso de contacto por número de un contacto de Iris. |
 | `contacto_iris.creado` / `contacto_iris.unido` | `contacto_iris_id`, `empresa_id`; `tipo`, `conversacion_id` (creado); `cliente_id`, `conversaciones[]` (unido) | Contacto propio de Iris; unido a su ficha de Argos. |
 | `cola.creada` / `cola.actualizada` | `cola_id`, `empresa_id`; `nombre` (creada); `campos[]`, `activa` (actualizada) | Configuración. |
 | `etiqueta.creada` / `etiqueta.actualizada` | `etiqueta_id`, `empresa_id`; `nombre` (creada); `campos[]`, `activa` (actualizada) | Configuración. |
@@ -257,6 +259,7 @@ El tiempo real del panel va por el feed propio (`mensajeria.conv_eventos`, SSE y
 | `conversacion.guardia_avisada` | `conversacion_id`, `empresa_id`, `usuario_id`, `motivo` (`etiqueta`, `falla_masiva`) | Una vez por conversación y ventana cerrada; para el futuro push (PR B). |
 | `manual.creado` / `manual.actualizado` | `manual_id`, `empresa_id`; `visibilidad` (creado); `campos[]`, `activo` (actualizado) | Biblioteca (PR B). |
 | `manual.enviado` | `manual_id`, `conversacion_id`, `empresa_id`, `mensaje_id`, `modo` (`enlace`, `texto`) | Se mandó al cliente (PR B). |
+| `manual.enlace_revocado` | `enlace_id`, `manual_id`, `conversacion_id`, `empresa_id`, `actor_id` | Un supervisor revocó el enlace público (PR B). |
 
 `canal_mensajeria.actualizado` (ya existente) también sale al configurar uso, cola o número de avisos
 (`campos[]` con `usos`, `avisos_empresa`, `cola_id`), y para el número que deja de ser el de avisos.

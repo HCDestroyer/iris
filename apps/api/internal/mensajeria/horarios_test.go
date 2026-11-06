@@ -137,6 +137,14 @@ func TestFueraDeHorarioUnaVezPorVentana(t *testing.T) {
 			t.Fatal("respondió a un cliente con baja")
 		}
 	}
+	// Quien escribe BAJA como primer mensaje fuera de horario tampoco recibe la respuesta automática.
+	tercero := numeroCliente()
+	b.texto(tercero, "wamid.k9", "BAJA")
+	for _, m := range b.mensajes(b.supervisor, cid(b.conv(tercero))) {
+		if m["direccion"] == "saliente" {
+			t.Fatalf("respondió a quien pidió baja: %v", m)
+		}
+	}
 }
 
 func TestGuardiaPorEtiquetaYFallaMasiva(t *testing.T) {
@@ -262,6 +270,32 @@ func TestManualesBusquedaSugerenciasYEnvio(t *testing.T) {
 	if code != http.StatusOK || !strings.Contains(html, "Reiniciar la ONU") || strings.Contains(html, "<b>") || !strings.Contains(html, "&lt;b&gt;") {
 		t.Fatalf("página pública: %d %s", code, html)
 	}
+	// Revocar un enlace: lo ve la conversación (sin token); solo supervisión revoca; luego 410.
+	env2 := b.api(b.agente, http.MethodPost, ruta, map[string]any{"id": nuevoID(), "manualId": onu["id"], "modo": "enlace"})
+	b.exigir(env2, http.StatusCreated)
+	texto2 := env2.cuerpo["texto"].(string)
+	texto2 = texto2[strings.Index(texto2, "/api/v1/mensajeria/publico/manuales/"):]
+	le := b.api(b.agente, http.MethodGet, "/conversaciones/"+cid(c)+"/manual-enlaces", nil)
+	b.exigir(le, http.StatusOK)
+	enlaces := le.cuerpo["data"].([]any)
+	if len(enlaces) != 2 || strings.Contains(fmt.Sprint(le.cuerpo), texto2[len("/api/v1/mensajeria/publico/manuales/"):]) {
+		t.Fatalf("enlaces de la conversación: %v", le.cuerpo)
+	}
+	ultimo := fmt.Sprint(int64(enlaces[0].(map[string]any)["id"].(float64)))
+	b.exigir(b.api(b.agente, http.MethodPost, "/manual-enlaces/"+ultimo+"/revocar", nil), http.StatusForbidden)
+	b.exigir(b.api(b.supervisor, http.MethodPost, "/manual-enlaces/"+ultimo+"/revocar", nil), http.StatusOK)
+	b.exigir(b.api(b.supervisor, http.MethodPost, "/manual-enlaces/"+ultimo+"/revocar", nil), http.StatusOK)
+	if code, _ := publico(texto2); code != http.StatusGone {
+		t.Fatalf("enlace revocado: %d", code)
+	}
+	if code, _ := publico(texto[i:]); code != http.StatusOK {
+		t.Fatalf("el otro enlace sigue: %d", code)
+	}
+	if b.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'manual.enlace_revocado' AND payload->>'enlace_id' = $1`, ultimo) != 1 {
+		t.Fatal("manual.enlace_revocado")
+	}
+	ajeno := b.persona([]int64{2}, rolBase("supervisor"))
+	b.exigir(b.api(ajeno, http.MethodPost, "/manual-enlaces/"+ultimo+"/revocar", nil), http.StatusNotFound)
 	// Al desactivarlo, el enlace deja de valer.
 	b.exigir(b.api(b.supervisor, http.MethodPost, fmt.Sprintf("/manuales/%d/desactivar", int64(onu["id"].(float64))), nil), http.StatusOK)
 	if code, _ := publico(texto[i:]); code != http.StatusGone {

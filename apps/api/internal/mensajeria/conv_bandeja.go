@@ -453,6 +453,15 @@ type EntradaTransferirConv struct {
 	ConservarAsignacion bool   `json:"conservarAsignacion,omitempty" doc:"Por defecto queda sin asignar"`
 }
 
+// MarshalJSON: sin la nota (puede tener datos del cliente).
+func (e EntradaResolverConv) MarshalJSON() ([]byte, error) {
+	largo := 0
+	if e.Nota != nil {
+		largo = len([]rune(*e.Nota))
+	}
+	return json.Marshal(map[string]any{"id": e.ID, "version": e.Version, "largo_nota": largo})
+}
+
 // MarshalJSON: sin el resumen (puede tener datos del cliente).
 func (e EntradaTransferirConv) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]any{"id": e.ID, "version": e.Version, "cola_id": e.ColaID, "conservar_asignacion": e.ConservarAsignacion,
@@ -557,6 +566,9 @@ func nuevoTomarConv(m *Modulo) *auditoria.Caso[EntradaAccionConv, ConversacionCl
 					return nucleo.Conflicto("ya_asignada", "La conversación ya la tiene "+quien)
 				}
 				if err := exigirVersionConv(*c, in.Version); err != nil {
+					return err
+				}
+				if _, err := puedeAtender(ctx, t, *c, a.usuario); err != nil {
 					return err
 				}
 				ahora := m.ahora()

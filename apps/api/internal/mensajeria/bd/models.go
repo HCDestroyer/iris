@@ -1166,6 +1166,17 @@ type MensajeriaConsentimiento struct {
 	CreatedAt      time.Time
 }
 
+type MensajeriaConsentimientosNumero struct {
+	ID            int64
+	EmpresaID     *int64
+	Telefono      string
+	Estado        string
+	Origen        string
+	OcurridoEn    time.Time
+	RegistradoPor *int64
+	CreatedAt     time.Time
+}
+
 type MensajeriaContactoIris struct {
 	ID        int64
 	EmpresaID *int64
@@ -1207,6 +1218,8 @@ type MensajeriaConversacion struct {
 	ContactoIrisID    *int64
 	ProspectoID       *int64
 	Asociacion        *string
+	ClienteVerificado bool
+	VerificadoPor     *int64
 	UltimoEntranteEn  *time.Time
 	EsperaDesde       *time.Time
 	SlaVenceEn        *time.Time
@@ -1322,10 +1335,14 @@ type MensajeriaHorario struct {
 
 type MensajeriaManualEnlace struct {
 	HashToken      []byte
+	ID             int64
 	ManualID       int64
 	EmpresaID      *int64
 	ConversacionID *int64
+	EnviadoPor     *int64
 	VenceEn        time.Time
+	RevocadoEn     *time.Time
+	RevocadoPor    *int64
 	CreatedAt      time.Time
 }
 

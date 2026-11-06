@@ -451,8 +451,8 @@ func nuevoEnviarManual(m *Modulo) *auditoria.Caso[EntradaEnviarManual, MensajeCo
 				}
 				token := base64.RawURLEncoding.EncodeToString(crudo)
 				h := sha256.Sum256([]byte(token))
-				if err := q.InsertarEnlaceManual(ctx, mensajeriabd.InsertarEnlaceManualParams{HashToken: h[:], ManualID: man.ID, EmpresaID: man.EmpresaID,
-					ConversacionID: &c.ID, VenceEn: m.ahora().Add(m.cfg.EnlaceManual)}); err != nil {
+				if _, err := q.InsertarEnlaceManual(ctx, mensajeriabd.InsertarEnlaceManualParams{HashToken: h[:], ManualID: man.ID, EmpresaID: man.EmpresaID,
+					ConversacionID: &c.ID, EnviadoPor: &a.usuario, VenceEn: m.ahora().Add(m.cfg.EnlaceManual)}); err != nil {
 					return MensajeConvEnviado{}, err
 				}
 				texto = man.Titulo + "\n" + strings.TrimRight(m.cfg.BaseURL, "/") + Prefijo + "/publico/manuales/" + token
@@ -476,6 +476,111 @@ func nuevoEnviarManual(m *Modulo) *auditoria.Caso[EntradaEnviarManual, MensajeCo
 			t.FijarEntidad("manual", man.ID)
 			return r, t.Emitir("manual.enviado", map[string]any{"manual_id": man.ID, "conversacion_id": c.ID, "empresa_id": c.EmpresaID,
 				"mensaje_id": r.ID, "modo": in.Modo})
+		},
+	})
+}
+
+// Enlaces enviados y revocación ------------------------------------------------------------------------
+
+// EnlaceManual es un enlace público de un manual enviado en una conversación (nunca el token).
+type EnlaceManual struct {
+	ID         int64       `json:"id"`
+	ManualID   int64       `json:"manualId"`
+	Titulo     string      `json:"titulo"`
+	EnviadoPor *UsuarioRef `json:"enviadoPor,omitempty"`
+	VenceEn    time.Time   `json:"venceEn"`
+	RevocadoEn *time.Time  `json:"revocadoEn" nullable:"true"`
+	CreadoEn   time.Time   `json:"creadoEn"`
+}
+
+// ListaEnlacesManual es GET /conversaciones/{id}/manual-enlaces.
+type ListaEnlacesManual struct {
+	Data []EnlaceManual `json:"data"`
+}
+
+func nuevoListarEnlacesManual(*Modulo) *auditoria.Caso[EntradaConversacion, ListaEnlacesManual] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaConversacion, ListaEnlacesManual]{
+		Accion: "manuales.listar_enlaces", Permiso: nucleo.PermConversacionesVer, AuditarExito: func(ListaEnlacesManual) bool { return false },
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaConversacion) (ListaEnlacesManual, error) {
+			a, err := alcanceConvDe(ctx)
+			if err != nil {
+				return ListaEnlacesManual{}, err
+			}
+			q := mensajeriabd.New(t)
+			c, err := convVisible(ctx, q, a, in.ID, false)
+			if err != nil {
+				return ListaEnlacesManual{}, err
+			}
+			fs, err := q.EnlacesManualDeConversacion(ctx, &c.ID)
+			if err != nil {
+				return ListaEnlacesManual{}, err
+			}
+			out := ListaEnlacesManual{Data: make([]EnlaceManual, 0, len(fs))}
+			for _, f := range fs {
+				e := EnlaceManual{ID: f.ID, ManualID: f.ManualID, Titulo: f.Titulo, VenceEn: f.VenceEn, RevocadoEn: f.RevocadoEn, CreadoEn: f.CreatedAt}
+				if f.EnviadoPor != nil {
+					e.EnviadoPor = &UsuarioRef{ID: *f.EnviadoPor}
+					if n := actorNombre(ctx, q, *f.EnviadoPor); n != nil {
+						e.EnviadoPor.Nombre = *n
+					}
+				}
+				out.Data = append(out.Data, e)
+			}
+			return out, nil
+		},
+	})
+}
+
+// EntradaRevocarEnlace es POST /manual-enlaces/{id}/revocar.
+type EntradaRevocarEnlace struct {
+	ID int64 `json:"-"`
+}
+
+// EnlaceRevocado es la respuesta de revocar.
+type EnlaceRevocado struct {
+	ID         int64     `json:"id"`
+	ManualID   int64     `json:"manualId"`
+	RevocadoEn time.Time `json:"revocadoEn"`
+}
+
+func nuevoRevocarEnlaceManual(m *Modulo) *auditoria.Caso[EntradaRevocarEnlace, EnlaceRevocado] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaRevocarEnlace, EnlaceRevocado]{
+		Accion: "manuales.revocar_enlace", Permiso: nucleo.PermManualesRevocarEnlace,
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaRevocarEnlace) (EnlaceRevocado, error) {
+			a, err := alcanceConvDe(ctx)
+			if err != nil {
+				return EnlaceRevocado{}, err
+			}
+			q := mensajeriabd.New(t)
+			e, err := q.EnlaceManualParaRevocar(ctx, in.ID)
+			noExiste := nucleo.NoEncontrado("El enlace no existe")
+			if errors.Is(err, pgx.ErrNoRows) {
+				return EnlaceRevocado{}, noExiste
+			}
+			if err != nil {
+				return EnlaceRevocado{}, err
+			}
+			// Solo los de una conversación que ves (y por tanto de tu empresa).
+			if e.ConversacionID == nil {
+				return EnlaceRevocado{}, noExiste
+			}
+			c, err := convVisible(ctx, q, a, *e.ConversacionID, false)
+			if err != nil {
+				return EnlaceRevocado{}, noExiste
+			}
+			t.FijarEmpresa(empresaDeConv(c))
+			t.FijarEntidad("manual_enlace", e.ID)
+			if e.RevocadoEn != nil {
+				return EnlaceRevocado{ID: e.ID, ManualID: e.ManualID, RevocadoEn: *e.RevocadoEn}, nil
+			}
+			ahora := m.ahora()
+			if err := q.RevocarEnlaceManual(ctx, mensajeriabd.RevocarEnlaceManualParams{ID: e.ID, RevocadoEn: &ahora, RevocadoPor: &a.usuario}); err != nil {
+				return EnlaceRevocado{}, err
+			}
+			t.RegistrarCambios("manual_enlace", e.ID, map[string]any{"revocado_en": nil}, map[string]any{"revocado_en": ahora})
+			return EnlaceRevocado{ID: e.ID, ManualID: e.ManualID, RevocadoEn: ahora},
+				t.Emitir("manual.enlace_revocado", map[string]any{"enlace_id": e.ID, "manual_id": e.ManualID, "conversacion_id": c.ID,
+					"empresa_id": c.EmpresaID, "actor_id": a.usuario})
 		},
 	})
 }
@@ -544,6 +649,8 @@ type casosHorarios struct {
 	DesactivarManual *auditoria.Caso[EntradaManualID, Manual]
 	Sugerir          *SugerirManuales
 	Enviar           *auditoria.Caso[EntradaEnviarManual, MensajeConvEnviado]
+	Enlaces          *auditoria.Caso[EntradaConversacion, ListaEnlacesManual]
+	Revocar          *auditoria.Caso[EntradaRevocarEnlace, EnlaceRevocado]
 	publico          *auditoria.Caso[string, manualPublico]
 }
 
@@ -553,7 +660,7 @@ func nuevosCasosHorarios(m *Modulo) casosHorarios {
 		BuscarManuales: nuevoBuscarManuales(m), VerManual: nuevoVerManual(m), CrearManual: nuevoGuardarManual(m, true),
 		ActualizarManual: nuevoGuardarManual(m, false), ActivarManual: nuevoCambioManual(m, "manuales.activar", true),
 		DesactivarManual: nuevoCambioManual(m, "manuales.desactivar", false), Sugerir: nuevoSugerirManuales(m), Enviar: nuevoEnviarManual(m),
-		publico: nuevoManualPublico(m)}
+		Enlaces: nuevoListarEnlacesManual(m), Revocar: nuevoRevocarEnlaceManual(m), publico: nuevoManualPublico(m)}
 }
 
 type salidaHTML struct {
@@ -630,6 +737,17 @@ func (m *Modulo) registrarHorariosManuales(api huma.API) {
 	huma.Register(api, env, func(ctx context.Context, in *idCuerpoHTTP[EntradaEnviarManual]) (*salidaMensajeConv, error) {
 		in.Body.ConversacionID, in.Body.IdempotencyKey = in.ID, in.IdempotencyKey
 		return respMensaje(k.Enviar.Ejecutar(ctx, in.Body))
+	})
+	huma.Register(api, op("enlacesManualConversacion", http.MethodGet, "/conversaciones/{id}/manual-enlaces",
+		"Enlaces de manuales enviados en la conversación (sin el token)", nucleo.PermConversacionesVer, http.StatusOK, http.StatusNotFound),
+		func(ctx context.Context, in *EntradaConversacion) (*cuerpo[ListaEnlacesManual], error) {
+			return responder(k.Enlaces.Ejecutar(ctx, *in))
+		})
+	rev := op("revocarEnlaceManual", http.MethodPost, "/manual-enlaces/{id}/revocar", "Revocar el enlace público de un manual enviado",
+		nucleo.PermManualesRevocarEnlace, http.StatusOK, http.StatusNotFound)
+	rev.Description += " Desde ese momento el enlace responde 410. Revocar uno ya revocado: 200 sin cambios."
+	huma.Register(api, rev, func(ctx context.Context, in *idHTTP) (*cuerpo[EnlaceRevocado], error) {
+		return responder(k.Revocar.Ejecutar(ctx, EntradaRevocarEnlace{ID: in.ID}))
 	})
 	pub := op("manualPublico", http.MethodGet, "/publico/manuales/{token}", "Manual para el cliente (enlace público)", "", http.StatusOK, http.StatusGone)
 	pub.Security = nil

@@ -56,14 +56,20 @@ CREATE INDEX manuales_etiquetas_idx ON mensajeria.manuales USING gin (etiquetas)
 CREATE INDEX manuales_empresa_idx ON mensajeria.manuales (empresa_id, id DESC);
 
 -- Enlaces públicos de un manual «para el cliente»: se guarda solo el hash del token.
+-- Enlaces públicos firmados (solo el hash del token). Se revocan uno a uno (manuales.revocar_enlace).
 CREATE TABLE mensajeria.manual_enlaces (
     hash_token      bytea PRIMARY KEY,
+    id              bigint NOT NULL GENERATED ALWAYS AS IDENTITY UNIQUE,
     manual_id       bigint      NOT NULL REFERENCES mensajeria.manuales (id),
     empresa_id      bigint,
     conversacion_id bigint REFERENCES mensajeria.conversaciones (id),
+    enviado_por     bigint REFERENCES nucleo.usuarios (id),
     vence_en        timestamptz NOT NULL,
+    revocado_en     timestamptz,
+    revocado_por    bigint REFERENCES nucleo.usuarios (id),
     created_at      timestamptz NOT NULL DEFAULT now()
 );
+CREATE INDEX manual_enlaces_conversacion_idx ON mensajeria.manual_enlaces (conversacion_id, id DESC);
 
 -- +goose Down
 DROP TABLE mensajeria.manual_enlaces;

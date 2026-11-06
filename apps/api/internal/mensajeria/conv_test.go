@@ -19,6 +19,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
@@ -132,11 +133,11 @@ func nuevaBandeja(t *testing.T, ajustar func(*mensajeria.Config)) *bandeja {
 	})
 	mensajeria.RegistrarAdjuntos()
 	b := &bandeja{entorno: e, argos: f}
-	b.supervisor = e.persona([]int64{1}, rolBase("supervisor"))
-	b.agente = e.persona([]int64{1}, rolBase("soporte"))
-	b.otro = e.persona([]int64{1}, rolBase("soporte"))
-	b.lectura = e.persona([]int64{1}, rolBase("lectura"))
-	b.tecnico = e.persona([]int64{1}, rolBase("tecnico"))
+	b.supervisor = b.persona([]int64{1}, rolBase("supervisor"))
+	b.agente = b.persona([]int64{1}, rolBase("soporte"))
+	b.otro = b.persona([]int64{1}, rolBase("soporte"))
+	b.lectura = b.persona([]int64{1}, rolBase("lectura"))
+	b.tecnico = b.persona([]int64{1}, rolBase("tecnico"))
 	r := b.api(b.supervisor, http.MethodPost, "/colas", map[string]any{"nombre": "Soporte " + pruebas.Unico(), "slaRespuestaMin": 60})
 	e.exigir(r, http.StatusCreated)
 	b.cola = int64(r.cuerpo["id"].(float64))
@@ -157,6 +158,23 @@ func nuevaBandeja(t *testing.T, ajustar func(*mensajeria.Config)) *bandeja {
 	return b
 }
 
+// persona: la bandeja es de personas con sesión del panel (cookie + CSRF), no de tokens.
+func (b *bandeja) persona(empresas []int64, roles ...identidad.AsignacionRol) persona {
+	b.t.Helper()
+	p := b.entorno.persona(empresas, roles...)
+	return b.sesion(p)
+}
+
+func (b *bandeja) sesion(p persona) persona {
+	b.t.Helper()
+	s, err := identChat.IniciarSesion.Ejecutar(nucleo.ConBD(context.Background(), b.bd), identidad.EntradaIniciarSesion{Correo: p.correo, Contrasena: "contrasena-larga-1"})
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	p.cookie, p.csrf = s.Token, s.CSRFToken
+	return p
+}
+
 func (b *bandeja) api(p persona, metodo, ruta string, cuerpo any) respuesta {
 	b.t.Helper()
 	return b.apiClave(p, metodo, ruta, "", cuerpo)
@@ -173,7 +191,16 @@ func (b *bandeja) apiClave(p persona, metodo, ruta, clave string, cuerpo any) re
 	if rd != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("Authorization", "Bearer "+p.token)
+	if p.cookie != "" {
+		req.AddCookie(&http.Cookie{Name: identidad.CookieSesion, Value: p.cookie})
+		req.AddCookie(&http.Cookie{Name: identidad.CookieCSRF, Value: p.csrf})
+		req.Header.Set(identidad.CabeceraCSRF, p.csrf)
+	} else {
+		req.Header.Set("Authorization", "Bearer "+p.token)
+	}
+	if p.empresa != 0 {
+		req.Header.Set(identidad.CabeceraEmpresa, fmt.Sprint(p.empresa))
+	}
 	if clave != "" {
 		req.Header.Set("Idempotency-Key", clave)
 	}
@@ -320,7 +347,7 @@ func TestConvAsociacionAutomaticaYCoincidencias(t *testing.T) {
 	b.texto(num, "wamid.b1", "Hola")
 	c := b.conv(num)
 	k := c["contacto"].(map[string]any)
-	if k["tipo"] != "cliente" || k["clienteId"].(float64) != float64(cliente) || k["asociacion"] != "automatica" || c["titulo"] != "Carlos Ruiz" {
+	if k["tipo"] != "cliente" || k["clienteId"].(float64) != float64(cliente) || k["asociacion"] != "automatica" || k["verificado"] != true || c["titulo"] != "Carlos Ruiz" {
 		t.Fatalf("asociación automática: %v %v", k, c["titulo"])
 	}
 	if c["clienteResumen"].(map[string]any)["nombre"] != "Carlos Ruiz" {
@@ -490,6 +517,15 @@ func TestConvResponderVentanaYEntrega(t *testing.T) {
 		t.Fatal(err)
 	}
 	b.exigir(b.consentir(cliente, "acepta", b.reloj.Add(-time.Hour)), http.StatusCreated)
+	// Asociado a mano y el número no es del cliente: hasta que un supervisor lo confirme, no.
+	b.exigir(b.api(b.agente, http.MethodPost, ruta, pl), http.StatusUnprocessableEntity, "type", "urn:iris:problema:cliente_sin_confirmar")
+	conf := "/conversaciones/" + cid(c) + "/confirmar-cliente"
+	b.exigir(b.api(b.agente, http.MethodPost, conf, map[string]any{"version": ver(b.conv(num))}), http.StatusForbidden)
+	cf := b.api(b.supervisor, http.MethodPost, conf, map[string]any{"version": ver(b.conv(num))})
+	b.exigir(cf, http.StatusOK)
+	if cf.cuerpo["contacto"].(map[string]any)["verificado"] != true {
+		t.Fatalf("confirmado: %v", cf.cuerpo["contacto"])
+	}
 	r = b.api(b.agente, http.MethodPost, ruta, pl)
 	b.exigir(r, http.StatusCreated, "tipo", "plantilla")
 	if _, err := b.m.ProcesarMensaje(b.ctx, uuid.MustParse(r.cuerpo["id"].(string)), false); err != nil {
@@ -536,7 +572,11 @@ func TestConvTomarAsignarTransferirResolver(t *testing.T) {
 	b.texto(num, "wamid.e1", "Hola")
 	c := b.conv(num)
 	ruta := "/conversaciones/" + cid(c)
+	// Quien la ve (mencionado) sin ser de la cola no la toma (igual que asignar).
+	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/notas", map[string]any{"id": nuevoID(), "texto": "mira", "menciones": []int64{b.otro.id}}), http.StatusCreated)
+	c = b.conv(num)
 	v := ver(c)
+	b.exigir(b.api(b.otro, http.MethodPost, ruta+"/tomar", map[string]any{"version": v}), http.StatusUnprocessableEntity)
 	// Dos agentes toman a la vez: uno gana, el otro 409 ya_asignada.
 	segundo := b.persona([]int64{1}, rolBase("soporte"))
 	if _, err := b.bd.Exec(b.ctx, `INSERT INTO mensajeria.cola_miembros (cola_id, usuario_id) VALUES ($1, $2)`, b.cola, segundo.id); err != nil {
@@ -740,6 +780,43 @@ func TestConvBoletaYPromesa(t *testing.T) {
 	}
 	r := b.api(b.agente, http.MethodPost, ruta+"/asociar-cliente", map[string]any{"version": ver(b.conv(num)), "clienteId": cliente, "servicioId": cliente * 10})
 	b.exigir(r, http.StatusOK)
+	// Asociado a mano sin que el número coincida: ni boletas ni promesas hasta que un supervisor confirme.
+	if r.cuerpo["contacto"].(map[string]any)["verificado"] != false {
+		t.Fatalf("asociación manual sin coincidencia: %v", r.cuerpo["contacto"])
+	}
+	pr := map[string]any{"servicioId": cliente * 10, "venceEl": "2026-11-20"}
+	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/boletas", boleta), http.StatusUnprocessableEntity, "type", "urn:iris:problema:cliente_sin_confirmar")
+	b.exigir(b.apiClave(b.agente, http.MethodPost, ruta+"/promesas", "promesa-0", pr), http.StatusUnprocessableEntity, "type", "urn:iris:problema:cliente_sin_confirmar")
+	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/promesas/simular", pr), http.StatusUnprocessableEntity, "type", "urn:iris:problema:cliente_sin_confirmar")
+	b.exigir(b.api(b.supervisor, http.MethodPost, ruta+"/confirmar-cliente", map[string]any{"version": ver(b.conv(num))}), http.StatusOK)
+	if b.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'conversacion.cliente_confirmado' AND payload->>'conversacion_id' = $1`, cid(c)) != 1 {
+		t.Fatal("conversacion.cliente_confirmado")
+	}
+	// Simular con un servicio de otro cliente: no.
+	ajeno := b.cliente(1, "5512-0003")
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_clientes (id, empresa_id, nombre, sincronizado_en, empresas) VALUES ($1, 1, 'Otro', now(), '{1}')
+		ON CONFLICT DO NOTHING`, ajeno); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_servicios (id, empresa_id, cliente_id, sincronizado_en) VALUES ($1, 1, $2, now())`, ajeno*10, ajeno); err != nil {
+		t.Fatal(err)
+	}
+	if s := b.api(b.agente, http.MethodPost, ruta+"/promesas/simular", map[string]any{"servicioId": ajeno * 10, "venceEl": "2026-11-20"}); s.status != http.StatusNotFound && s.status != http.StatusUnprocessableEntity {
+		t.Fatalf("simular con servicio ajeno: %d %v", s.status, s.cuerpo)
+	}
+	// Un «JPEG» que no lo es (los bytes mandan): no es boleta.
+	b.webhook(b.mensajeCliente(num, "wamid.i2", `"type":"image","image":{"id":"boletatexto","mime_type":"image/jpeg"}`))
+	ms = b.mensajes(b.supervisor, cid(c))
+	if err := b.m.DescargarMedio(b.ctx, uuid.MustParse(ms[len(ms)-1]["id"].(string)), false); err != nil {
+		t.Fatal(err)
+	}
+	ms = b.mensajes(b.supervisor, cid(c))
+	falso := ms[len(ms)-1]["adjunto"].(map[string]any)
+	if falso["mime"] == "image/jpeg" {
+		t.Fatalf("el tipo sale de los bytes: %v", falso)
+	}
+	otraBoleta := map[string]any{"adjuntoId": falso["id"], "metodo": "deposito", "cuentaBancariaId": 3, "referencia": "654321", "monto": "250.00", "fechaDeposito": "2026-11-04"}
+	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/boletas", otraBoleta), http.StatusUnprocessableEntity, "type", "urn:iris:problema:adjunto_no_listo")
 	r = b.api(b.agente, http.MethodPost, ruta+"/boletas", boleta)
 	b.exigir(r, http.StatusCreated, "estado", "por_enviar")
 	if err := b.m.DespacharBoletas(b.ctx, b.bd); err != nil {
@@ -768,7 +845,6 @@ func TestConvBoletaYPromesa(t *testing.T) {
 	}
 
 	// Promesa: Argos decide; repetir con la misma clave no pide otra.
-	pr := map[string]any{"servicioId": cliente * 10, "venceEl": "2026-11-20"}
 	r = b.apiClave(b.agente, http.MethodPost, ruta+"/promesas", "promesa-1", pr)
 	b.exigir(r, http.StatusCreated, "estado", "activa")
 	pedidas := len(b.argos.claves)
