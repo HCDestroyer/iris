@@ -331,3 +331,71 @@ export function accionesRapidas(permisos: readonly string[] | undefined, tomarLi
         libres: tomarLibres && (permisos?.includes(PERMISO_TOMAR_ORDEN) ?? false),
     };
 }
+
+// ---------------------------------------------------------------------------------------------
+// Lecturas con señal (agenda, «Por recibir», «Mi bodega»)
+// ---------------------------------------------------------------------------------------------
+
+/** Pide la lectura; `otraVez` al volver la señal (ver `lecturaUnica`). */
+export type CargarLectura = (opciones?: { otraVez?: boolean }) => Promise<void>;
+
+export interface LecturaUnica {
+    cargar: CargarLectura;
+    /**
+     * Al desmontar o cerrar sesión: no lanza nada más (ni la repetición pendiente) y `vigente()`
+     * pasa a `false` para que lo que llegue tarde no se aplique.
+     */
+    detener: () => void;
+}
+
+/**
+ * Una lectura a la vez: pedirla mientras otra corre devuelve la que corre (o la repetición ya
+ * pedida). Con `otraVez` (al volver la señal) no se conforma con la que corre, que pudo empezar un
+ * instante antes de que el teléfono supiera que no había señal y está condenada: al terminar esa,
+ * se lee una vez más. `correr` recibe `vigente`: falso tras `detener()`.
+ */
+export function lecturaUnica(correr: (vigente: () => boolean) => Promise<void>): LecturaUnica {
+    let enCurso: Promise<void> | null = null;
+    let repetir: Promise<void> | null = null;
+    let detenida = false;
+    const vigente = () => !detenida;
+    const lanzar = (): Promise<void> => {
+        const p = correr(vigente).finally(() => {
+            if (enCurso === p) {
+                enCurso = null;
+            }
+        });
+        enCurso = p;
+        return p;
+    };
+    const cargar: CargarLectura = (opciones) => {
+        if (detenida) {
+            return Promise.resolve();
+        }
+        if (repetir) {
+            // Ya hay una repetición esperando: es la que deja todo al día.
+            return repetir;
+        }
+        if (!enCurso) {
+            return lanzar();
+        }
+        if (!opciones?.otraVez) {
+            return enCurso;
+        }
+        // Una sola repetición, sin importar cuántas veces la pidan mientras tanto.
+        const r: Promise<void> = enCurso
+            .catch(() => undefined)
+            .then(() => {
+                repetir = null;
+                return detenida ? undefined : lanzar();
+            });
+        repetir = r;
+        return r;
+    };
+    return {
+        cargar,
+        detener: () => {
+            detenida = true;
+        },
+    };
+}
