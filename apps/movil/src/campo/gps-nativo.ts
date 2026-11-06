@@ -82,3 +82,12 @@ export async function posicionSiPermitida(esperaMs = 8000): Promise<Posicion | n
         return null;
     }
 }
+
+/** ¿Ya dio el permiso de ubicación? (nunca pregunta). Para «Compartir mi ubicación» en el chat. */
+export async function ubicacionPermitida(): Promise<boolean> {
+    try {
+        return (await Location.getForegroundPermissionsAsync()).granted;
+    } catch {
+        return false;
+    }
+}

@@ -2,7 +2,7 @@ import path from "node:path";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import type { Schema } from "@iris/contratos";
 import { conSesionTecnico, problema, simularApiCampo, type ApiCampo } from "./api-campo";
-import { avisoCampo, empezarTrabajo, irAPaso } from "./ayudas-campo";
+import { abrirPanelUbicacion, avisoCampo, empezarTrabajo, irAPaso } from "./ayudas-campo";
 import { ordenesDelDia, TECNICO } from "./datos-campo";
 
 /*
@@ -72,7 +72,7 @@ test.describe("en el teléfono", () => {
         await expect(indicador(page)).toHaveText("Ubicación activa · En turno hasta 12:00");
         await expect.poll(() => puntosEnviados(api).length).toBe(1);
 
-        await indicador(page).click();
+        await abrirPanelUbicacion(page);
         const panel = page.getByRole("dialog", { name: "Ubicación en vivo" });
         await expect(panel.getByTestId("turno-agenda")).toHaveText("Tu turno de hoy en la agenda: 08:00–12:00, 13:00–17:00.");
 
@@ -184,7 +184,7 @@ test.describe("en el teléfono", () => {
         await expect(indicador(page)).toHaveText("Fuera de turno");
         await irA(page, GT("09:30"));
         await expect(indicador(page)).toHaveText("Fuera de turno");
-        await indicador(page).click();
+        await abrirPanelUbicacion(page);
         await expect(page.getByTestId("turno-agenda")).toHaveText("Hoy no tienes turno en la agenda: el turno lo inicias tú, o «En camino» y «Llegué».");
         expect(api.intentosPosiciones).toHaveLength(0);
     });
@@ -220,7 +220,7 @@ test("capturas del turno de la agenda", async ({ page, context, baseURL }, info)
     await abrirCampo(page);
     await expect(indicador(page)).toHaveText("Ubicación activa · En turno hasta 12:00");
     await page.screenshot({ path: nombre("01-en-turno") });
-    await indicador(page).click();
+    await abrirPanelUbicacion(page);
     await expect(page.getByTestId("turno-agenda")).toBeVisible();
     await page.screenshot({ path: nombre("02-panel") });
 });

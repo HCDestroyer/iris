@@ -642,7 +642,8 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
                     api.firmaTrasladoNoLlega = Math.max(0, api.firmaTrasladoNoLlega - 1);
                     return error(route, problema("traslado_no_encontrado", 404, "Traslado no encontrado"));
                 }
-            } else if (api.ordenes.get(Number(e.entidadId))?.tecnicoId !== usuario.id) {
+            } else if (e.entidad !== "chat_conversacion" && api.ordenes.get(Number(e.entidadId))?.tecnicoId !== usuario.id) {
+                // Las fotos del chat (`chat_conversacion`) las valida el chat al enviar el mensaje (e2e/api-chat.ts).
                 return error(route, problema("no_encontrado", 404, "No existe o no puedes usar su entidad"));
             }
             const previa = api.subidas.get(e.id);
@@ -677,7 +678,7 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
         const subida = /^\/api\/v1\/adjuntos\/([^/]+)\/subida$/.exec(ruta);
         if (subida) {
             const s = api.subidas.get(subida[1] ?? "");
-            if (!s || (s.entrada.entidad !== "traslado" && api.ordenes.get(Number(s.entrada.entidadId))?.tecnicoId !== usuario.id)) {
+            if (!s || (s.entrada.entidad !== "traslado" && s.entrada.entidad !== "chat_conversacion" && api.ordenes.get(Number(s.entrada.entidadId))?.tecnicoId !== usuario.id)) {
                 return error(route, problema("no_encontrado", 404, "No existe"));
             }
             if (metodo === "HEAD") {

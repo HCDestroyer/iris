@@ -8,6 +8,8 @@ import { render, screen } from "@testing-library/react-native";
 import { ProveedorCampo, type ServiciosNativos, type Vista } from "../src/campo/contexto";
 import { ProveedorAgenda } from "../src/campo/agenda";
 import { ProveedorInventario } from "../src/campo/inventario";
+import type { MotorChat } from "@iris/sync/chat";
+import { ProveedorChat } from "../src/campo/chat";
 import { ProveedorLibres } from "../src/campo/libres";
 import { Marco } from "../src/pantallas/Marco";
 import type { SesionCampo } from "../src/sesion/sesion";
@@ -152,6 +154,8 @@ export interface OpcionesArnes {
     enLinea?: () => boolean;
     /** Otra sesión (p. ej. sin `ordenes.registrar`). */
     sesion?: SesionCampo;
+    /** Chat interno (con `chat.ver`); sin él la app no ofrece el chat. */
+    chat?: MotorChat;
     /** Margen seguro del teléfono (barra de estado, muesca); sin él, 0 en todos los lados. */
     margen?: { top: number; bottom: number; left: number; right: number };
     /** «Cerrar sesión» de la app (por defecto, no hace nada). */
@@ -168,7 +172,13 @@ export async function abrirCampo(m: Montaje, o: OpcionesArnes = {}) {
                 <ProveedorInventario inventario={inventario}>
                     <ProveedorAgenda leer={inventario.agenda}>
                         <ProveedorLibres api={libres}>
-                            <Marco empresa={null} alSesionVencida={jest.fn()} />
+                            {o.chat ? (
+                                <ProveedorChat chat={o.chat}>
+                                    <Marco empresa={null} alSesionVencida={jest.fn()} />
+                                </ProveedorChat>
+                            ) : (
+                                <Marco empresa={null} alSesionVencida={jest.fn()} />
+                            )}
                         </ProveedorLibres>
                     </ProveedorAgenda>
                 </ProveedorInventario>
@@ -191,3 +201,7 @@ export const avisoArriba = () => {
 };
 
 export const tipos = (m: Montaje) => m.motor.obtenerEstado().cola.map((op) => op.tipo);
+
+/** La nube de sincronización del encabezado (conexión y envíos): su nombre accesible dice el estado. */
+export const nube = () => screen.getByTestId("indicador-sincronizacion");
+export const TODO_ENVIADO = "Todo enviado, toca para ver el estado";

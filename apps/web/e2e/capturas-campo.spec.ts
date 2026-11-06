@@ -2,7 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import { aceptarUbicacion, conSesionTecnico, simularApiCampo } from "./api-campo";
-import { elegirMaterial, empezarTrabajo, guardarAlSalirDelCampo, irAPaso, pestanaCampo } from "./ayudas-campo";
+import { abrirPorEnviar, elegirMaterial, empezarTrabajo, guardarAlSalirDelCampo, irAPaso, pestanaCampo } from "./ayudas-campo";
 
 // Capturas de la app de campo para revisión visual: IRIS_CAPTURAS=<carpeta> (por defecto
 // test-results/capturas). Teléfono (390 px) y escritorio (1280 px), claro y oscuro.
@@ -26,7 +26,7 @@ test("capturas de la app de campo", async ({ page, context, baseURL }, info) => 
 
     await page.goto("/campo");
     await expect(page.getByRole("link", { name: /OT-000101/ })).toBeVisible();
-    await expect(page.getByRole("status", { name: "En línea, todo enviado" })).toBeVisible();
+    await expect(page.locator('[data-slot="barra-conexion"] [data-indicador="sincronizacion"]')).toHaveAccessibleName("Todo enviado, toca para ver el estado");
     await page.screenshot({ path: nombre("01-lista"), fullPage: true });
 
     await page.getByRole("link", { name: /OT-000101/ }).click();
@@ -60,7 +60,7 @@ test("capturas de la app de campo", async ({ page, context, baseURL }, info) => 
     await expect(page.getByTestId("falta-para-firmar")).toContainText("Registra el equipo instalado.");
     await page.screenshot({ path: nombre("04-cerrar-falta") });
 
-    await page.getByRole("button", { name: /pendientes por enviar/ }).click();
+    await abrirPorEnviar(page);
     await expect(page.getByRole("list", { name: "Cola de envío" })).toBeVisible();
     await page.screenshot({ path: nombre("05-por-enviar"), fullPage: true });
 
@@ -72,7 +72,9 @@ test("capturas de la app de campo", async ({ page, context, baseURL }, info) => 
     await page.getByRole("link", { name: /OT-000103/ }).click();
     await empezarTrabajo(page);
     await page.getByRole("button", { name: "En camino" }).click();
-    await page.getByRole("button", { name: /rechazado/ }).click();
+    // El rechazo vuelve la nube error; su hoja lleva a «Por enviar».
+    await expect(page.locator('[data-slot="barra-conexion"] [data-indicador="sincronizacion"]')).toHaveAttribute("data-tono", "error", { timeout: 15_000 });
+    await abrirPorEnviar(page);
     await expect(page.getByTestId("rechazo")).toBeVisible({ timeout: 15_000 });
     await page.screenshot({ path: nombre("06-rechazo"), fullPage: true });
 });

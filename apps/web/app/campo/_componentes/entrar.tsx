@@ -10,6 +10,7 @@ import { Controller, useForm } from "react-hook-form";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi } from "@/lib/api/errores";
 import { cabecerasCampo } from "@/lib/campo/app";
+import { borrarCachesChat } from "@/lib/campo/chat";
 import { olvidarUsuarioRecordado, usuarioRecordado } from "@/lib/campo/sesion";
 import { requiereCambio, rutaCambiarContrasena } from "@/lib/cuenta/sesion";
 import { esquemaCodigoMFA, esquemaInicioSesion, type DatosCodigoMFA, type DatosInicioSesion } from "@/lib/esquemas";
@@ -216,6 +217,8 @@ export function EntrarCampo({ alEntrar, motivo = null, sinConexion = null }: Pro
                                 className="h-12 shrink-0 px-2 text-primary md:h-12"
                                 onClick={() => {
                                     olvidarUsuarioRecordado();
+                                    // La caché del chat de este navegador también se va (no la cola).
+                                    void borrarCachesChat().catch(() => undefined);
                                     setRecordado(null);
                                     setAviso(null);
                                     credenciales.reset({ correo: "", contrasena: "" });

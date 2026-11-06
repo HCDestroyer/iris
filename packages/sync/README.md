@@ -183,3 +183,24 @@ bucle con espera y sesión, aislamiento por usuario y empresa en IndexedDB y mig
 `http.test.ts` (transporte real con respuestas tipadas del OpenAPI) y `almacen-sqlite.test.ts`
 (adaptador SQLite sobre `node:sqlite`: reabrir el archivo, orden de la cola, `ROLLBACK`,
 escrituras concurrentes sin intercalarse y motor + posiciones de punta a punta).
+
+## Chat interno (`@iris/sync/chat`)
+
+`MotorChat` (`contratos/chat.md` §5), compartido por la PWA y la app nativa:
+
+- **Cola de salida** (`SalidaChat`): cada mensaje con id uuid v7 y `creado_en` al escribirlo, guardado
+  antes de mostrarse («enviando» / «se envía al tener señal»); sale uno a uno en orden de creación.
+  201/200 lo reemplaza por el del servidor (con `seq`). No reintenta 403, 404, 409 ni 422 («no
+  enviado», con `reintentar` — id nuevo si el id ya se usó — o `descartar`); 429 espera `Retry-After`;
+  5xx y sin red, espera exponencial con el mismo id; 401 detiene todo. Eliminar se encola igual
+  (15 min por `enviado_en`); un 422 `plazo_vencido` avisa y deja el mensaje.
+- **Fotos:** alta `POST /adjuntos` (`chat_conversacion`), el mensaje con `adjunto_id` y luego la
+  subida tus; los bytes se borran al terminar.
+- **Caché** de conversaciones y mensajes (los últimos 300 por conversación), ordenados por `seq`;
+  todo se aplica por id. `olvidarCache` (cerrar sesión, «¿No eres tú?») y el 410 la borran; la cola
+  queda.
+- **Tiempo real** solo en primer plano (`primerPlano` / `segundoPlano`): flujo SSE si se da
+  `abrirFlujo` (al cerrarse, un sondeo pone al día y descubre 410/401/403; fallas seguidas → sondeo con
+  espera) o sondeo de `/cambios` cada 12 s. Nunca dos flujos a la vez.
+- Lógica de pantalla en `chat/vista.ts` (horas en Guatemala, separadores, «visto», vista previa,
+  enlaces seguros en texto plano). Nunca registra el texto de un mensaje.

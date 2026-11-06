@@ -51,7 +51,8 @@ const filas = (page: Page, base: string, tabla: string) =>
 async function abrirComo(page: Page, nombre: string) {
     await page.goto("/campo");
     await expect(page.getByRole("heading", { name: "Mis órdenes de hoy" })).toBeVisible();
-    await expect(page.getByText(new RegExp(`^${nombre}`))).toBeVisible();
+    // Quién está: «Yo · <nombre>» en la isla (el encabezado ya no repite el nombre).
+    await expect(page.getByRole("navigation", { name: "Secciones de la app" }).getByRole("link", { name: `Yo · ${nombre}` })).toBeVisible();
     // Shell en caché antes de quitar la señal (el service worker toma la página con clientsClaim).
     await page.waitForFunction(() => navigator.serviceWorker.controller !== null);
 }
@@ -85,14 +86,14 @@ test("la cola de A nunca se envía con la sesión de B, no se pierde y A no ve �
     await abrirComo(page, TECNICO_B.nombre);
     await expect(page.getByRole("link", { name: /OT-000201/ })).toBeVisible();
     await expect(page.getByRole("link", { name: /OT-000101/ })).toHaveCount(0);
-    await expect(page.getByRole("status", { name: "En línea, todo enviado" })).toBeVisible();
+    await expect(page.locator('[data-slot="barra-conexion"] [data-indicador="sincronizacion"]')).toHaveAccessibleName("Todo enviado, toca para ver el estado");
     expect(await filas(page, BASE_A, "operaciones")).toBe(2);
     expect(api.lotes).toHaveLength(0);
 
     // Vuelve Tomás: su cola sale con su sesión.
     await conSesionTecnico(context, baseURL ?? "", TECNICO);
     await abrirComo(page, TECNICO.nombre);
-    await expect(page.getByRole("status", { name: "En línea, todo enviado" })).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-slot="barra-conexion"] [data-indicador="sincronizacion"]')).toHaveAccessibleName("Todo enviado, toca para ver el estado", { timeout: 15_000 });
     expect(api.lotesDe.every((c) => c === TECNICO.correo)).toBe(true);
     expect(api.ordenes.get(101)?.estado).toBe("en_camino");
     expect(api.ordenes.get(101)?.notas?.map((n) => n.texto)).toEqual(["Nota de Tomás"]);
@@ -122,8 +123,9 @@ test("cerrar sesión sin señal con pendientes: avisa, conserva solo la cola y n
     await empezarTrabajo(page);
     await page.getByRole("button", { name: "En camino" }).click();
     await declinarUbicacion(page);
-    // En un paso de la orden no hay isla: «Yo» desde la cuenta del encabezado.
-    await page.getByRole("button", { name: "Tu cuenta" }).first().click();
+    // En un paso de la orden no hay isla: al resumen y de ahí «Yo».
+    await alResumen(page);
+    await pestanaCampo(page, "Yo");
     await page.getByRole("button", { name: "Cerrar sesión" }).click();
     const aviso = page.getByText("Tienes 1 cambio sin enviar");
     await expect(aviso).toBeVisible();
@@ -154,7 +156,7 @@ test("cerrar sesión sin señal con pendientes: avisa, conserva solo la cola y n
     // Al volver a entrar (la API borró la cookie al cerrar), la cola conservada se envía.
     await conSesionTecnico(context, baseURL ?? "", TECNICO);
     await abrirComo(page, TECNICO.nombre);
-    await expect(page.getByRole("status", { name: "En línea, todo enviado" })).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-slot="barra-conexion"] [data-indicador="sincronizacion"]')).toHaveAccessibleName("Todo enviado, toca para ver el estado", { timeout: 15_000 });
     expect(api.ordenes.get(101)?.estado).toBe("en_camino");
 });
 

@@ -18,6 +18,10 @@
             "types": "./src/almacen-sqlite.ts",
             "default": "./src/almacen-sqlite.ts"
         },
+        "./chat": {
+            "types": "./src/chat/index.ts",
+            "default": "./src/chat/index.ts"
+        },
         "./campo": {
             "types": "./src/campo/index.ts",
             "default": "./src/campo/index.ts"

@@ -10,6 +10,7 @@
 import type { Almacen, CambiosTabla, ContenidoAlmacen, LoteEscritura } from "./almacen";
 import { META_INICIAL, type AdjuntoLocal, type MetaSync, type OperacionLocal, type OrdenLocal } from "./modelo";
 import type { AlmacenPosiciones, CambiosPosiciones, PosicionLocal } from "./posiciones";
+import { META_CHAT_INICIAL, type AlmacenChat, type ContenidoChat, type ConversacionChat, type LoteChat, type MensajeChat, type MetaChat, type SalidaChat } from "./chat/tipos";
 
 /** Valores que se enlazan a una sentencia (los mismos que acepta `expo-sqlite`). */
 export type ValorSqlite = string | number | null | Uint8Array;
@@ -26,7 +27,7 @@ export interface ConexionSqlite {
 export const ESPERA_OCUPADA_MS = 5000;
 
 /** Versión del esquema (`PRAGMA user_version`). Un cambio de forma = otra versión con su migración. */
-export const VERSION_ESQUEMA_SQLITE = 1;
+export const VERSION_ESQUEMA_SQLITE = 2;
 
 const ESQUEMA = `
 CREATE TABLE IF NOT EXISTS operaciones (id TEXT PRIMARY KEY NOT NULL, secuencia INTEGER NOT NULL, orden_id INTEGER NOT NULL, json TEXT NOT NULL);
@@ -36,6 +37,11 @@ CREATE TABLE IF NOT EXISTS adjuntos (id TEXT PRIMARY KEY NOT NULL, orden_id INTE
 CREATE TABLE IF NOT EXISTS bytes (id TEXT PRIMARY KEY NOT NULL, datos BLOB NOT NULL);
 CREATE TABLE IF NOT EXISTS meta (clave TEXT PRIMARY KEY NOT NULL, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS posiciones (ms INTEGER PRIMARY KEY NOT NULL, json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS chat_salida (id TEXT PRIMARY KEY NOT NULL, secuencia INTEGER NOT NULL, json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS chat_conversaciones (id INTEGER PRIMARY KEY NOT NULL, json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS chat_mensajes (id TEXT PRIMARY KEY NOT NULL, conversacion_id INTEGER NOT NULL, json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS chat_bytes (id TEXT PRIMARY KEY NOT NULL, datos BLOB NOT NULL);
+CREATE TABLE IF NOT EXISTS chat_meta (clave TEXT PRIMARY KEY NOT NULL, json TEXT NOT NULL);
 `;
 
 interface FilaJson {
@@ -60,7 +66,7 @@ function aBytes(valor: unknown): Uint8Array {
     throw new Error("Columna de bytes ilegible");
 }
 
-export class AlmacenSqlite implements Almacen, AlmacenPosiciones {
+export class AlmacenSqlite implements Almacen, AlmacenPosiciones, AlmacenChat {
     private readonly db: ConexionSqlite;
     private cola: Promise<unknown> = Promise.resolve();
     private preparada: Promise<void> | null = null;
@@ -128,6 +134,53 @@ export class AlmacenSqlite implements Almacen, AlmacenPosiciones {
             for (const punto of cambios.poner ?? []) {
                 await this.db.runAsync("INSERT OR REPLACE INTO posiciones (ms, json) VALUES (?, ?)", [exigirClave(punto.ms, "posiciones"), JSON.stringify(punto)]);
             }
+        });
+    }
+
+    cargarChat(): Promise<ContenidoChat> {
+        return this.enFila(async () => {
+            const salida = await this.leerJson<SalidaChat>("SELECT json FROM chat_salida ORDER BY secuencia");
+            const conversaciones = await this.leerJson<ConversacionChat>("SELECT json FROM chat_conversaciones");
+            const mensajes = await this.leerJson<MensajeChat>("SELECT json FROM chat_mensajes");
+            const filas = await this.db.getAllAsync<{ clave: string; json: string }>("SELECT clave, json FROM chat_meta", []);
+            const meta: Record<string, unknown> = { ...structuredClone(META_CHAT_INICIAL) };
+            for (const fila of filas) {
+                meta[fila.clave] = JSON.parse(fila.json) as unknown;
+            }
+            return { salida, conversaciones, mensajes, meta: meta as unknown as MetaChat };
+        });
+    }
+
+    escribirChat(lote: LoteChat): Promise<void> {
+        return this.enTransaccion(async () => {
+            await this.aplicar("chat_salida", lote.salida, (s) => [s.id, s.secuencia], "id, secuencia");
+            await this.aplicar("chat_conversaciones", lote.conversaciones, (c) => [c.id], "id");
+            await this.aplicar("chat_mensajes", lote.mensajes, (m) => [m.id, m.conversacion_id], "id, conversacion_id");
+            for (const id of lote.bytes?.borrar ?? []) {
+                await this.db.runAsync("DELETE FROM chat_bytes WHERE id = ?", [id]);
+            }
+            for (const fila of lote.bytes?.poner ?? []) {
+                await this.db.runAsync("INSERT OR REPLACE INTO chat_bytes (id, datos) VALUES (?, ?)", [exigirClave(fila.id, "chat_bytes"), fila.datos]);
+            }
+            for (const [clave, valor] of Object.entries(lote.meta ?? {})) {
+                await this.db.runAsync("INSERT OR REPLACE INTO chat_meta (clave, json) VALUES (?, ?)", [clave, JSON.stringify(valor ?? null)]);
+            }
+        });
+    }
+
+    leerBytesChat(id: string): Promise<Uint8Array | null> {
+        return this.enFila(async () => {
+            const [fila] = await this.db.getAllAsync<{ datos: unknown }>("SELECT datos FROM chat_bytes WHERE id = ?", [id]);
+            return fila ? aBytes(fila.datos) : null;
+        });
+    }
+
+    /** Borra la caché del chat (conversaciones, mensajes y cursor); la cola de salida queda. */
+    borrarCacheChat(): Promise<void> {
+        return this.enTransaccion(async () => {
+            await this.db.runAsync("DELETE FROM chat_conversaciones", []);
+            await this.db.runAsync("DELETE FROM chat_mensajes", []);
+            await this.db.runAsync("DELETE FROM chat_meta WHERE clave IN ('cursor', 'cargadas')", []);
         });
     }
 

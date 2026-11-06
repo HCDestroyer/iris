@@ -85,7 +85,8 @@ test("encabezado: franja sólida bajo la barra de estado; la barra compacta es s
     expect(s.opacidad).toBe("1");
     // Fondo sólido del tema (sin alfa): el contenido no se ve a través.
     expect(s.fondo).toMatch(/^rgb\(\d+, \d+, \d+\)$/);
-    await expect(compacta.getByRole("button", { name: "Tu cuenta" })).toBeVisible();
+    await expect(compacta.getByRole("button", { name: "Buscar orden" })).toBeVisible();
+    await expect(compacta.locator('[data-slot="indicadores-compactos"] [data-indicador]')).toHaveCount(2);
     await captura(page, "02-encabezado-compacto", info.project.name);
     // Al bajar otra vez se va entera, sin quedar encima del contenido.
     await page.mouse.wheel(0, 400);
@@ -154,8 +155,11 @@ test("pasos: sin cambios no hay «Guardar»; con cambios, «Guardar y seguir» c
     await expect(avisoCampo(page)).toContainText("No se guardó «Potencia óptica»");
     await expect(page.getByRole("heading", { level: 1, name: "Checklist" })).toBeVisible();
     await expect(guardarSeguir).toBeVisible();
-    await avisoCampo(page).hover();
-    await avisoCampo(page).locator('[data-slot="toast-close"]').click();
+    // Si en ese momento entra otro aviso, se repite sobre el nuevo.
+    await expect(async () => {
+        await avisoCampo(page).hover({ timeout: 2_000 });
+        await avisoCampo(page).locator('[data-slot="toast-close"]').click({ timeout: 2_000 });
+    }).toPass({ timeout: 15_000 });
     await expect(avisoCampo(page)).toHaveCount(0);
 
     // Válido: guarda, avanza y confirma «Guardado» en la isla (sin aviso encima).
