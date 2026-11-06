@@ -45,8 +45,9 @@ export async function subirAdjunto(archivo: File, conversacionId: number): Promi
     await resolver(
         api().PATCH("/api/v1/adjuntos/{id}/subida", {
             params: { path: { id }, header: { "Tus-Resumable": "1.0.0", "Upload-Offset": 0 } },
-            body: datos as unknown as string,
-            bodySerializer: (b: unknown) => b as BodyInit,
+            // El OpenAPI declara el cuerpo como texto binario: van los bytes tal cual (como packages/sync).
+            body: "",
+            bodySerializer: () => datos,
             headers: { "Content-Type": "application/offset+octet-stream" },
         }),
     );
