@@ -3,6 +3,7 @@ package mensajeria
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -421,39 +422,69 @@ func (m *Modulo) tocarActividad(ctx context.Context, q *mensajeriabd.Queries, a 
 	return q.TocarActividad(ctx, mensajeriabd.TocarActividadParams{UsuarioID: a.usuario, Empresa: a.empresa, Ahora: m.ahora()})
 }
 
-// nuevoVencerDisponibilidad (mantenimiento, cada minuto): cierre de sesión, horario e inactividad.
-// Emite agente.disponibilidad_cambiada por agente sin fila de auditoría (alta frecuencia).
-func nuevoVencerDisponibilidad(m *Modulo) *auditoria.Caso[struct{}, int] {
-	return auditoria.Nuevo(auditoria.Caso[struct{}, int]{
-		Accion: "mensajeria.vencer_disponibilidad", Acceso: auditoria.Autenticado, AuditarExito: func(int) bool { return false },
-		Logica: func(ctx context.Context, t *auditoria.Tx, _ struct{}) (int, error) {
+// nuevoVencerDisponibilidad (mantenimiento, cada minuto): un agente que debe pasar a
+// no_disponible (cierre de sesión, horario o inactividad). Bloquea la fila y vuelve a calcular el
+// motivo con ella bloqueada: dos barridos a la vez no repiten la transición. Cada transición real
+// deja una fila de auditoría (actor sistema) y su evento; los latidos nunca.
+func nuevoVencerDisponibilidad(m *Modulo) *auditoria.Caso[int64, bool] {
+	return auditoria.Nuevo(auditoria.Caso[int64, bool]{
+		Accion: "mensajeria.vencer_disponibilidad", Acceso: auditoria.Autenticado, AuditarExito: func(ok bool) bool { return ok },
+		Logica: func(ctx context.Context, t *auditoria.Tx, id int64) (bool, error) {
 			q := mensajeriabd.New(t)
 			ahora := m.ahora()
-			fs, err := q.DisponiblesPorVencer(ctx, ahora)
+			f, err := q.DisponibilidadPorID(ctx, id)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return false, nil
+			}
 			if err != nil {
-				return 0, err
+				return false, err
 			}
-			n := 0
-			for _, x := range fs {
-				f, err := q.DisponibilidadPorID(ctx, x.ID)
-				if err != nil {
-					return n, err
-				}
-				if f.Estado != Disponible {
-					continue
-				}
-				if f, err = q.FijarDisponibilidad(ctx, mensajeriabd.FijarDisponibilidadParams{ID: f.ID, Estado: NoDisponible, Origen: x.Motivo, Desde: ahora,
-					UltimaActividad: f.UltimaActividad, SesionID: f.SesionID}); err != nil {
-					return n, err
-				}
-				if err := emitirDisponibilidad(t, f, Disponible); err != nil {
-					return n, err
-				}
-				n++
+			motivo, err := q.MotivoVencerDisponibilidad(ctx, mensajeriabd.MotivoVencerDisponibilidadParams{ID: id, Ahora: ahora})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return false, nil
 			}
-			return n, nil
+			if err != nil {
+				return false, err
+			}
+			e := int64(0)
+			if f.EmpresaID != nil {
+				e = *f.EmpresaID
+			}
+			t.FijarEmpresa(e)
+			t.FijarEntidad("disponibilidad", f.ID)
+			antes := f
+			if f, err = q.FijarDisponibilidad(ctx, mensajeriabd.FijarDisponibilidadParams{ID: f.ID, Estado: NoDisponible, Origen: motivo, Desde: ahora,
+				UltimaActividad: f.UltimaActividad, SesionID: f.SesionID}); err != nil {
+				return false, err
+			}
+			t.RegistrarCambios("disponibilidad", f.ID, map[string]any{"estado": antes.Estado, "origen": antes.Origen},
+				map[string]any{"estado": f.Estado, "origen": f.Origen})
+			t.Anotar(map[string]any{"usuario_id": f.UsuarioID, "motivo": motivo})
+			return true, emitirDisponibilidad(t, f, antes.Estado)
 		},
 	})
+}
+
+// vencerDisponibilidades corre el barrido: un caso por agente. Un error en uno queda en el log y
+// sigue con el siguiente.
+func (m *Modulo) vencerDisponibilidades(ctx context.Context, bd mensajeriabd.DBTX) int {
+	fs, err := mensajeriabd.New(bd).DisponiblesPorVencer(ctx, m.ahora())
+	if err != nil {
+		slog.ErrorContext(ctx, "mensajeria: leer disponibilidades por vencer", "err", err)
+		return 0
+	}
+	n := 0
+	for _, x := range fs {
+		ok, err := m.vencerDisp.Ejecutar(ctx, x.ID)
+		if err != nil {
+			slog.ErrorContext(ctx, "mensajeria: vencer disponibilidad", "disponibilidad_id", x.ID, "err", err)
+			continue
+		}
+		if ok {
+			n++
+		}
+	}
+	return n
 }
 
 // Ajustes de la bandeja --------------------------------------------------------------------------

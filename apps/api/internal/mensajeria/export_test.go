@@ -52,11 +52,11 @@ func (m *Modulo) DespacharBoletas(ctx context.Context, bd nucleo.BD) error {
 	return m.despacharBoletas(ctx, bd)
 }
 
-func (m *Modulo) VencerDisponibilidad(ctx context.Context) (int, error) {
-	return m.vencerDisp.Ejecutar(ctx, struct{}{})
+func (m *Modulo) VencerDisponibilidad(ctx context.Context, bd nucleo.BD) int {
+	return m.vencerDisponibilidades(ctx, bd)
 }
 
-func (m *Modulo) DispararBots(ctx context.Context, bd nucleo.BD) (int, error) {
+func (m *Modulo) DispararBots(ctx context.Context, bd nucleo.BD) int {
 	return m.dispararBots(ctx, bd)
 }
 

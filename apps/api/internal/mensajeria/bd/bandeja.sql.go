@@ -998,6 +998,34 @@ func (q *Queries) LatidoDisponibilidad(ctx context.Context, arg LatidoDisponibil
 	return i, err
 }
 
+const motivoVencerDisponibilidad = `-- name: MotivoVencerDisponibilidad :one
+WITH r AS (SELECT $2::timestamptz AS ahora)
+SELECT (CASE WHEN s.id IS NULL OR s.revocada_en IS NOT NULL OR s.expira_en <= r.ahora OR NOT u.activo THEN 'cierre_sesion'
+          WHEN d.horario_hasta IS NOT NULL AND d.horario_hasta <= r.ahora THEN 'horario'
+          ELSE 'inactividad' END)::text AS motivo
+FROM r, mensajeria.disponibilidad d
+JOIN nucleo.usuarios u ON u.id = d.usuario_id
+LEFT JOIN nucleo.sesiones s ON s.id = d.sesion_id
+LEFT JOIN mensajeria.ajustes_bandeja a ON coalesce(a.empresa_id, 0) = coalesce(d.empresa_id, 0)
+WHERE d.id = $1 AND d.estado = 'disponible'
+  AND (s.id IS NULL OR s.revocada_en IS NOT NULL OR s.expira_en <= r.ahora OR NOT u.activo
+       OR (d.horario_hasta IS NOT NULL AND d.horario_hasta <= r.ahora)
+       OR d.ultima_actividad <= r.ahora - make_interval(mins => coalesce(a.minutos_inactividad, 15)))
+`
+
+type MotivoVencerDisponibilidadParams struct {
+	ID    int64
+	Ahora time.Time
+}
+
+// La misma regla para una fila (ya bloqueada): sin filas si ya no debe pasar a no_disponible.
+func (q *Queries) MotivoVencerDisponibilidad(ctx context.Context, arg MotivoVencerDisponibilidadParams) (string, error) {
+	row := q.db.QueryRow(ctx, motivoVencerDisponibilidad, arg.ID, arg.Ahora)
+	var motivo string
+	err := row.Scan(&motivo)
+	return motivo, err
+}
+
 const supervisoresDeColas = `-- name: SupervisoresDeColas :many
 
 

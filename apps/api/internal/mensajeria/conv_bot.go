@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strconv"
 	"strings"
@@ -297,7 +298,11 @@ func (m *Modulo) empezarEspera(ctx context.Context, t *auditoria.Tx, q *mensajer
 		return err
 	}
 	if puede {
-		if _, err := m.mensajeAutomatico(ctx, t, c, bot.Saludo, AutomaticoBot); err != nil {
+		msg, err := m.mensajeAutomatico(ctx, t, c, bot.Saludo, AutomaticoBot)
+		if err != nil {
+			return err
+		}
+		if err := m.auditarRespuestaBot(ctx, *c, "saludo_sin_disponibles", &msg); err != nil {
 			return err
 		}
 	}
@@ -356,7 +361,11 @@ func (m *Modulo) respuestaMenu(ctx context.Context, t *auditoria.Tx, c *mensajer
 	if opcion == 0 {
 		if *c.BotMenu == menuEsperando {
 			c.BotMenu = nombrePtr(menuRepetido)
-			if _, err := m.mensajeAutomatico(ctx, t, c, "No entendí tu respuesta.\n\n"+textoMenu(bot), AutomaticoBot); err != nil {
+			msg, err := m.mensajeAutomatico(ctx, t, c, "No entendí tu respuesta.\n\n"+textoMenu(bot), AutomaticoBot)
+			if err != nil {
+				return err
+			}
+			if err := m.auditarRespuestaBot(ctx, *c, "menu_repetido", &msg); err != nil {
 				return err
 			}
 		} else {
@@ -426,6 +435,9 @@ func (m *Modulo) respuestaMenu(ctx context.Context, t *auditoria.Tx, c *mensajer
 	if err := guardarBot(ctx, q, *c); err != nil {
 		return err
 	}
+	if err := m.auditarRespuestaBot(ctx, *c, "menu_elegido", nil); err != nil {
+		return err
+	}
 	if err := t.Emitir("conversacion.menu_elegido", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID, "opcion": opcion,
 		"texto": o.Texto, "de_cola_id": anterior, "a_cola_id": c.ColaID, "etiquetas": puestas}); err != nil {
 		return err
@@ -469,7 +481,8 @@ func (m *Modulo) contestarConMenu(ctx context.Context, t *auditoria.Tx, c *mensa
 // la resolvieron o ya no vence, no hace nada (idempotente).
 func nuevoDispararBot(m *Modulo) *auditoria.Caso[int64, bool] {
 	return auditoria.Nuevo(auditoria.Caso[int64, bool]{
-		Accion: "mensajeria.bot_conversacion", Acceso: auditoria.Autenticado, AuditarExito: func(bool) bool { return false },
+		// Cada vez que el bot contesta por un temporizador queda una fila (actor sistema).
+		Accion: "mensajeria.bot_conversacion", Acceso: auditoria.Autenticado, AuditarExito: func(ok bool) bool { return ok },
 		Logica: func(ctx context.Context, t *auditoria.Tx, id int64) (bool, error) {
 			q := mensajeriabd.New(t)
 			c, err := q.ConversacionClienteParaActualizar(ctx, id)
@@ -521,6 +534,7 @@ func nuevoDispararBot(m *Modulo) *auditoria.Caso[int64, bool] {
 				}
 			}
 			c.BotAtendioEn = &ahora
+			t.Anotar(map[string]any{"motivo": motivo, "mensaje_id": mensaje})
 			if err := m.sistema(ctx, t, &c, EventoSistema{Tipo: "bot_atendio", Detalle: &motivo, Minutos: &minutos}); err != nil {
 				return false, err
 			}
@@ -536,21 +550,59 @@ func nuevoDispararBot(m *Modulo) *auditoria.Caso[int64, bool] {
 	})
 }
 
-// dispararBots corre los temporizadores vencidos hasta ahora (lo llama el mantenimiento).
-func (m *Modulo) dispararBots(ctx context.Context, bd mensajeriabd.DBTX) (int, error) {
+// dispararBots corre los temporizadores vencidos hasta ahora (lo llama el mantenimiento). Un
+// error en una conversación queda en el log y sigue con la siguiente.
+func (m *Modulo) dispararBots(ctx context.Context, bd mensajeriabd.DBTX) int {
 	ids, err := mensajeriabd.New(bd).BotVencidos(ctx, m.ahora())
 	if err != nil {
-		return 0, err
+		slog.ErrorContext(ctx, "mensajeria: leer temporizadores del bot", "err", err)
+		return 0
 	}
 	n := 0
 	for _, id := range ids {
 		ok, err := m.dispararBot.Ejecutar(ctx, id)
 		if err != nil {
-			return n, err
+			slog.ErrorContext(ctx, "mensajeria: temporizador del bot", "conversacion_id", id, "err", err)
+			continue
 		}
 		if ok {
 			n++
 		}
 	}
-	return n, nil
+	return n
+}
+
+// botAuditado es una respuesta del bot fuera del temporizador (saludo inmediato, menú de fuera de
+// horario, menú repetido o elegido): una fila de auditoría como actor sistema.
+type botAuditado struct {
+	ConversacionID int64   `json:"conversacion_id"`
+	EmpresaID      *int64  `json:"empresa_id"`
+	Motivo         string  `json:"motivo"`
+	MensajeID      *string `json:"mensaje_id"`
+}
+
+func nuevoAuditarBot() *auditoria.Caso[botAuditado, struct{}] {
+	return auditoria.Nuevo(auditoria.Caso[botAuditado, struct{}]{
+		Accion: "mensajeria.bot_respondio", Acceso: auditoria.Autenticado,
+		Logica: func(_ context.Context, t *auditoria.Tx, in botAuditado) (struct{}, error) {
+			e := int64(0)
+			if in.EmpresaID != nil {
+				e = *in.EmpresaID
+			}
+			t.FijarEmpresa(e)
+			t.FijarEntidad("conversacion", in.ConversacionID)
+			return struct{}{}, nil
+		},
+	})
+}
+
+// auditarRespuestaBot deja la fila (en la misma transacción, como caso anidado).
+func (m *Modulo) auditarRespuestaBot(ctx context.Context, c mensajeriabd.MensajeriaConversacion, motivo string, msg *mensajeriabd.MensajeriaConversacionMensaje) error {
+	in := botAuditado{ConversacionID: c.ID, EmpresaID: c.EmpresaID, Motivo: motivo}
+	if msg != nil {
+		id := msg.ID.String()
+		in.MensajeID = &id
+	}
+	_, err := m.auditarBot.Ejecutar(ctx, in)
+	return err
 }

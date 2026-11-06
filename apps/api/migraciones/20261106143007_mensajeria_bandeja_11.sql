@@ -29,8 +29,8 @@ ALTER TABLE mensajeria.canales ADD COLUMN bot jsonb NOT NULL DEFAULT '{}' CHECK 
 -- horario como saludo.
 UPDATE mensajeria.canales SET bot = jsonb_build_object(
     'activo', false, 'atiende', 'bot', 'minutosSinConfirmacion', 30, 'minutosSinDisponibles', 3,
-    'saludo', coalesce(nullif(btrim(fuera_horario->>'mensaje'), ''),
-        'Gracias por escribir. En este momento todos nuestros agentes están ocupados; te respondemos en cuanto se libere uno.'),
+    'saludo', left(coalesce(nullif(btrim(fuera_horario->>'mensaje'), ''),
+        'Gracias por escribir. En este momento todos nuestros agentes están ocupados; te respondemos en cuanto se libere uno.'), 1024),
     'menu', '[]'::jsonb);
 
 -- Espera de una conversación sin asignar: cuándo empezó el aviso o el bot (una vez por espera),

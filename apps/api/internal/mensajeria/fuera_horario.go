@@ -138,6 +138,9 @@ func (m *Modulo) responderFueraDeHorario(ctx context.Context, t *auditoria.Tx, c
 	if err != nil {
 		return err
 	}
+	if err := m.auditarRespuestaBot(ctx, *c, MotivoBotFueraDeHorario, &msg); err != nil {
+		return err
+	}
 	if err := m.sistema(ctx, t, c, EventoSistema{Tipo: "fuera_de_horario"}); err != nil {
 		return err
 	}
@@ -153,7 +156,11 @@ func (m *Modulo) responderFueraDeHorario(ctx context.Context, t *auditoria.Tx, c
 		return nil
 	}
 	// El bot atiende fuera de horario: el menú después del mensaje (si hay) y una espera atendida.
-	if _, err := m.contestarConMenu(ctx, t, c, "", bot); err != nil {
+	menu, err := m.contestarConMenu(ctx, t, c, "", bot)
+	if err != nil {
+		return err
+	}
+	if err := m.auditarRespuestaBot(ctx, *c, "menu_fuera_de_horario", menu); err != nil {
 		return err
 	}
 	ahora := m.ahora()

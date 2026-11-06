@@ -422,9 +422,7 @@ func TestConvDisponibilidadLatidoYVencimiento(t *testing.T) {
 	for range 3 {
 		*b.reloj = b.reloj.Add(10 * time.Minute)
 		b.exigir(b.api(b.agente, http.MethodPost, "/conversaciones/disponibilidad/latido", nil), http.StatusOK, "estado", "disponible")
-		if _, err := b.m.VencerDisponibilidad(b.ctx); err != nil {
-			t.Fatal(err)
-		}
+		b.m.VencerDisponibilidad(b.ctx, b.bd)
 	}
 	if n := b.contar(`SELECT count(*) FROM auditoria.acciones WHERE actor_id = $1`, b.agente.id); n != antes {
 		t.Fatalf("los latidos dejaron %d filas de auditoría", n-antes)
@@ -439,21 +437,19 @@ func TestConvDisponibilidadLatidoYVencimiento(t *testing.T) {
 	c := b.conv(num)
 	b.exigir(b.api(b.agente, http.MethodPost, "/conversaciones/"+cid(c)+"/tomar", map[string]any{"version": ver(c)}), http.StatusOK)
 	*b.reloj = b.reloj.Add(14 * time.Minute)
-	if _, err := b.m.VencerDisponibilidad(b.ctx); err != nil {
-		t.Fatal(err)
-	}
+	b.m.VencerDisponibilidad(b.ctx, b.bd)
 	b.exigir(b.api(b.agente, http.MethodGet, "/conversaciones/disponibilidad", nil), http.StatusOK, "estado", "disponible")
 	// 16 min sin actividad: inactividad.
 	*b.reloj = b.reloj.Add(16 * time.Minute)
-	if _, err := b.m.VencerDisponibilidad(b.ctx); err != nil {
-		t.Fatal(err)
-	}
+	b.m.VencerDisponibilidad(b.ctx, b.bd)
 	b.exigir(b.api(b.agente, http.MethodGet, "/conversaciones/disponibilidad", nil), http.StatusOK, "estado", "no_disponible", "origen", "inactividad")
 	if evento("inactividad") != 1 {
 		t.Fatal("agente.disponibilidad_cambiada inactividad")
 	}
-	if n := b.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'mensajeria.vencer_disponibilidad'`); n != 0 {
-		t.Fatalf("los cambios automáticos no dejan fila: %d", n)
+	// Cada transición automática deja una fila (actor sistema); los latidos, ninguna.
+	if n := b.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'mensajeria.vencer_disponibilidad' AND actor_tipo = 'sistema'
+		AND entidad_id = $1`, fmt.Sprint(dispID(b, b.agente))); n != 1 {
+		t.Fatalf("fila de auditoría del vencimiento: %d", n)
 	}
 	// Ajuste de la empresa: 5 minutos (solo canales.configurar).
 	aj := b.api(b.supervisor, http.MethodGet, "/conversaciones/ajustes", nil)
@@ -466,9 +462,7 @@ func TestConvDisponibilidadLatidoYVencimiento(t *testing.T) {
 	})
 	b.disponible(b.agente, "disponible")
 	*b.reloj = b.reloj.Add(6 * time.Minute)
-	if _, err := b.m.VencerDisponibilidad(b.ctx); err != nil {
-		t.Fatal(err)
-	}
+	b.m.VencerDisponibilidad(b.ctx, b.bd)
 	b.exigir(b.api(b.agente, http.MethodGet, "/conversaciones/disponibilidad", nil), http.StatusOK, "origen", "inactividad")
 	// Horario de su cola: 12:00–13:00 Guatemala. A las 12:30 se pone disponible; a las 13:01 pasa a no_disponible (horario).
 	if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.ajustes_bandeja SET minutos_inactividad = 120 WHERE empresa_id = 1`); err != nil {
@@ -484,18 +478,14 @@ func TestConvDisponibilidadLatidoYVencimiento(t *testing.T) {
 		t.Fatalf("horarioHasta: %v", d)
 	}
 	*b.reloj = time.Date(2026, 11, 5, 19, 1, 0, 0, time.UTC)
-	if _, err := b.m.VencerDisponibilidad(b.ctx); err != nil {
-		t.Fatal(err)
-	}
+	b.m.VencerDisponibilidad(b.ctx, b.bd)
 	b.exigir(b.api(b.agente, http.MethodGet, "/conversaciones/disponibilidad", nil), http.StatusOK, "estado", "no_disponible", "origen", "horario")
 	// Cierre de sesión: la sesión con que se puso disponible se cerró.
 	b.disponible(b.agente, "disponible")
 	if _, err := b.bd.Exec(b.ctx, `UPDATE nucleo.sesiones SET revocada_en = now() WHERE usuario_id = $1`, b.agente.id); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.m.VencerDisponibilidad(b.ctx); err != nil {
-		t.Fatal(err)
-	}
+	b.m.VencerDisponibilidad(b.ctx, b.bd)
 	if evento("cierre_sesion") != 1 {
 		t.Fatal("agente.disponibilidad_cambiada cierre_sesion")
 	}
@@ -525,9 +515,7 @@ func (b *bandeja) otraCola() int64 {
 
 func (b *bandeja) disparar() {
 	b.t.Helper()
-	if _, err := b.m.DispararBots(b.ctx, b.bd); err != nil {
-		b.t.Fatal(err)
-	}
+	b.m.DispararBots(b.ctx, b.bd)
 }
 
 func TestBotConfiguracion(t *testing.T) {

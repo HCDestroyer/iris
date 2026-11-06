@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -114,7 +115,7 @@ type Destinatario struct {
 	Detalle        *string `json:"detalle" nullable:"true" doc:"Contacto de Iris: su tipo (proveedor, personal, prospecto, otro)"`
 	Numero         *string `json:"numero" nullable:"true" doc:"El número al que saldría (E.164); null si no tiene"`
 	Puede          bool    `json:"puede"`
-	Motivo         *string `json:"motivo" nullable:"true" enum:"sin_contacto,sin_permiso,baja,cliente_fuera_de_empresa,conversacion_de_otro,numero_no_permitido" doc:"Por qué no (los códigos de POST /conversaciones/iniciar)"`
+	Motivo         *string `json:"motivo" nullable:"true" enum:"sin_contacto,sin_permiso,baja,cliente_fuera_de_empresa,conversacion_de_otro,conversacion_de_otra_cola,numero_no_permitido" doc:"Por qué no (los códigos de POST /conversaciones/iniciar)"`
 	ConversacionID *int64  `json:"conversacionId" nullable:"true" doc:"Con canalId: la conversación que ya existe de ese número en ese canal"`
 }
 
@@ -160,23 +161,32 @@ func (m *Modulo) evaluarDestino(ctx context.Context, q *mensajeriabd.Queries, a 
 		prueba.ContactoIrisID = &d.ID
 	}
 	if canal != nil {
-		c, err := q.ConversacionDeContacto(ctx, mensajeriabd.ConversacionDeContactoParams{Empresa: a.empresa, CanalID: canal.ID, Numero: numero})
-		switch {
-		case err == nil:
-			d.ConversacionID = &c.ID
-			prueba.UltimoEntranteEn = c.UltimoEntranteEn
-			if c.Estado != EstadoConvResuelta && c.AsignadoA != nil && *c.AsignadoA != a.usuario {
-				return motivo("conversacion_de_otro")
-			}
-		case !errors.Is(err, pgx.ErrNoRows):
-			return err
-		}
+		// Primero el número de salida: sin él no se mira la conversación del número.
 		ok, err := puedeIniciarDesde(ctx, q, a, *canal)
 		if err != nil {
 			return err
 		}
 		if !ok {
 			return motivo("numero_no_permitido")
+		}
+		c, err := q.ConversacionDeContacto(ctx, mensajeriabd.ConversacionDeContactoParams{Empresa: a.empresa, CanalID: canal.ID, Numero: numero})
+		switch {
+		case err == nil:
+			if err := reutilizable(ctx, q, a, c); err != nil {
+				var p *nucleo.Problema
+				if errors.As(err, &p) {
+					if p.Codigo() == "conversacion_de_otro" {
+						// La ve: puede abrirla o pedir que se la pasen.
+						d.ConversacionID = &c.ID
+					}
+					return motivo(p.Codigo())
+				}
+				return err
+			}
+			d.ConversacionID = &c.ID
+			prueba.UltimoEntranteEn = c.UltimoEntranteEn
+		case !errors.Is(err, pgx.ErrNoRows):
+			return err
 		}
 	}
 	if err := permisoPlantilla(ctx, q, prueba, !ventanaDe(prueba.UltimoEntranteEn, m.ahora()).Abierta); err != nil {
@@ -189,15 +199,64 @@ func (m *Modulo) evaluarDestino(ctx context.Context, q *mensajeriabd.Queries, a 
 	return nil
 }
 
-func canalDeEntrada(ctx context.Context, q *mensajeriabd.Queries, id int64) (*mensajeriabd.MensajeriaCanal, error) {
+// canalDeEntrada: el número de la empresa activa; uno que no existe y uno de otra empresa dan el
+// mismo 422 (no se revela que existe).
+func canalDeEntrada(ctx context.Context, q *mensajeriabd.Queries, a alcanceConv, id int64) (*mensajeriabd.MensajeriaCanal, error) {
 	if id <= 0 {
 		return nil, nil
 	}
-	c, err := q.CanalPorID(ctx, id)
+	c, err := canalDeEmpresa(ctx, q, a, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, campoConv("canalId", "No es un número de la empresa", "canal")
 	}
 	return &c, err
+}
+
+// canalDeEmpresa: pgx.ErrNoRows si no existe o es de otra empresa.
+func canalDeEmpresa(ctx context.Context, q *mensajeriabd.Queries, a alcanceConv, id int64) (mensajeriabd.MensajeriaCanal, error) {
+	c, err := q.CanalPorID(ctx, id)
+	if err != nil {
+		return c, err
+	}
+	e := int64(0)
+	if c.EmpresaID != nil {
+		e = *c.EmpresaID
+	}
+	if e != a.empresa {
+		return mensajeriabd.MensajeriaCanal{}, pgx.ErrNoRows
+	}
+	return c, nil
+}
+
+// reutilizable: iniciar puede usar la conversación que ya existe del número si la ve y es de una
+// cola que atiende (o sin cola), salvo supervisor global; si no, 409 conversacion_de_otra_cola. Una
+// activa de otro agente: 409 conversacion_de_otro.
+func reutilizable(ctx context.Context, q *mensajeriabd.Queries, a alcanceConv, c mensajeriabd.MensajeriaConversacion) error {
+	if !a.supervisa {
+		visible, err := q.ConversacionVisible(ctx, mensajeriabd.ConversacionVisibleParams{ID: c.ID, Empresa: a.empresa, Usuario: a.usuario, Supervisa: false})
+		if err != nil {
+			return err
+		}
+		colaOK := c.ColaID == nil
+		if !colaOK {
+			if colaOK, err = atiendeCola(ctx, q, *c.ColaID, a.usuario); err != nil {
+				return err
+			}
+		}
+		if !visible || !colaOK {
+			return nucleo.NuevoProblema(http.StatusConflict, "conversacion_de_otra_cola", "Conversación de otra cola",
+				"Ese número ya tiene una conversación que no es de tus colas: pide a un supervisor que te la asigne")
+		}
+	}
+	if c.Estado != EstadoConvResuelta && c.AsignadoA != nil && *c.AsignadoA != a.usuario {
+		quien := "otro agente"
+		if n := actorNombre(ctx, q, *c.AsignadoA); n != nil {
+			quien = *n
+		}
+		return nucleo.NuevoProblema(http.StatusConflict, "conversacion_de_otro", "Conversación de otro agente",
+			"Ese número ya tiene una conversación activa con "+quien+": ábrela o pide que te la pase")
+	}
+	return nil
 }
 
 func nuevoBuscarDestinatarios(m *Modulo) *auditoria.Caso[EntradaDestinatarios, ListaDestinatarios] {
@@ -221,7 +280,7 @@ func nuevoBuscarDestinatarios(m *Modulo) *auditoria.Caso[EntradaDestinatarios, L
 				digitos = ""
 			}
 			q := mensajeriabd.New(t)
-			canal, err := canalDeEntrada(ctx, q, in.CanalID)
+			canal, err := canalDeEntrada(ctx, q, a, in.CanalID)
 			if err != nil {
 				return ListaDestinatarios{}, err
 			}
@@ -271,7 +330,7 @@ func nuevoVerDestinatario(m *Modulo) *auditoria.Caso[EntradaDestinatario, Destin
 				return Destinatario{}, campoConv("clienteId", "Indica clienteId o contactoIrisId (uno)", "exclusivo")
 			}
 			q := mensajeriabd.New(t)
-			canal, err := canalDeEntrada(ctx, q, in.CanalID)
+			canal, err := canalDeEntrada(ctx, q, a, in.CanalID)
 			if err != nil {
 				return Destinatario{}, err
 			}
@@ -343,28 +402,70 @@ func (e entradaIniciarFinal) MarshalJSON() ([]byte, error) { return e.EntradaIni
 // IniciarConv lee el contacto del cliente en Argos (instantánea refrescada) fuera de la transacción
 // y luego corre el caso.
 type IniciarConv struct {
-	m     *Modulo
-	final *auditoria.Caso[entradaIniciarFinal, ConversacionIniciada]
+	m      *Modulo
+	previo *auditoria.Caso[EntradaIniciarConv, struct{}]
+	final  *auditoria.Caso[entradaIniciarFinal, ConversacionIniciada]
 }
 
-// Ejecutar inicia la conversación.
+// Ejecutar inicia la conversación. Antes de consultar Argos, el caso previo revisa el permiso, la
+// re-autenticación (sesión de autologin), el número de salida y que el id no sea un reenvío.
 func (k *IniciarConv) Ejecutar(ctx context.Context, in EntradaIniciarConv) (ConversacionIniciada, error) {
 	f := entradaIniciarFinal{EntradaIniciarConv: in}
 	if in.ClienteID != nil && in.ContactoIrisID == nil && k.m.cfg.Contactos != nil {
-		// Solo con permiso de iniciar y siendo persona (lo revisa el caso; aquí no se devuelve nada).
-		if _, err := alcanceConvDe(ctx); err == nil && nucleoTiene(ctx, nucleo.PermConversacionesIniciar) {
-			c, err := k.m.cfg.Contactos.ContactoCliente(ctx, *in.ClienteID)
-			if err != nil {
-				return ConversacionIniciada{}, err
+		if _, err := k.previo.Ejecutar(ctx, in); err != nil {
+			if errors.Is(err, errReenvioIniciar) {
+				return k.final.Ejecutar(ctx, f)
 			}
-			f.contacto = &c
+			return ConversacionIniciada{}, err
 		}
+		c, err := k.m.cfg.Contactos.ContactoCliente(ctx, *in.ClienteID)
+		if err != nil {
+			// El detalle de Argos no sale al panel (queda en el log).
+			slog.WarnContext(ctx, "mensajeria: iniciar sin contacto de Argos", "cliente_id", *in.ClienteID, "err", err)
+			return ConversacionIniciada{}, clienteFueraDeEmpresaConv()
+		}
+		f.contacto = &c
 	}
 	return k.final.Ejecutar(ctx, f)
 }
 
+// errReenvioIniciar: el id ya se recibió (el caso final responde el reenvío sin consultar Argos).
+var errReenvioIniciar = errors.New("reenvío de iniciar")
+
 func nuevoIniciarConv(m *Modulo) *IniciarConv {
-	return &IniciarConv{m: m, final: auditoria.Nuevo(auditoria.Caso[entradaIniciarFinal, ConversacionIniciada]{
+	previo := auditoria.Nuevo(auditoria.Caso[EntradaIniciarConv, struct{}]{
+		Accion: "conversaciones.iniciar", Permiso: nucleo.PermConversacionesIniciar, AuditarExito: sinAuditar[struct{}],
+		// El reenvío no es un error: no se audita (lo responde el caso final).
+		AuditarError: func(err error) bool { return !errors.Is(err, errReenvioIniciar) },
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaIniciarConv) (struct{}, error) {
+			a, err := alcanceConvDe(ctx)
+			if err != nil {
+				return struct{}{}, err
+			}
+			q := mensajeriabd.New(t)
+			if in.ID != uuid.Nil {
+				if _, err := q.MensajeConversacionPorID(ctx, in.ID); err == nil {
+					return struct{}{}, errReenvioIniciar
+				}
+			}
+			canal, err := canalDeEmpresa(ctx, q, a, in.CanalID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return struct{}{}, numeroNoPermitido()
+			}
+			if err != nil {
+				return struct{}{}, err
+			}
+			ok, err := puedeIniciarDesde(ctx, q, a, canal)
+			if err != nil {
+				return struct{}{}, err
+			}
+			if !ok {
+				return struct{}{}, numeroNoPermitido()
+			}
+			return struct{}{}, nil
+		},
+	})
+	return &IniciarConv{m: m, previo: previo, final: auditoria.Nuevo(auditoria.Caso[entradaIniciarFinal, ConversacionIniciada]{
 		Accion: "conversaciones.iniciar", Permiso: nucleo.PermConversacionesIniciar,
 		AuditarExito: func(r ConversacionIniciada) bool { return !r.Repetido },
 		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaIniciarFinal) (ConversacionIniciada, error) {
@@ -413,7 +514,7 @@ func (m *Modulo) iniciar(ctx context.Context, t *auditoria.Tx, in entradaIniciar
 		}
 	}
 	// Número de salida.
-	canal, err := q.CanalPorID(ctx, in.CanalID)
+	canal, err := canalDeEmpresa(ctx, q, a, in.CanalID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ConversacionIniciada{}, numeroNoPermitido()
 	}
@@ -472,24 +573,40 @@ func (m *Modulo) iniciar(ctx context.Context, t *auditoria.Tx, in entradaIniciar
 		return ConversacionIniciada{}, err
 	}
 	t.FijarEntidad("conversacion", c.ID)
-	if !nueva && c.Estado != EstadoConvResuelta && c.AsignadoA != nil && *c.AsignadoA != a.usuario {
-		quien := "otro agente"
-		if n := actorNombre(ctx, q, *c.AsignadoA); n != nil {
-			quien = *n
+	if !nueva {
+		if err := reutilizable(ctx, q, a, c); err != nil {
+			return ConversacionIniciada{}, err
 		}
-		return ConversacionIniciada{}, nucleo.NuevoProblema(http.StatusConflict, "conversacion_de_otro", "Conversación de otro agente",
-			"Ese número ya tiene una conversación activa con "+quien+": ábrela o pide que te la pase")
 	}
 	antes := c
-	// El contacto que eligió el agente (verificado: el número sale de Argos o del contacto).
-	c.ClienteID, c.ServicioID, c.ContactoIrisID, c.ProspectoID = in.ClienteID, in.ServicioID, in.ContactoIrisID, nil
-	c.ClienteVerificado, c.VerificadoPor = in.ClienteID != nil, nil
-	c.Asociacion = nil
-	if in.ClienteID != nil {
-		c.Asociacion = nombrePtr("manual")
-	}
-	if err := permisoPlantilla(ctx, q, c, !ventanaDe(c.UltimoEntranteEn, ahora).Abierta); err != nil {
+	// El permiso de contacto es el del destinatario que eligió el agente (verificado: el número sale
+	// de Argos o del contacto de Iris).
+	prueba := c
+	prueba.ClienteID, prueba.ContactoIrisID, prueba.ClienteVerificado = in.ClienteID, in.ContactoIrisID, in.ClienteID != nil
+	if err := permisoPlantilla(ctx, q, prueba, !ventanaDe(c.UltimoEntranteEn, ahora).Abierta); err != nil {
 		return ConversacionIniciada{}, err
+	}
+	// La asociación: se llena si estaba vacía; cambiarla exige conversaciones.asociar. El prospecto
+	// se conserva.
+	mismo := (in.ClienteID != nil && c.ClienteID != nil && *c.ClienteID == *in.ClienteID) ||
+		(in.ContactoIrisID != nil && c.ContactoIrisID != nil && *c.ContactoIrisID == *in.ContactoIrisID)
+	vacia := c.ClienteID == nil && c.ContactoIrisID == nil
+	switch {
+	case mismo:
+		if in.ClienteID != nil {
+			c.ClienteVerificado = true
+			if c.ServicioID == nil {
+				c.ServicioID = in.ServicioID
+			}
+		}
+	case !vacia && !nucleoTiene(ctx, nucleo.PermConversacionesAsociar):
+		return ConversacionIniciada{}, nucleo.Prohibido("La conversación de ese número está asociada a otro contacto: cambiarla exige conversaciones.asociar")
+	default:
+		c.ClienteID, c.ServicioID, c.ContactoIrisID = in.ClienteID, in.ServicioID, in.ContactoIrisID
+		c.ClienteVerificado, c.VerificadoPor, c.Asociacion = in.ClienteID != nil, nil, nil
+		if in.ClienteID != nil {
+			c.Asociacion = nombrePtr("manual")
+		}
 	}
 	if c.Estado == EstadoConvResuelta {
 		c.ReabiertaEn, c.ResueltaEn = &ahora, nil

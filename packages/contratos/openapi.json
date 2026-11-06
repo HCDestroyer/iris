@@ -4480,6 +4480,7 @@
               "baja",
               "cliente_fuera_de_empresa",
               "conversacion_de_otro",
+              "conversacion_de_otra_cola",
               "numero_no_permitido"
             ],
             "type": [
