@@ -7583,7 +7583,7 @@ export interface components {
              * @description Por qué no (los códigos de POST /conversaciones/iniciar)
              * @enum {string|null}
              */
-            motivo: "sin_contacto" | "sin_permiso" | "baja" | "cliente_fuera_de_empresa" | "conversacion_de_otro" | "numero_no_permitido" | null;
+            motivo: "sin_contacto" | "sin_permiso" | "baja" | "cliente_fuera_de_empresa" | "conversacion_de_otro" | "conversacion_de_otra_cola" | "numero_no_permitido" | null;
             nombre: string;
             /** @description El número al que saldría (E.164); null si no tiene */
             numero: string | null;

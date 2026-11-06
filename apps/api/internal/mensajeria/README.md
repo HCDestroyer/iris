@@ -213,7 +213,8 @@ escribe a clientes por iniciativa propia; soporte, ventas, supervisor) y `conver
 - **Pasar** (`POST …/pasar`): quien la tiene o un supervisor (global o de la cola); se puede pasar a
   alguien no disponible (`destinoDisponible`).
 - **Disponibilidad** (`mensajeria.disponibilidad`, por usuario y empresa): manual (auditada) y
-  automática en el mantenimiento (`vencerDisp`, sin fila por agente): sesión cerrada o vencida
+  automática en el mantenimiento (`vencerDisp`: un caso por agente con la fila bloqueada y el motivo
+  recalculado; una fila de auditoría por transición, actor sistema): sesión cerrada o vencida
   (`sesion_id` del último cambio o latido), `horario_hasta` (cierre de las franjas abiertas de los
   horarios de sus colas, anotado al ponerse disponible y en cada latido) e inactividad
   (`mensajeria.ajustes_bandeja.minutos_inactividad`, 15). El latido y las acciones de la bandeja solo
@@ -224,7 +225,11 @@ escribe a clientes por iniciativa propia; soporte, ventas, supervisor) y `conver
   (`sin_disponibles`). El estado de la espera vive en la conversación (`bot_espera_en`,
   `bot_vence_en`, `bot_motivo`, `bot_atendio_en`, `bot_menu`); el mantenimiento dispara lo vencido
   (`dispararBot`, un caso por conversación con la fila bloqueada) y tomar/asignar/pasar/transferir/
-  resolver/iniciar lo cancelan (`limpiarEspera`). Los mensajes automáticos llevan `automatico`
+  resolver/iniciar lo cancelan (`limpiarEspera`). Cada respuesta del bot se audita como actor sistema (`mensajeria.bot_conversacion` o
+  `mensajeria.bot_respondio`). Un error en una fila del barrido queda en el log y sigue con la
+  siguiente. `iniciar` solo reutiliza la conversación del número si el agente la ve y es de su cola
+  (si no, 409 `conversacion_de_otra_cola`) y no reescribe una asociación sin `conversaciones.asociar`.
+  Los mensajes automáticos llevan `automatico`
   (`bot`, `fuera_de_horario`). Nunca a una baja ni fuera de la ventana de 24 h.
 
 Emite además `conversacion.iniciada`, `conversacion.aviso_sin_atender`, `conversacion.bot_atendio`,

@@ -578,6 +578,7 @@ verificación de identidad (§7.5); autologin a una conversación (pedido B2).
 | `cursor_vencido` | 410 | Feed purgado |
 | `no_disponible_aun` | 422 | Fase 1.1: `bot.atiende = agente_autonomo` o un asistente de IA como supervisor de cola (fase 3) |
 | `conversacion_de_otro` | 409 | Fase 1.1: iniciar con un número cuya conversación activa tiene otro agente (el `detail` dice quién) |
+| `conversacion_de_otra_cola` | 409 | Fase 1.1: iniciar con un número cuya conversación no ves o es de una cola que no atiendes |
 | `sin_contacto` | 422 | Fase 1.1: el cliente no tiene teléfono en la instantánea de Argos (ni `movil` ni `telefono`) |
 | `numero_no_permitido` | 422 | Fase 1.1: iniciar desde un número que no es de tus colas (o inactivo) |
 | `no_es_tuya` | 403 | Fase 1.1: pasar una conversación que no tienes asignada sin ser supervisor (global o de su cola) |
@@ -675,10 +676,20 @@ La respuesta no se guarda en el middleware (la clave la aplica el caso).
 - **Conversación:** se crea en la cola del número, **asignada a quien envía**, en
   `esperando_cliente`, con el evento de sistema `iniciada` (`actorNombre`, `plantilla`). Si ya hay
   una conversación de ese número en ese canal (hay una sola por número, canal y empresa) se
-  **reutiliza** y la plantilla va ahí: resuelta → se reabre en la cola del número; sin asignar o
-  tuya → queda tuya; de otro agente y activa → 409 `conversacion_de_otro` (el `detail` dice quién;
-  el panel ofrece abrirla o pedir «Pasar»). Con la ventana de 24 h abierta en la existente solo se
-  revisa la baja.
+  **reutiliza** y la plantilla va ahí, solo si la **ves** y es **sin cola o de una cola que
+  atiendes** (miembro o supervisor de la cola; un supervisor global, cualquiera). Si no (p. ej. el
+  menú del bot la pasó a Ventas, o está resuelta en otra cola): 409 `conversacion_de_otra_cola`
+  (sin decir quién la tiene; un supervisor la asigna). Si se puede: resuelta → se reabre en la cola
+  del número; sin asignar o tuya → queda tuya; de otro agente y activa → 409
+  `conversacion_de_otro` (el `detail` dice quién; el panel ofrece abrirla o pedir «Pasar»). Con la
+  ventana de 24 h abierta en la existente solo se revisa la baja.
+- **Asociación de una conversación que ya existe:** se llena con el destinatario solo si estaba
+  vacía (sin cliente ni contacto de Iris); si es el mismo, queda igual (y verificado). Si estaba
+  asociada a otro, cambiarla exige además `conversaciones.asociar` (si no, 403). El prospecto se
+  conserva.
+- **Orden de las revisiones:** permiso, re-autenticación (sesión de autologin), número de salida y
+  reenvío del id van **antes** de consultar a Argos el contacto del cliente. Si Argos no lo puede
+  dar, 422 `cliente_fuera_de_empresa` (sin el detalle de Argos).
 - **Buscar a quién escribir** (pantalla «Nueva conversación»; `conversaciones.iniciar`, solo
   personas con sesión, lecturas sin auditar):
   - `GET /conversaciones/destinatarios?q=&canalId=&limit=` (`q` 2–80 letras; `limit` 1–20, 10 por
@@ -697,15 +708,18 @@ La respuesta no se guarda en el middleware (la clave la aplica el caso).
       "detalle": null,              // contacto de Iris: su tipo (proveedor, personal, prospecto, otro); cliente: null
       "numero": "+50255120041",     // el número al que saldría (E.164); null si no tiene
       "puede": true,
-      "motivo": null,               // null | sin_contacto | sin_permiso | baja | cliente_fuera_de_empresa | conversacion_de_otro | numero_no_permitido
+      "motivo": null,               // null | sin_contacto | sin_permiso | baja | cliente_fuera_de_empresa | numero_no_permitido | conversacion_de_otra_cola | conversacion_de_otro
       "conversacionId": null }      // con canalId: la conversación que ya existe de ese número en ese canal
     ```
     El número va completo (como en la conversación): quien tiene `conversaciones.iniciar` lo ve al
     escribirle. `motivo` usa los mismos códigos que los 422/409 de `POST /conversaciones/iniciar`
     (el panel muestra «Sin número de WhatsApp en Argos» con `sin_contacto`, «No acepta mensajes»
     con `sin_permiso` o `baja`). `cliente_sin_confirmar` no aplica: el número sale de Argos. Sin
-    `canalId` solo se evalúan el número y el permiso de contacto (`conversacion_de_otro` y
-    `numero_no_permitido` necesitan el número de salida). `puede` = `motivo` es `null`.
+    `canalId` solo se evalúan el número y el permiso de contacto (`numero_no_permitido`,
+    `conversacion_de_otra_cola` y `conversacion_de_otro` necesitan el número de salida). Con
+    `canalId` se revisa primero el número de salida; `conversacionId` solo viene si ves esa
+    conversación (con `conversacion_de_otra_cola`, `null`). Un `canalId` que no existe o es de otra
+    empresa da el mismo 422 (`canalId`). `puede` = `motivo` es `null`.
 - Outbox: `conversacion.creada` (si es nueva, con `origen: agente`), `conversacion.iniciada`,
   `conversacion.asignada` (`origen: iniciar`, si cambió quién la tiene) y
   `conversacion.mensaje_enviado`.
@@ -767,8 +781,10 @@ inactividad, el cierre de sesión o el cierre de la próxima franja que anote un
   `ColaConversaciones.disponibles[]`, el detalle (`equipo[].disponible`) y `espera` de las
   conversaciones que esperan (§14.6). No hay evento del flujo por cambio de disponibilidad: el panel
   relee esas listas al abrir la conversación o el diálogo.
-- Los cambios automáticos los hace el mantenimiento (cada minuto), emiten el mismo evento con su
-  `origen` y no dejan fila de auditoría por agente; los manuales se auditan.
+- Los cambios automáticos los hace el mantenimiento (cada minuto; un caso por agente con la fila
+  bloqueada, así dos barridos a la vez no repiten la transición), dejan **una fila de auditoría por
+  transición** (actor sistema, `mensajeria.vencer_disponibilidad`) y emiten el mismo evento con su
+  `origen`; los manuales también se auditan. Los latidos nunca.
 
 ### 14.6 «¿Alguien la atiende?» y el bot «Cuando no hay agentes»
 
@@ -826,6 +842,9 @@ la segunda, el bot deja de insistir.
 - El bot nunca contesta a `BAJA`/`ALTO` ni a un número o cliente con baja vigente (las reglas de §8),
   ni con la ventana de 24 h cerrada. Sus mensajes son salientes sin `autor` con
   `automatico: "bot"` (`"fuera_de_horario"` la respuesta de §10.2), y no cambian el estado ni el SLA.
+- Cada respuesta del bot deja una fila de auditoría como actor sistema: `mensajeria.bot_conversacion`
+  (temporizador) o `mensajeria.bot_respondio` (saludo inmediato, fuera de horario, menú repetido o
+  elegido), con la conversación y el id del mensaje (nunca el texto).
 - Tomar, asignar, pasar, transferir, resolver, iniciar o responder (si asigna) **cancelan** el
   temporizador y el menú. El mantenimiento procesa
   cada minuto todo lo vencido hasta ahora y vuelve a revisar con la fila bloqueada: un temporizador

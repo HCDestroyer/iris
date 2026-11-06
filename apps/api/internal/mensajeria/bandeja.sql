@@ -115,6 +115,21 @@ WHERE d.estado = 'disponible'
 ORDER BY d.id
 LIMIT 500;
 
+-- name: MotivoVencerDisponibilidad :one
+-- La misma regla para una fila (ya bloqueada): sin filas si ya no debe pasar a no_disponible.
+WITH r AS (SELECT @ahora::timestamptz AS ahora)
+SELECT (CASE WHEN s.id IS NULL OR s.revocada_en IS NOT NULL OR s.expira_en <= r.ahora OR NOT u.activo THEN 'cierre_sesion'
+          WHEN d.horario_hasta IS NOT NULL AND d.horario_hasta <= r.ahora THEN 'horario'
+          ELSE 'inactividad' END)::text AS motivo
+FROM r, mensajeria.disponibilidad d
+JOIN nucleo.usuarios u ON u.id = d.usuario_id
+LEFT JOIN nucleo.sesiones s ON s.id = d.sesion_id
+LEFT JOIN mensajeria.ajustes_bandeja a ON coalesce(a.empresa_id, 0) = coalesce(d.empresa_id, 0)
+WHERE d.id = @id AND d.estado = 'disponible'
+  AND (s.id IS NULL OR s.revocada_en IS NOT NULL OR s.expira_en <= r.ahora OR NOT u.activo
+       OR (d.horario_hasta IS NOT NULL AND d.horario_hasta <= r.ahora)
+       OR d.ultima_actividad <= r.ahora - make_interval(mins => coalesce(a.minutos_inactividad, 15)));
+
 -- name: HorariosDeAgente :many
 -- Horarios de las colas activas que atiende (el de la cola o, sin el, el de sus numeros).
 SELECT h.* FROM mensajeria.horarios h
