@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.16.0](https://github.com/HCDestroyer/iris/compare/v0.15.0...v0.16.0) (2026-11-06)
+
+
+### Funcionalidades
+
+* **agenda, campo:** tarea propia y tomar órdenes libres ([#118](https://github.com/HCDestroyer/iris/issues/118)) ([e56d345](https://github.com/HCDestroyer/iris/commit/e56d34562dfda5f38d753994ee210575527aaba2))
+* **campo, movil:** acciones de la orden y notas editables ([#122](https://github.com/HCDestroyer/iris/issues/122)) ([ea1d2c8](https://github.com/HCDestroyer/iris/commit/ea1d2c8a5daf476034765c0e3930d16a244f4738))
+* **campo, movil:** chat interno del equipo, encabezado con indicadores e isla nueva ([#116](https://github.com/HCDestroyer/iris/issues/116)) ([22262b6](https://github.com/HCDestroyer/iris/commit/22262b67660ec7c80e1efeed8b77eca544e61420))
+* **campo, movil:** selector de materiales con búsqueda y cantidad ([#121](https://github.com/HCDestroyer/iris/issues/121)) ([1e04511](https://github.com/HCDestroyer/iris/commit/1e04511ebc8bceb5036f96c62523358e2102e2f4))
+* **integracion, panel:** bodega de Argos por nombre ([#120](https://github.com/HCDestroyer/iris/issues/120)) ([9148f23](https://github.com/HCDestroyer/iris/commit/9148f23e571684d390337d9129853599a44ee023))
+* **movil, campo:** Yo con apariencia, cambio de contraseña y dos pasos ([#117](https://github.com/HCDestroyer/iris/issues/117)) ([761434f](https://github.com/HCDestroyer/iris/commit/761434f1ded624bb02e8a48a60519b2910fb5e92))
+* **ui:** toda la web con HeroUI — Select, fecha y hora, selector de cliente, Switch y NumberField ([#119](https://github.com/HCDestroyer/iris/issues/119)) ([8083ed1](https://github.com/HCDestroyer/iris/commit/8083ed1ad6ac6c6f8625b34395b57905ba3c35a2))
+
+
+### Correcciones
+
+* **campo:** lecturas de Agenda, Por recibir y Mi bodega que no se quedan en «Sin señal» ([#124](https://github.com/HCDestroyer/iris/issues/124)) ([ece8c71](https://github.com/HCDestroyer/iris/commit/ece8c711c458a403928ef965f60139178b09b335))
+* **panel:** esperar el campo antes de elegir una sugerencia en e2e ([#125](https://github.com/HCDestroyer/iris/issues/125)) ([8685b07](https://github.com/HCDestroyer/iris/commit/8685b078575ac7f706a66de7614aea3a764b4233))
+
 ## [0.15.0](https://github.com/HCDestroyer/iris/compare/v0.14.0...v0.15.0) (2026-11-05)
 
 
