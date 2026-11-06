@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 
@@ -338,16 +339,17 @@ func nuevoConsentimientoNumero(m *Modulo) *auditoria.Caso[EntradaConsentimientoN
 				if !contexto.PermisosDe(ctx).Tiene(string(nucleo.PermConversacionesSupervisar)) {
 					return ConsentimientoNumero{}, nucleo.Prohibido("Registrar el permiso de contacto es de supervisión (conversaciones.supervisar)")
 				}
-				v, err := q.ConsentimientoNumeroVigente(ctx, mensajeriabd.ConsentimientoNumeroVigenteParams{Empresa: a.empresa, Telefono: k.Telefono})
+				// Cualquier baja del propio cliente sin un acepta posterior (aunque luego haya bajas de agentes).
+				baja, err := q.BajaDelClientePendiente(ctx, mensajeriabd.BajaDelClientePendienteParams{Empresa: a.empresa, Telefono: k.Telefono})
 				if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 					return ConsentimientoNumero{}, err
 				}
-				if err == nil && v.Estado == "baja" && v.Origen == "cliente" {
-					if in.Motivo == nil || len(strings.TrimSpace(*in.Motivo)) < 5 {
+				if err == nil {
+					if in.Motivo == nil || utf8.RuneCountInString(strings.TrimSpace(*in.Motivo)) < 5 {
 						return ConsentimientoNumero{}, reglaConv("baja_del_cliente", "El propio cliente pidió la baja: para anularla escribe el motivo")
 					}
 					motivo = nombrePtr(strings.TrimSpace(*in.Motivo))
-					t.Anotar(map[string]any{"anula_baja_del_cliente": v.ID, "motivo": *motivo})
+					t.Anotar(map[string]any{"anula_baja_del_cliente": baja, "motivo": *motivo})
 				}
 			}
 			f, err := q.InsertarConsentimientoNumero(ctx, mensajeriabd.InsertarConsentimientoNumeroParams{EmpresaID: k.EmpresaID, Telefono: k.Telefono,

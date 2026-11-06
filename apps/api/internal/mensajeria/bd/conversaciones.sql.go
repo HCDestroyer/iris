@@ -296,6 +296,31 @@ func (q *Queries) AvisoDeProveedorCanal(ctx context.Context, arg AvisoDeProveedo
 	return i, err
 }
 
+const bajaDelClientePendiente = `-- name: BajaDelClientePendiente :one
+SELECT b.id FROM mensajeria.consentimientos_numero b
+WHERE coalesce(b.empresa_id, 0) = $1::bigint AND b.telefono = $2 AND b.estado = 'baja' AND b.origen = 'cliente'
+  AND NOT EXISTS (
+    SELECT 1 FROM mensajeria.consentimientos_numero a
+    WHERE coalesce(a.empresa_id, 0) = $1::bigint AND a.telefono = $2 AND a.estado = 'acepta'
+      AND (a.ocurrido_en, a.id) > (b.ocurrido_en, b.id))
+ORDER BY b.ocurrido_en DESC, b.id DESC
+LIMIT 1
+`
+
+type BajaDelClientePendienteParams struct {
+	Empresa  int64
+	Telefono string
+}
+
+// La baja más reciente que pidió el propio cliente y que ningún acepta posterior anuló (aunque
+// después haya otras bajas de agentes).
+func (q *Queries) BajaDelClientePendiente(ctx context.Context, arg BajaDelClientePendienteParams) (int64, error) {
+	row := q.db.QueryRow(ctx, bajaDelClientePendiente, arg.Empresa, arg.Telefono)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const boletaParaEnviar = `-- name: BoletaParaEnviar :one
 SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at FROM mensajeria.boletas WHERE id = $1 FOR UPDATE
 `

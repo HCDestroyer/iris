@@ -332,8 +332,14 @@ func (m *Modulo) canalHermano(ctx context.Context, q *mensajeriabd.Queries, fila
 // contacto.baja hacia Argos.
 func (m *Modulo) bajaPorChat(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Queries, fila mensajeriabd.MensajeriaCanal, entrante int64, numero string, cuando time.Time) error {
 	canal := fila.ID
+	// En la tabla por número cuenta desde que Iris la recibe: un webhook que llega tarde no queda detrás
+	// de un acepta registrado mientras tanto.
+	porNumero := cuando
+	if ahora := m.ahora(); ahora.After(porNumero) {
+		porNumero = ahora
+	}
 	if _, err := q.InsertarConsentimientoNumero(ctx, mensajeriabd.InsertarConsentimientoNumeroParams{EmpresaID: fila.EmpresaID, Telefono: numero,
-		Estado: "baja", Origen: "cliente", OcurridoEn: cuando}); err != nil {
+		Estado: "baja", Origen: "cliente", OcurridoEn: porNumero}); err != nil {
 		return err
 	}
 	clientes, err := q.ClientesAvisadosEn(ctx, mensajeriabd.ClientesAvisadosEnParams{CanalID: &canal, Destino: &numero})

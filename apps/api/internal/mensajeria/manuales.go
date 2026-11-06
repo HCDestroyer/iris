@@ -82,12 +82,12 @@ type ListaSugeridos struct {
 }
 
 func aManual(f mensajeriabd.MensajeriaManuale) Manual {
-	return Manual{ID: f.ID, Titulo: f.Titulo, Resumen: f.Resumen, Cuerpo: f.Cuerpo, Etiquetas: f.Etiquetas, Equipo: f.Equipo,
+	return Manual{ID: f.ID, Titulo: f.Titulo, Resumen: f.Resumen, Cuerpo: f.Cuerpo, Etiquetas: lista(f.Etiquetas), Equipo: f.Equipo,
 		Visibilidad: f.Visibilidad, Activo: f.Activo, Version: f.Version, Actualizado: f.UpdatedAt}
 }
 
 func resumenManual(f mensajeriabd.MensajeriaManuale) ManualResumen {
-	return ManualResumen{ID: f.ID, Titulo: f.Titulo, Resumen: f.Resumen, Etiquetas: f.Etiquetas, Equipo: f.Equipo, Visibilidad: f.Visibilidad, Activo: f.Activo}
+	return ManualResumen{ID: f.ID, Titulo: f.Titulo, Resumen: f.Resumen, Etiquetas: lista(f.Etiquetas), Equipo: f.Equipo, Visibilidad: f.Visibilidad, Activo: f.Activo}
 }
 
 // normalizarEtiquetas: minúsculas, sin espacios repetidos, sin repetir.
@@ -157,7 +157,7 @@ func nuevoBuscarManuales(*Modulo) *auditoria.Caso[EntradaBuscarManuales, ListaMa
 				Q: strings.TrimSpace(in.Q), Etiqueta: strings.ToLower(strings.TrimSpace(in.Etiqueta)), Visibilidad: in.Visibilidad, Limite: int32(limite)}) //nolint:gosec // ≤ 100
 			out := ListaManuales{Data: make([]ManualResumen, 0, len(fs))}
 			for _, f := range fs {
-				r := ManualResumen{ID: f.ID, Titulo: f.Titulo, Resumen: f.Resumen, Etiquetas: f.Etiquetas, Equipo: f.Equipo, Visibilidad: f.Visibilidad,
+				r := ManualResumen{ID: f.ID, Titulo: f.Titulo, Resumen: f.Resumen, Etiquetas: lista(f.Etiquetas), Equipo: f.Equipo, Visibilidad: f.Visibilidad,
 					Activo: f.Activo, Rango: f.Rango}
 				out.Data = append(out.Data, r)
 			}
@@ -733,11 +733,12 @@ func (m *Modulo) registrarHorariosManuales(api huma.API) {
 	env := op("enviarManualConversacion", http.MethodPost, "/conversaciones/{id}/enviar-manual", "Enviar un manual al cliente",
 		nucleo.PermConversacionesResponder, http.StatusCreated, http.StatusNotFound)
 	env.Description += " Solo los de visibilidad cliente (422 `manual_interno`). enlace: URL pública que vence a los 30 días; texto: el cuerpo. Respeta la ventana de 24 h."
-	env.Responses = map[string]*huma.Response{"200": {Description: "Reenvío del mismo id"}}
+	env.Responses = map[string]*huma.Response{"200": {Description: "Reenvío del mismo id: el mensaje tal como está ahora"}}
 	huma.Register(api, env, func(ctx context.Context, in *idCuerpoHTTP[EntradaEnviarManual]) (*salidaMensajeConv, error) {
 		in.Body.ConversacionID, in.Body.IdempotencyKey = in.ID, in.IdempotencyKey
 		return respMensaje(k.Enviar.Ejecutar(ctx, in.Body))
 	})
+	reenvioConCuerpo(api, env.OperationID)
 	huma.Register(api, op("enlacesManualConversacion", http.MethodGet, "/conversaciones/{id}/manual-enlaces",
 		"Enlaces de manuales enviados en la conversación (sin el token)", nucleo.PermConversacionesVer, http.StatusOK, http.StatusNotFound),
 		func(ctx context.Context, in *EntradaConversacion) (*cuerpo[ListaEnlacesManual], error) {

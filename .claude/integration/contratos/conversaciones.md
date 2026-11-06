@@ -112,7 +112,8 @@ cierra nunca: se resuelve y se reabre.
 
 Los objetos opcionales (`cola`, `asignado`, `ultimoMensaje`, `clienteResumen` y, en los mensajes,
 `autor`, `adjunto`, `ubicacion`, `plantilla`, `evento`) van **ausentes** cuando no aplican (no
-`null`): huma no publica objetos anulables. Los escalares opcionales sí van `null`.
+`null`): huma no publica objetos anulables. Los escalares opcionales sí van `null`. Las **listas**
+van siempre `[]` cuando están vacías (nunca `null`), y el contrato las declara no anulables.
 
 `contacto.tipo`: `cliente` (cliente de Argos: solo su id; nombre, servicio, saldo y zona salen de la
 instantánea de lectura o de `GET /clientes/{id}` de la API, nunca de una copia), `contacto_iris`
@@ -262,7 +263,7 @@ Iris**, no una copia de Argos: `nombre`, `tipo` (`proveedor`, `personal`, `prosp
 | `POST /conversaciones/{id}/contacto-iris` | `conversaciones.asociar` | Crea el contacto con el número de la conversación y lo asocia `{ version, nombre, tipo, nota? }` |
 | `POST /contactos-iris/{id}/actualizar` | `conversaciones.asociar` | Nombre, tipo, nota (`version`) |
 | `POST /contactos-iris/{id}/unir-cliente` | `conversaciones.asociar` | `{ version, clienteId }`: se volvió cliente. Sus conversaciones pasan a `contacto.tipo = cliente` con ese id (evento `contacto_iris.unido`), verificadas solo si el número coincide en la instantánea. El contacto queda como historial (`clienteId`, `unidoEn`) |
-| `POST /contactos-iris/{id}/consentimiento` | `conversaciones.asociar` (baja); `acepta` exige además `conversaciones.supervisar` (403) | `{ estado: "acepta" \| "baja", motivo? }` → `{ telefono, estado, ocurridoEn }`: permiso de contacto por WhatsApp de ese número en la empresa (origen `agente`; evento `contacto_iris.consentimiento`). Con `acepta` vigente se le pueden mandar plantillas fuera de la ventana (§8). La baja por chat (§3.4) también cuenta, y si la última es una baja del propio cliente, `acepta` exige `motivo` (5–300, queda guardado y auditado; si no, 422 `baja_del_cliente`) |
+| `POST /contactos-iris/{id}/consentimiento` | `conversaciones.asociar` (baja); `acepta` exige además `conversaciones.supervisar` (403) | `{ estado: "acepta" \| "baja", motivo? }` → `{ telefono, estado, ocurridoEn }`: permiso de contacto por WhatsApp de ese número en la empresa (origen `agente`; evento `contacto_iris.consentimiento`). Con `acepta` vigente se le pueden mandar plantillas fuera de la ventana (§8). La baja por chat (§3.4) también cuenta, y si hay una baja del propio cliente sin un `acepta` posterior (aunque después haya bajas de agentes), `acepta` exige `motivo` (5–300 letras, queda guardado y auditado; si no, 422 `baja_del_cliente`). La baja por chat cuenta desde que Iris recibe el mensaje (un webhook tardío no queda detrás de un `acepta`) |
 
 ### 5.3 Prospecto
 
@@ -389,7 +390,7 @@ quién la tiene; el panel recarga la conversación).
   "respuestaRapidaId": 4 }
 ```
 
-- Idempotente por `id` (mismo id y contenido → 200 con el mensaje actual; otro contenido → 409
+- Idempotente por `id` (mismo id y contenido → 200 con el mensaje actual, mismo cuerpo que el 201; otro contenido → 409
   `mensaje_id_reutilizado`). 201 al crearlo. La respuesta no se guarda en el middleware (trae
   texto); la `Idempotency-Key` la aplica el caso.
 - **Ventana de 24 h:** texto y adjuntos solo si el cliente escribió en las últimas 24 h; fuera de
@@ -517,7 +518,7 @@ panel lo muestra sin HTML crudo), `resumen`, `etiquetas[]` (texto libre, en min�
 | `GET /manuales/{id}` | `manuales.ver` | El artículo |
 | `POST /manuales`, `/manuales/{id}/actualizar`, `/activar`, `/desactivar` | `manuales.editar` | |
 | `GET /conversaciones/{id}/manuales-sugeridos` | `manuales.ver` | Sugerencias por reglas, cada una con su `motivo`: `etiqueta` (comparte una etiqueta con la conversación, por nombre), `equipo` (el equipo del servicio coincide), `ticket_abierto` (comparte una palabra con el asunto de un ticket abierto del cliente). Hasta 5 |
-| `POST /conversaciones/{id}/enviar-manual` | `conversaciones.responder` | `{ id, manualId, modo: "enlace" \| "texto" }`. Solo artículos `cliente` (si no, 422 `manual_interno`). `enlace`: URL pública firmada (`/api/v1/mensajeria/publico/manuales/{token}`, vence a los 30 días) en un mensaje; `texto`: el cuerpo en texto plano. Respeta la ventana de 24 h |
+| `POST /conversaciones/{id}/enviar-manual` | `conversaciones.responder` | `{ id, manualId, modo: "enlace" \| "texto" }`. Solo artículos `cliente` (si no, 422 `manual_interno`). `enlace`: URL pública firmada (`/api/v1/mensajeria/publico/manuales/{token}`, vence a los 30 días) en un mensaje; `texto`: el cuerpo en texto plano. Respeta la ventana de 24 h. Idempotente por `id`: 201 al crearlo, 200 con el mismo cuerpo si se repite |
 
 | `GET /conversaciones/{id}/manual-enlaces` | `conversaciones.ver` | `{ data: [{ id, manualId, titulo, enviadoPor?, venceEn, revocadoEn, creadoEn }] }`: enlaces enviados en la conversación (nunca el token) |
 | `POST /manual-enlaces/{id}/revocar` | `manuales.revocar_enlace` (supervisor) | Revoca ese enlace (desde ya responde 410). Solo de conversaciones que ves (si no, 404). Revocar uno ya revocado: 200 sin cambios. Evento `manual.enlace_revocado` |
