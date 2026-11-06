@@ -221,6 +221,8 @@ test.describe("técnicos", () => {
     });
 
     test("editar, desactivar y la ficha con turnos y ausencias", async ({ page, context, baseURL }, info) => {
+        // Recorre varias pantallas con listas, fechas y horas de HeroUI (abrir, elegir, cerrar): más tiempo.
+        test.slow();
         const api = await simularApi(page, { despacho: true });
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/tecnicos");

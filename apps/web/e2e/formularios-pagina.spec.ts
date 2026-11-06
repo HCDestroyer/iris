@@ -193,6 +193,8 @@ test.describe("formularios en pantalla propia", () => {
     });
 
     test("Nuevo técnico, Editar técnico y Nueva ausencia", async ({ page, context, baseURL }) => {
+        // Recorre varias pantallas con listas, fechas y horas de HeroUI (abrir, elegir, cerrar): más tiempo.
+        test.slow();
         await simularApi(page, { despacho: true });
         await conSesion(context, baseURL ?? "", ADMIN.correo);
 
@@ -247,6 +249,8 @@ test.describe("formularios en pantalla propia", () => {
     });
 
     test("Nuevo prospecto y Cotización", async ({ page, context, baseURL }) => {
+        // Recorre varias pantallas con listas, fechas y horas de HeroUI (abrir, elegir, cerrar): más tiempo.
+        test.slow();
         await simularApi(page, { comercialConector: true });
         await conSesion(context, baseURL ?? "", VENDEDORA.correo);
 
