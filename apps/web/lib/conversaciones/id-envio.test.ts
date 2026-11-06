@@ -10,10 +10,14 @@ describe("id de envío tras un error (id del cuerpo e Idempotency-Key juntos)", 
         expect(idTrasError(errorSinConexion(), "id-1", nuevo)).toBe("id-1");
     });
 
-    it("tras un 422 (o cualquier respuesta) va un id nuevo: el servidor guardó esa clave", () => {
+    it("tras un 4xx va un id nuevo: el servidor guardó esa clave", () => {
         expect(idTrasError(new ErrorApi({ estado: 422, codigo: "baja", titulo: "Baja" }), "id-1", nuevo)).toBe("id-nuevo");
         expect(idTrasError(new ErrorApi({ estado: 409, codigo: "conflicto_version", titulo: "Cambió" }), "id-1", nuevo)).toBe("id-nuevo");
-        expect(idTrasError(new ErrorApi({ estado: 503, codigo: "no_disponible", titulo: "Caído" }), "id-1", nuevo)).toBe("id-nuevo");
+    });
+
+    it("tras un 5xx se repite el id: el servidor no guarda los 5xx y la API pudo haber hecho COMMIT", () => {
+        expect(idTrasError(new ErrorApi({ estado: 503, codigo: "no_disponible", titulo: "Caído" }), "id-1", nuevo)).toBe("id-1");
+        expect(idTrasError(new ErrorApi({ estado: 502, codigo: "api_no_disponible", titulo: "Sin API" }), "id-1", nuevo)).toBe("id-1");
     });
 
     it("si la sesión cambió no salió nada: se conserva el id", () => {
