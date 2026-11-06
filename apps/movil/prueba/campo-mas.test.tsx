@@ -108,6 +108,20 @@ describe.each(["light", "dark"] as const)("«+» (%s)", (esquema) => {
     });
 
     it("Nueva tarea sin señal: valida, aparece en Hoy con borde punteado y se marca hecha", async () => {
+        // El reloj corre desde las 10:00 de hoy en Guatemala: desde las 23:30 el formulario propone
+        // la siguiente media hora, que ya es de mañana (la tarea no caería en Hoy).
+        const real = Date.now.bind(Date);
+        const hoy = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Guatemala", year: "numeric", month: "2-digit", day: "2-digit" }).format(real());
+        const desfase = Date.parse(`${hoy}T10:00:00-06:00`) - real();
+        const reloj = jest.spyOn(Date, "now").mockImplementation(() => real() + desfase);
+        try {
+            await nuevaTareaSinSenal();
+        } finally {
+            reloj.mockRestore();
+        }
+    });
+
+    async function nuevaTareaSinSenal() {
         const m = await montaje(false);
         m.transporte.sinRed = true;
         await abrirCampo(m, {
@@ -152,7 +166,7 @@ describe.each(["light", "dark"] as const)("«+» (%s)", (esquema) => {
                 "Hecha · 30 min",
             ),
         ).toBeTruthy();
-    });
+    }
 
     it("en Hoy la tarea va intercalada estrictamente por hora entre las citas de «Después»", async () => {
         const m = await montar({}, false);
