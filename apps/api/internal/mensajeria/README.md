@@ -167,3 +167,29 @@ Contrato completo: `.claude/integration/contratos/conversaciones.md`. Código en
 Emite (detalle en `contratos/eventos.md`, «Conversaciones con clientes»): `conversacion.*`,
 `contacto_iris.*` (también `contacto_iris.consentimiento`), `cola.*`, `etiqueta.*`, `respuesta_rapida.*`, `boleta.*`, `promesa.solicitada`.
 No consume eventos (los webhooks `comprobante.*` / `promesa.*` de Argos quedan para la fase 1.1).
+
+### Horarios, fuera de horario y manuales (`horarios.go`, `fuera_horario.go`, `manuales.go`, `horarios.sql`)
+
+- **Horario** (`mensajeria.horarios`): entidad genérica (número, cola y, en la fase 2, asistente) con
+  franjas por día en hora local de su zona y feriados que cierran o reemplazan el día. `calendario`
+  evalúa en UTC (`estado`: abierto, franja y próximo cambio). `perfil` por franja es el punto de
+  extensión de la fase 2 (permisos del asistente); hoy se guarda y nada lo usa. Vale el de la cola o,
+  si no tiene, el del número; sin ninguno, siempre abierto. El SLA empieza a contar al abrir.
+- **Fuera de horario** (`canales.fuera_horario`): `alRecibir` (después de guardar el mensaje del
+  cliente) contesta una vez por ventana cerrada (`conversaciones.fuera_horario_hasta` = próxima
+  apertura), nunca a una baja vigente, y avisa a la guardia (participante + evento `guardia`) por
+  etiqueta o por falla masiva (router del servicio caído en `soporte.horus_estados`, solo lectura),
+  una vez por conversación y ventana. `asistente.activo` es de la fase 2 (422).
+- **Manuales** (`mensajeria.manuales`): búsqueda `websearch_to_tsquery('spanish')` sobre un
+  `tsvector` ponderado (título A; resumen, etiquetas y equipo B; cuerpo C). Sugerencias por reglas con
+  su motivo: etiqueta de la conversación, equipo del servicio (Argos, `EquiposEnComodato`) y ticket
+  abierto del cliente (`soporte.tickets`, solo lectura). Enviar al cliente solo los de visibilidad
+  `cliente`: enlace público (`mensajeria.manual_enlaces`, solo el hash del token, 30 días) servido como
+  HTML mínimo con todo el texto escapado y CSP cerrada, o el texto. Cada enlace se puede revocar
+  (`manuales.revocar_enlace`, `revocado_en`). Excluye `/api/v1/mensajeria/publico/manuales/*` de los
+  access logs del proxy: el token va en la ruta. Es la base de conocimiento del asistente de la fase 2.
+- **Fuera de horario y bajas:** la palabra BAJA se registra antes de guardar el mensaje, así que
+  quien la escribe no recibe la respuesta automática; tampoco un número con baja vigente.
+
+Emite además `horario.*`, `conversacion.fuera_de_horario`, `conversacion.guardia_avisada`,
+`manual.creado`, `manual.actualizado`, `manual.enviado` y `manual.enlace_revocado`.

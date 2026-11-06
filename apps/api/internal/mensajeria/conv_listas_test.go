@@ -13,7 +13,8 @@ import (
 // clavesDeLista son los campos de lista de las respuestas de la bandeja: nunca null, siempre [].
 var clavesDeLista = map[string]bool{"data": true, "clientes": true, "coincideEn": true, "colas": true, "contactosIris": true,
 	"etiquetas": true, "menciones": true, "miembros": true, "participantes": true, "porCanal": true, "porCola": true,
-	"porEtiqueta": true, "servicios": true, "usos": true, "variables": true, "vinculos": true, "etiquetaIds": true}
+	"porEtiqueta": true, "servicios": true, "usos": true, "variables": true, "vinculos": true, "etiquetaIds": true,
+	"franjas": true, "feriados": true, "dias": true, "motivos": true}
 
 func listasNulas(ruta string, v any, malas *[]string) {
 	switch x := v.(type) {
@@ -114,5 +115,34 @@ func TestConvListasNuncaNull(t *testing.T) {
 	}
 	if len(reenvios) == 0 {
 		t.Fatal("sin operaciones con reenvío")
+	}
+}
+
+// PR B: horarios, manuales, sugerencias y enlaces también salen con [].
+func TestHorariosYManualesListasNuncaNull(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	h := b.horario(todosLosDias("08:00", "17:00"), []map[string]any{{"fecha": "2026-12-25", "nombre": "Navidad", "franjas": []any{}}})
+	m := b.api(b.supervisor, http.MethodPost, "/manuales", map[string]any{"titulo": "Sin etiquetas", "cuerpo": "Un artículo sin etiquetas.", "visibilidad": "cliente"})
+	b.exigir(m, http.StatusCreated)
+	num := numeroCliente()
+	b.texto(num, "wamid.lm1", "Hola")
+	c := b.conv(num)
+	rutas := []string{
+		"/horarios",
+		fmt.Sprintf("/horarios/%d", int64(h["id"].(float64))),
+		"/manuales?q=nada-que-encontrar",
+		"/manuales",
+		fmt.Sprintf("/manuales/%d", int64(m.cuerpo["id"].(float64))),
+		"/conversaciones/" + cid(c) + "/manuales-sugeridos",
+		"/conversaciones/" + cid(c) + "/manual-enlaces",
+	}
+	for _, r := range rutas {
+		res := b.api(b.supervisor, http.MethodGet, r, nil)
+		b.exigir(res, http.StatusOK)
+		var malas []string
+		listasNulas(r, res.cuerpo, &malas)
+		if len(malas) > 0 {
+			t.Errorf("listas null: %v", malas)
+		}
 	}
 }

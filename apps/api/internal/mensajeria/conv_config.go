@@ -2,6 +2,7 @@ package mensajeria
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -73,6 +74,9 @@ type EntradaConfigurarCanal struct {
 	Usos          []string `json:"usos" minItems:"1" maxItems:"4" uniqueItems:"true" doc:"avisos, soporte, cobros, ventas"`
 	AvisosEmpresa bool     `json:"avisosEmpresa" doc:"El número por el que salen los avisos de la empresa (uno solo; marcarlo lo quita del anterior). Exige avisos en usos"`
 	ColaID        *int64   `json:"colaId,omitempty" minimum:"1" nullable:"true" doc:"Cola de las conversaciones nuevas (null = sin cola)"`
+	HorarioID     *int64   `json:"horarioId,omitempty" minimum:"1" nullable:"true" doc:"Horario del número (null = siempre abierto; el de la cola manda si lo tiene)"`
+	// FueraDeHorario: qué hacer con el horario cerrado (ausente = no cambia).
+	FueraDeHorario *FueraDeHorario `json:"fueraDeHorario,omitempty"`
 }
 
 func validarUsos(usos []string, avisos bool) error {
@@ -143,19 +147,35 @@ func nuevoConfigurarCanal(m *Modulo) *auditoria.Caso[EntradaConfigurarCanal, Can
 			if err := m.colaDeEmpresa(ctx, q, empresa, in.ColaID); err != nil {
 				return Canal{}, err
 			}
+			if err := m.horarioDeEmpresa(ctx, q, empresa, in.HorarioID); err != nil {
+				return Canal{}, err
+			}
+			fuera := fueraDeHorarioDe(antes.FueraHorario)
+			if in.FueraDeHorario != nil {
+				fuera = *in.FueraDeHorario
+				if err := validarFueraDeHorario(ctx, t, empresa, &fuera); err != nil {
+					return Canal{}, err
+				}
+			}
+			fueraCrudo, _ := json.Marshal(fuera)
 			fijarEmpresaCanal(t, antes.EmpresaID)
 			if in.AvisosEmpresa && antes.Activo {
 				if err := fijarAvisos(ctx, t, q, antes.EmpresaID, antes.ID); err != nil {
 					return Canal{}, err
 				}
 			}
-			f, err := q.ConfigurarCanal(ctx, mensajeriabd.ConfigurarCanalParams{ID: in.ID, Usos: in.Usos, AvisosEmpresa: in.AvisosEmpresa, ColaID: in.ColaID})
-			if err != nil {
+			if _, err := q.ConfigurarCanal(ctx, mensajeriabd.ConfigurarCanalParams{ID: in.ID, Usos: in.Usos, AvisosEmpresa: in.AvisosEmpresa, ColaID: in.ColaID}); err != nil {
 				return Canal{}, conflictoCanal(err)
 			}
+			f, err := q.ConfigurarHorarioCanal(ctx, mensajeriabd.ConfigurarHorarioCanalParams{ID: in.ID, HorarioID: in.HorarioID, FueraHorario: fueraCrudo})
+			if err != nil {
+				return Canal{}, err
+			}
 			campos := t.RegistrarCambios("canal_mensajeria", f.ID,
-				map[string]any{"usos": antes.Usos, "avisos_empresa": antes.AvisosEmpresa, "cola_id": antes.ColaID},
-				map[string]any{"usos": f.Usos, "avisos_empresa": f.AvisosEmpresa, "cola_id": f.ColaID})
+				map[string]any{"usos": antes.Usos, "avisos_empresa": antes.AvisosEmpresa, "cola_id": antes.ColaID, "horario_id": antes.HorarioID,
+					"fuera_horario": json.RawMessage(antes.FueraHorario)},
+				map[string]any{"usos": f.Usos, "avisos_empresa": f.AvisosEmpresa, "cola_id": f.ColaID, "horario_id": f.HorarioID,
+					"fuera_horario": json.RawMessage(f.FueraHorario)})
 			if campos == nil {
 				campos = []string{}
 			}
@@ -174,6 +194,7 @@ type ColaConversaciones struct {
 	Descripcion     string       `json:"descripcion"`
 	SLARespuestaMin *int32       `json:"slaRespuestaMin" nullable:"true" doc:"Minutos para contestar un mensaje del cliente (null = sin SLA)"`
 	SLAPorVencerMin *int32       `json:"slaPorVencerMin" nullable:"true" doc:"Cuánto antes de vencer pasa a «por vencer» (null = 25 % del SLA)"`
+	HorarioID       *int64       `json:"horarioId" nullable:"true" doc:"Horario de la cola (manda sobre el del número)"`
 	Miembros        []UsuarioRef `json:"miembros"`
 	Activa          bool         `json:"activa"`
 	Version         int32        `json:"version"`
@@ -190,7 +211,7 @@ func aCola(f mensajeriabd.MensajeriaCola, miembros []UsuarioRef) ColaConversacio
 		miembros = []UsuarioRef{}
 	}
 	return ColaConversaciones{ID: f.ID, EmpresaID: f.EmpresaID, Nombre: f.Nombre, Descripcion: f.Descripcion, SLARespuestaMin: f.SlaRespuestaMin,
-		SLAPorVencerMin: f.SlaPorVencerMin, Miembros: miembros, Activa: f.Activa, Version: f.Version}
+		SLAPorVencerMin: f.SlaPorVencerMin, HorarioID: f.HorarioID, Miembros: miembros, Activa: f.Activa, Version: f.Version}
 }
 
 func colasConMiembros(ctx context.Context, q *mensajeriabd.Queries, fs []mensajeriabd.MensajeriaCola) ([]ColaConversaciones, error) {
@@ -223,6 +244,7 @@ type EntradaCola struct {
 	Descripcion     string `json:"descripcion,omitempty" maxLength:"300"`
 	SLARespuestaMin *int32 `json:"slaRespuestaMin,omitempty" minimum:"1" maximum:"10080" nullable:"true"`
 	SLAPorVencerMin *int32 `json:"slaPorVencerMin,omitempty" minimum:"1" maximum:"10080" nullable:"true"`
+	HorarioID       *int64 `json:"horarioId,omitempty" minimum:"1" nullable:"true" doc:"Horario de la cola (al actualizar, ausente = sin horario)"`
 }
 
 // EntradaMiembrosCola fija los miembros.
@@ -265,7 +287,7 @@ func nuevoListarColas(*Modulo) *auditoria.Caso[struct{}, ListaColas] {
 
 func colaAuditable(c ColaConversaciones) map[string]any {
 	return map[string]any{"nombre": c.Nombre, "descripcion": c.Descripcion, "sla_respuesta_min": c.SLARespuestaMin,
-		"sla_por_vencer_min": c.SLAPorVencerMin}
+		"sla_por_vencer_min": c.SLAPorVencerMin, "horario_id": c.HorarioID}
 }
 
 func nuevoCrearCola(m *Modulo) *auditoria.Caso[EntradaCola, ColaConversaciones] {
@@ -277,10 +299,18 @@ func nuevoCrearCola(m *Modulo) *auditoria.Caso[EntradaCola, ColaConversaciones] 
 				return ColaConversaciones{}, err
 			}
 			q := mensajeriabd.New(t)
+			if err := m.horarioDeEmpresa(ctx, q, a.empresa, in.HorarioID); err != nil {
+				return ColaConversaciones{}, err
+			}
 			f, err := q.InsertarCola(ctx, mensajeriabd.InsertarColaParams{EmpresaID: a.empresaPtr(), Nombre: strings.TrimSpace(in.Nombre),
 				Descripcion: in.Descripcion, SlaRespuestaMin: in.SLARespuestaMin, SlaPorVencerMin: in.SLAPorVencerMin})
 			if err != nil {
 				return ColaConversaciones{}, conflictoNombre(err, "una cola")
+			}
+			if in.HorarioID != nil {
+				if f, err = q.FijarHorarioCola(ctx, mensajeriabd.FijarHorarioColaParams{ID: f.ID, HorarioID: in.HorarioID}); err != nil {
+					return ColaConversaciones{}, err
+				}
 			}
 			c := aCola(f, nil)
 			t.FijarEmpresa(a.empresa)
@@ -316,10 +346,16 @@ func nuevoActualizarCola(m *Modulo) *auditoria.Caso[EntradaCola, ColaConversacio
 				return ColaConversaciones{}, nucleo.ConflictoVersion("cola", in.ID)
 			}
 			q := mensajeriabd.New(t)
+			if err := m.horarioDeEmpresa(ctx, q, a.empresa, in.HorarioID); err != nil {
+				return ColaConversaciones{}, err
+			}
 			f, err := q.ActualizarCola(ctx, mensajeriabd.ActualizarColaParams{ID: in.ID, Nombre: strings.TrimSpace(in.Nombre), Descripcion: in.Descripcion,
 				SlaRespuestaMin: in.SLARespuestaMin, SlaPorVencerMin: in.SLAPorVencerMin})
 			if err != nil {
 				return ColaConversaciones{}, conflictoNombre(err, "una cola")
+			}
+			if f, err = q.FijarHorarioCola(ctx, mensajeriabd.FijarHorarioColaParams{ID: f.ID, HorarioID: in.HorarioID}); err != nil {
+				return ColaConversaciones{}, err
 			}
 			cs, err := colasConMiembros(ctx, q, []mensajeriabd.MensajeriaCola{f})
 			if err != nil {

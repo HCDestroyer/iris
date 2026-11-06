@@ -228,6 +228,9 @@ Una tarea está terminada solo si:
 | `cola.creada` / `cola.actualizada` / `etiqueta.creada` / `etiqueta.actualizada` / `respuesta_rapida.creada` / `respuesta_rapida.actualizada` | mensajeria (bandeja) | cola_id / etiqueta_id / respuesta_id, empresa_id; nombre o atajo (creada); campos[], activa (actualizada) |
 | `boleta.registrada` / `boleta.registrada_en_argos` / `boleta.fallida` | mensajeria (bandeja) | boleta_id, conversacion_id, empresa_id; cliente_id, servicio_id (registrada); comprobante_id (en Argos); detalle (fallida) |
 | `promesa.solicitada` | mensajeria (bandeja) | promesa_id, conversacion_id, empresa_id, cliente_id, servicio_id, estado (activa, rechazada, pendiente_aprobacion), promesa_argos_id |
+| `horario.creado` / `horario.actualizado` | mensajeria (bandeja) | horario_id, empresa_id; nombre (creado); campos[], activo (actualizado) |
+| `conversacion.fuera_de_horario` / `conversacion.guardia_avisada` | mensajeria (bandeja) | conversacion_id, empresa_id; mensaje_id, hasta (fuera de horario); usuario_id, motivo (etiqueta, falla_masiva) (guardia) |
+| `manual.creado` / `manual.actualizado` / `manual.enviado` / `manual.enlace_revocado` | mensajeria (bandeja) | manual_id, empresa_id; visibilidad (creado); campos[], activo (actualizado); conversacion_id, mensaje_id, modo (enlace, texto) (enviado); enlace_id, conversacion_id, actor_id (revocado) |
 
 El detalle de cada payload vive en `.claude/integration/contratos/eventos.md`.
 

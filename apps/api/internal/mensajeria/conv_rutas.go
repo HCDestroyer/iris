@@ -122,7 +122,7 @@ func respMensaje(r MensajeConvEnviado, err error) (*salidaMensajeConv, error) {
 }
 
 // conReenvio son las operaciones cuyo 200 es el reenvío del mismo id.
-var conReenvio = map[string]bool{"responderConversacion": true, "notaConversacion": true}
+var conReenvio = map[string]bool{"responderConversacion": true, "notaConversacion": true, "enviarManualConversacion": true}
 
 // ConReenvio dice si la operación tiene un 200 de reenvío (para la prueba del contrato).
 func ConReenvio(operacion string) bool { return conReenvio[operacion] }
@@ -146,6 +146,9 @@ var esquemasBandeja = []string{
 	"ListaBancos", "ListaColas", "ListaCuentasBancarias", "ListaEtiquetas", "ListaNumeros", "ListaPlantillasConv",
 	"ListaRespuestasRapidas", "MensajeConversacion", "NumeroConversaciones", "PaginaContactoIris", "PaginaConversacionCliente",
 	"PaginaMensajeConversacion", "PlantillaDisponible",
+	// PR B: horarios y manuales.
+	"Horario", "ListaHorarios", "Manual", "ManualResumen", "ListaManuales", "ManualSugerido", "ListaSugeridos", "ListaEnlacesManual",
+	"FueraDeHorario", "GuardiaFueraDeHorario", "FeriadoHorario", "FranjaHorario",
 }
 
 // EsquemasBandeja devuelve los nombres (para la prueba del contrato).
