@@ -140,18 +140,20 @@ export type PropsDialogoContenido = Omit<ComponentProps<"div">, "title" | "role"
      * sesión). Solo se sale por las acciones del propio diálogo.
      */
     cerrable?: boolean;
+    /** Tarjeta centrada también en el teléfono (confirmaciones cortas), no hoja pegada abajo. */
+    centrado?: boolean;
 };
 
-export function DialogoContenido({ titulo, descripcion, etiquetaCerrar = "Cerrar", className, children, role, onOpenAutoFocus, cerrable = true, ...props }: PropsDialogoContenido) {
+export function DialogoContenido({ titulo, descripcion, etiquetaCerrar = "Cerrar", className, children, role, onOpenAutoFocus, cerrable = true, centrado = false, ...props }: PropsDialogoContenido) {
     const { abierto, cambiar } = useDialogo();
     const idDescripcion = useId();
     return (
         <Modal.Backdrop isOpen={abierto} onOpenChange={cambiar} isDismissable={cerrable} isKeyboardDismissDisabled={!cerrable} variant="opaque" className={clasesFondo}>
-            <Modal.Container placement="auto" scroll="inside" className={clasesContenedor}>
+            <Modal.Container placement={centrado ? "center" : "auto"} scroll="inside" className={centrado ? cn(clasesContenedor, "p-4") : clasesContenedor}>
                 <Modal.Dialog
                     role={role ?? "dialog"}
                     aria-describedby={descripcion ? idDescripcion : undefined}
-                    className={clasesPanel(cn("sm:w-[min(36rem,calc(100vw-2rem))]", className))}
+                    className={clasesPanel(cn("sm:w-[min(36rem,calc(100vw-2rem))]", centrado && "w-[min(24rem,calc(100vw-2rem))] rounded-[var(--hx-radius-card)]", className))}
                     {...props}
                 >
                     <FocoAlAbrir alAbrir={onOpenAutoFocus} />

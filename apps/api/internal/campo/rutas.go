@@ -62,6 +62,12 @@ type conID[T any] struct {
 
 type vacio struct{}
 
+// conTomar: POST /ordenes/{id}/tomar no lleva cuerpo.
+type conTomar struct {
+	nucleo.ConIdempotencia
+	ID int64 `path:"id" minimum:"1"`
+}
+
 // conFormulario: POST /ordenes/{id}/formularios/{fid}/quitar.
 type conFormulario struct {
 	nucleo.ConIdempotencia
@@ -281,7 +287,7 @@ func (m *Modulo) Registrar(api huma.API) {
 
 	// App de campo (contratos/sync.md).
 	paquete := operacion("paqueteCampo", http.MethodGet, "/api/v1/campo/paquete", "Paquete del día del técnico", nucleo.PermCampoSincronizar, http.StatusOK)
-	paquete.Description += " Órdenes asignadas al actor con la instantánea de cliente y servicio, checklist, comodato y existencias (si hay conector con Argos), la cita de la agenda (con la ventana acordada con el cliente), ruta (aún ausente) y el cursor de cambios."
+	paquete.Description += " Órdenes asignadas al actor con la instantánea de cliente y servicio, checklist, comodato y existencias (si hay conector con Argos), la cita de la agenda (con la ventana acordada con el cliente), ruta (aún ausente), sus tareas propias, si puede tomar órdenes libres y el cursor de cambios."
 	huma.Register(api, paquete, func(ctx context.Context, in *EntradaPaquete) (*cuerpo[Paquete], error) {
 		return responder(m.Paquete(contexto.ConCanal(ctx, contexto.CanalCampo), *in))
 	})
@@ -301,6 +307,34 @@ func (m *Modulo) Registrar(api huma.API) {
 	ultimas.Description += " De la empresa activa y según el alcance (cuadrilla del técnico o zonas que atiende su cuadrilla). Por defecto, las de las últimas 24 h."
 	huma.Register(api, ultimas, func(ctx context.Context, in *EntradaUltimasPosiciones) (*cuerpo[UltimasPosiciones], error) {
 		return responder(m.UltimasPosiciones.Ejecutar(ctx, *in))
+	})
+
+	// Órdenes libres y ajustes de la app de campo.
+	libres := operacion("ordenesLibresCampo", http.MethodGet, "/api/v1/campo/ordenes-libres", "Órdenes libres que el técnico puede tomar", nucleo.PermOrdenesTomar, http.StatusOK)
+	libres.Description += " Solo si la empresa lo permite (ajuste `tecnicosTomanLibres`; si no, 403 `libres_apagado`). Órdenes pendientes y sin técnico" +
+		" de la empresa activa: una orden con cuadrilla solo si es la tuya; sin cuadrilla, de las zonas que atiende tu cuadrilla (tu ficha de agenda). Ordenadas por distancia en línea recta a tu" +
+		" última posición conocida (las sin coordenadas al final) o, sin posición, por fecha. Cursor (`?cursor=&limit=`): `{ data, nextCursor, total }`."
+	huma.Register(api, libres, func(ctx context.Context, in *EntradaOrdenesLibres) (*cuerpo[OrdenesLibres], error) {
+		return responder(m.OrdenesLibres.Ejecutar(contexto.ConCanal(ctx, contexto.CanalCampo), *in))
+	})
+	tomar := accion("tomarOrden", "tomar", "Tomar una orden libre (el técnico)",
+		"Si la empresa lo permite (403 `libres_apagado`), el técnico se asigna una orden pendiente y sin técnico con la lógica de `ordenes.asignar`."+
+			" Una orden con cuadrilla solo es libre para los técnicos de ESA cuadrilla; sin cuadrilla vale la zona, y al tomarla queda con la cuadrilla del técnico."+
+			" Fuera de su cuadrilla o de sus zonas, o en un estado que no sea abierto (pendiente, programada, en camino), el mismo 404 que una orden inexistente"+
+			" (sin número ni nombre). Abierta y ya tomada por otro (o asignada por despacho): 409 `orden_ya_tomada` con `tomadaPor` (id y nombre). Ya tuya: 200 sin cambios. Requiere conexión (no va por el lote). Emite `orden.asignada` (origen `tomar`, motivo `tomada`).",
+		nucleo.PermOrdenesTomar)
+	huma.Register(api, tomar, func(ctx context.Context, in *conTomar) (*cuerpo[Orden], error) {
+		return responder(m.TomarOrden.Ejecutar(ctx, EntradaTomarOrden{ID: in.ID}))
+	})
+	verAjustes := operacion("verAjustesCampo", http.MethodGet, "/api/v1/campo/ajustes", "Ajustes de la app de campo de la empresa", nucleo.PermCampoConfigurar, http.StatusOK)
+	huma.Register(api, verAjustes, func(ctx context.Context, _ *vacio) (*cuerpo[AjustesCampo], error) {
+		return responder(m.VerAjustes.Ejecutar(ctx, struct{}{}))
+	})
+	fijarAjustes := operacion("fijarAjustesCampo", http.MethodPost, "/api/v1/campo/ajustes", "Fijar los ajustes de la app de campo de la empresa",
+		nucleo.PermCampoConfigurar, http.StatusOK, http.StatusConflict)
+	fijarAjustes.Description += " Sin límite de zona. `tecnicosTomanLibres`: los técnicos pueden tomar órdenes libres (apagado por defecto). 422 `sin_cambios`. Emite `campo.ajustes_cambiados`."
+	huma.Register(api, fijarAjustes, func(ctx context.Context, in *conClave[EntradaFijarAjustes]) (*cuerpo[AjustesCampo], error) {
+		return responder(m.FijarAjustes.Ejecutar(ctx, in.Body))
 	})
 
 	lote := operacion("loteSync", http.MethodPost, "/api/v1/sync/lote", "Lote de operaciones de la app de campo", nucleo.PermCampoSincronizar, http.StatusOK)

@@ -110,11 +110,14 @@ export { Pestanas, type Pestana, type PropsPestanas } from "./componentes/pestan
 export { CampoSelector, Selector, type PropsCampoSelector, type PropsSelector } from "./componentes/selector";
 export {
     aFecha,
+    aHora,
     hoyEnGuatemala,
     SelectorFecha,
+    SelectorHora,
     SelectorRangoFechas,
     ZONA_GUATEMALA,
     type PropsSelectorFecha,
+    type PropsSelectorHora,
     type PropsSelectorRangoFechas,
     type RangoFechas,
 } from "./componentes/selector-fecha";

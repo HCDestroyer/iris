@@ -5,6 +5,7 @@ import {
     CODIGO_SESION_AJENA,
     ColaPosiciones,
     crearInventarioApi,
+    crearLibresApi,
     crearSubidorApi,
     crearTransporteApi,
     crearTransportePosicionesApi,
@@ -13,6 +14,7 @@ import {
     type EstadoPosiciones,
     type EstadoSync,
     type InventarioCampo,
+    type LibresCampo,
     type OrdenCampo,
 } from "@iris/sync";
 import { AlmacenDexie } from "@iris/sync/dexie";
@@ -43,6 +45,8 @@ export interface MotorAbierto {
      * la cola ni el paquete guardado.
      */
     agenda: (hasta: string) => Promise<OrdenCampo[]>;
+    /** Órdenes libres y tomar una (solo con señal; nunca por la cola). */
+    libres: LibresCampo;
 }
 
 /**
@@ -97,7 +101,18 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void): 
         await verificarIdentidad();
         return (await transporte.obtenerPaquete(hasta)).datos.ordenes ?? [];
     };
-    return { motor, posiciones, almacen, inventario, agenda };
+    const apiLibres = crearLibresApi(cliente, app);
+    const libres: LibresCampo = {
+        listar: async (cursor) => {
+            await verificarIdentidad();
+            return apiLibres.listar(cursor);
+        },
+        tomar: async (id) => {
+            await verificarIdentidad();
+            return apiLibres.tomar(id);
+        },
+    };
+    return { motor, posiciones, almacen, inventario, agenda, libres };
 }
 
 /** Estado de la cola de posiciones para React. */

@@ -494,3 +494,57 @@ RETURNING *;
 
 -- name: TecnicoPorArgos :one
 SELECT * FROM agenda.tecnicos WHERE argos_id_externo = @id_externo;
+
+-- Tareas propias del técnico ------------------------------------------------------
+
+-- name: CrearTarea :one
+-- Idempotente por id (uuid del teléfono): si ya existe no hace nada y no devuelve fila.
+INSERT INTO agenda.tareas (id, empresa_id, tecnico_id, creada_por, que, inicio, duracion_min, fin, orden_id, cliente_id, origen)
+VALUES (@id, @empresa_id, @tecnico_id, @creada_por, @que, @inicio, @duracion_min, @fin, @orden_id, @cliente_id, @origen)
+ON CONFLICT (id) DO NOTHING
+RETURNING *;
+
+-- name: TareaPorID :one
+SELECT * FROM agenda.tareas WHERE id = @id;
+
+-- name: TareaPorIDParaActualizar :one
+SELECT * FROM agenda.tareas WHERE id = @id FOR UPDATE;
+
+-- name: CompletarTarea :one
+UPDATE agenda.tareas SET estado = 'completada', completada_en = @completada_en, completada_por = @completada_por,
+    version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version
+RETURNING *;
+
+-- name: AnularTarea :one
+UPDATE agenda.tareas SET estado = 'anulada', anulada_en = @anulada_en, anulada_por = @anulada_por, motivo = @motivo,
+    version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version
+RETURNING *;
+
+-- name: TareasDelTecnico :many
+-- Tareas vivas (no anuladas) del técnico en la empresa que empiezan antes de @hasta: las de
+-- @desde en adelante y las pendientes atrasadas.
+SELECT * FROM agenda.tareas
+WHERE tecnico_id = @tecnico_id AND estado <> 'anulada'
+  AND (@todas_empresas::boolean OR empresa_id IS NOT DISTINCT FROM sqlc.narg('empresa_id')::bigint)
+  AND inicio < @hasta AND (inicio >= @desde OR estado = 'pendiente')
+ORDER BY inicio, id
+LIMIT 500;
+
+-- name: ListarTareas :many
+-- Tareas de la empresa que empiezan en [desde, hasta), de los técnicos dados (o de todos con
+-- @todos_tecnicos), por inicio e id (cursor).
+SELECT * FROM agenda.tareas
+WHERE (@todas_empresas::boolean OR empresa_id IS NOT DISTINCT FROM sqlc.narg('empresa_id')::bigint)
+  AND inicio >= @desde AND inicio < @hasta
+  AND (@todos_tecnicos::boolean OR tecnico_id = ANY(@tecnicos::bigint[]))
+  AND (@incluir_anuladas::boolean OR estado <> 'anulada')
+  AND (NOT @con_cursor::boolean OR (inicio, id) > (@cursor_inicio::timestamptz, @cursor_id::uuid))
+ORDER BY inicio, id
+LIMIT @limite;
+
+-- name: ClienteArgosEnEmpresa :one
+-- El cliente está en la instantánea de Argos de la empresa (propio o compartido).
+SELECT EXISTS (SELECT 1 FROM integracion.argos_clientes
+               WHERE id = @id AND (empresa_id = @empresa_id::bigint OR @empresa_id::bigint = ANY(empresas)));
