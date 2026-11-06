@@ -57,12 +57,12 @@ const PLANTILLAS: PlantillaDisponible[] = [
         nombre: "Confirmar visita técnica",
         categoria: "servicio",
         variables: [
-            { nombre: "1", formato: "texto" },
-            { nombre: "2", formato: "texto" },
+            { nombre: "1", formato: "texto", obligatoria: true },
+            { nombre: "2", formato: "texto", obligatoria: true },
         ],
         vistaPrevia: "Hola {{1}}, te escribimos de Soporte. Queremos confirmar tu visita técnica de {{2}}. ¿Te queda bien?",
     },
-    { codigo: "seguimiento", nombre: "Seguimiento de soporte", categoria: "servicio", variables: [{ nombre: "nombre", formato: "texto" }], vistaPrevia: "Hola {{nombre}}, ¿pudiste volver a conectarte?" },
+    { codigo: "seguimiento", nombre: "Seguimiento de soporte", categoria: "servicio", variables: [{ nombre: "nombre", formato: "texto", obligatoria: true }], vistaPrevia: "Hola {{nombre}}, ¿pudiste volver a conectarte?" },
 ];
 
 const DESTINATARIOS: Destinatario[] = [
@@ -238,7 +238,7 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
                 leidoEn: null,
                 automatico: null,
             };
-            c.ultimoMensaje = { direccion: "saliente", tipo: "plantilla", texto, evento: null, creadoEn: ahora };
+            c.ultimoMensaje = { direccion: "saliente", tipo: "plantilla", texto, evento: null, creadoEn: ahora, automatico: null };
             if (!existente) {
                 e.conversaciones.push(c);
                 e.mensajes.set(c.id, []);

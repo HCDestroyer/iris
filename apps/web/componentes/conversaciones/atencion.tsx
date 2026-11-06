@@ -3,12 +3,13 @@
 import { avisar, Boton, Cargando, cn } from "@iris/ui";
 import { Clock, Timer, UserCheck } from "lucide-react";
 import { useState } from "react";
-import { api, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
+import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { cabeceraIdem } from "@/lib/conversaciones/api";
 import { avanceEspera, minutosParaBot, textoCuentaRegresiva, textoDisponibles, textoEsperaDesde } from "@/lib/conversaciones/atencion";
 import type { Conversacion, Espera } from "@/lib/conversaciones/tipos";
 import { iniciales } from "@/lib/conversaciones/presentacion";
+import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useSesion } from "@/lib/sesion";
 
 /** La espera de una conversación, si está sin asignar y no resuelta (contrato §14.6). */
@@ -30,19 +31,23 @@ export function pideAtencion(conv: Conversacion): boolean {
 export function useAtender(conv: Conversacion, alHecho: (c: Conversacion) => void) {
     const [atendiendo, setAtendiendo] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const clave = useClaveIdempotencia();
     async function atender() {
         setAtendiendo(true);
         setError(null);
         try {
             const c = await resolver(
                 api().POST("/api/v1/mensajeria/conversaciones/{id}/tomar", {
-                    params: { path: { id: conv.id }, header: cabeceraIdem(nuevaClaveIdempotencia()) },
+                    params: { path: { id: conv.id }, header: cabeceraIdem(clave.actual()) },
                     body: { version: conv.version },
                 }),
             );
+            clave.renovar();
             alHecho(c);
             avisar({ titulo: `Atiendes a ${conv.titulo}` });
         } catch (e) {
+            // Sin respuesta: la misma clave (no se toma dos veces); con respuesta, una nueva.
+            clave.trasError(e);
             setError(e instanceof ErrorApi && e.codigo === "ya_asignada" ? (e.detalle ?? "Ya la tomó otra persona") : mensajeDeError(e).titulo);
         } finally {
             setAtendiendo(false);
@@ -129,9 +134,9 @@ export function LineaDisponibles({ conv, className }: { conv: Conversacion; clas
     return (
         <p data-slot="disponibles" className={cn("flex min-w-0 items-center gap-1.5 text-xs", total === 0 ? "font-medium text-warning" : "text-muted-foreground", className)}>
             {total > 0 ? (
-                <span aria-hidden className="flex shrink-0 -space-x-1">
+                <span aria-hidden className="flex shrink-0 gap-1">
                     {espera.disponibles.slice(0, 3).map((p) => (
-                        <span key={p.id} className="relative flex size-5 items-center justify-center rounded-full bg-elevated text-[0.5625rem] font-bold text-foreground ring-2 ring-card">
+                        <span key={p.id} className="relative flex h-5 min-w-6 items-center justify-center rounded-full bg-elevated px-1 text-[0.5625rem] leading-none font-bold text-foreground">
                             {iniciales(p.nombre)}
                             <span className="absolute -right-0.5 -bottom-0.5 size-2 rounded-full bg-success ring-1 ring-card" />
                         </span>

@@ -30,13 +30,20 @@ export const esquemaCuandoNoHayAgentes = z
         atiende: z.enum(["bot", "agente_autonomo"]).refine((v): boolean => v === "bot", "El agente autónomo llega en la fase 3"),
         saludo: z.string().trim().min(1, "Escribe el saludo del bot").max(1024, "Hasta 1024 caracteres"),
         conMenu: z.boolean(),
-        menu: z.array(esquemaOpcionMenu).max(MAX_OPCIONES_MENU, `Hasta ${MAX_OPCIONES_MENU} opciones`),
+        // Se valida abajo, solo con el menú prendido (apagado no se manda).
+        menu: z.array(z.object({ texto: z.string(), colaId: z.string(), etiquetaIds: z.array(z.number()) })),
         minutosSinConfirmacion: minutos(1440),
         minutosSinDisponibles: minutos(1440),
     })
-    // El menú, si está prendido, lleva al menos una opción.
+    // El menú, si está prendido: de 1 a 9 opciones, cada una con texto, cola y hasta 5 etiquetas.
     .superRefine((v, ctx) => {
-        if (v.conMenu && v.menu.length === 0) ctx.addIssue({ code: "custom", path: ["menu"], message: "Agrega al menos una opción o apaga el menú" });
+        if (!v.conMenu) return;
+        if (v.menu.length === 0) ctx.addIssue({ code: "custom", path: ["menu"], message: "Agrega al menos una opción o apaga el menú" });
+        if (v.menu.length > MAX_OPCIONES_MENU) ctx.addIssue({ code: "custom", path: ["menu"], message: `Hasta ${MAX_OPCIONES_MENU} opciones` });
+        v.menu.forEach((o, i) => {
+            const r = esquemaOpcionMenu.safeParse(o);
+            if (!r.success) for (const issue of r.error.issues) ctx.addIssue({ code: "custom", path: ["menu", i, ...issue.path.map((x) => (typeof x === "symbol" ? String(x) : x))], message: issue.message });
+        });
     });
 
 export type ValoresCuandoNoHayAgentes = z.infer<typeof esquemaCuandoNoHayAgentes>;

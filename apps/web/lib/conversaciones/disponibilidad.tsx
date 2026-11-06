@@ -1,15 +1,16 @@
 "use client";
 
 import { avisar } from "@iris/ui";
+import { usePathname, useRouter } from "next/navigation";
 import { createContext, use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { nuevaClaveIdempotencia } from "../api/cliente";
 import { ErrorApi } from "../api/errores";
 import { ZONA } from "../fechas";
 import { useLectura, type Lectura } from "../lectura";
-import { useSesion } from "../sesion";
+import { rutaEntrar, useSesion } from "../sesion";
 import { cambiarDisponibilidad, leerAgentes, leerDisponibilidad, mandarLatido } from "./api-equipo";
 import type { Disponibilidad, EstadoDisponibilidad } from "./tipos";
-import { crearLatido } from "./latido";
+import { crearLatido, esperaTrasFallos, tiemposLatido, type TrasFallo } from "./latido";
 
 /*
  * Mi disponibilidad en la bandeja (fase 1.1): «Disponible» o «No disponible». Vive en el panel (el
@@ -35,14 +36,22 @@ type ContextoDisponibilidad = {
 
 const Contexto = createContext<ContextoDisponibilidad | null>(null);
 
-/** Cada cuánto se revisa si toca latido, y se relee el estado con la pestaña a la vista. */
-const REVISION_MS = 15_000;
+/** Cada cuánto se relee el estado con la pestaña a la vista (más espaciado tras fallos). */
 const RELECTURA_MS = 60_000;
+
+/** Qué hacer tras un fallo de la API: esperar (red, 429, 5xx), detener (401) o seguir. */
+export function clasificarFallo(error: unknown): TrasFallo {
+    if (!(error instanceof ErrorApi)) return "esperar";
+    if (error.estado === 401) return "detener";
+    return error.estado === 0 || error.estado === 429 || error.estado >= 500 ? "esperar" : "seguir";
+}
 
 const EVENTOS_ACTIVIDAD = ["pointerdown", "keydown", "wheel", "touchstart", "mousemove", "scroll"] as const;
 
 export function ProveedorDisponibilidad({ children }: { children: ReactNode }) {
     const { yo } = useSesion();
+    const router = useRouter();
+    const ruta = usePathname();
     const lectura = useLectura((signal) => leerDisponibilidad(signal));
     // Mis colas salen del catálogo de agentes (la disponibilidad no las trae).
     const agentes = useLectura((signal) => leerAgentes(signal));
@@ -54,31 +63,104 @@ export function ProveedorDisponibilidad({ children }: { children: ReactNode }) {
     const [cambiando, setCambiando] = useState(false);
     const [error, setError] = useState<unknown>(null);
     const disponible = lectura.estado === "listo" && lectura.datos.estado === "disponible";
+    const minutos = lectura.estado === "listo" ? lectura.datos.minutosInactividad : 15;
     const { reemplazar, refrescar } = lectura;
+    /** La sesión venció (401): se deja de leer y se pide entrar otra vez. */
+    const rutaRef = useRef(ruta);
+    const sesionVencida = useCallback(() => router.replace(rutaEntrar(rutaRef.current, "expirada")), [router]);
     const datos = lectura.estado === "listo" ? lectura.datos : null;
     const datosRef = useRef(datos);
     const colasRef = useRef(colas);
     useEffect(() => {
         datosRef.current = datos;
         colasRef.current = colas;
+        rutaRef.current = ruta;
     });
 
-    // Latido mientras estoy disponible y activa.
+    /** Aplica una disponibilidad leída solo si no es más vieja que la que se ve. */
+    const aplicar = useCallback(
+        (d: Disponibilidad) => {
+            const actual = datosRef.current;
+            if (actual && d.version < actual.version) return;
+            reemplazar(d);
+        },
+        [reemplazar],
+    );
+
+    // Relectura sin pasar por «cargando»: el servidor me pudo pasar a «No disponible» (inactividad,
+    // fuera de horario). Tras un fallo de red, 429 o 5xx se espera cada vez más (hasta 5 min); un 401
+    // la detiene y lleva a entrar.
+    const releer = useRef<() => void>(() => undefined);
+    useEffect(() => {
+        let vivo = true;
+        let fallos = 0;
+        let proxima = 0;
+        let id = 0;
+        const programar = (ms: number) => {
+            window.clearTimeout(id);
+            id = window.setTimeout(() => void leer(), ms);
+        };
+        async function leer() {
+            if (!vivo) return;
+            if (document.visibilityState !== "visible" || Date.now() < proxima) return programar(RELECTURA_MS);
+            try {
+                const d = await leerDisponibilidad();
+                if (!vivo) return;
+                fallos = 0;
+                aplicar(d);
+                programar(RELECTURA_MS);
+            } catch (e) {
+                if (!vivo) return;
+                const que = clasificarFallo(e);
+                if (que === "detener") {
+                    vivo = false;
+                    sesionVencida();
+                    return;
+                }
+                if (que === "esperar") fallos += 1;
+                const espera = que === "esperar" ? esperaTrasFallos(RELECTURA_MS, fallos) : RELECTURA_MS;
+                proxima = Date.now() + espera;
+                programar(espera);
+            }
+        }
+        releer.current = () => {
+            if (Date.now() >= proxima) programar(0);
+        };
+        programar(RELECTURA_MS);
+        return () => {
+            vivo = false;
+            window.clearTimeout(id);
+        };
+    }, [aplicar, sesionVencida]);
+
+    // Latido mientras estoy disponible y activa, con el intervalo que piden los minutos de la empresa.
     useEffect(() => {
         if (!disponible) return;
+        const { intervaloMs, revisionMs, inactivoTrasMs } = tiemposLatido(minutos);
         const latido = crearLatido({
-            // El latido responde la disponibilidad actual: si el servidor ya me pasó a «No disponible», se ve.
-            enviar: () => mandarLatido().then((r) => r && typeof r === "object" && "estado" in r && reemplazar(r)),
+            // El latido responde la disponibilidad actual: si el servidor ya me pasó a «No disponible»,
+            // se ve. Una respuesta que llega con el latido ya detenido, o más vieja, se ignora.
+            enviar: () =>
+                mandarLatido().then((r) => {
+                    if (!latido.detenido()) aplicar(r);
+                }),
             visible: document.visibilityState === "visible",
+            intervaloMs,
+            inactivoTrasMs,
+            trasFallo: (e) => {
+                const que = clasificarFallo(e);
+                if (que === "detener") sesionVencida();
+                return que;
+            },
         });
         const alActuar = () => latido.actividad();
         const alVisibilidad = () => {
             latido.visibilidad(document.visibilityState === "visible");
-            if (document.visibilityState === "visible") void refrescar();
+            if (document.visibilityState === "visible") releer.current();
         };
         for (const e of EVENTOS_ACTIVIDAD) window.addEventListener(e, alActuar, { passive: true, capture: true });
         document.addEventListener("visibilitychange", alVisibilidad);
-        const revision = window.setInterval(() => latido.revisar(), REVISION_MS);
+        const revision = window.setInterval(() => latido.revisar(), revisionMs);
         latido.actividad();
         return () => {
             latido.detener();
@@ -86,13 +168,7 @@ export function ProveedorDisponibilidad({ children }: { children: ReactNode }) {
             document.removeEventListener("visibilitychange", alVisibilidad);
             window.clearInterval(revision);
         };
-    }, [disponible, reemplazar, refrescar]);
-
-    // Relectura: el servidor me pudo pasar a «No disponible» (inactividad, fuera de horario).
-    useEffect(() => {
-        const id = window.setInterval(() => document.visibilityState === "visible" && void refrescar(), RELECTURA_MS);
-        return () => window.clearInterval(id);
-    }, [refrescar]);
+    }, [disponible, minutos, aplicar, sesionVencida]);
 
     const cambiar = useCallback(
         async (estado: EstadoDisponibilidad) => {

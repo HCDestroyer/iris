@@ -7,8 +7,9 @@ const PLANTILLA = {
     nombre: "Confirmar visita técnica",
     categoria: "servicio" as const,
     variables: [
-        { nombre: "1", formato: "texto" as const },
-        { nombre: "2", formato: "texto" as const },
+        { nombre: "1", formato: "texto" as const, obligatoria: true },
+        { nombre: "2", formato: "texto" as const, obligatoria: true },
+        { nombre: "3", formato: "texto" as const, obligatoria: false },
     ],
     vistaPrevia: "Hola {{1}}, queremos confirmar tu visita de {{2}}.",
 };
@@ -26,11 +27,11 @@ describe("vista previa de la plantilla", () => {
     it("llena la primera variable con el primer nombre del contacto", () => {
         expect(primerNombre("Carlos Ruiz")).toBe("Carlos");
         expect(primerNombre("+502 5544 0018")).toBe("");
-        expect(valoresIniciales(PLANTILLA, "Carlos Ruiz")).toEqual({ "1": "Carlos", "2": "" });
+        expect(valoresIniciales(PLANTILLA, "Carlos Ruiz")).toEqual({ "1": "Carlos", "2": "", "3": "" });
     });
 
-    it("dice qué variables obligatorias faltan", () => {
-        expect(variablesFaltantes(PLANTILLA, { "1": "Carlos", "2": "  " })).toEqual(["2"]);
+    it("dice qué variables obligatorias faltan (las opcionales no)", () => {
+        expect(variablesFaltantes(PLANTILLA, { "1": "Carlos", "2": "  ", "3": "" })).toEqual(["2"]);
     });
 });
 
@@ -50,6 +51,8 @@ describe("menú del bot (cuando no hay agentes)", () => {
         expect(r.error?.issues.map((i) => i.path.join("."))).toEqual(["menu.0.texto", "menu.0.colaId"]);
         expect(esquemaCuandoNoHayAgentes.safeParse({ ...base, menu: [] }).error?.issues[0]?.message).toBe("Agrega al menos una opción o apaga el menú");
         expect(esquemaCuandoNoHayAgentes.safeParse({ ...base, conMenu: false, menu: [] }).success).toBe(true);
+        // Apagado, lo que quedó escrito en el menú no se valida (no se manda).
+        expect(esquemaCuandoNoHayAgentes.safeParse({ ...base, conMenu: false, menu: [{ texto: "", colaId: "", etiquetaIds: [] }] }).success).toBe(true);
     });
 
     it("no deja elegir el agente autónomo (fase 3) ni minutos fuera de rango", () => {

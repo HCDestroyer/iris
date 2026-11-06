@@ -52,9 +52,9 @@ export const esquemaNuevaConversacion = z.object({
     variables: z.record(z.string(), z.string().max(1024, "Hasta 1024 caracteres")),
 });
 
-/** Variables vacías: todas las de una plantilla de Meta son obligatorias (el servidor da 422); el panel lo dice antes. */
+/** Variables obligatorias vacías: el servidor las rechaza (422); el panel lo dice antes. */
 export function variablesFaltantes(p: PlantillaDisponible | undefined, valores: Readonly<Record<string, string>>): string[] {
-    return (p?.variables ?? []).filter((v) => !(valores[v.nombre] ?? "").trim()).map((v) => v.nombre);
+    return (p?.variables ?? []).filter((v) => v.obligatoria && !(valores[v.nombre] ?? "").trim()).map((v) => v.nombre);
 }
 
 export type ValoresNueva = z.infer<typeof esquemaNuevaConversacion>;

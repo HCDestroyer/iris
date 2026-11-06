@@ -195,10 +195,9 @@ export function textoUltimo(u: Conversacion["ultimoMensaje"]): string {
     if (!u) return "Sin mensajes";
     if (u.direccion === "sistema") return u.evento ? textoEvento({ tipo: u.evento }) : (u.texto ?? "");
     const cuerpo = u.texto?.trim() || adjuntoCorto(u.tipo);
-    // Fase 1.1: lo que mandó el bot no es «Tú» (`automatico` en el resumen, si el servidor lo manda).
-    const automatico = (u as { automatico?: string | null }).automatico;
-    if (u.direccion === "saliente" && automatico === "bot") return `Bot: ${cuerpo}`;
-    if (u.direccion === "saliente" && automatico === "fuera_de_horario") return `Automático: ${cuerpo}`;
+    // Fase 1.1: lo que mandó el bot o la respuesta fuera de horario no es «Tú».
+    if (u.direccion === "saliente" && u.automatico === "bot") return `Bot: ${cuerpo}`;
+    if (u.direccion === "saliente" && u.automatico === "fuera_de_horario") return `Automático: ${cuerpo}`;
     if (u.direccion === "saliente") return `Tú: ${cuerpo}`;
     if (u.direccion === "nota") return `Nota: ${cuerpo}`;
     return cuerpo;

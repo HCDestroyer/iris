@@ -231,7 +231,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         c.version += 1;
         c.noLeidos += 1;
         c.estado = "abierta";
-        c.ultimoMensaje = { direccion: "entrante", tipo: "texto", texto, evento: null, creadoEn: m.creadoEn };
+        c.ultimoMensaje = { direccion: "entrante", tipo: "texto", texto, evento: null, creadoEn: m.creadoEn, automatico: null };
         c.ultimaActividad = m.creadoEn;
         emitir("mensaje_nuevo", c, m);
     }
@@ -431,7 +431,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                 mensajes.get(c.id)?.push(nuevo);
                 if (accion === "mensajes") {
                     c.estado = "esperando_cliente";
-                    c.ultimoMensaje = { direccion: "saliente", tipo: nuevo.tipo, texto: nuevo.texto, evento: null, creadoEn: nuevo.creadoEn };
+                    c.ultimoMensaje = { direccion: "saliente", tipo: nuevo.tipo, texto: nuevo.texto, evento: null, creadoEn: nuevo.creadoEn, automatico: null };
                     c.ultimaActividad = nuevo.creadoEn;
                     c.version += 1;
                 }

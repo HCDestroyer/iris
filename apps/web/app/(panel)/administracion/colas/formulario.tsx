@@ -17,19 +17,21 @@ import { CLASE_PUNTO, formatearNumero, tonoDeCanal } from "@/lib/conversaciones/
 import { erroresACampos } from "@/lib/formularios";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 
-/** Minutos opcionales: vacío = el valor del número (o sin SLA). */
-const minutosOpcionales = z
-    .string()
-    .trim()
-    .refine((v) => v === "" || (/^\d+$/.test(v) && Number(v) >= 1 && Number(v) <= 1440), "Entre 1 y 1440 minutos, o vacío");
+/** Minutos opcionales hasta `max`: vacío = el valor del número (o sin SLA). */
+const minutosOpcionales = (max: number) =>
+    z
+        .string()
+        .trim()
+        .refine((v) => v === "" || (/^\d+$/.test(v) && Number(v) >= 1 && Number(v) <= max), `Entre 1 y ${max} minutos, o vacío`);
 
 /** Espejo del validador del servidor (`POST /colas`, `/actualizar`, `/miembros`, `/supervisores`; §2 y §14.1). */
 export const esquemaCola = z.object({
     nombre: z.string().trim().min(1, "Escribe el nombre de la cola").max(80, "Hasta 80 caracteres"),
-    descripcion: z.string().trim().max(500, "Hasta 500 caracteres"),
-    slaRespuestaMin: minutosOpcionales,
-    botSinConfirmacionMin: minutosOpcionales,
-    botSinDisponiblesMin: minutosOpcionales,
+    descripcion: z.string().trim().max(300, "Hasta 300 caracteres"),
+    // Como el servidor: el SLA hasta una semana; los minutos del bot hasta un día.
+    slaRespuestaMin: minutosOpcionales(10080),
+    botSinConfirmacionMin: minutosOpcionales(1440),
+    botSinDisponiblesMin: minutosOpcionales(1440),
     miembros: z.array(z.number()),
     supervisores: z.array(z.number()).max(20, "Hasta 20 supervisores"),
 });
@@ -37,6 +39,13 @@ type Valores = z.infer<typeof esquemaCola>;
 
 const aMinutos = (v: string) => (v.trim() === "" ? undefined : Number(v));
 const mismos = (a: readonly number[], b: readonly number[]) => a.length === b.length && a.every((x) => b.includes(x));
+/** ¿Lo guardado de la cola ya es lo que hay en el formulario? */
+const mismaCola = (c: Cola, cuerpo: CuerpoCola) =>
+    c.nombre === cuerpo.nombre &&
+    c.descripcion === (cuerpo.descripcion ?? "") &&
+    c.slaRespuestaMin === (cuerpo.slaRespuestaMin ?? null) &&
+    c.botSinConfirmacionMin === (cuerpo.botSinConfirmacionMin ?? null) &&
+    c.botSinDisponiblesMin === (cuerpo.botSinDisponiblesMin ?? null);
 
 type Props = { cola?: Cola; agentes: Agente[]; canales: Numero[] };
 
@@ -76,14 +85,18 @@ export function FormularioCola({ cola, agentes, canales }: Props) {
             nombre: d.nombre.trim(),
             descripcion: d.descripcion.trim(),
             slaRespuestaMin: aMinutos(d.slaRespuestaMin) ?? null,
+            // Lo que el formulario no edita se conserva (al actualizar, ausente = null).
+            slaPorVencerMin: base?.slaPorVencerMin ?? null,
             ...(base?.horarioId !== undefined ? { horarioId: base.horarioId } : {}),
             ...(aMinutos(d.botSinConfirmacionMin) !== undefined ? { botSinConfirmacionMin: Number(d.botSinConfirmacionMin) } : {}),
             ...(aMinutos(d.botSinDisponiblesMin) !== undefined ? { botSinDisponiblesMin: Number(d.botSinDisponiblesMin) } : {}),
         };
         let actual = base ?? null;
         let paso: "cola" | "miembros" | "supervisores" = "cola";
+        // Tras un guardado a medias, el paso de la cola se repite si sus campos cambiaron desde entonces.
+        const colaPendiente = !guardada || !mismaCola(guardada, cuerpo);
         try {
-            if (!guardada) {
+            if (colaPendiente) {
                 actual = base ? await actualizarCola(base.id, { ...cuerpo, version: base.version }, claveCola.actual()) : await crearCola(cuerpo, claveCola.actual());
                 claveCola.renovar();
                 setGuardada(actual);
@@ -137,7 +150,7 @@ export function FormularioCola({ cola, agentes, canales }: Props) {
         >
             <SeccionFormulario titulo="Cola">
                 <Campo etiqueta="Nombre" maxLength={80} error={errores.nombre?.message} {...form.register("nombre")} />
-                <CampoArea etiqueta="Descripción (opcional)" rows={2} maxLength={500} error={errores.descripcion?.message} {...form.register("descripcion")} />
+                <CampoArea etiqueta="Descripción (opcional)" rows={2} maxLength={300} error={errores.descripcion?.message} {...form.register("descripcion")} />
             </SeccionFormulario>
             <SeccionFormulario titulo="Personas" descripcion="El punto verde dice quién está disponible ahora.">
                 <div className="grid gap-1.5">
