@@ -31,6 +31,7 @@ import { EntrarCampo } from "./entrar";
 import { ProveedorCampo, type CerrarSesion } from "./contexto";
 import { ElegirEmpresa } from "./elegir-empresa";
 import { ProveedorInventario } from "./inventario-datos";
+import { ProveedorLibres } from "./libres-datos";
 import { Pantallas } from "./pantallas";
 import { ProveedorUbicacion, TurnoAutomatico } from "./ubicacion";
 
@@ -427,18 +428,20 @@ function ConMotor({
             <ProveedorCampo motor={abierto.motor} sesion={sesion} cerrarSesion={cerrarSesion}>
                 <ProveedorInventario inventario={abierto.inventario}>
                     <ProveedorAgenda leer={abierto.agenda}>
-                        {/* Sin `chat.ver` (rol lectura u otro) el chat no arranca ni se ofrece. */}
-                        {sesion.permisos?.includes("chat.ver") ? (
-                            <ProveedorChat chat={abierto.chat} puedeEnviar={sesion.permisos.includes("chat.enviar")}>
-                                <TurnoAutomatico rastreador={rastreador} />
-                                <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
-                            </ProveedorChat>
-                        ) : (
-                            <>
-                                <TurnoAutomatico rastreador={rastreador} />
-                                <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
-                            </>
-                        )}
+                        <ProveedorLibres api={abierto.libres}>
+                            {/* Sin `chat.ver` (rol lectura u otro) el chat no arranca ni se ofrece. */}
+                            {sesion.permisos?.includes("chat.ver") ? (
+                                <ProveedorChat chat={abierto.chat} puedeEnviar={sesion.permisos.includes("chat.enviar")}>
+                                    <TurnoAutomatico rastreador={rastreador} />
+                                    <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
+                                </ProveedorChat>
+                            ) : (
+                                <>
+                                    <TurnoAutomatico rastreador={rastreador} />
+                                    <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
+                                </>
+                            )}
+                        </ProveedorLibres>
                     </ProveedorAgenda>
                 </ProveedorInventario>
             </ProveedorCampo>

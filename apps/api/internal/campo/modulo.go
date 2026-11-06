@@ -79,6 +79,10 @@ type Existencia struct {
 	Descripcion string  `json:"descripcion"`
 	Cantidad    float64 `json:"cantidad"`
 	Unidad      string  `json:"unidad"`
+	// Codigo: el SKU del producto en Argos (producto_sku), para buscarlo en la app por código.
+	Codigo string `json:"codigo,omitempty" doc:"Código (SKU) del producto en Argos; vacío si Argos no lo manda"`
+	// BodegaNombre: nombre de la bodega en Argos (bodega_nombre); va en ExistenciasBodega.Nombre.
+	BodegaNombre string `json:"-"`
 	// Modalidad (Argos ≥ 1.6.0, contrato 0.5.0): un comodato se registra como equipo, no como material.
 	Modalidad string `json:"modalidad,omitempty" enum:"comodato,consumible_gasto,consumible_cobro," doc:"Modalidad del producto en Argos (≥ 1.6.0): comodato (va como equipo, con serie), consumible_gasto o consumible_cobro (Argos lo cobra al cliente al consumirlo). Vacía con un Argos anterior"`
 }
@@ -188,6 +192,15 @@ type Modulo struct {
 	AplicarDatosArgos   *auditoria.Caso[EntradaAplicarDatosArgos, Orden]
 	DescartarDatosArgos *auditoria.Caso[EntradaDescartarDatosArgos, Orden]
 
+	// Tareas propias desde el lote (tareas.go), órdenes libres y ajustes de la app (libres.go).
+	TareaCrearLote     *auditoria.Caso[entradaTareaLote, agenda.RespuestaTarea]
+	TareaCompletarLote *auditoria.Caso[entradaTareaLote, agenda.RespuestaTarea]
+	TareaAnularLote    *auditoria.Caso[entradaTareaLote, agenda.RespuestaTarea]
+	OrdenesLibres      *auditoria.Caso[EntradaOrdenesLibres, OrdenesLibres]
+	TomarOrden         *auditoria.Caso[EntradaTomarOrden, Orden]
+	VerAjustes         *auditoria.Caso[struct{}, AjustesCampo]
+	FijarAjustes       *auditoria.Caso[EntradaFijarAjustes, AjustesCampo]
+
 	// Ticket y orden de la mano (ticket_orden.go).
 	CrearOrdenDeTicket *auditoria.Caso[EntradaCrearOrdenDeTicket, Orden]
 	IgualarAsignacion  *auditoria.Caso[EntradaIgualarAsignacion, AsignacionTicketOrden]
@@ -271,6 +284,15 @@ func Nuevo(cfg Config) *Modulo {
 	m.DescartarDatosArgos = m.nuevoDescartarDatosArgos()
 	m.CrearOrdenDeTicket = m.nuevoCrearOrdenDeTicket()
 	m.IgualarAsignacion = m.nuevoIgualarAsignacion()
+	m.TareaCrearLote = m.nuevoTareaLote("agenda.crear_tarea", nucleo.PermAgendaCrearTarea)
+	m.TareaCompletarLote = m.nuevoTareaLote("agenda.completar_tarea", nucleo.PermAgendaCompletarTarea)
+	m.TareaAnularLote = m.nuevoTareaLote("agenda.anular_tarea", nucleo.PermAgendaAnularTarea)
+	m.OrdenesLibres = m.nuevoOrdenesLibres()
+	m.TomarOrden = m.nuevoTomarOrden()
+	m.VerAjustes = m.nuevoVerAjustes()
+	m.FijarAjustes = m.nuevoFijarAjustes()
+	// Las tareas de agenda se ligan a órdenes que el actor ve (reglas de campo).
+	cfg.Agenda.UsarOrdenes(m)
 	return m
 }
 

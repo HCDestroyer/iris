@@ -24,7 +24,8 @@ import {
     mosaicoRuta,
     nombreCliente,
     pasoCantidad,
-    PERMISO_AGREGAR_FORMULARIO,
+    PERMISO_CREAR_TAREA,
+    PERMISO_TOMAR_ORDEN,
     primerNombre,
     resumenDia,
     resumenHoy,
@@ -35,7 +36,7 @@ import {
     tonoCita,
     vistaDeUrl,
 } from "./campo";
-import type { EstadoSync, OrdenVista, PlantillaFormulario, Traslado } from "./index";
+import type { EstadoSync, OrdenVista, Traslado } from "./index";
 import { itemDePrueba, ordenDePrueba } from "./pruebas/fabricas";
 
 function vista(id: number, parcial: Partial<OrdenVista> = {}): OrdenVista {
@@ -250,26 +251,11 @@ describe("− / + en materiales", () => {
 });
 
 describe("«+»: acciones rápidas", () => {
-    const plantilla = (id: number, activa = true): PlantillaFormulario => ({ id, versionId: id * 100, codigo: `p${id}`, nombre: `Plantilla ${id}`, version: 1, activa, items: [] }) as unknown as PlantillaFormulario;
-    const f = { id: "f", plantillaId: 1 } as unknown as NonNullable<OrdenVista["formularios"]>[number];
-
-    it("agregar formulario solo con el permiso y en órdenes con el trabajo empezado (pausada, no)", () => {
-        const ordenes = [
-            vista(1, { estado: "en_sitio", formularios: [f] }),
-            vista(2),
-            vista(3, { estado: "pausada" }),
-            vista(4, { estado: "en_camino", reasignada: true }),
-            vista(5, { estado: "en_camino" }),
-        ];
-        const plantillas = [plantilla(1), plantilla(2), plantilla(3, false)];
-        const r = accionesRapidas(ordenes, plantillas, [PERMISO_AGREGAR_FORMULARIO, "ordenes.cerrar"]);
-        expect(r.formulario?.ordenes.map((o) => [o.orden.id, o.plantillas.map((p) => p.id)])).toEqual([
-            [1, [2]],
-            [5, [1, 2]],
-        ]);
-        expect(r.tarea).toEqual({ disponible: false, motivo: "Próximamente" });
-        // Sin el permiso (o sin saberlo: sesión guardada de antes), la opción no aparece.
-        expect(accionesRapidas(ordenes, plantillas, ["ordenes.cerrar"]).formulario).toBeNull();
-        expect(accionesRapidas(ordenes, plantillas, undefined).formulario).toBeNull();
+    it("solo tarea propia y tomar orden libre (esta oculta con el ajuste apagado o sin permiso)", () => {
+        expect(accionesRapidas([PERMISO_CREAR_TAREA, PERMISO_TOMAR_ORDEN], true)).toEqual({ tarea: true, libres: true });
+        expect(accionesRapidas([PERMISO_CREAR_TAREA, PERMISO_TOMAR_ORDEN], false)).toEqual({ tarea: true, libres: false });
+        expect(accionesRapidas([PERMISO_CREAR_TAREA], true)).toEqual({ tarea: true, libres: false });
+        // Sesión guardada de antes (sin permisos): nada hasta el próximo GET /yo.
+        expect(accionesRapidas(undefined, true)).toEqual({ tarea: false, libres: false });
     });
 });

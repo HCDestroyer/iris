@@ -7,6 +7,7 @@ import {
     ColaPosiciones,
     crearGeneradorUuid7,
     crearInventarioApi,
+    crearLibresApi,
     crearSubidorApi,
     crearTransporteApi,
     crearTransportePosicionesApi,
@@ -14,6 +15,7 @@ import {
     MotorSync,
     type IdentidadApp,
     type InventarioCampo,
+    type LibresCampo,
     type OrdenCampo,
     type Transporte,
 } from "@iris/sync";
@@ -50,6 +52,8 @@ export interface MotorAbierto {
      * la respuesta y no da `response.body` como flujo, así que no puede leer `GET /chat/eventos`.
      */
     chat: MotorChat;
+    /** Órdenes libres y tomar una (solo con señal; nunca por la cola). */
+    libres: LibresCampo;
 }
 
 /** El transporte de la API, avisando cada respuesta correcta de paquete o cambios. */
@@ -131,6 +135,17 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void, a
         await verificarIdentidad();
         return (await transporte.obtenerPaquete(hasta)).datos.ordenes ?? [];
     };
+    const apiLibres = crearLibresApi(api, app);
+    const libres: LibresCampo = {
+        listar: async (cursor) => {
+            await verificarIdentidad();
+            return apiLibres.listar(cursor);
+        },
+        tomar: async (id) => {
+            await verificarIdentidad();
+            return apiLibres.tomar(id);
+        },
+    };
     const chat = await MotorChat.abrir({
         almacen,
         transporte: crearTransporteChatApi(api, app),
@@ -143,7 +158,7 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void, a
         verificarIdentidad,
         abrirFlujo: null,
     });
-    return { motor, posiciones, almacen, nombre, inventario, agenda, chat };
+    return { motor, posiciones, almacen, nombre, inventario, agenda, libres, chat };
 }
 
 /**

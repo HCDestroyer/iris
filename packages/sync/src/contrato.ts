@@ -63,7 +63,7 @@ export type TipoOrden = OrdenCampo["tipo"];
 /** Todos los tipos del lote, también los que no son de una orden (`traslado.recibir`). */
 export type TipoOperacionLote = OperacionLote["tipo"];
 /** Operaciones de una orden: llevan `ordenId` y `versionBase` (el motor las agrupa por orden). */
-export type TipoOperacion = Exclude<TipoOperacionLote, typeof TIPO_RECIBIR_TRASLADO>;
+export type TipoOperacion = Exclude<TipoOperacionLote, typeof TIPO_RECIBIR_TRASLADO | TipoOperacionTarea>;
 export type TipoAdjunto = Adjunto["tipo"];
 export type TipoItem = ItemChecklist["tipo"];
 export type MotivoFalla = Schema<"EntradaFallarOrden">["motivoFalla"];
@@ -175,3 +175,45 @@ export type OperacionTrasladoCable = Omit<OperacionLote, "tipo" | "datos" | "ver
 export function operacionRecibirTraslado(id: string, datos: EntradaRecibirTraslado, ocurridoEn: string): OperacionTrasladoCable {
     return { id, tipo: TIPO_RECIBIR_TRASLADO, ocurridoEn, datos };
 }
+
+// Tareas propias del técnico (agenda, I2; `contratos/sync.md` §2 y §3). No son de una orden: sin
+// `ordenId` ni `versionBase`; el servidor las agrupa por tarea. En `tarea.crear` el id de la
+// operación es el id de la tarea.
+
+/** Tipos de las operaciones de tareas propias. */
+export const TIPOS_TAREA = ["tarea.crear", "tarea.completar", "tarea.anular"] as const satisfies readonly TipoOperacionLote[];
+export type TipoOperacionTarea = (typeof TIPOS_TAREA)[number];
+/** Tarea propia del técnico (`Paquete.tareas`, `Cambios.tareas`). */
+export type Tarea = Schema<"Tarea">;
+/** Tarea en la lista de agenda del panel. */
+export type TareaAgenda = Schema<"TareaAgenda">;
+/** Respuesta de crear, completar o anular (`ResultadoOperacion.tarea`). */
+export type RespuestaTarea = Schema<"RespuestaTarea">;
+/** `datos` de `tarea.crear`: el cuerpo de `POST /agenda/tareas` sin `id` (el de la operación) ni `tecnicoId` (uno mismo). */
+export type DatosTarea = Omit<Schema<"EntradaCrearTarea">, "id" | "tecnicoId">;
+/**
+ * `datos` de cada operación de tarea. `tarea.completar` y `tarea.anular` llevan la tarea por su
+ * id (la acción del panel la lleva en la ruta) y, al anular, el motivo de `EntradaAnularTarea`.
+ */
+export interface DatosPorTipoTarea {
+    "tarea.crear": DatosTarea;
+    "tarea.completar": { tareaId: string };
+    "tarea.anular": { tareaId: string } & Pick<Schema<"EntradaAnularTarea">, "motivo">;
+}
+
+/** Una operación de tarea tal como viaja en `POST /sync/lote`. */
+export type OperacionTareaCable = {
+    [T in TipoOperacionTarea]: Omit<OperacionLote, "tipo" | "datos" | "versionBase" | "ocurridoEn" | "ordenId"> & {
+        tipo: T;
+        ocurridoEn: string;
+        datos: DatosPorTipoTarea[T];
+    };
+}[TipoOperacionTarea];
+
+export function esOperacionTarea(tipo: string): tipo is TipoOperacionTarea {
+    return (TIPOS_TAREA as readonly string[]).includes(tipo);
+}
+
+/** Órdenes libres que el técnico puede tomar (`GET /campo/ordenes-libres`) y su página. */
+export type OrdenLibre = Schema<"OrdenLibre">;
+export type OrdenesLibres = Schema<"OrdenesLibres">;

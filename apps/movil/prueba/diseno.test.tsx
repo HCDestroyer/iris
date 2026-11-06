@@ -1,13 +1,13 @@
 // Diseño «combinada» de la app del técnico (nov 2026), como la PWA: encabezado con saludo y chips que
 // se va al bajar y vuelve compacto al subir, «Hoy» con la siguiente orden en grande, mosaicos y
-// «Después», la isla que se encoge, la píldora de estado, la hoja del «+» (agregar formulario con
-// «Deshacer»; tarea propia «Próximamente»; sin permiso no aparece), «Mañana» con la tira de 7 días,
+// «Después», la isla que se encoge, la píldora de estado (la hoja del «+» está en campo-mas.test.tsx),
+// «Mañana» con la tira de 7 días,
 // los chips de pasos y − / + en materiales. Motor real sobre memoria, claro y oscuro.
 import { ErrorTransporte, type OrdenCampo, type PlantillaFormulario } from "@iris/sync";
 import { hoyEnGuatemala, sumarDias } from "@iris/sync/campo";
 import { itemDePrueba, montar, ordenDePrueba, paqueteDePrueba } from "@iris/sync/pruebas";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react-native";
-import { abrirCampo, avisoArriba, InventarioFalso, sesion, tipos, trasladoDePrueba, TODO_ENVIADO } from "./arnes";
+import { abrirCampo, avisoArriba, InventarioFalso, trasladoDePrueba, TODO_ENVIADO } from "./arnes";
 
 jest.mock("expo-camera", () => ({ CameraView: () => null, useCameraPermissions: () => [null, jest.fn()] }));
 
@@ -111,33 +111,6 @@ describe.each(["light", "dark"] as const)("diseño «combinada» (%s)", (esquema
         expect(screen.getByTestId("pestana-hoy")).toHaveStyle({ height: 52 });
     });
 
-    it("«+»: agregar formulario a la orden en curso con «Deshacer»; la tarea propia, «Próximamente»", async () => {
-        const m = await conUnaEnSitio();
-        m.transporte.sinRed = true;
-        await abrirCampo(m, { esquema, enLinea: () => false });
-        await fireEvent.press(screen.getByRole("button", { name: "Acciones rápidas" }));
-        expect(await screen.findByText("Agregar formulario")).toBeTruthy();
-        expect(screen.getByTestId("accion-tarea")).toHaveTextContent(/Próximamente/);
-        // Una sola orden en curso: ya elegida.
-        expect(screen.getByTestId("accion-formulario")).toHaveTextContent(/OT-000001 · Jorge Méndez/);
-        await fireEvent.press(screen.getByRole("radio", { name: "Prueba de velocidad" }));
-        await fireEvent.press(screen.getByRole("button", { name: "Agregar «Prueba de velocidad»" }));
-        await waitFor(() => expect(tipos(m)).toEqual(["orden.agregar_formulario"]));
-        expect(avisoArriba()).toHaveTextContent(/«Prueba de velocidad» agregado a OT-000001/);
-        await fireEvent.press(within(avisoArriba()).getByRole("button", { name: "Deshacer" }));
-        await waitFor(() => expect(tipos(m)).toEqual(["orden.agregar_formulario", "orden.quitar_formulario"]));
-        const [agregar, quitar] = m.motor.obtenerEstado().cola;
-        expect(quitar?.datos).toEqual({ formularioId: agregar?.id });
-    });
-
-    it("«+» sin ordenes.registrar no ofrece agregar formulario", async () => {
-        const m = await conUnaEnSitio();
-        await abrirCampo(m, { esquema, sesion: { ...sesion, permisos: ["campo.sincronizar"] } });
-        await fireEvent.press(screen.getByRole("button", { name: "Acciones rápidas" }));
-        expect(await screen.findByTestId("accion-tarea")).toBeTruthy();
-        expect(screen.queryByTestId("accion-formulario")).toBeNull();
-    });
-
     it("Mañana: tira de 7 días con el día en teal y las citas en bloques, leídas con señal", async () => {
         const m = await conUnaEnSitio();
         const inventario = new InventarioFalso();
@@ -181,13 +154,15 @@ describe.each(["light", "dark"] as const)("diseño «combinada» (%s)", (esquema
         expect(screen.queryByTestId("navegacion-inferior")).toBeNull();
         expect(screen.getByTestId("barra-pasos")).toBeTruthy();
         await fireEvent.press(screen.getByRole("radio", { name: "Cable UTP" }));
+        // Al elegir queda en 1; − / + suman o restan desde ahí.
+        expect(screen.getByLabelText("Cantidad")).toHaveProp("value", "1");
         await fireEvent.press(screen.getByRole("button", { name: "Agregar uno" }));
         await fireEvent.press(screen.getByRole("button", { name: "Agregar uno" }));
         await fireEvent.press(screen.getByRole("button", { name: "Agregar uno" }));
         await fireEvent.press(screen.getByRole("button", { name: "Quitar uno" }));
-        expect(screen.getByLabelText("Cantidad")).toHaveProp("value", "2");
+        expect(screen.getByLabelText("Cantidad")).toHaveProp("value", "3");
         await fireEvent.press(screen.getByRole("button", { name: "Registrar material" }));
-        await waitFor(() => expect(m.motor.obtenerEstado().cola.at(-1)).toMatchObject({ tipo: "material.usar", datos: { cantidad: 2 } }));
+        await waitFor(() => expect(m.motor.obtenerEstado().cola.at(-1)).toMatchObject({ tipo: "material.usar", datos: { cantidad: 3 } }));
         expect(avisoArriba()).toHaveTextContent(/Material registrado/);
     });
 });

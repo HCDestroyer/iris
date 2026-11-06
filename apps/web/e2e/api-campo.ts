@@ -40,6 +40,12 @@ export interface OpcionesCampo {
     ordenesFuturas?: OrdenCampo[];
     /** Permisos de GET /yo (por defecto, los del rol `tecnico`). */
     permisos?: Schema<"Permiso">[];
+    /** Ajuste de la empresa: los técnicos toman órdenes libres (paquete y cambios). */
+    tomarLibres?: boolean;
+    /** Órdenes libres de la zona (`GET /campo/ordenes-libres`). */
+    libres?: Schema<"OrdenLibre">[];
+    /** Tareas propias que ya tiene el servidor. */
+    tareas?: Schema<"Tarea">[];
 }
 
 export interface ApiCampo {
@@ -48,6 +54,12 @@ export interface ApiCampo {
     /** Las PATCH de tus fallan (la subida queda a medias) mientras sea true. */
     pausarSubidas: boolean;
     lotes: Schema<"EntradaLote">[];
+    /** Tareas propias como las ve el servidor. */
+    tareas: Map<string, Schema<"Tarea">>;
+    /** Órdenes libres; `tomadaPor` = otro técnico ya la tomó (409 con su nombre). */
+    libres: (Schema<"OrdenLibre"> & { tomadaPor?: string })[];
+    /** Órdenes que el técnico tomó (POST /ordenes/{id}/tomar). */
+    tomadas: number[];
     /** Quién mandó cada lote (correo de la cookie de sesión). */
     lotesDe: string[];
     resultados: ResultadoOperacion[];
@@ -167,6 +179,9 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
         fallarPaquete: null,
         contrasenaTemporal: false,
         plantillas: structuredClone(opciones.plantillas ?? []),
+        tareas: new Map((opciones.tareas ?? []).map((t) => [t.id, structuredClone(t)])),
+        libres: structuredClone(opciones.libres ?? []),
+        tomadas: [],
         traslados: new Map((opciones.traslados ?? trasladosDelTecnico()).map((t) => [t.id, structuredClone(t)])),
         recepciones: [],
         firmaTrasladoNoLlega: 0,
@@ -208,9 +223,52 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
         return { id: op.id, estado: "aplicada", recepcion: t.recepcion };
     }
 
+    function tarea(op: OperacionLote, usuario: Schema<"Usuario">): ResultadoOperacion {
+        const d = (op.datos ?? {}) as Record<string, unknown>;
+        const ahora = new Date().toISOString();
+        if (op.tipo === "tarea.crear") {
+            const inicio = String(d.inicio);
+            const minutos = Number(d.duracionMin);
+            const t: Schema<"Tarea"> = {
+                id: op.id,
+                empresaId: null,
+                tecnicoId: usuario.id,
+                creadaPor: usuario.id,
+                que: String(d.que),
+                inicio,
+                fin: new Date(Date.parse(inicio) + minutos * 60_000).toISOString(),
+                duracionMin: minutos,
+                ordenId: (d.ordenId as number | undefined) ?? null,
+                clienteId: null,
+                origen: "campo",
+                estado: "pendiente",
+                completadaEn: null,
+                anuladaEn: null,
+                motivo: null,
+                version: 1,
+                creadoEn: ahora,
+            };
+            api.tareas.set(t.id, t);
+            return { id: op.id, estado: "aplicada", tarea: { tarea: structuredClone(t), solapaCon: [] } };
+        }
+        const t = api.tareas.get(String(d.tareaId));
+        if (!t || t.tecnicoId !== usuario.id) {
+            return { id: op.id, estado: "rechazada", error: problema("no_encontrado", 404, "La tarea no existe") };
+        }
+        if (op.tipo === "tarea.completar") {
+            Object.assign(t, { estado: "completada", completadaEn: ahora, version: t.version + 1 });
+        } else {
+            Object.assign(t, { estado: "anulada", anuladaEn: ahora, motivo: (d.motivo as string | undefined) ?? null, version: t.version + 1 });
+        }
+        return { id: op.id, estado: "aplicada", tarea: { tarea: structuredClone(t), solapaCon: [] } };
+    }
+
     function aplicar(op: OperacionLote, rechazadas: Set<number>, usuario: Schema<"Usuario">): ResultadoOperacion {
         if (op.tipo === "traslado.recibir") {
             return recibir(op);
+        }
+        if (op.tipo === "tarea.crear" || op.tipo === "tarea.completar" || op.tipo === "tarea.anular") {
+            return tarea(op, usuario);
         }
         const ordenId = op.ordenId ?? 0;
         const o = api.ordenes.get(ordenId);
@@ -488,6 +546,8 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
                 ...(opciones.ruta ? { ruta: opciones.ruta } : {}),
                 ...(turno ? { turno } : {}),
                 plantillas: structuredClone(api.plantillas),
+                tareas: [...api.tareas.values()].filter((t) => t.tecnicoId === usuario.id && t.estado !== "anulada").map((t) => structuredClone(t)),
+                tomarLibres: opciones.tomarLibres ?? false,
             };
             return json(route, paquete);
         }
@@ -496,8 +556,42 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
             if (cambios.length > 0) {
                 cursor += 1;
             }
-            const r: Schema<"Cambios"> = { cambios, cursor: String(cursor), hayMas: false, plantillas: structuredClone(api.plantillas) };
+            const r: Schema<"Cambios"> = {
+                cambios,
+                cursor: String(cursor),
+                hayMas: false,
+                plantillas: structuredClone(api.plantillas),
+                tareas: [...api.tareas.values()].filter((t) => t.tecnicoId === usuario.id && t.estado !== "anulada").map((t) => structuredClone(t)),
+                tomarLibres: opciones.tomarLibres ?? false,
+            };
             return json(route, r);
+        }
+        if (ruta === "/api/v1/campo/ordenes-libres") {
+            if (!opciones.tomarLibres) {
+                return error(route, problema("libres_apagado", 403, "Tomar órdenes libres está apagado"));
+            }
+            const data: Schema<"OrdenLibre">[] = api.libres.map((o) => {
+                const copia = structuredClone(o);
+                delete copia.tomadaPor;
+                return copia;
+            });
+            const r: Schema<"OrdenesLibres"> = { data, nextCursor: null, total: data.length, orden: "distancia", zonas: [{ id: 3, nombre: "Zona Norte" }] };
+            return json(route, r);
+        }
+        const tomar = /^\/api\/v1\/ordenes\/(\d+)\/tomar$/.exec(ruta);
+        if (tomar && metodo === "POST") {
+            const id = Number(tomar[1]);
+            const libre = api.libres.find((o) => o.id === id);
+            if (!libre) {
+                return error(route, problema("no_encontrado", 404, "La orden no existe"));
+            }
+            if (libre.tomadaPor) {
+                api.libres = api.libres.filter((o) => o.id !== id);
+                return error(route, { ...problema("orden_ya_tomada", 409, "Ya tomada"), detail: `${libre.numero} ya la tomó ${libre.tomadaPor}`, tomadaPor: { id: 999, nombre: libre.tomadaPor } });
+            }
+            api.libres = api.libres.filter((o) => o.id !== id);
+            api.tomadas.push(id);
+            return json(route, { ...structuredClone(libre), tecnicoId: usuario.id });
         }
         if (ruta === "/api/v1/sync/lote" && metodo === "POST") {
             const entrada = req.postDataJSON() as Schema<"EntradaLote">;

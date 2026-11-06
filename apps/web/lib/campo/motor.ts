@@ -5,6 +5,7 @@ import {
     CODIGO_SESION_AJENA,
     ColaPosiciones,
     crearInventarioApi,
+    crearLibresApi,
     crearSubidorApi,
     crearTransporteApi,
     crearTransportePosicionesApi,
@@ -13,6 +14,7 @@ import {
     type EstadoPosiciones,
     type EstadoSync,
     type InventarioCampo,
+    type LibresCampo,
     type OrdenCampo,
 } from "@iris/sync";
 import type { MotorChat } from "@iris/sync/chat";
@@ -47,6 +49,8 @@ export interface MotorAbierto {
     agenda: (hasta: string) => Promise<OrdenCampo[]>;
     /** Chat interno del equipo (misma base, misma verificación del dueño). */
     chat: MotorChat;
+    /** Órdenes libres y tomar una (solo con señal; nunca por la cola). */
+    libres: LibresCampo;
 }
 
 /**
@@ -101,8 +105,19 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void, o
         await verificarIdentidad();
         return (await transporte.obtenerPaquete(hasta)).datos.ordenes ?? [];
     };
+    const apiLibres = crearLibresApi(cliente, app);
+    const libres: LibresCampo = {
+        listar: async (cursor) => {
+            await verificarIdentidad();
+            return apiLibres.listar(cursor);
+        },
+        tomar: async (id) => {
+            await verificarIdentidad();
+            return apiLibres.tomar(id);
+        },
+    };
     const chat = await abrirChat({ usuarioId: clave.usuarioId, almacen, cliente, app, verificarIdentidad, conFlujo: opciones.flujoChat ?? true });
-    return { motor, posiciones, almacen, inventario, agenda, chat };
+    return { motor, posiciones, almacen, inventario, agenda, libres, chat };
 }
 
 /** Estado de la cola de posiciones para React. */

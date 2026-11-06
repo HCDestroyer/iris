@@ -15,6 +15,8 @@ import { DetalleTraslado, MiBodega, PorRecibir } from "./inventario";
 import { ProveedorBorradores } from "./borradores";
 import { IslaMenu, IslaPasos } from "./isla";
 import { ListaOrdenes } from "./lista-ordenes";
+import { OrdenesLibresPantalla } from "./libres";
+import { NuevaTarea } from "./tareas";
 import { Pendientes } from "./pendientes";
 import { RUTA_ENTRAR } from "./app-campo";
 import { useUbicacion } from "./ubicacion";
@@ -290,6 +292,10 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
                     <NuevoChat />
                 ) : vista.tipo === "conversacion" ? (
                     <ConversacionPantalla id={vista.id} />
+                ) : vista.tipo === "nueva_tarea" ? (
+                    <NuevaTarea />
+                ) : vista.tipo === "libres" ? (
+                    <OrdenesLibresPantalla />
                 ) : (
                     <ListaOrdenes carga={carga} bajarPaquete={bajarPaquete} />
                 )}

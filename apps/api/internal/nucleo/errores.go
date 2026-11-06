@@ -33,8 +33,17 @@ type Problema struct {
 	Status int          `json:"status" doc:"Código HTTP"`
 	Detail string       `json:"detail,omitempty" doc:"Explicación de este caso"`
 	Errors []ErrorCampo `json:"errors,omitempty" doc:"Errores por campo"`
+	// TomadaPor (extensión de RFC 9457): en orden_ya_tomada, quién tomó la orden primero, para
+	// que la app de campo lo diga («ya la tomó Andrea López»).
+	TomadaPor *PersonaProblema `json:"tomadaPor,omitempty" doc:"orden_ya_tomada: quién tomó la orden primero"`
 
 	cabeceras http.Header
+}
+
+// PersonaProblema identifica a un usuario en un problema (id y nombre para mostrar).
+type PersonaProblema struct {
+	ID     int64  `json:"id"`
+	Nombre string `json:"nombre"`
 }
 
 // ConCabecera agrega una cabecera HTTP a la respuesta del problema (p. ej. Retry-After).

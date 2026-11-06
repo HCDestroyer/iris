@@ -3,7 +3,7 @@
 // **toda** salida: desmontar (sesión vencida, sesión ajena, cambiar de empresa), cerrar sesión o
 // perder la sesión con la app abierta. Lo nativo llega por `DependenciasCampo` (las pruebas lo
 // reemplazan).
-import { ErrorTransporte, type ColaPosiciones, type Conexion, type InventarioCampo, type MotorSync } from "@iris/sync";
+import { ErrorTransporte, type ColaPosiciones, type Conexion, type InventarioCampo, type LibresCampo, type MotorSync } from "@iris/sync";
 import type { MotorChat } from "@iris/sync/chat";
 import { ProveedorChat } from "../campo/chat";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -12,6 +12,7 @@ import { ErrorApi } from "../api/errores";
 import { Aviso, Cargando } from "../componentes";
 import { ProveedorAgenda, type LeerAgenda } from "../campo/agenda";
 import { ProveedorInventario } from "../campo/inventario";
+import { ProveedorLibres } from "../campo/libres";
 import { ProveedorCampo, useEstadoMotor, useEstadoPosiciones, type CerrarSesion, type ServiciosNativos } from "../campo/contexto";
 import { ordenesEnCurso, RastreoUbicacion, registrarReceptor, type EstadoRastreo, type GpsFondo } from "../campo/ubicacion";
 import type { AlmacenClaves } from "../entorno";
@@ -28,6 +29,8 @@ export interface MotorDeSesion {
     agenda: LeerAgenda;
     /** Chat interno del equipo (misma base). */
     chat: MotorChat;
+    /** Órdenes libres y tomar una (con señal). */
+    libres: LibresCampo;
     /** Archivo de la base (lo lee la tarea del GPS con la app cerrada). */
     nombre: string;
     /** Cierra la conexión con la base. */
@@ -275,14 +278,16 @@ function CampoAbierto({
         >
             <ProveedorInventario inventario={abierto.inventario}>
                 <ProveedorAgenda leer={abierto.agenda}>
-                    {/* Sin `chat.ver` el chat no arranca ni se ofrece. */}
-                    {sesion.permisos?.includes("chat.ver") ? (
-                        <ProveedorChat chat={abierto.chat} puedeEnviar={sesion.permisos.includes("chat.enviar")} red={deps.red} alCambiarPlano={deps.alCambiarPlano}>
+                    <ProveedorLibres api={abierto.libres}>
+                        {/* Sin `chat.ver` el chat no arranca ni se ofrece. */}
+                        {sesion.permisos?.includes("chat.ver") ? (
+                            <ProveedorChat chat={abierto.chat} puedeEnviar={sesion.permisos.includes("chat.enviar")} red={deps.red} alCambiarPlano={deps.alCambiarPlano}>
+                                <Marco empresa={nombreEmpresa} alSesionVencida={sesionVencida} {...(cambiarEmpresa ? { cambiarEmpresa } : {})} />
+                            </ProveedorChat>
+                        ) : (
                             <Marco empresa={nombreEmpresa} alSesionVencida={sesionVencida} {...(cambiarEmpresa ? { cambiarEmpresa } : {})} />
-                        </ProveedorChat>
-                    ) : (
-                        <Marco empresa={nombreEmpresa} alSesionVencida={sesionVencida} {...(cambiarEmpresa ? { cambiarEmpresa } : {})} />
-                    )}
+                        )}
+                    </ProveedorLibres>
                 </ProveedorAgenda>
             </ProveedorInventario>
         </ProveedorCampo>

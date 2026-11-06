@@ -53,6 +53,23 @@
 }
 
 /*
+ * Las hojas y diálogos de la app se abren fuera de `.campo-app` (en un portal): llevan las
+ * variables que usan sus botones y sus cuadros (`campo-hoja`), sin el lienzo ni el color.
+ */
+.campo-hoja {
+    --campo-panel: var(--hx-bg);
+    --campo-panel-2: color-mix(in srgb, var(--hx-primary) 4%, var(--hx-bg-elevated));
+    --campo-tinta: var(--hx-text);
+    --campo-sobre-tinta: var(--hx-bg);
+}
+
+.dark .campo-hoja,
+[data-theme='dark'] .campo-hoja {
+    --campo-panel: var(--hx-bg-muted);
+    --campo-panel-2: var(--hx-bg-elevated);
+}
+
+/*
  * Botones en píldora y redondos del diseño: el radio de Horus de los botones (`.button` en
  * tema-heroui.css, fuera de capas) se deja para el panel; aquí manda la utilidad `rounded-*` de
  * cada botón (`revert-layer` vuelve a la capa de utilidades). También en las hojas de la app

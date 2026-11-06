@@ -10,6 +10,9 @@ import type {
     RutaCampo,
     TipoAdjunto,
     TipoOperacion,
+    Tarea,
+    TipoOperacionTarea,
+    DatosPorTipoTarea,
     TurnoCampo,
 } from "./contrato";
 
@@ -56,7 +59,45 @@ export interface OperacionTrasladoLocal extends OperacionBase {
     plantilla?: undefined;
 }
 
-export type OperacionLocal = OperacionOrdenLocal | OperacionTrasladoLocal;
+/** Base de las claves de grupo de las tareas: muy por debajo de cualquier `-trasladoId`. */
+const BASE_GRUPO_TAREA = 2 ** 50;
+
+/**
+ * Clave de grupo de una tarea propia en la cola (como `grupoDe` en la API, que agrupa por tarea):
+ * negativa y por debajo de `-2^50`, así nunca choca con una orden ni con un traslado. Se deriva del
+ * id de la tarea (FNV-1a de 32 bits): todas sus operaciones caen en el mismo grupo.
+ */
+export function grupoTarea(tareaId: string): number {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < tareaId.length; i++) {
+        h ^= tareaId.charCodeAt(i);
+        h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return -(BASE_GRUPO_TAREA + h);
+}
+
+/** ¿Es la clave de grupo de una tarea? */
+export function esGrupoTarea(grupo: number): boolean {
+    return grupo <= -BASE_GRUPO_TAREA;
+}
+
+/** Operación de una tarea propia en la cola: `ordenId` lleva `grupoTarea(tareaId)`. */
+export type OperacionTareaLocal = {
+    [T in TipoOperacionTarea]: OperacionBase & {
+        tipo: T;
+        ordenId: number;
+        versionBase: 0;
+        datos: DatosPorTipoTarea[T];
+        plantilla?: undefined;
+    };
+}[TipoOperacionTarea];
+
+/** El id de la tarea de una operación (en `tarea.crear`, el de la operación). */
+export function tareaDeOperacion(op: OperacionTareaLocal): string {
+    return op.tipo === "tarea.crear" ? op.id : op.datos.tareaId;
+}
+
+export type OperacionLocal = OperacionOrdenLocal | OperacionTrasladoLocal | OperacionTareaLocal;
 
 /** Operación de una orden (todas menos `traslado.recibir`). */
 export type OperacionOrdenLocal = {
@@ -152,7 +193,7 @@ export interface AvisoServidor {
     /** Id de la operación. */
     id: string;
     ordenId: number;
-    tipo: TipoOperacion;
+    tipo: TipoOperacion | TipoOperacionTarea;
     aviso: AvisoResultado;
 }
 
@@ -172,6 +213,10 @@ export interface MetaSync {
     plantillas: PlantillaFormulario[] | null;
     /** Avisos de operaciones aplicadas que el técnico todavía no vio. */
     avisos: AvisoServidor[];
+    /** Tareas propias del técnico según el servidor (paquete o cambios; `null` sin paquete). */
+    tareas?: Tarea[] | null;
+    /** La empresa permite tomar órdenes libres y el técnico tiene el permiso (paquete o cambios). */
+    tomarLibres?: boolean;
     /** Último contacto correcto con la API (hora del teléfono). */
     ultimaSincronizacion: number | null;
 }

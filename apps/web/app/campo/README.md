@@ -61,10 +61,16 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
       **píldora de estado** encima de la isla (`avisoIsla`, la barra discreta de la fase 4: sin
       señal con algo por enviar, rechazos, sesión vencida, empresa no válida) y desde «Yo». En los
       pasos de la orden no hay isla: va la barra «Anterior» / «Siguiente».
-    - **«+»:** hoja de acciones rápidas. «Agregar formulario» a una orden con el trabajo empezado
-      (`orden.agregar_formulario`, sin señal también; solo con `ordenes.registrar` en `GET /yo`,
-      si no, no aparece), con «Deshacer» (`orden.quitar_formulario` del mismo id). «Agendar tarea
-      propia» va deshabilitada con «Próximamente»: no tiene API.
+    - **«+»:** hoja «¿Qué quieres hacer?» (decisión del PM, nov 2026) con dos opciones:
+      «Agendar tarea propia» (`agenda.crear_tarea`) abre **Nueva tarea** (`?vista=nueva_tarea`,
+      `_componentes/tareas.tsx`: qué, día, hora, chips 15/30/60/120, orden ligada opcional;
+      react-hook-form + `esquemaTarea`; va por la cola como `tarea.crear`, también sin señal) y
+      «Tomar una orden libre» con su contador (`ordenes.tomar` y `tomarLibres` del paquete; oculta
+      si no) abre **Órdenes libres** (`?vista=libres`, `_componentes/libres.tsx`: «Tomarla» con
+      confirmación; requiere señal, nunca por la cola; 409 `orden_ya_tomada` → aviso con el nombre
+      de quien la tomó y la orden sale de la lista). Las tareas aparecen en «Después» y en la
+      Agenda con borde punteado, «Hecha» y «Anular». «Agregar formulario» ya no está en el «+»: va
+      al menú «⋯» de la orden.
     - **Agenda «Mañana» y «Semana»** (`?vista=agenda[&dia=]`, `?vista=semana`): tira de 7 días con
       el día elegido en teal y las citas en bloques (en curso en tinta, sin formulario en aviso).
       El técnico no tiene `agenda.ver`: se lee `GET /campo/paquete?fecha=<hoy+6>` con señal y queda
@@ -106,7 +112,11 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
 - **Detalle:** cliente, llamar, «Cómo llegar» (app de mapas con las coordenadas), servicio,
   comodato, notas; «En camino» / «Llegué» con GPS si se permite; en sitio: checklist (sí/no,
   texto, número, medición, foto), fotos (≤ 1600 px, ~300 KB, hora y GPS del EXIF), materiales
-  de la bodega de la orden, equipos (instalar/retirar según el tipo, escáner por campo o a mano), firma
+  de la bodega de la orden (`_componentes/materiales.tsx`: `Autocompletar` que busca por nombre o
+  código sin tildes, con lo que queda y la modalidad de cada uno; el comodato no se registra como
+  material y manda a «Equipos» con su serie; cantidad con − / + de 48 px, atajos +5 / +10 y «Te
+  quedarían…» o el aviso de que supera la existencia; todo con las existencias del paquete, sin
+  señal también; lógica en `materiales.ts` de `@iris/sync/campo`), equipos (instalar/retirar según el tipo, escáner por campo o a mano), firma
   (SVG a la API y PNG como adjunto), cerrar o «No se pudo» con motivo. Lo que no vale para el
   estado o el tipo no se muestra (`lib/campo/reglas.ts`).
 - **Ubicación en vivo** (`lib/campo/ubicacion.ts`, `_componentes/ubicacion.tsx`): en turno y con

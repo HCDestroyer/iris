@@ -13,7 +13,7 @@ import { RecuperarError } from "../src/pantallas/RecuperarError";
 import type { SesionCampo } from "../src/sesion/sesion";
 import { TemaDePrueba } from "./raiz";
 import { clavesMemoria } from "./preparar";
-import { InventarioFalso } from "./arnes";
+import { InventarioFalso, LibresFalso } from "./arnes";
 
 jest.mock("expo-camera", () => ({ CameraView: () => null, useCameraPermissions: () => [null, jest.fn()] }));
 
@@ -75,7 +75,7 @@ async function preparar(fallaDeSesion = false, sinRed = false) {
                 return r;
             };
             const chat = await MotorChat.abrir({ almacen: new AlmacenChatMemoria(), transporte: new ServidorChatFalso(5), usuarioId: 5, reloj: m.reloj });
-            return { motor: m.motor, posiciones, inventario: new InventarioFalso(), agenda: async () => [], chat, nombre: "iris-campo-5-1.db", cerrar: async () => undefined, borrar: async () => undefined };
+            return { motor: m.motor, posiciones, inventario: new InventarioFalso(), agenda: async () => [], libres: new LibresFalso(), chat, nombre: "iris-campo-5-1.db", cerrar: async () => undefined, borrar: async () => undefined };
         },
         gps,
         claves,

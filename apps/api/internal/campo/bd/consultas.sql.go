@@ -72,6 +72,44 @@ func (q *Queries) AdjuntosDeOrdenes(ctx context.Context, ordenes []int64) ([]Cam
 	return items, nil
 }
 
+const ajustesDeEmpresa = `-- name: AjustesDeEmpresa :one
+
+SELECT id, empresa_id, tecnicos_toman_libres, version, created_at, updated_at FROM campo.ajustes WHERE coalesce(empresa_id, 0) = coalesce($1::bigint, 0)
+`
+
+// Ajustes de la app de campo por empresa ---------------------------------------------
+func (q *Queries) AjustesDeEmpresa(ctx context.Context, empresaID *int64) (CampoAjuste, error) {
+	row := q.db.QueryRow(ctx, ajustesDeEmpresa, empresaID)
+	var i CampoAjuste
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.TecnicosTomanLibres,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const ajustesDeEmpresaParaActualizar = `-- name: AjustesDeEmpresaParaActualizar :one
+SELECT id, empresa_id, tecnicos_toman_libres, version, created_at, updated_at FROM campo.ajustes WHERE coalesce(empresa_id, 0) = coalesce($1::bigint, 0) FOR UPDATE
+`
+
+func (q *Queries) AjustesDeEmpresaParaActualizar(ctx context.Context, empresaID *int64) (CampoAjuste, error) {
+	row := q.db.QueryRow(ctx, ajustesDeEmpresaParaActualizar, empresaID)
+	var i CampoAjuste
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.TecnicosTomanLibres,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const alcancesDePermisoDeUsuario = `-- name: AlcancesDePermisoDeUsuario :many
 SELECT ur.zona_id, ur.cuadrilla_id
 FROM nucleo.usuarios_roles ur
@@ -549,6 +587,30 @@ func (q *Queries) ContarLotePosiciones(ctx context.Context, arg ContarLotePosici
 	row := q.db.QueryRow(ctx, contarLotePosiciones, arg.TecnicoID, arg.Ahora)
 	var i ContarLotePosicionesRow
 	err := row.Scan(&i.Lotes, &i.VentanaInicio)
+	return i, err
+}
+
+const crearAjustes = `-- name: CrearAjustes :one
+INSERT INTO campo.ajustes (empresa_id, tecnicos_toman_libres) VALUES ($1, $2)
+RETURNING id, empresa_id, tecnicos_toman_libres, version, created_at, updated_at
+`
+
+type CrearAjustesParams struct {
+	EmpresaID           *int64
+	TecnicosTomanLibres bool
+}
+
+func (q *Queries) CrearAjustes(ctx context.Context, arg CrearAjustesParams) (CampoAjuste, error) {
+	row := q.db.QueryRow(ctx, crearAjustes, arg.EmpresaID, arg.TecnicosTomanLibres)
+	var i CampoAjuste
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.TecnicosTomanLibres,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
 	return i, err
 }
 
@@ -1549,6 +1611,32 @@ func (q *Queries) FormulariosDeOrdenes(ctx context.Context, ordenes []int64) ([]
 	return items, nil
 }
 
+const guardarAjustes = `-- name: GuardarAjustes :one
+UPDATE campo.ajustes SET tecnicos_toman_libres = $1, version = version + 1, updated_at = now()
+WHERE id = $2 AND version = $3
+RETURNING id, empresa_id, tecnicos_toman_libres, version, created_at, updated_at
+`
+
+type GuardarAjustesParams struct {
+	TecnicosTomanLibres bool
+	ID                  int64
+	Version             int32
+}
+
+func (q *Queries) GuardarAjustes(ctx context.Context, arg GuardarAjustesParams) (CampoAjuste, error) {
+	row := q.db.QueryRow(ctx, guardarAjustes, arg.TecnicosTomanLibres, arg.ID, arg.Version)
+	var i CampoAjuste
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.TecnicosTomanLibres,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const guardarDispositivo = `-- name: GuardarDispositivo :one
 
 INSERT INTO campo.dispositivos (id, usuario_id, plataforma, ultimo_contacto, desfase_ms)
@@ -2459,6 +2547,46 @@ func (q *Queries) MaterialesDeOrdenes(ctx context.Context, ordenes []int64) ([]C
 	return items, nil
 }
 
+const nombreDeUsuario = `-- name: NombreDeUsuario :one
+SELECT nombre FROM nucleo.usuarios WHERE id = $1
+`
+
+func (q *Queries) NombreDeUsuario(ctx context.Context, id int64) (string, error) {
+	row := q.db.QueryRow(ctx, nombreDeUsuario, id)
+	var nombre string
+	err := row.Scan(&nombre)
+	return nombre, err
+}
+
+const nombresDeZonas = `-- name: NombresDeZonas :many
+SELECT id, nombre FROM agenda.zonas WHERE id = ANY($1::bigint[]) ORDER BY nombre
+`
+
+type NombresDeZonasRow struct {
+	ID     int64
+	Nombre string
+}
+
+func (q *Queries) NombresDeZonas(ctx context.Context, ids []int64) ([]NombresDeZonasRow, error) {
+	rows, err := q.db.Query(ctx, nombresDeZonas, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []NombresDeZonasRow
+	for rows.Next() {
+		var i NombresDeZonasRow
+		if err := rows.Scan(&i.ID, &i.Nombre); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const notaPorID = `-- name: NotaPorID :one
 SELECT id, orden_id, texto, autor_id, autor_nombre, canal, ocurrido_en, operacion_id, created_at, updated_at FROM campo.orden_notas WHERE id = $1
 `
@@ -2799,6 +2927,94 @@ func (q *Queries) OrdenesDelPaquete(ctx context.Context, arg OrdenesDelPaquetePa
 		arg.TodasEmpresas,
 		arg.EmpresaID,
 		arg.Hasta,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CampoOrden
+	for rows.Next() {
+		var i CampoOrden
+		if err := rows.Scan(
+			&i.ID,
+			&i.Numero,
+			&i.EmpresaID,
+			&i.TipoID,
+			&i.PlantillaID,
+			&i.TicketID,
+			&i.ProspectoID,
+			&i.ClienteID,
+			&i.ServicioID,
+			&i.ZonaID,
+			&i.CuadrillaID,
+			&i.BodegaID,
+			&i.Direccion,
+			&i.Lat,
+			&i.Lon,
+			&i.ContactoNombre,
+			&i.ContactoTelefono,
+			&i.Descripcion,
+			&i.TecnicoID,
+			&i.AsignadaEn,
+			&i.Estado,
+			&i.ProgramadaInicio,
+			&i.ProgramadaFin,
+			&i.EnCaminoEn,
+			&i.EnSitioEn,
+			&i.FinalizadaEn,
+			&i.Resultado,
+			&i.MotivoFalla,
+			&i.Motivo,
+			&i.CreadoPor,
+			&i.Idempotencia,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Origen,
+			&i.PausadaDesde,
+			&i.PausadaEn,
+			&i.PausadaSeg,
+			&i.DatosArgosCambiadosEn,
+			&i.DatosArgosCampos,
+			&i.Referencia,
+			&i.DatosArgosEntranteID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const ordenesLibres = `-- name: OrdenesLibres :many
+SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg, datos_argos_cambiados_en, datos_argos_campos, referencia, datos_argos_entrante_id FROM campo.ordenes
+WHERE tecnico_id IS NULL AND estado = 'pendiente'
+  AND ($1::boolean OR empresa_id IS NOT DISTINCT FROM $2::bigint)
+  AND (CASE WHEN cuadrilla_id IS NOT NULL THEN cuadrilla_id = ANY($3::bigint[])
+            ELSE zona_id = ANY($4::bigint[]) END)
+ORDER BY id
+LIMIT 1000
+`
+
+type OrdenesLibresParams struct {
+	TodasEmpresas bool
+	EmpresaID     *int64
+	Cuadrillas    []int64
+	Zonas         []int64
+}
+
+// Órdenes de la empresa sin técnico y pendientes (las que admiten asignación sin cita), de las
+// zonas o cuadrillas dadas: con cuadrilla, solo si es una de ellas; sin cuadrilla, por la zona
+// (como esTomable). Hasta 1000: el orden por distancia se calcula en Go.
+func (q *Queries) OrdenesLibres(ctx context.Context, arg OrdenesLibresParams) ([]CampoOrden, error) {
+	rows, err := q.db.Query(ctx, ordenesLibres,
+		arg.TodasEmpresas,
+		arg.EmpresaID,
+		arg.Cuadrillas,
+		arg.Zonas,
 	)
 	if err != nil {
 		return nil, err
@@ -3675,6 +3891,29 @@ func (q *Queries) TuvoOrden(ctx context.Context, arg TuvoOrdenParams) (bool, err
 	return exists, err
 }
 
+const ultimaPosicionDeTecnico = `-- name: UltimaPosicionDeTecnico :one
+SELECT lat, lon, registrada_en FROM campo.posiciones_ultimas
+WHERE tecnico_id = $1 AND empresa_id IS NOT DISTINCT FROM $2::bigint
+`
+
+type UltimaPosicionDeTecnicoParams struct {
+	TecnicoID int64
+	EmpresaID *int64
+}
+
+type UltimaPosicionDeTecnicoRow struct {
+	Lat          float64
+	Lon          float64
+	RegistradaEn time.Time
+}
+
+func (q *Queries) UltimaPosicionDeTecnico(ctx context.Context, arg UltimaPosicionDeTecnicoParams) (UltimaPosicionDeTecnicoRow, error) {
+	row := q.db.QueryRow(ctx, ultimaPosicionDeTecnico, arg.TecnicoID, arg.EmpresaID)
+	var i UltimaPosicionDeTecnicoRow
+	err := row.Scan(&i.Lat, &i.Lon, &i.RegistradaEn)
+	return i, err
+}
+
 const ultimasPosiciones = `-- name: UltimasPosiciones :many
 SELECT p.tecnico_id, p.empresa_id, p.lat, p.lon, p.precision_m, p.velocidad, p.rumbo, p.dispositivo_id, p.registrada_en, p.recibida_en, p.created_at, p.updated_at, u.nombre, t.id AS ficha_id, t.cuadrilla_id
 FROM campo.posiciones_ultimas p
@@ -3997,4 +4236,26 @@ func (q *Queries) VinculoArgosDeTecnico(ctx context.Context, usuarioID int64) (s
 	var id_externo string
 	err := row.Scan(&id_externo)
 	return id_externo, err
+}
+
+const zonasDeTecnico = `-- name: ZonasDeTecnico :one
+
+SELECT t.cuadrilla_id,
+       coalesce((SELECT array_agg(cz.zona_id ORDER BY cz.zona_id) FROM agenda.cuadrilla_zonas cz
+                 WHERE cz.cuadrilla_id = t.cuadrilla_id), '{}')::bigint[] AS zonas
+FROM agenda.tecnicos t WHERE t.usuario_id = $1 AND t.activo
+`
+
+type ZonasDeTecnicoRow struct {
+	CuadrillaID *int64
+	Zonas       []int64
+}
+
+// Órdenes libres (el técnico toma una) ------------------------------------------------
+// La cuadrilla de la ficha activa del técnico y las zonas que atiende (vacías sin ficha).
+func (q *Queries) ZonasDeTecnico(ctx context.Context, usuarioID int64) (ZonasDeTecnicoRow, error) {
+	row := q.db.QueryRow(ctx, zonasDeTecnico, usuarioID)
+	var i ZonasDeTecnicoRow
+	err := row.Scan(&i.CuadrillaID, &i.Zonas)
+	return i, err
 }

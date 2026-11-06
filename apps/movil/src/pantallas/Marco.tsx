@@ -15,6 +15,8 @@ import { useAtrasAndroid } from "../campo/atras";
 import { useCampo } from "../campo/contexto";
 import { activarHuella, CODIGO_CAMBIO_CONTRASENA, debeOfrecerHuella } from "../sesion/sesion";
 import { useTema } from "../tema/tema";
+import { OrdenesLibres } from "./OrdenesLibres";
+import { NuevaTarea } from "./Tareas";
 import { AgendaDia, AgendaSemana } from "./Agenda";
 import { ConversacionChat, ListaChat, NuevoChat } from "./Chat";
 import { BarraCompacta, Encabezado } from "./Encabezado";
@@ -167,6 +169,10 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
                     <AgendaDia dia={vista.dia} />
                 ) : vista.tipo === "semana" ? (
                     <AgendaSemana />
+                ) : vista.tipo === "nueva_tarea" ? (
+                    <NuevaTarea />
+                ) : vista.tipo === "libres" ? (
+                    <OrdenesLibres />
                 ) : (
                     <ListaOrdenes carga={carga} bajarPaquete={() => bajarPaquete(true)} />
                 )}

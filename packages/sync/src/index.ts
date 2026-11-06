@@ -28,11 +28,14 @@ export {
     crearTransporteApi,
     crearTransportePosicionesApi,
     crearInventarioApi,
+    crearLibresApi,
     type InventarioCampo,
+    type LibresCampo,
+    type OrdenCampoTomada,
     valorCabeceraApp,
     type IdentidadApp,
 } from "./http";
-export { grupoTraslado } from "./modelo";
+export { esGrupoTarea, grupoTarea, grupoTraslado, tareaDeOperacion } from "./modelo";
 export type {
     AdjuntoLocal,
     EstadoOperacionLocal,
@@ -41,6 +44,7 @@ export type {
     MetaSync,
     OperacionLocal,
     OperacionOrdenLocal,
+    OperacionTareaLocal,
     OperacionTrasladoLocal,
     OrdenLocal,
     TurnoDelDia,
@@ -57,6 +61,8 @@ export {
     faltantesDe,
     inicioCita,
     MotorSync,
+    tareasConCola,
+    type TareaVista,
     type Aviso,
     type Conexion,
     type EntradaAdjunto,
