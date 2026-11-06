@@ -200,6 +200,7 @@ export function CampoCodigo({
     alCompletar,
     error,
     largo = 6,
+    ocultarEtiqueta = false,
 }: {
     etiqueta: string;
     valor: string;
@@ -207,13 +208,17 @@ export function CampoCodigo({
     alCompletar?: (codigo: string) => void;
     error?: string | undefined;
     largo?: number;
+    /** La etiqueta ya se ve como título junto al campo: solo queda como nombre accesible. */
+    ocultarEtiqueta?: boolean;
 }) {
     const { colores } = useTema();
     return (
         <View style={estilos.campo}>
-            <Text className="text-sm font-semibold text-foreground" style={{ color: colores.texto }}>
-                {etiqueta}
-            </Text>
+            {ocultarEtiqueta ? null : (
+                <Text className="text-sm font-semibold text-foreground" style={{ color: colores.texto }}>
+                    {etiqueta}
+                </Text>
+            )}
             <InputOTP
                 maxLength={largo}
                 value={valor}

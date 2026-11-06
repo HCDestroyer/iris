@@ -396,15 +396,19 @@ function ActivarDosPasos({ correo }: { correo: string }) {
                                 </Text>
                             </View>
                         </View>
-                        <View style={estilos.paso}>
-                            <NumeroPaso numero={2} />
-                            <View style={estilos.cuerpoPaso}>
-                                <Controller
-                                    control={formulario.control}
-                                    name="codigo"
-                                    render={({ field }) => <CampoCodigo etiqueta="Escribe el código de 6 dígitos" valor={field.value} alCambiar={field.onChange} error={errors.codigo?.message} />}
-                                />
+                        <View style={estilos.cuerpoPaso}>
+                            <View style={estilos.cabezaPaso}>
+                                <NumeroPaso numero={2} />
+                                <Text accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[estilos.tituloPaso, estilos.flex, { color: colores.texto }]}>
+                                    Escribe el código de 6 dígitos
+                                </Text>
                             </View>
+                            {/* Las 6 casillas a lo ancho de la tarjeta (44 px cada una caben a 390 px). */}
+                            <Controller
+                                control={formulario.control}
+                                name="codigo"
+                                render={({ field }) => <CampoCodigo etiqueta="Escribe el código de 6 dígitos" ocultarEtiqueta valor={field.value} alCambiar={field.onChange} error={errors.codigo?.message} />}
+                            />
                         </View>
                     </Tarjeta>
                     <Text style={[estilos.nota, { color: colores.textoSuave }]}>{TEXTO_ACTIVAR_DOS_PASOS}</Text>
@@ -425,6 +429,7 @@ const estilos = StyleSheet.create({
     pildora: { minHeight: 52, borderRadius: 999 },
     paso: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
     cuerpoPaso: { flex: 1, gap: 8 },
+    cabezaPaso: { flexDirection: "row", alignItems: "center", gap: 12 },
     tituloPaso: { fontSize: 17, fontWeight: "700", paddingTop: 3 },
     botones: { flexDirection: "row", gap: 8 },
     clave: { fontSize: 16, letterSpacing: 2 },
