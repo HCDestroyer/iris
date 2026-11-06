@@ -8,7 +8,8 @@ import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
-import { cabeceraIdem, nuevoIdMensaje } from "@/lib/conversaciones/api";
+import { cabeceraIdem } from "@/lib/conversaciones/api";
+import { useIdEnvio } from "@/lib/conversaciones/id-envio";
 import { esSesionCambiada, verificarSesion, type Identidad } from "@/lib/conversaciones/sesion";
 import type { Conversacion, Mensaje } from "@/lib/conversaciones/tipos";
 import { useLectura } from "@/lib/lectura";
@@ -113,12 +114,13 @@ function FormPlantilla({ conv, identidad, plantilla, volver, alEnviado }: { conv
         z.object(Object.fromEntries(variables.map((v) => [v.nombre, z.string().trim().min(1, "Obligatoria").max(200)]))),
     );
     const form = useForm<Record<string, string>>({ resolver: zodResolver(esquema), defaultValues: Object.fromEntries(variables.map((v) => [v.nombre, ""])) });
-    const [id] = useState(nuevoIdMensaje);
+    const envio = useIdEnvio();
     const [error, setError] = useState<unknown>(null);
     const valores = useWatch({ control: form.control });
 
     async function enviar(datos: Record<string, string>) {
         setError(null);
+        const id = envio.actual();
         try {
             await verificarSesion(identidad);
             const m = await resolver(
@@ -127,8 +129,10 @@ function FormPlantilla({ conv, identidad, plantilla, volver, alEnviado }: { conv
                     body: { id, plantilla: { codigo: plantilla.codigo, variables: Object.fromEntries(Object.entries(datos).map(([k, v]) => [k, v.trim()])) } },
                 }),
             );
+            envio.renovar();
             alEnviado(m);
         } catch (e) {
+            envio.trasError(e);
             setError(e);
         }
     }
@@ -140,11 +144,11 @@ function FormPlantilla({ conv, identidad, plantilla, volver, alEnviado }: { conv
               ? "Este número se dio de baja de WhatsApp: no se le pueden mandar plantillas."
               : e instanceof ErrorApi && e.codigo === "sin_permiso"
                 ? "No hay permiso de contacto vigente por WhatsApp para este número."
-              : e instanceof ErrorApi && e.codigo === "cliente_sin_confirmar"
-                ? "Falta que un supervisor confirme el cliente de esta conversación."
-                : e instanceof ErrorApi && e.codigo === "plantilla_no_aprobada"
-                ? "Esta plantilla ya no está aprobada en este número."
-                : mensajeDeError(e).titulo;
+                : e instanceof ErrorApi && e.codigo === "cliente_sin_confirmar"
+                  ? "Falta que un supervisor confirme el cliente de esta conversación."
+                  : e instanceof ErrorApi && e.codigo === "plantilla_no_aprobada"
+                    ? "Esta plantilla ya no está aprobada en este número."
+                    : mensajeDeError(e).titulo;
 
     return (
         <form noValidate className="grid gap-3" aria-label={`Plantilla ${plantilla.nombre}`} onSubmit={form.handleSubmit(enviar)}>

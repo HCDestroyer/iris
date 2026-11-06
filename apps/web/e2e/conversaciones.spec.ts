@@ -2,6 +2,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, AGENTE_CONV, CONSULTA, conSesion, simularApi } from "./api-falsa";
 import { esTelefono } from "./ayudas";
+import { elegirOpcion } from "./controles";
 import { AHORA_CONV } from "./datos-conversaciones";
 import { esperarSinDesbordes } from "./desbordes";
 
@@ -158,6 +159,66 @@ test.describe("bandeja de conversaciones", () => {
         await pendiente.getByRole("button", { name: "Reintentar" }).click();
         await expect(page.getByRole("log", { name: "Mensajes" }).locator(`[data-mensaje="${id}"]`)).toContainText("¿Sigue sin servicio?");
         expect(api.conversaciones.enviados.filter((e) => (e.cuerpo as { id?: string }).id === id)).toHaveLength(1);
+    });
+
+    test("tras un 422 «Reintentar» manda otro id (y otra clave): el servidor guardó el primero", async ({ page }) => {
+        const api = await abrir(page, ADMIN.correo, "/conversaciones?c=41");
+        const claves: { id: string; clave: string | undefined }[] = [];
+        await page.route("**/api/v1/mensajeria/conversaciones/41/mensajes", async (r) => {
+            if (r.request().method() !== "POST") return r.fallback();
+            claves.push({ id: (r.request().postDataJSON() as { id: string }).id, clave: r.request().headers()["idempotency-key"] });
+            if (claves.length === 1) {
+                return r.fulfill({ status: 422, contentType: "application/problem+json", body: JSON.stringify({ type: "urn:iris:problema:validacion", title: "No válido", status: 422 }) });
+            }
+            return r.fallback();
+        });
+        await compositor(page).fill("¿Sigue sin servicio?");
+        await compositor(page).press("Enter");
+        const pendiente = page.locator("[data-pendiente]");
+        await expect(pendiente).toContainText("No se envió");
+        await pendiente.getByRole("button", { name: "Reintentar" }).click();
+        await expect(page.locator("[data-pendiente]")).toHaveCount(0);
+        expect(claves).toHaveLength(2);
+        expect(claves[0]?.clave).toBe(claves[0]?.id);
+        expect(claves[1]?.clave).toBe(claves[1]?.id);
+        expect(claves[1]?.id).not.toBe(claves[0]?.id);
+        await expect(page.getByRole("log", { name: "Mensajes" }).locator(`[data-mensaje="${claves[1]?.id}"]`)).toContainText("¿Sigue sin servicio?");
+        expect(api.conversaciones.enviados.filter((e) => e.ruta.endsWith("/mensajes"))).toHaveLength(1);
+    });
+
+    test("mencionar: tras un fallo de red repite el id; tras un 422, uno nuevo", async ({ page }) => {
+        await abrir(page, ADMIN.correo, "/conversaciones?c=41");
+        const claves: { id: string; clave: string | undefined }[] = [];
+        await page.route("**/api/v1/mensajeria/conversaciones/41/notas", async (r) => {
+            if (r.request().method() !== "POST") return r.fallback();
+            claves.push({ id: (r.request().postDataJSON() as { id: string }).id, clave: r.request().headers()["idempotency-key"] });
+            if (claves.length === 1) return r.abort("internetdisconnected");
+            if (claves.length === 2) {
+                return r.fulfill({ status: 422, contentType: "application/problem+json", body: JSON.stringify({ type: "urn:iris:problema:validacion", title: "No válido", status: 422 }) });
+            }
+            return r.fallback();
+        });
+        const conv = page.getByRole("region", { name: /Conversación con/ });
+        if (esTelefono(page)) {
+            await conv.getByRole("button", { name: "Más acciones" }).click();
+        } else {
+            await conv.getByRole("button", { name: "Ayuda" }).click();
+        }
+        await page.getByRole("menuitem", { name: "Mencionar a un compañero" }).click();
+        const dialogo = page.getByRole("dialog", { name: "Mencionar a un compañero" });
+        await elegirOpcion(dialogo.getByLabel("Compañero"), { label: "Rosa Sánchez" });
+        await dialogo.getByRole("textbox", { name: "Nota interna" }).fill("¿Lo revisas tú?");
+        const mencionar = dialogo.getByRole("button", { name: "Mencionar", exact: true });
+        await mencionar.click();
+        await expect(dialogo).toContainText("No se pudo enviar");
+        await mencionar.click();
+        await expect.poll(() => claves.length).toBe(2);
+        await expect(dialogo).toContainText("No se pudo enviar");
+        await mencionar.click();
+        await expect(page.getByText("Mencionaste a Rosa Sánchez")).toBeVisible();
+        expect(claves.every((c) => c.clave === c.id)).toBe(true);
+        expect(claves[1]?.id).toBe(claves[0]?.id);
+        expect(claves[2]?.id).not.toBe(claves[1]?.id);
     });
 
     test("si la sesión del navegador cambió, no se envía nada", async ({ page, context, baseURL }) => {

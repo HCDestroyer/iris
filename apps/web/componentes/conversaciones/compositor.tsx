@@ -10,6 +10,7 @@ import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { ACEPTA_ADJUNTO, motivoArchivoInvalido, subirAdjunto } from "@/lib/conversaciones/adjuntar";
 import { cabeceraIdem, nuevoIdMensaje } from "@/lib/conversaciones/api";
+import { idTrasError } from "@/lib/conversaciones/id-envio";
 import { guardarBorrador, leerBorrador } from "@/lib/conversaciones/borradores";
 import type { Pendiente } from "@/lib/conversaciones/estado";
 import { aplicarRespuesta, textoVentana } from "@/lib/conversaciones/presentacion";
@@ -28,7 +29,8 @@ type Props = {
     conv: Conversacion;
     identidad: Identidad;
     ahora: number;
-    alPendiente: (p: Pendiente) => void;
+    /** Agrega o actualiza un pendiente; `reemplaza` quita el anterior cuando el reintento cambia de id. */
+    alPendiente: (p: Pendiente, reemplaza?: string) => void;
     alConfirmado: (m: Mensaje) => void;
     /** El servidor respondió 200 sin cuerpo (reenvío de un id ya recibido): releer los mensajes. */
     alReenvio: () => void;
@@ -124,12 +126,21 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                 : err instanceof ErrorApi && err.codigo === "fuera_de_ventana"
                   ? "La ventana de 24 h se cerró: usa una plantilla"
                   : `No se envió: ${mensajeDeError(err).titulo}`;
-            alPendiente({ ...pendiente, error: texto });
+            // Sin red se reintenta con el mismo id; si el servidor respondió, guardó ese resultado con
+            // esa clave y el siguiente intento lleva un id nuevo (id del cuerpo y clave juntos).
+            const id = idTrasError(err, e.id);
+            if (id === e.id) alPendiente({ ...pendiente, error: texto });
+            else {
+                envios.current.delete(e.id);
+                envios.current.set(id, { ...e, id });
+                alPendiente({ ...pendiente, id, error: texto }, e.id);
+            }
             if (err instanceof ErrorApi && (err.codigo === "fuera_de_ventana" || err.estado === 409)) void recargar();
         }
     }
 
-    // El hilo reintenta un pendiente con el mismo id (el servidor no lo duplica).
+    // El hilo reintenta un pendiente con su id: el mismo tras un fallo de red (el servidor no lo
+    // duplica), uno nuevo si el servidor ya había respondido (ver `mandar`).
     const envios = useRef(new Map<string, Envio>());
     useEffect(() => {
         registrarReintento((p) => {

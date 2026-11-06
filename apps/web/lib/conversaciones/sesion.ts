@@ -27,7 +27,8 @@ export async function verificarSesion(identidad: Identidad, cliente: ClienteIris
     if (yo.usuario.id !== identidad.usuarioId) {
         throw new SesionCambiada("otro_usuario");
     }
-    if (identidad.empresaId !== undefined && yo.empresaActiva?.id !== identidad.empresaId) {
+    // También sin empresa: si quien abrió no tenía empresa activa y ahora hay una (o al revés), cambió.
+    if (yo.empresaActiva?.id !== identidad.empresaId) {
         throw new SesionCambiada("otra_empresa");
     }
 }

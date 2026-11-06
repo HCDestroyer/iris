@@ -319,7 +319,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                         conv={conv}
                         identidad={identidad}
                         ahora={ahora}
-                        alPendiente={(p) => setPendientes((l) => [...l.filter((x) => x.id !== p.id), p])}
+                        alPendiente={(p, reemplaza) => setPendientes((l) => [...l.filter((x) => x.id !== p.id && x.id !== reemplaza), p])}
                         alConfirmado={(m) => {
                             setMensajes((l) => fusionarMensajes(l, [m]));
                             setPendientes((l) => l.filter((x) => x.id !== m.id));

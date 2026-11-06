@@ -45,6 +45,12 @@ describe("verificación de sesión de la bandeja", () => {
         await expect(verificarSesion({ usuarioId: 7, empresaId: 1 }, clienteConYo(7, 2))).rejects.toMatchObject({ motivo: "otra_empresa" });
     });
 
+    it("sin empresa al abrir: si ahora hay una (o al revés), la sesión cambió", async () => {
+        await expect(verificarSesion({ usuarioId: 7, empresaId: undefined }, clienteConYo(7, 3))).rejects.toMatchObject({ motivo: "otra_empresa" });
+        await expect(verificarSesion({ usuarioId: 7, empresaId: 3 }, clienteConYo(7, undefined))).rejects.toMatchObject({ motivo: "otra_empresa" });
+        await expect(verificarSesion({ usuarioId: 7, empresaId: undefined }, clienteConYo(7, undefined))).resolves.toBeUndefined();
+    });
+
     it("sin sesión: el error de la API (nada se envía)", async () => {
         await expect(verificarSesion({ usuarioId: 7, empresaId: 1 }, clienteConYo(7, 1, 401))).rejects.toMatchObject({ estado: 401 });
     });

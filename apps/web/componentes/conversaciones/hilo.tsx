@@ -6,6 +6,7 @@ import { Fragment, useEffect, useLayoutEffect, useRef } from "react";
 import type { Pendiente } from "@/lib/conversaciones/estado";
 import { hora, separadorDia, tamanoLegible, textoEntrega, textoEvento } from "@/lib/conversaciones/presentacion";
 import type { Mensaje } from "@/lib/conversaciones/tipos";
+import { rutaDescargaAdjunto } from "@/lib/ordenes/adjuntos";
 import { diaLocal } from "@/lib/conversaciones/presentacion";
 
 type Props = {
@@ -169,19 +170,26 @@ function Burbuja({ m }: { m: Mensaje }) {
     );
 }
 
-/** Adjunto: miniatura si es imagen lista; si no, nombre, tamaño y estado («Descargando…»). */
+/** Imágenes que se muestran en línea. Otro `image/*` (un SVG, p. ej.) va como documento. */
+const IMAGEN_EN_LINEA: ReadonlySet<string> = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+/**
+ * Adjunto: miniatura si es imagen lista; si no, nombre, tamaño y estado («Descargando…»). El enlace
+ * se arma siempre desde el id validado (`rutaDescargaAdjunto`), nunca desde la URL de los datos.
+ */
 function Adjunto({ m }: { m: Mensaje }) {
     const a = m.adjunto;
     if (!a) return null;
-    const listo = a.estado === "completo";
-    const imagen = a.mime.startsWith("image/");
+    const url = rutaDescargaAdjunto(a.id);
+    const listo = a.estado === "completo" && url !== undefined;
+    const imagen = IMAGEN_EN_LINEA.has(a.mime.toLowerCase());
     const nombre = imagen ? "Foto" : a.mime === "application/pdf" ? "Documento PDF" : "Archivo";
     if (listo && imagen) {
         return (
-            <a href={a.urlDescarga} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-lg" aria-label={`Abrir ${nombre.toLowerCase()} (${tamanoLegible(a.tamano)})`}>
+            <a href={url} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-lg" aria-label={`Abrir ${nombre.toLowerCase()} (${tamanoLegible(a.tamano)})`}>
                 {/* La imagen viene del módulo de adjuntos (mismo origen): sin optimizar. */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={a.urlDescarga} alt="" loading="lazy" className="max-h-64 w-auto max-w-full object-cover" />
+                <img src={url} alt="" loading="lazy" className="max-h-64 w-auto max-w-full object-cover" />
             </a>
         );
     }
@@ -192,7 +200,7 @@ function Adjunto({ m }: { m: Mensaje }) {
             </span>
             <span className="grid min-w-0">
                 {listo ? (
-                    <a href={a.urlDescarga} target="_blank" rel="noopener noreferrer" className="truncate text-[0.8125rem] font-semibold text-primary hover:underline">
+                    <a href={url} target="_blank" rel="noopener noreferrer" className="truncate text-[0.8125rem] font-semibold text-primary hover:underline">
                         {nombre}
                     </a>
                 ) : (

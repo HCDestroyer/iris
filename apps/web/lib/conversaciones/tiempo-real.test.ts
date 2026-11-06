@@ -176,6 +176,59 @@ describe("feed de la bandeja", () => {
         expect(eventos).toEqual([]);
     });
 
+    it("un flujo que se cierra al instante no entra en bucle: espera cada vez más", async () => {
+        const esperas: number[] = [];
+        let intentos = 0;
+        const { opciones, estados } = base({
+            abrirFlujo: async (_c, s) => {
+                intentos++;
+                return flujoSSE([], s, true);
+            },
+            plazos: { ...plazos, esperaMin: 5, esperaMax: 40, flujoMinimo: 5_000 },
+            reloj: {
+                ahora: () => 0,
+                esperar: async (ms) => {
+                    esperas.push(ms);
+                    await new Promise((r) => setTimeout(r, 1));
+                },
+            },
+        });
+        const cerrar = iniciarFeed(opciones);
+        await hasta(() => intentos >= 6);
+        cerrar();
+        // Antes de cada reapertura hubo una espera, y crece hasta el máximo.
+        expect(esperas.length).toBeGreaterThanOrEqual(intentos - 1);
+        expect(esperas.slice(0, 5)).toEqual([5, 10, 20, 40, 40]);
+        expect(estados).not.toContain("sin_conexion");
+    });
+
+    it("tras un flujo largo reconecta sin esperar", async () => {
+        const esperas: number[] = [];
+        let intentos = 0;
+        let t = 0;
+        const { opciones } = base({
+            abrirFlujo: async (_c, s) => {
+                intentos++;
+                // Como la red real: cada apertura cede un turno al bucle de eventos.
+                await new Promise((r) => setTimeout(r, 1));
+                return flujoSSE([], s, true);
+            },
+            plazos: { ...plazos, flujoMinimo: 5_000 },
+            reloj: {
+                // Cada lectura del reloj avanza 10 s: todos los flujos «duran».
+                ahora: () => (t += 10_000),
+                esperar: async (ms) => {
+                    esperas.push(ms);
+                    await new Promise((r) => setTimeout(r, 1));
+                },
+            },
+        });
+        const cerrar = iniciarFeed(opciones);
+        await hasta(() => intentos >= 3);
+        cerrar();
+        expect(esperas).toEqual([]);
+    });
+
     it("sin red: espera y vuelve a intentar", async () => {
         let intentos = 0;
         const { opciones, eventos, estados } = base({
