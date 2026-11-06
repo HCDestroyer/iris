@@ -18,6 +18,7 @@ import { escucharPlano } from "./campo/plano";
 import { abrirMotor, borrarBase, borrarCachesChat } from "./campo/motor";
 import { entorno } from "./entorno";
 import { AppCampo, type DependenciasCampo } from "./pantallas/AppCampo";
+import { pushNativo } from "./push";
 import { ElegirEmpresa } from "./pantallas/ElegirEmpresa";
 import { RecuperarError } from "./pantallas/RecuperarError";
 import { Entrar } from "./pantallas/Entrar";
@@ -89,6 +90,7 @@ function dependenciasNativas(): DependenciasCampo {
         cerrarSesionApi,
         vaciarCacheFotos,
         olvidarSesionGuardada,
+        push: pushNativo(),
     };
     return depsNativas;
 }

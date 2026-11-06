@@ -1,10 +1,11 @@
 // «Yo» (diseño aprobado por el PM, nov 2026): el nombre y «Rol · Empresa» de `GET /yo`; Apariencia
 // (Teléfono · Claro · Oscuro, guardada en el teléfono); Seguridad (cambiar contraseña y
-// verificación en dos pasos, cada una en su pantalla, y «Desbloquear con huella»); Este teléfono
+// verificación en dos pasos, cada una en su pantalla, y «Desbloquear con huella»); Avisos
+// («Notificaciones», con su pantalla propia, en la app nativa); Este teléfono
 // («Mi bodega», «Por enviar», actualizar el día, cambiar de empresa) y «Cerrar sesión» (con lo
 // pendiente: enviar y salir, o salir conservándolo). Como la PWA.
 import { APARIENCIAS, estadoDosPasos, lineaPerfil, totalPorEnviar, type Apariencia } from "@iris/sync/campo";
-import { Building2, CloudUpload, Fingerprint, KeyRound, LogOut, Moon, Package, RefreshCw, ShieldCheck, Smartphone, Sun, type LucideIcon } from "lucide-react-native";
+import { Bell, Building2, CloudUpload, Fingerprint, KeyRound, LogOut, Moon, Package, RefreshCw, ShieldCheck, Smartphone, Sun, type LucideIcon } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { ErrorApi } from "../api/errores";
@@ -15,7 +16,10 @@ import { useCuenta } from "../campo/cuenta";
 import { porEnviarEnTelefono } from "../campo/yo";
 import { activarHuella, biometriaDisponible, huellaActiva } from "../sesion/sesion";
 import { useApariencia, useTema } from "../tema/tema";
+import { usePush } from "../push/contexto";
+import { resumenNotificaciones } from "../push/textos";
 import { CambiarContrasena, DosPasos } from "./Cuenta";
+import { Notificaciones } from "./Notificaciones";
 
 const ICONOS_APARIENCIA: Record<Apariencia, LucideIcon> = { telefono: Smartphone, claro: Sun, oscuro: Moon };
 const OPCIONES_APARIENCIA = APARIENCIAS.map((a) => ({ ...a, icono: ICONOS_APARIENCIA[a.valor] }));
@@ -28,6 +32,9 @@ export function Yo({ empresa, cambiarEmpresa, bajarPaquete }: { empresa: string 
     }
     if (seccion === "dos_pasos") {
         return <DosPasos />;
+    }
+    if (seccion === "notificaciones") {
+        return <Notificaciones />;
     }
     return <Perfil empresa={empresa} cambiarEmpresa={cambiarEmpresa} bajarPaquete={bajarPaquete} />;
 }
@@ -47,6 +54,8 @@ function Perfil({ empresa, cambiarEmpresa, bajarPaquete }: { empresa: string | n
     const yo = cuenta.estado === "listo" ? cuenta.yo : null;
     const linea = lineaPerfil(yo?.usuario.roles, yo?.empresaActiva?.nombre ?? empresa);
     const dosPasos = estadoDosPasos(yo ? yo.usuario.mfaActivo : null);
+    const push = usePush();
+    const prefs = push?.preferencias.estado === "listo" ? push.preferencias.preferencias : null;
 
     const salir = async (conservarPendientes: boolean) => {
         setSaliendo(true);
@@ -95,6 +104,20 @@ function Perfil({ empresa, cambiarEmpresa, bajarPaquete }: { empresa: string | n
                     }}
                 />
             </Seccion>
+
+            {push ? (
+                <Seccion titulo="Avisos">
+                    <GrupoFilas testID="grupo-avisos">
+                        <FilaAjuste
+                            icono={Bell}
+                            titulo="Notificaciones"
+                            detalle={resumenNotificaciones(prefs, push.permiso)}
+                            alPresionar={() => navegar({ tipo: "yo", seccion: "notificaciones" })}
+                            testID="fila-notificaciones"
+                        />
+                    </GrupoFilas>
+                </Seccion>
+            ) : null}
 
             <Seccion titulo="Seguridad">
                 <GrupoFilas testID="grupo-seguridad">
