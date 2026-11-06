@@ -442,11 +442,17 @@ un **asistente**. No está pegado a ningún canal.
   el outbox (para un futuro push). Una vez por conversación y ventana cerrada.
 - `asistente.activo` está **reservado**: en la fase 1 solo admite `false` (422
   `disponible_en_fase_2`).
+- `guardia` y `asistente` son opcionales en el cuerpo. `POST /canales/{id}/configurar` sin
+  `fueraDeHorario` lo deja como estaba; `horarioId` ausente quita el horario del número. Se lee en
+  `GET /conversaciones/canales` (`horarioId`, `fueraDeHorario`) y en `GET /canales`.
+- La respuesta automática queda como mensaje saliente sin `autor` y no cambia el estado de la
+  conversación (sigue `abierta` esperando a una persona) ni el SLA.
 
 ### 10.3 SLA y horario
 
-El SLA de la cola corre solo dentro del horario de la cola (o del número): un mensaje que llega de
-noche empieza a contar al abrir.
+El SLA de la cola empieza a contar al abrir el horario de la cola (o del número) si el mensaje llegó
+cerrado: un mensaje de las 22:30 con SLA de 60 min y apertura a las 06:00 vence a las 07:00. Una vez
+que empezó, no se pausa si el horario cierra antes de vencer (fase 1).
 
 ### 10.4 Puntos de extensión para la fase 2 (asistentes)
 

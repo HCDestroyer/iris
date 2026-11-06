@@ -343,12 +343,21 @@ func (m *Modulo) slaDe(ctx context.Context, q *mensajeriabd.Queries, c mensajeri
 	return m.venceSLA(ctx, q, c, cola, *c.EsperaDesde)
 }
 
-// venceSLA: desde + SLA de la cola.
-func (m *Modulo) venceSLA(_ context.Context, _ *mensajeriabd.Queries, _ mensajeriabd.MensajeriaConversacion, cola mensajeriabd.MensajeriaCola, desde time.Time) (*time.Time, error) {
+// venceSLA: desde + SLA de la cola; si el mensaje llegó con el horario (de la cola o del número)
+// cerrado, el SLA empieza a contar al abrir.
+func (m *Modulo) venceSLA(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaConversacion, cola mensajeriabd.MensajeriaCola, desde time.Time) (*time.Time, error) {
 	if cola.SlaRespuestaMin == nil {
 		return nil, nil
 	}
-	v := desde.Add(time.Duration(*cola.SlaRespuestaMin) * time.Minute)
+	cal, err := calendarioEfectivo(ctx, q, cola.HorarioID, c.CanalID)
+	if err != nil {
+		return nil, err
+	}
+	inicio, ok := slaConHorario(cal, desde)
+	if !ok {
+		return nil, nil
+	}
+	v := inicio.Add(time.Duration(*cola.SlaRespuestaMin) * time.Minute)
 	return &v, nil
 }
 

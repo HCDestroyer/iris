@@ -252,6 +252,12 @@ El tiempo real del panel va por el feed propio (`mensajeria.conv_eventos`, SSE y
 | `boleta.registrada_en_argos` / `boleta.fallida` | `boleta_id`, `conversacion_id`, `empresa_id`; `comprobante_id` / `detalle` | Argos la aceptó (comprobante pendiente de caja) o la rechazó por negocio (o se agotaron los reintentos). |
 | `promesa.solicitada` | `promesa_id`, `conversacion_id`, `empresa_id`, `cliente_id`, `servicio_id`, `estado` (`activa`, `rechazada`, `pendiente_aprobacion`), `promesa_argos_id` | Iris pidió la promesa y Argos decidió. |
 
+| `horario.creado` / `horario.actualizado` | `horario_id`, `empresa_id`; `nombre` (creado); `campos[]`, `activo` (actualizado) | Configuración (PR B). |
+| `conversacion.fuera_de_horario` | `conversacion_id`, `empresa_id`, `mensaje_id` (la respuesta automática), `hasta` (próxima apertura) | Una vez por ventana cerrada (PR B). |
+| `conversacion.guardia_avisada` | `conversacion_id`, `empresa_id`, `usuario_id`, `motivo` (`etiqueta`, `falla_masiva`) | Una vez por conversación y ventana cerrada; para el futuro push (PR B). |
+| `manual.creado` / `manual.actualizado` | `manual_id`, `empresa_id`; `visibilidad` (creado); `campos[]`, `activo` (actualizado) | Biblioteca (PR B). |
+| `manual.enviado` | `manual_id`, `conversacion_id`, `empresa_id`, `mensaje_id`, `modo` (`enlace`, `texto`) | Se mandó al cliente (PR B). |
+
 `canal_mensajeria.actualizado` (ya existente) también sale al configurar uso, cola o número de avisos
 (`campos[]` con `usos`, `avisos_empresa`, `cola_id`), y para el número que deja de ser el de avisos.
 
