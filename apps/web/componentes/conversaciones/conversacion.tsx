@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { api } from "@/lib/api/cliente";
 import { leerDetalle, leerMensajes } from "@/lib/conversaciones/api";
 import { fusionarMensajes, pendientesSinConfirmar, type Pendiente } from "@/lib/conversaciones/estado";
-import { CLASE_PUNTO, formatearNumero, iniciales, tonoDeCanal } from "@/lib/conversaciones/presentacion";
+import { CLASE_PUNTO, tituloVisible, formatearNumero, iniciales, tonoDeCanal } from "@/lib/conversaciones/presentacion";
 import type { Identidad } from "@/lib/conversaciones/sesion";
 import type { Conversacion, ConversacionDetalle, Mensaje } from "@/lib/conversaciones/tipos";
 import { useLectura } from "@/lib/lectura";
@@ -189,8 +189,8 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
 
     if (detalle.estado === "error") {
         return (
-            <section aria-label="Conversación" className="min-h-0 overflow-y-auto p-4 @min-[1100px]:col-span-2">
-                <Boton asChild variante="fantasma" tamano="sm" className="mb-3 @min-[700px]:hidden">
+            <section aria-label="Conversación" className="min-h-0 overflow-y-auto p-4 @min-[1100px]/bandeja:col-span-2">
+                <Boton asChild variante="fantasma" tamano="sm" className="mb-3 @min-[700px]/bandeja:hidden">
                     <Link href={hrefLista} scroll={false}>
                         <ArrowLeft />
                         Conversaciones
@@ -202,7 +202,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
     }
     if (!conv) {
         return (
-            <section aria-label="Conversación" aria-busy="true" className="flex min-h-0 flex-col gap-3 p-4 @min-[1100px]:col-span-2">
+            <section aria-label="Conversación" aria-busy="true" className="flex min-h-0 flex-col gap-3 p-4 @min-[1100px]/bandeja:col-span-2">
                 <span className="sr-only" role="status">
                     Cargando la conversación…
                 </span>
@@ -230,7 +230,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
         <>
             <section ref={refSeccion} aria-label={`Conversación con ${conv.titulo}`} className="@container/conv relative flex min-h-0 min-w-0 flex-col">
                 <header className="flex h-[3.75rem] shrink-0 items-center gap-2 border-b border-border bg-card px-3 @min-[700px]/conv:gap-2.5 @min-[700px]/conv:px-3.5">
-                    <Boton asChild variante="fantasma" tamano="icono-sm" className="@min-[700px]:hidden">
+                    <Boton asChild variante="fantasma" tamano="icono-sm" className="@min-[700px]/bandeja:hidden">
                         <Link href={hrefLista} scroll={false} aria-label="Volver a las conversaciones" title="Volver a las conversaciones">
                             <ArrowLeft />
                         </Link>
@@ -240,13 +240,13 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                         <span className={cn("absolute -right-0.5 -bottom-0.5 size-3.5 rounded-full ring-2 ring-card", CLASE_PUNTO[tono])} />
                     </span>
                     <div className="flex min-w-0 flex-1 flex-col">
-                        <h2 className="truncate text-[0.9375rem] font-semibold">{conv.titulo}</h2>
+                        <h2 className="truncate text-[0.9375rem] font-semibold">{tituloVisible(conv)}</h2>
                         <span className="flex min-w-0 items-center gap-1.5 text-[0.78125rem] text-muted-foreground">
                             <PildoraCanal canal={conv.canal} className="shrink-0" />
                             <span className="truncate tabular-nums">{formatearNumero(conv.numero)}</span>
                         </span>
                     </div>
-                    <AccionesConversacion conv={conv} estrecho={anchoSeccion > 0 && anchoSeccion < 576} alActualizar={aplicarConversacion} recargar={refrescarDetalle} />
+                    <AccionesConversacion conv={conv} estrecho={anchoSeccion > 0 && anchoSeccion < 480} alActualizar={aplicarConversacion} recargar={refrescarDetalle} />
                     <Boton
                         variante="contorno"
                         tamano="icono-sm"
@@ -317,7 +317,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
             </section>
             {alLado ? (
                 fichaVisible ? (
-                    <aside aria-label="Ficha del cliente" className="hidden min-h-0 w-[18.75rem] flex-col overflow-y-auto border-l border-border bg-card @min-[1100px]:flex">
+                    <aside aria-label="Ficha del cliente" className="hidden min-h-0 w-[18.75rem] flex-col overflow-y-auto border-l border-border bg-card @min-[1100px]/bandeja:flex">
                         {ficha}
                     </aside>
                 ) : null

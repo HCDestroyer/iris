@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { mensajeDeError } from "@/lib/api/errores";
 import type { Filtros, Vista } from "@/lib/conversaciones/estado";
-import { CLASE_PUNTO, horaLista, iniciales, puntoSla, textoUltimo, tonoDeCanal } from "@/lib/conversaciones/presentacion";
+import { CLASE_PUNTO, tituloVisible, horaLista, iniciales, puntoSla, textoUltimo, tonoDeCanal } from "@/lib/conversaciones/presentacion";
 import type { EstadoFeed } from "@/lib/conversaciones/tiempo-real";
 import type { Contadores, Conversacion } from "@/lib/conversaciones/tipos";
 import type { Lectura } from "@/lib/lectura";
@@ -129,7 +129,7 @@ function FilaConversacion({ conv, href, actual, ahora }: { conv: Conversacion; h
                 {iniciales(conv.titulo)}
                 <span className={cn("absolute -right-0.5 -bottom-0.5 size-3.5 rounded-full ring-2 ring-card", CLASE_PUNTO[tono])} />
             </span>
-            <span className={cn("truncate text-[0.84375rem]", conNoLeidos ? "font-bold" : "font-semibold")}>{conv.titulo}</span>
+            <span className={cn("truncate text-[0.84375rem]", conNoLeidos ? "font-bold" : "font-semibold")}>{tituloVisible(conv)}</span>
             <span className="text-right text-xs whitespace-nowrap text-muted-foreground tabular-nums">{horaLista(conv.ultimaActividad, ahora)}</span>
             <span className={cn("truncate text-[0.8125rem]", conNoLeidos ? "text-foreground" : "text-muted-foreground")}>{textoUltimo(conv.ultimoMensaje)}</span>
             <span className="flex items-center justify-end gap-1.5 whitespace-nowrap">

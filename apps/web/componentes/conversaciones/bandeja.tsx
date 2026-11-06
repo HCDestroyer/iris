@@ -175,16 +175,16 @@ export function Bandeja() {
     const listaVisible = abierta === null;
     return (
         <ProveedorCatalogos>
-        <div data-slot="bandeja" data-vista={listaVisible ? "lista" : "conversacion"} className="@container min-h-0 overflow-hidden bg-background-secondary">
+        <div data-slot="bandeja" data-vista={listaVisible ? "lista" : "conversacion"} className="@container/bandeja min-h-0 overflow-hidden bg-background-secondary">
             <div
                 className={cn(
                     "grid h-full min-h-0",
-                    "@min-[700px]:grid-cols-[minmax(16.5rem,20rem)_minmax(0,1fr)]",
-                    "@min-[1100px]:grid-cols-[minmax(18rem,21rem)_minmax(0,1fr)_auto]",
+                    "@min-[700px]/bandeja:grid-cols-[minmax(16.5rem,20rem)_minmax(0,1fr)]",
+                    "@min-[1100px]/bandeja:grid-cols-[minmax(18rem,21rem)_minmax(0,1fr)_auto]",
                 )}
             >
                 <ListaConversaciones
-                    className={cn(listaVisible ? "flex" : "hidden @min-[700px]:flex")}
+                    className={cn(listaVisible ? "flex" : "hidden @min-[700px]/bandeja:flex")}
                     filtros={filtros}
                     abierta={abierta}
                     lista={lista}
@@ -219,7 +219,7 @@ export function Bandeja() {
 
 function VacioConversacion() {
     return (
-        <section aria-label="Conversación" className="hidden min-h-0 items-center justify-center p-6 text-center @min-[700px]:flex">
+        <section aria-label="Conversación" className="hidden min-h-0 items-center justify-center p-6 text-center @min-[700px]/bandeja:flex">
             <div className="grid max-w-xs gap-1">
                 <p className="font-medium">Elige una conversación</p>
                 <p className="text-sm text-muted-foreground">Las que llegan por los números de WhatsApp de tu empresa aparecen a la izquierda.</p>

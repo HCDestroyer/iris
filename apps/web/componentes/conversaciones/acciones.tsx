@@ -126,8 +126,8 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar }:
                     disabled={ocupado || !(p.tomar || p.asignar)}
                 >
                     {conv.asignado ? <UserCheck /> : <User />}
-                    <span className="truncate @max-[44rem]/conv:hidden">{nombreAsignado}</span>
-                    <ChevronDown className="@max-[44rem]/conv:hidden" />
+                    <span className="truncate @max-[32rem]/conv:hidden">{nombreAsignado}</span>
+                    <ChevronDown className="@max-[32rem]/conv:hidden" />
                 </Boton>
             </MenuDesplegableDisparador>
             <MenuDesplegableContenido align="end">
@@ -180,7 +180,7 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar }:
                             <MenuDesplegableDisparador>
                                 <Boton variante="fantasma" tamano="sm" className="h-8 rounded-none px-2.5" aria-label="Ayuda">
                                     <LifeBuoy />
-                                    <span className="@max-[52rem]/conv:hidden">Ayuda</span>
+                                    <span className="@max-[36rem]/conv:hidden">Ayuda</span>
                                 </Boton>
                             </MenuDesplegableDisparador>
                             <MenuDesplegableContenido align="end">{elementosAyuda}</MenuDesplegableContenido>
@@ -189,7 +189,7 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar }:
                     {p.resolver && !estrecho ? (
                             <Boton variante="fantasma" tamano="sm" className="h-8 rounded-none px-2.5" onClick={() => void (resuelta ? reabrir() : resolverConv())} disabled={ocupado} aria-label={resuelta ? "Reabrir" : "Resolver"}>
                                 {resuelta ? <RotateCcw /> : <Check />}
-                                <span className="@max-[52rem]/conv:hidden">{resuelta ? "Reabrir" : "Resolver"}</span>
+                                <span className="@max-[36rem]/conv:hidden">{resuelta ? "Reabrir" : "Resolver"}</span>
                             </Boton>
                     ) : null}
                     <MenuDesplegable>

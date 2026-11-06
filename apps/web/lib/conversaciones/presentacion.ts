@@ -64,6 +64,11 @@ export function formatearNumero(numero: string): string {
     return m ? `+502 ${m[1]} ${m[2]}` : numero;
 }
 
+/** Título para mostrar: si es el número (contacto desconocido), en grupos legibles. */
+export function tituloVisible(c: { titulo: string; numero: string }): string {
+    return c.titulo === c.numero ? formatearNumero(c.numero) : c.titulo;
+}
+
 /** Iniciales para el avatar: dos letras del nombre, o «+5» si es un número. */
 export function iniciales(titulo: string): string {
     const limpio = titulo.trim();

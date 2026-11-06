@@ -290,7 +290,8 @@ export function iniciarFeed<E extends EventoFeed>(opciones: OpcionesFeed<E>, alL
         let listo = false;
         while (!senal.aborted) {
             try {
-                cambiar("conectando");
+                // Reconectar tras un cierre normal (cada 30 min) no es «conectando»: sigue al día.
+                if (estado !== "en_vivo" && estado !== "sondeo") cambiar("conectando");
                 if (cursor === undefined) {
                     await cabeza();
                 }

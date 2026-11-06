@@ -71,7 +71,19 @@ export async function buscarDesbordes(page: Page, selector = "body"): Promise<De
             }
             // Texto que no cabe en su caja.
             const html = el as HTMLElement;
-            if (html.scrollWidth > html.clientWidth + 1 && html.clientWidth > 0 && tieneTextoPropio(el)) {
+            // Cuenta el ancho del texto propio (no el de hijos posicionados, como el punto del avatar).
+            const anchoTexto = () => {
+                let maximo = 0;
+                for (const n of el.childNodes) {
+                    if (n.nodeType !== Node.TEXT_NODE || !(n.textContent ?? "").trim()) continue;
+                    const rango = document.createRange();
+                    rango.selectNodeContents(n);
+                    const rt = rango.getBoundingClientRect();
+                    maximo = Math.max(maximo, Math.max(rt.right - r.left, r.right - rt.left));
+                }
+                return maximo;
+            };
+            if (html.scrollWidth > html.clientWidth + 1 && html.clientWidth > 0 && tieneTextoPropio(el) && anchoTexto() > r.width + 1) {
                 const desplaza = estilo.overflowX === "auto" || estilo.overflowX === "scroll";
                 const elipsis = estilo.textOverflow === "ellipsis" && (estilo.overflowX === "hidden" || estilo.overflowX === "clip");
                 const multilinea = estilo.webkitLineClamp !== "none" && estilo.webkitLineClamp !== "";

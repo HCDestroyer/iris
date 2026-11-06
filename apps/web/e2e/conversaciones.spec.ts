@@ -30,6 +30,7 @@ test.describe("bandeja de conversaciones", () => {
         await expect(page.getByRole("heading", { name: "Conversaciones", level: 1 })).toBeVisible();
         const carlos = fila(page, 41);
         await expect(carlos).toContainText("Carlos Ruiz");
+        await expect(fila(page, 43)).toContainText("+502 5544 0018");
         await expect(carlos).toContainText("Ya lo reinicié y sigue igual.");
         await expect(carlos).toContainText("2 sin leer");
         await expect(page.getByRole("radio", { name: /Mías\s*1/ })).toBeVisible();
@@ -44,7 +45,7 @@ test.describe("bandeja de conversaciones", () => {
         await expect(hilo).toContainText("Ana creó TK-004812");
         await expect(hilo.locator('[data-direccion="nota"]')).toContainText("Nota interna");
         await expect(hilo.locator('[data-direccion="saliente"]')).toContainText("leído");
-        await expect(conv.getByText(/Quedan \d+ h para responder|\d+ h$/).first()).toBeVisible();
+        await expect(conv.locator('[data-ventana="abierta"]')).toContainText(/\d+ h/);
 
         if (esTelefono(page)) {
             await expect(page.getByRole("link", { name: "Volver a las conversaciones" })).toBeVisible();
@@ -129,8 +130,12 @@ test.describe("bandeja de conversaciones", () => {
 
     test("error al leer la lista: aviso con «Reintentar»", async ({ page }) => {
         await page.clock.setFixedTime(new Date(AHORA_CONV));
-        const api = await simularApi(page);
-        api.responderProblema("/api/v1/mensajeria/conversaciones", { type: "urn:iris:problema:error_interno", title: "Error interno", status: 500 }, 1);
+        await simularApi(page);
+        // Las dos primeras lecturas de la lista (la inicial y la de cuando se abre el flujo) fallan con 500.
+        let fallos = 2;
+        await page.route(/\/api\/v1\/mensajeria\/conversaciones\?/, (r) =>
+            fallos-- > 0 ? r.fulfill({ status: 500, contentType: "application/problem+json", body: JSON.stringify({ type: "urn:iris:problema:error_interno", title: "Error interno", status: 500 }) }) : r.fallback(),
+        );
         await conSesion(page.context(), test.info().project.use.baseURL ?? "", ADMIN.correo);
         await page.goto("/conversaciones");
         const reintentar = page.getByRole("button", { name: "Reintentar" }).first();
@@ -155,8 +160,11 @@ test.describe("bandeja de conversaciones", () => {
 
     test("si la sesión del navegador cambió, no se envía nada", async ({ page, context, baseURL }) => {
         // Con sondeo (cada 12 s) el feed aún no se enteró: es el compositor el que verifica.
+        const sondeo = page.waitForRequest(/\/conversaciones\/cambios\?cursor=/);
         const api = await abrir(page, ADMIN.correo, "/conversaciones?c=41", { conversaciones: { sinFlujo: true } });
         await expect(compositor(page)).toBeVisible();
+        // Tras el primer sondeo el feed espera 12 s: en ese rato solo el compositor puede notarlo.
+        await sondeo;
         // En otra pestaña entró otra persona: la cookie del navegador ya es de ella.
         await conSesion(context, baseURL ?? "", CONSULTA.correo);
         await compositor(page).fill("Mensaje que no debe salir");
@@ -190,9 +198,10 @@ test.describe("bandeja de conversaciones", () => {
         await conv.getByRole("button", { name: /Sin asignar\. Asignar/ }).click();
         await page.getByRole("menuitem", { name: "Asignarme" }).click();
         await expect(page.getByText("Tomaste la conversación con María López")).toBeVisible();
+        if (esTelefono(page)) await page.getByRole("link", { name: "Volver a las conversaciones" }).click();
 
         await page.getByRole("button", { name: "Filtros" }).click();
-        await page.getByRole("checkbox", { name: "Cobros" }).check();
+        await page.getByRole("checkbox", { name: "Cobros" }).click();
         await expect(page).toHaveURL(/canal=4/);
         await expect(page.getByRole("button", { name: "Filtros (1 activos)" })).toBeVisible();
         await page.keyboard.press("Escape");
