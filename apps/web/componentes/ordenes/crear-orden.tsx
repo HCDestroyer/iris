@@ -54,10 +54,13 @@ export function FormularioCrearOrden({ ticket }: { ticket?: Ticket }) {
     const direccion = useWatch({ control: form.control, name: "direccion" });
     // Sin ticket ni cliente hace falta la dirección: se avisa junto al botón y al campo.
     const falta = !ticket && !cliente && !direccion.trim();
+    // Búsqueda sin elegir o «Cambiar cliente» abierto: no se manda ni el anterior ni ninguno.
+    const [clienteAMedias, setClienteAMedias] = useState<string | null>(null);
     const plantillas = tipos.estado === "listo" ? (tipos.datos.find((t) => t.codigo === tipoElegido)?.plantillas ?? []) : [];
     const buscarCliente = !ticket && puede(["clientes.ver"]);
 
     async function crear(datos: DatosCrearOrden) {
+        if (clienteAMedias) return;
         setErrorGeneral(null);
         try {
             const cuerpo = entradaCrearOrden({
@@ -93,8 +96,8 @@ export function FormularioCrearOrden({ ticket }: { ticket?: Ticket }) {
                 textoGuardar: "Crear orden",
                 textoEnviando: "Creando…",
                 enviando: form.formState.isSubmitting,
-                faltan: falta ? ["el cliente"] : [],
-                motivo: "Elige el cliente o escribe la dirección para crear la orden.",
+                faltan: falta || clienteAMedias ? ["el cliente"] : [],
+                motivo: clienteAMedias ?? "Elige el cliente o escribe la dirección para crear la orden.",
             }}
             error={errorGeneral ? <ErrorAlta error={errorGeneral} que="la orden" /> : null}
         >
@@ -140,6 +143,7 @@ export function FormularioCrearOrden({ ticket }: { ticket?: Ticket }) {
                             setErrorGeneral(null);
                         }}
                         alConectorApagado={setApagado}
+                        alBuscarSinElegir={setClienteAMedias}
                         error={errorEnCliente(errorGeneral)}
                         ayuda={cliente ? "La dirección y la zona salen del cliente si las dejas vacías." : "Elige el cliente o escribe la dirección de la visita."}
                     />

@@ -2,7 +2,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, CONSULTA, LECTOR, conSesion, simularApi, type ApiFalsa } from "./api-falsa";
 import { avisoError, enlaceMenu, irA, sinEntradas } from "./ayudas";
-import { boton, elegirOpcion, escribirFecha, esperarOpcion } from "./controles";
+import { boton, elegirOpcion, escribirFecha, esperarOpcion, esperarValorCampo } from "./controles";
 
 /*
  * Reportes (Fase 5): menú con `reportes.ver`, filtros en la URL (atajos de período, zona,
@@ -17,6 +17,8 @@ const OCT = "desde=2026-10-01&hasta=2026-10-28";
 
 /** Hoy en Guatemala (UTC−6, sin horario de verano). */
 const hoy = () => new Date(Date.now() - 6 * 3600_000).toISOString().slice(0, 10);
+/** El día anterior a `AAAA-MM-DD`. */
+const diaAntes = (dia: string) => new Date(Date.parse(`${dia}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
 
 const lecturas = (api: ApiFalsa, reporte: string) => api.peticiones.filter((p) => p.ruta === `/api/v1/reportes/${reporte}` && p.query.get("formato") !== "csv");
 const ultima = (api: ApiFalsa, reporte: string) => lecturas(api, reporte).at(-1)?.query;
@@ -133,6 +135,58 @@ test.describe("filtros en la URL", () => {
         await expect(page.getByText("Revisa el período")).toBeVisible();
         await expect(page.getByText("El período admite hasta 366 días.")).toBeVisible();
         expect(lecturas(api, "sla").length).toBe(antes);
+    });
+
+    // Los campos de fecha mandan el período 500 ms después del último cambio y la URL se cambia con
+    // `replace` (en Reportes, «Atrás» sale de la pantalla). Lo que sí pasa es volver por otro camino
+    // a un período que ya se mandó: los campos tienen que mostrar el de la URL.
+    test("volver a un período que ya se mandó: los campos muestran el de la URL", async ({ page, context, baseURL }) => {
+        await simularApi(page);
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        const dia = hoy();
+        const inicioMes = `${dia.slice(0, 8)}01`;
+        const mitadAnterior = `${diaAntes(inicioMes).slice(0, 8)}15`;
+        await page.goto(`/reportes?${OCT}`);
+        await expect(indicador(page, "Tickets resueltos")).toContainText("120");
+        await escribirFecha(page, "Hasta", dia);
+        await expect(page).toHaveURL(new RegExp(`hasta=${dia}`));
+        await escribirFecha(page, "Desde", inicioMes);
+        await expect(page).toHaveURL(new RegExp(`desde=${inicioMes}&hasta=${dia}`));
+        await escribirFecha(page, "Desde", mitadAnterior);
+        await expect(page).toHaveURL(new RegExp(`desde=${mitadAnterior}&hasta=${dia}`));
+        // «Este mes» es el período que se mandó dos pasos atrás.
+        await page.getByRole("radio", { name: "Este mes" }).click();
+        await expect(page).toHaveURL(new RegExp(`desde=${inicioMes}&hasta=${dia}`));
+        await esperarValorCampo(page, "Desde", inicioMes);
+        await esperarValorCampo(page, "Hasta", dia);
+    });
+
+    test("un atajo después de escribir una fecha, y durante la espera de 500 ms, gana", async ({ page, context, baseURL }) => {
+        const api = await simularApi(page);
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        const finAnterior = diaAntes(`${hoy().slice(0, 8)}01`);
+        const inicioAnterior = `${finAnterior.slice(0, 8)}01`;
+        await page.goto(`/reportes?${OCT}`);
+        await expect(indicador(page, "Tickets resueltos")).toContainText("120");
+
+        // Ya aplicada.
+        await escribirFecha(page, "Desde", "2026-10-10");
+        await expect(page).toHaveURL(/desde=2026-10-10&hasta=2026-10-28/);
+        await page.getByRole("radio", { name: "Mes anterior" }).click();
+        await expect(page).toHaveURL(new RegExp(`desde=${inicioAnterior}&hasta=${finAnterior}`));
+        await esperarValorCampo(page, "Desde", inicioAnterior);
+        await esperarValorCampo(page, "Hasta", finAnterior);
+
+        // A medio esperar: la fecha escrita no pisa el atajo cuando vence la espera.
+        await page.goto(`/reportes?${OCT}`);
+        await expect(indicador(page, "Tickets resueltos")).toContainText("120");
+        await escribirFecha(page, "Desde", "2026-10-12");
+        await page.getByRole("radio", { name: "Mes anterior" }).click();
+        await expect(page).toHaveURL(new RegExp(`desde=${inicioAnterior}&hasta=${finAnterior}`));
+        await page.waitForTimeout(800);
+        await expect(page).toHaveURL(new RegExp(`desde=${inicioAnterior}&hasta=${finAnterior}`));
+        await esperarValorCampo(page, "Desde", inicioAnterior);
+        expect(lecturas(api, "sla").some((p) => p.query.get("desde") === "2026-10-12")).toBe(false);
     });
 });
 

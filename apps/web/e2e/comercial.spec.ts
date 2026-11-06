@@ -198,7 +198,14 @@ test.describe("del prospecto al cliente", () => {
         await lineas.nth(0).getByLabel("Descripción").fill("Fibra 50");
         await lineas.nth(0).getByLabel("Precio unitario").fill("199.99");
         await lineas.nth(1).getByLabel("Descripción").fill("Instalación");
-        await lineas.nth(1).getByLabel("Precio unitario").fill("150");
+        // El campo no redondea: tres decimales llegan tal cual y el esquema (espejo de la API) los rechaza.
+        const precio = lineas.nth(1).getByLabel("Precio unitario");
+        await precio.fill("150.255");
+        await dCot.getByRole("button", { name: "Guardar cotización" }).click();
+        await expect(lineas.nth(1).getByText("Usa un monto como 250 o 250.50")).toBeVisible();
+        await expect(precio).toHaveValue("150.255");
+        expect(posts(api, "/cotizaciones")).toHaveLength(0);
+        await precio.fill("150");
         await expect(dCot.getByText("Los totales los calcula Iris al guardar.")).toBeVisible();
         await dCot.getByRole("button", { name: "Guardar cotización" }).click();
         await expect(cot.getByTestId("total-mensual")).toContainText("199.99");

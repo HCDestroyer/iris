@@ -270,7 +270,12 @@ function Periodo({ desde, hasta, alCambiar }: { desde: string; hasta: string; al
     const [enviados, setEnviados] = useState<readonly string[]>([]);
     if (actual !== previo) {
         setPrevio(actual);
-        if (!enviados.includes(actual)) {
+        const eco = enviados.indexOf(actual);
+        if (eco >= 0) {
+            // El eco se consume (con los anteriores): si después se vuelve a ese período con Atrás,
+            // ya no es un eco y los campos lo toman.
+            setEnviados(enviados.slice(eco + 1));
+        } else {
             setBorrador({ desde, hasta });
             setEnviados([]);
         }
@@ -299,6 +304,8 @@ function Periodo({ desde, hasta, alCambiar }: { desde: string; hasta: string; al
                     opciones={OPCIONES_ATAJO}
                     valor={atajoDe({ desde, hasta })}
                     alCambiar={(a) => {
+                        // Un atajo gana a lo que se estaba escribiendo: la espera de 500 ms no lo pisa.
+                        clearTimeout(espera.current);
                         const p = periodoDe(a);
                         alCambiar(p.desde, p.hasta);
                     }}

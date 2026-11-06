@@ -34,6 +34,8 @@ export function NuevoTicket() {
     const [seleccion, setSeleccion] = useState<SeleccionCliente | null>(null);
     const cliente = seleccion?.cliente ?? null;
     const [apagado, setApagado] = useState(false);
+    // Búsqueda sin elegir o «Cambiar cliente» abierto: no se manda ni el anterior ni ninguno.
+    const [clienteAMedias, setClienteAMedias] = useState<string | null>(null);
     const [errorGeneral, setErrorGeneral] = useState<unknown>(null);
     const clave = useRef(nuevaClaveIdempotencia());
     const form = useForm<EntradaFormCrear, unknown, DatosCrearTicket>({ resolver: zodResolver(esquemaCrearTicket), defaultValues: VACIO });
@@ -41,6 +43,7 @@ export function NuevoTicket() {
     const buscarCliente = puede(["clientes.ver"]);
 
     async function crear(datos: DatosCrearTicket) {
+        if (clienteAMedias) return;
         setErrorGeneral(null);
         try {
             const cuerpo = entradaCrearTicket({
@@ -72,7 +75,13 @@ export function NuevoTicket() {
             navegar={router.push}
             volverA="/tickets"
             sucio={form.formState.isDirty || seleccion !== null}
-            barra={{ textoGuardar: "Crear ticket", textoEnviando: "Creando…", enviando: form.formState.isSubmitting }}
+            barra={{
+                textoGuardar: "Crear ticket",
+                textoEnviando: "Creando…",
+                enviando: form.formState.isSubmitting,
+                faltan: clienteAMedias ? ["el cliente"] : [],
+                ...(clienteAMedias ? { motivo: clienteAMedias } : {}),
+            }}
             error={errorGeneral ? <ErrorAlta error={errorGeneral} que="el ticket" /> : null}
         >
             <SeccionFormulario titulo="1. El problema">
@@ -106,6 +115,7 @@ export function NuevoTicket() {
                             setErrorGeneral(null);
                         }}
                         alConectorApagado={setApagado}
+                        alBuscarSinElegir={setClienteAMedias}
                         error={errorEnCliente(errorGeneral)}
                         ayuda={cliente ? undefined : "Opcional: si no es cliente, captura el contacto abajo."}
                     />

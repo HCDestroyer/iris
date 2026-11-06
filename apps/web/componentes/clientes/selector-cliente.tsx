@@ -36,7 +36,18 @@ type PropsSelector = {
     ayuda?: ReactNode;
     /** Mensaje junto al campo (falta elegirlo o error del servidor). */
     error?: string | undefined;
+    /**
+     * Hay algo a medias en el selector: texto buscado sin elegir, un cliente a medio confirmar o
+     * «Cambiar cliente» abierto. Recibe el motivo para bloquear el envío del formulario (`null`
+     * cuando no hay nada a medias): el formulario nunca manda el cliente anterior ni ninguno en
+     * silencio.
+     */
+    alBuscarSinElegir?: (motivo: string | null) => void;
 };
+
+export const MOTIVO_BUSQUEDA_SIN_ELEGIR = "Elige un cliente de la lista o borra la búsqueda.";
+export const MOTIVO_CONFIRMAR_CLIENTE = "Termina de elegir el cliente o vuelve a la búsqueda.";
+export const MOTIVO_CAMBIAR_CLIENTE = "Elige el otro cliente o pulsa «Dejar el cliente elegido».";
 
 /**
  * Selector de cliente único del panel, sobre `Autocompletar` (HeroUI `ComboBox`): busca en Argos
@@ -46,8 +57,17 @@ type PropsSelector = {
  * Al elegir, confirma contra la ficha y, si el cliente tiene varios servicios, pide cuál
  * (`ListaOpciones`, HeroUI `ListBox`). Los errores van bajo el campo con «Reintentar».
  */
-export function SelectorCliente({ valor, alCambiar, alConectorApagado, etiqueta = "Cliente", ayuda, error }: PropsSelector) {
+export function SelectorCliente({ valor, alCambiar, alConectorApagado, alBuscarSinElegir, etiqueta = "Cliente", ayuda, error }: PropsSelector) {
     const [cambiando, setCambiando] = useState(false);
+    const [aMedias, setAMedias] = useState<string | null>(null);
+    const motivo = valor && !cambiando ? null : valor ? MOTIVO_CAMBIAR_CLIENTE : aMedias;
+    const avisoRef = useRef(alBuscarSinElegir);
+    useEffect(() => {
+        avisoRef.current = alBuscarSinElegir;
+    }, [alBuscarSinElegir]);
+    useEffect(() => {
+        avisoRef.current?.(motivo);
+    }, [motivo]);
     if (valor && !cambiando) {
         return (
             <div className="grid gap-1.5" data-testid="selector-cliente">
@@ -68,6 +88,8 @@ export function SelectorCliente({ valor, alCambiar, alConectorApagado, etiqueta 
                 ayuda={ayuda}
                 error={error}
                 enfocar={cambiando}
+                alAMedias={setAMedias}
+                {...(valor ? { elegido: valor.cliente.nombre } : {})}
                 alElegir={(s) => {
                     alCambiar(s);
                     setCambiando(false);
@@ -138,6 +160,8 @@ function Busqueda({
     ayuda,
     error,
     enfocar,
+    elegido,
+    alAMedias,
     alElegir,
     alCancelar,
     alConectorApagado,
@@ -146,6 +170,9 @@ function Busqueda({
     ayuda: ReactNode;
     error: string | undefined;
     enfocar: boolean;
+    /** Con «Cambiar cliente»: el que sigue elegido (y se mandaría si se deja). */
+    elegido?: string;
+    alAMedias: (motivo: string | null) => void;
     alElegir: (s: SeleccionCliente) => void;
     alCancelar?: () => void;
     alConectorApagado?: (apagado: boolean) => void;
@@ -163,6 +190,11 @@ function Busqueda({
     useEffect(() => {
         apagadoRef.current = alConectorApagado;
     }, [alConectorApagado]);
+    const aMedias = pendiente ? MOTIVO_CONFIRMAR_CLIENTE : texto.trim() !== "" ? MOTIVO_BUSQUEDA_SIN_ELEGIR : null;
+    useEffect(() => {
+        alAMedias(aMedias);
+    }, [alAMedias, aMedias]);
+    useEffect(() => () => alAMedias(null), [alAMedias]);
 
     useEffect(() => {
         if (q.length < MIN_BUSQUEDA) return undefined;
@@ -257,10 +289,17 @@ function Busqueda({
                 <InsigniaEstado tono="warning" icono={History} texto="Desactualizado: Argos no respondió, resultados de la copia local" className="justify-self-start whitespace-normal" />
             ) : null}
             {alCancelar ? (
-                <Boton variante="fantasma" tamano="sm" className="justify-self-start" onClick={alCancelar}>
-                    <ArrowLeft />
-                    Dejar el cliente elegido
-                </Boton>
+                <>
+                    {elegido ? (
+                        <p className="text-sm text-muted-foreground" data-testid="cliente-anterior">
+                            Sigue elegido <span className="font-medium text-foreground">{elegido}</span>: elige otro o déjalo.
+                        </p>
+                    ) : null}
+                    <Boton variante="fantasma" tamano="sm" className="justify-self-start" onClick={alCancelar}>
+                        <ArrowLeft />
+                        Dejar el cliente elegido
+                    </Boton>
+                </>
             ) : null}
         </>
     );

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, EMPRESAS, conSesion, simularApi } from "./api-falsa";
-import { abrirSugerencias, buscarSugerencias, elegirSugerencia } from "./controles";
+import { abrirSugerencias, buscarSugerencias, elegirSugerencia, esperarResaltada } from "./controles";
 import { abrirCuenta } from "./ayudas";
 
 /*
@@ -31,7 +31,8 @@ test("buscar, ver servicios y empresa, elegir el servicio con el teclado y crear
     await buscar.click();
     await abrirSugerencias(buscar);
     await expect(page.getByText(/Escribe al menos 3 caracteres/)).toBeVisible();
-    await buscarSugerencias(buscar, "Ana");
+    await buscar.pressSequentially("Ana");
+    await abrirSugerencias(buscar);
     const opcion = page.getByRole("option", { name: /Ana Morales/ });
     await expect(opcion).toContainText("CL-0503");
     await expect(opcion).toContainText("6a avenida 12-40, zona 10");
@@ -45,9 +46,10 @@ test("buscar, ver servicios y empresa, elegir el servicio con el teclado y crear
     expect(caja && vista && caja.x >= 0 && caja.x + caja.width <= vista.width).toBe(true);
     await page.screenshot({ path: nombre("01-resultados") });
 
-    // Flecha abajo y Enter eligen el cliente: se confirma contra la ficha y, con dos servicios, pide cuál.
-    await buscar.press("ArrowDown");
+    // La primera opción queda resaltada al llegar los resultados (sin flecha) y Enter la elige: se
+    // confirma contra la ficha y, con dos servicios, pide cuál.
     await expect(opcion).toHaveAttribute("data-focused", "true");
+    await expect(buscar).toHaveAttribute("aria-activedescendant", (await opcion.getAttribute("id")) ?? "");
     await buscar.press("Enter");
     const servicios = page.getByRole("listbox", { name: "Servicios del cliente" });
     await expect(servicios.getByRole("option")).toHaveCount(2);
@@ -135,8 +137,96 @@ test("por IP elige el servicio de esa IP; vacío y error con «Reintentar»", as
     await expect(page.getByText("Ningún cliente coincide con «falla»")).toBeVisible();
 
     await buscarSugerencias(buscar, "10.20.31.9");
-    await elegirSugerencia(buscar, /Ana Morales/);
+    await esperarResaltada(buscar, /Ana Morales/);
+    await buscar.press("Enter");
     await expect(dialogo.getByTestId("servicio-elegido")).toContainText("SV-503-B");
+});
+
+test("Enter con lo escrito sin elegir no envía el formulario; «Crear» espera a elegir o borrar", async ({ page, context, baseURL }) => {
+    const api = await simularApi(page, { empresas: EMPRESAS });
+    await conSesion(context, baseURL ?? "", ADMIN.correo);
+    const dialogo = await abrirNuevoTicket(page);
+    const asunto = dialogo.getByLabel("Asunto");
+    await asunto.fill("Sin señal");
+    const crear = dialogo.getByRole("button", { name: "Crear ticket" });
+    await expect(crear).toBeEnabled();
+    const altas = () => api.peticiones.filter((p) => p.metodo === "POST" && p.ruta === "/api/v1/tickets").length;
+
+    const buscar = dialogo.getByRole("combobox", { name: "Cliente en Argos" });
+    await buscarSugerencias(buscar, "Castillo");
+    await expect(page.getByRole("option", { name: /María Castillo/ })).toBeVisible();
+    // Lista cerrada y el texto sigue: Enter no hace nada (antes mandaba el ticket sin cliente).
+    await buscar.press("Escape");
+    await expect(buscar).toHaveAttribute("aria-expanded", "false");
+    await expect(buscar).toHaveValue("Castillo");
+    await buscar.press("Enter");
+    await expect(crear).toBeDisabled();
+    await expect(dialogo.getByText("Elige un cliente de la lista o borra la búsqueda.")).toBeVisible();
+    // Enter desde otro campo tampoco: el botón de enviar está deshabilitado.
+    await asunto.press("Enter");
+    await page.waitForTimeout(500);
+    expect(altas()).toBe(0);
+    await expect(page).toHaveURL(/\/tickets\/nuevo$/);
+
+    // Borrar la búsqueda lo vuelve a permitir (sin cliente: con el contacto).
+    await buscar.fill("");
+    await buscar.press("Escape");
+    await expect(crear).toBeEnabled();
+});
+
+test("«Cambiar cliente» abierto no manda el anterior en silencio; «Dejar el cliente elegido» sí", async ({ page, context, baseURL }) => {
+    const api = await simularApi(page, { empresas: EMPRESAS });
+    await conSesion(context, baseURL ?? "", ADMIN.correo);
+    const dialogo = await abrirNuevoTicket(page);
+    await dialogo.getByLabel("Asunto").fill("Sin servicio");
+    const buscar = dialogo.getByRole("combobox", { name: "Cliente en Argos" });
+    await buscarSugerencias(buscar, "Castillo");
+    await esperarResaltada(buscar, /María Castillo/);
+    await buscar.press("Enter");
+    await expect(dialogo.getByTestId("servicio-elegido")).toContainText("SV-501");
+    const crear = dialogo.getByRole("button", { name: "Crear ticket" });
+    await expect(crear).toBeEnabled();
+
+    await dialogo.getByRole("button", { name: "Cambiar cliente" }).click();
+    await expect(dialogo.getByTestId("cliente-anterior")).toContainText("María Castillo");
+    await expect(crear).toBeDisabled();
+    await expect(dialogo.getByText("Elige el otro cliente o pulsa «Dejar el cliente elegido».")).toBeVisible();
+    const otra = dialogo.getByRole("combobox", { name: "Cliente en Argos" });
+    await buscarSugerencias(otra, "Ana");
+    await otra.press("Escape");
+    await otra.press("Enter");
+    await page.waitForTimeout(500);
+    await expect(crear).toBeDisabled();
+    expect(api.peticiones.some((p) => p.metodo === "POST" && p.ruta === "/api/v1/tickets")).toBe(false);
+
+    await dialogo.getByRole("button", { name: "Dejar el cliente elegido" }).click();
+    await expect(dialogo.getByTestId("cliente-elegido")).toContainText("María Castillo");
+    await expect(crear).toBeEnabled();
+    await crear.click();
+    await expect(page).toHaveURL(/\/tickets\/1000$/);
+    const alta = api.peticiones.find((p) => p.metodo === "POST" && p.ruta === "/api/v1/tickets");
+    expect(alta?.cuerpo).toMatchObject({ asunto: "Sin servicio", clienteId: 501, servicioId: 5010 });
+});
+
+test("Nueva orden: con una búsqueda sin elegir, «Crear orden» espera aunque haya dirección", async ({ page, context, baseURL }) => {
+    const api = await simularApi(page, { empresas: EMPRESAS });
+    await conSesion(context, baseURL ?? "", ADMIN.correo);
+    await page.goto("/ordenes");
+    await page.getByRole("list", { name: "Empresas" }).getByRole("button", { name: "Cable Norte" }).click();
+    await page.getByRole("link", { name: "Nueva orden" }).click();
+    const form = page.getByRole("form", { name: "Nueva orden" });
+    await form.getByLabel("Dirección", { exact: true }).fill("6a calle 1-23, zona 1");
+    const crear = form.getByRole("button", { name: "Crear orden" });
+    await expect(crear).toBeEnabled();
+    const buscar = form.getByRole("combobox", { name: "Cliente en Argos" });
+    await buscarSugerencias(buscar, "CL-0501");
+    await expect(page.getByRole("option", { name: /María Castillo/ })).toBeVisible();
+    await buscar.press("Escape");
+    await buscar.press("Enter");
+    await expect(crear).toBeDisabled();
+    await expect(form.getByText("Elige un cliente de la lista o borra la búsqueda.")).toBeVisible();
+    await page.waitForTimeout(500);
+    expect(api.peticiones.some((p) => p.metodo === "POST" && p.ruta === "/api/v1/ordenes")).toBe(false);
 });
 
 test("salir del formulario con cambios pide confirmación", async ({ page, context, baseURL }) => {

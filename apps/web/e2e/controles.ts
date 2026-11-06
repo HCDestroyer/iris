@@ -157,3 +157,15 @@ export async function elegirSugerencia(campo: Locator, nombre: RegExp): Promise<
         await expect.poll(elegida, { timeout: 1500 }).toBe(true);
     }).toPass({ intervals: [100, 200, 400] });
 }
+
+/**
+ * Espera a que la opción quede resaltada en la lista abierta (con búsqueda en el servidor, la
+ * primera se resalta sola al llegar los resultados), para elegirla con Enter. Si un desplazamiento
+ * cerró la lista, la vuelve a abrir.
+ */
+export async function esperarResaltada(campo: Locator, nombre: RegExp): Promise<void> {
+    await expect(async () => {
+        const caja = await abrirSugerencias(campo);
+        await expect(caja.getByRole("option", { name: nombre }).first()).toHaveAttribute("data-focused", "true", { timeout: 1500 });
+    }).toPass({ intervals: [100, 200, 400] });
+}

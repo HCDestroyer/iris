@@ -2,7 +2,8 @@
 
 import { ComboBox, Input, Label, ListBox } from "@heroui/react";
 import { Search } from "lucide-react";
-import type { Key, ReactNode } from "react";
+import { useContext, useEffect, type Key, type KeyboardEvent, type ReactNode } from "react";
+import { ComboBoxStateContext } from "react-aria-components";
 import { cn } from "../utilidades";
 import { PieCampo, useIdsCampo } from "./campo";
 import { Cargando } from "./cargando";
@@ -56,6 +57,48 @@ export type PropsAutocompletar = {
     className?: string;
     "data-testid"?: string;
 };
+
+/**
+ * Con búsqueda en el servidor, la primera opción que llega queda resaltada (como en un buscador):
+ * Enter la elige sin bajar con la flecha. React Aria limpia el resaltado cada vez que cambia el
+ * texto, así que se vuelve a poner cuando llegan los resultados, la lista está abierta y la
+ * opción ya se ve.
+ */
+function ResaltarPrimera({ primera }: { primera: string | undefined }) {
+    const estado = useContext(ComboBoxStateContext);
+    const abierta = estado?.isOpen ?? false;
+    const resaltada = estado?.selectionManager.focusedKey ?? null;
+    const texto = estado?.inputValue ?? "";
+    useEffect(() => {
+        if (!estado || !abierta || primera === undefined || resaltada !== null || texto.trim() === "") return undefined;
+        // Resaltar hace que React Aria lleve la opción a la vista; si el panel todavía se está
+        // acomodando con los resultados nuevos, eso desplaza la página y React Aria cierra la lista.
+        // Se espera (cuadro a cuadro, hasta medio segundo) a que la opción se vea entera.
+        let cuadro = 0;
+        let id = 0;
+        const probar = () => {
+            const opcion = [...document.querySelectorAll<HTMLElement>('[role="listbox"] [role="option"]')].find((o) => o.dataset.key === primera);
+            const caja = opcion?.getBoundingClientRect();
+            if (caja && caja.height > 0 && caja.top >= 0 && caja.bottom <= window.innerHeight) {
+                estado.selectionManager.setFocusedKey(primera);
+                return;
+            }
+            if (++cuadro < 30) id = requestAnimationFrame(probar);
+        };
+        id = requestAnimationFrame(probar);
+        return () => cancelAnimationFrame(id);
+    }, [estado, abierta, primera, resaltada, texto]);
+    return null;
+}
+
+/**
+ * Enter nunca envía el formulario desde el campo: con la lista abierta elige la opción resaltada
+ * (React Aria, que sigue recibiendo la tecla) y con la lista cerrada no hace nada. Sin esto, un
+ * Enter con lo escrito sin elegir mandaba el formulario sin el cliente.
+ */
+function sinEnviarConEnter(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") e.preventDefault();
+}
 
 /**
  * Autocompletar (HeroUI `ComboBox`, React Aria): se escribe para filtrar y se elige con flechas y
@@ -123,6 +166,7 @@ export function Autocompletar({
                     placeholder={placeholder}
                     className={cn("h-10", conLupa && "pl-9")}
                     autoComplete="off"
+                    onKeyDown={sinEnviarConEnter}
                     {...(autoFocus ? { autoFocus } : {})}
                     {...(maxLength ? { maxLength } : {})}
                 />
@@ -153,6 +197,7 @@ export function Autocompletar({
                 </ListBox>
             </ComboBox.Popover>
             <PieCampo idAyuda={ids.idAyuda} idError={ids.idError} ayuda={ayuda} error={error} />
+            {alBuscar ? <ResaltarPrimera primera={opciones.find((o) => !o.deshabilitada)?.valor} /> : null}
         </ComboBox>
     );
 }

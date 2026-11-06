@@ -25,8 +25,6 @@ export type PropsCampoNumero = PropsControlNativo & {
     etiqueta: ReactNode;
     ayuda?: ReactNode;
     error?: string | undefined;
-    /** Decimales permitidos (2 para montos y cantidades). */
-    decimales?: number;
     minimo?: number;
     maximo?: number;
     /** Botones − y + (cantidades). Los montos no los llevan. */
@@ -44,8 +42,12 @@ export type PropsCampoNumero = PropsControlNativo & {
  * flechas para subir y bajar y formato de Guatemala (punto decimal). El valor del formulario es
  * el texto del número (`"250.5"`), como el de un input: sirve con `{...register()}` y con
  * `value` + `onChange(e)`. React Aria lo confirma al salir del campo o con Enter.
+ *
+ * No redondea: lo escrito llega entero al formulario (`25.123` sigue siendo `25.123`) y el
+ * esquema de zod, espejo del backend, lo rechaza con su mensaje. Redondear en el cliente cambiaría
+ * un monto sin avisar.
  */
-export function CampoNumero({ etiqueta, ayuda, error, decimales = 2, minimo, maximo, conPasos = false, paso, placeholder, id, className, disabled, required, ...nativas }: PropsCampoNumero) {
+export function CampoNumero({ etiqueta, ayuda, error, minimo, maximo, conPasos = false, paso, placeholder, id, className, disabled, required, ...nativas }: PropsCampoNumero) {
     const visible = useErrorEstable(error);
     const ids = useIdsCampo(id, visible, ayuda);
     const entrada = useRef<HTMLInputElement>(null);
@@ -60,7 +62,7 @@ export function CampoNumero({ etiqueta, ayuda, error, decimales = 2, minimo, max
                     value={aNumero(nativo.valor) ?? Number.NaN}
                     onChange={(n) => nativo.cambiar(deNumero(n))}
                     onBlur={() => nativo.salir()}
-                    formatOptions={{ maximumFractionDigits: decimales, useGrouping: false }}
+                    formatOptions={{ maximumFractionDigits: 20, useGrouping: false }}
                     {...(minimo !== undefined ? { minValue: minimo } : {})}
                     {...(maximo !== undefined ? { maxValue: maximo } : {})}
                     {...(paso !== undefined ? { step: paso } : {})}
