@@ -45,7 +45,17 @@ async function abrirMover(page: Page, info: TestInfo, numero: string) {
     await expect(dialogo(page)).toBeVisible();
 }
 
+/**
+ * Fija la hora de la página (Guatemala) en el día de hoy: la agenda no depende de cuándo corra la
+ * prueba. Por defecto, 10:30, con la línea de «ahora» encima de OT-000003 (10:00–11:00): las
+ * pruebas que la tocan o arrastran demuestran que la línea no se queda con el clic.
+ */
+async function fijarHora(page: Page, hora = "10:30") {
+    await page.clock.setFixedTime(new Date(utc(hoyGt(), hora)));
+}
+
 async function entrarAgenda(page: Page, baseURL: string | undefined, correo = ADMIN.correo) {
+    await fijarHora(page);
     await page.context().clearCookies();
     await conSesion(page.context(), baseURL ?? "", correo);
     await page.goto("/agenda?vista=dia");
@@ -134,6 +144,33 @@ test.describe("agenda", () => {
         expect(ultima(api, "/api/v1/agenda")?.query.get("cuadrillaId")).toBeNull();
         await expect(page.getByText("No hay técnicos en este filtro")).toHaveCount(0);
         await expect(cita(page, "OT-000003")).toHaveCount(0);
+    });
+
+    test("la línea de «ahora» sobre una cita no se queda con el clic ni con el arrastre", async ({ page, baseURL }, info) => {
+        test.skip(enTelefono(info), "En el teléfono la agenda es una lista: no hay línea de tiempo");
+        await simularApi(page, { despacho: true });
+        await entrarAgenda(page, baseURL);
+        // A las 10:30 la línea cruza OT-000003 (10:00–11:00).
+        const linea = page.locator("[data-ahora]").filter({ visible: true }).first();
+        const cajaLinea = await linea.boundingBox();
+        const cajaCita = await cita(page, "OT-000003").boundingBox();
+        if (!cajaLinea || !cajaCita) throw new Error("sin línea o sin cita");
+        expect(cajaLinea.x).toBeGreaterThan(cajaCita.x);
+        expect(cajaLinea.x).toBeLessThan(cajaCita.x + cajaCita.width);
+        await expect(linea).toHaveCSS("pointer-events", "none");
+        // Clic justo sobre la línea: abre la cita.
+        await page.mouse.click(cajaLinea.x + cajaLinea.width / 2, cajaCita.y + cajaCita.height / 2);
+        await expect(dialogo(page).getByRole("heading", { name: "Mover a… · OT-000003" })).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(dialogo(page)).toHaveCount(0);
+        // Arrastrar desde la línea: se mueve la cita.
+        const pista = page.locator(`[data-pista="${JORGE}"]`).filter({ visible: true });
+        await cita(page, "OT-000003").dragTo(pista, {
+            sourcePosition: { x: cajaLinea.x + cajaLinea.width / 2 - cajaCita.x, y: cajaCita.height / 2 },
+            targetPosition: { x: ((15.5 * 60 - 360) / 840) * ((await pista.boundingBox())?.width ?? 0), y: 10 },
+        });
+        await expect(dialogo(page)).toBeVisible();
+        await esperarValorCampo(dialogo(page), "Hora", "15:30");
     });
 
     test("arrastrar (o «Mover a…» en el teléfono) reprograma con otro técnico y hora, con version", async ({ page, baseURL }, info) => {
