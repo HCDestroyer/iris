@@ -13,9 +13,15 @@ import { useSesion } from "@/lib/sesion";
 /**
  * `/tecnicos/nuevo`. Con `?usuario=<id>` (de vuelta de «Crear usuario»), ese usuario queda
  * elegido: su correo se lee de la API (nunca de la URL) y si no se puede leer, se elige a mano.
+ * Con `?argos=<idExterno>` («Crear ficha» en «Técnicos de Argos sin ficha»), ese técnico de Argos
+ * queda elegido si la API lo devuelve sin ficha, y su correo (el de esa fila de la API) busca el
+ * usuario de Iris.
  */
 export function NuevoTecnico() {
-    const usuarioId = idDeParametro(useSearchParams().get("usuario"));
+    const params = useSearchParams();
+    const usuarioId = idDeParametro(params.get("usuario"));
+    const argosId = (params.get("argos") ?? "").trim().slice(0, 100);
+    const argosInicial = argosId !== "" ? { idExterno: argosId } : null;
     const { puede } = useSesion();
     const catalogos = useCatalogosAgenda();
     const leerUsuario = usuarioId !== null && puede(["usuarios.ver"]);
@@ -37,6 +43,7 @@ export function NuevoTecnico() {
                 zonas={catalogos.zonas.estado === "listo" ? catalogos.zonas.datos : undefined}
                 volverA="/tecnicos"
                 usuarioInicial={inicial}
+                argosInicial={argosInicial}
             />
         </>
     );

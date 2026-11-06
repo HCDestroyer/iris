@@ -87,7 +87,8 @@ func nuevoArgosCampo(t *testing.T) *argosCampo {
 		}
 	})
 	mux.HandleFunc("GET /api/v1/inventario/existencias", func(w http.ResponseWriter, _ *http.Request) {
-		json200(w, `{"data":[{"producto_id":77,"descripcion":"Cable drop","cantidad":"5","unidad":"m","bodega_id":9}]}`)
+		// Como ExistenciaInventario de Argos: producto_nombre, producto_sku y bodega_nombre.
+		json200(w, `{"data":[{"producto_id":77,"producto_nombre":"Cable drop","producto_sku":"CAB-DROP-1H","cantidad":"5","unidad":"m","bodega_id":9,"bodega_nombre":"Bodega Norte"}]}`)
 	})
 	mux.HandleFunc("POST /api/v1/", func(w http.ResponseWriter, r *http.Request) {
 		var c map[string]any
@@ -305,7 +306,8 @@ func TestIntegracionAdjuntosInventarioYPendientes(t *testing.T) {
 		}
 	}
 	if oc == nil || !oc.Comodato.Disponible || len(oc.Comodato.Equipos) != 1 || oc.Comodato.Equipos[0].UnidadID != 5 ||
-		!p.Existencias.Disponible || p.Existencias.Bodegas[0].Lineas[0].Cantidad != 5 {
+		!p.Existencias.Disponible || p.Existencias.Bodegas[0].Lineas[0].Cantidad != 5 || p.Existencias.Bodegas[0].Lineas[0].Descripcion != "Cable drop" ||
+		p.Existencias.Bodegas[0].Lineas[0].Codigo != "CAB-DROP-1H" || p.Existencias.Bodegas[0].Nombre != "Bodega Norte" {
 		t.Fatalf("paquete con Argos: %+v %+v", oc, p.Existencias)
 	}
 

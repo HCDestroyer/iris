@@ -141,9 +141,9 @@ test.describe("vínculo del técnico con Argos", () => {
         const usuario = dialogo.getByLabel("Usuario de Argos");
         await expect(usuario.locator("option")).toHaveText([
             "Elige el usuario…",
-            "Lucía Ramírez · lucia@argos.test · bodega 30",
-            "Jorge Méndez · jorge@argos.test · bodega 31 · ya vinculado a otra ficha",
-            "Pedro Sic · pedro@argos.test · bodega 40 · sin bodega en esta empresa",
+            "Lucía Ramírez · lucia@argos.test · Bodega Norte",
+            "Jorge Méndez · jorge@argos.test · Bodega Sur · ya vinculado a otra ficha",
+            "Pedro Sic · pedro@argos.test · Bodega Xela · sin bodega en esta empresa",
         ]);
         await expect(usuario.locator("option", { hasText: "Jorge Méndez" })).toBeDisabled();
         await expect(usuario.locator("option", { hasText: "Pedro Sic" })).toBeDisabled();

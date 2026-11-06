@@ -2,8 +2,8 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import type { Schema } from "@iris/contratos";
 import { conSesionTecnico, simularApiCampo } from "./api-campo";
-import { avisoCampo, irAPaso, pestanaCampo } from "./ayudas-campo";
-import { CABLE, ordenesDelDia, PERMISOS_TECNICO } from "./datos-campo";
+import { avisoCampo, elegirMaterial, irAPaso, pestanaCampo } from "./ayudas-campo";
+import { ordenesDelDia, PERMISOS_TECNICO } from "./datos-campo";
 
 /*
  * Diseño «combinada» de la app del técnico (nov 2026), en el teléfono (390 px) claro y oscuro:
@@ -285,12 +285,14 @@ test("pasos: chips, tarjetas de 28 px, − / + en materiales y el aviso desde ar
     const radio = await page.locator('[data-slot="tarjeta"]').first().evaluate((el) => getComputedStyle(el).borderTopLeftRadius);
     expect(radio).toBe("28px");
 
-    await page.getByLabel("Material", { exact: true }).selectOption(String(CABLE));
+    await elegirMaterial(page, "Cable drop 1 hilo");
+    // Al elegir queda en 1; − / + suman o restan desde ahí.
+    await expect(page.getByLabel("Cantidad")).toHaveValue("1");
     await page.getByRole("button", { name: "Agregar uno" }).click();
     await page.getByRole("button", { name: "Agregar uno" }).click();
     await page.getByRole("button", { name: "Agregar uno" }).click();
     await page.getByRole("button", { name: "Quitar uno" }).click();
-    await expect(page.getByLabel("Cantidad")).toHaveValue("2");
+    await expect(page.getByLabel("Cantidad")).toHaveValue("3");
     await page.getByRole("button", { name: "Registrar material" }).click();
     const aviso = notificacion(page);
     await expect(aviso).toContainText("Material registrado");

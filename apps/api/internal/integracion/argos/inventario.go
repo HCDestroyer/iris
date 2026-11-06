@@ -43,16 +43,20 @@ func (e EquipoComodatoArgos) Unidad() int64 {
 	return e.ID
 }
 
-// ExistenciaArgos es la existencia de un producto en una bodega.
+// ExistenciaArgos es la existencia de un producto en una bodega. Argos (ExistenciaInventario) manda
+// producto_nombre, producto_sku y bodega_nombre; descripcion/nombre son de versiones anteriores.
 type ExistenciaArgos struct {
-	ProductoID  int64       `json:"producto_id"`
-	Producto    *Ref        `json:"producto"`
-	Descripcion string      `json:"descripcion"`
-	Nombre      string      `json:"nombre"`
-	Cantidad    json.Number `json:"cantidad"`
-	Unidad      string      `json:"unidad"`
-	BodegaID    int64       `json:"bodega_id"`
-	EmpresaID   int64       `json:"empresa_id"`
+	ProductoID     int64       `json:"producto_id"`
+	Producto       *Ref        `json:"producto"`
+	Descripcion    string      `json:"descripcion"`
+	Nombre         string      `json:"nombre"`
+	ProductoNombre string      `json:"producto_nombre"`
+	ProductoSKU    string      `json:"producto_sku"`
+	BodegaNombre   string      `json:"bodega_nombre"`
+	Cantidad       json.Number `json:"cantidad"`
+	Unidad         string      `json:"unidad"`
+	BodegaID       int64       `json:"bodega_id"`
+	EmpresaID      int64       `json:"empresa_id"`
 	// Modalidad (0.5.0): comodato, consumible_gasto o consumible_cobro; vacía en Argos < 1.6.0.
 	Modalidad string `json:"modalidad"`
 }

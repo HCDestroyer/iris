@@ -73,6 +73,9 @@ type Config struct {
 	Encolar Encolador
 	// Version de Iris para el User-Agent.
 	Version string
+	// PlazoListaTecnicos: tope de una llamada con sinVincular, que puede leer hasta 10 páginas de
+	// Argos (15 s). Al vencer, se entrega lo leído con su nextCursor.
+	PlazoListaTecnicos time.Duration
 }
 
 // Modulo reúne los casos de uso del conector Argos.

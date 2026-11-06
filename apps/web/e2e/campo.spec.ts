@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 import { aceptarUbicacion, conSesionTecnico, declinarUbicacion, simularApiCampo, type ApiCampo } from "./api-campo";
-import { alResumen, avisoCampo, empezarTrabajo, firmarEn, guardarAlSalirDelCampo, irAPaso } from "./ayudas-campo";
+import { alResumen, avisoCampo, elegirMaterial, empezarTrabajo, firmarEn, guardarAlSalirDelCampo, irAPaso } from "./ayudas-campo";
 import { CABLE, TECNICO } from "./datos-campo";
 
 /*
@@ -134,10 +134,10 @@ test("sin conexión: abre desde el service worker, todo queda pendiente y se env
 
     // Material de su bodega y equipo instalado (escrito a mano).
     await page.getByRole("button", { name: "Siguiente: materiales y equipos" }).click();
-    await page.getByLabel("Material", { exact: true }).selectOption(String(CABLE));
+    await elegirMaterial(page, "Cable drop 1 hilo");
     await page.getByLabel("Cantidad").fill("35");
     await page.getByRole("button", { name: "Registrar material" }).click();
-    await expect(page.getByText("Cable drop 1 hilo — quedan 85 m")).toBeAttached();
+    await expect(page.getByRole("list", { name: "Materiales usados" })).toContainText("Cable drop 1 hilo35 m");
     await page.getByLabel("Número de serie").fill("ZTEGC8F1A2B3");
     await page.getByLabel("MAC").fill("a0b1c2d3e4f6");
     await page.getByLabel("Modelo").fill("ZTE F670L");
