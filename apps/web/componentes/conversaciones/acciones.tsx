@@ -29,7 +29,8 @@ import { useForm, type FieldValues, type Path, type UseFormSetError } from "reac
 import { z } from "zod";
 import { api, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
-import { cabeceraIdem, nuevoIdMensaje } from "@/lib/conversaciones/api";
+import { cabeceraIdem } from "@/lib/conversaciones/api";
+import { useIdEnvio } from "@/lib/conversaciones/id-envio";
 import type { Conversacion } from "@/lib/conversaciones/tipos";
 import { erroresACampos } from "@/lib/formularios";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
@@ -500,7 +501,7 @@ function DialogoMencion({ conv, ayuda, cerrar }: { conv: Conversacion; ayuda: bo
         defaultValues: { usuarioId: ayuda && lista.length === 1 ? String(lista[0]?.id) : "", texto: ayuda ? "¿Me ayudas con esta conversación?" : "" },
     });
     useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
-    const [id] = useState(nuevoIdMensaje);
+    const envio = useIdEnvio();
     const [error, setError] = useState<unknown>(null);
     return (
         <DialogoProtegido open onOpenChange={(a) => !a && cerrar()}>
@@ -510,6 +511,7 @@ function DialogoMencion({ conv, ayuda, cerrar }: { conv: Conversacion; ayuda: bo
                     className="grid gap-4"
                     onSubmit={form.handleSubmit(async (d) => {
                         setError(null);
+                        const id = envio.actual();
                         try {
                             await resolver(
                                 api().POST(`${BASE}/notas`, {
@@ -518,9 +520,11 @@ function DialogoMencion({ conv, ayuda, cerrar }: { conv: Conversacion; ayuda: bo
                                 }),
                             );
                             const nombre = lista.find((a) => String(a.id) === d.usuarioId)?.nombre ?? "tu compañero";
+                            envio.renovar();
                             avisar({ titulo: ayuda ? `Pediste ayuda a ${nombre}` : `Mencionaste a ${nombre}` });
                             cerrar();
                         } catch (e) {
+                            envio.trasError(e);
                             if (!erroresACampos(e, ["usuarioId", "texto"], form.setError)) setError(e);
                         }
                     })}

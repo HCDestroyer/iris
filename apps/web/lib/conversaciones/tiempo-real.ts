@@ -62,8 +62,9 @@ export type OpcionesFeed<E extends EventoFeed> = {
     reloj?: Reloj;
 };
 
-type Plazos = { sondeo: number; volverAlFlujo: number; sinLatido: number; esperaMin: number; esperaMax: number };
-const PLAZOS: Plazos = { sondeo: 12_000, volverAlFlujo: 300_000, sinLatido: 60_000, esperaMin: 3_000, esperaMax: 30_000 };
+/** `flujoMinimo`: un flujo que se cierra antes de esto se trata como un corte de red (con espera). */
+type Plazos = { sondeo: number; volverAlFlujo: number; sinLatido: number; esperaMin: number; esperaMax: number; flujoMinimo: number };
+const PLAZOS: Plazos = { sondeo: 12_000, volverAlFlujo: 300_000, sinLatido: 60_000, esperaMin: 3_000, esperaMax: 30_000, flujoMinimo: 5_000 };
 
 export type Reloj = {
     esperar: (ms: number, senal: AbortSignal) => Promise<void>;
@@ -195,9 +196,15 @@ export function iniciarFeed<E extends EventoFeed>(opciones: OpcionesFeed<E>, alL
         opciones.alCursorVencido?.();
     }
 
-    /** Lee el flujo hasta que se corte. Devuelve qué hacer después. */
-    async function flujo(): Promise<"reconectar" | "sondeo" | "vencido" | "red"> {
+    /**
+     * Lee el flujo hasta que se corte. Devuelve qué hacer después: `reconectar` solo si el flujo duró
+     * (el cierre normal es a los 30 min); si se cierra al poco de abrirse (un proxy que corta, un
+     * servidor que cierra al instante), `corto`, que se reintenta con espera para no entrar en bucle.
+     */
+    async function flujo(): Promise<"reconectar" | "corto" | "sondeo" | "vencido" | "red"> {
         await verificar();
+        let inicio: number | undefined;
+        const duro = (): "reconectar" | "corto" => (inicio !== undefined && reloj.ahora() - inicio >= plazos.flujoMinimo ? "reconectar" : "corto");
         const local = new AbortController();
         const cortar = () => local.abort();
         senal.addEventListener("abort", cortar);
@@ -207,6 +214,7 @@ export function iniciarFeed<E extends EventoFeed>(opciones: OpcionesFeed<E>, alL
                 return tratarEstado(respuesta.status);
             }
             cambiar("en_vivo");
+            inicio = reloj.ahora();
             let ultimo = reloj.ahora();
             const lector = crearLectorSSE(() => {
                 ultimo = reloj.ahora();
@@ -239,13 +247,13 @@ export function iniciarFeed<E extends EventoFeed>(opciones: OpcionesFeed<E>, alL
                 lectura.releaseLock();
             }
             // El servidor cierra cada flujo a los 30 min: se reconecta con el último id.
-            return "reconectar";
+            return duro();
         } catch (error) {
             if (error instanceof Detener || senal.aborted) {
                 throw error;
             }
             const e = estadoDe(error);
-            return e === undefined ? (local.signal.aborted ? "reconectar" : "red") : tratarEstado(e);
+            return e === undefined ? (local.signal.aborted ? duro() : "red") : tratarEstado(e);
         } finally {
             senal.removeEventListener("abort", cortar);
         }
@@ -299,7 +307,7 @@ export function iniciarFeed<E extends EventoFeed>(opciones: OpcionesFeed<E>, alL
                     listo = true;
                     alListo?.();
                 }
-                let siguiente: "reconectar" | "sondeo" | "vencido" | "red" | "flujo" = await flujo();
+                let siguiente: "reconectar" | "corto" | "sondeo" | "vencido" | "red" | "flujo" = await flujo();
                 if (siguiente === "sondeo") {
                     siguiente = await sondear();
                 }
@@ -313,7 +321,14 @@ export function iniciarFeed<E extends EventoFeed>(opciones: OpcionesFeed<E>, alL
                     espera = Math.min(espera * 2, plazos.esperaMax);
                     continue;
                 }
-                espera = plazos.esperaMin;
+                if (siguiente === "corto") {
+                    // Como un corte de red, pero sin «sin conexión»: lo recibido sigue al día.
+                    await reloj.esperar(espera, senal);
+                    espera = Math.min(espera * 2, plazos.esperaMax);
+                    continue;
+                }
+                // Solo un flujo largo devuelve la espera al mínimo.
+                if (siguiente === "reconectar") espera = plazos.esperaMin;
             } catch (error) {
                 if (error instanceof Detener || senal.aborted) {
                     return;
