@@ -197,6 +197,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
 
         const cons = /^\/api\/v1\/mensajeria\/contactos-iris\/(\d+)\/consentimiento$/.exec(ruta);
         if (cons && metodo === "POST") {
+            enviados.push({ ruta, cuerpo, idempotencia });
             if (cuerpo.estado === "acepta" && !puede("conversaciones.supervisar")) return (await problema(route, P("permiso_denegado", 403, "Sin permiso")), true);
             const motivo = typeof cuerpo.motivo === "string" ? cuerpo.motivo : "";
             // El contacto 77 se dio de baja él mismo: volver a permitirlo exige motivo.

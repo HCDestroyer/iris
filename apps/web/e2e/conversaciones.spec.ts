@@ -256,7 +256,7 @@ test.describe("bandeja de conversaciones", () => {
     });
 
     test("contacto de Iris: permitir contacto pide el motivo si la baja la pidió el cliente", async ({ page }, info) => {
-        await abrir(page, ADMIN.correo, "/conversaciones?c=43");
+        const api = await abrir(page, ADMIN.correo, "/conversaciones?c=43");
         if (esTelefono(page)) await page.getByRole("button", { name: "Ver la ficha del cliente" }).click();
         const ficha = esTelefono(page) ? page.getByRole("dialog", { name: "Ficha del cliente" }) : page.getByRole("complementary", { name: "Ficha del cliente" });
         await ficha.getByRole("button", { name: "Guardar como contacto de Iris" }).click();
@@ -276,6 +276,11 @@ test.describe("bandeja de conversaciones", () => {
         await dialogo.getByRole("textbox", { name: "Motivo" }).fill("Llamó para volver a recibir avisos");
         await dialogo.getByRole("button", { name: "Permitir" }).click();
         await expect(page.getByText("Ferretería El Sol: contacto por WhatsApp permitido")).toBeVisible();
+        // El 422 queda guardado con su clave: el reenvío con motivo lleva otra.
+        const intentos = api.conversaciones.enviados.filter((e) => e.ruta.endsWith("/consentimiento"));
+        expect(intentos).toHaveLength(2);
+        expect(intentos[0]?.idempotencia).toBeTruthy();
+        expect(intentos[1]?.idempotencia).not.toBe(intentos[0]?.idempotencia);
     });
 
     test("sin conversaciones.supervisar no se puede permitir el contacto, solo dar de baja", async ({ page }) => {
