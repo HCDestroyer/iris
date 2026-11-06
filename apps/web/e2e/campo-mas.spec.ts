@@ -29,6 +29,28 @@ async function captura(page: Page, que: string, proyecto: string) {
     });
 }
 
+/** Día de hoy en Guatemala (`AAAA-MM-DD`). */
+function hoyGuatemala(): string {
+    return new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Guatemala",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    }).format(Date.now());
+}
+
+/** Las órdenes de prueba con su hora en el día de Guatemala (no el UTC). */
+function ordenesDeHoyGuatemala() {
+    const hoy = hoyGuatemala();
+    const enGuatemala = (iso: string | null | undefined) =>
+        iso ? `${hoy}T${iso.slice(11)}` : iso;
+    return ordenesDelDia().map((o) => ({
+        ...o,
+        programadaInicio: enGuatemala(o.programadaInicio) ?? null,
+        programadaFin: enGuatemala(o.programadaFin) ?? null,
+    }));
+}
+
 function libres(): Schema<"OrdenLibre">[] {
     const [base] = ordenesDelDia();
     if (!base) {
@@ -100,7 +122,12 @@ test("Nueva tarea sin señal: aparece en Hoy con borde punteado, se envía al vo
     page,
     context,
 }, info) => {
-    const api = await simularApiCampo(page, { permisos: PERMISOS_TECNICO });
+    // Las órdenes de prueba van por día UTC: aquí, por día de Guatemala (08:30, 11:00 y 13:00),
+    // para que la tarea de las 12:00 caiga entre las dos de «Después».
+    const api = await simularApiCampo(page, {
+        permisos: PERMISOS_TECNICO,
+        ordenes: ordenesDeHoyGuatemala(),
+    });
     await page.goto("/campo");
     await expect(
         page.getByRole("heading", { level: 1, name: "Hola, Tomás" }),
@@ -120,7 +147,17 @@ test("Nueva tarea sin señal: aparece en Hoy con borde punteado, se envía al vo
     await page
         .getByLabel("Qué vas a hacer")
         .fill("Recoger material en bodega central");
-    await page.getByLabel("Hora").fill("23:30");
+    // Hora de 24 h en segmentos (es-GT): hora y minuto.
+    const hora = page.locator('[data-slot="selector-hora"]');
+    await expect(hora).toContainText(/^Hora/);
+    await hora.getByRole("spinbutton").first().click();
+    await page.keyboard.type("1200");
+    await expect(
+        page
+            .locator('[data-slot="selector-fecha"]')
+            .getByRole("spinbutton")
+            .first(),
+    ).toBeVisible();
     await page.getByRole("radio", { name: "30 min" }).click();
     await expect(page.getByRole("radio", { name: "30 min" })).toHaveAttribute(
         "aria-checked",
@@ -136,6 +173,11 @@ test("Nueva tarea sin señal: aparece en Hoy con borde punteado, se envía al vo
     const tarjeta = page.locator('[data-slot="tarea-propia"]');
     await expect(tarjeta).toContainText("Recoger material en bodega central");
     await expect(tarjeta).toContainText("Tarea propia · 30 min");
+    await expect(tarjeta).toContainText("12:00");
+    // Intercalada estrictamente por hora: 11:00 · tarea 12:00 · 13:00.
+    await expect(
+        page.locator('ol[aria-labelledby="titulo-despues"] > li'),
+    ).toHaveText([/11:00/, /12:00.*Recoger material/, /13:00/]);
     // La tarjeta a media pantalla (encima de la isla) para la captura.
     await tarjeta.evaluate((el) => el.scrollIntoView({ block: "center" }));
     await captura(page, "3-hoy-con-tarea", info.project.name);
@@ -199,7 +241,7 @@ test("Órdenes libres: tomarla con confirmación y aviso; si otro la tomó, se d
     await captura(page, "4-ordenes-libres", info.project.name);
 
     await filas.first().getByRole("button", { name: "Tomarla" }).click();
-    const confirmar = page.getByRole("alertdialog", {
+    const confirmar = page.getByRole("dialog", {
         name: "¿Tomar OT-000120?",
     });
     await expect(confirmar).toContainText(
@@ -214,7 +256,7 @@ test("Órdenes libres: tomarla con confirmación y aviso; si otro la tomó, se d
     // Otro técnico tomó OT-000118 primero: 409 con su nombre.
     await filas.first().getByRole("button", { name: "Tomarla" }).click();
     await page
-        .getByRole("alertdialog", { name: "¿Tomar OT-000118?" })
+        .getByRole("dialog", { name: "¿Tomar OT-000118?" })
         .getByRole("button", { name: "Tomarla" })
         .click();
     await expect(page.locator('[data-slot="ya-tomada"]')).toHaveText(

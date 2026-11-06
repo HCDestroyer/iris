@@ -4,6 +4,7 @@
 // «Órdenes libres» con confirmación, aviso emergente y el aviso si otro la tomó primero. Motor real
 // sobre memoria, claro y oscuro.
 import type { OrdenLibre } from "@iris/sync";
+import { hoyEnGuatemala } from "@iris/sync/campo";
 import { montar, ordenDePrueba, paqueteDePrueba } from "@iris/sync/pruebas";
 import {
     fireEvent,
@@ -151,6 +152,47 @@ describe.each(["light", "dark"] as const)("«+» (%s)", (esquema) => {
                 "Hecha · 30 min",
             ),
         ).toBeTruthy();
+    });
+
+    it("en Hoy la tarea va intercalada estrictamente por hora entre las citas de «Después»", async () => {
+        const m = await montar({}, false);
+        const hoy = hoyEnGuatemala();
+        // 08:30, 11:00 y 13:00 de Guatemala (UTC−6); la tarea, a las 12:00.
+        const a = (hora: string) => `${hoy}T${hora}:00-06:00`;
+        m.transporte.paquete = (fecha) => ({
+            ...paqueteDePrueba(fecha),
+            ruta: undefined as never,
+            ordenes: [
+                ordenDePrueba(1, {
+                    estado: "programada",
+                    programadaInicio: new Date(a("08:30")).toISOString(),
+                    contacto: { nombre: "María Castillo", telefono: null },
+                }),
+                ordenDePrueba(3, {
+                    estado: "programada",
+                    programadaInicio: new Date(a("13:00")).toISOString(),
+                    contacto: { nombre: "Ana Pérez", telefono: null },
+                }),
+                ordenDePrueba(2, {
+                    estado: "programada",
+                    programadaInicio: new Date(a("11:00")).toISOString(),
+                    contacto: { nombre: "Jorge Méndez", telefono: null },
+                }),
+            ],
+            tareas: [],
+        });
+        await m.motor.cargarPaquete(paqueteDePrueba().fecha);
+        await m.motor.registrarTarea("tarea.crear", {
+            que: "Recoger material",
+            inicio: new Date(a("12:00")).toISOString(),
+            duracionMin: 30,
+        });
+        await abrirCampo(m, { esquema });
+        const despues = await screen.findByLabelText("Después");
+        const horas = within(despues)
+            .getAllByText(/^\d{2}:\d{2}$/)
+            .map((t) => t.props.children as string);
+        expect(horas).toEqual(["11:00", "12:00", "13:00"]);
     });
 
     it("Órdenes libres: tomarla con confirmación y aviso; si otro la tomó, se dice quién y sale", async () => {

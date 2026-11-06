@@ -12,7 +12,8 @@ import {
     Aviso,
     Boton,
     Cargando,
-    DialogoConfirmar,
+    Dialogo,
+    DialogoContenido,
     EstadoVacio,
 } from "@iris/ui";
 import {
@@ -26,6 +27,7 @@ import {
 import { useEffect, useState } from "react";
 import { useCampo } from "./contexto";
 import { useLibres } from "./libres-datos";
+import { BOTON_TINTA } from "./tareas";
 
 function nombreDe(o: OrdenLibre): string {
     return o.clienteNombre ?? o.contacto.nombre ?? o.direccion ?? o.numero;
@@ -39,6 +41,7 @@ export function OrdenesLibresPantalla() {
     const { estado, navegar, notificar, motor } = useCampo();
     const { api, libres, cargarLibres, quitar } = useLibres();
     const [confirmar, setConfirmar] = useState<OrdenLibre | null>(null);
+    const [ocupado, setOcupado] = useState(false);
     const [yaTomada, setYaTomada] = useState<string | null>(null);
     const sinSenal = estado.conexion === "sin_conexion";
     useEffect(() => {
@@ -48,6 +51,7 @@ export function OrdenesLibresPantalla() {
     }, [sinSenal, cargarLibres]);
 
     const tomar = async (o: OrdenLibre) => {
+        setOcupado(true);
         try {
             await api.tomar(o.id);
             quitar(o.id);
@@ -67,6 +71,15 @@ export function OrdenesLibresPantalla() {
                 );
                 return;
             }
+            if (e instanceof ErrorTransporte && e.problema?.status === 404) {
+                // Ya no está libre (otro estado o fuera de tu zona): sale de la lista.
+                quitar(o.id);
+                notificar({
+                    tono: "warning",
+                    texto: `${o.numero} ya no está libre.`,
+                });
+                return;
+            }
             notificar({
                 tono: "error",
                 texto:
@@ -74,6 +87,8 @@ export function OrdenesLibresPantalla() {
                         ? "Sin señal: tomar una orden necesita conexión."
                         : "No se pudo tomar la orden. Inténtalo de nuevo.",
             });
+        } finally {
+            setOcupado(false);
         }
     };
 
@@ -197,19 +212,49 @@ export function OrdenesLibresPantalla() {
                     })}
                 </ul>
             )}
-            <DialogoConfirmar
+            {/* Confirmación corta: tarjeta centrada con «X» y [Cancelar | Tomarla] del mismo tamaño. */}
+            <Dialogo
                 open={confirmar !== null}
-                onOpenChange={(a) => (a ? undefined : setConfirmar(null))}
-                titulo={confirmar ? `¿Tomar ${confirmar.numero}?` : ""}
-                descripcion={
-                    confirmar
-                        ? `${nombreDe(confirmar)} · ${TIPOS_ORDEN[confirmar.tipo]} · ${cuandoLibre(confirmar).toLowerCase()}. Queda a tu nombre y despacho recibe el aviso.`
-                        : undefined
+                onOpenChange={(a) =>
+                    a || ocupado ? undefined : setConfirmar(null)
                 }
-                textoConfirmar="Tomarla"
-                textoOcupado="Tomando…"
-                alConfirmar={() => (confirmar ? tomar(confirmar) : undefined)}
-            />
+            >
+                <DialogoContenido
+                    centrado
+                    className="campo-hoja"
+                    titulo={confirmar ? `¿Tomar ${confirmar.numero}?` : ""}
+                    descripcion={
+                        confirmar
+                            ? `${nombreDe(confirmar)} · ${TIPOS_ORDEN[confirmar.tipo]} · ${cuandoLibre(confirmar).toLowerCase()}. Queda a tu nombre y despacho recibe el aviso.`
+                            : undefined
+                    }
+                >
+                    <div
+                        className="grid grid-cols-2 gap-3"
+                        data-slot="confirmar-tomar"
+                    >
+                        <Boton
+                            variante="secundario"
+                            tamano="lg"
+                            className="h-[3.25rem] w-full rounded-full"
+                            disabled={ocupado}
+                            onClick={() => setConfirmar(null)}
+                        >
+                            Cancelar
+                        </Boton>
+                        <Boton
+                            tamano="lg"
+                            className={BOTON_TINTA}
+                            disabled={ocupado}
+                            onClick={() =>
+                                confirmar ? void tomar(confirmar) : undefined
+                            }
+                        >
+                            {ocupado ? "Tomando…" : "Tomarla"}
+                        </Boton>
+                    </div>
+                </DialogoContenido>
+            </Dialogo>
         </section>
     );
 }

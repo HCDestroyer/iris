@@ -8,12 +8,21 @@ import {
     detalleTarea,
     esquemaTarea,
     horaTarea,
+    hoyEnGuatemala,
     nombreCliente,
     textoCuando,
     valoresInicialesTarea,
     type ValoresTarea,
 } from "@iris/sync/campo";
-import { Boton, Campo, CampoSelector, DialogoConfirmar, cn } from "@iris/ui";
+import {
+    Boton,
+    Campo,
+    CampoSelector,
+    DialogoConfirmar,
+    SelectorFecha,
+    SelectorHora,
+    cn,
+} from "@iris/ui";
 import { ArrowLeft, Ban, Check, SquareCheck } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
@@ -85,17 +94,31 @@ export function NuevaTarea() {
                         {...form.register("que")}
                     />
                     <div className="grid grid-cols-2 gap-3">
-                        <Campo
-                            etiqueta="Día"
-                            type="date"
-                            error={errores.dia?.message}
-                            {...form.register("dia")}
+                        {/* Día y hora de Guatemala (es-GT, 24 h): el input nativo sigue el idioma del navegador. */}
+                        <Controller
+                            control={form.control}
+                            name="dia"
+                            render={({ field }) => (
+                                <SelectorFecha
+                                    etiqueta="Día"
+                                    min={hoyEnGuatemala()}
+                                    valor={field.value || null}
+                                    alCambiar={(v) => field.onChange(v ?? "")}
+                                    error={errores.dia?.message}
+                                />
+                            )}
                         />
-                        <Campo
-                            etiqueta="Hora"
-                            type="time"
-                            error={errores.hora?.message}
-                            {...form.register("hora")}
+                        <Controller
+                            control={form.control}
+                            name="hora"
+                            render={({ field }) => (
+                                <SelectorHora
+                                    etiqueta="Hora"
+                                    valor={field.value || null}
+                                    alCambiar={(v) => field.onChange(v ?? "")}
+                                    error={errores.hora?.message}
+                                />
+                            )}
                         />
                     </div>
                     <Controller
