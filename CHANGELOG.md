@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.17.0](https://github.com/HCDestroyer/iris/compare/v0.16.0...v0.17.0) (2026-11-06)
+
+
+### Funcionalidades
+
+* **mensajeria:** horarios, fuera de horario y biblioteca de manuales ([#127](https://github.com/HCDestroyer/iris/issues/127)) ([000a2f1](https://github.com/HCDestroyer/iris/commit/000a2f1559ccfd062ddf1f10d243814db96905ed))
+* **mensajeria:** varios números por empresa, conversaciones con clientes, colas y asignación ([#126](https://github.com/HCDestroyer/iris/issues/126)) ([427b177](https://github.com/HCDestroyer/iris/commit/427b1774dc08538768769252b0feca6e1d277c65))
+* **movil, sync:** chat del equipo en tiempo real en la app ([#132](https://github.com/HCDestroyer/iris/issues/132)) ([711aa05](https://github.com/HCDestroyer/iris/commit/711aa05afc39cf17c05ca6ab4b4b3c07d8c6c994))
+* **movil:** notificaciones push en la app con preferencias y no molestar ([#136](https://github.com/HCDestroyer/iris/issues/136)) ([23a55a1](https://github.com/HCDestroyer/iris/commit/23a55a18b1c6d87d9e31b28fc0277a2d1dc7f23e))
+* **notificaciones:** push a la app por FCM con preferencias y no molestar ([#134](https://github.com/HCDestroyer/iris/issues/134)) ([0bc7fd4](https://github.com/HCDestroyer/iris/commit/0bc7fd40911df9eb6034d32d8e27bfa2652d274f))
+* **panel:** bandeja 1.1 — supervisores, nueva conversación, pasar, disponibilidad y bot ([#135](https://github.com/HCDestroyer/iris/issues/135)) ([8991bef](https://github.com/HCDestroyer/iris/commit/8991befdec333f22322fb7dacddf6698c4f1bd60))
+* **panel:** bandeja de conversaciones con clientes ([#128](https://github.com/HCDestroyer/iris/issues/128)) ([905c9b4](https://github.com/HCDestroyer/iris/commit/905c9b4b1be06440fd5c7501e757c6f44840dfb9))
+* **panel:** números de WhatsApp, horarios y biblioteca de manuales ([#129](https://github.com/HCDestroyer/iris/issues/129)) ([af6626b](https://github.com/HCDestroyer/iris/commit/af6626b7b6342bdf0ec66029d31cf19e7ae512c2))
+
+
+### Correcciones
+
+* **sync, movil, campo:** nota sin versión, teclado en Android, campos con icono y login opción B (0.17.0) ([#131](https://github.com/HCDestroyer/iris/issues/131)) ([31f4e1c](https://github.com/HCDestroyer/iris/commit/31f4e1cc3777c88944184cf75e4623dcb19f4453))
+
 ## [0.16.0](https://github.com/HCDestroyer/iris/compare/v0.15.0...v0.16.0) (2026-11-06)
 
 
