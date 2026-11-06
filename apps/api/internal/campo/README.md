@@ -187,6 +187,23 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   - `orden.pausar`, `orden.reanudar`, `orden.agregar_formulario` (id del formulario = id de la
     operación; con la versión que vio el teléfono → `aviso: version_anterior`) y
     `orden.quitar_formulario`; sus conflictos, en `contratos/sync.md` §3.
+  - `tarea.crear`, `tarea.completar` y `tarea.anular` (tareas propias de agenda, sin orden: se
+    agrupan por tarea; `tareas.go`). El paquete y los cambios traen `tareas` y `tomarLibres`.
+
+## Órdenes libres y ajustes de la app (`libres.go`, `campo.ajustes`)
+
+- `GET/POST /campo/ajustes` (`campo.configurar`, admin, sin límite de zona): ajustes de la app por
+  empresa, con el patrón de los umbrales de factibilidad (una fila por empresa, `version`).
+  `tecnicosTomanLibres` (apagado por defecto). Emite `campo.ajustes_cambiados`.
+- `GET /campo/ordenes-libres` (`ordenes.tomar`, técnico): pendientes y sin técnico de su cuadrilla o
+  de las zonas que atiende (ficha de agenda; más el alcance del permiso si lo tiene limitado), por
+  distancia en línea recta a su última posición (`campo.posiciones_ultimas`) o por fecha; cursor y
+  `total` (contador de la hoja del «+»). Ajuste apagado: 403 `libres_apagado`.
+- `POST /ordenes/{id}/tomar` (`ordenes.tomar`): reutiliza `asignar` (la lógica de
+  `ordenes.asignar`) con el técnico = el actor y la bodega de su ficha, bajo el candado de la orden.
+  Si ya tiene técnico: 409 `orden_ya_tomada` con `tomadaPor { id, nombre }` (problem+json). Ya suya:
+  200 sin cambios. Fuera de sus zonas: 404. Requiere conexión (no va por el lote). Emite
+  `orden.asignada` con `origen = tomar` y `motivo = tomada`.
 
 ## Ubicación en vivo (`campo.posiciones`)
 
@@ -234,7 +251,8 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
 
 ## Eventos
 
-- **Emite** (detalle en `contratos/eventos.md`): `orden.creada` (con `origen`), `orden.asignada`,
+- **Emite** (detalle en `contratos/eventos.md`): `orden.creada` (con `origen`), `orden.asignada`
+  (con `origen`: `asignar`, `tomar`, `programar`, `reprogramar`, `crear`), `campo.ajustes_cambiados`,
   `orden.estado_cambiada`, `orden.pausada`, `orden.reanudada`, `orden.formulario_agregado`,
   `orden.formulario_quitado`, `orden.cerrada` (con `cargo`), y `plantilla.creada`,
   `plantilla.actualizada`, `plantilla.activada`, `plantilla.desactivada`. `orden.programada` lo

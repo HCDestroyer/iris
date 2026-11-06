@@ -101,6 +101,25 @@ OSRM, publicación y ruta propuesta frente a la real). Schema `agenda`.
 - **App de campo:** `RutaPublicadaDelTecnico` (campo arma `ruta` del paquete y de los cambios) y
   `TurnoDelDia` (turno del día sin ausencias: `turno` del paquete).
 
+## Tareas propias del técnico (`agenda.tareas`)
+
+Algo del técnico con hora y duración que no es una orden (recoger material, revisar una caja…),
+ligado o no a una orden que ve o a un cliente de la instantánea de Argos. Id = uuid v7 del cliente
+(en la app, el de la operación `tarea.crear` del lote), `version` y borrado lógico (anular).
+
+- `POST /agenda/tareas` (`agenda.crear_tarea`: técnico, supervisor, despacho y admin): para uno
+  mismo o, con `tecnicoId`, para un técnico cuya cuadrilla cubre `agenda.ver`. Idempotente por `id`
+  (reintento → la misma tarea con `duplicada`; id de otra → 409 `tarea_ajena`). Si choca con una cita
+  viva del técnico no se bloquea: `solapaCon[]`.
+- `POST /agenda/tareas/{id}/completar` y `/anular` (`agenda.completar_tarea`, `agenda.anular_tarea`):
+  el dueño o quien lo supervisa (`agenda.ver` y el permiso sobre su cuadrilla); si no la ve, 404.
+  Ya hecha / ya anulada → sin cambios con `aviso`; anular una hecha o completar una anulada → 409.
+- `GET /agenda/tareas?desde=&hasta=&tecnicoId=&incluirAnuladas=` (`agenda.ver`, hasta 31 días,
+  cursor): las del calendario de despacho según el alcance, con el nombre del técnico.
+- App de campo: `TareasDelTecnico` (paquete y cambios); el lote llama a `CrearTareaEnTx`,
+  `CompletarTareaEnTx` y `AnularTareaEnTx` dentro de su transacción (idempotencia por operación).
+  La orden ligada la valida campo (`UsarOrdenes`: las reglas de visibilidad de `GET /ordenes/{id}`).
+
 ## Para soporte y campo
 
 `ValidarZona` (zona indicada por una persona: existe, activa, de la empresa; 422 en el campo),
@@ -117,7 +136,7 @@ por SQL, `UPDATE agenda.zonas SET empresa_id = …, activa = true`— o la reemp
 - **Emite:** `orden.programada` (en la transacción de la acción de campo), `zona.creada`,
   `zona.actualizada`, `cuadrilla.creada`, `cuadrilla.actualizada`, `tecnico.creado`,
   `tecnico.actualizado`, `tecnico.ausencia_registrada`, `tecnico.ausencia_anulada`, `ruta.propuesta`,
-  `ruta.publicada`, `ruta.desactualizada`
+  `ruta.publicada`, `ruta.desactualizada`, `tarea.creada`, `tarea.completada`, `tarea.anulada`
   (`.claude/integration/contratos/eventos.md`).
 - **Consume:** nada (el espejo de zonas lee la instantánea que refresca el conector de Argos).
 

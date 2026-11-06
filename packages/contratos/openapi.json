@@ -603,6 +603,38 @@
         ],
         "type": "object"
       },
+      "AjustesCampo": {
+        "additionalProperties": false,
+        "properties": {
+          "empresaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "porDefecto": {
+            "description": "La empresa no los ha fijado: son los de Iris (todo apagado)",
+            "type": "boolean"
+          },
+          "tecnicosTomanLibres": {
+            "description": "Los técnicos pueden tomar órdenes libres (sin técnico) de su cuadrilla o de las zonas que atiende",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "Versión de los de la empresa (0 si son los por defecto)",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "empresaId",
+          "tecnicosTomanLibres",
+          "porDefecto",
+          "version"
+        ],
+        "type": "object"
+      },
       "Alta": {
         "additionalProperties": false,
         "properties": {
@@ -1384,6 +1416,20 @@
           "ruta": {
             "$ref": "#/components/schemas/RutaCampo",
             "description": "Ruta publicada de hoy (America/Guatemala) tal como está ahora; ausente si no hay. Reemplaza la del paquete si es del mismo día"
+          },
+          "tareas": {
+            "description": "Tus tareas propias (no anuladas) de hoy a 7 días, y las pendientes atrasadas, como están ahora: reemplazan las del paquete",
+            "items": {
+              "$ref": "#/components/schemas/Tarea"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "tomarLibres": {
+            "description": "Como en el paquete, ahora",
+            "type": "boolean"
           }
         },
         "required": [
@@ -4013,6 +4059,25 @@
         ],
         "type": "object"
       },
+      "EntradaAnularTarea": {
+        "additionalProperties": false,
+        "properties": {
+          "motivo": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "version": {
+            "description": "Versión leída; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
       "EntradaAplicarDatosArgos": {
         "additionalProperties": false,
         "properties": {
@@ -4511,6 +4576,21 @@
         },
         "required": [
           "state"
+        ],
+        "type": "object"
+      },
+      "EntradaCompletarTarea": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "description": "Versión leída; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
         ],
         "type": "object"
       },
@@ -5208,6 +5288,59 @@
           "codigo",
           "nombre",
           "permisos"
+        ],
+        "type": "object"
+      },
+      "EntradaCrearTarea": {
+        "additionalProperties": false,
+        "properties": {
+          "clienteId": {
+            "description": "Cliente de Argos ligado (de la instantánea de la empresa); con ordenId, debe ser el de la orden",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "duracionMin": {
+            "description": "Minutos (la app ofrece 15, 30, 60 y 120)",
+            "format": "int32",
+            "maximum": 480,
+            "minimum": 5,
+            "type": "integer"
+          },
+          "id": {
+            "description": "UUID (v7) generado en el cliente; la creación es idempotente por él",
+            "format": "uuid",
+            "type": "string"
+          },
+          "inicio": {
+            "description": "Cuándo (UTC); hasta 7 días atrás y 366 adelante",
+            "format": "date-time",
+            "type": "string"
+          },
+          "ordenId": {
+            "description": "Orden ligada (debes verla)",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "que": {
+            "description": "Qué vas a hacer",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "tecnicoId": {
+            "description": "Usuario técnico; ausente = tú. Para otro hace falta agenda.ver con alcance sobre su cuadrilla",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "que",
+          "inicio",
+          "duracionMin"
         ],
         "type": "object"
       },
@@ -6231,6 +6364,25 @@
         "required": [
           "version",
           "motivoFalla"
+        ],
+        "type": "object"
+      },
+      "EntradaFijarAjustes": {
+        "additionalProperties": false,
+        "properties": {
+          "tecnicosTomanLibres": {
+            "type": "boolean"
+          },
+          "version": {
+            "description": "Versión leída (0 si eran los por defecto); si cambió, 409",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "tecnicosTomanLibres"
         ],
         "type": "object"
       },
@@ -10088,7 +10240,7 @@
             "type": "string"
           },
           "ordenId": {
-            "description": "Obligatorio salvo en traslado.recibir (no es de una orden)",
+            "description": "Obligatorio salvo en traslado.recibir y tarea.* (no son de una orden)",
             "format": "int64",
             "minimum": 1,
             "type": "integer"
@@ -10110,7 +10262,10 @@
               "orden.reanudar",
               "orden.agregar_formulario",
               "orden.quitar_formulario",
-              "traslado.recibir"
+              "traslado.recibir",
+              "tarea.crear",
+              "tarea.completar",
+              "tarea.anular"
             ],
             "type": "string"
           },
@@ -11226,6 +11381,379 @@
         ],
         "type": "object"
       },
+      "OrdenLibre": {
+        "additionalProperties": false,
+        "properties": {
+          "actualizadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "asignadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "aviso": {
+            "description": "La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial), existencia_insuficiente (más material que la existencia de la bodega según Argos), version_anterior (formulario agregado con la versión que veía el teléfono, que ya no es la actual) o pausa_ajustada (el inicio de la pausa caía antes del fin de la anterior; se ajustó)",
+            "enum": [
+              "checklist_no_vigente",
+              "existencia_insuficiente",
+              "version_anterior",
+              "pausa_ajustada"
+            ],
+            "type": "string"
+          },
+          "bodegaId": {
+            "description": "Bodega del técnico en Argos (materiales y devoluciones)",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "clienteId": {
+            "description": "Cliente en Argos",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "clienteNombre": {
+            "description": "De la instantánea de Argos (null si Iris no la tiene)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contacto": {
+            "$ref": "#/components/schemas/ContactoOrden"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "cuadrillaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "datosArgosCambiados": {
+            "$ref": "#/components/schemas/DatosArgosCambiados",
+            "description": "«Dato de Argos cambió»: Argos avisó un cambio en la dirección, coordenadas, referencia o contacto del servicio o del cliente después de copiarlos. La orden conserva lo suyo; despacho lo revisa y aplica. Ausente si no hubo cambios"
+          },
+          "descripcion": {
+            "type": "string"
+          },
+          "direccion": {
+            "type": "string"
+          },
+          "distanciaM": {
+            "description": "Metros en línea recta desde tu última posición conocida (null sin posición o sin coordenadas)",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "empresaId": {
+            "description": "Empresa en Argos; null sin conector",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "enCaminoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enSitioEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "pendiente",
+              "programada",
+              "en_camino",
+              "en_sitio",
+              "pausada",
+              "cerrada",
+              "fallida",
+              "cancelada"
+            ],
+            "type": "string"
+          },
+          "finalizadaEn": {
+            "description": "Cierre, falla o cancelación",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "lat": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lon": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "motivo": {
+            "description": "Detalle de la falla, la cancelación o la reapertura",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "motivoFalla": {
+            "description": "Código de la falla (fallida)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "numero": {
+            "description": "Número legible (OT-000123)",
+            "type": "string"
+          },
+          "origen": {
+            "description": "De dónde vino: panel, api, argos (retiro automático por servicio retirado) o sistema",
+            "enum": [
+              "panel",
+              "api",
+              "argos",
+              "sistema"
+            ],
+            "type": "string"
+          },
+          "pausadaDesde": {
+            "description": "Solo pausada: el estado al que vuelve al reanudar",
+            "enum": [
+              "en_camino",
+              "en_sitio"
+            ],
+            "type": "string"
+          },
+          "pausadaEn": {
+            "description": "Solo pausada: inicio de la pausa en curso",
+            "format": "date-time",
+            "type": "string"
+          },
+          "plantillaId": {
+            "description": "Plantilla de checklist",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "programadaFin": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "programadaInicio": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "prospectoId": {
+            "description": "Prospecto de origen (fase 4)",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "referencia": {
+            "description": "Cómo llegar, copiada de Argos (servicio o cliente) al crear la orden o al aplicar sus datos nuevos; ausente si no hay",
+            "type": "string"
+          },
+          "resultado": {
+            "enum": [
+              "exitosa",
+              "parcial",
+              "fallida",
+              "cancelada"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "servicioId": {
+            "description": "Servicio en Argos",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tecnicoId": {
+            "description": "Usuario técnico asignado",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ticketId": {
+            "description": "Ticket de origen",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tiempoPausadoSeg": {
+            "description": "Segundos pausados en las pausas ya terminadas (la en curso se cuenta desde pausadaEn)",
+            "format": "int64",
+            "type": "integer"
+          },
+          "tipo": {
+            "enum": [
+              "instalacion",
+              "visita",
+              "retiro",
+              "cambio_equipo",
+              "mantenimiento"
+            ],
+            "type": "string"
+          },
+          "tipoId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "zonaId": {
+            "description": "Zona (Argos); define el alcance",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "clienteNombre",
+          "distanciaM",
+          "id",
+          "numero",
+          "empresaId",
+          "tipo",
+          "tipoId",
+          "plantillaId",
+          "ticketId",
+          "prospectoId",
+          "clienteId",
+          "servicioId",
+          "zonaId",
+          "cuadrillaId",
+          "bodegaId",
+          "direccion",
+          "lat",
+          "lon",
+          "contacto",
+          "descripcion",
+          "tecnicoId",
+          "asignadaEn",
+          "estado",
+          "programadaInicio",
+          "programadaFin",
+          "enCaminoEn",
+          "enSitioEn",
+          "finalizadaEn",
+          "resultado",
+          "motivoFalla",
+          "motivo",
+          "version",
+          "creadoEn",
+          "actualizadoEn"
+        ],
+        "type": "object"
+      },
+      "OrdenesLibres": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/OrdenLibre"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "description": "Cursor de la página siguiente; null si no hay más",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "orden": {
+            "description": "distancia: desde tu última posición conocida (las sin coordenadas al final, por fecha); fecha: sin posición conocida, por fecha programada y antigüedad",
+            "enum": [
+              "distancia",
+              "fecha"
+            ],
+            "type": "string"
+          },
+          "total": {
+            "description": "Cuántas hay en total (hasta 1000), para el contador de la hoja del «+»",
+            "format": "int64",
+            "type": "integer"
+          },
+          "zonas": {
+            "description": "Zonas que atiende tu cuadrilla (de donde salen)",
+            "items": {
+              "$ref": "#/components/schemas/ZonaLibre"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "total",
+          "orden",
+          "zonas"
+        ],
+        "type": "object"
+      },
       "PaginaAcceso": {
         "additionalProperties": false,
         "properties": {
@@ -11928,6 +12456,32 @@
         ],
         "type": "object"
       },
+      "PaginaTareaAgenda": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/TareaAgenda"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "description": "Cursor de la página siguiente; null si no hay más",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
       "PaginaTecnico": {
         "additionalProperties": false,
         "properties": {
@@ -12228,6 +12782,20 @@
             "description": "Hora del servidor al armar el paquete",
             "format": "date-time",
             "type": "string"
+          },
+          "tareas": {
+            "description": "Tus tareas propias (no anuladas) de hoy hasta el día del paquete, y las pendientes atrasadas, por inicio",
+            "items": {
+              "$ref": "#/components/schemas/Tarea"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "tomarLibres": {
+            "description": "La empresa permite tomar órdenes libres y tienes ordenes.tomar (GET /campo/ordenes-libres)",
+            "type": "boolean"
           },
           "turno": {
             "$ref": "#/components/schemas/TurnoCampo",
@@ -12872,7 +13440,10 @@
           "agenda.activar_tecnico",
           "agenda.activar_zona",
           "agenda.anular_ausencia",
+          "agenda.anular_tarea",
+          "agenda.completar_tarea",
           "agenda.crear_cuadrilla",
+          "agenda.crear_tarea",
           "agenda.crear_tecnico",
           "agenda.crear_zona",
           "agenda.desactivar_cuadrilla",
@@ -12892,6 +13463,7 @@
           "buzones.desactivar",
           "buzones.editar",
           "buzones.ver",
+          "campo.configurar",
           "campo.recibir_traslado",
           "campo.registrar_posiciones",
           "campo.sincronizar",
@@ -12945,6 +13517,7 @@
           "ordenes.reanudar",
           "ordenes.registrar",
           "ordenes.reprogramar",
+          "ordenes.tomar",
           "ordenes.ver",
           "ordenes.ver_propias",
           "permisos.ver",
@@ -13032,6 +13605,23 @@
           "modulo",
           "moduloNombre",
           "sensible"
+        ],
+        "type": "object"
+      },
+      "PersonaProblema": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "nombre": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nombre"
         ],
         "type": "object"
       },
@@ -13620,6 +14210,10 @@
           "title": {
             "description": "Resumen legible del tipo de problema",
             "type": "string"
+          },
+          "tomadaPor": {
+            "$ref": "#/components/schemas/PersonaProblema",
+            "description": "orden_ya_tomada: quién tomó la orden primero"
           },
           "type": {
             "description": "URI estable del tipo de problema (urn:iris:problema:\u003ccodigo\u003e)",
@@ -14813,6 +15407,40 @@
         ],
         "type": "object"
       },
+      "RespuestaTarea": {
+        "additionalProperties": false,
+        "properties": {
+          "aviso": {
+            "enum": [
+              "tarea_ya_completada",
+              "tarea_ya_anulada"
+            ],
+            "type": "string"
+          },
+          "duplicada": {
+            "description": "El id ya era de esta tarea (reintento): se devuelve tal como está",
+            "type": "boolean"
+          },
+          "solapaCon": {
+            "description": "Citas vivas del técnico que se cruzan con la tarea: la tarea se guardó igual; la app lo avisa",
+            "items": {
+              "$ref": "#/components/schemas/CitaEnConflicto"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "tarea": {
+            "$ref": "#/components/schemas/Tarea"
+          }
+        },
+        "required": [
+          "tarea",
+          "solapaCon"
+        ],
+        "type": "object"
+      },
       "ResultadoBusqueda": {
         "additionalProperties": false,
         "properties": {
@@ -14869,7 +15497,10 @@
               "checklist_no_vigente",
               "existencia_insuficiente",
               "version_anterior",
-              "pausa_ajustada"
+              "pausa_ajustada",
+              "solapa_con",
+              "tarea_ya_completada",
+              "tarea_ya_anulada"
             ],
             "type": "string"
           },
@@ -14895,6 +15526,10 @@
           "recepcion": {
             "$ref": "#/components/schemas/EstadoRecepcion",
             "description": "traslado.recibir: la recepción encolada hacia Argos (su estado sigue en GET /campo/cambios, recepciones[])"
+          },
+          "tarea": {
+            "$ref": "#/components/schemas/RespuestaTarea",
+            "description": "tarea.*: la tarea como quedó y las citas con que se cruza (aviso solapa_con: se guardó igual)"
           }
         },
         "required": [
@@ -16192,6 +16827,256 @@
           "cerradas",
           "sesiones",
           "tokensRevocados"
+        ],
+        "type": "object"
+      },
+      "Tarea": {
+        "additionalProperties": false,
+        "properties": {
+          "anuladaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "clienteId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "completadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "creadaPor": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "duracionMin": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "empresaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "pendiente",
+              "completada",
+              "anulada"
+            ],
+            "type": "string"
+          },
+          "fin": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "description": "UUID (v7) generado en el cliente",
+            "format": "uuid",
+            "type": "string"
+          },
+          "inicio": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "motivo": {
+            "description": "Por qué se anuló",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ordenId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "origen": {
+            "enum": [
+              "panel",
+              "campo",
+              "api"
+            ],
+            "type": "string"
+          },
+          "que": {
+            "type": "string"
+          },
+          "tecnicoId": {
+            "description": "Usuario técnico dueño de la tarea",
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "empresaId",
+          "tecnicoId",
+          "creadaPor",
+          "que",
+          "inicio",
+          "fin",
+          "duracionMin",
+          "ordenId",
+          "clienteId",
+          "origen",
+          "estado",
+          "completadaEn",
+          "anuladaEn",
+          "motivo",
+          "version",
+          "creadoEn"
+        ],
+        "type": "object"
+      },
+      "TareaAgenda": {
+        "additionalProperties": false,
+        "properties": {
+          "anuladaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "clienteId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "completadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "creadaPor": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "duracionMin": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "empresaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "pendiente",
+              "completada",
+              "anulada"
+            ],
+            "type": "string"
+          },
+          "fin": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "description": "UUID (v7) generado en el cliente",
+            "format": "uuid",
+            "type": "string"
+          },
+          "inicio": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "motivo": {
+            "description": "Por qué se anuló",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ordenId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "origen": {
+            "enum": [
+              "panel",
+              "campo",
+              "api"
+            ],
+            "type": "string"
+          },
+          "que": {
+            "type": "string"
+          },
+          "tecnicoId": {
+            "description": "Usuario técnico dueño de la tarea",
+            "format": "int64",
+            "type": "integer"
+          },
+          "tecnicoNombre": {
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tecnicoNombre",
+          "id",
+          "empresaId",
+          "tecnicoId",
+          "creadaPor",
+          "que",
+          "inicio",
+          "fin",
+          "duracionMin",
+          "ordenId",
+          "clienteId",
+          "origen",
+          "estado",
+          "completadaEn",
+          "anuladaEn",
+          "motivo",
+          "version",
+          "creadoEn"
         ],
         "type": "object"
       },
@@ -17863,6 +18748,23 @@
           "actualizadoEn"
         ],
         "type": "object"
+      },
+      "ZonaLibre": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "nombre": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nombre"
+        ],
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -18961,6 +19863,497 @@
         "x-permiso": "agenda.ver"
       }
     },
+    "/api/v1/agenda/tareas": {
+      "get": {
+        "description": "Permiso: `agenda.ver`. De la empresa activa, de los técnicos que cubre tu alcance (su cuadrilla), por inicio. Hasta 31 días. Las anuladas solo con `incluirAnuladas`.",
+        "operationId": "listarTareas",
+        "parameters": [
+          {
+            "description": "UTC (RFC 3339)",
+            "explode": false,
+            "in": "query",
+            "name": "desde",
+            "required": true,
+            "schema": {
+              "description": "UTC (RFC 3339)",
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "UTC; hasta 31 días después de desde",
+            "explode": false,
+            "in": "query",
+            "name": "hasta",
+            "required": true,
+            "schema": {
+              "description": "UTC; hasta 31 días después de desde",
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Usuario técnico",
+            "explode": false,
+            "in": "query",
+            "name": "tecnicoId",
+            "schema": {
+              "description": "Usuario técnico",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "También las anuladas",
+            "explode": false,
+            "in": "query",
+            "name": "incluirAnuladas",
+            "schema": {
+              "description": "También las anuladas",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tamaño de página",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "description": "Tamaño de página",
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaTareaAgenda"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Tareas propias de los técnicos en un rango",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.ver"
+      },
+      "post": {
+        "description": "Permiso: `agenda.crear_tarea`. Algo tuyo con hora y duración que no es una orden (recoger material, revisar una caja…), ligado o no a una orden que ves o a un cliente de Argos. Idempotente por `id` (uuid v7 del cliente; un reintento devuelve la misma tarea con `duplicada`; 409 `tarea_ajena` si el id es de otra). Para otro técnico (`tecnicoId`) hace falta `agenda.ver` con alcance sobre su cuadrilla. Si choca con una cita del técnico no se bloquea: `solapaCon` trae las citas. Desde la app de campo va por el lote (`tarea.crear`). Emite `tarea.creada`.",
+        "operationId": "crearTarea",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCrearTarea"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaTarea"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Agendar una tarea propia",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.crear_tarea"
+      }
+    },
+    "/api/v1/agenda/tareas/{id}/anular": {
+      "post": {
+        "description": "Permiso: `agenda.anular_tarea`. El técnico dueño o quien lo supervisa. Queda en el historial. Ya anulada: sin cambios y `aviso: tarea_ya_anulada`; hecha: 409 `tarea_completada`. Emite `tarea.anulada`.",
+        "operationId": "anularTarea",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Id (uuid) de la tarea",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Id (uuid) de la tarea",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaAnularTarea"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaTarea"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Anular una tarea",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.anular_tarea"
+      }
+    },
+    "/api/v1/agenda/tareas/{id}/completar": {
+      "post": {
+        "description": "Permiso: `agenda.completar_tarea`. El técnico dueño o quien lo supervisa. Ya hecha: sin cambios y `aviso: tarea_ya_completada`; anulada: 409 `tarea_anulada`. Emite `tarea.completada`.",
+        "operationId": "completarTarea",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Id (uuid) de la tarea",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Id (uuid) de la tarea",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCompletarTarea"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaTarea"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Marcar una tarea como hecha",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.completar_tarea"
+      }
+    },
     "/api/v1/buzones": {
       "get": {
         "description": "Permiso: `buzones.ver`.",
@@ -19715,6 +21108,178 @@
         "x-permiso": "buzones.editar"
       }
     },
+    "/api/v1/campo/ajustes": {
+      "get": {
+        "description": "Permiso: `campo.configurar`.",
+        "operationId": "verAjustesCampo",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AjustesCampo"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ajustes de la app de campo de la empresa",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "campo.configurar"
+      },
+      "post": {
+        "description": "Permiso: `campo.configurar`. Sin límite de zona. `tecnicosTomanLibres`: los técnicos pueden tomar órdenes libres (apagado por defecto). 422 `sin_cambios`. Emite `campo.ajustes_cambiados`.",
+        "operationId": "fijarAjustesCampo",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaFijarAjustes"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AjustesCampo"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fijar los ajustes de la app de campo de la empresa",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "campo.configurar"
+      }
+    },
     "/api/v1/campo/cambios": {
       "get": {
         "description": "Permiso: `campo.sincronizar`. Órdenes nuevas, actualizadas, reprogramadas, canceladas o reasignadas (sin orden: quitarla del teléfono). El cursor es del técnico y solo trae las órdenes de la empresa activa: al cambiar de empresa (X-Iris-Empresa), vuelve a pedir el paquete y usa su cursor.",
@@ -20012,9 +21577,107 @@
         "x-permiso": "campo.ver_bodega"
       }
     },
+    "/api/v1/campo/ordenes-libres": {
+      "get": {
+        "description": "Permiso: `ordenes.tomar`. Solo si la empresa lo permite (ajuste `tecnicosTomanLibres`; si no, 403 `libres_apagado`). Órdenes pendientes y sin técnico de la empresa activa, de tu cuadrilla o de las zonas que atiende (tu ficha de agenda), ordenadas por distancia en línea recta a tu última posición conocida (las sin coordenadas al final) o, sin posición, por fecha. Cursor (`?cursor=\u0026limit=`): `{ data, nextCursor, total }`.",
+        "operationId": "ordenesLibresCampo",
+        "parameters": [
+          {
+            "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tamaño de página",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "description": "Tamaño de página",
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrdenesLibres"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Órdenes libres que el técnico puede tomar",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.tomar"
+      }
+    },
     "/api/v1/campo/paquete": {
       "get": {
-        "description": "Permiso: `campo.sincronizar`. Órdenes asignadas al actor con la instantánea de cliente y servicio, checklist, comodato y existencias (si hay conector con Argos), la cita de la agenda (con la ventana acordada con el cliente), ruta (aún ausente) y el cursor de cambios.",
+        "description": "Permiso: `campo.sincronizar`. Órdenes asignadas al actor con la instantánea de cliente y servicio, checklist, comodato y existencias (si hay conector con Argos), la cita de la agenda (con la ventana acordada con el cliente), ruta (aún ausente), sus tareas propias, si puede tomar órdenes libres y el cursor de cambios.",
         "operationId": "paqueteCampo",
         "parameters": [
           {
@@ -31474,6 +33137,119 @@
           "campo"
         ],
         "x-permiso": "ordenes.reprogramar"
+      }
+    },
+    "/api/v1/ordenes/{id}/tomar": {
+      "post": {
+        "description": "Permiso: `ordenes.tomar`. Si la empresa lo permite (403 `libres_apagado`), el técnico se asigna una orden pendiente y sin técnico de su cuadrilla o de las zonas que atiende (fuera de ellas, 404), con la lógica de `ordenes.asignar`. Si otro la tomó primero (o despacho la asignó), 409 `orden_ya_tomada` con `tomadaPor` (id y nombre). Ya tuya: 200 sin cambios. Requiere conexión (no va por el lote). Emite `orden.asignada` (origen `tomar`, motivo `tomada`).",
+        "operationId": "tomarOrden",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Orden"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Tomar una orden libre (el técnico)",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.tomar"
       }
     },
     "/api/v1/permisos": {

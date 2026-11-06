@@ -633,3 +633,49 @@ UPDATE campo.ordenes SET
     datos_argos_cambiados_en = NULL, datos_argos_campos = '{}', version = version + 1, updated_at = now()
 WHERE id = @id AND version = @version
 RETURNING *;
+
+-- Ajustes de la app de campo por empresa ---------------------------------------------
+
+-- name: AjustesDeEmpresa :one
+SELECT * FROM campo.ajustes WHERE coalesce(empresa_id, 0) = coalesce(sqlc.narg(empresa_id)::bigint, 0);
+
+-- name: AjustesDeEmpresaParaActualizar :one
+SELECT * FROM campo.ajustes WHERE coalesce(empresa_id, 0) = coalesce(sqlc.narg(empresa_id)::bigint, 0) FOR UPDATE;
+
+-- name: CrearAjustes :one
+INSERT INTO campo.ajustes (empresa_id, tecnicos_toman_libres) VALUES (sqlc.narg(empresa_id), @tecnicos_toman_libres)
+RETURNING *;
+
+-- name: GuardarAjustes :one
+UPDATE campo.ajustes SET tecnicos_toman_libres = @tecnicos_toman_libres, version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version
+RETURNING *;
+
+-- Órdenes libres (el técnico toma una) ------------------------------------------------
+
+-- name: ZonasDeTecnico :one
+-- La cuadrilla de la ficha activa del técnico y las zonas que atiende (vacías sin ficha).
+SELECT t.cuadrilla_id,
+       coalesce((SELECT array_agg(cz.zona_id ORDER BY cz.zona_id) FROM agenda.cuadrilla_zonas cz
+                 WHERE cz.cuadrilla_id = t.cuadrilla_id), '{}')::bigint[] AS zonas
+FROM agenda.tecnicos t WHERE t.usuario_id = @usuario_id AND t.activo;
+
+-- name: OrdenesLibres :many
+-- Órdenes de la empresa sin técnico y pendientes (las que admiten asignación sin cita), de las
+-- zonas o cuadrillas dadas. Hasta 1000: el orden por distancia se calcula en Go.
+SELECT * FROM campo.ordenes
+WHERE tecnico_id IS NULL AND estado = 'pendiente'
+  AND (@todas_empresas::boolean OR empresa_id IS NOT DISTINCT FROM sqlc.narg(empresa_id)::bigint)
+  AND (zona_id = ANY(@zonas::bigint[]) OR cuadrilla_id = ANY(@cuadrillas::bigint[]))
+ORDER BY id
+LIMIT 1000;
+
+-- name: UltimaPosicionDeTecnico :one
+SELECT lat, lon, registrada_en FROM campo.posiciones_ultimas
+WHERE tecnico_id = @tecnico_id AND empresa_id IS NOT DISTINCT FROM sqlc.narg(empresa_id)::bigint;
+
+-- name: NombreDeUsuario :one
+SELECT nombre FROM nucleo.usuarios WHERE id = @id;
+
+-- name: NombresDeZonas :many
+SELECT id, nombre FROM agenda.zonas WHERE id = ANY(@ids::bigint[]) ORDER BY nombre;

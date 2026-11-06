@@ -172,7 +172,7 @@ func asignadaAlCrear(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, o
 		return err
 	}
 	return t.Emitir("orden.asignada", map[string]any{
-		"orden_id": o.ID, "tecnico_id": nil, "cuadrilla_id": o.CuadrillaID, "tecnico_anterior_id": nil,
+		"orden_id": o.ID, "tecnico_id": nil, "cuadrilla_id": o.CuadrillaID, "tecnico_anterior_id": nil, "origen": "crear",
 	})
 }
 
