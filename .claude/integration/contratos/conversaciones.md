@@ -608,8 +608,13 @@ ve otras colas ni confirma clientes (eso sigue siendo `conversaciones.supervisar
   `campos: ["supervisores"]`.
 - `POST /colas` y `POST /colas/{id}/actualizar` aceptan `botSinConfirmacionMin` y
   `botSinDisponiblesMin` (1–1440; al actualizar, ausente = `null`, igual que `horarioId`).
-- `GET /conversaciones/agentes?colaId=`: miembros, supervisores de la cola y supervisores globales;
-  cada agente trae `colasSupervisadas[]` (`ColaRef`) y `disponibilidad` (§14.5).
+- `GET /conversaciones/agentes?colaId=`: miembros, supervisores de la cola y supervisores globales.
+  Cada `AgenteConversaciones` suma:
+  - `colasSupervisadas[]` (`ColaRef`);
+  - `abiertas` (entero): sus conversaciones activas (no resueltas) asignadas en la empresa activa;
+  - `disponibilidad`: `{ estado: "disponible" | "no_disponible", origen: "manual" | "cierre_sesion" |
+    "inactividad" | "horario", desde: fecha-hora | null }` (§14.5). Siempre presente: sin fila,
+    `{ estado: "no_disponible", origen: "manual", desde: null }`.
 - `POST /conversaciones/{id}/asignar` lo puede usar quien tiene `conversaciones.asignar` **o** es
   supervisor de la cola de la conversación (si no, 403). El asignado puede ser miembro o supervisor
   de la cola (o supervisor global).
@@ -666,12 +671,33 @@ La respuesta no se guarda en el middleware (la clave la aplica el caso).
   tuya → queda tuya; de otro agente y activa → 409 `conversacion_de_otro` (el `detail` dice quién;
   el panel ofrece abrirla o pedir «Pasar»). Con la ventana de 24 h abierta en la existente solo se
   revisa la baja.
-- `GET /conversaciones/destinatario?canalId=&clienteId=|contactoIrisId=` (`conversaciones.iniciar`,
-  lectura sin auditar) → `{ numero, puede, motivo, conversacionId }` para la pantalla «Nueva
-  conversación» («Acepta mensajes», «No acepta mensajes», «Sin número de WhatsApp en Argos»).
-  `motivo`: `null` | `sin_contacto` | `sin_permiso` | `baja` | `cliente_sin_confirmar` |
-  `cliente_fuera_de_empresa` | `conversacion_de_otro` | `numero_no_permitido`; `numero` `null` si no
-  hay; `conversacionId` si ya hay una de ese número en ese canal, si no `null`.
+- **Buscar a quién escribir** (pantalla «Nueva conversación»; `conversaciones.iniciar`, solo
+  personas con sesión, lecturas sin auditar):
+  - `GET /conversaciones/destinatarios?q=&canalId=&limit=` (`q` 2–80 letras; `limit` 1–20, 10 por
+    defecto; sin cursor) → `{ data: Destinatario[], nextCursor: null }`: busca **a la vez** clientes
+    de Argos de la empresa activa en la instantánea de lectura (nombre, código o dígitos del
+    teléfono) y contactos de Iris de la empresa (nombre o dígitos), clientes primero. `data` es `[]`
+    si no hay nada (nunca `null`). Sin N+1: una llamada trae `puede` y `motivo` de cada resultado.
+  - `GET /conversaciones/destinatario?canalId=&clienteId=|contactoIrisId=` → un `Destinatario`
+    (la misma forma y las mismas reglas; 404 si el cliente o el contacto no existe).
+  - `Destinatario`:
+    ```json
+    { "tipo": "cliente",            // cliente | contacto_iris
+      "id": 4101,                   // id del cliente en Argos o del contacto de Iris
+      "nombre": "Carlos Ruiz",
+      "codigo": "C-4101",           // código del cliente en Argos; null en un contacto de Iris
+      "detalle": null,              // contacto de Iris: su tipo (proveedor, personal, prospecto, otro); cliente: null
+      "numero": "+50255120041",     // el número al que saldría (E.164); null si no tiene
+      "puede": true,
+      "motivo": null,               // null | sin_contacto | sin_permiso | baja | cliente_fuera_de_empresa | conversacion_de_otro | numero_no_permitido
+      "conversacionId": null }      // con canalId: la conversación que ya existe de ese número en ese canal
+    ```
+    El número va completo (como en la conversación): quien tiene `conversaciones.iniciar` lo ve al
+    escribirle. `motivo` usa los mismos códigos que los 422/409 de `POST /conversaciones/iniciar`
+    (el panel muestra «Sin número de WhatsApp en Argos» con `sin_contacto`, «No acepta mensajes»
+    con `sin_permiso` o `baja`). `cliente_sin_confirmar` no aplica: el número sale de Argos. Sin
+    `canalId` solo se evalúan el número y el permiso de contacto (`conversacion_de_otro` y
+    `numero_no_permitido` necesitan el número de salida). `puede` = `motivo` es `null`.
 - Outbox: `conversacion.creada` (si es nueva, con `origen: agente`), `conversacion.iniciada`,
   `conversacion.asignada` (`origen: iniciar`, si cambió quién la tiene) y
   `conversacion.mensaje_enviado`.
