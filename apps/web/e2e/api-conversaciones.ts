@@ -1,5 +1,6 @@
 import type { Schema } from "@iris/contratos";
 import type { Route } from "@playwright/test";
+import { agentesBandeja11, bandeja11, canalesBandeja11, colasBandeja11, PERMISOS_BANDEJA11, type ColaBase, type NumeroBase, type OpcionesBandeja11 } from "./api-bandeja11";
 import { ANDREA, CANAL_AVISOS, CANAL_COBROS, CANAL_SOPORTE, CANAL_VENTAS, CONVERSACIONES, detalle, mensajesDe } from "./datos-conversaciones";
 
 /*
@@ -36,9 +37,10 @@ export const PERMISOS_CONVERSACIONES: Permiso[] = [
     "manuales.ver",
     "manuales.editar",
     "manuales.revocar_enlace",
+    ...PERMISOS_BANDEJA11,
 ];
 
-export type OpcionesConversaciones = {
+export type OpcionesConversaciones = OpcionesBandeja11 & {
     /** `/eventos` responde 503: el panel trabaja con el sondeo. */
     sinFlujo?: boolean;
 };
@@ -53,7 +55,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
     let seq = 1000;
     const enviados: { ruta: string; cuerpo: unknown; idempotencia: string | undefined }[] = [];
 
-    const colas: Schema<"ColaConversaciones">[] = [
+    const colasBase: ColaBase[] = [
         { id: 2, empresaId: 1, nombre: "Soporte", descripcion: "", slaRespuestaMin: 10, slaPorVencerMin: null, horarioId: null, miembros: [ANDREA, { id: 9, nombre: "Rosa Sánchez" }], activa: true, version: 1 },
         { id: 3, empresaId: 1, nombre: "Caja", descripcion: "", slaRespuestaMin: 30, slaPorVencerMin: null, horarioId: null, miembros: [ANDREA], activa: true, version: 1 },
         { id: 4, empresaId: 1, nombre: "Ventas", descripcion: "", slaRespuestaMin: 60, slaPorVencerMin: null, horarioId: null, miembros: [], activa: true, version: 1 },
@@ -62,11 +64,9 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         { id: 3, nombre: "Sin servicio", color: "peligro", activa: true, version: 1 },
         { id: 5, nombre: "Empresarial", color: "info", activa: true, version: 1 },
     ];
-    const agentes: Schema<"AgenteConversaciones">[] = [
-        { id: ANDREA.id, nombre: ANDREA.nombre, supervisa: true, colas: [{ id: 2, nombre: "Soporte" }] },
-        { id: 9, nombre: "Rosa Sánchez", supervisa: false, colas: [{ id: 2, nombre: "Soporte" }] },
-        { id: 12, nombre: "Laura Méndez", supervisa: true, colas: [] },
-    ];
+    // Fase 1.1: con disponibilidad, conversaciones abiertas y colas que supervisa (§14.1, §14.5).
+    const agentes = agentesBandeja11();
+    const colas = colasBandeja11(colasBase, agentes);
     const respuestas: Schema<"RespuestaRapida">[] = [
         { id: 1, colaId: null, atajo: "/visita", titulo: "Visita hoy 13:30–15:00", texto: "Hola {{nombre}}, te enviamos un técnico hoy entre 13:30 y 15:00.", activa: true, version: 1 },
         { id: 2, colaId: 2, atajo: "/reinicio", titulo: "Pedir reinicio del módem", texto: "¿Puedes apagar el módem 30 segundos y volver a encenderlo?", activa: true, version: 1 },
@@ -97,7 +97,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             activo: true,
         },
     ];
-    const canales: Schema<"NumeroConversaciones">[] = [CANAL_AVISOS, CANAL_SOPORTE, CANAL_COBROS, CANAL_VENTAS].map((c) => ({
+    const canalesBase: NumeroBase[] = [CANAL_AVISOS, CANAL_SOPORTE, CANAL_COBROS, CANAL_VENTAS].map((c) => ({
         ...c,
         avisosEmpresa: c.id === 2,
         colaId: c.id === 4 ? 3 : c.id === 5 ? 4 : 2,
@@ -111,6 +111,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             asistente: { activo: false },
         },
     }));
+    const canales = canalesBandeja11(canalesBase);
     const manuales: Schema<"Manual">[] = [
         {
             id: 1,
@@ -164,6 +165,8 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         cursor += 1;
         eventos.push({ id: String(cursor), tipo: "conversacion_actualizada", ...base, conversacion: structuredClone(c) });
     }
+
+    const b11 = bandeja11({ actorId, conversaciones, mensajes, agentes, colas, canales, emitir, enviados }, opciones);
 
     function filtrar(q: URLSearchParams): Conversacion[] {
         const yo = actorId();
@@ -222,12 +225,13 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             enviadoEn: null,
             entregadoEn: null,
             leidoEn: null,
+            automatico: null,
         };
         mensajes.get(id)?.push(m);
         c.version += 1;
         c.noLeidos += 1;
         c.estado = "abierta";
-        c.ultimoMensaje = { direccion: "entrante", tipo: "texto", texto, evento: null, creadoEn: m.creadoEn };
+        c.ultimoMensaje = { direccion: "entrante", tipo: "texto", texto, evento: null, creadoEn: m.creadoEn, automatico: null };
         c.ultimaActividad = m.creadoEn;
         emitir("mensaje_nuevo", c, m);
     }
@@ -236,6 +240,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         const { route, metodo, ruta, query, idempotencia, puede } = x;
         const cuerpo = (x.cuerpo ?? {}) as Record<string, unknown>;
         const prohibido = () => problema(route, P("permiso_denegado", 403, "Sin permiso"));
+        if (await b11.manejar({ ...x, cuerpo })) return true;
         if (await administrar(x.route, metodo, ruta, query, cuerpo, puede)) return true;
         if (!ruta.startsWith(`${BASE}/conversaciones`) && !ruta.startsWith(`${BASE}/contactos-iris/`) && ![`${BASE}/colas`, `${BASE}/etiquetas`, `${BASE}/respuestas-rapidas`].includes(ruta)) return false;
         if (!puede("conversaciones.ver")) return (await prohibido(), true);
@@ -420,12 +425,13 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                     enviadoEn: null,
                     entregadoEn: null,
                     leidoEn: null,
+                    automatico: null,
                     ...(cuerpo.plantilla ? { plantilla: cuerpo.plantilla as Schema<"PlantillaMensaje"> } : {}),
                 };
                 mensajes.get(c.id)?.push(nuevo);
                 if (accion === "mensajes") {
                     c.estado = "esperando_cliente";
-                    c.ultimoMensaje = { direccion: "saliente", tipo: nuevo.tipo, texto: nuevo.texto, evento: null, creadoEn: nuevo.creadoEn };
+                    c.ultimoMensaje = { direccion: "saliente", tipo: nuevo.tipo, texto: nuevo.texto, evento: null, creadoEn: nuevo.creadoEn, automatico: null };
                     c.ultimaActividad = nuevo.creadoEn;
                     c.version += 1;
                 }
@@ -529,7 +535,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         return false;
     }
 
-    return { manejar, conversaciones, mensajes, enviados, mensajeDelCliente, horarios, manuales, canales, configurados, respuestas, enlaces, consentimientos };
+    return { manejar, conversaciones, mensajes, enviados, mensajeDelCliente, horarios, manuales, canales, configurados, respuestas, enlaces, consentimientos, colas, agentes, bandeja11: b11 };
 }
 
 export type ApiConversaciones = ReturnType<typeof apiConversaciones>;

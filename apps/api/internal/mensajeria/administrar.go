@@ -132,6 +132,7 @@ type Canal struct {
 	ColaID         *int64                   `json:"colaId" nullable:"true" doc:"Cola de las conversaciones nuevas de este número"`
 	HorarioID      *int64                   `json:"horarioId" nullable:"true" doc:"Horario del número"`
 	FueraDeHorario FueraDeHorario           `json:"fueraDeHorario"`
+	Bot            BotNumero                `json:"bot" doc:"Cuando no hay agentes (contratos/conversaciones.md §14.6)"`
 	Activo         bool                     `json:"activo"`
 	PausadoHasta   *time.Time               `json:"pausadoHasta" nullable:"true" doc:"Pausa automática por calidad o límite de Meta"`
 	WebhookRuta    string                   `json:"webhookRuta" doc:"Ruta del webhook a configurar en la app de Meta (sobre IRIS_BASE_URL)"`
@@ -150,7 +151,7 @@ func aCanal(f mensajeriabd.MensajeriaCanal) Canal {
 	_ = json.Unmarshal(f.Plantillas, &p)
 	return Canal{ID: f.ID, EmpresaID: f.EmpresaID, Tipo: f.Tipo, Canal: f.Canal, Nombre: f.Nombre, Numero: f.Numero, PhoneNumberID: f.PhoneNumberID,
 		WabaID: f.WabaID, Plantillas: p, Usos: f.Usos, AvisosEmpresa: f.AvisosEmpresa, ColaID: f.ColaID,
-		HorarioID: f.HorarioID, FueraDeHorario: fueraDeHorarioDe(f.FueraHorario), Activo: f.Activo, PausadoHasta: f.PausadoHasta, WebhookRuta: rutaWebhookMeta(f.ID), Version: f.Version, CreadoEn: f.CreatedAt}
+		HorarioID: f.HorarioID, FueraDeHorario: fueraDeHorarioDe(f.FueraHorario), Bot: botDe(f.Bot), Activo: f.Activo, PausadoHasta: f.PausadoHasta, WebhookRuta: rutaWebhookMeta(f.ID), Version: f.Version, CreadoEn: f.CreatedAt}
 }
 
 func rutaWebhookMeta(id int64) string {

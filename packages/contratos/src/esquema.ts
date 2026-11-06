@@ -1973,6 +1973,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/colas/{id}/supervisores": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fijar los supervisores de una cola
+         * @description Permiso: `canales.configurar`. Ven, asignan y pasan todo lo de la cola sin ser miembros (§14.1). `asistenteIa: true`: 422 `no_disponible_aun` (fase 3).
+         */
+        post: operations["supervisoresColaConversaciones"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/consentimientos": {
         parameters: {
             query?: never;
@@ -2113,6 +2133,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/conversaciones/ajustes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ajustes de la bandeja de la empresa
+         * @description Permiso: `conversaciones.ver`.
+         */
+        get: operations["verAjustesConversaciones"];
+        put?: never;
+        /**
+         * Cambiar los ajustes de la bandeja
+         * @description Permiso: `canales.configurar`.
+         */
+        post: operations["fijarAjustesConversaciones"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/conversaciones/bancos": {
         parameters: {
             query?: never;
@@ -2173,6 +2217,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/conversaciones/canales/{id}/plantillas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Plantillas aprobadas en un número de tus colas
+         * @description Permiso: `conversaciones.iniciar`.
+         */
+        get: operations["plantillasNumeroConversaciones"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/conversaciones/contadores": {
         parameters: {
             query?: never;
@@ -2213,6 +2277,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/conversaciones/destinatario": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Si se le puede escribir a un cliente o contacto
+         * @description Permiso: `conversaciones.iniciar`.
+         */
+        get: operations["destinatarioConversacion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/destinatarios": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Buscar a quién escribir (clientes de Argos y contactos de Iris)
+         * @description Permiso: `conversaciones.iniciar`. Hasta 20, con `puede` y `motivo` de cada uno (los códigos de iniciar). Con `canalId` evalúa también el número de salida.
+         */
+        get: operations["destinatariosConversacion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/disponibilidad": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tu disponibilidad en la bandeja
+         * @description Permiso: `conversaciones.ver`.
+         */
+        get: operations["verDisponibilidadConversaciones"];
+        put?: never;
+        /**
+         * Ponerte disponible o no disponible
+         * @description Permiso: `conversaciones.ver`. `version` la del GET (0 la primera vez; 409 `conflicto_version`). Pasa sola a no_disponible al cerrar sesión, por inactividad o al terminar tu horario.
+         */
+        post: operations["fijarDisponibilidadConversaciones"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/disponibilidad/latido": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Actividad del panel (cada ~60 s)
+         * @description Permiso: `conversaciones.ver`. Sin cuerpo. Solo anota la actividad (no audita, no emite eventos ni cambia el estado) y responde tu disponibilidad.
+         */
+        post: operations["latidoConversaciones"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/conversaciones/eventos": {
         parameters: {
             query?: never;
@@ -2222,11 +2370,31 @@ export interface paths {
         };
         /**
          * Tiempo real de la bandeja (Server-Sent Events)
-         * @description Permiso: `conversaciones.ver`. Igual que el flujo del chat: `id` (cursor), `event` (mensaje_nuevo, mensaje_actualizado, conversacion_actualizada, mencion, guardia), `data` (un EventoConversacion). Last-Event-ID o ?desde=; latido cada 25 s; cierre a los 30 min; revalidación de la sesión.
+         * @description Permiso: `conversaciones.ver`. Igual que el flujo del chat: `id` (cursor), `event` (mensaje_nuevo, mensaje_actualizado, conversacion_actualizada, mencion, guardia, aviso_sin_atender), `data` (un EventoConversacion). Last-Event-ID o ?desde=; latido cada 25 s; cierre a los 30 min; revalidación de la sesión.
          */
         get: operations["eventosConversaciones"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/iniciar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Escribir primero con una plantilla aprobada
+         * @description Permiso: `conversaciones.iniciar`. A un cliente de Argos o un contacto de Iris con permiso de contacto, desde un número de tus colas. Idempotente por `id` (200 + Idempotent-Replayed si se repite; 409 `mensaje_id_reutilizado` con otro contenido). Reutiliza la conversación del número (409 `conversacion_de_otro` si la tiene otro agente). 422 `numero_no_permitido`, `sin_contacto`, `sin_permiso`, `baja`, `plantilla_no_aprobada`, `cliente_fuera_de_empresa`, `servicio_fuera_de_empresa`; 409 `conversacion_de_otra_cola`; 403 `asociacion_requiere_permiso` si la conversación del número está asociada a otro contacto y no tienes conversaciones.asociar.
+         */
+        post: operations["iniciarConversacion"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2264,7 +2432,7 @@ export interface paths {
         put?: never;
         /**
          * Asignar a un agente (o quitar)
-         * @description Permiso: `conversaciones.asignar`.
+         * @description Permiso: `conversaciones.asignar`. También lo puede usar un supervisor de la cola de la conversación sin el permiso (§14.1).
          */
         post: operations["asignarConversacion"];
         delete?: never;
@@ -2591,6 +2759,26 @@ export interface paths {
          * @description Permiso: `conversaciones.responder`.
          */
         post: operations["notaConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/pasar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pasar a un compañero de la cola
+         * @description Permiso: `conversaciones.pasar`. Quien la tiene, o un supervisor (global o de la cola), a un miembro o supervisor de la cola, aunque no esté disponible (`destinoDisponible`). 403 `no_es_tuya`; 422 `mismo_agente`, `usuario_no_disponible` (§14.4).
+         */
+        post: operations["pasarConversacion"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6169,12 +6357,32 @@ export interface components {
             tipo: "foto" | "firma" | "documento";
         };
         AgenteConversaciones: {
+            /**
+             * Format: int64
+             * @description Conversaciones activas (no resueltas) asignadas a esta persona en la empresa
+             */
+            abiertas: number;
+            /** @description Colas de las que es miembro */
             colas: components["schemas"]["ColaRef"][];
+            colasSupervisadas: components["schemas"]["ColaRef"][];
+            disponibilidad: components["schemas"]["DisponibilidadAgente"];
             /** Format: int64 */
             id: number;
             nombre: string;
             /** @description Tiene conversaciones.supervisar: ve todas las colas */
             supervisa: boolean;
+        };
+        AjustesBandeja: {
+            /**
+             * Format: int32
+             * @description Sin actividad en estos minutos, el agente pasa a no_disponible (15 por defecto)
+             */
+            minutosInactividad: number;
+            /**
+             * Format: int32
+             * @description 0 si nunca se cambiaron
+             */
+            version: number;
         };
         AjustesCampo: {
             /** Format: int64 */
@@ -6401,6 +6609,29 @@ export interface components {
             monto: string;
             referencia: string;
         };
+        BotNumero: {
+            /** @description Aviso «¿Alguien la atiende?» y bot en horario (fuera de horario manda fueraDeHorario) */
+            activo: boolean;
+            /**
+             * @description agente_autonomo: fase 3 (422 no_disponible_aun)
+             * @enum {string}
+             */
+            atiende: "bot" | "agente_autonomo";
+            /** @description Menú simple: el cliente contesta con el número de la opción */
+            menu: components["schemas"]["OpcionMenuBot"][];
+            /**
+             * Format: int32
+             * @description Con agentes disponibles: minutos sin que nadie la tome antes de que conteste el bot (30)
+             */
+            minutosSinConfirmacion: number;
+            /**
+             * Format: int32
+             * @description Sin agentes disponibles: minutos después del saludo antes de que el bot tome la conversación (3)
+             */
+            minutosSinDisponibles: number;
+            /** @description Texto plano del saludo del bot */
+            saludo: string;
+        };
         Buzon: {
             activo: boolean;
             /** Format: date-time */
@@ -6492,6 +6723,8 @@ export interface components {
             activo: boolean;
             /** @description Es el número por el que salen los avisos de la empresa (uno activo por empresa) */
             avisosEmpresa: boolean;
+            /** @description Cuando no hay agentes (contratos/conversaciones.md §14.6) */
+            bot: components["schemas"]["BotNumero"];
             /** @enum {string} */
             canal: "whatsapp";
             /**
@@ -6527,7 +6760,7 @@ export interface components {
             /** @enum {string} */
             tipo: "whatsapp_cloud";
             /** @description avisos, soporte, cobros, ventas (contratos/conversaciones.md §1) */
-            usos: string[] | null;
+            usos: string[];
             /** Format: int32 */
             version: number;
             wabaId: string;
@@ -6821,7 +7054,19 @@ export interface components {
         };
         ColaConversaciones: {
             activa: boolean;
+            /**
+             * Format: int32
+             * @description Minutos sin que nadie la tome antes de que conteste el bot (null = los del número)
+             */
+            botSinConfirmacionMin: number | null;
+            /**
+             * Format: int32
+             * @description Minutos sin agentes disponibles antes de que el bot tome la conversación (null = los del número)
+             */
+            botSinDisponiblesMin: number | null;
             descripcion: string;
+            /** @description Ids de los miembros y supervisores disponibles ahora */
+            disponibles: number[];
             /** Format: int64 */
             empresaId: number | null;
             /**
@@ -6843,6 +7088,8 @@ export interface components {
              * @description Minutos para contestar un mensaje del cliente (null = sin SLA)
              */
             slaRespuestaMin: number | null;
+            /** @description Ven, asignan y pasan todo lo de la cola sin ser miembros */
+            supervisores: components["schemas"]["UsuarioRef"][];
             /** Format: int32 */
             version: number;
         };
@@ -7133,6 +7380,8 @@ export interface components {
             creadaEn: string;
             /** Format: int64 */
             empresaId: number | null;
+            /** @description Ausente si está asignada o resuelta: quién está disponible en la cola y cuándo contesta el bot */
+            espera?: components["schemas"]["EsperaConversacion"];
             /** @enum {string} */
             estado: "abierta" | "esperando_cliente" | "resuelta";
             etiquetas: components["schemas"]["EtiquetaRef"][];
@@ -7172,6 +7421,10 @@ export interface components {
             creadaEn: string;
             /** Format: int64 */
             empresaId: number | null;
+            /** @description Miembros y supervisores de su cola con su disponibilidad (sin cola, []) */
+            equipo: components["schemas"]["MiembroEquipo"][];
+            /** @description Ausente si está asignada o resuelta: quién está disponible en la cola y cuándo contesta el bot */
+            espera?: components["schemas"]["EsperaConversacion"];
             /** @enum {string} */
             estado: "abierta" | "esperando_cliente" | "resuelta";
             etiquetas: components["schemas"]["EtiquetaRef"][];
@@ -7190,6 +7443,8 @@ export interface components {
             /** Format: date-time */
             reabiertaEn: string | null;
             sla: components["schemas"]["SLAConversacion"];
+            /** @description Supervisores de su cola */
+            supervisores: components["schemas"]["UsuarioRef"][];
             /** @description Cliente de Argos > contacto de Iris > perfil de WhatsApp > número */
             titulo: string;
             /** Format: date-time */
@@ -7199,6 +7454,12 @@ export interface components {
             /** Format: int32 */
             version: number;
             vinculos: components["schemas"]["VinculoConversacion"][];
+        };
+        ConversacionIniciada: {
+            conversacion: components["schemas"]["ConversacionClienteDetalle"];
+            mensaje: components["schemas"]["MensajeConversacion"];
+            /** @description Se creó la conversación (si no, se reutilizó la del número) */
+            nueva: boolean;
         };
         CopiaArgos: {
             /** @description true: Argos eliminó al cliente y la copia quedó solo con los ids */
@@ -7371,6 +7632,33 @@ export interface components {
              */
             en: string;
         };
+        Destinatario: {
+            /** @description Código del cliente en Argos (null en un contacto de Iris) */
+            codigo: string | null;
+            /**
+             * Format: int64
+             * @description Con canalId: la conversación que ya existe de ese número en ese canal
+             */
+            conversacionId: number | null;
+            /** @description Contacto de Iris: su tipo (proveedor, personal, prospecto, otro) */
+            detalle: string | null;
+            /**
+             * Format: int64
+             * @description Cliente en Argos o contacto de Iris
+             */
+            id: number;
+            /**
+             * @description Por qué no (los códigos de POST /conversaciones/iniciar)
+             * @enum {string|null}
+             */
+            motivo: "sin_contacto" | "sin_permiso" | "baja" | "cliente_fuera_de_empresa" | "conversacion_de_otro" | "conversacion_de_otra_cola" | "numero_no_permitido" | null;
+            nombre: string;
+            /** @description El número al que saldría (E.164); null si no tiene */
+            numero: string | null;
+            puede: boolean;
+            /** @enum {string} */
+            tipo: "cliente" | "contacto_iris";
+        };
         DestinoSSO: {
             /** @description Id de Iris del ticket, la orden o el prospecto */
             id_externo: string;
@@ -7413,6 +7701,17 @@ export interface components {
              * @description Tickets cuyo plazo de resolución cayó ese día, ya pasó y no se resolvieron a tiempo
              */
             vencidos: number;
+        };
+        DisponibilidadAgente: {
+            /** Format: date-time */
+            desde: string | null;
+            /** @enum {string} */
+            estado: "disponible" | "no_disponible";
+            /**
+             * @description Qué la dejó así
+             * @enum {string}
+             */
+            origen: "manual" | "cierre_sesion" | "inactividad" | "horario";
         };
         Dispositivo: {
             /** Format: date-time */
@@ -7701,6 +8000,12 @@ export interface components {
              */
             version?: number;
         };
+        EntradaAjustesBandeja: {
+            /** Format: int32 */
+            minutosInactividad: number;
+            /** Format: int32 */
+            version: number;
+        };
         EntradaAnularAusencia: {
             motivo?: string;
             /**
@@ -7961,6 +8266,10 @@ export interface components {
             version: number;
         };
         EntradaCola: {
+            /** Format: int32 */
+            botSinConfirmacionMin?: number | null;
+            /** Format: int32 */
+            botSinDisponiblesMin?: number | null;
             descripcion?: string;
             /**
              * Format: int64
@@ -8002,6 +8311,7 @@ export interface components {
         EntradaConfigurarCanal: {
             /** @description El número por el que salen los avisos de la empresa (uno solo; marcarlo lo quita del anterior). Exige avisos en usos */
             avisosEmpresa: boolean;
+            bot?: components["schemas"]["BotNumero"];
             /**
              * Format: int64
              * @description Cola de las conversaciones nuevas (null = sin cola)
@@ -8524,6 +8834,15 @@ export interface components {
              */
             version: number;
         };
+        EntradaDisponibilidad: {
+            /** @enum {string} */
+            estado: "disponible" | "no_disponible";
+            /**
+             * Format: int32
+             * @description La de GET /conversaciones/disponibilidad (0 la primera vez)
+             */
+            version: number;
+        };
         EntradaEditarBuzon: {
             /** @description authserv-id que pone en Authentication-Results el servidor que recibe para este buzón (RFC 8601; p. ej. mx.isp.gt). Solo con él se verifica el remitente (dmarc=pass o dkim=pass alineado): sin verificar, la respuesta a un ticket queda como nota interna. Omitido o vacío = no se confía en ninguna cabecera */
             authservId?: string;
@@ -8948,6 +9267,32 @@ export interface components {
              */
             versionTicket: number;
         };
+        EntradaIniciarConv: {
+            /**
+             * Format: int64
+             * @description Número de salida (de una de tus colas)
+             */
+            canalId: number;
+            /**
+             * Format: int64
+             * @description Cliente de Argos (o contactoIrisId)
+             */
+            clienteId?: number;
+            /**
+             * Format: int64
+             * @description Contacto de Iris (o clienteId)
+             */
+            contactoIrisId?: number;
+            /** @description uuid v7 generado en el cliente (id del mensaje): el servidor es idempotente por él */
+            id: string;
+            /** @description Plantilla aprobada en el número */
+            plantilla: components["schemas"]["PlantillaMensaje"];
+            /**
+             * Format: int64
+             * @description Servicio del cliente (opcional)
+             */
+            servicioId?: number;
+        };
         EntradaIniciarSesion: {
             contrasena: string;
             /** Format: email */
@@ -9085,6 +9430,17 @@ export interface components {
             tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
             /** Format: int64 */
             zonaId?: number;
+        };
+        EntradaPasarConv: {
+            /** @description Nota interna para quien la recibe */
+            nota?: string;
+            /**
+             * Format: int64
+             * @description Compañero de la cola (miembro o supervisor de la cola)
+             */
+            usuarioId: number;
+            /** Format: int32 */
+            version: number;
         };
         EntradaPausar: {
             /** @enum {string} */
@@ -9508,6 +9864,14 @@ export interface components {
              */
             venceEl?: string;
         };
+        EntradaSupervisoresCola: {
+            /** @description Fase 3: un asistente de IA como supervisor (hoy 422 no_disponible_aun) */
+            asistenteIa?: boolean;
+            /** @description Personas que supervisan la cola (ven, asignan y pasan todo lo de la cola) */
+            usuarioIds: number[] | null;
+            /** Format: int32 */
+            version: number;
+        };
         EntradaTicketConv: {
             asunto: string;
             /** Format: int64 */
@@ -9667,6 +10031,21 @@ export interface components {
             /** @description Regla que falló */
             rule?: string;
         };
+        EsperaConversacion: {
+            /** @description El bot ya contestó en esta espera */
+            botAtendio: boolean;
+            /**
+             * Format: date-time
+             * @description Cuándo contesta el bot si nadie la toma (cuenta regresiva)
+             */
+            botContestaEn: string | null;
+            /** @enum {string|null} */
+            botMotivo: "sin_confirmacion" | "sin_disponibles" | null;
+            /** @description Disponibles en la cola (hasta 5); sin cola, en la empresa */
+            disponibles: components["schemas"]["UsuarioRef"][];
+            /** Format: int64 */
+            totalDisponibles: number;
+        };
         EstadoCuenta: {
             /** Format: int64 */
             facturasVencidas: number | null;
@@ -9779,7 +10158,7 @@ export interface components {
             /** Format: date-time */
             ocurridoEn: string;
             /** @enum {string} */
-            tipo: "mensaje_nuevo" | "mensaje_actualizado" | "conversacion_actualizada" | "mencion" | "guardia";
+            tipo: "mensaje_nuevo" | "mensaje_actualizado" | "conversacion_actualizada" | "mencion" | "guardia" | "aviso_sin_atender";
         };
         EventoOrden: {
             a: string | null;
@@ -9831,12 +10210,22 @@ export interface components {
             asignadoNombre?: string;
             colaNombre?: string;
             detalle?: string;
+            /**
+             * Format: int64
+             * @description aviso_sin_atender: a cuántos se avisó
+             */
+            disponibles?: number;
             entidadId?: string;
+            /**
+             * Format: int32
+             * @description bot_atendio: minutos que esperó
+             */
+            minutos?: number;
             /** @description respondio_aviso: la plantilla del aviso */
             plantilla?: string;
             /** @description TK-…, OT-…, PR-… */
             referencia?: string;
-            /** @description conversacion_creada, asignada, tomada, transferida, resuelta, reabierta, etiquetada, cliente_asociado, contacto_iris_creado, ticket_creado, orden_creada, prospecto_creado, boleta_registrada, boleta_fallida, promesa_creada, respondio_aviso, fuera_de_horario, guardia_avisada, manual_enviado */
+            /** @description conversacion_creada, asignada, tomada, transferida, resuelta, reabierta, etiquetada, cliente_asociado, contacto_iris_creado, ticket_creado, orden_creada, prospecto_creado, boleta_registrada, boleta_fallida, promesa_creada, respondio_aviso, fuera_de_horario, guardia_avisada, manual_enviado; 1.1: aviso_sin_atender, bot_atendio, menu_elegido, pasada, iniciada */
             tipo: string;
         };
         EventoTicket: {
@@ -10458,6 +10847,10 @@ export interface components {
             data: components["schemas"]["CuentaBancaria"][];
             nextCursor: string | null;
         };
+        ListaDestinatarios: {
+            data: components["schemas"]["Destinatario"][];
+            nextCursor: string | null;
+        };
         ListaEnlacesManual: {
             data: components["schemas"]["EnlaceManual"][];
         };
@@ -10657,6 +11050,11 @@ export interface components {
         };
         MensajeConversacion: {
             adjunto?: components["schemas"]["AdjuntoMensaje"];
+            /**
+             * @description Saliente sin autor: el bot o la respuesta de fuera de horario
+             * @enum {string|null}
+             */
+            automatico: "bot" | "fuera_de_horario" | null;
             /** @description Saliente y nota; ausente en entrante, sistema y respuestas automáticas */
             autor?: components["schemas"]["UsuarioRef"];
             /** Format: int64 */
@@ -10717,6 +11115,37 @@ export interface components {
             trasladosPendientes: number[] | null;
             unidades: components["schemas"]["UnidadBodega"][] | null;
         };
+        MiDisponibilidad: {
+            /** Format: date-time */
+            desde: string | null;
+            /** @enum {string} */
+            estado: "disponible" | "no_disponible";
+            /**
+             * Format: date-time
+             * @description Cierre de tu horario de trabajo: a esa hora pasas a no_disponible
+             */
+            horarioHasta: string | null;
+            /**
+             * Format: int32
+             * @description Sin actividad en estos minutos pasas a no_disponible
+             */
+            minutosInactividad: number;
+            /** @enum {string} */
+            origen: "manual" | "cierre_sesion" | "inactividad" | "horario";
+            /**
+             * Format: int32
+             * @description 0 si nunca la cambiaste
+             */
+            version: number;
+        };
+        MiembroEquipo: {
+            disponible: boolean;
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+            /** @enum {string} */
+            rol: "miembro" | "supervisor";
+        };
         MotivoSugerencia: {
             /** @description La etiqueta, el modelo de equipo o el número del ticket */
             detalle: string;
@@ -10771,6 +11200,7 @@ export interface components {
         NumeroConversaciones: {
             activo: boolean;
             avisosEmpresa: boolean;
+            bot: components["schemas"]["BotNumero"];
             /** Format: int64 */
             colaId: number | null;
             fueraDeHorario: components["schemas"]["FueraDeHorario"];
@@ -10778,6 +11208,8 @@ export interface components {
             horarioId: number | null;
             /** Format: int64 */
             id: number;
+            /** @description Puedes iniciar conversaciones desde este número (conversaciones.iniciar y número de una de tus colas) */
+            iniciar: boolean;
             nombre: string;
             numero: string;
             usos: string[];
@@ -10809,6 +11241,17 @@ export interface components {
              * @description 0 si la orden es de otra empresa
              */
             ordenId: number;
+        };
+        OpcionMenuBot: {
+            /**
+             * Format: int64
+             * @description Cola a la que pasa la conversación
+             */
+            colaId: number;
+            /** @description Etiquetas que se le ponen */
+            etiquetaIds: number[];
+            /** @description Lo que ve el cliente (p. ej. Ventas) */
+            texto: string;
         };
         OperacionLote: {
             /** @description Los mismos campos (camelCase) que el cuerpo de la acción del panel, sin version */
@@ -11743,6 +12186,12 @@ export interface components {
             /** @enum {string} */
             origen: "mencion" | "guardia";
         };
+        PaseConversacion: {
+            conversacion: components["schemas"]["ConversacionClienteDetalle"];
+            destino: components["schemas"]["UsuarioRef"];
+            /** @description false: se pasó a alguien no disponible (el panel avisa) */
+            destinoDisponible: boolean;
+        };
         PausaOrden: {
             /**
              * Format: int64
@@ -11899,7 +12348,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.ver" | "integraciones.ver_pendientes" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.ver" | "integraciones.ver_pendientes" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -11939,6 +12388,11 @@ export interface components {
             requiereFirma: boolean;
         };
         PlantillaDisponible: {
+            /**
+             * @description Categoría de Meta (servicio = utility)
+             * @enum {string}
+             */
+            categoria: "servicio" | "marketing" | "autenticacion";
             codigo: string;
             /** @description Nombre de la plantilla en Meta */
             nombre: string;
@@ -13585,6 +14039,11 @@ export interface components {
             servidorEn: string;
         };
         UltimoMensajeResumen: {
+            /**
+             * @description Saliente sin autor: el bot o la respuesta de fuera de horario
+             * @enum {string|null}
+             */
+            automatico: "bot" | "fuera_de_horario" | null;
             /** Format: date-time */
             creadoEn: string;
             /** @enum {string} */
@@ -13696,6 +14155,8 @@ export interface components {
              */
             formato: "monto" | "moneda" | "fecha" | "instante" | "texto";
             nombre: string;
+            /** @description Hay que mandarla (hoy todas las del catálogo) */
+            obligatoria: boolean;
         };
         VentanaConversacion: {
             /** @description Se puede mandar texto y adjuntos; si no, solo plantillas aprobadas */
@@ -21798,6 +22259,89 @@ export interface operations {
             };
         };
     };
+    supervisoresColaConversaciones: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaSupervisoresCola"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColaConversaciones"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     registrarConsentimiento: {
         parameters: {
             query?: never;
@@ -22251,7 +22795,7 @@ export interface operations {
     agentesConversaciones: {
         parameters: {
             query?: {
-                /** @description Los miembros de la cola y quienes supervisan */
+                /** @description Los miembros y supervisores de la cola y los supervisores globales */
                 colaId?: number;
             };
             header?: never;
@@ -22280,6 +22824,134 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verAjustesConversaciones: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AjustesBandeja"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    fijarAjustesConversaciones: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAjustesBandeja"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AjustesBandeja"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -22488,6 +23160,73 @@ export interface operations {
             };
         };
     };
+    plantillasNumeroConversaciones: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaPlantillasConv"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     contadoresConversaciones: {
         parameters: {
             query?: never;
@@ -22560,6 +23299,321 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ListaCuentasBancarias"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    destinatarioConversacion: {
+        parameters: {
+            query?: {
+                canalId?: number;
+                clienteId?: number;
+                contactoIrisId?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Destinatario"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    destinatariosConversacion: {
+        parameters: {
+            query?: {
+                /** @description Nombre, código o dígitos del teléfono */
+                q?: string;
+                /** @description Número de salida: suma conversacion_de_otro, numero_no_permitido y conversacionId */
+                canalId?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaDestinatarios"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verDisponibilidadConversaciones: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MiDisponibilidad"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    fijarDisponibilidadConversaciones: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaDisponibilidad"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MiDisponibilidad"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    latidoConversaciones: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MiDisponibilidad"];
                 };
             };
             /** @description Unauthorized */
@@ -22680,6 +23734,98 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    iniciarConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaIniciarConv"];
+            };
+        };
+        responses: {
+            /** @description Reenvío del mismo id: la conversación y el mensaje tal como están ahora */
+            200: {
+                headers: {
+                    "Idempotent-Replayed"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionIniciada"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    "Idempotent-Replayed"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionIniciada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -24115,6 +25261,89 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MensajeConversacion"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    pasarConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaPasarConv"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaseConversacion"];
                 };
             };
             /** @description Unauthorized */

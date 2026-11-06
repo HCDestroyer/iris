@@ -986,6 +986,14 @@ type IntegracionPendiente struct {
 	ResueltoEn       *time.Time
 }
 
+type MensajeriaAjustesBandeja struct {
+	ID                 int64
+	EmpresaID          *int64
+	MinutosInactividad int32
+	Version            int32
+	UpdatedAt          time.Time
+}
+
 type MensajeriaAviso struct {
 	ID             uuid.UUID
 	EmpresaID      int64
@@ -1065,6 +1073,7 @@ type MensajeriaCanal struct {
 	ColaID               *int64
 	HorarioID            *int64
 	FueraHorario         []byte
+	Bot                  []byte
 }
 
 type MensajeriaChatConversacion struct {
@@ -1137,23 +1146,34 @@ type MensajeriaChatMiembro struct {
 }
 
 type MensajeriaCola struct {
-	ID              int64
-	EmpresaID       *int64
-	Nombre          string
-	Descripcion     string
-	SlaRespuestaMin *int32
-	SlaPorVencerMin *int32
-	Activa          bool
-	Version         int32
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	HorarioID       *int64
+	ID                    int64
+	EmpresaID             *int64
+	Nombre                string
+	Descripcion           string
+	SlaRespuestaMin       *int32
+	SlaPorVencerMin       *int32
+	Activa                bool
+	Version               int32
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	HorarioID             *int64
+	BotSinConfirmacionMin *int32
+	BotSinDisponiblesMin  *int32
 }
 
 type MensajeriaColaMiembro struct {
 	ColaID    int64
 	UsuarioID int64
 	CreatedAt time.Time
+}
+
+type MensajeriaColaSupervisor struct {
+	ID          int64
+	ColaID      int64
+	Tipo        string
+	UsuarioID   *int64
+	AsistenteID *int64
+	CreatedAt   time.Time
 }
 
 type MensajeriaConsentimiento struct {
@@ -1240,6 +1260,11 @@ type MensajeriaConversacion struct {
 	UpdatedAt         time.Time
 	FueraHorarioHasta *time.Time
 	GuardiaHasta      *time.Time
+	BotEsperaEn       *time.Time
+	BotVenceEn        *time.Time
+	BotMotivo         *string
+	BotAtendioEn      *time.Time
+	BotMenu           *string
 }
 
 type MensajeriaConversacionEtiqueta struct {
@@ -1286,6 +1311,7 @@ type MensajeriaConversacionMensaje struct {
 	LeidoEn           *time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
+	Automatico        *string
 }
 
 type MensajeriaConversacionParticipante struct {
@@ -1302,6 +1328,20 @@ type MensajeriaConversacionVinculo struct {
 	Referencia     string
 	CreadoPor      *int64
 	CreatedAt      time.Time
+}
+
+type MensajeriaDisponibilidad struct {
+	ID              int64
+	UsuarioID       int64
+	EmpresaID       *int64
+	Estado          string
+	Origen          string
+	Desde           time.Time
+	UltimaActividad time.Time
+	SesionID        *int64
+	HorarioHasta    *time.Time
+	Version         int32
+	UpdatedAt       time.Time
 }
 
 type MensajeriaEntrante struct {

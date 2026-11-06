@@ -185,6 +185,7 @@ sql:
       - internal/mensajeria/chat.sql
       - internal/mensajeria/conversaciones.sql
       - internal/mensajeria/horarios.sql
+      - internal/mensajeria/bandeja.sql
     gen:
       go:
         <<: *gen
@@ -197,6 +198,7 @@ sql:
           mensajeria_contactos_iri: MensajeriaContactoIris
           mensajeria_respuestas_rapida: MensajeriaRespuestaRapida
           mensajeria_cola: MensajeriaCola
+          mensajeria_cola_supervisore: MensajeriaColaSupervisor
   - <<: *base
     queries: internal/notificaciones/consultas.sql
     gen:

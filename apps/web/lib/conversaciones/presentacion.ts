@@ -1,4 +1,5 @@
 import { ZONA } from "../fechas";
+import { textoEventoBot } from "./atencion";
 import type { CanalRef, Conversacion, EventoSistema, Mensaje } from "./tipos";
 
 /*
@@ -135,6 +136,9 @@ export function textoVentana(ventana: Conversacion["ventana"], ahora: number): {
 
 /** Texto de un evento de sistema («Andrea creó TK-004812»). */
 export function textoEvento(e: EventoSistema): string {
+    // Fase 1.1: bot, aviso sin atender, menú, pasada e iniciada.
+    const nuevo = textoEventoBot(e);
+    if (nuevo) return nuevo;
     const actor = e.actorNombre ?? "Iris";
     const ref = e.referencia ?? "";
     switch (e.tipo) {
@@ -191,6 +195,9 @@ export function textoUltimo(u: Conversacion["ultimoMensaje"]): string {
     if (!u) return "Sin mensajes";
     if (u.direccion === "sistema") return u.evento ? textoEvento({ tipo: u.evento }) : (u.texto ?? "");
     const cuerpo = u.texto?.trim() || adjuntoCorto(u.tipo);
+    // Fase 1.1: lo que mandó el bot o la respuesta fuera de horario no es «Tú».
+    if (u.direccion === "saliente" && u.automatico === "bot") return `Bot: ${cuerpo}`;
+    if (u.direccion === "saliente" && u.automatico === "fuera_de_horario") return `Automático: ${cuerpo}`;
     if (u.direccion === "saliente") return `Tú: ${cuerpo}`;
     if (u.direccion === "nota") return `Nota: ${cuerpo}`;
     return cuerpo;

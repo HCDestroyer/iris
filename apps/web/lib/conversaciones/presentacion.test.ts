@@ -52,8 +52,10 @@ describe("presentación de la bandeja", () => {
     });
 
     it("último mensaje de la fila", () => {
-        expect(textoUltimo({ direccion: "saliente", tipo: "texto", texto: "Te enviamos un técnico", evento: null, creadoEn: "" })).toBe("Tú: Te enviamos un técnico");
-        expect(textoUltimo({ direccion: "entrante", tipo: "imagen", texto: null, evento: null, creadoEn: "" })).toBe("Foto");
+        expect(textoUltimo({ direccion: "saliente", tipo: "texto", texto: "Te enviamos un técnico", evento: null, creadoEn: "", automatico: null })).toBe("Tú: Te enviamos un técnico");
+        expect(textoUltimo({ direccion: "saliente", tipo: "texto", texto: "Gracias por escribir", evento: null, creadoEn: "", automatico: "bot" })).toBe("Bot: Gracias por escribir");
+        expect(textoUltimo({ direccion: "saliente", tipo: "texto", texto: "Atendemos de 6:00 a 22:00", evento: null, creadoEn: "", automatico: "fuera_de_horario" })).toBe("Automático: Atendemos de 6:00 a 22:00");
+        expect(textoUltimo({ direccion: "entrante", tipo: "imagen", texto: null, evento: null, creadoEn: "", automatico: null })).toBe("Foto");
         expect(textoUltimo(undefined)).toBe("Sin mensajes");
     });
 

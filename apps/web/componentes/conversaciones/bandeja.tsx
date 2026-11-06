@@ -134,8 +134,10 @@ export function Bandeja() {
     const [estadoFeed, setEstadoFeed] = useState<EstadoFeed>("conectando");
     const [detenido, setDetenido] = useState<"sin_sesion" | "sin_permiso" | "sesion_cambiada" | null>(null);
     const aplicarRef = useRef(aplicar);
+    const navegarRef = useRef(navegar);
     useEffect(() => {
         aplicarRef.current = aplicar;
+        navegarRef.current = navegar;
     });
 
     useEffect(() => {
@@ -149,6 +151,14 @@ export function Bandeja() {
                 leerEvento: leerEventoFlujo,
                 alEvento: (evento) => {
                     if (evento.conversacion) aplicarRef.current(evento.conversacion);
+                    // Fase 1.1 (§14.6): solo a los avisados; «Ver» abre la conversación con «La atiendo».
+                    if (evento.tipo === "aviso_sin_atender" && evento.conversacion) {
+                        const c = evento.conversacion;
+                        avisar({
+                            titulo: `¿Alguien la atiende? ${c.titulo} espera${c.cola ? ` en ${c.cola.nombre}` : ""}`,
+                            accion: { texto: "Ver", alPresionar: () => navegarRef.current(filtrosRef.current, c.id) },
+                        });
+                    }
                     if (evento.tipo === "mencion" || evento.tipo === "guardia") {
                         const titulo = evento.conversacion?.titulo ?? "una conversación";
                         avisar({ titulo: evento.tipo === "mencion" ? `Te mencionaron en ${titulo}` : `Guardia: te avisaron por ${titulo}` });
@@ -197,6 +207,10 @@ export function Bandeja() {
                     hrefDe={(id) => `${ruta}${urlDeFiltros(filtros, id)}`}
                     estadoFeed={estadoFeed}
                     detenido={detenido}
+                    alAtender={(c) => {
+                        aplicar(c);
+                        navegar(filtros, c.id);
+                    }}
                 />
                 {abierta === null ? (
                     <VacioConversacion />

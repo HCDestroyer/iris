@@ -1,11 +1,12 @@
 "use client";
 
 import { Boton, Cargando, cn } from "@iris/ui";
-import { AlertTriangle, FileText, MapPin, MessageCircle, Paperclip, PencilLine, RotateCw } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, Bot, FileText, MapPin, MessageCircle, Paperclip, PencilLine, RotateCw, Timer } from "lucide-react";
 import { Fragment, useEffect, useLayoutEffect, useRef } from "react";
 import type { Pendiente } from "@/lib/conversaciones/estado";
 import { hora, separadorDia, tamanoLegible, textoEntrega, textoEvento } from "@/lib/conversaciones/presentacion";
 import type { Mensaje } from "@/lib/conversaciones/tipos";
+import { esEventoBot } from "@/lib/conversaciones/atencion";
 import { rutaDescargaAdjunto } from "@/lib/ordenes/adjuntos";
 import { diaLocal } from "@/lib/conversaciones/presentacion";
 
@@ -124,9 +125,20 @@ function EtiquetaNota() {
 
 function Burbuja({ m }: { m: Mensaje }) {
     if (m.direccion === "sistema") {
+        const tipo = m.evento?.tipo ?? "";
+        const bot = esEventoBot(tipo);
+        const Icono = tipo === "bot_atendio" || tipo === "menu_elegido" ? Bot : tipo === "aviso_sin_atender" ? Timer : tipo === "pasada" ? ArrowLeftRight : MessageCircle;
         return (
-            <p className="flex max-w-full min-w-0 items-center gap-1.5 self-center rounded-full bg-elevated px-2.5 py-0.5 text-xs text-muted-foreground" data-mensaje={m.id}>
-                <MessageCircle aria-hidden className="size-3.5 shrink-0" />
+            <p
+                className={cn(
+                    "flex max-w-full min-w-0 items-center gap-1.5 self-center rounded-full px-2.5 py-0.5 text-xs",
+                    tipo === "bot_atendio" ? "border border-info/30 bg-info/10 text-info" : "bg-elevated text-muted-foreground",
+                )}
+                data-mensaje={m.id}
+                data-evento={tipo || undefined}
+                data-bot={bot || undefined}
+            >
+                <Icono aria-hidden className="size-3.5 shrink-0" />
                 <span className="truncate">{m.evento ? textoEvento(m.evento) : (m.texto ?? "")}</span>
                 <span className="shrink-0 tabular-nums">· {hora(m.creadoEn)}</span>
             </p>
@@ -134,7 +146,16 @@ function Burbuja({ m }: { m: Mensaje }) {
     }
     const propia = m.direccion === "saliente";
     const nota = m.direccion === "nota";
-    const pie = [nota || propia ? (m.autor?.nombre ?? (propia ? "Respuesta automática" : null)) : null, hora(m.creadoEn), propia ? textoEntrega(m) : null].filter(Boolean).join(" · ");
+    // Fase 1.1: mensajes del bot (`automatico: "bot"`) con su etiqueta y borde punteado de información.
+    const automatico = m.automatico ?? null;
+    const delBot = propia && automatico === "bot";
+    const pie = [
+        nota || (propia && !delBot) ? (m.autor?.nombre ?? (propia ? "Respuesta automática" : null)) : null,
+        hora(m.creadoEn),
+        propia ? textoEntrega(m) : null,
+    ]
+        .filter(Boolean)
+        .join(" · ");
     return (
         <div
             data-mensaje={m.id}
@@ -142,12 +163,19 @@ function Burbuja({ m }: { m: Mensaje }) {
             className={cn(
                 "flex max-w-[min(72%,35rem)] min-w-0 flex-col gap-0.5 rounded-[0.875rem] px-3 py-2",
                 m.direccion === "entrante" && "self-start rounded-bl-sm border border-border bg-card",
-                propia && "self-end rounded-br-sm bg-primary/10",
+                propia && !delBot && "self-end rounded-br-sm bg-primary/10",
+                delBot && "self-end rounded-br-sm border border-dashed border-info/40 bg-card",
                 nota && "self-end rounded-br-sm border border-dashed border-warning/50 bg-warning/10",
                 propia && m.estadoEntrega === "fallido" && "ring-1 ring-error/40",
             )}
         >
             {nota ? <EtiquetaNota /> : null}
+            {delBot ? (
+                <span className="flex items-center gap-1 text-[0.6875rem] font-semibold text-info" data-slot="etiqueta-bot">
+                    <Bot aria-hidden className="size-3.5" />
+                    Bot · mensaje automático
+                </span>
+            ) : null}
             {m.adjunto ? <Adjunto m={m} /> : null}
             {m.ubicacion ? (
                 <a

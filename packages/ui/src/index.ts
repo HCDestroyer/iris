@@ -94,6 +94,7 @@ export { Hoja, HojaCerrar, HojaContenido, HojaDisparador, type PropsHojaContenid
 export { InsigniaEstado, type PropsInsigniaEstado } from "./componentes/insignia-estado";
 export { Interruptor, type PropsInterruptor } from "./componentes/interruptor";
 export { LienzoFirma, type PropsLienzoFirma } from "./componentes/lienzo-firma";
+export { ListaEleccion, type OpcionEleccion, type PropsListaEleccion } from "./componentes/lista-eleccion";
 export { ListaOpciones, type OpcionLista, type PropsListaOpciones } from "./componentes/lista-opciones";
 export { LogoIris, MarcaIris } from "./componentes/marca";
 export { Migas, ProveedorRutas, type Miga, type PropsMigas, type PropsProveedorRutas } from "./componentes/migas";

@@ -255,7 +255,7 @@ func (m *Modulo) conversacionDe(ctx context.Context, t *auditoria.Tx, canal mens
 		return c, false, err
 	}
 	return c, true, t.Emitir("conversacion.creada", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID, "canal_id": c.CanalID,
-		"cola_id": c.ColaID, "cliente_id": c.ClienteID, "asociacion": c.Asociacion})
+		"cola_id": c.ColaID, "cliente_id": c.ClienteID, "asociacion": c.Asociacion, "origen": "cliente"})
 }
 
 func (m *Modulo) nombreCola(ctx context.Context, q *mensajeriabd.Queries, empresa int64, id *int64) *string {
@@ -287,7 +287,7 @@ func (m *Modulo) conservarAsignacion(ctx context.Context, t *auditoria.Tx, c *me
 	if sup || c.ColaID == nil {
 		return nil
 	}
-	miembro, err := mensajeriabd.New(t).EsMiembroCola(ctx, mensajeriabd.EsMiembroColaParams{ColaID: *c.ColaID, UsuarioID: *c.AsignadoA})
+	miembro, err := atiendeCola(ctx, mensajeriabd.New(t), *c.ColaID, *c.AsignadoA)
 	if err != nil {
 		return err
 	}

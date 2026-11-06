@@ -1,9 +1,11 @@
 "use client";
 
 import type { Schema } from "@iris/contratos";
-import { createContext, use, useMemo, type ReactNode } from "react";
+import { createContext, use, useEffect, useMemo, type ReactNode } from "react";
 import { api, resolver } from "@/lib/api/cliente";
-import type { Cola, Etiqueta, RespuestaRapida } from "@/lib/conversaciones/tipos";
+import { leerAgentes, leerColas } from "@/lib/conversaciones/api-equipo";
+import type { Agente, Cola } from "@/lib/conversaciones/tipos";
+import type { Etiqueta, RespuestaRapida } from "@/lib/conversaciones/tipos";
 import { useLectura, type Lectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
 
@@ -13,7 +15,8 @@ import { useSesion } from "@/lib/sesion";
  * etiquetas activas y respuestas rápidas (solo con `conversaciones.responder`).
  */
 export type CanalBandeja = Schema<"NumeroConversaciones">;
-export type Agente = Schema<"AgenteConversaciones">;
+/** Agente con su disponibilidad y sus conversaciones abiertas (fase 1.1). */
+export type { Agente };
 
 type Catalogos = {
     canales: Lectura<CanalBandeja[]>;
@@ -31,8 +34,14 @@ export function ProveedorCatalogos({ children }: { children: ReactNode }) {
     const { puede } = useSesion();
     const responde = puede(["conversaciones.responder"]);
     const canales = useLectura(async (signal) => (await resolver(api().GET(`${M}/conversaciones/canales`, { signal }))).data ?? []);
-    const agentes = useLectura(async (signal) => (await resolver(api().GET(`${M}/conversaciones/agentes`, { signal }))).data ?? []);
-    const colas = useLectura(async (signal) => (await resolver(api().GET(`${M}/colas`, { signal }))).data ?? []);
+    const agentes = useLectura((signal) => leerAgentes(signal));
+    const colas = useLectura((signal) => leerColas(signal));
+    // La disponibilidad de los demás cambia sola: se relee cada minuto con la pestaña a la vista.
+    const refrescarAgentes = agentes.refrescar;
+    useEffect(() => {
+        const id = window.setInterval(() => document.visibilityState === "visible" && void refrescarAgentes(), 60_000);
+        return () => window.clearInterval(id);
+    }, [refrescarAgentes]);
     const etiquetas = useLectura(async (signal) => ((await resolver(api().GET(`${M}/etiquetas`, { signal }))).data ?? []).filter((e) => e.activa));
     const respuestas = useLectura<RespuestaRapida[] | null>(async (signal) =>
         responde ? ((await resolver(api().GET(`${M}/respuestas-rapidas`, { signal }))).data ?? []).filter((r) => r.activa) : null,

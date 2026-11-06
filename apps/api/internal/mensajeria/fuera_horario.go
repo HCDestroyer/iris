@@ -81,26 +81,27 @@ func validarFueraDeHorario(ctx context.Context, t *auditoria.Tx, empresa int64, 
 	return nil
 }
 
-// alRecibirFueraDeHorario corre después de guardar un mensaje del cliente.
+// alRecibirFueraDeHorario corre después de guardar un mensaje del cliente. cerrado: el horario
+// estaba cerrado (el bot de horario no corre).
 func (m *Modulo) alRecibirFueraDeHorario(ctx context.Context, t *auditoria.Tx, c *mensajeriabd.MensajeriaConversacion, canal mensajeriabd.MensajeriaCanal,
-	_ mensajeriabd.MensajeriaConversacionMensaje) error {
+	_ mensajeriabd.MensajeriaConversacionMensaje, bot BotNumero) (bool, error) {
 	q := mensajeriabd.New(t)
 	var colaHorario *int64
 	if c.ColaID != nil {
 		cola, err := q.ColaPorID(ctx, mensajeriabd.ColaPorIDParams{ID: *c.ColaID, Empresa: empresaDeConv(*c)})
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return err
+			return false, err
 		}
 		colaHorario = cola.HorarioID
 	}
 	cal, err := calendarioEfectivo(ctx, q, colaHorario, canal.ID)
 	if err != nil || cal == nil {
-		return err
+		return false, err
 	}
 	ahora := m.ahora()
 	abierto, _, apertura := cal.estado(ahora)
 	if abierto {
-		return nil
+		return false, nil
 	}
 	// Hasta cuándo vale «ya se hizo»: la próxima apertura (sin apertura conocida, 24 h).
 	hasta := apertura
@@ -109,44 +110,35 @@ func (m *Modulo) alRecibirFueraDeHorario(ctx context.Context, t *auditoria.Tx, c
 	}
 	f := fueraDeHorarioDe(canal.FueraHorario)
 	if f.Responder && f.Mensaje != "" && (c.FueraHorarioHasta == nil || !ahora.Before(*c.FueraHorarioHasta)) {
-		if err := m.responderFueraDeHorario(ctx, t, c, f, hasta); err != nil {
-			return err
+		if err := m.responderFueraDeHorario(ctx, t, c, f, hasta, bot); err != nil {
+			return true, err
 		}
 	}
 	if f.Guardia.Activa && f.Guardia.UsuarioID != nil && (c.GuardiaHasta == nil || !ahora.Before(*c.GuardiaHasta)) {
 		motivo, err := m.motivoGuardia(ctx, q, c, f.Guardia)
 		if err != nil || motivo == "" {
-			return err
+			return true, err
 		}
-		return m.avisarGuardia(ctx, t, c, *f.Guardia.UsuarioID, motivo, hasta)
+		return true, m.avisarGuardia(ctx, t, c, *f.Guardia.UsuarioID, motivo, hasta)
 	}
-	return nil
+	return true, nil
 }
 
-func (m *Modulo) responderFueraDeHorario(ctx context.Context, t *auditoria.Tx, c *mensajeriabd.MensajeriaConversacion, f FueraDeHorario, hasta time.Time) error {
+// responderFueraDeHorario: la respuesta de fuera de horario y, con el bot activo, su menú
+// (contratos/conversaciones.md §10.2 y §14.6).
+func (m *Modulo) responderFueraDeHorario(ctx context.Context, t *auditoria.Tx, c *mensajeriabd.MensajeriaConversacion, f FueraDeHorario, hasta time.Time, bot BotNumero) error {
 	q := mensajeriabd.New(t)
-	// Nunca a quien pidió no recibir mensajes.
-	if c.ClienteID != nil {
-		v, err := q.ConsentimientoVigente(ctx, mensajeriabd.ConsentimientoVigenteParams{EmpresaID: empresaDeConv(*c), ClienteID: *c.ClienteID, Canal: CanalWhatsApp})
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-		if err == nil && v.Estado == "baja" {
-			return nil
-		}
-	}
-	// Ni a un número dado de baja (la palabra BAJA se registra antes de guardar el mensaje).
-	if v, err := q.ConsentimientoNumeroVigente(ctx, mensajeriabd.ConsentimientoNumeroVigenteParams{Empresa: empresaDeConv(*c), Telefono: c.Numero}); err == nil && v.Estado == "baja" {
-		return nil
-	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	// Nunca a quien pidió no recibir mensajes (la palabra BAJA se registra antes de guardar el
+	// mensaje), ni a un cliente con baja.
+	puede, err := m.puedeContestarBot(ctx, q, *c)
+	if err != nil || !puede {
 		return err
 	}
-	texto := recortar(f.Mensaje, MaxTextoWhatsApp)
-	msg, err := m.agregarMensaje(ctx, t, c, nuevoMensaje{direccion: DirSaliente, tipo: "texto", texto: &texto, estadoEntrega: nombrePtr(EntregaEnCola)})
+	msg, err := m.mensajeAutomatico(ctx, t, c, f.Mensaje, AutomaticoFueraDeHorario)
 	if err != nil {
 		return err
 	}
-	if err := m.encolar(ctx, t.Tx, ArgsEnviarMensaje{MensajeID: msg.ID}); err != nil {
+	if err := m.auditarRespuestaBot(ctx, *c, MotivoBotFueraDeHorario, &msg); err != nil {
 		return err
 	}
 	if err := m.sistema(ctx, t, c, EventoSistema{Tipo: "fuera_de_horario"}); err != nil {
@@ -156,8 +148,29 @@ func (m *Modulo) responderFueraDeHorario(ctx context.Context, t *auditoria.Tx, c
 		return err
 	}
 	c.FueraHorarioHasta = &hasta
-	return t.Emitir("conversacion.fuera_de_horario", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID, "mensaje_id": msg.ID,
-		"hasta": hasta})
+	if err := t.Emitir("conversacion.fuera_de_horario", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID, "mensaje_id": msg.ID,
+		"hasta": hasta}); err != nil {
+		return err
+	}
+	if !bot.Activo || c.AsignadoA != nil {
+		return nil
+	}
+	// El bot atiende fuera de horario: el menú después del mensaje (si hay) y una espera atendida.
+	menu, err := m.contestarConMenu(ctx, t, c, "", bot)
+	if err != nil {
+		return err
+	}
+	if err := m.auditarRespuestaBot(ctx, *c, "menu_fuera_de_horario", menu); err != nil {
+		return err
+	}
+	ahora := m.ahora()
+	// Sin abrir una espera: el primer mensaje con el horario abierto avisa a los disponibles.
+	c.BotAtendioEn, c.BotVenceEn, c.BotMotivo = &ahora, nil, nil
+	if err := guardarBot(ctx, q, *c); err != nil {
+		return err
+	}
+	return t.Emitir("conversacion.bot_atendio", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID, "cola_id": c.ColaID,
+		"motivo": MotivoBotFueraDeHorario, "mensaje_id": msg.ID, "menu": c.BotMenu != nil})
 }
 
 // motivoGuardia: «etiqueta» o «falla_masiva» si la regla aplica ("" si no).

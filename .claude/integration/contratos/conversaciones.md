@@ -195,8 +195,10 @@ Los estados de entrega (`sent`, `delivered`, `read`, `failed`) de los mensajes s
 
 | Permiso | Qué permite |
 | --- | --- |
-| `conversaciones.ver` | Ver las conversaciones de **sus colas**, las sin cola, las asignadas a él y las que lo mencionan; sus mensajes, contadores, cambios y el flujo SSE |
+| `conversaciones.ver` | Ver las conversaciones de **sus colas** (miembro o supervisor de la cola, §14.1), las **sin cola mientras nadie las tiene** (§14.2), las asignadas a él y las que lo mencionan; sus mensajes, contadores, cambios y el flujo SSE |
 | `conversaciones.supervisar` | Ver todas las de la empresa (todas las colas) |
+| `conversaciones.iniciar` | Escribir primero a un cliente o contacto con permiso, con una plantilla aprobada (§14.3). **Sensible** |
+| `conversaciones.pasar` | «Pasar a…» la conversación que tienes a un compañero de la cola (§14.4) |
 | `conversaciones.responder` | Enviar mensajes y plantillas, notas internas con menciones, marcar leído, usar respuestas rápidas |
 | `conversaciones.tomar` | Asignarse una conversación sin asignar que ve |
 | `conversaciones.asignar` | Asignar a otro agente o quitar la asignación |
@@ -217,9 +219,9 @@ Lo que no se ve responde **404**. Roles base:
 
 | Rol | Permisos |
 | --- | --- |
-| `soporte` | ver, responder, tomar, transferir, etiquetar, resolver, asociar, registrar_boleta, registrar_promesa, manuales.ver |
-| `ventas` | ver, responder, tomar, transferir, etiquetar, resolver, asociar, manuales.ver |
-| `despacho` | ver, responder, tomar, etiquetar, resolver, manuales.ver |
+| `soporte` | ver, responder, tomar, pasar, iniciar, transferir, etiquetar, resolver, asociar, registrar_boleta, registrar_promesa, manuales.ver |
+| `ventas` | ver, responder, tomar, pasar, iniciar, transferir, etiquetar, resolver, asociar, manuales.ver |
+| `despacho` | ver, responder, tomar, pasar, etiquetar, resolver, manuales.ver |
 | `supervisor` | todos los de arriba + supervisar, asignar, configurar, canales.configurar, manuales.editar, manuales.revocar_enlace |
 | `lectura` | ver, manuales.ver |
 | `admin` | todos |
@@ -227,8 +229,9 @@ Lo que no se ve responde **404**. Roles base:
 Los usuarios de integración no reciben ninguno en esta fase, y los tokens de API no entran a la
 bandeja (404 aunque el usuario tenga los permisos). Son **sensibles** (asignarlos pide
 re-autenticación): `conversaciones.supervisar`, `conversaciones.registrar_boleta`,
-`conversaciones.registrar_promesa` y `conversaciones.configurar`; por eso asignar los roles
-`soporte` o `supervisor` también la pide.
+`conversaciones.registrar_promesa`, `conversaciones.configurar` y (fase 1.1) `conversaciones.iniciar`;
+por eso asignar los roles `soporte`, `ventas` o `supervisor` también la pide, y en una sesión abierta
+por el autologin desde Argos iniciar una conversación pide `POST /api/v1/sesion/reautenticar`.
 
 ## 5. Contactos
 
@@ -349,7 +352,9 @@ el número de mensajes del cliente sin leer en las asignadas a él.
   }] }`: usuarios persona activos de la empresa con `conversaciones.ver` (con `colaId`, los miembros
   de esa cola más los que supervisan). Sirve para asignar, mencionar y «pedir ayuda al supervisor».
   **Quién supervisa** es quien tiene `conversaciones.supervisar` (rol supervisor o admin): ve y
-  supervisa todas las colas de la empresa; en la fase 1 no hay supervisor por cola.
+  supervisa todas las colas de la empresa. Desde la fase 1.1 una cola tiene además sus
+  **supervisores** (§14.1): con `colaId`, la lista trae miembros, supervisores de la cola y
+  supervisores globales. Cada agente trae `colasSupervisadas[]` y `disponibilidad` (§14.5).
 - `GET /conversaciones/{id}/plantillas` (`conversaciones.responder`) → `{ data: [{ codigo, nombre,
   variables[{ nombre, formato, obligatoria }], vistaPrevia }] }`: las plantillas aprobadas en el
   número de esa conversación (`nombre` = la de Meta; `vistaPrevia` = el texto de referencia con
@@ -571,3 +576,298 @@ verificación de identidad (§7.5); autologin a una conversación (pedido B2).
 | `manual_interno` | 422 | Enviar al cliente un manual interno (PR B) |
 | `disponible_en_fase_2` | 422 | Activar el asistente (PR B) |
 | `cursor_vencido` | 410 | Feed purgado |
+| `no_disponible_aun` | 422 | Fase 1.1: `bot.atiende = agente_autonomo` o un asistente de IA como supervisor de cola (fase 3) |
+| `conversacion_de_otro` | 409 | Fase 1.1: iniciar con un número cuya conversación activa tiene otro agente (el `detail` dice quién) |
+| `conversacion_de_otra_cola` | 409 | Fase 1.1: iniciar con un número cuya conversación no ves o es de una cola que no atiendes |
+| `sin_contacto` | 422 | Fase 1.1: el cliente no tiene teléfono en la instantánea de Argos (ni `movil` ni `telefono`) |
+| `numero_no_permitido` | 422 | Fase 1.1: iniciar desde un número que no es de tus colas (o inactivo) |
+| `no_es_tuya` | 403 | Fase 1.1: pasar una conversación que no tienes asignada sin ser supervisor (global o de su cola) |
+| `mismo_agente` | 422 | Fase 1.1: pasar la conversación a quien ya la tiene |
+| `asociacion_requiere_permiso` | 403 | Fase 1.1: iniciar sobre una conversación asociada a otro contacto sin `conversaciones.asociar` |
+
+## 14. Fase 1.1 (aprobada por el PM)
+
+Supervisores por cola, visibilidad de las conversaciones sin cola, iniciar una conversación,
+«Pasar a…», disponibilidad de los agentes, «¿Alguien la atiende?» y el bot «Cuando no hay
+agentes». Todo con la misma base, auth (persona con sesión del panel; tokens e integraciones
+reciben 404), empresa activa, errores RFC 9457, `Idempotency-Key` y `version` que el resto del
+contrato. Los objetos opcionales nuevos van **ausentes** (no `null`) y las listas nuevas son `[]`.
+
+### 14.1 Supervisores por cola
+
+Una cola tiene **miembros** (reciben y atienden sus conversaciones) y **supervisores** (una o
+varias personas). Un supervisor de cola **ve, asigna y pasa todo lo de esa cola** sin ser miembro y
+sin el permiso global `conversaciones.supervisar`; puede tomarlas y recibirlas como un miembro. No
+ve otras colas ni confirma clientes (eso sigue siendo `conversaciones.supervisar`).
+
+- `ColaConversaciones` suma: `supervisores[]` (`UsuarioRef`), `disponibles[]` (ids de los miembros y
+  supervisores de la cola que están `disponible` ahora, §14.5), `botSinConfirmacionMin` y
+  `botSinDisponiblesMin` (enteros o `null` = vale el del número, §14.6).
+- `POST /colas/{id}/supervisores` (`canales.configurar`) `{ version, usuarioIds[], asistenteIa? }`:
+  fija la lista (máx. 20; personas activas de la empresa con `conversaciones.ver`; si no, 422
+  `usuario_no_disponible`). `asistenteIa: true` responde 422 `no_disponible_aun` (fase 3: el modelo
+  ya guarda el tipo de supervisor, `persona` o `asistente`). Evento `cola.actualizada` con
+  `campos: ["supervisores"]`.
+- `POST /colas` y `POST /colas/{id}/actualizar` aceptan `botSinConfirmacionMin` y
+  `botSinDisponiblesMin` (1–1440; al actualizar, ausente = `null`, igual que `horarioId`).
+- `GET /conversaciones/agentes?colaId=`: miembros, supervisores de la cola y supervisores globales.
+  Cada `AgenteConversaciones` suma:
+  - `colasSupervisadas[]` (`ColaRef`);
+  - `abiertas` (entero): sus conversaciones activas (no resueltas) asignadas en la empresa activa;
+  - `disponibilidad`: `{ estado: "disponible" | "no_disponible", origen: "manual" | "cierre_sesion" |
+    "inactividad" | "horario", desde: fecha-hora | null }` (§14.5). Siempre presente: sin fila,
+    `{ estado: "no_disponible", origen: "manual", desde: null }`.
+- `POST /conversaciones/{id}/asignar` lo puede usar quien tiene `conversaciones.asignar` **o** es
+  supervisor de la cola de la conversación (si no, 403). El asignado puede ser miembro o supervisor
+  de la cola (o supervisor global).
+- Detalle de la conversación: `supervisores[]` (de su cola) y `equipo[]`
+  `{ id, nombre, rol: miembro | supervisor, disponible }` (miembros y supervisores de su cola; sin
+  cola, `[]`).
+
+### 14.2 Conversaciones sin cola
+
+Una conversación **sin cola** la ve todo soporte (`conversaciones.ver`) **solo mientras nadie la
+tiene**. En cuanto queda asignada, solo la ven quien la tiene, los supervisores globales y los
+mencionados (participantes). Antes la seguían viendo todos.
+
+Regla completa (`conv_visible`; también en la lista, los contadores, `/cambios` y el SSE):
+supervisor global · asignada a mí · de una cola de la que soy miembro · de una cola que superviso ·
+sin cola y sin asignar · participante (mencionado o de guardia).
+
+### 14.3 Iniciar una conversación (saliente)
+
+`POST /conversaciones/iniciar` (`conversaciones.iniciar`, **sensible**: escribe a clientes por
+iniciativa propia):
+
+```json
+{ "id": "<uuid v7 del cliente>",            // id del mensaje: el servidor es idempotente por él
+  "canalId": 3,                              // número de salida (de una de tus colas)
+  "clienteId": 4101, "servicioId": 41010,    // cliente de Argos (servicioId opcional), o
+  "contactoIrisId": 12,                      // contacto de Iris (uno de los dos)
+  "plantilla": { "codigo": "tecnico_en_camino", "variables": { … } } }
+```
+
+→ `201 { conversacion: ConversacionClienteDetalle, mensaje: MensajeConversacion, nueva: bool }`;
+el mismo `id` con el mismo contenido → `200` con el mismo cuerpo e `Idempotent-Replayed: true`;
+mismo `id` con otro contenido → 409 `mensaje_id_reutilizado`. Igual que los mensajes: el panel
+**repite el mismo id** si recibe un 5xx o se corta la red, y **usa un id nuevo** después de un 4xx.
+La respuesta no se guarda en el middleware (la clave la aplica el caso).
+
+- **Número de salida:** activo, de la empresa y cuya cola es una de la que eres miembro o
+  supervisor; un supervisor global puede usar cualquier número activo de la empresa. Si no, 422
+  `numero_no_permitido`. `GET /conversaciones/canales` trae `iniciar: bool` por número (si tú
+  puedes iniciar desde él).
+- **Plantillas del número:** `GET /conversaciones/canales/{id}/plantillas` (`conversaciones.iniciar`,
+  solo personas; lectura sin auditar) → `{ data: PlantillaDisponible[], nextCursor: null }`: las
+  plantillas aprobadas en ese número, con la misma forma que `GET /conversaciones/{id}/plantillas`
+  (`codigo`, `nombre`, `categoria`, `variables[{ nombre, formato, obligatoria }]`, `vistaPrevia`);
+  `data` es `[]` si no hay. El número debe ser uno desde el que puedes iniciar (la misma regla de
+  arriba: de una de tus colas; un supervisor global, cualquiera activo de la empresa); si no, 404.
+  `categoria` es la de Meta: `servicio` (utility) | `marketing` | `autenticacion`; todas las del
+  catálogo de Iris son `servicio`. Desde 1.1, `GET /conversaciones/{id}/plantillas` también la trae.
+- **Destinatario:** el número lo pone Iris, nunca el panel. Cliente de Argos: `movil` (si no,
+  `telefono`) de la instantánea de lectura (refrescada si tiene más de 24 h), del cliente en la
+  empresa (si no, 422 `cliente_fuera_de_empresa`; sin teléfono, 422 `sin_contacto`); el servicio,
+  si viene, debe ser suyo (`servicio_fuera_de_empresa`). Contacto de Iris: su `telefono`. El cliente
+  queda **verificado** (el número es un teléfono suyo en Argos).
+- **Permiso de contacto:** las mismas reglas que una plantilla fuera de la ventana (§8): nunca a un
+  número con baja vigente (`baja`); cliente con permiso `acepta` vigente en WhatsApp (si no,
+  `sin_permiso` / `baja`) o contacto de Iris con `acepta` por número. La plantilla debe estar
+  aprobada en ese número (`plantilla_no_aprobada`) y sus variables son las del catálogo.
+- **Conversación:** se crea en la cola del número, **asignada a quien envía**, en
+  `esperando_cliente`, con el evento de sistema `iniciada` (`actorNombre`, `plantilla`). Si ya hay
+  una conversación de ese número en ese canal (hay una sola por número, canal y empresa) se
+  **reutiliza** y la plantilla va ahí, solo si la **ves** y es **sin cola o de una cola que
+  atiendes** (miembro o supervisor de la cola; un supervisor global, cualquiera). Si no (p. ej. el
+  menú del bot la pasó a Ventas, o está resuelta en otra cola): 409 `conversacion_de_otra_cola`
+  (sin decir quién la tiene; un supervisor la asigna). Si se puede: resuelta → se reabre en la cola
+  del número; sin asignar o tuya → queda tuya; de otro agente y activa → 409
+  `conversacion_de_otro` (el `detail` dice quién; el panel ofrece abrirla o pedir «Pasar»). Con la
+  ventana de 24 h abierta en la existente solo se revisa la baja.
+- **Asociación de una conversación que ya existe:** se llena con el destinatario solo si estaba
+  vacía (sin cliente ni contacto de Iris); si es el mismo, queda igual (y verificado). Si estaba
+  asociada a otro, cambiarla exige además `conversaciones.asociar` (si no, 403 `asociacion_requiere_permiso`). El prospecto se
+  conserva.
+- **Orden de las revisiones:** permiso, re-autenticación (sesión de autologin), número de salida y
+  reenvío del id van **antes** de consultar a Argos el contacto del cliente. Si Argos no lo puede
+  dar, 422 `cliente_fuera_de_empresa` (sin el detalle de Argos).
+- **Buscar a quién escribir** (pantalla «Nueva conversación»; `conversaciones.iniciar`, solo
+  personas con sesión, lecturas sin auditar):
+  - `GET /conversaciones/destinatarios?q=&canalId=&limit=` (`q` 2–80 letras; `limit` 1–20, 10 por
+    defecto; sin cursor) → `{ data: Destinatario[], nextCursor: null }`: busca **a la vez** clientes
+    de Argos de la empresa activa en la instantánea de lectura (nombre, código o dígitos del
+    teléfono) y contactos de Iris de la empresa (nombre o dígitos), clientes primero. `data` es `[]`
+    si no hay nada (nunca `null`). Sin N+1: una llamada trae `puede` y `motivo` de cada resultado.
+  - `GET /conversaciones/destinatario?canalId=&clienteId=|contactoIrisId=` → un `Destinatario`
+    (la misma forma y las mismas reglas; 404 si el cliente o el contacto no existe).
+  - `Destinatario`:
+    ```json
+    { "tipo": "cliente",            // cliente | contacto_iris
+      "id": 4101,                   // id del cliente en Argos o del contacto de Iris
+      "nombre": "Carlos Ruiz",
+      "codigo": "C-4101",           // código del cliente en Argos; null en un contacto de Iris
+      "detalle": null,              // contacto de Iris: su tipo (proveedor, personal, prospecto, otro); cliente: null
+      "numero": "+50255120041",     // el número al que saldría (E.164); null si no tiene
+      "puede": true,
+      "motivo": null,               // null | sin_contacto | sin_permiso | baja | cliente_fuera_de_empresa | numero_no_permitido | conversacion_de_otra_cola | conversacion_de_otro
+      "conversacionId": null }      // con canalId: la conversación que ya existe de ese número en ese canal
+    ```
+    El número va completo (como en la conversación): quien tiene `conversaciones.iniciar` lo ve al
+    escribirle. `motivo` usa los mismos códigos que los 422/409 de `POST /conversaciones/iniciar`
+    (el panel muestra «Sin número de WhatsApp en Argos» con `sin_contacto`, «No acepta mensajes»
+    con `sin_permiso` o `baja`). `cliente_sin_confirmar` no aplica: el número sale de Argos. Sin
+    `canalId` solo se evalúan el número y el permiso de contacto (`numero_no_permitido`,
+    `conversacion_de_otra_cola` y `conversacion_de_otro` necesitan el número de salida). Con
+    `canalId` se revisa primero el número de salida; `conversacionId` solo viene si ves esa
+    conversación (con `conversacion_de_otra_cola`, `null`). Un `canalId` que no existe o es de otra
+    empresa da el mismo 422 (`canalId`). `puede` = `motivo` es `null`.
+- Outbox: `conversacion.creada` (si es nueva, con `origen: agente`), `conversacion.iniciada`,
+  `conversacion.asignada` (`origen: iniciar`, si cambió quién la tiene) y
+  `conversacion.mensaje_enviado`.
+
+### 14.4 «Pasar a…»
+
+`POST /conversaciones/{id}/pasar` (`conversaciones.pasar`) `{ version, usuarioId, nota? }`:
+
+- La pasa **quien la tiene** a un compañero de la misma cola (miembro o supervisor de la cola; sin
+  cola, cualquiera que atiende conversaciones en la empresa). Un supervisor global o de la cola
+  puede pasar **cualquier** conversación de la cola (también una sin asignar). Si no: 403
+  `no_es_tuya`. Al mismo que la tiene: 422 `mismo_agente`. A quien no es de la cola: 422
+  `usuario_no_disponible`.
+- Se puede pasar a alguien **no disponible**: la respuesta y el evento lo dicen y el panel avisa.
+- `nota` (1–1000, opcional) queda como nota interna; evento de sistema `pasada` (`actorNombre`,
+  `asignadoNombre`, `detalle: "no_disponible"` si lo estaba).
+- → `200 { conversacion: ConversacionClienteDetalle, destino: UsuarioRef, destinoDisponible: bool }`.
+- Outbox `conversacion.asignada` con `origen: pasar`, `disponible` (del destino) y `nota_id`
+  (o `null`).
+- «Asignar» (`conversaciones.asignar`) queda igual para supervisores (§7.3, §14.1).
+
+### 14.5 Disponibilidad de los agentes
+
+Por usuario y empresa: `disponible` | `no_disponible`. La persona la cambia a mano y pasa sola a
+`no_disponible`:
+
+| `origen` | Cuándo |
+| --- | --- |
+| `manual` | `POST /conversaciones/disponibilidad` |
+| `cierre_sesion` | La sesión con que se puso disponible (o la del último latido) se cerró o venció |
+| `inactividad` | Sin actividad en `minutosInactividad` minutos (ajuste de la empresa, 15 por defecto) |
+| `horario` | Terminó su horario de trabajo (abajo) |
+
+**Horario de trabajo del agente** (decisión de I1): el de sus colas activas (miembro o supervisor):
+el horario de la cola o, si la cola no tiene, el de los números que llegan a ella; sin ninguno,
+siempre abierto. Con varias colas vale la unión (en horario si alguna está abierta). Al ponerse
+disponible y en cada latido, Iris anota `horarioHasta` = el cierre más tardío de las franjas
+abiertas en ese momento; al llegar esa hora pasa a `no_disponible` (`horario`). Quien se pone
+disponible a mano **fuera** de su horario queda disponible (es una decisión explícita) hasta la
+inactividad, el cierre de sesión o el cierre de la próxima franja que anote un latido.
+
+- **Actividad:** `POST /conversaciones/disponibilidad/latido` (sin cuerpo, `conversaciones.ver`):
+  el panel lo llama cada 60 s mientras la persona está activa (teclado, ratón, pestaña visible).
+  Cualquier acción de la bandeja (responder, nota, tomar, asignar, pasar, transferir, etiquetar,
+  resolver, iniciar…) también cuenta. El latido **no** deja fila de auditoría ni evento y no cambia
+  el estado: responde la disponibilidad actual (si quedaste `no_disponible`, sigues así hasta
+  cambiarla).
+- `GET /conversaciones/disponibilidad` (`conversaciones.ver`) → la tuya
+  `{ estado, origen, desde, horarioHasta, minutosInactividad, version }` (sin fila: `no_disponible`,
+  `origen: manual`, `desde: null`, `version: 0`). El panel la muestra junto a tu nombre; `/yo` no
+  cambia (la disponibilidad vive en el servicio de mensajería).
+- `POST /conversaciones/disponibilidad` `{ estado, version }` (`conversaciones.ver`): auditado; si
+  cambia, evento `agente.disponibilidad_cambiada` (`origen: manual`). `version` es la del GET (0 la
+  primera vez); 409 `conflicto_version` si cambió en otra pestaña o la cambió el mantenimiento.
+- `GET /conversaciones/ajustes` (`conversaciones.ver`) → `{ minutosInactividad, version }`;
+  `POST /conversaciones/ajustes` (`canales.configurar`) `{ version, minutosInactividad }` (1–480;
+  `version` 0 la primera vez; evento `conversaciones.ajustes_cambiados`).
+- Se ve en: `GET /conversaciones/agentes` (`disponibilidad` por agente),
+  `ColaConversaciones.disponibles[]`, el detalle (`equipo[].disponible`) y `espera` de las
+  conversaciones que esperan (§14.6). No hay evento del flujo por cambio de disponibilidad: el panel
+  relee esas listas al abrir la conversación o el diálogo.
+- Los cambios automáticos los hace el mantenimiento (cada minuto; un caso por agente con la fila
+  bloqueada, así dos barridos a la vez no repiten la transición), dejan **una fila de auditoría por
+  transición** (actor sistema, `mensajeria.vencer_disponibilidad`) y emiten el mismo evento con su
+  `origen`; los manuales también se auditan. Los latidos nunca.
+
+### 14.6 «¿Alguien la atiende?» y el bot «Cuando no hay agentes»
+
+**Configuración por número**: campo `bot` de `POST /canales/{id}/configurar` (ausente = no cambia),
+que devuelven `GET /conversaciones/canales` y `GET /canales`:
+
+```json
+"bot": { "activo": true,
+         "atiende": "bot",                 // agente_autonomo: fase 3 (422 no_disponible_aun)
+         "minutosSinConfirmacion": 30,     // 1–1440
+         "minutosSinDisponibles": 3,       // 1–1440
+         "saludo": "Gracias por escribir. En este momento todos nuestros agentes están ocupados; te respondemos en cuanto se libere uno.",
+         "menu": [ { "texto": "Ventas", "colaId": 4, "etiquetaIds": [2] },          // hasta 9
+                   { "texto": "Soporte técnico", "colaId": 2, "etiquetaIds": [] } ] }
+```
+
+- `saludo` 1–1024 caracteres de texto plano; `menu[].texto` 1–60; `colaId` una cola activa de la
+  empresa; `etiquetaIds` hasta 5 etiquetas activas. La cola puede cambiar los minutos
+  (`botSinConfirmacionMin`, `botSinDisponiblesMin`, §14.1): **vale el de la cola**, como el horario.
+- `activo: false` (los números que ya existían y los nuevos hasta que alguien lo active): ni aviso ni
+  bot en horario; fuera de horario sigue la respuesta de siempre (§10.2), sin menú.
+- Migración: el `mensaje` de fuera de horario de cada número quedó también como `saludo` del bot (si
+  no había, el texto de arriba). `fueraDeHorario` no cambia y sigue mandando fuera de horario.
+
+**Con el horario abierto** (de la cola o, si no tiene, del número), al llegar un mensaje del cliente
+a una conversación **sin asignar** sin aviso ni bot ya en curso en esta espera:
+
+1. **Hay disponibles en la cola** (miembros o supervisores de la cola en `disponible`; sin cola, los
+   disponibles de la empresa): se les avisa — evento de sistema `aviso_sin_atender` (`colaNombre`,
+   `disponibles`), evento `aviso_sin_atender` del flujo solo para cada avisado (el panel muestra
+   «¿Alguien la atiende?» con la cuenta regresiva; «La atiendo» = `POST …/tomar`) y outbox
+   `conversacion.aviso_sin_atender` (para un futuro push). Si nadie la toma en
+   `minutosSinConfirmacion`, contesta el bot (`saludo` y menú) con el evento de sistema
+   `bot_atendio` (`detalle: "sin_confirmacion"`, `minutos`): «Nadie la tomó en 30 min: contestó el
+   bot».
+2. **No hay nadie disponible:** el bot manda el `saludo` **en el momento** y, si en
+   `minutosSinDisponibles` nadie la tomó, toma la conversación: manda el menú (si hay) y queda el
+   evento de sistema `bot_atendio` (`detalle: "sin_disponibles"`): «Sin agentes disponibles:
+   contestó el bot».
+
+**Con el horario cerrado:** como hoy (§10.2: `fueraDeHorario.mensaje` una vez por ventana cerrada y
+la guardia), pero lo manda el bot: con el bot activo sale `conversacion.bot_atendio` con
+`motivo: fuera_de_horario` (además de `conversacion.fuera_de_horario`) y, si tiene menú, el menú va
+en un segundo mensaje después del de fuera de horario. Esto no abre una espera: el primer mensaje
+del cliente con el horario abierto (si sigue sin asignar) avisa a los disponibles como arriba.
+
+**Menú:** si el cliente contesta con el número de una opción (`1`…`9`; se ignoran espacios y
+puntuación), la conversación pasa a la cola de la opción con sus etiquetas (se suman a las que
+tenía, máx. 10), evento de sistema `menu_elegido` (`colaNombre`, `detalle` = texto de la opción),
+outbox `conversacion.menu_elegido`, y se avisa a los disponibles de esa cola (sin otro
+temporizador: el bot ya atendió). Una respuesta que no es una opción repite el menú **una vez**; a
+la segunda, el bot deja de insistir.
+
+**Reglas comunes:**
+- El bot nunca contesta a `BAJA`/`ALTO` ni a un número o cliente con baja vigente (las reglas de §8),
+  ni con la ventana de 24 h cerrada. Sus mensajes son salientes sin `autor` con
+  `automatico: "bot"` (`"fuera_de_horario"` la respuesta de §10.2), y no cambian el estado ni el SLA.
+- Cada respuesta del bot deja una fila de auditoría como actor sistema: `mensajeria.bot_conversacion`
+  (temporizador) o `mensajeria.bot_respondio` (saludo inmediato, fuera de horario, menú repetido o
+  elegido), con la conversación y el id del mensaje (nunca el texto).
+- Tomar, asignar, pasar, transferir, resolver, iniciar o responder (si asigna) **cancelan** el
+  temporizador y el menú. El mantenimiento procesa
+  cada minuto todo lo vencido hasta ahora y vuelve a revisar con la fila bloqueada: un temporizador
+  cancelado nunca dispara y uno que ya disparó no se repite. Una vez que el bot contestó, no vuelve a
+  hacerlo en la misma espera; resolver, tomar o asignar empiezan una espera nueva.
+- `ConversacionCliente.espera` (ausente si está asignada o resuelta):
+  `{ disponibles: UsuarioRef[] (hasta 5), totalDisponibles, botContestaEn (o null),
+  botMotivo (sin_confirmacion | sin_disponibles | null), botAtendio }` para «2 disponibles en
+  Soporte», «Nadie disponible en Cobros» y «Bot en 12 min».
+- `MensajeConversacion.automatico`: `"bot"` | `"fuera_de_horario"` | `null`; el mismo valor en
+  `ConversacionCliente.ultimoMensaje.automatico` (la lista muestra «Bot: …»).
+- `Variable` (en las plantillas de la conversación, del número y de `GET /plantillas`) trae
+  `obligatoria: bool`. Hoy todas son `true` (Meta exige todos los parámetros de una plantilla
+  aprobada); el panel debe pedir solo las obligatorias.
+- Eventos de sistema nuevos (`evento.tipo`): `aviso_sin_atender`, `bot_atendio`, `menu_elegido`,
+  `pasada`, `iniciada`. `EventoSistema` suma `minutos` y `disponibles` (enteros, opcionales).
+- Tipo nuevo del flujo (SSE y `/cambios`): `aviso_sin_atender` (solo a los avisados).
+
+### 14.7 Eventos nuevos (outbox)
+
+`conversacion.iniciada`, `conversacion.aviso_sin_atender`, `conversacion.bot_atendio`,
+`conversacion.menu_elegido`, `agente.disponibilidad_cambiada` y
+`conversaciones.ajustes_cambiados`; `conversacion.asignada` suma los orígenes `pasar` e `iniciar`
+(con `pasar`, `disponible` y `nota_id`); `conversacion.creada` suma `origen` (`cliente` | `agente`).
+Detalle en `contratos/eventos.md`.

@@ -157,6 +157,9 @@ type Modulo struct {
 	prepararBoleta   *auditoria.Caso[uuid.UUID, boletaPorEnviar]
 	resultadoBoleta  *auditoria.Caso[resultadoBoleta, struct{}]
 	vencerSLA        *auditoria.Caso[struct{}, int]
+	vencerDisp       *auditoria.Caso[int64, bool]
+	auditarBot       *auditoria.Caso[botAuditado, struct{}]
+	dispararBot      *auditoria.Caso[int64, bool]
 	permisoBoleta    *auditoria.Caso[struct{}, alcanceConv]
 	// difusor despierta los flujos SSE con el NOTIFY iris_chat (EscucharChat).
 	difusor *difusor
@@ -164,7 +167,9 @@ type Modulo struct {
 	lecturas chan struct{}
 	// trasLeerCabeza: solo pruebas (entre la cabeza y los eventos de leerFeed).
 	trasLeerCabeza func()
-	retirarFoto    *auditoria.Caso[uuid.UUID, string]
+	// fallarFila: solo pruebas (un error en una fila del barrido de disponibilidad o del bot).
+	fallarFila  func(id int64) error
+	retirarFoto *auditoria.Caso[uuid.UUID, string]
 
 	prepararEnvio   *auditoria.Caso[entradaPreparar, preparado]
 	registrarEnvio  *auditoria.Caso[entradaRegistrar, registrado]
@@ -268,8 +273,11 @@ func Nuevo(cfg Config) *Modulo {
 	m.prepararBoleta = nuevoPrepararBoleta(m)
 	m.resultadoBoleta = nuevoResultadoBoleta(m)
 	m.vencerSLA = nuevoVencerSLA(m)
+	m.vencerDisp = nuevoVencerDisponibilidad(m)
+	m.dispararBot = nuevoDispararBot(m)
+	m.auditarBot = nuevoAuditarBot()
 	m.permisoBoleta = nuevoPermisoBoleta()
-	m.alRecibir = m.alRecibirFueraDeHorario
+	m.alRecibir = m.alRecibirBandeja
 	m.Horarios = nuevosCasosHorarios(m)
 	return m
 }

@@ -280,7 +280,24 @@ El tiempo real del panel va por el feed propio (`mensajeria.conv_eventos`, SSE y
 | `manual.enlace_revocado` | `enlace_id`, `manual_id`, `conversacion_id`, `empresa_id`, `actor_id` | Un supervisor revocó el enlace público (PR B). |
 
 `canal_mensajeria.actualizado` (ya existente) también sale al configurar uso, cola o número de avisos
-(`campos[]` con `usos`, `avisos_empresa`, `cola_id`), y para el número que deja de ser el de avisos.
+(`campos[]` con `usos`, `avisos_empresa`, `cola_id`; desde 1.1 también `bot`), y para el número que
+deja de ser el de avisos.
+
+### Bandeja 1.1 (contratos/conversaciones.md §14)
+
+| Evento | Payload | Cuándo |
+| --- | --- | --- |
+| `conversacion.iniciada` | `conversacion_id`, `empresa_id`, `canal_id`, `cola_id` (o null), `mensaje_id`, `plantilla`, `autor_id`, `nueva` (bool), `cliente_id` (o null), `contacto_iris_id` (o null) | Un agente escribió primero con una plantilla (`POST /conversaciones/iniciar`). Un reenvío del mismo id no emite. Sale con `conversacion.mensaje_enviado` y, si cambió quién la tiene, `conversacion.asignada` (`origen: iniciar`). |
+| `conversacion.aviso_sin_atender` | `conversacion_id`, `empresa_id`, `cola_id` (o null), `usuarios[]` (los avisados), `bot_contesta_en` (o null) | Una conversación sin asignar espera con agentes disponibles en la cola (una vez por espera; también al elegir una opción del menú, con `bot_contesta_en` null). Para un futuro push. |
+| `conversacion.bot_atendio` | `conversacion_id`, `empresa_id`, `cola_id` (o null), `motivo` (`sin_confirmacion`, `sin_disponibles`, `fuera_de_horario`), `mensaje_id` (o null), `menu` (bool: quedó esperando una opción) | Contestó el bot: nadie la tomó a tiempo, no había disponibles, o fuera de horario con el bot activo. Una vez por espera (el mantenimiento revisa con la fila bloqueada). |
+| `conversacion.menu_elegido` | `conversacion_id`, `empresa_id`, `opcion` (1–9), `texto`, `de_cola_id` (o null), `a_cola_id` (o null), `etiquetas[]` (las que se pusieron) | El cliente contestó con una opción del menú del bot. |
+| `agente.disponibilidad_cambiada` | `usuario_id`, `empresa_id` (o null), `estado` (`disponible`, `no_disponible`), `origen` (`manual`, `cierre_sesion`, `inactividad`, `horario`), `anterior`, `desde` | Cambio manual (auditado) o automático del mantenimiento (sin fila de auditoría). Los latidos no emiten. |
+| `conversaciones.ajustes_cambiados` | `empresa_id` (o null), `campos[]`, `minutos_inactividad` | `POST /conversaciones/ajustes`. |
+
+Cambios a eventos existentes (aditivos): `conversacion.asignada` suma los orígenes `pasar` (con
+`disponible` del destino y `nota_id` o null) e `iniciar`; `conversacion.creada` suma `origen`
+(`cliente` si la abrió un mensaje del cliente, `agente` al iniciar);
+`cola.actualizada` puede traer `campos: ["supervisores"]`.
 
 ## Soporte (I2)
 

@@ -12,12 +12,15 @@ import {
     MenuDesplegableEtiqueta,
     MenuDesplegableSeparador,
     MenuEnLinea,
+    PanelEmergente,
 } from "@iris/ui";
 import { ChevronDown, CircleCheck, CircleUserRound, KeyRound, LogOut, ShieldCheck, UserRound } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import { rutaConfigurarMfa } from "@/lib/cuenta/sesion";
+import { listaColas, useDisponibilidad } from "@/lib/conversaciones/disponibilidad";
 import { rutaEntrar, useSesion } from "@/lib/sesion";
+import { AvatarDisponible, ControlDisponibilidad, MiEstadoCorto, useEstoyDisponible } from "../conversaciones/disponibilidad";
 import { BloqueoContrasena, FormularioContrasena } from "./formulario-contrasena";
 
 type Props = {
@@ -60,7 +63,7 @@ export function ProveedorCuenta({ children }: { children: ReactNode }) {
 }
 
 /** Opciones de la cuenta: las mismas en el menú de la barra superior y en «Más» del teléfono. */
-function OpcionesCuenta({ cerrando, cerrarSesion, antes }: Props & { antes?: () => void }) {
+function OpcionesCuenta({ cerrando, cerrarSesion, antes, soloCorreo = false }: Props & { antes?: () => void; soloCorreo?: boolean }) {
     const { yo } = useSesion();
     const router = useRouter();
     const ruta = usePathname();
@@ -71,7 +74,7 @@ function OpcionesCuenta({ cerrando, cerrarSesion, antes }: Props & { antes?: () 
     };
     return [
         <MenuDesplegableEtiqueta key="etiqueta">
-            <span className="truncate font-medium">{yo.usuario.nombre}</span>
+            {soloCorreo ? null : <span className="truncate font-medium">{yo.usuario.nombre}</span>}
             <span className="truncate text-xs font-normal text-muted-foreground">{yo.usuario.correo}</span>
         </MenuDesplegableEtiqueta>,
         <MenuDesplegableSeparador key="sep-1" />,
@@ -133,6 +136,8 @@ function textoRol(rol: string | undefined): string {
 export function MenuUsuarioLateral({ cerrando, cerrarSesion, contraida = false }: Props & { contraida?: boolean }) {
     const { yo } = useSesion();
     const rol = textoRol(yo.usuario.roles?.[0]?.rol);
+    const disponibilidad = useDisponibilidad();
+    if (disponibilidad) return <CuentaConDisponibilidad cerrando={cerrando} cerrarSesion={cerrarSesion} contraida={contraida} rol={rol} />;
     return (
         <MenuDesplegable>
             <MenuDesplegableDisparador asChild>
@@ -156,6 +161,60 @@ export function MenuUsuarioLateral({ cerrando, cerrarSesion, contraida = false }
             </MenuDesplegableDisparador>
             <MenuDesplegableContenido align="start">{OpcionesCuenta({ cerrando, cerrarSesion })}</MenuDesplegableContenido>
         </MenuDesplegable>
+    );
+}
+
+/**
+ * Con la bandeja (fase 1.1): la cuenta al pie de la barra lateral lleva el punto de disponibilidad
+ * y abre un panel con Disponible / No disponible arriba, la línea que lo explica y debajo las
+ * opciones de siempre.
+ */
+function CuentaConDisponibilidad({ cerrando, cerrarSesion, contraida, rol }: Props & { contraida: boolean; rol: string }) {
+    const { yo } = useSesion();
+    const disponible = useEstoyDisponible();
+    const d = useDisponibilidad();
+    const colas = d ? listaColas(d.colas) : "";
+    const [abierto, setAbierto] = useState(false);
+    const estado = disponible === null ? "" : disponible ? ", disponible" : ", no disponible";
+    return (
+        <PanelEmergente
+            titulo="Tu cuenta y disponibilidad"
+            lado={contraida ? "end" : "top start"}
+            abierto={abierto}
+            alCambiar={setAbierto}
+            className="w-[min(20rem,calc(100vw-1rem))]"
+            disparador={
+                <Boton
+                    variante="fantasma"
+                    className={contraida ? "size-10 justify-center rounded-lg p-0" : "h-auto w-full justify-start gap-2.5 rounded-lg px-2 py-2 text-left font-normal"}
+                    aria-label={`Tu cuenta: ${yo.usuario.nombre}${estado}`}
+                    title="Tu cuenta"
+                >
+                    <AvatarDisponible nombre={yo.usuario.nombre} disponible={disponible} />
+                    {contraida ? null : (
+                        <span className="grid min-w-0 flex-1">
+                            <span className="truncate text-[0.8125rem] font-semibold" data-testid="usuario-nombre">
+                                {yo.usuario.nombre}
+                            </span>
+                            {disponible === null ? rol ? <span className="truncate text-xs text-muted-foreground">{rol}</span> : null : <MiEstadoCorto />}
+                        </span>
+                    )}
+                    {contraida ? null : <ChevronDown className="text-muted-foreground" />}
+                </Boton>
+            }
+        >
+            <div className="flex min-w-0 items-center gap-3">
+                <AvatarDisponible nombre={yo.usuario.nombre} disponible={disponible} tamano="md" />
+                <span className="grid min-w-0">
+                    <span className="truncate text-sm font-semibold">{yo.usuario.nombre}</span>
+                    <span className="truncate text-xs text-muted-foreground">{[rol, colas].filter(Boolean).join(" · ")}</span>
+                </span>
+            </div>
+            <ControlDisponibilidad />
+            <div className="-mx-2 border-t border-border pt-1">
+                <MenuEnLinea etiqueta="Tu cuenta">{OpcionesCuenta({ cerrando, cerrarSesion, antes: () => setAbierto(false), soloCorreo: true })}</MenuEnLinea>
+            </div>
+        </PanelEmergente>
     );
 }
 

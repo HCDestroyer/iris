@@ -248,7 +248,7 @@ SELECT c.*,
     u.nombre AS asignado_nombre,
     ac.nombre AS cliente_nombre, ci.nombre AS contacto_iris_nombre,
     um.direccion AS ultimo_direccion, um.tipo AS ultimo_tipo, um.texto AS ultimo_texto, um.creado_en AS ultimo_creado_en,
-    um.evento AS ultimo_evento,
+    um.evento AS ultimo_evento, um.automatico AS ultimo_automatico,
     (SELECT count(*) FROM mensajeria.conversacion_mensajes m
      WHERE m.conversacion_id = c.id AND m.direccion = 'entrante'
        AND m.seq > coalesce((SELECT l.hasta_seq FROM mensajeria.conversacion_lecturas l WHERE l.conversacion_id = c.id AND l.usuario_id = @usuario::bigint), 0)
@@ -355,11 +355,11 @@ SELECT * FROM mensajeria.canales WHERE coalesce(empresa_id, 0) = @empresa::bigin
 -- name: InsertarMensajeConversacion :one
 INSERT INTO mensajeria.conversacion_mensajes (id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id,
     lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, proveedor_id, hash_contenido,
-    idempotency_key, creado_en)
+    idempotency_key, creado_en, automatico)
 VALUES (@id, @conversacion_id, sqlc.narg('empresa_id'), @seq, @direccion, @tipo, sqlc.narg('texto'), sqlc.narg('adjunto_id'),
     sqlc.narg('medio_id'), sqlc.narg('lat'), sqlc.narg('lon'), sqlc.narg('plantilla'), sqlc.narg('variables'), sqlc.narg('autor_id'),
     @menciones::bigint[], sqlc.narg('evento'), sqlc.narg('respuesta_rapida_id'), sqlc.narg('estado_entrega'), sqlc.narg('proveedor_id'),
-    sqlc.narg('hash_contenido'), sqlc.narg('idempotency_key'), @creado_en)
+    sqlc.narg('hash_contenido'), sqlc.narg('idempotency_key'), @creado_en, sqlc.narg('automatico'))
 RETURNING *;
 
 -- name: MensajeConversacionPorID :one

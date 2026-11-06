@@ -1,7 +1,7 @@
 "use client";
 
 import { Aviso, Boton, CampoBusqueda, Cargando, cn, Esqueleto, GrupoSegmentado } from "@iris/ui";
-import { RotateCw, WifiOff } from "lucide-react";
+import { RotateCw, SquarePen, WifiOff } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { mensajeDeError } from "@/lib/api/errores";
@@ -12,6 +12,8 @@ import type { Contadores, Conversacion } from "@/lib/conversaciones/tipos";
 import type { Lectura } from "@/lib/lectura";
 import { useDiferido } from "@/lib/diferido";
 import { ErrorLectura } from "@/componentes/error-lectura";
+import { useSesion } from "@/lib/sesion";
+import { AvisoAtencion, esperaDe, LineaDisponibles } from "./atencion";
 import { useAhora } from "./reloj";
 import { BotonFiltros } from "./filtros";
 
@@ -31,11 +33,14 @@ type Props = {
     hrefDe: (id: number) => string;
     estadoFeed: EstadoFeed;
     detenido: "sin_sesion" | "sin_permiso" | "sesion_cambiada" | null;
+    /** Tras «La atiendo» en una fila: la conversación tomada (se aplica y se abre). */
+    alAtender: (c: Conversacion) => void;
 };
 
 /** Columna izquierda: título, filtros en un botón, búsqueda, Mías/Sin asignar/Todas y la lista. */
-export function ListaConversaciones({ className, filtros, abierta, lista, contadores, cargarMas, cargandoMas, errorMas, reintentar, alFiltrar, hrefDe, estadoFeed, detenido }: Props) {
+export function ListaConversaciones({ className, filtros, abierta, lista, contadores, cargarMas, cargandoMas, errorMas, reintentar, alFiltrar, hrefDe, estadoFeed, detenido, alAtender }: Props) {
     const ahora = useAhora(30_000);
+    const { puede } = useSesion();
     // La búsqueda va a la URL (y al servidor) cuando dejas de escribir.
     const [texto, setTexto] = useState(filtros.q);
     const diferido = useDiferido(texto, 350);
@@ -53,12 +58,21 @@ export function ListaConversaciones({ className, filtros, abierta, lista, contad
     ];
 
     return (
-        <section aria-label="Conversaciones" className={cn("min-h-0 min-w-0 flex-col border-r border-border bg-card", className)}>
+        <section aria-label="Conversaciones" className={cn("@container/lista min-h-0 min-w-0 flex-col border-r border-border bg-card", className)}>
             <div className="grid gap-2.5 border-b border-border px-3.5 pt-3.5 pb-2.5">
                 <div className="flex min-w-0 items-center gap-2">
                     <h1 className="min-w-0 flex-1 truncate text-lg font-bold">Conversaciones</h1>
                     <IndicadorFeed estado={estadoFeed} detenido={detenido} />
                     <BotonFiltros filtros={filtros} contadores={c} alCambiar={alFiltrar} />
+                    {puede(["conversaciones.iniciar"]) ? (
+                        <Boton asChild variante="contorno" tamano="sm" className="h-8 shrink-0 px-2.5 @max-[22.5rem]/lista:w-8 @max-[22.5rem]/lista:px-0">
+                            <Link href="/conversaciones/nueva" aria-label="Nueva conversación" title="Nueva conversación">
+                                <SquarePen />
+                                {/* Con la lista angosta (escritorio a 1280 px) queda el icono: el título no se corta. */}
+                                <span className="@max-[22.5rem]/lista:sr-only">Nueva</span>
+                            </Link>
+                        </Boton>
+                    ) : null}
                 </div>
                 <CampoBusqueda etiqueta="Buscar conversaciones" etiquetaVisible={false} tamano="sm" placeholder="Buscar nombre, número o ticket" valor={texto} alCambiar={setTexto} maxLength={100} />
                 <GrupoSegmentado
@@ -84,8 +98,14 @@ export function ListaConversaciones({ className, filtros, abierta, lista, contad
                 ) : (
                     <ul aria-label="Lista de conversaciones">
                         {lista.items.map((conv) => (
-                            <li key={conv.id}>
+                            <li key={conv.id} className={cn("border-b border-border", conv.id === abierta && "bg-primary/5 shadow-[inset_3px_0_0_var(--hx-primary)]")}>
                                 <FilaConversacion conv={conv} href={hrefDe(conv.id)} actual={conv.id === abierta} ahora={ahora} />
+                                {esperaDe(conv) ? (
+                                    <div className="grid gap-1.5 px-3.5 pb-2.5 pl-[3.75rem]">
+                                        <AvisoAtencion conv={conv} ahora={ahora} compacto alHecho={alAtender} />
+                                        <LineaDisponibles conv={conv} />
+                                    </div>
+                                ) : null}
                             </li>
                         ))}
                     </ul>
@@ -120,9 +140,8 @@ function FilaConversacion({ conv, href, actual, ahora }: { conv: Conversacion; h
             aria-current={actual ? "true" : undefined}
             data-conversacion={conv.id}
             className={cn(
-                "grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-0.5 border-b border-border px-3.5 py-2.5 outline-none",
+                "grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-0.5 px-3.5 py-2.5 outline-none",
                 "hover:bg-elevated focus-visible:bg-elevated focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset",
-                actual && "bg-primary/5 shadow-[inset_3px_0_0_var(--hx-primary)]",
             )}
         >
             <span aria-hidden className="relative row-span-2 flex size-9 items-center justify-center rounded-full bg-elevated text-[0.8125rem] font-semibold">
