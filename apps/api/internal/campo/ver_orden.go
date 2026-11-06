@@ -295,7 +295,7 @@ func detalles(ctx context.Context, q *campobd.Queries, ordenes []campobd.CampoOr
 		for _, n := range notas {
 			if n.OrdenID == f.ID {
 				d.Notas = append(d.Notas, NotaOrden{ID: n.ID, Texto: n.Texto, AutorID: n.AutorID, AutorNombre: n.AutorNombre,
-					Canal: n.Canal, OcurridoEn: n.OcurridoEn})
+					Canal: n.Canal, OcurridoEn: n.OcurridoEn, Version: n.Version, EditadaEn: n.EditadaEn})
 			}
 		}
 		for _, mt := range materiales {

@@ -4,6 +4,7 @@
 import {
     CODIGO_SESION_AJENA,
     ColaPosiciones,
+    crearHistorialApi,
     crearInventarioApi,
     crearLibresApi,
     crearSubidorApi,
@@ -16,6 +17,7 @@ import {
     type InventarioCampo,
     type LibresCampo,
     type OrdenCampo,
+    type OrdenHistorial,
 } from "@iris/sync";
 import { AlmacenDexie } from "@iris/sync/dexie";
 import { useSyncExternalStore } from "react";
@@ -45,6 +47,8 @@ export interface MotorAbierto {
      * la cola ni el paquete guardado.
      */
     agenda: (hasta: string) => Promise<OrdenCampo[]>;
+    /** «Historial del cliente» del menú de la orden (solo con señal). */
+    historialCliente: (clienteId: number) => Promise<OrdenHistorial[]>;
     /** Órdenes libres y tomar una (solo con señal; nunca por la cola). */
     libres: LibresCampo;
 }
@@ -101,6 +105,11 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void): 
         await verificarIdentidad();
         return (await transporte.obtenerPaquete(hasta)).datos.ordenes ?? [];
     };
+    const leerHistorial = crearHistorialApi(cliente, app);
+    const historialCliente = async (clienteId: number) => {
+        await verificarIdentidad();
+        return leerHistorial(clienteId);
+    };
     const apiLibres = crearLibresApi(cliente, app);
     const libres: LibresCampo = {
         listar: async (cursor) => {
@@ -112,7 +121,7 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void): 
             return apiLibres.tomar(id);
         },
     };
-    return { motor, posiciones, almacen, inventario, agenda, libres };
+    return { motor, posiciones, almacen, inventario, agenda, libres, historialCliente };
 }
 
 /** Estado de la cola de posiciones para React. */
