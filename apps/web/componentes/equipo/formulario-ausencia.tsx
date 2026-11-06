@@ -1,19 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-    avisar,
-    Aviso,
-    Boton,
-    Campo,
-    CampoArea,
-    CampoSelector,
-    Casilla,
-    FormularioPagina,
-    liberarProteccion,
-    SeccionFormulario,
-    Tarjeta,
-} from "@iris/ui";
+import { avisar, Aviso, Boton, CampoArea, CampoFecha, CampoHora, CampoSelector, FormularioPagina, Interruptor, liberarProteccion, SeccionFormulario, Tarjeta } from "@iris/ui";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -135,12 +123,12 @@ export function FormularioAusencia({ tecnico }: { tecnico: TecnicoDetalle }) {
                 <CampoArea etiqueta="Detalle (opcional)" rows={2} maxLength={500} error={mensaje("detalle")} {...form.register("detalle")} />
             </SeccionFormulario>
             <SeccionFormulario titulo="2. Cuándo">
-                <Casilla etiqueta="Todo el día" {...form.register("todoElDia")} />
+                <Interruptor etiqueta="Todo el día" {...form.register("todoElDia")} />
                 <div className="grid grid-cols-2 gap-3">
-                    <Campo etiqueta="Desde el día" type="date" error={mensaje("desdeDia")} {...form.register("desdeDia")} />
-                    {valores.todoElDia ? null : <Campo etiqueta="Hora" type="time" step={900} error={mensaje("desdeHora")} {...form.register("desdeHora")} />}
-                    <Campo etiqueta="Hasta el día" type="date" error={mensaje("hastaDia")} {...form.register("hastaDia")} />
-                    {valores.todoElDia ? null : <Campo etiqueta="Hora" type="time" step={900} error={mensaje("hastaHora")} {...form.register("hastaHora")} />}
+                    <CampoFecha etiqueta="Desde el día" error={mensaje("desdeDia")} {...form.register("desdeDia")} />
+                    {valores.todoElDia ? null : <CampoHora etiqueta="Hora" error={mensaje("desdeHora")} {...form.register("desdeHora")} />}
+                    <CampoFecha etiqueta="Hasta el día" error={mensaje("hastaDia")} {...form.register("hastaDia")} />
+                    {valores.todoElDia ? null : <CampoHora etiqueta="Hora" error={mensaje("hastaHora")} {...form.register("hastaHora")} />}
                 </div>
             </SeccionFormulario>
         </FormularioPagina>

@@ -3,6 +3,7 @@
 // Las pantallas importan de aquí, nunca de `@heroui/react` directamente (docs/ui/guia.md).
 export { cn } from "./utilidades";
 export { Aviso, type PropsAviso } from "./componentes/aviso";
+export { AvatarUsuario, inicialesDe, type PropsAvatarUsuario } from "./componentes/avatar-usuario";
 export { AreaTexto, CampoArea, type PropsCampoArea } from "./componentes/area-texto";
 export { Autocompletar, type OpcionAutocompletar, type PropsAutocompletar } from "./componentes/autocompletar";
 export {
@@ -18,6 +19,8 @@ export { Boton, variantesBoton, type PropsBoton, type TamanoBoton, type Variante
 export { Camara, type PropsCamara } from "./componentes/camara";
 export { Campo, type PropsCampo, type PropsEnvolturaCampo } from "./componentes/campo";
 export { CampoCodigo, CampoConIcono, type PropsCampoCodigo, type PropsCampoConIcono } from "./componentes/campo-acceso";
+export { CampoBusqueda, type PropsCampoBusqueda } from "./componentes/campo-busqueda";
+export { aNumero, CampoNumero, deNumero, type PropsCampoNumero } from "./componentes/campo-numero";
 export { Cargando, type PropsCargando } from "./componentes/cargando";
 export { Casilla, type PropsCasilla } from "./componentes/casilla";
 export {
@@ -89,7 +92,9 @@ export { GrupoOpciones, type OpcionGrupo, type PropsGrupoOpciones } from "./comp
 export { GrupoSegmentado, type OpcionSegmentada, type PropsGrupoSegmentado } from "./componentes/grupo-segmentado";
 export { Hoja, HojaCerrar, HojaContenido, HojaDisparador, type PropsHojaContenido } from "./componentes/hoja";
 export { InsigniaEstado, type PropsInsigniaEstado } from "./componentes/insignia-estado";
+export { Interruptor, type PropsInterruptor } from "./componentes/interruptor";
 export { LienzoFirma, type PropsLienzoFirma } from "./componentes/lienzo-firma";
+export { ListaOpciones, type OpcionLista, type PropsListaOpciones } from "./componentes/lista-opciones";
 export { LogoIris, MarcaIris } from "./componentes/marca";
 export { Migas, ProveedorRutas, type Miga, type PropsMigas, type PropsProveedorRutas } from "./componentes/migas";
 export {
@@ -108,17 +113,20 @@ export {
 export { PaletaBusqueda, type ElementoPaleta, type PropsPaletaBusqueda, type SeccionPaleta } from "./componentes/paleta-busqueda";
 export { PanelEmergente, type PropsPanelEmergente } from "./componentes/panel-emergente";
 export { Pestanas, type Pestana, type PropsPestanas } from "./componentes/pestanas";
-export { CampoSelector, Selector, type PropsCampoSelector, type PropsSelector } from "./componentes/selector";
+export { CampoSelector, leerOpciones, Selector, type OpcionSelector, type PropsCampoSelector, type PropsSelector } from "./componentes/selector";
 export {
     aFecha,
     aHora,
+    CampoFecha,
+    CampoHora,
+    deHora,
     hoyEnGuatemala,
     SelectorFecha,
-    SelectorHora,
     SelectorRangoFechas,
     ZONA_GUATEMALA,
+    type PropsCampoFecha,
+    type PropsCampoHora,
     type PropsSelectorFecha,
-    type PropsSelectorHora,
     type PropsSelectorRangoFechas,
     type RangoFechas,
 } from "./componentes/selector-fecha";

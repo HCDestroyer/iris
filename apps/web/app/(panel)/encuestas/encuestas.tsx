@@ -1,6 +1,6 @@
 "use client";
 
-import { Aviso, Boton, Campo, CampoSelector, Casilla, Esqueleto, EstadoVacio, Tarjeta } from "@iris/ui";
+import { Aviso, Boton, CampoFecha, CampoSelector, Casilla, Esqueleto, EstadoVacio, Tarjeta } from "@iris/ui";
 import { CalendarRange, FilterX, MessageSquareHeart } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -39,8 +39,8 @@ export function Encuestas() {
 
             <Tarjeta className="mb-4 grid gap-4 p-4" role="search" aria-label="Filtros de encuestas">
                 <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                    <Campo etiqueta="Creadas desde" type="date" value={filtros.desde} max={filtros.hasta || undefined} onChange={(e) => cambiar({ desde: e.target.value })} />
-                    <Campo etiqueta="Hasta" type="date" value={filtros.hasta} min={filtros.desde || undefined} onChange={(e) => cambiar({ hasta: e.target.value })} />
+                    <CampoFecha etiqueta="Creadas desde" value={filtros.desde} max={filtros.hasta || undefined} onChange={(e) => cambiar({ desde: e.target.value })} />
+                    <CampoFecha etiqueta="Hasta" value={filtros.hasta} min={filtros.desde || undefined} onChange={(e) => cambiar({ hasta: e.target.value })} />
                     <CampoSelector etiqueta="Tipo" value={filtros.entidad} onChange={(e) => cambiar({ entidad: e.target.value === "ticket" || e.target.value === "orden" ? e.target.value : "" })}>
                         <option value="">Tickets y órdenes</option>
                         <option value="ticket">Tickets</option>

@@ -17,10 +17,10 @@ import {
 import {
     Boton,
     Campo,
+    CampoHora,
     CampoSelector,
     DialogoConfirmar,
     SelectorFecha,
-    SelectorHora,
     cn,
 } from "@iris/ui";
 import { ArrowLeft, Ban, Check, SquareCheck } from "lucide-react";
@@ -107,17 +107,10 @@ export function NuevaTarea() {
                                 />
                             )}
                         />
-                        <Controller
-                            control={form.control}
-                            name="hora"
-                            render={({ field }) => (
-                                <SelectorHora
-                                    etiqueta="Hora"
-                                    valor={field.value || null}
-                                    alCambiar={(v) => field.onChange(v ?? "")}
-                                    error={errores.hora?.message}
-                                />
-                            )}
+                        <CampoHora
+                            etiqueta="Hora"
+                            error={errores.hora?.message}
+                            {...form.register("hora")}
                         />
                     </div>
                     <Controller

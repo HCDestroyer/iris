@@ -1,7 +1,7 @@
 "use client";
 
 import type { Schema } from "@iris/contratos";
-import { Boton, Campo, CampoSelector, Tarjeta, TarjetaContenido } from "@iris/ui";
+import { Boton, CampoFecha, CampoSelector, Tarjeta, TarjetaContenido } from "@iris/ui";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Eraser, Filter } from "lucide-react";
 import { useSearchParams } from "next/navigation";
@@ -73,8 +73,8 @@ export function HistorialAccesos() {
                                 </option>
                             ))}
                         </CampoSelector>
-                        <Campo etiqueta="Desde" type="date" {...formulario.register("desde")} error={errors.desde?.message} />
-                        <Campo etiqueta="Hasta" type="date" {...formulario.register("hasta")} error={errors.hasta?.message} />
+                        <CampoFecha etiqueta="Desde" {...formulario.register("desde")} error={errors.desde?.message} />
+                        <CampoFecha etiqueta="Hasta" {...formulario.register("hasta")} error={errors.hasta?.message} />
                         <div className="flex flex-wrap gap-2 sm:col-span-2 lg:col-span-5">
                             <Boton type="submit">
                                 <Filter />

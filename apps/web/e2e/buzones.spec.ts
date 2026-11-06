@@ -3,6 +3,7 @@ import type { Schema } from "@iris/contratos";
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, CONSULTA, conSesion, simularApi, SUPERVISOR_ZONA } from "./api-falsa";
 import { irA } from "./ayudas";
+import { elegirOpcion } from "./controles";
 
 const carpeta = process.env.IRIS_CAPTURAS ?? path.join("test-results", "capturas");
 const tarjeta = (page: Page, correo: string) => page.locator(`[data-buzon="${correo}"]`);
@@ -58,11 +59,11 @@ test.describe("buzones de correo", () => {
         await expect(d.getByText(/Servidor inválido/)).toBeVisible();
         await d.getByLabel("Servidor IMAP").fill("IMAP.isp.gt");
         // STARTTLS cambia el puerto habitual (993 → 143).
-        await d.getByLabel("Cifrado", { exact: true }).selectOption("starttls");
+        await elegirOpcion(d.getByLabel("Cifrado", { exact: true }), "starttls");
         await expect(d.getByLabel("Puerto", { exact: true })).toHaveValue("143");
         await d.getByLabel("authserv-id del servidor de correo").fill("mx.isp.gt");
         await expect(d.getByText("Sin authserv-id no se verifica a nadie")).toHaveCount(0);
-        await d.getByLabel("Prioridad por defecto").selectOption("alta");
+        await elegirOpcion(d.getByLabel("Prioridad por defecto"), "alta");
         // Paso 2: la salida por SMTP.
         await d.getByRole("tab", { name: "2. Enviar" }).click();
         await d.getByLabel("Servidor SMTP").fill("smtp.isp.gt");

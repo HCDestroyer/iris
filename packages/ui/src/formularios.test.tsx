@@ -12,10 +12,10 @@ describe("campos de formulario", () => {
                 <option value="alta">Alta</option>
             </CampoSelector>,
         );
-        expect(html).toContain('for="p"');
-        expect(html).toMatch(/<select[^>]*id="p"[^>]*>/);
-        expect(html).toMatch(/<select[^>]*aria-invalid="true"/);
-        expect(html).toMatch(/<select[^>]*aria-describedby="p-error"/);
+        // La etiqueta de HeroUI nombra el botón (con el valor elegido delante, como React Aria).
+        expect(html).toMatch(/<span[^>]*id="([^"]+)"[^>]*data-slot="label"[^>]*>Prioridad<\/span>[\s\S]*<button[^>]*id="p"[^>]*aria-labelledby="[^"]*\1"/);
+        expect(html).toMatch(/class="select[^"]*"[^>]*data-invalid="true"|data-invalid="true"[^>]*class="select/);
+        expect(html).toMatch(/<button[^>]*aria-describedby="[^"]*p-error/);
         expect(html).toContain('id="p-error"');
         expect(html).toContain("Elige una");
     });

@@ -5,6 +5,7 @@ import { Check } from "lucide-react";
 import { useCallback, useRef, useState, type ChangeEvent, type ComponentProps, type ReactNode } from "react";
 import { cn } from "../utilidades";
 import { PieCampo, useIdsCampo } from "./campo";
+import { asignarRef } from "./control-nativo";
 
 export type PropsCasilla = Omit<ComponentProps<"input">, "type"> & {
     etiqueta: ReactNode;
@@ -41,6 +42,36 @@ function conAviso(input: HTMLInputElement, alMarcar: (marcada: boolean) => void)
         },
     });
 }
+/**
+ * Estado de una casilla nativa (`Checkbox`, `Switch`): el `ref` envuelto para quien la usa, el
+ * estado que sigue a react-hook-form y el evento de cambio con `target` = el input real.
+ */
+export function useMarcaNativa({ ref, defaultChecked, onChange }: Pick<ComponentProps<"input">, "ref" | "defaultChecked" | "onChange">) {
+    const input = useRef<HTMLInputElement>(null);
+    // Un solo envoltorio por input: react-hook-form compara el elemento para no registrarlo dos veces.
+    const envuelto = useRef<{ input: HTMLInputElement; proxy: HTMLInputElement } | null>(null);
+    const [marcada, setMarcada] = useState(defaultChecked ?? false);
+    // El `<input>` real, envuelto, para el `ref` de quien usa la casilla (p. ej. `register`).
+    const conectar = useCallback(
+        (el: HTMLInputElement | null) => {
+            input.current = el;
+            let paraRef: HTMLInputElement | null = null;
+            if (el) {
+                if (envuelto.current?.input !== el) envuelto.current = { input: el, proxy: conAviso(el, setMarcada) };
+                paraRef = envuelto.current.proxy;
+            }
+            asignarRef(ref, paraRef);
+        },
+        [ref],
+    );
+    const cambiar = (valor: boolean) => {
+        setMarcada(valor);
+        const el = input.current;
+        if (el && onChange) onChange({ target: el, currentTarget: el, type: "change" } as unknown as ChangeEvent<HTMLInputElement>);
+    };
+    return { marcada, conectar, cambiar };
+}
+
 export function Casilla({
     etiqueta,
     ayuda,
@@ -61,25 +92,8 @@ export function Casilla({
     autoFocus,
 }: PropsCasilla) {
     const ids = useIdsCampo(id, error, ayuda);
-    const input = useRef<HTMLInputElement>(null);
-    // Un solo envoltorio por input: react-hook-form compara el elemento para no registrarlo dos veces.
-    const envuelto = useRef<{ input: HTMLInputElement; proxy: HTMLInputElement } | null>(null);
-    const [marcada, setMarcada] = useState(defaultChecked ?? false);
+    const { marcada, conectar, cambiar } = useMarcaNativa({ ref, defaultChecked, onChange });
     const grande = tamano === "lg";
-    // El `<input>` real, envuelto, para el `ref` de quien usa la casilla (p. ej. `register`).
-    const conectar = useCallback(
-        (el: HTMLInputElement | null) => {
-            input.current = el;
-            let paraRef: HTMLInputElement | null = null;
-            if (el) {
-                if (envuelto.current?.input !== el) envuelto.current = { input: el, proxy: conAviso(el, setMarcada) };
-                paraRef = envuelto.current.proxy;
-            }
-            if (typeof ref === "function") ref(paraRef);
-            else if (ref) ref.current = paraRef;
-        },
-        [ref],
-    );
     return (
         <div data-slot="casilla" className={cn("grid gap-1", className)}>
             <Checkbox
@@ -93,11 +107,7 @@ export function Casilla({
                 isInvalid={Boolean(error)}
                 {...(autoFocus ? { autoFocus } : {})}
                 {...(ids.control["aria-describedby"] ? { "aria-describedby": ids.control["aria-describedby"] } : {})}
-                onChange={(valor) => {
-                    setMarcada(valor);
-                    const el = input.current;
-                    if (el && onChange) onChange({ target: el, currentTarget: el, type: "change" } as unknown as ChangeEvent<HTMLInputElement>);
-                }}
+                onChange={cambiar}
                 {...(onBlur ? { onBlur: onBlur as unknown as ComponentProps<typeof Checkbox>["onBlur"] } : {})}
                 {...(onFocus ? { onFocus: onFocus as unknown as ComponentProps<typeof Checkbox>["onFocus"] } : {})}
                 className="block"

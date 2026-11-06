@@ -2,6 +2,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, CONSULTA, conSesion, simularApi, SUPERVISOR_ZONA } from "./api-falsa";
 import { pestana } from "./ayudas";
+import { buscarSugerencias, elegirOpcion, elegirSugerencia, esperarOpcion } from "./controles";
 
 const carpeta = process.env.IRIS_CAPTURAS ?? path.join("test-results", "capturas");
 
@@ -34,17 +35,19 @@ test.describe("bandeja de tickets", () => {
     });
 
     test("filtros y vistas guardadas", async ({ page, context, baseURL }) => {
+        // Recorre varios filtros con listas y fechas de HeroUI (abrir, elegir, cerrar): más tiempo.
+        test.slow();
         await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/tickets");
         await expect(filas(page)).toHaveCount(25);
 
-        await page.getByLabel("Prioridad").selectOption("critica");
+        await elegirOpcion(page.getByLabel("Prioridad"), "critica");
         await expect(filas(page)).toHaveCount(1);
         await expect(fila(page, "TK-000101")).toBeVisible();
 
-        await page.getByLabel("Estado").selectOption("resuelto");
-        await page.getByLabel("Prioridad").selectOption("todas");
+        await elegirOpcion(page.getByLabel("Estado"), "resuelto");
+        await elegirOpcion(page.getByLabel("Prioridad"), "todas");
         await expect(filas(page)).toHaveCount(1);
         await expect(fila(page, "TK-000104")).toBeVisible();
 
@@ -65,14 +68,14 @@ test.describe("bandeja de tickets", () => {
 
         // Vista propia: se guarda en este navegador.
         await vistas.getByRole("button", { name: "Activos" }).click();
-        await page.getByLabel("Prioridad").selectOption("alta");
+        await elegirOpcion(page.getByLabel("Prioridad"), "alta");
         await vistas.getByRole("button", { name: "Guardar vista" }).click();
         await page.getByRole("dialog").getByLabel("Nombre de la vista").fill("Altas");
         await page.getByRole("dialog").getByRole("button", { name: "Guardar vista" }).click();
         await expect(vistas.getByRole("button", { name: "Altas", exact: true })).toHaveAttribute("aria-pressed", "true");
         await page.reload();
         await vistas.getByRole("button", { name: "Altas", exact: true }).click();
-        await expect(page.getByLabel("Prioridad")).toHaveValue("alta");
+        await esperarOpcion(page.getByLabel("Prioridad"), "alta");
         await expect(fila(page, "TK-000102")).toBeVisible();
         await vistas.getByRole("button", { name: "Eliminar la vista «Altas»" }).click();
         await expect(vistas.getByRole("button", { name: "Altas", exact: true })).toHaveCount(0);
@@ -191,11 +194,10 @@ test.describe("alta rápida", () => {
         await dialogo.getByRole("button", { name: "Crear ticket" }).click();
         await expect(dialogo.getByText("Escribe el asunto")).toBeVisible();
         await dialogo.getByLabel("Asunto").fill("Sin señal en todo el sector");
-        await dialogo.getByLabel("Categoría").selectOption({ label: "Sin servicio" });
-        await dialogo.getByLabel("Prioridad").selectOption("alta");
-        await dialogo.getByLabel("Cliente en Argos").click();
-        await page.getByRole("combobox", { name: "Buscar cliente" }).fill("Castillo");
-        await page.getByRole("option", { name: /María Castillo/ }).click();
+        await elegirOpcion(dialogo.getByLabel("Categoría"), { label: "Sin servicio" });
+        await elegirOpcion(dialogo.getByLabel("Prioridad"), "alta");
+        await buscarSugerencias(dialogo.getByRole("combobox", { name: "Cliente en Argos" }), "Castillo");
+        await elegirSugerencia(dialogo.getByRole("combobox", { name: "Cliente en Argos" }), /María Castillo/);
         await expect(dialogo.getByTestId("cliente-elegido")).toContainText("María Castillo");
         await expect(dialogo.getByTestId("servicio-elegido")).toContainText("SV-501");
         await dialogo.getByRole("button", { name: "Crear ticket" }).click();
@@ -214,9 +216,8 @@ test.describe("alta rápida", () => {
         await expect(page).toHaveURL(/\/tickets\/nuevo$/);
         const dialogo = page.getByRole("form", { name: "Nuevo ticket" });
         await dialogo.getByLabel("Asunto").fill("Cliente sin registro");
-        await dialogo.getByLabel("Cliente en Argos").click();
-        await page.getByRole("combobox", { name: "Buscar cliente" }).fill("Pérez");
-        await expect(page.getByTestId("dialogo-cliente").getByText("Conector con Argos apagado")).toBeVisible();
+        await dialogo.getByRole("combobox", { name: "Cliente en Argos" }).fill("Pérez");
+        await expect(dialogo.getByTestId("selector-cliente").getByText("Conector con Argos apagado")).toBeVisible();
         await page.keyboard.press("Escape");
         await expect(dialogo.getByRole("group", { name: "Datos de contacto" })).toBeVisible();
         await dialogo.getByLabel("Nombre").fill("Pedro Pérez");

@@ -3,6 +3,7 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { ADMIN, CONSULTA, DESPACHO, conSesion, simularApi, type ApiFalsa } from "./api-falsa";
 import { confirmacion, enlaceMenu, irA, pestana, sinEntradas } from "./ayudas";
 import { JORGE, LUCIA } from "./datos-agenda";
+import { elegirOpcion, escribirHora, esperarValorCampo, textosOpciones } from "./controles";
 
 /*
  * Agenda de mes (conteos por estado, conflictos, filtros y detalle del día) y la administración de
@@ -55,11 +56,11 @@ test.describe("agenda de mes", () => {
         await captura(page, info, "50-agenda-mes");
 
         // Filtro por técnico: va a la URL y a GET /agenda.
-        await page.getByLabel("Técnico", { exact: true }).selectOption(String(JORGE));
+        await elegirOpcion(page.getByLabel("Técnico", { exact: true }), String(JORGE));
         await expect(page).toHaveURL(new RegExp(`tecnico=${JORGE}`));
         await expect.poll(() => ultima(api, "/api/v1/agenda")?.query.get("tecnicoId")).toBe(String(JORGE));
         await expect(visible(page, `[data-dia="${hoy}"]`).locator("[data-conflictos]")).toHaveCount(0);
-        await page.getByLabel("Técnico", { exact: true }).selectOption("");
+        await elegirOpcion(page.getByLabel("Técnico", { exact: true }), "");
 
         // Al elegir el día, su resumen aparece al lado: las citas por hora con su técnico y la ausencia.
         await visible(page, `[data-dia="${hoy}"]`).click();
@@ -82,13 +83,13 @@ test.describe("agenda de mes", () => {
         // Programar una pendiente desde el día: el día viene puesto; sin técnico ni hora no se puede.
         await page.getByTestId("sin-programar").getByRole("button", { name: "Programar OT-000002" }).click();
         const d = dialogo(page);
-        await expect(d.getByLabel("Día", { exact: true })).toHaveValue(hoy);
+        await esperarValorCampo(d, "Día", hoy);
         const programar = d.getByRole("button", { name: "Programar" });
         await expect(programar).toBeDisabled();
         await expect(d.locator("p").getByText("Elige el técnico")).toBeVisible();
         await expect(d.locator("p").getByText("Elige la hora")).toBeVisible();
-        await d.getByLabel("Técnico", { exact: true }).selectOption(String(JORGE));
-        await d.getByLabel("Hora", { exact: true }).fill("10:00");
+        await elegirOpcion(d.getByLabel("Técnico", { exact: true }), String(JORGE));
+        await escribirHora(d, "Hora", "10:00");
         await expect(d.getByTestId("disponibilidad")).toContainText("Jorge Méndez tiene libre ese horario");
         await expect(programar).toBeEnabled();
         await captura(page, info, "52-agenda-programar-dia");
@@ -99,7 +100,7 @@ test.describe("agenda de mes", () => {
         await expect(confirmar).toBeVisible();
         await expect(confirmar).toContainText("¿Descartar los cambios?");
         await confirmar.getByRole("button", { name: "Seguir editando" }).click();
-        await expect(d.getByLabel("Hora", { exact: true })).toHaveValue("10:00");
+        await esperarValorCampo(d, "Hora", "10:00");
 
         await programar.click();
         await expect(page.getByTestId("movida")).toContainText("OT-000002 programada: Jorge Méndez");
@@ -130,7 +131,7 @@ test.describe("agenda de mes", () => {
         const bandeja = page.getByTestId("sin-programar");
         await expect(bandeja.locator('[data-sin-programar="OT-000002"]')).toBeVisible();
         await bandeja.getByRole("button", { name: "Programar OT-000002" }).click();
-        await expect(dialogo(page).getByLabel("Día", { exact: true })).toHaveValue(hoyGt());
+        await esperarValorCampo(dialogo(page), "Día", hoyGt());
         await captura(page, info, "61-agenda-dia-truncada");
     });
 
@@ -172,12 +173,15 @@ test.describe("técnicos", () => {
         // El usuario se busca en el servidor con `q`.
         await d.getByLabel("Buscar usuario", { exact: true }).fill("marta");
         await expect.poll(() => ultima(api, "/api/v1/tecnicos/candidatos")?.query.get("q")).toBe("marta");
-        await expect(d.getByLabel("Usuario", { exact: true }).locator("option")).toHaveText(["Elige el usuario", "Marta Cux · marta@iris.test"]);
+        await expect.poll(() => textosOpciones(d.getByLabel("Usuario", { exact: true }))).toEqual(["Elige el usuario", "Marta Cux · marta@iris.test"]);
         await d.getByLabel("Buscar usuario", { exact: true }).fill("");
-        await expect(d.getByLabel("Usuario", { exact: true }).locator("option")).toHaveCount(3);
-        await d.getByLabel("Usuario", { exact: true }).selectOption({ label: "Pablo Xol · pablo@iris.test" });
+        // Se espera la lectura sin `q` antes de abrir la lista: si los resultados llegan con la lista
+        // abierta, se rehace debajo del dedo.
+        await expect.poll(() => ultima(api, "/api/v1/tecnicos/candidatos")?.query.has("q")).toBe(false);
+        await expect.poll(async () => (await textosOpciones(d.getByLabel("Usuario", { exact: true }))).length).toBe(3);
+        await elegirOpcion(d.getByLabel("Usuario", { exact: true }), { label: "Pablo Xol · pablo@iris.test" });
         await expect(crear).toBeDisabled();
-        await d.getByLabel("Cuadrilla", { exact: true }).selectOption({ label: "Cuadrilla Sur" });
+        await elegirOpcion(d.getByLabel("Cuadrilla", { exact: true }), { label: "Cuadrilla Sur" });
         await expect(d.getByText("Atiende: Centro, Mixco")).toBeVisible();
         await d.getByLabel("Teléfono", { exact: true }).fill("llámame");
         await d.getByLabel("Habilidades", { exact: true }).click();
@@ -201,8 +205,8 @@ test.describe("técnicos", () => {
         await expect(page).toHaveURL(/\/tecnicos$/);
 
         await page.getByRole("link", { name: "Nuevo técnico" }).click();
-        await d.getByLabel("Usuario", { exact: true }).selectOption({ label: "Pablo Xol · pablo@iris.test" });
-        await d.getByLabel("Cuadrilla", { exact: true }).selectOption({ label: "Cuadrilla Sur" });
+        await elegirOpcion(d.getByLabel("Usuario", { exact: true }), { label: "Pablo Xol · pablo@iris.test" });
+        await elegirOpcion(d.getByLabel("Cuadrilla", { exact: true }), { label: "Cuadrilla Sur" });
         await d.getByLabel("Teléfono", { exact: true }).fill("+502 5555-1234");
         await d.getByLabel("Habilidades", { exact: true }).fill("Fibra, altura");
         await crear.click();
@@ -217,6 +221,8 @@ test.describe("técnicos", () => {
     });
 
     test("editar, desactivar y la ficha con turnos y ausencias", async ({ page, context, baseURL }, info) => {
+        // Recorre varias pantallas con listas, fechas y horas de HeroUI (abrir, elegir, cerrar): más tiempo.
+        test.slow();
         const api = await simularApi(page, { despacho: true });
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/tecnicos");
@@ -261,10 +267,10 @@ test.describe("técnicos", () => {
         const guardarTurnos = t.getByRole("button", { name: "Guardar turnos" });
         await expect(t.getByText("Elige el día")).toBeVisible();
         await expect(guardarTurnos).toBeDisabled();
-        await t.locator('[data-turno="5"]').getByLabel("Día").selectOption({ label: "Lunes" });
+        await elegirOpcion(t.locator('[data-turno="5"]').getByLabel("Día"), { label: "Lunes" });
         await expect(t.getByText("Se cruza con otro turno del lunes")).toBeVisible();
         await expect(guardarTurnos).toBeDisabled();
-        await t.locator('[data-turno="5"]').getByLabel("Día").selectOption({ label: "Sábado" });
+        await elegirOpcion(t.locator('[data-turno="5"]').getByLabel("Día"), { label: "Sábado" });
         await t.locator('[data-turno="5"]').getByLabel("Hasta").fill("12:00");
         await expect(guardarTurnos).toBeEnabled();
         await captura(page, info, "56-turnos");
@@ -285,7 +291,7 @@ test.describe("técnicos", () => {
         await expect(registrar).toBeDisabled();
         await expect(registrar).toHaveAccessibleDescription("Falta elegir el motivo para guardar.");
         await expect(a.getByText("Elige el motivo de la ausencia")).toBeVisible();
-        await a.getByLabel("Motivo", { exact: true }).selectOption({ label: "Enfermedad" });
+        await elegirOpcion(a.getByLabel("Motivo", { exact: true }), { label: "Enfermedad" });
         await expect(registrar).toBeEnabled();
         await captura(page, info, "57-ausencia");
         await registrar.click();

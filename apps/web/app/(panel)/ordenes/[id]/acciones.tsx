@@ -1,7 +1,21 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { avisar, Aviso, Boton, BotonEnviar, Campo, CampoArea, CampoSelector, DialogoCerrar, DialogoPie, PanelProtegido, useCambiosSinGuardar } from "@iris/ui";
+import {
+    avisar,
+    Aviso,
+    Boton,
+    BotonEnviar,
+    Campo,
+    CampoArea,
+    CampoFecha,
+    CampoHora,
+    CampoSelector,
+    DialogoCerrar,
+    DialogoPie,
+    PanelProtegido,
+    useCambiosSinGuardar,
+} from "@iris/ui";
 import { Ban, CalendarClock, CalendarSync, CirclePause, CirclePlay, RotateCcw, RotateCw, UserRoundPlus, type LucideIcon } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 import { useForm, useWatch, type FieldValues, type Path, type UseFormRegisterReturn, type UseFormSetError } from "react-hook-form";
@@ -305,8 +319,8 @@ function FormProgramar({ orden, enviar, pie, usuarios, reprogramar }: PropsFormu
                 registro={form.register("tecnicoId")}
             />
             <div className="grid grid-cols-2 gap-3">
-                <Campo etiqueta="Fecha" type="date" error={errores.fecha?.message} {...form.register("fecha")} />
-                <Campo etiqueta="Hora" type="time" step={300} error={errores.hora?.message} {...form.register("hora")} />
+                <CampoFecha etiqueta="Fecha" error={errores.fecha?.message} {...form.register("fecha")} />
+                <CampoHora etiqueta="Hora" error={errores.hora?.message} {...form.register("hora")} />
             </div>
             <p className="-mt-2 text-sm text-muted-foreground">Hora de Guatemala. El fin se calcula con la duración del tipo de orden.</p>
             {reprogramar ? (

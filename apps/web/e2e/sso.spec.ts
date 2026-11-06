@@ -3,6 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, CODIGO_OK, CONSULTA, CONTRASENA, SOPORTE, SUPERVISOR_ZONA, conSesion, simularApi } from "./api-falsa";
 import { TICKETS } from "./api-sso";
 import { abrirCuenta, avisoError, esTelefono } from "./ayudas";
+import { elegirOpcion } from "./controles";
 
 /*
  * Autologin desde Argos (`/sso/entrar#<ticket>`), re-autenticación de una sesión sso, cuentas
@@ -217,7 +218,7 @@ test.describe("re-autenticación y cuentas vinculadas", () => {
         await expect(page.getByRole("heading", { name: CONSULTA.nombre })).toBeVisible();
         await page.getByRole("button", { name: "Vincular cuenta de Argos" }).click();
         const dialogo = page.getByRole("dialog", { name: "Vincular cuenta de Argos" });
-        await dialogo.getByRole("combobox", { name: "Conector de Argos" }).selectOption({ label: "Argos · https://argos.fibra.test" });
+        await elegirOpcion(dialogo.getByLabel("Conector de Argos"), { label: "Argos · https://argos.fibra.test" });
         await dialogo.getByLabel("Id de la cuenta en Argos").fill("argos-6");
         await dialogo.getByRole("button", { name: "Vincular", exact: true }).click();
         await expect(dialogo.getByText("Esa cuenta de Argos ya está vinculada con otro usuario de Iris.")).toBeVisible();
@@ -269,7 +270,7 @@ test.describe("conectores", () => {
         expect(api.peticiones.filter((p) => p.ruta.endsWith("/conectar"))).toHaveLength(0);
 
         await dialogo.getByRole("button", { name: "Volver" }).click();
-        await dialogo.getByRole("combobox", { name: "Sistema" }).selectOption("horus");
+        await elegirOpcion(dialogo.getByLabel("Sistema"), "horus");
         await dialogo.getByLabel("Enlace de conexión").fill("https://horus.fibra.test/conectar#abc123");
         await dialogo.getByRole("button", { name: "Revisar enlace" }).click();
         await expect(dialogo.getByText("El token de Iris irá a https://horus.fibra.test")).toBeVisible();

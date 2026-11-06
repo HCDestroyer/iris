@@ -25,9 +25,8 @@ export function SelectorEmpresa() {
     }
     const activa = yo.empresaActiva?.id;
     return (
-        <label className="flex min-w-0 items-center gap-1.5">
+        <span className="flex min-w-0 items-center gap-1.5">
             <Building2 aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-            <span className="sr-only">Empresa activa</span>
             <Selector
                 tamano="sm"
                 aria-label="Empresa activa"
@@ -51,7 +50,7 @@ export function SelectorEmpresa() {
                     </option>
                 ))}
             </Selector>
-        </label>
+        </span>
     );
 }
 

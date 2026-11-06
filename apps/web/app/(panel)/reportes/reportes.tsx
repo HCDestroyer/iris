@@ -1,9 +1,9 @@
 "use client";
 
-import { Aviso, Boton, Campo, CampoSelector, Casilla, GrupoSegmentado, Tarjeta } from "@iris/ui";
+import { Aviso, Boton, CampoFecha, CampoSelector, Casilla, GrupoSegmentado, Tarjeta } from "@iris/ui";
 import { CalendarRange, FilterX } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useZonas } from "@/componentes/comercial/comun";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { useCategorias } from "@/componentes/tickets/catalogos";
@@ -112,7 +112,7 @@ export function Reportes() {
             </CampoSelector>
 
             <Tarjeta className="mb-4 grid gap-4 p-4" role="search" aria-label="Filtros del reporte">
-                <Periodo key={`${filtros.desde}|${filtros.hasta}`} desde={filtros.desde} hasta={filtros.hasta} alCambiar={(desde, hasta) => cambiar({ desde, hasta })} />
+                <Periodo desde={filtros.desde} hasta={filtros.hasta} alCambiar={(desde, hasta) => cambiar({ desde, hasta })} />
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     <CampoSelector
@@ -260,13 +260,40 @@ function opciones<T>(lista: readonly T[] | null, elegido: number | null, id: (x:
 /** Período: atajos y las dos fechas. Una fecha a medio escribir no se aplica hasta ser válida. */
 function Periodo({ desde, hasta, alCambiar }: { desde: string; hasta: string; alCambiar: (desde: string, hasta: string) => void }) {
     const [borrador, setBorrador] = useState({ desde, hasta });
+    // La fecha se escribe por partes (día, mes, año) y cada parte puede dejar una fecha válida a
+    // medias (15/01 mientras se escribe 15/11): el período se aplica 500 ms después del último
+    // cambio, y el campo no se vuelve a montar (perdería el foco a medio escribir). Si la URL cambia
+    // por otra cosa (atajo, «Quitar filtros», Atrás), el borrador toma el período nuevo; el eco de lo
+    // que se mandó desde aquí (aunque llegue tarde) no pisa lo que se sigue escribiendo.
+    const actual = `${desde}|${hasta}`;
+    const [previo, setPrevio] = useState(actual);
+    const [enviados, setEnviados] = useState<readonly string[]>([]);
+    if (actual !== previo) {
+        setPrevio(actual);
+        const eco = enviados.indexOf(actual);
+        if (eco >= 0) {
+            // El eco se consume (con los anteriores): si después se vuelve a ese período con Atrás,
+            // ya no es un eco y los campos lo toman.
+            setEnviados(enviados.slice(eco + 1));
+        } else {
+            setBorrador({ desde, hasta });
+            setEnviados([]);
+        }
+    }
     // Solo lo que la persona escribió; un período inválido en la URL lo explica el aviso de abajo.
     const editado = borrador.desde !== desde || borrador.hasta !== hasta;
     const error = editado ? errorDeRango(borrador.desde, borrador.hasta) : undefined;
+    const espera = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    useEffect(() => () => clearTimeout(espera.current), []);
     const editar = (parcial: Partial<typeof borrador>) => {
         const nuevo = { ...borrador, ...parcial };
         setBorrador(nuevo);
-        if (!errorDeRango(nuevo.desde, nuevo.hasta)) alCambiar(nuevo.desde, nuevo.hasta);
+        clearTimeout(espera.current);
+        if (errorDeRango(nuevo.desde, nuevo.hasta)) return;
+        espera.current = setTimeout(() => {
+            setEnviados((e) => [...e.slice(-9), `${nuevo.desde}|${nuevo.hasta}`]);
+            alCambiar(nuevo.desde, nuevo.hasta);
+        }, 500);
     };
     return (
         <div className="grid gap-3 lg:grid-cols-[auto_minmax(0,1fr)] lg:items-end">
@@ -277,6 +304,8 @@ function Periodo({ desde, hasta, alCambiar }: { desde: string; hasta: string; al
                     opciones={OPCIONES_ATAJO}
                     valor={atajoDe({ desde, hasta })}
                     alCambiar={(a) => {
+                        // Un atajo gana a lo que se estaba escribiendo: la espera de 500 ms no lo pisa.
+                        clearTimeout(espera.current);
                         const p = periodoDe(a);
                         alCambiar(p.desde, p.hasta);
                     }}
@@ -284,8 +313,8 @@ function Periodo({ desde, hasta, alCambiar }: { desde: string; hasta: string; al
                 />
             </div>
             <div className="grid grid-cols-2 gap-3 sm:max-w-md">
-                <Campo etiqueta="Desde" type="date" className="[&_input]:sm:text-sm" value={borrador.desde} max={borrador.hasta || undefined} onChange={(e) => editar({ desde: e.target.value })} />
-                <Campo etiqueta="Hasta" type="date" className="[&_input]:sm:text-sm" value={borrador.hasta} min={borrador.desde || undefined} onChange={(e) => editar({ hasta: e.target.value })} />
+                <CampoFecha etiqueta="Desde" value={borrador.desde} max={borrador.hasta || undefined} onChange={(e) => editar({ desde: e.target.value })} />
+                <CampoFecha etiqueta="Hasta" value={borrador.hasta} min={borrador.desde || undefined} onChange={(e) => editar({ hasta: e.target.value })} />
             </div>
             {error ? (
                 <p className="text-sm text-error lg:col-span-2" role="status">

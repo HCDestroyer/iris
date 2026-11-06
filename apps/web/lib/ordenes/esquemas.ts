@@ -18,7 +18,7 @@ const textoOpcional = (max: number) =>
         .max(max, maximo(max))
         .transform((v) => (v === "" ? undefined : v));
 
-/** Id numérico opcional desde un `<select>` o un campo de texto (vacío = ninguno). */
+/** Id numérico opcional desde una lista (`Selector`) o un campo de texto (vacío = ninguno). */
 const idOpcional = z
     .string()
     .trim()

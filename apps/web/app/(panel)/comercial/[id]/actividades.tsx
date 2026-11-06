@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { avisar, Boton, Campo, CampoArea, CampoSelector, Esqueleto, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { avisar, Boton, Campo, CampoArea, CampoFecha, CampoHora, CampoSelector, Esqueleto, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { CalendarClock, Plus } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
@@ -125,8 +125,8 @@ function NuevaActividad({ prospectoId, alCancelar, alHecho }: { prospectoId: num
             <Campo etiqueta="Resultado (opcional)" error={errors.resultado?.message} {...formulario.register("resultado")} />
             <Campo etiqueta="Próxima acción (opcional)" error={errors.proximaAccion?.message} {...formulario.register("proximaAccion")} />
             <div className="grid gap-3 sm:grid-cols-2">
-                <Campo etiqueta="Día de la próxima acción" type="date" error={errors.proximaDia?.message} {...formulario.register("proximaDia")} />
-                <Campo etiqueta="Hora (opcional)" type="time" error={errors.proximaHora?.message} {...formulario.register("proximaHora")} />
+                <CampoFecha etiqueta="Día de la próxima acción" error={errors.proximaDia?.message} {...formulario.register("proximaDia")} />
+                <CampoHora etiqueta="Hora (opcional)" error={errors.proximaHora?.message} {...formulario.register("proximaHora")} />
             </div>
             <AvisoAccion envio={envio} que="registrar la actividad" recargar={async () => undefined} />
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

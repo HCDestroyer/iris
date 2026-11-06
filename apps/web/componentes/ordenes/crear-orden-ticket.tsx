@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Schema } from "@iris/contratos";
-import { avisar, Aviso, Boton, Campo, CampoArea, CampoSelector, FormularioPagina, liberarProteccion, SeccionFormulario } from "@iris/ui";
+import { avisar, Aviso, Boton, Campo, CampoArea, CampoFecha, CampoHora, CampoSelector, FormularioPagina, liberarProteccion, SeccionFormulario } from "@iris/ui";
 import { RotateCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
@@ -210,8 +210,8 @@ function Formulario({
             <fieldset className="grid gap-2 rounded-md border p-3">
                 <legend className="px-1 text-sm font-medium">Visita (opcional)</legend>
                 <div className="grid grid-cols-2 gap-3">
-                    <Campo etiqueta="Fecha" type="date" error={errores.fecha?.message} {...form.register("fecha")} />
-                    <Campo etiqueta="Hora" type="time" step={300} error={errores.hora?.message} {...form.register("hora")} />
+                    <CampoFecha etiqueta="Fecha" error={errores.fecha?.message} {...form.register("fecha")} />
+                    <CampoHora etiqueta="Hora" error={errores.hora?.message} {...form.register("hora")} />
                 </div>
                 <p className="text-xs text-muted-foreground">Hora de Guatemala. Con fecha, la orden queda programada para el técnico; sin fecha, pendiente.</p>
             </fieldset>

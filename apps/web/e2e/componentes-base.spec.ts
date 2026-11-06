@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { conSesion } from "./api-falsa";
+import { boton, buscarSugerencias, elegirOpcion, elegirSugerencia, escribirFecha, escribirHora, esperarOpcion, esperarValorCampo } from "./controles";
 
 // Prueba de humo de la fase 0 de HeroUI: el tema Horus llega a los componentes y los componentes
 // base nuevos (pestañas, avisos emergentes, migas, fecha, autocompletar, globo, panel emergente y
@@ -65,17 +66,18 @@ test("migas, pestañas, globo, panel emergente, fecha y autocompletar", async ({
     const fecha = page.getByRole("group", { name: "Fecha de la visita" });
     await expect(fecha.getByRole("spinbutton", { name: /día/ })).toHaveText("4");
     await expect(fecha.getByRole("spinbutton", { name: /mes/ })).toHaveText("11");
-    await page.getByRole("button", { name: "Abrir calendario" }).click();
+    // El primero es el de «Fecha de la visita» (el segundo, el del campo «Día» de abajo).
+    await page.getByRole("button", { name: "Abrir calendario" }).first().click();
     await expect(page.getByRole("dialog").getByRole("grid")).toBeVisible();
     await page.keyboard.press("Escape");
     // Al terminar de cerrarse, el calendario devuelve el foco a su botón: se espera a que se vaya
     // para que ese foco no le quite el suyo (y cierre la lista) al campo «Técnico».
     await expect(page.getByRole("dialog")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Abrir calendario" })).toBeFocused();
+    await expect(page.getByRole("button", { name: "Abrir calendario" }).first()).toBeFocused();
 
     const tecnico = page.getByRole("combobox", { name: "Técnico" });
-    await tecnico.fill("an");
-    await page.getByRole("option", { name: /Ana Cux/ }).click();
+    await buscarSugerencias(tecnico, "an");
+    await elegirSugerencia(tecnico, /Ana Cux/);
     await expect(tecnico).toHaveValue("Ana Cux");
     await sinDesborde(page);
 });
@@ -124,4 +126,53 @@ test("formulario en pantalla propia: salir con cambios pregunta (enlace, migas y
     await expect(confirmar).toBeVisible();
     await confirmar.getByRole("button", { name: "Descartar cambios" }).click();
     await expect(page).toHaveURL(/\/demo-ui\/destino$/);
+});
+
+test("lista, fecha y hora de HeroUI con react-hook-form: valores iniciales, elegir, reset, setValue y foco del error", async ({ page }) => {
+    await page.goto("/demo-ui");
+    const grupo = page.getByRole("group", { name: "Con react-hook-form" });
+    const valores = page.getByTestId("valores-rhf");
+    await expect(valores).toHaveText('{"prioridad":"media","dia":"2026-11-04","hora":"08:30"}');
+    const prioridad = boton(grupo.getByLabel("Prioridad"));
+    await esperarOpcion(prioridad, "media");
+
+    // La opción deshabilitada se ve pero no se elige; la lista cabe en la pantalla.
+    await prioridad.click();
+    const lista = page.getByRole("listbox", { name: "Prioridad" });
+    await expect(lista.getByRole("option", { name: "Urgente (sin permiso)" })).toBeDisabled();
+    const caja = await lista.boundingBox();
+    const ancho = page.viewportSize()?.width ?? 0;
+    expect(caja !== null && caja.x >= 0 && caja.x + caja.width <= ancho).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(lista).toHaveCount(0);
+
+    await elegirOpcion(prioridad, "alta");
+    await escribirFecha(grupo, "Día", "2026-12-05");
+    await escribirHora(grupo, "Hora", "17:05");
+    await expect(valores).toHaveText('{"prioridad":"alta","dia":"2026-12-05","hora":"17:05"}');
+
+    // reset: la lista, la fecha y la hora quedan vacías.
+    await grupo.getByRole("button", { name: "Vaciar" }).click();
+    await expect(valores).toHaveText('{"prioridad":"","dia":"","hora":""}');
+    await esperarOpcion(prioridad, "");
+    await expect(prioridad).toContainText("Sin prioridad");
+    await esperarValorCampo(grupo, "Día", "");
+    await esperarValorCampo(grupo, "Hora", "");
+
+    // Validar: errores junto a cada campo y el foco en el primero (el botón de la lista).
+    await grupo.getByRole("button", { name: "Validar" }).click();
+    await expect(grupo.getByText("Elige la prioridad")).toBeVisible();
+    await expect(grupo.getByText("Elige el día")).toBeVisible();
+    await expect(grupo.getByText("Escribe la hora")).toBeVisible();
+    await expect(prioridad).toBeFocused();
+
+    // setValue: se ve lo que puso el formulario.
+    await grupo.getByRole("button", { name: "Llenar" }).click();
+    await expect(valores).toHaveText('{"prioridad":"alta","dia":"2026-12-24","hora":"17:45"}');
+    await expect(prioridad).toContainText("Alta");
+    await expect(grupo.getByRole("spinbutton", { name: /día/ })).toHaveText("24");
+    await expect(grupo.getByRole("spinbutton", { name: /hora/ })).toHaveText("17");
+    await grupo.getByRole("button", { name: "Validar" }).click();
+    await expect(page.getByTestId("enviado-rhf")).toHaveText('{"prioridad":"alta","dia":"2026-12-24","hora":"17:45"}');
+    await sinDesborde(page);
 });
