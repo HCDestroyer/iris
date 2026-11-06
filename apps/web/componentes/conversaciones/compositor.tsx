@@ -200,6 +200,7 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                 <div
                     role="group"
                     aria-label="Respuestas rápidas"
+                    data-desborde-permitido
                     className="flex gap-1.5 overflow-x-auto pb-2 [mask-image:linear-gradient(90deg,#000_85%,transparent)] [scrollbar-width:none]"
                 >
                     {deLaCola.slice(0, 8).map((r) => (

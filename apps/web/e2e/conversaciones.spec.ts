@@ -35,6 +35,7 @@ test.describe("bandeja de conversaciones", () => {
         await expect(carlos).toContainText("2 sin leer");
         await expect(page.getByRole("radio", { name: /Mías\s*1/ })).toBeVisible();
         await esperarSinDesbordes(page);
+        if (esTelefono(page)) await page.screenshot({ path: path.join(carpeta, `bandeja-lista-${info.project.name}.png`) });
 
         await carlos.click();
         await expect(page).toHaveURL(/\?c=41$/);
@@ -106,9 +107,10 @@ test.describe("bandeja de conversaciones", () => {
         expect(api.conversaciones.enviados.some((e) => e.ruta.endsWith("/notas"))).toBe(true);
     });
 
-    test("ventana cerrada: solo plantillas aprobadas, explicado en una línea", async ({ page }) => {
+    test("ventana cerrada: solo plantillas aprobadas, explicado en una línea", async ({ page }, info) => {
         await abrir(page, ADMIN.correo, "/conversaciones?c=44");
         await expect(page.getByText("WhatsApp solo deja mandarle una plantilla aprobada en este número")).toBeVisible();
+        await page.screenshot({ path: path.join(carpeta, `bandeja-ventana-cerrada-${info.project.name}.png`) });
         await expect(page.getByRole("textbox", { name: /Mensaje para/ })).toHaveCount(0);
         await page.getByRole("button", { name: "Elegir plantilla" }).click();
         await page.getByRole("button", { name: /Seguimiento de soporte/ }).click();
@@ -192,7 +194,7 @@ test.describe("bandeja de conversaciones", () => {
         await expect(page.getByRole("log", { name: "Mensajes" })).toContainText("¿A qué hora viene el técnico?", { timeout: 10_000 });
     });
 
-    test("tomar una sin asignar y filtros en un solo botón", async ({ page }) => {
+    test("tomar una sin asignar y filtros en un solo botón", async ({ page }, info) => {
         await abrir(page, ADMIN.correo, "/conversaciones?c=42");
         const conv = page.getByRole("region", { name: "Conversación con María López" });
         await conv.getByRole("button", { name: /Sin asignar\. Asignar/ }).click();
@@ -204,6 +206,7 @@ test.describe("bandeja de conversaciones", () => {
         await page.getByRole("checkbox", { name: "Cobros" }).click();
         await expect(page).toHaveURL(/canal=4/);
         await expect(page.getByRole("button", { name: "Filtros (1 activos)" })).toBeVisible();
+        await page.screenshot({ path: path.join(carpeta, `bandeja-filtros-${info.project.name}.png`) });
         await page.keyboard.press("Escape");
         await expect(fila(page, 41)).toHaveCount(0);
         await expect(fila(page, 42)).toBeVisible();
@@ -220,12 +223,16 @@ test.describe("bandeja de conversaciones", () => {
         expect(api.mutaciones.filter((m) => m.ruta.includes("/mensajeria"))).toHaveLength(0);
     });
 
-    test("sin cliente: coincidencias con «Asociar» y contacto de Iris", async ({ page }) => {
+    test("sin cliente: coincidencias con «Asociar» y contacto de Iris", async ({ page }, info) => {
         await abrir(page, ADMIN.correo, "/conversaciones?c=43");
         if (esTelefono(page)) await page.getByRole("button", { name: "Ver la ficha del cliente" }).click();
         const ficha = esTelefono(page) ? page.getByRole("dialog", { name: "Ficha del cliente" }) : page.getByRole("complementary", { name: "Ficha del cliente" });
         await expect(ficha).toContainText("Sin cliente asociado.");
         await expect(ficha).toContainText("contacto de un servicio");
+        // La hoja termina de entrar antes de medir.
+        await expect(ficha).toBeInViewport({ ratio: 1 });
+        await esperarSinDesbordes(page);
+        await page.screenshot({ path: path.join(carpeta, `bandeja-sin-cliente-${info.project.name}.png`) });
         await ficha.getByRole("button", { name: "Asociar" }).first().click();
         await expect(page.getByText("Luis Herrera asociado a la conversación")).toBeVisible();
         await esperarSinDesbordes(page);

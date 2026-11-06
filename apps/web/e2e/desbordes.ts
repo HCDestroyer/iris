@@ -4,8 +4,9 @@ import { expect, type Page } from "@playwright/test";
  * Comprobación automática de «nada cortado ni roto» (pedido del PM para la bandeja):
  *
  * - la página no se desplaza a lo ancho;
- * - ningún elemento visible queda fuera de la ventana (salvo dentro de un contenedor que se
- *   desplaza, como las respuestas rápidas deslizables, o recortado a propósito por su padre);
+ * - ningún elemento visible queda fuera de la ventana (salvo recortado a propósito por su padre);
+ * - ninguna caja se desplaza a lo ancho sin querer (las tiras deslizables, como las respuestas
+ *   rápidas, llevan `data-desborde-permitido`);
  * - ningún texto se sale de su caja: si `scrollWidth > clientWidth`, la caja debe recortar con
  *   elipsis (`text-overflow: ellipsis`) o ser un contenedor que se desplaza.
  *
@@ -69,8 +70,32 @@ export async function buscarDesbordes(page: Page, selector = "body"): Promise<De
                 problemas.push({ tipo: "fuera", donde: nombre(el), detalle: `left ${Math.round(r.left)} right ${Math.round(r.right)} > ${ancho}` });
                 continue;
             }
-            // Texto que no cabe en su caja.
             const html = el as HTMLElement;
+            // Recortado por su caja: se sale del ancestro más cercano que recorta o se desplaza.
+            const recorte = (() => {
+                let p = el.parentElement;
+                while (p && p !== document.body) {
+                    const e = getComputedStyle(p);
+                    if (e.overflowX !== "visible") return { p, e };
+                    p = p.parentElement;
+                }
+                return null;
+            })();
+            if (recorte && !recorte.p.closest("[data-desborde-permitido]") && recorte.e.textOverflow !== "ellipsis") {
+                const rp = recorte.p.getBoundingClientRect();
+                const bordes = parseFloat(recorte.e.borderRightWidth) || 0;
+                if (r.width > 4 && (r.right > rp.right - bordes + 1.5 || r.left < rp.left - 1.5)) {
+                    problemas.push({ tipo: "fuera", donde: nombre(el), detalle: `recortado por su caja: ${Math.round(r.left)}–${Math.round(r.right)} fuera de ${Math.round(rp.left)}–${Math.round(rp.right)}` });
+                    continue;
+                }
+            }
+            // Una caja que se desplaza a lo ancho sin querer (columnas, fichas): su contenido no cabe.
+            // Las tiras deslizables a propósito llevan `data-desborde-permitido`.
+            if ((estilo.overflowX === "auto" || estilo.overflowX === "scroll") && html.scrollWidth > html.clientWidth + 1 && html.clientWidth > 0) {
+                problemas.push({ tipo: "fuera", donde: nombre(el), detalle: `se desplaza a lo ancho: scrollWidth ${html.scrollWidth} > clientWidth ${html.clientWidth}` });
+                continue;
+            }
+            // Texto que no cabe en su caja.
             // Cuenta el ancho del texto propio (no el de hijos posicionados, como el punto del avatar).
             const anchoTexto = () => {
                 let maximo = 0;

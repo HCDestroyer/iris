@@ -60,7 +60,7 @@ export function FichaCliente({ conv, pestana, alCambiarPestana, alActualizar, re
     const conCliente = conv.contacto.tipo === "cliente";
     const actual = pestana;
     return (
-        <div className="flex min-h-0 flex-col" data-slot="ficha-cliente">
+        <div className="flex min-h-0 min-w-0 flex-col" data-slot="ficha-cliente">
             {conCliente ? <CabeceraCliente conv={conv} alActualizar={alActualizar} /> : <SinCliente conv={conv} alActualizar={alActualizar} />}
             <nav aria-label="Secciones de la ficha" className="flex gap-4 border-b border-border px-4">
                 {(
@@ -103,7 +103,7 @@ function CabeceraCliente({ conv, alActualizar }: { conv: ConversacionDetalle; al
     ];
     const visibles = acciones.filter((a) => a.permitido);
     return (
-        <div className="grid gap-3 border-b border-border p-4">
+        <div className="grid min-w-0 grid-cols-1 gap-3 border-b border-border p-4">
             <div className="flex min-w-0 items-center gap-2.5">
                 <span aria-hidden className="flex size-9 shrink-0 items-center justify-center rounded-full bg-elevated text-[0.8125rem] font-semibold">
                     {iniciales(nombre)}
@@ -183,7 +183,7 @@ function CabeceraCliente({ conv, alActualizar }: { conv: ConversacionDetalle; al
 
 function Seccion({ titulo, accion, children }: { titulo: string; accion?: ReactNode; children: ReactNode }) {
     return (
-        <section className="grid gap-2 border-b border-border px-4 py-3">
+        <section className="grid min-w-0 grid-cols-1 gap-2 border-b border-border px-4 py-3">
             <h3 className="flex items-center justify-between text-[0.6875rem] font-semibold tracking-wide text-muted-foreground uppercase">
                 {titulo}
                 {accion}
@@ -310,7 +310,7 @@ function SinCliente({ conv, alActualizar }: { conv: ConversacionDetalle; alActua
 
     const titulo = conv.contacto.tipo === "contacto_iris" ? "Contacto de Iris" : conv.contacto.tipo === "prospecto" ? "Prospecto" : null;
     return (
-        <div className="grid gap-3 border-b border-border p-4">
+        <div className="grid min-w-0 grid-cols-1 gap-3 border-b border-border p-4">
             {titulo ? (
                 <div className="flex min-w-0 items-center gap-2.5">
                     <span aria-hidden className="flex size-9 shrink-0 items-center justify-center rounded-full bg-elevated text-[0.8125rem] font-semibold">
@@ -334,8 +334,10 @@ function SinCliente({ conv, alActualizar }: { conv: ConversacionDetalle; alActua
             )}
             {asocia ? (
                 <>
-                    <SelectorCliente etiqueta="Buscar cliente en Argos" valor={null} alCambiar={(s) => s && void asociar(s.cliente.id, s.servicio?.id ?? null)} />
-                    <section className="grid gap-1.5" aria-label="Posibles coincidencias">
+                    <div className="grid min-w-0 grid-cols-1 [&_[data-testid=selector-cliente]]:grid-cols-1">
+                        <SelectorCliente etiqueta="Buscar cliente en Argos" valor={null} alCambiar={(s) => s && void asociar(s.cliente.id, s.servicio?.id ?? null)} />
+                    </div>
+                    <section className="grid min-w-0 grid-cols-1 gap-1.5" aria-label="Posibles coincidencias">
                         <h3 className="text-[0.6875rem] font-semibold tracking-wide text-muted-foreground uppercase">Posibles coincidencias</h3>
                         {coincidencias.estado === "cargando" ? <Cargando texto="Buscando por el número…" /> : null}
                         {coincidencias.estado === "error" ? (
@@ -382,7 +384,7 @@ function SinCliente({ conv, alActualizar }: { conv: ConversacionDetalle; alActua
                         </Aviso>
                     ) : null}
                     {conv.contacto.tipo === "desconocido" ? (
-                        <section className="grid gap-1.5" aria-label="No es cliente">
+                        <section className="grid min-w-0 grid-cols-1 gap-1.5" aria-label="No es cliente">
                             <h3 className="text-[0.6875rem] font-semibold tracking-wide text-muted-foreground uppercase">No es cliente</h3>
                             {puede(["prospectos.crear"]) ? (
                                 <Boton asChild variante="tinta" tamano="sm" className="w-full">
