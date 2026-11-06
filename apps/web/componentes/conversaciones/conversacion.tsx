@@ -93,6 +93,17 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
         return () => control.abort();
     }, [id, intento]);
 
+    /** Relee la última página sin «cargando» (un envío repetido responde 200 sin el mensaje). */
+    async function releerMensajes() {
+        try {
+            const p = await leerMensajes(id, undefined);
+            setMensajes((m) => fusionarMensajes(m, p.data ?? []));
+            setPendientes((l) => pendientesSinConfirmar(l, p.data ?? []));
+        } catch {
+            // Llegará por el flujo.
+        }
+    }
+
     async function cargarAnteriores() {
         if (!cursorAnteriores) return;
         setCargandoAnteriores(true);
@@ -313,6 +324,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                             setMensajes((l) => fusionarMensajes(l, [m]));
                             setPendientes((l) => l.filter((x) => x.id !== m.id));
                         }}
+                        alReenvio={() => void releerMensajes()}
                         alActualizar={aplicarConversacion}
                         recargar={refrescarDetalle}
                         abrirAyuda={abrirAyuda}

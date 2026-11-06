@@ -29,11 +29,14 @@ export function SelectorPlantilla({
     conv,
     identidad,
     alEnviado,
+    alReenvio,
     principal = false,
 }: {
     conv: Conversacion;
     identidad: Identidad;
     alEnviado: (m: Mensaje) => void;
+    /** 200 sin cuerpo (reenvío): releer los mensajes. */
+    alReenvio: () => void;
     alActualizar: (c: Conversacion) => void;
     principal?: boolean;
 }) {
@@ -61,6 +64,7 @@ export function SelectorPlantilla({
         >
             {abierto ? <ContenidoPlantillas conv={conv} identidad={identidad} alEnviado={(m) => {
                         if (m) alEnviado(m);
+                        else alReenvio();
                         setAbierto(false);
                     }} /> : null}
         </PanelEmergente>
@@ -132,8 +136,10 @@ function FormPlantilla({ conv, identidad, plantilla, volver, alEnviado }: { conv
     const textoError = (e: unknown) =>
         esSesionCambiada(e)
             ? "La sesión de este navegador cambió: no se envió."
-            : e instanceof ErrorApi && (e.codigo === "sin_permiso" || e.codigo === "baja")
-              ? "El cliente no tiene permiso de contacto vigente por WhatsApp (o se dio de baja)."
+            : e instanceof ErrorApi && e.codigo === "baja"
+              ? "Este número se dio de baja de WhatsApp: no se le pueden mandar plantillas."
+              : e instanceof ErrorApi && e.codigo === "sin_permiso"
+                ? "No hay permiso de contacto vigente por WhatsApp para este número."
               : e instanceof ErrorApi && e.codigo === "cliente_sin_confirmar"
                 ? "Falta que un supervisor confirme el cliente de esta conversación."
                 : e instanceof ErrorApi && e.codigo === "plantilla_no_aprobada"

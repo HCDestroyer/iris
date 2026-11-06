@@ -63,6 +63,8 @@ export const TEMPORAL = usuario({ id: 11, nombre: "Tomás Ajú", correo: "tomas@
 export const VENDEDORA = usuario({ id: 13, nombre: "Valeria Cux", correo: "valeria@iris.test", roles: [{ rol: "ventas" }] });
 /** Admin con MFA: prueba que «Reiniciar MFA» no se ofrece sobre uno mismo. */
 export const ELENA = usuario({ id: 12, nombre: "Elena Toj", correo: "elena@iris.test", mfaActivo: true, roles: [{ rol: "admin" }] });
+/** Agente de la bandeja (rol soporte): responde y asocia, pero no supervisa. */
+export const AGENTE_CONV = usuario({ id: 14, nombre: "Rosa Pop", correo: "rosa@iris.test", roles: [{ rol: "soporte" }] });
 export const BLOQUEADO = "bloqueado@iris.test";
 
 const PERMISOS_BUZONES: Permiso[] = ["buzones.activar", "buzones.crear", "buzones.desactivar", "buzones.editar", "buzones.ver"];
@@ -218,6 +220,7 @@ const permisosPorCorreo: Record<string, Permiso[]> = {
     [SOPORTE.correo]: ["clientes.ver", "clientes.estado_cuenta", "encuestas.compartir", "encuestas.ver", "usuarios.ver", ...PERMISOS_TICKETS],
     [CONSULTA.correo]: ["conversaciones.ver", "agenda.ver", "clientes.ver", "prospectos.ver", "reportes.ver", "rutas.ver", "tickets.ver", "usuarios.ver"],
     [VENDEDORA.correo]: PERMISOS_VENTAS,
+    [AGENTE_CONV.correo]: PERMISOS_CONVERSACIONES.filter((p) => p !== "conversaciones.supervisar"),
     // Con integraciones.conectar pero sin empresas.todas: no puede conectar (la API exige rol global).
     [SUPERVISOR_ZONA.correo]: [...PERMISOS_BUZONES, "integraciones.conectar", "integraciones.ver", "tickets.ver"],
     [ASIGNADOR.correo]: ["agenda.ver", "ordenes.asignar", "ordenes.ver"],
@@ -225,7 +228,7 @@ const permisosPorCorreo: Record<string, Permiso[]> = {
 };
 /** Usuarios cuyos permisos `buzones.*` tienen alcance de zona (no global). */
 const alcanceDeZona = new Set([SUPERVISOR_ZONA.correo]);
-const usuarios = [ADMIN, CON_MFA, LECTOR, SOPORTE, CONSULTA, SUPERVISOR_ZONA, DESPACHO, ASIGNADOR, TEMPORAL, ELENA, VENDEDORA];
+const usuarios = [ADMIN, CON_MFA, LECTOR, SOPORTE, CONSULTA, SUPERVISOR_ZONA, DESPACHO, ASIGNADOR, TEMPORAL, ELENA, VENDEDORA, AGENTE_CONV];
 
 export const PAGINA_1: Schema<"PaginaUsuario"> = {
     data: [ADMIN, CON_MFA, LECTOR, SOPORTE],

@@ -1,6 +1,6 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { ADMIN, CONSULTA, conSesion, simularApi } from "./api-falsa";
+import { ADMIN, AGENTE_CONV, CONSULTA, conSesion, simularApi } from "./api-falsa";
 import { esTelefono } from "./ayudas";
 import { AHORA_CONV } from "./datos-conversaciones";
 import { esperarSinDesbordes } from "./desbordes";
@@ -253,5 +253,41 @@ test.describe("bandeja de conversaciones", () => {
         await expect(page.getByText(/Cliente de .* confirmado/)).toBeVisible();
         await expect(ficha.getByTestId("cliente-sin-confirmar")).toHaveCount(0);
         await expect(ficha.getByRole("button", { name: "Promesa" })).toBeEnabled();
+    });
+
+    test("contacto de Iris: permitir contacto pide el motivo si la baja la pidió el cliente", async ({ page }, info) => {
+        await abrir(page, ADMIN.correo, "/conversaciones?c=43");
+        if (esTelefono(page)) await page.getByRole("button", { name: "Ver la ficha del cliente" }).click();
+        const ficha = esTelefono(page) ? page.getByRole("dialog", { name: "Ficha del cliente" }) : page.getByRole("complementary", { name: "Ficha del cliente" });
+        await ficha.getByRole("button", { name: "Guardar como contacto de Iris" }).click();
+        const guardar = page.getByRole("dialog", { name: "Guardar como contacto de Iris" });
+        await guardar.getByRole("textbox", { name: "Nombre" }).fill("Ferretería El Sol");
+        await guardar.getByRole("button", { name: "Guardar contacto" }).click();
+        await expect(guardar).toHaveCount(0);
+        const permiso = ficha.getByTestId("permiso-contacto");
+        await expect(permiso).toBeVisible();
+        await esperarSinDesbordes(page);
+        await page.screenshot({ path: path.join(carpeta, `bandeja-contacto-iris-${info.project.name}.png`) });
+        await permiso.getByRole("button", { name: "Permitir contacto" }).click();
+        const dialogo = page.getByRole("dialog", { name: "Permitir contacto por WhatsApp" });
+        await dialogo.getByRole("button", { name: "Permitir" }).click();
+        // 422 `baja_del_cliente`: el motivo pasa a ser obligatorio.
+        await expect(dialogo).toContainText("La baja la pidió el propio cliente");
+        await dialogo.getByRole("textbox", { name: "Motivo" }).fill("Llamó para volver a recibir avisos");
+        await dialogo.getByRole("button", { name: "Permitir" }).click();
+        await expect(page.getByText("Ferretería El Sol: contacto por WhatsApp permitido")).toBeVisible();
+    });
+
+    test("sin conversaciones.supervisar no se puede permitir el contacto, solo dar de baja", async ({ page }) => {
+        await abrir(page, AGENTE_CONV.correo, "/conversaciones?c=43");
+        if (esTelefono(page)) await page.getByRole("button", { name: "Ver la ficha del cliente" }).click();
+        const ficha = esTelefono(page) ? page.getByRole("dialog", { name: "Ficha del cliente" }) : page.getByRole("complementary", { name: "Ficha del cliente" });
+        await ficha.getByRole("button", { name: "Guardar como contacto de Iris" }).click();
+        const guardar = page.getByRole("dialog", { name: "Guardar como contacto de Iris" });
+        await guardar.getByRole("textbox", { name: "Nombre" }).fill("Ferretería El Sol");
+        await guardar.getByRole("button", { name: "Guardar contacto" }).click();
+        const permiso = ficha.getByTestId("permiso-contacto");
+        await expect(permiso.getByRole("button", { name: "Dar de baja" })).toBeVisible();
+        await expect(permiso.getByRole("button", { name: "Permitir contacto" })).toHaveCount(0);
     });
 });

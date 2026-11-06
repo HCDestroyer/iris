@@ -30,6 +30,8 @@ type Props = {
     ahora: number;
     alPendiente: (p: Pendiente) => void;
     alConfirmado: (m: Mensaje) => void;
+    /** El servidor respondió 200 sin cuerpo (reenvío de un id ya recibido): releer los mensajes. */
+    alReenvio: () => void;
     alActualizar: (c: Conversacion) => void;
     recargar: () => Promise<void>;
     abrirAyuda: () => void;
@@ -50,7 +52,7 @@ type Envio = { id: string; modo: Modo; texto: string; menciones: number[]; respu
  * Antes de guardar un borrador o de enviar, se comprueba con `GET /yo` que la sesión del navegador
  * sigue siendo la de quien está en pantalla: si cambió, nada sale (ver `lib/conversaciones/sesion`).
  */
-export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, alActualizar, recargar, abrirAyuda, registrarReintento, registrarUsarTexto }: Props) {
+export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, alReenvio, alActualizar, recargar, abrirAyuda, registrarReintento, registrarUsarTexto }: Props) {
     const { puede } = useSesion();
     const { respuestas, agentes } = useCatalogos();
     const [modo, setModo] = useState<Modo>("responder");
@@ -113,8 +115,9 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                               },
                           }),
                       );
-            // 200 sin cuerpo (repetido): el mensaje llega por el flujo.
+            // 200 sin cuerpo (reenvío de un id que el servidor ya tenía): se relee el hilo.
             if (m) alConfirmado(m);
+            else alReenvio();
         } catch (err) {
             const texto = esSesionCambiada(err)
                 ? "La sesión de este navegador cambió: no se envió"
@@ -247,7 +250,7 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                         {conv.contacto.tipo === "cliente" && !conv.contacto.verificado ? (
                             <p className="text-sm text-warning">Falta que un supervisor confirme el cliente para mandarle plantillas.</p>
                         ) : null}
-                        <SelectorPlantilla conv={conv} identidad={identidad} alEnviado={alConfirmado} alActualizar={alActualizar} principal />
+                        <SelectorPlantilla conv={conv} identidad={identidad} alEnviado={alConfirmado} alReenvio={alReenvio} alActualizar={alActualizar} principal />
                     </div>
                 ) : (
                     <>
@@ -299,7 +302,7 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                                     <BookOpen />
                                 </Boton>
                             ) : null}
-                            {soloPlantilla ? null : <SelectorPlantilla conv={conv} identidad={identidad} alEnviado={alConfirmado} alActualizar={alActualizar} />}
+                            {soloPlantilla ? null : <SelectorPlantilla conv={conv} identidad={identidad} alEnviado={alConfirmado} alReenvio={alReenvio} alActualizar={alActualizar} />}
                             {cerrada ? null : <MenuRespuestas respuestas={deLaCola} alElegir={usarRespuesta} />}
                         </>
                     ) : (
