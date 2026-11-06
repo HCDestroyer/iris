@@ -26,7 +26,7 @@ import {
 } from "@iris/ui";
 import { ArrowLeftRight, AtSign, BookOpen, Check, ChevronDown, Ellipsis, LifeBuoy, RotateCcw, RotateCw, Tag, Unlink, User, UserCheck, UserMinus, UserPlus } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useForm, type FieldValues, type Path, type UseFormSetError } from "react-hook-form";
+import { useForm, useWatch, type FieldValues, type Path, type UseFormSetError } from "react-hook-form";
 import { z } from "zod";
 import { api, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
@@ -36,9 +36,9 @@ import type { Conversacion } from "@/lib/conversaciones/tipos";
 import { erroresACampos } from "@/lib/formularios";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useSesion } from "@/lib/sesion";
-import { pasarConversacion } from "@/lib/conversaciones/api-11";
+import { pasarConversacion } from "@/lib/conversaciones/api-equipo";
 import { estaDisponible, personasDeCola, supervisaCola, textoCarga, textoMotivoNoDisponible } from "@/lib/conversaciones/atencion";
-import { PERMISO_PASAR, type ConversacionPasada } from "@/lib/conversaciones/contrato-11";
+import type { Schema } from "@iris/contratos";
 import { agentesDeCola, useCatalogos } from "./catalogos";
 import { AvatarDisponible, EstadoDisponible } from "./disponibilidad";
 
@@ -82,7 +82,7 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
         asociar: puede(["conversaciones.asociar"]) && conv.contacto.tipo !== "desconocido",
         // «Pasar a…» (§14.4): quien la tiene, o un supervisor global o de su cola.
         pasar:
-            puede([PERMISO_PASAR]) &&
+            puede(["conversaciones.pasar"]) &&
             !resuelta &&
             (mia || puede(["conversaciones.supervisar"]) || supervisaCola(yoAgente, conv.cola?.id)),
     };
@@ -620,8 +620,8 @@ function DialogoPasar(props: PropsDialogo) {
     useEffect(() => void refrescar(), [refrescar]);
     const form = useForm({ resolver: zodResolver(esquemaPasar), defaultValues: { usuarioId: "", nota: "" } });
     useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
-    const elegido = form.watch("usuarioId");
-    const resultado = useRef<ConversacionPasada | null>(null);
+    const elegido = useWatch({ control: form.control, name: "usuarioId" });
+    const resultado = useRef<Schema<"PaseConversacion"> | null>(null);
     const lista = agentes.estado === "listo" ? personasDeCola(agentes.datos, conv.cola?.id).filter((a) => a.id !== conv.asignado?.id && a.id !== yo.usuario.id) : [];
     const destino = lista.find((a) => String(a.id) === elegido);
     const primero = destino?.nombre.split(" ")[0];

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BotNumero } from "./contrato-11";
+import type { BotNumero } from "./tipos";
 
 /*
  * «Cuando no hay agentes» de un número (fase 1.1): espejo del validador del servidor. El bot manda

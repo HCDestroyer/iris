@@ -5,10 +5,10 @@ import { primerNombre, textoVistaPrevia, trozosVistaPrevia, valoresIniciales, va
 const PLANTILLA = {
     codigo: "confirmar_visita",
     nombre: "Confirmar visita técnica",
-    categoria: "servicio",
+    categoria: "servicio" as const,
     variables: [
-        { nombre: "1", formato: "texto", obligatoria: true },
-        { nombre: "2", formato: "texto", obligatoria: true },
+        { nombre: "1", formato: "texto" as const },
+        { nombre: "2", formato: "texto" as const },
     ],
     vistaPrevia: "Hola {{1}}, queremos confirmar tu visita de {{2}}.",
 };

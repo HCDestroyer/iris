@@ -19,12 +19,12 @@ import { resumirFranjas } from "@/lib/horarios/franjas";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
 import { idDeParametro } from "@/lib/parametros";
-import { leerCanalesConBot } from "@/lib/conversaciones/api-11";
-import type { NumeroConBot } from "@/lib/conversaciones/contrato-11";
+import { leerNumeros } from "@/lib/conversaciones/api-equipo";
+import type { Numero } from "@/lib/conversaciones/tipos";
 import { cuerpoCuandoNoHayAgentes, esquemaCuandoNoHayAgentes, MINUTOS_SIN_CONFIRMACION, MINUTOS_SIN_DISPONIBLES } from "@/lib/conversaciones/menu-bot";
 import { SeccionBot } from "./bot";
 
-type Canal = NumeroConBot;
+type Canal = Numero;
 const USOS = ["soporte", "cobros", "ventas", "avisos"] as const;
 
 /** Espejo del validador del servidor (`POST /canales/{id}/configurar`, contrato §1 y §10.2). */
@@ -60,7 +60,7 @@ export function ConfigurarNumero() {
     const lectura = useLectura(async (signal) => {
         if (id === null) return null;
         const [canales, colas, horarios, agentes, etiquetas] = await Promise.all([
-            leerCanalesConBot(signal),
+            leerNumeros(signal),
             resolver(api().GET("/api/v1/mensajeria/colas", { signal })),
             resolver(api().GET("/api/v1/mensajeria/horarios", { signal })),
             resolver(api().GET("/api/v1/mensajeria/conversaciones/agentes", { signal })),
@@ -140,8 +140,7 @@ function Formulario({
                             guardia: { activa: d.guardia, usuarioId: d.guardiaUsuarioId ? Number(d.guardiaUsuarioId) : null, etiquetaIds: d.guardiaEtiquetas, fallaMasiva: d.fallaMasiva },
                             asistente: { activo: false },
                         },
-                        // PROVISIONAL: `bot` (§14.6) aún no está en el cuerpo generado.
-                        ...({ bot: cuerpoCuandoNoHayAgentes(d.bot) } as object),
+                        bot: cuerpoCuandoNoHayAgentes(d.bot),
                     },
                 }),
             );

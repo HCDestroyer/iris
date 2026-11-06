@@ -1,6 +1,6 @@
 import type { Schema } from "@iris/contratos";
 import type { Route } from "@playwright/test";
-import { agentesBandeja11, bandeja11, canalesBandeja11, colasBandeja11, PERMISOS_BANDEJA11, type OpcionesBandeja11 } from "./api-bandeja11";
+import { agentesBandeja11, bandeja11, canalesBandeja11, colasBandeja11, PERMISOS_BANDEJA11, type ColaBase, type NumeroBase, type OpcionesBandeja11 } from "./api-bandeja11";
 import { ANDREA, CANAL_AVISOS, CANAL_COBROS, CANAL_SOPORTE, CANAL_VENTAS, CONVERSACIONES, detalle, mensajesDe } from "./datos-conversaciones";
 
 /*
@@ -55,7 +55,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
     let seq = 1000;
     const enviados: { ruta: string; cuerpo: unknown; idempotencia: string | undefined }[] = [];
 
-    const colasBase: Schema<"ColaConversaciones">[] = [
+    const colasBase: ColaBase[] = [
         { id: 2, empresaId: 1, nombre: "Soporte", descripcion: "", slaRespuestaMin: 10, slaPorVencerMin: null, horarioId: null, miembros: [ANDREA, { id: 9, nombre: "Rosa Sánchez" }], activa: true, version: 1 },
         { id: 3, empresaId: 1, nombre: "Caja", descripcion: "", slaRespuestaMin: 30, slaPorVencerMin: null, horarioId: null, miembros: [ANDREA], activa: true, version: 1 },
         { id: 4, empresaId: 1, nombre: "Ventas", descripcion: "", slaRespuestaMin: 60, slaPorVencerMin: null, horarioId: null, miembros: [], activa: true, version: 1 },
@@ -97,7 +97,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             activo: true,
         },
     ];
-    const canalesBase: Schema<"NumeroConversaciones">[] = [CANAL_AVISOS, CANAL_SOPORTE, CANAL_COBROS, CANAL_VENTAS].map((c) => ({
+    const canalesBase: NumeroBase[] = [CANAL_AVISOS, CANAL_SOPORTE, CANAL_COBROS, CANAL_VENTAS].map((c) => ({
         ...c,
         avisosEmpresa: c.id === 2,
         colaId: c.id === 4 ? 3 : c.id === 5 ? 4 : 2,
@@ -225,6 +225,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             enviadoEn: null,
             entregadoEn: null,
             leidoEn: null,
+            automatico: null,
         };
         mensajes.get(id)?.push(m);
         c.version += 1;
@@ -424,6 +425,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                     enviadoEn: null,
                     entregadoEn: null,
                     leidoEn: null,
+                    automatico: null,
                     ...(cuerpo.plantilla ? { plantilla: cuerpo.plantilla as Schema<"PlantillaMensaje"> } : {}),
                 };
                 mensajes.get(c.id)?.push(nuevo);

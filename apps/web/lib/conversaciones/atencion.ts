@@ -1,4 +1,4 @@
-import type { AgenteDisponible, EventoSistemaBot, MotivoDestinatario, OrigenDisponibilidad } from "./contrato-11";
+import type { Agente, EventoSistema, MotivoDestinatario, OrigenDisponibilidad } from "./tipos";
 
 /*
  * «¿Alguien la atiende?», disponibilidad y bot (fase 1.1, contrato §14): textos y cálculos puros.
@@ -34,16 +34,16 @@ export function textoEsperaDesde(esperaDesde: string | null | undefined, ahora: 
     return min < 1 ? "Espera desde hace un momento" : `Espera hace ${min} min`;
 }
 
-export const estaDisponible = (a: Pick<AgenteDisponible, "disponibilidad">) => a.disponibilidad?.estado === "disponible";
+export const estaDisponible = (a: Pick<Agente, "disponibilidad">) => a.disponibilidad?.estado === "disponible";
 
 /** ¿Supervisa esta cola? (global con `supervisa` o de la cola). */
-export function supervisaCola(a: Pick<AgenteDisponible, "supervisa" | "colasSupervisadas"> | undefined, colaId: number | null | undefined): boolean {
+export function supervisaCola(a: Pick<Agente, "supervisa" | "colasSupervisadas"> | undefined, colaId: number | null | undefined): boolean {
     if (!a) return false;
     return a.supervisa || (colaId !== null && colaId !== undefined && (a.colasSupervisadas ?? []).some((c) => c.id === colaId));
 }
 
 /** Personas de una cola (miembros, supervisores de la cola y globales), con los disponibles primero. */
-export function personasDeCola(agentes: readonly AgenteDisponible[], colaId: number | null | undefined): AgenteDisponible[] {
+export function personasDeCola(agentes: readonly Agente[], colaId: number | null | undefined): Agente[] {
     const lista = colaId ? agentes.filter((a) => supervisaCola(a, colaId) || (a.colas ?? []).some((c) => c.id === colaId)) : [...agentes];
     return lista.sort((x, y) => Number(estaDisponible(y)) - Number(estaDisponible(x)) || x.nombre.localeCompare(y.nombre, "es"));
 }
@@ -76,7 +76,7 @@ export function textoCarga(a: { abiertas?: number }, supervisor: boolean): strin
 }
 
 /** Texto de los eventos de sistema de la fase 1.1 (los demás, `textoEvento`). Null si no es uno de ellos. */
-export function textoEventoBot(e: EventoSistemaBot): string | null {
+export function textoEventoBot(e: EventoSistema): string | null {
     switch (e.tipo) {
         case "bot_atendio":
             return e.detalle === "sin_disponibles" ? "Sin agentes disponibles: contestó el bot" : `Nadie la tomó en ${e.minutos ?? 30} min: contestó el bot`;

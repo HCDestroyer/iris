@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { PlantillaCanal } from "./contrato-11";
+import type { PlantillaDisponible } from "./tipos";
 
 /*
  * «Nueva conversación» (fase 1.1): validación (espejo de `POST /conversaciones`) y vista previa de
@@ -37,7 +37,7 @@ export function primerNombre(nombre: string): string {
 }
 
 /** Valores iniciales de las variables: el primer nombre del contacto en la primera variable de nombre. */
-export function valoresIniciales(p: PlantillaCanal | undefined, nombreContacto: string | undefined): Record<string, string> {
+export function valoresIniciales(p: PlantillaDisponible | undefined, nombreContacto: string | undefined): Record<string, string> {
     const v: Record<string, string> = {};
     for (const [i, variable] of (p?.variables ?? []).entries()) {
         v[variable.nombre] = nombreContacto && (variable.nombre === "nombre" || (i === 0 && variable.nombre === "1")) ? primerNombre(nombreContacto) : "";
@@ -52,9 +52,9 @@ export const esquemaNuevaConversacion = z.object({
     variables: z.record(z.string(), z.string().max(1024, "Hasta 1024 caracteres")),
 });
 
-/** Variables obligatorias vacías: el servidor las rechaza (422), el panel lo dice antes. */
-export function variablesFaltantes(p: PlantillaCanal | undefined, valores: Readonly<Record<string, string>>): string[] {
-    return (p?.variables ?? []).filter((v) => v.obligatoria && !(valores[v.nombre] ?? "").trim()).map((v) => v.nombre);
+/** Variables vacías: todas las de una plantilla de Meta son obligatorias (el servidor da 422); el panel lo dice antes. */
+export function variablesFaltantes(p: PlantillaDisponible | undefined, valores: Readonly<Record<string, string>>): string[] {
+    return (p?.variables ?? []).filter((v) => !(valores[v.nombre] ?? "").trim()).map((v) => v.nombre);
 }
 
 export type ValoresNueva = z.infer<typeof esquemaNuevaConversacion>;

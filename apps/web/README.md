@@ -190,6 +190,15 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
   real con SSE leído con `fetch` y sondeo (`lib/conversaciones/tiempo-real.ts`); antes de abrir
   el flujo, sondear, guardar un borrador o enviar se verifica con `GET /yo` que la sesión es la
   misma. «Respuestas rápidas» en Administración. Contador de no leídos en la barra lateral.
+- **Bandeja 1.1** (contratos/conversaciones.md §14): disponibilidad (Disponible / No disponible)
+  junto a la cuenta de la barra lateral y arriba de «Más» en el teléfono, con latido mientras la
+  persona está activa (`lib/conversaciones/latido.ts`, como mucho uno por minuto) y «No
+  disponible» al cerrar sesión; «¿Alguien la atiende?» con la cuenta regresiva del bot y «La
+  atiendo» en la lista y en la conversación; disponibles por cola; eventos y mensajes del bot;
+  «Pasar a…» (también a alguien no disponible); «Nueva conversación» (`/conversaciones/nueva`,
+  plantilla aprobada, id idempotente); colas con miembros y supervisores
+  (`/administracion/colas`); «Cuando no hay agentes» en cada número (bot, saludo y menú de hasta 9
+  opciones) y ajustes de la bandeja (`/administracion/bandeja`, minutos de inactividad).
 
 No emite ni consume eventos.
 

@@ -281,7 +281,8 @@ test.describe("bandeja de conversaciones", () => {
         await expect(page).toHaveURL(/q=mar%C3%ADa/);
         await expect(fila(page, 42)).toBeVisible();
         await expect(fila(page, 41)).toHaveCount(0);
-        expect(api.mutaciones.filter((m) => m.ruta.includes("/mensajeria"))).toHaveLength(0);
+        // El latido de disponibilidad (fase 1.1) no es un envío.
+        expect(api.mutaciones.filter((m) => m.ruta.includes("/mensajeria") && !m.ruta.endsWith("/disponibilidad/latido"))).toHaveLength(0);
     });
 
     test("sin cliente: coincidencias con «Asociar» y contacto de Iris", async ({ page }, info) => {

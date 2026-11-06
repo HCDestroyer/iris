@@ -152,8 +152,7 @@ export function Bandeja() {
                 alEvento: (evento) => {
                     if (evento.conversacion) aplicarRef.current(evento.conversacion);
                     // Fase 1.1 (§14.6): solo a los avisados; «Ver» abre la conversación con «La atiendo».
-                    // PROVISIONAL: el tipo aún no está en el contrato generado.
-                    if ((evento.tipo as string) === "aviso_sin_atender" && evento.conversacion) {
+                    if (evento.tipo === "aviso_sin_atender" && evento.conversacion) {
                         const c = evento.conversacion;
                         avisar({
                             titulo: `¿Alguien la atiende? ${c.titulo} espera${c.cola ? ` en ${c.cola.nombre}` : ""}`,

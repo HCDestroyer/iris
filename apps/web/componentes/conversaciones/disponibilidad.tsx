@@ -3,7 +3,7 @@
 import { Aviso, AvatarUsuario, Boton, cn, Esqueleto, GrupoSegmentado } from "@iris/ui";
 import { Circle, Info, RotateCw } from "lucide-react";
 import { mensajeDeError } from "@/lib/api/errores";
-import type { EstadoDisponibilidad } from "@/lib/conversaciones/contrato-11";
+import type { EstadoDisponibilidad } from "@/lib/conversaciones/tipos";
 import { textoExplicacion, textoMotivoPropio, useDisponibilidad } from "@/lib/conversaciones/disponibilidad";
 
 /** Punto de disponibilidad: verde si está disponible, gris si no. Decorativo: el texto va al lado. */

@@ -63,7 +63,7 @@ export function ProveedorCuenta({ children }: { children: ReactNode }) {
 }
 
 /** Opciones de la cuenta: las mismas en el menú de la barra superior y en «Más» del teléfono. */
-function OpcionesCuenta({ cerrando, cerrarSesion, antes, sinEncabezado = false }: Props & { antes?: () => void; sinEncabezado?: boolean }) {
+function OpcionesCuenta({ cerrando, cerrarSesion, antes, soloCorreo = false }: Props & { antes?: () => void; soloCorreo?: boolean }) {
     const { yo } = useSesion();
     const router = useRouter();
     const ruta = usePathname();
@@ -73,15 +73,11 @@ function OpcionesCuenta({ cerrando, cerrarSesion, antes, sinEncabezado = false }
         accion();
     };
     return [
-        ...(sinEncabezado
-            ? []
-            : [
-                  <MenuDesplegableEtiqueta key="etiqueta">
-                      <span className="truncate font-medium">{yo.usuario.nombre}</span>
-                      <span className="truncate text-xs font-normal text-muted-foreground">{yo.usuario.correo}</span>
-                  </MenuDesplegableEtiqueta>,
-                  <MenuDesplegableSeparador key="sep-1" />,
-              ]),
+        <MenuDesplegableEtiqueta key="etiqueta">
+            {soloCorreo ? null : <span className="truncate font-medium">{yo.usuario.nombre}</span>}
+            <span className="truncate text-xs font-normal text-muted-foreground">{yo.usuario.correo}</span>
+        </MenuDesplegableEtiqueta>,
+        <MenuDesplegableSeparador key="sep-1" />,
         <MenuDesplegableElemento key="perfil" icono={CircleUserRound} onSelect={con(() => router.push("/cuenta"))}>
             Mi perfil
         </MenuDesplegableElemento>,
@@ -211,12 +207,12 @@ function CuentaConDisponibilidad({ cerrando, cerrarSesion, contraida, rol }: Pro
                 <AvatarDisponible nombre={yo.usuario.nombre} disponible={disponible} tamano="md" />
                 <span className="grid min-w-0">
                     <span className="truncate text-sm font-semibold">{yo.usuario.nombre}</span>
-                    <span className="truncate text-xs text-muted-foreground">{[rol, colas].filter(Boolean).join(" · ") || yo.usuario.correo}</span>
+                    <span className="truncate text-xs text-muted-foreground">{[rol, colas].filter(Boolean).join(" · ")}</span>
                 </span>
             </div>
             <ControlDisponibilidad />
             <div className="-mx-2 border-t border-border pt-1">
-                <MenuEnLinea etiqueta="Tu cuenta">{OpcionesCuenta({ cerrando, cerrarSesion, antes: () => setAbierto(false), sinEncabezado: true })}</MenuEnLinea>
+                <MenuEnLinea etiqueta="Tu cuenta">{OpcionesCuenta({ cerrando, cerrarSesion, antes: () => setAbierto(false), soloCorreo: true })}</MenuEnLinea>
             </div>
         </PanelEmergente>
     );

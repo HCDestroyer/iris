@@ -4,7 +4,7 @@ import { Autocompletar, Boton } from "@iris/ui";
 import { X } from "lucide-react";
 import { useState } from "react";
 import { estaDisponible } from "@/lib/conversaciones/atencion";
-import type { AgenteDisponible } from "@/lib/conversaciones/contrato-11";
+import type { Agente } from "@/lib/conversaciones/tipos";
 import { AvatarDisponible } from "./disponibilidad";
 
 type Props = {
@@ -12,7 +12,7 @@ type Props = {
     /** Texto del campo para agregar («Agregar persona…»). */
     placeholder: string;
     ayuda?: string;
-    personas: readonly AgenteDisponible[];
+    personas: readonly Agente[];
     elegidos: readonly number[];
     alCambiar: (ids: number[]) => void;
     maximo?: number;
@@ -25,7 +25,7 @@ type Props = {
  */
 export function SelectorPersonas({ etiqueta, placeholder, ayuda, personas, elegidos, alCambiar, maximo, error }: Props) {
     const [texto, setTexto] = useState("");
-    const lista = elegidos.map((id) => personas.find((p) => p.id === id)).filter((p): p is AgenteDisponible => Boolean(p));
+    const lista = elegidos.map((id) => personas.find((p) => p.id === id)).filter((p): p is Agente => Boolean(p));
     const filtro = texto.trim().toLowerCase();
     const opciones = personas
         .filter((p) => !elegidos.includes(p.id) && (!filtro || p.nombre.toLowerCase().includes(filtro)))

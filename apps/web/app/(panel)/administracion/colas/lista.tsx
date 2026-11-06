@@ -6,13 +6,13 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ErrorLectura } from "@/componentes/error-lectura";
-import { leerCanalesConBot, leerColas } from "@/lib/conversaciones/api-11";
+import { leerNumeros, leerColas } from "@/lib/conversaciones/api-equipo";
 import { useLectura } from "@/lib/lectura";
 
 /** «Colas» (Administración): cada cola con sus miembros, supervisores, números y tiempos. */
 export function ListaColas() {
     const lectura = useLectura(async (signal) => {
-        const [colas, canales] = await Promise.all([leerColas(signal), leerCanalesConBot(signal)]);
+        const [colas, canales] = await Promise.all([leerColas(signal), leerNumeros(signal)]);
         return { colas, canales };
     });
     let contenido: ReactNode;

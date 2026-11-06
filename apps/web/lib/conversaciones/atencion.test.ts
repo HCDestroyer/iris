@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { avanceEspera, estaDisponible, minutosParaBot, personasDeCola, supervisaCola, textoCarga, textoCuentaRegresiva, textoDisponibles, textoEventoBot } from "./atencion";
-import type { AgenteDisponible } from "./contrato-11";
+import type { Agente } from "./tipos";
 
 const SOPORTE = { id: 2, nombre: "Soporte" };
-const agente = (id: number, nombre: string, disponible: boolean, extra: Partial<AgenteDisponible> = {}): AgenteDisponible => ({
+const agente = (id: number, nombre: string, disponible: boolean, extra: Partial<Agente> = {}): Agente => ({
     id,
     nombre,
     supervisa: false,

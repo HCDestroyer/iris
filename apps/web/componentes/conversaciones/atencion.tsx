@@ -7,14 +7,13 @@ import { api, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { cabeceraIdem } from "@/lib/conversaciones/api";
 import { avanceEspera, minutosParaBot, textoCuentaRegresiva, textoDisponibles, textoEsperaDesde } from "@/lib/conversaciones/atencion";
-import type { ConversacionConEspera, Espera } from "@/lib/conversaciones/contrato-11";
+import type { Conversacion, Espera } from "@/lib/conversaciones/tipos";
 import { iniciales } from "@/lib/conversaciones/presentacion";
-import type { Conversacion } from "@/lib/conversaciones/tipos";
 import { useSesion } from "@/lib/sesion";
 
 /** La espera de una conversación, si está sin asignar y no resuelta (contrato §14.6). */
 export function esperaDe(conv: Conversacion): Espera | null {
-    const e = (conv as ConversacionConEspera).espera;
+    const e = conv.espera;
     return e && !conv.asignado && conv.estado !== "resuelta" ? e : null;
 }
 

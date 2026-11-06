@@ -40,7 +40,7 @@ test.describe("bandeja 1.1", () => {
         if (!esTelefono(page)) await expect(page.getByRole("button", { name: /^Tu cuenta: Ana López, disponible/ })).toBeVisible();
         const panel = await abrirDisponibilidad(page);
         const grupo = panel.getByRole("radiogroup", { name: "Tu disponibilidad en Conversaciones" });
-        await expect(grupo.getByRole("radio", { name: "Disponible" })).toBeChecked();
+        await expect(grupo.getByRole("radio", { name: "Disponible", exact: true })).toBeChecked();
         await expect(panel).toContainText("Pasas a No disponible tras 15 min sin actividad, al cerrar sesión o fuera de tu horario (hoy hasta las 22:00).");
         await esperarSinDesbordes(page);
         await grupo.getByRole("radio", { name: "No disponible" }).click();
@@ -49,7 +49,7 @@ test.describe("bandeja 1.1", () => {
         const cambio = api.conversaciones.enviados.find((e) => e.ruta.endsWith("/conversaciones/disponibilidad"));
         expect(cambio?.cuerpo).toEqual({ estado: "no_disponible", version: 1 });
         expect(cambio?.idempotencia).toBeTruthy();
-        await grupo.getByRole("radio", { name: "Disponible" }).click();
+        await grupo.getByRole("radio", { name: "Disponible", exact: true }).click();
         await expect(page.getByText("Estás Disponible: te llegan Soporte y Caja.")).toBeVisible();
     });
 
@@ -185,7 +185,7 @@ test.describe("bandeja 1.1", () => {
     test("colas: miembros y supervisores con su disponibilidad, asistente de IA deshabilitado y minutos propios", async ({ page }) => {
         const api = await abrir(page, "/administracion/colas");
         const soporte = page.locator('[data-cola="2"]');
-        await expect(soporte).toContainText("4 miembros · 2 supervisores");
+        await expect(soporte).toContainText("3 miembros · 2 supervisores");
         await esperarSinDesbordes(page);
         await soporte.getByRole("link", { name: "Editar Soporte" }).click();
         const form = page.getByRole("form", { name: "Editar cola «Soporte»" });
@@ -196,6 +196,8 @@ test.describe("bandeja 1.1", () => {
         const agregar = form.getByRole("combobox", { name: "Agregar a supervisores" });
         await agregar.fill("Rosa S");
         await page.getByRole("option", { name: /Rosa Sánchez/ }).click();
+        // La lista sigue abierta para agregar a otra persona; Escape la cierra.
+        await page.keyboard.press("Escape");
         await expect(form.getByRole("list", { name: "Supervisores" })).toContainText("Rosa Sánchez");
         await form.getByLabel("Minutos sin agentes disponibles").fill("5");
         await esperarSinDesbordes(page);
@@ -252,11 +254,12 @@ test.describe("bandeja 1.1", () => {
         expect(api.conversaciones.bandeja11.ajustes()).toEqual({ minutosInactividad: 20, version: 2 });
     });
 
-    test("un agente sin supervisar ve «Pasar a…» en la suya y no en la de otro", async ({ page }) => {
+    test("un agente que no supervisa no ve «Pasar a…» en la conversación de otro", async ({ page }) => {
         await abrir(page, "/conversaciones?c=44", AGENTE_CONV.correo);
         const conv = page.getByRole("region", { name: /Conversación con Ferretería/ });
         await conv.getByRole("button", { name: "Más acciones" }).click();
         await expect(page.getByRole("menuitem", { name: "Pasar a…" })).toHaveCount(0);
-        await expect(page.getByRole("menuitem", { name: "Asignar…" })).toHaveCount(0);
+        // Tiene `conversaciones.asignar`: «Asignar…» sí aparece.
+        await expect(page.getByRole("menuitem", { name: "Asignar…" })).toHaveCount(1);
     });
 });

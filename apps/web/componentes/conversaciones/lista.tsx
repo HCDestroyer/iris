@@ -13,7 +13,6 @@ import type { Lectura } from "@/lib/lectura";
 import { useDiferido } from "@/lib/diferido";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { useSesion } from "@/lib/sesion";
-import { PERMISO_INICIAR } from "@/lib/conversaciones/contrato-11";
 import { AvisoAtencion, esperaDe, LineaDisponibles } from "./atencion";
 import { useAhora } from "./reloj";
 import { BotonFiltros } from "./filtros";
@@ -65,7 +64,7 @@ export function ListaConversaciones({ className, filtros, abierta, lista, contad
                     <h1 className="min-w-0 flex-1 truncate text-lg font-bold">Conversaciones</h1>
                     <IndicadorFeed estado={estadoFeed} detenido={detenido} />
                     <BotonFiltros filtros={filtros} contadores={c} alCambiar={alFiltrar} />
-                    {puede([PERMISO_INICIAR]) ? (
+                    {puede(["conversaciones.iniciar"]) ? (
                         <Boton asChild variante="contorno" tamano="sm" className="h-8 shrink-0 px-2.5">
                             <Link href="/conversaciones/nueva" aria-label="Nueva conversación" title="Nueva conversación">
                                 <SquarePen />

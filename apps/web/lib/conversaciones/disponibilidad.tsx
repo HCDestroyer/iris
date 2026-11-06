@@ -7,8 +7,8 @@ import { ErrorApi } from "../api/errores";
 import { ZONA } from "../fechas";
 import { useLectura, type Lectura } from "../lectura";
 import { useSesion } from "../sesion";
-import { cambiarDisponibilidad, leerAgentesDisponibles, leerDisponibilidad, mandarLatido } from "./api-11";
-import type { Disponibilidad, EstadoDisponibilidad } from "./contrato-11";
+import { cambiarDisponibilidad, leerAgentes, leerDisponibilidad, mandarLatido } from "./api-equipo";
+import type { Disponibilidad, EstadoDisponibilidad } from "./tipos";
 import { crearLatido } from "./latido";
 
 /*
@@ -45,7 +45,7 @@ export function ProveedorDisponibilidad({ children }: { children: ReactNode }) {
     const { yo } = useSesion();
     const lectura = useLectura((signal) => leerDisponibilidad(signal));
     // Mis colas salen del catálogo de agentes (la disponibilidad no las trae).
-    const agentes = useLectura((signal) => leerAgentesDisponibles(signal));
+    const agentes = useLectura((signal) => leerAgentes(signal));
     const colas = useMemo(() => {
         const mia = agentes.estado === "listo" ? agentes.datos.find((a) => a.id === yo.usuario.id) : undefined;
         const todas = [...(mia?.colas ?? []), ...(mia?.colasSupervisadas ?? [])];

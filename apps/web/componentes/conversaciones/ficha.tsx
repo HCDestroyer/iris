@@ -36,7 +36,6 @@ import { erroresACampos } from "@/lib/formularios";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
-import type { DetalleConEquipo } from "@/lib/conversaciones/contrato-11";
 import { AvatarDisponible, EstadoDisponible } from "./disponibilidad";
 import { SelectorCliente } from "@/componentes/clientes/selector-cliente";
 import { AyudaManuales } from "./ayuda";
@@ -298,7 +297,7 @@ function Vinculo({ v }: { v: NonNullable<ConversacionDetalle["vinculos"]>[number
 
 function Resumen({ conv }: { conv: ConversacionDetalle; recargar: () => Promise<void> }) {
     // Fase 1.1: supervisores y equipo de la cola en el detalle (contrato §14.1).
-    const equipo = conv as DetalleConEquipo;
+    const equipo = conv;
     const abiertos = (conv.vinculos ?? []).filter((v) => v.tipo === "ticket" || v.tipo === "orden").slice(-3);
     return (
         <div>

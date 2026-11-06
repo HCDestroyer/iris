@@ -131,6 +131,7 @@ dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`avis
 | `SelectorFecha`, `SelectorRangoFechas` | `DatePicker`, `DateRangePicker` | |
 | `CampoFecha`, `CampoHora` | `DatePicker` (con `DateField` y `Calendar`), `TimeField` | Reemplazan a `<Campo type="date">` y `type="time"` con la misma forma (`register` o `value` + `onChange`). Valores `AAAA-MM-DD` y `HH:MM` (24 h): hora local de Guatemala, a UTC al enviar |
 | `Autocompletar` | `ComboBox` | Con `alBuscar` busca en el servidor: `cargando`, `sinResultados`, `cabeceraLista` («Recientes») y opciones con `contenido` propio; la primera queda resaltada al llegar los resultados y Enter la elige. Enter nunca envía el formulario desde el campo. Salir del campo o Escape no borran lo escrito. `SelectorCliente` avisa con `alBuscarSinElegir` si hay una búsqueda sin elegir o «Cambiar cliente» abierto, y el formulario no se envía hasta elegir, borrar o «Dejar el cliente elegido» |
+| `ListaEleccion` | `RadioGroup`, `Label`, `Radio`, `Radio.Content`, `Radio.Indicator` | Una entre varias filas con contenido propio (avatar, detalle, estado a la derecha); `deshabilitada` no se elige, `atenuada` sí; `pegadas` para una lista de búsqueda |
 | `ListaOpciones` | `ListBox` (`onAction`) | Elegir una tarjeta entre pocas (servicio del cliente): flechas, Enter y clic |
 | `Interruptor` | `Switch`, `Switch.Content`, `Switch.Control`, `Switch.Thumb` | Ajustes de encendido/apagado que cambian lo que sigue. Con `register` como `Casilla` |
 | `CampoNumero` | `NumberField` (+ `DecrementButton` / `IncrementButton` con `conPasos`) | Cantidades y montos; el formulario recibe el texto del número (`"250.5"`) |
@@ -269,6 +270,28 @@ Diseño aprobado por el PM («compactar menús, mejor integración y que nada se
   el mismo cursor). **Antes de abrir el flujo, de sondear, de guardar un borrador y de enviar se
   verifica con `GET /yo` que la sesión del navegador sigue siendo de quien está en pantalla**
   (`lib/conversaciones/sesion.ts`); si cambió, nada sale y la pantalla pide recargar.
+- **Fase 1.1 (nov. 2026, contrato §14):**
+    - **Disponibilidad:** la cuenta al pie de la barra lateral (o el riel) lleva el punto verde o
+      gris y abre un panel con Disponible / No disponible (`GrupoSegmentado`), la línea «Pasas a
+      No disponible tras N min sin actividad, al cerrar sesión o fuera de tu horario» y las
+      opciones de la cuenta. En el teléfono va arriba de «Más». Mientras estás disponible y activa
+      (pestaña a la vista y teclado, puntero o desplazamiento en los últimos 90 s) el panel manda
+      un latido como mucho cada 60 s (`lib/conversaciones/latido.ts`); al cerrar sesión, «No
+      disponible» en el servidor antes de cerrarla.
+    - **«¿Alguien la atiende?»:** aviso naranja con la cuenta regresiva hasta que contesta el bot
+      y «La atiendo» (`POST …/tomar`), en la fila de la lista y arriba de la conversación. Cada
+      conversación que espera dice «2 disponibles en Soporte» o, en naranja, «Nadie disponible en
+      Cobros». Los eventos del bot van en el hilo con el icono `Bot` y los mensajes del bot con
+      «Bot · mensaje automático» y borde punteado de información.
+    - **«Pasar a…»** (menú «⋯», para quien la tiene y para supervisores): diálogo con los
+      compañeros de la cola (punto, «N conversaciones abiertas») y una nota opcional. Alguien «No
+      disponible» se puede elegir: se avisa «La verá cuando vuelva a estar disponible».
+    - **«Nueva conversación»** (`/conversaciones/nueva`, «Nueva» en la cabecera de la lista):
+      contacto (clientes de Argos y contactos de Iris juntos; sin permiso de mensajes, deshabilitado
+      con el motivo), número de salida de tus colas, plantilla aprobada y sus variables, vista
+      previa en vivo y «Enviar y abrir conversación» con id de envío idempotente (`useIdEnvio`).
+    - **`ListaEleccion`** (`@iris/ui`): radios en filas con contenido propio (persona con su
+      disponibilidad, contacto con su permiso), deshabilitadas o atenuadas.
 - **Pruebas de «nada cortado»:** `e2e/desbordes.ts` (`esperarSinDesbordes`) falla si la página
   se desplaza a lo ancho, si algo queda fuera de la ventana o si un texto se sale de su caja sin
   elipsis.

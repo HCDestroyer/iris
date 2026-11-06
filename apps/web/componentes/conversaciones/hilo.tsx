@@ -7,7 +7,6 @@ import type { Pendiente } from "@/lib/conversaciones/estado";
 import { hora, separadorDia, tamanoLegible, textoEntrega, textoEvento } from "@/lib/conversaciones/presentacion";
 import type { Mensaje } from "@/lib/conversaciones/tipos";
 import { esEventoBot } from "@/lib/conversaciones/atencion";
-import type { MensajeAutomatico } from "@/lib/conversaciones/contrato-11";
 import { rutaDescargaAdjunto } from "@/lib/ordenes/adjuntos";
 import { diaLocal } from "@/lib/conversaciones/presentacion";
 
@@ -148,7 +147,7 @@ function Burbuja({ m }: { m: Mensaje }) {
     const propia = m.direccion === "saliente";
     const nota = m.direccion === "nota";
     // Fase 1.1: mensajes del bot (`automatico: "bot"`) con su etiqueta y borde punteado de información.
-    const automatico = (m as MensajeAutomatico).automatico ?? null;
+    const automatico = m.automatico ?? null;
     const delBot = propia && automatico === "bot";
     const pie = [
         nota || (propia && !delBot) ? (m.autor?.nombre ?? (propia ? "Respuesta automática" : null)) : null,

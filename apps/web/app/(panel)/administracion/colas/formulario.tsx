@@ -10,8 +10,8 @@ import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { SelectorPersonas } from "@/componentes/conversaciones/selector-personas";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
-import { actualizarCola, crearCola, fijarMiembros, fijarSupervisores, type CuerpoCola } from "@/lib/conversaciones/api-11";
-import type { AgenteDisponible, ColaConSupervisores, NumeroConBot } from "@/lib/conversaciones/contrato-11";
+import { actualizarCola, crearCola, fijarMiembros, fijarSupervisores, type CuerpoCola } from "@/lib/conversaciones/api-equipo";
+import type { Agente, Cola, Numero } from "@/lib/conversaciones/tipos";
 import { MINUTOS_SIN_CONFIRMACION, MINUTOS_SIN_DISPONIBLES } from "@/lib/conversaciones/menu-bot";
 import { CLASE_PUNTO, formatearNumero, tonoDeCanal } from "@/lib/conversaciones/presentacion";
 import { erroresACampos } from "@/lib/formularios";
@@ -38,7 +38,7 @@ type Valores = z.infer<typeof esquemaCola>;
 const aMinutos = (v: string) => (v.trim() === "" ? undefined : Number(v));
 const mismos = (a: readonly number[], b: readonly number[]) => a.length === b.length && a.every((x) => b.includes(x));
 
-type Props = { cola?: ColaConSupervisores; agentes: AgenteDisponible[]; canales: NumeroConBot[] };
+type Props = { cola?: Cola; agentes: Agente[]; canales: Numero[] };
 
 /**
  * `/administracion/colas/nueva` y `/[id]/editar` (fase 1.1): nombre, miembros y supervisores (con
@@ -52,7 +52,7 @@ export function FormularioCola({ cola, agentes, canales }: Props) {
     const claveSupervisores = useClaveIdempotencia();
     const [error, setError] = useState<unknown>(null);
     // Lo ya guardado de un intento que falló a medias (p. ej. la cola sí, los miembros no).
-    const [guardada, setGuardada] = useState<ColaConSupervisores | null>(null);
+    const [guardada, setGuardada] = useState<Cola | null>(null);
     const form = useForm<Valores>({
         resolver: zodResolver(esquemaCola),
         defaultValues: {

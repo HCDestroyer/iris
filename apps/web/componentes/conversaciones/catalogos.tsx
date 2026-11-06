@@ -3,8 +3,8 @@
 import type { Schema } from "@iris/contratos";
 import { createContext, use, useEffect, useMemo, type ReactNode } from "react";
 import { api, resolver } from "@/lib/api/cliente";
-import { leerAgentesDisponibles, leerColas } from "@/lib/conversaciones/api-11";
-import type { AgenteDisponible, ColaConSupervisores } from "@/lib/conversaciones/contrato-11";
+import { leerAgentes, leerColas } from "@/lib/conversaciones/api-equipo";
+import type { Agente, Cola } from "@/lib/conversaciones/tipos";
 import type { Etiqueta, RespuestaRapida } from "@/lib/conversaciones/tipos";
 import { useLectura, type Lectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
@@ -16,12 +16,12 @@ import { useSesion } from "@/lib/sesion";
  */
 export type CanalBandeja = Schema<"NumeroConversaciones">;
 /** Agente con su disponibilidad y sus conversaciones abiertas (fase 1.1). */
-export type Agente = AgenteDisponible;
+export type { Agente };
 
 type Catalogos = {
     canales: Lectura<CanalBandeja[]>;
     agentes: Lectura<Agente[]>;
-    colas: Lectura<ColaConSupervisores[]>;
+    colas: Lectura<Cola[]>;
     etiquetas: Lectura<Etiqueta[]>;
     respuestas: Lectura<RespuestaRapida[] | null>;
 };
@@ -34,7 +34,7 @@ export function ProveedorCatalogos({ children }: { children: ReactNode }) {
     const { puede } = useSesion();
     const responde = puede(["conversaciones.responder"]);
     const canales = useLectura(async (signal) => (await resolver(api().GET(`${M}/conversaciones/canales`, { signal }))).data ?? []);
-    const agentes = useLectura((signal) => leerAgentesDisponibles(signal));
+    const agentes = useLectura((signal) => leerAgentes(signal));
     const colas = useLectura((signal) => leerColas(signal));
     // La disponibilidad de los demás cambia sola: se relee cada minuto con la pestaña a la vista.
     const refrescarAgentes = agentes.refrescar;

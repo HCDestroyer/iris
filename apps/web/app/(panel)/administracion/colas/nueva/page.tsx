@@ -2,7 +2,7 @@
 
 import { CargaRegistro } from "@/componentes/carga-registro";
 import { RequierePermiso } from "@/componentes/requiere-permiso";
-import { leerAgentesDisponibles, leerCanalesConBot } from "@/lib/conversaciones/api-11";
+import { leerAgentes, leerNumeros } from "@/lib/conversaciones/api-equipo";
 import { useLectura } from "@/lib/lectura";
 import { FormularioCola } from "../formulario";
 
@@ -16,7 +16,7 @@ export default function Pagina() {
 
 function NuevaCola() {
     const lectura = useLectura(async (signal) => {
-        const [agentes, canales] = await Promise.all([leerAgentesDisponibles(signal), leerCanalesConBot(signal)]);
+        const [agentes, canales] = await Promise.all([leerAgentes(signal), leerNumeros(signal)]);
         return { agentes, canales };
     });
     return (

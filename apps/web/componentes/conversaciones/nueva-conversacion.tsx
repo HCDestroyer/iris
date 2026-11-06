@@ -22,9 +22,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
-import { buscarDestinatarios, iniciarConversacion, leerCanalesConBot, leerColas, leerPlantillasCanal } from "@/lib/conversaciones/api-11";
+import { buscarDestinatarios, iniciarConversacion, leerNumeros, leerColas, leerPlantillasNumero } from "@/lib/conversaciones/api-equipo";
 import { textoMotivoDestinatario } from "@/lib/conversaciones/atencion";
-import type { Destinatario, NumeroConBot, PlantillaCanal } from "@/lib/conversaciones/contrato-11";
+import type { Destinatario, Numero, PlantillaDisponible } from "@/lib/conversaciones/tipos";
 import { useIdEnvio } from "@/lib/conversaciones/id-envio";
 import { esquemaNuevaConversacion, primerNombre, trozosVistaPrevia, valoresIniciales, variablesFaltantes, type ValoresNueva } from "@/lib/conversaciones/nueva";
 import { CLASE_PILDORA, CLASE_PUNTO, formatearNumero, nombreUso, tonoDeCanal, usoPrincipal } from "@/lib/conversaciones/presentacion";
@@ -48,7 +48,7 @@ type Busqueda = { clave: string; estado: "cargando" } | { clave: string; estado:
  */
 export function NuevaConversacion() {
     const canales = useLectura(async (signal) => {
-        const [todos, colas] = await Promise.all([leerCanalesConBot(signal), leerColas(signal)]);
+        const [todos, colas] = await Promise.all([leerNumeros(signal), leerColas(signal)]);
         return { canales: todos.filter((c) => c.activo && c.iniciar === true), colas };
     });
     if (canales.estado === "cargando") {
@@ -82,7 +82,7 @@ export function NuevaConversacion() {
     return <Formulario canales={canales.datos.canales} colas={canales.datos.colas} />;
 }
 
-function Formulario({ canales, colas }: { canales: NumeroConBot[]; colas: { id: number; nombre: string }[] }) {
+function Formulario({ canales, colas }: { canales: Numero[]; colas: { id: number; nombre: string }[] }) {
     const router = useRouter();
     const envio = useIdEnvio();
     const [error, setError] = useState<unknown>(null);
@@ -118,7 +118,7 @@ function Formulario({ canales, colas }: { canales: NumeroConBot[]; colas: { id: 
     const elegidoAlDia = resultados.estado === "listo" ? (resultados.datos.find((d) => elegido && claveDe(d) === claveDe(elegido)) ?? elegido) : elegido;
 
     // Plantillas aprobadas del número.
-    const plantillas = useLectura<PlantillaCanal[]>((signal) => (canalId ? leerPlantillasCanal(canalId, signal) : Promise.resolve([])));
+    const plantillas = useLectura<PlantillaDisponible[]>((signal) => (canalId ? leerPlantillasNumero(canalId, signal) : Promise.resolve([])));
     const refrescarPlantillas = plantillas.reintentar;
     useEffect(() => refrescarPlantillas(), [canalId, refrescarPlantillas]);
     const lista = plantillas.estado === "listo" ? plantillas.datos : [];
@@ -294,7 +294,6 @@ function Formulario({ canales, colas }: { canales: NumeroConBot[]; colas: { id: 
                                         etiqueta={
                                             <span className="flex items-center gap-2">
                                                 <code className="rounded bg-elevated px-1.5 py-0.5 font-mono text-xs">{`{{${x.nombre}}}`}</code>
-                                                {x.obligatoria ? null : <span className="text-xs font-normal text-muted-foreground">(opcional)</span>}
                                             </span>
                                         }
                                         maxLength={1024}
@@ -336,7 +335,7 @@ function FilaDestinatario({ d }: { d: Destinatario }) {
 }
 
 /** Cómo lo verá el cliente en WhatsApp: la plantilla con las variables resaltadas. Texto plano. */
-function VistaPrevia({ plantilla, valores, nombre, canal, cola }: { plantilla: PlantillaCanal | undefined; valores: Record<string, string>; nombre: string; canal: NumeroConBot | undefined; cola: string }) {
+function VistaPrevia({ plantilla, valores, nombre, canal, cola }: { plantilla: PlantillaDisponible | undefined; valores: Record<string, string>; nombre: string; canal: Numero | undefined; cola: string }) {
     const trozos = useMemo(() => (plantilla ? trozosVistaPrevia(plantilla.vistaPrevia, valores) : []), [plantilla, valores]);
     const uso = canal ? usoPrincipal(canal.usos ?? []) : undefined;
     const tono = canal ? tonoDeCanal(canal) : "neutro";

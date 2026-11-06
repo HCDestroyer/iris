@@ -1,20 +1,15 @@
 import type { Schema } from "@iris/contratos";
 import type { Route } from "@playwright/test";
-import {
-    type AgenteDisponible,
-    type AjustesBandeja,
-    type BotNumero,
-    type ColaConSupervisores,
-    type ConversacionConEspera,
-    type ConversacionIniciada,
-    type ConversacionPasada,
-    type Destinatario,
-    type Disponibilidad,
-    type NumeroConBot,
-    type PlantillaCanal,
-    PERMISO_INICIAR,
-    PERMISO_PASAR,
-} from "../lib/conversaciones/contrato-11";
+import type {
+    Agente,
+    AjustesBandeja,
+    BotNumero,
+    Cola,
+    Destinatario,
+    Disponibilidad,
+    Numero,
+    PlantillaDisponible,
+} from "../lib/conversaciones/tipos";
 import { detalle } from "./datos-conversaciones";
 
 /*
@@ -32,7 +27,7 @@ const json = (route: Route, cuerpo: unknown, status = 200) => route.fulfill({ st
 const problema = (route: Route, p: Problema) => route.fulfill({ status: p.status, contentType: "application/problem+json", body: JSON.stringify(p) });
 const P = (codigo: string, status: number, title: string, extra: Partial<Problema> = {}): Problema => ({ type: `urn:iris:problema:${codigo}`, title, status, ...extra });
 
-export const PERMISOS_BANDEJA11: Permiso[] = [PERMISO_INICIAR, PERMISO_PASAR];
+export const PERMISOS_BANDEJA11: Permiso[] = ["conversaciones.iniciar", "conversaciones.pasar"];
 
 export const BOT_INICIAL: BotNumero = {
     activo: true,
@@ -44,8 +39,8 @@ export const BOT_INICIAL: BotNumero = {
 };
 
 /** Personas de la bandeja con su disponibilidad (Ana es la admin de las pruebas). */
-export function agentesBandeja11(): AgenteDisponible[] {
-    const disp = (estado: "disponible" | "no_disponible", origen: AgenteDisponible["disponibilidad"]["origen"] = "manual") => ({ estado, origen, desde: "2026-10-28T14:00:00Z" });
+export function agentesBandeja11(): Agente[] {
+    const disp = (estado: "disponible" | "no_disponible", origen: Agente["disponibilidad"]["origen"] = "manual") => ({ estado, origen, desde: "2026-10-28T14:00:00Z" });
     return [
         { id: 1, nombre: "Ana López", supervisa: true, colas: [{ id: 2, nombre: "Soporte" }, { id: 3, nombre: "Caja" }], colasSupervisadas: [], disponibilidad: disp("disponible"), abiertas: 1 },
         { id: 9, nombre: "Rosa Sánchez", supervisa: false, colas: [{ id: 2, nombre: "Soporte" }], colasSupervisadas: [], disponibilidad: disp("disponible"), abiertas: 3 },
@@ -56,18 +51,18 @@ export function agentesBandeja11(): AgenteDisponible[] {
     ];
 }
 
-const PLANTILLAS: PlantillaCanal[] = [
+const PLANTILLAS: PlantillaDisponible[] = [
     {
         codigo: "confirmar_visita",
         nombre: "Confirmar visita técnica",
         categoria: "servicio",
         variables: [
-            { nombre: "1", formato: "texto", obligatoria: true },
-            { nombre: "2", formato: "texto", obligatoria: true },
+            { nombre: "1", formato: "texto" },
+            { nombre: "2", formato: "texto" },
         ],
         vistaPrevia: "Hola {{1}}, te escribimos de Soporte. Queremos confirmar tu visita técnica de {{2}}. ¿Te queda bien?",
     },
-    { codigo: "seguimiento", nombre: "Seguimiento de soporte", categoria: "servicio", variables: [{ nombre: "nombre", formato: "texto", obligatoria: true }], vistaPrevia: "Hola {{nombre}}, ¿pudiste volver a conectarte?" },
+    { codigo: "seguimiento", nombre: "Seguimiento de soporte", categoria: "servicio", variables: [{ nombre: "nombre", formato: "texto" }], vistaPrevia: "Hola {{nombre}}, ¿pudiste volver a conectarte?" },
 ];
 
 const DESTINATARIOS: Destinatario[] = [
@@ -88,9 +83,9 @@ type Estado = {
     actorId: () => number;
     conversaciones: Conversacion[];
     mensajes: Map<number, Mensaje[]>;
-    agentes: AgenteDisponible[];
-    colas: ColaConSupervisores[];
-    canales: NumeroConBot[];
+    agentes: Agente[];
+    colas: Cola[];
+    canales: Numero[];
     emitir: (tipo: "mensaje_nuevo" | "conversacion_actualizada", c: Conversacion, m?: Mensaje) => void;
     enviados: { ruta: string; cuerpo: unknown; idempotencia: string | undefined }[];
 };
@@ -102,7 +97,7 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
     const latidos: number[] = [];
     let ajustes: AjustesBandeja = { minutosInactividad: 15, version: 1 };
     let fallas503 = opciones.iniciarFalla503 ?? 0;
-    const iniciadas = new Map<string, { cuerpo: string; respuesta: ConversacionIniciada }>();
+    const iniciadas = new Map<string, { cuerpo: string; respuesta: Schema<"ConversacionIniciada"> }>();
     let siguienteConv = 70;
 
     function miDisponibilidad(): Disponibilidad {
@@ -155,7 +150,7 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
 
         // §14.3 Destinatarios, plantillas por número e iniciar.
         if (ruta === `${BASE}/conversaciones/destinatarios` && metodo === "GET") {
-            if (!puede(PERMISO_INICIAR)) return noExiste();
+            if (!puede("conversaciones.iniciar")) return noExiste();
             const q = (query.get("q") ?? "").toLowerCase();
             const canalId = Number(query.get("canalId"));
             const data = DESTINATARIOS.filter((d) => d.nombre.toLowerCase().includes(q) || (d.codigo ?? "").toLowerCase().includes(q)).map((d) => {
@@ -171,7 +166,7 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
             return (await json(route, { data: canal.id === 4 ? [] : PLANTILLAS, nextCursor: null }), true);
         }
         if (ruta === `${BASE}/conversaciones/iniciar` && metodo === "POST") {
-            if (!puede(PERMISO_INICIAR)) return noExiste();
+            if (!puede("conversaciones.iniciar")) return noExiste();
             e.enviados.push({ ruta, cuerpo, idempotencia: x.idempotencia });
             const id = String(cuerpo.id);
             const firma = JSON.stringify({ ...cuerpo, id: undefined });
@@ -240,6 +235,7 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
                 enviadoEn: null,
                 entregadoEn: null,
                 leidoEn: null,
+                automatico: null,
             };
             c.ultimoMensaje = { direccion: "saliente", tipo: "plantilla", texto, evento: null, creadoEn: ahora };
             if (!existente) {
@@ -262,10 +258,11 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
                     enviadoEn: null,
                     entregadoEn: null,
                     leidoEn: null,
+                    automatico: null,
                 },
                 m,
             );
-            const respuesta: ConversacionIniciada = { conversacion: detalle(c), mensaje: m, nueva: !existente };
+            const respuesta: Schema<"ConversacionIniciada"> = { conversacion: detalle(c), mensaje: m, nueva: !existente };
             iniciadas.set(id, { cuerpo: firma, respuesta });
             e.emitir("mensaje_nuevo", c, m);
             return (await json(route, respuesta, 201), true);
@@ -274,7 +271,7 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
         // §14.4 Pasar a…
         const pasar = /^\/api\/v1\/mensajeria\/conversaciones\/(\d+)\/pasar$/.exec(ruta);
         if (pasar && metodo === "POST") {
-            if (!puede(PERMISO_PASAR)) return prohibido();
+            if (!puede("conversaciones.pasar")) return prohibido();
             e.enviados.push({ ruta, cuerpo, idempotencia: x.idempotencia });
             const c = e.conversaciones.find((v) => v.id === Number(pasar[1]));
             if (!c) return noExiste();
@@ -285,11 +282,11 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
             const disponible = destino.disponibilidad.estado === "disponible";
             const yoAgente = e.agentes.find((a) => a.id === yo);
             c.asignado = { id: destino.id, nombre: destino.nombre };
-            delete (c as ConversacionConEspera).espera;
+            delete (c as Conversacion).espera;
             c.version += 1;
             const ahora = new Date().toISOString();
             const nota = typeof cuerpo.nota === "string" ? cuerpo.nota : "";
-            const base = { conversacionId: c.id, seq: 0, tipo: "texto" as const, estadoEntrega: null, motivoFalla: null, menciones: [], creadoEn: ahora, enviadoEn: null, entregadoEn: null, leidoEn: null };
+            const base = { conversacionId: c.id, seq: 0, tipo: "texto" as const, estadoEntrega: null, motivoFalla: null, menciones: [], creadoEn: ahora, enviadoEn: null, entregadoEn: null, leidoEn: null, automatico: null };
             const sistema: Mensaje = {
                 ...base,
                 id: `pasada-${c.version}`,
@@ -301,7 +298,7 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
             e.mensajes.get(c.id)?.push(sistema);
             if (nota) e.mensajes.get(c.id)?.push({ ...base, id: `nota-${c.version}`, direccion: "nota", texto: nota, autor: { id: yo, nombre: yoAgente?.nombre ?? "Ana López" } });
             e.emitir("mensaje_nuevo", c, sistema);
-            const r: ConversacionPasada = { conversacion: detalle(c), destino: { id: destino.id, nombre: destino.nombre }, destinoDisponible: disponible };
+            const r: Schema<"PaseConversacion"> = { conversacion: detalle(c), destino: { id: destino.id, nombre: destino.nombre }, destinoDisponible: disponible };
             return (await json(route, r), true);
         }
 
@@ -318,7 +315,7 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
                 if (e.colas.some((q) => q.nombre.toLowerCase() === String(cuerpo.nombre).toLowerCase())) {
                     return (await problema(route, P("cola_existente", 422, "Ya hay una cola con ese nombre", { errors: [{ field: "body.nombre", message: "Ya hay una cola con ese nombre" }] })), true);
                 }
-                const nueva: ColaConSupervisores = {
+                const nueva: Cola = {
                     id: e.colas.length + 20,
                     empresaId: 1,
                     nombre: String(cuerpo.nombre),
@@ -373,7 +370,10 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
 }
 
 /** Los catálogos de la API falsa con los campos de la fase 1.1. */
-export function colasBandeja11(colas: Schema<"ColaConversaciones">[], agentes: AgenteDisponible[]): ColaConSupervisores[] {
+export type ColaBase = Omit<Cola, "supervisores" | "disponibles" | "botSinConfirmacionMin" | "botSinDisponiblesMin">;
+export type NumeroBase = Omit<Numero, "bot" | "iniciar">;
+
+export function colasBandeja11(colas: ColaBase[], agentes: Agente[]): Cola[] {
     return colas.map((c) => {
         const supervisores = c.id === 2 ? [{ id: 12, nombre: "Laura Méndez" }, { id: 1, nombre: "Ana López" }] : [];
         const miembros = c.id === 2 ? [...c.miembros, { id: 15, nombre: "Mario Ixcot" }] : c.id === 3 ? [...c.miembros, { id: 16, nombre: "Karla Tun" }] : c.miembros;
@@ -383,6 +383,6 @@ export function colasBandeja11(colas: Schema<"ColaConversaciones">[], agentes: A
     });
 }
 
-export function canalesBandeja11(canales: Schema<"NumeroConversaciones">[]): NumeroConBot[] {
+export function canalesBandeja11(canales: NumeroBase[]): Numero[] {
     return canales.map((c) => ({ ...c, iniciar: c.id !== 5, bot: { ...BOT_INICIAL, activo: c.id === 3, menu: c.id === 3 ? [{ texto: "Soporte técnico", colaId: 2, etiquetaIds: [] }, { texto: "Pagos", colaId: 3, etiquetaIds: [5] }] : [] } }));
 }
