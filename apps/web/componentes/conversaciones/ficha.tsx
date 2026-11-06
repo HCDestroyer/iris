@@ -566,7 +566,12 @@ function DialogoPromesa({ conv, cerrar }: { conv: ConversacionDetalle; cerrar: (
         setError(null);
         try {
             const r = await resolver(api().POST(`${BASE}/promesas/simular`, { params: { path: { id: conv.id } }, body: { servicioId: Number(d.servicioId), venceEl: d.venceEl } }));
-            setSimulacion({ texto: r.mensaje ?? (r.permitida ? "Argos la aceptaría." : "Argos no la aceptaría."), permitida: r.permitida });
+            const permitida = r.resultado !== "rechazada";
+            const texto =
+                r.resultado === "pendiente_aprobacion"
+                    ? "Argos la dejaría pendiente de aprobación por un supervisor."
+                    : [r.motivo, r.regla ? `Regla: ${r.regla}` : null].filter(Boolean).join(". ") || (permitida ? "Cumple las reglas de Argos." : "No cumple las reglas de Argos.");
+            setSimulacion({ texto, permitida });
         } catch (e) {
             setError(e);
         } finally {

@@ -11,19 +11,48 @@ import { ORIGENES, ORIGENES_ELEGIBLES } from "@/lib/comercial/presentacion";
 
 const CAMPOS = ["nombre", "direccion", "telefono", "correo", "documento", "origen", "origenDetalle", "zonaId", "planInteresNombre", "notas", "lat", "lon"] as const;
 
+/** Conversación de WhatsApp desde la que se crea (bandeja): el prospecto queda asociado a ella. */
+export type DesdeConversacion = { id: number; titulo: string; numero: string; perfilNombre?: string | undefined };
+
 /**
  * «Nuevo prospecto» en pantalla propia (`/comercial/nuevo`, `prospectos.crear`): lo mínimo es
- * nombre y dirección. Al crear, aviso y ficha del prospecto.
+ * nombre y dirección. Al crear, aviso y ficha del prospecto. Desde una conversación
+ * (`/conversaciones/[id]/prospecto`) usa `POST /conversaciones/{id}/crear-prospecto` con el
+ * teléfono de la conversación y vuelve a ella.
  */
-export function NuevoProspecto() {
+export function NuevoProspecto({ conversacion }: { conversacion?: DesdeConversacion } = {}) {
     const router = useRouter();
     const lecturaZonas = useZonas();
     const zonas = lecturaZonas.estado === "listo" ? lecturaZonas.datos : null;
     const envio = useEnvio();
-    const formulario = useForm<DatosProspecto>({ resolver: zodResolver(esquemaProspecto), defaultValues: PROSPECTO_VACIO });
+    const formulario = useForm<DatosProspecto>({
+        resolver: zodResolver(esquemaProspecto),
+        defaultValues: conversacion
+            ? { ...PROSPECTO_VACIO, nombre: conversacion.perfilNombre ?? "", telefono: conversacion.numero, origenDetalle: "WhatsApp" }
+            : PROSPECTO_VACIO,
+    });
+    const volverA = conversacion ? `/conversaciones?c=${conversacion.id}` : "/comercial";
     const { errors, isSubmitting, isDirty } = formulario.formState;
 
     async function enviar(datos: DatosProspecto) {
+        if (conversacion) {
+            const r = await envio.enviar(
+                (clave) =>
+                    resolver(
+                        api().POST("/api/v1/mensajeria/conversaciones/{id}/crear-prospecto", {
+                            params: { path: { id: conversacion.id }, header: { "Idempotency-Key": clave } },
+                            body: cuerpoCrearProspecto(datos),
+                        }),
+                    ),
+                { nombres: CAMPOS, setError: formulario.setError },
+            );
+            if (r) {
+                avisar({ titulo: `Prospecto ${r.vinculo.referencia} creado y asociado a la conversación` });
+                await liberarProteccion();
+                router.replace(volverA);
+            }
+            return;
+        }
         const creado = await envio.enviar(
             (clave) => resolver(api().POST("/api/v1/prospectos", { params: { header: { "Idempotency-Key": clave } }, body: cuerpoCrearProspecto(datos) })),
             { nombres: CAMPOS, setError: formulario.setError },
@@ -38,10 +67,10 @@ export function NuevoProspecto() {
     return (
         <FormularioPagina
             titulo="Nuevo prospecto"
-            descripcion="Con nombre y dirección basta para empezar; lo demás se completa después."
+            descripcion={conversacion ? `Desde la conversación con ${conversacion.titulo}: queda asociado a ella.` : "Con nombre y dirección basta para empezar; lo demás se completa después."}
             alEnviar={formulario.handleSubmit(enviar)}
             navegar={router.push}
-            volverA="/comercial"
+            volverA={volverA}
             sucio={isDirty}
             barra={{ textoGuardar: "Crear prospecto", textoEnviando: "Creando…", enviando: isSubmitting }}
             error={<AvisoAccion envio={envio} que="crear el prospecto" recargar={async () => undefined} />}
