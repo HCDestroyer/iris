@@ -1,65 +1,85 @@
 "use client";
 
-import { accionesDe, accionesRapidas, avisoIsla, contadoresPestanas, estadoIslaPasos, pestanaDe, PESTANAS, urlDeVista, type PasoOrden, type Pestana, type PrimarioIsla, type Vista } from "@iris/sync/campo";
-import { Boton, cn, type Tono } from "@iris/ui";
-import { ArrowLeft, ArrowRight, CalendarClock, CalendarDays, Check, ChevronRight, CircleCheck, CloudUpload, Building2, Hand, House, KeyRound, PackageOpen, PenLine, Plus, Save, TriangleAlert, UserRound, WifiOff, type LucideIcon } from "lucide-react";
+import { accionesDe, accionesRapidas, contadoresPestanas, estadoIslaPasos, pestanaDe, pestanasIsla, urlDeVista, type PasoOrden, type Pestana, type PrimarioIsla, type Vista } from "@iris/sync/campo";
+import { Boton, cn } from "@iris/ui";
+import { ArrowLeft, ArrowRight, CalendarClock, CalendarDays, Check, ChevronRight, CircleCheck, Hand, House, MessageCircle, PenLine, Plus, Save, User, type LucideIcon } from "lucide-react";
 import { useEffect, useState, type MouseEvent } from "react";
-import { RUTA_ENTRAR } from "./app-campo";
 import { useGuardarPaso, useRecienGuardado, useSinGuardar } from "./borradores";
+import { useChatOpcional } from "./chat-datos";
 import { useCampo, useOrden } from "./contexto";
 import { HojaCampo } from "./hoja";
-import { useInventario } from "./inventario-datos";
 import { useLibres } from "./libres-datos";
 
-const ICONOS: Record<Pestana, LucideIcon> = { hoy: House, recibir: PackageOpen, agenda: CalendarDays, yo: UserRound };
+const ICONOS: Record<Pestana, LucideIcon> = { hoy: House, chat: MessageCircle, agenda: CalendarDays, yo: User };
 
-/** Zonas táctiles de la isla: 54 px (44 px encogida, el mínimo de Iris). */
+/** Zonas táctiles de la isla: 54 px en los pasos, 52 px en el menú (48 px encogida). */
 const BOTON_ISLA = "relative grid size-[3.375rem] place-content-center rounded-full transition-[width,height] focus-visible:outline-2 focus-visible:-outline-offset-2";
-const BOTON_ENCOGIDO = "size-11";
+const BOTON_ENCOGIDO = "size-12";
+/**
+ * Pestaña de la isla: la activa es una píldora en «tinta» con icono y nombre; las demás, solo el
+ * icono en gris. El nombre entra y sale con una transición (sin ella con movimiento reducido).
+ */
+const PESTANA_ISLA =
+    "relative flex h-[3.25rem] min-w-[3.25rem] items-center justify-center rounded-full px-3.5 transition-[background-color,color,padding,height,min-width] duration-300 ease-out motion-reduce:transition-none focus-visible:outline-2 focus-visible:-outline-offset-2";
+const PESTANA_ENCOGIDA = "h-12 min-w-12 px-3";
 
 /**
- * Isla de menú flotante (diseño «combinada»): píldora centrada abajo con Hoy, Por recibir (con su
- * contador), «+» en teal al centro, Agenda y Yo. Al bajar se encoge y al subir vuelve. Reemplaza la
- * barra inferior de la fase 4; «Por enviar» se abre desde la píldora de estado o desde «Yo».
+ * Isla de menú flotante (estilo elegido por el PM, nov 2026): píldora centrada abajo con Hoy, Chat
+ * (punto teal de no leídos), «+» al centro (solo el icono, sin relleno), Agenda y Yo. La activa es
+ * una píldora en «tinta» con su nombre; las demás, solo el icono. Al bajar se encoge
+ * y al subir vuelve. «Por recibir» es el mosaico de Hoy; «Por enviar» se abre desde la hoja de
+ * estado (los indicadores de encima) y desde «Yo». Sin chat (sin `chat.ver`), sin «Chat».
  */
 export function IslaMenu({ encogida }: { encogida: boolean }) {
-    const { vista, navegar, estado } = useCampo();
-    const { traslados } = useInventario();
+    const { vista, navegar, sesion } = useCampo();
+    const chat = useChatOpcional();
     const [acciones, setAcciones] = useState(false);
     const actual = pestanaDe(vista);
-    const cuentas = contadoresPestanas(estado, traslados.datos);
-    const boton = (p: (typeof PESTANAS)[number]) => {
-        const Icono = ICONOS[p.id];
+    const cuentas = contadoresPestanas(chat?.estado.noLeidos ?? 0);
+    const pestanas = pestanasIsla(chat !== null);
+    const boton = (p: ReturnType<typeof pestanasIsla>[number]) => {
         const activa = actual === p.id;
         const cuenta = cuentas[p.id];
         const ir = (e: MouseEvent<HTMLAnchorElement>) => {
             e.preventDefault();
             navegar(p.vista);
         };
+        const Icono = ICONOS[p.id];
         return (
             <li key={p.id}>
                 <a
                     href={urlDeVista(p.vista)}
                     onClick={ir}
                     aria-current={activa ? "page" : undefined}
-                    aria-label={cuenta > 0 ? `${p.texto} (${cuenta})` : p.texto}
+                    aria-label={p.id === "yo" ? `Yo · ${sesion.nombre}` : cuenta > 0 ? `${p.texto} (${cuenta} sin leer)` : p.texto}
                     title={p.texto}
+                    data-activa={activa ? "true" : undefined}
                     className={cn(
-                        BOTON_ISLA,
-                        encogida && BOTON_ENCOGIDO,
+                        PESTANA_ISLA,
+                        encogida && PESTANA_ENCOGIDA,
                         activa ? "bg-[var(--campo-tinta)] text-[var(--campo-sobre-tinta)]" : "text-muted-foreground hover:text-foreground",
                     )}
                 >
-                    <Icono aria-hidden className="size-6" strokeWidth={activa ? 2.4 : 2} />
-                    {cuenta > 0 ? (
-                        <span aria-hidden className="absolute top-2 right-2 grid min-w-4 place-content-center rounded-full bg-primary px-1 text-[0.625rem] leading-4 font-bold text-primary-foreground tabular-nums">
-                            {cuenta > 99 ? "99+" : cuenta}
-                        </span>
-                    ) : null}
+                    <Icono aria-hidden className="size-6 shrink-0" strokeWidth={activa ? 2.3 : 2} />
+                    {/* El nombre solo en la activa (se despliega al cambiar). */}
+                    <span
+                        aria-hidden
+                        data-slot="nombre-pestana"
+                        className={cn(
+                            "overflow-hidden text-base font-semibold whitespace-nowrap transition-[max-width,margin,opacity] duration-300 ease-out motion-reduce:transition-none",
+                            activa ? "ml-1.5 max-w-24 opacity-100" : "ml-0 max-w-0 opacity-0",
+                        )}
+                    >
+                        {p.texto}
+                    </span>
+                    {/* El chat: un punto teal (lo único teal de la isla) con mensajes sin leer; no con el chat abierto. */}
+                    {cuenta > 0 && !activa ? <span aria-hidden data-slot="punto-no-leidos" className="absolute top-2.5 right-2.5 size-2.5 rounded-full bg-primary ring-2 ring-[var(--campo-isla)]" /> : null}
                 </a>
             </li>
         );
     };
+    const antes = pestanas.filter((p) => p.id === "hoy" || p.id === "chat");
+    const despues = pestanas.filter((p) => p.id === "agenda" || p.id === "yo");
     return (
         <>
             <nav
@@ -71,20 +91,23 @@ export function IslaMenu({ encogida }: { encogida: boolean }) {
                     encogida && "bottom-[calc(1rem+env(safe-area-inset-bottom))] p-1",
                 )}
             >
-                <ul className={cn("flex items-center gap-1", encogida && "gap-0.5")}>
-                    {PESTANAS.slice(0, 2).map(boton)}
+                <ul className="flex items-center gap-0.5">
+                    {antes.map(boton)}
                     <li>
+                        {/* «+» sin relleno ni borde: icono de 26 px en color de texto. */}
                         <Boton
+                            variante="fantasma"
                             aria-label="Acciones rápidas"
                             title="Acciones rápidas"
                             aria-haspopup="dialog"
-                            className={cn(BOTON_ISLA, encogida && BOTON_ENCOGIDO, "p-0 shadow-none [&_svg]:size-6", encogida ? "md:size-11" : "md:size-[3.375rem]")}
+                            data-slot="isla-mas"
+                            className={cn(BOTON_ISLA, "size-[3.25rem] bg-transparent p-0 text-foreground shadow-none hover:bg-[var(--campo-panel-2)] [&_svg]:size-[1.625rem]", encogida ? "size-12 md:size-12" : "md:size-[3.25rem]")}
                             onClick={() => setAcciones(true)}
                         >
-                            <Plus aria-hidden strokeWidth={2.4} />
+                            <Plus aria-hidden strokeWidth={2.2} />
                         </Boton>
                     </li>
-                    {PESTANAS.slice(2).map(boton)}
+                    {despues.map(boton)}
                 </ul>
             </nav>
             {/* Se monta al abrir: cada vez relee el contador de órdenes libres. */}
@@ -124,7 +147,7 @@ export function IslaPasos({ id, paso, encogida }: { id: number; paso: PasoOrden;
     };
     const { primario } = isla;
     const IconoPrimario = ICONO_PRIMARIO[primario.icono];
-    const redondo = cn(BOTON_ISLA, encogida && BOTON_ENCOGIDO, "bg-[var(--campo-panel-2)] p-0 text-foreground shadow-none [&_svg]:size-6", encogida ? "md:size-11" : "md:size-[3.375rem]");
+    const redondo = cn(BOTON_ISLA, encogida && BOTON_ENCOGIDO, "bg-[var(--campo-panel-2)] p-0 text-foreground shadow-none [&_svg]:size-6", encogida ? "md:size-12" : "md:size-[3.375rem]");
     return (
         <nav
             aria-label="Pasos"
@@ -154,7 +177,7 @@ export function IslaPasos({ id, paso, encogida }: { id: number; paso: PasoOrden;
                 disabled={guardando}
                 aria-label={primario.etiqueta}
                 title={primario.etiqueta}
-                className={cn("min-w-[9.5rem] rounded-full px-6 text-base shadow-none", encogida ? "h-11" : "h-[3.375rem]")}
+                className={cn("min-w-[9.5rem] rounded-full px-6 text-base shadow-none", encogida ? "h-12" : "h-[3.375rem]")}
                 onClick={() => void ir(primario.destino)}
             >
                 <IconoPrimario aria-hidden />
@@ -166,64 +189,6 @@ export function IslaPasos({ id, paso, encogida }: { id: number; paso: PasoOrden;
                 ) : null}
             </Boton>
         </nav>
-    );
-}
-
-const TONO_PILDORA: Record<Tono, string> = {
-    neutral: "border-border bg-[var(--campo-panel)] text-foreground",
-    info: "border-[var(--campo-info-borde)] bg-[var(--campo-info-fondo)] text-info",
-    success: "border-border bg-[var(--campo-panel)] text-success",
-    warning: "border-[var(--campo-aviso-borde)] bg-[var(--campo-aviso-fondo)] text-warning",
-    error: "border-[var(--campo-error-borde)] bg-[var(--campo-error-fondo)] text-error",
-};
-
-/**
- * Píldora de estado encima de la isla: la barra de estado discreta de la fase 4 (`avisoIsla` de
- * `@iris/sync/campo`). Con todo enviado no sale (queda el punto del encabezado); con algo por
- * enviar o un rechazo lleva a «Por enviar»; sesión vencida y empresa no válida, a lo suyo.
- */
-export function AvisoIsla({ alto, pedirEmpresa }: { /** Hay algo abajo (la isla o la barra de pasos): va encima. */ alto: boolean; pedirEmpresa: () => void }) {
-    const { estado, navegar } = useCampo();
-    const a = avisoIsla(estado);
-    if (!a) {
-        return null;
-    }
-    const Icono = a.rechazo ? TriangleAlert : estado.conexion === "sin_sesion" ? KeyRound : estado.conexion === "sin_empresa" ? Building2 : estado.conexion === "sin_conexion" ? WifiOff : CloudUpload;
-    const tocar = () => {
-        if (a.accion === "pendientes") {
-            navegar({ tipo: "pendientes" });
-        } else if (a.accion === "entrar") {
-            window.location.assign(`${RUTA_ENTRAR}&motivo=expirada`);
-        } else if (a.accion === "empresa") {
-            pedirEmpresa();
-        }
-    };
-    return (
-        <section
-            aria-label="Estado de la sincronización"
-            data-slot="barra-conexion"
-            data-conexion={estado.conexion}
-            className={cn(
-                "campo-suave campo-entra-arriba fixed left-1/2 z-30 w-max max-w-[calc(100vw-2rem)] -translate-x-1/2",
-                alto ? "bottom-[calc(6.5rem+env(safe-area-inset-bottom))]" : "bottom-[calc(1.75rem+env(safe-area-inset-bottom))]",
-            )}
-        >
-            <Boton
-                variante="secundario"
-                aria-label={a.etiqueta}
-                className={cn("h-auto min-h-11 max-w-full gap-2 rounded-full border px-3.5 py-1.5 text-[0.8125rem] font-semibold shadow-[var(--campo-sombra)] whitespace-normal", TONO_PILDORA[a.tono])}
-                onClick={tocar}
-            >
-                <Icono aria-hidden className="shrink-0" />
-                <span data-testid="estado-conexion">{a.estado}</span>
-                {a.detalle ? (
-                    <>
-                        <span aria-hidden>·</span>
-                        <span data-testid="pendientes-por-enviar">{a.detalle}</span>
-                    </>
-                ) : null}
-            </Boton>
-        </section>
     );
 }
 

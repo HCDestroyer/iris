@@ -743,6 +743,7 @@ export function BotonRedondo({
     etiqueta,
     alPresionar,
     tamano = 48,
+    tamanoIcono,
     fondo,
     tinta,
     borde,
@@ -756,6 +757,8 @@ export function BotonRedondo({
     etiqueta: string;
     alPresionar: () => void;
     tamano?: number;
+    /** Lado del icono (por defecto, el 42 % del botón). */
+    tamanoIcono?: number;
     fondo: string;
     tinta: string;
     borde?: string;
@@ -779,10 +782,70 @@ export function BotonRedondo({
                 borde ? { borderWidth: 1, borderColor: borde } : null,
             ]}
         >
-            {Icono ? <Icono size={Math.round(lado * 0.42)} color={tinta} strokeWidth={seleccionado ? 2.4 : 2} /> : null}
+            {Icono ? <Icono size={tamanoIcono ?? Math.round(lado * 0.42)} color={tinta} strokeWidth={seleccionado ? 2.4 : 2} /> : null}
             {texto ? <Text style={[estilos.textoRedondo, { color: tinta }]}>{texto}</Text> : null}
             {children}
         </Tocable>
+    );
+}
+
+/**
+ * HeroUI `PressableFeedback` que además responde a mantener presionado (el menú de un mensaje del
+ * chat). Con lector de pantalla, la acción «Más opciones» hace lo mismo.
+ */
+export function TocableLargo({
+    children,
+    alMantener,
+    etiqueta,
+    estilo,
+    testID,
+}: {
+    children: ReactNode;
+    alMantener: () => void;
+    etiqueta: string;
+    estilo?: StyleProp<ViewStyle>;
+    testID?: string;
+}) {
+    return (
+        <PressableFeedback
+            accessibilityRole="button"
+            accessibilityLabel={etiqueta}
+            accessibilityHint="Mantén presionado para más opciones"
+            accessibilityActions={[{ name: "longpress", label: "Más opciones" }]}
+            onAccessibilityAction={(e) => e.nativeEvent.actionName === "longpress" && alMantener()}
+            onLongPress={alMantener}
+            delayLongPress={450}
+            testID={testID}
+            animation={{ scale: { value: 0.98 } }}
+            style={estilo}
+        >
+            <PressableFeedback.Highlight />
+            {children}
+        </PressableFeedback>
+    );
+}
+
+/**
+ * Texto de varias líneas del compositor del chat: HeroUI `TextField` + `Input` multilínea, 48 px de
+ * alto mínimo y hasta ~5 líneas; la etiqueta va solo para lectores de pantalla.
+ */
+export function CampoMensaje({ etiqueta, valor, alCambiar, placeholder, testID }: { etiqueta: string; valor: string; alCambiar: (texto: string) => void; placeholder?: string; testID?: string }) {
+    const { colores, campo } = useTema();
+    return (
+        <TextField className="flex-1">
+            <Input
+                accessibilityLabel={etiqueta}
+                value={valor}
+                onChangeText={alCambiar}
+                multiline
+                maxLength={4100}
+                placeholder={placeholder}
+                placeholderTextColor={colores.textoTenue}
+                testID={testID}
+                className="px-4 text-base"
+                style={[estilos.mensaje, { backgroundColor: campo.panel2, borderColor: colores.borde, color: colores.texto }]}
+            />
+        </TextField>
     );
 }
 
@@ -863,6 +926,7 @@ export function Cargando({ etiqueta }: { etiqueta: string }) {
 }
 
 const estilos = StyleSheet.create({
+    mensaje: { minHeight: 48, maxHeight: 132, borderRadius: 24, borderWidth: 1, paddingTop: 12, paddingBottom: 12, textAlignVertical: "top" },
     flex: { flex: 1 },
     filaEnvuelta: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
     filaEntre: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 },

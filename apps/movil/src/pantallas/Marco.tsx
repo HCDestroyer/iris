@@ -1,26 +1,26 @@
-// Marco de la app con el diseño «combinada» (como la PWA): el encabezado va dentro del desplazamiento
-// (se va al bajar y vuelve compacto al subir), la vista actual, el aviso que entra desde arriba con su
-// acción, la píldora de estado (la barra discreta de la fase 4) y la isla de menú Hoy · Por recibir ·
-// «+» · Agenda · Yo, que se encoge al bajar. «Atrás» de Android vuelve a la vista anterior. Baja el
+// Marco de la app con el diseño «combinada» (opción elegida por el PM, como la PWA): el encabezado va
+// dentro del desplazamiento (se va al bajar y vuelve compacto al subir) con los indicadores de estado
+// junto a buscar, la vista actual, el aviso que entra desde arriba con su acción y la isla de menú
+// Hoy · Chat · «+» · Agenda · Yo, que se encoge al bajar. «Atrás» de Android vuelve a la vista anterior. Baja el
 // paquete del día al abrir y al cambiar el día, con espera exponencial tras un error (como la PWA).
 import { ErrorTransporte } from "@iris/sync";
-import { CONEXION_TEXTO, DESPLAZAMIENTO_INICIAL, desplazar, etiquetaPunto, hoyEnGuatemala, horaCorta, resumenEnvio, urlDeVista, type TonoEstado } from "@iris/sync/campo";
-import { Building2, KeyRound, LocateFixed, LocateOff, RefreshCw, type LucideIcon } from "lucide-react-native";
+import { DESPLAZAMIENTO_INICIAL, desplazar, hoyEnGuatemala, urlDeVista } from "@iris/sync/campo";
+import { Building2, KeyRound, LocateFixed, LocateOff } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Aviso, AvisoEmergente, Boton, Insignia, Texto } from "../componentes";
+import { Aviso, AvisoEmergente, Boton } from "../componentes";
 import { ProveedorBorradores } from "../campo/borradores";
 import { useAtrasAndroid } from "../campo/atras";
-import { useCampo, useEstadoPosiciones } from "../campo/contexto";
-import type { EstadoRastreo } from "../campo/ubicacion";
+import { useCampo } from "../campo/contexto";
 import { activarHuella, CODIGO_CAMBIO_CONTRASENA, debeOfrecerHuella } from "../sesion/sesion";
 import { useTema } from "../tema/tema";
 import { OrdenesLibres } from "./OrdenesLibres";
 import { NuevaTarea } from "./Tareas";
 import { AgendaDia, AgendaSemana } from "./Agenda";
+import { ConversacionChat, ListaChat, NuevoChat } from "./Chat";
 import { BarraCompacta, Encabezado } from "./Encabezado";
-import { AvisoIsla, IslaMenu, IslaPasos } from "./Isla";
+import { IslaMenu, IslaPasos } from "./Isla";
 import { ListaOrdenes, type CargaPaquete } from "./ListaOrdenes";
 import { MiBodega } from "./MiBodega";
 import { DetalleOrden } from "./orden/DetalleOrden";
@@ -53,7 +53,10 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
     // Los pasos de la orden llevan su propia isla («Anterior» · «Siguiente» o «Guardar y seguir»); la firma y
     // el cierre, su botón al pie.
     const paso = vista.tipo === "orden" ? vista.paso : undefined;
-    const conIsla = paso === undefined;
+    // La conversación ocupa la pantalla (encabezado propio y compositor sobre el teclado): sin isla.
+    const conIsla = paso === undefined && vista.tipo !== "conversacion";
+    // El chat lleva su propio desplazamiento (deslizar para actualizar, el hilo).
+    const pantallaChat = vista.tipo === "chat" || vista.tipo === "chat_nuevo" || vista.tipo === "conversacion";
     const conIslaPasos = vista.tipo === "orden" && paso !== undefined && paso !== "cierre";
     const [carga, setCarga] = useState<CargaPaquete>({ estado: "inactiva" });
     const descargando = useRef(false);
@@ -109,7 +112,16 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
     return (
         <ProveedorBorradores>
         <View className="flex-1 bg-background" style={[estilos.pantalla, { backgroundColor: campo.lienzo }]}>
-            {/* Cada vista empieza arriba (como la PWA al navegar). */}
+            {pantallaChat ? (
+                vista.tipo === "conversacion" ? (
+                    <ConversacionChat id={vista.id} />
+                ) : vista.tipo === "chat_nuevo" ? (
+                    <NuevoChat />
+                ) : (
+                    <ListaChat />
+                )
+            ) : (
+            /* Cada vista empieza arriba (como la PWA al navegar). */
             <ScrollView
                 key={url}
                 contentContainerStyle={[estilos.contenido, { paddingTop: margen.top + 8, paddingBottom: margen.bottom + 180 }]}
@@ -123,7 +135,7 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
                         altoEncabezado.current = e.nativeEvent.layout.height;
                     }}
                 >
-                    <Encabezado punto={<PuntoConexion />} ubicacion={<IndicadorUbicacion />} empresa={empresa} />
+                    <Encabezado alEntrar={alSesionVencida} alElegirEmpresa={cambiarEmpresa} />
                 </View>
                 <ExplicacionUbicacion />
                 {estado.conexion === "sin_sesion" ? (
@@ -165,16 +177,12 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
                     <ListaOrdenes carga={carga} bajarPaquete={() => bajarPaquete(true)} />
                 )}
             </ScrollView>
+            )}
             {/* La barra compacta va debajo de la franja (no la tapa). */}
-            <BarraCompacta visible={desplazamiento.compacto} arriba={margen.top} />
+            <BarraCompacta visible={desplazamiento.compacto} arriba={margen.top} alEntrar={alSesionVencida} alElegirEmpresa={cambiarEmpresa} />
             {/* Franja sólida bajo la barra de estado, siempre a la vista y encima de todo lo de arriba:
                 el contenido que sube nunca se ve detrás de la hora. */}
             <View testID="franja-superior" pointerEvents="none" style={[estilos.franja, { height: margen.top, backgroundColor: campo.lienzo }]} />
-            <AvisoIsla
-                abajo={margen.bottom + (conIsla || conIslaPasos ? (desplazamiento.islaEncogida ? 72 : 100) : 24)}
-                alEntrar={alSesionVencida}
-                alElegirEmpresa={cambiarEmpresa}
-            />
             {conIsla ? <IslaMenu encogida={desplazamiento.islaEncogida} abajo={margen.bottom} /> : null}
             {conIslaPasos && vista.tipo === "orden" && paso ? <IslaPasos id={vista.id} paso={paso} encogida={desplazamiento.islaEncogida} abajo={margen.bottom} /> : null}
             <AvisoDelMarco />
@@ -239,86 +247,6 @@ function useAvisoDeRechazos() {
         }
         previos.current = rechazos;
     }, [rechazos, notificar, navegar]);
-}
-
-/**
- * Punto de estado junto al título: con conexión y todo enviado es solo esto («En línea, todo
- * enviado»), sin texto ni caja. Cuando la barra está abierta, el punto acompaña y la barra explica.
- * El nombre accesible siempre dice el estado completo (nunca solo color).
- */
-export function PuntoConexion() {
-    const { estado } = useCampo();
-    const { colores } = useTema();
-    const r = resumenEnvio(estado);
-    const tono = CONEXION_TEXTO[estado.conexion].tono;
-    return (
-        <View
-            accessible
-            accessibilityRole="text"
-            accessibilityLabel={etiquetaPunto(estado.conexion, r)}
-            accessibilityLiveRegion="polite"
-            testID="punto-conexion"
-            style={[estilos.halo, { backgroundColor: colores.fondoTono[tono] }]}
-        >
-            <View style={[estilos.punto, { backgroundColor: colores.tono[tono] }]} />
-        </View>
-    );
-}
-
-const TEXTO_RASTREO: Record<EstadoRastreo["tipo"], { tono: TonoEstado; icono: LucideIcon }> = {
-    activa: { tono: "success", icono: LocateFixed },
-    fuera_de_curso: { tono: "neutral", icono: LocateOff },
-    explicar: { tono: "neutral", icono: LocateOff },
-    sin_permiso: { tono: "warning", icono: LocateOff },
-    sin_confirmar: { tono: "neutral", icono: LocateOff },
-    vencida: { tono: "warning", icono: LocateOff },
-    pausada_por_ti: { tono: "neutral", icono: LocateOff },
-    error: { tono: "error", icono: LocateOff },
-};
-
-function textoRastreo(e: EstadoRastreo): string {
-    switch (e.tipo) {
-        case "activa": {
-            const hasta = horaCorta(new Date(e.hasta).toISOString()) ?? "";
-            return e.soloPrimerPlano ? `Ubicación activa con la app abierta · hasta las ${hasta}` : `Ubicación activa · orden en curso · hasta las ${hasta}`;
-        }
-        case "pausada_por_ti":
-            return "Dejaste de compartir la ubicación · vuelve con tu próximo «En camino», «Llegué» o «Reanudar»";
-        case "sin_confirmar":
-            return "Ubicación en espera · se enciende al conectar con el servidor";
-        case "vencida":
-            return "Ubicación apagada: pasó el tope del día sin confirmar con el servidor · vuelve al sincronizar";
-        case "fuera_de_curso":
-            return "Ubicación apagada · sin orden en curso";
-        case "explicar":
-            return "Ubicación apagada";
-        case "sin_permiso":
-            return "Sin permiso de ubicación";
-        case "error":
-            return `GPS: ${e.mensaje}`;
-    }
-}
-
-function IndicadorUbicacion() {
-    const { estadoRastreo, posiciones, rastreo } = useCampo();
-    const cola = useEstadoPosiciones(posiciones);
-    const p = TEXTO_RASTREO[estadoRastreo.tipo];
-    return (
-        <View style={estilos.filaBarra}>
-            <Insignia tono={p.tono} icono={p.icono} texto={textoRastreo(estadoRastreo)} testID="estado-ubicacion" />
-            {estadoRastreo.tipo === "activa" && rastreo ? (
-                <Boton variante="secundario" icono={LocateOff} alPresionar={() => void rastreo.dejarDeCompartir()}>
-                    Dejar de compartir ubicación
-                </Boton>
-            ) : null}
-            {cola && cola.pendientes > 0 ? <Texto suave>Puntos por enviar: {cola.pendientes}</Texto> : null}
-            {cola?.ultimoError && !cola.detenida ? (
-                <Boton variante="fantasma" icono={RefreshCw} alPresionar={() => posiciones?.reintentarAhora()}>
-                    Reintentar
-                </Boton>
-            ) : null}
-        </View>
-    );
 }
 
 /** Explicación antes de que el sistema pida el permiso (la primera vez, con una orden en curso). */
