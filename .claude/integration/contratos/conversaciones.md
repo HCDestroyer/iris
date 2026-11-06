@@ -46,7 +46,8 @@ Una empresa tiene **varios números** (`mensajeria.canales`), cada uno con:
 - Credenciales y datos de Meta: igual que antes (`POST /canales`, `POST /canales/{id}/actualizar`,
   permiso `mensajeria.configurar`). `POST /canales` acepta además `usos`, `avisosEmpresa` y `colaId`.
 - Uso, cola, número de avisos y (PR B) horario: `POST /canales/{id}/configurar`
-  `{ version, usos, avisosEmpresa, colaId, horarioId?, fueraDeHorario? }` con `canales.configurar`.
+  `{ version, usos, avisosEmpresa, colaId, horarioId?, fueraDeHorario? }` con `canales.configurar`
+  (solo personas con sesión: un token o una integración recibe 404).
 - 409 `canal_existente` solo si el `phoneNumberId` ya está en otro número activo.
 - **Varios números en la misma app de Meta.** Meta manda los webhooks de todos los números de una
   app a una sola URL, salvo que cada número tenga la suya: configura en Meta, por número,
@@ -247,7 +248,7 @@ re-autenticación): `conversaciones.supervisar`, `conversaciones.registrar_bolet
 - `POST /conversaciones/{id}/confirmar-cliente` `{ version }` (`conversaciones.supervisar`):
   confirma una asociación manual sin coincidencia (`verificado: true`, evento de sistema
   `cliente_confirmado`, outbox `conversacion.cliente_confirmado`). 422 `sin_cliente` sin cliente.
-- `POST /conversaciones/{id}/desasociar` `{ version }`: quita cliente, contacto de Iris y prospecto.
+- `POST /conversaciones/{id}/desasociar` `{ version }`: quita cliente, contacto de Iris, prospecto y la verificación.
 
 ### 5.2 Contacto de Iris
 
@@ -261,7 +262,7 @@ Iris**, no una copia de Argos: `nombre`, `tipo` (`proveedor`, `personal`, `prosp
 | `POST /conversaciones/{id}/contacto-iris` | `conversaciones.asociar` | Crea el contacto con el número de la conversación y lo asocia `{ version, nombre, tipo, nota? }` |
 | `POST /contactos-iris/{id}/actualizar` | `conversaciones.asociar` | Nombre, tipo, nota (`version`) |
 | `POST /contactos-iris/{id}/unir-cliente` | `conversaciones.asociar` | `{ version, clienteId }`: se volvió cliente. Sus conversaciones pasan a `contacto.tipo = cliente` con ese id (evento `contacto_iris.unido`), verificadas solo si el número coincide en la instantánea. El contacto queda como historial (`clienteId`, `unidoEn`) |
-| `POST /contactos-iris/{id}/consentimiento` | `conversaciones.asociar` | `{ estado: "acepta" \| "baja" }` → `{ telefono, estado, ocurridoEn }`: permiso de contacto por WhatsApp de ese número en la empresa (origen `agente`; evento `contacto_iris.consentimiento`). Con `acepta` vigente se le pueden mandar plantillas fuera de la ventana (§8). La baja por chat (§3.4) también cuenta |
+| `POST /contactos-iris/{id}/consentimiento` | `conversaciones.asociar` (baja); `acepta` exige además `conversaciones.supervisar` (403) | `{ estado: "acepta" \| "baja", motivo? }` → `{ telefono, estado, ocurridoEn }`: permiso de contacto por WhatsApp de ese número en la empresa (origen `agente`; evento `contacto_iris.consentimiento`). Con `acepta` vigente se le pueden mandar plantillas fuera de la ventana (§8). La baja por chat (§3.4) también cuenta, y si la última es una baja del propio cliente, `acepta` exige `motivo` (5–300, queda guardado y auditado; si no, 422 `baja_del_cliente`) |
 
 ### 5.3 Prospecto
 
@@ -394,6 +395,9 @@ quién la tiene; el panel recarga la conversación).
 - **Ventana de 24 h:** texto y adjuntos solo si el cliente escribió en las últimas 24 h; fuera de
   ella, 422 `fuera_de_ventana` y solo se puede mandar una **plantilla aprobada en ese número**
   (`mensajeria.canales.plantillas`; si no, 422 `plantilla_no_aprobada`).
+- **Baja por número:** una plantilla nunca sale a un número con baja vigente en
+  `consentimientos_numero` (BAJA por chat o registrada a mano), haya o no cliente asociado, dentro
+  o fuera de la ventana: 422 `baja`.
 - **Permiso de contacto:** una plantilla fuera de ventana exige (a) cliente de Argos asociado y
   **verificado** (§3.1; si no, 422 `cliente_sin_confirmar`) con permiso vigente `acepta` en
   WhatsApp (§6.4 del contrato con Argos), o (b) contacto de Iris con permiso `acepta` registrado
@@ -559,6 +563,8 @@ verificación de identidad (§7.5); autologin a una conversación (pedido B2).
 | `cola_inactiva` | 422 | Transferir a una cola desactivada |
 | `adjunto_no_listo` | 422 | El adjunto no está completo o no es de la conversación |
 | `sin_cliente` | 422 | Boleta o promesa sin cliente asociado |
+| `baja_del_cliente` | 422 | `acepta` sin `motivo` sobre una baja que pidió el propio cliente |
+| `cliente_cambiado` | 409 | La conversación cambió de cliente o perdió la verificación mientras Argos creaba la promesa (revisar en Argos) |
 | `cliente_sin_confirmar` | 422 | Asociación manual sin coincidencia de número, sin confirmar por un supervisor: plantilla fuera de ventana, boleta o promesa |
 | `numero_avisos_requiere_uso` | 422 | `avisosEmpresa` sin `avisos` en `usos` |
 | `manual_interno` | 422 | Enviar al cliente un manual interno (PR B) |

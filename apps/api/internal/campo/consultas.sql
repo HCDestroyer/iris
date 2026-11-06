@@ -358,7 +358,25 @@ VALUES (@id, @orden_id, @texto, @autor_id, @autor_nombre, @canal, @ocurrido_en, 
 RETURNING *;
 
 -- name: NotasDeOrdenes :many
-SELECT * FROM campo.orden_notas WHERE orden_id = ANY(@ordenes::bigint[]) ORDER BY orden_id, ocurrido_en, created_at;
+-- Las eliminadas no salen de la orden (quedan la fila y su auditoría).
+SELECT * FROM campo.orden_notas
+WHERE orden_id = ANY(@ordenes::bigint[]) AND eliminada_en IS NULL
+ORDER BY orden_id, ocurrido_en, created_at;
+
+-- name: NotaParaActualizar :one
+SELECT * FROM campo.orden_notas WHERE id = @id AND orden_id = @orden_id FOR UPDATE;
+
+-- name: EditarNota :one
+UPDATE campo.orden_notas
+SET texto = @texto, version = version + 1, editada_en = @editada_en, editada_por = sqlc.narg(editada_por), updated_at = now()
+WHERE id = @id
+RETURNING *;
+
+-- name: EliminarNota :one
+UPDATE campo.orden_notas
+SET eliminada_en = @eliminada_en, eliminada_por = sqlc.narg(eliminada_por), version = version + 1, updated_at = now()
+WHERE id = @id
+RETURNING *;
 
 -- name: CrearMaterial :one
 INSERT INTO campo.orden_materiales (id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia,

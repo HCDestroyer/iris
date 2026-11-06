@@ -389,16 +389,21 @@ type CampoOrdenMateriale struct {
 }
 
 type CampoOrdenNota struct {
-	ID          uuid.UUID
-	OrdenID     int64
-	Texto       string
-	AutorID     *int64
-	AutorNombre string
-	Canal       string
-	OcurridoEn  time.Time
-	OperacionID *uuid.UUID
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID           uuid.UUID
+	OrdenID      int64
+	Texto        string
+	AutorID      *int64
+	AutorNombre  string
+	Canal        string
+	OcurridoEn   time.Time
+	OperacionID  *uuid.UUID
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	Version      int32
+	EditadaEn    *time.Time
+	EditadaPor   *int64
+	EliminadaEn  *time.Time
+	EliminadaPor *int64
 }
 
 type CampoOrdenPausa struct {
@@ -1174,6 +1179,7 @@ type MensajeriaConsentimientosNumero struct {
 	Origen        string
 	OcurridoEn    time.Time
 	RegistradoPor *int64
+	Motivo        *string
 	CreatedAt     time.Time
 }
 

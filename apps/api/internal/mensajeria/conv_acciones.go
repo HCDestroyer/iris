@@ -624,10 +624,12 @@ type previaPromesa struct {
 
 type entradaFinalPromesa struct {
 	EntradaPromesa
-	id    uuid.UUID
-	hash  []byte
-	r     argos.PromesaArgos
-	vence time.Time
+	// cliente: el de la conversación cuando se pidió a Argos.
+	cliente int64
+	id      uuid.UUID
+	hash    []byte
+	r       argos.PromesaArgos
+	vence   time.Time
 }
 
 // MarshalJSON: lo auditado.
@@ -678,6 +680,10 @@ func nuevasPromesas(m *Modulo) *Promesas {
 		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaFinalPromesa) (PromesaConv, error) {
 			var p PromesaConv
 			_, err := m.accionConv(ctx, t, in.ID, 0, func(a alcanceConv, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
+				// Mientras Argos respondía la conversación pudo cambiar de cliente o perder la verificación.
+				if c.ClienteID == nil || *c.ClienteID != in.cliente || !c.ClienteVerificado {
+					return nucleo.Conflicto("cliente_cambiado", "El cliente de la conversación cambió mientras se pedía la promesa; revisa en Argos y vuelve a intentarlo")
+				}
 				estado := in.r.Estado
 				if estado != "activa" && estado != "rechazada" && estado != "pendiente_aprobacion" {
 					estado = "pendiente_aprobacion"
@@ -810,5 +816,5 @@ func (k *Promesas) Crear(ctx context.Context, in EntradaPromesa) (PromesaConv, e
 		}
 		return PromesaConv{}, argos.Problema(err)
 	}
-	return k.final.Ejecutar(ctx, entradaFinalPromesa{EntradaPromesa: in, id: id, hash: h[:], r: r, vence: dia})
+	return k.final.Ejecutar(ctx, entradaFinalPromesa{EntradaPromesa: in, cliente: *pre.conv.ClienteID, id: id, hash: h[:], r: r, vence: dia})
 }

@@ -267,9 +267,23 @@ function FirmaYCierre({ orden }: { orden: OrdenVista }) {
 }
 
 export function FallarOrden({ orden }: { orden: OrdenVista }) {
+    const [abierto, setAbierto] = useState(false);
+    return (
+        <>
+            <Boton variante="secundario" tamano="lg" className="w-full" onClick={() => setAbierto(true)}>
+                <CircleX aria-hidden />
+                No se pudo
+            </Boton>
+            <HojaFallar orden={orden} abierto={abierto} alCambiar={setAbierto} />
+        </>
+    );
+}
+
+/** Hoja «No se pudo hacer» (motivo y detalle), abierta desde el grupo de la orden o el cierre. */
+export function HojaFallar({ orden, abierto, alCambiar }: { orden: OrdenVista; abierto: boolean; alCambiar: (abierto: boolean) => void }) {
     const { motor, ejecutar } = useCampo();
     const conPosicion = useConPosicion();
-    const [abierto, setAbierto] = useState(false);
+    const setAbierto = alCambiar;
     const form = useForm<DatosFallar>({ resolver: zodResolver(esquemaFallar), defaultValues: { motivoFalla: undefined, detalle: "" } });
     const enviar = form.handleSubmit(async (d) => {
         const ok = await ejecutar(
@@ -283,10 +297,6 @@ export function FallarOrden({ orden }: { orden: OrdenVista }) {
     });
     return (
         <>
-            <Boton variante="secundario" tamano="lg" className="w-full" onClick={() => setAbierto(true)}>
-                <CircleX aria-hidden />
-                No se pudo
-            </Boton>
             <HojaCampo
                 abierto={abierto}
                 alCambiar={(a) => {

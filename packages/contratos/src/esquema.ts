@@ -3533,6 +3533,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ordenes/{id}/notas/{nota}/editar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Editar una nota de la orden
+         * @description Permiso: `ordenes.registrar`. En cualquier estado. Solo su autor, o despacho y supervisión con `ordenes.asignar` que cubra la orden (403 `nota_ajena`). Con la `version` de la nota: 409 `conflicto_version` si cambió, 409 `nota_eliminada` si se eliminó; 404 `nota_no_encontrada`. El mismo texto no cambia nada.
+         */
+        post: operations["editarNotaOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordenes/{id}/notas/{nota}/eliminar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Eliminar una nota de la orden
+         * @description Permiso: `ordenes.registrar`. En cualquier estado. Sale de la orden y queda en su historial (auditoría). Mismas reglas que editar; eliminar una ya eliminada responde la orden sin cambios.
+         */
+        post: operations["eliminarNotaOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ordenes/{id}/pausar": {
         parameters: {
             query?: never;
@@ -7925,10 +7965,12 @@ export interface components {
         };
         EntradaConsentimientoNumero: {
             /**
-             * @description El contacto aceptó (o pidió no recibir) mensajes por WhatsApp
+             * @description El contacto aceptó (o pidió no recibir) mensajes por WhatsApp. acepta exige conversaciones.supervisar
              * @enum {string}
              */
             estado: "acepta" | "baja";
+            /** @description Obligatorio para registrar acepta sobre una baja que pidió el propio cliente (queda auditado) */
+            motivo?: string;
         };
         EntradaContacto: {
             /** Format: email */
@@ -8429,6 +8471,24 @@ export interface components {
              */
             version: number;
         };
+        EntradaEditarNota: {
+            texto: string;
+            /**
+             * Format: int32
+             * @description Versión leída de la nota (notas[].version); si cambió, 409 conflicto_version
+             */
+            version: number;
+        };
+        EntradaEditarNotaCampo: {
+            /** @description Nota de la orden (notas[].id; la de un nota.agregar aún sin enviar es el id de esa operación) */
+            notaId: string;
+            texto: string;
+            /**
+             * Format: int32
+             * @description Versión de la nota que vio el teléfono; si cambió, rechazada con conflicto_version
+             */
+            versionNota: number;
+        };
         EntradaEditarPlantilla: {
             descripcion?: string;
             items: components["schemas"]["EntradaItemPlantilla"][] | null;
@@ -8531,6 +8591,22 @@ export interface components {
              * @description Versión leída; si cambió, 409
              */
             version: number;
+        };
+        EntradaEliminarNota: {
+            /**
+             * Format: int32
+             * @description Versión leída de la nota (notas[].version); si cambió, 409 conflicto_version
+             */
+            version: number;
+        };
+        EntradaEliminarNotaCampo: {
+            /** @description Nota de la orden (notas[].id) */
+            notaId: string;
+            /**
+             * Format: int32
+             * @description Versión de la nota que vio el teléfono; si cambió, rechazada con conflicto_version
+             */
+            versionNota: number;
         };
         EntradaEmitirAccesoPortal: {
             /**
@@ -10545,11 +10621,21 @@ export interface components {
             autorId: number | null;
             autorNombre: string;
             canal: string;
+            /**
+             * Format: date-time
+             * @description Última edición (null si nunca se editó)
+             */
+            editadaEn: string | null;
             /** @description Id de la operación del lote que la creó (o uno v7 del servidor) */
             id: string;
             /** Format: date-time */
             ocurridoEn: string;
             texto: string;
+            /**
+             * Format: int32
+             * @description Para editarla o eliminarla (409 si cambió)
+             */
+            version: number;
         };
         NumeroConversaciones: {
             activo: boolean;
@@ -10614,7 +10700,7 @@ export interface components {
              */
             ordenId?: number;
             /** @enum {string} */
-            tipo: "orden.iniciar_camino" | "orden.llegar" | "checklist.marcar" | "nota.agregar" | "material.usar" | "equipo.instalar" | "equipo.retirar" | "firma.capturar" | "adjunto.registrar" | "orden.cerrar" | "orden.fallar" | "orden.pausar" | "orden.reanudar" | "orden.agregar_formulario" | "orden.quitar_formulario" | "traslado.recibir" | "tarea.crear" | "tarea.completar" | "tarea.anular";
+            tipo: "orden.iniciar_camino" | "orden.llegar" | "checklist.marcar" | "nota.agregar" | "nota.editar" | "nota.eliminar" | "material.usar" | "equipo.instalar" | "equipo.retirar" | "firma.capturar" | "adjunto.registrar" | "orden.cerrar" | "orden.fallar" | "orden.pausar" | "orden.reanudar" | "orden.agregar_formulario" | "orden.quitar_formulario" | "traslado.recibir" | "tarea.crear" | "tarea.completar" | "tarea.anular";
             /**
              * Format: int32
              * @description Versión de la orden que veía el teléfono (se guarda; los conflictos se resuelven por las reglas de §3, no por versión)
@@ -27631,6 +27717,176 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["EntradaAgregarNota"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    editarNotaOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+                /** @description Nota de la orden (notas[].id) */
+                nota: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEditarNota"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    eliminarNotaOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+                /** @description Nota de la orden (notas[].id) */
+                nota: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEliminarNota"];
             };
         };
         responses: {

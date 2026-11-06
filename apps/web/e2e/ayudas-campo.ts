@@ -40,22 +40,64 @@ export async function empezarTrabajo(page: Page) {
     await page.getByRole("button", { name: /^(Empezar|Continuar) trabajo$/ }).click();
 }
 
+/**
+ * «Agregar formulario» del menú «⋯» de la orden (decisión del PM: ya no va al final del checklist).
+ * Desde un paso, primero vuelve al resumen; luego regresa al paso donde estaba.
+ */
+export async function agregarFormularioDesdeMenu(page: Page): Promise<Locator> {
+    const enPaso = await page.getByRole("button", { name: /^Resumen de OT-/ }).isVisible();
+    if (enPaso) {
+        await alResumen(page);
+    }
+    await page.getByRole("button", { name: "Más acciones de la orden" }).click();
+    await page.getByRole("menuitem", { name: /^Agregar formulario/ }).click();
+    const dialogo = page.getByRole("dialog", { name: "Agregar formulario" });
+    await expect(dialogo).toBeVisible();
+    return dialogo;
+}
+
 /** Del paso al resumen de la orden. */
 export async function alResumen(page: Page) {
     await page.getByRole("button", { name: /^Resumen de OT-/ }).click();
 }
 
-/** Botón de la isla de menú (diseño «combinada»: Hoy · Por recibir · «+» · Agenda · Yo). */
-export async function pestanaCampo(page: Page, nombre: "Hoy" | "Por recibir" | "Agenda" | "Yo") {
-    await page.getByRole("navigation", { name: "Secciones de la app" }).getByRole("link", { name: new RegExp(`^${nombre}( \\(\\d+\\))?$`) }).click();
+/** Botón de la isla de menú (opción del PM: Hoy · Chat · «+» · Agenda · Yo). «Yo» se llama «Yo · <nombre>». */
+export async function pestanaCampo(page: Page, nombre: "Hoy" | "Chat" | "Agenda" | "Yo") {
+    await page.getByRole("navigation", { name: "Secciones de la app" }).getByRole("link", { name: new RegExp(`^${nombre}( \\(\\d+ sin leer\\)| · .+)?$`) }).click();
+}
+
+/** «Por recibir» ya no está en la isla: se abre desde su mosaico en Hoy. */
+export async function abrirPorRecibir(page: Page) {
+    await pestanaCampo(page, "Hoy");
+    await page.locator('[data-slot="mosaico-recibir"]').click();
+}
+
+/** El GPS del encabezado abre su hoja «Ubicación»; «Detalle de la ubicación» abre «Ubicación en vivo». */
+export async function abrirPanelUbicacion(page: Page) {
+    await page.getByTestId("indicador-ubicacion").click();
+    await page.getByRole("dialog", { name: "Ubicación" }).getByRole("button", { name: "Detalle de la ubicación" }).click();
+}
+
+/** La nube de sincronización del encabezado (conexión y envíos) abre su hoja «Conexión y envíos». */
+export async function abrirConexion(page: Page) {
+    await page.locator('[data-slot="barra-conexion"] [data-indicador="sincronizacion"]').click();
+    await expect(page.getByRole("dialog", { name: "Conexión y envíos" })).toBeVisible();
 }
 
 /**
- * «Por enviar» ya no está en la isla: desde cualquier vista (también un paso de la orden, sin isla)
- * se llega por la cuenta («Yo») → «Por enviar».
+ * «Por enviar» no está en la isla: se llega desde «Yo» → «Por enviar» (o desde la hoja de la nube).
+ * Desde un paso de la orden (sin isla) se va a «Yo» por el historial, sin recargar (sirve sin señal).
  */
 export async function abrirPorEnviar(page: Page) {
-    await page.getByRole("button", { name: "Tu cuenta" }).first().click();
+    const isla = page.getByRole("navigation", { name: "Secciones de la app" });
+    if (await isla.isVisible()) {
+        await pestanaCampo(page, "Yo");
+    } else {
+        await page.evaluate(() => {
+            window.history.pushState(null, "", "/campo?vista=yo");
+            window.dispatchEvent(new PopStateEvent("popstate"));
+        });
+    }
     await page.getByRole("button", { name: /^Por enviar/ }).click();
     await expect(page.getByRole("heading", { name: "Por enviar", exact: true })).toBeVisible();
 }

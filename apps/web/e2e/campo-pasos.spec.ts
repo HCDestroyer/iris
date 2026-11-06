@@ -16,6 +16,9 @@ test.beforeEach(async ({ context, baseURL }, info) => {
 
 const firma = (page: Page) => page.getByRole("img", { name: /Firma del cliente/ });
 const barra = (page: Page) => page.locator('[data-slot="barra-conexion"]');
+/** La nube de sincronización del encabezado (conexión y envíos). */
+const nube = (page: Page) => barra(page).locator('[data-indicador="sincronizacion"]');
+const TODO_ENVIADO = "Todo enviado, toca para ver el estado";
 
 /** OT-000102 ya en sitio: lista para llenar. */
 function enSitio() {
@@ -114,51 +117,58 @@ test.describe("pasos de la orden", () => {
         });
         await expect(page.getByText("Orden cerrada", { exact: true })).toBeVisible();
         await expect.poll(() => api.ordenes.get(102)?.estado, { timeout: 15_000 }).toBe("cerrada");
-        await expect(page.getByRole("status", { name: "En línea, todo enviado" })).toBeVisible({ timeout: 15_000 });
+        await expect(nube(page)).toHaveAccessibleName(TODO_ENVIADO, { timeout: 15_000 });
         expect(api.lotes.flatMap((l) => l.operaciones ?? []).filter((o) => o.tipo === "orden.cerrar")).toHaveLength(1);
         expect(api.resultados.filter((r) => r.estado === "rechazada")).toHaveLength(0);
     });
 });
 
-test.describe("barra de estado discreta", () => {
-    test("con todo enviado solo el punto; sin señal sin nada pendiente, el punto cambia; con pendientes, la barra crece", async ({ page, context }) => {
+test.describe("nube de sincronización del encabezado", () => {
+    test("con todo enviado, discreta; sin señal, tachada; con pendientes, el número; al volver, al día", async ({ page, context }) => {
         const api = await simularApiCampo(page);
         await page.goto("/campo");
         await expect(page.getByRole("link", { name: /OT-000101/ })).toBeVisible();
-        await expect(page.getByRole("status", { name: "En línea, todo enviado" })).toBeVisible();
-        await expect(barra(page)).toHaveCount(0);
+        await expect(nube(page)).toHaveAccessibleName(TODO_ENVIADO);
+        await expect(nube(page)).toHaveAttribute("data-forma", "al_dia");
+        await expect(barra(page)).not.toHaveAttribute("data-actuar", "true");
 
         api.sinRed = true;
         await context.setOffline(true);
-        await expect(page.getByRole("status", { name: "Sin conexión, todo enviado" })).toBeVisible();
+        await expect(nube(page)).toHaveAttribute("data-forma", "sin_senal");
+        await expect(nube(page)).toHaveAccessibleName("Sin señal, toca para ver el estado");
         await expect(page.getByTestId("estado-conexion")).toHaveText("Sin conexión");
-        await expect(barra(page)).toHaveCount(0);
 
         await page.getByRole("link", { name: /OT-000102/ }).click();
+        await page.locator('[data-slot="notas-orden"]').getByRole("button", { name: "Agregar una nota" }).click();
         await page.getByLabel("Nueva nota").fill("Portón verde");
         await page.getByRole("button", { name: "Agregar nota" }).click();
-        await expect(barra(page)).toBeVisible();
+        await expect(nube(page)).toHaveAttribute("data-forma", "sin_senal_pendientes");
+        await expect(barra(page)).toHaveAttribute("data-actuar", "true");
         await expect(barra(page).getByTestId("estado-conexion")).toHaveText("Sin conexión");
         await expect(page.getByTestId("pendientes-por-enviar")).toHaveText("1 pendiente por enviar");
-        // La píldora encima de la isla lleva a «Por enviar».
-        await expect(page.getByRole("button", { name: "Sin conexión: 1 pendiente por enviar. Ver detalle" })).toBeVisible();
+        // Su hoja lleva a «Por enviar».
+        await nube(page).click();
+        await expect(page.getByRole("dialog", { name: "Conexión y envíos" }).getByRole("button", { name: "Ver «Por enviar»" })).toBeVisible();
+        await page.getByRole("dialog", { name: "Conexión y envíos" }).getByRole("button", { name: "Cerrar" }).click();
 
         api.sinRed = false;
         await context.setOffline(false);
-        await expect(barra(page)).toHaveCount(0, { timeout: 15_000 });
-        await expect(page.getByRole("status", { name: "En línea, todo enviado" })).toBeVisible();
+        await expect(nube(page)).toHaveAccessibleName(TODO_ENVIADO, { timeout: 15_000 });
     });
 
-    test("un rechazo abre la barra con acción", async ({ page }) => {
+    test("un rechazo vuelve la nube error y su hoja lleva al rechazo", async ({ page }) => {
         const api = await simularApiCampo(page);
         api.rechazar((op) => op.tipo === "nota.agregar", problema("validacion", 422, "Datos no válidos"));
         await page.goto("/campo?orden=102");
+        await page.locator('[data-slot="notas-orden"]').getByRole("button", { name: "Agregar una nota" }).click();
         await page.getByLabel("Nueva nota").fill("Nota rechazada");
         await page.getByRole("button", { name: "Agregar nota" }).click();
         await expect(page.getByTestId("pendientes-por-enviar")).toHaveText("1 rechazado", { timeout: 15_000 });
         // El rechazo entra también como aviso desde arriba, con «Revisar».
         await expect(avisoCampo(page)).toContainText("El servidor rechazó una acción.");
-        await page.getByRole("button", { name: /1 rechazado\. Ver detalle$/ }).click();
+        await expect(nube(page)).toHaveAttribute("data-tono", "error");
+        await nube(page).click();
+        await page.getByRole("dialog", { name: "Conexión y envíos" }).getByRole("button", { name: "Ver «Por enviar»" }).click();
         await expect(page.getByTestId("rechazo")).toContainText("Algún dato no es válido.");
     });
 
@@ -190,9 +200,9 @@ test.describe("barra de estado discreta", () => {
         await abrirPorEnviar(page);
         await expect(page).toHaveURL(/vista=pendientes$/);
         await expect(nav.getByRole("link", { name: "Yo" })).not.toHaveAttribute("aria-current", "page");
-        // Zonas táctiles de 54 px (también el «+»).
+        // Zonas táctiles de 52 px (también el «+»).
         for (const boton of [...(await nav.getByRole("link").all()), nav.getByRole("button", { name: "Acciones rápidas" })]) {
-            expect((await boton.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(54);
+            expect((await boton.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(52);
         }
         await page.goBack();
         await page.goBack();

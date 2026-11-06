@@ -20,6 +20,8 @@ const (
 	OpLlegar           = "orden.llegar"
 	OpChecklistMarcar  = "checklist.marcar"
 	OpNotaAgregar      = "nota.agregar"
+	OpNotaEditar       = "nota.editar"
+	OpNotaEliminar     = "nota.eliminar"
 	OpMaterialUsar     = "material.usar"
 	OpEquipoInstalar   = "equipo.instalar"
 	OpEquipoRetirar    = "equipo.retirar"

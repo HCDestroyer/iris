@@ -3,7 +3,7 @@
 // la cola con un rechazo (conflicto) y la pausa con motivo. Claro y oscuro.
 import { montar } from "@iris/sync/pruebas";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react-native";
-import { abrirCampo, avisoArriba, paqueteCon, tipos } from "./arnes";
+import { abrirCampo, avisoArriba, paqueteCon, tipos , nube, TODO_ENVIADO} from "./arnes";
 
 jest.mock("expo-camera", () => ({ CameraView: () => null, useCameraPermissions: () => [null, jest.fn()] }));
 
@@ -42,16 +42,21 @@ describe.each(["light", "dark"] as const)("app de campo (%s)", (esquema) => {
         expect(m.motor.obtenerOrden(1)?.estado).toBe("cerrada");
         expect(await screen.findByTestId("orden-cerrada")).toHaveTextContent(/Cerrada sin firma del cliente/);
         expect(m.transporte.lotes).toHaveLength(0);
+        // La nube del encabezado: tachada con el número; su hoja dice el detalle y lleva a «Por enviar».
+        expect(nube()).toHaveProp("accessibilityLabel", "Sin señal, 4 por enviar, toca para ver el estado");
+        await fireEvent.press(nube());
         expect(screen.getByTestId("pendientes-por-enviar")).toHaveTextContent(/4 pendientes por enviar/);
         expect(screen.getByTestId("estado-conexion")).toHaveTextContent("Sin conexión");
-        // La píldora encima de la isla lleva a «Por enviar».
-        expect(screen.getByRole("button", { name: "Sin conexión: 4 pendientes por enviar. Ver detalle" })).toBeTruthy();
+        expect(screen.getByRole("button", { name: "Ver «Por enviar»" })).toBeTruthy();
+        // Sin señal no se ofrece «Enviar ahora».
+        expect(screen.queryByTestId("enviar-ahora")).toBeNull();
+        await fireEvent.press(screen.getByLabelText("Cerrar"));
 
         // Vuelve la señal: sale en un lote, en orden, y la barra se vuelve el punto.
         m.transporte.sinRed = false;
         enLinea = true;
         await act(() => m.motor.sincronizar());
-        await waitFor(() => expect(screen.queryByTestId("barra-conexion")).toBeNull());
+        await waitFor(() => expect(nube()).toHaveProp("accessibilityLabel", TODO_ENVIADO));
         expect(m.transporte.lotes.flatMap((l) => (l.operaciones ?? []).map((o) => o.tipo))).toEqual(["orden.iniciar_camino", "orden.llegar", "checklist.marcar", "orden.cerrar"]);
         expect(m.transporte.ordenes.get(1)?.estado).toBe("cerrada");
     });
@@ -89,8 +94,7 @@ describe.each(["light", "dark"] as const)("app de campo (%s)", (esquema) => {
         await fireEvent.press(within(rechazo).getByRole("button", { name: /Rehacer/ }));
         await waitFor(() => expect(m.motor.obtenerEstado().rechazos).toHaveLength(0));
         await act(() => m.motor.sincronizar());
-        await waitFor(() => expect(screen.queryByTestId("barra-conexion")).toBeNull());
-        expect(screen.getByLabelText("En línea, todo enviado")).toBeTruthy();
+        await waitFor(() => expect(nube()).toHaveProp("accessibilityLabel", TODO_ENVIADO));
         expect(m.motor.obtenerOrden(1)?.estado).toBe("en_sitio");
     });
 
@@ -110,7 +114,7 @@ describe.each(["light", "dark"] as const)("app de campo (%s)", (esquema) => {
         expect(rechazo).toHaveTextContent(/La orden se asignó a otro técnico/);
         expect(within(rechazo).queryByRole("button", { name: /Rehacer/ })).toBeNull();
         await fireEvent.press(within(rechazo).getByRole("button", { name: /Descartar todo de esta orden/ }));
-        await waitFor(() => expect(screen.queryByTestId("barra-conexion")).toBeNull());
+        await waitFor(() => expect(nube()).toHaveProp("accessibilityLabel", TODO_ENVIADO));
     });
 
     it("pausa con motivo (nota obligatoria con «Otro»), bloquea salir y cerrar, y se reanuda", async () => {
@@ -128,12 +132,15 @@ describe.each(["light", "dark"] as const)("app de campo (%s)", (esquema) => {
 
         await fireEvent.press(screen.getByRole("radio", { name: "Mal clima" }));
         await fireEvent.press(screen.getByRole("button", { name: "Confirmar pausa" }));
-        expect(await screen.findByTestId("orden-pausada")).toHaveTextContent(/Orden en pausa: Mal clima/);
+        // En el resumen: solo el aviso naranja «En pausa desde HH:MM · motivo» y «Reanudar».
+        expect(await screen.findByTestId("pausa-orden")).toHaveProp("accessibilityLabel", expect.stringMatching(/^En pausa desde \d{2}:\d{2} · Mal clima$/));
         expect(m.motor.obtenerEstado().cola.at(-1)).toMatchObject({ tipo: "orden.pausar", datos: { motivo: "clima" } });
         expect(screen.queryByRole("button", { name: /Cerrar orden/ })).toBeNull();
         expect(screen.queryByRole("button", { name: /Llegué/ })).toBeNull();
+        expect(screen.queryByTestId("accion-principal")).toBeNull();
+        expect(screen.queryByTestId("grupo-acciones")).toBeNull();
 
-        await fireEvent.press(within(screen.getByTestId("orden-pausada")).getByRole("button", { name: /Reanudar/ }));
+        await fireEvent.press(screen.getByTestId("reanudar"));
         await waitFor(() => expect(m.motor.obtenerOrden(1)?.estado).toBe("en_sitio"));
         expect(await screen.findByRole("button", { name: /Continuar trabajo/ })).toBeTruthy();
         expect(tipos(m)).toEqual(["orden.pausar", "orden.reanudar"]);

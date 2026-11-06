@@ -11,9 +11,9 @@ import "./global.css";
 import { Aviso, Boton, Cargando, Pila, useAltoTeclado } from "./componentes";
 import type { ServiciosNativos } from "./campo/contexto";
 import { tomarFoto, vaciarCacheFotos } from "./campo/foto";
-import { gpsNativo, posicionSiPermitida } from "./campo/gps-nativo";
+import { gpsNativo, posicionSiPermitida, ubicacionPermitida } from "./campo/gps-nativo";
 import { useVolverTrasAusencia } from "./campo/bloqueo";
-import { abrirMotor, borrarBase } from "./campo/motor";
+import { abrirMotor, borrarBase, borrarCachesChat } from "./campo/motor";
 import { entorno } from "./entorno";
 import { AppCampo, type DependenciasCampo } from "./pantallas/AppCampo";
 import { ElegirEmpresa } from "./pantallas/ElegirEmpresa";
@@ -51,7 +51,7 @@ type Paso =
 
 let enLinea = true;
 
-const servicios: ServiciosNativos = { tomarFoto, posicion: posicionSiPermitida, enLinea: () => enLinea };
+const servicios: ServiciosNativos = { tomarFoto, posicion: posicionSiPermitida, enLinea: () => enLinea, ubicacionPermitida };
 
 const conInternet = (s: Network.NetworkState) => s.isConnected === true && s.isInternetReachable !== false;
 
@@ -61,7 +61,7 @@ function dependenciasNativas(): DependenciasCampo {
     depsNativas ??= {
         async abrirMotor(clave, alSesionAjena, alConfirmarServidor) {
             const m = await abrirMotor(clave, alSesionAjena, alConfirmarServidor);
-            return { motor: m.motor, posiciones: m.posiciones, inventario: m.inventario, agenda: m.agenda, libres: m.libres, nombre: m.nombre, cerrar: () => m.almacen.cerrar(), borrar: () => borrarBase(m) };
+            return { motor: m.motor, posiciones: m.posiciones, inventario: m.inventario, agenda: m.agenda, libres: m.libres, historial: m.historial, chat: m.chat, nombre: m.nombre, cerrar: () => m.almacen.cerrar(), borrar: () => borrarBase(m) };
         },
         gps: gpsNativo,
         claves: entorno().claves,
@@ -81,6 +81,10 @@ function dependenciasNativas(): DependenciasCampo {
         },
         alVolverAlFrente: (fn) => {
             const s = AppState.addEventListener("change", (e) => e === "active" && fn());
+            return () => s.remove();
+        },
+        alCambiarPlano: (fn) => {
+            const s = AppState.addEventListener("change", (e) => fn(e === "active"));
             return () => s.remove();
         },
         cerrarSesionApi,
@@ -164,7 +168,12 @@ function Raiz() {
 
     /** «¿No eres tú?» con una sesión guardada: la cierra por completo y pide entrar. */
     const noEsEl = useCallback(async () => {
+        // La caché del chat de esa sesión también se va (no la cola): se toma antes de olvidarla.
+        const guardada = sesionGuardada();
         await noSoyYo();
+        if (guardada) {
+            await borrarCachesChat(guardada.usuarioId, [null, ...guardada.empresas.map((e) => e.id)]).catch(() => undefined);
+        }
         setBloqueada(false);
         setDesbloqueada(false);
         setPaso({ tipo: "entrar", motivo: "salida" });
