@@ -58,17 +58,18 @@ export function ListaConversaciones({ className, filtros, abierta, lista, contad
     ];
 
     return (
-        <section aria-label="Conversaciones" className={cn("min-h-0 min-w-0 flex-col border-r border-border bg-card", className)}>
+        <section aria-label="Conversaciones" className={cn("@container/lista min-h-0 min-w-0 flex-col border-r border-border bg-card", className)}>
             <div className="grid gap-2.5 border-b border-border px-3.5 pt-3.5 pb-2.5">
                 <div className="flex min-w-0 items-center gap-2">
                     <h1 className="min-w-0 flex-1 truncate text-lg font-bold">Conversaciones</h1>
                     <IndicadorFeed estado={estadoFeed} detenido={detenido} />
                     <BotonFiltros filtros={filtros} contadores={c} alCambiar={alFiltrar} />
                     {puede(["conversaciones.iniciar"]) ? (
-                        <Boton asChild variante="contorno" tamano="sm" className="h-8 shrink-0 px-2.5">
+                        <Boton asChild variante="contorno" tamano="sm" className="h-8 shrink-0 px-2.5 @max-[22.5rem]/lista:w-8 @max-[22.5rem]/lista:px-0">
                             <Link href="/conversaciones/nueva" aria-label="Nueva conversación" title="Nueva conversación">
                                 <SquarePen />
-                                Nueva
+                                {/* Con la lista angosta (escritorio a 1280 px) queda el icono: el título no se corta. */}
+                                <span className="@max-[22.5rem]/lista:sr-only">Nueva</span>
                             </Link>
                         </Boton>
                     ) : null}

@@ -89,7 +89,7 @@ export function AvisoAtencion({ conv, ahora, alHecho, compacto = false, classNam
             <div className="flex min-w-0 items-center gap-2.5">
                 <Timer aria-hidden className="size-4 shrink-0 text-warning" />
                 <div className="grid min-w-0 flex-1">
-                    <span className="truncate text-[0.8125rem] font-semibold text-warning">¿Alguien la atiende?</span>
+                    <span className={cn("text-[0.8125rem] leading-tight font-semibold text-warning", compacto ? "[overflow-wrap:anywhere]" : "truncate")}>¿Alguien la atiende?</span>
                     <span className="truncate text-xs text-foreground">
                         {compacto ? textoCuentaRegresiva(min, true) : [desde, nombres ? `Avisamos a ${nombres}` : null].filter(Boolean).join(" · ")}
                     </span>

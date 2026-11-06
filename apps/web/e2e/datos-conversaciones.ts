@@ -193,21 +193,21 @@ export function mensajesDe(id: number): Mensaje[] {
         ];
     }
     if (id === 46) {
-        const bot: Mensaje = mensaje(46, {
-            direccion: "saliente",
-            texto: "Gracias por escribir. En este momento todos nuestros agentes están ocupados; te respondemos en cuanto se libere uno.",
-            estadoEntrega: "entregado",
-            creadoEn: hace(54),
-        });
-        bot.automatico = "bot";
-        return [
+        // En orden: `mensaje()` numera `seq` al crearlos y el hilo los ordena por `seq`.
+        const antes = [
             mensaje(46, { direccion: "sistema", evento: { tipo: "conversacion_creada", colaNombre: "Soporte" }, creadoEn: hace(84) }),
             mensaje(46, { direccion: "entrante", texto: "Hola, quiero cambiar mi plan a 200 Mb, ¿cuánto cuesta?", creadoEn: hace(84) }),
             mensaje(46, { direccion: "sistema", evento: { tipo: "aviso_sin_atender", colaNombre: "Soporte", disponibles: 3 }, creadoEn: hace(84) }),
             mensaje(46, { direccion: "sistema", evento: { tipo: "bot_atendio", detalle: "sin_confirmacion", minutos: 30 }, creadoEn: hace(54) }),
-            bot,
-            mensaje(46, { direccion: "entrante", texto: "Ok, gracias", creadoEn: hace(53) }),
         ];
+        const bot = mensaje(46, {
+            direccion: "saliente",
+            texto: "Gracias por escribir. En este momento todos nuestros agentes están ocupados; te respondemos en cuanto se libere uno.",
+            estadoEntrega: "entregado",
+            automatico: "bot",
+            creadoEn: hace(54),
+        });
+        return [...antes, bot, mensaje(46, { direccion: "entrante", texto: "Ok, gracias", creadoEn: hace(53) })];
     }
     if (id !== 41) return [mensaje(id, { direccion: "entrante", texto: "Hola, ¿me ayudan?", creadoEn: hace(10) })];
     return [

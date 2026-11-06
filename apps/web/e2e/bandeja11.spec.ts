@@ -42,6 +42,8 @@ test.describe("bandeja 1.1", () => {
         const grupo = panel.getByRole("radiogroup", { name: "Tu disponibilidad en Conversaciones" });
         await expect(grupo.getByRole("radio", { name: "Disponible", exact: true })).toBeChecked();
         await expect(panel).toContainText("Pasas a No disponible tras 15 min sin actividad, al cerrar sesión o fuera de tu horario (hoy hasta las 22:00).");
+        // La hoja «Más» entra deslizándose: se espera a que llegue a su lugar.
+        if (esTelefono(page)) await expect.poll(async () => Math.round((await hojaMas(page).boundingBox())?.x ?? 0) + Math.round((await hojaMas(page).boundingBox())?.width ?? 0)).toBeLessThanOrEqual(390);
         await esperarSinDesbordes(page);
         await grupo.getByRole("radio", { name: "No disponible" }).click();
         await expect(page.getByText("Estás No disponible: no te llegan conversaciones nuevas.")).toBeVisible();
@@ -196,7 +198,8 @@ test.describe("bandeja 1.1", () => {
         await form.getByRole("button", { name: "Quitar a Ana López" }).last().click();
         const agregar = form.getByRole("combobox", { name: "Agregar a supervisores" });
         await agregar.fill("Rosa S");
-        await page.getByRole("option", { name: /Rosa Sánchez/ }).click();
+        // En el teléfono la lista queda junto a la ayuda del campo: el clic va directo a la opción.
+        await page.getByRole("option", { name: /Rosa Sánchez/ }).dispatchEvent("click");
         // La lista sigue abierta para agregar a otra persona; Escape la cierra.
         await page.keyboard.press("Escape");
         await expect(form.getByRole("list", { name: "Supervisores" })).toContainText("Rosa Sánchez");

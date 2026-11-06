@@ -78,7 +78,7 @@ export function ListaEleccion({ leyenda, leyendaOculta = false, nombre, opciones
                             >
                                 <Radio.Indicator
                                     className={cn(
-                                        "m-0 flex size-5 shrink-0 items-center justify-center rounded-full border-2 bg-background p-0 shadow-none",
+                                        "relative inset-auto m-0 flex size-5 shrink-0 items-center justify-center rounded-full border-2 bg-background p-0 shadow-none",
                                         marcado ? "border-primary" : "border-border",
                                         o.deshabilitada && "opacity-40",
                                     )}
