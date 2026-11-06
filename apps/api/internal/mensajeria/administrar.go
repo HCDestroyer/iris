@@ -127,6 +127,9 @@ type Canal struct {
 	PhoneNumberID string                   `json:"phoneNumberId"`
 	WabaID        string                   `json:"wabaId"`
 	Plantillas    map[string]PlantillaMeta `json:"plantillas" doc:"Plantillas aprobadas en Meta por código de Iris"`
+	Usos          []string                 `json:"usos" doc:"avisos, soporte, cobros, ventas (contratos/conversaciones.md §1)"`
+	AvisosEmpresa bool                     `json:"avisosEmpresa" doc:"Es el número por el que salen los avisos de la empresa (uno activo por empresa)"`
+	ColaID        *int64                   `json:"colaId" nullable:"true" doc:"Cola de las conversaciones nuevas de este número"`
 	Activo        bool                     `json:"activo"`
 	PausadoHasta  *time.Time               `json:"pausadoHasta" nullable:"true" doc:"Pausa automática por calidad o límite de Meta"`
 	WebhookRuta   string                   `json:"webhookRuta" doc:"Ruta del webhook a configurar en la app de Meta (sobre IRIS_BASE_URL)"`
@@ -144,7 +147,7 @@ func aCanal(f mensajeriabd.MensajeriaCanal) Canal {
 	p := map[string]PlantillaMeta{}
 	_ = json.Unmarshal(f.Plantillas, &p)
 	return Canal{ID: f.ID, EmpresaID: f.EmpresaID, Tipo: f.Tipo, Canal: f.Canal, Nombre: f.Nombre, Numero: f.Numero, PhoneNumberID: f.PhoneNumberID,
-		WabaID: f.WabaID, Plantillas: p, Activo: f.Activo, PausadoHasta: f.PausadoHasta, WebhookRuta: rutaWebhookMeta(f.ID), Version: f.Version, CreadoEn: f.CreatedAt}
+		WabaID: f.WabaID, Plantillas: p, Usos: f.Usos, AvisosEmpresa: f.AvisosEmpresa, ColaID: f.ColaID, Activo: f.Activo, PausadoHasta: f.PausadoHasta, WebhookRuta: rutaWebhookMeta(f.ID), Version: f.Version, CreadoEn: f.CreatedAt}
 }
 
 func rutaWebhookMeta(id int64) string {
@@ -179,6 +182,9 @@ type EntradaCrearCanal struct {
 	AppSecret     string                   `json:"appSecret" minLength:"16" maxLength:"256" auditoria:"sensible" doc:"App secret de la app de Meta (verifica X-Hub-Signature-256; solo escritura)"`
 	VerifyToken   string                   `json:"verifyToken" minLength:"16" maxLength:"256" auditoria:"sensible" doc:"Token de verificación del webhook que se escribe en Meta (solo escritura)"`
 	Plantillas    map[string]PlantillaMeta `json:"plantillas,omitempty" doc:"Plantillas aprobadas en Meta por código de Iris (§6.3)"`
+	Usos          []string                 `json:"usos,omitempty" maxItems:"4" uniqueItems:"true" doc:"avisos, soporte, cobros, ventas (por defecto avisos y soporte)"`
+	AvisosEmpresa *bool                    `json:"avisosEmpresa,omitempty" doc:"Número de avisos de la empresa. Por defecto, sí cuando la empresa no tiene otro y usos incluye avisos"`
+	ColaID        *int64                   `json:"colaId,omitempty" minimum:"1" nullable:"true" doc:"Cola de las conversaciones nuevas"`
 }
 
 // EntradaActualizarCanal es POST /mensajeria/canales/{id}/actualizar (las credenciales vacías no cambian).
@@ -232,6 +238,29 @@ func nuevoCrearCanal(m *Modulo) *auditoria.Caso[EntradaCrearCanal, Canal] {
 				return Canal{}, err
 			}
 			q := mensajeriabd.New(t)
+			if len(in.Usos) == 0 {
+				in.Usos = []string{"avisos", "soporte"}
+			}
+			empresa := int64(0)
+			if in.EmpresaID != nil {
+				empresa = *in.EmpresaID
+			}
+			if err := m.colaDeEmpresa(ctx, q, empresa, in.ColaID); err != nil {
+				return Canal{}, err
+			}
+			avisos := false
+			if in.AvisosEmpresa != nil {
+				avisos = *in.AvisosEmpresa
+			} else if slices.Contains(in.Usos, "avisos") {
+				hay, err := q.HayCanalAvisos(ctx, mensajeriabd.HayCanalAvisosParams{EmpresaID: empresa, Excepto: 0})
+				if err != nil {
+					return Canal{}, err
+				}
+				avisos = !hay
+			}
+			if err := validarUsos(in.Usos, avisos); err != nil {
+				return Canal{}, err
+			}
 			id, err := q.SiguienteIDCanal(ctx)
 			if err != nil {
 				return Canal{}, err
@@ -246,12 +275,17 @@ func nuevoCrearCanal(m *Modulo) *auditoria.Caso[EntradaCrearCanal, Canal] {
 			plantillas, _ := json.Marshal(in.Plantillas)
 			f, err := q.InsertarCanal(ctx, mensajeriabd.InsertarCanalParams{ID: id, EmpresaID: in.EmpresaID, Tipo: TipoWhatsAppCloud, Canal: CanalWhatsApp,
 				Nombre: in.Nombre, Numero: in.Numero, PhoneNumberID: in.PhoneNumberID, WabaID: in.WabaID, CredencialesCifradas: cifradas,
-				Plantillas: plantillas, CreadoPor: usuarioDe(ctx)})
+				Plantillas: plantillas, CreadoPor: usuarioDe(ctx), Usos: in.Usos, AvisosEmpresa: avisos, ColaID: in.ColaID})
 			if err != nil {
 				return Canal{}, conflictoCanal(err)
 			}
 			c := aCanal(f)
 			fijarEmpresaCanal(t, f.EmpresaID)
+			if avisos {
+				if err := fijarAvisos(ctx, t, q, f.EmpresaID, f.ID); err != nil {
+					return Canal{}, err
+				}
+			}
 			t.RegistrarCambios("canal_mensajeria", f.ID, nil, auditableCanal(c, "***"))
 			return c, t.Emitir("canal_mensajeria.creado", map[string]any{"canal_id": f.ID, "empresa_id": f.EmpresaID, "tipo": f.Tipo, "canal": f.Canal})
 		},

@@ -437,6 +437,74 @@ func (q *Queries) InsertarAdjunto(ctx context.Context, arg InsertarAdjuntoParams
 	return i, err
 }
 
+const insertarAdjuntoCompleto = `-- name: InsertarAdjuntoCompleto :one
+INSERT INTO nucleo.adjuntos (
+    id, empresa_id, entidad, entidad_id, tipo, mime, tamano, sha256, recibido, estado,
+    subido_por, almacenamiento, clave, completado_en
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $7, 'completo',
+    $9, $10, $11, now()
+)
+RETURNING id, empresa_id, entidad, entidad_id, tipo, clave_checklist, mime, tamano, sha256, recibido, estado, motivo_rechazo, lat, lon, tomado_en, subido_por, almacenamiento, clave, completado_en, version, created_at, updated_at
+`
+
+type InsertarAdjuntoCompletoParams struct {
+	ID             uuid.UUID
+	EmpresaID      *int64
+	Entidad        string
+	EntidadID      string
+	Tipo           string
+	Mime           string
+	Tamano         int64
+	Sha256         string
+	SubidoPor      *int64
+	Almacenamiento string
+	Clave          string
+}
+
+// Un archivo que trajo el sistema (p. ej. un medio de WhatsApp) ya guardado en el almacenamiento.
+func (q *Queries) InsertarAdjuntoCompleto(ctx context.Context, arg InsertarAdjuntoCompletoParams) (NucleoAdjunto, error) {
+	row := q.db.QueryRow(ctx, insertarAdjuntoCompleto,
+		arg.ID,
+		arg.EmpresaID,
+		arg.Entidad,
+		arg.EntidadID,
+		arg.Tipo,
+		arg.Mime,
+		arg.Tamano,
+		arg.Sha256,
+		arg.SubidoPor,
+		arg.Almacenamiento,
+		arg.Clave,
+	)
+	var i NucleoAdjunto
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Entidad,
+		&i.EntidadID,
+		&i.Tipo,
+		&i.ClaveChecklist,
+		&i.Mime,
+		&i.Tamano,
+		&i.Sha256,
+		&i.Recibido,
+		&i.Estado,
+		&i.MotivoRechazo,
+		&i.Lat,
+		&i.Lon,
+		&i.TomadoEn,
+		&i.SubidoPor,
+		&i.Almacenamiento,
+		&i.Clave,
+		&i.CompletadoEn,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const insertarParte = `-- name: InsertarParte :exec
 INSERT INTO nucleo.adjuntos_partes (adjunto_id, desde, datos) VALUES ($1, $2, $3)
 `

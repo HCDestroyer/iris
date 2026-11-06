@@ -88,3 +88,14 @@ UPDATE nucleo.adjuntos
 SET estado = 'rechazado', motivo_rechazo = @motivo, version = version + 1, updated_at = now()
 WHERE id = @id AND estado <> 'rechazado'
 RETURNING *;
+
+-- name: InsertarAdjuntoCompleto :one
+-- Un archivo que trajo el sistema (p. ej. un medio de WhatsApp) ya guardado en el almacenamiento.
+INSERT INTO nucleo.adjuntos (
+    id, empresa_id, entidad, entidad_id, tipo, mime, tamano, sha256, recibido, estado,
+    subido_por, almacenamiento, clave, completado_en
+) VALUES (
+    @id, sqlc.narg(empresa_id), @entidad, @entidad_id, @tipo, @mime, @tamano, @sha256, @tamano, 'completo',
+    sqlc.narg(subido_por), @almacenamiento, @clave, now()
+)
+RETURNING *;

@@ -268,5 +268,9 @@ type trabajadorDespacho struct {
 }
 
 func (w *trabajadorDespacho) Work(ctx context.Context, _ *river.Job[ArgsDespacharWebhooks]) error {
-	return w.m.despacharWebhooks(ctxSistema(ctx, w.bd), w.bd)
+	ctx = ctxSistema(ctx, w.bd)
+	if err := w.m.despacharWebhooks(ctx, w.bd); err != nil {
+		return err
+	}
+	return w.m.despacharBoletas(ctx, w.bd)
 }

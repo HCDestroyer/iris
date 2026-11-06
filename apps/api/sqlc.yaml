@@ -183,6 +183,7 @@ sql:
     queries:
       - internal/mensajeria/consultas.sql
       - internal/mensajeria/chat.sql
+      - internal/mensajeria/conversaciones.sql
     gen:
       go:
         <<: *gen
@@ -191,3 +192,7 @@ sql:
         rename:
           mensajeria_canale: MensajeriaCanal
           mensajeria_chat_conversacione: MensajeriaChatConversacion
+          mensajeria_conversacione: MensajeriaConversacion
+          mensajeria_contactos_iri: MensajeriaContactoIris
+          mensajeria_respuestas_rapida: MensajeriaRespuestaRapida
+          mensajeria_cola: MensajeriaCola

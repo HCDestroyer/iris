@@ -31,8 +31,13 @@ func IdempotenciaPropia(r *http.Request) bool {
 	if r.Method != http.MethodPost {
 		return false
 	}
-	return r.URL.Path == Prefijo+"/avisos" || r.URL.Path == Prefijo+"/consentimientos" || rutaChatPropia.MatchString(r.URL.Path)
+	return r.URL.Path == Prefijo+"/avisos" || r.URL.Path == Prefijo+"/consentimientos" || rutaChatPropia.MatchString(r.URL.Path) ||
+		rutaConvPropia.MatchString(r.URL.Path)
 }
+
+// rutaConvPropia: responder y anotar en una conversación con un cliente (la clave queda en el
+// mensaje; la respuesta trae el texto) y pedir una promesa (la aplica el caso).
+var rutaConvPropia = regexp.MustCompile(`^` + regexp.QuoteMeta(Prefijo) + `/conversaciones/[0-9]+/(mensajes|notas|promesas)$`)
 
 var rutaChatPropia = regexp.MustCompile(`^` + regexp.QuoteMeta(Prefijo) +
 	`/chat/(conversaciones/[0-9]+/mensajes|directas|cuadrillas/[0-9]+/abrir|ordenes/[0-9]+/abrir)$`)
@@ -212,4 +217,5 @@ func (m *Modulo) Registrar(api huma.API) {
 	})
 
 	m.registrarChat(api)
+	m.registrarConversaciones(api)
 }

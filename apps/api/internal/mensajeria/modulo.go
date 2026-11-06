@@ -20,10 +20,14 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
+	"github.com/HCDestroyer/iris/apps/api/internal/campo"
+	"github.com/HCDestroyer/iris/apps/api/internal/comercial"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
+	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
+	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
 )
 
 // Cola de River de la mensajería: la trabaja solo el proceso de mensajería.
@@ -101,6 +105,17 @@ type Config struct {
 	// Almacen de los adjuntos (el mismo que la API): para borrar la foto de un mensaje eliminado.
 	// nil = solo se rechaza (no se puede ver ni descargar) y queda en el log.
 	Almacen adjuntos.Almacen
+
+	// Bandeja de conversaciones con clientes (contratos/conversaciones.md).
+	// Argos: búsqueda por teléfono, instantánea, boletas y promesas (nil = sin Argos).
+	Argos ArgosAtencion
+	// Soporte, Campo y Comercial: los casos que la bandeja reutiliza (crear ticket, orden y
+	// prospecto). nil = esa acción responde 503.
+	Soporte   *soporte.Modulo
+	Campo     *campo.Modulo
+	Comercial *comercial.Modulo
+	// MaxMedioEntrante: bytes de un archivo que manda el cliente (25 MB).
+	MaxMedioEntrante int64
 }
 
 // Modulo reúne los casos de uso.
@@ -121,6 +136,21 @@ type Modulo struct {
 
 	// Chat interno del equipo.
 	Chat casosChat
+	// Bandeja de conversaciones con clientes.
+	Conv casosConv
+	// difusorConv despierta los flujos SSE de la bandeja (NOTIFY iris_conversaciones).
+	difusorConv *difusor
+	// alRecibir: lo que pasa después de guardar un mensaje del cliente (fuera de horario, PR B).
+	alRecibir func(ctx context.Context, t *auditoria.Tx, c *mensajeriabd.MensajeriaConversacion, canal mensajeriabd.MensajeriaCanal,
+		f mensajeriabd.MensajeriaConversacionMensaje) error
+	abrirFlujoConv   *auditoria.Caso[entradaFlujo, flujoConv]
+	prepararMedio    *auditoria.Caso[uuid.UUID, medioPorBajar]
+	guardarMedio     *auditoria.Caso[medioBajado, struct{}]
+	prepararMensaje  *auditoria.Caso[uuid.UUID, mensajePreparado]
+	registrarMensaje *auditoria.Caso[entradaRegistrarMensaje, registrado]
+	prepararBoleta   *auditoria.Caso[uuid.UUID, boletaPorEnviar]
+	resultadoBoleta  *auditoria.Caso[resultadoBoleta, struct{}]
+	vencerSLA        *auditoria.Caso[struct{}, int]
 	// difusor despierta los flujos SSE con el NOTIFY iris_chat (EscucharChat).
 	difusor *difusor
 	// lecturas: semáforo de las lecturas del feed de los flujos SSE (ChatLecturas).
@@ -197,7 +227,10 @@ func Nuevo(cfg Config) *Modulo {
 	if cfg.ChatFotosSinEnviar <= 0 {
 		cfg.ChatFotosSinEnviar = 48 * time.Hour
 	}
-	m := &Modulo{cfg: cfg, difusor: nuevoDifusor(), lecturas: make(chan struct{}, cfg.ChatLecturas)}
+	if cfg.MaxMedioEntrante <= 0 {
+		cfg.MaxMedioEntrante = 25 << 20
+	}
+	m := &Modulo{cfg: cfg, difusor: nuevoDifusor(), difusorConv: nuevoDifusor(), lecturas: make(chan struct{}, cfg.ChatLecturas)}
 	m.EnviarAviso = nuevoEnviarAviso(m)
 	m.VerAviso = nuevoVerAviso(m)
 	m.RegistrarConsentimiento = nuevoRegistrarConsentimiento(m)
@@ -216,6 +249,15 @@ func Nuevo(cfg Config) *Modulo {
 	m.entregarWebhook = nuevoEntregarWebhook(m)
 	m.Chat = nuevosCasosChat(m)
 	m.retirarFoto = nuevoRetirarFotoSinEnviar(m)
+	m.Conv = nuevosCasosConv(m)
+	m.abrirFlujoConv = nuevoAbrirFlujoConv(m)
+	m.prepararMedio = nuevoPrepararMedio(m)
+	m.guardarMedio = nuevoGuardarMedio(m)
+	m.prepararMensaje = nuevoPrepararMensaje(m)
+	m.registrarMensaje = nuevoRegistrarMensaje(m)
+	m.prepararBoleta = nuevoPrepararBoleta(m)
+	m.resultadoBoleta = nuevoResultadoBoleta(m)
+	m.vencerSLA = nuevoVencerSLA(m)
 	return m
 }
 
