@@ -12,9 +12,22 @@ RETURNING *;
 INSERT INTO notificaciones.dispositivos (usuario_id, empresa_id, sesion_id, token_api_id, plataforma, token, token_hash, token_fin, app_version)
 VALUES (@usuario_id, sqlc.narg('empresa_id'), sqlc.narg('sesion_id'), sqlc.narg('token_api_id'), @plataforma, @token, @token_hash, @token_fin, @app_version)
 ON CONFLICT (token_hash, (coalesce(empresa_id, 0))) DO UPDATE
-SET usuario_id = EXCLUDED.usuario_id, sesion_id = EXCLUDED.sesion_id, token_api_id = EXCLUDED.token_api_id,
+SET sesion_id = EXCLUDED.sesion_id, token_api_id = EXCLUDED.token_api_id,
     plataforma = EXCLUDED.plataforma, app_version = EXCLUDED.app_version, updated_at = now()
+-- Nunca traspasa el dispositivo de otro usuario (eso lo hace QuitarTokenDeOtros, con su evento).
+WHERE notificaciones.dispositivos.usuario_id = EXCLUDED.usuario_id
 RETURNING *, (xmax = 0)::boolean AS nuevo;
+
+-- name: BloquearToken :exec
+-- Serializa los registros del mismo token (quitar al otro usuario y guardar van juntos).
+SELECT pg_advisory_xact_lock(@clave::bigint);
+
+-- name: SobrantesDeUsuario :many
+-- Los dispositivos de más allá del tope (los más viejos por última renovación).
+SELECT * FROM notificaciones.dispositivos
+WHERE usuario_id = @usuario_id AND coalesce(empresa_id, 0) = coalesce(sqlc.narg('empresa')::bigint, 0)
+ORDER BY updated_at DESC, id DESC
+OFFSET @tope;
 
 -- name: ListarDispositivos :many
 SELECT * FROM notificaciones.dispositivos

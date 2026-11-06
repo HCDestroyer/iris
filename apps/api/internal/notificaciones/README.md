@@ -20,8 +20,12 @@ Operación: `docs/runbooks/notificaciones-push.md`.
   2. arma el mensaje (solo datos) y lo manda a FCM con el token OAuth de la cuenta de servicio
      (JWT RS256 propio, guardado en memoria hasta un minuto antes de vencer);
   3. 200 → `enviado`; 429/5xx o sin red → reintento con espera exponencial (15 s … 30 min, 8
-     intentos) y luego `fallido`/`agotado`; otro 4xx → `fallido` sin reintento; `UNREGISTERED`,
-     `INVALID_ARGUMENT` o `SENDER_ID_MISMATCH` → además quita el dispositivo.
+     intentos) y luego `fallido`/`agotado`; otro 4xx → `fallido` sin reintento; `UNREGISTERED`, o
+     `INVALID_ARGUMENT` / `SENDER_ID_MISMATCH` con el detalle en `message.token` → además quita el
+     dispositivo (un error de configuración no borra los dispositivos).
+- El token OAuth se pide siempre a `https://oauth2.googleapis.com/token` (un `token_uri` distinto en
+  el JSON se rechaza) y el cliente no sigue redirecciones. Una cuenta de otro proyecto deja el push
+  en `error`. Hasta 10 dispositivos por usuario y empresa.
 - **Purga** cada hora: dispositivos cuya sesión o token ya no vale (o usuario inactivo) y envíos de
   más de 30 días.
 

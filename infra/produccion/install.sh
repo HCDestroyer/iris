@@ -504,16 +504,18 @@ configure_fcm() {
         return 0
     fi
     [ -n "$FCM_CREDENTIALS" ] || return 0
+    # Absolute path: a name that starts with "-" is never read as an option (and -- below too).
+    FCM_CREDENTIALS="$(realpath -e -- "$FCM_CREDENTIALS")" || die "cannot find the Firebase credentials: $FCM_CREDENTIALS"
     [ -f "$FCM_CREDENTIALS" ] && [ -r "$FCM_CREDENTIALS" ] || die "cannot read the Firebase credentials: $FCM_CREDENTIALS"
-    if ! grep -Eq '"type"[[:space:]]*:[[:space:]]*"service_account"' "$FCM_CREDENTIALS" || ! grep -q '"private_key"' "$FCM_CREDENTIALS"; then
+    if ! grep -Eq -- '"type"[[:space:]]*:[[:space:]]*"service_account"' "$FCM_CREDENTIALS" || ! grep -q -- '"private_key"' "$FCM_CREDENTIALS"; then
         die "$FCM_CREDENTIALS is not a Google service account JSON (Firebase console > Project settings > Service accounts > Generate new private key)"
     fi
     local project="$FCM_PROJECT"
     if [ -z "$project" ]; then
-        project="$(sed -nE 's/.*"project_id"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' "$FCM_CREDENTIALS" | head -n1)"
+        project="$(sed -nE 's/.*"project_id"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' -- "$FCM_CREDENTIALS" | head -n1)"
     fi
     [[ "$project" =~ ^[a-z][a-z0-9-]{4,61}[a-z0-9]$ ]] || die "invalid Firebase project id: '$project' (use --fcm-project ID)"
-    install -o root -g "$FCM_UID" -m 640 "$FCM_CREDENTIALS" "$DIR/secrets/$FCM_FILE.new"
+    install -o root -g "$FCM_UID" -m 640 -- "$FCM_CREDENTIALS" "$DIR/secrets/$FCM_FILE.new"
     mv -f "$DIR/secrets/$FCM_FILE.new" "$DIR/secrets/$FCM_FILE"
     env_set IRIS_FCM_PROYECTO "$project"
     env_set IRIS_FCM_CREDENCIALES "/run/iris/secrets/$FCM_FILE"

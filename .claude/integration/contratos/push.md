@@ -24,7 +24,9 @@ mismo token puede estar en varias). Sin conector (sin empresas registradas), en 
 | `GET /api/v1/dispositivos` | Tus dispositivos en la empresa activa (nunca los de otros). `{ data: Dispositivo[], nextCursor }` |
 | `POST /api/v1/dispositivos/{id}/quitar` | Lo quita (deja de recibir push). Repetir o quitar uno ajeno: 404. |
 
-- `token`: el token FCM (1–4096 caracteres, sin espacios). `plataforma`: `android` (`ios` queda para
+- `token`: el token FCM (100–4096 caracteres de `A-Z a-z 0-9 _ : -`; si no, 422). Hasta **10
+  dispositivos por usuario y empresa**: al registrar el undécimo se quita el más viejo
+  (`dispositivo.quitado`, motivo `usuario`). `plataforma`: `android` (`ios` queda para
   más adelante: hoy 422). `appVersion`: la versión de la app (`1.4.0`, hasta 40 caracteres).
 - `Dispositivo`: `{ id, plataforma, appVersion, tokenFin, empresaId, registradoEn, actualizadoEn,
   ultimoEnvioEn }`. **Nunca devuelve el token**; `tokenFin` son sus últimos 6 caracteres (para
@@ -37,8 +39,9 @@ mismo token puede estar en varias). Sin conector (sin empresas registradas), en 
     transacción;
   - cuando la sesión vence o un administrador la cierra, el token se revoca, el usuario se desactiva
     o sale de la empresa: en el siguiente envío, o en la purga de cada hora;
-  - cuando FCM responde que el token no vale (`UNREGISTERED`, `INVALID_ARGUMENT`,
-    `SENDER_ID_MISMATCH`).
+  - cuando FCM responde que el token no vale: `UNREGISTERED`, o `INVALID_ARGUMENT` /
+    `SENDER_ID_MISMATCH` con el detalle en `message.token`. Sin ese detalle el envío queda fallido y
+    el dispositivo sigue (puede ser un error de configuración del servidor).
   - La app, al iniciar sesión otra vez, vuelve a registrar: no hace falta guardar el `id`.
 
 ## 2. Preferencias (de la cuenta: valen en cualquier teléfono)
@@ -169,6 +172,8 @@ actualizada», `bandeja` «Cliente esperando».
   "texto": "@Juan ¿traes el conector SC/APC?" }   // solo con completo
 ```
 
+- `titulo` y `conversacionTitulo`: el contacto de la conversación (bandeja) o la conversación
+  (chat). Con `remitente`, en la bandeja: `Conversación con un cliente` (sin el nombre del cliente).
 - `cuerpo`: `Ana López te mencionó: <texto>` o, con `remitente`, `Ana López te mencionó`.
 - `enlace`: `iris://conversaciones/<id>` (bandeja) o `iris://chat/<id>` (chat). Acciones
   `responder,leido`.

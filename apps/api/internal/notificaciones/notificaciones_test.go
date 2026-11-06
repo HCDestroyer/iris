@@ -2,10 +2,12 @@ package notificaciones_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +26,7 @@ func TestRegistrarDispositivoIdempotentePorToken(t *testing.T) {
 	e := nuevoEntorno(t, true)
 	ana := e.persona([]int64{1}, "tecnico")
 	beto := e.persona([]int64{1}, "tecnico")
-	token := "fcm-registro-" + pruebas.Unico() + "abc123"
+	token := tokenFCM() + "abc123"
 	cuerpo := map[string]any{"token": token, "plataforma": "android", "appVersion": "1.4.0"}
 
 	r := e.esperar(e.api(ana, http.MethodPost, "/api/v1/dispositivos", cuerpo), http.StatusCreated)
@@ -69,8 +71,10 @@ func TestRegistrarDispositivoIdempotentePorToken(t *testing.T) {
 	e.esperar(e.api(beto, http.MethodPost, fmt.Sprintf("/api/v1/dispositivos/%v/quitar", propio), nil), http.StatusNotFound)
 
 	// Validación e integraciones.
-	e.esperar(e.api(ana, http.MethodPost, "/api/v1/dispositivos", map[string]any{"token": "con espacio", "plataforma": "android", "appVersion": "1"}), http.StatusUnprocessableEntity)
-	e.esperar(e.api(ana, http.MethodPost, "/api/v1/dispositivos", map[string]any{"token": "x", "plataforma": "ios", "appVersion": "1"}), http.StatusUnprocessableEntity)
+	for _, malo := range []string{"corto:APA91b", strings.Repeat("a", 120) + " con espacio", strings.Repeat("a", 120) + "<b>", strings.Repeat("a", 4097)} {
+		e.esperar(e.api(ana, http.MethodPost, "/api/v1/dispositivos", map[string]any{"token": malo, "plataforma": "android", "appVersion": "1"}), http.StatusUnprocessableEntity)
+	}
+	e.esperar(e.api(ana, http.MethodPost, "/api/v1/dispositivos", map[string]any{"token": tokenFCM(), "plataforma": "ios", "appVersion": "1"}), http.StatusUnprocessableEntity)
 	e.esperar(e.api(persona{}, http.MethodGet, "/api/v1/dispositivos", nil), http.StatusUnauthorized)
 }
 
@@ -405,6 +409,20 @@ func TestMencionEnLaBandeja(t *testing.T) {
 	if estado, motivo := e.envio(ev.ID); estado != "omitido" || motivo != "sin_permiso" {
 		t.Fatalf("envío: %s %s", estado, motivo)
 	}
+
+	// Con «solo quién escribe» no sale ni el texto ni el nombre del cliente.
+	e.preferencias(laura, func(c map[string]any) { c["contenido"] = "remitente" })
+	n2 := e.nota(conv, 1, ana.id, "@Laura el cliente debe dos meses")
+	e.evento("conversacion.mencion", emp(1), "", map[string]any{"conversacion_id": conv, "mensaje_id": n2, "empresa_id": 1, "usuario_id": laura.id, "autor_id": ana.id})
+	e.enviarEncolados()
+	ms = e.fcm.para(tokLaura)
+	m := ms[len(ms)-1]
+	if m.Data["titulo"] != notificaciones.TituloConversacionCliente || m.Data["cuerpo"] != ana.nombre+" te mencionó" {
+		t.Fatalf("remitente: %v", m.Data)
+	}
+	if b, _ := json.Marshal(m); strings.Contains(string(b), "Juan Pérez") || strings.Contains(string(b), "debe dos meses") {
+		t.Fatalf("con remitente no viajan el cliente ni el texto: %s", b)
+	}
 }
 
 func TestBandejaAlguienLaAtiende(t *testing.T) {
@@ -617,13 +635,29 @@ func TestTokenInvalidoSeQuitaYReintentos(t *testing.T) {
 	if p := e.ultimoEvento("dispositivo.quitado"); p["motivo"] != notificaciones.QuitadoTokenInvalido {
 		t.Fatalf("dispositivo.quitado: %v", p)
 	}
-	// Con INVALID_ARGUMENT también.
+	// Un 404 sin UNREGISTERED, o INVALID_ARGUMENT / SENDER_ID_MISMATCH sin señalar message.token (un
+	// error del servidor, no del teléfono): fallido y el dispositivo queda.
 	tok2 := e.dispositivo(tec)
-	e.fcm.responder(tok2, http.StatusBadRequest, "INVALID_ARGUMENT")
+	for i, r := range []struct {
+		status int
+		codigo string
+	}{{http.StatusNotFound, "NOT_FOUND"}, {http.StatusBadRequest, "INVALID_ARGUMENT"}, {http.StatusForbidden, "SENDER_ID_MISMATCH"}} {
+		e.fcm.responder(tok2, r.status, r.codigo)
+		e.mensaje(ana, conv, map[string]any{"texto": fmt.Sprint("sin quitar ", i)})
+		e.procesar()
+		if n := e.contar(`SELECT count(*) FROM notificaciones.dispositivos WHERE usuario_id = $1`, tec.id); n != 1 {
+			t.Fatalf("%s sin message.token no quita el dispositivo", r.codigo)
+		}
+	}
+	if n := e.contar(`SELECT count(*) FROM notificaciones.envios WHERE usuario_id = $1 AND estado = 'fallido' AND motivo LIKE 'rechazado%'`, tec.id); n != 4 {
+		t.Fatalf("fallidos sin quitar: %d", n)
+	}
+	// INVALID_ARGUMENT que señala message.token: sí se quita.
+	e.fcm.responderCampo(tok2, http.StatusBadRequest, "INVALID_ARGUMENT", "message.token")
 	e.mensaje(ana, conv, map[string]any{"texto": "cuatro"})
 	e.procesar()
 	if n := e.contar(`SELECT count(*) FROM notificaciones.dispositivos WHERE usuario_id = $1`, tec.id); n != 0 {
-		t.Fatal("INVALID_ARGUMENT quita el token")
+		t.Fatal("INVALID_ARGUMENT en message.token quita el token")
 	}
 }
 
@@ -701,5 +735,63 @@ func TestSinConfiguracionElPushQuedaApagado(t *testing.T) {
 	t.Setenv("IRIS_FCM_CREDENCIALES", bueno)
 	if f, est := notificaciones.ConfigDesdeEntorno(); f == nil || est.Estado != notificaciones.PushConfigurado || est.Detalle != "" {
 		t.Fatalf("configurado: %+v", est)
+	}
+	// La cuenta de otro proyecto: error y sin cliente (FCM respondería SENDER_ID_MISMATCH a todos).
+	t.Setenv("IRIS_FCM_PROYECTO", "otro-proyecto")
+	if f, est := notificaciones.ConfigDesdeEntorno(); f != nil || est.Estado != notificaciones.PushError {
+		t.Fatalf("otro proyecto: %+v", est)
+	}
+	// Un token_uri ajeno se rechaza: el JWT firmado solo va a Google.
+	ajeno := filepath.Join(dir, "ajeno.json")
+	b, _ = json.Marshal(map[string]string{"type": "service_account", "project_id": proyecto, "private_key": pemClave,
+		"client_email": "push@" + proyecto + ".iam.gserviceaccount.com", "token_uri": "http://169.254.169.254/token"})
+	_ = os.WriteFile(ajeno, b, 0o600)
+	t.Setenv("IRIS_FCM_PROYECTO", proyecto)
+	t.Setenv("IRIS_FCM_CREDENCIALES", ajeno)
+	if f, est := notificaciones.ConfigDesdeEntorno(); f != nil || est.Estado != notificaciones.PushError || !strings.Contains(est.Detalle, "token_uri") {
+		t.Fatalf("token_uri ajeno: %+v", est)
+	}
+	if _, k, err := notificaciones.ParsearCuentaServicio(b); err == nil || k != nil {
+		t.Fatal("ParsearCuentaServicio acepta un token_uri ajeno")
+	}
+	google := strings.Replace(string(b), `"http://169.254.169.254/token"`, `"`+notificaciones.URLToken+`"`, 1)
+	if c, k, err := notificaciones.ParsearCuentaServicio([]byte(google)); err != nil || k == nil || c.ClavePrivada != "" {
+		t.Fatalf("con el token_uri de Google se acepta y la clave en texto no se guarda: %v", err)
+	}
+}
+
+func TestTopeDeDispositivosPorUsuario(t *testing.T) {
+	e := nuevoEntorno(t, true)
+	ana := e.persona([]int64{1}, "tecnico")
+	primero := e.dispositivo(ana)
+	for range notificaciones.MaxDispositivos {
+		e.dispositivo(ana)
+	}
+	if n := e.contar(`SELECT count(*) FROM notificaciones.dispositivos WHERE usuario_id = $1`, ana.id); n != notificaciones.MaxDispositivos {
+		t.Fatalf("dispositivos: %d", n)
+	}
+	h := sha256.Sum256([]byte(primero))
+	if n := e.contar(`SELECT count(*) FROM notificaciones.dispositivos WHERE token_hash = $1`, h[:]); n != 0 {
+		t.Fatal("se quita el más viejo")
+	}
+	if p := e.ultimoEvento("dispositivo.quitado"); p["motivo"] != notificaciones.QuitadoUsuario || int64(p["usuario_id"].(float64)) != ana.id {
+		t.Fatalf("dispositivo.quitado: %v", p)
+	}
+}
+
+func TestRedireccionNoSeSigue(t *testing.T) {
+	destino := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("el cliente siguió la redirección")
+	}))
+	defer destino.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, destino.URL+"/otro", http.StatusTemporaryRedirect)
+	}))
+	defer srv.Close()
+	k, _ := clave(t)
+	c := notificaciones.NuevoClienteFCM(notificaciones.OpcionesFCM{Proyecto: proyecto, URL: srv.URL, URLToken: srv.URL + "/token", Clave: k,
+		Cuenta: notificaciones.CuentaServicio{Tipo: "service_account", Correo: "x@y.iam.gserviceaccount.com"}})
+	if _, err := c.Enviar(context.Background(), notificaciones.MensajeFCM{Token: "t"}); err == nil {
+		t.Fatal("una redirección del servidor de tokens debe fallar")
 	}
 }

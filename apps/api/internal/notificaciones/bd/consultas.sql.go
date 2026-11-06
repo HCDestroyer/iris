@@ -72,6 +72,16 @@ func (q *Queries) ActualizarPreferencias(ctx context.Context, arg ActualizarPref
 	return i, err
 }
 
+const bloquearToken = `-- name: BloquearToken :exec
+SELECT pg_advisory_xact_lock($1::bigint)
+`
+
+// Serializa los registros del mismo token (quitar al otro usuario y guardar van juntos).
+func (q *Queries) BloquearToken(ctx context.Context, clave int64) error {
+	_, err := q.db.Exec(ctx, bloquearToken, clave)
+	return err
+}
+
 const borrarDispositivo = `-- name: BorrarDispositivo :one
 DELETE FROM notificaciones.dispositivos WHERE id = $1 RETURNING id, usuario_id, empresa_id, sesion_id, token_api_id, plataforma, token, token_hash, token_fin, app_version, ultimo_envio_en, created_at, updated_at
 `
@@ -415,8 +425,9 @@ const guardarDispositivo = `-- name: GuardarDispositivo :one
 INSERT INTO notificaciones.dispositivos (usuario_id, empresa_id, sesion_id, token_api_id, plataforma, token, token_hash, token_fin, app_version)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 ON CONFLICT (token_hash, (coalesce(empresa_id, 0))) DO UPDATE
-SET usuario_id = EXCLUDED.usuario_id, sesion_id = EXCLUDED.sesion_id, token_api_id = EXCLUDED.token_api_id,
+SET sesion_id = EXCLUDED.sesion_id, token_api_id = EXCLUDED.token_api_id,
     plataforma = EXCLUDED.plataforma, app_version = EXCLUDED.app_version, updated_at = now()
+WHERE notificaciones.dispositivos.usuario_id = EXCLUDED.usuario_id
 RETURNING id, usuario_id, empresa_id, sesion_id, token_api_id, plataforma, token, token_hash, token_fin, app_version, ultimo_envio_en, created_at, updated_at, (xmax = 0)::boolean AS nuevo
 `
 
@@ -451,6 +462,7 @@ type GuardarDispositivoRow struct {
 
 // Idempotente por token y empresa: la primera vez inserta (nuevo), después renueva la sesión y la
 // versión de la app.
+// Nunca traspasa el dispositivo de otro usuario (eso lo hace QuitarTokenDeOtros, con su evento).
 func (q *Queries) GuardarDispositivo(ctx context.Context, arg GuardarDispositivoParams) (GuardarDispositivoRow, error) {
 	row := q.db.QueryRow(ctx, guardarDispositivo,
 		arg.UsuarioID,
@@ -890,6 +902,54 @@ type QuitarTokenDeOtrosParams struct {
 // El token pasó a otro usuario (el teléfono cambió de manos): se quita a los demás.
 func (q *Queries) QuitarTokenDeOtros(ctx context.Context, arg QuitarTokenDeOtrosParams) ([]NotificacionesDispositivo, error) {
 	rows, err := q.db.Query(ctx, quitarTokenDeOtros, arg.TokenHash, arg.UsuarioID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []NotificacionesDispositivo
+	for rows.Next() {
+		var i NotificacionesDispositivo
+		if err := rows.Scan(
+			&i.ID,
+			&i.UsuarioID,
+			&i.EmpresaID,
+			&i.SesionID,
+			&i.TokenApiID,
+			&i.Plataforma,
+			&i.Token,
+			&i.TokenHash,
+			&i.TokenFin,
+			&i.AppVersion,
+			&i.UltimoEnvioEn,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const sobrantesDeUsuario = `-- name: SobrantesDeUsuario :many
+SELECT id, usuario_id, empresa_id, sesion_id, token_api_id, plataforma, token, token_hash, token_fin, app_version, ultimo_envio_en, created_at, updated_at FROM notificaciones.dispositivos
+WHERE usuario_id = $1 AND coalesce(empresa_id, 0) = coalesce($2::bigint, 0)
+ORDER BY updated_at DESC, id DESC
+OFFSET $3
+`
+
+type SobrantesDeUsuarioParams struct {
+	UsuarioID int64
+	Empresa   *int64
+	Tope      int32
+}
+
+// Los dispositivos de más allá del tope (los más viejos por última renovación).
+func (q *Queries) SobrantesDeUsuario(ctx context.Context, arg SobrantesDeUsuarioParams) ([]NotificacionesDispositivo, error) {
+	rows, err := q.db.Query(ctx, sobrantesDeUsuario, arg.UsuarioID, arg.Empresa, arg.Tope)
 	if err != nil {
 		return nil, err
 	}

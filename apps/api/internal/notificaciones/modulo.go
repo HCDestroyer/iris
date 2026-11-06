@@ -152,11 +152,11 @@ func ConfigDesdeEntorno() (Emisor, EstadoPush) {
 	if err != nil {
 		return nil, EstadoPush{Estado: PushError, Detalle: "IRIS_FCM_CREDENCIALES: " + err.Error()}
 	}
-	est := EstadoPush{Estado: PushConfigurado}
 	if cuenta.ProyectoID != "" && cuenta.ProyectoID != proyecto {
-		est.Detalle = "la cuenta de servicio es del proyecto " + cuenta.ProyectoID + ", no de IRIS_FCM_PROYECTO"
+		// Con otro proyecto FCM respondería SENDER_ID_MISMATCH a todos los teléfonos: no se manda nada.
+		return nil, EstadoPush{Estado: PushError, Detalle: "la cuenta de servicio es del proyecto " + cuenta.ProyectoID + ", no del de IRIS_FCM_PROYECTO"}
 	}
-	return NuevoClienteFCM(OpcionesFCM{Proyecto: proyecto, Cuenta: cuenta, Clave: clave}), est
+	return NuevoClienteFCM(OpcionesFCM{Proyecto: proyecto, Cuenta: cuenta, Clave: clave}), EstadoPush{Estado: PushConfigurado}
 }
 
 // AvisarEstado deja en el log (al arrancar) cómo quedó el push.

@@ -35,6 +35,10 @@ var TextoPublico = map[string]string{
 	TipoBandeja: "Cliente esperando",
 }
 
+// TituloConversacionCliente: el título de una mención de la bandeja sin el nombre del cliente
+// (contenido = remitente, o sin nombre conocido).
+const TituloConversacionCliente = "Conversación con un cliente"
+
 // contenidoPush es el mensaje armado de un tipo.
 type contenidoPush struct {
 	tipo, titulo, cuerpo    string
@@ -204,8 +208,9 @@ func (m *Modulo) armarNota(ctx context.Context, t *auditoria.Tx, d destinatario,
 		grupo: fmt.Sprintf("mencion-%d", n.ConversacionID), etiqueta: "mencion-" + n.ID.String(),
 		enlace: fmt.Sprintf("iris://conversaciones/%d", n.ConversacionID), acciones: []string{"responder", "leido"},
 		cuerpo: n.AutorNombre + " te mencionó"}
-	if c.titulo == "" {
-		c.titulo = "Conversación con un cliente"
+	// Con «solo quién escribe» tampoco sale el nombre del cliente.
+	if c.titulo == "" || !completo {
+		c.titulo = TituloConversacionCliente
 	}
 	if completo && n.Texto != nil {
 		texto = recortar(*n.Texto)

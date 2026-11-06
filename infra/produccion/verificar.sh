@@ -24,7 +24,7 @@ mismo_almacen() { # <descripción> <argumentos de docker compose…>
     local dif
     dif="$(docker compose "$@" config --format json | jq -r '
         def almacen($s): {env: (.services[$s].environment // {} | with_entries(select(.key | test("^IRIS_(ADJUNTOS_ALMACEN|ADJUNTOS_DIR|S3_)")))),
-                          vol: ([.services[$s].volumes // [] | .[] | .target] | sort)};
+                          vol: ([.services[$s].volumes // [] | .[] | .target | select(. != "/run/iris/secrets")] | sort)};
         . as $c | ["mensajeria", "worker"][] as $s | select(($c | almacen($s)) != ($c | almacen("api"))) | $s')"
     if [ -n "$dif" ]; then
         echo "$desc: estos servicios no tienen el mismo almacenamiento de adjuntos que la API: $dif" >&2
@@ -34,20 +34,28 @@ mismo_almacen() { # <descripción> <argumentos de docker compose…>
 }
 mismo_almacen "compose de producción" --env-file "$tmp/.env" -f "$aqui/docker-compose.yml"
 
-# Notificaciones push: la API (estado en /salud) y el worker (envío) montan de solo lectura la carpeta
-# de secretos con el JSON de la cuenta de servicio de Firebase, y el .env de ejemplo trae IRIS_FCM_*
-# vacías (push apagado por defecto; docs/runbooks/notificaciones-push.md).
-secretos="$(docker compose --env-file "$tmp/.env" -f "$aqui/docker-compose.yml" config --format json | jq -r '
-    . as $c | ["api", "worker"][] as $s
-    | select([$c.services[$s].volumes // [] | .[] | select(.target == "/run/iris/secrets" and .read_only == true)] | length != 1) | $s')"
-if [ -n "$secretos" ]; then
-    echo "compose de producción: sin /run/iris/secrets de solo lectura en: $secretos" >&2
-    exit 1
-fi
+# Notificaciones push: solo la API (estado en /salud) y el worker (envío) montan, de solo lectura, la
+# carpeta de secretos con el JSON de la cuenta de servicio de Firebase; mensajería y migrar no. El
+# .env de ejemplo trae IRIS_FCM_* vacías (push apagado por defecto; docs/runbooks/notificaciones-push.md).
+secretos_push() { # <descripción> <argumentos de docker compose…>
+    local desc="$1"; shift
+    local mal
+    mal="$(docker compose "$@" config --format json | jq -r '
+        def montajes($c; $s): [$c.services[$s].volumes // [] | .[] | select(.target == "/run/iris/secrets")];
+        . as $c
+        | ((["api", "worker"][] as $s | select((montajes($c; $s) | map(select(.read_only == true)) | length) != 1) | "\($s) sin el montaje de solo lectura"),
+           (["mensajeria", "migrar"][] as $s | select((montajes($c; $s) | length) != 0) | "\($s) no debe tenerlo"))')"
+    if [ -n "$mal" ]; then
+        echo "$desc: /run/iris/secrets: $mal" >&2
+        exit 1
+    fi
+    echo "$desc: secretos de push de solo lectura solo en api y worker"
+}
+secretos_push "compose de producción" --env-file "$tmp/.env" -f "$aqui/docker-compose.yml"
+secretos_push "compose de dev" -f "$aqui/../docker-compose.yml" --env-file "$aqui/../../.env.example" --profile app
 for v in IRIS_FCM_PROYECTO IRIS_FCM_CREDENCIALES; do
     grep -qE "^$v=$" "$aqui/.env.example" || { echo "$v debe estar vacía en infra/produccion/.env.example" >&2; exit 1; }
 done
-echo "compose de producción: secretos de push montados de solo lectura en api y worker"
 mismo_almacen "compose de dev" -f "$aqui/../docker-compose.yml" --env-file "$aqui/../../.env.example" --profile app
 
 "$aqui/package.sh" 0.0.0 "$tmp/dist" > /dev/null

@@ -3,10 +3,11 @@ package notificaciones
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"errors"
+	"regexp"
 	"strings"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
@@ -29,6 +30,13 @@ const (
 // PlataformaAndroid es la única plataforma de esta fase (iOS: más adelante).
 const PlataformaAndroid = "android"
 
+// MaxDispositivos por usuario y empresa: al registrar uno más se quita el más viejo.
+const MaxDispositivos = 10
+
+// formatoToken: un token de registro de FCM (≈ 150–170 caracteres de base64url y «:»; p. ej.
+// «cXyz…:APA91b…»), entre 100 y 4096. El mínimo deja margen a formatos más cortos sin aceptar basura.
+var formatoToken = regexp.MustCompile(`^[A-Za-z0-9_:\-]+$`)
+
 // Dispositivo es un teléfono registrado. Nunca lleva el token FCM.
 type Dispositivo struct {
 	ID            int64      `json:"id"`
@@ -48,7 +56,7 @@ func aDispositivo(d notificacionesbd.NotificacionesDispositivo) Dispositivo {
 
 // EntradaRegistrarDispositivo es POST /dispositivos.
 type EntradaRegistrarDispositivo struct {
-	Token      string `json:"token" minLength:"1" maxLength:"4096" doc:"Token nativo de FCM (getDevicePushTokenAsync)" auditoria:"sensible"`
+	Token      string `json:"token" minLength:"100" maxLength:"4096" pattern:"^[A-Za-z0-9_:\\-]+$" doc:"Token nativo de FCM (getDevicePushTokenAsync)" auditoria:"sensible"`
 	Plataforma string `json:"plataforma" enum:"android"`
 	AppVersion string `json:"appVersion" minLength:"1" maxLength:"40" doc:"Versión de la app (1.4.0)"`
 }
@@ -87,7 +95,7 @@ func persona(ctx context.Context) (contexto.Actor, error) {
 }
 
 func validarToken(token string) error {
-	if token == "" || utf8.RuneCountInString(token) > 4096 || strings.IndexFunc(token, func(r rune) bool { return unicode.IsSpace(r) || !unicode.IsPrint(r) }) >= 0 {
+	if len(token) < 100 || len(token) > 4096 || !formatoToken.MatchString(token) {
 		return nucleo.Validacion(nucleo.ErrorCampo{Field: "token", Message: "El token de FCM no es válido", Rule: "token"})
 	}
 	return nil
@@ -138,6 +146,10 @@ func (m *Modulo) nuevoRegistrarDispositivo() *auditoria.Caso[EntradaRegistrarDis
 				return DispositivoRegistrado{}, nucleo.NoAutenticado("")
 			}
 			q := notificacionesbd.New(t)
+			// Dos registros del mismo token a la vez (dos usuarios) no se cruzan.
+			if err := q.BloquearToken(ctx, int64(binary.BigEndian.Uint64(p.TokenHash[:8]))); err != nil { //nolint:gosec // clave del candado
+				return DispositivoRegistrado{}, err
+			}
 			// El teléfono cambió de manos: el token deja de ser del usuario anterior.
 			otros, err := q.QuitarTokenDeOtros(ctx, notificacionesbd.QuitarTokenDeOtrosParams{TokenHash: p.TokenHash, UsuarioID: a.ID})
 			if err != nil {
@@ -149,6 +161,10 @@ func (m *Modulo) nuevoRegistrarDispositivo() *auditoria.Caso[EntradaRegistrarDis
 				}
 			}
 			f, err := q.GuardarDispositivo(ctx, p)
+			if esSinFilas(err) {
+				// Con el candado no pasa: el token sigue siendo de otro usuario.
+				return DispositivoRegistrado{}, nucleo.Conflicto("dispositivo_en_uso", "El token se está registrando para otro usuario; vuelve a intentar")
+			}
 			if err != nil {
 				return DispositivoRegistrado{}, err
 			}
@@ -160,6 +176,22 @@ func (m *Modulo) nuevoRegistrarDispositivo() *auditoria.Caso[EntradaRegistrarDis
 			t.Anotar(map[string]any{"fin_fcm": f.TokenFin, "nuevo": f.Nuevo})
 			if f.Nuevo {
 				t.RegistrarCambios("dispositivo", f.ID, nil, map[string]any{"plataforma": f.Plataforma, "app_version": f.AppVersion, "empresa_id": f.EmpresaID})
+			}
+			// Tope por usuario y empresa: los más viejos se quitan (como si el usuario los quitara).
+			sobran, err := q.SobrantesDeUsuario(ctx, notificacionesbd.SobrantesDeUsuarioParams{UsuarioID: a.ID, Empresa: empresa, Tope: MaxDispositivos})
+			if err != nil {
+				return DispositivoRegistrado{}, err
+			}
+			for _, viejo := range sobran {
+				if _, err := q.BorrarDispositivo(ctx, viejo.ID); err != nil && !esSinFilas(err) {
+					return DispositivoRegistrado{}, err
+				}
+				if err := emitirQuitado(t, viejo, QuitadoUsuario); err != nil {
+					return DispositivoRegistrado{}, err
+				}
+			}
+			if len(sobran) > 0 {
+				t.Anotar(map[string]any{"quitados_por_tope": len(sobran)})
 			}
 			if err := t.EmitirEnEmpresa("dispositivo.registrado", f.EmpresaID, map[string]any{"dispositivo_id": f.ID, "usuario_id": f.UsuarioID,
 				"empresa_id": f.EmpresaID, "plataforma": f.Plataforma, "app_version": f.AppVersion, "token_fin": f.TokenFin, "nuevo": f.Nuevo}); err != nil {

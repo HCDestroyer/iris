@@ -49,8 +49,9 @@ El instalador:
 - copia el JSON a `/opt/iris/secrets/fcm-service-account.json` con dueño `root:65532` y modo `0640`
   (la carpeta, `0750`): lo leen solo root y los contenedores (usuario `nonroot` de la imagen
   distroless, uid/gid 65532);
-- monta `/opt/iris/secrets` en api, worker, mensajería y migrar en `/run/iris/secrets` **de solo
-  lectura** (`docker-compose.yml`, `x-api-volumes`; `verificar.sh` lo comprueba);
+- monta `/opt/iris/secrets` **solo en api y worker** (no en mensajería ni en migrar), en
+  `/run/iris/secrets` **de solo lectura** (`docker-compose.yml`, ancla `x-api-volumes-push`;
+  `verificar.sh` lo comprueba);
 - escribe en `/opt/iris/.env` `IRIS_FCM_PROYECTO=<id>` e
   `IRIS_FCM_CREDENCIALES=/run/iris/secrets/fcm-service-account.json` (la ruta **dentro** del
   contenedor) y reinicia.
@@ -86,7 +87,7 @@ curl -s http://127.0.0.1:8080/api/v1/salud
 | --- | --- | --- |
 | `configurado` | El worker manda | — |
 | `sin_configurar` | Las dos variables están vacías | Paso 2 |
-| `error` | Falta una de las dos, el archivo no se puede leer o no es una cuenta de servicio | `irisctl logs api` o `worker`: «notificaciones push apagadas: la configuración no sirve», con el motivo (nunca el contenido del archivo) |
+| `error` | Falta una de las dos, el archivo no se puede leer, no es una cuenta de servicio, su `project_id` no es `IRIS_FCM_PROYECTO` o su `token_uri` no es el de Google (`https://oauth2.googleapis.com/token`) | `irisctl logs api` o `worker`: «notificaciones push apagadas: la configuración no sirve», con el motivo (nunca el contenido del archivo) |
 
 Luego, en la app: «Yo» → «Notificaciones» → permitir, y mandarse un mensaje desde otro usuario del
 chat. En la base, cada envío queda en `notificaciones.envios` (`estado`, `motivo`):
@@ -105,8 +106,8 @@ WHERE created_at > now() - interval '1 day' GROUP BY 1, 2 ORDER BY 3 DESC;
 | `omitido` / `ya_no_aplica` | El mensaje se eliminó, la conversación ya se tomó o la orden pasó a otro técnico |
 | `omitido` / `dispositivo_quitado` | Se cerró la sesión del teléfono, se venció o salió de la empresa |
 | `fallido` / `agotado: …` | FCM respondió 429/5xx en los 8 intentos (espera de 15 s a 30 min) |
-| `fallido` / `token_invalido: …` | El token ya no vale (app desinstalada o datos borrados): el dispositivo se quitó |
-| `fallido` / `rechazado: …` | Otro 4xx: revisa el código (p. ej. `PERMISSION_DENIED` = la cuenta de servicio no tiene el rol o la API V1 no está habilitada; `SENDER_ID_MISMATCH` = el `google-services.json` de la app es de otro proyecto) |
+| `fallido` / `token_invalido: …` | FCM dijo `UNREGISTERED` (app desinstalada o datos borrados), o `INVALID_ARGUMENT` / `SENDER_ID_MISMATCH` señalando `message.token`: el dispositivo se quitó |
+| `fallido` / `rechazado: …` | Otro 4xx: el dispositivo **no** se quita. Revisa el código (p. ej. `PERMISSION_DENIED` = la cuenta de servicio no tiene el rol o la API V1 no está habilitada; `SENDER_ID_MISMATCH` en todos = el `google-services.json` de la app es de otro proyecto) |
 
 Los envíos se borran a los 30 días. Los registros nunca llevan el token del teléfono ni el texto de
 los mensajes.

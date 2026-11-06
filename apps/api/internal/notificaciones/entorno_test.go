@@ -58,6 +58,7 @@ type fcmFalso struct {
 type respuestaFCM struct {
 	status int
 	codigo string
+	campo  string // fieldViolations[].field (google.rpc.BadRequest), p. ej. message.token
 }
 
 var (
@@ -111,8 +112,8 @@ func nuevoFCM(t *testing.T) *fcmFalso {
 			}
 			if res, ok := f.respuestas[c.Message.Token]; ok && res.status != 0 {
 				w.WriteHeader(res.status)
-				_, _ = fmt.Fprintf(w, `{"error":{"code":%d,"status":"X","details":[{"@type":"type.googleapis.com/google.firebase.fcm.v1.FcmError","errorCode":%q}]}}`,
-					res.status, res.codigo)
+				_, _ = fmt.Fprintf(w, `{"error":{"code":%d,"status":"X","details":[{"@type":"type.googleapis.com/google.firebase.fcm.v1.FcmError","errorCode":%q},`+
+					`{"@type":"type.googleapis.com/google.rpc.BadRequest","fieldViolations":[{"field":%q}]}]}}`, res.status, res.codigo, res.campo)
 				return
 			}
 			f.mensajes = append(f.mensajes, c.Message)
@@ -139,15 +140,19 @@ func (f *fcmFalso) para(token string) []notificaciones.MensajeFCM {
 }
 
 func (f *fcmFalso) responder(token string, status int, codigo string) {
+	f.responderCampo(token, status, codigo, "")
+}
+
+func (f *fcmFalso) responderCampo(token string, status int, codigo, campo string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.respuestas[token] = respuestaFCM{status: status, codigo: codigo}
+	f.respuestas[token] = respuestaFCM{status: status, codigo: codigo, campo: campo}
 }
 
 func (f *fcmFalso) cliente(t *testing.T) *notificaciones.ClienteFCM {
 	k, _ := clave(t)
-	return notificaciones.NuevoClienteFCM(notificaciones.OpcionesFCM{Proyecto: proyecto, URL: f.srv.URL, Clave: k,
-		Cuenta: notificaciones.CuentaServicio{Tipo: "service_account", Correo: "push@iris-prueba.iam.gserviceaccount.com", TokenURI: f.srv.URL + "/token"}})
+	return notificaciones.NuevoClienteFCM(notificaciones.OpcionesFCM{Proyecto: proyecto, URL: f.srv.URL, URLToken: f.srv.URL + "/token", Clave: k,
+		Cuenta: notificaciones.CuentaServicio{Tipo: "service_account", Correo: "push@iris-prueba.iam.gserviceaccount.com"}})
 }
 
 type entorno struct {
@@ -341,7 +346,7 @@ func (e *entorno) esperar(r respuesta, status int) respuesta {
 // dispositivo registra un teléfono de p con un token FCM nuevo y lo devuelve.
 func (e *entorno) dispositivo(p persona) string {
 	e.t.Helper()
-	token := "fcm-" + strings.ReplaceAll(uuid.NewString(), "-", "") + ":APA91b" + pruebas.Unico()
+	token := tokenFCM()
 	e.esperar(e.api(p, http.MethodPost, "/api/v1/dispositivos", map[string]any{"token": token, "plataforma": "android", "appVersion": "1.4.0"}), http.StatusCreated)
 	return token
 }
@@ -354,6 +359,11 @@ func (e *entorno) preferencias(p persona, cambiar func(map[string]any)) {
 	delete(c, "bandejaDisponible")
 	cambiar(c)
 	e.esperar(e.api(p, http.MethodPost, "/api/v1/yo/notificaciones", c), http.StatusOK)
+}
+
+// tokenFCM: un token con la forma de los de FCM (unos 170 caracteres).
+func tokenFCM() string {
+	return strings.ReplaceAll(uuid.NewString(), "-", "") + ":APA91b" + strings.Repeat(strings.ReplaceAll(uuid.NewString(), "-", ""), 4) + pruebas.Unico()
 }
 
 // Chat ----------------------------------------------------------------------------------------

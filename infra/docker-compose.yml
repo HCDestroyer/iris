@@ -48,8 +48,12 @@ x-api-env: &api-env
 
 x-api-volumes: &api-volumes
   - ./mailpit/certs/ca.pem:/run/iris/correo-ca.pem:ro
-  # Push (opcional): el JSON de la cuenta de servicio de Firebase en infra/secretos/ (fuera de git),
-  # con IRIS_FCM_CREDENCIALES=/run/iris/secrets/<archivo> en el .env (notificaciones-push.md).
+
+# Solo api y worker (nunca mensajería ni migrar): lo anterior más el JSON de la cuenta de servicio de
+# Firebase para push, en infra/secretos/ (fuera de git), con
+# IRIS_FCM_CREDENCIALES=/run/iris/secrets/<archivo> en el .env (notificaciones-push.md).
+x-api-volumes-push: &api-volumes-push
+  - ./mailpit/certs/ca.pem:/run/iris/correo-ca.pem:ro
   - ./secretos:/run/iris/secrets:ro
 
 x-api-build: &api-build
@@ -205,7 +209,7 @@ services:
     restart: unless-stopped
     env_file: *api-env-file
     environment: *api-env
-    volumes: *api-volumes
+    volumes: *api-volumes-push
     depends_on: *api-depende
     # La imagen es distroless (sin shell ni curl): `iris salud` hace el GET a /api/v1/salud local
     # en $PORT y sale 0 o 1.
@@ -261,7 +265,7 @@ services:
     restart: unless-stopped
     env_file: *api-env-file
     environment: *api-env
-    volumes: *api-volumes
+    volumes: *api-volumes-push
     depends_on: *api-depende
 
   web:

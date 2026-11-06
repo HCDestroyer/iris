@@ -26,9 +26,12 @@ import (
 // JWT bearer de RFC 7523): sin dependencias nuevas. El token de acceso se guarda en memoria hasta
 // un minuto antes de vencer. Nunca registra el token del dispositivo ni el contenido.
 
-// URLFCM es la API de FCM; AlcanceFCM, el permiso OAuth que pide.
+// URLFCM es la API de FCM; URLToken, el servidor de tokens OAuth de Google (fijo: el token_uri del
+// JSON no se usa para que un archivo manipulado no haga que el worker firme y mande el JWT a otro
+// sitio); AlcanceFCM, el permiso OAuth que pide.
 const (
 	URLFCM     = "https://fcm.googleapis.com"
+	URLToken   = "https://oauth2.googleapis.com/token" //nolint:gosec // URL pública del servidor de tokens, no una credencial
 	AlcanceFCM = "https://www.googleapis.com/auth/firebase.messaging"
 )
 
@@ -41,6 +44,10 @@ type CuentaServicio struct {
 	Correo       string `json:"client_email"`
 	TokenURI     string `json:"token_uri"`
 }
+
+// sinRedirecciones: ni FCM ni el servidor de tokens redirigen; una redirección no se sigue (el JWT o
+// el token de acceso no deben ir a otra URL).
+func sinRedirecciones(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 
 // LeerCuentaServicio lee y valida el JSON de la cuenta de servicio.
 func LeerCuentaServicio(ruta string) (CuentaServicio, *rsa.PrivateKey, error) {
@@ -60,10 +67,13 @@ func ParsearCuentaServicio(b []byte) (CuentaServicio, *rsa.PrivateKey, error) {
 	if c.Tipo != "service_account" || c.Correo == "" || c.ClavePrivada == "" {
 		return c, nil, errors.New("el JSON no es de una cuenta de servicio (type, client_email, private_key)")
 	}
-	if c.TokenURI == "" {
-		c.TokenURI = "https://oauth2.googleapis.com/token"
+	if c.TokenURI != "" && c.TokenURI != URLToken {
+		return CuentaServicio{}, nil, errors.New("token_uri no es el de Google (" + URLToken + ")")
 	}
+	c.TokenURI = URLToken
 	bloque, _ := pem.Decode([]byte(c.ClavePrivada))
+	// La clave en texto no queda en memoria más de lo necesario (solo la RSA ya parseada).
+	c.ClavePrivada = ""
 	if bloque == nil {
 		return c, nil, errors.New("private_key no es PEM")
 	}
@@ -102,8 +112,10 @@ type Emisor interface {
 
 // ErrorFCM es la respuesta de error de FCM (o de la red).
 type ErrorFCM struct {
-	Status     int    // 0 = sin respuesta (red)
-	Codigo     string // errorCode de FcmError (UNREGISTERED, …) o el status de Google
+	Status int    // 0 = sin respuesta (red)
+	Codigo string // errorCode de FcmError (UNREGISTERED, …) o el status de Google
+	// CampoToken: el detalle (google.rpc.BadRequest) señala message.token como el campo inválido.
+	CampoToken bool
 	RetryAfter time.Duration
 	causa      error
 }
@@ -120,22 +132,25 @@ func (e *ErrorFCM) Reintentable() bool {
 	return e.Status == 0 || e.Status == http.StatusTooManyRequests || e.Status >= 500
 }
 
-// TokenInvalido: FCM dice que el token del dispositivo no sirve; hay que quitarlo.
+// TokenInvalido: FCM dice que el token del dispositivo no sirve; hay que quitarlo. Solo
+// UNREGISTERED, o INVALID_ARGUMENT / SENDER_ID_MISMATCH cuando el detalle señala message.token: un
+// error de configuración del servidor (otro proyecto, un mensaje mal armado) no debe borrar todos los
+// dispositivos.
 func (e *ErrorFCM) TokenInvalido() bool {
-	if strings.HasPrefix(e.Codigo, "OAUTH") {
-		return false // falló el token de acceso del servidor, no el del dispositivo
-	}
 	switch e.Codigo {
-	case "UNREGISTERED", "INVALID_ARGUMENT", "SENDER_ID_MISMATCH":
+	case "UNREGISTERED":
 		return true
+	case "INVALID_ARGUMENT", "SENDER_ID_MISMATCH":
+		return e.CampoToken
 	}
-	return e.Status == http.StatusNotFound
+	return false
 }
 
 // ClienteFCM implementa Emisor contra FCM HTTP v1.
 type ClienteFCM struct {
 	proyecto string
 	base     string
+	urlToken string
 	cuenta   CuentaServicio
 	clave    *rsa.PrivateKey
 	http     *http.Client
@@ -146,12 +161,13 @@ type ClienteFCM struct {
 	vence  time.Time
 }
 
-// OpcionesFCM arma un ClienteFCM. URL y HTTP solo cambian en pruebas.
+// OpcionesFCM arma un ClienteFCM. URL, URLToken y HTTP solo cambian en pruebas.
 type OpcionesFCM struct {
 	Proyecto string
 	Cuenta   CuentaServicio
 	Clave    *rsa.PrivateKey
 	URL      string
+	URLToken string
 	HTTP     *http.Client
 	Ahora    func() time.Time
 }
@@ -161,13 +177,20 @@ func NuevoClienteFCM(o OpcionesFCM) *ClienteFCM {
 	if o.URL == "" {
 		o.URL = URLFCM
 	}
-	if o.HTTP == nil {
-		o.HTTP = &http.Client{Timeout: 15 * time.Second}
+	if o.URLToken == "" {
+		o.URLToken = URLToken
 	}
+	h := &http.Client{Timeout: 15 * time.Second}
+	if o.HTTP != nil {
+		copia := *o.HTTP
+		h = &copia
+	}
+	h.CheckRedirect = sinRedirecciones
 	if o.Ahora == nil {
 		o.Ahora = time.Now
 	}
-	return &ClienteFCM{proyecto: o.Proyecto, base: strings.TrimRight(o.URL, "/"), cuenta: o.Cuenta, clave: o.Clave, http: o.HTTP, ahora: o.Ahora}
+	return &ClienteFCM{proyecto: o.Proyecto, base: strings.TrimRight(o.URL, "/"), urlToken: o.URLToken, cuenta: o.Cuenta, clave: o.Clave,
+		http: h, ahora: o.Ahora}
 }
 
 // Enviar manda el mensaje. Con 401 renueva el token de acceso una vez.
@@ -222,18 +245,29 @@ func errorDeRespuesta(res *http.Response, b []byte) *ErrorFCM {
 		Error struct {
 			Status  string `json:"status"`
 			Details []struct {
-				Tipo      string `json:"@type"`
-				ErrorCode string `json:"errorCode"`
+				Tipo            string `json:"@type"`
+				ErrorCode       string `json:"errorCode"`
+				FieldViolations []struct {
+					Field string `json:"field"`
+				} `json:"fieldViolations"`
 			} `json:"details"`
 		} `json:"error"`
 	}
 	if json.Unmarshal(b, &cuerpo) == nil {
 		e.Codigo = cuerpo.Error.Status
+		codigo := ""
 		for _, d := range cuerpo.Error.Details {
-			if d.ErrorCode != "" {
-				e.Codigo = d.ErrorCode
-				break
+			if d.ErrorCode != "" && codigo == "" {
+				codigo = d.ErrorCode
 			}
+			for _, f := range d.FieldViolations {
+				if f.Field == "message.token" {
+					e.CampoToken = true
+				}
+			}
+		}
+		if codigo != "" {
+			e.Codigo = codigo
 		}
 	}
 	if s := res.Header.Get("Retry-After"); s != "" {
@@ -272,7 +306,7 @@ func (c *ClienteFCM) tokenAcceso(ctx context.Context) (string, error) {
 		return "", err
 	}
 	form := url.Values{"grant_type": {"urn:ietf:params:oauth:grant-type:jwt-bearer"}, "assertion": {jwt}}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cuenta.TokenURI, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.urlToken, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", err
 	}
@@ -312,7 +346,7 @@ func (c *ClienteFCM) firmar(ahora time.Time) (string, error) {
 		cab["kid"] = c.cuenta.ClaveID
 	}
 	reclamos := map[string]any{
-		"iss": c.cuenta.Correo, "scope": AlcanceFCM, "aud": c.cuenta.TokenURI,
+		"iss": c.cuenta.Correo, "scope": AlcanceFCM, "aud": c.urlToken,
 		"iat": ahora.Unix(), "exp": ahora.Add(time.Hour).Unix(),
 	}
 	a, _ := json.Marshal(cab)
