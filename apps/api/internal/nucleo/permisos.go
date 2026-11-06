@@ -79,9 +79,12 @@ const (
 	PermOrdenesReabrir             Permiso = "ordenes.reabrir"
 	PermOrdenesReanudar            Permiso = "ordenes.reanudar"
 	PermOrdenesRegistrar           Permiso = "ordenes.registrar"
-	PermOrdenesReprogramar         Permiso = "ordenes.reprogramar"
-	PermOrdenesVer                 Permiso = "ordenes.ver"
-	PermOrdenesVerPropias          Permiso = "ordenes.ver_propias"
+	// ordenes.tomar: el técnico toma para sí una orden libre de su zona o cuadrilla, si la
+	// empresa lo permite (ajuste tecnicos_toman_libres de campo).
+	PermOrdenesTomar       Permiso = "ordenes.tomar"
+	PermOrdenesReprogramar Permiso = "ordenes.reprogramar"
+	PermOrdenesVer         Permiso = "ordenes.ver"
+	PermOrdenesVerPropias  Permiso = "ordenes.ver_propias"
 
 	// Ticket y orden de la mano (I2). tickets.crear_orden: crear la orden de trabajo del ticket y
 	// asignarla (y programarla) en un paso; exige además ordenes.crear, ordenes.asignar y, con
@@ -106,6 +109,9 @@ const (
 	// campo.ver_actividad: última conexión, sincronización, versión de la app y pendientes de cada
 	// técnico (Administración → Actividad de la app).
 	PermCampoVerActividad Permiso = "campo.ver_actividad"
+	// campo.configurar: ajustes de la app de campo de la empresa (p. ej. que los técnicos tomen
+	// órdenes libres).
+	PermCampoConfigurar Permiso = "campo.configurar"
 	// Inventario del técnico (contrato Iris ↔ ArgosISP 0.5.0 §3.3; I1): su propia bodega en Argos
 	// (por su vínculo) y recibir órdenes de traslado con firma desde la app de campo.
 	PermCampoVerBodega       Permiso = "campo.ver_bodega"
@@ -130,6 +136,12 @@ const (
 	PermAgendaFijarCapacidad      Permiso = "agenda.fijar_capacidad"
 	PermAgendaRegistrarAusencia   Permiso = "agenda.registrar_ausencia"
 	PermAgendaAnularAusencia      Permiso = "agenda.anular_ausencia"
+	// Tareas propias del técnico (I2): algo suyo con hora y duración que no es una orden. Las
+	// crea, completa y anula el técnico (las suyas, también sin señal) o quien lo supervisa
+	// (agenda.ver con alcance sobre su cuadrilla).
+	PermAgendaCrearTarea     Permiso = "agenda.crear_tarea"
+	PermAgendaCompletarTarea Permiso = "agenda.completar_tarea"
+	PermAgendaAnularTarea    Permiso = "agenda.anular_tarea"
 	// Vínculo del técnico con su usuario de Argos (contrato 0.5.0 §3.3; I1): define desde qué
 	// bodega de Argos se consumen materiales y comodatos, así que es de administración.
 	PermAgendaVincularArgos    Permiso = "agenda.vincular_argos"
@@ -256,6 +268,7 @@ var PermisosSensibles = map[Permiso]bool{
 	PermIntegracionesResolverPendiente: true, PermPlantillasCrear: true, PermPlantillasEditar: true, PermPlantillasActivar: true, PermPlantillasDesactivar: true,
 	PermFactibilidadConfigurar: true, PermPortalEmitir: true, PermSSOEmitir: true,
 	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true, PermMensajeriaConfigurar: true,
+	PermCampoConfigurar: true,
 }
 
 // EsSensible indica si el permiso es de administración (PermisosSensibles).
@@ -276,7 +289,10 @@ var Catalogo = []DefPermiso{
 	{PermAgendaActivarTecnico, "Activar la ficha de agenda de un técnico"},
 	{PermAgendaActivarZona, "Activar una zona"},
 	{PermAgendaAnularAusencia, "Anular una ausencia registrada de un técnico"},
+	{PermAgendaAnularTarea, "Anular una tarea propia de un técnico (la suya o la de un técnico que supervisas)"},
+	{PermAgendaCompletarTarea, "Marcar como hecha una tarea propia de un técnico (la suya o la de un técnico que supervisas)"},
 	{PermAgendaCrearCuadrilla, "Crear cuadrillas y las zonas que atienden"},
+	{PermAgendaCrearTarea, "Agendar una tarea propia (algo que no es una orden), también sin señal desde la app de campo"},
 	{PermAgendaCrearTecnico, "Dar de alta la ficha de agenda de un técnico (cuadrilla, bodega, habilidades, base)"},
 	{PermAgendaCrearZona, "Crear zonas locales (sin conector o fuera del catálogo de Argos)"},
 	{PermAgendaDesactivarCuadrilla, "Desactivar una cuadrilla"},
@@ -296,6 +312,7 @@ var Catalogo = []DefPermiso{
 	{PermBuzonesDesactivar, "Desactivar un buzón de correo (deja de leerse)"},
 	{PermBuzonesEditar, "Editar un buzón de correo y probar su conexión (nunca ver la contraseña)"},
 	{PermBuzonesVer, "Ver los buzones de correo y su estado de lectura (nunca la contraseña)"},
+	{PermCampoConfigurar, "Fijar los ajustes de la app de campo de la empresa (p. ej. que los técnicos tomen órdenes libres)"},
 	{PermCampoRecibirTraslado, "Recibir con firma, desde la app de campo, una orden de traslado de Argos hacia tu bodega (operación traslado.recibir del lote)"},
 	{PermCampoRegistrarPosiciones, "Enviar la ubicación en vivo desde la app de campo (solo el técnico con sesión de campo)"},
 	{PermCampoSincronizar, "Usar la app de campo: paquete del día, cambios y lote de sincronización"},
@@ -349,6 +366,7 @@ var Catalogo = []DefPermiso{
 	{PermOrdenesReanudar, "Reanudar una orden pausada"},
 	{PermOrdenesRegistrar, "Registrar el trabajo de una orden: checklist, notas, materiales, equipos, firma y adjuntos"},
 	{PermOrdenesReprogramar, "Reprogramar órdenes (nueva fecha o técnico)"},
+	{PermOrdenesTomar, "Tomar para ti una orden libre (sin técnico) de tu zona o cuadrilla, si la empresa lo permite"},
 	{PermOrdenesVer, "Ver órdenes de trabajo (según el alcance) y su historial"},
 	{PermOrdenesVerPropias, "Ver solo las órdenes de trabajo asignadas a uno mismo (técnico)"},
 	{PermPermisosVer, "Ver el catálogo de permisos"},
@@ -440,7 +458,7 @@ var permisosAgenda = []Permiso{
 	PermAgendaCrearCuadrilla, PermAgendaEditarCuadrilla, PermAgendaActivarCuadrilla, PermAgendaDesactivarCuadrilla,
 	PermAgendaCrearTecnico, PermAgendaEditarTecnico, PermAgendaActivarTecnico, PermAgendaDesactivarTecnico,
 	PermAgendaFijarTurnos, PermAgendaFijarCapacidad, PermAgendaRegistrarAusencia, PermAgendaAnularAusencia,
-	PermCampoVerPosiciones, PermCampoVerActividad,
+	PermCampoVerPosiciones, PermCampoVerActividad, PermAgendaCrearTarea, PermAgendaCompletarTarea, PermAgendaAnularTarea,
 }
 
 // permisosRutas son los de rutas del día (despacho, supervisor).
@@ -471,6 +489,7 @@ var RolesBase = []DefRol{
 			PermClientesVer, PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesVerPendientes,
 			PermTicketsVer, PermTicketsCrear, PermTicketsAsignar, PermTicketsNotaInterna, PermTicketsVerNotas,
 			PermAgendaVer, PermAgendaFijarTurnos, PermAgendaRegistrarAusencia, PermAgendaAnularAusencia,
+			PermAgendaCrearTarea, PermAgendaCompletarTarea, PermAgendaAnularTarea,
 			PermCampoVerPosiciones, PermCampoVerActividad, PermChatVer, PermChatEnviar},
 			slices.Concat(permisosOrdenes, permisosRutas)...)},
 	{Codigo: "tecnico", Nombre: "Técnico", Descripcion: "Trabaja órdenes en campo",
@@ -478,7 +497,8 @@ var RolesBase = []DefRol{
 			PermOrdenesVerPropias, PermOrdenesIniciarCamino, PermOrdenesLlegar, PermOrdenesRegistrar,
 			PermOrdenesCerrar, PermOrdenesFallar, PermCampoSincronizar, PermCampoRegistrarPosiciones,
 			PermOrdenesPausar, PermOrdenesReanudar, PermPlantillasVer, PermFactibilidadRegistrarManual,
-			PermCampoVerBodega, PermCampoRecibirTraslado, PermChatVer, PermChatEnviar}},
+			PermCampoVerBodega, PermCampoRecibirTraslado, PermChatVer, PermChatEnviar,
+			PermAgendaCrearTarea, PermAgendaCompletarTarea, PermAgendaAnularTarea, PermOrdenesTomar}},
 	{Codigo: "soporte", Nombre: "Soporte", Descripcion: "Atiende tickets",
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosSubir, PermAdjuntosVer, PermEncuestasVer, PermEncuestasCompartir,

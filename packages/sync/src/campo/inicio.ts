@@ -2,7 +2,7 @@
 // grande, los mosaicos y la lista «Después»; la agenda de «Mañana» y «Semana» con la tira de 7 días;
 // el encabezado que se va al bajar y vuelve compacto al subir (y la isla que se encoge), y la hoja
 // de acciones rápidas del «+». Sin DOM ni React: lo dibuja cada app. Compartido con la app nativa.
-import type { OrdenCampo, PlantillaFormulario, RutaCampo, Traslado } from "../contrato";
+import type { OrdenCampo, RutaCampo, Traslado } from "../contrato";
 import type { OperacionTrasladoLocal } from "../modelo";
 import type { OrdenVista } from "../motor";
 import { ZONA, hoyEnGuatemala } from "./fechas";
@@ -308,42 +308,28 @@ export function desplazar(previo: EstadoDesplazamiento, y: number, alto: number,
 // «+»: acciones rápidas
 // ---------------------------------------------------------------------------------------------
 
-/** Permiso con el que la API acepta `orden.agregar_formulario` (sobre una orden propia). */
-export const PERMISO_AGREGAR_FORMULARIO = "ordenes.registrar";
+/** Permiso de «Agendar tarea propia» (`tarea.crear`, también sin señal). */
+export const PERMISO_CREAR_TAREA = "agenda.crear_tarea";
+/** Permiso de «Tomar una orden libre» (`POST /ordenes/{id}/tomar`, con señal). */
+export const PERMISO_TOMAR_ORDEN = "ordenes.tomar";
 
-type OrdenFormulario = Pick<OrdenVista, "id" | "numero" | "estado" | "tipo" | "reasignada" | "formularios" | "cliente" | "contacto">;
-
-export interface AccionesRapidas<O extends OrdenFormulario> {
-    /**
-     * «Agregar formulario a una orden»: `null` si el técnico no tiene el permiso (la opción no
-     * aparece). Con permiso, las órdenes donde se puede (trabajo empezado) y, de cada una, las
-     * plantillas activas que todavía no tiene.
-     */
-    formulario: { ordenes: { orden: O; plantillas: PlantillaFormulario[] }[] } | null;
-    /** «Agendar tarea propia»: la API todavía no la tiene; se muestra deshabilitada. */
-    tarea: { disponible: false; motivo: string };
+export interface AccionesRapidas {
+    /** «Agendar tarea propia»: con el permiso. */
+    tarea: boolean;
+    /** «Tomar una orden libre»: la empresa lo permite (`tomarLibres` del paquete) y hay permiso. Oculta si no. */
+    libres: boolean;
 }
 
 /**
- * Qué ofrece el «+». `permisos` es la lista de `GET /yo`; `undefined` (sesión guardada de antes
+ * Qué ofrece el «+» (decisión del PM, nov 2026: solo estas dos; «Agregar formulario» vive en el
+ * menú «⋯» de la orden). `permisos` es la lista de `GET /yo`; `undefined` (sesión guardada de antes
  * de esta versión) cuenta como sin permiso hasta el próximo `GET /yo` con señal.
  */
-export function accionesRapidas<O extends OrdenFormulario>(
-    ordenes: readonly O[],
-    plantillas: readonly PlantillaFormulario[],
-    permisos: readonly string[] | undefined,
-): AccionesRapidas<O> {
-    const tarea = { disponible: false as const, motivo: "Próximamente" };
-    if (!permisos?.includes(PERMISO_AGREGAR_FORMULARIO)) {
-        return { formulario: null, tarea };
-    }
-    const lista = ordenes
-        .filter((o) => accionesDe(o).agregarFormulario)
-        .map((orden) => ({
-            orden,
-            plantillas: plantillas.filter((p) => p.activa && !(orden.formularios ?? []).some((f) => f.plantillaId === p.id)),
-        }));
-    return { formulario: { ordenes: lista }, tarea };
+export function accionesRapidas(permisos: readonly string[] | undefined, tomarLibres: boolean): AccionesRapidas {
+    return {
+        tarea: permisos?.includes(PERMISO_CREAR_TAREA) ?? false,
+        libres: tomarLibres && (permisos?.includes(PERMISO_TOMAR_ORDEN) ?? false),
+    };
 }
 
 // ---------------------------------------------------------------------------------------------

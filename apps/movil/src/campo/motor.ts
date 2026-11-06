@@ -7,6 +7,7 @@ import {
     ColaPosiciones,
     crearGeneradorUuid7,
     crearInventarioApi,
+    crearLibresApi,
     crearSubidorApi,
     crearTransporteApi,
     crearTransportePosicionesApi,
@@ -14,6 +15,7 @@ import {
     MotorSync,
     type IdentidadApp,
     type InventarioCampo,
+    type LibresCampo,
     type OrdenCampo,
     type Transporte,
 } from "@iris/sync";
@@ -42,6 +44,8 @@ export interface MotorAbierto {
     inventario: InventarioCampo;
     /** Agenda de «Mañana» y «Semana» (`GET /campo/paquete?fecha=hasta`, solo con señal; ver `campo/agenda.tsx`). */
     agenda: (hasta: string) => Promise<OrdenCampo[]>;
+    /** Órdenes libres y tomar una (solo con señal; nunca por la cola). */
+    libres: LibresCampo;
 }
 
 /** El transporte de la API, avisando cada respuesta correcta de paquete o cambios. */
@@ -123,7 +127,18 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void, a
         await verificarIdentidad();
         return (await transporte.obtenerPaquete(hasta)).datos.ordenes ?? [];
     };
-    return { motor, posiciones, almacen, nombre, inventario, agenda };
+    const apiLibres = crearLibresApi(api, app);
+    const libres: LibresCampo = {
+        listar: async (cursor) => {
+            await verificarIdentidad();
+            return apiLibres.listar(cursor);
+        },
+        tomar: async (id) => {
+            await verificarIdentidad();
+            return apiLibres.tomar(id);
+        },
+    };
+    return { motor, posiciones, almacen, nombre, inventario, agenda, libres };
 }
 
 /** Cierra y borra la base del teléfono (cerrar sesión en un teléfono compartido). */

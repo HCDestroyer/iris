@@ -56,6 +56,7 @@ export const AVISOS_SERVIDOR: Partial<Record<AvisoResultado, string>> = {
     version_anterior:
         "El formulario se editó mientras no tenías señal: se guardó con la versión que viste (tus respuestas son de esos ítems).",
     pausa_ajustada: "La pausa empezaba antes del fin de la anterior: el servidor ajustó su inicio para que no se enciman.",
+    solapa_con: "Tu tarea se guardó, pero choca con una cita de tu agenda: revisa la hora.",
 };
 
 export const CONDICIONES = { buena: "Buena", danada: "Dañada", perdido: "Perdido" } as const;
@@ -77,6 +78,9 @@ export const OPERACIONES: Record<TipoOperacionLote, string> = {
     "orden.agregar_formulario": "Formulario agregado",
     "orden.quitar_formulario": "Formulario quitado",
     "traslado.recibir": "Recepción de traslado",
+    "tarea.crear": "Tarea propia",
+    "tarea.completar": "Tarea hecha",
+    "tarea.anular": "Tarea anulada",
 };
 
 /** Motivo de un rechazo o error de la API, en palabras del técnico. */
@@ -88,6 +92,11 @@ const PROBLEMAS: Record<string, string> = {
     faltan_adjuntos: "Faltan fotos o la firma por terminar de subir.",
     cierre_incompleto: "Falta completar el trabajo antes de cerrar.",
     validacion: "Algún dato no es válido.",
+    tarea_anulada: "Tu supervisor anuló la tarea.",
+    tarea_completada: "La tarea ya estaba hecha.",
+    tarea_ajena: "Ese id ya es de otra tarea.",
+    orden_ya_tomada: "Otro técnico tomó la orden primero.",
+    libres_apagado: "La empresa no permite tomar órdenes libres.",
     no_encontrado: "La orden ya no existe o ya no la puedes ver.",
     operacion_ajena: "Esta operación la registró otro usuario.",
     equipo_no_admitido: "Este tipo de orden no admite ese movimiento de equipo.",

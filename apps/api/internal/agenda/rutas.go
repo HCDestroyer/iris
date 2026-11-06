@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/google/uuid"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
@@ -53,6 +54,12 @@ type conAusencia[T any] struct {
 	ID         int64 `path:"id" minimum:"1"`
 	AusenciaID int64 `path:"ausenciaId" minimum:"1"`
 	Body       T
+}
+
+type conTarea[T any] struct {
+	nucleo.ConIdempotencia
+	ID   uuid.UUID `path:"id" doc:"Id (uuid) de la tarea"`
+	Body T
 }
 
 func responder[T any](v T, err error) (*cuerpo[T], error) {
@@ -178,6 +185,39 @@ func (m *Modulo) Registrar(api huma.API) {
 	huma.Register(api, cal, func(ctx context.Context, in *EntradaCalendario) (*cuerpo[Calendario], error) {
 		return responder(m.Calendario.Ejecutar(ctx, *in))
 	})
+
+	// Tareas propias del técnico.
+	listarTareas := operacion("listarTareas", http.MethodGet, "/api/v1/agenda/tareas", "Tareas propias de los técnicos en un rango", nucleo.PermAgendaVer, http.StatusOK)
+	listarTareas.Description += " De la empresa activa, de los técnicos que cubre tu alcance (su cuadrilla), por inicio. Hasta 31 días. Las anuladas solo con `incluirAnuladas`."
+	huma.Register(api, listarTareas, func(ctx context.Context, in *EntradaListarTareas) (*cuerpo[nucleo.Pagina[TareaAgenda]], error) {
+		return responder(m.ListarTareas.Ejecutar(ctx, *in))
+	})
+	crearTarea := operacion("crearTarea", http.MethodPost, "/api/v1/agenda/tareas", "Agendar una tarea propia",
+		nucleo.PermAgendaCrearTarea, http.StatusCreated, http.StatusConflict)
+	crearTarea.Description += " Algo tuyo con hora y duración que no es una orden (recoger material, revisar una caja…), ligado o no a" +
+		" una orden que ves o a un cliente de Argos. Idempotente por `id` (uuid v7 del cliente; un reintento devuelve la misma tarea con" +
+		" `duplicada`; 409 `tarea_ajena` si el id es de otra). Para otro técnico (`tecnicoId`) hace falta `agenda.ver` con alcance sobre" +
+		" su cuadrilla. Si choca con una cita del técnico no se bloquea: `solapaCon` trae las citas. Desde la app de campo va por el" +
+		" lote (`tarea.crear`). Emite `tarea.creada`."
+	huma.Register(api, crearTarea, func(ctx context.Context, in *conClave[EntradaCrearTarea]) (*cuerpo[RespuestaTarea], error) {
+		return responder(m.CrearTarea.Ejecutar(ctx, in.Body))
+	})
+	huma.Register(api, accion("completarTarea", "/api/v1/agenda/tareas/{id}/completar", "Marcar una tarea como hecha",
+		"El técnico dueño o quien lo supervisa. Ya hecha: sin cambios y `aviso: tarea_ya_completada`; anulada: 409 `tarea_anulada`. Emite `tarea.completada`.",
+		nucleo.PermAgendaCompletarTarea),
+		func(ctx context.Context, in *conTarea[EntradaCompletarTarea]) (*cuerpo[RespuestaTarea], error) {
+			e := in.Body
+			e.ID = in.ID
+			return responder(m.CompletarTarea.Ejecutar(ctx, e))
+		})
+	huma.Register(api, accion("anularTarea", "/api/v1/agenda/tareas/{id}/anular", "Anular una tarea",
+		"El técnico dueño o quien lo supervisa. Queda en el historial. Ya anulada: sin cambios y `aviso: tarea_ya_anulada`; hecha: 409 `tarea_completada`. Emite `tarea.anulada`.",
+		nucleo.PermAgendaAnularTarea),
+		func(ctx context.Context, in *conTarea[EntradaAnularTarea]) (*cuerpo[RespuestaTarea], error) {
+			e := in.Body
+			e.ID = in.ID
+			return responder(m.AnularTarea.Ejecutar(ctx, e))
+		})
 
 	// Rutas del día.
 	listarRutas := operacion("listarRutas", http.MethodGet, "/api/v1/rutas", "Rutas del día (borradores y publicadas)", nucleo.PermRutasVer, http.StatusOK)

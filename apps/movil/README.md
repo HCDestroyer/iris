@@ -23,9 +23,10 @@ adjuntos. Lo que agrega lo nativo: cámara del sistema, escáner de códigos y G
   barra compacta al subir; «Hoy» con la siguiente orden en grande (anillo «2/4», «Continuar
   trabajo», «Cómo llegar», «Llamar»), mosaicos con datos reales y «Después»; **isla de menú**
   Hoy · Por recibir · «+» · Agenda · Yo (54 px, 44 encogida al bajar) con la **píldora de
-  estado** encima (lleva a «Por enviar», que también está en «Yo»); hoja del «+» («Agregar
-  formulario» con «Deshacer», solo con `ordenes.registrar`; «Agendar tarea propia»
-  «Próximamente»); agenda «Mañana» y «Semana» con la tira de 7 días (`src/campo/agenda.tsx`, lee
+  estado** encima (lleva a «Por enviar», que también está en «Yo»); hoja del «+» con
+  «Agendar tarea propia» (`pantallas/Tareas.tsx`, también sin señal) y «Tomar una orden libre»
+  con su contador (`pantallas/OrdenesLibres.tsx`, solo con señal; oculta si la empresa no lo
+  permite), y las tareas con borde punteado en Hoy y Agenda; agenda «Mañana» y «Semana» con la tira de 7 días (`src/campo/agenda.tsx`, lee
   `GET /campo/paquete?fecha=<hoy+6>` con señal); pasos con chips, tarjetas de 28 px, − / + en
   materiales y avisos que entran desde arriba con su acción. La lógica es la de `@iris/sync/campo`
   (`inicio.ts`); los colores, `campo` de `useTema()` (mezclas de los `--hx-*`, `coloresCampo`).

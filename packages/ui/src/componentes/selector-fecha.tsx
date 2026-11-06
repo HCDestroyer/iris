@@ -1,7 +1,7 @@
 "use client";
 
-import { Calendar, DateField, DatePicker, DateRangePicker, Description, FieldError, Label, RangeCalendar } from "@heroui/react";
-import { parseDate, today, type CalendarDate } from "@internationalized/date";
+import { Calendar, DateField, DatePicker, DateRangePicker, Description, FieldError, Label, RangeCalendar, TimeField } from "@heroui/react";
+import { parseDate, parseTime, today, type CalendarDate, type Time } from "@internationalized/date";
 import { CircleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 import { I18nProvider } from "react-aria-components";
@@ -120,6 +120,51 @@ export function SelectorFecha({ etiqueta, ayuda, error, min, max, disabled, obli
                 </DatePicker.Popover>
                 <AyudaYError ayuda={ayuda} error={error} />
             </DatePicker>
+        </I18nProvider>
+    );
+}
+
+/** `HH:mm` → hora; `null` si viene vacía o mal formada. */
+export function aHora(valor: string | null | undefined): Time | null {
+    if (!valor) return null;
+    try {
+        return parseTime(valor);
+    } catch {
+        return null;
+    }
+}
+
+export type PropsSelectorHora = Omit<PropsComunes, "min" | "max"> & {
+    /** `HH:mm` (24 h). */
+    valor: string | null;
+    alCambiar: (valor: string | null) => void;
+    name?: string;
+};
+
+/** Hora de 24 h en formato de Guatemala (HeroUI `TimeField`): se escribe por segmentos. */
+export function SelectorHora({ etiqueta, ayuda, error, disabled, obligatorio, id, className, valor, alCambiar, name }: PropsSelectorHora) {
+    return (
+        <I18nProvider locale={LOCALE}>
+            <TimeField
+                data-slot="selector-hora"
+                className={cn("grid gap-1.5", className)}
+                value={aHora(valor)}
+                onChange={(hora) => alCambiar(hora ? `${String(hora.hour).padStart(2, "0")}:${String(hora.minute).padStart(2, "0")}` : null)}
+                hourCycle={24}
+                granularity="minute"
+                shouldForceLeadingZeros
+                {...(name ? { name } : {})}
+                isDisabled={disabled ?? false}
+                isRequired={obligatorio ?? false}
+                isInvalid={Boolean(error)}
+                {...(id ? { id } : {})}
+            >
+                <Label className="text-sm font-medium">{etiqueta}</Label>
+                <TimeField.Group fullWidth>
+                    <TimeField.Input>{(segmento) => <TimeField.Segment segment={segmento} />}</TimeField.Input>
+                </TimeField.Group>
+                <AyudaYError ayuda={ayuda} error={error} />
+            </TimeField>
         </I18nProvider>
     );
 }
