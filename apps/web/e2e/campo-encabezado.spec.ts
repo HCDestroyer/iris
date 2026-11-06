@@ -32,11 +32,17 @@ const isla = (page: Page) => page.getByRole("navigation", { name: "Secciones de 
 /** Una nota en OT-000101 (queda por enviar si no hay señal o el servidor no responde). */
 async function agregarNota(page: Page, antes?: () => Promise<void>) {
     await page.goto("/campo?orden=101");
-    await expect(page.getByLabel("Nueva nota")).toBeVisible();
+    const menu = page.getByRole("button", { name: "Más acciones de la orden" });
+    await expect(menu).toBeVisible();
     // Lo que va antes de escribir (p. ej. quitar la señal ya con la página abierta).
     await antes?.();
-    await page.getByLabel("Nueva nota").fill("Portón verde");
-    await page.getByRole("button", { name: "Agregar nota" }).click();
+    // «Agregar nota» del menú «⋯» de la orden (#122) abre su hoja.
+    await menu.click();
+    await page.getByRole("menuitem", { name: "Agregar nota" }).click();
+    const hoja = page.getByRole("dialog", { name: "Agregar nota" });
+    await hoja.getByLabel("Nueva nota").fill("Portón verde");
+    await hoja.getByRole("button", { name: "Agregar nota" }).click();
+    await expect(hoja).toHaveCount(0);
 }
 
 /** Espera a que terminen las animaciones (la hoja entra deslizándose). */
