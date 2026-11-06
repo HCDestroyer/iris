@@ -712,6 +712,8 @@ func nuevoPasarConv(m *Modulo) *auditoria.Caso[EntradaPasarConv, PaseConversacio
 	})
 }
 
-func nucleoTiene(ctx context.Context, p nucleo.Permiso) bool { return contexto.PermisosDe(ctx).Tiene(string(p)) }
+func nucleoTiene(ctx context.Context, p nucleo.Permiso) bool {
+	return contexto.PermisosDe(ctx).Tiene(string(p))
+}
 
 func bytesIguales(a, b []byte) bool { return bytes.Equal(a, b) }

@@ -135,7 +135,8 @@ Contrato completo: `.claude/integration/contratos/conversaciones.md`. Código en
   estados de Meta (`sent`, `delivered`, `read`, `failed`) nunca retroceden.
 - **Alcance:** solo personas con sesión del panel y `conversaciones.ver` (`alcanceConvDe`): tokens
   de API e integraciones reciben 404 en toda lectura y acción. Luego `conv_visible` — supervisión
-  (todas), asignada a mí, de mis colas, sin cola, o participante (mencionado). Lo demás es 404.
+  (todas), asignada a mí, de mis colas (miembro o supervisor de la cola), sin cola mientras nadie la
+  tiene, o participante (mencionado). Lo demás es 404.
 - **Cliente verificado:** la asociación automática o la manual cuyo número es un teléfono del
   cliente en la instantánea quedan verificadas; la manual sin coincidencia la confirma un
   supervisor (`confirmar-cliente`). Sin verificar: ni plantillas fuera de ventana, ni boletas, ni
@@ -193,3 +194,39 @@ No consume eventos (los webhooks `comprobante.*` / `promesa.*` de Argos quedan p
 
 Emite además `horario.*`, `conversacion.fuera_de_horario`, `conversacion.guardia_avisada`,
 `manual.creado`, `manual.actualizado`, `manual.enviado` y `manual.enlace_revocado`.
+
+### Bandeja 1.1 (`conv_equipo.go`, `conv_bot.go`, `conv_iniciar.go`, `conv_rutas11.go`, `bandeja.sql`)
+
+Contrato: `contratos/conversaciones.md` §14. Permisos nuevos `conversaciones.iniciar` (sensible:
+escribe a clientes por iniciativa propia; soporte, ventas, supervisor) y `conversaciones.pasar`
+(todos los roles que atienden).
+
+- **Supervisores por cola** (`mensajeria.cola_supervisores`, con `tipo` persona | asistente para la
+  fase 3): ven, asignan (sin `conversaciones.asignar`) y pasan todo lo de su cola. `conv_visible`
+  los incluye y deja de mostrar a todos las conversaciones **sin cola ya asignadas**.
+- **Iniciar** (`POST /conversaciones/iniciar`): idempotente por el id del mensaje (como responder; la
+  clave la aplica el caso, `IdempotenciaPropia`). El número sale de la instantánea de Argos
+  (`Contactos`, refrescada fuera de la transacción) o del contacto de Iris; permiso de contacto con
+  `permisoPlantilla` (como fuera de la ventana). Reutiliza la conversación de (empresa, número,
+  contacto). `GET /conversaciones/destinatarios` busca clientes (instantánea) y contactos de Iris con
+  `puede`/`motivo` en una llamada; `GET /conversaciones/canales/{id}/plantillas` las del número.
+- **Pasar** (`POST …/pasar`): quien la tiene o un supervisor (global o de la cola); se puede pasar a
+  alguien no disponible (`destinoDisponible`).
+- **Disponibilidad** (`mensajeria.disponibilidad`, por usuario y empresa): manual (auditada) y
+  automática en el mantenimiento (`vencerDisp`, sin fila por agente): sesión cerrada o vencida
+  (`sesion_id` del último cambio o latido), `horario_hasta` (cierre de las franjas abiertas de los
+  horarios de sus colas, anotado al ponerse disponible y en cada latido) e inactividad
+  (`mensajeria.ajustes_bandeja.minutos_inactividad`, 15). El latido y las acciones de la bandeja solo
+  tocan `ultima_actividad`: nunca auditan ni emiten.
+- **Bot** (`canales.bot`, minutos por cola en `colas.bot_sin_*_min`): `alRecibirBandeja` corre
+  después de guardar el mensaje del cliente: respuesta al menú → fuera de horario (con el menú) → en
+  horario, aviso a los disponibles (temporizador `sin_confirmacion`) o saludo inmediato
+  (`sin_disponibles`). El estado de la espera vive en la conversación (`bot_espera_en`,
+  `bot_vence_en`, `bot_motivo`, `bot_atendio_en`, `bot_menu`); el mantenimiento dispara lo vencido
+  (`dispararBot`, un caso por conversación con la fila bloqueada) y tomar/asignar/pasar/transferir/
+  resolver/iniciar lo cancelan (`limpiarEspera`). Los mensajes automáticos llevan `automatico`
+  (`bot`, `fuera_de_horario`). Nunca a una baja ni fuera de la ventana de 24 h.
+
+Emite además `conversacion.iniciada`, `conversacion.aviso_sin_atender`, `conversacion.bot_atendio`,
+`conversacion.menu_elegido`, `agente.disponibilidad_cambiada` y `conversaciones.ajustes_cambiados`
+(`conversacion.asignada` suma los orígenes `pasar` e `iniciar`). No consume eventos nuevos.

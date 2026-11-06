@@ -214,8 +214,8 @@ type ColaConversaciones struct {
 	// Minutos del bot de la cola (null = los del número).
 	BotSinConfirmacionMin *int32 `json:"botSinConfirmacionMin" nullable:"true" doc:"Minutos sin que nadie la tome antes de que conteste el bot (null = los del número)"`
 	BotSinDisponiblesMin  *int32 `json:"botSinDisponiblesMin" nullable:"true" doc:"Minutos sin agentes disponibles antes de que el bot tome la conversación (null = los del número)"`
-	Activa          bool         `json:"activa"`
-	Version         int32        `json:"version"`
+	Activa                bool   `json:"activa"`
+	Version               int32  `json:"version"`
 }
 
 // ListaColas es { data, nextCursor }.

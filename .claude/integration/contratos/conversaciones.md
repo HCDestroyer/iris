@@ -810,9 +810,10 @@ a una conversación **sin asignar** sin aviso ni bot ya en curso en esta espera:
    contestó el bot».
 
 **Con el horario cerrado:** como hoy (§10.2: `fueraDeHorario.mensaje` una vez por ventana cerrada y
-la guardia), pero lo manda el bot: si el bot está activo y tiene menú, el menú va después del
-mensaje y sale `conversacion.bot_atendio` con `motivo: fuera_de_horario` (además de
-`conversacion.fuera_de_horario`).
+la guardia), pero lo manda el bot: con el bot activo sale `conversacion.bot_atendio` con
+`motivo: fuera_de_horario` (además de `conversacion.fuera_de_horario`) y, si tiene menú, el menú va
+en un segundo mensaje después del de fuera de horario. Esto no abre una espera: el primer mensaje
+del cliente con el horario abierto (si sigue sin asignar) avisa a los disponibles como arriba.
 
 **Menú:** si el cliente contesta con el número de una opción (`1`…`9`; se ignoran espacios y
 puntuación), la conversación pasa a la cola de la opción con sus etiquetas (se suman a las que
@@ -825,7 +826,8 @@ la segunda, el bot deja de insistir.
 - El bot nunca contesta a `BAJA`/`ALTO` ni a un número o cliente con baja vigente (las reglas de §8),
   ni con la ventana de 24 h cerrada. Sus mensajes son salientes sin `autor` con
   `automatico: "bot"` (`"fuera_de_horario"` la respuesta de §10.2), y no cambian el estado ni el SLA.
-- Tomar, asignar, pasar o iniciar **cancelan** el temporizador y el menú. El mantenimiento procesa
+- Tomar, asignar, pasar, transferir, resolver, iniciar o responder (si asigna) **cancelan** el
+  temporizador y el menú. El mantenimiento procesa
   cada minuto todo lo vencido hasta ahora y vuelve a revisar con la fila bloqueada: un temporizador
   cancelado nunca dispara y uno que ya disparó no se repite. Una vez que el bot contestó, no vuelve a
   hacerlo en la misma espera; resolver, tomar o asignar empiezan una espera nueva.
