@@ -9,12 +9,15 @@ import { useEffect, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
+import { SelectorBodegaArgos } from "@/componentes/equipo/selector-bodega-argos";
+import { textoErrorVinculo } from "@/lib/agenda/argos";
 import {
     entradaCrearTecnico,
     entradaEditarTecnico,
     erroresDe,
     esquemaTecnico,
     valoresTecnico,
+    vinculoPorPedir,
     type CandidatoTecnico,
     type Tecnico,
     type ValoresTecnico,
@@ -46,6 +49,11 @@ type Props = {
     volverA: string;
     /** Usuario recién creado desde «Crear usuario» (se lee de la API): queda elegido al aparecer. */
     usuarioInicial?: { id: number; correo: string } | null;
+    /**
+     * «Crear ficha» desde «Técnicos de Argos sin ficha»: el técnico de Argos queda elegido en la
+     * bodega y su correo se busca entre los usuarios de Iris (si coincide uno, queda elegido).
+     */
+    argosInicial?: { idExterno: string; correo: string } | null;
 };
 
 /**
@@ -54,11 +62,12 @@ type Props = {
  * zonas), teléfono, habilidades y bodega de Argos. Sin usuario o sin cuadrilla no se puede
  * guardar; con cambios sin guardar, salir pregunta antes. Al guardar, aviso y ficha.
  */
-export function FormularioTecnico({ tecnico, cuadrillas, zonas, volverA, usuarioInicial = null }: Props) {
+export function FormularioTecnico({ tecnico, cuadrillas, zonas, volverA, usuarioInicial = null, argosInicial = null }: Props) {
     const router = useRouter();
     const [antes, setAntes] = useState<Tecnico | undefined>(tecnico);
     const editando = antes !== undefined;
     const clave = useClaveIdempotencia();
+    const claveVinculo = useClaveIdempotencia();
     const [error, setError] = useState<unknown>(null);
     const [recargando, setRecargando] = useState(false);
     const esquema = esquemaTecnico(!editando);
@@ -66,7 +75,7 @@ export function FormularioTecnico({ tecnico, cuadrillas, zonas, volverA, usuario
     const valores = useWatch({ control: form.control }) as ValoresTecnico;
     const vivos = erroresDe(esquema.safeParse(valores));
     const { errors, isSubmitting, isDirty, touchedFields, isSubmitted } = form.formState;
-    const [busqueda, setBusqueda] = useState(usuarioInicial?.correo ?? "");
+    const [busqueda, setBusqueda] = useState(usuarioInicial?.correo ?? argosInicial?.correo ?? "");
     const q = useDiferido(busqueda.trim(), 300);
     const { puede } = useSesion();
     // Usuario recién creado desde «Crear usuario»: se busca por su correo y queda elegido al aparecer.
@@ -86,7 +95,33 @@ export function FormularioTecnico({ tecnico, cuadrillas, zonas, volverA, usuario
                 ? await resolver(api().POST("/api/v1/tecnicos/{id}/editar", { params: { ...params, path: { id: antes.id } }, body: entradaEditarTecnico(v, antes) }))
                 : await resolver(api().POST("/api/v1/tecnicos", { params, body: entradaCrearTecnico(v) }));
             clave.renovar();
+            // La bodega elegida de Argos se vincula con el caso de uso de siempre (vincular-argos):
+            // desde entonces los consumos salen a nombre del técnico. Si falla, la ficha ya quedó.
+            const idExterno = vinculoPorPedir(v, t);
+            let vinculo: unknown = null;
+            if (idExterno !== null) {
+                try {
+                    await resolver(
+                        api().POST("/api/v1/tecnicos/{id}/vincular-argos", {
+                            params: { path: { id: t.id }, header: { "Idempotency-Key": claveVinculo.actual() } },
+                            body: { version: t.version, idExterno },
+                        }),
+                    );
+                    claveVinculo.renovar();
+                } catch (e) {
+                    claveVinculo.trasError(e);
+                    vinculo = e;
+                }
+            }
             avisar({ titulo: antes ? `Técnico ${t.nombre} guardado` : `Técnico ${t.nombre} creado` });
+            if (vinculo !== null) {
+                avisar({
+                    tono: "warning",
+                    titulo: "La ficha se guardó, pero no quedó vinculada con Argos",
+                    descripcion: textoErrorVinculo(vinculo) ?? `${mensajeDeError(vinculo).titulo}. Vincúlala desde la ficha (sección Argos).`,
+                    duracion: 0,
+                });
+            }
             await liberarProteccion();
             router.replace(`/tecnicos/${t.id}`);
         } catch (e) {
@@ -175,6 +210,7 @@ export function FormularioTecnico({ tecnico, cuadrillas, zonas, volverA, usuario
                         error={mensaje("usuarioId", true)}
                         registro={form.register("usuarioId")}
                         preferido={recienCreado && recienCreado.correo === q ? recienCreado.id : null}
+                        correoPreferido={!recienCreado && argosInicial && argosInicial.correo === q ? argosInicial.correo : null}
                         alElegir={(id) => form.setValue("usuarioId", String(id), { shouldDirty: true, shouldValidate: true })}
                     />
                     {puede(["usuarios.crear"]) ? (
@@ -209,7 +245,19 @@ export function FormularioTecnico({ tecnico, cuadrillas, zonas, volverA, usuario
                 </CampoSelector>
                 <Campo etiqueta="Teléfono" type="tel" inputMode="tel" autoComplete="tel" maxLength={30} placeholder="+502 5555-1234" error={mensaje("telefono")} {...form.register("telefono")} />
                 <Campo etiqueta="Habilidades" placeholder="fibra, inalambrico, altura" ayuda="Separadas por comas (opcional)." error={mensaje("habilidades")} {...form.register("habilidades")} />
-                <Campo etiqueta="Bodega en Argos" inputMode="numeric" placeholder="Número de bodega (opcional)" error={mensaje("bodegaId")} {...form.register("bodegaId")} />
+                <SelectorBodegaArgos
+                    tecnico={antes}
+                    valor={valores.argosIdExterno}
+                    preferido={argosInicial?.idExterno ?? null}
+                    registroBodega={form.register("bodegaId")}
+                    errorBodega={mensaje("bodegaId")}
+                    alElegir={(e) => {
+                        const inicial = valoresTecnico(antes);
+                        // Sin elección vuelve a lo que tenía la ficha.
+                        form.setValue("argosIdExterno", e?.idExterno ?? inicial.argosIdExterno, { shouldDirty: true });
+                        form.setValue("bodegaId", e?.bodegaId != null ? String(e.bodegaId) : inicial.bodegaId, { shouldDirty: true, shouldValidate: true });
+                    }}
+                />
             </SeccionFormulario>
         </FormularioPagina>
     );
@@ -226,6 +274,7 @@ function SelectorCandidato({
     error,
     registro,
     preferido,
+    correoPreferido = null,
     alElegir,
 }: {
     q: string;
@@ -233,6 +282,8 @@ function SelectorCandidato({
     registro: UseFormRegisterReturn<"usuarioId">;
     /** Usuario recién creado: si aparece en la lista, queda elegido. */
     preferido: number | null;
+    /** Correo del técnico de Argos («Crear ficha»): el candidato con ese correo queda elegido. */
+    correoPreferido?: string | null;
     alElegir: (usuarioId: number) => void;
 }) {
     const candidatos = useLectura<{ lista: CandidatoTecnico[]; hayMas: boolean }>(async (signal) => {
@@ -240,11 +291,14 @@ function SelectorCandidato({
         return { lista: p.data ?? [], hayMas: p.nextCursor !== null };
     });
     const encontrado = preferido !== null && candidatos.estado === "listo" && candidatos.datos.lista.some((c) => c.usuarioId === preferido);
+    const porCorreo =
+        correoPreferido && candidatos.estado === "listo" ? candidatos.datos.lista.find((c) => c.correo.toLowerCase() === correoPreferido.toLowerCase()) : undefined;
+    const elegible = encontrado ? preferido : (porCorreo?.usuarioId ?? null);
     useEffect(() => {
-        if (encontrado && preferido !== null) alElegir(preferido);
+        if (elegible !== null) alElegir(elegible);
         // Solo al aparecer en la lista: elegir otro después no se pisa.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [encontrado, preferido]);
+    }, [elegible]);
     if (candidatos.estado === "error") {
         return (
             <Aviso
@@ -273,6 +327,8 @@ function SelectorCandidato({
     const ayuda =
         candidatos.estado === "cargando"
             ? "Cargando usuarios…"
+            : correoPreferido && !porCorreo
+              ? `Ningún usuario de Iris sin ficha tiene el correo de Argos (${correoPreferido}): búscalo por nombre o créalo.`
             : vacio
               ? q
                   ? "Ningún usuario sin ficha coincide con la búsqueda."

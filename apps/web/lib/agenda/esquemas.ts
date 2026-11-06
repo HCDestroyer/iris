@@ -50,12 +50,17 @@ export function habilidadesDeTexto(texto: string): string[] {
     return salida.sort();
 }
 
-export type ValoresTecnico = { usuarioId: string; cuadrillaId: string; telefono: string; habilidades: string; bodegaId: string };
+/**
+ * `argosIdExterno`: el técnico de Argos elegido en el selector de bodega (vacío = sin cambio de
+ * vínculo). Al guardar, si cambió, se vincula con `POST /tecnicos/{id}/vincular-argos` y `bodegaId`
+ * queda con la bodega de ese técnico en la empresa activa.
+ */
+export type ValoresTecnico = { usuarioId: string; cuadrillaId: string; telefono: string; habilidades: string; bodegaId: string; argosIdExterno: string };
 
 /** Alta (`conUsuario`) o edición de la ficha. La cuadrilla es obligatoria: define las zonas que atiende. */
 export function esquemaTecnico(conUsuario: boolean) {
     return z
-        .object({ usuarioId: z.string(), cuadrillaId: z.string(), telefono: z.string(), habilidades: z.string(), bodegaId: z.string() })
+        .object({ usuarioId: z.string(), cuadrillaId: z.string(), telefono: z.string(), habilidades: z.string(), bodegaId: z.string(), argosIdExterno: z.string().max(100) })
         .superRefine((d, ctx) => {
             if (conUsuario && !ID.test(d.usuarioId)) ctx.addIssue({ code: "custom", path: ["usuarioId"], message: "Elige el usuario del técnico" });
             if (!ID.test(d.cuadrillaId)) ctx.addIssue({ code: "custom", path: ["cuadrillaId"], message: "Elige la cuadrilla: define las zonas que atiende" });
@@ -75,7 +80,15 @@ export function valoresTecnico(t?: Tecnico): ValoresTecnico {
         telefono: t?.telefono ?? "",
         habilidades: (t?.habilidades ?? []).join(", "),
         bodegaId: t?.bodegaId ? String(t.bodegaId) : "",
+        argosIdExterno: t?.argos?.idExterno ?? "",
     };
+}
+
+/** El vínculo con Argos que hay que pedir al guardar: el elegido, si no es el que ya tiene. */
+export function vinculoPorPedir(v: Pick<ValoresTecnico, "argosIdExterno">, t: Pick<Tecnico, "argos">): string | null {
+    const elegido = v.argosIdExterno.trim();
+    if (elegido === "" || elegido === t.argos?.idExterno) return null;
+    return elegido;
 }
 
 function comunesTecnico(v: ValoresTecnico) {

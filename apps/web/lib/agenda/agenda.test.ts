@@ -15,6 +15,7 @@ import {
     textoTurnos,
     valoresAusencia,
     valoresTecnico,
+    vinculoPorPedir,
     valoresTurnos,
 } from "./esquemas";
 import { conflictosDe, cuadriculaMes, etiquetaMes, inicioMes, resumenPorDia, sinTecnicoPorDia, sumarMeses, textoConflicto, trozos, unirCalendarios, vistaDeUrl } from "./mes";
@@ -159,6 +160,15 @@ describe("formulario de técnico", () => {
         expect(erroresDe(esquemaTecnico(false).safeParse(valoresTecnico(tecnico)))).toEqual({});
     });
 
+    it("el vínculo con Argos se pide solo si se eligió otro técnico de Argos", () => {
+        const vinculado = { argos: { idExterno: "77", nombre: "Lucía", correo: "l@argos.test", vinculadoEn: "2026-10-28T15:00:00Z" } };
+        expect(valoresTecnico({ ...tecnico, ...vinculado }).argosIdExterno).toBe("77");
+        expect(vinculoPorPedir({ argosIdExterno: "" }, {})).toBeNull();
+        expect(vinculoPorPedir({ argosIdExterno: "77" }, vinculado)).toBeNull();
+        expect(vinculoPorPedir({ argosIdExterno: "78" }, vinculado)).toBe("78");
+        expect(vinculoPorPedir({ argosIdExterno: " 79 " }, {})).toBe("79");
+    });
+
     it("teléfono como lo valida la API", () => {
         expect(errorTelefono("")).toBeUndefined();
         expect(errorTelefono("+502 (5555) 12.34")).toBeUndefined();
@@ -172,7 +182,7 @@ describe("formulario de técnico", () => {
     });
 
     it("cuerpos de crear y editar (la edición conserva la base leída)", () => {
-        const v = { usuarioId: "3", cuadrillaId: "2", telefono: " 5555-1234 ", habilidades: "fibra, Altura", bodegaId: "" };
+        const v = { usuarioId: "3", cuadrillaId: "2", telefono: " 5555-1234 ", habilidades: "fibra, Altura", bodegaId: "", argosIdExterno: "" };
         expect(entradaCrearTecnico(v)).toEqual({ usuarioId: 3, cuadrillaId: 2, habilidades: ["altura", "fibra"], telefono: "5555-1234" });
         expect(entradaEditarTecnico({ ...v, telefono: "", bodegaId: "30" }, tecnico)).toEqual({
             version: 4,

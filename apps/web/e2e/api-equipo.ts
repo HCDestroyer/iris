@@ -45,6 +45,7 @@ export type ApiEquipo = {
     /**
      * Argos detrás de `GET /integraciones/argosisp/tecnicos` (contrato 0.5.0): sin
      * `inventarioPorTecnico` (Argos < 1.6.0, por defecto) responde 422 `argos_sin_inventario_tecnico`.
+     * Cada bodega trae `nombre` (contrato 0.6.4); `?sinVincular=true` deja fuera a los ya vinculados.
      */
     argos: { inventarioPorTecnico: boolean; usuarios: Schema<"TecnicoDeArgos">[] };
     manejar: (c: { route: Route; metodo: string; ruta: string; query: URLSearchParams; cuerpo: unknown; puede: (p: Permiso) => boolean }) => Promise<boolean>;
@@ -67,9 +68,9 @@ export function apiEquipo(agenda: EscenarioAgenda, ordenes: OrdenDetalle[]): Api
     const argos: ApiEquipo["argos"] = {
         inventarioPorTecnico: false,
         usuarios: [
-            { idExterno: "77", nombre: "Lucía Ramírez", correo: "lucia@argos.test", enEmpresa: true, bodegas: [{ id: 30, empresaId: 10, activa: true }] },
-            { idExterno: "78", nombre: "Jorge Méndez", correo: "jorge@argos.test", enEmpresa: true, bodegas: [{ id: 31, empresaId: 10, activa: true }], vinculadoA: { tecnicoId: 22, usuarioId: 11 } },
-            { idExterno: "79", nombre: "Pedro Sic", correo: "pedro@argos.test", enEmpresa: false, bodegas: [{ id: 40, empresaId: 20, activa: true }] },
+            { idExterno: "77", nombre: "Lucía Ramírez", correo: "lucia@argos.test", enEmpresa: true, bodegas: [{ id: 30, empresaId: 10, activa: true, nombre: "Bodega Norte" }] },
+            { idExterno: "78", nombre: "Jorge Méndez", correo: "jorge@argos.test", enEmpresa: true, bodegas: [{ id: 31, empresaId: 10, activa: true, nombre: "Bodega Sur" }], vinculadoA: { tecnicoId: 22, usuarioId: 11 } },
+            { idExterno: "79", nombre: "Pedro Sic", correo: "pedro@argos.test", enEmpresa: false, bodegas: [{ id: 40, empresaId: 20, activa: true, nombre: "Bodega Xela" }] },
         ],
     };
     let siguiente = 900;
@@ -159,7 +160,9 @@ export function apiEquipo(agenda: EscenarioAgenda, ordenes: OrdenDetalle[]): Api
                 await problema(route, { type: "urn:iris:problema:argos_sin_inventario_tecnico", title: "Argos sin inventario por técnico", status: 422, detail: "Argos < 1.6.0" });
                 return true;
             }
-            await json(route, { data: argos.usuarios, nextCursor: null } satisfies Schema<"PaginaTecnicosArgos">);
+            // sinVincular: solo los que ninguna ficha tiene (como agenda.tecnicos.argos_id_externo).
+            const data = query.get("sinVincular") === "true" ? argos.usuarios.filter((u) => u.vinculadoA === undefined) : argos.usuarios;
+            await json(route, { data, nextCursor: null } satisfies Schema<"PaginaTecnicosArgos">);
             return true;
         }
 
