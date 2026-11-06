@@ -247,6 +247,58 @@ describe("reintentos (§3)", () => {
         expect(motor.obtenerEstado()).toMatchObject({ sesionCerrada: true, pendientes: 1, tiempoReal: "detenido" });
     });
 
+    it("sesión ajena (otra persona entró en otra pestaña) segundos después de verificar: ni envía ni guarda lo que lee", async () => {
+        let ajena = false;
+        const verificaciones: number[] = [];
+        const { motor, servidor, reloj, almacen } = await montar({
+            verificarIdentidad: async () => {
+                verificaciones.push(reloj.ahora());
+                if (ajena) {
+                    throw errorHttp(409, "sesion_ajena");
+                }
+            },
+        });
+        await arrancar(motor);
+        expect(verificaciones.length).toBeGreaterThan(0);
+        // Un segundo después (dentro de la ventana de 60 s que había antes) entra B.
+        await reloj.avanzar(1000);
+        ajena = true;
+        await motor.escribir(12, { texto: "de A" });
+        await vaciarPromesas(10);
+        await reloj.avanzar(5 * 60_000);
+        expect(servidor.llamadasA("enviarMensaje")).toHaveLength(0);
+        expect(motor.obtenerEstado().pendientes).toBe(1);
+        // Lo que el servidor tenga con la cookie de B no se pide ni se guarda en la base de A.
+        servidor.recibir(12, ANDREA, "para B");
+        const antes = servidor.llamadasA("cambios").length;
+        await motor.recargar();
+        await reloj.avanzar(5 * 60_000);
+        expect(servidor.llamadasA("cambios")).toHaveLength(antes);
+        expect(textos(motor)).not.toContain("para B");
+        expect((await almacen.cargarChat()).mensajes.map((m) => m.texto)).not.toContain("para B");
+    });
+
+    it("sesión ajena con el flujo abierto: el evento que llega no se guarda y el flujo se cierra", async () => {
+        let ajena = false;
+        const { motor, servidor, almacen } = await montar({
+            conFlujo: true,
+            verificarIdentidad: async () => {
+                if (ajena) {
+                    throw errorHttp(409, "sesion_ajena");
+                }
+            },
+        });
+        await arrancar(motor);
+        await motor.cargarConversacion(12);
+        expect(motor.obtenerEstado().tiempoReal).toBe("sse");
+        ajena = true;
+        servidor.recibir(12, ANDREA, "por el flujo");
+        await vaciarPromesas(10);
+        expect(textos(motor)).not.toContain("por el flujo");
+        expect((await almacen.cargarChat()).mensajes.map((m) => m.texto)).not.toContain("por el flujo");
+        expect(servidor.flujosAbiertos).toBe(0);
+    });
+
     it("descartar un no enviado lo quita de la cola", async () => {
         const { motor, servidor } = await montar();
         await arrancar(motor);

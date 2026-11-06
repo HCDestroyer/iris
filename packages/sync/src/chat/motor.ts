@@ -136,8 +136,6 @@ export interface OpcionesMotorChat {
     espera?: Partial<OpcionesEspera>;
     /** Como el motor de sync: lanza `ErrorTransporte` si la sesión abierta no es la del dueño. */
     verificarIdentidad?: () => Promise<void>;
-    /** Cada cuánto se vuelve a verificar la identidad antes de hablar con la API (60 s). */
-    verificarCadaMs?: number;
     tamanoParte?: number;
     /** Mensajes guardados por conversación (los más recientes). */
     maximoPorConversacion?: number;
@@ -213,7 +211,6 @@ export class MotorChat {
     private readonly reconexionMs: number;
     private readonly espera: OpcionesEspera;
     private readonly verificarIdentidad: (() => Promise<void>) | null;
-    private readonly verificarCadaMs: number;
     private readonly tamanoParte: number;
     private readonly maximoPorConversacion: number;
 
@@ -229,7 +226,8 @@ export class MotorChat {
     private sesionCerrada = false;
     private avisos: AvisoChat[] = [];
     private siguienteAviso = 1;
-    private ultimaVerificacion = Number.NEGATIVE_INFINITY;
+    /** Verificación en curso (las llamadas simultáneas esperan la misma; la siguiente vuelve a preguntar). */
+    private verificando: Promise<void> | null = null;
     private bloqueoHasta = 0;
     private listo = false;
 
@@ -268,7 +266,6 @@ export class MotorChat {
         this.reconexionMs = o.reconexionMs ?? 3_000;
         this.espera = { ...ESPERA_POR_DEFECTO, ...o.espera };
         this.verificarIdentidad = o.verificarIdentidad ?? null;
-        this.verificarCadaMs = o.verificarCadaMs ?? MINUTO_MS;
         this.tamanoParte = o.tamanoParte ?? 256 * 1024;
         this.maximoPorConversacion = Math.max(20, o.maximoPorConversacion ?? 300);
         this.instantanea = this.calcularEstado();
@@ -428,7 +425,7 @@ export class MotorChat {
     /** «Deslizar para actualizar»: pone al día el feed y vuelve a leer la lista. No lanza. */
     async recargar(): Promise<void> {
         try {
-            await this.verificar(true);
+            await this.verificar();
             if (this.meta.cursor === null) {
                 await this.arrancarFeed();
             } else {
@@ -479,6 +476,7 @@ export class MotorChat {
             if (this.meta.cargadas.includes(id) && seqs.length > 0) {
                 // Hueco desde el último `seq` guardado (§5.5); si es largo, se empieza del final.
                 const desde = Math.max(...seqs);
+                await this.verificar();
                 const pagina = await this.transporte.listarMensajes(id, { direccion: "siguientes", desdeSeq: desde, limit: 100 });
                 if (pagina.nextCursor) {
                     await this.cargarUltimoTramo(id, true);
@@ -988,7 +986,7 @@ export class MotorChat {
                 }
                 if (this.abrirFlujo && this.reloj.ahora() >= flujoBloqueadoHasta) {
                     this.fijarTiempoReal("conectando");
-                    await this.verificar(true);
+                    await this.verificar();
                     if (senal.aborted) {
                         break;
                     }
@@ -1046,6 +1044,7 @@ export class MotorChat {
             let eventos = 0;
             let flujo: FlujoChat | null = null;
             let terminado = false;
+            let cola: Promise<void> = Promise.resolve();
             const terminar = () => {
                 if (terminado) {
                     return;
@@ -1063,7 +1062,12 @@ export class MotorChat {
                 },
                 alEvento: (e) => {
                     eventos += 1;
-                    void this.aplicarEventos([e]).catch(() => undefined);
+                    // En orden y con la identidad comprobada antes de guardar: si la sesión ya no es
+                    // del dueño, no se escribe nada y el flujo se cierra.
+                    cola = cola
+                        .then(() => this.verificar())
+                        .then(() => this.aplicarEventos([e]))
+                        .catch(() => terminar());
                 },
                 alCerrar: terminar,
             });
@@ -1078,6 +1082,7 @@ export class MotorChat {
         for (let vueltas = 0; vueltas < 20; vueltas += 1) {
             let r;
             try {
+                await this.verificar();
                 r = await this.transporte.cambios(this.meta.cursor);
             } catch (e) {
                 if (e instanceof ErrorTransporte && e.status === 410) {
@@ -1095,6 +1100,7 @@ export class MotorChat {
 
     /** §5.1: cabeza del feed, la lista y los hilos del día (abrir es idempotente). */
     private async arrancarFeed(): Promise<void> {
+        await this.verificar();
         const r = await this.transporte.cambios(null);
         await this.guardar({ meta: { cursor: r.datos.nextCursor } });
         await this.recargarLista();
@@ -1149,6 +1155,7 @@ export class MotorChat {
                 const todas: ConversacionChat[] = [];
                 let cursor: string | undefined;
                 for (let pagina = 0; pagina < 10; pagina += 1) {
+                    await this.verificar();
                     const p = await this.transporte.listarConversaciones(cursor);
                     todas.push(...(p.data ?? []));
                     if (!p.nextCursor) {
@@ -1299,6 +1306,7 @@ export class MotorChat {
     }
 
     private async cargarUltimoTramo(id: number, reemplazar: boolean): Promise<void> {
+        await this.verificar();
         const pagina = await this.transporte.listarMensajes(id, { direccion: "anteriores", limit: 30 });
         const carga = this.cargaDe(id);
         carga.cursorAnteriores = pagina.nextCursor;
@@ -1369,16 +1377,23 @@ export class MotorChat {
         return [...this.mapaMensajes(id).values()].sort((a, b) => a.seq - b.seq);
     }
 
-    private async verificar(forzar = false): Promise<void> {
+    /**
+     * Comprueba que la sesión del navegador sigue siendo la del dueño ANTES de cada envío, cada
+     * sondeo y cada lectura que se guarda (como el motor de órdenes). Sin ventana de tiempo: en un
+     * navegador compartido otra persona puede entrar en otra pestaña en cualquier momento, y entonces
+     * la cola de A saldría con la cookie de B o el feed de B se guardaría en la base de A. Si no es el
+     * dueño, `verificarIdentidad` lanza y no se envía ni se escribe nada.
+     */
+    private async verificar(): Promise<void> {
         if (!this.verificarIdentidad) {
             return;
         }
-        const ahora = this.reloj.ahora();
-        if (!forzar && ahora - this.ultimaVerificacion < this.verificarCadaMs) {
-            return;
+        if (!this.verificando) {
+            this.verificando = this.verificarIdentidad().finally(() => {
+                this.verificando = null;
+            });
         }
-        await this.verificarIdentidad();
-        this.ultimaVerificacion = this.reloj.ahora();
+        await this.verificando;
     }
 
     /** Una lectura falló: la sesión se marca cerrada con 401 (nunca se muestra el contenido). */
@@ -1404,9 +1419,31 @@ export class MotorChat {
         return tarea;
     }
 
-    /** Persiste primero y, solo si se guardó, aplica a la memoria. */
-    private async guardar(lote: LoteChat): Promise<void> {
-        await this.encadenarEscritura(() => this.almacen.escribirChat(lote));
+    /**
+     * Persiste primero y, solo si se guardó, aplica a la memoria, todo en la cadena de escrituras (en
+     * orden: dos lotes que se cruzan nunca aplican el viejo después del nuevo). Eliminar es final: una
+     * copia vieja del mensaje (un evento o una página que llegó después de la lápida) nunca lo revive.
+     */
+    private guardar(entrada: LoteChat): Promise<void> {
+        return this.encadenarEscritura(async () => {
+            const lote: LoteChat = entrada.mensajes?.poner
+                ? {
+                      ...entrada,
+                      mensajes: {
+                          ...entrada.mensajes,
+                          poner: entrada.mensajes.poner.map((m) => {
+                              const local = this.mensajes.get(m.conversacion_id)?.get(m.id);
+                              return local?.eliminado && !m.eliminado ? local : m;
+                          }),
+                      },
+                  }
+                : entrada;
+            await this.almacen.escribirChat(lote);
+            this.aplicarEnMemoria(lote);
+        });
+    }
+
+    private aplicarEnMemoria(lote: LoteChat): void {
         for (const id of lote.salida?.borrar ?? []) {
             this.salida.delete(id);
         }
