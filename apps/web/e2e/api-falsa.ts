@@ -313,7 +313,7 @@ export type ApiFalsa = {
     /** Reportes: hacer que el próximo CSV responda 422 `exportacion_excedida`. */
     reportes: Pick<ApiReportes, "exportacionExcedida">;
     /** Bandeja de conversaciones: conversaciones, mensajes, lo enviado y mensajes del cliente. */
-    conversaciones: Pick<ApiConversaciones, "conversaciones" | "mensajes" | "enviados" | "mensajeDelCliente">;
+    conversaciones: Pick<ApiConversaciones, "conversaciones" | "mensajes" | "enviados" | "mensajeDelCliente" | "horarios" | "manuales" | "canales" | "configurados" | "respuestas">;
     /** Encuestas: lista, respuestas públicas y peticiones públicas que llevaron sesión. */
     encuestas: Pick<ApiEncuestas, "encuestas" | "publicasConSesion" | "respuestas" | "enlacesPedidos">;
     /** Autologin desde Argos, re-autenticación, vínculos y conectores. */
@@ -967,7 +967,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             reautenticaciones: () => sso.reautenticaciones,
             descartes: () => sso.descartes,
         },
-        conversaciones: { conversaciones: conversaciones.conversaciones, mensajes: conversaciones.mensajes, enviados: conversaciones.enviados, mensajeDelCliente: conversaciones.mensajeDelCliente },
+        conversaciones,
         encuestas: { encuestas: encuestas.encuestas, publicasConSesion: encuestas.publicasConSesion, respuestas: encuestas.respuestas, enlacesPedidos: encuestas.enlacesPedidos },
         cuenta: { cambiarVersion: cuenta.cambiarVersion, sacarDelAlcance: cuenta.sacarDelAlcance, reinicios: cuenta.reinicios },
         cambiarVersionOrden: (ordenId) => {
