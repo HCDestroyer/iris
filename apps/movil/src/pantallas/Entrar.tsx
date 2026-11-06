@@ -1,5 +1,5 @@
 // Entrada del técnico (diseño «Login C · Combinada», nov 2026), igual que la PWA y en un solo paso:
-// logo y «Hola, técnico», la tarjeta con correo y contraseña (o, si el teléfono recuerda al último
+// logo centrado con «Iris Campo» y «Entra con tu cuenta de técnico» (opción B del PM, 0.17), la tarjeta con correo y contraseña (o, si el teléfono recuerda al último
 // usuario, su fila con «¿No eres tú?» y solo la contraseña), el ojo de la contraseña, errores en
 // línea, «Entrar» y «¿Olvidaste tu contraseña?»; debajo «Usar huella» (solo con una sesión guardada
 // y biometría) y el aviso «Sin conexión». El código de 6 dígitos solo si `POST /sesion` responde
@@ -171,7 +171,7 @@ export function Entrar({ alEntrar, motivo, recordado: recordadoInicial = null, a
                             <CampoCodigo etiqueta="Escribe los 6 dígitos de tu app de autenticación" valor={field.value} alCambiar={field.onChange} error={errors.codigo?.message} />
                         )}
                     />
-                    <Boton cargando={isSubmitting} alPresionar={() => void enviarCodigo()} estilo={estilos.pildora}>
+                    <Boton variante="tinta" cargando={isSubmitting} alPresionar={() => void enviarCodigo()}>
                         {isSubmitting ? "Verificando…" : "Verificar"}
                     </Boton>
                 </Tarjeta>
@@ -183,12 +183,14 @@ export function Entrar({ alEntrar, motivo, recordado: recordadoInicial = null, a
     const bloqueado = bloqueo.restante > 0;
     return (
         <Pila espacio={20}>
-            <View style={estilos.titulos}>
-                <LogoIris tamano={56} />
-                <Text accessibilityRole="header" style={[estilos.titulo, { color: colores.texto }]}>
-                    Hola, técnico
+            <View style={estilos.marca} testID="marca-entrar">
+                <LogoIris tamano={64} />
+                <Text accessibilityRole="header" style={[estilos.nombre, { color: colores.texto }]}>
+                    Iris Campo
                 </Text>
-                <Texto suave>Entra para ver tus órdenes de hoy.</Texto>
+                <Texto suave estilo={estilos.centrado}>
+                    Entra con tu cuenta de técnico.
+                </Texto>
             </View>
             {bloqueado ? (
                 <Aviso tono="warning" icono={Clock} titulo={`Demasiados intentos, espera ${formatearEspera(bloqueo.restante)}`} testID="aviso-bloqueo">
@@ -263,7 +265,7 @@ export function Entrar({ alEntrar, motivo, recordado: recordadoInicial = null, a
                         />
                     )}
                 />
-                <Boton cargando={isSubmitting} deshabilitado={bloqueado || usandoHuella} alPresionar={() => void enviarCredenciales()} estilo={estilos.pildora}>
+                <Boton variante="tinta" cargando={isSubmitting} deshabilitado={bloqueado || usandoHuella} alPresionar={() => void enviarCredenciales()} testID="boton-entrar">
                     {isSubmitting ? "Entrando…" : "Entrar"}
                 </Boton>
                 <Boton variante="fantasma" alPresionar={() => setOlvido(true)}>
@@ -276,7 +278,6 @@ export function Entrar({ alEntrar, motivo, recordado: recordadoInicial = null, a
                     icono={FingerprintPattern}
                     cargando={usandoHuella}
                     deshabilitado={isSubmitting}
-                    estilo={estilos.pildora}
                     alPresionar={() =>
                         void (async () => {
                             setUsandoHuella(true);
@@ -303,7 +304,7 @@ export function Entrar({ alEntrar, motivo, recordado: recordadoInicial = null, a
                         Pídele a tu supervisor o al administrador de Iris que te asigne una contraseña temporal. Al entrar con ella, Iris te pedirá cambiarla.
                     </Texto>
                 </View>
-                <Boton alPresionar={() => setOlvido(false)} estilo={estilos.pildora}>
+                <Boton variante="tinta" alPresionar={() => setOlvido(false)}>
                     Entendido
                 </Boton>
             </Dialogo>
@@ -314,8 +315,11 @@ export function Entrar({ alEntrar, motivo, recordado: recordadoInicial = null, a
 const estilos = StyleSheet.create({
     flex: { flex: 1 },
     titulos: { gap: 8 },
-    titulo: { fontSize: 32, lineHeight: 36, fontWeight: "700", letterSpacing: -0.96 },
-    pildora: { minHeight: 52, borderRadius: 999 },
+    // Título de tamaño normal (el de las demás pantallas), no el saludo gigante.
+    titulo: { fontSize: 22, lineHeight: 28, fontWeight: "700" },
+    marca: { alignItems: "center", gap: 10, paddingTop: 24, paddingBottom: 8 },
+    nombre: { fontSize: 22, lineHeight: 28, fontWeight: "700", letterSpacing: -0.2, textAlign: "center" },
+    centrado: { textAlign: "center" },
     recordado: { flexDirection: "row", alignItems: "center", gap: 12 },
     iniciales: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
     textoIniciales: { fontSize: 17, fontWeight: "700" },

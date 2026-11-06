@@ -7,7 +7,8 @@ import { ErrorTransporte } from "@iris/sync";
 import { DESPLAZAMIENTO_INICIAL, desplazar, hoyEnGuatemala, urlDeVista } from "@iris/sync/campo";
 import { Building2, KeyRound, LocateFixed, LocateOff } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ScrollView, StyleSheet, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
+import { StyleSheet, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Aviso, AvisoEmergente, Boton } from "../componentes";
 import { ProveedorBorradores } from "../campo/borradores";
@@ -122,7 +123,9 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
                 )
             ) : (
             /* Cada vista empieza arriba (como la PWA al navegar). */
-            <ScrollView
+            // Con el teclado abierto, el campo enfocado (checklist, materiales, cierre) sube por encima.
+            <KeyboardAwareScrollView
+                bottomOffset={24}
                 key={url}
                 contentContainerStyle={[estilos.contenido, { paddingTop: margen.top + 8, paddingBottom: margen.bottom + 180 }]}
                 keyboardShouldPersistTaps="handled"
@@ -176,7 +179,7 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
                 ) : (
                     <ListaOrdenes carga={carga} bajarPaquete={() => bajarPaquete(true)} />
                 )}
-            </ScrollView>
+            </KeyboardAwareScrollView>
             )}
             {/* La barra compacta va debajo de la franja (no la tapa). */}
             <BarraCompacta visible={desplazamiento.compacto} arriba={margen.top} alEntrar={alSesionVencida} alElegirEmpresa={cambiarEmpresa} />

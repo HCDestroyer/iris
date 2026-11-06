@@ -6,7 +6,7 @@
 // Android (y la pregunta si hay cambios) y la búsqueda en vivo sobre el teclado.
 import { itemDePrueba, montar } from "@iris/sync/pruebas";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react-native";
-import { Keyboard, StyleSheet } from "react-native";
+import { StyleSheet } from "react-native";
 import { AIRE_AVISO, insetsAvisos } from "../src/tema/tema";
 import { crearTema } from "../src/tema/tokens";
 import { abrirCampo, avisoArriba, paqueteCon, sesion, tipos } from "./arnes";
@@ -294,46 +294,31 @@ describe.each(["light", "dark"] as const)("reporte del PM (%s)", (esquema) => {
     });
 
     it("buscar: filtra en vivo al escribir y la hoja sube por encima del teclado con el campo fijo arriba", async () => {
-        type Oyente = (e: { endCoordinates: { height: number } }) => void;
-        const oyentes = new Map<string, Oyente[]>();
-        const original = Keyboard.addListener.bind(Keyboard);
-        const espia = jest.spyOn(Keyboard, "addListener").mockImplementation(((evento: string, fn: Oyente) => {
-            oyentes.set(evento, [...(oyentes.get(evento) ?? []), fn]);
-            return original(evento as "keyboardDidShow", fn as never);
-        }) as typeof Keyboard.addListener);
-        try {
-            const m = await enSitio();
-            await abrirCampo(m, { esquema });
-            await fireEvent.press(screen.getAllByRole("button", { name: "Buscar orden" })[0] ?? screen.getByTestId("desplazamiento"));
-            expect(await screen.findByRole("header", { name: "Buscar orden" })).toBeTruthy();
-            const campoBuscar = screen.getByLabelText("Buscar");
-            expect(campoBuscar).toHaveProp("autoFocus", true);
+        const m = await enSitio();
+        await abrirCampo(m, { esquema });
+        await fireEvent.press(screen.getAllByRole("button", { name: "Buscar orden" })[0] ?? screen.getByTestId("desplazamiento"));
+        expect(await screen.findByRole("header", { name: "Buscar orden" })).toBeTruthy();
+        const campoBuscar = screen.getByLabelText("Buscar");
+        expect(campoBuscar).toHaveProp("autoFocus", true);
 
-            await fireEvent.changeText(campoBuscar, "jorge");
-            await waitFor(() => expect(screen.getByTestId("resultados-busqueda")).toHaveTextContent(/1 orden/));
-            expect(within(screen.getByTestId("resultados-busqueda")).getByRole("button", { name: "OT-000001, Jorge Méndez" })).toBeTruthy();
-            await fireEvent.changeText(campoBuscar, "jorgex");
-            await waitFor(() => expect(screen.getByTestId("sin-resultados")).toHaveTextContent(/«jorgex»/));
-            await fireEvent.changeText(campoBuscar, "");
-            await waitFor(() => expect(screen.queryByTestId("sin-resultados")).toBeNull());
+        await fireEvent.changeText(campoBuscar, "jorge");
+        await waitFor(() => expect(screen.getByTestId("resultados-busqueda")).toHaveTextContent(/1 orden/));
+        expect(within(screen.getByTestId("resultados-busqueda")).getByRole("button", { name: "OT-000001, Jorge Méndez" })).toBeTruthy();
+        await fireEvent.changeText(campoBuscar, "jorgex");
+        await waitFor(() => expect(screen.getByTestId("sin-resultados")).toHaveTextContent(/«jorgex»/));
+        await fireEvent.changeText(campoBuscar, "");
+        await waitFor(() => expect(screen.queryByTestId("sin-resultados")).toBeNull());
 
-            // Teclado abierto: la hoja deja su alto abajo y se acorta para quedar encima.
-            const abrir = [...oyentes.entries()].filter(([e]) => /keyboard(Did|Will)Show/.test(e)).flatMap(([, fns]) => fns);
-            expect(abrir.length).toBeGreaterThan(0);
-            await act(async () => {
-                for (const fn of abrir) {
-                    fn({ endCoordinates: { height: 300 } });
-                }
-            });
-            expect(StyleSheet.flatten(screen.getByTestId("buscar-orden-velo").props.style)).toMatchObject({ paddingBottom: 300 });
-            expect(screen.getByLabelText("Buscar")).toBeTruthy();
-            // Tocar un resultado lleva a la orden.
-            await fireEvent.changeText(screen.getByLabelText("Buscar"), "OT-000001");
-            await waitFor(() => expect(screen.getByTestId("resultados-busqueda")).toBeTruthy());
-            await fireEvent.press(within(screen.getByTestId("resultados-busqueda")).getByRole("button", { name: "OT-000001, Jorge Méndez" }));
-            expect(await screen.findByRole("header", { name: "OT-000001" })).toBeTruthy();
-        } finally {
-            espia.mockRestore();
-        }
+        // La hoja va dentro del contenedor que evita el teclado (keyboard-controller, `padding` en
+        // Android e iOS), con el campo fijo arriba y la lista que se desplaza debajo.
+        const teclado = screen.getByTestId("buscar-orden-teclado");
+        expect(teclado.props.behavior).toBe("padding");
+        expect(within(teclado).getByTestId("buscar-orden-velo")).toBeTruthy();
+        expect(within(teclado).getByLabelText("Buscar")).toBeTruthy();
+        // Tocar un resultado lleva a la orden.
+        await fireEvent.changeText(screen.getByLabelText("Buscar"), "OT-000001");
+        await waitFor(() => expect(screen.getByTestId("resultados-busqueda")).toBeTruthy());
+        await fireEvent.press(within(screen.getByTestId("resultados-busqueda")).getByRole("button", { name: "OT-000001, Jorge Méndez" }));
+        expect(await screen.findByRole("header", { name: "OT-000001" })).toBeTruthy();
     });
 });

@@ -86,6 +86,8 @@ export type CodigoErrorLocal =
     | "formulario_duplicado"
     | "formulario_desconocido"
     | "nota_desconocida"
+    | "nota_sin_version"
+    | "nota_cambiada"
     | "sin_cambios"
     | "formulario_del_tipo"
     | "formulario_ajeno"

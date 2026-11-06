@@ -268,10 +268,10 @@ function PistaDia({ fila, dia, horario, comun }: { fila: FilaTecnico; dia: Dia; 
                 className={cn("relative", soltar.encima && "bg-primary/10 outline-2 -outline-offset-2 outline-primary")}
             >
                 {horas.map((h) => (
-                    <span key={h} aria-hidden className="absolute inset-y-0 border-l border-border/60" style={{ left: `${((h - horario.desde) / total) * 100}%` }} />
+                    <span key={h} aria-hidden className="pointer-events-none absolute inset-y-0 border-l border-border/60" style={{ left: `${((h - horario.desde) / total) * 100}%` }} />
                 ))}
                 {ahoraMin > horario.desde && ahoraMin < horario.hasta ? (
-                    <span aria-hidden className="absolute inset-y-0 z-10 w-0.5 bg-primary" style={{ left: `${((ahoraMin - horario.desde) / total) * 100}%` }} />
+                    <span aria-hidden data-ahora className="pointer-events-none absolute inset-y-0 z-10 w-0.5 bg-primary" style={{ left: `${((ahoraMin - horario.desde) / total) * 100}%` }} />
                 ) : null}
                 {ausencias.map((a) => {
                     const t = tramoEnHorario(a.inicio, a.fin, dia, horario);
@@ -284,7 +284,7 @@ function PistaDia({ fila, dia, horario, comun }: { fila: FilaTecnico; dia: Dia; 
                             key={`v${c.ordenId}`}
                             aria-hidden
                             data-ventana={c.numero}
-                            className="absolute inset-y-0.5 rounded-md border border-dashed border-info/60 bg-info/5"
+                            className="pointer-events-none absolute inset-y-0.5 rounded-md border border-dashed border-info/60 bg-info/5"
                             style={{ left: `${v.izquierda}%`, width: `${v.ancho}%` }}
                         />
                     ) : null;
