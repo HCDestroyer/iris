@@ -319,7 +319,7 @@ test("varias empresas: pide elegir y manda X-Iris-Empresa", async ({ page }) => 
     await expect(page.getByRole("link", { name: /OT-000101/ })).toBeVisible();
     // La empresa se ve en «Yo» (el encabezado ya no repite «nombre · empresa»).
     await pestanaCampo(page, "Yo");
-    await expect(page.getByText(`${TECNICO.correo} · Fibra Sur`)).toBeVisible();
+    await expect(page.getByTestId("perfil-yo")).toContainText("Fibra Sur");
     expect(api.peticiones.find((p) => p.ruta === "/api/v1/campo/paquete")?.empresa).toBe("20");
 });
 
