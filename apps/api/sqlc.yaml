@@ -197,3 +197,10 @@ sql:
           mensajeria_contactos_iri: MensajeriaContactoIris
           mensajeria_respuestas_rapida: MensajeriaRespuestaRapida
           mensajeria_cola: MensajeriaCola
+  - <<: *base
+    queries: internal/notificaciones/consultas.sql
+    gen:
+      go:
+        <<: *gen
+        package: notificacionesbd
+        out: internal/notificaciones/bd

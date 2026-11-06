@@ -39,6 +39,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/inventario"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
+	"github.com/HCDestroyer/iris/apps/api/internal/notificaciones"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/config"
@@ -280,9 +281,15 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("IRIS_MENSAJERIA_URL inválida: %w", err)
 	}
+	// Notificaciones push (contratos/push.md): la API registra dispositivos y guarda preferencias; el
+	// worker manda. Aquí solo se lee la configuración para informar su estado (/salud).
+	_, estPush := notificaciones.ConfigDesdeEntorno()
+	notificaciones.AvisarEstado(log, estPush)
+	notif := notificaciones.Nuevo(notificaciones.Config{Estado: estPush, Log: log})
 	handler, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Log: log, Version: cfg.Version, Identidad: id,
-		Idempotencia: nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo, Claves: clavesIdem},
+		NotificacionesPush: func() string { return estPush.Estado },
+		Idempotencia:       nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo, Claves: clavesIdem},
 		Modulos: []func(huma.API){
 			conectorArgos.Registrar,
 			conectorHorus.Registrar,
@@ -294,6 +301,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 			cmp.Agenda().Registrar,
 			com.Registrar,
 			reportes.Nuevo(reportes.Config{}).Registrar,
+			notif.Registrar,
 		},
 		ProxiesConfiables: cfg.ProxiesConfiables,
 		Delegados:         map[string]http.Handler{mensajeria.Prefijo: proxyMsj},

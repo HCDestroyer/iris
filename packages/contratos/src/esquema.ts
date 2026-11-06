@@ -852,6 +852,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dispositivos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Mis teléfonos registrados
+         * @description Una persona con sesión de la app o token propio (un usuario de integración: 403). Solo los tuyos, en la empresa activa. Contrato: `.claude/integration/contratos/push.md`.
+         */
+        get: operations["listarDispositivos"];
+        put?: never;
+        /**
+         * Registrar el teléfono para recibir push
+         * @description Una persona con sesión de la app o token propio (un usuario de integración: 403). Idempotente por token: 201 la primera vez, 200 después (renueva la versión de la app y la sesión). El dispositivo queda en la empresa activa y atado a la sesión o al token de la petición: al cerrar sesión se quita solo. Si el token era de otro usuario, se le quita. Nunca devuelve el token. Emite `dispositivo.registrado`. Contrato: `.claude/integration/contratos/push.md`.
+         */
+        post: operations["registrarDispositivo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dispositivos/{id}/quitar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dejar de recibir push en un teléfono
+         * @description Una persona con sesión de la app o token propio (un usuario de integración: 403). Uno tuyo de la empresa activa; si no existe o no es tuyo, 404. Emite `dispositivo.quitado` (motivo `usuario`). Contrato: `.claude/integration/contratos/push.md`.
+         */
+        post: operations["quitarDispositivo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/empresas": {
         parameters: {
             query?: never;
@@ -5800,6 +5844,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/yo/notificaciones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Mis preferencias de notificaciones
+         * @description Una persona con sesión de la app o token propio (un usuario de integración: 403). De la cuenta (valen en cualquier teléfono). Sin guardar: los valores por defecto con `version: 0`. `push` dice si el servidor puede mandar push («Notificaciones push: sin configurar»). Contrato: `.claude/integration/contratos/push.md`.
+         */
+        get: operations["verPreferenciasNotificaciones"];
+        put?: never;
+        /**
+         * Guardar mis preferencias de notificaciones
+         * @description Una persona con sesión de la app o token propio (un usuario de integración: 403). Reemplaza todo. `version` la que leíste (0 si nunca se guardaron): distinta, 409 `conflicto_version`. `desde` y `hasta` en HH:MM de `zonaHoraria`; iguales, 422 `horario_invalido`. Emite `notificaciones.preferencias_cambiadas`. Contrato: `.claude/integration/contratos/push.md`.
+         */
+        post: operations["guardarPreferenciasNotificaciones"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/zonas": {
         parameters: {
             query?: never;
@@ -7345,6 +7413,29 @@ export interface components {
              * @description Tickets cuyo plazo de resolución cayó ese día, ya pasó y no se resolvieron a tiempo
              */
             vencidos: number;
+        };
+        Dispositivo: {
+            /** Format: date-time */
+            actualizadoEn: string;
+            appVersion: string;
+            /**
+             * Format: int64
+             * @description Empresa en que recibe push; null sin conector
+             */
+            empresaId: number | null;
+            /** Format: int64 */
+            id: number;
+            /** @enum {string} */
+            plataforma: "android";
+            /** Format: date-time */
+            registradoEn: string;
+            /** @description Últimos 6 caracteres del token FCM (nunca el token completo) */
+            tokenFin: string;
+            /**
+             * Format: date-time
+             * @description Último push enviado a este teléfono
+             */
+            ultimoEnvioEn: string | null;
         };
         Distribucion: {
             /** Format: int64 */
@@ -9046,6 +9137,18 @@ export interface components {
             enviadoEn?: string;
             puntos: components["schemas"]["PuntoPosicion"][] | null;
         };
+        EntradaPreferencias: {
+            /** @enum {string} */
+            contenido: "completo" | "remitente";
+            noMolestar: components["schemas"]["NoMolestar"];
+            tipos: components["schemas"]["TiposPush"];
+            /**
+             * Format: int32
+             * @description La versión que leíste (0 si nunca se guardaron)
+             */
+            version: number;
+            zonaHoraria: string;
+        };
         EntradaProgramarOrden: {
             /**
              * Format: int64
@@ -9276,6 +9379,14 @@ export interface components {
             inicio: string;
             /** @enum {string} */
             motivo: "vacaciones" | "enfermedad" | "capacitacion" | "permiso" | "otro";
+        };
+        EntradaRegistrarDispositivo: {
+            /** @description Versión de la app (1.4.0) */
+            appVersion: string;
+            /** @enum {string} */
+            plataforma: "android";
+            /** @description Token nativo de FCM (getDevicePushTokenAsync) */
+            token: string;
         };
         EntradaReiniciarMFA: {
             /** @description Contraseña temporal (mínimo 12 caracteres, distinta de la actual) que el administrador entrega al usuario fuera de banda. Reemplaza la actual; al entrar con ella, el usuario debe cambiarla antes de cualquier otra cosa. Nunca se audita ni va en eventos */
@@ -9581,6 +9692,12 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        EstadoPushVista: {
+            /** @enum {string} */
+            estado: "configurado" | "sin_configurar" | "error";
+            /** @description «Notificaciones push: sin configurar» */
+            texto: string;
+        };
         EstadoRecepcion: {
             /** Format: date-time */
             actualizadoEn: string;
@@ -9600,6 +9717,11 @@ export interface components {
         EstadoSaludBody: {
             /** @enum {string} */
             estado: "ok";
+            /**
+             * @description Push a la app por FCM: sin_configurar sin IRIS_FCM_PROYECTO e IRIS_FCM_CREDENCIALES; error si las credenciales no se pueden leer
+             * @enum {string}
+             */
+            notificacionesPush?: "configurado" | "sin_configurar" | "error";
             version: string;
         };
         EtiquetaConversacion: {
@@ -10616,6 +10738,15 @@ export interface components {
             /** @description Como lo manda Argos (consumo, traslado_entrada, comodato…) */
             tipo: string;
         };
+        NoMolestar: {
+            activo: boolean;
+            /** @description HH:MM en zonaHoraria */
+            desde: string;
+            /** @description HH:MM; menor que desde cruza la medianoche */
+            hasta: string;
+            /** @description Avisar igual lo urgente: una orden asignada o reprogramada para hoy y las menciones */
+            urgenteIgual: boolean;
+        };
         NotaOrden: {
             /** Format: int64 */
             autorId: number | null;
@@ -11325,6 +11456,11 @@ export interface components {
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
+        PaginaDispositivo: {
+            data: components["schemas"]["Dispositivo"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
         PaginaEmpresa: {
             data: components["schemas"]["Empresa"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
@@ -11991,6 +12127,25 @@ export interface components {
              * @description m/s
              */
             velocidad: number | null;
+        };
+        Preferencias: {
+            /** @description Tienes conversaciones.ver: muestra el interruptor de la bandeja */
+            readonly bandejaDisponible: boolean;
+            /**
+             * @description completo: quién y qué dice; remitente: solo «Nuevo mensaje de X»
+             * @enum {string}
+             */
+            contenido: "completo" | "remitente";
+            noMolestar: components["schemas"]["NoMolestar"];
+            readonly push: components["schemas"]["EstadoPushVista"];
+            tipos: components["schemas"]["TiposPush"];
+            /**
+             * Format: int32
+             * @description 0 = nunca guardadas (valores por defecto)
+             */
+            version: number;
+            /** @description Zona IANA (America/Guatemala) */
+            zonaHoraria: string;
         };
         Previsualizacion: {
             /** @description El conector activo de este sistema tiene ese origen */
@@ -13323,6 +13478,16 @@ export interface components {
              */
             plantillaId: number | null;
             plantillas: components["schemas"]["Plantilla"][] | null;
+        };
+        TiposPush: {
+            /** @description «¿Alguien la atiende?» de la bandeja de clientes */
+            bandeja: boolean;
+            /** @description Mensajes del equipo (directos, de tu cuadrilla y de tus órdenes) */
+            chat: boolean;
+            /** @description Cuando alguien te menciona */
+            mencion: boolean;
+            /** @description Órdenes asignadas a ti o reprogramadas */
+            orden: boolean;
         };
         TokenAPI: {
             /** Format: date-time */
@@ -17216,6 +17381,207 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarDispositivos: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaDispositivo"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    registrarDispositivo: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaRegistrarDispositivo"];
+            };
+        };
+        responses: {
+            /** @description Ya estaba registrado: renovado */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dispositivo"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    quitarDispositivo: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dispositivo"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -37082,6 +37448,134 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verPreferenciasNotificaciones: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Preferencias"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    guardarPreferenciasNotificaciones: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaPreferencias"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Preferencias"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

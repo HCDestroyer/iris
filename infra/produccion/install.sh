@@ -44,6 +44,10 @@
 #   --admin-name NAME      name of that administrator (default "Administrator")
 #   --no-admin             do not offer to create an administrator
 #   --skip-backup          with a lab: migrate without a backup first (not recommended)
+#   --fcm-credentials FILE push notifications: Firebase service account JSON; copied to
+#                          <dir>/secrets/ (read-only for the containers) with IRIS_FCM_* in the .env
+#   --fcm-project ID       Firebase project id (default: project_id of the JSON)
+#   --no-fcm               turn push notifications off (keeps the copied file)
 #   -y, --yes              never ask; fail if something required is missing
 #
 # Upgrade options: --version X.Y.Z, --skip-backup (not recommended), -y/--yes.
@@ -95,6 +99,7 @@ esac
 URL="" ARGOS="" HORUS="" WEB_PORT="" API_PORT="" VERSION="" FROM_LAB="" ADMIN_EMAIL="" ADMIN_NAME=""
 SET_ARGOS=false SET_HORUS=false YES=false NO_ADMIN=false WITH_OSRM=false SKIP_BACKUP=false
 KEEP_DB_PASSWORD=false
+FCM_CREDENTIALS="" FCM_PROJECT="" NO_FCM=false
 COMPOSE_ARGS=()
 if [ "$CMD" = compose ] || [ "$CMD" = logs ]; then
     COMPOSE_ARGS=("$@")
@@ -117,6 +122,9 @@ while [ $# -gt 0 ]; do
         --admin-name | --name) need_value "$@"; ADMIN_NAME="$2"; shift 2 ;;
         --no-admin) NO_ADMIN=true; shift ;;
         --skip-backup) SKIP_BACKUP=true; shift ;;
+        --fcm-credentials) need_value "$@"; FCM_CREDENTIALS="$2"; shift 2 ;;
+        --fcm-project) need_value "$@"; FCM_PROJECT="$2"; shift 2 ;;
+        --no-fcm) NO_FCM=true; shift ;;
         -y | --yes) YES=true; shift ;;
         -h | --help) usage 0 ;;
         *) die "unknown option: $1 (see --help)" ;;
@@ -471,7 +479,53 @@ wait_healthy() {
     return 1
 }
 
+# Push notifications (docs/runbooks/notificaciones-push.md). The containers run as the distroless
+# nonroot user (uid/gid 65532) and mount <dir>/secrets read-only at /run/iris/secrets: the folder is
+# root:65532 0750 and the JSON root:65532 0640, so only root and the containers can read it.
+FCM_UID=65532
+FCM_FILE=fcm-service-account.json
+ensure_secrets_dir() {
+    mkdir -p "$DIR/secrets"
+    chown "root:$FCM_UID" "$DIR/secrets"
+    chmod 750 "$DIR/secrets"
+    if [ -f "$DIR/secrets/$FCM_FILE" ]; then
+        chown "root:$FCM_UID" "$DIR/secrets/$FCM_FILE"
+        chmod 640 "$DIR/secrets/$FCM_FILE"
+    fi
+}
+
+# --fcm-credentials FILE [--fcm-project ID] or --no-fcm. The JSON never goes to the .env or the log.
+configure_fcm() {
+    ensure_secrets_dir
+    if $NO_FCM; then
+        env_set IRIS_FCM_PROYECTO ""
+        env_set IRIS_FCM_CREDENCIALES ""
+        log "push notifications off (IRIS_FCM_* emptied; $DIR/secrets/$FCM_FILE kept)"
+        return 0
+    fi
+    [ -n "$FCM_CREDENTIALS" ] || return 0
+    # Absolute path: a name that starts with "-" is never read as an option (and -- below too).
+    FCM_CREDENTIALS="$(realpath -e -- "$FCM_CREDENTIALS")" || die "cannot find the Firebase credentials: $FCM_CREDENTIALS"
+    if [ ! -f "$FCM_CREDENTIALS" ] || [ ! -r "$FCM_CREDENTIALS" ]; then
+        die "cannot read the Firebase credentials: $FCM_CREDENTIALS"
+    fi
+    if ! grep -Eq -- '"type"[[:space:]]*:[[:space:]]*"service_account"' "$FCM_CREDENTIALS" || ! grep -q -- '"private_key"' "$FCM_CREDENTIALS"; then
+        die "$FCM_CREDENTIALS is not a Google service account JSON (Firebase console > Project settings > Service accounts > Generate new private key)"
+    fi
+    local project="$FCM_PROJECT"
+    if [ -z "$project" ]; then
+        project="$(sed -nE 's/.*"project_id"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' -- "$FCM_CREDENTIALS" | head -n1)"
+    fi
+    [[ "$project" =~ ^[a-z][a-z0-9-]{4,61}[a-z0-9]$ ]] || die "invalid Firebase project id: '$project' (use --fcm-project ID)"
+    install -o root -g "$FCM_UID" -m 640 -- "$FCM_CREDENTIALS" "$DIR/secrets/$FCM_FILE.new"
+    mv -f "$DIR/secrets/$FCM_FILE.new" "$DIR/secrets/$FCM_FILE"
+    env_set IRIS_FCM_PROYECTO "$project"
+    env_set IRIS_FCM_CREDENCIALES "/run/iris/secrets/$FCM_FILE"
+    log "push notifications: project $project (credentials in $DIR/secrets/$FCM_FILE, read-only for the containers)"
+}
+
 start_all() {
+    ensure_secrets_dir
     compose up -d --remove-orphans < /dev/null || return 1
     # The lab's osrm container is not an orphan (the service exists under a profile): remove it when
     # OSRM is off. Its data volume is kept.
@@ -796,6 +850,7 @@ cmd_install() {
     fi
     use_release "$VERSION"
     mkdir -p "$DIR/certs"
+    ensure_secrets_dir
 
     # .env. The pending marker goes first: until the end, a re-run resumes this install.
     if [ "$mode" != existing ] && ! $resume; then
@@ -862,6 +917,7 @@ cmd_install() {
     [ -n "$(env_get IRIS_S3_SECRET_KEY)" ] || env_set IRIS_S3_SECRET_KEY "$(rand_alnum 32)"
     check_s3_credentials
     ensure_backup_keys
+    configure_fcm
     chmod 600 "$ENV_FILE"
 
     check_ports
@@ -1061,7 +1117,17 @@ cmd_status() {
     echo
     compose ps -a --format 'table {{.Service}}\t{{.Status}}\t{{.Ports}}' < /dev/null || true
     echo
-    if curl -fsS --max-time 5 "http://127.0.0.1:${api:-8080}/api/v1/salud" < /dev/null; then echo; else echo "API health: NOT answering on 127.0.0.1:${api:-8080}"; fi
+    local salud
+    if salud="$(curl -fsS --max-time 5 "http://127.0.0.1:${api:-8080}/api/v1/salud" < /dev/null)"; then
+        echo "$salud"
+        case "$salud" in
+            *'"notificacionesPush":"configurado"'*) echo "Push notifications: on (project $(env_get IRIS_FCM_PROYECTO))" ;;
+            *'"notificacionesPush":"error"'*) echo "Push notifications: ERROR in the configuration (irisctl logs api; docs/runbooks/notificaciones-push.md)" ;;
+            *) echo "Push notifications: not configured (irisctl install --fcm-credentials FILE)" ;;
+        esac
+    else
+        echo "API health: NOT answering on 127.0.0.1:${api:-8080}"
+    fi
     local last
     last="$(find "$(env_get IRIS_RESPALDO_DIR)" -maxdepth 1 \( -name '*.dump.age' -o -name '*.dump' \) -printf '%T@ %p\n' 2> /dev/null | sort -rn | head -n1 | cut -d' ' -f2- || true)"
     echo "Last backup: ${last:-none}"

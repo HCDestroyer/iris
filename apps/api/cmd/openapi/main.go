@@ -24,6 +24,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/inventario"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
+	"github.com/HCDestroyer/iris/apps/api/internal/notificaciones"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/servidor"
@@ -63,6 +64,7 @@ func escribir(salida string) error {
 			reportes.Nuevo(reportes.Config{}).Registrar,
 			// Lo sirve cmd/mensajeria; la API lo reenvía (mismo origen, /api/v1/mensajeria).
 			mensajeria.Nuevo(mensajeria.Config{}).Registrar,
+			notificaciones.Nuevo(notificaciones.Config{}).Registrar,
 		},
 	})
 	crudo, err := api.OpenAPI().MarshalJSON()
