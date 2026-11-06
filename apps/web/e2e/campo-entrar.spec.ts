@@ -7,7 +7,7 @@ import { TECNICO } from "./datos-campo";
 
 /*
  * Entrada del técnico en la PWA (diseño «Login C · Combinada», nov 2026), en teléfono y escritorio,
- * claro y oscuro: vive en /campo (no la del panel), «Hola, técnico», usuario recordado con «¿No
+ * claro y oscuro: vive en /campo (no la del panel), «Iris Campo», usuario recordado con «¿No
  * eres tú?», el ojo de la contraseña, el error en línea (intentos solo si la API los informa),
  * «¿Olvidaste tu contraseña?», el código de 6 casillas (HeroUI InputOTP) sin «Recordar este
  * teléfono» ni código de respaldo, el aviso «Sin conexión», y sin huella ni «Entrar con Argos».
@@ -72,12 +72,14 @@ test.beforeEach(async ({ context }) => {
     await context.clearCookies();
 });
 
-test("sin recordar: «Hola, técnico» en /campo, correo y contraseña con su teclado, el ojo y sin huella ni Argos", async ({ page, context, baseURL }, info) => {
+test("sin recordar: «Iris Campo» en /campo, correo y contraseña con su teclado, el ojo y sin huella ni Argos", async ({ page, context, baseURL }, info) => {
     await simularApiCampo(page);
     const cuerpos = await simularEntrada(page, context, baseURL ?? "", { sesion: () => iniciada(false) });
     await page.goto("/campo");
-    await expect(page.getByRole("heading", { level: 1, name: "Hola, técnico" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Iris Campo" })).toBeVisible();
     await expect(page.getByRole("img", { name: "Iris" })).toBeVisible();
+    await expect(page.getByText("Entra con tu cuenta de técnico.")).toBeVisible();
+    await expect(page.getByText("Hola, técnico")).toHaveCount(0);
     // Es la entrada de la app (bajo su service worker), no la del panel.
     await expect(page).toHaveURL(/\/campo$/);
     const correo = page.getByLabel("Correo");
@@ -172,7 +174,7 @@ test("código: 6 casillas, «Verificar» y volver, sin «Recordar este teléfono
     expect(cuerpos.at(-1)).toMatchObject({ ruta: "/api/v1/sesion/mfa", cuerpo: { codigo: "481234" } });
     // Volver a la contraseña y entrar con el código bueno.
     await page.getByRole("button", { name: "Volver" }).click();
-    await expect(page.getByRole("heading", { level: 1, name: "Hola, técnico" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Iris Campo" })).toBeVisible();
     await page.getByLabel("Contraseña", { exact: true }).fill("secreta");
     await page.getByRole("button", { name: "Entrar", exact: true }).click();
     codigoBueno = true;
@@ -185,7 +187,7 @@ test("sin conexión y sin una sesión reciente: la entrada lo dice; «¿Olvidast
     await simularApiCampo(page);
     await page.route("**/api/v1/yo", (route) => route.abort("internetdisconnected"));
     await page.goto("/campo");
-    await expect(page.getByRole("heading", { level: 1, name: "Hola, técnico" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Iris Campo" })).toBeVisible();
     await expect(page.getByTestId("aviso-sin-conexion")).toContainText("Sin conexión.");
     await expect(page.getByTestId("aviso-sin-conexion")).toContainText("Conéctate para entrar");
     await captura(page, "05-sin-conexion", info.project.name);

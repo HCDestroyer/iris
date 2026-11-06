@@ -6,8 +6,8 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
 ## Qué hace
 
 - **Sesión:** la del panel (`GET /yo`; sin señal, la última guardada). Un 401 muestra la
-  **entrada del técnico** de la propia app (`_componentes/entrar.tsx`, diseño «Login C»: «Hola,
-  técnico», usuario recordado con «¿No eres tú?» — solo nombre y correo, `iris-campo-ultimo-usuario`
+  **entrada del técnico** de la propia app (`_componentes/entrar.tsx`, opción B del PM: logo centrado con
+  «Iris Campo» y «Entra con tu cuenta de técnico.», «Entrar» en tinta, usuario recordado con «¿No eres tú?» — solo nombre y correo, `iris-campo-ultimo-usuario`
   —, el ojo de la contraseña, errores en línea con los intentos solo si la API los informa,
   «¿Olvidaste tu contraseña?» que explica cómo pedir una temporal, el código de 6 casillas solo con
   `mfaRequerido` y el aviso «Sin conexión»). Vive en /campo, bajo el service worker; el `/entrar`
