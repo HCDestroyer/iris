@@ -4,6 +4,7 @@
 import type { NotaOrden, OrdenCampo } from "@iris/sync";
 import { montar } from "@iris/sync/pruebas";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react-native";
+import { CLARO, OSCURO } from "../src/tema/tokens";
 import { abrirCampo, avisoArriba, paqueteCon, tipos } from "./arnes";
 
 jest.mock("expo-camera", () => ({ CameraView: () => null, useCameraPermissions: () => [null, jest.fn()] }));
@@ -74,7 +75,9 @@ describe.each(["light", "dark"] as const)("acciones de la orden (%s)", (esquema)
             pausas: [{ id: 1, motivo: "otro", nota: "Almuerzo", desdeEstado: "en_sitio", inicio: "2026-10-28T18:10:00Z", fin: null, duracionSeg: null, cierre: null, pausadaPor: 5, cerradaPor: null }],
         });
         expect(await screen.findByTestId("pausa-orden")).toHaveProp("accessibilityLabel", "En pausa desde 12:10 · Almuerzo");
-        expect(screen.getByTestId("reanudar")).toBeTruthy();
+        // «Reanudar» en «tinta», como «Continuar trabajo» (no teal).
+        expect(screen.getByTestId("reanudar")).toHaveStyle({ backgroundColor: (esquema === "light" ? CLARO : OSCURO).texto });
+        expect(screen.getByTestId("reanudar")).not.toHaveStyle({ backgroundColor: (esquema === "light" ? CLARO : OSCURO).primario });
         expect(screen.queryByTestId("accion-principal")).toBeNull();
         expect(screen.queryByTestId("grupo-acciones")).toBeNull();
     });

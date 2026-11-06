@@ -171,7 +171,7 @@ export function AccionesPrincipales({ orden }: { orden: OrdenVista }) {
                     {a.pausa.texto}
                 </p>
                 {a.reanudar ? (
-                    <Boton tamano="lg" className="h-[3.25rem] w-full rounded-full text-base md:h-[3.25rem]" onClick={() => void reanudar()}>
+                    <Boton variante="tinta" tamano="lg" data-slot="reanudar-orden" className="h-[3.25rem] w-full rounded-full text-base md:h-[3.25rem]" onClick={() => void reanudar()}>
                         <Play aria-hidden />
                         Reanudar
                     </Boton>

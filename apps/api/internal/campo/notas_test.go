@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/campo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
 
 func TestNotasEditarYEliminar(t *testing.T) {
@@ -50,6 +51,12 @@ func TestNotasEditarYEliminar(t *testing.T) {
 	_, err = e.m.EditarNota.Ejecutar(ct, campo.EntradaEditarNota{ID: o.ID, NotaID: deDespacho.ID, Version: 1, Texto: "No es mía"})
 	problema(t, err, 403, "nota_ajena")
 	_, err = e.m.EliminarNota.Ejecutar(ct, campo.EntradaEliminarNota{ID: o.ID, NotaID: deDespacho.ID, Version: 1})
+	problema(t, err, 403, "nota_ajena")
+	// Despacho con ordenes.asignar solo en otra zona: no cubre la orden, así que la nota ajena no la cambia.
+	limitado := conAlcance(t, despacho(t), map[string][]contexto.Alcance{
+		"ordenes.ver": {{}}, "ordenes.registrar": {{}}, "ordenes.asignar": {{ZonaID: 987654}},
+	})
+	_, err = e.m.EditarNota.Ejecutar(limitado, campo.EntradaEditarNota{ID: o.ID, NotaID: propia.ID, Version: 2, Texto: "Fuera de mi zona"})
 	problema(t, err, 403, "nota_ajena")
 	deber(e.m.EditarNota.Ejecutar(cd, campo.EntradaEditarNota{ID: o.ID, NotaID: propia.ID, Version: 2, Texto: "Portón negro (corregido por despacho)"}))(t)
 

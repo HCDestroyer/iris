@@ -104,7 +104,7 @@ export function AccionesPrincipales({ orden }: { orden: OrdenVista }) {
                     <Text style={[estilos.textoPausa, { color: colores.tono.warning }]}>{a.pausa.texto}</Text>
                 </View>
                 {a.reanudar ? (
-                    <Boton icono={Play} alPresionar={() => void reanudar()} estilo={estilos.pildora} testID="reanudar">
+                    <Boton variante="tinta" icono={Play} alPresionar={() => void reanudar()} estilo={estilos.pildora} testID="reanudar">
                         Reanudar
                     </Boton>
                 ) : (
