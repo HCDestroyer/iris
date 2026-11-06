@@ -249,7 +249,7 @@ export function CambiarContrasena() {
                         {errors.repetir ? null : <AyudaCumplida id="ayuda-coinciden" texto="Coinciden" cumplida={reglas.coinciden} />}
                     </Tarjeta>
                     <p className="px-1.5 text-[0.9375rem] text-muted-foreground">{TEXTO_SESIONES_CONTRASENA}</p>
-                    <Boton type="submit" tamano="lg" disabled={isSubmitting || !conSenal} className="h-[3.25rem] w-full rounded-full text-base md:h-[3.25rem]">
+                    <Boton type="submit" variante="tinta" tamano="lg" disabled={isSubmitting || !conSenal} className="h-[3.25rem] w-full rounded-full text-base md:h-[3.25rem]">
                         {isSubmitting ? "Guardando…" : "Guardar contraseña"}
                     </Boton>
                 </form>
@@ -408,7 +408,7 @@ function ActivarDosPasos({ correo }: { correo: string }) {
                         </div>
                     </Tarjeta>
                     <p className="px-1.5 text-[0.9375rem] text-muted-foreground">{TEXTO_ACTIVAR_DOS_PASOS}</p>
-                    <Boton type="submit" tamano="lg" disabled={isSubmitting || !conSenal} className="h-[3.25rem] w-full rounded-full text-base md:h-[3.25rem]">
+                    <Boton type="submit" variante="tinta" tamano="lg" disabled={isSubmitting || !conSenal} className="h-[3.25rem] w-full rounded-full text-base md:h-[3.25rem]">
                         <CircleCheck aria-hidden />
                         {isSubmitting ? "Activando…" : "Activar"}
                     </Boton>

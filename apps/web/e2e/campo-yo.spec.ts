@@ -157,6 +157,9 @@ test("cambiar contraseña: pantalla propia, ayudas en verde, 422 por campo y avi
     await expect(page.getByTestId("ayuda-coinciden")).toHaveText("Coinciden");
     await page.getByRole("button", { name: "Mostrar contraseña" }).first().click();
     await expect(page.getByLabel("Contraseña actual", { exact: true })).toHaveAttribute("type", "text");
+    // «Guardar contraseña» en tinta: el fondo es el color del texto (no el teal de la marca).
+    const tinta = await page.evaluate(() => getComputedStyle(document.querySelector(".campo-app") ?? document.body).color);
+    await expect(page.getByRole("button", { name: "Guardar contraseña" })).toHaveCSS("background-color", tinta);
     await captura(page, "02-contrasena", info.project.name);
 
     await page.getByRole("button", { name: "Guardar contraseña" }).click();

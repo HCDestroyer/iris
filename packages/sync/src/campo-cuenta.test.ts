@@ -65,7 +65,7 @@ describe("«Yo» de la app de campo", () => {
         expect(agruparSecreto("JBSW Y3DP EH")).toBe("JBSW Y3DP EH");
         const url = "otpauth://totp/Iris:ana@isp.gt?algorithm=SHA1&digits=6&issuer=Iris&period=30&secret=JBSWY3DPEHPK3PXP";
         expect(enlaceOtpauth({ secreto: "JBSWY3DPEHPK3PXP", url }, "ana@isp.gt")).toBe(url);
-        expect(enlaceOtpauth({ secreto: "JBSWY3DPEHPK3PXP" }, "ana@isp.gt")).toBe("otpauth://totp/Iris%3Aana%40isp.gt?algorithm=SHA1&digits=6&issuer=Iris&period=30&secret=JBSWY3DPEHPK3PXP");
+        expect(enlaceOtpauth({ secreto: "JBSWY3DPEHPK3PXP" }, "ana@isp.gt")).toBe("otpauth://totp/ana%40isp.gt?algorithm=SHA1&digits=6&period=30&secret=JBSWY3DPEHPK3PXP");
         expect(esquemaCodigoActivar.safeParse({ codigo: "123 456" })).toEqual({ success: true, data: { codigo: "123456" } });
         expect(esquemaCodigoActivar.safeParse({ codigo: "12345" }).success).toBe(false);
         expect(estadoDosPasos(true)).toEqual({ texto: "Activa", tono: "success" });

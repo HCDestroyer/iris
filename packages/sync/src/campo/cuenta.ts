@@ -118,15 +118,15 @@ export function agruparSecreto(secreto: string): string {
 }
 
 /**
- * Enlace `otpauth://` para «Abrir app»: el de la API si lo trae (es el del QR del panel) o, si no,
- * uno armado con el secreto como lo arma la API (`issuer=Iris`, SHA1, 6 dígitos, 30 s).
+ * Enlace `otpauth://` para «Abrir app»: el de la API si lo trae (es el del QR del panel, con el
+ * emisor que configura el servidor) o, si no, uno de respaldo con el secreto (SHA1, 6 dígitos,
+ * 30 s) sin fijar un emisor que el servidor no dijo.
  */
 export function enlaceOtpauth(mfa: Partial<Schema<"MFAConfigurado">> & Pick<Schema<"MFAConfigurado">, "secreto">, correo: string): string {
     if (mfa.url?.startsWith("otpauth://")) {
         return mfa.url;
     }
-    const etiqueta = encodeURIComponent(`Iris:${correo}`);
-    return `otpauth://totp/${etiqueta}?algorithm=SHA1&digits=6&issuer=Iris&period=30&secret=${encodeURIComponent(mfa.secreto.replace(/\s+/g, ""))}`;
+    return `otpauth://totp/${encodeURIComponent(correo)}?algorithm=SHA1&digits=6&period=30&secret=${encodeURIComponent(mfa.secreto.replace(/\s+/g, ""))}`;
 }
 
 export const esquemaCodigoActivar = z.object({

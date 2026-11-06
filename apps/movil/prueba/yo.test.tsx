@@ -166,6 +166,11 @@ describe.each(["light", "dark"] as const)("«Yo» (%s)", (esquema) => {
         expect(await screen.findByText("No coincide con la nueva")).toBeTruthy();
         await fireEvent.changeText(screen.getByTestId("campo-repetir"), "una frase bastante larga");
         expect(await screen.findByTestId("ayuda-coinciden")).toHaveTextContent("Coinciden");
+        // Sin corrector ni diccionario en las contraseñas; «Guardar» va en tinta, no en teal.
+        for (const id of ["campo-actual", "campo-nueva", "campo-repetir"]) {
+            expect(screen.getByTestId(id).props).toMatchObject({ autoCorrect: false, spellCheck: false, autoCapitalize: "none" });
+        }
+        expect(screen.getByTestId("guardar-contrasena")).toHaveStyle({ backgroundColor: coloresCampo(oscuro ? OSCURO : CLARO, oscuro).tinta });
         // El ojo muestra lo escrito.
         await fireEvent.press(screen.getAllByRole("button", { name: "Mostrar contraseña" })[0] as never);
         expect(screen.getByTestId("campo-actual").props.secureTextEntry).toBe(false);
@@ -310,7 +315,11 @@ describe.each(["light", "dark"] as const)("«Yo» (%s)", (esquema) => {
 
         await fireEvent.press(screen.getByRole("button", { name: "Abrir app" }));
         expect(abrir).toHaveBeenCalledWith(URL_OTP);
-        expect(screen.getByRole("button", { name: "Copiar clave" })).toBeTruthy();
+        // Sin portapapeles en la app: la clave se selecciona (nada de compartirla por otras apps).
+        expect(screen.queryByRole("button", { name: "Copiar clave" })).toBeNull();
+        expect(screen.getByTestId("clave-dos-pasos").props.selectable).toBe(true);
+        expect(screen.getByText("Mantén presionada la clave para copiarla.")).toBeTruthy();
+        expect(screen.getByTestId("activar-dos-pasos")).toHaveStyle({ backgroundColor: coloresCampo(oscuro ? OSCURO : CLARO, oscuro).tinta });
         expect(screen.getByText(/Desde ahora, al entrar en un equipo nuevo te pide este código/)).toBeTruthy();
 
         // Código equivocado: error en línea y el campo se vacía.

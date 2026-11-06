@@ -24,10 +24,10 @@ import {
     textoBloqueoContrasena,
     type DatosContrasenaPropia,
 } from "@iris/sync/campo";
-import { CircleCheck, Clock, CloudOff, ExternalLink, Share2, ShieldCheck } from "lucide-react-native";
+import { CircleCheck, Clock, CloudOff, ExternalLink, ShieldCheck } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
-import { Linking, Share, StyleSheet, Text, View } from "react-native";
+import { Linking, StyleSheet, Text, View } from "react-native";
 import { ErrorApi, formatearEspera } from "../api/errores";
 import { Aviso, Boton, Campo, CampoCodigo, Cargando, Dialogo, Pila, Tarjeta, Texto } from "../componentes";
 import { AyudaCumplida, EncabezadoPantalla, NumeroPaso } from "../componentes/cuenta";
@@ -242,7 +242,7 @@ export function CambiarContrasena() {
                         </View>
                     </Tarjeta>
                     <Text style={[estilos.nota, { color: colores.textoSuave }]}>{TEXTO_SESIONES_CONTRASENA}</Text>
-                    <Boton cargando={isSubmitting} deshabilitado={!conSenal} alPresionar={() => void enviar()} estilo={estilos.pildora} testID="guardar-contrasena">
+                    <Boton variante="tinta" cargando={isSubmitting} deshabilitado={!conSenal} alPresionar={() => void enviar()} estilo={estilos.pildora} testID="guardar-contrasena">
                         {isSubmitting ? "Guardando…" : "Guardar contraseña"}
                     </Boton>
                 </>
@@ -384,16 +384,12 @@ function ActivarDosPasos({ correo }: { correo: string }) {
                                             Abrir app
                                         </Boton>
                                     </View>
-                                    <View style={estilos.flex}>
-                                        {/* Sin módulo de portapapeles en la app: la hoja del sistema trae «Copiar». */}
-                                        <Boton variante="secundario" icono={Share2} etiqueta="Copiar clave" alPresionar={() => void Share.share({ message: config.mfa.secreto }).catch(() => undefined)}>
-                                            Copiar clave
-                                        </Boton>
-                                    </View>
                                 </View>
+                                {/* Sin módulo de portapapeles en la app: la clave se copia manteniéndola presionada. */}
                                 <Text selectable accessibilityLabel={`Clave: ${secreto}`} testID="clave-dos-pasos" style={[estilos.clave, { color: colores.textoSuave, fontFamily: fuenteMono }]}>
                                     {secreto}
                                 </Text>
+                                <Texto suave>Mantén presionada la clave para copiarla.</Texto>
                             </View>
                         </View>
                         <View style={estilos.cuerpoPaso}>
@@ -412,7 +408,7 @@ function ActivarDosPasos({ correo }: { correo: string }) {
                         </View>
                     </Tarjeta>
                     <Text style={[estilos.nota, { color: colores.textoSuave }]}>{TEXTO_ACTIVAR_DOS_PASOS}</Text>
-                    <Boton icono={CircleCheck} cargando={isSubmitting} deshabilitado={!conSenal} alPresionar={() => void activar()} estilo={estilos.pildora} testID="activar-dos-pasos">
+                    <Boton variante="tinta" icono={CircleCheck} cargando={isSubmitting} deshabilitado={!conSenal} alPresionar={() => void activar()} estilo={estilos.pildora} testID="activar-dos-pasos">
                         {isSubmitting ? "Activando…" : "Activar"}
                     </Boton>
                 </>
