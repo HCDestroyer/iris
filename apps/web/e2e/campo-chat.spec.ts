@@ -50,10 +50,10 @@ async function escribir(page: Page, texto: string) {
     await page.getByRole("button", { name: "Enviar" }).click();
 }
 
-test("«Yo» lleva al chat con los no leídos y la lista muestra vista previa, hora y contador", async ({ page }) => {
+test("«Chat» de la isla lleva a la lista con los no leídos, vista previa, hora y contador", async ({ page }) => {
     await montar(page);
-    await page.goto("/campo?vista=yo");
-    const entrada = page.getByRole("button", { name: /^Chat del equipo \(3 sin leer\)$/ });
+    await page.goto("/campo");
+    const entrada = page.getByRole("navigation", { name: "Secciones de la app" }).getByRole("link", { name: "Chat (3 sin leer)" });
     await expect(entrada).toBeVisible();
     await entrada.click();
     await expect(page.getByRole("heading", { level: 1, name: "Chat del equipo" })).toBeVisible();

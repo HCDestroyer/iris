@@ -15,6 +15,11 @@ export type Pestana = "hoy" | "chat" | "agenda" | "yo";
 /** Chips del encabezado: Hoy · Mañana · Semana. */
 export type ChipDia = "hoy" | "manana" | "semana";
 
+/** Pantallas propias dentro de «Yo» (con su dirección y su «Atrás»). */
+export type SeccionYo = "contrasena" | "dos_pasos";
+
+const SECCIONES_YO: readonly SeccionYo[] = ["contrasena", "dos_pasos"];
+
 export type Vista =
     | { tipo: "lista" }
     /** Sin `paso`: el resumen de la orden. */
@@ -23,7 +28,8 @@ export type Vista =
     /** «Por recibir»: traslados de Argos hacia la bodega del técnico. */
     | { tipo: "recibir" }
     | { tipo: "traslado"; id: number }
-    | { tipo: "yo" }
+    /** «Yo»; con `seccion`, su pantalla de «Cambiar contraseña» o «Verificación en dos pasos». */
+    | { tipo: "yo"; seccion?: SeccionYo }
     /** «Mi bodega» (dentro de «Yo»). */
     | { tipo: "bodega" }
     /** Agenda de un día con la tira de la semana; sin `dia`, mañana. */
@@ -88,8 +94,10 @@ export function vistaDeUrl(busqueda: string): Vista {
             return { tipo: "pendientes" };
         case "recibir":
             return { tipo: "recibir" };
-        case "yo":
-            return { tipo: "yo" };
+        case "yo": {
+            const seccion = SECCIONES_YO.find((x) => x === p.get("seccion"));
+            return seccion ? { tipo: "yo", seccion } : { tipo: "yo" };
+        }
         case "bodega":
             return { tipo: "bodega" };
         case "agenda": {
@@ -119,6 +127,8 @@ export function urlDeVista(v: Vista): string {
             return "/campo?vista=chat-nuevo";
         case "lista":
             return "/campo";
+        case "yo":
+            return v.seccion ? `/campo?vista=yo&seccion=${v.seccion}` : "/campo?vista=yo";
         case "agenda":
             return v.dia ? `/campo?vista=agenda&dia=${v.dia}` : "/campo?vista=agenda";
         default:

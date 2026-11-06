@@ -56,14 +56,13 @@ async function escribir(texto: string) {
 }
 
 describe.each(["light", "dark"] as const)("chat interno (%s)", (esquema) => {
-    it("«Yo» lleva al chat con el punto de no leídos; la lista muestra vista previa y contador", async () => {
+    it("«Chat» de la isla lleva a la lista con vista previa y contador", async () => {
         const { m, chat } = await conChat();
-        await abrirCampo(m, { esquema, chat, vista: { tipo: "yo" } });
+        await abrirCampo(m, { esquema, chat });
         await act(async () => {
             await vaciarPromesas(10);
         });
-        const entrada = await screen.findByLabelText("Chat del equipo (1 sin leer)");
-        await fireEvent.press(entrada);
+        await fireEvent.press(await screen.findByLabelText("Chat (1 sin leer)"));
         const fila = await screen.findByLabelText("Cuadrilla Norte, 1 sin leer");
         expect(within(fila).getByText(/Andrea: La caja NAP 14/)).toBeTruthy();
         // El hilo de la orden en curso se abrió solo (idempotente).

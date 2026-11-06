@@ -36,9 +36,9 @@ import { CLARO } from "../tema/tokens";
 /** Alto mínimo de cualquier zona táctil (WCAG 2.5.8 y guía de Iris: 44 px; con guante, más). */
 export const ZONA_TACTIL = 44;
 
-export type Variante = "primario" | "secundario" | "fantasma" | "peligro";
+export type Variante = "primario" | "tinta" | "secundario" | "fantasma" | "peligro";
 
-const VARIANTE_HEROUI = { primario: "primary", secundario: "outline", fantasma: "ghost", peligro: "danger" } as const;
+const VARIANTE_HEROUI = { primario: "primary", tinta: "primary", secundario: "outline", fantasma: "ghost", peligro: "danger" } as const;
 
 export interface PropsBoton {
     children: ReactNode;
@@ -58,9 +58,17 @@ export interface PropsBoton {
  * texto puede ocupar dos líneas: el alto crece, nunca se corta.
  */
 export function Boton({ children, alPresionar, variante = "primario", icono: Icono, deshabilitado, cargando, etiqueta, estilo, testID }: PropsBoton) {
-    const { colores } = useTema();
+    const { colores, campo } = useTema();
     const texto =
-        variante === "primario" ? colores.sobrePrimario : variante === "peligro" ? colores.fondo : variante === "secundario" ? colores.texto : colores.primario;
+        variante === "primario"
+            ? colores.sobrePrimario
+            : variante === "tinta"
+              ? campo.sobreTinta
+              : variante === "peligro"
+                ? colores.fondo
+                : variante === "secundario"
+                  ? colores.texto
+                  : colores.primario;
     const inactivo = deshabilitado === true || cargando === true;
     return (
         <Button
@@ -71,7 +79,8 @@ export function Boton({ children, alPresionar, variante = "primario", icono: Ico
             accessibilityState={{ disabled: inactivo, busy: cargando === true }}
             testID={testID}
             className="h-auto rounded-lg px-4 py-2"
-            style={[estilos.boton, estilo]}
+            // «Tinta» (acción principal de la app de campo): el color del texto de fondo, sin teal.
+            style={[estilos.boton, variante === "tinta" ? { backgroundColor: campo.tinta } : null, estilo]}
         >
             {cargando ? <Spinner size="sm" color={texto} /> : Icono ? <Icono color={texto} size={18} /> : null}
             <Button.Label className={variante === "fantasma" ? "shrink text-center font-semibold text-accent" : "shrink text-center font-semibold"} style={{ color: texto }}>
@@ -162,6 +171,8 @@ export function Campo({ etiqueta, valor, alCambiar, error, ayuda, sufijo, icono:
                     testID={testID}
                     className="flex-1 px-3 text-base"
                     style={estilos.entrada}
+                    // Una contraseña nunca pasa por el corrector ni el diccionario del teclado.
+                    {...(secreto ? { autoCorrect: false, spellCheck: false, autoCapitalize: "none" as const } : {})}
                     {...resto}
                 />
                 {sufijo ? <Text className="text-sm text-muted">{sufijo}</Text> : null}
@@ -200,6 +211,7 @@ export function CampoCodigo({
     alCompletar,
     error,
     largo = 6,
+    ocultarEtiqueta = false,
 }: {
     etiqueta: string;
     valor: string;
@@ -207,13 +219,17 @@ export function CampoCodigo({
     alCompletar?: (codigo: string) => void;
     error?: string | undefined;
     largo?: number;
+    /** La etiqueta ya se ve como título junto al campo: solo queda como nombre accesible. */
+    ocultarEtiqueta?: boolean;
 }) {
     const { colores } = useTema();
     return (
         <View style={estilos.campo}>
-            <Text className="text-sm font-semibold text-foreground" style={{ color: colores.texto }}>
-                {etiqueta}
-            </Text>
+            {ocultarEtiqueta ? null : (
+                <Text className="text-sm font-semibold text-foreground" style={{ color: colores.texto }}>
+                    {etiqueta}
+                </Text>
+            )}
             <InputOTP
                 maxLength={largo}
                 value={valor}
