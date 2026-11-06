@@ -308,3 +308,34 @@ func TestDisponibilidadDosBarridosALaVez(t *testing.T) {
 		t.Fatalf("filas de auditoría: %d", n)
 	}
 }
+
+func TestUltimoMensajeAutomaticoYVariablesObligatorias(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	b.botActivo(map[string]any{"activo": true, "atiende": "bot", "minutosSinConfirmacion": 30, "minutosSinDisponibles": 3,
+		"saludo": "Hola, ya te atendemos.", "menu": []any{}})
+	// Sin disponibles: el bot saluda y la lista lo muestra como último mensaje automático.
+	num := numeroCliente()
+	b.texto(num, "wamid.u1", "Hola")
+	c := b.conv(num)
+	var ultimo map[string]any
+	for _, x := range b.lista(b.supervisor) {
+		if g := x.(map[string]any); cid(g) == cid(c) {
+			ultimo, _ = g["ultimoMensaje"].(map[string]any)
+		}
+	}
+	if ultimo == nil || ultimo["automatico"] != "bot" || ultimo["direccion"] != "saliente" {
+		t.Fatalf("ultimoMensaje: %v", ultimo)
+	}
+	// Un mensaje del cliente: automatico null.
+	b.texto(num, "wamid.u2", "Gracias")
+	if u := b.conv(num)["ultimoMensaje"].(map[string]any); u["automatico"] != nil {
+		t.Fatalf("ultimoMensaje del cliente: %v", u)
+	}
+	// Las variables de las plantillas dicen si son obligatorias.
+	r := b.api(b.agente, http.MethodGet, fmt.Sprintf("/conversaciones/canales/%d/plantillas", b.canal.ID), nil)
+	b.exigir(r, http.StatusOK)
+	vs := r.cuerpo["data"].([]any)[0].(map[string]any)["variables"].([]any)
+	if len(vs) == 0 || vs[0].(map[string]any)["obligatoria"] != true {
+		t.Fatalf("variables: %v", vs)
+	}
+}

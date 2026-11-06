@@ -3372,7 +3372,7 @@ SELECT c.id, c.empresa_id, c.canal_id, c.numero, c.perfil_nombre, c.cola_id, c.a
     u.nombre AS asignado_nombre,
     ac.nombre AS cliente_nombre, ci.nombre AS contacto_iris_nombre,
     um.direccion AS ultimo_direccion, um.tipo AS ultimo_tipo, um.texto AS ultimo_texto, um.creado_en AS ultimo_creado_en,
-    um.evento AS ultimo_evento,
+    um.evento AS ultimo_evento, um.automatico AS ultimo_automatico,
     (SELECT count(*) FROM mensajeria.conversacion_mensajes m
      WHERE m.conversacion_id = c.id AND m.direccion = 'entrante'
        AND m.seq > coalesce((SELECT l.hasta_seq FROM mensajeria.conversacion_lecturas l WHERE l.conversacion_id = c.id AND l.usuario_id = $1::bigint), 0)
@@ -3442,6 +3442,7 @@ type ResumenConversacionesClienteRow struct {
 	UltimoTexto        *string
 	UltimoCreadoEn     *time.Time
 	UltimoEvento       []byte
+	UltimoAutomatico   *string
 	NoLeidos           int64
 }
 
@@ -3504,6 +3505,7 @@ func (q *Queries) ResumenConversacionesCliente(ctx context.Context, arg ResumenC
 			&i.UltimoTexto,
 			&i.UltimoCreadoEn,
 			&i.UltimoEvento,
+			&i.UltimoAutomatico,
 			&i.NoLeidos,
 		); err != nil {
 			return nil, err
