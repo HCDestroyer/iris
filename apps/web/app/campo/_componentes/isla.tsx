@@ -1,15 +1,15 @@
 "use client";
 
-import type { PlantillaFormulario } from "@iris/sync";
-import { accionesDe, accionesRapidas, avisoIsla, contadoresPestanas, estadoIslaPasos, nombreCliente, pestanaDe, PESTANAS, urlDeVista, type PasoOrden, type Pestana, type PrimarioIsla, type Vista } from "@iris/sync/campo";
-import { Boton, GrupoOpciones, InsigniaEstado, cn, type Tono } from "@iris/ui";
-import { ArrowLeft, ArrowRight, CalendarClock, CalendarDays, Check, CircleCheck, CloudUpload, Building2, FilePlus2, House, KeyRound, PackageOpen, PenLine, Plus, Save, TriangleAlert, UserRound, WifiOff, type LucideIcon } from "lucide-react";
-import { useMemo, useState, type MouseEvent } from "react";
+import { accionesDe, accionesRapidas, avisoIsla, contadoresPestanas, estadoIslaPasos, pestanaDe, PESTANAS, urlDeVista, type PasoOrden, type Pestana, type PrimarioIsla, type Vista } from "@iris/sync/campo";
+import { Boton, cn, type Tono } from "@iris/ui";
+import { ArrowLeft, ArrowRight, CalendarClock, CalendarDays, Check, ChevronRight, CircleCheck, CloudUpload, Building2, Hand, House, KeyRound, PackageOpen, PenLine, Plus, Save, TriangleAlert, UserRound, WifiOff, type LucideIcon } from "lucide-react";
+import { useEffect, useState, type MouseEvent } from "react";
 import { RUTA_ENTRAR } from "./app-campo";
 import { useGuardarPaso, useRecienGuardado, useSinGuardar } from "./borradores";
 import { useCampo, useOrden } from "./contexto";
 import { HojaCampo } from "./hoja";
 import { useInventario } from "./inventario-datos";
+import { useLibres } from "./libres-datos";
 
 const ICONOS: Record<Pestana, LucideIcon> = { hoy: House, recibir: PackageOpen, agenda: CalendarDays, yo: UserRound };
 
@@ -87,7 +87,7 @@ export function IslaMenu({ encogida }: { encogida: boolean }) {
                     {PESTANAS.slice(2).map(boton)}
                 </ul>
             </nav>
-            {/* Se monta al abrir: cada vez empieza sin elegir (con una sola orden, ya elegida). */}
+            {/* Se monta al abrir: cada vez relee el contador de órdenes libres. */}
             {acciones ? <HojaAcciones alCambiar={setAcciones} /> : null}
         </>
     );
@@ -228,110 +228,78 @@ export function AvisoIsla({ alto, pedirEmpresa }: { /** Hay algo abajo (la isla 
 }
 
 /**
- * Hoja del «+» con lo que ya tiene API: «Agregar formulario» a una orden con el trabajo empezado
- * (`orden.agregar_formulario`, también sin señal; solo con `ordenes.registrar`) y «Agendar tarea
- * propia», deshabilitada hasta que exista en la API.
+ * Hoja del «+» (diseño aprobado por el PM, nov 2026): «Agendar tarea propia» (también sin señal) y
+ * «Tomar una orden libre» con su contador (requiere señal; oculta si la empresa no lo permite o sin
+ * permiso). «Agregar formulario» vive en el menú «⋯» de la orden.
  */
 function HojaAcciones({ alCambiar }: { alCambiar: (abierta: boolean) => void }) {
-    const { estado, sesion, motor, ejecutar } = useCampo();
-    const r = useMemo(() => accionesRapidas(estado.ordenes, estado.plantillas, sesion.permisos), [estado.ordenes, estado.plantillas, sesion.permisos]);
-    const ordenes = r.formulario?.ordenes ?? [];
-    const [elegidaId, setOrdenId] = useState<string>("");
-    // Con una sola orden donde se puede, va elegida (también si llega después de abrir la hoja).
-    const ordenId = elegidaId || (ordenes.length === 1 ? String(ordenes[0]?.orden.id) : "");
-    const [plantillaId, setPlantillaId] = useState<string>("");
-    const [ocupado, setOcupado] = useState(false);
-
-    const elegida = ordenes.find((o) => String(o.orden.id) === ordenId) ?? null;
-    const plantilla: PlantillaFormulario | null = elegida?.plantillas.find((p) => String(p.id) === plantillaId) ?? null;
-
-    const agregar = async () => {
-        if (!elegida || !plantilla) {
-            return;
+    const { estado, sesion, navegar } = useCampo();
+    const { libres, cargarLibres } = useLibres();
+    const r = accionesRapidas(sesion.permisos, estado.tomarLibres);
+    const enLinea = estado.conexion !== "sin_conexion";
+    useEffect(() => {
+        if (r.libres && enLinea) {
+            void cargarLibres();
         }
-        setOcupado(true);
-        const orden = elegida.orden;
-        const ok = await ejecutar(
-            () => motor.registrar("orden.agregar_formulario", orden.id, { plantillaId: plantilla.id, versionId: plantilla.versionId }),
-            `«${plantilla.nombre}» agregado a ${orden.numero}`,
-            {
-                // El formulario lleva el id de la operación: quitarlo es el inverso exacto.
-                deshacer: (r) => () => void ejecutar(() => motor.registrar("orden.quitar_formulario", orden.id, { formularioId: r.operacion.id }), `«${plantilla.nombre}» quitado`),
-            },
-        );
-        setOcupado(false);
-        if (ok) {
-            alCambiar(false);
-        }
+    }, [r.libres, enLinea, cargarLibres]);
+    const ir = (v: Vista) => {
+        alCambiar(false);
+        navegar(v);
     };
-
+    const total = libres.estado === "lista" ? (libres.datos?.total ?? null) : null;
     return (
-        <HojaCampo abierto alCambiar={alCambiar} titulo="Acciones rápidas" cambios={plantillaId !== "" && !ocupado} className="rounded-t-[2rem] sm:rounded-[2rem]">
-                <div className="grid gap-3" data-slot="hoja-acciones">
-                    {r.formulario ? (
-                        <section aria-labelledby="titulo-agregar-formulario" className="grid gap-3 rounded-[1.375rem] bg-[var(--campo-panel-2)] p-3">
-                            <div className="flex items-center gap-3">
-                                <span aria-hidden className="grid size-11 shrink-0 place-content-center rounded-full bg-primary text-primary-foreground">
-                                    <FilePlus2 className="size-5" />
-                                </span>
-                                <div className="grid gap-0.5">
-                                    <h3 id="titulo-agregar-formulario" className="font-semibold">
-                                        Agregar formulario
-                                    </h3>
-                                    <p className="text-sm text-muted-foreground">A una orden con el trabajo empezado. Se guarda en el teléfono.</p>
-                                </div>
-                            </div>
-                            {ordenes.length === 0 ? (
-                                <p className="text-sm text-muted-foreground">Ninguna orden en camino o en sitio: empieza una (o reanuda la pausada) para agregarle un formulario.</p>
-                            ) : (
-                                <>
-                                    {ordenes.length > 1 ? (
-                                        <GrupoOpciones
-                                            leyenda="Orden"
-                                            nombre="orden-formulario"
-                                            valor={ordenId || undefined}
-                                            alCambiar={(v) => {
-                                                setOrdenId(v);
-                                                setPlantillaId("");
-                                            }}
-                                            opciones={ordenes.map(({ orden }) => ({ valor: String(orden.id), etiqueta: `${orden.numero} · ${nombreCliente(orden)}` }))}
-                                        />
-                                    ) : elegida ? (
-                                        <p className="text-sm">
-                                            <span className="font-mono">{elegida.orden.numero}</span> · {nombreCliente(elegida.orden)}
-                                        </p>
-                                    ) : null}
-                                    {elegida ? (
-                                        elegida.plantillas.length === 0 ? (
-                                            <p className="text-sm text-muted-foreground">Esta orden ya tiene todos los formularios del catálogo.</p>
-                                        ) : (
-                                            <GrupoOpciones
-                                                leyenda="Plantilla"
-                                                nombre="plantilla-formulario"
-                                                valor={plantillaId || undefined}
-                                                alCambiar={setPlantillaId}
-                                                opciones={elegida.plantillas.map((p) => ({ valor: String(p.id), etiqueta: p.nombre, detalle: `Versión ${p.numeroVersion}` }))}
-                                            />
-                                        )
-                                    ) : null}
-                                    <Boton tamano="lg" className="h-[3.25rem] w-full rounded-full" disabled={!plantilla || ocupado} onClick={() => void agregar()}>
-                                        {plantilla ? `Agregar «${plantilla.nombre}»` : "Elige una plantilla"}
-                                    </Boton>
-                                </>
-                            )}
-                        </section>
-                    ) : null}
-                    <div className="flex items-center gap-3 rounded-[1.375rem] p-3" aria-disabled="true" data-slot="accion-tarea">
-                        <span aria-hidden className="grid size-11 shrink-0 place-content-center rounded-full bg-[var(--campo-panel-2)] text-muted-foreground">
-                            <CalendarClock className="size-5" />
-                        </span>
-                        <div className="grid flex-1 gap-0.5">
-                            <p className="font-semibold text-muted-foreground">Agendar tarea propia</p>
-                            <p className="text-sm text-muted-foreground">Aparecerá en tu agenda y la verá tu supervisor.</p>
-                        </div>
-                        <InsigniaEstado tono="neutral" icono={CalendarClock} texto={r.tarea.motivo} />
-                    </div>
-                </div>
+        <HojaCampo abierto alCambiar={alCambiar} titulo="¿Qué quieres hacer?" className="rounded-t-[2rem] sm:rounded-[2rem]">
+            <ul className="grid divide-y divide-border border-t border-border" data-slot="hoja-acciones">
+                {r.tarea ? (
+                    <li>
+                        <FilaAccion
+                            slot="accion-tarea"
+                            icono={CalendarClock}
+                            titulo="Agendar tarea propia"
+                            detalle="Algo tuyo: recoger material, revisar una caja…"
+                            alPresionar={() => ir({ tipo: "nueva_tarea" })}
+                        />
+                    </li>
+                ) : null}
+                {r.libres ? (
+                    <li>
+                        <FilaAccion
+                            slot="accion-libres"
+                            icono={Hand}
+                            titulo="Tomar una orden libre"
+                            detalle={enLinea ? "Órdenes de tu zona sin técnico" : "Necesita señal"}
+                            cuenta={total}
+                            alPresionar={() => ir({ tipo: "libres" })}
+                        />
+                    </li>
+                ) : null}
+            </ul>
         </HojaCampo>
+    );
+}
+
+function FilaAccion({ slot, icono: Icono, titulo, detalle, cuenta = null, alPresionar }: { slot: string; icono: LucideIcon; titulo: string; detalle: string; cuenta?: number | null; alPresionar: () => void }) {
+    return (
+        <Boton
+            variante="fantasma"
+            data-slot={slot}
+            className="flex h-auto w-full items-center justify-start gap-4 rounded-2xl px-2 py-4 text-left whitespace-normal"
+            aria-label={cuenta !== null ? `${titulo} (${cuenta})` : titulo}
+            onClick={alPresionar}
+        >
+            <span aria-hidden className="grid size-11 shrink-0 place-content-center rounded-2xl bg-[var(--campo-panel-2)] text-foreground">
+                <Icono className="size-5" />
+            </span>
+            <span className="grid flex-1 gap-0.5">
+                <span className="text-[1.0625rem] font-semibold text-foreground">{titulo}</span>
+                <span className="text-sm font-normal text-muted-foreground">{detalle}</span>
+            </span>
+            {cuenta !== null && cuenta > 0 ? (
+                <span aria-hidden className="grid size-8 place-content-center rounded-full bg-[var(--campo-tinta)] text-sm font-bold text-[var(--campo-sobre-tinta)] tabular-nums">
+                    {cuenta > 99 ? "99+" : cuenta}
+                </span>
+            ) : null}
+            <ChevronRight aria-hidden className="size-5 shrink-0 text-muted-foreground" />
+        </Boton>
     );
 }

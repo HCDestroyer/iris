@@ -1,11 +1,11 @@
 "use client";
 
 import type { OrdenVista, RutaCampo } from "@iris/sync";
-import { accionPrincipal, anilloAvance, mosaicoPorRecibir, mosaicoRuta, nombreCliente, resumenHoy } from "@iris/sync/campo";
+import { accionPrincipal, anilloAvance, intercalarTareas, mosaicoPorRecibir, mosaicoRuta, nombreCliente, resumenHoy, tareasDelDia } from "@iris/sync/campo";
 import { Aviso, Boton, Cargando, EstadoVacio, InsigniaEstado, cn } from "@iris/ui";
 import { CalendarX, ChevronRight, Clock, CloudUpload, ListChecks, MapPin, Phone, Play, RefreshCw, Route, TriangleAlert, UserX } from "lucide-react";
 import type { MouseEvent, ReactNode } from "react";
-import { horaCorta, ventanaCita } from "@/lib/campo/fechas";
+import { horaCorta, hoyEnGuatemala, ventanaCita } from "@/lib/campo/fechas";
 import { enlaceComoLlegar } from "@/lib/campo/gps";
 import { TIPOS_ORDEN } from "@/lib/campo/textos";
 import { enlaceTel, principal, telefonos } from "@/lib/datos/telefono";
@@ -13,6 +13,7 @@ import { urlDeVista, useCampo } from "./contexto";
 import { InsigniaOrden } from "./insignias";
 import { useCargarAlAbrir } from "./inventario";
 import { useInventario } from "./inventario-datos";
+import { TarjetaTarea } from "./tareas";
 import type { CargaPaquete } from "./pantallas";
 
 /**
@@ -25,6 +26,9 @@ export function ListaOrdenes({ carga, bajarPaquete }: { carga: CargaPaquete; baj
     const { estado } = useCampo();
     const conRuta = (estado.ruta?.ordenIds?.length ?? 0) > 0;
     const { siguiente, despues, terminadas } = resumenHoy(estado.ordenes);
+    // Las tareas propias de hoy van intercaladas por hora en «Después» (borde punteado).
+    const tareas = tareasDelDia(estado.tareas, hoyEnGuatemala());
+    const entradas = intercalarTareas(despues, (o) => o.cita?.inicio ?? o.programadaInicio, tareas);
     const posicion = (o: OrdenVista) => (conRuta ? (estado.ruta?.ordenIds?.indexOf(o.id) ?? -1) + 1 || null : null);
 
     return (
@@ -69,7 +73,7 @@ export function ListaOrdenes({ carga, bajarPaquete }: { carga: CargaPaquete; baj
                 />
             ) : null}
 
-            {estado.ordenes.length === 0 ? (
+            {estado.ordenes.length === 0 && tareas.length === 0 ? (
                 carga.estado === "cargando" || carga.estado === "inactiva" ? (
                     <Cargando visible texto="Cargando tus órdenes…" />
                 ) : estado.fecha === null ? (
@@ -81,15 +85,21 @@ export function ListaOrdenes({ carga, bajarPaquete }: { carga: CargaPaquete; baj
                 <div role="region" aria-label="Órdenes del día" className="grid gap-4">
                     {siguiente ? <SiguienteOrden orden={siguiente} posicion={posicion(siguiente)} parada={paradaDe(estado.ruta, siguiente.id)} /> : null}
                     <Mosaicos />
-                    {despues.length > 0 ? (
+                    {entradas.length > 0 ? (
                         <section aria-labelledby="titulo-despues" className="grid gap-2">
                             <h3 id="titulo-despues" className="text-[0.8125rem] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
                                 Después
                             </h3>
                             <ol className="grid gap-2" aria-labelledby="titulo-despues">
-                                {despues.map((o) => (
-                                    <FilaOrden key={o.id} orden={o} posicion={posicion(o)} parada={paradaDe(estado.ruta, o.id)} />
-                                ))}
+                                {entradas.map((e) =>
+                                    e.tipo === "orden" ? (
+                                        <FilaOrden key={e.clave} orden={e.orden} posicion={posicion(e.orden)} parada={paradaDe(estado.ruta, e.orden.id)} />
+                                    ) : (
+                                        <li key={e.clave}>
+                                            <TarjetaTarea tarea={e.tarea} />
+                                        </li>
+                                    ),
+                                )}
                             </ol>
                         </section>
                     ) : null}

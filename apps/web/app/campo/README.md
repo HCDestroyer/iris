@@ -51,10 +51,16 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
       **píldora de estado** encima de la isla (`avisoIsla`, la barra discreta de la fase 4: sin
       señal con algo por enviar, rechazos, sesión vencida, empresa no válida) y desde «Yo». En los
       pasos de la orden no hay isla: va la barra «Anterior» / «Siguiente».
-    - **«+»:** hoja de acciones rápidas. «Agregar formulario» a una orden con el trabajo empezado
-      (`orden.agregar_formulario`, sin señal también; solo con `ordenes.registrar` en `GET /yo`,
-      si no, no aparece), con «Deshacer» (`orden.quitar_formulario` del mismo id). «Agendar tarea
-      propia» va deshabilitada con «Próximamente»: no tiene API.
+    - **«+»:** hoja «¿Qué quieres hacer?» (decisión del PM, nov 2026) con dos opciones:
+      «Agendar tarea propia» (`agenda.crear_tarea`) abre **Nueva tarea** (`?vista=nueva_tarea`,
+      `_componentes/tareas.tsx`: qué, día, hora, chips 15/30/60/120, orden ligada opcional;
+      react-hook-form + `esquemaTarea`; va por la cola como `tarea.crear`, también sin señal) y
+      «Tomar una orden libre» con su contador (`ordenes.tomar` y `tomarLibres` del paquete; oculta
+      si no) abre **Órdenes libres** (`?vista=libres`, `_componentes/libres.tsx`: «Tomarla» con
+      confirmación; requiere señal, nunca por la cola; 409 `orden_ya_tomada` → aviso con el nombre
+      de quien la tomó y la orden sale de la lista). Las tareas aparecen en «Después» y en la
+      Agenda con borde punteado, «Hecha» y «Anular». «Agregar formulario» ya no está en el «+»: va
+      al menú «⋯» de la orden.
     - **Agenda «Mañana» y «Semana»** (`?vista=agenda[&dia=]`, `?vista=semana`): tira de 7 días con
       el día elegido en teal y las citas en bloques (en curso en tinta, sin formulario en aviso).
       El técnico no tiene `agenda.ver`: se lee `GET /campo/paquete?fecha=<hoy+6>` con señal y queda
