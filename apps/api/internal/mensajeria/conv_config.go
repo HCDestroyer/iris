@@ -12,6 +12,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	identidadbd "github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad/bd"
 )
 
@@ -120,6 +121,10 @@ func nuevoConfigurarCanal(m *Modulo) *auditoria.Caso[EntradaConfigurarCanal, Can
 	return auditoria.Nuevo(auditoria.Caso[EntradaConfigurarCanal, Canal]{
 		Accion: "canales.configurar", Permiso: nucleo.PermCanalesConfigurar,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaConfigurarCanal) (Canal, error) {
+			// Como la bandeja: solo una persona con sesión (no un token ni una integración).
+			if actor := contexto.ActorDe(ctx); actor.Tipo != contexto.ActorUsuario || actor.ID == 0 {
+				return Canal{}, nucleo.NoEncontrado("El número no existe")
+			}
 			if err := validarUsos(in.Usos, in.AvisosEmpresa); err != nil {
 				return Canal{}, err
 			}

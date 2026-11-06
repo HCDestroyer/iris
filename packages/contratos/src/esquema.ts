@@ -7629,10 +7629,12 @@ export interface components {
         };
         EntradaConsentimientoNumero: {
             /**
-             * @description El contacto aceptó (o pidió no recibir) mensajes por WhatsApp
+             * @description El contacto aceptó (o pidió no recibir) mensajes por WhatsApp. acepta exige conversaciones.supervisar
              * @enum {string}
              */
             estado: "acepta" | "baja";
+            /** @description Obligatorio para registrar acepta sobre una baja que pidió el propio cliente (queda auditado) */
+            motivo?: string;
         };
         EntradaContacto: {
             /** Format: email */

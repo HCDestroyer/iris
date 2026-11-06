@@ -15,6 +15,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
 
 // Contactos de una conversación (contratos/conversaciones.md §5): asociar un cliente de Argos (solo
@@ -299,8 +300,9 @@ func nuevoConfirmarCliente(m *Modulo) *auditoria.Caso[EntradaAccionConv, Convers
 
 // EntradaConsentimientoNumero es POST /contactos-iris/{id}/consentimiento.
 type EntradaConsentimientoNumero struct {
-	ID     int64  `json:"-"`
-	Estado string `json:"estado" enum:"acepta,baja" doc:"El contacto aceptó (o pidió no recibir) mensajes por WhatsApp"`
+	ID     int64   `json:"-"`
+	Estado string  `json:"estado" enum:"acepta,baja" doc:"El contacto aceptó (o pidió no recibir) mensajes por WhatsApp. acepta exige conversaciones.supervisar"`
+	Motivo *string `json:"motivo,omitempty" minLength:"5" maxLength:"300" doc:"Obligatorio para registrar acepta sobre una baja que pidió el propio cliente (queda auditado)"`
 }
 
 // ConsentimientoNumero es el permiso vigente de un número.
@@ -328,8 +330,27 @@ func nuevoConsentimientoNumero(m *Modulo) *auditoria.Caso[EntradaConsentimientoN
 			}
 			t.FijarEmpresa(a.empresa)
 			t.FijarEntidad("contacto_iris", k.ID)
+			var motivo *string
+			if in.Estado == "acepta" {
+				// Habilitar el contacto es de supervisión (permiso sensible), y nunca anula en silencio la
+				// baja que pidió el propio cliente: para eso hace falta un motivo, que queda auditado.
+				if !contexto.PermisosDe(ctx).Tiene(string(nucleo.PermConversacionesSupervisar)) {
+					return ConsentimientoNumero{}, nucleo.Prohibido("Registrar el permiso de contacto es de supervisión (conversaciones.supervisar)")
+				}
+				v, err := q.ConsentimientoNumeroVigente(ctx, mensajeriabd.ConsentimientoNumeroVigenteParams{Empresa: a.empresa, Telefono: k.Telefono})
+				if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+					return ConsentimientoNumero{}, err
+				}
+				if err == nil && v.Estado == "baja" && v.Origen == "cliente" {
+					if in.Motivo == nil || len(strings.TrimSpace(*in.Motivo)) < 5 {
+						return ConsentimientoNumero{}, reglaConv("baja_del_cliente", "El propio cliente pidió la baja: para anularla escribe el motivo")
+					}
+					motivo = nombrePtr(strings.TrimSpace(*in.Motivo))
+					t.Anotar(map[string]any{"anula_baja_del_cliente": v.ID, "motivo": *motivo})
+				}
+			}
 			f, err := q.InsertarConsentimientoNumero(ctx, mensajeriabd.InsertarConsentimientoNumeroParams{EmpresaID: k.EmpresaID, Telefono: k.Telefono,
-				Estado: in.Estado, Origen: "agente", OcurridoEn: m.ahora(), RegistradoPor: &a.usuario})
+				Estado: in.Estado, Origen: "agente", OcurridoEn: m.ahora(), RegistradoPor: &a.usuario, Motivo: motivo})
 			if err != nil {
 				return ConsentimientoNumero{}, err
 			}
@@ -359,6 +380,7 @@ func nuevoDesasociar(m *Modulo) *auditoria.Caso[EntradaAccionConv, ConversacionC
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaAccionConv) (ConversacionClienteDetalle, error) {
 			return m.accionConv(ctx, t, in.ID, in.Version, func(a alcanceConv, _ *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
 				c.ClienteID, c.ServicioID, c.ContactoIrisID, c.ProspectoID, c.Asociacion = nil, nil, nil, nil, nil
+				c.ClienteVerificado, c.VerificadoPor = false, nil
 				return t.Emitir("conversacion.cliente_asociado", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID, "cliente_id": nil,
 					"servicio_id": nil, "asociacion": nil, "actor_id": a.usuario})
 			})
@@ -402,6 +424,11 @@ func nuevoContactoIrisConv(m *Modulo) *auditoria.Caso[EntradaContactoIrisConv, C
 
 // MarshalJSON: sin la nota.
 func (e EntradaContactoIrisConv) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]any{"id": e.ID, "version": e.Version, "nombre": e.Nombre, "tipo": e.Tipo, "largo_nota": len([]rune(e.Nota))})
+}
+
+// MarshalJSON: sin la nota.
+func (e EntradaActualizarContactoIris) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]any{"id": e.ID, "version": e.Version, "nombre": e.Nombre, "tipo": e.Tipo, "largo_nota": len([]rune(e.Nota))})
 }
 

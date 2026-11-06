@@ -115,19 +115,25 @@ func plantillasDeCanal(c mensajeriabd.MensajeriaCanal) map[string]PlantillaMeta 
 	return p
 }
 
-// permisoPlantilla: una plantilla exige cliente de Argos sin baja; fuera de la ventana, además un
-// permiso vigente acepta (§6.4 del contrato con Argos).
+// permisoPlantilla: una plantilla nunca sale a un número con baja vigente (BAJA por chat o registrada
+// a mano), haya o no cliente. Fuera de la ventana exige además cliente de Argos verificado con
+// permiso vigente acepta (§6.4 del contrato con Argos) o contacto de Iris con acepta por número.
 func permisoPlantilla(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaConversacion, fueraDeVentana bool) error {
+	v, err := q.ConsentimientoNumeroVigente(ctx, mensajeriabd.ConsentimientoNumeroVigenteParams{Empresa: empresaDeConv(c), Telefono: c.Numero})
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	porNumero := ""
+	if err == nil {
+		porNumero = v.Estado
+	}
+	if porNumero == "baja" {
+		return reglaConv(MotivoBaja, "Ese número pidió no recibir mensajes por WhatsApp")
+	}
 	if c.ClienteID == nil {
 		// Contacto de Iris (o desconocido): el permiso es por número.
-		v, err := q.ConsentimientoNumeroVigente(ctx, mensajeriabd.ConsentimientoNumeroVigenteParams{Empresa: empresaDeConv(c), Telefono: c.Numero})
-		switch {
-		case err == nil && v.Estado == "baja":
-			return reglaConv(MotivoBaja, "Ese número pidió no recibir mensajes por WhatsApp")
-		case err == nil && v.Estado == "acepta" && c.ContactoIrisID != nil:
+		if porNumero == "acepta" && c.ContactoIrisID != nil {
 			return nil
-		case err != nil && !errors.Is(err, pgx.ErrNoRows):
-			return err
 		}
 		if fueraDeVentana {
 			return reglaConv(MotivoSinPermiso, "Fuera de la ventana de 24 h solo se escribe a un cliente de Argos (o a un contacto de Iris) con permiso de contacto")
@@ -137,7 +143,7 @@ func permisoPlantilla(ctx context.Context, q *mensajeriabd.Queries, c mensajeria
 	if fueraDeVentana && !c.ClienteVerificado {
 		return clienteSinConfirmar()
 	}
-	v, err := q.ConsentimientoVigente(ctx, mensajeriabd.ConsentimientoVigenteParams{EmpresaID: empresaDeConv(c), ClienteID: *c.ClienteID, Canal: CanalWhatsApp})
+	vc, err := q.ConsentimientoVigente(ctx, mensajeriabd.ConsentimientoVigenteParams{EmpresaID: empresaDeConv(c), ClienteID: *c.ClienteID, Canal: CanalWhatsApp})
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		if fueraDeVentana {
@@ -146,7 +152,7 @@ func permisoPlantilla(ctx context.Context, q *mensajeriabd.Queries, c mensajeria
 		return nil
 	case err != nil:
 		return err
-	case v.Estado == "baja":
+	case vc.Estado == "baja":
 		return reglaConv(MotivoBaja, "El cliente pidió no recibir mensajes por WhatsApp")
 	}
 	return nil
