@@ -75,9 +75,24 @@ adjuntos. Lo que agrega lo nativo: cámara del sistema, escáner de códigos y G
   faltó (cantidad o series) y firma; la recepción va a la cola con `motor.recibirTraslado`
   (`src/campo/recepcion.ts`, con la misma guarda). Si la firma da 404 (el traslado aún no llega a
   Iris) se reintenta sola; `traslado_no_encontrado` solo se descarta.
-- **«Yo»:** «Mi bodega» (existencias, equipos con serie y movimientos, solo lectura, con
-  «Reintentar»), actualizar el día, cambiar de empresa y cerrar sesión (enviar y salir, o salir
-  conservando lo pendiente). Las lecturas de inventario (`src/campo/inventario.tsx`) se hacen con
+- **«Yo»** (diseño aprobado por el PM, nov 2026; `src/pantallas/Yo.tsx` y `Cuenta.tsx`): el
+  nombre y «Rol · Empresa» de `GET /yo` (la cuadrilla no tiene nombre en `/yo`: no se muestra).
+  **Apariencia** Teléfono · Claro · Oscuro (`Segmentado`), guardada en el almacén de claves del
+  teléfono (`iris-campo-apariencia`): `ProveedorTema` elige `crearTema(oscuro)` y
+  `Uniwind.setTheme("light" | "dark" | "system")` al instante; «Teléfono» sigue al sistema.
+  **Seguridad:** «Cambiar contraseña» y «Verificación en dos pasos» en pantallas propias de la pila
+  (`{ tipo: "yo", seccion }`, «Atrás» vuelve y salir con algo escrito pregunta, también con el
+  «Atrás» de Android) y «Desbloquear con huella». Contraseña: validación espejo de la API
+  (`esquemaContrasenaPropia` de `@iris/sync/campo`) con las ayudas en verde, `POST
+  /yo/contrasena` con `Idempotency-Key`, 422 por campo, 429 `demasiados_intentos` (la API cerró
+  la sesión: «Ir a iniciar sesión» conserva lo pendiente) y sin señal no se intenta (nada de esto
+  va a la cola). Dos pasos apagada: `POST /yo/mfa` una vez por intento con una clave nueva (no es
+  repetible), «Abrir app» (`otpauth://` de la API), «Copiar clave» (la hoja del sistema: la app no
+  trae módulo de portapapeles; la clave también se puede seleccionar) y el código de 6 dígitos →
+  `POST /yo/mfa/activar`; activa, solo informa (desactivar no existe: la reinicia un admin).
+  **Este teléfono:** «Mi bodega» (existencias, equipos con serie y movimientos, solo lectura, con
+  «Reintentar»), «Por enviar», actualizar el día, cambiar de empresa y «Cerrar sesión» de contorno
+  rojo (enviar y salir, o salir conservando lo pendiente). Las lecturas de inventario (`src/campo/inventario.tsx`) se hacen con
   señal y quedan en memoria mientras la sesión está abierta.
 - **Por enviar:** la cola, lo que espera archivos, archivos por subir y los rechazos con su motivo
   (Descartar / Rehacer / Descartar todo de esta orden), con «Reintentar».
@@ -198,7 +213,10 @@ empresa, orden cancelada al sincronizar) apagan el GPS; cierre de sesión pendie
 iOS; compresión y temporales de la cámara; HTTPS obligatorio; base64; escáner por campo
 (`prueba/escaner.test.tsx`: abre con su objetivo, no acepta con un cuadro, solo cuenta lo del
 recuadro, lista varios códigos y llena el campo correcto, «Seguir escaneando», QR con serie y MAC,
-aviso de repetido, linterna y sin permiso, con `onBarcodeScanned` simulado).
+aviso de repetido, linterna y sin permiso, con `onBarcodeScanned` simulado); «Yo»
+(`prueba/yo.test.tsx`, claro y oscuro: «Rol · Empresa», los tres modos de apariencia y la
+guardada al abrir, cambiar contraseña con sus ayudas, 422, 429 y sin señal, salir con cambios con
+el botón y con «Atrás» de Android, y los dos pasos completos con la API simulada).
 El adaptador SQLite se prueba en `packages/sync` con `node:sqlite`.
 
 ## APK

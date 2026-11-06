@@ -113,6 +113,8 @@ export interface OpcionesArnes {
     sesion?: SesionCampo;
     /** Margen seguro del teléfono (barra de estado, muesca); sin él, 0 en todos los lados. */
     margen?: { top: number; bottom: number; left: number; right: number };
+    /** «Cerrar sesión» de la app (por defecto, no hace nada). */
+    cerrarSesion?: (opciones: { conservarPendientes: boolean }) => Promise<void>;
 }
 
 export async function abrirCampo(m: Montaje, o: OpcionesArnes = {}) {
@@ -120,7 +122,7 @@ export async function abrirCampo(m: Montaje, o: OpcionesArnes = {}) {
     const servicios: ServiciosNativos = { tomarFoto: async () => null, posicion: async () => null, enLinea: o.enLinea ?? (() => true), ...o.servicios };
     await render(
         <TemaDePrueba esquema={o.esquema ?? "light"} {...(o.margen ? { margen: o.margen } : {})}>
-            <ProveedorCampo motor={m.motor} sesion={o.sesion ?? sesion} servicios={servicios} cerrarSesion={async () => undefined} vistaInicial={o.vista ?? { tipo: "lista" }}>
+            <ProveedorCampo motor={m.motor} sesion={o.sesion ?? sesion} servicios={servicios} cerrarSesion={o.cerrarSesion ?? (async () => undefined)} vistaInicial={o.vista ?? { tipo: "lista" }}>
                 <ProveedorInventario inventario={inventario}>
                     <ProveedorAgenda leer={inventario.agenda}>
                         <Marco empresa={null} alSesionVencida={jest.fn()} />

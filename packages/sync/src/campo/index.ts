@@ -5,6 +5,7 @@
 export * from "./acciones-orden";
 export * from "./cierre";
 export * from "./codigos";
+export * from "./cuenta";
 export * from "./escaneo";
 export * from "./entrar";
 export * from "./envio";

@@ -134,10 +134,10 @@ test("programada: «Empezar trabajo» y [En camino | No se pudo]; «En camino» 
 test("pausada: solo el aviso naranja «En pausa desde HH:MM · motivo» y «Reanudar»", async ({ page }) => {
     await abrir(page, conEstado("pausada", PAUSADA));
     await expect(page.getByTestId("pausa-orden")).toHaveText("En pausa desde 12:10 · Almuerzo");
-    // «Reanudar» en «tinta», como «Continuar trabajo» (no teal): su fondo es el token `--iris-tinta`.
+    // «Reanudar» en «tinta», como «Continuar trabajo» (no teal): su fondo es el color del texto (`--hx-text`).
     const reanudar = await page.locator('[data-slot="reanudar-orden"]').evaluate((b) => {
         const muestra = document.createElement("div");
-        muestra.style.background = "var(--iris-tinta)";
+        muestra.style.background = "var(--hx-text)";
         document.body.append(muestra);
         const tinta = getComputedStyle(muestra).backgroundColor;
         muestra.style.background = "var(--hx-primary)";

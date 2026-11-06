@@ -21,6 +21,8 @@ export type PropsGrupoSegmentado<V extends string> = {
     /** Solo lectura (p. ej. una orden en pausa): se ve la elegida, nada se puede cambiar. */
     deshabilitado?: boolean;
     className?: string;
+    /** Clases de cada opción sobre las de siempre (p. ej. más alta en la app de campo). */
+    claseOpcion?: string;
 };
 
 const FLECHAS = new Set(["ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown", "Home", "End"]);
@@ -30,7 +32,7 @@ const FLECHAS = new Set(["ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown", "Hom
  * selección única (`role="radiogroup"`, cada opción `role="radio"`). Como un grupo de radios, las
  * flechas mueven y eligen; siempre queda una elegida.
  */
-export function GrupoSegmentado<V extends string>({ etiqueta, opciones, valor, alCambiar, deshabilitado = false, className }: PropsGrupoSegmentado<V>) {
+export function GrupoSegmentado<V extends string>({ etiqueta, opciones, valor, alCambiar, deshabilitado = false, className, claseOpcion }: PropsGrupoSegmentado<V>) {
     // React Aria mueve el foco con las flechas; la opción que lo recibe así queda elegida.
     const conFlechas = useRef(false);
     return (
@@ -71,6 +73,7 @@ export function GrupoSegmentado<V extends string>({ etiqueta, opciones, valor, a
                             // Opción elegida inconfundible en claro y oscuro: color de marca (selección) en texto y borde.
                             "data-selected:bg-background data-selected:font-semibold data-selected:text-primary data-selected:shadow-[0_0_0_1px_var(--hx-primary)]",
                             "[&_svg]:size-4",
+                            claseOpcion,
                         )}
                     >
                         {Icono ? <Icono aria-hidden /> : null}

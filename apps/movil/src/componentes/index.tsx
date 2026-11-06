@@ -79,7 +79,7 @@ export function Boton({ children, alPresionar, variante = "primario", icono: Ico
             accessibilityState={{ disabled: inactivo, busy: cargando === true }}
             testID={testID}
             className="h-auto rounded-lg px-4 py-2"
-            // «Tinta»: la acción principal neutra de la orden (negro en claro, casi blanco en oscuro).
+            // «Tinta» (acción principal de la app de campo): el color del texto de fondo, sin teal.
             style={[estilos.boton, variante === "tinta" ? { backgroundColor: campo.tinta } : null, estilo]}
         >
             {cargando ? <Spinner size="sm" color={texto} /> : Icono ? <Icono color={texto} size={18} /> : null}
@@ -171,6 +171,8 @@ export function Campo({ etiqueta, valor, alCambiar, error, ayuda, sufijo, icono:
                     testID={testID}
                     className="flex-1 px-3 text-base"
                     style={estilos.entrada}
+                    // Una contraseña nunca pasa por el corrector ni el diccionario del teclado.
+                    {...(secreto ? { autoCorrect: false, spellCheck: false, autoCapitalize: "none" as const } : {})}
                     {...resto}
                 />
                 {sufijo ? <Text className="text-sm text-muted">{sufijo}</Text> : null}
@@ -209,6 +211,7 @@ export function CampoCodigo({
     alCompletar,
     error,
     largo = 6,
+    ocultarEtiqueta = false,
 }: {
     etiqueta: string;
     valor: string;
@@ -216,13 +219,17 @@ export function CampoCodigo({
     alCompletar?: (codigo: string) => void;
     error?: string | undefined;
     largo?: number;
+    /** La etiqueta ya se ve como título junto al campo: solo queda como nombre accesible. */
+    ocultarEtiqueta?: boolean;
 }) {
     const { colores } = useTema();
     return (
         <View style={estilos.campo}>
-            <Text className="text-sm font-semibold text-foreground" style={{ color: colores.texto }}>
-                {etiqueta}
-            </Text>
+            {ocultarEtiqueta ? null : (
+                <Text className="text-sm font-semibold text-foreground" style={{ color: colores.texto }}>
+                    {etiqueta}
+                </Text>
+            )}
             <InputOTP
                 maxLength={largo}
                 value={valor}

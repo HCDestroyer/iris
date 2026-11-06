@@ -27,8 +27,8 @@ const VARIANTE_HEROUI = {
 const AJUSTE_VARIANTE: Record<VarianteBoton, string> = {
     // La acción primaria de la vista: única con halo (solo en oscuro, por token).
     primario: "shadow-glow hover:shadow-glow-fuerte",
-    // La acción principal de una pantalla del técnico («Empezar trabajo»): neutra, sin halo.
-    tinta: "bg-tinta text-sobre-tinta shadow-none! [--button-bg:var(--iris-tinta)] [--button-fg:var(--iris-sobre-tinta)] [--button-bg-hover:color-mix(in_oklab,var(--iris-tinta)_88%,var(--iris-sobre-tinta))] hover:bg-[color-mix(in_oklab,var(--iris-tinta)_88%,var(--iris-sobre-tinta))]",
+    // Acción principal en tinta (app de campo): fondo del color del texto y texto del fondo, sin halo.
+    tinta: "shadow-none hover:shadow-none [--hx-glow-brand:transparent] [--button-bg:var(--hx-text)] [--button-fg:var(--hx-bg)] [--button-bg-hover:color-mix(in_oklab,var(--hx-text)_88%,var(--hx-bg))] [--button-bg-pressed:color-mix(in_oklab,var(--hx-text)_80%,var(--hx-bg))]",
     secundario: "text-foreground shadow-[0_0_0_1px_var(--hx-border)]",
     contorno: "",
     fantasma: "",

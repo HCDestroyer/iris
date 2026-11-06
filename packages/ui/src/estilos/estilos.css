@@ -54,10 +54,6 @@
     --radius-lg: calc(var(--hx-radius) * 1.5);
     --radius-card: var(--hx-radius-card);
 
-    /* «Tinta»: la acción principal neutra (negro en claro, casi blanco en oscuro), decisión del PM. */
-    --color-tinta: var(--iris-tinta);
-    --color-sobre-tinta: var(--iris-sobre-tinta);
-
     --shadow-glow: 0 0 18px var(--hx-glow-brand);
     --shadow-glow-fuerte: 0 0 26px var(--hx-glow-brand);
 }
@@ -89,13 +85,9 @@
 :root {
     --hx-grafico-1: #2a78d6;
     --hx-grafico-2: #eb6834;
-    --iris-tinta: #0f1a1f;
-    --iris-sobre-tinta: #ffffff;
 }
 .dark,
 [data-theme="dark"] {
     --hx-grafico-1: #3987e5;
     --hx-grafico-2: #d95926;
-    --iris-tinta: #eef2f3;
-    --iris-sobre-tinta: #0f1a1f;
 }
