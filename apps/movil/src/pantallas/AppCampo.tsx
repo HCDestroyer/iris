@@ -21,6 +21,7 @@ import type { SesionCampo } from "../sesion/sesion";
 import { useTema } from "../tema/tema";
 import type { ApiPush } from "../push/api";
 import { ProveedorPush } from "../push/contexto";
+import { cerrarPushDeSesion } from "../push/locales";
 import type { RegistroDispositivo } from "../push/registro";
 import type { ServicioPush } from "../push/servicio";
 import { Marco } from "./Marco";
@@ -263,8 +264,11 @@ function CampoAbierto({
                 await abierto.borrar();
             }
             deps.vaciarCacheFotos();
-            // Este teléfono deja de recibir push de esta persona (el servidor también los quita al cerrar la sesión).
-            await deps.push?.registro?.quitarTodos(sesion.usuarioId);
+            // Push: se borra lo guardado y lo visible, y este teléfono deja de recibir los de esta persona
+            // (con tope de 3 s; el servidor también los quita al cerrar la sesión).
+            if (deps.push) {
+                await cerrarPushDeSesion({ servicio: deps.push.servicio, registro: deps.push.registro, claves: deps.claves, usuarioId: sesion.usuarioId, conservarPendientes });
+            }
             try {
                 await deps.cerrarSesionApi(sesion.usuarioId);
             } catch (e) {

@@ -9,23 +9,13 @@ import * as Notifications from "expo-notifications";
 import { Linking, Platform } from "react-native";
 import type { AlmacenClaves } from "../entorno";
 import type { RespuestaPush } from "./acciones";
+import { borrarGrupo, guardarLineasDeGrupo, lineasDeGrupo } from "./locales";
 import { ACCIONES, armarNotificacion, CANALES, CATEGORIAS, categoriaDe, leerMensajePush, type AccionPush, type MensajePush } from "./mensaje";
 import type { PermisoPush, ServicioPush } from "./servicio";
 
 /** Marca de las notificaciones que arma la app (las muestra el handler; un push crudo, no). */
 const LOCAL = "__iris_local";
 const PAQUETE = "gt.horus.iris.campo";
-
-const claveGrupo = (grupo: string) => `iris-push-grupo-${grupo}`;
-
-export function lineasDeGrupo(claves: AlmacenClaves, grupo: string): string[] {
-    try {
-        const v: unknown = JSON.parse(claves.leer(claveGrupo(grupo)) ?? "[]");
-        return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-    } catch {
-        return [];
-    }
-}
 
 /** El `data` del mensaje (todo texto), de un push recibido o de una notificación nuestra. */
 function dataDe(n: Notifications.Notification): Record<string, unknown> {
@@ -54,7 +44,7 @@ function respuestaDe(r: Notifications.NotificationResponse): RespuestaPush | nul
 export async function presentarMensaje(m: MensajePush, claves: AlmacenClaves): Promise<void> {
     const n = armarNotificacion(m, lineasDeGrupo(claves, m.grupo));
     if (n.lineas.length > 0) {
-        claves.escribir(claveGrupo(m.grupo), JSON.stringify(n.lineas));
+        guardarLineasDeGrupo(claves, m.grupo, n.lineas);
     }
     await Notifications.scheduleNotificationAsync({
         identifier: n.identificador,
@@ -70,7 +60,7 @@ export async function presentarMensaje(m: MensajePush, claves: AlmacenClaves): P
 }
 
 export async function quitarGrupoNativo(grupo: string, claves: AlmacenClaves): Promise<void> {
-    claves.borrar(claveGrupo(grupo));
+    borrarGrupo(claves, grupo);
     try {
         await Notifications.dismissNotificationAsync(grupo);
     } catch {
@@ -178,6 +168,9 @@ export function servicioPushNativo(claves: () => AlmacenClaves): ServicioPush {
         },
         presentar: (m) => presentarMensaje(m, claves()),
         quitarGrupo: (grupo) => quitarGrupoNativo(grupo, claves()),
+        async quitarTodas() {
+            await Notifications.dismissAllNotificationsAsync();
+        },
         async abrirAjustes() {
             try {
                 await Linking.sendIntent("android.settings.APP_NOTIFICATION_SETTINGS", [{ key: "android.provider.extra.APP_PACKAGE", value: PAQUETE }]);

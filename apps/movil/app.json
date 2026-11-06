@@ -2,7 +2,7 @@
     "expo": {
         "name": "Iris Campo",
         "slug": "iris-campo",
-        "scheme": ["iris-campo", "iris"],
+        "scheme": "iris-campo",
         "version": "0.1.0",
         "orientation": "portrait",
         "userInterfaceStyle": "automatic",

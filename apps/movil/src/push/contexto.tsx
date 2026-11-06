@@ -14,7 +14,7 @@ import type { AlmacenClaves } from "../entorno";
 import { enlaceComoLlegar } from "../pantallas/orden/DetalleOrden";
 import { ejecutarRespuesta, vaciarPendientes, type DepsAccion, type RespuestaPush } from "./acciones";
 import type { ApiPush, EntradaPreferenciasPush, PreferenciasPush } from "./api";
-import { destinoDeEnlace, leerMensajePush, seEstaViendo } from "./mensaje";
+import { leerMensajePush, seEstaViendo } from "./mensaje";
 import type { RegistroDispositivo } from "./registro";
 import type { PermisoPush, ServicioPush } from "./servicio";
 
@@ -40,8 +40,6 @@ export function usePush(): ContextoPush | null {
 
 const clavePrimerUso = (usuarioId: number) => `iris-push-primer-uso-${usuarioId}`;
 
-/** El enlace que abrió la app (`iris://…`) se usa una sola vez por arranque (no en cada empresa). */
-let enlaceInicialUsado = false;
 
 export interface PropsProveedorPush {
     servicio: ServicioPush | null;
@@ -49,7 +47,11 @@ export interface PropsProveedorPush {
     registro: RegistroDispositivo | null;
     claves: AlmacenClaves;
     empresa: number | null;
-    /** Origen del panel web (la bandeja de clientes se abre ahí). */
+    /**
+     * Origen del panel web: la bandeja de clientes se abre en `${baseUrl}/conversaciones/{id}`. Es el
+     * de la API (`EXPO_PUBLIC_IRIS_API_URL`): en el despliegue estándar (install.sh) el panel y la API
+     * comparten origen.
+     */
     baseUrl: string;
     generarId: () => string;
     chat: MotorChat | null;
@@ -137,10 +139,10 @@ export function ProveedorPush({ servicio, api, registro, claves, empresa, baseUr
     );
 
     // Lo último de cada render, para que las suscripciones no se rehagan (ni se vuelva a registrar).
-    const ultimos = useRef({ deps, responder, navegar });
+    const ultimos = useRef({ deps, responder });
     useEffect(() => {
-        ultimos.current = { deps, responder, navegar };
-    }, [deps, responder, navegar]);
+        ultimos.current = { deps, responder };
+    }, [deps, responder]);
 
     useEffect(() => {
         if (!servicio) {
@@ -182,28 +184,13 @@ export function ProveedorPush({ servicio, api, registro, claves, empresa, baseUr
             }
         });
         const quitarResponder = servicio.alResponder((r) => void ultimos.current.responder(r));
-        // Un enlace `iris://` de afuera (con la sesión ya abierta): solo pantallas de la app.
-        const abrirEnlace = (url: string | null | undefined) => {
-            const d = destinoDeEnlace(url);
-            if (d?.tipo === "vista" && (d.vista.tipo !== "conversacion" || ultimos.current.deps.escribirChat)) {
-                ultimos.current.navegar(d.vista);
-            }
-        };
-        if (!enlaceInicialUsado) {
-            enlaceInicialUsado = true;
-            void Promise.resolve()
-                .then(() => Linking.getInitialURL())
-                .then((u) => vivo && abrirEnlace(u))
-                .catch(() => undefined);
-        }
-        const enlaces = Linking.addEventListener?.("url", (e: { url: string }) => abrirEnlace(e.url)) as { remove: () => void } | undefined;
+
         return () => {
             vivo = false;
             quitarToken();
             quitarFrente();
             quitarRecibir();
             quitarResponder();
-            enlaces?.remove();
         };
     }, [servicio, registrar, alVolverAlFrente, usuarioId]);
 

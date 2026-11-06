@@ -11,7 +11,7 @@ export type EntradaPreferenciasPush = Schema<"EntradaPreferencias">;
 /** Lo que la app usa de la API de push: inyectable (las pruebas pasan una falsa). */
 export interface ApiPush {
     registrarDispositivo(empresa: number | null, entrada: Schema<"EntradaRegistrarDispositivo">, clave: string): Promise<Dispositivo>;
-    quitarDispositivo(empresa: number | null, id: number): Promise<void>;
+    quitarDispositivo(empresa: number | null, id: number, senal?: AbortSignal): Promise<void>;
     leerPreferencias(): Promise<PreferenciasPush>;
     guardarPreferencias(entrada: EntradaPreferenciasPush, clave: string): Promise<PreferenciasPush>;
     /** Responder un mensaje del chat (contratos/chat.md §3): `id` uuid v7 = Idempotency-Key. */
@@ -27,8 +27,8 @@ export function crearApiPush(cliente: (empresa?: number | null) => ClienteIris):
         async registrarDispositivo(empresa, entrada, clave) {
             return resolver(cliente(empresa).POST("/api/v1/dispositivos", { body: entrada, params: { header: { "Idempotency-Key": clave } } }));
         },
-        async quitarDispositivo(empresa, id) {
-            await resolver(cliente(empresa).POST("/api/v1/dispositivos/{id}/quitar", { params: { path: { id } } }));
+        async quitarDispositivo(empresa, id, senal) {
+            await resolver(cliente(empresa).POST("/api/v1/dispositivos/{id}/quitar", { params: { path: { id } }, ...(senal ? { signal: senal } : {}) }));
         },
         async leerPreferencias() {
             return resolver(cliente().GET("/api/v1/yo/notificaciones"));

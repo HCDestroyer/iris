@@ -73,11 +73,11 @@ export class RegistroDispositivo {
      * Cerrar sesión: quita los dispositivos de este usuario que este teléfono registró (en cada
      * empresa). Un error (sin señal, 404 porque el servidor ya lo quitó) no detiene la salida.
      */
-    async quitarTodos(usuarioId: number): Promise<void> {
+    async quitarTodos(usuarioId: number, senal?: AbortSignal): Promise<void> {
         const g = this.leer(usuarioId);
         for (const [k, d] of Object.entries(g)) {
             try {
-                await this.o.api.quitarDispositivo(k === "0" ? null : Number(k), d.id);
+                await this.o.api.quitarDispositivo(k === "0" ? null : Number(k), d.id, senal);
             } catch {
                 // El servidor también los quita con `DELETE /sesion` y en su purga.
             }

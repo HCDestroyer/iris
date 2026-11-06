@@ -109,6 +109,10 @@ export class ServicioPushFalso implements ServicioPush {
     async quitarGrupo(g: string) {
         this.gruposQuitados.push(g);
     }
+    todasQuitadas = 0;
+    async quitarTodas() {
+        this.todasQuitadas += 1;
+    }
     async abrirAjustes() {
         this.ajustesAbiertos += 1;
     }

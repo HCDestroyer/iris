@@ -21,6 +21,8 @@ export interface ServicioPush {
     alResponder(fn: (r: RespuestaPush) => void): () => void;
     presentar(m: MensajePush): Promise<void>;
     quitarGrupo(grupo: string): Promise<void>;
+    /** Quita todas las notificaciones de la app (al cerrar sesión). */
+    quitarTodas(): Promise<void>;
     /** Ajustes de notificaciones de la app en Android (canales: sonido, pantalla bloqueada). */
     abrirAjustes(): Promise<void>;
 }

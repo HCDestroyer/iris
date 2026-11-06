@@ -6,6 +6,7 @@
 import { ErrorApi } from "../api/errores";
 import type { AlmacenClaves } from "../entorno";
 import type { ApiPush } from "./api";
+import { CLAVE_HECHAS, CLAVE_PENDIENTES } from "./locales";
 import { destinoDeEnlace, type AccionPush, type DestinoPush, type MensajePush } from "./mensaje";
 
 export interface RespuestaPush {
@@ -23,7 +24,6 @@ export type AccionPendiente =
     | { tipo: "nota_bandeja"; usuarioId: number; empresa: number | null; conversacionId: number; id: string; texto: string; menciones: number[] }
     | { tipo: "leer_bandeja"; usuarioId: number; empresa: number | null; conversacionId: number; hasta: string };
 
-const CLAVE_PENDIENTES = "iris-push-pendientes";
 /** Tope de acciones guardadas (nunca crece sin límite). */
 const MAX_PENDIENTES = 50;
 
@@ -43,8 +43,6 @@ function guardarPendientes(claves: AlmacenClaves, lista: readonly AccionPendient
         claves.escribir(CLAVE_PENDIENTES, JSON.stringify(lista.slice(-MAX_PENDIENTES)));
     }
 }
-
-const CLAVE_HECHAS = "iris-push-hechas";
 
 /** Marca una respuesta como hecha; `true` si ya lo estaba (se guardan las últimas 50). */
 function yaHecha(claves: AlmacenClaves, llave: string): boolean {
@@ -106,13 +104,14 @@ async function mandarOGuardar(p: AccionPendiente, d: DepsAccion): Promise<void> 
  */
 export async function ejecutarRespuesta(r: RespuestaPush, d: DepsAccion): Promise<{ destino: DestinoPush; comoLlegar?: boolean } | null> {
     const m = r.mensaje;
-    if ((r.accion === "responder" || r.accion === "leido") && yaHecha(d.claves, `${m.id}:${r.accion}:${r.texto ?? ""}`)) {
-        // Con la app en segundo plano puede llegar dos veces (al oyente y a la tarea): una sola respuesta.
+    if (d.usuarioId === null || m.usuarioId !== d.usuarioId) {
+        // Es de otra persona (o no hay sesión): no se hace nada en su nombre (ni se marca).
+        await d.quitarGrupo(m.grupo);
         return null;
     }
-    if (d.usuarioId === null || m.usuarioId !== d.usuarioId) {
-        // Es de otra persona (o no hay sesión): no se hace nada en su nombre.
-        await d.quitarGrupo(m.grupo);
+    // Con la app en segundo plano puede llegar dos veces (al oyente y a la tarea): una sola respuesta.
+    // La llave nunca lleva el texto escrito.
+    if ((r.accion === "responder" || r.accion === "leido") && yaHecha(d.claves, `${m.id}:${r.accion}`)) {
         return null;
     }
     const base = { usuarioId: m.usuarioId, empresa: m.empresaId };
