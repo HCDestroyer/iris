@@ -176,13 +176,15 @@ describe.each(["light", "dark"] as const)("diseño «combinada» (%s)", (esquema
         expect(screen.queryByTestId("navegacion-inferior")).toBeNull();
         expect(screen.getByTestId("barra-pasos")).toBeTruthy();
         await fireEvent.press(screen.getByRole("radio", { name: "Cable UTP" }));
+        // Al elegir queda en 1; − / + suman o restan desde ahí.
+        expect(screen.getByLabelText("Cantidad")).toHaveProp("value", "1");
         await fireEvent.press(screen.getByRole("button", { name: "Agregar uno" }));
         await fireEvent.press(screen.getByRole("button", { name: "Agregar uno" }));
         await fireEvent.press(screen.getByRole("button", { name: "Agregar uno" }));
         await fireEvent.press(screen.getByRole("button", { name: "Quitar uno" }));
-        expect(screen.getByLabelText("Cantidad")).toHaveProp("value", "2");
+        expect(screen.getByLabelText("Cantidad")).toHaveProp("value", "3");
         await fireEvent.press(screen.getByRole("button", { name: "Registrar material" }));
-        await waitFor(() => expect(m.motor.obtenerEstado().cola.at(-1)).toMatchObject({ tipo: "material.usar", datos: { cantidad: 2 } }));
+        await waitFor(() => expect(m.motor.obtenerEstado().cola.at(-1)).toMatchObject({ tipo: "material.usar", datos: { cantidad: 3 } }));
         expect(avisoArriba()).toHaveTextContent(/Material registrado/);
     });
 });
