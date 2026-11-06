@@ -389,9 +389,9 @@ function ErrorEnvio({ error }: { error: unknown }) {
             </Aviso>
         );
     }
-    // Cambiar a quién está asociada la conversación existente exige `conversaciones.asociar`: el
-    // servidor responde `prohibido` y lo nombra. Otro 403 va con el mensaje genérico.
-    if (e?.estado === 403 && e.codigo === "prohibido" && /conversaciones\.asociar/.test(e.detalle ?? "")) {
+    // Cambiar a quién está asociada la conversación existente exige `conversaciones.asociar` (403
+    // `asociacion_requiere_permiso`). Cualquier otro 403 va con el mensaje genérico.
+    if (e?.codigo === "asociacion_requiere_permiso") {
         return (
             <Aviso tono="error" titulo="No puedes cambiar el contacto de esa conversación">
                 Ya hay una conversación con este número asociada a otro cliente o contacto, y cambiarla exige el permiso para asociar contactos. Pídeselo a un supervisor.

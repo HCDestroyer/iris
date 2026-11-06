@@ -177,6 +177,24 @@ test.describe("bandeja 1.1", () => {
         expect(envios[0]?.cuerpo).toMatchObject({ canalId: 2, clienteId: 4101, plantilla: { codigo: "confirmar_visita", variables: { "1": "Carlos", "2": "hoy entre 13:30 y 15:00" } } });
     });
 
+    for (const caso of ["asociacion_requiere_permiso", "prohibido"] as const) {
+        test(`«Nueva conversación»: un 403 ${caso} se explica sin ofrecer reintentar`, async ({ page }) => {
+            await abrir(page, "/conversaciones/nueva", ADMIN.correo, { conversaciones: { iniciar403: caso } });
+            const form = page.getByRole("form", { name: "Nueva conversación" });
+            await form.getByLabel("Contacto").fill("Carlos");
+            await form.locator('[data-opcion="cliente:4101"]').click();
+            await elegirOpcion(form.getByLabel("Plantilla aprobada"), { label: "Confirmar visita técnica" });
+            await form.getByLabel("{{2}}").fill("hoy");
+            await page.getByRole("button", { name: "Enviar y abrir conversación" }).click();
+            const alerta = page.getByRole("alert").filter({ hasText: caso === "asociacion_requiere_permiso" ? "No puedes cambiar el contacto de esa conversación" : "No se pudo enviar" });
+            await expect(alerta).toBeVisible();
+            // Solo el código propio lleva el mensaje de la asociación: el 403 genérico no, aunque su texto la nombre.
+            if (caso === "prohibido") await expect(page.getByText("No puedes cambiar el contacto de esa conversación")).toHaveCount(0);
+            await expect(alerta).not.toContainText("Vuelve a tocar");
+            await esperarSinDesbordes(page);
+        });
+    }
+
     test("«Nueva conversación» sin el permiso: no hay botón y la pantalla lo dice", async ({ page }) => {
         await abrir(page, "/conversaciones", "carlos@iris.test");
         await expect(page.getByRole("heading", { name: "Conversaciones", level: 1 })).toBeVisible();

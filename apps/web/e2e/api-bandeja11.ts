@@ -76,6 +76,8 @@ const DESTINATARIOS: Destinatario[] = [
 export type OpcionesBandeja11 = {
     /** Las primeras N llamadas a `POST /conversaciones/iniciar` responden 503 (para el reintento). */
     iniciarFalla503?: number;
+    /** `POST /conversaciones/iniciar` responde este 403 (el de la asociación u otro cualquiera). */
+    iniciar403?: "asociacion_requiere_permiso" | "prohibido";
     /** Estado inicial de mi disponibilidad. */
     disponibilidad?: "disponible" | "no_disponible";
 };
@@ -177,6 +179,10 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
                 await route.fulfill({ status: 200, contentType: "application/json", headers: { "Idempotent-Replayed": "true" }, body: JSON.stringify(previa.respuesta) });
                 return true;
             }
+            if (opciones.iniciar403 === "asociacion_requiere_permiso") {
+                return (await problema(route, P("asociacion_requiere_permiso", 403, "Permiso insuficiente", { detail: "La conversación de ese número está asociada a otro contacto: cambiarla exige conversaciones.asociar" })), true);
+            }
+            if (opciones.iniciar403 === "prohibido") return (await problema(route, P("prohibido", 403, "Permiso insuficiente", { detail: "conversaciones.asociar" })), true);
             if (fallas503 > 0) {
                 fallas503 -= 1;
                 return (await problema(route, P("no_disponible", 503, "El servicio no respondió")), true);
