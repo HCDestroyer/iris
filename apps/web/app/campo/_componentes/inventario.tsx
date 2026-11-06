@@ -14,6 +14,7 @@ import {
     textoErrorLectura,
     textoProblema,
     urlDeVista,
+    type CargarLectura,
     type FormularioRecepcion,
     type SituacionTraslado,
 } from "@iris/sync/campo";
@@ -86,14 +87,17 @@ function useDescripciones(): (productoId: number) => string {
         `Producto ${productoId}`;
 }
 
-export function useCargarAlAbrir<T>(lectura: Lectura<T>, cargar: () => Promise<void>) {
+export function useCargarAlAbrir<T>(lectura: Lectura<T>, cargar: CargarLectura) {
     const { estado } = useCampo();
     const sinSenal = estado.conexion === "sin_conexion";
+    const abierta = useRef(false);
     useEffect(() => {
-        // Al abrir la vista: se relee con señal; sin señal queda lo último leído (si hay).
+        // Al abrir la vista: se relee con señal; sin señal queda lo último leído (si hay). Al volver
+        // la señal, otra vez aunque haya una en vuelo (pudo empezar justo antes de perderla).
         if (!sinSenal) {
-            void cargar();
+            void cargar({ otraVez: abierta.current });
         }
+        abierta.current = true;
         // Solo al abrir la vista o al volver la señal.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sinSenal]);

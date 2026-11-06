@@ -345,3 +345,43 @@ export function accionesRapidas<O extends OrdenFormulario>(
         }));
     return { formulario: { ordenes: lista }, tarea };
 }
+
+// ---------------------------------------------------------------------------------------------
+// Lecturas con señal (agenda, «Por recibir», «Mi bodega»)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Una lectura a la vez: pedirla mientras otra corre devuelve la que corre. Con `otraVez` (al
+ * volver la señal) no se conforma con la que corre, que pudo empezar un instante antes de que el
+ * teléfono supiera que no había señal y está condenada: al terminar esa, se lee una vez más.
+ */
+/** Pide la lectura; `otraVez` al volver la señal (ver `lecturaUnica`). */
+export type CargarLectura = (opciones?: { otraVez?: boolean }) => Promise<void>;
+
+export function lecturaUnica(correr: () => Promise<void>): CargarLectura {
+    let enCurso: Promise<void> | null = null;
+    let repetir: Promise<void> | null = null;
+    const lanzar = (): Promise<void> => {
+        const p = correr().finally(() => {
+            enCurso = null;
+        });
+        enCurso = p;
+        return p;
+    };
+    return (opciones) => {
+        if (!enCurso) {
+            return lanzar();
+        }
+        if (!opciones?.otraVez) {
+            return repetir ?? enCurso;
+        }
+        // Una sola repetición, sin importar cuántas veces la pidan mientras tanto.
+        repetir ??= enCurso
+            .catch(() => undefined)
+            .then(() => {
+                repetir = null;
+                return lanzar();
+            });
+        return repetir;
+    };
+}
