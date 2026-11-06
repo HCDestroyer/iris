@@ -47,7 +47,7 @@ export function FormularioManual({ manual }: { manual?: Manual }) {
             titulo: manual?.titulo ?? "",
             resumen: manual?.resumen ?? "",
             cuerpo: manual?.cuerpo ?? "",
-            etiquetas: manual?.etiquetas.join(", ") ?? "",
+            etiquetas: (manual?.etiquetas ?? []).join(", "),
             equipo: manual?.equipo ?? "",
             visibilidad: manual?.visibilidad === "cliente" ? "cliente" : "interna",
         },

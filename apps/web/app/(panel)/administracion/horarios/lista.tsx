@@ -46,7 +46,7 @@ export function ListaHorarios() {
                                 <span className="text-sm break-words text-muted-foreground">{resumirFranjas(h.franjas)}</span>
                                 <span className="flex items-center gap-1 text-xs text-muted-foreground">
                                     <CalendarDays aria-hidden className="size-3.5" />
-                                    {h.feriados.length === 0 ? "Sin feriados" : `${h.feriados.length} ${h.feriados.length === 1 ? "feriado" : "feriados"}`} · {h.zona}
+                                    {(h.feriados ?? []).length === 0 ? "Sin feriados" : `${(h.feriados ?? []).length} ${(h.feriados ?? []).length === 1 ? "feriado" : "feriados"}`} · {h.zona}
                                 </span>
                             </div>
                             <Boton asChild variante="contorno" tamano="sm">

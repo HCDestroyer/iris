@@ -81,6 +81,7 @@ test.describe("administración de la bandeja", () => {
         await expect(page).toHaveURL(/q=onu/);
         await expect(page.locator('[data-manual="1"]')).toHaveCount(1);
         await page.getByRole("searchbox", { name: "Buscar en los manuales" }).fill("");
+        await expect(page.locator('[data-manual="2"]')).toBeVisible();
         await page.locator('[data-manual="1"]').getByRole("button", { name: "Ver" }).click();
         const dialogo = page.getByRole("dialog", { name: "Sin servicio en fibra: diagnóstico" });
         await expect(dialogo.getByRole("listitem")).toHaveCount(3);
@@ -132,6 +133,13 @@ test.describe("administración de la bandeja", () => {
         await sugeridos.locator('[data-manual="2"]').getByRole("button", { name: "Enviar al cliente" }).click();
         await expect(page.getByText("Enviaste «Reiniciar la ONU ZTE F670L» a Carlos Ruiz")).toBeVisible();
         expect(api.conversaciones.enviados.some((e) => e.ruta.endsWith("/enviar-manual"))).toBe(true);
+        // El enlace enviado aparece y quien supervisa lo puede revocar.
+        const enlaces = ficha.getByRole("region", { name: "Enlaces enviados" });
+        await expect(enlaces).toContainText("Reiniciar la ONU ZTE F670L");
+        await enlaces.getByRole("button", { name: "Revocar" }).click();
+        await page.getByRole("alertdialog").getByRole("button", { name: "Revocar enlace" }).click();
+        await expect(page.getByText("Enlace a «Reiniciar la ONU ZTE F670L» revocado")).toBeVisible();
+        await expect(enlaces).toContainText("Revocado");
         await sugeridos.locator('[data-manual="1"]').getByRole("button", { name: "Usar en la respuesta" }).click();
         if (esTelefono(page)) await page.getByRole("button", { name: "Cerrar la ficha" }).click();
         await expect(page.getByRole("textbox", { name: /Mensaje para/ })).toHaveValue(/1\. Revisa si hay falla en la zona\./);

@@ -1,7 +1,7 @@
 "use client";
 
 import type { Schema } from "@iris/contratos";
-import { avisar, Aviso, Boton, CampoBusqueda, Dialogo, DialogoContenido, DialogoConfirmar, Esqueleto, EstadoVacio, GrupoSegmentado, InsigniaEstado, Tarjeta } from "@iris/ui";
+import { avisar, Aviso, Boton, CampoBusqueda, Cargando, Dialogo, DialogoContenido, DialogoConfirmar, Esqueleto, EstadoVacio, GrupoSegmentado, InsigniaEstado, Tarjeta } from "@iris/ui";
 import { BookOpen, Eye, Pencil, Plus, Power, PowerOff, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -16,7 +16,7 @@ import { useDiferido } from "@/lib/diferido";
 import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
 
-type Manual = Schema<"Manual">;
+type Manual = Schema<"ManualResumen">;
 type Visibilidad = "todas" | "interna" | "cliente";
 
 /**
@@ -26,6 +26,7 @@ type Visibilidad = "todas" | "interna" | "cliente";
 export function BibliotecaManuales() {
     const { puede } = useSesion();
     const edita = puede(["manuales.editar"]);
+    const [ver, setVer] = useState<Manual | null>(null);
     const params = useSearchParams();
     const router = useRouter();
     const ruta = usePathname();
@@ -55,8 +56,8 @@ export function BibliotecaManuales() {
                     ) : null
                 }
             />
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-                <CampoBusqueda etiqueta="Buscar en los manuales" etiquetaVisible={false} placeholder="Buscar: ONU, reinicio, potencia…" valor={texto} alCambiar={setTexto} maxLength={100} className="min-w-0 flex-1 sm:max-w-sm" />
+            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                <CampoBusqueda etiqueta="Buscar en los manuales" etiquetaVisible={false} placeholder="Buscar: ONU, reinicio, potencia…" valor={texto} alCambiar={setTexto} maxLength={100} className="w-full min-w-0 sm:max-w-sm sm:flex-1" />
                 <GrupoSegmentado
                     etiqueta="Visibilidad"
                     valor={visibilidad}
@@ -73,27 +74,28 @@ export function BibliotecaManuales() {
                     ]}
                 />
             </div>
-            <Resultados key={`${q}|${visibilidad}`} q={q} visibilidad={visibilidad} edita={edita} />
+            <Resultados key={`${q}|${visibilidad}`} q={q} visibilidad={visibilidad} edita={edita} alVer={setVer} />
+            {/* Fuera de los resultados: cambiar la búsqueda no cierra el manual abierto. */}
+            <VerManual manual={ver} cerrar={() => setVer(null)} />
         </>
     );
 }
 
 /** Resultados de una búsqueda: se remonta con cada búsqueda o filtro (y vuelve a leer). */
-function Resultados({ q, visibilidad, edita }: { q: string; visibilidad: Visibilidad; edita: boolean }) {
+function Resultados({ q, visibilidad, edita, alVer: setVer }: { q: string; visibilidad: Visibilidad; edita: boolean; alVer: (m: Manual) => void }) {
     const lista = useLectura(async (signal) => {
         const r = await resolver(
             api().GET("/api/v1/mensajeria/manuales", { params: { query: { ...(q ? { q } : {}), ...(visibilidad !== "todas" ? { visibilidad } : {}), incluirInactivos: true } }, signal }),
         );
         return r.data ?? [];
     });
-    const [ver, setVer] = useState<Manual | null>(null);
     const [desactivar, setDesactivar] = useState<Manual | null>(null);
     const [error, setError] = useState<unknown>(null);
 
     async function alternar(m: Manual) {
         setError(null);
         try {
-            const opciones = { params: { path: { id: m.id }, header: { "Idempotency-Key": nuevaClaveIdempotencia() } }, body: { version: m.version } };
+            const opciones = { params: { path: { id: m.id }, header: { "Idempotency-Key": nuevaClaveIdempotencia() } } };
             await resolver(m.activo ? api().POST("/api/v1/mensajeria/manuales/{id}/desactivar", opciones) : api().POST("/api/v1/mensajeria/manuales/{id}/activar", opciones));
             avisar({ titulo: avisoEstado(m.titulo, !m.activo) });
             setDesactivar(null);
@@ -135,7 +137,7 @@ function Resultados({ q, visibilidad, edita }: { q: string; visibilidad: Visibil
                                 <span className="line-clamp-2 text-sm text-muted-foreground">{m.resumen}</span>
                                 <span className="flex flex-wrap gap-1">
                                     {m.equipo ? <span className="rounded-md bg-elevated px-1.5 font-mono text-xs">{m.equipo}</span> : null}
-                                    {m.etiquetas.map((e) => (
+                                    {(m.etiquetas ?? []).map((e) => (
                                         <span key={e} className="rounded-md bg-elevated px-1.5 text-xs">
                                             {e}
                                         </span>
@@ -165,7 +167,6 @@ function Resultados({ q, visibilidad, edita }: { q: string; visibilidad: Visibil
                     ))}
                 </ul>
             )}
-            <VerManual manual={ver} cerrar={() => setVer(null)} />
             <DialogoConfirmar
                 open={desactivar !== null}
                 onOpenChange={(a) => !a && setDesactivar(null)}
@@ -179,15 +180,22 @@ function Resultados({ q, visibilidad, edita }: { q: string; visibilidad: Visibil
     );
 }
 
-/** Leer un manual: el cuerpo con la vista segura del Markdown (sin HTML crudo). */
-export function VerManual({ manual, cerrar }: { manual: Manual | null; cerrar: () => void }) {
+/** Leer un manual: lo lee entero (`GET /manuales/{id}`) y muestra el cuerpo con la vista segura del Markdown (sin HTML crudo). */
+export function VerManual({ manual, cerrar }: { manual: Pick<Manual, "id" | "titulo" | "resumen"> | null; cerrar: () => void }) {
     return (
         <Dialogo open={manual !== null} onOpenChange={(a) => !a && cerrar()}>
             {manual ? (
                 <DialogoContenido titulo={manual.titulo} descripcion={manual.resumen} className="sm:max-w-2xl">
-                    <MarkdownSeguro fuente={manual.cuerpo} />
+                    <CuerpoManual id={manual.id} />
                 </DialogoContenido>
             ) : null}
         </Dialogo>
     );
+}
+
+function CuerpoManual({ id }: { id: number }) {
+    const lectura = useLectura(async (signal) => resolver(api().GET("/api/v1/mensajeria/manuales/{id}", { params: { path: { id } }, signal })));
+    if (lectura.estado === "cargando") return <Cargando texto="Cargando el manual…" />;
+    if (lectura.estado === "error") return <ErrorLectura error={lectura.error} reintentar={lectura.reintentar} que="el manual" />;
+    return <MarkdownSeguro fuente={lectura.datos.cuerpo} />;
 }

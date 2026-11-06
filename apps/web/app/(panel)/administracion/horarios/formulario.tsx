@@ -43,12 +43,12 @@ function valores(h?: Horario): Valores {
     return {
         nombre: h?.nombre ?? "",
         zona: h?.zona ?? "America/Guatemala",
-        franjas: h?.franjas.map((f) => ({ dias: [...f.dias], inicio: f.inicio, fin: f.fin, perfil: f.perfil ?? null })) ?? [
+        franjas: h?.franjas?.map((f) => ({ dias: [...(f.dias ?? [])], inicio: f.inicio, fin: f.fin, perfil: f.perfil ?? null })) ?? [
             { dias: [1, 2, 3, 4, 5], inicio: "08:00", fin: "18:00", perfil: null },
             { dias: [6], inicio: "08:00", fin: "12:00", perfil: null },
         ],
         feriados:
-            h?.feriados.map((f) => ({ fecha: f.fecha, nombre: f.nombre, cerrado: f.franjas.length === 0, inicio: f.franjas[0]?.inicio ?? "08:00", fin: f.franjas[0]?.fin ?? "12:00" })) ?? [],
+            h?.feriados?.map((f) => ({ fecha: f.fecha, nombre: f.nombre, cerrado: (f.franjas ?? []).length === 0, inicio: f.franjas?.[0]?.inicio ?? "08:00", fin: f.franjas?.[0]?.fin ?? "12:00" })) ?? [],
     };
 }
 

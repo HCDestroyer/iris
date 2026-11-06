@@ -5,6 +5,8 @@
  */
 
 export type FranjaEditable = { dias: number[]; inicio: string; fin: string };
+/** Franja como la devuelve la API (`dias` puede venir `null`). */
+type FranjaApi = { dias?: readonly number[] | null; inicio: string; fin: string };
 
 const CORTOS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 const LARGOS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
@@ -14,8 +16,8 @@ export const DIAS_SEMANA = LARGOS.map((nombre, i) => ({ dia: i + 1, nombre, cort
 const HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 /** «Lun–Vie», «Lun, Mié y Vie», «Todos los días». */
-export function textoDias(dias: readonly number[]): string {
-    const lista = [...new Set(dias)].filter((d) => d >= 1 && d <= 7).sort((a, b) => a - b);
+export function textoDias(dias: readonly number[] | null | undefined): string {
+    const lista = [...new Set(dias ?? [])].filter((d) => d >= 1 && d <= 7).sort((a, b) => a - b);
     if (lista.length === 7) return "Todos los días";
     if (lista.length === 0) return "Ningún día";
     const corridos = lista.every((d, i) => i === 0 || d === (lista[i - 1] ?? 0) + 1);
@@ -30,8 +32,8 @@ export function horaCorta(hhmm: string): string {
 }
 
 /** «Lun–Sáb 7:00–19:00 · Dom 8:00–12:00». */
-export function resumirFranjas(franjas: readonly FranjaEditable[]): string {
-    if (franjas.length === 0) return "Sin franjas: siempre cerrado";
+export function resumirFranjas(franjas: readonly FranjaApi[] | null | undefined): string {
+    if (!franjas || franjas.length === 0) return "Sin franjas: siempre cerrado";
     return franjas.map((f) => `${textoDias(f.dias)} ${horaCorta(f.inicio)}–${horaCorta(f.fin)}`).join(" · ");
 }
 

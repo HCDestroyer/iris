@@ -35,6 +35,7 @@ export const PERMISOS_CONVERSACIONES: Permiso[] = [
     "canales.configurar",
     "manuales.ver",
     "manuales.editar",
+    "manuales.revocar_enlace",
 ];
 
 export type OpcionesConversaciones = {
@@ -53,9 +54,9 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
     const enviados: { ruta: string; cuerpo: unknown; idempotencia: string | undefined }[] = [];
 
     const colas: Schema<"ColaConversaciones">[] = [
-        { id: 2, empresaId: 1, nombre: "Soporte", descripcion: "", slaRespuestaMin: 10, slaPorVencerMin: null, miembros: [ANDREA, { id: 9, nombre: "Rosa Sánchez" }], activa: true, version: 1 },
-        { id: 3, empresaId: 1, nombre: "Caja", descripcion: "", slaRespuestaMin: 30, slaPorVencerMin: null, miembros: [ANDREA], activa: true, version: 1 },
-        { id: 4, empresaId: 1, nombre: "Ventas", descripcion: "", slaRespuestaMin: 60, slaPorVencerMin: null, miembros: [], activa: true, version: 1 },
+        { id: 2, empresaId: 1, nombre: "Soporte", descripcion: "", slaRespuestaMin: 10, slaPorVencerMin: null, horarioId: null, miembros: [ANDREA, { id: 9, nombre: "Rosa Sánchez" }], activa: true, version: 1 },
+        { id: 3, empresaId: 1, nombre: "Caja", descripcion: "", slaRespuestaMin: 30, slaPorVencerMin: null, horarioId: null, miembros: [ANDREA], activa: true, version: 1 },
+        { id: 4, empresaId: 1, nombre: "Ventas", descripcion: "", slaRespuestaMin: 60, slaPorVencerMin: null, horarioId: null, miembros: [], activa: true, version: 1 },
     ];
     const etiquetas: Schema<"EtiquetaConversacion">[] = [
         { id: 3, nombre: "Sin servicio", color: "peligro", activa: true, version: 1 },
@@ -79,6 +80,8 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             version: 3,
             franjas: [{ dias: [1, 2, 3, 4, 5, 6, 7], inicio: "06:00", fin: "22:00", perfil: null }],
             feriados: [{ fecha: "2026-12-25", nombre: "Navidad", franjas: [] }],
+            empresaId: 1,
+            activo: true,
         },
         {
             id: 2,
@@ -90,6 +93,8 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                 { dias: [6], inicio: "08:00", fin: "12:00", perfil: null },
             ],
             feriados: [],
+            empresaId: 1,
+            activo: true,
         },
     ];
     const canales: Schema<"NumeroConversaciones">[] = [CANAL_AVISOS, CANAL_SOPORTE, CANAL_COBROS, CANAL_VENTAS].map((c) => ({
@@ -117,6 +122,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             visibilidad: "interna",
             activo: true,
             version: 1,
+            actualizadoEn: "2026-10-20T15:00:00Z",
         },
         {
             id: 2,
@@ -128,9 +134,24 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             visibilidad: "cliente",
             activo: true,
             version: 1,
+            actualizadoEn: "2026-10-20T15:00:00Z",
         },
     ];
     const configurados: unknown[] = [];
+    const enlaces: Schema<"EnlaceManual">[] = [];
+    /** Conversación de cada enlace enviado. */
+    const enlaceDe = new Map<number, number>();
+    /** Un manual como lo listan la búsqueda y las sugerencias (sin cuerpo). */
+    const resumenManual = (m: Schema<"Manual">): Schema<"ManualResumen"> => ({
+        id: m.id,
+        titulo: m.titulo,
+        resumen: m.resumen,
+        etiquetas: m.etiquetas,
+        equipo: m.equipo,
+        visibilidad: m.visibilidad,
+        activo: m.activo,
+        rango: 1,
+    });
 
     /** Como el servidor: `mensaje_*` trae el mensaje y luego `conversacion_actualizada` la conversación. */
     function emitir(tipo: Evento["tipo"], c: Conversacion, m?: Mensaje) {
@@ -269,7 +290,12 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                 );
             }
             if (accion === "manuales-sugeridos") {
-                return (await json(route, { data: [{ manual: manuales[0], motivo: "etiqueta" }, { manual: manuales[1], motivo: "equipo" }], nextCursor: null }), true);
+                const sugerido = (m: Schema<"Manual">, tipo: string, detalle: string) => ({ ...resumenManual(m), motivos: [{ tipo, detalle }] });
+                const [uno, dos] = manuales;
+                return (await json(route, { data: uno && dos ? [sugerido(uno, "etiqueta", "sin servicio"), sugerido(dos, "equipo", "ZTE F670L")] : [], nextCursor: null }), true);
+            }
+            if (accion === "manual-enlaces") {
+                return (await json(route, { data: enlaces.filter((e) => enlaceDe.get(e.id) === c.id), nextCursor: null }), true);
             }
             if (accion === "coincidencias") {
                 return (
@@ -351,6 +377,8 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             case "enviar-manual": {
                 const manual = manuales.find((v) => v.id === cuerpo.manualId);
                 if (manual?.visibilidad !== "cliente") return (await problema(route, P("manual_interno", 422, "Es un manual interno")), true);
+                enlaceDe.set(enlaces.length + 1, c.id);
+                enlaces.push({ id: enlaces.length + 1, manualId: manual.id, titulo: manual.titulo, enviadoPor: { id: yo, nombre: "Ana López" }, venceEn: "2026-11-27T16:45:00Z", revocadoEn: null, creadoEn: new Date().toISOString() });
                 return (await json(route, { id: cuerpo.id }, 201), true);
             }
             case "crear-ticket":
@@ -424,9 +452,9 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                 const q = (query.get("q") ?? "").toLowerCase();
                 const vis = query.get("visibilidad");
                 const data = manuales.filter(
-                    (m) => (!q || `${m.titulo} ${m.resumen} ${m.cuerpo} ${m.etiquetas.join(" ")} ${m.equipo}`.toLowerCase().includes(q)) && (!vis || m.visibilidad === vis) && (m.activo || query.get("incluirInactivos")),
+                    (m) => (!q || `${m.titulo} ${m.resumen} ${m.cuerpo} ${(m.etiquetas ?? []).join(" ")} ${m.equipo}`.toLowerCase().includes(q)) && (!vis || m.visibilidad === vis) && (m.activo || query.get("incluirInactivos")),
                 );
-                return (await json(route, { data, nextCursor: null }), true);
+                return (await json(route, { data: data.map(resumenManual), nextCursor: null }), true);
             }
             const m = manuales.find((v) => v.id === id);
             if (metodo === "GET") return m ? (await json(route, m), true) : noExiste();
@@ -444,6 +472,14 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             else Object.assign(m, cuerpo);
             m.version += 1;
             return (await json(route, m), true);
+        }
+        const rev = /^\/api\/v1\/mensajeria\/manual-enlaces\/(\d+)\/revocar$/.exec(ruta);
+        if (rev && metodo === "POST") {
+            if (!puede("manuales.revocar_enlace")) return prohibido();
+            const e = enlaces.find((v) => v.id === Number(rev[1]));
+            if (!e) return noExiste();
+            e.revocadoEn ??= new Date().toISOString();
+            return (await json(route, e), true);
         }
         const conf = /^\/api\/v1\/mensajeria\/canales\/(\d+)\/configurar$/.exec(ruta);
         if (conf && metodo === "POST") {
@@ -479,7 +515,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         return false;
     }
 
-    return { manejar, conversaciones, mensajes, enviados, mensajeDelCliente, horarios, manuales, canales, configurados, respuestas };
+    return { manejar, conversaciones, mensajes, enviados, mensajeDelCliente, horarios, manuales, canales, configurados, respuestas, enlaces };
 }
 
 export type ApiConversaciones = ReturnType<typeof apiConversaciones>;
