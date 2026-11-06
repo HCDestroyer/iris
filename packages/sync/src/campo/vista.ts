@@ -15,10 +15,13 @@ export type Pestana = "hoy" | "chat" | "agenda" | "yo";
 /** Chips del encabezado: Hoy · Mañana · Semana. */
 export type ChipDia = "hoy" | "manana" | "semana";
 
-/** Pantallas propias dentro de «Yo» (con su dirección y su «Atrás»). */
-export type SeccionYo = "contrasena" | "dos_pasos";
+/**
+ * Pantallas propias dentro de «Yo» (con su dirección y su «Atrás»). «Notificaciones» solo está en la
+ * app nativa (la PWA no recibe push): ahí cae en «Yo».
+ */
+export type SeccionYo = "contrasena" | "dos_pasos" | "notificaciones";
 
-const SECCIONES_YO: readonly SeccionYo[] = ["contrasena", "dos_pasos"];
+const SECCIONES_YO: readonly SeccionYo[] = ["contrasena", "dos_pasos", "notificaciones"];
 
 export type Vista =
     | { tipo: "lista" }

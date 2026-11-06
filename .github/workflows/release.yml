@@ -109,13 +109,14 @@ jobs:
     uses: ./.github/workflows/movil-apk.yml
     with:
       tag: ${{ needs.release-please.outputs.tag_name }}
-    # Solo los de la firma (sin `inherit`). Si viven en el environment android-firma, el job que
-    # firma los toma de ahí.
+    # Solo los de la firma y el de Firebase (sin `inherit`). Si los de la firma viven en el
+    # environment android-firma, el job que firma los toma de ahí.
     secrets:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
 
   # Paquete de instalación (A6 de Argos como modelo): va al final, cuando las imágenes ya existen,
   # porque install.sh e `irisctl upgrade` solo ven una versión cuando su paquete está publicado.

@@ -12,6 +12,8 @@ import type { MotorChat } from "@iris/sync/chat";
 import { ProveedorChat } from "../src/campo/chat";
 import { ProveedorLibres } from "../src/campo/libres";
 import { Marco } from "../src/pantallas/Marco";
+import { PrimerUsoPush } from "../src/pantallas/Notificaciones";
+import { ProveedorPush, type PropsProveedorPush } from "../src/push/contexto";
 import type { SesionCampo } from "../src/sesion/sesion";
 import { TemaDePrueba } from "./raiz";
 
@@ -158,6 +160,8 @@ export interface OpcionesArnes {
     chat?: MotorChat;
     /** Primer/segundo plano para el chat (la app pasa `escucharPlano`, sobre AppState). */
     alCambiarPlano?: (fn: (alFrente: boolean) => void) => () => void;
+    /** Notificaciones push (servicio, API y registro falsos): el marco va dentro de `ProveedorPush`. */
+    push?: Omit<PropsProveedorPush, "children" | "primerUso" | "alVolverAlFrente" | "empresa" | "baseUrl"> & { alVolverAlFrente?: PropsProveedorPush["alVolverAlFrente"] };
     /** Margen seguro del teléfono (barra de estado, muesca); sin él, 0 en todos los lados. */
     margen?: { top: number; bottom: number; left: number; right: number };
     /** «Cerrar sesión» de la app (por defecto, no hace nada). */
@@ -168,6 +172,14 @@ export async function abrirCampo(m: Montaje, o: OpcionesArnes = {}) {
     const inventario = o.inventario ?? new InventarioFalso();
     const libres = o.libres ?? new LibresFalso();
     const servicios: ServiciosNativos = { tomarFoto: async () => null, posicion: async () => null, enLinea: o.enLinea ?? (() => true), ...o.servicios };
+    const marco = <Marco empresa={null} alSesionVencida={jest.fn()} />;
+    const conPush = o.push ? (
+        <ProveedorPush {...o.push} empresa={null} baseUrl="http://iris.prueba" alVolverAlFrente={o.push.alVolverAlFrente ?? (() => () => undefined)} primerUso={(p) => <PrimerUsoPush {...p} />}>
+            {marco}
+        </ProveedorPush>
+    ) : (
+        marco
+    );
     await render(
         <TemaDePrueba esquema={o.esquema ?? "light"} {...(o.margen ? { margen: o.margen } : {})}>
             <ProveedorCampo motor={m.motor} sesion={o.sesion ?? sesion} servicios={servicios} cerrarSesion={o.cerrarSesion ?? (async () => undefined)} vistaInicial={o.vista ?? { tipo: "lista" }}>
@@ -176,10 +188,10 @@ export async function abrirCampo(m: Montaje, o: OpcionesArnes = {}) {
                         <ProveedorLibres api={libres}>
                             {o.chat ? (
                                 <ProveedorChat chat={o.chat} alCambiarPlano={o.alCambiarPlano}>
-                                    <Marco empresa={null} alSesionVencida={jest.fn()} />
+                                    {conPush}
                                 </ProveedorChat>
                             ) : (
-                                <Marco empresa={null} alSesionVencida={jest.fn()} />
+                                conPush
                             )}
                         </ProveedorLibres>
                     </ProveedorAgenda>

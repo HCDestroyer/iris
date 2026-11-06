@@ -2,6 +2,11 @@
 // `movil-apk.yml`), nunca a mano. Sin variables (desarrollo) quedan los de app.json y versionCode 1.
 //   IRIS_MOVIL_VERSION       → `version` (versionName de Android), p. ej. 0.3.7 o 0.3.7-dev+abc1234
 //   IRIS_MOVIL_VERSION_CODE  → `android.versionCode` (lo calcula el CI: (X·10000 + Y·100 + Z)·100; ver docs/runbooks/movil-apk.md)
+// Push (FCM): si existe `google-services.json` junto a este archivo (el CI lo escribe desde el
+// secreto GOOGLE_SERVICES_JSON; nunca se commitea), va en `android.googleServicesFile`. Sin él la app
+// compila igual, sin push (docs/runbooks/notificaciones-push.md).
+const fs = require("node:fs");
+const path = require("node:path");
 
 /** @param {{ config: import('expo/config').ExpoConfig }} ctx */
 module.exports = ({ config }) => {
@@ -10,5 +15,7 @@ module.exports = ({ config }) => {
     if (!Number.isInteger(codigo) || codigo < 1 || codigo > 2100000000) {
         throw new Error(`IRIS_MOVIL_VERSION_CODE debe ser un entero entre 1 y 2100000000 (vale «${process.env.IRIS_MOVIL_VERSION_CODE}»).`);
     }
-    return { ...config, version, android: { ...config.android, versionCode: codigo } };
+    const googleServices = path.join(__dirname, "google-services.json");
+    const conFirebase = fs.existsSync(googleServices) ? { googleServicesFile: "./google-services.json" } : {};
+    return { ...config, version, android: { ...config.android, versionCode: codigo, ...conFirebase } };
 };

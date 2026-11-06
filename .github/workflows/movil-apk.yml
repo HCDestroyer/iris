@@ -19,6 +19,11 @@
 # versionCode (un solo origen, monótono): versión X.Y.Z → (X·10000 + Y·100 + Z)·100. A mano: el del
 # último tag vX.Y.Z alcanzable + (run_number % 99) + 1, así nunca llega al de la versión siguiente.
 #
+# Push (FCM): `compilar` escribe apps/movil/google-services.json desde el secreto
+# GOOGLE_SERVICES_JSON (el archivo en base64). No es una llave (queda dentro del APK), pero es la
+# configuración de Firebase de cada ISP y no se commitea. Sin el secreto, el APK sale igual SIN push y
+# el job lo avisa. Runbook: docs/runbooks/notificaciones-push.md.
+#
 # No corre en PRs. Acciones fijadas por SHA; los inputs llegan a los scripts por `env:`.
 name: APK de Android
 
@@ -45,6 +50,8 @@ on:
       ANDROID_KEY_ALIAS:
         required: false
       ANDROID_KEY_PASSWORD:
+        required: false
+      GOOGLE_SERVICES_JSON:
         required: false
 
 permissions:
@@ -148,7 +155,8 @@ jobs:
     needs: preparar
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    # Sin secretos: aquí corre todo el código de terceros (npm, Gradle).
+    # Sin llaves: aquí corre todo el código de terceros (npm, Gradle). El único secreto es
+    # GOOGLE_SERVICES_JSON, que no es una llave: su contenido queda dentro del APK.
     permissions:
       contents: read
     env:
@@ -188,6 +196,31 @@ jobs:
       # baja solo la plataforma o el NDK que falten.
       - name: Comprobar Android SDK
         run: test -d "${ANDROID_HOME:?ANDROID_HOME vacío}" || { echo "::error::El runner no trae Android SDK"; exit 1; }
+
+      # Firebase del ISP para el push: el único secreto de este job, que no es una llave (va dentro
+      # del APK). Se valida que sea JSON del paquete de la app antes de escribirlo.
+      - name: google-services.json (push)
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${GOOGLE_SERVICES_JSON:-}" ]]; then
+            echo "::warning::Sin el secreto GOOGLE_SERVICES_JSON: el APK se compila SIN notificaciones push (docs/runbooks/notificaciones-push.md)."
+            echo "Push: **sin configurar** (falta el secreto GOOGLE_SERVICES_JSON)" >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          tmp="$(mktemp)"
+          if ! printf '%s' "$GOOGLE_SERVICES_JSON" | base64 -d >"$tmp" 2>/dev/null; then
+            echo "::error::GOOGLE_SERVICES_JSON no es base64 válido (base64 -w0 google-services.json)."
+            exit 1
+          fi
+          if ! node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); const ok=(j.client||[]).some(c=>c?.client_info?.android_client_info?.package_name==="gt.horus.iris.campo"); process.exit(ok?0:1)' "$tmp"; then
+            echo "::error::google-services.json no es JSON o no trae la app Android gt.horus.iris.campo."
+            exit 1
+          fi
+          install -m 0644 "$tmp" google-services.json
+          rm -f "$tmp"
+          echo "Push: configurado (google-services.json del secreto)" >>"$GITHUB_STEP_SUMMARY"
 
       # CNG: android/ se genera aquí y no se commitea (apps/movil/.gitignore).
       - name: expo prebuild

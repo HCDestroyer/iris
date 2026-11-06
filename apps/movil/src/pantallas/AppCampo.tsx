@@ -19,7 +19,12 @@ import { ordenesEnCurso, RastreoUbicacion, registrarReceptor, type EstadoRastreo
 import type { AlmacenClaves } from "../entorno";
 import type { SesionCampo } from "../sesion/sesion";
 import { useTema } from "../tema/tema";
+import type { ApiPush } from "../push/api";
+import { ProveedorPush } from "../push/contexto";
+import type { RegistroDispositivo } from "../push/registro";
+import type { ServicioPush } from "../push/servicio";
 import { Marco } from "./Marco";
+import { PrimerUsoPush } from "./Notificaciones";
 
 export interface MotorDeSesion {
     motor: MotorSync;
@@ -63,6 +68,11 @@ export interface DependenciasCampo {
     vaciarCacheFotos: () => void;
     /** La API dijo que la sesión ya no vale: olvida la sesión guardada (abrir sin señal, tarea del GPS). */
     olvidarSesionGuardada: () => void;
+    /**
+     * Notificaciones push (`contratos/push.md`): lo nativo, la API y el registro del teléfono. Sin
+     * él (pruebas de otras pantallas), la app no registra ni muestra nada.
+     */
+    push?: { servicio: ServicioPush | null; api: ApiPush; registro: RegistroDispositivo | null; baseUrl: string; generarId: () => string };
 }
 
 export type MotivoSalida = "expirada" | "salida";
@@ -253,6 +263,8 @@ function CampoAbierto({
                 await abierto.borrar();
             }
             deps.vaciarCacheFotos();
+            // Este teléfono deja de recibir push de esta persona (el servidor también los quita al cerrar la sesión).
+            await deps.push?.registro?.quitarTodos(sesion.usuarioId);
             try {
                 await deps.cerrarSesionApi(sesion.usuarioId);
             } catch (e) {
@@ -269,6 +281,27 @@ function CampoAbierto({
     // Estable: `Marco` baja el paquete al montarse y no debe repetirlo en cada render.
     const sesionVencida = useCallback(() => alSalir("expirada"), [alSalir]);
     const nombreEmpresa = empresa === null ? null : (sesion.empresas.find((e) => e.id === empresa)?.nombre ?? null);
+    const conChat = sesion.permisos?.includes("chat.ver") === true;
+    const marco = <Marco empresa={nombreEmpresa} alSesionVencida={sesionVencida} {...(cambiarEmpresa ? { cambiarEmpresa } : {})} />;
+    const push = deps.push;
+    const conPush = push ? (
+        <ProveedorPush
+            servicio={push.servicio}
+            api={push.api}
+            registro={push.registro}
+            claves={deps.claves}
+            empresa={empresa}
+            baseUrl={push.baseUrl}
+            generarId={push.generarId}
+            chat={conChat ? abierto.chat : null}
+            alVolverAlFrente={deps.alVolverAlFrente}
+            primerUso={(p) => <PrimerUsoPush {...p} />}
+        >
+            {marco}
+        </ProveedorPush>
+    ) : (
+        marco
+    );
     return (
         <ProveedorCampo
             motor={motor}
@@ -284,12 +317,12 @@ function CampoAbierto({
                     <ProveedorLibres api={abierto.libres}>
                         <ProveedorHistorial leer={abierto.historial ?? null}>
                             {/* Sin `chat.ver` el chat no arranca ni se ofrece. */}
-                            {sesion.permisos?.includes("chat.ver") ? (
-                                <ProveedorChat chat={abierto.chat} puedeEnviar={sesion.permisos.includes("chat.enviar")} red={deps.red} alCambiarPlano={deps.alCambiarPlano}>
-                                    <Marco empresa={nombreEmpresa} alSesionVencida={sesionVencida} {...(cambiarEmpresa ? { cambiarEmpresa } : {})} />
+                            {conChat ? (
+                                <ProveedorChat chat={abierto.chat} puedeEnviar={sesion.permisos?.includes("chat.enviar") === true} red={deps.red} alCambiarPlano={deps.alCambiarPlano}>
+                                    {conPush}
                                 </ProveedorChat>
                             ) : (
-                                <Marco empresa={nombreEmpresa} alSesionVencida={sesionVencida} {...(cambiarEmpresa ? { cambiarEmpresa } : {})} />
+                                conPush
                             )}
                         </ProveedorHistorial>
                     </ProveedorLibres>
