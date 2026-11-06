@@ -160,19 +160,37 @@ test("sin señal con pendientes la nube crece (tachada, naranja, con número) y 
 });
 
 test("con señal y algo pendiente, «Enviar ahora» sincroniza; la X cierra la hoja", async ({ page }) => {
+    // El motor reintenta solo tras el 503 (espera de 2 s, 4 s…) y el aviso «Nota guardada.
+    // Enviando…» tapa la nube unos segundos: un reintento podía enviar justo al abrir la hoja y
+    // «Enviar ahora» desaparecía bajo el clic. El servidor responde 503 hasta que se toca el botón,
+    // así el envío es siempre el del botón.
     const api = await simularApiCampo(page, { permisos: PERMISOS });
     await simularChat(page);
     await abrirHoy(page);
-    // El servidor no está disponible un rato (503): la operación queda por enviar con señal.
-    await page.route("**/api/v1/sync/lote", (r) =>
-        r.fulfill({ status: 503, contentType: "application/problem+json", body: JSON.stringify({ type: "urn:iris:problema:no_disponible", title: "No disponible", status: 503 }) }),
-    );
+    await page.route("**/api/v1/sync/lote", async (r) => {
+        const tocado = await page.evaluate(() => document.documentElement.dataset.enviarAhora === "tocado").catch(() => false);
+        await (tocado
+            ? r.fallback()
+            : r.fulfill({ status: 503, contentType: "application/problem+json", body: JSON.stringify({ type: "urn:iris:problema:no_disponible", title: "No disponible", status: 503 }) }));
+    });
     await agregarNota(page);
     await expect(nube(page)).toHaveAttribute("data-forma", "pendientes", { timeout: 15_000 });
     await expect(nube(page)).toHaveAttribute("data-tono", "marca");
     await abrirConexion(page);
     const hoja = page.getByRole("dialog", { name: "Conexión y envíos" });
-    await page.unroute("**/api/v1/sync/lote");
+    // Marca el toque (antes de que el botón envíe) para que el servidor falso deje pasar el lote.
+    await page.evaluate(() => {
+        document.addEventListener(
+            "pointerdown",
+            (e) => {
+                if (e.target instanceof Element && e.target.closest("button")?.textContent?.includes("Enviar ahora")) {
+                    document.documentElement.dataset.enviarAhora = "tocado";
+                }
+            },
+            { capture: true },
+        );
+    });
+    expect(api.lotes).toHaveLength(0);
     await hoja.getByRole("button", { name: "Enviar ahora" }).click();
     await expect.poll(() => api.lotes.length).toBeGreaterThan(0);
     await expect(nube(page)).toHaveAttribute("data-forma", "al_dia");
