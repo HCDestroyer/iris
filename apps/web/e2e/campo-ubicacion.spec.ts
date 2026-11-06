@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { aceptarUbicacion, conSesionTecnico, declinarUbicacion, simularApiCampo, type ApiCampo } from "./api-campo";
-import { avisoCampo, empezarTrabajo, irAPaso, pestanaCampo } from "./ayudas-campo";
+import { abrirPanelUbicacion, avisoCampo, empezarTrabajo, irAPaso, pestanaCampo } from "./ayudas-campo";
 import { ordenesDelDia } from "./datos-campo";
 
 /*
@@ -37,7 +37,7 @@ test.describe("en el teléfono", () => {
         await expect(indicador(page)).toHaveText("Fuera de turno");
 
         // Iniciar turno: primero la explicación; el navegador no pregunta hasta «Permitir».
-        await indicador(page).click();
+        await abrirPanelUbicacion(page);
         const panel = page.getByRole("dialog", { name: "Ubicación en vivo" });
         await expect(panel.getByTestId("estado-ubicacion")).toHaveText("Fuera de turno");
         await panel.getByRole("button", { name: "Iniciar turno" }).click();
@@ -80,7 +80,7 @@ test.describe("en el teléfono", () => {
         await expect(indicador(page)).toHaveText("Ubicación activa");
 
         // Terminar turno: no se toman más puntos.
-        await indicador(page).click();
+        await abrirPanelUbicacion(page);
         await panel.getByRole("button", { name: "Terminar turno" }).click();
         await expect(indicador(page)).toHaveText("Fuera de turno");
         await page.keyboard.press("Escape");
@@ -95,7 +95,7 @@ test.describe("en el teléfono", () => {
         await page.clock.install();
         const api = await simularApiCampo(page);
         await abrirCampo(page);
-        await indicador(page).click();
+        await abrirPanelUbicacion(page);
         await page.getByRole("dialog", { name: "Ubicación en vivo" }).getByRole("button", { name: "Iniciar turno" }).click();
         await aceptarUbicacion(page);
         await expect.poll(() => puntosEnviados(api).length).toBe(1);
@@ -104,7 +104,7 @@ test.describe("en el teléfono", () => {
         await page.clock.fastForward("01:00");
         await expect.poll(() => api.intentosPosiciones.length).toBe(2);
         await expect(indicador(page)).toContainText("Pendientes de enviar: 1");
-        await indicador(page).click();
+        await abrirPanelUbicacion(page);
         await expect(page.getByRole("dialog", { name: "Ubicación en vivo" })).toContainText("límite de envíos por minuto del servidor");
         await page.keyboard.press("Escape");
 
@@ -133,8 +133,9 @@ test.describe("en el teléfono", () => {
         await expect(page.getByTestId("pendientes-por-enviar")).toHaveText("1 pendiente por enviar");
         // «En camino» inicia el turno; sin permiso, la ubicación queda «Sin permiso» (icono + texto + color).
         await expect(indicador(page)).toHaveText("Sin permiso");
-        await expect(indicador(page)).toHaveAttribute("data-tono", "error");
-        await indicador(page).click();
+        // Sin permiso el turno no se enciende: el GPS del encabezado queda apagado (gris, sin punto).
+        await expect(indicador(page)).toHaveAttribute("data-tono", "neutral");
+        await abrirPanelUbicacion(page);
         await expect(page.getByRole("dialog", { name: "Ubicación en vivo" })).toContainText("El navegador tiene bloqueada la ubicación");
         await page.keyboard.press("Escape");
 
@@ -143,7 +144,7 @@ test.describe("en el teléfono", () => {
         await expect(page.getByText("Llegada registrada sin ubicación. Se enviará al volver la señal.")).toBeVisible();
         api.sinRed = false;
         await context.setOffline(false);
-        await expect(page.getByRole("status", { name: "En línea, todo enviado" })).toBeVisible({ timeout: 15_000 });
+        await expect(page.locator('[data-slot="barra-conexion"] [data-indicador="sincronizacion"]')).toHaveAccessibleName("Todo enviado, toca para ver el estado", { timeout: 15_000 });
         const ops = api.lotes.flatMap((l) => l.operaciones ?? []);
         expect(ops.map((o) => [o.tipo, o.datos])).toEqual([
             ["orden.iniciar_camino", {}],
@@ -191,7 +192,7 @@ test.describe("en el teléfono", () => {
         expect(api.lotes.flatMap((l) => l.operaciones ?? [])[0]?.datos).toMatchObject({ lat: 14.6407, lon: -90.5133 });
 
         // Terminado a mano, «Llegué» lo vuelve a empezar con aviso y sin explicación.
-        await indicador(page).click();
+        await abrirPanelUbicacion(page);
         await page.getByRole("dialog", { name: "Ubicación en vivo" }).getByRole("button", { name: "Terminar turno" }).click();
         await page.keyboard.press("Escape");
         await expect(indicador(page)).toHaveText("Fuera de turno");
@@ -281,7 +282,7 @@ test("capturas de la ubicación en vivo", async ({ page, context, baseURL }, inf
     await conSesionTecnico(context, baseURL ?? "");
     const api = await simularApiCampo(page);
     await abrirCampo(page);
-    await indicador(page).click();
+    await abrirPanelUbicacion(page);
     await page.getByRole("dialog", { name: "Ubicación en vivo" }).getByRole("button", { name: "Iniciar turno" }).click();
     await expect(page.getByRole("dialog", { name: "¿Compartir tu ubicación?" })).toBeVisible();
     await page.screenshot({ path: nombre("01-explicacion") });
@@ -294,7 +295,7 @@ test("capturas de la ubicación en vivo", async ({ page, context, baseURL }, inf
     await expect(indicador(page)).toContainText("Ubicación activa");
     await expect(indicador(page)).toContainText("Pendientes de enviar: 1");
     await page.screenshot({ path: nombre("02-indicador") });
-    await indicador(page).click();
+    await abrirPanelUbicacion(page);
     await expect(page.getByTestId("posiciones-pendientes")).toHaveText("1");
     await page.screenshot({ path: nombre("03-panel") });
 });

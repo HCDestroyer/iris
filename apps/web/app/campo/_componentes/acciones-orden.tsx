@@ -3,6 +3,7 @@
 import type { OrdenHistorial, OrdenVista } from "@iris/sync";
 import { accionesPantallaOrden, encabezadoOrden, motivoSinFormulario, ESTADOS_TEXTO, fechaHoraCorta, puedeReanudar, siguientePaso, TIPOS_ORDEN, textoProblema } from "@iris/sync/campo";
 import { ErrorTransporte } from "@iris/sync";
+import { textoContador } from "@iris/sync/chat";
 import {
     Aviso,
     Boton,
@@ -14,8 +15,9 @@ import {
     MenuDesplegableElemento,
     cn,
 } from "@iris/ui";
-import { ArrowLeft, CircleX, Clock, Copy, Ellipsis, FilePlus2, History, ListChecks, Navigation, PauseCircle, PenLine, Play } from "lucide-react";
+import { ArrowLeft, CircleX, Clock, Copy, Ellipsis, FilePlus2, History, ListChecks, MessageCircle, Navigation, PauseCircle, PenLine, Play } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { useAbrirChatOrden } from "./chat";
 import { HojaAgregarFormulario } from "./checklist";
 import { HojaFallar } from "./cierre";
 import { useCampo } from "./contexto";
@@ -33,8 +35,9 @@ const PUNTO: Record<string, string> = {
 
 /**
  * Encabezado de la orden: ← | número con «● Estado · Tipo · ventana» | «⋯» (Agregar nota, Agregar
- * formulario, Historial del cliente, Copiar dirección). «Agregar formulario» sale deshabilitado con
- * el motivo si no aplica. El chat de la orden se suma al menú (tras «Agregar formulario») con el chat.
+ * formulario, Chat de la orden, Historial del cliente, Copiar dirección). «Agregar formulario» sale
+ * deshabilitado con el motivo si no aplica. «Chat de la orden» abre o crea su conversación, con los
+ * no leídos; no sale sin chat (sin `chat.ver`, o sin `chat.enviar` y sin conversación conocida).
  */
 export function EncabezadoOrden({ orden, alVolver, alAgregarNota }: { orden: OrdenVista; alVolver: () => void; alAgregarNota: (() => void) | null }) {
     const { notificar, sesion } = useCampo();
@@ -45,6 +48,7 @@ export function EncabezadoOrden({ orden, alVolver, alAgregarNota }: { orden: Ord
     const sinFormulario = motivoSinFormulario(orden, sesion.permisos);
     const e = encabezadoOrden(orden);
     const clienteId = orden.cliente?.id ?? orden.clienteId ?? null;
+    const chatOrden = useAbrirChatOrden(orden.id);
     const copiar = async () => {
         try {
             await navigator.clipboard.writeText(orden.direccion);
@@ -101,6 +105,24 @@ export function EncabezadoOrden({ orden, alVolver, alAgregarNota }: { orden: Ord
                             ) : null}
                         </span>
                     </MenuDesplegableElemento>
+                    {chatOrden ? (
+                        <MenuDesplegableElemento
+                            icono={MessageCircle}
+                            className="min-h-12 text-base"
+                            disabled={chatOrden.abriendo}
+                            textValue="Chat de la orden"
+                            onSelect={() => void chatOrden.abrir()}
+                        >
+                            <span className="flex flex-1 items-center gap-3">
+                                <span className="flex-1">{chatOrden.abriendo ? "Abriendo chat…" : "Chat de la orden"}</span>
+                                {chatOrden.noLeidos > 0 ? (
+                                    <span className="text-sm font-semibold text-primary tabular-nums" data-slot="no-leidos-chat-orden">
+                                        {textoContador(chatOrden.noLeidos)} sin leer
+                                    </span>
+                                ) : null}
+                            </span>
+                        </MenuDesplegableElemento>
+                    ) : null}
                     {clienteId !== null ? (
                         <MenuDesplegableElemento icono={History} className="min-h-12 text-base" onSelect={() => {
                                 setVezHistorial((v) => v + 1);

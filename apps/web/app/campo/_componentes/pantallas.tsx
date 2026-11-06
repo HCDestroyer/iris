@@ -7,12 +7,13 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { hoyEnGuatemala } from "@/lib/campo/fechas";
 import { irACambiarContrasena, pideCambioContrasena } from "@/lib/campo/sesion";
 import { AgendaDia, AgendaSemana } from "./agenda";
+import { ConversacionPantalla, ListaChat, NuevoChat } from "./chat";
 import { useCampo } from "./contexto";
 import { DetalleOrden } from "./detalle-orden";
 import { BarraCompacta, EncabezadoCampo, FranjaSuperior } from "./encabezado";
 import { DetalleTraslado, MiBodega, PorRecibir } from "./inventario";
 import { ProveedorBorradores } from "./borradores";
-import { AvisoIsla, IslaMenu, IslaPasos } from "./isla";
+import { IslaMenu, IslaPasos } from "./isla";
 import { ListaOrdenes } from "./lista-ordenes";
 import { OrdenesLibresPantalla } from "./libres";
 import { NuevaTarea } from "./tareas";
@@ -121,7 +122,8 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
     // Los pasos de la orden llevan su propia isla («Anterior» · «Siguiente» o «Guardar y seguir»); la firma
     // y el cierre, su botón al pie.
     const paso = vista.tipo === "orden" ? vista.paso : undefined;
-    const conIsla = paso === undefined;
+    // La conversación ocupa la pantalla (encabezado propio y compositor abajo): sin isla.
+    const conIsla = paso === undefined && vista.tipo !== "conversacion";
     const conIslaPasos = vista.tipo === "orden" && paso !== undefined && paso !== "cierre";
 
     const [carga, setCarga] = useState<CargaPaquete>({ estado: "inactiva" });
@@ -235,8 +237,8 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
         <ProveedorBorradores>
         <div className="campo-app relative mx-auto flex min-h-dvh w-full max-w-2xl flex-col pb-[calc(11rem+env(safe-area-inset-bottom))]">
             <FranjaSuperior />
-            <EncabezadoCampo ref={encabezado} empresa={nombreEmpresa} />
-            <BarraCompacta visible={desplazamiento.compacto} />
+            <EncabezadoCampo ref={encabezado} empresa={nombreEmpresa} pedirEmpresa={pedirEmpresa} />
+            <BarraCompacta visible={desplazamiento.compacto} pedirEmpresa={pedirEmpresa} />
             {estado.conexion === "sin_sesion" ? (
                 <div className="px-4 pt-3">
                     <Aviso
@@ -284,6 +286,12 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
                     <AgendaDia dia={vista.dia} />
                 ) : vista.tipo === "semana" ? (
                     <AgendaSemana />
+                ) : vista.tipo === "chat" ? (
+                    <ListaChat />
+                ) : vista.tipo === "chat_nuevo" ? (
+                    <NuevoChat />
+                ) : vista.tipo === "conversacion" ? (
+                    <ConversacionPantalla id={vista.id} />
                 ) : vista.tipo === "nueva_tarea" ? (
                     <NuevaTarea />
                 ) : vista.tipo === "libres" ? (
@@ -293,7 +301,6 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
                 )}
             </main>
             <AvisoDelMarco />
-            <AvisoIsla alto={conIsla || conIslaPasos} pedirEmpresa={pedirEmpresa} />
             {conIsla ? <IslaMenu encogida={desplazamiento.islaEncogida} /> : null}
             {conIslaPasos && vista.tipo === "orden" && paso ? <IslaPasos id={vista.id} paso={paso} encogida={desplazamiento.islaEncogida} /> : null}
         </div>

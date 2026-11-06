@@ -19,10 +19,12 @@ import {
     type OrdenCampo,
     type OrdenHistorial,
 } from "@iris/sync";
+import type { MotorChat } from "@iris/sync/chat";
 import { AlmacenDexie } from "@iris/sync/dexie";
 import { useSyncExternalStore } from "react";
 import { crearClienteIris } from "@/lib/api/cliente";
 import { identidadPWA } from "./app";
+import { abrirChat } from "./chat";
 import { verificarDueno } from "./sesion";
 
 export interface ClaveMotor {
@@ -47,6 +49,8 @@ export interface MotorAbierto {
      * la cola ni el paquete guardado.
      */
     agenda: (hasta: string) => Promise<OrdenCampo[]>;
+    /** Chat interno del equipo (misma base, misma verificación del dueño). */
+    chat: MotorChat;
     /** «Historial del cliente» del menú de la orden (solo con señal). */
     historialCliente: (clienteId: number) => Promise<OrdenHistorial[]>;
     /** Órdenes libres y tomar una (solo con señal; nunca por la cola). */
@@ -58,7 +62,7 @@ export interface MotorAbierto {
  * la sesión del navegador sigue siendo de ese usuario (y empresa); si entró otra persona, llama
  * `alSesionAjena` y no envía nada (la cola queda intacta en su base).
  */
-export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void): Promise<MotorAbierto> {
+export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void, opciones: { flujoChat?: boolean } = {}): Promise<MotorAbierto> {
     // La empresa va fija en el cliente: la cola de una empresa nunca sale con la cabecera de otra.
     const cliente = crearClienteIris({ leerEmpresa: () => clave.empresaId ?? undefined, alProblemaEmpresa: () => undefined });
     const almacen = new AlmacenDexie({ nombre: nombreBase(clave) });
@@ -121,7 +125,8 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void): 
             return apiLibres.tomar(id);
         },
     };
-    return { motor, posiciones, almacen, inventario, agenda, libres, historialCliente };
+    const chat = await abrirChat({ usuarioId: clave.usuarioId, almacen, cliente, app, verificarIdentidad, conFlujo: opciones.flujoChat ?? true });
+    return { motor, posiciones, almacen, inventario, agenda, libres, historialCliente, chat };
 }
 
 /** Estado de la cola de posiciones para React. */
