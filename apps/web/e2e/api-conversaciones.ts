@@ -153,7 +153,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             .filter((c) => (estado === "activas" ? c.estado !== "resuelta" : c.estado === estado))
             .filter((c) => !q.get("canalId") || c.canal.id === Number(q.get("canalId")))
             .filter((c) => !q.get("colaId") || c.cola?.id === Number(q.get("colaId")))
-            .filter((c) => !q.get("etiquetaId") || c.etiquetas.some((e) => e.id === Number(q.get("etiquetaId"))))
+            .filter((c) => !q.get("etiquetaId") || (c.etiquetas ?? []).some((e) => e.id === Number(q.get("etiquetaId"))))
             .filter((c) => !q.get("sla") || c.sla.estado === q.get("sla"))
             .filter((c) => !texto || c.titulo.toLowerCase().includes(texto) || c.numero.includes(texto.replace(/\D/g, "") || "x"))
             .sort((a, b) => Date.parse(b.ultimaActividad) - Date.parse(a.ultimaActividad));
@@ -177,7 +177,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             porEstado: { abierta: activas.filter((c) => c.estado === "abierta").length, esperando_cliente: activas.filter((c) => c.estado === "esperando_cliente").length },
             porCanal: grupo((c) => [c.canal.id]),
             porCola: grupo((c) => (c.cola ? [c.cola.id] : [])),
-            porEtiqueta: grupo((c) => c.etiquetas.map((e) => e.id)),
+            porEtiqueta: grupo((c) => (c.etiquetas ?? []).map((e) => e.id)),
         };
     }
 
@@ -193,7 +193,6 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             direccion: "entrante",
             tipo: "texto",
             texto,
-            autor: null,
             estadoEntrega: null,
             motivoFalla: null,
             menciones: [],
@@ -303,18 +302,26 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         switch (accion) {
             case "tomar":
                 if (!puede("conversaciones.tomar")) return (await prohibido(), true);
-                if (c.asignado && c.asignado.id !== yo) return (await problema(route, P("ya_asignada", 409, "Ya está asignada", { errors: [{ field: "asignado", message: "ya asignada", value: c.asignado.nombre }] })), true);
-                return responder(() => (c.asignado = agentes.find((a) => a.id === yo) ?? { id: yo, nombre: "Yo" }));
+                if (c.asignado && c.asignado.id !== yo) return (await problema(route, P("ya_asignada", 409, "Ya está asignada", { detail: `La tiene ${c.asignado.nombre}` })), true);
+                return responder(() => {
+                    const a = agentes.find((v) => v.id === yo);
+                    c.asignado = { id: yo, nombre: a?.nombre ?? "Yo" };
+                });
             case "asignar": {
                 if (!puede("conversaciones.asignar")) return (await prohibido(), true);
                 const id = cuerpo.usuarioId as number | null;
-                return responder(() => (c.asignado = id === null ? null : (agentes.find((a) => a.id === id) ?? null)));
+                return responder(() => {
+                    const a = agentes.find((v) => v.id === id);
+                    if (id === null || !a) delete c.asignado;
+                    else c.asignado = { id: a.id, nombre: a.nombre };
+                });
             }
             case "transferir": {
                 const cola = colas.find((x) => x.id === cuerpo.colaId);
                 return responder(() => {
-                    c.cola = cola ? { id: cola.id, nombre: cola.nombre } : null;
-                    if (!cuerpo.conservarAsignacion) c.asignado = null;
+                    if (cola) c.cola = { id: cola.id, nombre: cola.nombre };
+                    else delete c.cola;
+                    if (!cuerpo.conservarAsignacion) delete c.asignado;
                 });
             }
             case "etiquetar":
@@ -360,7 +367,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                     direccion: accion === "notas" ? "nota" : "saliente",
                     tipo: cuerpo.plantilla ? "plantilla" : "texto",
                     texto: (cuerpo.texto as string | undefined) ?? null,
-                    autor: agentes.find((a) => a.id === yo) ?? { id: yo, nombre: "Yo" },
+                    autor: { id: yo, nombre: agentes.find((a) => a.id === yo)?.nombre ?? "Yo" },
                     estadoEntrega: accion === "notas" ? null : "en_cola",
                     motivoFalla: null,
                     menciones: ((cuerpo.menciones as number[] | undefined) ?? []).map((u) => ({ id: u, nombre: agentes.find((a) => a.id === u)?.nombre ?? "" })),

@@ -40,7 +40,7 @@ export function BotonFiltros({ filtros, contadores, alCambiar }: { filtros: Filt
 
 function ContenidoFiltros({ filtros, contadores, alCambiar }: { filtros: Filtros; contadores: Contadores | null; alCambiar: (f: Filtros) => void }) {
     const { canales, colas, etiquetas } = useCatalogos();
-    const total = (lista: readonly { id: number; total: number }[] | undefined, id: number) => lista?.find((x) => x.id === id)?.total;
+    const total = (lista: readonly { id: number; total: number }[] | null | undefined, id: number) => lista?.find((x) => x.id === id)?.total;
     const estados: { clave: string; etiqueta: string; activo: boolean; aplicar: (f: Filtros, on: boolean) => Filtros; n?: number | undefined }[] = [
         { clave: "por_vencer", etiqueta: "SLA por vencer", activo: filtros.sla === "por_vencer", aplicar: (f, on) => ({ ...f, sla: on ? "por_vencer" : null }), n: contadores?.porVencer },
         { clave: "vencido", etiqueta: "SLA vencido", activo: filtros.sla === "vencido", aplicar: (f, on) => ({ ...f, sla: on ? "vencido" : null }), n: contadores?.vencidas },

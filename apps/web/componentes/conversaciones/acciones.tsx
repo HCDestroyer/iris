@@ -256,12 +256,12 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
 /** Error de una acción de un toque: aviso flotante bajo la cabecera, con «Recargar» si fue un conflicto. */
 function ErrorRapido({ error, cerrar, recargar }: { error: unknown; cerrar: () => void; recargar: () => Promise<void> }) {
     const conflicto = error instanceof ErrorApi && error.estado === 409;
-    const otro = error instanceof ErrorApi && error.codigo === "ya_asignada" ? (error.errores[0]?.value as string | undefined) : undefined;
+    const otro = error instanceof ErrorApi && error.codigo === "ya_asignada" ? error.detalle : undefined;
     return (
         <div className="absolute inset-x-3 top-[4.25rem] z-10">
             <Aviso
                 tono={conflicto ? "warning" : "error"}
-                titulo={error instanceof ErrorApi && error.codigo === "ya_asignada" ? `Ya la tomó ${otro ?? "otra persona"}` : conflicto ? "Alguien más cambió esta conversación" : "No se pudo hacer"}
+                titulo={error instanceof ErrorApi && error.codigo === "ya_asignada" ? "Ya la tomó otra persona" : conflicto ? "Alguien más cambió esta conversación" : "No se pudo hacer"}
                 accion={
                     <Boton
                         variante="secundario"
@@ -276,7 +276,7 @@ function ErrorRapido({ error, cerrar, recargar }: { error: unknown; cerrar: () =
                     </Boton>
                 }
             >
-                {conflicto ? "Recargamos la conversación para que veas el cambio." : mensajeDeError(error).titulo}
+                {otro ?? (conflicto ? "Recargamos la conversación para que veas el cambio." : mensajeDeError(error).titulo)}
             </Aviso>
         </div>
     );
@@ -444,9 +444,9 @@ function DialogoTransferir(props: PropsDialogo) {
 function DialogoEtiquetas(props: PropsDialogo) {
     const { conv } = props;
     const { etiquetas } = useCatalogos();
-    const [elegidas, setElegidas] = useState<number[]>(conv.etiquetas.map((e) => e.id));
+    const [elegidas, setElegidas] = useState<number[]>((conv.etiquetas ?? []).map((e) => e.id));
     const [enviando, setEnviando] = useState(false);
-    const sucio = elegidas.length !== conv.etiquetas.length || elegidas.some((id) => !conv.etiquetas.some((e) => e.id === id));
+    const sucio = elegidas.length !== (conv.etiquetas ?? []).length || elegidas.some((id) => !(conv.etiquetas ?? []).some((e) => e.id === id));
     useCambiosSinGuardar(sucio, enviando);
     const form = useForm();
     return (

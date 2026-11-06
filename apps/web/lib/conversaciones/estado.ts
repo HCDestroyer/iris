@@ -71,7 +71,7 @@ export function coincide(c: Conversacion, f: Filtros, usuarioId: number): boolea
     if (f.estado === "activas" ? c.estado === "resuelta" : c.estado !== f.estado) return false;
     if (f.canalId && c.canal.id !== f.canalId) return false;
     if (f.colaId && c.cola?.id !== f.colaId) return false;
-    if (f.etiquetaId && !c.etiquetas.some((e) => e.id === f.etiquetaId)) return false;
+    if (f.etiquetaId && !(c.etiquetas ?? []).some((e) => e.id === f.etiquetaId)) return false;
     if (f.sla && c.sla.estado !== f.sla) return false;
     return true;
 }

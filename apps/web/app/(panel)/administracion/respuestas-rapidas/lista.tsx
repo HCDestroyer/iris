@@ -29,7 +29,7 @@ export function ListaRespuestasRapidas() {
     async function alternar(r: RespuestaRapida) {
         setError(null);
         try {
-            const opciones = { params: { path: { id: r.id }, header: cabeceraIdem(nuevaClaveIdempotencia()) }, body: { version: r.version } };
+            const opciones = { params: { path: { id: r.id }, header: cabeceraIdem(nuevaClaveIdempotencia()) } };
             await resolver(r.activa ? api().POST("/api/v1/mensajeria/respuestas-rapidas/{id}/desactivar", opciones) : api().POST("/api/v1/mensajeria/respuestas-rapidas/{id}/activar", opciones));
             avisar({ titulo: avisoEstado(r.titulo, !r.activa) });
             setCambiar(null);

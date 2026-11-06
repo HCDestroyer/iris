@@ -59,12 +59,15 @@ export function SelectorPlantilla({
                 )
             }
         >
-            {abierto ? <ContenidoPlantillas conv={conv} identidad={identidad} alEnviado={(m) => (alEnviado(m), setAbierto(false))} /> : null}
+            {abierto ? <ContenidoPlantillas conv={conv} identidad={identidad} alEnviado={(m) => {
+                        if (m) alEnviado(m);
+                        setAbierto(false);
+                    }} /> : null}
         </PanelEmergente>
     );
 }
 
-function ContenidoPlantillas({ conv, identidad, alEnviado }: { conv: Conversacion; identidad: Identidad; alEnviado: (m: Mensaje) => void }) {
+function ContenidoPlantillas({ conv, identidad, alEnviado }: { conv: Conversacion; identidad: Identidad; alEnviado: (m: Mensaje | undefined) => void }) {
     const lectura = useLectura(async (signal) => (await resolver(api().GET("/api/v1/mensajeria/conversaciones/{id}/plantillas", { params: { path: { id: conv.id } }, signal }))).data ?? []);
     const [elegida, setElegida] = useState<Plantilla | null>(null);
     if (lectura.estado === "cargando") return <Cargando texto="Cargando plantillas…" />;
@@ -100,10 +103,10 @@ function ContenidoPlantillas({ conv, identidad, alEnviado }: { conv: Conversacio
     );
 }
 
-function FormPlantilla({ conv, identidad, plantilla, volver, alEnviado }: { conv: Conversacion; identidad: Identidad; plantilla: Plantilla; volver: () => void; alEnviado: (m: Mensaje) => void }) {
+function FormPlantilla({ conv, identidad, plantilla, volver, alEnviado }: { conv: Conversacion; identidad: Identidad; plantilla: Plantilla; volver: () => void; alEnviado: (m: Mensaje | undefined) => void }) {
     const variables = plantilla.variables ?? [];
     const [esquema] = useState(() =>
-        z.object(Object.fromEntries(variables.map((v) => [v.nombre, v.obligatoria ? z.string().trim().min(1, "Obligatoria").max(200) : z.string().max(200)]))),
+        z.object(Object.fromEntries(variables.map((v) => [v.nombre, z.string().trim().min(1, "Obligatoria").max(200)]))),
     );
     const form = useForm<Record<string, string>>({ resolver: zodResolver(esquema), defaultValues: Object.fromEntries(variables.map((v) => [v.nombre, ""])) });
     const [id] = useState(nuevoIdMensaje);

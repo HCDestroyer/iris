@@ -39,7 +39,7 @@ function FormularioOrden({ conv }: { conv: ConversacionDetalle }) {
     const envio = useEnvio();
     const zonas = useZonas();
     const servicios = conv.clienteResumen?.servicios ?? [];
-    const tickets = conv.vinculos.filter((v) => v.tipo === "ticket");
+    const tickets = (conv.vinculos ?? []).filter((v) => v.tipo === "ticket");
     const volverA = `/conversaciones?c=${conv.id}`;
     const form = useForm<Valores>({
         resolver: zodResolver(esquema),
@@ -123,7 +123,7 @@ function FormularioOrden({ conv }: { conv: ConversacionDetalle }) {
                 <Campo etiqueta="Dirección (opcional)" maxLength={300} autoComplete="off" error={errores.direccion?.message} {...form.register("direccion")} />
                 <CampoSelector etiqueta="Zona (opcional)" error={errores.zonaId?.message} disabled={zonas.estado !== "listo"} {...form.register("zonaId")}>
                     <option value="">La del servicio</option>
-                    {(zonas.estado === "listo" ? zonas.datos : []).filter((z) => z.activa).map((z) => (
+                    {((zonas.estado === "listo" ? zonas.datos : null) ?? []).filter((z) => z.activa).map((z) => (
                         <option key={z.id} value={String(z.id)}>
                             {z.nombre}
                         </option>

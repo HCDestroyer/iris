@@ -100,7 +100,7 @@ function CabeceraCliente({ conv, alActualizar }: { conv: ConversacionDetalle; al
     const { puede } = useSesion();
     const ahora = useAhora(60_000);
     const r = conv.clienteResumen;
-    const servicio = r?.servicios.find((s) => s.id === conv.contacto.servicioId) ?? r?.servicios[0];
+    const servicio = (r?.servicios ?? []).find((s) => s.id === conv.contacto.servicioId) ?? r?.servicios?.[0];
     const [accion, setAccion] = useState<"ticket" | "promesa" | null>(null);
     const nombre = r?.nombre ?? conv.titulo;
     const acciones: { id: string; etiqueta: string; icono: typeof LifeBuoy; permitido: boolean; href?: string; alPresionar?: () => void }[] = [
@@ -209,7 +209,7 @@ const ENLACE_VINCULO: Record<string, (id: string) => string> = {
 
 const ICONO_VINCULO: Record<string, typeof LifeBuoy> = { ticket: LifeBuoy, orden: ClipboardList, prospecto: UserPlus, boleta: Banknote, promesa: CalendarClock };
 
-function Vinculo({ v }: { v: ConversacionDetalle["vinculos"][number] }) {
+function Vinculo({ v }: { v: NonNullable<ConversacionDetalle["vinculos"]>[number] }) {
     const Icono = ICONO_VINCULO[v.tipo] ?? Link2;
     const href = ENLACE_VINCULO[v.tipo]?.(v.id);
     const ahora = useAhora(60_000);
@@ -229,7 +229,7 @@ function Vinculo({ v }: { v: ConversacionDetalle["vinculos"][number] }) {
 }
 
 function Resumen({ conv }: { conv: ConversacionDetalle; recargar: () => Promise<void> }) {
-    const abiertos = conv.vinculos.filter((v) => v.tipo === "ticket" || v.tipo === "orden").slice(-3);
+    const abiertos = (conv.vinculos ?? []).filter((v) => v.tipo === "ticket" || v.tipo === "orden").slice(-3);
     return (
         <div>
             <Seccion titulo="Creado desde aquí">
@@ -241,9 +241,9 @@ function Resumen({ conv }: { conv: ConversacionDetalle; recargar: () => Promise<
                 </ul>
             </Seccion>
             <Seccion titulo="Etiquetas">
-                {conv.etiquetas.length === 0 ? <p className="text-[0.8125rem] text-muted-foreground">Sin etiquetas (se ponen desde «⋯»).</p> : null}
+                {(conv.etiquetas ?? []).length === 0 ? <p className="text-[0.8125rem] text-muted-foreground">Sin etiquetas (se ponen desde «⋯»).</p> : null}
                 <div className="flex flex-wrap gap-1.5">
-                    {conv.etiquetas.map((e) => (
+                    {(conv.etiquetas ?? []).map((e) => (
                         <span key={e.id} className={cn("inline-flex h-[1.375rem] max-w-full items-center truncate rounded-md px-2 text-xs font-medium", CLASE_ETIQUETA[e.color] ?? CLASE_ETIQUETA.neutro)}>
                             {e.nombre}
                         </span>
@@ -256,10 +256,10 @@ function Resumen({ conv }: { conv: ConversacionDetalle; recargar: () => Promise<
                     <dd className="truncate text-right">{conv.cola?.nombre ?? "Sin cola"}</dd>
                     <dt className="text-muted-foreground">Asignada</dt>
                     <dd className="truncate text-right">{conv.asignado?.nombre ?? "Sin asignar"}</dd>
-                    {conv.participantes.length > 0 ? (
+                    {(conv.participantes ?? []).length > 0 ? (
                         <>
                             <dt className="text-muted-foreground">También</dt>
-                            <dd className="truncate text-right">{conv.participantes.map((p) => p.nombre).join(", ")}</dd>
+                            <dd className="truncate text-right">{(conv.participantes ?? []).map((p) => p.nombre).join(", ")}</dd>
                         </>
                     ) : null}
                 </dl>
@@ -271,9 +271,9 @@ function Resumen({ conv }: { conv: ConversacionDetalle; recargar: () => Promise<
 function Historial({ conv }: { conv: ConversacionDetalle }) {
     return (
         <Seccion titulo="Creado desde esta conversación">
-            {conv.vinculos.length === 0 ? <p className="text-[0.8125rem] text-muted-foreground">Nada todavía.</p> : null}
+            {(conv.vinculos ?? []).length === 0 ? <p className="text-[0.8125rem] text-muted-foreground">Nada todavía.</p> : null}
             <ul className="grid gap-1.5">
-                {[...conv.vinculos].reverse().map((v) => (
+                {[...(conv.vinculos ?? [])].reverse().map((v) => (
                     <Vinculo key={`${v.tipo}-${v.id}`} v={v} />
                 ))}
             </ul>
@@ -359,11 +359,11 @@ function SinCliente({ conv, alActualizar }: { conv: ConversacionDetalle; alActua
                             />
                         ) : null}
                         {coincidencias.estado === "listo" ? (
-                            coincidencias.datos.clientes.length === 0 ? (
+                            (coincidencias.datos.clientes ?? []).length === 0 ? (
                                 <p className="text-[0.8125rem] text-muted-foreground">Ningún cliente tiene este número en Argos.</p>
                             ) : (
                                 <ul className="grid gap-1.5">
-                                    {coincidencias.datos.clientes.map((c) => (
+                                    {(coincidencias.datos.clientes ?? []).map((c) => (
                                         <li key={c.clienteId} className="flex min-w-0 items-center gap-2.5 rounded-[0.625rem] border border-border p-2">
                                             <span aria-hidden className="flex size-[1.875rem] shrink-0 items-center justify-center rounded-full bg-elevated text-[0.6875rem] font-semibold">
                                                 {iniciales(c.nombre)}

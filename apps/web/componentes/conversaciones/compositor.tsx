@@ -113,7 +113,8 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                               },
                           }),
                       );
-            alConfirmado(m);
+            // 200 sin cuerpo (repetido): el mensaje llega por el flujo.
+            if (m) alConfirmado(m);
         } catch (err) {
             const texto = esSesionCambiada(err)
                 ? "La sesión de este navegador cambió: no se envió"

@@ -54,7 +54,7 @@ describe("presentación de la bandeja", () => {
     it("último mensaje de la fila", () => {
         expect(textoUltimo({ direccion: "saliente", tipo: "texto", texto: "Te enviamos un técnico", evento: null, creadoEn: "" })).toBe("Tú: Te enviamos un técnico");
         expect(textoUltimo({ direccion: "entrante", tipo: "imagen", texto: null, evento: null, creadoEn: "" })).toBe("Foto");
-        expect(textoUltimo(null)).toBe("Sin mensajes");
+        expect(textoUltimo(undefined)).toBe("Sin mensajes");
     });
 
     it("estado de entrega y respuesta rápida con nombre", () => {

@@ -14,7 +14,7 @@ export type PropsPanelEmergente = {
     /** Muestra el título arriba; si no, solo lo usan los lectores de pantalla. */
     tituloVisible?: boolean;
     children: ReactNode;
-    lado?: "top" | "bottom" | "start" | "end" | "bottom start" | "bottom end";
+    lado?: "top" | "bottom" | "start" | "end" | "top start" | "top end" | "bottom start" | "bottom end";
     abierto?: boolean;
     alCambiar?: (abierto: boolean) => void;
     className?: string;

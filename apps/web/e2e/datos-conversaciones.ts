@@ -31,7 +31,6 @@ export function conversacion(datos: Partial<Conversacion> & Pick<Conversacion, "
         contacto: { tipo: "desconocido", clienteId: null, servicioId: null, contactoIrisId: null, prospectoId: null, asociacion: null },
         estado: "abierta",
         reabiertaEn: null,
-        asignado: null,
         etiquetas: [],
         ventana: { abierta: true, cierraEn: en(21 * 60) },
         sla: { estado: "en_tiempo", venceEn: en(30), esperaDesde: hace(4) },
@@ -115,7 +114,7 @@ export function detalle(c: Conversacion, extra: Partial<Detalle> = {}): Detalle 
                       servicios: [{ id: c.contacto.servicioId ?? 0, codigo: "S-4101", plan: "Fibra 100 Mb", estado: "activo", zona: "Villa Nueva · Norte" }],
                       sincronizadoEn: hace(2),
                   }
-                : null,
+                : undefined,
         ...extra,
     };
 }
@@ -129,7 +128,6 @@ export function mensaje(conversacionId: number, datos: Partial<Mensaje> & Pick<M
         seq,
         tipo: datos.direccion === "sistema" ? "sistema" : "texto",
         texto: null,
-        autor: null,
         estadoEntrega: null,
         motivoFalla: null,
         menciones: [],
