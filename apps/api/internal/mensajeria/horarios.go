@@ -59,7 +59,23 @@ func aHorario(f mensajeriabd.MensajeriaHorario) Horario {
 		Franjas: []FranjaHorario{}, Feriados: []FeriadoHorario{}}
 	_ = json.Unmarshal(f.Franjas, &h.Franjas)
 	_ = json.Unmarshal(f.Feriados, &h.Feriados)
+	// Las listas salen [] (nunca null), también las anidadas.
+	h.Franjas, h.Feriados = lista(h.Franjas), lista(h.Feriados)
+	for i := range h.Franjas {
+		h.Franjas[i].Dias = lista(h.Franjas[i].Dias)
+	}
+	for i := range h.Feriados {
+		h.Feriados[i].Franjas = lista(h.Feriados[i].Franjas)
+	}
 	return h
+}
+
+// lista: nil → [] (las respuestas nunca llevan listas null).
+func lista[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
 }
 
 // Evaluación ----------------------------------------------------------------------------------------
