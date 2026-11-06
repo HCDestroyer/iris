@@ -1,20 +1,28 @@
-// Encabezado de la app (diseño «combinada», como la PWA): no queda fijo, va dentro del
-// desplazamiento y se va con el contenido; al subir vuelve la barra compacta (`BarraCompacta`, sobre
-// el contenido). Lleva la fecha con el punto de conexión, buscar y la cuenta; en Hoy, Mañana y Semana
-// además «Hola, <nombre>» y los chips con su contador (solo con datos leídos). La ubicación en vivo
-// va siempre. Las reglas son de `@iris/sync/campo`.
-import { buscarOrdenes, CHIPS_DIA, ESPERA_BUSQUEDA_MS, chipDe, citasDelDia, esVistaDeDia, fechaEncabezado, iniciales, mananaEnGuatemala, nombreCliente, primerNombre, resumenHoy, TIPOS_ORDEN, type ChipDia } from "@iris/sync/campo";
+// Encabezado de la app (opción elegida por el PM, nov 2026, como la PWA): no queda fijo, va dentro
+// del desplazamiento y se va con el contenido; al subir vuelve la barra compacta (`BarraCompacta`,
+// sobre el contenido). A la izquierda la fecha y, en Hoy, Mañana y Semana, «Hola, <nombre>»; a la
+// derecha los indicadores (sincronización y GPS, abren la hoja de estado) y buscar. La cuenta está en
+// «Yo» de la isla. En Hoy, Mañana y Semana, la barra segmentada del día con su contador (solo con
+// datos leídos). Las reglas son de `@iris/sync/campo`.
+import { buscarOrdenes, CHIPS_DIA, ESPERA_BUSQUEDA_MS, chipDe, citasDelDia, esVistaDeDia, fechaEncabezado, mananaEnGuatemala, nombreCliente, primerNombre, resumenHoy, TIPOS_ORDEN, type ChipDia } from "@iris/sync/campo";
 import { ChevronRight, Search } from "lucide-react-native";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Animated, Easing, StyleSheet, Text, View } from "react-native";
 import { BotonRedondo, Campo, Dialogo, Pila, Texto, Tocable } from "../componentes";
 import { useAgenda } from "../campo/agenda";
 import { useDemorado } from "../campo/demora";
 import { useCampo } from "../campo/contexto";
 import { useTema } from "../tema/tema";
+import { IndicadoresEstado } from "./Estado";
 import { InsigniaOrden } from "./ListaOrdenes";
 
-export function Encabezado({ punto, ubicacion, empresa }: { punto: ReactNode; ubicacion: ReactNode; empresa: string | null }) {
+export interface SalidasEstado {
+    /** La sesión venció: volver a entrar (desde la hoja de estado). */
+    alEntrar: () => void;
+    alElegirEmpresa?: (() => void) | undefined;
+}
+
+export function Encabezado({ alEntrar, alElegirEmpresa }: SalidasEstado) {
     const { sesion, vista } = useCampo();
     const { colores } = useTema();
     const deDia = esVistaDeDia(vista);
@@ -22,43 +30,36 @@ export function Encabezado({ punto, ubicacion, empresa }: { punto: ReactNode; ub
         <View testID="encabezado-campo" style={estilos.encabezado}>
             <View style={estilos.fila}>
                 <View style={[estilos.flex, estilos.titulos]}>
-                    <View style={estilos.fecha}>
-                        <Text style={[estilos.textoFecha, { color: colores.textoSuave }]}>{fechaEncabezado()}</Text>
-                        {punto}
-                    </View>
+                    <Text style={[estilos.textoFecha, { color: colores.textoSuave }]}>{fechaEncabezado()}</Text>
                     {deDia ? (
                         <Text accessibilityRole="header" style={[estilos.saludo, { color: colores.texto }]}>
                             Hola, {primerNombre(sesion.nombre)}
                         </Text>
                     ) : null}
-                    {/* Quién está (un teléfono puede ser de varios técnicos) y, con varias, en qué empresa. */}
-                    <Text numberOfLines={1} style={[estilos.textoFecha, { color: colores.textoSuave }]}>
-                        {sesion.nombre}
-                        {empresa ? ` · ${empresa}` : ""}
-                    </Text>
                 </View>
-                <BotonesCuenta />
+                <BotonesCuenta alEntrar={alEntrar} alElegirEmpresa={alElegirEmpresa} />
             </View>
-            {ubicacion}
             {deDia ? <ChipsDia /> : null}
         </View>
     );
 }
 
-function BotonesCuenta() {
-    const { sesion, navegar } = useCampo();
+function BotonesCuenta({ compacta = false, ...salidas }: SalidasEstado & { compacta?: boolean }) {
     const { campo, colores } = useTema();
     const [buscando, setBuscando] = useState(false);
     return (
         <View style={estilos.botones}>
+            <IndicadoresEstado compacta={compacta} {...salidas} />
             <BotonRedondo icono={Search} etiqueta="Buscar orden" fondo={campo.panel} tinta={colores.texto} borde={colores.borde} alPresionar={() => setBuscando(true)} />
-            <BotonRedondo texto={iniciales(sesion.nombre) || "Yo"} etiqueta="Tu cuenta" fondo={colores.primario} tinta={colores.sobrePrimario} alPresionar={() => navegar({ tipo: "yo" })} />
             <BuscarOrden abierto={buscando} alCerrar={() => setBuscando(false)} />
         </View>
     );
 }
 
-/** Chips Hoy · Mañana · Semana con su contador (solo con datos leídos: nunca un total inventado). */
+/**
+ * Hoy · Mañana · Semana en una sola barra segmentada (opciones excluyentes, `radio` accesible) con
+ * su contador (solo con datos leídos: nunca un total inventado).
+ */
 function ChipsDia() {
     const { vista, navegar, estado } = useCampo();
     const { semana } = useAgenda();
@@ -70,7 +71,7 @@ function ChipsDia() {
         ...(semana.datos ? { manana: citasDelDia(semana.datos.ordenes, manana).length } : {}),
     };
     return (
-        <View accessibilityLabel="Día" style={estilos.chips}>
+        <View accessibilityLabel="Día" accessibilityRole="radiogroup" style={[estilos.chips, { backgroundColor: campo.panel, borderColor: colores.borde }]}>
             {CHIPS_DIA.map((c) => {
                 const activo = actual === c.id;
                 const cuenta = cuentas[c.id];
@@ -82,10 +83,7 @@ function ChipsDia() {
                         seleccionado={activo}
                         testID={`chip-${c.id}`}
                         alPresionar={() => navegar(c.vista)}
-                        estilo={[
-                            estilos.chip,
-                            activo ? { backgroundColor: campo.tinta } : { backgroundColor: campo.panel, borderColor: colores.borde, borderWidth: 1 },
-                        ]}
+                        estilo={[estilos.chip, { backgroundColor: activo ? campo.tinta : "transparent" }]}
                     >
                         <Text style={[estilos.textoChip, { color: activo ? campo.sobreTinta : colores.texto, fontWeight: activo ? "600" : "500" }]}>{texto}</Text>
                     </Tocable>
@@ -106,7 +104,7 @@ function ChipsDia() {
  * nativo y la arquitectura nueva, cada evento del desplazamiento vuelve a pintar el marco y el valor
  * JS (todavía «oculta») pisaba el nativo, así que la barra entraba y desaparecía al instante.
  */
-export function BarraCompacta({ visible, arriba }: { visible: boolean; arriba: number }) {
+export function BarraCompacta({ visible, arriba, ...salidas }: { visible: boolean; arriba: number } & SalidasEstado) {
     const { sesion } = useCampo();
     const { campo, colores } = useTema();
     const [alto, setAlto] = useState(64);
@@ -133,7 +131,7 @@ export function BarraCompacta({ visible, arriba }: { visible: boolean; arriba: n
                 <Text numberOfLines={1} style={[estilos.flex, estilos.textoCompacta, { color: colores.texto }]}>
                     Hola, {primerNombre(sesion.nombre)}
                 </Text>
-                <BotonesCuenta />
+                <BotonesCuenta compacta {...salidas} />
             </Animated.View>
         </View>
     );
@@ -207,9 +205,9 @@ const estilos = StyleSheet.create({
     fecha: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
     textoFecha: { fontSize: 13, fontWeight: "500" },
     saludo: { fontSize: 32, lineHeight: 34, fontWeight: "700", letterSpacing: -0.96 },
-    botones: { flexDirection: "row", gap: 8 },
-    chips: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
-    chip: { height: 44, minHeight: 44, paddingHorizontal: 18, borderRadius: 22, alignItems: "center", justifyContent: "center" },
+    botones: { flexDirection: "row", alignItems: "center", gap: 6 },
+    chips: { flexDirection: "row", gap: 4, padding: 4, borderRadius: 26, borderWidth: 1 },
+    chip: { flex: 1, height: 44, minHeight: 44, paddingHorizontal: 12, borderRadius: 22, alignItems: "center", justifyContent: "center" },
     textoChip: { fontSize: 14 },
     recorte: { position: "absolute", left: 0, right: 0, paddingBottom: 24, overflow: "hidden" },
     compacta: {

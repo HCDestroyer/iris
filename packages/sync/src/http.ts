@@ -47,7 +47,7 @@ export function cabecerasApp(app?: IdentidadApp): Record<string, string> {
     return cabeceras;
 }
 
-const conApp = (app: IdentidadApp | undefined, extra: Record<string, string> = {}) => ({ ...CANAL, ...cabecerasApp(app), ...extra });
+export const conApp = (app: IdentidadApp | undefined, extra: Record<string, string> = {}) => ({ ...CANAL, ...cabecerasApp(app), ...extra });
 
 type Resultado<D> = { data?: D; error?: unknown; response: Response };
 
@@ -61,7 +61,7 @@ function msDe(texto: string | null | undefined): number | null {
 }
 
 /** Espera una llamada del cliente: `data` o `ErrorTransporte` (`red` sin respuesta, `http` con ella). */
-async function resolver<D>(llamada: Promise<Resultado<D>>): Promise<{ datos: D; respuesta: Response }> {
+export async function resolver<D>(llamada: Promise<Resultado<D>>): Promise<{ datos: D; respuesta: Response }> {
     let r: Resultado<D>;
     try {
         r = await llamada;
@@ -76,7 +76,7 @@ async function resolver<D>(llamada: Promise<Resultado<D>>): Promise<{ datos: D; 
     return { datos: r.data as D, respuesta: r.response };
 }
 
-function conHora<D>(datos: D, respuesta: Response, servidorEn?: string): RespuestaApi<D> {
+export function conHora<D>(datos: D, respuesta: Response, servidorEn?: string): RespuestaApi<D> {
     return { datos, horaServidor: msDe(servidorEn) ?? msDe(respuesta.headers.get("Date")) };
 }
 

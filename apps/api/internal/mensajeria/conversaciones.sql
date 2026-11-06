@@ -534,8 +534,8 @@ ORDER BY ocurrido_en DESC, (estado = 'baja') DESC, id DESC
 LIMIT 1;
 
 -- name: InsertarConsentimientoNumero :one
-INSERT INTO mensajeria.consentimientos_numero (empresa_id, telefono, estado, origen, ocurrido_en, registrado_por)
-VALUES (sqlc.narg('empresa_id'), @telefono, @estado, @origen, @ocurrido_en, sqlc.narg('registrado_por'))
+INSERT INTO mensajeria.consentimientos_numero (empresa_id, telefono, estado, origen, ocurrido_en, registrado_por, motivo)
+VALUES (sqlc.narg('empresa_id'), @telefono, @estado, @origen, @ocurrido_en, sqlc.narg('registrado_por'), sqlc.narg('motivo'))
 RETURNING *;
 
 -- name: CanalActivoPorPhoneNumber :one

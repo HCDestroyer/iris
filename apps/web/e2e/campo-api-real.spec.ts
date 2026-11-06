@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import { entrar } from "./ayudas";
-import { empezarTrabajo, guardarAlSalirDelCampo, irAPaso } from "./ayudas-campo";
+import { abrirPanelUbicacion, empezarTrabajo, guardarAlSalirDelCampo, irAPaso } from "./ayudas-campo";
 
 /*
  * Recorrido completo contra la API Go real (opcional, fuera de CI): IRIS_E2E_API_REAL=1 con la
@@ -125,7 +125,7 @@ test("dos técnicos en el mismo navegador contra la API real: la cola de A no sa
     // A vuelve a entrar: su nota sale con su sesión.
     await a.goto("/entrar?siguiente=%2Fcampo");
     await entrar(a, correo, contrasena);
-    await expect(a.getByRole("status", { name: "En línea, todo enviado" })).toBeVisible({ timeout: 30_000 });
+    await expect(a.locator('[data-slot="barra-conexion"] [data-indicador="sincronizacion"]')).toHaveAccessibleName("Todo enviado, toca para ver el estado", { timeout: 30_000 });
     const orden2 = await a.evaluate(async () => (await fetch("/api/v1/ordenes/2")).json());
     expect(orden2.notas.map((n: { texto: string; autorNombre: string }) => n.texto)).toEqual(["Nota de A sin señal"]);
     await context.close();
@@ -143,7 +143,7 @@ test("ubicación en vivo contra la API real: el lote llega, reenviar es seguro y
     const indicador = page.getByTestId("indicador-ubicacion");
     const respuesta = page.waitForResponse((r) => r.url().endsWith("/api/v1/campo/posiciones") && r.request().method() === "POST");
     if ((await indicador.textContent())?.includes("Fuera de turno")) {
-        await indicador.click();
+        await abrirPanelUbicacion(page);
         await page.getByRole("dialog", { name: "Ubicación en vivo" }).getByRole("button", { name: "Iniciar turno" }).click();
         const explicacion = page.getByRole("dialog", { name: "¿Compartir tu ubicación?" });
         if (await explicacion.isVisible()) {

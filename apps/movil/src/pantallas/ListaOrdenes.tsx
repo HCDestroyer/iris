@@ -11,7 +11,7 @@ import Svg, { Circle } from "react-native-svg";
 import { Aviso, Boton, BotonRedondo, Cargando, Insignia, Pila, Texto, Tocable } from "../componentes";
 import { useCampo } from "../campo/contexto";
 import { ICONOS_ESTADO } from "../campo/iconos";
-import { useInventario } from "../campo/inventario";
+import { useCargarAlAbrir, useInventario } from "../campo/inventario";
 import { useTema } from "../tema/tema";
 import { enlaceComoLlegar } from "./orden/DetalleOrden";
 import { TarjetaTarea } from "./Tareas";
@@ -258,7 +258,9 @@ function AnilloAvance({ fraccion, texto, etiqueta }: { fraccion: number; texto: 
 /** «Ruta de hoy» y «Por recibir»: solo con datos leídos (nunca un total inventado). */
 function Mosaicos() {
     const { estado, navegar } = useCampo();
-    const { traslados } = useInventario();
+    const { traslados, cargarTraslados } = useInventario();
+    // El contador de «Por recibir» se lee al abrir Hoy (y al volver la señal): ya no está en la isla.
+    useCargarAlAbrir(cargarTraslados);
     const { campo, colores } = useTema();
     const ruta = mosaicoRuta(estado);
     const recibir = mosaicoPorRecibir(traslados.datos, estado.recepciones);

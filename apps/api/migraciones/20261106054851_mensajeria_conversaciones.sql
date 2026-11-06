@@ -79,6 +79,8 @@ CREATE TABLE mensajeria.consentimientos_numero (
     origen         text        NOT NULL CHECK (origen IN ('cliente', 'agente')),
     ocurrido_en    timestamptz NOT NULL,
     registrado_por bigint REFERENCES nucleo.usuarios (id),
+    -- motivo: obligatorio para anular con acepta una baja que pidió el propio cliente.
+    motivo         text CHECK (motivo IS NULL OR length(motivo) <= 300),
     created_at     timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX consentimientos_numero_idx ON mensajeria.consentimientos_numero (coalesce(empresa_id, 0), telefono, ocurrido_en DESC);

@@ -1179,6 +1179,7 @@ type MensajeriaConsentimientosNumero struct {
 	Origen        string
 	OcurridoEn    time.Time
 	RegistradoPor *int64
+	Motivo        *string
 	CreatedAt     time.Time
 }
 

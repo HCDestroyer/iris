@@ -24,6 +24,7 @@ import { Aviso, Boton, BotonRedondo, Cargando, Fila, Insignia, Pila, Tarjeta, Te
 import { useCampo, useOrden } from "../../campo/contexto";
 import { avanceOrden, navegacionPaso, type MarcaPaso } from "../../campo/pasos";
 import { useTema } from "../../tema/tema";
+import { AbrirChatOrden } from "../Chat";
 import { InsigniaOrden } from "../ListaOrdenes";
 import { Checklist } from "./Checklist";
 import { PasoCierre } from "./Cierre";
@@ -405,6 +406,7 @@ function Cliente({ orden, nombre }: { orden: OrdenVista; nombre: string }) {
                 </View>
             </View>
             {orden.descripcion ? <Texto>{orden.descripcion}</Texto> : null}
+            <AbrirChatOrden ordenId={orden.id} />
             {telefono ? <Texto suave>Teléfono: {telefono}</Texto> : null}
         </Tarjeta>
     );
