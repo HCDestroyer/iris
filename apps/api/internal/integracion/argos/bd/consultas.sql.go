@@ -832,6 +832,32 @@ func (q *Queries) GuardarZona(ctx context.Context, arg GuardarZonaParams) error 
 	return err
 }
 
+const iDsExternosVinculados = `-- name: IDsExternosVinculados :many
+SELECT argos_id_externo::text AS id_externo FROM agenda.tecnicos WHERE argos_id_externo IS NOT NULL
+`
+
+// Usuarios de Argos ya vinculados a una ficha de agenda (en cualquier empresa: el vínculo es único).
+// Solo los ids, para el selector «sin vincular».
+func (q *Queries) IDsExternosVinculados(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, iDsExternosVinculados)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id_externo string
+		if err := rows.Scan(&id_externo); err != nil {
+			return nil, err
+		}
+		items = append(items, id_externo)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const marcarFalloCliente = `-- name: MarcarFalloCliente :exec
 UPDATE integracion.argos_clientes SET fallo_en = $1 WHERE id = $2
 `

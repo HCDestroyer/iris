@@ -149,3 +149,15 @@ por SQL, `UPDATE agenda.zonas SET empresa_id = …, activa = true`— o la reemp
 en la empresa activa; `POST /tecnicos/{id}/desvincular-argos { version, motivo? }`
 (`agenda.desvincular_argos`). Emiten `tecnico.argos_vinculado` / `tecnico.argos_desvinculado`. La
 ficha expone `argos { idExterno, correo, nombre, vinculadoEn }`. No usa el vínculo de SSO.
+
+**La bodega la decide el servidor.**
+- `vincular-argos` fija `bodega_id` con la bodega técnico activa de ese usuario en la empresa
+  activa (la que verificó en Argos; sin empresa activa, la primera activa). Queda en la misma
+  transacción y en `auditoria.cambios`. Si el vínculo falla (409, 503), la ficha no cambia.
+- En `POST /tecnicos` y `/tecnicos/{id}/editar`, `bodegaId` ausente deja la que tiene la ficha. Con
+  la ficha vinculada, otra bodega es 422 `bodega_por_vinculo`.
+- Sin vínculo, la bodega escrita a mano (respaldo) exige `agenda.vincular_argos` (si no, 403) y que
+  Argos la tenga en la empresa activa (`TecnicosArgos.BodegaDeEmpresa`, verificada fuera de la
+  transacción; si no, 422 `bodega_invalida` o el error del conector).
+- Las rutas llaman a `CrearTecnicoVerificado` y `EditarTecnicoVerificado`. Si se llama al caso de
+  uso sin esa verificación, también responde 422.

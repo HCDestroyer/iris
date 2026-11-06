@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -13,7 +14,9 @@ import (
 
 	agendabd "github.com/HCDestroyer/iris/apps/api/internal/agenda/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 )
 
@@ -37,11 +40,13 @@ type EntradaVerTecnico struct {
 type EntradaCrearTecnico struct {
 	UsuarioID   int64    `json:"usuarioId" minimum:"1" doc:"Usuario persona con ordenes.ver_propias u ordenes.ver"`
 	CuadrillaID *int64   `json:"cuadrillaId,omitempty" minimum:"1"`
-	BodegaID    *int64   `json:"bodegaId,omitempty" minimum:"1" doc:"Bodega del técnico en Argos"`
+	BodegaID    *int64   `json:"bodegaId,omitempty" minimum:"1" doc:"Bodega del técnico en Argos, a mano (respaldo): solo con agenda.vincular_argos (si no, 403) y si Argos dice que es de la empresa activa (422 bodega_invalida). Lo normal es no mandarla y vincular la ficha (vincular-argos la fija)"`
 	Habilidades []string `json:"habilidades,omitempty" maxItems:"30" doc:"Códigos libres (fibra, inalambrico, altura…)"`
 	BaseLat     *float64 `json:"baseLat,omitempty" minimum:"-90" maximum:"90"`
 	BaseLon     *float64 `json:"baseLon,omitempty" minimum:"-180" maximum:"180"`
 	Telefono    string   `json:"telefono,omitempty" maxLength:"30" doc:"Teléfono de contacto: dígitos, espacios, +, -, paréntesis y puntos"`
+
+	bodega verificacionBodega
 }
 
 // EntradaEditarTecnico reemplaza los datos de la ficha (lo ausente queda vacío).
@@ -49,11 +54,13 @@ type EntradaEditarTecnico struct {
 	ID          int64    `json:"-"`
 	Version     int32    `json:"version" minimum:"1" doc:"Versión leída; si cambió, 409"`
 	CuadrillaID *int64   `json:"cuadrillaId,omitempty" minimum:"1"`
-	BodegaID    *int64   `json:"bodegaId,omitempty" minimum:"1"`
+	BodegaID    *int64   `json:"bodegaId,omitempty" minimum:"1" doc:"Ausente = la que tiene. Con la ficha vinculada a Argos la fija el vínculo: otra es 422 bodega_por_vinculo. Sin vínculo, cambiarla a mano exige agenda.vincular_argos (403) y que Argos diga que es de la empresa activa (422 bodega_invalida)"`
 	Habilidades []string `json:"habilidades,omitempty" maxItems:"30"`
 	BaseLat     *float64 `json:"baseLat,omitempty" minimum:"-90" maximum:"90"`
 	BaseLon     *float64 `json:"baseLon,omitempty" minimum:"-180" maximum:"180"`
 	Telefono    string   `json:"telefono,omitempty" maxLength:"30" doc:"Teléfono de contacto (vacío = sin teléfono)"`
+
+	bodega verificacionBodega
 }
 
 // EntradaFijarTurnos reemplaza los turnos semanales.
@@ -435,6 +442,11 @@ func (m *Modulo) nuevoCrearTecnico() *auditoria.Caso[EntradaCrearTecnico, Tecnic
 			if err != nil {
 				return TecnicoDetalle{}, err
 			}
+			if in.BodegaID != nil {
+				if err := in.bodega.exigir(ctx, *in.BodegaID); err != nil {
+					return TecnicoDetalle{}, err
+				}
+			}
 			f, err := q.CrearTecnico(ctx, agendabd.CrearTecnicoParams{UsuarioID: u.ID, CuadrillaID: in.CuadrillaID, BodegaID: in.BodegaID,
 				Habilidades: habilidades, BaseLat: in.BaseLat, BaseLon: in.BaseLon, Telefono: telefono})
 			var pg *pgconn.PgError
@@ -482,7 +494,18 @@ func (m *Modulo) nuevoEditarTecnico() *auditoria.Caso[EntradaEditarTecnico, Tecn
 				return TecnicoDetalle{}, err
 			}
 			despues := antes
-			despues.CuadrillaID, despues.BodegaID, despues.Habilidades = in.CuadrillaID, in.BodegaID, habilidades
+			despues.CuadrillaID, despues.Habilidades = in.CuadrillaID, habilidades
+			if in.BodegaID != nil && !mismoID(antes.BodegaID, in.BodegaID) {
+				// Vinculada: la bodega es la del usuario de Argos (la fija vincular-argos).
+				if antes.ArgosIDExterno != nil {
+					return TecnicoDetalle{}, nucleo.ReglaNegocio("bodega_por_vinculo",
+						"La ficha está vinculada a Argos: su bodega es la de ese usuario. Para cambiarla, vincula otro usuario de Argos")
+				}
+				if err := in.bodega.exigir(ctx, *in.BodegaID); err != nil {
+					return TecnicoDetalle{}, err
+				}
+				despues.BodegaID = in.BodegaID
+			}
 			if err := exigirFichaDeLaEmpresa(ctx, q, despues); err != nil {
 				return TecnicoDetalle{}, err
 			}
@@ -512,6 +535,64 @@ func (m *Modulo) nuevoEditarTecnico() *auditoria.Caso[EntradaEditarTecnico, Tecn
 			return m.guardarTecnico(ctx, t, q, antes, despues, campos)
 		},
 	})
+}
+
+// verificacionBodega: lo que Argos dijo (fuera de la transacción) de una bodega escrita a mano.
+type verificacionBodega struct {
+	id  int64
+	ok  bool
+	err error
+}
+
+// exigir: la bodega a mano solo con agenda.vincular_argos (403) y verificada en Argos en la
+// empresa activa (422 bodega_invalida, o el error del conector).
+func (v verificacionBodega) exigir(ctx context.Context, bodega int64) error {
+	if !contexto.PermisosDe(ctx).Tiene(string(nucleo.PermAgendaVincularArgos)) {
+		return nucleo.Prohibido("Solo quien vincula técnicos con Argos (agenda.vincular_argos) puede fijar la bodega a mano")
+	}
+	if v.id != bodega {
+		return bodegaInvalida()
+	}
+	if v.err != nil {
+		return v.err
+	}
+	if !v.ok {
+		return bodegaInvalida()
+	}
+	return nil
+}
+
+func bodegaInvalida() *nucleo.Problema {
+	return nucleo.NuevoProblema(http.StatusUnprocessableEntity, "bodega_invalida", "Bodega inválida",
+		"Argos no tiene esa bodega en la empresa activa")
+}
+
+// verificarBodega consulta a Argos (fuera de la transacción) si la bodega es de la empresa activa.
+// Sin el permiso no se llama: el caso de uso responde 403.
+func (m *Modulo) verificarBodega(ctx context.Context, bodega *int64) verificacionBodega {
+	if bodega == nil || !contexto.PermisosDe(ctx).Tiene(string(nucleo.PermAgendaVincularArgos)) {
+		return verificacionBodega{}
+	}
+	v := verificacionBodega{id: *bodega}
+	if m.cfg.Argos == nil {
+		v.err = argos.ConectorApagado()
+		return v
+	}
+	v.ok, v.err = m.cfg.Argos.BodegaDeEmpresa(ctx, contexto.EmpresaDe(ctx), *bodega)
+	return v
+}
+
+// CrearTecnicoVerificado: POST /tecnicos. Verifica en Argos la bodega a mano (si viene) y da de alta.
+func (m *Modulo) CrearTecnicoVerificado(ctx context.Context, in EntradaCrearTecnico) (TecnicoDetalle, error) {
+	in.bodega = m.verificarBodega(ctx, in.BodegaID)
+	return m.CrearTecnico.Ejecutar(ctx, in)
+}
+
+// EditarTecnicoVerificado: POST /tecnicos/{id}/editar. Verifica en Argos la bodega a mano (si
+// viene) y edita; el caso de uso solo la exige si cambia.
+func (m *Modulo) EditarTecnicoVerificado(ctx context.Context, in EntradaEditarTecnico) (TecnicoDetalle, error) {
+	in.bodega = m.verificarBodega(ctx, in.BodegaID)
+	return m.EditarTecnico.Ejecutar(ctx, in)
 }
 
 // telefonoValido: recorta espacios; vacío = sin teléfono. Hasta 30 caracteres, con al menos

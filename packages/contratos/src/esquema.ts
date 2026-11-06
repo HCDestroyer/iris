@@ -1145,7 +1145,7 @@ export interface paths {
         };
         /**
          * Técnicos de Argos con bodega (selector del vínculo)
-         * @description Permiso: `agenda.vincular_argos`. Proxy paginado de `GET /inventario/tecnicos` de Argos (≥ 1.6.0; si no, 422 `argos_sin_inventario_tecnico`). Cada uno trae sus bodegas, si tiene bodega activa en la empresa activa (`enEmpresa`: solo así se puede vincular) y la ficha de Iris que ya lo tiene (`vinculadoA`). Lectura auditada (correos). Sin conector Argos activo responde 503 `conector_apagado` (el panel trabaja con datos locales).
+         * @description Permiso: `agenda.vincular_argos`. Proxy paginado de `GET /inventario/tecnicos` de Argos (≥ 1.6.0; si no, 422 `argos_sin_inventario_tecnico`). Cada uno trae sus bodegas, si tiene bodega activa en la empresa activa (`enEmpresa`: solo así se puede vincular) y la ficha de Iris que ya lo tiene (`vinculadoA`). Cada bodega trae su `nombre` (contrato 0.6.4; vacío con un Argos anterior). Con `sinVincular=true` solo los que ninguna ficha tiene (para elegir la bodega por nombre al dar de alta o editar un técnico). Si Argos no responde: 502/503 `argos_no_disponible` (el panel muestra «Reintentar» y deja el número de bodega a mano). Lectura auditada (correos). Sin conector Argos activo responde 503 `conector_apagado` (el panel trabaja con datos locales).
          */
         get: operations["listarTecnicosArgos"];
         put?: never;
@@ -3474,7 +3474,7 @@ export interface paths {
         put?: never;
         /**
          * Dar de alta la ficha de agenda de un técnico
-         * @description Permiso: `agenda.crear_tecnico`. El usuario debe ser una persona activa con `ordenes.ver_propias` u `ordenes.ver` que opere en la empresa activa. Nace sin turnos. Emite `tecnico.creado`.
+         * @description Permiso: `agenda.crear_tecnico`. El usuario debe ser una persona activa con `ordenes.ver_propias` u `ordenes.ver` que opere en la empresa activa. Nace sin turnos. La bodega se fija al vincularla con Argos; `bodegaId` a mano exige `agenda.vincular_argos` (403) y que Argos la tenga en la empresa activa (422 `bodega_invalida`). Emite `tecnico.creado`.
          */
         post: operations["crearTecnico"];
         delete?: never;
@@ -3674,7 +3674,7 @@ export interface paths {
         put?: never;
         /**
          * Editar la ficha de un técnico
-         * @description Permiso: `agenda.editar_tecnico`. Reemplaza cuadrilla, bodega, habilidades y base. Emite `tecnico.actualizado`.
+         * @description Permiso: `agenda.editar_tecnico`. Reemplaza cuadrilla, habilidades y base. La bodega ausente queda como está; con la ficha vinculada la fija el vínculo (otra: 422 `bodega_por_vinculo`); a mano exige `agenda.vincular_argos` (403) y que Argos la tenga en la empresa activa (422 `bodega_invalida`). Emite `tecnico.actualizado`.
          */
         post: operations["editarTecnico"];
         delete?: never;
@@ -4985,6 +4985,8 @@ export interface components {
              * @description Id de la bodega en Argos
              */
             id: number;
+            /** @description Nombre de la bodega en Argos (contrato 0.6.4). Vacío con un Argos anterior: se muestra «Bodega <id>» */
+            nombre: string;
         };
         Buzon: {
             activo: boolean;
@@ -6545,7 +6547,7 @@ export interface components {
             baseLon?: number;
             /**
              * Format: int64
-             * @description Bodega del técnico en Argos
+             * @description Bodega del técnico en Argos, a mano (respaldo): solo con agenda.vincular_argos (si no, 403) y si Argos dice que es de la empresa activa (422 bodega_invalida). Lo normal es no mandarla y vincular la ficha (vincular-argos la fija)
              */
             bodegaId?: number;
             /** Format: int64 */
@@ -6787,7 +6789,10 @@ export interface components {
             baseLat?: number;
             /** Format: double */
             baseLon?: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Ausente = la que tiene. Con la ficha vinculada a Argos la fija el vínculo: otra es 422 bodega_por_vinculo. Sin vínculo, cambiarla a mano exige agenda.vincular_argos (403) y que Argos diga que es de la empresa activa (422 bodega_invalida)
+             */
             bodegaId?: number;
             /** Format: int64 */
             cuadrillaId?: number;
@@ -15887,6 +15892,8 @@ export interface operations {
                 /** @description nextCursor de la página anterior (de Argos) */
                 cursor?: string;
                 limit?: number;
+                /** @description Solo los que ninguna ficha de Iris tiene vinculados (en cualquier empresa). Iris lee de Argos las páginas que hagan falta para llenar limit (hasta 10 por llamada) */
+                sinVincular?: boolean;
             };
             header?: never;
             path?: never;

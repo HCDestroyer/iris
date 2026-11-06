@@ -64,6 +64,9 @@ type TecnicoArgosVerificado struct {
 // tecnico_no_encontrado, 503 conector_apagado, 503 argos_no_disponible…).
 type TecnicosArgos interface {
 	BuscarTecnico(ctx context.Context, idExterno string) (TecnicoArgosVerificado, error)
+	// BodegaDeEmpresa: la bodega existe en Argos y es de la empresa (0 = cualquiera). Para la
+	// bodega escrita a mano (respaldo); los errores ya son *nucleo.Problema.
+	BodegaDeEmpresa(ctx context.Context, empresaID, bodegaID int64) (bool, error)
 }
 
 // TecnicosDeArgos adapta el conector de Argos.
@@ -89,6 +92,17 @@ func (t tecnicosArgos) BuscarTecnico(ctx context.Context, idExterno string) (Tec
 	return v, nil
 }
 
+func (t tecnicosArgos) BodegaDeEmpresa(ctx context.Context, empresaID, bodegaID int64) (bool, error) {
+	ok, err := t.a.BodegaDeEmpresa(ctx, empresaID, bodegaID)
+	switch {
+	case errors.Is(err, argos.ErrInventarioNoDisponible):
+		return false, argos.ConectorApagado()
+	case err != nil:
+		return false, argos.Problema(err)
+	}
+	return ok, nil
+}
+
 // EntradaVincularArgos vincula la ficha con un usuario de Argos.
 type EntradaVincularArgos struct {
 	ID        int64  `json:"-"`
@@ -107,6 +121,9 @@ type entradaGuardarVinculo struct {
 	EntradaVincularArgos
 	Correo string `json:"correo"`
 	Nombre string `json:"nombre"`
+	// BodegaID: la bodega técnico activa del usuario de Argos en la empresa activa (verificada):
+	// queda como bodega de la ficha.
+	BodegaID int64 `json:"bodegaId"`
 }
 
 // VincularArgos: permiso y ficha (fase corta), verificación en Argos fuera de transacción y vínculo
@@ -145,7 +162,7 @@ func (m *Modulo) nuevoVincularArgos() *VincularArgos {
 				return TecnicoDetalle{}, nucleo.ReglaNegocio("sin_cambios", "La ficha ya está vinculada a ese usuario de Argos")
 			}
 			f, err := q.VincularArgosTecnico(ctx, agendabd.VincularArgosTecnicoParams{
-				IDExterno: &in.IDExterno, Correo: textoNulo(in.Correo, 320), Nombre: textoNulo(in.Nombre, 200),
+				IDExterno: &in.IDExterno, Correo: textoNulo(in.Correo, 320), Nombre: textoNulo(in.Nombre, 200), BodegaID: &in.BodegaID,
 				VinculadoEn: ptr(m.ahora()), VinculadoPor: actorUsuario(t), ID: antes.ID, Version: antes.Version,
 			})
 			var pg *pgconn.PgError
@@ -170,7 +187,7 @@ func (m *Modulo) nuevoVincularArgos() *VincularArgos {
 
 // vinculoAuditable: lo que se audita del vínculo (el correo de Argos es dato personal: solo si cambió).
 func vinculoAuditable(f agendabd.AgendaTecnico) map[string]any {
-	return map[string]any{"argos_id_externo": f.ArgosIDExterno, "argos_correo": f.ArgosCorreo, "argos_vinculado_en": f.ArgosVinculadoEn}
+	return map[string]any{"argos_id_externo": f.ArgosIDExterno, "argos_correo": f.ArgosCorreo, "argos_vinculado_en": f.ArgosVinculadoEn, "bodega_id": f.BodegaID}
 }
 
 func textoNulo(s string, maximo int) *string {
@@ -198,17 +215,20 @@ func (v *VincularArgos) Ejecutar(ctx context.Context, in EntradaVincularArgos) (
 	if err != nil {
 		return TecnicoDetalle{}, err
 	}
+	// La bodega la decide el servidor: la activa de ese usuario en la empresa activa (sin empresa
+	// activa, la primera activa), tal como la devolvió Argos.
 	empresa := contexto.EmpresaDe(ctx)
-	conBodega := false
+	var bodega int64
 	for _, b := range x.Bodegas {
 		if b.Activa && (empresa == 0 || b.EmpresaID == empresa) {
-			conBodega = true
+			bodega = b.ID
+			break
 		}
 	}
-	if !conBodega {
+	if bodega == 0 {
 		return TecnicoDetalle{}, vinculoTecnicoInvalido()
 	}
-	return v.guardar.Ejecutar(ctx, entradaGuardarVinculo{EntradaVincularArgos: in, Correo: x.Correo, Nombre: x.Nombre})
+	return v.guardar.Ejecutar(ctx, entradaGuardarVinculo{EntradaVincularArgos: in, Correo: x.Correo, Nombre: x.Nombre, BodegaID: bodega})
 }
 
 func (m *Modulo) nuevoDesvincularArgos() *auditoria.Caso[EntradaDesvincularArgos, TecnicoDetalle] {
