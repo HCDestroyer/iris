@@ -123,7 +123,10 @@ test("Nueva tarea sin señal: aparece en Hoy con borde punteado, se envía al vo
     context,
 }, info) => {
     // Las órdenes de prueba van por día UTC: aquí, por día de Guatemala (08:30, 11:00 y 13:00),
-    // para que la tarea de las 12:00 caiga entre las dos de «Después».
+    // para que la tarea de las 12:00 caiga entre las dos de «Después». Reloj fijo a las 10:00 de
+    // ese día: el formulario propone la siguiente media hora, y desde las 23:30 de Guatemala esa ya
+    // es de mañana (la tarea de las 12:00 quedaría mañana, no en Hoy).
+    await page.clock.setFixedTime(new Date(`${hoyGuatemala()}T10:00:00-06:00`));
     const api = await simularApiCampo(page, {
         permisos: PERMISOS_TECNICO,
         ordenes: ordenesDeHoyGuatemala(),
