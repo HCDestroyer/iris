@@ -6,7 +6,9 @@
 //   Sale uno a uno, en orden de creación; 201/200 reemplaza el local por el del servidor.
 //   No se reintenta: 403, 404, 409, 422 (queda «no enviado», con «Reintentar»). Sí: 429 (con
 //   `Retry-After`), 5xx y sin red, con espera exponencial. 401 detiene todo (hay que entrar).
-// - Tiempo real solo en primer plano: SSE si hay flujo (PWA) o sondeo de `/cambios` cada 12 s.
+// - Tiempo real solo en primer plano y con un solo flujo: SSE si hay flujo (PWA con EventSource, app
+//   nativa con `crearFlujoFetch`) o sondeo de `/cambios` cada 12 s. Un flujo que dura menos de 5 s es
+//   «corto»: el siguiente espera el doble (3, 6, 12… hasta 30 s) y tras 3 seguidos se sondea un rato.
 //   Todo se aplica por id (un evento puede llegar dos veces) y el cursor se guarda. 410
 //   `cursor_vencido` borra la caché (no la cola), recarga y sigue sin cursor.
 // - Nunca registra el texto de un mensaje.
@@ -36,6 +38,10 @@ import {
 } from "./tipos";
 
 const MINUTO_MS = 60_000;
+/** Un flujo que se cerró antes de esto es «corto» (la misma regla que la bandeja del panel). */
+export const FLUJO_MINIMO_MS = 5_000;
+/** Tope de la espera entre flujos cortos seguidos. */
+const ESPERA_FLUJO_MAX_MS = 30_000;
 const TEXTO_MAXIMO = 4000;
 
 export type EstadoCarga = "inactiva" | "cargando" | "lista" | "error";
@@ -969,23 +975,29 @@ export class MotorChat {
     }
 
     private async correrTiempoReal(senal: AbortSignal): Promise<void> {
+        // Un bucle ya detenido (segundo plano) no vuelve a cambiar el estado al terminar lo que esperaba.
+        const fijar = (modo: ModoTiempoReal) => {
+            if (!senal.aborted) {
+                this.fijarTiempoReal(modo);
+            }
+        };
         let fallos = 0;
         let fallosFlujo = 0;
         let flujoBloqueadoHasta = 0;
         while (!senal.aborted && !this.sesionCerrada) {
             if (!this.enLinea) {
-                this.fijarTiempoReal("sin_conexion");
+                fijar("sin_conexion");
                 await this.dormir(10 * MINUTO_MS, senal);
                 continue;
             }
             try {
                 if (this.meta.cursor === null) {
-                    this.fijarTiempoReal("conectando");
+                    fijar("conectando");
                     await this.verificar();
                     await this.arrancarFeed();
                 }
                 if (this.abrirFlujo && this.reloj.ahora() >= flujoBloqueadoHasta) {
-                    this.fijarTiempoReal("conectando");
+                    fijar("conectando");
                     await this.verificar();
                     if (senal.aborted) {
                         break;
@@ -994,18 +1006,23 @@ export class MotorChat {
                     if (senal.aborted) {
                         break;
                     }
+                    // Con el estado HTTP (fetch): 401/403 detienen y 429/503 esperan, como un sondeo.
+                    if (r.error && (esSesion(r.error) || r.error.status === 403 || esEspera(r.error) || r.error.status === 503)) {
+                        throw r.error;
+                    }
                     // El flujo terminó: un sondeo pone al día y descubre lo que EventSource no dice
-                    // (410 `cursor_vencido`, 401/403). Fallas seguidas al abrir (429, 503) → sondeo
-                    // con espera antes de volver a probar el flujo.
-                    fallosFlujo = r.duroMs >= 20_000 || r.eventos > 0 ? 0 : fallosFlujo + 1;
+                    // (410 `cursor_vencido`, 401/403). Un flujo corto (< 5 s) espera el doble que el
+                    // anterior; tras 3 seguidos, sondeo con espera antes de volver a probar el flujo.
+                    fallosFlujo = r.duroMs >= FLUJO_MINIMO_MS ? 0 : fallosFlujo + 1;
                     if (fallosFlujo >= 3) {
                         flujoBloqueadoHasta = this.reloj.ahora() + calcularEspera(fallosFlujo - 3, { ...this.espera, baseMs: MINUTO_MS, maximoMs: 10 * MINUTO_MS });
                     }
                     await this.sondearHastaAlDia();
                     fallos = 0;
-                    await this.dormir(this.reconexionMs, senal);
+                    const espera = fallosFlujo === 0 ? this.reconexionMs : Math.min(ESPERA_FLUJO_MAX_MS, this.reconexionMs * 2 ** (fallosFlujo - 1));
+                    await this.dormir(espera, senal);
                 } else {
-                    this.fijarTiempoReal("sondeo");
+                    fijar("sondeo");
                     await this.verificar();
                     await this.sondearHastaAlDia();
                     fallos = 0;
@@ -1020,7 +1037,7 @@ export class MotorChat {
                     this.sesionCerrada = esSesion(e) || this.sesionCerrada;
                     this.alFallarLectura(e, false);
                     this.bucleTiempo = null;
-                    this.fijarTiempoReal("detenido");
+                    fijar("detenido");
                     return;
                 }
                 const retry = esEspera(e) && e instanceof ErrorTransporte ? msDeRetryAfter(e.cabeceras?.get("Retry-After"), this.reloj.ahora()) : null;
@@ -1029,15 +1046,18 @@ export class MotorChat {
                 if (e instanceof ErrorTransporte && e.status === 503) {
                     // `flujos_agotados`: el proceso no da más flujos; se sondea un rato.
                     flujoBloqueadoHasta = this.reloj.ahora() + Math.max(espera, 5 * MINUTO_MS);
+                } else if (e instanceof ErrorTransporte && e.status === 429) {
+                    // `demasiados_flujos` (o sondeo limitado): no se vuelve a abrir el flujo antes de la hora pedida.
+                    flujoBloqueadoHasta = Math.max(flujoBloqueadoHasta, this.reloj.ahora() + espera);
                 }
-                this.fijarTiempoReal(this.abrirFlujo ? "conectando" : "sondeo");
+                fijar(this.abrirFlujo ? "conectando" : "sondeo");
                 await this.dormir(Math.max(1000, espera), senal);
             }
         }
     }
 
     /** Escucha un flujo hasta que se cierre (o se aborte). */
-    private escuchar(abrir: AbrirFlujoChat, senal: AbortSignal): Promise<{ duroMs: number; eventos: number }> {
+    private escuchar(abrir: AbrirFlujoChat, senal: AbortSignal): Promise<{ duroMs: number; eventos: number; error: ErrorTransporte | null }> {
         return new Promise((resolver) => {
             const inicio = this.reloj.ahora();
             let abierto: number | null = null;
@@ -1045,16 +1065,17 @@ export class MotorChat {
             let flujo: FlujoChat | null = null;
             let terminado = false;
             let cola: Promise<void> = Promise.resolve();
-            const terminar = () => {
+            const terminar = (error?: ErrorTransporte) => {
                 if (terminado) {
                     return;
                 }
                 terminado = true;
-                senal.removeEventListener("abort", terminar);
+                senal.removeEventListener("abort", alAbortar);
                 flujo?.cerrar();
-                resolver({ duroMs: abierto === null ? 0 : this.reloj.ahora() - Math.max(inicio, abierto), eventos });
+                resolver({ duroMs: abierto === null ? 0 : this.reloj.ahora() - Math.max(inicio, abierto), eventos, error: error instanceof ErrorTransporte ? error : null });
             };
-            senal.addEventListener("abort", terminar, { once: true });
+            const alAbortar = () => terminar();
+            senal.addEventListener("abort", alAbortar, { once: true });
             flujo = abrir(this.meta.cursor, {
                 alAbrir: () => {
                     abierto = this.reloj.ahora();
@@ -1069,7 +1090,7 @@ export class MotorChat {
                         .then(() => this.aplicarEventos([e]))
                         .catch(() => terminar());
                 },
-                alCerrar: terminar,
+                alCerrar: (error) => terminar(error),
             });
             if (terminado) {
                 flujo.cerrar();

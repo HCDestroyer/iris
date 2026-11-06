@@ -14,6 +14,7 @@ import type { ServiciosNativos } from "./campo/contexto";
 import { tomarFoto, vaciarCacheFotos } from "./campo/foto";
 import { gpsNativo, posicionSiPermitida, ubicacionPermitida } from "./campo/gps-nativo";
 import { useVolverTrasAusencia } from "./campo/bloqueo";
+import { escucharPlano } from "./campo/plano";
 import { abrirMotor, borrarBase, borrarCachesChat } from "./campo/motor";
 import { entorno } from "./entorno";
 import { AppCampo, type DependenciasCampo } from "./pantallas/AppCampo";
@@ -84,10 +85,7 @@ function dependenciasNativas(): DependenciasCampo {
             const s = AppState.addEventListener("change", (e) => e === "active" && fn());
             return () => s.remove();
         },
-        alCambiarPlano: (fn) => {
-            const s = AppState.addEventListener("change", (e) => fn(e === "active"));
-            return () => s.remove();
-        },
+        alCambiarPlano: escucharPlano,
         cerrarSesionApi,
         vaciarCacheFotos,
         olvidarSesionGuardada,

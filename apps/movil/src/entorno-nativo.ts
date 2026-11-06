@@ -1,4 +1,5 @@
 // Implementaciones nativas del entorno: kv-store de expo-sqlite (síncrono) y SecureStore.
+import { fetch as fetchExpo } from "expo/fetch";
 import Storage from "expo-sqlite/kv-store";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
@@ -34,6 +35,8 @@ export function entornoNativo(): Entorno {
             borrar: (clave) => SecureStore.deleteItemAsync(clave),
         },
         fetch: (...args) => globalThis.fetch(...args),
+        // `expo/fetch` lee el cuerpo por partes (el `fetch` de React Native no): el flujo SSE del chat.
+        fetchFlujo: (url, init) => fetchExpo(url, init),
         biometria: {
             disponible: async () => {
                 try {

@@ -57,6 +57,14 @@ describe("normalizarPunto", () => {
         expect(msDeRetryAfter("pronto", ahora)).toBeNull();
         expect(msDeRetryAfter(null, ahora)).toBeNull();
     });
+
+    it("topa Retry-After en 5 min (un valor enorme desbordaría setTimeout)", () => {
+        const ahora = Date.parse("2026-10-28T15:00:00Z");
+        expect(msDeRetryAfter("99999999", ahora)).toBe(5 * 60_000);
+        expect(msDeRetryAfter("9".repeat(400), ahora)).toBe(5 * 60_000);
+        expect(msDeRetryAfter("Wed, 28 Oct 2099 15:00:00 GMT", ahora)).toBe(5 * 60_000);
+        expect(msDeRetryAfter("120", ahora)).toBe(120_000);
+    });
 });
 
 describe("cola de posiciones", () => {

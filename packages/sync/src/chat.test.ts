@@ -389,7 +389,7 @@ describe("tiempo real: SSE (§4)", () => {
         expect(servidor.flujos.at(-1)?.desde).toBe("0");
     });
 
-    it("flujos que no abren (429/503) pasan al sondeo con espera antes de volver a probar", async () => {
+    it("flujos cortos (< 5 s) esperan el doble cada vez y tras 3 pasan al sondeo antes de volver a probar", async () => {
         const { motor, servidor, reloj } = await montar({
             abrirFlujo: (_desde, oyentes) => {
                 servidor.llamadas.push({ metodo: "cambios", args: ["flujo-fallido"] });
@@ -398,13 +398,20 @@ describe("tiempo real: SSE (§4)", () => {
             },
         });
         await arrancar(motor);
-        for (let i = 0; i < 3; i += 1) {
-            await reloj.avanzar(3000);
-            await vaciarPromesas(10);
-        }
         const intentos = () => servidor.llamadas.filter((l) => l.args[0] === "flujo-fallido").length;
-        expect(intentos()).toBe(3);
+        expect(intentos()).toBe(1);
+        // 3 s tras el primero, 6 s tras el segundo (nunca un bucle de reconexión).
         await reloj.avanzar(3000);
+        await vaciarPromesas(10);
+        expect(intentos()).toBe(2);
+        await reloj.avanzar(5000);
+        await vaciarPromesas(10);
+        expect(intentos()).toBe(2);
+        await reloj.avanzar(1000);
+        await vaciarPromesas(10);
+        expect(intentos()).toBe(3);
+        // Tercero corto seguido: el flujo queda bloqueado unos minutos y se sondea.
+        await reloj.avanzar(12_000);
         await vaciarPromesas(10);
         expect(motor.obtenerEstado().tiempoReal).toBe("sondeo");
         await reloj.avanzar(12_000);

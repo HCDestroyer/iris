@@ -3,8 +3,10 @@
 export * from "./tipos";
 export { AlmacenChatMemoria } from "./almacen-memoria";
 export { crearTransporteChatApi } from "./http";
+export { crearFlujoFetch, crearLectorSSE, RUTA_FLUJO_CHAT, SIN_LATIDO_MS, type EventoSSE, type FetchFlujo, type OpcionesFlujoFetch, type RespuestaFlujo } from "./flujo-fetch";
 export {
     ErrorChatLocal,
+    FLUJO_MINIMO_MS,
     MotorChat,
     vistaPreviaDe,
     type AvisoChat,
