@@ -1,74 +1,83 @@
-// Isla de menú flotante (diseño «combinada», como la PWA): píldora centrada abajo con Hoy, Por
-// recibir (con su contador), «+» en teal al centro, Agenda y Yo, zonas de 54 px (44 encogida). Al
-// bajar se encoge y al subir vuelve. Encima, la píldora de estado (`avisoIsla` de `@iris/sync/campo`,
-// la barra discreta de la fase 4): sin señal con algo por enviar, un rechazo, la sesión vencida o
-// la empresa no válida. El «+» abre la hoja de acciones rápidas con lo que ya tiene API.
-import { accionesDe, accionesRapidas, avisoIsla, contadoresPestanas, estadoIslaPasos, pestanaDe, PESTANAS, type PasoOrden, type Pestana, type PrimarioIsla, type Vista } from "@iris/sync/campo";
+// Isla de menú flotante (estilo elegido por el PM, nov 2026, como la PWA): píldora centrada abajo
+// con Hoy, Chat (punto teal de no leídos, lo único teal de la isla), «+» al centro (icono de 26 px
+// en color de texto, sin relleno ni borde), Agenda y Yo. La activa es una píldora en «tinta» con
+// icono y nombre (se despliega al cambiar); las demás, solo el icono en gris. Zonas de 52 px (48
+// encogida). Al bajar se encoge y al subir vuelve. «Por recibir» es el mosaico de Hoy;
+// el estado (sincronización y GPS) va en el encabezado. Sobre la isla no flota nada. El «+» abre la
+// hoja de acciones rápidas: «Agendar tarea propia» y «Tomar una orden libre».
+import { accionesDe, accionesRapidas, contadoresPestanas, estadoIslaPasos, pestanaDe, pestanasIsla, type PasoOrden, type Pestana, type PrimarioIsla, type Vista } from "@iris/sync/campo";
 import {
     ArrowLeft,
     ArrowRight,
-    Building2,
     CalendarClock,
     CalendarDays,
     Check,
     ChevronRight,
     CircleCheck,
-    CloudUpload,
     Hand,
     House,
-    KeyRound,
-    PackageOpen,
+    MessageCircle,
     PenLine,
+    User,
     Plus,
     Save,
-    TriangleAlert,
-    UserRound,
-    WifiOff,
     type LucideIcon,
 } from "lucide-react-native";
 import { useEffect, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { AccessibilityInfo, LayoutAnimation, StyleSheet, Text, View } from "react-native";
 import { Boton, BotonRedondo, Dialogo, Texto, Tocable } from "../componentes";
 import { useGuardarPaso, useRecienGuardado, useSinGuardar } from "../campo/borradores";
+import { useChatOpcional } from "../campo/chat";
 import { useCampo, useOrden } from "../campo/contexto";
-import { useCargarAlAbrir, useInventario } from "../campo/inventario";
 import { useLibres } from "../campo/libres";
 import { useTema } from "../tema/tema";
 
-const ICONOS: Record<Pestana, LucideIcon> = { hoy: House, recibir: PackageOpen, agenda: CalendarDays, yo: UserRound };
+const ICONOS: Record<Pestana, LucideIcon> = { hoy: House, chat: MessageCircle, agenda: CalendarDays, yo: User };
 
 export function IslaMenu({ encogida, abajo }: { encogida: boolean; abajo: number }) {
-    const { vista, navegar, estado } = useCampo();
-    const { traslados, cargarTraslados } = useInventario();
-    // El contador de «Por recibir» se lee al abrir la app (y al volver la señal).
-    useCargarAlAbrir(cargarTraslados);
+    const { vista, navegar, sesion } = useCampo();
+    const chat = useChatOpcional();
     const { campo, colores } = useTema();
     const [acciones, setAcciones] = useState(false);
     const actual = pestanaDe(vista);
-    const cuentas = contadoresPestanas(estado, traslados.datos);
-    const tamano = encogida ? 44 : 54;
-    const boton = (p: (typeof PESTANAS)[number]) => {
+    const cuentas = contadoresPestanas(chat?.estado.noLeidos ?? 0);
+    const pestanas = pestanasIsla(chat !== null);
+    const tamano = encogida ? 48 : 52;
+    const movimientoReducido = useMovimientoReducido();
+    const boton = (p: (typeof pestanas)[number]) => {
         const activa = actual === p.id;
         const cuenta = cuentas[p.id];
+        const Icono = ICONOS[p.id];
+        const ir = () => {
+            // El nombre se despliega en la nueva activa y se recoge en la anterior.
+            if (!movimientoReducido && !activa) {
+                LayoutAnimation.configureNext(LayoutAnimation.create(240, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.opacity));
+            }
+            navegar(p.vista);
+        };
         return (
-            <BotonRedondo
+            <Tocable
                 key={p.id}
                 rol="tab"
-                icono={ICONOS[p.id]}
-                etiqueta={cuenta > 0 ? `${p.texto} (${cuenta})` : p.texto}
+                etiqueta={p.id === "yo" ? `Yo · ${sesion.nombre}` : cuenta > 0 ? `${p.texto} (${cuenta} sin leer)` : p.texto}
                 seleccionado={activa}
-                tamano={tamano}
-                fondo={activa ? campo.tinta : "transparent"}
-                tinta={activa ? campo.sobreTinta : colores.textoSuave}
                 testID={`pestana-${p.id}`}
-                alPresionar={() => navegar(p.vista)}
+                alPresionar={ir}
+                estilo={[
+                    estilos.pestana,
+                    { height: tamano, minHeight: tamano, minWidth: tamano, borderRadius: tamano / 2, paddingHorizontal: activa ? 16 : (tamano - 24) / 2 },
+                    { backgroundColor: activa ? campo.tinta : "transparent" },
+                ]}
             >
-                {cuenta > 0 ? (
-                    <View style={[estilos.contador, { backgroundColor: colores.primario }]}>
-                        <Text style={[estilos.textoContador, { color: colores.sobrePrimario }]}>{cuenta > 99 ? "99+" : String(cuenta)}</Text>
-                    </View>
+                <Icono size={24} color={activa ? campo.sobreTinta : colores.textoSuave} strokeWidth={activa ? 2.3 : 2} />
+                {activa ? (
+                    <Text testID={`nombre-pestana-${p.id}`} numberOfLines={1} style={[estilos.nombrePestana, { color: campo.sobreTinta }]}>
+                        {p.texto}
+                    </Text>
                 ) : null}
-            </BotonRedondo>
+                {/* El chat: un punto teal cuando hay mensajes sin leer (no con el chat abierto). */}
+                {cuenta > 0 && !activa ? <View testID="punto-no-leidos" style={[estilos.punto, { backgroundColor: colores.primario, borderColor: campo.isla }]} /> : null}
+            </Tocable>
         );
     };
     return (
@@ -78,17 +87,39 @@ export function IslaMenu({ encogida, abajo }: { encogida: boolean; abajo: number
                     accessibilityRole="tablist"
                     accessibilityLabel="Secciones de la app"
                     testID="navegacion-inferior"
-                    style={[estilos.isla, { padding: encogida ? 4 : 6, gap: encogida ? 2 : 4, backgroundColor: campo.isla, borderColor: colores.borde, shadowColor: campo.sombra }]}
+                    style={[estilos.isla, { padding: encogida ? 4 : 6, gap: 2, backgroundColor: campo.isla, borderColor: colores.borde, shadowColor: campo.sombra }]}
                 >
-                    {PESTANAS.slice(0, 2).map(boton)}
-                    <BotonRedondo icono={Plus} etiqueta="Acciones rápidas" tamano={tamano} fondo={colores.primario} tinta={colores.sobrePrimario} testID="boton-mas" alPresionar={() => setAcciones(true)} />
-                    {PESTANAS.slice(2).map(boton)}
+                    {pestanas.filter((p) => p.id === "hoy" || p.id === "chat").map(boton)}
+                    {/* «+» sin relleno ni borde: icono de 26 px en color de texto. */}
+                    <BotonRedondo icono={Plus} etiqueta="Acciones rápidas" tamano={tamano} tamanoIcono={26} fondo="transparent" tinta={colores.texto} testID="boton-mas" alPresionar={() => setAcciones(true)} />
+                    {pestanas.filter((p) => p.id === "agenda" || p.id === "yo").map(boton)}
                 </View>
             </View>
             {/* Se monta al abrir: cada vez relee el contador de órdenes libres. */}
             {acciones ? <HojaAcciones alCerrar={() => setAcciones(false)} /> : null}
         </>
     );
+}
+
+/** Con «Reducir movimiento» del sistema, la isla cambia sin animar. */
+function useMovimientoReducido(): boolean {
+    const [reducido, setReducido] = useState(false);
+    useEffect(() => {
+        let vivo = true;
+        void AccessibilityInfo.isReduceMotionEnabled?.()
+            .then((r) => {
+                if (vivo) {
+                    setReducido(r);
+                }
+            })
+            .catch(() => undefined);
+        const sub = AccessibilityInfo.addEventListener?.("reduceMotionChanged", setReducido);
+        return () => {
+            vivo = false;
+            sub?.remove();
+        };
+    }, []);
+    return reducido;
 }
 
 const ICONO_PRIMARIO: Record<PrimarioIsla["icono"], LucideIcon> = { siguiente: ArrowRight, firma: PenLine, terminar: CircleCheck, guardar: Save };
@@ -115,7 +146,7 @@ export function IslaPasos({ id, paso, encogida, abajo }: { id: number; paso: Pas
     const enPausa = accionesDe(orden).enPausa;
     const isla = estadoIslaPasos({ paso, pendientes: sinGuardar, enPausa, recienGuardado: guardado !== null });
     const vistaDe = (destino: PasoOrden | null): Vista => (destino ? { tipo: "orden", id, paso: destino } : { tipo: "orden", id });
-    const tamano = encogida ? 44 : 54;
+    const tamano = encogida ? 48 : 54;
     // Con la orden en pausa no se guarda nada: solo se navega.
     const ir = async (destino: PasoOrden | null) => {
         if (enPausa || (await guardar())) {
@@ -157,52 +188,6 @@ export function IslaPasos({ id, paso, encogida, abajo }: { id: number; paso: Pas
                     {primario.cuenta !== null ? <Text style={estilos.cuenta}>{` · ${primario.cuenta}`}</Text> : null}
                 </Boton>
             </View>
-        </View>
-    );
-}
-
-/** Píldora de estado encima de la isla (o al pie, en los pasos sin isla). */
-export function AvisoIsla({ abajo, alEntrar, alElegirEmpresa }: { abajo: number; alEntrar: () => void; alElegirEmpresa?: (() => void) | undefined }) {
-    const { estado, navegar } = useCampo();
-    const { campo, colores } = useTema();
-    const a = avisoIsla(estado);
-    if (!a) {
-        return null;
-    }
-    const Icono = a.rechazo ? TriangleAlert : estado.conexion === "sin_sesion" ? KeyRound : estado.conexion === "sin_empresa" ? Building2 : estado.conexion === "sin_conexion" ? WifiOff : CloudUpload;
-    const fondo = a.tono === "error" ? campo.errorFondo : a.tono === "warning" ? campo.avisoFondo : a.tono === "info" ? campo.infoFondo : campo.panel;
-    const borde = a.tono === "error" ? campo.errorBorde : a.tono === "warning" ? campo.avisoBorde : a.tono === "info" ? campo.infoBorde : colores.borde;
-    const tinta = colores.tono[a.tono];
-    const tocar = () => {
-        if (a.accion === "pendientes") {
-            navegar({ tipo: "pendientes" });
-        } else if (a.accion === "entrar") {
-            alEntrar();
-        } else if (a.accion === "empresa") {
-            alElegirEmpresa?.();
-        }
-    };
-    return (
-        <View pointerEvents="box-none" style={[estilos.contenedor, { bottom: abajo }]}>
-            <Tocable
-                etiqueta={a.etiqueta}
-                alPresionar={tocar}
-                testID="barra-conexion"
-                estilo={[estilos.pildora, { backgroundColor: fondo, borderColor: borde, shadowColor: campo.sombra }]}
-            >
-                <Icono size={16} color={tinta} />
-                <Text testID="estado-conexion" style={[estilos.textoPildora, { color: tinta }]}>
-                    {a.estado}
-                </Text>
-                {a.detalle ? (
-                    <>
-                        <Text style={[estilos.textoPildora, { color: tinta }]}>·</Text>
-                        <Text testID="pendientes-por-enviar" style={[estilos.textoPildora, estilos.encoger, { color: tinta }]}>
-                            {a.detalle}
-                        </Text>
-                    </>
-                ) : null}
-            </Tocable>
         </View>
     );
 }
@@ -268,6 +253,9 @@ function FilaAccion({ testID, icono: Icono, titulo, detalle, cuenta = null, alPr
 }
 
 const estilos = StyleSheet.create({
+    punto: { position: "absolute", top: 10, right: 10, width: 10, height: 10, borderRadius: 5, borderWidth: 2 },
+    pestana: { flexDirection: "row", alignItems: "center", justifyContent: "center" },
+    nombrePestana: { marginLeft: 6, fontSize: 16, fontWeight: "600" },
     flex: { flex: 1 },
     contenedor: { position: "absolute", left: 0, right: 0, alignItems: "center" },
     isla: {

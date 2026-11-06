@@ -25,7 +25,9 @@ import {
     type SesionCampo,
 } from "@/lib/campo/sesion";
 import { avisoSinConexion } from "@iris/sync/campo";
+import { ProveedorHistorial } from "./acciones-orden";
 import { ProveedorAgenda } from "./agenda-datos";
+import { ProveedorChat } from "./chat-datos";
 import { EntrarCampo } from "./entrar";
 import { ProveedorCampo, type CerrarSesion } from "./contexto";
 import { ElegirEmpresa } from "./elegir-empresa";
@@ -316,12 +318,14 @@ function ConMotor({
         const ajena = () => {
             actual?.motor.detener();
             actual?.posiciones.detener();
+            actual?.chat.detener();
             // Una verificación tardía del motor de una sesión ya cerrada no saca a quien entró después.
             if (vivo) {
                 alSesionAjena(sesion.nombre);
             }
         };
-        abrirMotor({ usuarioId: sesion.usuarioId, empresaId: empresa }, ajena)
+        // EventSource no lleva `X-Iris-Empresa`: con varias empresas el chat sondea.
+        abrirMotor({ usuarioId: sesion.usuarioId, empresaId: empresa }, ajena, { flujoChat: sesion.empresas.length <= 1 })
             .then((m) => {
                 actual = m;
                 if (vivo) {
@@ -329,6 +333,7 @@ function ConMotor({
                 } else {
                     m.motor.detener();
                     m.posiciones.detener();
+                    m.chat.detener();
                     m.almacen.cerrar();
                 }
             })
@@ -337,9 +342,10 @@ function ConMotor({
             vivo = false;
             actual?.motor.detener();
             actual?.posiciones.detener();
+            actual?.chat.detener();
             actual?.almacen.cerrar();
         };
-    }, [sesion.usuarioId, sesion.nombre, empresa, intento, alSesionAjena]);
+    }, [sesion.usuarioId, sesion.nombre, empresa, intento, alSesionAjena, sesion.empresas.length]);
 
     // Uno por motor abierto: cerrar sesión termina su turno antes de esperar a nada.
     const rastreador = useMemo(
@@ -358,17 +364,20 @@ function ConMotor({
             if (!abierto) {
                 return;
             }
-            const { motor, posiciones, almacen } = abierto;
+            const { motor, posiciones, almacen, chat } = abierto;
             // Antes del primer await: con mala señal, `cerrarSesionApi` tarda y no deben entrar
             // puntos nuevos después de tocar «Cerrar sesión» (la cola, además, queda cerrada).
             rastreador?.terminarTurno();
             motor.detener();
             posiciones.detener();
+            chat.detener();
             // El turno es de esta persona: el próximo que entre en el teléfono empieza fuera de turno.
             olvidarTurno(sesion.usuarioId, empresa);
             if (conservarPendientes) {
                 // Solo la cola, los adjuntos y las ubicaciones pendientes; nada que se pueda ver sin entrar.
                 await motor.olvidarDatosDelServidor();
+                // La caché del chat se borra; lo que quedó por enviar sale al volver a entrar.
+                await chat.olvidarCache();
             } else {
                 await almacen.borrar();
             }
@@ -424,8 +433,20 @@ function ConMotor({
                 <ProveedorInventario inventario={abierto.inventario}>
                     <ProveedorAgenda leer={abierto.agenda}>
                         <ProveedorLibres api={abierto.libres}>
-                            <TurnoAutomatico rastreador={rastreador} />
-                            <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
+                            <ProveedorHistorial leer={abierto.historialCliente}>
+                                {/* Sin `chat.ver` (rol lectura u otro) el chat no arranca ni se ofrece. */}
+                                {sesion.permisos?.includes("chat.ver") ? (
+                                    <ProveedorChat chat={abierto.chat} puedeEnviar={sesion.permisos.includes("chat.enviar")}>
+                                        <TurnoAutomatico rastreador={rastreador} />
+                                        <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
+                                    </ProveedorChat>
+                                ) : (
+                                    <>
+                                        <TurnoAutomatico rastreador={rastreador} />
+                                        <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
+                                    </>
+                                )}
+                            </ProveedorHistorial>
                         </ProveedorLibres>
                     </ProveedorAgenda>
                 </ProveedorInventario>

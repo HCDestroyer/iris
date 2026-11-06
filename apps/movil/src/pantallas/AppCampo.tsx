@@ -4,11 +4,14 @@
 // perder la sesión con la app abierta. Lo nativo llega por `DependenciasCampo` (las pruebas lo
 // reemplazan).
 import { ErrorTransporte, type ColaPosiciones, type Conexion, type InventarioCampo, type LibresCampo, type MotorSync } from "@iris/sync";
+import type { MotorChat } from "@iris/sync/chat";
+import { ProveedorChat } from "../campo/chat";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import { ErrorApi } from "../api/errores";
 import { Aviso, Cargando } from "../componentes";
 import { ProveedorAgenda, type LeerAgenda } from "../campo/agenda";
+import { ProveedorHistorial, type LeerHistorial } from "../campo/historial";
 import { ProveedorInventario } from "../campo/inventario";
 import { ProveedorLibres } from "../campo/libres";
 import { ProveedorCampo, useEstadoMotor, useEstadoPosiciones, type CerrarSesion, type ServiciosNativos } from "../campo/contexto";
@@ -25,6 +28,10 @@ export interface MotorDeSesion {
     inventario: InventarioCampo;
     /** Agenda de «Mañana» y «Semana» (lectura de la API con señal). */
     agenda: LeerAgenda;
+    /** Chat interno del equipo (misma base). */
+    chat: MotorChat;
+    /** «Historial del cliente» (lectura de la API con señal). */
+    historial?: LeerHistorial;
     /** Órdenes libres y tomar una (con señal). */
     libres: LibresCampo;
     /** Archivo de la base (lo lee la tarea del GPS con la app cerrada). */
@@ -48,6 +55,8 @@ export interface DependenciasCampo {
     red: { leer: () => Promise<boolean>; escuchar: (fn: (enLinea: boolean) => void) => () => void };
     /** La app vuelve al frente. */
     alVolverAlFrente: (fn: () => void) => () => void;
+    /** La app pasa al frente (`true`) o a segundo plano (`false`): el chat abre o cierra su sondeo. */
+    alCambiarPlano?: (fn: (alFrente: boolean) => void) => () => void;
     /** `DELETE /sesion` y olvido local (con «cierre pendiente» si no hay señal). */
     cerrarSesionApi: (usuarioId: number) => Promise<void>;
     /** Borra fotos temporales de la cámara y del compresor. */
@@ -111,6 +120,7 @@ export function AppCampo({
         deps.abrirMotor({ usuarioId: sesion.usuarioId, empresaId: empresa }, () => alSalir("expirada"), confirmaciones.avisar)
             .then((m) => {
                 if (!vivo) {
+                    m.chat.detener();
                     m.motor.detener();
                     m.posiciones.detener();
                     void m.cerrar();
@@ -126,6 +136,7 @@ export function AppCampo({
             actual.current = null;
             if (m) {
                 registrarReceptor(null);
+                m.chat.detener();
                 m.motor.detener();
                 m.posiciones.detener();
                 void m.cerrar();
@@ -233,8 +244,11 @@ function CampoAbierto({
         async ({ conservarPendientes }) => {
             await rastreo.detener();
             registrarReceptor(null);
+            abierto.chat.detener();
             if (conservarPendientes) {
                 await motor.olvidarDatosDelServidor();
+                // La caché del chat se borra; lo que quedó por enviar sale al volver a entrar.
+                await abierto.chat.olvidarCache();
             } else {
                 await abierto.borrar();
             }
@@ -268,7 +282,16 @@ function CampoAbierto({
             <ProveedorInventario inventario={abierto.inventario}>
                 <ProveedorAgenda leer={abierto.agenda}>
                     <ProveedorLibres api={abierto.libres}>
-                        <Marco empresa={nombreEmpresa} alSesionVencida={sesionVencida} {...(cambiarEmpresa ? { cambiarEmpresa } : {})} />
+                        <ProveedorHistorial leer={abierto.historial ?? null}>
+                            {/* Sin `chat.ver` el chat no arranca ni se ofrece. */}
+                            {sesion.permisos?.includes("chat.ver") ? (
+                                <ProveedorChat chat={abierto.chat} puedeEnviar={sesion.permisos.includes("chat.enviar")} red={deps.red} alCambiarPlano={deps.alCambiarPlano}>
+                                    <Marco empresa={nombreEmpresa} alSesionVencida={sesionVencida} {...(cambiarEmpresa ? { cambiarEmpresa } : {})} />
+                                </ProveedorChat>
+                            ) : (
+                                <Marco empresa={nombreEmpresa} alSesionVencida={sesionVencida} {...(cambiarEmpresa ? { cambiarEmpresa } : {})} />
+                            )}
+                        </ProveedorHistorial>
                     </ProveedorLibres>
                 </ProveedorAgenda>
             </ProveedorInventario>

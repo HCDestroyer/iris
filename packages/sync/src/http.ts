@@ -47,7 +47,7 @@ export function cabecerasApp(app?: IdentidadApp): Record<string, string> {
     return cabeceras;
 }
 
-const conApp = (app: IdentidadApp | undefined, extra: Record<string, string> = {}) => ({ ...CANAL, ...cabecerasApp(app), ...extra });
+export const conApp = (app: IdentidadApp | undefined, extra: Record<string, string> = {}) => ({ ...CANAL, ...cabecerasApp(app), ...extra });
 
 type Resultado<D> = { data?: D; error?: unknown; response: Response };
 
@@ -61,7 +61,7 @@ function msDe(texto: string | null | undefined): number | null {
 }
 
 /** Espera una llamada del cliente: `data` o `ErrorTransporte` (`red` sin respuesta, `http` con ella). */
-async function resolver<D>(llamada: Promise<Resultado<D>>): Promise<{ datos: D; respuesta: Response }> {
+export async function resolver<D>(llamada: Promise<Resultado<D>>): Promise<{ datos: D; respuesta: Response }> {
     let r: Resultado<D>;
     try {
         r = await llamada;
@@ -76,7 +76,7 @@ async function resolver<D>(llamada: Promise<Resultado<D>>): Promise<{ datos: D; 
     return { datos: r.data as D, respuesta: r.response };
 }
 
-function conHora<D>(datos: D, respuesta: Response, servidorEn?: string): RespuestaApi<D> {
+export function conHora<D>(datos: D, respuesta: Response, servidorEn?: string): RespuestaApi<D> {
     return { datos, horaServidor: msDe(servidorEn) ?? msDe(respuesta.headers.get("Date")) };
 }
 
@@ -141,6 +141,21 @@ export function crearInventarioApi(cliente: ClienteIris, app?: IdentidadApp): In
             const { datos } = await resolver(cliente.GET("/api/v1/campo/inventario/mi-bodega", { headers: conApp(app) }));
             return datos;
         },
+    };
+}
+
+/** Una orden del historial del cliente (las que ve el técnico: las suyas). */
+export type OrdenHistorial = Schema<"Orden">;
+
+/**
+ * «Historial del cliente» del menú de la orden (solo con señal, sin guardar): `GET /ordenes?clienteId=`
+ * con el alcance del técnico (`ordenes.ver_propias`: las órdenes de ese cliente que fueron suyas),
+ * las más recientes primero.
+ */
+export function crearHistorialApi(cliente: ClienteIris, app?: IdentidadApp): (clienteId: number) => Promise<OrdenHistorial[]> {
+    return async (clienteId) => {
+        const { datos } = await resolver(cliente.GET("/api/v1/ordenes", { params: { query: { clienteId, limit: 20 } }, headers: conApp(app) }));
+        return [...(datos.data ?? [])].sort((a, b) => (b.programadaInicio ?? b.actualizadoEn).localeCompare(a.programadaInicio ?? a.actualizadoEn));
     };
 }
 

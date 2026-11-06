@@ -3,20 +3,18 @@
 // con avance, «Anterior» / «Siguiente» y «Atrás» de Android) → «Firma del cliente y cierre», el
 // paso final y único. Las reglas vienen de `@iris/sync/campo` y de `campo/pasos.ts`.
 import type { OrdenVista } from "@iris/sync";
-import { accionesDe, AVISOS_SERVIDOR, horaCorta, llego, OPERACIONES, puedeReanudar, TIPOS_ORDEN, TITULOS_PASO, ventanaCita, type PasoOrden } from "@iris/sync/campo";
+import { accionesDe, AVISOS_SERVIDOR, horaCorta, llego, OPERACIONES, puedeReanudar, TITULOS_PASO, type PasoOrden } from "@iris/sync/campo";
 import {
     ArrowLeft,
     CircleCheck,
     CircleDashed,
     FileQuestion,
-    ListChecks,
     Lock,
     MapPin,
     MapPinCheck,
     Navigation,
     PenLine,
     Phone,
-    Play,
     Route,
     type LucideIcon,
 } from "lucide-react-native";
@@ -24,16 +22,18 @@ import { useState } from "react";
 import { Linking, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Aviso, Boton, BotonRedondo, Cargando, Fila, Insignia, Pila, Tarjeta, Texto, Titulo, Tocable } from "../../componentes";
 import { useCampo, useOrden } from "../../campo/contexto";
-import { avanceOrden, botonTrabajo, navegacionPaso, type MarcaPaso } from "../../campo/pasos";
+import { avanceOrden, navegacionPaso, type MarcaPaso } from "../../campo/pasos";
 import { useTema } from "../../tema/tema";
+import { AbrirChatOrden } from "../Chat";
 import { InsigniaOrden } from "../ListaOrdenes";
 import { Checklist } from "./Checklist";
-import { FallarOrden, PasoCierre } from "./Cierre";
+import { PasoCierre } from "./Cierre";
 import { Equipos } from "./Equipos";
 import { FotosOrden } from "./Fotos";
 import { Materiales } from "./Materiales";
+import { AccionesPrincipales, EncabezadoOrden } from "./AccionesOrden";
 import { Notas } from "./Notas";
-import { PausaOrden } from "./Pausa";
+import { PausaOrden, TiempoPausado } from "./Pausa";
 
 /** Enlace a la app de mapas con destino en las coordenadas (o la dirección). */
 export function enlaceComoLlegar(lat: number | null, lon: number | null, direccion: string): string | null {
@@ -65,48 +65,31 @@ export function DetalleOrden({ id, paso }: { id: number; paso?: PasoOrden | unde
     return paso ? <PasoDeOrden orden={orden} paso={paso} /> : <ResumenOrden orden={orden} />;
 }
 
-/** Resumen: cliente, avisos, pausa, avance, notas, «No se pudo» y «Empezar trabajo» (o «Continuar»). */
+/**
+ * Resumen (decisión del PM): ← | número y «● Estado · Tipo · ventana» | «⋯»; la acción principal en
+ * «tinta» con [Pausar | No se pudo] debajo (o el aviso de pausa y «Reanudar»), el cliente con
+ * «Cómo llegar» y «Llamar», el avance y las notas.
+ */
 function ResumenOrden({ orden }: { orden: OrdenVista }) {
-    const { navegar, sesion } = useCampo();
+    const { navegar } = useCampo();
     const acciones = accionesDe(orden);
-    const inicio = orden.cita?.inicio ?? orden.programadaInicio;
-    const fin = orden.cita?.fin ?? orden.programadaFin;
-    const ventana = ventanaCita(orden.cita);
     const nombre = orden.cliente?.nombre ?? orden.contacto.nombre ?? "Cliente sin nombre";
-    const trabajable = acciones.iniciarCamino || acciones.llegar || acciones.trabajo;
-    const trabajo = botonTrabajo(orden);
+    const [agregandoNota, setAgregandoNota] = useState(false);
 
     return (
         <Pila espacio={14}>
-            <View style={estilos.encabezadoPaso}>
-                <BotonVolver etiqueta="Mis órdenes" alPresionar={() => navegar({ tipo: "lista" })} />
-                <View style={[estilos.flex, estilos.encabezado]}>
-                    <Titulo>{orden.numero}</Titulo>
-                    <InsigniaOrden estado={orden.estado} />
-                </View>
-            </View>
-            <Texto suave>
-                {TIPOS_ORDEN[orden.tipo]}
-                {inicio ? ` · cita ${horaCorta(inicio) ?? ""}${fin ? `–${horaCorta(fin) ?? ""}` : ""}` : ""}
-                {ventana ? ` · llegada acordada ${ventana}` : ""}
-            </Texto>
-
+            <EncabezadoOrden orden={orden} alVolver={() => navegar({ tipo: "lista" })} alAgregarNota={acciones.notas ? () => setAgregandoNota(true) : null} />
             <AvisosOrden orden={orden} />
             {orden.estado === "pendiente" ? (
                 <Aviso tono="neutral" titulo="Esperando programación">
                     Despacho todavía no le dio hora a esta orden.
                 </Aviso>
             ) : null}
-            {trabajable ? (
-                <Boton icono={llego(orden) ? ListChecks : Play} alPresionar={() => navegar(trabajo.vista)} estilo={estilos.pildora}>
-                    {trabajo.texto}
-                </Boton>
-            ) : null}
-            <PausaOrden orden={orden} pausar={acciones.pausar} reanudar={acciones.reanudar} puedeReanudar={puedeReanudar(sesion.permisos)} />
+            <AccionesPrincipales orden={orden} />
+            {acciones.enPausa ? null : <TiempoPausado orden={orden} />}
             <Cliente orden={orden} nombre={nombre} />
             {orden.estado !== "pendiente" ? <ProgresoOrden orden={orden} /> : null}
-            <Notas orden={orden} editable={acciones.notas} />
-            {acciones.fallar ? <FallarOrden orden={orden} /> : null}
+            <Notas orden={orden} editable={acciones.notas} agregando={agregandoNota} alAgregar={setAgregandoNota} />
         </Pila>
     );
 }
@@ -389,43 +372,41 @@ function AvisosOrden({ orden }: { orden: OrdenVista }) {
 }
 
 function Cliente({ orden, nombre }: { orden: OrdenVista; nombre: string }) {
-    const { colores } = useTema();
+    const { campo, colores } = useTema();
     const telefono = orden.cliente?.telefono || orden.contacto.telefono;
     const lat = orden.lat ?? orden.cliente?.lat ?? null;
     const lon = orden.lon ?? orden.cliente?.lon ?? null;
     const comoLlegar = enlaceComoLlegar(lat, lon, orden.direccion);
     return (
-        <Tarjeta titulo={nombre}>
-            {orden.direccion ? (
-                <View style={estilos.fila}>
-                    <MapPin size={16} color={colores.textoSuave} />
-                    <Texto>{orden.direccion}</Texto>
+        <Tarjeta testID="cliente-orden">
+            <View style={estilos.cabezaCliente}>
+                <View style={[estilos.flex, estilos.datosCliente]}>
+                    <Text accessibilityRole="header" style={[estilos.nombreCliente, { color: colores.texto }]}>
+                        {nombre}
+                    </Text>
+                    {orden.direccion ? (
+                        <View style={estilos.fila}>
+                            <MapPin size={16} color={colores.textoSuave} />
+                            <Texto suave>{orden.direccion}</Texto>
+                        </View>
+                    ) : null}
+                    {orden.servicio ? (
+                        <Texto suave>
+                            {orden.servicio.codigo || `Servicio #${orden.servicio.id}`}
+                            {orden.servicio.plan ? ` · ${orden.servicio.plan}` : ""}
+                            {orden.servicio.estado ? ` · ${orden.servicio.estado.replaceAll("_", " ")}` : ""}
+                        </Texto>
+                    ) : null}
                 </View>
-            ) : null}
-            {orden.servicio ? (
-                <Texto suave>
-                    Servicio {orden.servicio.codigo}
-                    {orden.servicio.plan ? ` · ${orden.servicio.plan}` : ""}
-                    {orden.servicio.estado ? ` · ${orden.servicio.estado.replaceAll("_", " ")}` : ""}
-                </Texto>
-            ) : null}
-            {orden.descripcion ? <Texto>{orden.descripcion}</Texto> : null}
-            <View style={estilos.fila}>
-                {telefono ? (
-                    <View style={estilos.flex}>
-                        <Boton variante="secundario" icono={Phone} alPresionar={() => void Linking.openURL(`tel:${telefono.replace(/[^\d+]/g, "")}`)}>
-                            Llamar
-                        </Boton>
-                    </View>
-                ) : null}
-                {comoLlegar ? (
-                    <View style={estilos.flex}>
-                        <Boton variante="secundario" icono={Route} alPresionar={() => void Linking.openURL(comoLlegar)}>
-                            Cómo llegar
-                        </Boton>
-                    </View>
-                ) : null}
+                <View style={estilos.botonesCliente}>
+                    {comoLlegar ? <BotonRedondo icono={Route} etiqueta="Cómo llegar" fondo={campo.panel2} tinta={colores.texto} alPresionar={() => void Linking.openURL(comoLlegar)} testID="como-llegar" /> : null}
+                    {telefono ? (
+                        <BotonRedondo icono={Phone} etiqueta="Llamar" fondo={campo.panel2} tinta={colores.texto} alPresionar={() => void Linking.openURL(`tel:${telefono.replace(/[^\d+]/g, "")}`)} testID="llamar" />
+                    ) : null}
+                </View>
             </View>
+            {orden.descripcion ? <Texto>{orden.descripcion}</Texto> : null}
+            <AbrirChatOrden ordenId={orden.id} />
             {telefono ? <Texto suave>Teléfono: {telefono}</Texto> : null}
         </Tarjeta>
     );
@@ -493,6 +474,10 @@ function Comodato({ orden }: { orden: OrdenVista }) {
 }
 
 const estilos = StyleSheet.create({
+    cabezaCliente: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+    datosCliente: { gap: 4 },
+    nombreCliente: { fontSize: 18, fontWeight: "700" },
+    botonesCliente: { flexDirection: "row", gap: 8 },
     flex: { flex: 1 },
     volver: { alignSelf: "flex-start", paddingHorizontal: 0 },
     encabezado: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },

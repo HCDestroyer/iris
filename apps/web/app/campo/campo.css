@@ -145,3 +145,31 @@ html:has(.campo-app) {
         transition: none;
     }
 }
+
+/*
+ * Barra segmentada Hoy · Mañana · Semana del encabezado (opción elegida por el PM): el
+ * `GrupoSegmentado` de @iris/ui a lo ancho, en píldora, con 44 px de alto y la elegida en la tinta
+ * del texto (como el botón activo de la isla).
+ */
+.campo-app .campo-dias {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    width: 100%;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border-radius: 999px;
+    border: 1px solid var(--hx-border);
+    background: var(--campo-panel);
+}
+.campo-app .campo-dias > button {
+    height: 2.75rem;
+    border-radius: 999px;
+    font-size: 0.9375rem;
+    color: var(--hx-text);
+}
+.campo-app .campo-dias > button[data-selected] {
+    background: var(--campo-tinta);
+    color: var(--campo-sobre-tinta);
+    box-shadow: none;
+}

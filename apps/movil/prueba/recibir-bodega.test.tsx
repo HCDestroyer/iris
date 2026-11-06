@@ -5,7 +5,7 @@
 import { ErrorTransporte, type Problema, type ResultadoOperacion } from "@iris/sync";
 import { montar } from "@iris/sync/pruebas";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react-native";
-import { abrirCampo, InventarioFalso, trasladoDePrueba } from "./arnes";
+import { abrirCampo, InventarioFalso, trasladoDePrueba, nube } from "./arnes";
 import { retenerPng } from "./firma-falsa";
 
 jest.mock("expo-camera", () => ({ CameraView: () => null, useCameraPermissions: () => [null, jest.fn()] }));
@@ -15,9 +15,9 @@ const problema = (codigo: string, status = 422): Problema => ({ type: `urn:iris:
 
 async function recibirConFaltante(m: Awaited<ReturnType<typeof montar>>, inventario: InventarioFalso, esquema: "light" | "dark") {
     await abrirCampo(m, { esquema, inventario });
-    // El contador de «Por recibir» sale de la lista leída de Argos.
-    expect(await screen.findByRole("tab", { name: "Por recibir (1)" })).toBeTruthy();
-    await fireEvent.press(screen.getByRole("tab", { name: "Por recibir (1)" }));
+    // El contador de «Por recibir» (mosaico de Hoy) sale de la lista leída de Argos.
+    await waitFor(() => expect(screen.getByTestId("mosaico-recibir")).toHaveTextContent(/1 traslado/));
+    await fireEvent.press(screen.getByTestId("mosaico-recibir"));
     await fireEvent.press(await screen.findByRole("button", { name: "Traslado 31, Por recibir" }));
     // Faltó una serie de la ONU.
     const linea = await screen.findByTestId("linea-2");
@@ -77,8 +77,11 @@ describe.each(["light", "dark"] as const)("«Por recibir» y «Mi bodega» (%s)"
 
         const rechazo = await screen.findByTestId("recepcion-rechazada");
         expect(within(rechazo).queryByRole("button", { name: /Rehacer/ })).toBeNull();
-        // La barra discreta crece con el rechazo.
+        // La nube del encabezado crece con el rechazo (y su hoja lo detalla).
+        expect(nube()).toHaveProp("accessibilityLabel", "En línea, 1 por enviar, toca para ver el estado");
+        await fireEvent.press(nube());
         expect(screen.getByTestId("pendientes-por-enviar")).toHaveTextContent(/1 rechazado/);
+        await fireEvent.press(screen.getByLabelText("Cerrar"));
         await fireEvent.press(within(rechazo).getByRole("button", { name: /Descartar/ }));
         await waitFor(() => expect(m.motor.obtenerEstado().recepciones).toHaveLength(0));
         // Se puede volver a recibir.

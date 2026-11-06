@@ -105,6 +105,13 @@ describe("Nueva tarea: formulario (espejo de la API)", () => {
         });
     });
 
+    it("desde las 23:30 de Guatemala la siguiente media hora ya es de mañana (aunque en UTC sea otro día)", () => {
+        // 23:40 del jueves 5 en Guatemala (05:40 UTC del viernes 6) → viernes 6, 00:00.
+        expect(valoresInicialesTarea(Date.parse("2026-11-06T05:40:00Z"))).toMatchObject({ dia: "2026-11-06", hora: "00:00" });
+        // 19:30 del jueves 5 en Guatemala (01:30 UTC del viernes 6) → jueves 5, 20:00.
+        expect(valoresInicialesTarea(Date.parse("2026-11-06T01:30:00Z"))).toMatchObject({ dia: "2026-11-05", hora: "20:00" });
+    });
+
     it("textos del cuándo y la duración", () => {
         expect(textoCuando("2026-11-05", "14:00", "2026-11-05")).toBe(
             "Hoy · 14:00",
