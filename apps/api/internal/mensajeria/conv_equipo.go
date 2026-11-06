@@ -430,6 +430,11 @@ func nuevoVencerDisponibilidad(m *Modulo) *auditoria.Caso[int64, bool] {
 	return auditoria.Nuevo(auditoria.Caso[int64, bool]{
 		Accion: "mensajeria.vencer_disponibilidad", Acceso: auditoria.Autenticado, AuditarExito: func(ok bool) bool { return ok },
 		Logica: func(ctx context.Context, t *auditoria.Tx, id int64) (bool, error) {
+			if m.fallarFila != nil {
+				if err := m.fallarFila(id); err != nil {
+					return false, err
+				}
+			}
 			q := mensajeriabd.New(t)
 			ahora := m.ahora()
 			f, err := q.DisponibilidadPorID(ctx, id)
@@ -466,25 +471,30 @@ func nuevoVencerDisponibilidad(m *Modulo) *auditoria.Caso[int64, bool] {
 }
 
 // vencerDisponibilidades corre el barrido: un caso por agente. Un error en uno queda en el log y
-// sigue con el siguiente.
-func (m *Modulo) vencerDisponibilidades(ctx context.Context, bd mensajeriabd.DBTX) int {
+// sigue con el siguiente; devuelve las transiciones y el primer error (el mantenimiento solo lo
+// registra).
+func (m *Modulo) vencerDisponibilidades(ctx context.Context, bd mensajeriabd.DBTX) (int, error) {
 	fs, err := mensajeriabd.New(bd).DisponiblesPorVencer(ctx, m.ahora())
 	if err != nil {
 		slog.ErrorContext(ctx, "mensajeria: leer disponibilidades por vencer", "err", err)
-		return 0
+		return 0, err
 	}
 	n := 0
+	var primero error
 	for _, x := range fs {
 		ok, err := m.vencerDisp.Ejecutar(ctx, x.ID)
 		if err != nil {
 			slog.ErrorContext(ctx, "mensajeria: vencer disponibilidad", "disponibilidad_id", x.ID, "err", err)
+			if primero == nil {
+				primero = err
+			}
 			continue
 		}
 		if ok {
 			n++
 		}
 	}
-	return n
+	return n, primero
 }
 
 // Ajustes de la bandeja --------------------------------------------------------------------------

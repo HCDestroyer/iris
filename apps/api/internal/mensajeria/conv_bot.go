@@ -484,6 +484,11 @@ func nuevoDispararBot(m *Modulo) *auditoria.Caso[int64, bool] {
 		// Cada vez que el bot contesta por un temporizador queda una fila (actor sistema).
 		Accion: "mensajeria.bot_conversacion", Acceso: auditoria.Autenticado, AuditarExito: func(ok bool) bool { return ok },
 		Logica: func(ctx context.Context, t *auditoria.Tx, id int64) (bool, error) {
+			if m.fallarFila != nil {
+				if err := m.fallarFila(id); err != nil {
+					return false, err
+				}
+			}
 			q := mensajeriabd.New(t)
 			c, err := q.ConversacionClienteParaActualizar(ctx, id)
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -551,25 +556,30 @@ func nuevoDispararBot(m *Modulo) *auditoria.Caso[int64, bool] {
 }
 
 // dispararBots corre los temporizadores vencidos hasta ahora (lo llama el mantenimiento). Un
-// error en una conversación queda en el log y sigue con la siguiente.
-func (m *Modulo) dispararBots(ctx context.Context, bd mensajeriabd.DBTX) int {
+// error en una conversación queda en el log y sigue con la siguiente; devuelve los disparos y el
+// primer error (el mantenimiento solo lo registra).
+func (m *Modulo) dispararBots(ctx context.Context, bd mensajeriabd.DBTX) (int, error) {
 	ids, err := mensajeriabd.New(bd).BotVencidos(ctx, m.ahora())
 	if err != nil {
 		slog.ErrorContext(ctx, "mensajeria: leer temporizadores del bot", "err", err)
-		return 0
+		return 0, err
 	}
 	n := 0
+	var primero error
 	for _, id := range ids {
 		ok, err := m.dispararBot.Ejecutar(ctx, id)
 		if err != nil {
 			slog.ErrorContext(ctx, "mensajeria: temporizador del bot", "conversacion_id", id, "err", err)
+			if primero == nil {
+				primero = err
+			}
 			continue
 		}
 		if ok {
 			n++
 		}
 	}
-	return n
+	return n, primero
 }
 
 // botAuditado es una respuesta del bot fuera del temporizador (saludo inmediato, menú de fuera de

@@ -154,12 +154,25 @@ func nuevoMeta(t *testing.T) *metaFalso {
 type contactosFalsos struct {
 	mu sync.Mutex
 	c  map[int64]argos.ContactoArgos
+	// err: Argos no responde (y no hay instantánea); llamadas: cuántas veces se consultó.
+	err      error
+	llamadas int
 }
 
 func (f *contactosFalsos) ContactoCliente(_ context.Context, id int64) (argos.ContactoArgos, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.llamadas++
+	if f.err != nil {
+		return argos.ContactoArgos{}, f.err
+	}
 	return f.c[id], nil
+}
+
+func (f *contactosFalsos) consultas() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.llamadas
 }
 
 type entorno struct {

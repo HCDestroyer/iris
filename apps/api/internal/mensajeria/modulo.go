@@ -167,7 +167,9 @@ type Modulo struct {
 	lecturas chan struct{}
 	// trasLeerCabeza: solo pruebas (entre la cabeza y los eventos de leerFeed).
 	trasLeerCabeza func()
-	retirarFoto    *auditoria.Caso[uuid.UUID, string]
+	// fallarFila: solo pruebas (un error en una fila del barrido de disponibilidad o del bot).
+	fallarFila  func(id int64) error
+	retirarFoto *auditoria.Caso[uuid.UUID, string]
 
 	prepararEnvio   *auditoria.Caso[entradaPreparar, preparado]
 	registrarEnvio  *auditoria.Caso[entradaRegistrar, registrado]

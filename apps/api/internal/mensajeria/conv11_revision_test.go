@@ -98,9 +98,21 @@ func TestConvIniciarNoReescribeAsociacion(t *testing.T) {
 	num := "502" + movil
 	b.texto(num, "wamid.r1", "Hola")
 	c := b.conv(num)
-	// La conversación del número está asociada a otro cliente.
-	if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.conversaciones SET cliente_id = $2, asociacion = 'manual' WHERE id = $1`, cid(c), otro); err != nil {
+	// La conversación del número está asociada a otro cliente y tiene un prospecto.
+	var prospecto int64
+	if err := b.bd.QueryRow(b.ctx, `INSERT INTO comercial.prospectos (empresa_id, origen, nombre, direccion) VALUES (1, 'otro', 'Prospecto B4', 'Zona 1')
+		RETURNING id`).Scan(&prospecto); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.conversaciones SET cliente_id = $2, asociacion = 'manual', prospecto_id = $3 WHERE id = $1`,
+		cid(c), otro, prospecto); err != nil {
+		t.Fatal(err)
+	}
+	conservaProspecto := func() {
+		t.Helper()
+		if n := b.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND prospecto_id = $2`, cid(c), prospecto); n != 1 {
+			t.Fatal("iniciar borró el prospecto de la conversación")
+		}
 	}
 	pl := map[string]any{"codigo": "bienvenida", "variables": map[string]string{"plan": "Fibra"}}
 	// Sin conversaciones.asociar no la cambia.
@@ -114,8 +126,111 @@ func TestConvIniciarNoReescribeAsociacion(t *testing.T) {
 	// El agente (soporte, con asociar) sí.
 	b.exigir(b.api(b.agente, http.MethodPost, "/conversaciones/iniciar", map[string]any{"id": nuevoID(), "canalId": b.canal.ID, "clienteId": cliente, "plantilla": pl}),
 		http.StatusCreated)
-	if k := b.conv(num)["contacto"].(map[string]any); k["clienteId"].(float64) != float64(cliente) {
+	if k := b.conv(num)["contacto"].(map[string]any); k["clienteId"].(float64) != float64(cliente) || k["prospectoId"].(float64) != float64(prospecto) {
 		t.Fatalf("asociación: %v", k)
+	}
+	conservaProspecto()
+	// Iniciar otra vez al mismo cliente no toca la asociación ni el prospecto.
+	b.exigir(b.api(b.agente, http.MethodPost, "/conversaciones/iniciar", map[string]any{"id": nuevoID(), "canalId": b.canal.ID, "clienteId": cliente, "plantilla": pl}),
+		http.StatusCreated)
+	conservaProspecto()
+}
+
+func TestConvIniciarNoLlamaArgosAntesDeValidar(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	cliente := b.cliente(1, "5512-0411")
+	b.exigir(b.consentir(cliente, "acepta", b.reloj.Add(-time.Hour)), http.StatusCreated)
+	pl := map[string]any{"codigo": "bienvenida", "variables": map[string]string{"plan": "Fibra"}}
+	cuerpo := func(canal int64) map[string]any {
+		return map[string]any{"id": nuevoID(), "canalId": canal, "clienteId": cliente, "plantilla": pl}
+	}
+	antes := b.contactos.consultas()
+	// Sin el permiso de iniciar (lectura), con un número que no es de sus colas (otro) y con un número
+	// de otra empresa: no se consulta a Argos.
+	b.exigir(b.api(b.lectura, http.MethodPost, "/conversaciones/iniciar", cuerpo(b.canal.ID)), http.StatusForbidden)
+	b.exigir(b.api(b.otro, http.MethodPost, "/conversaciones/iniciar", cuerpo(b.canal.ID)), http.StatusUnprocessableEntity,
+		"type", "urn:iris:problema:numero_no_permitido")
+	ajeno := b.persona([]int64{2}, rolBase("supervisor"))
+	b.exigir(b.api(ajeno, http.MethodPost, "/conversaciones/iniciar", cuerpo(b.canal.ID)), http.StatusUnprocessableEntity,
+		"type", "urn:iris:problema:numero_no_permitido")
+	b.exigir(b.api(b.agente, http.MethodPost, "/conversaciones/iniciar", cuerpo(999999999)), http.StatusUnprocessableEntity,
+		"type", "urn:iris:problema:numero_no_permitido")
+	if n := b.contactos.consultas() - antes; n != 0 {
+		t.Fatalf("se consultó a Argos %d veces antes de validar", n)
+	}
+	// Argos falla: 422 cliente_fuera_de_empresa, sin el detalle de Argos.
+	b.contactos.mu.Lock()
+	b.contactos.err = fmt.Errorf("argos: 502 detalle-interno-de-argos")
+	b.contactos.mu.Unlock()
+	r := b.api(b.agente, http.MethodPost, "/conversaciones/iniciar", cuerpo(b.canal.ID))
+	b.exigir(r, http.StatusUnprocessableEntity, "type", "urn:iris:problema:cliente_fuera_de_empresa")
+	if strings.Contains(fmt.Sprint(r.cuerpo), "detalle-interno") {
+		t.Fatalf("pasó el detalle de Argos: %v", r.cuerpo)
+	}
+	if n := b.contactos.consultas() - antes; n != 1 {
+		t.Fatalf("consultas a Argos: %d", n)
+	}
+}
+
+func TestBarridosSiguenTrasUnaFilaQueFalla(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	compa := b.persona([]int64{1}, rolBase("soporte"))
+	b.miembro(compa)
+	b.disponible(b.agente, "disponible")
+	b.disponible(compa, "disponible")
+	primero, segundo := dispID(b, b.agente), dispID(b, compa)
+	*b.reloj = b.reloj.Add(20 * time.Minute)
+	fallo := fmt.Errorf("fila rota")
+	b.m.FijarFallarFila(func(id int64) error {
+		if id == primero {
+			return fallo
+		}
+		return nil
+	})
+	n, err := b.m.VencerDisponibilidadConError(b.ctx, b.bd)
+	if err == nil || !strings.Contains(err.Error(), "fila rota") {
+		t.Fatalf("el barrido no devolvió el error de la fila: %v", err)
+	}
+	if n < 1 {
+		t.Fatalf("transiciones: %d", n)
+	}
+	estado := func(id int64) string {
+		var e string
+		if err := b.bd.QueryRow(b.ctx, `SELECT estado FROM mensajeria.disponibilidad WHERE id = $1`, id).Scan(&e); err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	if estado(primero) != "disponible" || estado(segundo) != "no_disponible" {
+		t.Fatalf("estados: %s %s", estado(primero), estado(segundo))
+	}
+	// Bot: la primera conversación falla y la segunda contesta.
+	b.m.FijarFallarFila(nil)
+	b.botActivo(map[string]any{"activo": true, "atiende": "bot", "minutosSinConfirmacion": 30, "minutosSinDisponibles": 3, "saludo": "Hola", "menu": []any{}})
+	n1, n2 := numeroCliente(), numeroCliente()
+	b.texto(n1, "wamid.x1", "Hola")
+	b.texto(n2, "wamid.x2", "Hola")
+	c1, c2 := b.conv(n1), b.conv(n2)
+	var id1 int64
+	if _, err := fmt.Sscan(cid(c1), &id1); err != nil {
+		t.Fatal(err)
+	}
+	b.m.FijarFallarFila(func(id int64) error {
+		if id == id1 {
+			return fallo
+		}
+		return nil
+	})
+	defer b.m.FijarFallarFila(nil)
+	*b.reloj = b.reloj.Add(31 * time.Minute) // con o sin disponibles, los dos temporizadores vencieron
+	if _, err := b.m.DispararBotsConError(b.ctx, b.bd); err == nil {
+		t.Fatal("el barrido del bot no devolvió el error de la fila")
+	}
+	if a := eventosSistema(b.mensajes(b.supervisor, cid(c2)), "bot_atendio"); len(a) != 1 {
+		t.Fatalf("la segunda conversación no se procesó: %v", a)
+	}
+	if a := eventosSistema(b.mensajes(b.supervisor, cid(c1)), "bot_atendio"); len(a) != 0 {
+		t.Fatalf("la primera no debía procesarse: %v", a)
 	}
 }
 
