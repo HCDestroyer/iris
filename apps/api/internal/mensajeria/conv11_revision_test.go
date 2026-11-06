@@ -119,7 +119,7 @@ func TestConvIniciarNoReescribeAsociacion(t *testing.T) {
 	sin := b.persona([]int64{1}, rolPropio(b, "conversaciones.ver", "conversaciones.iniciar"))
 	b.miembro(sin)
 	b.exigir(b.api(sin, http.MethodPost, "/conversaciones/iniciar", map[string]any{"id": nuevoID(), "canalId": b.canal.ID, "clienteId": cliente, "plantilla": pl}),
-		http.StatusForbidden)
+		http.StatusForbidden, "type", "urn:iris:problema:asociacion_requiere_permiso")
 	if k := b.conv(num)["contacto"].(map[string]any); k["clienteId"].(float64) != float64(otro) {
 		t.Fatalf("cambió la asociación: %v", k)
 	}
