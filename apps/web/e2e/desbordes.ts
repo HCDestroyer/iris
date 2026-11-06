@@ -83,6 +83,8 @@ export async function buscarDesbordes(page: Page, selector = "body"): Promise<De
             })();
             if (recorte && !recorte.p.closest("[data-desborde-permitido]") && recorte.e.textOverflow !== "ellipsis") {
                 const rp = recorte.p.getBoundingClientRect();
+                // Un contenedor oculto a la vista (1 px, para lectores o el autocompletado) recorta a propósito.
+                if (rp.width <= 1.5 || rp.height <= 1.5) continue;
                 const bordes = parseFloat(recorte.e.borderRightWidth) || 0;
                 if (r.width > 4 && (r.right > rp.right - bordes + 1.5 || r.left < rp.left - 1.5)) {
                     problemas.push({ tipo: "fuera", donde: nombre(el), detalle: `recortado por su caja: ${Math.round(r.left)}–${Math.round(r.right)} fuera de ${Math.round(rp.left)}–${Math.round(rp.right)}` });
