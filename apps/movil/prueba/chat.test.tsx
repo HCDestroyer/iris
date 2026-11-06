@@ -92,6 +92,11 @@ describe.each(["light", "dark"] as const)("chat interno (%s)", (esquema) => {
         await abrirConversacion(chat, m, esquema);
         expect(screen.getByText(ANDREA.nombre)).toBeTruthy();
         expect(screen.getByTestId("separador-dia")).toBeTruthy();
+        // Hilo y compositor dentro del contenedor que evita el teclado (keyboard-controller, `padding`).
+        const teclado = screen.getByTestId("conversacion-chat-teclado");
+        expect(teclado.props.behavior).toBe("padding");
+        expect(within(teclado).getByTestId("hilo-chat")).toBeTruthy();
+        expect(within(teclado).getByTestId("compositor-chat")).toBeTruthy();
         await escribir("Voy para allá");
         expect(servidor.mensajes.get(CUADRILLA)?.at(-1)?.texto).toBe("Voy para allá");
         await waitFor(() => expect(screen.getByText(/· enviado$/)).toBeTruthy());

@@ -149,8 +149,44 @@ function etiquetaItem(orden: Pick<OrdenCampo, "checklist"> | null | undefined, c
     return orden?.checklist?.find((i) => i.codigo === codigo)?.etiqueta ?? codigo;
 }
 
-/** Un `errors[].field` del problema, explicado (lo que falta o lo que está mal). */
-export function describirCampo(campo: string, mensaje: string, orden?: Pick<OrdenCampo, "checklist"> | null): string {
+/**
+ * Lo que el técnico lee cuando al envío le faltó un dato (p. ej. `versionNota`). Solo una nota se
+ * arregla con «Rehacer» (trae la versión del servidor); otra operación se descarta y se rehace.
+ */
+export const TEXTO_FALTA_DATO = "Falta un dato; toca «Rehacer» para enviarlo de nuevo.";
+export const TEXTO_FALTA_DATO_DESCARTAR = "Falta un dato; toca «Descartar» y vuelve a hacerlo.";
+/** Lo que el técnico lee cuando un dato no tiene la forma que pide la API. */
+export const TEXTO_DATO_INVALIDO = "Un dato no tiene el formato esperado; toca «Rehacer» para enviarlo de nuevo o «Descartar».";
+export const TEXTO_DATO_INVALIDO_DESCARTAR = "Un dato no tiene el formato esperado; toca «Descartar» y vuelve a hacerlo.";
+
+/** Operaciones cuyo «Rehacer» corrige un dato faltante (vuelve a leer la nota del servidor). */
+const REHACER_CORRIGE: ReadonlySet<string> = new Set(["nota.editar", "nota.eliminar"]);
+
+/**
+ * Mensaje en inglés del validador de esquema de la API (`expected required property … to be
+ * present`, `expected number >= 1`…): nunca llega tal cual al técnico.
+ */
+function esMensajeDelValidador(mensaje: string, regla?: string): boolean {
+    return regla === "esquema" || /^(expected|unexpected)\b/i.test(mensaje.trim());
+}
+
+function mensajeDelValidador(mensaje: string, tipo?: string): string {
+    const rehacer = tipo !== undefined && REHACER_CORRIGE.has(tipo);
+    if (/\brequired\b/i.test(mensaje)) {
+        return rehacer ? TEXTO_FALTA_DATO : TEXTO_FALTA_DATO_DESCARTAR;
+    }
+    return rehacer ? TEXTO_DATO_INVALIDO : TEXTO_DATO_INVALIDO_DESCARTAR;
+}
+
+/**
+ * Un `errors[].field` del problema, explicado (lo que falta o lo que está mal). Con `regla`
+ * (`errors[].rule`) `esquema`, o un mensaje en inglés del validador, da un texto en español que
+ * sugiere «Rehacer» solo si rehacer la operación (`tipo`) lo corrige; si no, «Descartar».
+ */
+export function describirCampo(campo: string, mensaje: string, orden?: Pick<OrdenCampo, "checklist"> | null, regla?: string, tipo?: string): string {
+    if (mensaje && esMensajeDelValidador(mensaje, regla)) {
+        return mensajeDelValidador(mensaje, tipo);
+    }
     const [raiz, ...resto] = campo.split(".");
     const clave = resto.join(".");
     switch (raiz) {
@@ -179,8 +215,9 @@ export function describirCampo(campo: string, mensaje: string, orden?: Pick<Orde
 }
 
 /** Motivo completo de un rechazo: el código en claro y, debajo, cada cosa que falta o está mal. */
-export function detallesProblema(problema: Problema | null | undefined, orden?: Pick<OrdenCampo, "checklist"> | null): string[] {
-    return (problema?.errors ?? []).map((e) => describirCampo(e.field, e.message, orden));
+export function detallesProblema(problema: Problema | null | undefined, orden?: Pick<OrdenCampo, "checklist"> | null, tipo?: string): string[] {
+    // Sin repetir: dos datos que faltan se leen como una sola línea.
+    return [...new Set((problema?.errors ?? []).map((e) => describirCampo(e.field, e.message, orden, e.rule, tipo)))];
 }
 
 /** Ítem que falta en el cierre, por formulario (`formularios.<id>.checklist.<código>`). */

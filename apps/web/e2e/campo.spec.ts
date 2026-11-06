@@ -303,7 +303,7 @@ test("sin sesión muestra la entrada del técnico en la propia app", async ({ pa
     await context.clearCookies();
     await simularApiCampo(page);
     await page.goto("/campo");
-    await expect(page.getByRole("heading", { name: "Hola, técnico" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Iris Campo" })).toBeVisible();
     await expect(page).toHaveURL(/\/campo$/);
 });
 

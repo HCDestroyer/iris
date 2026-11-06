@@ -96,6 +96,8 @@ describe("notas editables (nota.editar y nota.eliminar)", () => {
         await motor.sincronizar();
         expect(motor.obtenerOrden(1)?.notas?.[0]?.texto).toBe("Corregida por despacho");
         transporte.cambios = (cursor) => ({ cambios: [], cursor, hayMas: false });
+        // «Rehacer» vuelve a bajar el paquete: el servidor también lo trae con la versión 2.
+        transporte.paquete = conNota({ ...DE_DESPACHO, texto: "Corregida por despacho", version: 2 });
         transporte.lote = (p) => ({ resultados: (p.operaciones ?? []).map((op) => transporte.aplicar(op)) });
         const nueva = await motor.rehacer(operacion.id);
         expect((nueva.datos as { versionNota: number }).versionNota).toBe(2);

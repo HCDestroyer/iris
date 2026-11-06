@@ -159,7 +159,7 @@ function BuscarOrden({ abierto, alCerrar }: { abierto: boolean; alCerrar: () => 
             titulo="Buscar orden"
             descripcion="Entre las órdenes de tu teléfono: número, cliente o dirección."
             testID="buscar-orden"
-            fijo={<Campo etiqueta="Buscar" valor={texto} alCambiar={setTexto} autoCorrect={false} autoCapitalize="none" autoFocus returnKeyType="search" />}
+            fijo={<Campo etiqueta="Buscar" icono={Search} valor={texto} alCambiar={setTexto} autoCorrect={false} autoCapitalize="none" autoFocus returnKeyType="search" />}
         >
             {consulta.trim().length === 0 ? null : encontradas.length === 0 ? (
                 <Texto suave testID="sin-resultados">

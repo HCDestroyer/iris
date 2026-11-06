@@ -107,7 +107,7 @@ test("cerrar sesión sin pendientes borra la base del teléfono y la sesión gua
     await pestanaCampo(page, "Yo");
     await page.getByRole("button", { name: "Cerrar sesión" }).click();
     await expect(page).toHaveURL(/\/campo\?entrar=1$/);
-    await expect(page.getByRole("heading", { name: "Hola, técnico" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Iris Campo" })).toBeVisible();
     expect(await bases(page)).not.toContain(BASE_A);
     expect(await page.evaluate(() => [localStorage.getItem("iris-campo-sesion"), localStorage.getItem("iris-campo-empresa-51")])).toEqual([null, null]);
     expect(api.peticiones.find((p) => p.metodo === "DELETE" && p.ruta === "/api/v1/sesion")?.canal).toBe("campo");
@@ -147,7 +147,7 @@ test("cerrar sesión sin señal con pendientes: avisa, conserva solo la cola y n
     await conSenal(page, api);
     await page.getByRole("button", { name: "Reintentar" }).click();
     await expect(page).toHaveURL(/\/campo\?entrar=1$/);
-    await expect(page.getByRole("heading", { name: "Hola, técnico" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Iris Campo" })).toBeVisible();
     const borrados = api.peticiones.filter((p) => p.metodo === "DELETE");
     expect(borrados.length).toBeGreaterThanOrEqual(2); // el intento sin señal y el de ahora
     expect(borrados.every((p) => p.canal === "campo")).toBe(true);

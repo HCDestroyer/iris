@@ -208,7 +208,11 @@ test("429 `demasiados_intentos`: explica la espera y lleva a entrar", async ({ p
     await expect(aviso).toContainText("Demasiados intentos: vuelve a entrar en 15 min");
     await expect(page.getByRole("button", { name: "Guardar contraseña" })).toHaveCount(0);
     await aviso.getByRole("button", { name: "Ir a iniciar sesión" }).click();
-    await expect(page.getByRole("heading", { level: 1, name: /Hola/ })).toBeVisible();
+    // La entrada del técnico (opción B): «Iris Campo», su subtítulo y el formulario para entrar.
+    await expect(page.getByRole("heading", { level: 1, name: "Iris Campo" })).toBeVisible();
+    await expect(page.getByText("Entra con tu cuenta de técnico.")).toBeVisible();
+    await expect(page.getByLabel("Contraseña", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Entrar", exact: true })).toBeVisible();
 });
 
 test("sin señal: lo dice y no intenta (no va a la cola)", async ({ page, context, baseURL }) => {
