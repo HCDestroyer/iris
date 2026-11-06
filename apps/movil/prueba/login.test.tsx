@@ -1,6 +1,6 @@
-// Entrada del técnico con el diseño «Login C · Combinada» (nov 2026), en claro y oscuro: logo y «Hola,
-// técnico», usuario recordado con «¿No eres tú?», el ojo de la contraseña, el error en línea (los
-// intentos solo si la API los dice), «¿Olvidaste tu contraseña?», «Usar huella» solo con sesión
+// Entrada del técnico (opción B del PM, 0.17), en claro y oscuro: logo centrado con «Iris Campo» y
+// «Entra con tu cuenta de técnico.», «Entrar» en tinta, usuario recordado con «¿No eres tú?», el
+// ojo de la contraseña, el error en línea (los intentos solo si la API los dice), «¿Olvidaste tu contraseña?», «Usar huella» solo con sesión
 // guardada y biometría, el aviso «Sin conexión» y el código de 6 casillas sin «Recordar este
 // teléfono» ni «código de respaldo». Y cuándo se pide la huella (`pedirHuella`).
 import type { Schema } from "@iris/contratos";
