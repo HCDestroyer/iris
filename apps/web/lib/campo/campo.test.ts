@@ -85,11 +85,17 @@ describe("textos de rechazo", () => {
             ],
         };
         expect(textoProblema(problema)).toBe("Algún dato no es válido.");
-        expect(detallesProblema(problema)).toEqual([
+        // En una nota, «Rehacer» lo corrige (trae la versión del servidor).
+        expect(detallesProblema(problema, null, "nota.editar")).toEqual([
             "Falta un dato; toca «Rehacer» para enviarlo de nuevo.",
             "Un dato no tiene el formato esperado; toca «Rehacer» para enviarlo de nuevo o «Descartar».",
         ]);
-        expect(describirCampo("datos.", "expected required property notaId to be present")).toBe("Falta un dato; toca «Rehacer» para enviarlo de nuevo.");
+        // En otra operación, rehacer manda lo mismo: se sugiere «Descartar».
+        expect(detallesProblema(problema, null, "material.usar")).toEqual([
+            "Falta un dato; toca «Descartar» y vuelve a hacerlo.",
+            "Un dato no tiene el formato esperado; toca «Descartar» y vuelve a hacerlo.",
+        ]);
+        expect(describirCampo("datos.", "expected required property notaId to be present")).toBe("Falta un dato; toca «Descartar» y vuelve a hacerlo.");
     });
     it("un código desconocido usa el detalle de la API", () => {
         expect(textoProblema({ type: "urn:iris:problema:otro", title: "Otro", status: 422, detail: "Algo pasó" })).toBe("Algo pasó");

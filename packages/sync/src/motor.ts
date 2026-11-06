@@ -24,6 +24,7 @@ import {
     type Tarea,
     type TipoOperacionTarea,
     type LineaRecepcion,
+    type NotaOrden,
     type PlantillaFormulario,
     type Existencias,
     type OperacionCable,
@@ -34,7 +35,7 @@ import {
     type TipoAdjunto,
     type TipoOperacion,
 } from "./contrato";
-import { codigoProblema, ErrorSync, ErrorTransporte } from "./errores";
+import { codigoProblema, ErrorSync, ErrorTransporte, PREFIJO_PROBLEMA } from "./errores";
 import { grupoTarea, grupoTraslado, tareaDeOperacion, type OperacionTareaLocal, type AdjuntoLocal, type AvisoServidor, type MetaSync, type OperacionLocal, type OperacionTrasladoLocal, type OrdenLocal, type TurnoDelDia } from "./modelo";
 import { calcularEspera, ESPERA_POR_DEFECTO, relojSistema, type OpcionesEspera, type Reloj } from "./reloj";
 import type { RespuestaApi, Subidor, Transporte } from "./transporte";
@@ -527,8 +528,10 @@ export class MotorSync {
      * Encola una acción: primero la guarda en el almacén (si falla, lanza y no queda nada),
      * luego la aplica a la vista y despierta el envío.
      */
-    async registrar<T extends TipoOperacion>(tipo: T, ordenId: number, datos: DatosPorTipo[T]): Promise<ResultadoRegistro> {
+    async registrar<T extends TipoOperacion>(tipo: T, ordenId: number, entradaOriginal: DatosPorTipo[T]): Promise<ResultadoRegistro> {
         return this.local(async () => {
+            // Se trabaja sobre una copia: completar `versionNota` o `versionId` nunca toca los datos de quien llama.
+            const datos = { ...entradaOriginal } as DatosPorTipo[T];
             const vista = this.validarAccion(tipo, ordenId, datos);
             if (tipo === "nota.editar" || tipo === "nota.eliminar") {
                 // La versión de la nota que ve el técnico (ya validada): nunca sale sin `versionNota`.
@@ -785,9 +788,18 @@ export class MotorSync {
         let op = this.opDecidible(id);
         let datosNuevos: OperacionLocal["datos"] | undefined = datos;
         if (op.tipo === "nota.editar" || op.tipo === "nota.eliminar") {
-            const refrescada = await this.refrescarDelServidor();
+            // La versión que el técnico revisó (la de la base antes de volver a bajarla).
+            const revisada = this.notaDeOp(op)?.version;
+            const refresco = await this.refrescarDelServidor();
             op = this.opDecidible(id);
-            datosNuevos = this.datosNotaRehecha(op, datos as Partial<DatosPorTipo["nota.editar"]> | undefined, refrescada);
+            const actual = this.notaDeOp(op);
+            if (refresco === "ok" && versionNotaValida(revisada) && actual && versionNotaValida(actual.version) && actual.version !== revisada) {
+                // Despacho la cambió entre que el técnico revisó el conflicto y tocó «Rehacer»: no se
+                // pisa en silencio (contratos/sync.md). Queda rechazada con el texto nuevo a la vista.
+                await this.marcarNotaCambiada(op, actual.texto);
+                throw new ErrorSync("nota_cambiada", `La nota cambió en el servidor mientras la revisabas. Ahora dice: «${resumirTexto(actual.texto)}». Revísala y toca «Rehacer» otra vez, o «Descartar».`);
+            }
+            datosNuevos = this.datosNotaRehecha(op, datos as Partial<DatosPorTipo["nota.editar"]> | undefined, refresco);
         }
         const orden = this.ordenes.get(op.ordenId);
         const nueva = {
@@ -1740,43 +1752,67 @@ export class MotorSync {
         this.emitir();
     }
 
-    /** Vuelve a bajar el paquete del día para «Rehacer»; `false` si no hay paquete o falló la llamada. */
-    private async refrescarDelServidor(): Promise<boolean> {
+    /**
+     * Vuelve a bajar el paquete del día para «Rehacer»: `ok`, `sin_paquete`, `red` (sin señal) o
+     * `api` (la API respondió con error). Sin sesión o sin empresa válida lanza (hay que entrar).
+     */
+    private async refrescarDelServidor(): Promise<"ok" | "sin_paquete" | "red" | "api"> {
         const fecha = this.meta.fecha;
         if (fecha === null) {
-            return false;
+            return "sin_paquete";
         }
         try {
             await this.serializar(() => this.bajarPaquete(fecha));
-            return true;
+            return "ok";
         } catch (e) {
-            if (e instanceof ErrorTransporte) {
-                return false;
+            if (!(e instanceof ErrorTransporte) || e.esDeSesion || e.esDeEmpresa) {
+                throw e;
             }
-            throw e;
+            return e.tipo === "red" ? "red" : "api";
         }
+    }
+
+    /** La nota de una operación de nota: en la base (lo del servidor) o, si es de un `nota.agregar` en cola, en la vista. */
+    private notaDeOp(op: OperacionLocal): NotaOrden | undefined {
+        if (op.tipo !== "nota.editar" && op.tipo !== "nota.eliminar") {
+            return undefined;
+        }
+        const notaId = op.datos.notaId;
+        return this.ordenes.get(op.ordenId)?.base.notas?.find((n) => n.id === notaId) ?? this.obtenerOrden(op.ordenId)?.notas?.find((n) => n.id === notaId);
+    }
+
+    /** Deja la operación rechazada con `conflicto_version` y el texto que trae ahora el servidor. */
+    private async marcarNotaCambiada(op: OperacionLocal, texto: string): Promise<void> {
+        const error: Problema = {
+            type: `${PREFIJO_PROBLEMA}conflicto_version`,
+            title: "Conflicto de versión",
+            status: 409,
+            detail: `La nota cambió en el servidor: «${resumirTexto(texto)}»`,
+        };
+        await this.guardar({ operaciones: { poner: [{ ...op, estado: "rechazada", error } as OperacionLocal] } });
+        this.emitir();
     }
 
     /**
      * Datos de una nota rehecha con la versión de la base (lo último del servidor); si la nota es
      * de un `nota.agregar` aún en cola, la de la vista. Nunca devuelve una `versionNota` inválida.
      */
-    private datosNotaRehecha(op: OperacionLocal, datos: Partial<DatosPorTipo["nota.editar"]> | undefined, refrescada: boolean): OperacionLocal["datos"] {
+    private datosNotaRehecha(op: OperacionLocal, datos: Partial<DatosPorTipo["nota.editar"]> | undefined, refresco: "ok" | "sin_paquete" | "red" | "api"): OperacionLocal["datos"] {
         if (op.tipo !== "nota.editar" && op.tipo !== "nota.eliminar") {
             return { ...op.datos, ...datos } as OperacionLocal["datos"];
         }
-        const notaId = op.datos.notaId;
-        const nota =
-            this.ordenes.get(op.ordenId)?.base.notas?.find((n) => n.id === notaId) ?? this.obtenerOrden(op.ordenId)?.notas?.find((n) => n.id === notaId);
+        const nota = this.notaDeOp(op);
         if (!nota) {
             throw new ErrorSync("nota_desconocida", "Esa nota ya no está en la orden: toca «Descartar».");
         }
         if (!versionNotaValida(nota.version)) {
             throw new ErrorSync(
                 "nota_sin_version",
-                refrescada
+                refresco === "ok"
                     ? "No se pudo leer la versión de la nota en el servidor. Toca «Descartar» y vuelve a editarla."
-                    : "Sin conexión: no se pudo traer la nota del servidor. Conéctate y toca «Rehacer» otra vez.",
+                    : refresco === "api"
+                      ? "El servidor no respondió bien al traer la nota. Toca «Rehacer» otra vez en un momento."
+                      : "Sin conexión: no se pudo traer la nota del servidor. Conéctate y toca «Rehacer» otra vez.",
             );
         }
         const versionNota = datos?.versionNota !== undefined && versionNotaValida(datos.versionNota) ? datos.versionNota : nota.version;
@@ -1998,4 +2034,10 @@ export class MotorSync {
             desfaseMs: this.meta.desfaseMs,
         };
     }
+}
+
+/** Un texto de nota en una línea y corto, para un aviso (nunca se registra). */
+function resumirTexto(texto: string, maximo = 120): string {
+    const linea = texto.replace(/\s+/g, " ").trim();
+    return linea.length > maximo ? `${linea.slice(0, maximo - 1)}…` : linea;
 }

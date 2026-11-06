@@ -50,6 +50,14 @@ describe.each(["light", "dark"] as const)("Campo con icono (%s)", (esquema) => {
         expect(within(fin).getByRole("button", { name: "Ocultar contraseña" })).toBeTruthy();
     });
 
+    it("con el campo deshabilitado, el ojo tampoco se puede tocar", async () => {
+        await montar(<Campo etiqueta="Contraseña" icono={Lock} secreto editable={false} valor="secreta" alCambiar={jest.fn()} testID="clave" />);
+        const ojo = screen.getByRole("button", { name: "Mostrar contraseña" });
+        expect(ojo.props.accessibilityState).toMatchObject({ disabled: true });
+        await fireEvent.press(ojo);
+        expect(screen.getByTestId("clave").props.secureTextEntry).toBe(true);
+    });
+
     it("búsqueda y unidad: la lupa al inicio y la unidad al final, también dentro", async () => {
         await montar(
             <>

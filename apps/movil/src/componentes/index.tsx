@@ -197,6 +197,7 @@ export function Campo({ etiqueta, valor, alCambiar, error, ayuda, sufijo, icono:
                             <Tocable
                                 etiqueta={visible ? "Ocultar contraseña" : "Mostrar contraseña"}
                                 seleccionado={visible}
+                                deshabilitado={editable === false}
                                 alPresionar={() => setVisible((v) => !v)}
                                 estilo={estilos.ojo}
                             >

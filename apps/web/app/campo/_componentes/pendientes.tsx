@@ -126,7 +126,7 @@ function Rechazo({ op }: { op: OperacionLocal }) {
     const traslado = op.tipo === "traslado.recibir";
     const terminal = !traslado && CODIGOS_TERMINALES.has(codigo);
     const rehacer = traslado ? sePuedeRehacerRecepcion(op) : !terminal;
-    const detalles = detallesProblema(op.error, orden);
+    const detalles = detallesProblema(op.error, orden, op.tipo);
     return (
         <Aviso
             tono="error"
