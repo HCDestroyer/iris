@@ -655,6 +655,14 @@ La respuesta no se guarda en el middleware (la clave la aplica el caso).
   supervisor; un supervisor global puede usar cualquier número activo de la empresa. Si no, 422
   `numero_no_permitido`. `GET /conversaciones/canales` trae `iniciar: bool` por número (si tú
   puedes iniciar desde él).
+- **Plantillas del número:** `GET /conversaciones/canales/{id}/plantillas` (`conversaciones.iniciar`,
+  solo personas; lectura sin auditar) → `{ data: PlantillaDisponible[], nextCursor: null }`: las
+  plantillas aprobadas en ese número, con la misma forma que `GET /conversaciones/{id}/plantillas`
+  (`codigo`, `nombre`, `categoria`, `variables[{ nombre, formato, obligatoria }]`, `vistaPrevia`);
+  `data` es `[]` si no hay. El número debe ser uno desde el que puedes iniciar (la misma regla de
+  arriba: de una de tus colas; un supervisor global, cualquiera activo de la empresa); si no, 404.
+  `categoria` es la de Meta: `servicio` (utility) | `marketing` | `autenticacion`; todas las del
+  catálogo de Iris son `servicio`. Desde 1.1, `GET /conversaciones/{id}/plantillas` también la trae.
 - **Destinatario:** el número lo pone Iris, nunca el panel. Cliente de Argos: `movil` (si no,
   `telefono`) de la instantánea de lectura (refrescada si tiene más de 24 h), del cliente en la
   empresa (si no, 422 `cliente_fuera_de_empresa`; sin teléfono, 422 `sin_contacto`); el servicio,
