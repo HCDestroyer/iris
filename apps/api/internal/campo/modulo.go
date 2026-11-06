@@ -79,6 +79,10 @@ type Existencia struct {
 	Descripcion string  `json:"descripcion"`
 	Cantidad    float64 `json:"cantidad"`
 	Unidad      string  `json:"unidad"`
+	// Codigo: el SKU del producto en Argos (producto_sku), para buscarlo en la app por código.
+	Codigo string `json:"codigo,omitempty" doc:"Código (SKU) del producto en Argos; vacío si Argos no lo manda"`
+	// BodegaNombre: nombre de la bodega en Argos (bodega_nombre); va en ExistenciasBodega.Nombre.
+	BodegaNombre string `json:"-"`
 	// Modalidad (Argos ≥ 1.6.0, contrato 0.5.0): un comodato se registra como equipo, no como material.
 	Modalidad string `json:"modalidad,omitempty" enum:"comodato,consumible_gasto,consumible_cobro," doc:"Modalidad del producto en Argos (≥ 1.6.0): comodato (va como equipo, con serie), consumible_gasto o consumible_cobro (Argos lo cobra al cliente al consumirlo). Vacía con un Argos anterior"`
 }

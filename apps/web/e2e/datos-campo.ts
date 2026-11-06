@@ -36,6 +36,8 @@ export const PERMISOS_TECNICO: Schema<"Permiso">[] = [
 ];
 
 export const CABLE = 900;
+/** ONU en comodato de la bodega: se registra en «Equipos» con su serie, no como material. */
+export const ONU_COMODATO = 905;
 export const CONECTOR = 901;
 export const BODEGA = 7;
 
@@ -163,9 +165,11 @@ export function existenciasDelTecnico(): Schema<"Existencias"> {
         bodegas: [
             {
                 bodegaId: BODEGA,
+                nombre: "Bodega Norte",
                 lineas: [
-                    { productoId: CABLE, descripcion: "Cable drop 1 hilo", unidad: "m", cantidad: 120 },
-                    { productoId: CONECTOR, descripcion: "Conector SC/APC", unidad: "u", cantidad: 10 },
+                    { productoId: CABLE, descripcion: "Cable drop 1 hilo", codigo: "CAB-DROP-1H", unidad: "m", cantidad: 120, modalidad: "consumible_gasto" },
+                    { productoId: CONECTOR, descripcion: "Conector SC/APC", codigo: "CON-SCAPC", unidad: "u", cantidad: 10, modalidad: "consumible_cobro" },
+                    { productoId: ONU_COMODATO, descripcion: "ONU ZTE F670L", codigo: "ONU-F670", unidad: "u", cantidad: 3, modalidad: "comodato" },
                 ],
             },
         ],

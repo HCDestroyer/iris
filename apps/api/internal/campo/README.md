@@ -55,6 +55,10 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   marca vigente (gana la más reciente por `ocurrido_en`) y el historial de todas. MAC normalizada
   a `AA:BB:CC:DD:EE:FF`; equipo repetido 422 `equipo_duplicado`. El SVG de la firma nunca sale
   por la API ni en la auditoría.
+- **Existencias del paquete:** cada línea trae `codigo` (el `producto_sku` de Argos) y cada bodega
+  su `nombre` (`bodega_nombre`), para buscar por código y decir «De tu bodega: Bodega Norte» en la
+  app. La descripción sale de `producto_nombre` (ExistenciaInventario de Argos) o, en versiones
+  anteriores, de `descripcion` / `nombre`.
 - **Bodega:** materiales siempre de la bodega de la orden (la del técnico). Otra bodega solo la
   indica quien tiene `ordenes.asignar` con alcance (despacho, supervisor) desde el panel, y debe
   existir en la empresa según Argos (`Inventario.BodegaDeEmpresa`; sin conector, 422
