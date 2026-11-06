@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AreaTexto, Aviso, Boton, CampoBusqueda, Casilla, cn, GrupoSegmentado, PanelEmergente, SelectorArchivo } from "@iris/ui";
-import { AtSign, Clock, Send, Smile, X, Zap } from "lucide-react";
+import { AtSign, BookOpen, Clock, Send, Smile, X, Zap } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
@@ -16,6 +16,7 @@ import type { Pendiente } from "@/lib/conversaciones/estado";
 import { aplicarRespuesta, textoVentana } from "@/lib/conversaciones/presentacion";
 import { esSesionCambiada, verificarSesion, type Identidad } from "@/lib/conversaciones/sesion";
 import type { Conversacion, Mensaje, RespuestaRapida } from "@/lib/conversaciones/tipos";
+import { useSesion } from "@/lib/sesion";
 import { agentesDeCola, useCatalogos } from "./catalogos";
 import { SelectorPlantilla } from "./plantillas";
 
@@ -35,7 +36,9 @@ type Props = {
     alReenvio: () => void;
     alActualizar: (c: Conversacion) => void;
     recargar: () => Promise<void>;
+    abrirAyuda: () => void;
     registrarReintento: (f: (p: Pendiente) => void) => void;
+    registrarUsarTexto: (f: (t: string) => void) => void;
 };
 
 const EMOJIS = ["👍", "🙏", "😊", "🙂", "👋", "✅", "📶", "🔧", "📅", "⏰", "📍", "💳", "🧾", "⚠️", "❗", "🎉"];
@@ -51,7 +54,8 @@ type Envio = { id: string; modo: Modo; texto: string; menciones: number[]; respu
  * Antes de guardar un borrador o de enviar, se comprueba con `GET /yo` que la sesión del navegador
  * sigue siendo la de quien está en pantalla: si cambió, nada sale (ver `lib/conversaciones/sesion`).
  */
-export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, alReenvio, alActualizar, recargar, registrarReintento }: Props) {
+export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, alReenvio, alActualizar, recargar, abrirAyuda, registrarReintento, registrarUsarTexto }: Props) {
+    const { puede } = useSesion();
     const { respuestas, agentes } = useCatalogos();
     const [modo, setModo] = useState<Modo>("responder");
     const form = useForm({ resolver: zodResolver(esquemaMensaje), defaultValues: { texto: "" } });
@@ -142,6 +146,12 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
         registrarReintento((p) => {
             const e = envios.current.get(p.id);
             if (e) void mandar(e);
+        });
+        registrarUsarTexto((t) => {
+            setModo("responder");
+            const actual = form.getValues("texto");
+            form.setValue("texto", actual ? `${actual}\n\n${t}` : t, { shouldDirty: true });
+            campo.current?.focus();
         });
     });
 
@@ -298,6 +308,11 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                     {modo === "responder" ? (
                         <>
                             <SelectorArchivo etiqueta={subiendo ? `Subiendo ${subiendo}…` : "Adjuntar foto o PDF"} accept={ACEPTA_ADJUNTO} alElegir={adjuntar} disabled={cerrada || subiendo !== null} className="text-muted-foreground" />
+                            {puede(["manuales.ver"]) ? (
+                                <Boton variante="fantasma" tamano="icono-sm" className="text-muted-foreground" aria-label="Manuales" title="Manuales" onClick={abrirAyuda}>
+                                    <BookOpen />
+                                </Boton>
+                            ) : null}
                             {soloPlantilla ? null : <SelectorPlantilla conv={conv} identidad={identidad} alEnviado={alConfirmado} alReenvio={alReenvio} alActualizar={alActualizar} />}
                             {cerrada ? null : <MenuRespuestas respuestas={deLaCola} alElegir={usarRespuesta} />}
                         </>

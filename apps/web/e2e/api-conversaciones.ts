@@ -33,6 +33,9 @@ export const PERMISOS_CONVERSACIONES: Permiso[] = [
     "conversaciones.registrar_promesa",
     "conversaciones.configurar",
     "canales.configurar",
+    "manuales.ver",
+    "manuales.editar",
+    "manuales.revocar_enlace",
 ];
 
 export type OpcionesConversaciones = {
@@ -69,6 +72,31 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         { id: 2, colaId: 2, atajo: "/reinicio", titulo: "Pedir reinicio del módem", texto: "¿Puedes apagar el módem 30 segundos y volver a encenderlo?", activa: true, version: 1 },
         { id: 3, colaId: 2, atajo: "/falla", titulo: "Falla en la zona", texto: "Hay una falla en tu zona y ya la estamos atendiendo.", activa: true, version: 1 },
     ];
+    const horarios: Schema<"Horario">[] = [
+        {
+            id: 1,
+            nombre: "Soporte · extendido",
+            zona: "America/Guatemala",
+            version: 3,
+            franjas: [{ dias: [1, 2, 3, 4, 5, 6, 7], inicio: "06:00", fin: "22:00", perfil: null }],
+            feriados: [{ fecha: "2026-12-25", nombre: "Navidad", franjas: [] }],
+            empresaId: 1,
+            activo: true,
+        },
+        {
+            id: 2,
+            nombre: "Caja",
+            zona: "America/Guatemala",
+            version: 1,
+            franjas: [
+                { dias: [1, 2, 3, 4, 5], inicio: "08:00", fin: "17:00", perfil: null },
+                { dias: [6], inicio: "08:00", fin: "12:00", perfil: null },
+            ],
+            feriados: [],
+            empresaId: 1,
+            activo: true,
+        },
+    ];
     const canales: Schema<"NumeroConversaciones">[] = [CANAL_AVISOS, CANAL_SOPORTE, CANAL_COBROS, CANAL_VENTAS].map((c) => ({
         ...c,
         avisosEmpresa: c.id === 2,
@@ -83,8 +111,48 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             asistente: { activo: false },
         },
     }));
+    const manuales: Schema<"Manual">[] = [
+        {
+            id: 1,
+            titulo: "Sin servicio en fibra: diagnóstico",
+            resumen: "Revisar luces de la ONU, falla en la zona, potencia y reinicio guiado antes de agendar visita.",
+            cuerpo: "## Pasos\n\n1. Revisa si hay **falla en la zona**.\n2. Pide la luz PON y LOS.\n3. Si LOS está roja, agenda visita.\n\n<b>no es HTML</b>",
+            etiquetas: ["sin servicio"],
+            equipo: "",
+            visibilidad: "interna",
+            activo: true,
+            version: 1,
+            actualizadoEn: "2026-10-20T15:00:00Z",
+        },
+        {
+            id: 2,
+            titulo: "Reiniciar la ONU ZTE F670L",
+            resumen: "Guía con fotos para el cliente: apagar 30 segundos, revisar la luz PON y volver a probar.",
+            cuerpo: "Apaga el equipo **30 segundos** y vuelve a encenderlo. [Video](https://iris.test/video)",
+            etiquetas: ["onu", "reinicio"],
+            equipo: "ZTE F670L",
+            visibilidad: "cliente",
+            activo: true,
+            version: 1,
+            actualizadoEn: "2026-10-20T15:00:00Z",
+        },
+    ];
     const configurados: unknown[] = [];
     const consentimientos: unknown[] = [];
+    const enlaces: Schema<"EnlaceManual">[] = [];
+    /** Conversación de cada enlace enviado. */
+    const enlaceDe = new Map<number, number>();
+    /** Un manual como lo listan la búsqueda y las sugerencias (sin cuerpo). */
+    const resumenManual = (m: Schema<"Manual">): Schema<"ManualResumen"> => ({
+        id: m.id,
+        titulo: m.titulo,
+        resumen: m.resumen,
+        etiquetas: m.etiquetas,
+        equipo: m.equipo,
+        visibilidad: m.visibilidad,
+        activo: m.activo,
+        rango: 1,
+    });
 
     /** Como el servidor: `mensaje_*` trae el mensaje y luego `conversacion_actualizada` la conversación. */
     function emitir(tipo: Evento["tipo"], c: Conversacion, m?: Mensaje) {
@@ -235,6 +303,14 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                     true
                 );
             }
+            if (accion === "manuales-sugeridos") {
+                const sugerido = (m: Schema<"Manual">, tipo: string, detalle: string) => ({ ...resumenManual(m), motivos: [{ tipo, detalle }] });
+                const [uno, dos] = manuales;
+                return (await json(route, { data: uno && dos ? [sugerido(uno, "etiqueta", "sin servicio"), sugerido(dos, "equipo", "ZTE F670L")] : [], nextCursor: null }), true);
+            }
+            if (accion === "manual-enlaces") {
+                return (await json(route, { data: enlaces.filter((e) => enlaceDe.get(e.id) === c.id), nextCursor: null }), true);
+            }
             if (accion === "coincidencias") {
                 return (
                     await json(route, {
@@ -312,6 +388,13 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             case "leer":
                 c.noLeidos = 0;
                 return (await json(route, { conversacionId: c.id, noLeidos: 0 }), true);
+            case "enviar-manual": {
+                const manual = manuales.find((v) => v.id === cuerpo.manualId);
+                if (manual?.visibilidad !== "cliente") return (await problema(route, P("manual_interno", 422, "Es un manual interno")), true);
+                enlaceDe.set(enlaces.length + 1, c.id);
+                enlaces.push({ id: enlaces.length + 1, manualId: manual.id, titulo: manual.titulo, enviadoPor: { id: yo, nombre: "Ana López" }, venceEn: "2026-11-27T16:45:00Z", revocadoEn: null, creadoEn: new Date().toISOString() });
+                return (await json(route, { id: cuerpo.id }, 201), true);
+            }
             case "crear-ticket":
                 return (await json(route, { vinculo: { tipo: "ticket", id: "4900", referencia: "TK-004900", creadoEn: new Date().toISOString() }, conversacion: detalle(c) }, 201), true);
             case "mensajes":
@@ -354,11 +437,64 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         }
     }
 
-    /** Administración: configurar números y respuestas rápidas. */
+    /** Administración: horarios, manuales, configurar números y respuestas rápidas. */
     async function administrar(route: Route, metodo: string, ruta: string, query: URLSearchParams, cuerpo: Record<string, unknown>, puede: (p: Permiso) => boolean): Promise<boolean> {
         const prohibido = async () => (await problema(route, P("permiso_denegado", 403, "Sin permiso")), true);
         const noExiste = async () => (await problema(route, P("no_encontrado", 404, "No existe")), true);
         const conflicto = async () => (await problema(route, P("conflicto_version", 409, "Cambió")), true);
+        if (ruta === `${BASE}/horarios` || ruta.startsWith(`${BASE}/horarios/`)) {
+            const id = Number(ruta.split("/")[5]);
+            if (metodo === "GET" && ruta === `${BASE}/horarios`) return (await json(route, { data: horarios, nextCursor: null }), true);
+            const h = horarios.find((v) => v.id === id);
+            if (metodo === "GET") return h ? (await json(route, h), true) : noExiste();
+            if (!puede("canales.configurar")) return prohibido();
+            if (ruta === `${BASE}/horarios`) {
+                const nuevo = { ...(cuerpo as unknown as Schema<"Horario">), id: horarios.length + 10, version: 1 };
+                horarios.push(nuevo);
+                return (await json(route, nuevo, 201), true);
+            }
+            if (!h) return noExiste();
+            if (cuerpo.version !== h.version) return conflicto();
+            Object.assign(h, cuerpo, { version: h.version + 1 });
+            return (await json(route, h), true);
+        }
+        if (ruta === `${BASE}/manuales` || ruta.startsWith(`${BASE}/manuales/`)) {
+            if (!puede("manuales.ver")) return prohibido();
+            const partes = ruta.split("/");
+            const id = Number(partes[5]);
+            if (metodo === "GET" && ruta === `${BASE}/manuales`) {
+                const q = (query.get("q") ?? "").toLowerCase();
+                const vis = query.get("visibilidad");
+                const data = manuales.filter(
+                    (m) => (!q || `${m.titulo} ${m.resumen} ${m.cuerpo} ${(m.etiquetas ?? []).join(" ")} ${m.equipo}`.toLowerCase().includes(q)) && (!vis || m.visibilidad === vis) && (m.activo || query.get("incluirInactivos")),
+                );
+                return (await json(route, { data: data.map(resumenManual), nextCursor: null }), true);
+            }
+            const m = manuales.find((v) => v.id === id);
+            if (metodo === "GET") return m ? (await json(route, m), true) : noExiste();
+            if (!puede("manuales.editar")) return prohibido();
+            if (ruta === `${BASE}/manuales`) {
+                const nuevo = { ...(cuerpo as unknown as Schema<"Manual">), id: manuales.length + 10, activo: true, version: 1 };
+                manuales.push(nuevo);
+                return (await json(route, nuevo, 201), true);
+            }
+            if (!m) return noExiste();
+            if (cuerpo.version !== m.version) return conflicto();
+            const accion = partes[6];
+            if (accion === "activar") m.activo = true;
+            else if (accion === "desactivar") m.activo = false;
+            else Object.assign(m, cuerpo);
+            m.version += 1;
+            return (await json(route, m), true);
+        }
+        const rev = /^\/api\/v1\/mensajeria\/manual-enlaces\/(\d+)\/revocar$/.exec(ruta);
+        if (rev && metodo === "POST") {
+            if (!puede("manuales.revocar_enlace")) return prohibido();
+            const e = enlaces.find((v) => v.id === Number(rev[1]));
+            if (!e) return noExiste();
+            e.revocadoEn ??= new Date().toISOString();
+            return (await json(route, e), true);
+        }
         const conf = /^\/api\/v1\/mensajeria\/canales\/(\d+)\/configurar$/.exec(ruta);
         if (conf && metodo === "POST") {
             if (!puede("canales.configurar")) return prohibido();
@@ -393,7 +529,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         return false;
     }
 
-    return { manejar, conversaciones, mensajes, enviados, mensajeDelCliente, canales, configurados, respuestas, consentimientos };
+    return { manejar, conversaciones, mensajes, enviados, mensajeDelCliente, horarios, manuales, canales, configurados, respuestas, enlaces, consentimientos };
 }
 
 export type ApiConversaciones = ReturnType<typeof apiConversaciones>;
