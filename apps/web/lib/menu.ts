@@ -9,6 +9,7 @@ import {
     LifeBuoy,
     Map as IconoMapa,
     MessageSquareHeart,
+    MessagesSquare,
     Route,
     Settings,
     Users,
@@ -66,6 +67,7 @@ export const permisosPendientes = {
 export const MENU: readonly EntradaMenu[] = [
     { href: "/", grupo: "operacion", etiqueta: "Inicio", icono: LayoutDashboard, permisos: null },
     { href: "/tickets", grupo: "operacion", etiqueta: "Tickets", icono: LifeBuoy, permisos: ["tickets.ver"] },
+    { href: "/conversaciones", grupo: "operacion", etiqueta: "Conversaciones", icono: MessagesSquare, permisos: ["conversaciones.ver"] },
     {
         href: "/ordenes",
         grupo: "operacion",

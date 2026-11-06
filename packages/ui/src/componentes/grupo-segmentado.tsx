@@ -11,6 +11,8 @@ export type OpcionSegmentada<V extends string> = {
     icono?: LucideIcon;
     /** Solo icono visible; la etiqueta queda para lectores de pantalla y como tooltip. */
     soloIcono?: boolean;
+    /** Cifra discreta junto a la etiqueta («Mías 4»); se lee como parte del nombre. */
+    contador?: number;
 };
 
 export type PropsGrupoSegmentado<V extends string> = {
@@ -77,7 +79,12 @@ export function GrupoSegmentado<V extends string>({ etiqueta, opciones, valor, a
                         )}
                     >
                         {Icono ? <Icono aria-hidden /> : null}
-                        {opcion.soloIcono ? null : opcion.etiqueta}
+                        {opcion.soloIcono ? null : opcion.contador === undefined ? opcion.etiqueta : <span className="truncate">{opcion.etiqueta}</span>}
+                        {opcion.contador !== undefined && !opcion.soloIcono ? (
+                            <span className="font-normal text-muted-foreground tabular-nums" data-slot="contador">
+                                {opcion.contador}
+                            </span>
+                        ) : null}
                     </ToggleButton>
                 );
             })}

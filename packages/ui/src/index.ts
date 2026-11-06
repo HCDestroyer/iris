@@ -112,6 +112,7 @@ export {
 export { PaletaBusqueda, type ElementoPaleta, type PropsPaletaBusqueda, type SeccionPaleta } from "./componentes/paleta-busqueda";
 export { PanelEmergente, type PropsPanelEmergente } from "./componentes/panel-emergente";
 export { Pestanas, type Pestana, type PropsPestanas } from "./componentes/pestanas";
+export { SelectorArchivo, type PropsSelectorArchivo } from "./componentes/selector-archivo";
 export { CampoSelector, leerOpciones, Selector, type OpcionSelector, type PropsCampoSelector, type PropsSelector } from "./componentes/selector";
 export {
     aFecha,

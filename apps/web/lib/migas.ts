@@ -9,6 +9,7 @@ import type { Miga } from "@iris/ui";
 const ETIQUETAS: Readonly<Record<string, string>> = {
     "/": "Inicio",
     "/tickets": "Tickets",
+    "/conversaciones": "Conversaciones",
     "/ordenes": "Órdenes",
     "/agenda": "Agenda",
     "/despacho": "Despacho",
