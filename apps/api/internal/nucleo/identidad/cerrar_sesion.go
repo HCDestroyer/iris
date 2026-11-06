@@ -21,8 +21,10 @@ func nuevoCerrarSesion() *auditoria.Caso[struct{}, struct{}] {
 				return struct{}{}, nucleo.NoAutenticado("No hay una sesión abierta")
 			}
 			t.FijarEntidad("sesion", s.ID)
-			_, err := identidadbd.New(t).RevocarSesion(ctx, s.ID)
-			return struct{}{}, err
+			if _, err := identidadbd.New(t).RevocarSesion(ctx, s.ID); err != nil {
+				return struct{}{}, err
+			}
+			return struct{}{}, correrGanchosCerrar(ctx, t, s.ID)
 		},
 	})
 }

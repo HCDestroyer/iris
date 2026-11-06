@@ -221,6 +221,24 @@ un job, y el SSE vive en `cmd/mensajeria`), sus ids no dan un cursor por usuario
 para reanudar. El feed del chat es una tabla propia con id creciente en orden de COMMIT por empresa
 y `NOTIFY iris_chat` en la misma transacción.
 
+## Notificaciones push (I5, `internal/notificaciones`)
+
+Contrato con la app en `contratos/push.md`. Nunca llevan el token FCM completo (solo `token_fin`, sus
+últimos 6 caracteres) ni textos de mensajes. No salen hacia Argos ni Horus.
+
+| Evento | Payload | Cuándo |
+| --- | --- | --- |
+| `dispositivo.registrado` | `dispositivo_id`, `usuario_id`, `empresa_id` (o null sin conector), `plataforma` (`android`), `app_version`, `token_fin`, `nuevo` (bool) | `POST /dispositivos` (`dispositivos.registrar`); también al renovar uno que ya estaba (`nuevo: false`). |
+| `dispositivo.quitado` | `dispositivo_id`, `usuario_id`, `empresa_id`, `token_fin`, `motivo` (`usuario` \| `sesion_cerrada` \| `token_invalido` \| `otro_usuario` \| `sin_acceso`) | `POST /dispositivos/{id}/quitar`; al cerrar sesión (`DELETE /sesion`, en su transacción); en la purga de cada hora o al enviar si la sesión o el token ya no valen (`sesion_cerrada`) o el usuario salió de la empresa (`sin_acceso`); FCM respondió `UNREGISTERED`, `INVALID_ARGUMENT` o `SENDER_ID_MISMATCH` (`token_invalido`); el token pasó a otro usuario (`otro_usuario`). |
+| `notificaciones.preferencias_cambiadas` | `usuario_id`, `campos[]`, `version` | `POST /yo/notificaciones` (`notificaciones.guardar_preferencias`). `empresa_id` null (son de la cuenta). |
+
+**Consume** `chat.mensaje_enviado`, `chat.mencion`, `conversacion.mencion`,
+`conversacion.aviso_sin_atender`, `orden.asignada` y `orden.programada` (push.md §3). `chat.mencion`
+todavía no lo emite nadie: cuando el chat tenga menciones, con el payload de `conversacion.mencion`
+(`conversacion_id`, `mensaje_id`, `empresa_id`, `usuario_id`, `autor_id`) el emisor lo une al push
+del mismo mensaje. Los envíos no emiten eventos (son muchos y no cambian nada de negocio): su
+estado queda en `notificaciones.envios`.
+
 ## Conversaciones con clientes (I1, servicio de mensajería)
 
 Contrato de la API en `contratos/conversaciones.md`. Ninguno lleva el texto de un mensaje ni el

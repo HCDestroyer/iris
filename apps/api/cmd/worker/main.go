@@ -10,7 +10,8 @@
 // espejo de zonas de Argos en la agenda (cada 10 min) y el alta en Argos de los prospectos
 // ganados (suscriptor de integracion.pendiente_hecho y barrido cada 5 min) y los webhooks de la
 // mensajería hacia Argos (suscriptor de aviso.entregado, aviso.fallido y contacto.baja; los entrega
-// cmd/mensajeria).
+// cmd/mensajeria) y las notificaciones push por FCM (suscriptor de chat, menciones, bandeja y
+// órdenes, un job por envío y la purga de cada hora).
 package main
 
 import (
@@ -36,6 +37,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/inventario"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
+	"github.com/HCDestroyer/iris/apps/api/internal/notificaciones"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/config"
@@ -168,6 +170,15 @@ func correr() error {
 	// Mensajería (contrato 0.6.0 §6.6): aviso.entregado, aviso.fallido y contacto.baja → webhooks hacia
 	// Argos (mensajeria.webhooks_salida); los entrega el proceso de mensajería.
 	mensajeria.Nuevo(mensajeria.Config{}).SuscribirWebhooks(bus, pool)
+	// Notificaciones push por FCM (contratos/push.md): suscriptor de chat, menciones, bandeja y
+	// órdenes; un job por envío y la purga de cada hora. Sin IRIS_FCM_* no manda nada.
+	fcm, estPush := notificaciones.ConfigDesdeEntorno()
+	notificaciones.AvisarEstado(log, estPush)
+	notif := notificaciones.Nuevo(notificaciones.Config{FCM: fcm, Estado: estPush, Log: log,
+		Encolar: func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
+			return integracion.Encolar(cliente)(ctx, tx, args)
+		}})
+	notif.Suscribir(bus, pool)
 
 	cliente, err = integracion.NuevoClienteRiver(pool, relay, integracion.OpcionesWorker{
 		Esquema: migraciones.EsquemaRiver, RelayIntervalo: cfg.RelayIntervalo, Log: log,
@@ -191,6 +202,7 @@ func correr() error {
 			cmp.RegistrarTrabajos(pool)(w)
 			cmp.Agenda().RegistrarTrabajos(pool)(w)
 			com.RegistrarTrabajos(pool)(w)
+			notif.RegistrarTrabajos(pool)(w)
 		},
 		Periodicos: append(argos.TrabajosPeriodicos(0), soporte.TrabajoPeriodicoSLA(time.Minute),
 			soporte.TrabajoPeriodicoBuzones(time.Minute), pendientes.TrabajoPeriodico(time.Minute), inventario.TrabajoPeriodico(5*time.Minute),
@@ -205,7 +217,9 @@ func correr() error {
 			// Sesiones y tickets del portal vencidos hace más de 30 días.
 			identidad.TrabajoPeriodicoPurgaPortal(time.Hour), comercial.TrabajoPeriodicoAltas(5*time.Minute),
 			// Historial de accesos más viejo que IRIS_ACCESOS_RETENCION_DIAS.
-			identidad.TrabajoPeriodicoPurgaAccesos(time.Hour)),
+			identidad.TrabajoPeriodicoPurgaAccesos(time.Hour),
+			// Dispositivos de push con la sesión o el token vencidos y envíos de más de 30 días.
+			notificaciones.TrabajoPeriodicoPurga(time.Hour)),
 	})
 	if err != nil {
 		return err
