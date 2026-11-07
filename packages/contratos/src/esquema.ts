@@ -1760,9 +1760,53 @@ export interface paths {
         put?: never;
         /**
          * Enviar un mensaje
-         * @description Permiso: `chat.enviar`. Idempotente por `id` (uuid v7 del cliente): reenviarlo con el mismo contenido responde 200 con el mensaje actual (`Idempotent-Replayed: true`); con otro contenido, 409 `mensaje_id_reutilizado`. Acepta además `Idempotency-Key` (la aplica el caso: la misma clave con otro `id`, 422 `idempotencia_reutilizada`; no se guarda la respuesta). Texto hasta 4000 caracteres, una foto y/o una ubicación (al menos uno: 422 `mensaje_vacio`). 30 por minuto por usuario (429 `demasiados_mensajes` con `Retry-After`).
+         * @description Permiso: `chat.enviar`. Idempotente por `id` (uuid v7 del cliente): reenviarlo con el mismo contenido responde 200 con el mensaje actual (`Idempotent-Replayed: true`); con otro contenido, 409 `mensaje_id_reutilizado`. Acepta además `Idempotency-Key` (la aplica el caso: la misma clave con otro `id`, 422 `idempotencia_reutilizada`; no se guarda la respuesta). Texto hasta 4000 caracteres, una foto y/o una ubicación (al menos uno: 422 `mensaje_vacio`). 30 por minuto por usuario (429 `demasiados_mensajes` con `Retry-After`). `menciones`: hasta 20, de quienes están en la conversación (422 `mencion_invalida`, `mencion_sin_texto`). Hilo de una orden cerrada, fallida o cancelada: 422 `conversacion_cerrada`.
          */
         post: operations["enviarMensajeChat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/chat/conversaciones/{id}/miembros": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Quiénes están en una conversación
+         * @description Permiso: `chat.ver`. Personas activas de la empresa que ven la conversación (tú incluido) y por qué: directa, tecnico, despacho, agregado o supervision. Sin paginar (acotada). Sirve para el autocompletado de @menciones.
+         */
+        get: operations["listarMiembrosChat"];
+        put?: never;
+        /**
+         * Agregar a alguien al chat de una orden
+         * @description Permiso: `chat.supervisar`. Con `chat.supervisar` que cubra la orden (403 `fuera_de_alcance`). Solo hilos de orden (422 `tipo_no_admite_miembros`) que no estén cerrados (422 `conversacion_cerrada`). El agregado: persona activa de la empresa con `chat.ver` (422 `usuario_no_disponible`). 201 si se agregó (emite chat.miembro_agregado); 200 si ya lo veía. Responde los miembros.
+         */
+        post: operations["agregarMiembroChat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/chat/cuadrillas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cuadrillas cuyo chat puedes abrir
+         * @description Permiso: `chat.enviar`. «Nuevo mensaje» → Cuadrilla: la tuya (técnico) y las que cubre tu `chat.supervisar`, con técnicos, zonas y su chat si ya existe. Sin paginar (acotada).
+         */
+        get: operations["cuadrillasChat"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1863,6 +1907,66 @@ export interface paths {
          * @description Permiso: `chat.enviar`. Uno por orden. Lo abre su técnico, quien la supervisa (`chat.supervisar`) o despacho (`ordenes.ver` con alcance sobre la orden), que queda como miembro. 201 si se creó o te uniste; 200 si ya estabas.
          */
         post: operations["abrirOrdenChat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/chat/ordenes/{orden_id}/conversacion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * El chat de una orden, sin abrirlo
+         * @description Permiso: `chat.ver`. Para la pestaña «Chat» de la orden: no lo crea ni te une. 404 si la orden no tiene chat o no lo ves; entonces `POST /chat/ordenes/{orden_id}/abrir`.
+         */
+        get: operations["conversacionDeOrdenChat"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/chat/personas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Personas con quien abrir una conversación directa
+         * @description Permiso: `chat.enviar`. «Nuevo mensaje» → Persona: personas activas de la empresa con `chat.ver`, sin ti, por nombre, con la directa que ya tienen.
+         */
+        get: operations["personasChat"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/chat/resumen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Contadores del chat (ícono del encabezado y pestañas)
+         * @description Permiso: `chat.ver`. Sobre todas las conversaciones que ves en la empresa activa: no leídos, menciones sin leer, conversaciones con no leídos y `requiere_accion` (no leídos de las directas + menciones en cuadrillas y órdenes), en total y por tipo.
+         */
+        get: operations["resumenChat"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -7241,6 +7345,28 @@ export interface components {
             nombre: string | null;
             telefono: string | null;
         };
+        ContadoresChat: {
+            /**
+             * Format: int64
+             * @description Conversaciones con al menos un no leído
+             */
+            conversaciones_no_leidas: number;
+            /**
+             * Format: int64
+             * @description De esos, los que te mencionan
+             */
+            menciones: number;
+            /**
+             * Format: int64
+             * @description Mensajes de otros, sin eliminar, después de tu lectura
+             */
+            no_leidos: number;
+            /**
+             * Format: int64
+             * @description No leídos de las directas + menciones sin leer en cuadrillas y órdenes: el número que se muestra
+             */
+            requiere_accion: number;
+        };
         ContadoresConversaciones: {
             /** Format: int64 */
             mias: number;
@@ -7316,6 +7442,11 @@ export interface components {
             leido_hasta_mensaje_id: string | null;
             /**
              * Format: int64
+             * @description De los no leídos, los que te mencionan (hace falta actuar)
+             */
+            menciones: number;
+            /**
+             * Format: int64
              * @description Mensajes de otros, sin eliminar, después de tu lectura
              */
             no_leidos: number;
@@ -7323,8 +7454,12 @@ export interface components {
             orden_estado: string | null;
             /** Format: int64 */
             orden_id: number | null;
+            /** @description Nombre del tipo de la orden (hilo de orden), p. ej. Instalación */
+            orden_tipo: string | null;
             /** @description Directa: con quién */
             otro_usuario?: components["schemas"]["UsuarioChat"];
+            /** @description Hilo de una orden cerrada, fallida o cancelada: se lee pero no se envía (422 conversacion_cerrada) */
+            solo_lectura: boolean;
             /** @enum {string} */
             tipo: "directa" | "cuadrilla" | "orden";
             /** @description Directa: el otro usuario; cuadrilla: su nombre; orden: su número */
@@ -7351,6 +7486,11 @@ export interface components {
             leido_hasta_mensaje_id: string | null;
             /**
              * Format: int64
+             * @description De los no leídos, los que te mencionan (hace falta actuar)
+             */
+            menciones: number;
+            /**
+             * Format: int64
              * @description Mensajes de otros, sin eliminar, después de tu lectura
              */
             no_leidos: number;
@@ -7358,8 +7498,12 @@ export interface components {
             orden_estado: string | null;
             /** Format: int64 */
             orden_id: number | null;
+            /** @description Nombre del tipo de la orden (hilo de orden), p. ej. Instalación */
+            orden_tipo: string | null;
             /** @description Directa: con quién */
             otro_usuario?: components["schemas"]["UsuarioChat"];
+            /** @description Hilo de una orden cerrada, fallida o cancelada: se lee pero no se envía (422 conversacion_cerrada) */
+            solo_lectura: boolean;
             /** @enum {string} */
             tipo: "directa" | "cuadrilla" | "orden";
             /** @description Directa: el otro usuario; cuadrilla: su nombre; orden: su número */
@@ -7576,6 +7720,26 @@ export interface components {
             /** @description Zonas que atiende; vacío = todas */
             zonaIds: number[] | null;
         };
+        CuadrillaChat: {
+            /**
+             * Format: int64
+             * @description Su chat en la empresa, si ya existe («Ya existe»)
+             */
+            conversacion_id: number | null;
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+            /**
+             * Format: int64
+             * @description Técnicos activos
+             */
+            tecnicos: number;
+            /** @description Nombres de las zonas que atiende */
+            zonas: string[] | null;
+        };
+        CuadrillasChat: {
+            data: components["schemas"]["CuadrillaChat"][] | null;
+        };
         CuentaBancaria: {
             banco: string;
             /** Format: int64 */
@@ -7583,6 +7747,13 @@ export interface components {
             moneda: string;
             nombre: string;
             numero: string;
+        };
+        CuerpoAgregarMiembro: {
+            /**
+             * Format: int64
+             * @description A quién (persona activa de la empresa con chat.ver)
+             */
+            usuario_id: number;
         };
         CuerpoEnviarMensaje: {
             /** @description Una foto registrada antes en POST /api/v1/adjuntos con entidad chat_conversacion y entidadId = la conversación (puede seguir subiéndose) */
@@ -7594,6 +7765,8 @@ export interface components {
             creado_en?: string;
             /** @description uuid v7 generado en el cliente al escribirlo (la cola sin conexión lo reenvía igual): el servidor es idempotente por él */
             id: string;
+            /** @description Usuarios mencionados (@Nombre en el texto): deben estar en la conversación y no ser el autor. Cada uno recibe chat.mencion (push de tipo mencion) */
+            menciones?: number[] | null;
             /** @description Texto plano (sin HTML ni Markdown: se guarda y se muestra tal cual). Se recortan los espacios de los extremos */
             texto?: string;
             /** @description Ubicación compartida */
@@ -10129,6 +10302,11 @@ export interface components {
             id: string;
             /** @description leido */
             lectura?: components["schemas"]["LecturaChat"];
+            /**
+             * Format: int64
+             * @description Tus menciones sin leer de la conversación al leer el evento
+             */
+            menciones: number;
             /** @description mensaje_nuevo y mensaje_eliminado (estado actual: si ya se eliminó, la lápida) */
             mensaje?: components["schemas"]["MensajeChat"];
             /**
@@ -11038,6 +11216,8 @@ export interface components {
             enviado_en: string;
             /** @description uuid v7 generado por el cliente */
             id: string;
+            /** @description A quiénes menciona, por id (vacío sin menciones o eliminado) */
+            menciones: components["schemas"]["UsuarioChat"][] | null;
             /**
              * Format: int64
              * @description Orden en la conversación (lo asigna el servidor al recibirlo)
@@ -11138,6 +11318,16 @@ export interface components {
              */
             version: number;
         };
+        MiembroChat: {
+            /**
+             * @description Por qué está (con varios, el primero de esta lista)
+             * @enum {string}
+             */
+            motivo: "directa" | "tecnico" | "despacho" | "agregado" | "supervision";
+            nombre: string;
+            /** Format: int64 */
+            usuario_id: number;
+        };
         MiembroEquipo: {
             disponible: boolean;
             /** Format: int64 */
@@ -11145,6 +11335,9 @@ export interface components {
             nombre: string;
             /** @enum {string} */
             rol: "miembro" | "supervisor";
+        };
+        MiembrosChat: {
+            data: components["schemas"]["MiembroChat"][] | null;
         };
         MotivoSugerencia: {
             /** @description La etiqueta, el modelo de equipo o el número del ticket */
@@ -11959,6 +12152,11 @@ export interface components {
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
+        PaginaPersonaChat: {
+            data: components["schemas"]["PersonaChat"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
         PaginaPlantillaFormulario: {
             data: components["schemas"]["PlantillaFormulario"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
@@ -12359,6 +12557,16 @@ export interface components {
             /** @description Permiso de administración: darlo exige confirmar la contraseña */
             sensible: boolean;
         };
+        PersonaChat: {
+            /**
+             * Format: int64
+             * @description La directa que ya tienen (o null)
+             */
+            conversacion_id: number | null;
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+        };
         PersonaProblema: {
             /** Format: int64 */
             id: number;
@@ -12528,6 +12736,11 @@ export interface components {
             /** @description Texto de referencia en español con {{variable}} */
             texto: string;
             variables: components["schemas"]["Variable"][] | null;
+        };
+        PorTipoChat: {
+            cuadrilla: components["schemas"]["ContadoresChat"];
+            directa: components["schemas"]["ContadoresChat"];
+            orden: components["schemas"]["ContadoresChat"];
         };
         PosicionCampo: {
             /** Format: double */
@@ -13083,6 +13296,29 @@ export interface components {
             imap: components["schemas"]["PruebaServidor"];
             /** @description Ausente si el buzón no tiene SMTP */
             smtp?: components["schemas"]["PruebaServidor"];
+        };
+        ResumenChat: {
+            /**
+             * Format: int64
+             * @description Conversaciones con al menos un no leído
+             */
+            conversaciones_no_leidas: number;
+            /**
+             * Format: int64
+             * @description De esos, los que te mencionan
+             */
+            menciones: number;
+            /**
+             * Format: int64
+             * @description Mensajes de otros, sin eliminar, después de tu lectura
+             */
+            no_leidos: number;
+            por_tipo: components["schemas"]["PorTipoChat"];
+            /**
+             * Format: int64
+             * @description No leídos de las directas + menciones sin leer en cuadrillas y órdenes: el número que se muestra
+             */
+            requiere_accion: number;
         };
         ResumenTickets: {
             /**
@@ -21065,6 +21301,8 @@ export interface operations {
                 limit?: number;
                 /** @description Solo de ese tipo */
                 tipo?: "directa" | "cuadrilla" | "orden";
+                /** @description Busca en el título: el otro de la directa, el nombre de la cuadrilla o el número de la orden (sin distinguir mayúsculas) */
+                q?: string;
             };
             header?: never;
             path?: never;
@@ -21418,6 +21656,215 @@ export interface operations {
             };
             /** @description Too Many Requests */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarMiembrosChat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MiembrosChat"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    agregarMiembroChat: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CuerpoAgregarMiembro"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MiembrosChat"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    cuadrillasChat: {
+        parameters: {
+            query?: {
+                /** @description Parte del nombre (sin distinguir mayúsculas) */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CuadrillasChat"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -21798,6 +22245,192 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    conversacionDeOrdenChat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orden_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionChatDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    personasChat: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+                /** @description Parte del nombre (sin distinguir mayúsculas) */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaPersonaChat"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    resumenChat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResumenChat"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

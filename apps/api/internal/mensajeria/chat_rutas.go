@@ -52,6 +52,18 @@ type CuerpoEnviarMensaje struct {
 	AdjuntoID *uuid.UUID     `json:"adjunto_id,omitempty" doc:"Una foto registrada antes en POST /api/v1/adjuntos con entidad chat_conversacion y entidadId = la conversación (puede seguir subiéndose)"`
 	Ubicacion *UbicacionChat `json:"ubicacion,omitempty" doc:"Ubicación compartida"`
 	CreadoEn  *time.Time     `json:"creado_en,omitempty" doc:"Hora del teléfono al escribirlo (RFC 3339; no futura)"`
+	Menciones []int64        `json:"menciones,omitempty" maxItems:"20" doc:"Usuarios mencionados (@Nombre en el texto): deben estar en la conversación y no ser el autor. Cada uno recibe chat.mencion (push de tipo mencion)"`
+}
+
+// CuerpoAgregarMiembro es el cuerpo de POST /chat/conversaciones/{id}/miembros.
+type CuerpoAgregarMiembro struct {
+	UsuarioID int64 `json:"usuario_id" minimum:"1" doc:"A quién (persona activa de la empresa con chat.ver)"`
+}
+
+type entradaAgregarMiembroHTTP struct {
+	nucleo.ConIdempotencia
+	ID   int64 `path:"id" minimum:"1"`
+	Body CuerpoAgregarMiembro
 }
 
 type entradaEnviarHTTP struct {
@@ -96,10 +108,55 @@ func (m *Modulo) registrarChat(api huma.API) {
 		return responder(m.Chat.ListarConversaciones.Ejecutar(ctx, *in))
 	})
 
+	resumen := op("resumenChat", http.MethodGet, base+"/resumen", "Contadores del chat (ícono del encabezado y pestañas)", nucleo.PermChatVer, http.StatusOK)
+	resumen.Description += " Sobre todas las conversaciones que ves en la empresa activa: no leídos, menciones sin leer, conversaciones con no leídos y " +
+		"`requiere_accion` (no leídos de las directas + menciones en cuadrillas y órdenes), en total y por tipo."
+	huma.Register(api, resumen, func(ctx context.Context, _ *struct{}) (*cuerpo[ResumenChat], error) {
+		return responder(m.Chat.Resumen.Ejecutar(ctx, EntradaResumenChat{}))
+	})
+
 	ver := op("verConversacionChat", http.MethodGet, base+"/conversaciones/{id}", "Una conversación con las lecturas de sus miembros",
 		nucleo.PermChatVer, http.StatusOK, http.StatusNotFound)
 	huma.Register(api, ver, func(ctx context.Context, in *EntradaConversacion) (*cuerpo[ConversacionChatDetalle], error) {
 		return responder(m.Chat.VerConversacion.Ejecutar(ctx, *in))
+	})
+
+	miembros := op("listarMiembrosChat", http.MethodGet, base+"/conversaciones/{id}/miembros", "Quiénes están en una conversación",
+		nucleo.PermChatVer, http.StatusOK, http.StatusNotFound)
+	miembros.Description += " Personas activas de la empresa que ven la conversación (tú incluido) y por qué: directa, tecnico, despacho, agregado o supervision. " +
+		"Sin paginar (acotada). Sirve para el autocompletado de @menciones."
+	huma.Register(api, miembros, func(ctx context.Context, in *EntradaConversacion) (*cuerpo[MiembrosChat], error) {
+		return responder(m.Chat.ListarMiembros.Ejecutar(ctx, *in))
+	})
+
+	agregar := op("agregarMiembroChat", http.MethodPost, base+"/conversaciones/{id}/miembros", "Agregar a alguien al chat de una orden",
+		nucleo.PermChatSupervisar, http.StatusOK, http.StatusCreated, http.StatusForbidden, http.StatusNotFound)
+	agregar.Description += " Con `chat.supervisar` que cubra la orden (403 `fuera_de_alcance`). Solo hilos de orden (422 `tipo_no_admite_miembros`) " +
+		"que no estén cerrados (422 `conversacion_cerrada`). El agregado: persona activa de la empresa con `chat.ver` (422 `usuario_no_disponible`). " +
+		"201 si se agregó (emite chat.miembro_agregado); 200 si ya lo veía. Responde los miembros."
+	huma.Register(api, agregar, func(ctx context.Context, in *entradaAgregarMiembroHTTP) (*salidaConStatus[MiembrosChat], error) {
+		r, err := m.Chat.AgregarMiembro.Ejecutar(ctx, EntradaAgregarMiembro{ConversacionID: in.ID, UsuarioID: in.Body.UsuarioID})
+		return conStatus(r, r.Nuevo, err)
+	})
+
+	deOrden := op("conversacionDeOrdenChat", http.MethodGet, base+"/ordenes/{orden_id}/conversacion", "El chat de una orden, sin abrirlo",
+		nucleo.PermChatVer, http.StatusOK, http.StatusNotFound)
+	deOrden.Description += " Para la pestaña «Chat» de la orden: no lo crea ni te une. 404 si la orden no tiene chat o no lo ves; entonces " +
+		"`POST /chat/ordenes/{orden_id}/abrir`."
+	huma.Register(api, deOrden, func(ctx context.Context, in *EntradaConversacionDeOrden) (*cuerpo[ConversacionChatDetalle], error) {
+		return responder(m.Chat.ConversacionDeOrden.Ejecutar(ctx, *in))
+	})
+
+	personas := op("personasChat", http.MethodGet, base+"/personas", "Personas con quien abrir una conversación directa", nucleo.PermChatEnviar, http.StatusOK)
+	personas.Description += " «Nuevo mensaje» → Persona: personas activas de la empresa con `chat.ver`, sin ti, por nombre, con la directa que ya tienen."
+	huma.Register(api, personas, func(ctx context.Context, in *EntradaPersonasChat) (*cuerpo[nucleo.Pagina[PersonaChat]], error) {
+		return responder(m.Chat.Personas.Ejecutar(ctx, *in))
+	})
+
+	cuadrillas := op("cuadrillasChat", http.MethodGet, base+"/cuadrillas", "Cuadrillas cuyo chat puedes abrir", nucleo.PermChatEnviar, http.StatusOK)
+	cuadrillas.Description += " «Nuevo mensaje» → Cuadrilla: la tuya (técnico) y las que cubre tu `chat.supervisar`, con técnicos, zonas y su chat si ya existe. Sin paginar (acotada)."
+	huma.Register(api, cuadrillas, func(ctx context.Context, in *EntradaCuadrillasChat) (*cuerpo[CuadrillasChat], error) {
+		return responder(m.Chat.Cuadrillas.Ejecutar(ctx, *in))
 	})
 
 	directa := op("abrirDirectaChat", http.MethodPost, base+"/directas", "Abrir (o traer) la conversación directa con un usuario",
@@ -140,12 +197,13 @@ func (m *Modulo) registrarChat(api huma.API) {
 	enviar.Description += " Idempotente por `id` (uuid v7 del cliente): reenviarlo con el mismo contenido responde 200 con el mensaje actual " +
 		"(`Idempotent-Replayed: true`); con otro contenido, 409 `mensaje_id_reutilizado`. Acepta además `Idempotency-Key` " +
 		"(la aplica el caso: la misma clave con otro `id`, 422 `idempotencia_reutilizada`; no se guarda la respuesta). " +
-		"Texto hasta 4000 caracteres, una foto y/o una ubicación (al menos uno: 422 `mensaje_vacio`). 30 por minuto por usuario (429 `demasiados_mensajes` con `Retry-After`)."
+		"Texto hasta 4000 caracteres, una foto y/o una ubicación (al menos uno: 422 `mensaje_vacio`). 30 por minuto por usuario (429 `demasiados_mensajes` con `Retry-After`). " +
+		"`menciones`: hasta 20, de quienes están en la conversación (422 `mencion_invalida`, `mencion_sin_texto`). Hilo de una orden cerrada, fallida o cancelada: 422 `conversacion_cerrada`."
 	enviar.Responses = map[string]*huma.Response{"200": {Description: "Reenvío del mismo id: el mensaje tal como está ahora"}}
 	huma.Register(api, enviar, func(ctx context.Context, in *entradaEnviarHTTP) (*salidaEnviar, error) {
 		e := EntradaEnviarMensaje{ConversacionID: in.ID, ID: in.Body.ID, Texto: in.Body.Texto, AdjuntoID: in.Body.AdjuntoID,
 			Ubicacion: in.Body.Ubicacion, CreadoEn: in.Body.CreadoEn, ConTexto: in.Body.Texto != nil, ConUbicacion: in.Body.Ubicacion != nil,
-			IdempotencyKey: in.IdempotencyKey}
+			Menciones: in.Body.Menciones, IdempotencyKey: in.IdempotencyKey}
 		r, err := m.Chat.EnviarMensaje.Ejecutar(ctx, e)
 		if err != nil {
 			return nil, err

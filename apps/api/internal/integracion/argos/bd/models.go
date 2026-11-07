@@ -1118,6 +1118,15 @@ type MensajeriaChatLectura struct {
 	UpdatedAt      time.Time
 }
 
+type MensajeriaChatMencione struct {
+	MensajeID      uuid.UUID
+	UsuarioID      int64
+	ConversacionID int64
+	EmpresaID      *int64
+	Seq            int64
+	CreatedAt      time.Time
+}
+
 type MensajeriaChatMensaje struct {
 	ID             uuid.UUID
 	ConversacionID int64
@@ -1143,6 +1152,7 @@ type MensajeriaChatMiembro struct {
 	Origen         string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	AgregadoPor    *int64
 }
 
 type MensajeriaCola struct {

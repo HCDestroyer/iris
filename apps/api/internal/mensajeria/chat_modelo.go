@@ -54,6 +54,7 @@ func init() {
 	nucleo.RegistrarTablaConEmpresa("mensajeria.chat_conversaciones")
 	nucleo.RegistrarTablaConEmpresa("mensajeria.chat_mensajes")
 	nucleo.RegistrarTablaConEmpresa("mensajeria.chat_eventos")
+	nucleo.RegistrarTablaConEmpresa("mensajeria.chat_menciones")
 }
 
 // UsuarioChat es un usuario tal como lo muestra el chat.
@@ -81,11 +82,14 @@ type ConversacionChat struct {
 	CuadrillaID *int64       `json:"cuadrilla_id" nullable:"true"`
 	OrdenID     *int64       `json:"orden_id" nullable:"true"`
 	OrdenEstado *string      `json:"orden_estado" nullable:"true" doc:"Estado actual de la orden (hilo de orden)"`
+	OrdenTipo   *string      `json:"orden_tipo" nullable:"true" doc:"Nombre del tipo de la orden (hilo de orden), p. ej. Instalación"`
 	OtroUsuario *UsuarioChat `json:"otro_usuario,omitempty" doc:"Directa: con quién"`
 	// Ultimo es la vista previa del último mensaje (null si no hay).
 	Ultimo              *VistaPreviaChat `json:"ultimo_mensaje,omitempty" doc:"Ausente si aún no hay mensajes"`
 	NoLeidos            int64            `json:"no_leidos" doc:"Mensajes de otros, sin eliminar, después de tu lectura"`
+	Menciones           int64            `json:"menciones" doc:"De los no leídos, los que te mencionan (hace falta actuar)"`
 	LeidoHastaMensajeID *uuid.UUID       `json:"leido_hasta_mensaje_id" nullable:"true"`
+	SoloLectura         bool             `json:"solo_lectura" doc:"Hilo de una orden cerrada, fallida o cancelada: se lee pero no se envía (422 conversacion_cerrada)"`
 	UltimaActividad     time.Time        `json:"ultima_actividad"`
 	CreadaEn            time.Time        `json:"creada_en"`
 }
@@ -128,6 +132,7 @@ type MensajeChat struct {
 	Texto          *string        `json:"texto" nullable:"true" doc:"Texto plano: nunca se interpreta como HTML"`
 	Adjunto        *AdjuntoChat   `json:"adjunto,omitempty" doc:"La foto (ausente si no tiene)"`
 	Ubicacion      *UbicacionChat `json:"ubicacion,omitempty" doc:"Ausente si no comparte ubicación"`
+	Menciones      []UsuarioChat  `json:"menciones" doc:"A quiénes menciona, por id (vacío sin menciones o eliminado)"`
 	CreadoEn       *time.Time     `json:"creado_en" nullable:"true" doc:"Hora del teléfono al escribirlo (cola sin conexión)"`
 	EnviadoEn      time.Time      `json:"enviado_en" doc:"Hora del servidor al recibirlo"`
 	Eliminado      bool           `json:"eliminado" doc:"true: mostrar «Mensaje eliminado»"`
@@ -148,6 +153,7 @@ type EventoChat struct {
 	ConversacionID int64             `json:"conversacion_id"`
 	OcurridoEn     time.Time         `json:"ocurrido_en"`
 	NoLeidos       int64             `json:"no_leidos" doc:"Tus no leídos de la conversación al leer el evento"`
+	Menciones      int64             `json:"menciones" doc:"Tus menciones sin leer de la conversación al leer el evento"`
 	Mensaje        *MensajeChat      `json:"mensaje,omitempty" doc:"mensaje_nuevo y mensaje_eliminado (estado actual: si ya se eliminó, la lápida)"`
 	Lectura        *LecturaChat      `json:"lectura,omitempty" doc:"leido"`
 	Conversacion   *ConversacionChat `json:"conversacion,omitempty" doc:"conversacion_actualizada"`
@@ -294,7 +300,7 @@ func pgUUID(u *uuid.UUID) pgtype.UUID {
 
 func aMensaje(f mensajeriabd.MensajeriaChatMensaje, autor string, adjuntoEstado *string) MensajeChat {
 	msj := MensajeChat{ID: f.ID, ConversacionID: f.ConversacionID, Seq: f.Seq, AutorID: f.AutorID, AutorNombre: autor, Texto: f.Texto,
-		CreadoEn: f.CreadoEn, EnviadoEn: f.EnviadoEn, Eliminado: f.EliminadoEn != nil, EliminadoEn: f.EliminadoEn}
+		CreadoEn: f.CreadoEn, EnviadoEn: f.EnviadoEn, Eliminado: f.EliminadoEn != nil, EliminadoEn: f.EliminadoEn, Menciones: []UsuarioChat{}}
 	if id := uuidDe(f.AdjuntoID); id != nil {
 		estado := adjuntos.EstadoPendiente
 		if adjuntoEstado != nil {
@@ -340,7 +346,8 @@ func resumir(ctx context.Context, q *mensajeriabd.Queries, usuario int64, ids []
 	for _, f := range filas {
 		c := f.MensajeriaChatConversacion
 		v := ConversacionChat{ID: c.ID, Tipo: c.Tipo, EmpresaID: c.EmpresaID, CuadrillaID: c.CuadrillaID, OrdenID: c.OrdenID, OrdenEstado: f.OrdenEstado,
-			NoLeidos: f.NoLeidos, LeidoHastaMensajeID: uuidDe(f.LeidoHastaMensajeID), UltimaActividad: c.UltimaActividad, CreadaEn: c.CreatedAt}
+			OrdenTipo: f.OrdenTipo, NoLeidos: f.NoLeidos, Menciones: f.Menciones, LeidoHastaMensajeID: uuidDe(f.LeidoHastaMensajeID),
+			SoloLectura: c.Tipo == TipoOrden && f.OrdenEstado != nil && ordenFinalizada(*f.OrdenEstado), UltimaActividad: c.UltimaActividad, CreadaEn: c.CreatedAt}
 		switch c.Tipo {
 		case TipoDirecta:
 			if f.OtroID != 0 {
@@ -437,17 +444,24 @@ func eventosPara(ctx context.Context, q *mensajeriabd.Queries, a alcanceChat, fi
 		if err != nil {
 			return nil, err
 		}
+		lista := make([]MensajeChat, 0, len(ms))
 		for _, f := range ms {
-			mensajes[f.MensajeriaChatMensaje.ID] = aMensaje(f.MensajeriaChatMensaje, f.AutorNombre, f.AdjuntoEstado)
+			lista = append(lista, aMensaje(f.MensajeriaChatMensaje, f.AutorNombre, f.AdjuntoEstado))
+		}
+		if err := completarMenciones(ctx, q, lista); err != nil {
+			return nil, err
+		}
+		for _, msj := range lista {
+			mensajes[msj.ID] = msj
 		}
 	}
-	noLeidos := map[int64]int64{}
+	noLeidos := map[int64]mensajeriabd.NoLeidosRow{}
 	nl, err := q.NoLeidos(ctx, mensajeriabd.NoLeidosParams{Usuario: a.usuario, Ids: convs})
 	if err != nil {
 		return nil, err
 	}
 	for _, n := range nl {
-		noLeidos[n.ConversacionID] = n.NoLeidos
+		noLeidos[n.ConversacionID] = n
 	}
 	resumenes := map[int64]ConversacionChat{}
 	if len(convsActualizadas) > 0 {
@@ -462,7 +476,7 @@ func eventosPara(ctx context.Context, q *mensajeriabd.Queries, a alcanceChat, fi
 	salida := make([]EventoChat, 0, len(filas))
 	for _, f := range filas {
 		e := EventoChat{ID: strconv.FormatInt(f.ID, 10), Tipo: f.Tipo, ConversacionID: f.ConversacionID, OcurridoEn: f.OcurridoEn,
-			NoLeidos: noLeidos[f.ConversacionID]}
+			NoLeidos: noLeidos[f.ConversacionID].NoLeidos, Menciones: noLeidos[f.ConversacionID].Menciones}
 		switch f.Tipo {
 		case EventoMensajeNuevo, EventoMensajeEliminado:
 			if id := uuidDe(f.MensajeID); id != nil {
@@ -507,13 +521,15 @@ func cursorFeed(ctx context.Context, q *mensajeriabd.Queries, a alcanceChat, cam
 }
 
 // hashContenido identifica el contenido de un mensaje (un reenvío con el mismo id debe traer lo mismo).
-func hashContenido(conversacion int64, texto *string, adjunto *uuid.UUID, u *UbicacionChat) []byte {
+// Las menciones (ordenadas) entran solo si hay: el hash de un mensaje sin menciones no cambia.
+func hashContenido(conversacion int64, texto *string, adjunto *uuid.UUID, u *UbicacionChat, menciones []int64) []byte {
 	b, _ := json.Marshal(struct {
 		C int64          `json:"c"`
 		T *string        `json:"t"`
 		A *uuid.UUID     `json:"a"`
 		U *UbicacionChat `json:"u"`
-	}{conversacion, texto, adjunto, u})
+		M []int64        `json:"m,omitempty"`
+	}{conversacion, texto, adjunto, u, menciones})
 	h := sha256.Sum256(b)
 	return h[:]
 }
@@ -525,4 +541,39 @@ func claveDirecta(a, b int64) string {
 		a, b = b, a
 	}
 	return fmt.Sprintf("%d:%d", a, b)
+}
+
+// ordenFinalizada: el hilo de una orden cerrada, fallida o cancelada es de solo lectura
+// (contratos/chat.md §1). Se deriva al leer: si la orden se reabre, vuelve a aceptar mensajes.
+func ordenFinalizada(estado string) bool {
+	switch estado {
+	case "cerrada", "fallida", "cancelada":
+		return true
+	}
+	return false
+}
+
+// completarMenciones llena las menciones de los mensajes (por id, en orden de usuario).
+func completarMenciones(ctx context.Context, q *mensajeriabd.Queries, msjs []MensajeChat) error {
+	if len(msjs) == 0 {
+		return nil
+	}
+	ids := make([]uuid.UUID, 0, len(msjs))
+	for _, m := range msjs {
+		ids = append(ids, m.ID)
+	}
+	ms, err := q.MencionesDeMensajes(ctx, ids)
+	if err != nil {
+		return err
+	}
+	por := map[uuid.UUID][]UsuarioChat{}
+	for _, m := range ms {
+		por[m.MensajeID] = append(por[m.MensajeID], UsuarioChat{ID: m.UsuarioID, Nombre: m.Nombre})
+	}
+	for i := range msjs {
+		if us, ok := por[msjs[i].ID]; ok && !msjs[i].Eliminado {
+			msjs[i].Menciones = us
+		}
+	}
+	return nil
 }
