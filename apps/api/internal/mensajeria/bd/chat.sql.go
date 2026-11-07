@@ -13,6 +13,35 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const agregarMiembroChat = `-- name: AgregarMiembroChat :execrows
+INSERT INTO mensajeria.chat_miembros (conversacion_id, usuario_id, origen, agregado_por, created_at, updated_at)
+VALUES ($1, $2, 'agregado', $3, $4, $4)
+ON CONFLICT (conversacion_id, usuario_id) DO UPDATE
+SET origen = 'agregado', agregado_por = excluded.agregado_por, updated_at = excluded.updated_at
+WHERE mensajeria.chat_miembros.origen = 'unido'
+`
+
+type AgregarMiembroChatParams struct {
+	ConversacionID int64
+	UsuarioID      int64
+	AgregadoPor    *int64
+	Ahora          time.Time
+}
+
+// Agrega a alguien al hilo de una orden. Un despacho «unido» que ya no la ve pasa a «agregado».
+func (q *Queries) AgregarMiembroChat(ctx context.Context, arg AgregarMiembroChatParams) (int64, error) {
+	result, err := q.db.Exec(ctx, agregarMiembroChat,
+		arg.ConversacionID,
+		arg.UsuarioID,
+		arg.AgregadoPor,
+		arg.Ahora,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const avanzarConversacion = `-- name: AvanzarConversacion :one
 UPDATE mensajeria.chat_conversaciones
 SET ultimo_seq = ultimo_seq + 1, ultimo_mensaje_id = $1::uuid, ultima_actividad = $2, updated_at = $2
@@ -70,6 +99,15 @@ func (q *Queries) AvanzarLectura(ctx context.Context, arg AvanzarLecturaParams) 
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const borrarMenciones = `-- name: BorrarMenciones :exec
+DELETE FROM mensajeria.chat_menciones WHERE mensaje_id = $1
+`
+
+func (q *Queries) BorrarMenciones(ctx context.Context, mensajeID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, borrarMenciones, mensajeID)
+	return err
 }
 
 const candadoChat = `-- name: CandadoChat :exec
@@ -260,9 +298,18 @@ SELECT c.id, c.ultima_actividad FROM mensajeria.chat_conversaciones c
 WHERE c.id IN (SELECT v FROM mensajeria.chat_visibles($1::bigint, $2::bigint, $3::boolean, $4::boolean,
         $5::bigint[], $6::bigint[], $7::boolean, $8::bigint[], $9::bigint[], NULL::bigint) v)
   AND ($10::text IS NULL OR c.tipo = $10::text)
-  AND (NOT $11::boolean OR (c.ultima_actividad, c.id) < ($12::timestamptz, $13::bigint))
+  -- q: el título contiene el patrón (el otro de la directa, la cuadrilla o el número de la orden).
+  AND ($11::text IS NULL
+       OR (c.tipo = 'directa' AND EXISTS (
+            SELECT 1 FROM mensajeria.chat_miembros mm JOIN nucleo.usuarios u ON u.id = mm.usuario_id
+            WHERE mm.conversacion_id = c.id AND mm.usuario_id <> $1::bigint AND u.nombre ILIKE $11::text))
+       OR (c.tipo = 'cuadrilla' AND EXISTS (
+            SELECT 1 FROM agenda.cuadrillas cu WHERE cu.id = c.cuadrilla_id AND cu.nombre ILIKE $11::text))
+       OR (c.tipo = 'orden' AND EXISTS (
+            SELECT 1 FROM campo.ordenes o WHERE o.id = c.orden_id AND o.numero ILIKE $11::text)))
+  AND (NOT $12::boolean OR (c.ultima_actividad, c.id) < ($13::timestamptz, $14::bigint))
 ORDER BY c.ultima_actividad DESC, c.id DESC
-LIMIT $14
+LIMIT $15
 `
 
 type ConversacionesVisiblesParams struct {
@@ -276,6 +323,7 @@ type ConversacionesVisiblesParams struct {
 	OrdZonas        []int64
 	OrdCuadrillas   []int64
 	Tipo            *string
+	Patron          *string
 	ConCursor       bool
 	CursorActividad time.Time
 	CursorID        int64
@@ -300,6 +348,7 @@ func (q *Queries) ConversacionesVisibles(ctx context.Context, arg Conversaciones
 		arg.OrdZonas,
 		arg.OrdCuadrillas,
 		arg.Tipo,
+		arg.Patron,
 		arg.ConCursor,
 		arg.CursorActividad,
 		arg.CursorID,
@@ -323,80 +372,71 @@ func (q *Queries) ConversacionesVisibles(ctx context.Context, arg Conversaciones
 	return items, nil
 }
 
-const destinatariosChat = `-- name: DestinatariosChat :many
-WITH candidatos AS (
-    SELECT mm.usuario_id FROM mensajeria.chat_miembros mm WHERE mm.conversacion_id = $3 AND mm.origen = 'directa'
-    UNION
-    SELECT mm.usuario_id FROM mensajeria.chat_miembros mm
-    WHERE mm.conversacion_id = $3 AND mm.origen = 'unido'
-      AND EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur
-                  JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
-                  JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id AND rp.permiso = 'ordenes.ver'
-                  WHERE ur.usuario_id = mm.usuario_id
-                    AND ((ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL)
-                         OR ur.cuadrilla_id = $4::bigint
-                         OR ur.zona_id = ANY ($5::bigint[])))
-    UNION
-    SELECT t.usuario_id FROM agenda.tecnicos t WHERE t.activo AND $6::text = 'cuadrilla' AND t.cuadrilla_id = $7::bigint
-    UNION
-    SELECT o.tecnico_id FROM campo.ordenes o WHERE o.id = $8::bigint AND o.tecnico_id IS NOT NULL
-    UNION
-    SELECT ur.usuario_id FROM nucleo.usuarios_roles ur
-    JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
-    JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id AND rp.permiso = 'chat.supervisar'
-    WHERE $6::text <> 'directa'
-      AND ((ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL)
-           OR ur.cuadrilla_id = $4::bigint
-           OR ur.zona_id = ANY ($5::bigint[]))
-)
-SELECT DISTINCT u.id AS usuario_id FROM candidatos x
-JOIN nucleo.usuarios u ON u.id = x.usuario_id AND u.activo
-WHERE u.id <> $1
-  AND ($2::bigint IS NULL
-       OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = u.id AND ue.empresa_id = $2::bigint)
-       OR EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur2
-                  JOIN nucleo.roles r2 ON r2.id = ur2.rol_id AND r2.activo
-                  JOIN nucleo.roles_permisos rp2 ON rp2.rol_id = ur2.rol_id AND rp2.permiso = 'empresas.todas'
-                  WHERE ur2.usuario_id = u.id AND ur2.zona_id IS NULL AND ur2.cuadrilla_id IS NULL))
-ORDER BY u.id
+const cuadrillasChat = `-- name: CuadrillasChat :many
+SELECT cu.id, cu.nombre,
+    (SELECT count(*) FROM agenda.tecnicos t WHERE t.cuadrilla_id = cu.id AND t.activo)::bigint AS tecnicos,
+    COALESCE((SELECT array_agg(z.nombre ORDER BY z.nombre) FROM agenda.cuadrilla_zonas cz JOIN agenda.zonas z ON z.id = cz.zona_id
+              WHERE cz.cuadrilla_id = cu.id), '{}')::text[] AS zonas,
+    COALESCE((SELECT c.id FROM mensajeria.chat_conversaciones c
+     WHERE c.tipo = 'cuadrilla' AND c.cuadrilla_id = cu.id AND c.empresa_id IS NOT DISTINCT FROM $1::bigint), 0)::bigint AS conversacion_id
+FROM agenda.cuadrillas cu
+WHERE cu.activa
+  AND (cu.empresa_id IS NULL OR cu.empresa_id IS NOT DISTINCT FROM $1::bigint)
+  AND ($2::text IS NULL OR cu.nombre ILIKE $2::text)
+  AND ($3::boolean
+       OR cu.id = ANY ($4::bigint[])
+       OR EXISTS (SELECT 1 FROM agenda.tecnicos t WHERE t.usuario_id = $5::bigint AND t.activo AND t.cuadrilla_id = cu.id)
+       OR EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz WHERE cz.cuadrilla_id = cu.id AND cz.zona_id = ANY ($6::bigint[])))
+ORDER BY cu.nombre, cu.id
+LIMIT 200
 `
 
-type DestinatariosChatParams struct {
-	AutorID          int64
-	Empresa          *int64
-	ConversacionID   int64
-	AlcanceCuadrilla *int64
-	AlcanceZonas     []int64
-	Tipo             string
-	CuadrillaID      *int64
-	OrdenID          *int64
+type CuadrillasChatParams struct {
+	Empresa       *int64
+	Patron        *string
+	SupGlobal     bool
+	SupCuadrillas []int64
+	Usuario       int64
+	SupZonas      []int64
 }
 
-// A quién avisar (push) de un mensaje: miembros explícitos, técnicos de la cuadrilla o de la orden y
-// quien tiene chat.supervisar con alcance que la cubre (no en directas), activos, que operan en la
-// empresa y que no son el autor.
-func (q *Queries) DestinatariosChat(ctx context.Context, arg DestinatariosChatParams) ([]int64, error) {
-	rows, err := q.db.Query(ctx, destinatariosChat,
-		arg.AutorID,
+type CuadrillasChatRow struct {
+	ID             int64
+	Nombre         string
+	Tecnicos       int64
+	Zonas          []string
+	ConversacionID int64
+}
+
+// «Nuevo mensaje» → Cuadrilla: las activas de la empresa (o sin empresa) cuyo chat puede abrir el
+// usuario: la suya (técnico activo) o las que cubre su chat.supervisar. Con técnicos activos, zonas y
+// su conversación en la empresa si ya existe.
+func (q *Queries) CuadrillasChat(ctx context.Context, arg CuadrillasChatParams) ([]CuadrillasChatRow, error) {
+	rows, err := q.db.Query(ctx, cuadrillasChat,
 		arg.Empresa,
-		arg.ConversacionID,
-		arg.AlcanceCuadrilla,
-		arg.AlcanceZonas,
-		arg.Tipo,
-		arg.CuadrillaID,
-		arg.OrdenID,
+		arg.Patron,
+		arg.SupGlobal,
+		arg.SupCuadrillas,
+		arg.Usuario,
+		arg.SupZonas,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []int64
+	var items []CuadrillasChatRow
 	for rows.Next() {
-		var usuario_id int64
-		if err := rows.Scan(&usuario_id); err != nil {
+		var i CuadrillasChatRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Nombre,
+			&i.Tecnicos,
+			&i.Zonas,
+			&i.ConversacionID,
+		); err != nil {
 			return nil, err
 		}
-		items = append(items, usuario_id)
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -663,6 +703,32 @@ func (q *Queries) InsertarEventoChat(ctx context.Context, arg InsertarEventoChat
 	return id, err
 }
 
+const insertarMenciones = `-- name: InsertarMenciones :exec
+INSERT INTO mensajeria.chat_menciones (mensaje_id, usuario_id, conversacion_id, empresa_id, seq)
+SELECT $1::uuid, u, $2::bigint, $3::bigint, $4::bigint
+FROM unnest($5::bigint[]) AS u
+ON CONFLICT DO NOTHING
+`
+
+type InsertarMencionesParams struct {
+	MensajeID      uuid.UUID
+	ConversacionID int64
+	EmpresaID      *int64
+	Seq            int64
+	Usuarios       []int64
+}
+
+func (q *Queries) InsertarMenciones(ctx context.Context, arg InsertarMencionesParams) error {
+	_, err := q.db.Exec(ctx, insertarMenciones,
+		arg.MensajeID,
+		arg.ConversacionID,
+		arg.EmpresaID,
+		arg.Seq,
+		arg.Usuarios,
+	)
+	return err
+}
+
 const insertarMensaje = `-- name: InsertarMensaje :one
 INSERT INTO mensajeria.chat_mensajes (id, conversacion_id, empresa_id, seq, autor_id, texto, adjunto_id, lat, lon, creado_en, enviado_en,
     hash_contenido, idempotency_key, created_at, updated_at)
@@ -886,6 +952,39 @@ func (q *Queries) ListarMensajes(ctx context.Context, arg ListarMensajesParams) 
 	return items, nil
 }
 
+const mencionesDeMensajes = `-- name: MencionesDeMensajes :many
+SELECT mn.mensaje_id, mn.usuario_id, u.nombre
+FROM mensajeria.chat_menciones mn JOIN nucleo.usuarios u ON u.id = mn.usuario_id
+WHERE mn.mensaje_id = ANY ($1::uuid[])
+ORDER BY mn.mensaje_id, mn.usuario_id
+`
+
+type MencionesDeMensajesRow struct {
+	MensajeID uuid.UUID
+	UsuarioID int64
+	Nombre    string
+}
+
+func (q *Queries) MencionesDeMensajes(ctx context.Context, ids []uuid.UUID) ([]MencionesDeMensajesRow, error) {
+	rows, err := q.db.Query(ctx, mencionesDeMensajes, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MencionesDeMensajesRow
+	for rows.Next() {
+		var i MencionesDeMensajesRow
+		if err := rows.Scan(&i.MensajeID, &i.UsuarioID, &i.Nombre); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const mensajeParaActualizar = `-- name: MensajeParaActualizar :one
 SELECT id, conversacion_id, empresa_id, seq, autor_id, texto, adjunto_id, lat, lon, creado_en, enviado_en, hash_contenido, eliminado_en, created_at, updated_at, idempotency_key FROM mensajeria.chat_mensajes WHERE id = $1 FOR UPDATE
 `
@@ -1048,10 +1147,106 @@ func (q *Queries) MensajesPorIDs(ctx context.Context, ids []uuid.UUID) ([]Mensaj
 	return items, nil
 }
 
+const miembrosChat = `-- name: MiembrosChat :many
+WITH candidatos AS (
+    SELECT mm.usuario_id, 1 AS prioridad, 'directa'::text AS motivo FROM mensajeria.chat_miembros mm
+    WHERE mm.conversacion_id = $1 AND mm.origen = 'directa'
+    UNION ALL
+    SELECT t.usuario_id, 2, 'tecnico' FROM agenda.tecnicos t
+    WHERE t.activo AND $2::text = 'cuadrilla' AND t.cuadrilla_id = $3::bigint
+    UNION ALL
+    SELECT o.tecnico_id, 2, 'tecnico' FROM campo.ordenes o WHERE o.id = $4::bigint AND o.tecnico_id IS NOT NULL
+    UNION ALL
+    SELECT mm.usuario_id, 3, 'despacho' FROM mensajeria.chat_miembros mm
+    WHERE mm.conversacion_id = $1 AND mm.origen = 'unido'
+      AND EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur
+                  JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
+                  JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id AND rp.permiso = 'ordenes.ver'
+                  WHERE ur.usuario_id = mm.usuario_id
+                    AND ((ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL)
+                         OR ur.cuadrilla_id = $5::bigint
+                         OR ur.zona_id = ANY ($6::bigint[])))
+    UNION ALL
+    SELECT mm.usuario_id, 4, 'agregado' FROM mensajeria.chat_miembros mm
+    WHERE mm.conversacion_id = $1 AND mm.origen = 'agregado' AND $2::text = 'orden'
+    UNION ALL
+    SELECT ur.usuario_id, 5, 'supervision' FROM nucleo.usuarios_roles ur
+    JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
+    JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id AND rp.permiso = 'chat.supervisar'
+    WHERE $2::text <> 'directa'
+      AND ((ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL)
+           OR ur.cuadrilla_id = $5::bigint
+           OR ur.zona_id = ANY ($6::bigint[]))
+), unicos AS (
+    SELECT DISTINCT ON (u.id) u.id AS usuario_id, u.nombre, x.motivo, x.prioridad
+    FROM candidatos x
+    JOIN nucleo.usuarios u ON u.id = x.usuario_id AND u.activo
+    WHERE $7::bigint IS NULL
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = u.id AND ue.empresa_id = $7::bigint)
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur2
+                  JOIN nucleo.roles r2 ON r2.id = ur2.rol_id AND r2.activo
+                  JOIN nucleo.roles_permisos rp2 ON rp2.rol_id = ur2.rol_id AND rp2.permiso = 'empresas.todas'
+                  WHERE ur2.usuario_id = u.id AND ur2.zona_id IS NULL AND ur2.cuadrilla_id IS NULL)
+    ORDER BY u.id, x.prioridad
+)
+SELECT usuario_id, nombre, motivo FROM unicos ORDER BY prioridad, nombre, usuario_id
+`
+
+type MiembrosChatParams struct {
+	ConversacionID   int64
+	Tipo             string
+	CuadrillaID      *int64
+	OrdenID          *int64
+	AlcanceCuadrilla *int64
+	AlcanceZonas     []int64
+	Empresa          *int64
+}
+
+type MiembrosChatRow struct {
+	UsuarioID int64
+	Nombre    string
+	Motivo    string
+}
+
+// Quiénes ven una conversación y por qué (contratos/chat.md §2.2): miembros explícitos (directa,
+// agregado), despacho unido mientras su ordenes.ver cubra la orden, técnicos de la cuadrilla o de
+// la orden y quien tiene chat.supervisar con alcance que la cubre (no en directas). Personas
+// activas que operan en la empresa. Con varios motivos, el de menor prioridad. Sirve también para
+// los destinatarios del push (sin el autor) y para validar menciones.
+func (q *Queries) MiembrosChat(ctx context.Context, arg MiembrosChatParams) ([]MiembrosChatRow, error) {
+	rows, err := q.db.Query(ctx, miembrosChat,
+		arg.ConversacionID,
+		arg.Tipo,
+		arg.CuadrillaID,
+		arg.OrdenID,
+		arg.AlcanceCuadrilla,
+		arg.AlcanceZonas,
+		arg.Empresa,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MiembrosChatRow
+	for rows.Next() {
+		var i MiembrosChatRow
+		if err := rows.Scan(&i.UsuarioID, &i.Nombre, &i.Motivo); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const noLeidos = `-- name: NoLeidos :many
 SELECT c.id AS conversacion_id,
     (SELECT count(*) FROM mensajeria.chat_mensajes x
-     WHERE x.conversacion_id = c.id AND x.seq > COALESCE(l.hasta_seq, 0) AND x.autor_id <> $1::bigint AND x.eliminado_en IS NULL)::bigint AS no_leidos
+     WHERE x.conversacion_id = c.id AND x.seq > COALESCE(l.hasta_seq, 0) AND x.autor_id <> $1::bigint AND x.eliminado_en IS NULL)::bigint AS no_leidos,
+    (SELECT count(*) FROM mensajeria.chat_menciones mn
+     WHERE mn.usuario_id = $1::bigint AND mn.conversacion_id = c.id AND mn.seq > COALESCE(l.hasta_seq, 0))::bigint AS menciones
 FROM mensajeria.chat_conversaciones c
 LEFT JOIN mensajeria.chat_lecturas l ON l.conversacion_id = c.id AND l.usuario_id = $1::bigint
 WHERE c.id = ANY ($2::bigint[])
@@ -1065,6 +1260,7 @@ type NoLeidosParams struct {
 type NoLeidosRow struct {
 	ConversacionID int64
 	NoLeidos       int64
+	Menciones      int64
 }
 
 func (q *Queries) NoLeidos(ctx context.Context, arg NoLeidosParams) ([]NoLeidosRow, error) {
@@ -1076,7 +1272,7 @@ func (q *Queries) NoLeidos(ctx context.Context, arg NoLeidosParams) ([]NoLeidosR
 	var items []NoLeidosRow
 	for rows.Next() {
 		var i NoLeidosRow
-		if err := rows.Scan(&i.ConversacionID, &i.NoLeidos); err != nil {
+		if err := rows.Scan(&i.ConversacionID, &i.NoLeidos, &i.Menciones); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1125,6 +1321,75 @@ func (q *Queries) NotificarChat(ctx context.Context, carga string) error {
 	return err
 }
 
+const personasChat = `-- name: PersonasChat :many
+SELECT u.id, u.nombre,
+    COALESCE((SELECT c.id FROM mensajeria.chat_conversaciones c
+     WHERE c.tipo = 'directa' AND c.empresa_id IS NOT DISTINCT FROM $1::bigint
+       AND c.clave_directa = LEAST(u.id, $2::bigint)::text || ':' || GREATEST(u.id, $2::bigint)::text), 0)::bigint AS conversacion_id
+FROM nucleo.usuarios u
+WHERE u.tipo = 'persona' AND u.activo AND u.id <> $2::bigint
+  AND ($3::text IS NULL OR u.nombre ILIKE $3::text)
+  AND EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur
+              JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
+              JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id AND rp.permiso = 'chat.ver'
+              WHERE ur.usuario_id = u.id)
+  AND ($1::bigint IS NULL
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = u.id AND ue.empresa_id = $1::bigint)
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur2
+                  JOIN nucleo.roles r2 ON r2.id = ur2.rol_id AND r2.activo
+                  JOIN nucleo.roles_permisos rp2 ON rp2.rol_id = ur2.rol_id AND rp2.permiso = 'empresas.todas'
+                  WHERE ur2.usuario_id = u.id AND ur2.zona_id IS NULL AND ur2.cuadrilla_id IS NULL))
+  AND (NOT $4::boolean OR (u.nombre, u.id) > ($5::text, $6::bigint))
+ORDER BY u.nombre, u.id
+LIMIT $7
+`
+
+type PersonasChatParams struct {
+	Empresa      *int64
+	Usuario      int64
+	Patron       *string
+	ConCursor    bool
+	CursorNombre string
+	CursorID     int64
+	Limite       int32
+}
+
+type PersonasChatRow struct {
+	ID             int64
+	Nombre         string
+	ConversacionID int64
+}
+
+// «Nuevo mensaje» → Persona: personas activas de la empresa con chat.ver (rol activo), sin el
+// usuario, por nombre; con su directa si ya existe.
+func (q *Queries) PersonasChat(ctx context.Context, arg PersonasChatParams) ([]PersonasChatRow, error) {
+	rows, err := q.db.Query(ctx, personasChat,
+		arg.Empresa,
+		arg.Usuario,
+		arg.Patron,
+		arg.ConCursor,
+		arg.CursorNombre,
+		arg.CursorID,
+		arg.Limite,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PersonasChatRow
+	for rows.Next() {
+		var i PersonasChatRow
+		if err := rows.Scan(&i.ID, &i.Nombre, &i.ConversacionID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const purgarEventosChat = `-- name: PurgarEventosChat :one
 WITH borrados AS (
     DELETE FROM mensajeria.chat_eventos WHERE ocurrido_en < $1 RETURNING id
@@ -1142,11 +1407,88 @@ func (q *Queries) PurgarEventosChat(ctx context.Context, antes time.Time) (int64
 	return eventos_purgados_hasta, err
 }
 
+const resumenChat = `-- name: ResumenChat :many
+WITH vis AS (
+    SELECT v AS id FROM mensajeria.chat_visibles($1::bigint, $2::bigint, $3::boolean, $4::boolean,
+        $5::bigint[], $6::bigint[], $7::boolean, $8::bigint[], $9::bigint[], NULL::bigint) v
+), x AS (
+    SELECT c.tipo,
+        (SELECT count(*) FROM mensajeria.chat_mensajes m
+         WHERE m.conversacion_id = c.id AND m.seq > COALESCE(l.hasta_seq, 0) AND m.autor_id <> $1::bigint AND m.eliminado_en IS NULL) AS no_leidos,
+        (SELECT count(*) FROM mensajeria.chat_menciones mn
+         WHERE mn.usuario_id = $1::bigint AND mn.conversacion_id = c.id AND mn.seq > COALESCE(l.hasta_seq, 0)) AS menciones
+    FROM mensajeria.chat_conversaciones c
+    JOIN vis ON vis.id = c.id
+    LEFT JOIN mensajeria.chat_lecturas l ON l.conversacion_id = c.id AND l.usuario_id = $1::bigint
+    WHERE c.ultimo_seq > COALESCE(l.hasta_seq, 0)
+)
+SELECT tipo, COALESCE(sum(no_leidos), 0)::bigint AS no_leidos, COALESCE(sum(menciones), 0)::bigint AS menciones,
+    (count(*) FILTER (WHERE no_leidos > 0))::bigint AS conversaciones_no_leidas
+FROM x GROUP BY tipo
+`
+
+type ResumenChatParams struct {
+	Usuario       int64
+	Empresa       *int64
+	Todas         bool
+	SupGlobal     bool
+	SupZonas      []int64
+	SupCuadrillas []int64
+	OrdGlobal     bool
+	OrdZonas      []int64
+	OrdCuadrillas []int64
+}
+
+type ResumenChatRow struct {
+	Tipo                   string
+	NoLeidos               int64
+	Menciones              int64
+	ConversacionesNoLeidas int64
+}
+
+// Contadores de un usuario por tipo sobre todas las conversaciones que ve (contratos/chat.md §2.1).
+// Solo se miran las que tienen mensajes después de su lectura.
+func (q *Queries) ResumenChat(ctx context.Context, arg ResumenChatParams) ([]ResumenChatRow, error) {
+	rows, err := q.db.Query(ctx, resumenChat,
+		arg.Usuario,
+		arg.Empresa,
+		arg.Todas,
+		arg.SupGlobal,
+		arg.SupZonas,
+		arg.SupCuadrillas,
+		arg.OrdGlobal,
+		arg.OrdZonas,
+		arg.OrdCuadrillas,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ResumenChatRow
+	for rows.Next() {
+		var i ResumenChatRow
+		if err := rows.Scan(
+			&i.Tipo,
+			&i.NoLeidos,
+			&i.Menciones,
+			&i.ConversacionesNoLeidas,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const resumenConversaciones = `-- name: ResumenConversaciones :many
 SELECT c.id, c.empresa_id, c.tipo, c.cuadrilla_id, c.orden_id, c.clave_directa, c.creada_por, c.ultimo_seq, c.ultimo_mensaje_id, c.ultima_actividad, c.created_at, c.updated_at,
     cu.nombre AS cuadrilla_nombre,
     o.numero AS orden_numero,
     o.estado AS orden_estado,
+    tor.nombre AS orden_tipo,
     COALESCE((SELECT mm.usuario_id FROM mensajeria.chat_miembros mm
      WHERE c.tipo = 'directa' AND mm.conversacion_id = c.id AND mm.usuario_id <> $1::bigint LIMIT 1), 0)::bigint AS otro_id,
     m.autor_id AS ultimo_autor_id,
@@ -1158,10 +1500,13 @@ SELECT c.id, c.empresa_id, c.tipo, c.cuadrilla_id, c.orden_id, c.clave_directa, 
     l.hasta_mensaje_id AS leido_hasta_mensaje_id,
     (SELECT count(*) FROM mensajeria.chat_mensajes x
      WHERE x.conversacion_id = c.id AND x.seq > COALESCE(l.hasta_seq, 0) AND x.autor_id <> $1::bigint AND x.eliminado_en IS NULL)::bigint AS no_leidos,
+    (SELECT count(*) FROM mensajeria.chat_menciones mn
+     WHERE mn.usuario_id = $1::bigint AND mn.conversacion_id = c.id AND mn.seq > COALESCE(l.hasta_seq, 0))::bigint AS menciones,
     EXISTS (SELECT 1 FROM mensajeria.chat_miembros e WHERE e.conversacion_id = c.id AND e.usuario_id = $1::bigint)::boolean AS miembro_explicito
 FROM mensajeria.chat_conversaciones c
 LEFT JOIN agenda.cuadrillas cu ON cu.id = c.cuadrilla_id
 LEFT JOIN campo.ordenes o ON o.id = c.orden_id
+LEFT JOIN campo.tipos_orden tor ON tor.id = o.tipo_id
 LEFT JOIN mensajeria.chat_mensajes m ON m.id = c.ultimo_mensaje_id
 LEFT JOIN mensajeria.chat_lecturas l ON l.conversacion_id = c.id AND l.usuario_id = $1::bigint
 WHERE c.id = ANY ($2::bigint[])
@@ -1177,6 +1522,7 @@ type ResumenConversacionesRow struct {
 	CuadrillaNombre            *string
 	OrdenNumero                *string
 	OrdenEstado                *string
+	OrdenTipo                  *string
 	OtroID                     int64
 	UltimoAutorID              *int64
 	UltimoTexto                *string
@@ -1186,6 +1532,7 @@ type ResumenConversacionesRow struct {
 	UltimoEliminadoEn          *time.Time
 	LeidoHastaMensajeID        pgtype.UUID
 	NoLeidos                   int64
+	Menciones                  int64
 	MiembroExplicito           bool
 }
 
@@ -1216,6 +1563,7 @@ func (q *Queries) ResumenConversaciones(ctx context.Context, arg ResumenConversa
 			&i.CuadrillaNombre,
 			&i.OrdenNumero,
 			&i.OrdenEstado,
+			&i.OrdenTipo,
 			&i.OtroID,
 			&i.UltimoAutorID,
 			&i.UltimoTexto,
@@ -1225,6 +1573,7 @@ func (q *Queries) ResumenConversaciones(ctx context.Context, arg ResumenConversa
 			&i.UltimoEliminadoEn,
 			&i.LeidoHastaMensajeID,
 			&i.NoLeidos,
+			&i.Menciones,
 			&i.MiembroExplicito,
 		); err != nil {
 			return nil, err
