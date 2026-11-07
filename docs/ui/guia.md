@@ -327,8 +327,12 @@ Diseño aprobado por el PM (combinación de las opciones A y B; `contratos/chat.
   del motor con `menciones: [ids]` (los `@Nombre` que siguen en el texto). Los `@Nombre` de los
   miembros se resaltan; el tuyo, con fondo.
 - **Eliminar un mensaje propio:** sin confirmación; se ve eliminado y el aviso trae «Deshacer» 5 s.
-  La llamada sale a los 5 s (o con `keepalive` al cerrar u ocultar la página); el servidor no
-  restaura (§3.1). No se ofrece si quedan menos de 10 s de los 15 min.
+  La llamada sale a los 5 s por la cola del motor (que verifica la sesión). Al ocultar la pestaña o
+  al «Cerrar sesión» (que la espera hasta 3 s) sale ya por la misma cola; solo si la página se
+  descarga va con `keepalive` y la empresa del chat (sin poder comprobar `GET /yo`: si otra persona
+  entró, el servidor la rechaza porque solo el autor elimina). El servidor no restaura (§3.1). El
+  plazo de 15 min (menos 10 s) se revisa al pedir y al salir. Solo se resaltan las menciones que trae
+  el mensaje, y la foto se pide siempre por la ruta armada con su id (`rutaDescargaAdjunto`).
 - **Orden cerrada, fallida o cancelada:** solo lectura (`solo_lectura`), con el motivo en lugar del
   compositor y sin «Agregar persona».
 - **Foto y ubicación:** en escritorio, deshabilitadas («Foto y ubicación, desde la app de campo»);
