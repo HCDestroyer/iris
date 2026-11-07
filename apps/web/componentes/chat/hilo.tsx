@@ -6,7 +6,8 @@ import { Ban, Check, CheckCheck, Clock, Ellipsis, ImageIcon, Map as IconoMapa, M
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { useAhora } from "@/componentes/tickets/insignias";
 import { sePuedeEliminar } from "@/lib/chat/eliminar-diferido";
-import { segmentosChat, textoMotivo } from "@/lib/chat/presentacion";
+import { mencionadosCon, segmentosChat, textoMotivo } from "@/lib/chat/presentacion";
+import { rutaDescargaAdjunto } from "@/lib/ordenes/adjuntos";
 import type { MiembroChat } from "@/lib/chat/api";
 
 type Props = {
@@ -16,7 +17,7 @@ type Props = {
     yoId: number;
     eliminando: ReadonlySet<string>;
     puedeEliminar: boolean;
-    alEliminar: (mensajeId: string) => void;
+    alEliminar: (m: MensajeVista) => void;
     className?: string;
 };
 
@@ -140,7 +141,7 @@ function Burbuja({
     yoId: number;
     motor: MotorChat;
     eliminable: boolean;
-    alEliminar: (id: string) => void;
+    alEliminar: (m: MensajeVista) => void;
 }) {
     const estado = estadoEnvio(m);
     const hora = horaMensaje(m);
@@ -195,8 +196,8 @@ function Burbuja({
                     )}
                 >
                     {m.foto ? <FotoMensaje m={m} /> : null}
-                    {m.ubicacion ? <UbicacionMensaje m={m} /> : null}
-                    {m.texto ? <TextoMensaje texto={m.texto} miembros={miembros} yoId={yoId} propio={propio} /> : null}
+                    {ubicacionValida(m) ? <UbicacionMensaje m={m} /> : null}
+                    {m.texto ? <TextoMensaje texto={m.texto} mencionados={mencionadosCon(m.menciones, miembros)} yoId={yoId} propio={propio} /> : null}
                     {pie}
                 </div>
                 {eliminable ? (
@@ -207,7 +208,7 @@ function Burbuja({
                             </Boton>
                         </MenuDesplegableDisparador>
                         <MenuDesplegableContenido align={propio ? "end" : "start"}>
-                            <MenuDesplegableElemento icono={Trash2} onSelect={() => alEliminar(m.id)}>
+                            <MenuDesplegableElemento icono={Trash2} onSelect={() => alEliminar(m)}>
                                 Eliminar
                             </MenuDesplegableElemento>
                         </MenuDesplegableContenido>
@@ -232,10 +233,10 @@ function Burbuja({
     );
 }
 
-function TextoMensaje({ texto, miembros, yoId, propio }: { texto: string; miembros: readonly MiembroChat[]; yoId: number; propio: boolean }) {
+function TextoMensaje({ texto, mencionados, yoId, propio }: { texto: string; mencionados: readonly { id: number; nombre: string }[]; yoId: number; propio: boolean }) {
     return (
         <p>
-            {segmentosChat(texto, miembros, yoId).map((s, i) =>
+            {segmentosChat(texto, mencionados, yoId).map((s, i) =>
                 s.tipo === "texto" ? (
                     <span key={i}>{s.texto}</span>
                 ) : s.tipo === "enlace" ? (
@@ -255,11 +256,14 @@ function TextoMensaje({ texto, miembros, yoId, propio }: { texto: string; miembr
 function FotoMensaje({ m }: { m: MensajeVista }) {
     const foto = m.foto;
     if (!foto) return null;
-    if (foto.estado === "completo" && foto.url) {
+    // La ruta se arma siempre desde el id validado: nunca se sigue la URL que viene en los datos.
+    const url = foto.estado === "completo" ? rutaDescargaAdjunto(foto.id) : undefined;
+    if (foto.estado === "completo" && !url) return null;
+    if (url) {
         return (
-            <a href={foto.url} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-lg">
+            <a href={url} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-lg">
                 {/* eslint-disable-next-line @next/next/no-img-element -- adjunto privado servido por la API con la cookie */}
-                <img src={foto.url} alt={`Foto de ${m.autorNombre || "tu mensaje"}`} className="max-h-64 w-full max-w-72 object-cover" loading="lazy" />
+                <img src={url} alt={`Foto de ${m.autorNombre || "tu mensaje"}`} className="max-h-64 w-full max-w-72 object-cover" loading="lazy" />
             </a>
         );
     }
@@ -271,8 +275,14 @@ function FotoMensaje({ m }: { m: MensajeVista }) {
     );
 }
 
+/** Solo coordenadas finitas y en rango: lo demás no se muestra (ni arma un enlace al mapa). */
+function ubicacionValida(m: MensajeVista): boolean {
+    const u = m.ubicacion;
+    return u !== null && Number.isFinite(u.lat) && Number.isFinite(u.lon) && Math.abs(u.lat) <= 90 && Math.abs(u.lon) <= 180;
+}
+
 function UbicacionMensaje({ m }: { m: MensajeVista }) {
-    if (!m.ubicacion) return null;
+    if (!m.ubicacion || !ubicacionValida(m)) return null;
     const { lat, lon } = m.ubicacion;
     return (
         <span className="grid gap-0.5">

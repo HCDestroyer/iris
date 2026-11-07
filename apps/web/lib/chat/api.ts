@@ -1,7 +1,7 @@
 import type { Schema } from "@iris/contratos";
 import { api, COOKIE_CSRF, CABECERA_CSRF, leerCookie, resolver } from "../api/cliente";
 import { ErrorApi } from "../api/errores";
-import { CABECERA_EMPRESA, empresaGuardada } from "../empresa";
+import { CABECERA_EMPRESA } from "../empresa";
 
 /*
  * Llamadas del chat del equipo que el panel hace fuera del `MotorChat` (`contratos/chat.md` §2.1 a
@@ -75,14 +75,19 @@ export async function hiloDeOrden(ordenId: number, signal?: AbortSignal): Promis
 }
 
 /**
- * §3.1, al cerrar u ocultar la página con una eliminación pendiente: `POST /mensajes/{id}/eliminar`
- * con `keepalive` (sale aunque la página se vaya). `openapi-fetch` no deja pedir `keepalive`, así que
- * va con `fetch`, con la misma cookie, el CSRF y la empresa activa. No espera la respuesta.
+ * §3.1, cuando la página se descarga (`pagehide`) con una eliminación pendiente:
+ * `POST /mensajes/{id}/eliminar` con `keepalive` (sale aunque la página se vaya). `openapi-fetch` no
+ * deja pedir `keepalive`, así que va con `fetch`, con la cookie, el CSRF y la empresa **del chat que
+ * la pidió** (nunca la activa de ese momento: tras cambiar de empresa iría a otra y daría 404).
+ *
+ * No se puede comprobar antes con `GET /yo` que la sesión siga siendo de quien la pidió: la página se
+ * está yendo y no hay tiempo de esperar otra respuesta. Si en otra pestaña entró otra persona, el
+ * servidor la rechaza (solo el autor elimina: 403 `no_es_autor`) y no pasa nada. Cerrar sesión desde
+ * el panel no llega aquí: antes vacía lo pendiente por la cola del motor, que sí verifica la sesión.
  */
-export function eliminarAlSalir(mensajeId: string): void {
+export function eliminarAlSalir(mensajeId: string, empresaId: number | undefined): void {
     const cabeceras: Record<string, string> = {};
-    const empresa = empresaGuardada();
-    if (empresa !== undefined) cabeceras[CABECERA_EMPRESA] = String(empresa);
+    if (empresaId !== undefined) cabeceras[CABECERA_EMPRESA] = String(empresaId);
     const csrf = leerCookie(COOKIE_CSRF, document.cookie);
     if (csrf) cabeceras[CABECERA_CSRF] = csrf;
     void fetch(`${BASE}/mensajes/${encodeURIComponent(mensajeId)}/eliminar`, { method: "POST", credentials: "include", keepalive: true, headers: cabeceras }).catch(() => undefined);

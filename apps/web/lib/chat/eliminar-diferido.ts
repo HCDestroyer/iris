@@ -13,25 +13,32 @@ export function sePuedeEliminar(m: { propio: boolean; eliminado: boolean; envio:
     return m.propio && !m.eliminado && m.envio === "enviado" && !Number.isNaN(enviado) && ahora - enviado <= PLAZO_ELIMINAR_MS - MARGEN_ELIMINAR_MS;
 }
 
+export type MensajeEliminable = { id: string; propio: boolean; eliminado: boolean; envio: string; enviadoEn: string | null };
+
 export type OpcionesEliminaciones = {
-    /** La eliminación de verdad (la cola del motor). */
+    /** La eliminación de verdad (la cola del motor), si el plazo todavía alcanza. */
     ejecutar: (mensajeId: string) => void;
+    /** Pasó la espera pero ya no está dentro del plazo: no sale (el mensaje sigue visible). */
+    alVencer: (mensajeId: string) => void;
     /** Al cerrar u ocultar la página: `fetch` con `keepalive`. */
     alSalir: (mensajeId: string) => void;
     alCambiar: () => void;
     esperaMs?: number;
+    ahora?: () => number;
     programar?: (fn: () => void, ms: number) => unknown;
     cancelar?: (id: unknown) => void;
 };
 
 export class EliminacionesDiferidas {
     private readonly temporizadores = new Map<string, unknown>();
+    private readonly mensajes = new Map<string, MensajeEliminable>();
     private readonly o: Required<OpcionesEliminaciones>;
     private instantanea: ReadonlySet<string> = new Set();
 
     constructor(o: OpcionesEliminaciones) {
         this.o = {
             esperaMs: ESPERA_DESHACER_MS,
+            ahora: () => Date.now(),
             programar: (fn, ms) => setTimeout(fn, ms),
             cancelar: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
             ...o,
@@ -48,13 +55,18 @@ export class EliminacionesDiferidas {
         this.o.alCambiar();
     }
 
-    pedir(mensajeId: string): void {
-        if (this.temporizadores.has(mensajeId)) return;
+    /** Pide eliminar `m` (vuelve a comprobar el plazo). Devuelve si quedó pedido. */
+    pedir(m: MensajeEliminable): boolean {
+        const mensajeId = m.id;
+        if (!sePuedeEliminar(m, this.o.ahora())) return false;
+        if (this.temporizadores.has(mensajeId)) return true;
+        this.mensajes.set(mensajeId, m);
         this.temporizadores.set(
             mensajeId,
             this.o.programar(() => this.ahora(mensajeId), this.o.esperaMs),
         );
         this.cambio();
+        return true;
     }
 
     /** «Deshacer»: nada sale. Devuelve si había algo que deshacer. */
@@ -63,6 +75,7 @@ export class EliminacionesDiferidas {
         if (t === undefined) return false;
         this.o.cancelar(t);
         this.temporizadores.delete(mensajeId);
+        this.mensajes.delete(mensajeId);
         this.cambio();
         return true;
     }
@@ -73,11 +86,28 @@ export class EliminacionesDiferidas {
         if (t === undefined) return;
         this.o.cancelar(t);
         this.temporizadores.delete(mensajeId);
-        this.o.ejecutar(mensajeId);
+        const m = this.mensajes.get(mensajeId);
+        this.mensajes.delete(mensajeId);
+        if (m && !sePuedeEliminar(m, this.o.ahora())) this.o.alVencer(mensajeId);
+        else this.o.ejecutar(mensajeId);
         this.cambio();
     }
 
-    /** La página se va (`pagehide`, oculta o se desmonta el panel): todo lo pendiente sale ya. */
+    /**
+     * Cerrar sesión u ocultar la pestaña: cancela las esperas y devuelve lo pendiente para que salga
+     * ya por la cola del motor (que verifica la sesión antes de enviar).
+     */
+    sacarTodo(): string[] {
+        const ids = [...this.temporizadores.keys()];
+        if (ids.length === 0) return ids;
+        for (const t of this.temporizadores.values()) this.o.cancelar(t);
+        this.temporizadores.clear();
+        this.mensajes.clear();
+        this.cambio();
+        return ids;
+    }
+
+    /** La página se descarga (`pagehide`) o se desmonta el panel: todo lo pendiente sale ya con `keepalive`. */
     vaciarAlSalir(): void {
         if (this.temporizadores.size === 0) return;
         for (const [id, t] of this.temporizadores) {
@@ -85,6 +115,7 @@ export class EliminacionesDiferidas {
             this.o.alSalir(id);
         }
         this.temporizadores.clear();
+        this.mensajes.clear();
         this.cambio();
     }
 }

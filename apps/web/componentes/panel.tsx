@@ -264,6 +264,7 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
     const [errorCerrar, setErrorCerrar] = useState<unknown>(null);
     const idBarra = useId();
     const disponibilidad = useDisponibilidad();
+    const chat = useChatEquipo();
 
     function alternarContraida() {
         if (anchoCompleto) {
@@ -282,6 +283,8 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
         // Al cerrar sesión dejas de estar disponible en la bandeja (lo dice el servidor; si no
         // responde en 2 s, la sesión se cierra igual).
         await disponibilidad?.alSalir();
+        // Lo que esperaba su «Deshacer» en el chat sale ya, con esta sesión (después daría 401).
+        await chat?.vaciar();
         try {
             await resolver(api().DELETE("/api/v1/sesion"));
         } catch (error) {
@@ -301,7 +304,6 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
 
     const resumen = useResumenTickets();
     const noLeidos = useNoLeidosConversaciones(puede(["conversaciones.ver"]) && (yo.modoEmpresa === "sin_conector" || yo.empresaActiva !== undefined), `${yo.empresaActiva?.id ?? 0}`);
-    const chat = useChatEquipo();
     const contadores = { "/tickets": contadorDe(resumen, "activos"), "/conversaciones": noLeidos, "/equipo": chat?.contadores.todas };
     // Panel lateral del chat abierto (escritorio): la pantalla se corre para que nada quede debajo.
     const conPanelChat = Boolean(chat?.panel.abierto) && ruta !== "/equipo";

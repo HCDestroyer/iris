@@ -8,7 +8,8 @@ import { IndicadorEnVivo } from "@/componentes/chat/comunes";
 import { ConversacionEquipo } from "@/componentes/chat/conversacion";
 import { DialogoNuevoMensaje } from "@/componentes/chat/dialogos";
 import { ListaChat } from "@/componentes/chat/lista";
-import { useChatEquipo } from "@/componentes/chat/proveedor";
+import { useArranqueChat, useChatEquipo } from "@/componentes/chat/proveedor";
+import { ErrorLectura } from "@/componentes/error-lectura";
 import { RequierePermiso } from "@/componentes/requiere-permiso";
 import { filtroDeParametro, type FiltroChat } from "@/lib/chat/presentacion";
 import { idDeParametro } from "@/lib/parametros";
@@ -38,6 +39,7 @@ export function PantallaEquipo() {
 
 function Equipo() {
     const chat = useChatEquipo();
+    const arranque = useArranqueChat();
     const params = useSearchParams();
     const ruta = usePathname();
     const router = useRouter();
@@ -47,6 +49,13 @@ function Equipo() {
     const [nuevo, setNuevo] = useState(false);
     const vista = abierta === null ? "lista" : "conversacion";
 
+    if (!chat && arranque?.estado === "error") {
+        return (
+            <div data-slot="equipo" data-vista="lista" className="p-4 sm:p-6">
+                <ErrorLectura error={arranque.error} reintentar={arranque.reintentar} que="el chat del equipo" />
+            </div>
+        );
+    }
     if (!chat) {
         return (
             <div data-slot="equipo" data-vista="lista" aria-busy="true" className="grid gap-3 p-4">

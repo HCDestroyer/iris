@@ -8,6 +8,7 @@ import {
     filtrarConversaciones,
     hayPunto,
     insigniaDe,
+    mencionadosCon,
     mencionesVigentes,
     requiereAccionLocal,
     segmentosChat,
@@ -109,8 +110,12 @@ describe("menciones", () => {
         expect(mencionesVigentes(`${r.texto}revisa`, [{ id: 5, nombre: "Mario Ixcot" }, { id: 3, nombre: "Laura Méndez" }])).toEqual([5]);
     });
 
-    it("resalta @Nombre de miembros (completo o primer nombre único), nunca HTML", () => {
-        const s = segmentosChat("@Mario la caja, ve https://iris.test/x y @Laura Méndez <b>", MIEMBROS, 3);
+    it("resalta solo a los mencionados del mensaje (completo o primer nombre único), nunca HTML", () => {
+        const mencionados = [
+            { id: 5, nombre: "Mario Ixcot" },
+            { id: 3, nombre: "Laura Méndez" },
+        ];
+        const s = segmentosChat("@Mario la caja, ve https://iris.test/x y @Laura Méndez <b>", mencionados, 3);
         expect(s).toEqual([
             { tipo: "mencion", texto: "@Mario", propia: false },
             { tipo: "texto", texto: " la caja, ve " },
@@ -119,6 +124,12 @@ describe("menciones", () => {
             { tipo: "mencion", texto: "@Laura Méndez", propia: true },
             { tipo: "texto", texto: " <b>" },
         ]);
-        expect(segmentosChat("@Marion no es nadie", MIEMBROS, 1)).toEqual([{ tipo: "texto", texto: "@Marion no es nadie" }]);
+        expect(segmentosChat("@Marion no es nadie", mencionados, 1)).toEqual([{ tipo: "texto", texto: "@Marion no es nadie" }]);
+        // Un miembro escrito con @ pero que el mensaje no menciona queda como texto.
+        expect(segmentosChat("@Ana López hola", [{ id: 5, nombre: "Mario Ixcot" }], 1)).toEqual([{ tipo: "texto", texto: "@Ana López hola" }]);
+    });
+
+    it("pone nombre a las menciones de la cola desde los miembros", () => {
+        expect(mencionadosCon([{ id: 5, nombre: "" }, { id: 99, nombre: "" }], MIEMBROS)).toEqual([{ id: 5, nombre: "Mario Ixcot" }]);
     });
 });

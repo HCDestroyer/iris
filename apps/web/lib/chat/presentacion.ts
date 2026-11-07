@@ -124,6 +124,11 @@ export function aplicarMencion(texto: string, consulta: ConsultaMencion, nombre:
     return { texto: texto.slice(0, consulta.inicio) + insertado + resto, cursor: consulta.inicio + insertado.length };
 }
 
+/** Los mencionados de un mensaje con su nombre (en la cola llegan sin él: se busca en los miembros). */
+export function mencionadosCon(menciones: readonly { id: number; nombre: string }[], miembros: readonly MiembroChat[]): { id: number; nombre: string }[] {
+    return menciones.map((m) => ({ id: m.id, nombre: m.nombre || (miembros.find((x) => x.usuario_id === m.id)?.nombre ?? "") })).filter((m) => m.nombre);
+}
+
 /** Ids de los elegidos cuyo `@Nombre` sigue en el texto (si lo borró, ya no se menciona). */
 export function mencionesVigentes(texto: string, elegidos: readonly { id: number; nombre: string }[]): number[] {
     const ids = elegidos.filter((e) => texto.includes(`@${e.nombre}`)).map((e) => e.id);
@@ -135,17 +140,18 @@ export type SegmentoChat = { tipo: "texto"; texto: string } | { tipo: "enlace"; 
 const escaparRe = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
- * Texto plano en texto, enlaces y `@Nombre` de miembros (el nombre completo o, si es único, el
- * primero). `propia`: te mencionan a ti. Nunca HTML: quien pinta lo escapa.
+ * Texto plano en texto, enlaces y `@Nombre` de **los mencionados del mensaje** (`MensajeChat.menciones`,
+ * el nombre completo o, si es único entre ellos, el primero). Un `@Nombre` de alguien que el mensaje no
+ * menciona queda como texto. `propia`: te mencionan a ti. Nunca HTML: quien pinta lo escapa.
  */
-export function segmentosChat(texto: string, miembros: readonly MiembroChat[], yo: number): SegmentoChat[] {
+export function segmentosChat(texto: string, mencionados: readonly { id: number; nombre: string }[], yo: number): SegmentoChat[] {
     const primeros = new Map<string, number>();
-    for (const m of miembros) {
+    for (const m of mencionados) {
         const p = m.nombre.trim().split(/\s+/)[0] ?? "";
-        primeros.set(p, primeros.has(p) ? -1 : m.usuario_id);
+        primeros.set(p, primeros.has(p) ? -1 : m.id);
     }
     const nombres: { texto: string; id: number }[] = [
-        ...miembros.map((m) => ({ texto: m.nombre.trim(), id: m.usuario_id })),
+        ...mencionados.map((m) => ({ texto: m.nombre.trim(), id: m.id })),
         ...[...primeros].filter(([, id]) => id >= 0).map(([texto, id]) => ({ texto, id })),
     ]
         .filter((n) => n.texto.length > 0)

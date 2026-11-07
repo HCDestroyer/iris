@@ -1,7 +1,7 @@
 "use client";
 
 import { avisar } from "@iris/ui";
-import type { EstadoChat, MotorChat, VistaConversacion } from "@iris/sync/chat";
+import type { EstadoChat, MensajeVista, MotorChat, VistaConversacion } from "@iris/sync/chat";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { EliminacionesDiferidas, ESPERA_DESHACER_MS } from "@/lib/chat/eliminar-diferido";
 import { abrirChatPanel } from "@/lib/chat/motor";
@@ -37,7 +37,13 @@ type ContextoChatEquipo = {
     reintentar: () => void;
     /** Mensajes que se ven eliminados mientras dura su «Deshacer». */
     eliminando: ReadonlySet<string>;
-    eliminar: (mensajeId: string) => void;
+    /** Eliminar un mensaje propio con 5 s para «Deshacer» (vuelve a comprobar el plazo). */
+    eliminar: (m: MensajeVista) => void;
+    /**
+     * Manda ya lo pendiente de eliminar por la cola del motor (verifica la sesión) y espera, como
+     * mucho 3 s, a que salga. Lo llama «Cerrar sesión» antes de cerrarla.
+     */
+    vaciar: () => Promise<void>;
     /** Panel lateral: abierto y la conversación que muestra (null = la lista). */
     panel: { abierto: boolean; conversacion: number | null };
     abrirPanel: (conversacion?: number | null) => void;
@@ -69,30 +75,54 @@ export function ProveedorChatEquipo({ children }: { children: ReactNode }) {
     );
 }
 
+/** Arranque del chat: `null` mientras no hay chat (sin permiso) o ya arrancó. */
+type Arranque = { estado: "cargando" } | { estado: "error"; error: unknown; reintentar: () => void };
+const ContextoArranque = createContext<Arranque | null>(null);
+
+/** Si el chat no pudo arrancar (o aún arranca): para mostrar el error con «Reintentar». */
+export function useArranqueChat(): Arranque | null {
+    return useContext(ContextoArranque);
+}
+
+/** Lo que dura como mucho «vaciar» antes de seguir (cerrar sesión no espera más). */
+const TOPE_VACIAR_MS = 3_000;
+
 function ConMotor({ usuarioId, empresaId, children }: { usuarioId: number; empresaId: number | undefined; children: ReactNode }) {
-    const [abierto, setAbierto] = useState<MotorChat | null>(null);
+    const [abierto, setAbierto] = useState<{ intento: number; motor: MotorChat } | { intento: number; error: unknown } | null>(null);
+    const [intento, setIntento] = useState(0);
     useEffect(() => {
         let vivo = true;
         let motor: MotorChat | null = null;
-        void abrirChatPanel({ usuarioId, empresaId }).then((c) => {
-            if (!vivo) return;
-            motor = c;
-            setAbierto(c);
-        });
+        abrirChatPanel({ usuarioId, empresaId }).then(
+            (c) => {
+                if (!vivo) return;
+                motor = c;
+                setAbierto({ intento, motor: c });
+            },
+            (error: unknown) => {
+                if (vivo) setAbierto({ intento, error });
+            },
+        );
         return () => {
             vivo = false;
             motor?.detener();
         };
-    }, [usuarioId, empresaId]);
-    if (!abierto) return children;
+    }, [usuarioId, empresaId, intento]);
+    const reintentar = useCallback(() => setIntento((i) => i + 1), []);
+    const actual = abierto?.intento === intento ? abierto : null;
+    const arranque = useMemo<Arranque>(
+        () => (actual && "error" in actual ? { estado: "error", error: actual.error, reintentar } : { estado: "cargando" }),
+        [actual, reintentar],
+    );
+    if (!actual || !("motor" in actual)) return <ContextoArranque.Provider value={arranque}>{children}</ContextoArranque.Provider>;
     return (
-        <ChatActivo motor={abierto} yoId={usuarioId}>
+        <ChatActivo motor={actual.motor} yoId={usuarioId} empresaId={empresaId}>
             {children}
         </ChatActivo>
     );
 }
 
-function ChatActivo({ motor, yoId, children }: { motor: MotorChat; yoId: number; children: ReactNode }) {
+function ChatActivo({ motor, yoId, empresaId, children }: { motor: MotorChat; yoId: number; empresaId: number | undefined; children: ReactNode }) {
     const { puede } = useSesion();
     const estado = useSyncExternalStore(motor.suscribir, motor.obtenerEstado, motor.obtenerEstado);
 
@@ -116,7 +146,7 @@ function ChatActivo({ motor, yoId, children }: { motor: MotorChat; yoId: number;
         };
     }, [motor]);
 
-    // «Eliminar» con 5 s para «Deshacer» (§3.1).
+    // «Eliminar» con 5 s para «Deshacer» (§3.1). El plazo se vuelve a comprobar al pedirlo y al salir.
     const [, setVersionEliminando] = useState(0);
     const eliminaciones = useMemo(
         () =>
@@ -126,27 +156,45 @@ function ChatActivo({ motor, yoId, children }: { motor: MotorChat; yoId: number;
                         avisar({ tono: "error", titulo: "No se pudo eliminar el mensaje", descripcion: e instanceof Error ? e.message : undefined });
                     });
                 },
-                alSalir: eliminarAlSalir,
+                alVencer: () => avisar({ tono: "error", titulo: "No se eliminó el mensaje", descripcion: "Ya pasaron los 15 minutos para eliminarlo: sigue visible para todos." }),
+                // La empresa de este chat (fija), nunca la activa al momento de salir.
+                alSalir: (id) => eliminarAlSalir(id, empresaId),
                 alCambiar: () => setVersionEliminando((v) => v + 1),
             }),
-        [motor],
+        [motor, empresaId],
     );
+    const vaciar = useCallback(async () => {
+        const ids = eliminaciones.sacarTodo();
+        if (ids.length === 0) return;
+        const todo = (async () => {
+            for (const id of ids) {
+                await motor.eliminar(id).catch(() => undefined);
+            }
+            await motor.enviarPendientes().catch(() => undefined);
+        })();
+        await Promise.race([todo, new Promise<void>((r) => setTimeout(r, TOPE_VACIAR_MS))]);
+    }, [eliminaciones, motor]);
     useEffect(() => {
-        const salir = () => eliminaciones.vaciarAlSalir();
+        // La página se descarga: no hay tiempo de esperar, sale con `keepalive`.
+        const descarga = () => eliminaciones.vaciarAlSalir();
+        // Pestaña oculta: sale ya por la cola del motor (verifica la sesión antes de enviar).
         const oculta = () => {
-            if (document.visibilityState === "hidden") salir();
+            if (document.visibilityState === "hidden") void vaciar();
         };
-        window.addEventListener("pagehide", salir);
+        window.addEventListener("pagehide", descarga);
         document.addEventListener("visibilitychange", oculta);
         return () => {
-            window.removeEventListener("pagehide", salir);
+            window.removeEventListener("pagehide", descarga);
             document.removeEventListener("visibilitychange", oculta);
-            salir();
+            descarga();
         };
-    }, [eliminaciones]);
+    }, [eliminaciones, vaciar]);
     const eliminar = useCallback(
-        (mensajeId: string) => {
-            eliminaciones.pedir(mensajeId);
+        (m: MensajeVista) => {
+            if (!eliminaciones.pedir(m)) {
+                avisar({ tono: "error", titulo: "Ya no se puede eliminar", descripcion: "Pasaron los 15 minutos desde que se envió." });
+                return;
+            }
             avisar({
                 tono: "info",
                 titulo: "Mensaje eliminado",
@@ -154,7 +202,11 @@ function ChatActivo({ motor, yoId, children }: { motor: MotorChat; yoId: number;
                 accion: {
                     texto: "Deshacer",
                     alPresionar: () => {
-                        if (eliminaciones.deshacer(mensajeId)) avisar({ titulo: "Mensaje restaurado" });
+                        if (eliminaciones.deshacer(m.id)) {
+                            avisar({ titulo: "Mensaje restaurado" });
+                        } else {
+                            avisar({ tono: "error", titulo: "Ya se eliminó; no se pudo deshacer" });
+                        }
                     },
                 },
             });
@@ -242,12 +294,13 @@ function ChatActivo({ motor, yoId, children }: { motor: MotorChat; yoId: number;
             reintentar,
             eliminando,
             eliminar,
+            vaciar,
             panel,
             abrirPanel,
             cerrarPanel,
             elegirEnPanel,
         }),
-        [motor, estado, yoId, puedeEnviar, puedeSupervisar, resumen, enVivo, reintentar, eliminando, eliminar, panel, abrirPanel, cerrarPanel, elegirEnPanel],
+        [motor, estado, yoId, puedeEnviar, puedeSupervisar, resumen, enVivo, reintentar, eliminando, eliminar, vaciar, panel, abrirPanel, cerrarPanel, elegirEnPanel],
     );
     return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;
 }

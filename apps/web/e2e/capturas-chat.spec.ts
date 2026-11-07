@@ -73,3 +73,13 @@ test("captura de «Reconectando…»", async ({ page }) => {
     await expect(page.locator('[data-slot="aviso"]').filter({ hasText: "Sin conexión en vivo" })).toBeVisible({ timeout: 15_000 });
     await page.screenshot({ path: nombre(page, "reconectando") });
 });
+
+test("fichas con muchas pestañas en el teléfono (Ticket y Orden)", async ({ page }) => {
+    test.skip(!esTelefono(page), "solo a 390 px");
+    await abrir(page, "/tickets/1");
+    await expect(page.getByRole("tablist").first()).toBeVisible();
+    await page.screenshot({ path: nombre(page, "ficha-ticket") });
+    await page.goto(`/ordenes/${ORDEN_VIVA}`);
+    await expect(page.getByRole("tab", { name: /Chat del equipo/ })).toBeAttached();
+    await page.screenshot({ path: nombre(page, "ficha-orden") });
+});

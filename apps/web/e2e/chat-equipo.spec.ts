@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, conSesion, simularApi, type ApiFalsa } from "./api-falsa";
 import { CONV, MARIO, ORDEN_CERRADA, ORDEN_SIN_CHAT, ORDEN_VIVA, PEDRO, type ApiChatPanel } from "./api-chat-panel";
-import { esTelefono } from "./ayudas";
+import { abrirMenu, esTelefono, hojaMas } from "./ayudas";
 import { elegirSugerencia } from "./controles";
 import { esperarSinDesbordes } from "./desbordes";
 
@@ -153,6 +153,34 @@ test.describe("chat del equipo", () => {
         await expect(page.locator(`[data-mensaje="${id}"]`)).toHaveAttribute("data-eliminado", "true");
         await expect.poll(() => chat.eliminados, { timeout: 10_000 }).toEqual([id]);
         await expect(page.locator(`[data-mensaje="${id}"]`)).toContainText("Mensaje eliminado");
+    });
+
+    test("cerrar sesión con una eliminación esperando su «Deshacer»: sale antes de cerrar la sesión", async ({ page }) => {
+        const { chat } = await abrir(page, `/equipo?c=${CONV.directaLaura}`);
+        const orden: string[] = [];
+        page.on("request", (r) => orden.push(`${r.method()} ${new URL(r.url()).pathname}`));
+        await compositor(page).fill("Se borra al salir");
+        await page.keyboard.press("Enter");
+        const mensaje = page.locator("[data-mensaje]").filter({ hasText: "Se borra al salir" });
+        await expect(mensaje.locator('[data-slot="estado-envio"]')).toHaveText("enviado");
+        const id = await mensaje.getAttribute("data-mensaje");
+        await mensaje.getByRole("button", { name: "Opciones del mensaje" }).click();
+        await page.getByRole("menuitem", { name: "Eliminar" }).click();
+        await expect(page.locator(`[data-mensaje="${id}"]`)).toHaveAttribute("data-eliminado", "true");
+        if (esTelefono(page)) {
+            // Dentro de la conversación la barra inferior se oculta: «Atrás» vuelve a la lista.
+            await page.getByRole("button", { name: "Atrás" }).click();
+            await abrirMenu(page);
+            await hojaMas(page).getByRole("menuitem", { name: "Cerrar sesión" }).click();
+        } else {
+            await page.getByRole("button", { name: /^Tu cuenta/ }).click();
+            await page.getByRole("dialog", { name: "Tu cuenta y disponibilidad" }).getByRole("menuitem", { name: "Cerrar sesión" }).click();
+        }
+        await expect(page).toHaveURL(/\/entrar/);
+        expect(chat.eliminados).toEqual([id]);
+        // Salió por la cola (con la sesión verificada), antes de `DELETE /sesion`.
+        expect(orden.indexOf(`POST /api/v1/mensajeria/chat/mensajes/${id}/eliminar`)).toBeGreaterThan(-1);
+        expect(orden.indexOf(`POST /api/v1/mensajeria/chat/mensajes/${id}/eliminar`)).toBeLessThan(orden.indexOf("DELETE /api/v1/sesion"));
     });
 
     test("pestaña «Chat del equipo» de la orden: hilo, miembros y «Agregar persona»", async ({ page }) => {
