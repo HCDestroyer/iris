@@ -21597,7 +21597,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["MensajeChat"];
+                };
             };
             /** @description Created */
             201: {
@@ -21768,13 +21770,13 @@ export interface operations {
                     "application/json": components["schemas"]["MiembrosChat"];
                 };
             };
-            /** @description Created */
+            /** @description Se agregó: los miembros con el nuevo */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problema"];
+                    "application/json": components["schemas"]["MiembrosChat"];
                 };
             };
             /** @description Unauthorized */
@@ -21906,13 +21908,13 @@ export interface operations {
                     "application/json": components["schemas"]["ConversacionChatDetalle"];
                 };
             };
-            /** @description Created */
+            /** @description Se creó la conversación */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problema"];
+                    "application/json": components["schemas"]["ConversacionChatDetalle"];
                 };
             };
             /** @description Unauthorized */
@@ -21987,13 +21989,13 @@ export interface operations {
                     "application/json": components["schemas"]["ConversacionChatDetalle"];
                 };
             };
-            /** @description Created */
+            /** @description Se creó la conversación */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problema"];
+                    "application/json": components["schemas"]["ConversacionChatDetalle"];
                 };
             };
             /** @description Unauthorized */
@@ -22216,13 +22218,13 @@ export interface operations {
                     "application/json": components["schemas"]["ConversacionChatDetalle"];
                 };
             };
-            /** @description Created */
+            /** @description Se creó el hilo o te uniste */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problema"];
+                    "application/json": components["schemas"]["ConversacionChatDetalle"];
                 };
             };
             /** @description Unauthorized */

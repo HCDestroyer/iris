@@ -86,6 +86,9 @@ export class ServidorChatFalso implements TransporteChat {
             cuadrilla_id: null,
             orden_id: null,
             orden_estado: null,
+            orden_tipo: null,
+            menciones: 0,
+            solo_lectura: false,
             no_leidos: 0,
             leido_hasta_mensaje_id: null,
             ultima_actividad: new Date(this.ahora()).toISOString(),
@@ -111,6 +114,7 @@ export class ServidorChatFalso implements TransporteChat {
             enviado_en: new Date(this.ahora()).toISOString(),
             eliminado: false,
             eliminado_en: null,
+            menciones: [],
         };
         lista.push(m);
         this.mensajes.set(conversacionId, lista);
@@ -120,7 +124,7 @@ export class ServidorChatFalso implements TransporteChat {
             c.ultima_actividad = m.enviado_en;
             c.ultimo_mensaje = { id: m.id, autor_id: m.autor_id, autor_nombre: m.autor_nombre, contenido: "texto", texto, enviado_en: m.enviado_en };
         }
-        this.emitir({ tipo: "mensaje_nuevo", conversacion_id: conversacionId, no_leidos: c?.no_leidos ?? 0, mensaje: structuredClone(m) });
+        this.emitir({ tipo: "mensaje_nuevo", menciones: 0, conversacion_id: conversacionId, no_leidos: c?.no_leidos ?? 0, mensaje: structuredClone(m) });
         return m;
     }
 
@@ -133,6 +137,7 @@ export class ServidorChatFalso implements TransporteChat {
             tipo: "leido",
             conversacion_id: conversacionId,
             no_leidos: this.conversaciones.get(conversacionId)?.no_leidos ?? 0,
+            menciones: 0,
             lectura: { usuario_id: usuario.id, hasta_mensaje_id: mensajeId, leido_en: l.leido_en },
         });
     }
@@ -236,11 +241,12 @@ export class ServidorChatFalso implements TransporteChat {
             enviado_en: new Date(this.ahora()).toISOString(),
             eliminado: false,
             eliminado_en: null,
+            menciones: [],
             ...(cuerpo.ubicacion ? { ubicacion: cuerpo.ubicacion } : {}),
             ...(cuerpo.adjunto_id ? { adjunto: { id: cuerpo.adjunto_id, estado: "subiendo" as const, url_descarga: `/api/v1/adjuntos/${cuerpo.adjunto_id}` } } : {}),
         };
         lista.push(m);
-        this.emitir({ tipo: "mensaje_nuevo", conversacion_id: conversacionId, no_leidos: this.conversaciones.get(conversacionId)?.no_leidos ?? 0, mensaje: structuredClone(m) });
+        this.emitir({ tipo: "mensaje_nuevo", menciones: 0, conversacion_id: conversacionId, no_leidos: this.conversaciones.get(conversacionId)?.no_leidos ?? 0, mensaje: structuredClone(m) });
         return Promise.resolve({ mensaje: structuredClone(m), reenvio: false });
     }
 
@@ -255,7 +261,7 @@ export class ServidorChatFalso implements TransporteChat {
                 Object.assign(m, { eliminado: true, eliminado_en: new Date(this.ahora()).toISOString(), texto: null });
                 delete m.adjunto;
                 delete m.ubicacion;
-                this.emitir({ tipo: "mensaje_eliminado", conversacion_id: m.conversacion_id, no_leidos: 0, mensaje: structuredClone(m) });
+                this.emitir({ tipo: "mensaje_eliminado", menciones: 0, conversacion_id: m.conversacion_id, no_leidos: 0, mensaje: structuredClone(m) });
                 return Promise.resolve(structuredClone(m));
             }
         }

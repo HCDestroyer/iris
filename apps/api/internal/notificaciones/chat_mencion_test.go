@@ -16,6 +16,13 @@ func TestChatMencionDePuntaAPunta(t *testing.T) {
 	despacho := e.persona([]int64{1}, "despacho")
 	sup := e.persona([]int64{1}, "supervisor")
 	tokTec, tokDespacho, tokSup := e.dispositivo(tec), e.dispositivo(despacho), e.dispositivo(sup)
+	// La supervisión global ve todos los chats de la empresa 1: que no reciba los push de las demás
+	// pruebas del paquete.
+	t.Cleanup(func() {
+		if _, err := e.bd.Exec(e.ctx, `UPDATE nucleo.usuarios SET activo = false WHERE id = $1`, sup.id); err != nil {
+			t.Error(err)
+		}
+	})
 	orden, numero := e.orden(1, tec.id, time.Date(2026, 11, 6, 20, 0, 0, 0, time.UTC), time.Date(2026, 11, 6, 22, 0, 0, 0, time.UTC))
 	r := e.esperar(e.api(despacho, http.MethodPost, fmt.Sprintf("/api/v1/mensajeria/chat/ordenes/%d/abrir", orden), nil), http.StatusCreated)
 	conv := int64(r.cuerpo["id"].(float64))

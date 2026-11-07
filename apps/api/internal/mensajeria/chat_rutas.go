@@ -3,6 +3,8 @@ package mensajeria
 import (
 	"context"
 	"net/http"
+	"reflect"
+	"strconv"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -17,6 +19,18 @@ import (
 type salidaConStatus[T any] struct {
 	Status int
 	Body   T
+}
+
+// otraRespuesta declara en el OpenAPI una respuesta exitosa más (p. ej. 201 junto al 200) con el
+// mismo cuerpo T: huma solo documenta el cuerpo del status por defecto, y un status en Errors se
+// documenta como Problema.
+func otraRespuesta[T any](api huma.API, o *huma.Operation, status int, descripcion string) {
+	if o.Responses == nil {
+		o.Responses = map[string]*huma.Response{}
+	}
+	esquema := api.OpenAPI().Components.Schemas.Schema(reflect.TypeFor[T](), true, "")
+	o.Responses[strconv.Itoa(status)] = &huma.Response{Description: descripcion,
+		Content: map[string]*huma.MediaType{"application/json": {Schema: esquema}}}
 }
 
 func conStatus[T any](v T, nueva bool, err error) (*salidaConStatus[T], error) {
@@ -130,10 +144,11 @@ func (m *Modulo) registrarChat(api huma.API) {
 	})
 
 	agregar := op("agregarMiembroChat", http.MethodPost, base+"/conversaciones/{id}/miembros", "Agregar a alguien al chat de una orden",
-		nucleo.PermChatSupervisar, http.StatusOK, http.StatusCreated, http.StatusForbidden, http.StatusNotFound)
+		nucleo.PermChatSupervisar, http.StatusOK, http.StatusForbidden, http.StatusNotFound)
 	agregar.Description += " Con `chat.supervisar` que cubra la orden (403 `fuera_de_alcance`). Solo hilos de orden (422 `tipo_no_admite_miembros`) " +
 		"que no estén cerrados (422 `conversacion_cerrada`). El agregado: persona activa de la empresa con `chat.ver` (422 `usuario_no_disponible`). " +
 		"201 si se agregó (emite chat.miembro_agregado); 200 si ya lo veía. Responde los miembros."
+	otraRespuesta[MiembrosChat](api, &agregar, http.StatusCreated, "Se agregó: los miembros con el nuevo")
 	huma.Register(api, agregar, func(ctx context.Context, in *entradaAgregarMiembroHTTP) (*salidaConStatus[MiembrosChat], error) {
 		r, err := m.Chat.AgregarMiembro.Ejecutar(ctx, EntradaAgregarMiembro{ConversacionID: in.ID, UsuarioID: in.Body.UsuarioID})
 		return conStatus(r, r.Nuevo, err)
@@ -160,25 +175,28 @@ func (m *Modulo) registrarChat(api huma.API) {
 	})
 
 	directa := op("abrirDirectaChat", http.MethodPost, base+"/directas", "Abrir (o traer) la conversación directa con un usuario",
-		nucleo.PermChatEnviar, http.StatusOK, http.StatusCreated)
+		nucleo.PermChatEnviar, http.StatusOK)
 	directa.Description += " 201 si se creó, 200 si ya existía. 422 `usuario_no_disponible` si el otro no existe, no está activo, no opera en la empresa activa o no tiene `chat.ver`."
+	otraRespuesta[ConversacionChatDetalle](api, &directa, http.StatusCreated, "Se creó la conversación")
 	huma.Register(api, directa, func(ctx context.Context, in *entradaAbrirDirectaHTTP) (*salidaConStatus[ConversacionChatDetalle], error) {
 		r, err := m.Chat.AbrirDirecta.Ejecutar(ctx, in.Body)
 		return conStatus(r.ConversacionChatDetalle, r.Nueva, err)
 	})
 
 	cuad := op("abrirCuadrillaChat", http.MethodPost, base+"/cuadrillas/{cuadrilla_id}/abrir", "Abrir (o traer) el chat de una cuadrilla",
-		nucleo.PermChatEnviar, http.StatusOK, http.StatusCreated, http.StatusNotFound)
+		nucleo.PermChatEnviar, http.StatusOK, http.StatusNotFound)
 	cuad.Description += " Uno por cuadrilla y empresa. Lo abre un técnico de la cuadrilla o quien la supervisa (`chat.supervisar`); si no, 404."
+	otraRespuesta[ConversacionChatDetalle](api, &cuad, http.StatusCreated, "Se creó la conversación")
 	huma.Register(api, cuad, func(ctx context.Context, in *entradaAbrirCuadrillaHTTP) (*salidaConStatus[ConversacionChatDetalle], error) {
 		r, err := m.Chat.AbrirCuadrilla.Ejecutar(ctx, EntradaAbrirCuadrilla{CuadrillaID: in.CuadrillaID})
 		return conStatus(r.ConversacionChatDetalle, r.Nueva, err)
 	})
 
 	orden := op("abrirOrdenChat", http.MethodPost, base+"/ordenes/{orden_id}/abrir", "Abrir (o traer) el hilo de una orden",
-		nucleo.PermChatEnviar, http.StatusOK, http.StatusCreated, http.StatusNotFound)
+		nucleo.PermChatEnviar, http.StatusOK, http.StatusNotFound)
 	orden.Description += " Uno por orden. Lo abre su técnico, quien la supervisa (`chat.supervisar`) o despacho (`ordenes.ver` con alcance sobre la orden), " +
 		"que queda como miembro. 201 si se creó o te uniste; 200 si ya estabas."
+	otraRespuesta[ConversacionChatDetalle](api, &orden, http.StatusCreated, "Se creó el hilo o te uniste")
 	huma.Register(api, orden, func(ctx context.Context, in *entradaAbrirOrdenHTTP) (*salidaConStatus[ConversacionChatDetalle], error) {
 		r, err := m.Chat.AbrirOrden.Ejecutar(ctx, EntradaAbrirOrden{OrdenID: in.OrdenID})
 		return conStatus(r.ConversacionChatDetalle, r.Nueva, err)
@@ -199,7 +217,7 @@ func (m *Modulo) registrarChat(api huma.API) {
 		"(la aplica el caso: la misma clave con otro `id`, 422 `idempotencia_reutilizada`; no se guarda la respuesta). " +
 		"Texto hasta 4000 caracteres, una foto y/o una ubicación (al menos uno: 422 `mensaje_vacio`). 30 por minuto por usuario (429 `demasiados_mensajes` con `Retry-After`). " +
 		"`menciones`: hasta 20, de quienes están en la conversación (422 `mencion_invalida`, `mencion_sin_texto`). Hilo de una orden cerrada, fallida o cancelada: 422 `conversacion_cerrada`."
-	enviar.Responses = map[string]*huma.Response{"200": {Description: "Reenvío del mismo id: el mensaje tal como está ahora"}}
+	otraRespuesta[MensajeChat](api, &enviar, http.StatusOK, "Reenvío del mismo id: el mensaje tal como está ahora")
 	huma.Register(api, enviar, func(ctx context.Context, in *entradaEnviarHTTP) (*salidaEnviar, error) {
 		e := EntradaEnviarMensaje{ConversacionID: in.ID, ID: in.Body.ID, Texto: in.Body.Texto, AdjuntoID: in.Body.AdjuntoID,
 			Ubicacion: in.Body.Ubicacion, CreadoEn: in.Body.CreadoEn, ConTexto: in.Body.Texto != nil, ConUbicacion: in.Body.Ubicacion != nil,
