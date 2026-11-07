@@ -220,7 +220,7 @@ RETURNING eventos_purgados_hasta;
 -- los destinatarios del push (sin el autor) y para validar menciones.
 WITH candidatos AS (
     SELECT mm.usuario_id, 1 AS prioridad, 'directa'::text AS motivo FROM mensajeria.chat_miembros mm
-    WHERE mm.conversacion_id = @conversacion_id AND mm.origen = 'directa'
+    WHERE mm.conversacion_id = @conversacion_id AND mm.origen = 'directa' AND @tipo::text = 'directa'
     UNION ALL
     SELECT t.usuario_id, 2, 'tecnico' FROM agenda.tecnicos t
     WHERE t.activo AND @tipo::text = 'cuadrilla' AND t.cuadrilla_id = sqlc.narg('cuadrilla_id')::bigint

@@ -78,3 +78,12 @@ func (m *Modulo) FijarFallarFila(f func(id int64) error) { m.fallarFila = f }
 func (m *Modulo) PurgarFotosSinEnviar(ctx context.Context, bd nucleo.BD) error {
 	return m.purgarFotosSinEnviar(ctx, bd)
 }
+
+// ConsultasResumen: cuántas veces GET /chat/resumen calculó (sin el tope de frecuencia).
+func (m *Modulo) ConsultasResumen() int64 { return m.resumenes.consultas.Load() }
+
+// VaciarResumenes olvida los resúmenes guardados (pruebas que comparan contadores al instante).
+func (m *Modulo) VaciarResumenes() { m.resumenes.vaciar() }
+
+// FijarRelojResumen cambia el reloj del tope de frecuencia de GET /chat/resumen.
+func (m *Modulo) FijarRelojResumen(f func() time.Time) { m.resumenes.ahora = f }

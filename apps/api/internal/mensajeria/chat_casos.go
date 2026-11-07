@@ -544,7 +544,8 @@ func nuevoEnviarMensaje(m *Modulo) *auditoria.Caso[EntradaEnviarMensaje, Mensaje
 				return MensajeEnviado{}, err
 			}
 			// Un reenvío del mismo id ya respondió arriba (la cola sin conexión no se traba al cerrarse la
-			// orden); un mensaje nuevo en el hilo de una orden finalizada, no.
+			// orden); un mensaje nuevo en el hilo de una orden finalizada, no. Se lee sin bloquear la orden:
+			// uno que llega a la vez que el cierre puede quedar guardado (aceptado; contratos/chat.md §1).
 			var orden *campobd.CampoOrden
 			if c.Tipo == TipoOrden && c.OrdenID != nil {
 				o, err := campobd.New(t).OrdenPorID(ctx, *c.OrdenID)
@@ -817,6 +818,9 @@ func nuevoMarcarLeido(m *Modulo) *auditoria.Caso[EntradaMarcarLeido, LecturaProp
 			default:
 				return LecturaPropia{}, err
 			}
+			// Su contador de GET /chat/resumen baja enseguida (no espera el tope de frecuencia).
+			claveRes := claveResumen(a.usuario, a.clave())
+			t.AlConfirmar(func(context.Context) { m.resumenes.olvidar(claveRes) })
 			nl, err := q.NoLeidos(ctx, mensajeriabd.NoLeidosParams{Usuario: a.usuario, Ids: []int64{c.ID}})
 			if err != nil {
 				return LecturaPropia{}, err

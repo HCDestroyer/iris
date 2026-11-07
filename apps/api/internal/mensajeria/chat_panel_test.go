@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 )
@@ -27,8 +28,11 @@ func numero(v any) int64 {
 	return int64(f)
 }
 
+// resumenChat lee GET /chat/resumen al instante (sin el tope de frecuencia; ver
+// TestChatResumenTopeDeFrecuencia).
 func (e *entorno) resumenChat(p persona) map[string]any {
 	e.t.Helper()
+	e.m.VaciarResumenes()
 	r := e.chat(p, http.MethodGet, "/resumen", "", nil)
 	e.exigir(r, http.StatusOK)
 	return r.cuerpo
@@ -468,5 +472,91 @@ func TestChatPanelAislamientoEmpresa(t *testing.T) {
 		if fmt.Sprint(numero(cv["id"])) == c {
 			t.Fatal("la búsqueda de la empresa 2 trae un hilo de la 1")
 		}
+	}
+}
+
+func TestChatResumenTopeDeFrecuencia(t *testing.T) {
+	e := nuevoEntorno(t, nil)
+	q := e.equipo(1)
+	ana := e.persona([]int64{1}, rolBase("tecnico"))
+	beto := e.persona([]int64{1}, rolBase("tecnico"))
+	e.ficha(ana.id, q.cuadrilla1)
+	e.ficha(beto.id, q.cuadrilla1)
+	reloj := time.Date(2026, 11, 7, 15, 0, 0, 0, time.UTC)
+	e.m.FijarRelojResumen(func() time.Time { return reloj })
+	t.Cleanup(func() { e.m.FijarRelojResumen(time.Now) })
+	e.m.VaciarResumenes()
+
+	r := e.chat(ana, http.MethodPost, fmt.Sprintf("/cuadrillas/%d/abrir", q.cuadrilla1), "", nil)
+	e.exigir(r, http.StatusCreated)
+	c := idConv(r)
+	e.exigir(e.enviarChat(ana, c, nuevoID(), "uno"), http.StatusCreated)
+
+	leer := func(p persona) int64 {
+		t.Helper()
+		r := e.chat(p, http.MethodGet, "/resumen", "", nil)
+		e.exigir(r, http.StatusOK)
+		return numero(r.cuerpo["no_leidos"])
+	}
+	antes := e.m.ConsultasResumen()
+	// Dos llamadas seguidas: una sola consulta.
+	if n := leer(beto); n != 1 {
+		t.Fatalf("no leídos: %d", n)
+	}
+	if n := leer(beto); n != 1 {
+		t.Fatalf("no leídos (repetido): %d", n)
+	}
+	if d := e.m.ConsultasResumen() - antes; d != 1 {
+		t.Fatalf("consultas: %d (esperaba 1)", d)
+	}
+	// Dentro de los 2 s, un mensaje nuevo de otro aún no se ve (tope de frecuencia)...
+	e.exigir(e.enviarChat(ana, c, nuevoID(), "dos"), http.StatusCreated)
+	reloj = reloj.Add(1900 * time.Millisecond)
+	if n := leer(beto); n != 1 || e.m.ConsultasResumen()-antes != 1 {
+		t.Fatalf("dentro del tope: %d no leídos, %d consultas", n, e.m.ConsultasResumen()-antes)
+	}
+	// ...y al vencer se recalcula.
+	reloj = reloj.Add(200 * time.Millisecond)
+	if n := leer(beto); n != 2 || e.m.ConsultasResumen()-antes != 2 {
+		t.Fatalf("vencido: %d no leídos, %d consultas", n, e.m.ConsultasResumen()-antes)
+	}
+	// Cada usuario (y empresa) tiene el suyo.
+	leer(ana)
+	if d := e.m.ConsultasResumen() - antes; d != 3 {
+		t.Fatalf("otro usuario: %d consultas", d)
+	}
+	// Marcar leído olvida el suyo: su contador baja enseguida.
+	ms := lista(e.chat(beto, http.MethodGet, "/conversaciones/"+c+"/mensajes", "", nil))
+	e.exigir(e.chat(beto, http.MethodPost, "/conversaciones/"+c+"/leer", "", map[string]any{"hasta_mensaje_id": ms[len(ms)-1]["id"]}), http.StatusOK)
+	if n := leer(beto); n != 0 {
+		t.Fatalf("tras leer: %d", n)
+	}
+}
+
+func TestChatAgregarMiembroSinCambiosNoEmite(t *testing.T) {
+	e := nuevoEntorno(t, nil)
+	q := e.equipo(1)
+	tec := e.persona([]int64{1}, rolBase("tecnico"))
+	sup := e.persona([]int64{1}, rolBase("supervisor"))
+	soporte := e.persona([]int64{1}, rolBase("soporte"))
+	o := e.orden(1, q.zona1, q.cuadrilla1, tec.id)
+	r := e.chat(sup, http.MethodPost, fmt.Sprintf("/ordenes/%d/abrir", o), "", nil)
+	e.exigir(r, http.StatusCreated)
+	c := idConv(r)
+	// Una fila que no le deja ver el hilo y que AgregarMiembroChat no convierte (solo «unido» pasa a
+	// «agregado»): el INSERT no afecta filas.
+	if _, err := e.bd.Exec(e.ctx, `INSERT INTO mensajeria.chat_miembros (conversacion_id, usuario_id, origen) VALUES ($1, $2, 'directa')`, c, soporte.id); err != nil {
+		t.Fatal(err)
+	}
+	e.exigir(e.chat(soporte, http.MethodGet, "/conversaciones/"+c, "", nil), http.StatusNotFound)
+	e.exigir(e.chat(sup, http.MethodPost, "/conversaciones/"+c+"/miembros", "", map[string]any{"usuario_id": soporte.id}), http.StatusOK)
+	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'chat.miembro_agregado' AND payload->>'conversacion_id' = $1`, c); n != 0 {
+		t.Fatalf("chat.miembro_agregado sin cambios: %d", n)
+	}
+	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'chat.agregar_miembro' AND resultado = 'ok' AND entidad_id = $1`, c); n != 0 {
+		t.Fatalf("auditoría sin cambios: %d", n)
+	}
+	if n := e.contar(`SELECT count(*) FROM mensajeria.chat_eventos WHERE conversacion_id = $1 AND tipo = 'conversacion_actualizada'`, c); n != 1 {
+		t.Fatalf("feed: %d (solo el de abrir)", n)
 	}
 }

@@ -1150,7 +1150,7 @@ func (q *Queries) MensajesPorIDs(ctx context.Context, ids []uuid.UUID) ([]Mensaj
 const miembrosChat = `-- name: MiembrosChat :many
 WITH candidatos AS (
     SELECT mm.usuario_id, 1 AS prioridad, 'directa'::text AS motivo FROM mensajeria.chat_miembros mm
-    WHERE mm.conversacion_id = $1 AND mm.origen = 'directa'
+    WHERE mm.conversacion_id = $1 AND mm.origen = 'directa' AND $2::text = 'directa'
     UNION ALL
     SELECT t.usuario_id, 2, 'tecnico' FROM agenda.tecnicos t
     WHERE t.activo AND $2::text = 'cuadrilla' AND t.cuadrilla_id = $3::bigint

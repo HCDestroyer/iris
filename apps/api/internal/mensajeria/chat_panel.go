@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	campobd "github.com/HCDestroyer/iris/apps/api/internal/campo/bd"
@@ -100,6 +104,77 @@ type PorTipoChat struct {
 // EntradaResumenChat es GET /chat/resumen.
 type EntradaResumenChat struct{}
 
+// vigenciaResumen: GET /chat/resumen reutiliza el resultado de hace menos de esto (por usuario y
+// empresa). Tope de frecuencia: el panel lo pide tras los eventos del feed.
+const vigenciaResumen = 2 * time.Second
+
+// maxResumenes: entradas en memoria antes de barrer las vencidas.
+const maxResumenes = 10_000
+
+// cacheResumen guarda el último resumen por usuario y empresa, en memoria del proceso y con
+// vencimiento. Marcar leído olvida el del usuario (al confirmar): su propio contador baja enseguida;
+// lo que escriben otros aparece a más tardar en vigenciaResumen.
+type cacheResumen struct {
+	mu       sync.Mutex
+	vigencia time.Duration
+	ahora    func() time.Time
+	datos    map[string]resumenGuardado
+	// consultas: cuántas veces se calculó (pruebas).
+	consultas atomic.Int64
+}
+
+type resumenGuardado struct {
+	valor ResumenChat
+	vence time.Time
+}
+
+func nuevoCacheResumen(vigencia time.Duration) *cacheResumen {
+	return &cacheResumen{vigencia: vigencia, ahora: time.Now, datos: map[string]resumenGuardado{}}
+}
+
+func claveResumen(usuario int64, empresa string) string {
+	return strconv.FormatInt(usuario, 10) + ":" + empresa
+}
+
+func (c *cacheResumen) leer(clave string) (ResumenChat, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	g, ok := c.datos[clave]
+	if !ok || !c.ahora().Before(g.vence) {
+		return ResumenChat{}, false
+	}
+	return g.valor, true
+}
+
+func (c *cacheResumen) guardar(clave string, v ResumenChat) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ahora := c.ahora()
+	if len(c.datos) >= maxResumenes {
+		for k, g := range c.datos {
+			if !ahora.Before(g.vence) {
+				delete(c.datos, k)
+			}
+		}
+		if len(c.datos) >= maxResumenes {
+			c.datos = map[string]resumenGuardado{}
+		}
+	}
+	c.datos[clave] = resumenGuardado{valor: v, vence: ahora.Add(c.vigencia)}
+}
+
+func (c *cacheResumen) olvidar(clave string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.datos, clave)
+}
+
+func (c *cacheResumen) vaciar() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.datos = map[string]resumenGuardado{}
+}
+
 func nuevoResumenChat(m *Modulo) *auditoria.Caso[EntradaResumenChat, ResumenChat] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaResumenChat, ResumenChat]{
 		Accion: "chat.resumen", Permiso: nucleo.PermChatVer, AuditarExito: sinAuditar[ResumenChat],
@@ -108,6 +183,11 @@ func nuevoResumenChat(m *Modulo) *auditoria.Caso[EntradaResumenChat, ResumenChat
 			if err != nil {
 				return ResumenChat{}, err
 			}
+			clave := claveResumen(a.usuario, a.clave())
+			if r, ok := m.resumenes.leer(clave); ok {
+				return r, nil
+			}
+			m.resumenes.consultas.Add(1)
 			filas, err := mensajeriabd.New(t).ResumenChat(ctx, mensajeriabd.ResumenChatParams{Usuario: a.usuario, Empresa: a.empresa, Todas: a.todas,
 				SupGlobal: a.global, SupZonas: a.zonas, SupCuadrillas: a.cuadrillas, OrdGlobal: a.ordGlobal, OrdZonas: a.ordZonas, OrdCuadrillas: a.ordCuadrillas})
 			if err != nil {
@@ -130,6 +210,7 @@ func nuevoResumenChat(m *Modulo) *auditoria.Caso[EntradaResumenChat, ResumenChat
 				r.ConversacionesNoLeidas += c.ConversacionesNoLeidas
 				r.RequiereAccion += c.RequiereAccion
 			}
+			m.resumenes.guardar(clave, r)
 			return r, nil
 		},
 	})
@@ -215,6 +296,7 @@ func nuevoAgregarMiembro(m *Modulo) *auditoria.Caso[EntradaAgregarMiembro, Miemb
 				return MiembrosChat{}, nucleo.NuevoProblema(http.StatusForbidden, "fuera_de_alcance", "Fuera de tu alcance",
 					"Tu permiso chat.supervisar no cubre esta orden (su zona o su cuadrilla)")
 			}
+			// Sin bloquear la orden: un agregado a la vez que el cierre puede quedar (contratos/chat.md §1).
 			if ordenFinalizada(o.Estado) {
 				return MiembrosChat{}, conversacionCerrada()
 			}
@@ -229,9 +311,15 @@ func nuevoAgregarMiembro(m *Modulo) *auditoria.Caso[EntradaAgregarMiembro, Miemb
 				return MiembrosChat{Data: aMiembros(ms)}, nil
 			}
 			ahora := m.ahora()
-			if _, err := q.AgregarMiembroChat(ctx, mensajeriabd.AgregarMiembroChatParams{ConversacionID: c.ID, UsuarioID: in.UsuarioID,
-				AgregadoPor: &a.usuario, Ahora: ahora}); err != nil {
+			n, err := q.AgregarMiembroChat(ctx, mensajeriabd.AgregarMiembroChatParams{ConversacionID: c.ID, UsuarioID: in.UsuarioID,
+				AgregadoPor: &a.usuario, Ahora: ahora})
+			if err != nil {
 				return MiembrosChat{}, err
+			}
+			if n == 0 {
+				// Ya tenía una fila que no se convierte (solo «unido» pasa a «agregado»): nada cambió, ni
+				// evento ni auditoría.
+				return MiembrosChat{Data: aMiembros(ms)}, nil
 			}
 			if err := t.Emitir("chat.miembro_agregado", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID, "orden_id": o.ID,
 				"usuario_id": in.UsuarioID, "agregado_por": a.usuario}); err != nil {
