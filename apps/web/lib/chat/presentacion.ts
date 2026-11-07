@@ -1,7 +1,7 @@
 // Lógica de pantalla del chat del equipo en el panel (sin React): filtros, insignias, títulos,
 // menciones con @ y roles. Lo que comparte con la app de campo viene de `@iris/sync/chat`.
 import { segmentosTexto, tituloConversacion, type ConversacionVista } from "@iris/sync/chat";
-import { mencionesDe, ordenTipoDe, type MiembroChat, type MotivoMiembro, type ResumenChat } from "./provisional";
+import { mencionesDe, ordenTipoDe, type MiembroChat, type MotivoMiembro, type ResumenChat } from "./api";
 
 export type FiltroChat = "todas" | "directas" | "cuadrillas" | "ordenes";
 export const FILTROS_CHAT: readonly FiltroChat[] = ["todas", "directas", "cuadrillas", "ordenes"];

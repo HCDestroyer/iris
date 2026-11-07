@@ -1,21 +1,15 @@
 "use client";
 
 import { AreaTexto, avisar, Boton, Camara, cn, idOpcion, inicialesDe, ListaSugerencias, teclasSugerencias } from "@iris/ui";
-import { ErrorChatLocal, MAXIMO_TEXTO, textoValido, type MotorChat, type TransporteChat } from "@iris/sync/chat";
-import { ErrorTransporte } from "@iris/sync";
+import { MAXIMO_TEXTO, textoValido, type MotorChat } from "@iris/sync/chat";
 import { Camera, Info, Lock, MapPin, Send } from "lucide-react";
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import { comprimirFoto } from "@/lib/campo/imagen";
-import { idTrasErrorChat, enviarConMenciones } from "@/lib/chat/enviar";
 import { aplicarMencion, candidatosMencion, consultaMencion, mencionesVigentes, textoMotivo, type ConsultaMencion } from "@/lib/chat/presentacion";
-import type { MiembroChat } from "@/lib/chat/provisional";
-import { nuevoIdMensaje } from "@/lib/conversaciones/api";
-import { verificarSesion } from "@/lib/conversaciones/sesion";
-import { useSesion } from "@/lib/sesion";
+import type { MiembroChat } from "@/lib/chat/api";
 
 type Props = {
     motor: MotorChat;
-    transporte: TransporteChat;
     conversacionId: number;
     tipo: "directa" | "cuadrilla" | "orden";
     /** «Escribe en OT-000214…». */
@@ -39,8 +33,7 @@ function useAnchoTelefono(): boolean {
 }
 
 /** Compositor del chat del equipo: Enter envía, Mayús + Enter baja de línea, `@` menciona. */
-export function CompositorChat({ motor, transporte, conversacionId, tipo, nombre, miembros, yoId, bloqueado, className }: Props) {
-    const { yo } = useSesion();
+export function CompositorChat({ motor, conversacionId, tipo, nombre, miembros, yoId, bloqueado, className }: Props) {
     const [texto, setTexto] = useState("");
     const [elegidos, setElegidos] = useState<{ id: number; nombre: string }[]>([]);
     const [consulta, setConsulta] = useState<ConsultaMencion | null>(null);
@@ -48,7 +41,6 @@ export function CompositorChat({ motor, transporte, conversacionId, tipo, nombre
     const [enviando, setEnviando] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const area = useRef<HTMLTextAreaElement>(null);
-    const idEnvio = useRef<string | null>(null);
     const idLista = useId();
     const telefono = useAnchoTelefono();
     const conGeo = typeof navigator !== "undefined" && "geolocation" in navigator;
@@ -59,7 +51,6 @@ export function CompositorChat({ motor, transporte, conversacionId, tipo, nombre
         setElegidos([]);
         setConsulta(null);
         setError(null);
-        idEnvio.current = null;
     }, [conversacionId]);
 
     const candidatos = consulta ? candidatosMencion(miembros, consulta.texto, yoId) : [];
@@ -85,6 +76,7 @@ export function CompositorChat({ motor, transporte, conversacionId, tipo, nombre
         });
     };
 
+    // Todo envío pasa por la cola del motor (id uuid v7 al escribir, idempotente y sin señal).
     const enviar = async () => {
         if (bloqueado || enviando || !valido.valido) return;
         const limpio = texto.trim();
@@ -92,29 +84,12 @@ export function CompositorChat({ motor, transporte, conversacionId, tipo, nombre
         setError(null);
         setEnviando(true);
         try {
-            if (menciones.length > 0) {
-                await verificarSesion({ usuarioId: yo.usuario.id, empresaId: yo.empresaActiva?.id });
-                const id = (idEnvio.current ??= nuevoIdMensaje());
-                await enviarConMenciones(transporte, conversacionId, id, limpio, menciones);
-                idEnvio.current = null;
-                void motor.cargarConversacion(conversacionId);
-            } else {
-                await motor.escribir(conversacionId, { texto: limpio });
-            }
+            await motor.escribir(conversacionId, { texto: limpio, ...(menciones.length > 0 ? { menciones } : {}) });
             setTexto("");
             setElegidos([]);
             setConsulta(null);
         } catch (e) {
-            idEnvio.current = idTrasErrorChat(e, idEnvio.current ?? nuevoIdMensaje());
-            setError(
-                e instanceof ErrorTransporte && e.codigo === "conversacion_cerrada"
-                    ? "La orden se cerró: el chat ya no recibe mensajes."
-                    : e instanceof ErrorTransporte && e.codigo === "mencion_invalida"
-                      ? "Alguien que mencionaste ya no está en este chat. Quita la mención y vuelve a enviar."
-                      : e instanceof ErrorChatLocal || e instanceof Error
-                        ? e.message
-                        : "No se pudo enviar.",
-            );
+            setError(e instanceof Error ? e.message : "No se pudo enviar.");
         } finally {
             setEnviando(false);
         }
@@ -147,7 +122,11 @@ export function CompositorChat({ motor, transporte, conversacionId, tipo, nombre
             () =>
                 new Promise<void>((resolver, rechazar) => {
                     navigator.geolocation.getCurrentPosition(
-                        (p) => void motor.escribir(conversacionId, { ubicacion: { lat: p.coords.latitude, lon: p.coords.longitude } }).then(resolver, rechazar),
+                        (p) =>
+                            void motor.escribir(conversacionId, { ubicacion: { lat: p.coords.latitude, lon: p.coords.longitude } }).then(
+                                () => resolver(),
+                                rechazar,
+                            ),
                         () => rechazar(new Error("No se pudo leer tu ubicación. Revisa el permiso del navegador.")),
                         { enableHighAccuracy: true, timeout: 15_000 },
                     );

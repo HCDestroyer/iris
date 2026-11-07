@@ -14,7 +14,7 @@ import {
     textoMotivo,
     tituloChat,
 } from "./presentacion";
-import type { MiembroChat } from "./provisional";
+import type { MiembroChat } from "./api";
 
 function conv(datos: Partial<ConversacionVista> & Pick<ConversacionVista, "id" | "tipo" | "titulo"> & { menciones?: number; orden_tipo?: string }): ConversacionVista {
     return {

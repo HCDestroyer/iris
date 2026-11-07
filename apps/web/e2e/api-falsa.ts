@@ -1,6 +1,7 @@
 import type { Schema } from "@iris/contratos";
 import type { BrowserContext, Page, Route } from "@playwright/test";
 import { apiAgenda, type ApiAgenda } from "./api-agenda";
+import { simularChatPanel, type ApiChatPanel } from "./api-chat-panel";
 import { apiComercial, type ApiComercial } from "./api-comercial";
 import { apiConversaciones, PERMISOS_CONVERSACIONES, type ApiConversaciones, type OpcionesConversaciones } from "./api-conversaciones";
 import { apiEncuestas, type ApiEncuestas } from "./api-encuestas";
@@ -66,6 +67,8 @@ export const ELENA = usuario({ id: 12, nombre: "Elena Toj", correo: "elena@iris.
 /** Agente de la bandeja (rol soporte): responde y asocia, pero no supervisa. */
 export const AGENTE_CONV = usuario({ id: 14, nombre: "Rosa Pop", correo: "rosa@iris.test", roles: [{ rol: "soporte" }] });
 export const BLOQUEADO = "bloqueado@iris.test";
+
+const PERMISOS_CHAT: Permiso[] = ["chat.ver", "chat.enviar", "chat.supervisar"];
 
 const PERMISOS_BUZONES: Permiso[] = ["buzones.activar", "buzones.crear", "buzones.desactivar", "buzones.editar", "buzones.ver"];
 
@@ -276,6 +279,11 @@ export type OpcionesApi = {
     argos050?: boolean;
     /** Bandeja de conversaciones (e2e/api-conversaciones.ts). */
     conversaciones?: OpcionesConversaciones;
+    /**
+     * Chat del equipo (e2e/api-chat-panel.ts): Ana (admin) tiene `chat.ver`, `chat.enviar` y
+     * `chat.supervisar`. Sin esta opción nadie tiene permisos del chat y el panel no lo arranca.
+     */
+    chat?: boolean;
 };
 
 export type Peticion = { metodo: string; ruta: string; query: URLSearchParams; empresa: string | undefined; idempotencia: string | undefined; cuerpo: unknown };
@@ -317,6 +325,8 @@ export type ApiFalsa = {
     reportes: Pick<ApiReportes, "exportacionExcedida">;
     /** Bandeja de conversaciones: conversaciones, mensajes, lo enviado y mensajes del cliente. */
     conversaciones: Pick<ApiConversaciones, "conversaciones" | "mensajes" | "enviados" | "mensajeDelCliente" | "horarios" | "manuales" | "canales" | "configurados" | "respuestas" | "colas" | "agentes" | "bandeja11">;
+    /** Chat del equipo (solo con `chat: true`). */
+    chat: ApiChatPanel | null;
     /** Encuestas: lista, respuestas públicas y peticiones públicas que llevaron sesión. */
     encuestas: Pick<ApiEncuestas, "encuestas" | "publicasConSesion" | "respuestas" | "enlacesPedidos">;
     /** Autologin desde Argos, re-autenticación, vínculos y conectores. */
@@ -585,7 +595,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         if (await cuenta.cortar(route, actual, metodo, ruta)) {
             return;
         }
-        const permisos = permisosPorCorreo[actual.correo] ?? [];
+        const permisos = [...(permisosPorCorreo[actual.correo] ?? []), ...(opciones.chat && actual.correo === ADMIN.correo ? PERMISOS_CHAT : [])];
         if (await sso.manejar({ route, metodo, ruta, actual, puede: (p) => permisos.includes(p), cuerpo, cookies, idempotencia: cabeceras["idempotency-key"] })) {
             return;
         }
@@ -929,8 +939,11 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         }
         return noEncontrado();
     });
+    // Después de la ruta general: atiende primero `/mensajeria/chat/*`.
+    const chat = opciones.chat ? await simularChatPanel(page) : null;
 
     return {
+        chat,
         mutaciones,
         peticiones,
         tickets: esc.tickets,

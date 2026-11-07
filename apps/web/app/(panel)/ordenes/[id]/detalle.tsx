@@ -2,7 +2,7 @@
 
 import type { Schema } from "@iris/contratos";
 import { Aviso, Boton, Esqueleto, EstadoVacio, Pestanas, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
-import { LifeBuoy, SearchX } from "lucide-react";
+import { LifeBuoy, MessageCircle, SearchX } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Contacto, FichaArgos } from "@/componentes/clientes/ficha-cliente";
@@ -17,6 +17,8 @@ import { nombreUsuario, useUsuarios, type Usuario } from "@/componentes/tickets/
 import { InsigniaEstadoTicket, useAhora } from "@/componentes/tickets/insignias";
 import { api, resolver } from "@/lib/api/cliente";
 import { useNombreEnMigas } from "@/componentes/migas-panel";
+import { useChatEquipo } from "@/componentes/chat/proveedor";
+import { ChatDeOrden, useNoLeidosOrden } from "@/componentes/chat/pestana-orden";
 import { ErrorApi } from "@/lib/api/errores";
 import { enlaceArgosCliente } from "@/lib/enlaces";
 import { formatearFecha, haceCuanto } from "@/lib/fechas";
@@ -63,7 +65,7 @@ function NoEncontrada() {
 }
 
 /** Pestañas de la ficha de la orden (`?pestana=`). */
-const PESTANAS_ORDEN = ["resumen", "evidencias", "formularios", "argos"] as const;
+const PESTANAS_ORDEN = ["resumen", "evidencias", "formularios", "argos", "chat"] as const;
 type PestanaOrden = (typeof PESTANAS_ORDEN)[number];
 
 function Detalle({ id }: { id: number }) {
@@ -95,6 +97,9 @@ function Detalle({ id }: { id: number }) {
     const usuarios = useUsuarios();
     const enlaces = useEnlacesExternos();
     const [pestana, setPestana] = usePestanaUrl(PESTANAS_ORDEN, "resumen");
+    // «Chat del equipo» (con `chat.ver` y el chat ya arrancado): el mismo hilo que el panel lateral.
+    const conChat = useChatEquipo() !== null;
+    const noLeidosChat = useNoLeidosOrden(id);
 
     if (orden.estado === "cargando") {
         return (
@@ -165,7 +170,7 @@ function Detalle({ id }: { id: number }) {
                 <div className="grid min-w-0 content-start gap-4">
                     <Pestanas<PestanaOrden>
                         etiqueta="Secciones de la orden"
-                        seleccionada={pestana}
+                        seleccionada={pestana === "chat" && !conChat ? "resumen" : pestana}
                         alCambiar={setPestana}
                         pestanas={[
                             {
@@ -257,6 +262,17 @@ function Detalle({ id }: { id: number }) {
                                     </div>
                                 ),
                             },
+                            ...(conChat
+                                ? [
+                                      {
+                                          id: "chat" as const,
+                                          etiqueta: "Chat del equipo",
+                                          icono: MessageCircle,
+                                          ...(noLeidosChat > 0 ? { contador: noLeidosChat } : {}),
+                                          contenido: <ChatDeOrden ordenId={o.id} numero={o.numero} />,
+                                      },
+                                  ]
+                                : []),
                         ]}
                     />
                 </div>

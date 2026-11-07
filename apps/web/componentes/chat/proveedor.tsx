@@ -1,12 +1,12 @@
 "use client";
 
 import { avisar } from "@iris/ui";
-import type { EstadoChat, MotorChat, TransporteChat, VistaConversacion } from "@iris/sync/chat";
+import type { EstadoChat, MotorChat, VistaConversacion } from "@iris/sync/chat";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { EliminacionesDiferidas, ESPERA_DESHACER_MS } from "@/lib/chat/eliminar-diferido";
 import { abrirChatPanel } from "@/lib/chat/motor";
 import { contadoresFiltros, hayPunto, type FiltroChat } from "@/lib/chat/presentacion";
-import { eliminarAlSalir, mencionesDe, pedirResumen, type ResumenChat } from "@/lib/chat/provisional";
+import { eliminarAlSalir, mencionesDe, pedirResumen, type ResumenChat } from "@/lib/chat/api";
 import { useSesion } from "@/lib/sesion";
 
 /*
@@ -24,7 +24,6 @@ export type EstadoEnVivo = "en_vivo" | "conectando" | "reconectando" | "sin_cone
 
 type ContextoChatEquipo = {
     motor: MotorChat;
-    transporte: TransporteChat;
     estado: EstadoChat;
     yoId: number;
     puedeEnviar: boolean;
@@ -71,13 +70,13 @@ export function ProveedorChatEquipo({ children }: { children: ReactNode }) {
 }
 
 function ConMotor({ usuarioId, empresaId, children }: { usuarioId: number; empresaId: number | undefined; children: ReactNode }) {
-    const [abierto, setAbierto] = useState<{ motor: MotorChat; transporte: TransporteChat } | null>(null);
+    const [abierto, setAbierto] = useState<MotorChat | null>(null);
     useEffect(() => {
         let vivo = true;
         let motor: MotorChat | null = null;
         void abrirChatPanel({ usuarioId, empresaId }).then((c) => {
             if (!vivo) return;
-            motor = c.motor;
+            motor = c;
             setAbierto(c);
         });
         return () => {
@@ -87,13 +86,13 @@ function ConMotor({ usuarioId, empresaId, children }: { usuarioId: number; empre
     }, [usuarioId, empresaId]);
     if (!abierto) return children;
     return (
-        <ChatActivo motor={abierto.motor} transporte={abierto.transporte} yoId={usuarioId}>
+        <ChatActivo motor={abierto} yoId={usuarioId}>
             {children}
         </ChatActivo>
     );
 }
 
-function ChatActivo({ motor, transporte, yoId, children }: { motor: MotorChat; transporte: TransporteChat; yoId: number; children: ReactNode }) {
+function ChatActivo({ motor, yoId, children }: { motor: MotorChat; yoId: number; children: ReactNode }) {
     const { puede } = useSesion();
     const estado = useSyncExternalStore(motor.suscribir, motor.obtenerEstado, motor.obtenerEstado);
 
@@ -232,7 +231,6 @@ function ChatActivo({ motor, transporte, yoId, children }: { motor: MotorChat; t
     const valor = useMemo<ContextoChatEquipo>(
         () => ({
             motor,
-            transporte,
             estado,
             yoId,
             puedeEnviar,
@@ -249,7 +247,7 @@ function ChatActivo({ motor, transporte, yoId, children }: { motor: MotorChat; t
             cerrarPanel,
             elegirEnPanel,
         }),
-        [motor, transporte, estado, yoId, puedeEnviar, puedeSupervisar, resumen, enVivo, reintentar, eliminando, eliminar, panel, abrirPanel, cerrarPanel, elegirEnPanel],
+        [motor, estado, yoId, puedeEnviar, puedeSupervisar, resumen, enVivo, reintentar, eliminando, eliminar, panel, abrirPanel, cerrarPanel, elegirEnPanel],
     );
     return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;
 }

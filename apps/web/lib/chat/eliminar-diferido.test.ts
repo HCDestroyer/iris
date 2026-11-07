@@ -1,7 +1,5 @@
-import { ErrorTransporte } from "@iris/sync";
 import { describe, expect, it } from "vitest";
 import { EliminacionesDiferidas, sePuedeEliminar } from "./eliminar-diferido";
-import { idTrasErrorChat } from "./enviar";
 
 function reloj() {
     const tareas = new Map<number, () => void>();
@@ -50,7 +48,7 @@ describe("EliminacionesDiferidas", () => {
     });
 });
 
-describe("plazo y reintentos", () => {
+describe("plazo para eliminar", () => {
     const ahora = Date.parse("2026-11-06T16:20:00Z");
     const m = { propio: true, eliminado: false, envio: "enviado", enviadoEn: "2026-11-06T16:10:00Z" };
 
@@ -59,12 +57,5 @@ describe("plazo y reintentos", () => {
         expect(sePuedeEliminar({ ...m, enviadoEn: new Date(ahora - 15 * 60_000 + 9_000).toISOString() }, ahora)).toBe(false);
         expect(sePuedeEliminar({ ...m, propio: false }, ahora)).toBe(false);
         expect(sePuedeEliminar({ ...m, envio: "enviando" }, ahora)).toBe(false);
-    });
-
-    it("id nuevo solo tras un 4xx", () => {
-        const nuevo = () => "nuevo";
-        expect(idTrasErrorChat(new ErrorTransporte("red", "x"), "a", nuevo)).toBe("a");
-        expect(idTrasErrorChat(new ErrorTransporte("http", "x", 503), "a", nuevo)).toBe("a");
-        expect(idTrasErrorChat(new ErrorTransporte("http", "x", 422), "a", nuevo)).toBe("nuevo");
     });
 });

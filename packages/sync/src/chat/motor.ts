@@ -43,6 +43,8 @@ export const FLUJO_MINIMO_MS = 5_000;
 /** Tope de la espera entre flujos cortos seguidos. */
 const ESPERA_FLUJO_MAX_MS = 30_000;
 const TEXTO_MAXIMO = 4000;
+/** Menciones por mensaje (§3.2). */
+const MAXIMO_MENCIONES = 20;
 
 export type EstadoCarga = "inactiva" | "cargando" | "lista" | "error";
 
@@ -78,6 +80,8 @@ export interface MensajeVista {
     creadoEn: string | null;
     enviadoEn: string | null;
     eliminado: boolean;
+    /** A quiénes menciona (§3.2); en la cola, solo los ids (sin nombre todavía). */
+    menciones: { id: number; nombre: string }[];
     envio: EnvioMensaje;
     error: ErrorChat | null;
     /** Propio y otro miembro leyó hasta aquí. */
@@ -120,6 +124,8 @@ export interface EstadoChat {
 
 export interface EntradaMensaje {
     texto?: string;
+    /** Ids de los mencionados (§3.2): hasta 20; necesitan texto. */
+    menciones?: readonly number[];
     ubicacion?: UbicacionChat;
     foto?: { datos: Uint8Array; mime: string; tomadoEn?: string };
 }
@@ -149,7 +155,7 @@ export interface OpcionesMotorChat {
 
 /** El teléfono no acepta lo que se pidió (antes de encolar). */
 export class ErrorChatLocal extends Error {
-    readonly codigo: "mensaje_vacio" | "texto_largo" | "ubicacion_invalida" | "conversacion_desconocida" | "no_eliminable" | "sin_subidor";
+    readonly codigo: "mensaje_vacio" | "texto_largo" | "ubicacion_invalida" | "mencion_invalida" | "conversacion_desconocida" | "no_eliminable" | "sin_subidor";
 
     constructor(codigo: ErrorChatLocal["codigo"], mensaje: string) {
         super(mensaje);
@@ -451,6 +457,14 @@ export class MotorChat {
         return d;
     }
 
+    /** Abre (o trae) el chat de una cuadrilla (`POST /chat/cuadrillas/{id}/abrir`; «Nuevo mensaje» del panel). */
+    async abrirCuadrilla(cuadrillaId: number): Promise<ConversacionChat> {
+        await this.verificar();
+        const d = await this.transporte.abrirCuadrilla(cuadrillaId);
+        await this.guardarDetalle(d);
+        return d;
+    }
+
     /** «Abrir chat de la orden» (`POST /chat/ordenes/{id}/abrir`). */
     async abrirOrden(ordenId: number): Promise<ConversacionChat> {
         await this.verificar();
@@ -555,7 +569,9 @@ export class MotorChat {
             const r = await this.transporte.leer(id, ultimo.id);
             const actual = this.conversaciones.get(id);
             if (actual) {
-                await this.guardar({ conversaciones: { poner: [{ ...actual, no_leidos: r.no_leidos, leido_hasta_mensaje_id: r.leido_hasta_mensaje_id ?? ultimo.id }] } });
+                // La lectura no trae las menciones: leído todo, no queda ninguna; si no, nunca más que los no leídos.
+                const menciones = r.no_leidos === 0 ? 0 : Math.min(actual.menciones, r.no_leidos);
+                await this.guardar({ conversaciones: { poner: [{ ...actual, no_leidos: r.no_leidos, menciones, leido_hasta_mensaje_id: r.leido_hasta_mensaje_id ?? ultimo.id }] } });
             }
         } catch (e) {
             this.alFallarLectura(e, false);
@@ -587,6 +603,13 @@ export class MotorChat {
             }
             ubicacion = { lat: Math.round(lat * 1e6) / 1e6, lon: Math.round(lon * 1e6) / 1e6 };
         }
+        const menciones = [...new Set(entrada.menciones ?? [])];
+        if (menciones.some((m) => !Number.isSafeInteger(m) || m <= 0 || m === this.usuarioId) || menciones.length > MAXIMO_MENCIONES) {
+            throw new ErrorChatLocal("mencion_invalida", `Menciona hasta ${MAXIMO_MENCIONES} personas del chat (nunca a ti).`);
+        }
+        if (menciones.length > 0 && !texto) {
+            throw new ErrorChatLocal("mencion_invalida", "Una mención necesita texto.");
+        }
         if (!texto && !ubicacion && !entrada.foto) {
             throw new ErrorChatLocal("mensaje_vacio", "Escribe algo, agrega una foto o comparte tu ubicación.");
         }
@@ -607,6 +630,7 @@ export class MotorChat {
             error: null,
             ...(texto ? { texto } : {}),
             ...(ubicacion ? { ubicacion } : {}),
+            ...(menciones.length > 0 ? { menciones } : {}),
         };
         const lote: LoteChat = { meta: { secuencia: this.meta.secuencia + 1 } };
         if (entrada.foto) {
@@ -807,6 +831,9 @@ export class MotorChat {
             }
             if (s.ubicacion) {
                 cuerpo.ubicacion = s.ubicacion;
+            }
+            if (s.menciones && s.menciones.length > 0) {
+                cuerpo.menciones = s.menciones;
             }
             if (s.foto) {
                 cuerpo.adjunto_id = s.foto.id;
@@ -1241,7 +1268,7 @@ export class MotorChat {
                     lote.mensajes = { poner: [m] };
                 }
                 if (conv) {
-                    lote.conversaciones = { poner: [this.conPrevia({ ...conv, no_leidos: e.no_leidos }, m)] };
+                    lote.conversaciones = { poner: [this.conPrevia({ ...conv, no_leidos: e.no_leidos, menciones: e.menciones }, m)] };
                 } else {
                     this.pedirDetalle(e.conversacion_id);
                 }
@@ -1254,7 +1281,7 @@ export class MotorChat {
                 }
                 if (l.usuario_id === this.usuarioId) {
                     if (conv) {
-                        lote.conversaciones = { poner: [{ ...conv, no_leidos: e.no_leidos, leido_hasta_mensaje_id: l.hasta_mensaje_id }] };
+                        lote.conversaciones = { poner: [{ ...conv, no_leidos: e.no_leidos, menciones: e.menciones, leido_hasta_mensaje_id: l.hasta_mensaje_id }] };
                     }
                 } else {
                     const mapa = this.lecturas.get(e.conversacion_id) ?? new Map<number, LecturaMiembroChat>();
@@ -1269,7 +1296,7 @@ export class MotorChat {
             }
             case "conversacion_actualizada":
                 if (e.conversacion) {
-                    lote.conversaciones = { poner: [{ ...e.conversacion, no_leidos: e.no_leidos }] };
+                    lote.conversaciones = { poner: [{ ...e.conversacion, no_leidos: e.no_leidos, menciones: e.menciones }] };
                 }
                 break;
         }
@@ -1562,6 +1589,7 @@ export class MotorChat {
                 creadoEn: m.creado_en,
                 enviadoEn: m.enviado_en,
                 eliminado: m.eliminado || eliminando.has(m.id),
+                menciones: m.eliminado ? [] : (m.menciones ?? []),
                 envio: eliminando.has(m.id) && !m.eliminado ? "eliminando" : "enviado",
                 error: null,
                 visto: propio && otros.some((l) => l.hasta_seq >= m.seq),
@@ -1581,6 +1609,7 @@ export class MotorChat {
                 creadoEn: s.creadoEn,
                 enviadoEn: null,
                 eliminado: false,
+                menciones: (s.menciones ?? []).map((id) => ({ id, nombre: "" })),
                 envio: s.estado === "fallido" ? "fallido" : this.enLinea && !this.sesionCerrada ? "enviando" : "sin_senal",
                 error: s.error,
                 visto: false,

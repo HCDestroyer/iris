@@ -10,7 +10,7 @@ import { z } from "zod";
 import { mensajeDeError } from "@/lib/api/errores";
 import { claveTrasError, nuevaClaveIdempotencia } from "@/lib/api/cliente";
 import { useDiferido } from "@/lib/diferido";
-import { agregarMiembro, buscarCuadrillas, buscarPersonas, type CuadrillaChat, type MiembroChat, type PersonaChat } from "@/lib/chat/provisional";
+import { agregarMiembro, buscarCuadrillas, buscarPersonas, type CuadrillaChat, type MiembroChat, type PersonaChat } from "@/lib/chat/api";
 import { useChatEquipo } from "./proveedor";
 
 type Busqueda<T> = { estado: "cargando" } | { estado: "error"; error: unknown } | { estado: "listo"; datos: T[] };
@@ -85,9 +85,7 @@ export function DialogoNuevoMensaje({ abierto, alCerrar, alAbrir }: { abierto: b
         setError(null);
         try {
             const id = Number(d.id);
-            const conv = d.tipo === "persona" ? await chat.motor.abrirDirecta(id) : await chat.transporte.abrirCuadrilla(id);
-            // La cuadrilla se abre por el transporte (el motor no expone esa llamada): se trae al motor.
-            if (d.tipo === "cuadrilla") await chat.motor.cargarConversacion(conv.id);
+            const conv = d.tipo === "persona" ? await chat.motor.abrirDirecta(id) : await chat.motor.abrirCuadrilla(id);
             avisar({ titulo: d.tipo === "persona" ? `Chat con ${nombreElegido ?? "la persona"} abierto` : `Chat de ${nombreElegido ?? "la cuadrilla"} abierto` });
             form.reset();
             setQ("");
@@ -199,7 +197,7 @@ export function DialogoNuevoMensaje({ abierto, alCerrar, alAbrir }: { abierto: b
                                                         <span className="truncate font-medium">{c.nombre}</span>
                                                         <span className="truncate text-xs text-muted-foreground">
                                                             {c.tecnicos === 1 ? "1 técnico" : `${c.tecnicos} técnicos`}
-                                                            {c.zonas.length ? ` · ${c.zonas.join(" y ")}` : ""}
+                                                            {c.zonas?.length ? ` · ${c.zonas.join(" y ")}` : ""}
                                                         </span>
                                                     </span>
                                                 </span>

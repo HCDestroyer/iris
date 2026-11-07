@@ -6,7 +6,7 @@ import { ArrowLeft, Ellipsis, ExternalLink, UserPlus, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { soloLecturaDe, pedirMiembros, type MiembroChat } from "@/lib/chat/provisional";
+import { soloLecturaDe, pedirMiembros, type MiembroChat } from "@/lib/chat/api";
 import { textoMotivo, tituloChat } from "@/lib/chat/presentacion";
 import { AvatarChat, AvisoTiempoReal, FranjaInterno } from "./comunes";
 import { CompositorChat } from "./compositor";
@@ -66,7 +66,7 @@ export function ConversacionEquipo({ id, variante, alAtras, acciones, className 
 function Conversacion({ id, variante, alAtras, acciones, className }: Props) {
     const chat = useChatEquipo();
     if (!chat) throw new Error("ConversacionEquipo fuera del chat");
-    const { motor, transporte, yoId, eliminando, eliminar, puedeEnviar, puedeSupervisar, enVivo, reintentar, estado } = chat;
+    const { motor, yoId, eliminando, eliminar, puedeEnviar, puedeSupervisar, enVivo, reintentar, estado } = chat;
     const vista = useConversacionChat(motor, id);
     const c = vista.conversacion;
     const [miembros, fijarMiembros, releerMiembros] = useMiembros(id, c?.ultima_actividad ?? "");
@@ -119,7 +119,7 @@ function Conversacion({ id, variante, alAtras, acciones, className }: Props) {
                 />
             ) : null}
             <HiloChat motor={motor} vista={vista} miembros={lista(miembros)} yoId={yoId} eliminando={eliminando} puedeEliminar={puedeEnviar} alEliminar={eliminar} />
-            <CompositorChat motor={motor} transporte={transporte} conversacionId={id} tipo={c.tipo} nombre={c.tipo === "directa" ? titulo : c.titulo} miembros={lista(miembros)} yoId={yoId} bloqueado={bloqueado} />
+            <CompositorChat motor={motor} conversacionId={id} tipo={c.tipo} nombre={c.tipo === "directa" ? titulo : c.titulo} miembros={lista(miembros)} yoId={yoId} bloqueado={bloqueado} />
         </div>
     );
 

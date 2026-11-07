@@ -6,7 +6,7 @@
 // con `GET /yo` que la sesión del navegador sigue siendo de quien abrió el panel.
 import type { ClienteIris } from "@iris/contratos";
 import { crearSubidorApi, errorSesionAjena, ErrorTransporte } from "@iris/sync";
-import { AlmacenChatMemoria, crearFlujoFetch, crearTransporteChatApi, MotorChat, type AbrirFlujoChat, type TransporteChat } from "@iris/sync/chat";
+import { AlmacenChatMemoria, crearFlujoFetch, crearTransporteChatApi, MotorChat, type AbrirFlujoChat } from "@iris/sync/chat";
 import { crearClienteIris } from "../api/cliente";
 import { ErrorApi } from "../api/errores";
 import { CABECERA_EMPRESA } from "../empresa";
@@ -42,19 +42,16 @@ export function flujoPanel(empresaId: number | undefined): AbrirFlujoChat {
     return crearFlujoFetch({
         baseUrl: "",
         fetch: (url, init) => fetch(url, { ...init, credentials: "include", cache: "no-store" }),
-        cabeceras: () => (empresaId !== undefined ? { [CABECERA_EMPRESA]: String(empresaId) } : {}),
+        cabeceras: (): Record<string, string> => (empresaId !== undefined ? { [CABECERA_EMPRESA]: String(empresaId) } : {}),
     });
 }
 
-export type ChatPanel = { motor: MotorChat; transporte: TransporteChat };
-
-export async function abrirChatPanel(identidad: IdentidadChat): Promise<ChatPanel> {
+export function abrirChatPanel(identidad: IdentidadChat): Promise<MotorChat> {
     // La empresa va fija: nada de este chat sale con la cabecera de otra empresa.
     const cliente = sinCanalCampo(crearClienteIris({ leerEmpresa: () => identidad.empresaId, alProblemaEmpresa: () => undefined }));
-    const transporte = crearTransporteChatApi(cliente);
-    const motor = await MotorChat.abrir({
+    return MotorChat.abrir({
         almacen: new AlmacenChatMemoria(),
-        transporte,
+        transporte: crearTransporteChatApi(cliente),
         subidor: crearSubidorApi(cliente),
         usuarioId: identidad.usuarioId,
         abrirFlujo: typeof ReadableStream === "undefined" ? null : flujoPanel(identidad.empresaId),
@@ -66,5 +63,4 @@ export async function abrirChatPanel(identidad: IdentidadChat): Promise<ChatPane
             }
         },
     });
-    return { motor, transporte };
 }

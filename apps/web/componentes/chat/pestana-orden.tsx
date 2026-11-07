@@ -4,7 +4,7 @@ import { Aviso, avisar, Boton, Cargando, EstadoVacio, Tarjeta } from "@iris/ui";
 import { MessageCircle, RotateCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { mensajeDeError } from "@/lib/api/errores";
-import { hiloDeOrden } from "@/lib/chat/provisional";
+import { hiloDeOrden } from "@/lib/chat/api";
 import { ConversacionEquipo } from "./conversacion";
 import { useChatEquipo } from "./proveedor";
 

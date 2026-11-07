@@ -7,7 +7,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useAhora } from "@/componentes/tickets/insignias";
 import { filtrarConversaciones, tituloChat, type FiltroChat } from "@/lib/chat/presentacion";
-import { soloLecturaDe } from "@/lib/chat/provisional";
+import { soloLecturaDe } from "@/lib/chat/api";
 import { AvatarChat, InsigniaChat } from "./comunes";
 import { useChatEquipo } from "./proveedor";
 

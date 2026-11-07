@@ -56,6 +56,8 @@ export interface SalidaChat {
     mensajeId: string;
     texto?: string;
     ubicacion?: UbicacionChat;
+    /** Ids de los mencionados (§3.2): hasta 20, sin repetir; solo con texto. */
+    menciones?: number[];
     foto?: FotoSalida;
     /** Hora del teléfono al escribirlo (ISO). */
     creadoEn: string;

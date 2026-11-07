@@ -7,7 +7,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { useAhora } from "@/componentes/tickets/insignias";
 import { sePuedeEliminar } from "@/lib/chat/eliminar-diferido";
 import { segmentosChat, textoMotivo } from "@/lib/chat/presentacion";
-import type { MiembroChat } from "@/lib/chat/provisional";
+import type { MiembroChat } from "@/lib/chat/api";
 
 type Props = {
     motor: MotorChat;
