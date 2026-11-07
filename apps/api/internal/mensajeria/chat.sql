@@ -14,6 +14,15 @@ SELECT c.id, c.ultima_actividad FROM mensajeria.chat_conversaciones c
 WHERE c.id IN (SELECT v FROM mensajeria.chat_visibles(@usuario::bigint, sqlc.narg('empresa')::bigint, @todas::boolean, @sup_global::boolean,
         @sup_zonas::bigint[], @sup_cuadrillas::bigint[], @ord_global::boolean, @ord_zonas::bigint[], @ord_cuadrillas::bigint[], NULL::bigint) v)
   AND (sqlc.narg('tipo')::text IS NULL OR c.tipo = sqlc.narg('tipo')::text)
+  -- q: el título contiene el patrón (el otro de la directa, la cuadrilla o el número de la orden).
+  AND (sqlc.narg('patron')::text IS NULL
+       OR (c.tipo = 'directa' AND EXISTS (
+            SELECT 1 FROM mensajeria.chat_miembros mm JOIN nucleo.usuarios u ON u.id = mm.usuario_id
+            WHERE mm.conversacion_id = c.id AND mm.usuario_id <> @usuario::bigint AND u.nombre ILIKE sqlc.narg('patron')::text))
+       OR (c.tipo = 'cuadrilla' AND EXISTS (
+            SELECT 1 FROM agenda.cuadrillas cu WHERE cu.id = c.cuadrilla_id AND cu.nombre ILIKE sqlc.narg('patron')::text))
+       OR (c.tipo = 'orden' AND EXISTS (
+            SELECT 1 FROM campo.ordenes o WHERE o.id = c.orden_id AND o.numero ILIKE sqlc.narg('patron')::text)))
   AND (NOT @con_cursor::boolean OR (c.ultima_actividad, c.id) < (@cursor_actividad::timestamptz, @cursor_id::bigint))
 ORDER BY c.ultima_actividad DESC, c.id DESC
 LIMIT @limite;
@@ -25,6 +34,7 @@ SELECT sqlc.embed(c),
     cu.nombre AS cuadrilla_nombre,
     o.numero AS orden_numero,
     o.estado AS orden_estado,
+    tor.nombre AS orden_tipo,
     COALESCE((SELECT mm.usuario_id FROM mensajeria.chat_miembros mm
      WHERE c.tipo = 'directa' AND mm.conversacion_id = c.id AND mm.usuario_id <> @usuario::bigint LIMIT 1), 0)::bigint AS otro_id,
     m.autor_id AS ultimo_autor_id,
@@ -36,10 +46,13 @@ SELECT sqlc.embed(c),
     l.hasta_mensaje_id AS leido_hasta_mensaje_id,
     (SELECT count(*) FROM mensajeria.chat_mensajes x
      WHERE x.conversacion_id = c.id AND x.seq > COALESCE(l.hasta_seq, 0) AND x.autor_id <> @usuario::bigint AND x.eliminado_en IS NULL)::bigint AS no_leidos,
+    (SELECT count(*) FROM mensajeria.chat_menciones mn
+     WHERE mn.usuario_id = @usuario::bigint AND mn.conversacion_id = c.id AND mn.seq > COALESCE(l.hasta_seq, 0))::bigint AS menciones,
     EXISTS (SELECT 1 FROM mensajeria.chat_miembros e WHERE e.conversacion_id = c.id AND e.usuario_id = @usuario::bigint)::boolean AS miembro_explicito
 FROM mensajeria.chat_conversaciones c
 LEFT JOIN agenda.cuadrillas cu ON cu.id = c.cuadrilla_id
 LEFT JOIN campo.ordenes o ON o.id = c.orden_id
+LEFT JOIN campo.tipos_orden tor ON tor.id = o.tipo_id
 LEFT JOIN mensajeria.chat_mensajes m ON m.id = c.ultimo_mensaje_id
 LEFT JOIN mensajeria.chat_lecturas l ON l.conversacion_id = c.id AND l.usuario_id = @usuario::bigint
 WHERE c.id = ANY (@ids::bigint[]);
@@ -156,7 +169,9 @@ ORDER BY l.usuario_id;
 -- name: NoLeidos :many
 SELECT c.id AS conversacion_id,
     (SELECT count(*) FROM mensajeria.chat_mensajes x
-     WHERE x.conversacion_id = c.id AND x.seq > COALESCE(l.hasta_seq, 0) AND x.autor_id <> @usuario::bigint AND x.eliminado_en IS NULL)::bigint AS no_leidos
+     WHERE x.conversacion_id = c.id AND x.seq > COALESCE(l.hasta_seq, 0) AND x.autor_id <> @usuario::bigint AND x.eliminado_en IS NULL)::bigint AS no_leidos,
+    (SELECT count(*) FROM mensajeria.chat_menciones mn
+     WHERE mn.usuario_id = @usuario::bigint AND mn.conversacion_id = c.id AND mn.seq > COALESCE(l.hasta_seq, 0))::bigint AS menciones
 FROM mensajeria.chat_conversaciones c
 LEFT JOIN mensajeria.chat_lecturas l ON l.conversacion_id = c.id AND l.usuario_id = @usuario::bigint
 WHERE c.id = ANY (@ids::bigint[]);
@@ -197,14 +212,22 @@ SET eventos_purgados_hasta = GREATEST(eventos_purgados_hasta, COALESCE((SELECT m
 WHERE id = 1
 RETURNING eventos_purgados_hasta;
 
--- name: DestinatariosChat :many
--- A quién avisar (push) de un mensaje: miembros explícitos, técnicos de la cuadrilla o de la orden y
--- quien tiene chat.supervisar con alcance que la cubre (no en directas), activos, que operan en la
--- empresa y que no son el autor.
+-- name: MiembrosChat :many
+-- Quiénes ven una conversación y por qué (contratos/chat.md §2.2): miembros explícitos (directa,
+-- agregado), despacho unido mientras su ordenes.ver cubra la orden, técnicos de la cuadrilla o de
+-- la orden y quien tiene chat.supervisar con alcance que la cubre (no en directas). Personas
+-- activas que operan en la empresa. Con varios motivos, el de menor prioridad. Sirve también para
+-- los destinatarios del push (sin el autor) y para validar menciones.
 WITH candidatos AS (
-    SELECT mm.usuario_id FROM mensajeria.chat_miembros mm WHERE mm.conversacion_id = @conversacion_id AND mm.origen = 'directa'
-    UNION
-    SELECT mm.usuario_id FROM mensajeria.chat_miembros mm
+    SELECT mm.usuario_id, 1 AS prioridad, 'directa'::text AS motivo FROM mensajeria.chat_miembros mm
+    WHERE mm.conversacion_id = @conversacion_id AND mm.origen = 'directa' AND @tipo::text = 'directa'
+    UNION ALL
+    SELECT t.usuario_id, 2, 'tecnico' FROM agenda.tecnicos t
+    WHERE t.activo AND @tipo::text = 'cuadrilla' AND t.cuadrilla_id = sqlc.narg('cuadrilla_id')::bigint
+    UNION ALL
+    SELECT o.tecnico_id, 2, 'tecnico' FROM campo.ordenes o WHERE o.id = sqlc.narg('orden_id')::bigint AND o.tecnico_id IS NOT NULL
+    UNION ALL
+    SELECT mm.usuario_id, 3, 'despacho' FROM mensajeria.chat_miembros mm
     WHERE mm.conversacion_id = @conversacion_id AND mm.origen = 'unido'
       AND EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur
                   JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
@@ -213,29 +236,119 @@ WITH candidatos AS (
                     AND ((ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL)
                          OR ur.cuadrilla_id = sqlc.narg('alcance_cuadrilla')::bigint
                          OR ur.zona_id = ANY (@alcance_zonas::bigint[])))
-    UNION
-    SELECT t.usuario_id FROM agenda.tecnicos t WHERE t.activo AND @tipo::text = 'cuadrilla' AND t.cuadrilla_id = sqlc.narg('cuadrilla_id')::bigint
-    UNION
-    SELECT o.tecnico_id FROM campo.ordenes o WHERE o.id = sqlc.narg('orden_id')::bigint AND o.tecnico_id IS NOT NULL
-    UNION
-    SELECT ur.usuario_id FROM nucleo.usuarios_roles ur
+    UNION ALL
+    SELECT mm.usuario_id, 4, 'agregado' FROM mensajeria.chat_miembros mm
+    WHERE mm.conversacion_id = @conversacion_id AND mm.origen = 'agregado' AND @tipo::text = 'orden'
+    UNION ALL
+    SELECT ur.usuario_id, 5, 'supervision' FROM nucleo.usuarios_roles ur
     JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
     JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id AND rp.permiso = 'chat.supervisar'
     WHERE @tipo::text <> 'directa'
       AND ((ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL)
            OR ur.cuadrilla_id = sqlc.narg('alcance_cuadrilla')::bigint
            OR ur.zona_id = ANY (@alcance_zonas::bigint[]))
+), unicos AS (
+    SELECT DISTINCT ON (u.id) u.id AS usuario_id, u.nombre, x.motivo, x.prioridad
+    FROM candidatos x
+    JOIN nucleo.usuarios u ON u.id = x.usuario_id AND u.activo
+    WHERE sqlc.narg('empresa')::bigint IS NULL
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = u.id AND ue.empresa_id = sqlc.narg('empresa')::bigint)
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur2
+                  JOIN nucleo.roles r2 ON r2.id = ur2.rol_id AND r2.activo
+                  JOIN nucleo.roles_permisos rp2 ON rp2.rol_id = ur2.rol_id AND rp2.permiso = 'empresas.todas'
+                  WHERE ur2.usuario_id = u.id AND ur2.zona_id IS NULL AND ur2.cuadrilla_id IS NULL)
+    ORDER BY u.id, x.prioridad
 )
-SELECT DISTINCT u.id AS usuario_id FROM candidatos x
-JOIN nucleo.usuarios u ON u.id = x.usuario_id AND u.activo
-WHERE u.id <> @autor_id
+SELECT usuario_id, nombre, motivo FROM unicos ORDER BY prioridad, nombre, usuario_id;
+
+-- name: AgregarMiembroChat :execrows
+-- Agrega a alguien al hilo de una orden. Un despacho «unido» que ya no la ve pasa a «agregado».
+INSERT INTO mensajeria.chat_miembros (conversacion_id, usuario_id, origen, agregado_por, created_at, updated_at)
+VALUES (@conversacion_id, @usuario_id, 'agregado', @agregado_por, @ahora, @ahora)
+ON CONFLICT (conversacion_id, usuario_id) DO UPDATE
+SET origen = 'agregado', agregado_por = excluded.agregado_por, updated_at = excluded.updated_at
+WHERE mensajeria.chat_miembros.origen = 'unido';
+
+-- name: InsertarMenciones :exec
+INSERT INTO mensajeria.chat_menciones (mensaje_id, usuario_id, conversacion_id, empresa_id, seq)
+SELECT @mensaje_id::uuid, u, @conversacion_id::bigint, sqlc.narg('empresa_id')::bigint, @seq::bigint
+FROM unnest(@usuarios::bigint[]) AS u
+ON CONFLICT DO NOTHING;
+
+-- name: BorrarMenciones :exec
+DELETE FROM mensajeria.chat_menciones WHERE mensaje_id = @mensaje_id;
+
+-- name: MencionesDeMensajes :many
+SELECT mn.mensaje_id, mn.usuario_id, u.nombre
+FROM mensajeria.chat_menciones mn JOIN nucleo.usuarios u ON u.id = mn.usuario_id
+WHERE mn.mensaje_id = ANY (@ids::uuid[])
+ORDER BY mn.mensaje_id, mn.usuario_id;
+
+-- name: ResumenChat :many
+-- Contadores de un usuario por tipo sobre todas las conversaciones que ve (contratos/chat.md §2.1).
+-- Solo se miran las que tienen mensajes después de su lectura.
+WITH vis AS (
+    SELECT v AS id FROM mensajeria.chat_visibles(@usuario::bigint, sqlc.narg('empresa')::bigint, @todas::boolean, @sup_global::boolean,
+        @sup_zonas::bigint[], @sup_cuadrillas::bigint[], @ord_global::boolean, @ord_zonas::bigint[], @ord_cuadrillas::bigint[], NULL::bigint) v
+), x AS (
+    SELECT c.tipo,
+        (SELECT count(*) FROM mensajeria.chat_mensajes m
+         WHERE m.conversacion_id = c.id AND m.seq > COALESCE(l.hasta_seq, 0) AND m.autor_id <> @usuario::bigint AND m.eliminado_en IS NULL) AS no_leidos,
+        (SELECT count(*) FROM mensajeria.chat_menciones mn
+         WHERE mn.usuario_id = @usuario::bigint AND mn.conversacion_id = c.id AND mn.seq > COALESCE(l.hasta_seq, 0)) AS menciones
+    FROM mensajeria.chat_conversaciones c
+    JOIN vis ON vis.id = c.id
+    LEFT JOIN mensajeria.chat_lecturas l ON l.conversacion_id = c.id AND l.usuario_id = @usuario::bigint
+    WHERE c.ultimo_seq > COALESCE(l.hasta_seq, 0)
+)
+SELECT tipo, COALESCE(sum(no_leidos), 0)::bigint AS no_leidos, COALESCE(sum(menciones), 0)::bigint AS menciones,
+    (count(*) FILTER (WHERE no_leidos > 0))::bigint AS conversaciones_no_leidas
+FROM x GROUP BY tipo;
+
+-- name: PersonasChat :many
+-- «Nuevo mensaje» → Persona: personas activas de la empresa con chat.ver (rol activo), sin el
+-- usuario, por nombre; con su directa si ya existe.
+SELECT u.id, u.nombre,
+    COALESCE((SELECT c.id FROM mensajeria.chat_conversaciones c
+     WHERE c.tipo = 'directa' AND c.empresa_id IS NOT DISTINCT FROM sqlc.narg('empresa')::bigint
+       AND c.clave_directa = LEAST(u.id, @usuario::bigint)::text || ':' || GREATEST(u.id, @usuario::bigint)::text), 0)::bigint AS conversacion_id
+FROM nucleo.usuarios u
+WHERE u.tipo = 'persona' AND u.activo AND u.id <> @usuario::bigint
+  AND (sqlc.narg('patron')::text IS NULL OR u.nombre ILIKE sqlc.narg('patron')::text)
+  AND EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur
+              JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
+              JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id AND rp.permiso = 'chat.ver'
+              WHERE ur.usuario_id = u.id)
   AND (sqlc.narg('empresa')::bigint IS NULL
        OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = u.id AND ue.empresa_id = sqlc.narg('empresa')::bigint)
        OR EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur2
                   JOIN nucleo.roles r2 ON r2.id = ur2.rol_id AND r2.activo
                   JOIN nucleo.roles_permisos rp2 ON rp2.rol_id = ur2.rol_id AND rp2.permiso = 'empresas.todas'
                   WHERE ur2.usuario_id = u.id AND ur2.zona_id IS NULL AND ur2.cuadrilla_id IS NULL))
-ORDER BY u.id;
+  AND (NOT @con_cursor::boolean OR (u.nombre, u.id) > (@cursor_nombre::text, @cursor_id::bigint))
+ORDER BY u.nombre, u.id
+LIMIT @limite;
+
+-- name: CuadrillasChat :many
+-- «Nuevo mensaje» → Cuadrilla: las activas de la empresa (o sin empresa) cuyo chat puede abrir el
+-- usuario: la suya (técnico activo) o las que cubre su chat.supervisar. Con técnicos activos, zonas y
+-- su conversación en la empresa si ya existe.
+SELECT cu.id, cu.nombre,
+    (SELECT count(*) FROM agenda.tecnicos t WHERE t.cuadrilla_id = cu.id AND t.activo)::bigint AS tecnicos,
+    COALESCE((SELECT array_agg(z.nombre ORDER BY z.nombre) FROM agenda.cuadrilla_zonas cz JOIN agenda.zonas z ON z.id = cz.zona_id
+              WHERE cz.cuadrilla_id = cu.id), '{}')::text[] AS zonas,
+    COALESCE((SELECT c.id FROM mensajeria.chat_conversaciones c
+     WHERE c.tipo = 'cuadrilla' AND c.cuadrilla_id = cu.id AND c.empresa_id IS NOT DISTINCT FROM sqlc.narg('empresa')::bigint), 0)::bigint AS conversacion_id
+FROM agenda.cuadrillas cu
+WHERE cu.activa
+  AND (cu.empresa_id IS NULL OR cu.empresa_id IS NOT DISTINCT FROM sqlc.narg('empresa')::bigint)
+  AND (sqlc.narg('patron')::text IS NULL OR cu.nombre ILIKE sqlc.narg('patron')::text)
+  AND (@sup_global::boolean
+       OR cu.id = ANY (@sup_cuadrillas::bigint[])
+       OR EXISTS (SELECT 1 FROM agenda.tecnicos t WHERE t.usuario_id = @usuario::bigint AND t.activo AND t.cuadrilla_id = cu.id)
+       OR EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz WHERE cz.cuadrilla_id = cu.id AND cz.zona_id = ANY (@sup_zonas::bigint[])))
+ORDER BY cu.nombre, cu.id
+LIMIT 200;
 
 -- name: MensajeVivoConAdjunto :one
 -- La foto se ve solo si un mensaje sin eliminar de esa conversación la muestra.

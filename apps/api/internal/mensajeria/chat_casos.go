@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -36,6 +37,12 @@ type casosChat struct {
 	MarcarLeido          *auditoria.Caso[EntradaMarcarLeido, LecturaPropia]
 	ListarMensajes       *auditoria.Caso[EntradaListarMensajes, nucleo.Pagina[MensajeChat]]
 	Cambios              *auditoria.Caso[EntradaCambios, CambiosChat]
+	Resumen              *auditoria.Caso[EntradaResumenChat, ResumenChat]
+	ListarMiembros       *auditoria.Caso[EntradaConversacion, MiembrosChat]
+	AgregarMiembro       *auditoria.Caso[EntradaAgregarMiembro, MiembrosChat]
+	ConversacionDeOrden  *auditoria.Caso[EntradaConversacionDeOrden, ConversacionChatDetalle]
+	Personas             *auditoria.Caso[EntradaPersonasChat, nucleo.Pagina[PersonaChat]]
+	Cuadrillas           *auditoria.Caso[EntradaCuadrillasChat, CuadrillasChat]
 	abrirFlujo           *auditoria.Caso[entradaFlujo, flujo]
 }
 
@@ -51,6 +58,12 @@ func nuevosCasosChat(m *Modulo) casosChat {
 		MarcarLeido:          nuevoMarcarLeido(m),
 		ListarMensajes:       nuevoListarMensajes(m),
 		Cambios:              nuevoCambios(m),
+		Resumen:              nuevoResumenChat(m),
+		ListarMiembros:       nuevoListarMiembros(m),
+		AgregarMiembro:       nuevoAgregarMiembro(m),
+		ConversacionDeOrden:  nuevoConversacionDeOrden(m),
+		Personas:             nuevoPersonasChat(m),
+		Cuadrillas:           nuevoCuadrillasChat(m),
 		abrirFlujo:           nuevoAbrirFlujo(m),
 	}
 }
@@ -61,6 +74,7 @@ func nuevosCasosChat(m *Modulo) casosChat {
 type EntradaListarConversaciones struct {
 	nucleo.ParamsPagina
 	Tipo string `query:"tipo" enum:"directa,cuadrilla,orden" doc:"Solo de ese tipo"`
+	Q    string `query:"q" maxLength:"100" doc:"Busca en el título: el otro de la directa, el nombre de la cuadrilla o el número de la orden (sin distinguir mayúsculas)"`
 }
 
 func nuevoListarConversaciones(m *Modulo) *auditoria.Caso[EntradaListarConversaciones, nucleo.Pagina[ConversacionChat]] {
@@ -90,7 +104,8 @@ func nuevoListarConversaciones(m *Modulo) *auditoria.Caso[EntradaListarConversac
 			limite := in.Limite()
 			q := mensajeriabd.New(t)
 			filas, err := q.ConversacionesVisibles(ctx, mensajeriabd.ConversacionesVisiblesParams{Usuario: a.usuario, Empresa: a.empresa, Todas: a.todas,
-				SupGlobal: a.global, SupZonas: a.zonas, SupCuadrillas: a.cuadrillas, OrdGlobal: a.ordGlobal, OrdZonas: a.ordZonas, OrdCuadrillas: a.ordCuadrillas, Tipo: tipo, ConCursor: con, CursorActividad: cursorAct,
+				SupGlobal: a.global, SupZonas: a.zonas, SupCuadrillas: a.cuadrillas, OrdGlobal: a.ordGlobal, OrdZonas: a.ordZonas, OrdCuadrillas: a.ordCuadrillas, Tipo: tipo,
+				Patron: patronBusqueda(in.Q), ConCursor: con, CursorActividad: cursorAct,
 				CursorID: ultimo, Limite: int32(limite + 1)}) //nolint:gosec // limite ≤ 200
 			if err != nil {
 				return nucleo.Pagina[ConversacionChat]{}, err
@@ -436,6 +451,7 @@ type EntradaEnviarMensaje struct {
 	CreadoEn       *time.Time     `json:"creado_en,omitempty"`
 	ConTexto       bool           `json:"con_texto"`
 	ConUbicacion   bool           `json:"con_ubicacion"`
+	Menciones      []int64        `json:"menciones,omitempty"`
 	IdempotencyKey string         `json:"-"`
 }
 
@@ -478,6 +494,13 @@ func nuevoEnviarMensaje(m *Modulo) *auditoria.Caso[EntradaEnviarMensaje, Mensaje
 			if texto == nil && in.AdjuntoID == nil && in.Ubicacion == nil {
 				return MensajeEnviado{}, nucleo.ReglaNegocio("mensaje_vacio", "El mensaje necesita texto, una foto o una ubicación")
 			}
+			menciones := normalizarMenciones(in.Menciones)
+			if len(menciones) > maxMenciones {
+				return MensajeEnviado{}, campoChat("menciones", fmt.Sprintf("Máximo %d menciones por mensaje", maxMenciones), "maxItems")
+			}
+			if len(menciones) > 0 && texto == nil {
+				return MensajeEnviado{}, nucleo.ReglaNegocio("mencion_sin_texto", "Para mencionar a alguien, el mensaje necesita texto")
+			}
 			if in.CreadoEn != nil && in.CreadoEn.After(ahora.Add(5*time.Minute)) {
 				return MensajeEnviado{}, campoChat("creado_en", "No puede ser futuro", "pasado")
 			}
@@ -492,7 +515,7 @@ func nuevoEnviarMensaje(m *Modulo) *auditoria.Caso[EntradaEnviarMensaje, Mensaje
 			} else {
 				t.FijarEmpresa(0)
 			}
-			hash := hashContenido(c.ID, texto, in.AdjuntoID, in.Ubicacion)
+			hash := hashContenido(c.ID, texto, in.AdjuntoID, in.Ubicacion, menciones)
 			// Los envíos del mismo autor van en fila: el reenvío y el límite por minuto son exactos.
 			if err := q.CandadoChat(ctx, fmt.Sprintf("chat:autor:%d", a.usuario)); err != nil {
 				return MensajeEnviado{}, err
@@ -518,6 +541,27 @@ func nuevoEnviarMensaje(m *Modulo) *auditoria.Caso[EntradaEnviarMensaje, Mensaje
 				msj, err := mensajeVisto(ctx, q, previo.ID)
 				return MensajeEnviado{MensajeChat: msj, Repetido: true}, err
 			} else if !esSinFilas(err) {
+				return MensajeEnviado{}, err
+			}
+			// Un reenvío del mismo id ya respondió arriba (la cola sin conexión no se traba al cerrarse la
+			// orden); un mensaje nuevo en el hilo de una orden finalizada, no. Se lee sin bloquear la orden:
+			// uno que llega a la vez que el cierre puede quedar guardado (aceptado; contratos/chat.md §1).
+			var orden *campobd.CampoOrden
+			if c.Tipo == TipoOrden && c.OrdenID != nil {
+				o, err := campobd.New(t).OrdenPorID(ctx, *c.OrdenID)
+				if err != nil {
+					return MensajeEnviado{}, err
+				}
+				if ordenFinalizada(o.Estado) {
+					return MensajeEnviado{}, conversacionCerrada()
+				}
+				orden = &o
+			}
+			miembros, err := m.miembrosDe(ctx, t, c, orden)
+			if err != nil {
+				return MensajeEnviado{}, err
+			}
+			if err := validarMenciones(menciones, miembros, a.usuario); err != nil {
 				return MensajeEnviado{}, err
 			}
 			recientes, err := q.EnviosRecientes(ctx, mensajeriabd.EnviosRecientesParams{AutorID: a.usuario, Desde: ahora.Add(-time.Minute)})
@@ -561,15 +605,32 @@ func nuevoEnviarMensaje(m *Modulo) *auditoria.Caso[EntradaEnviarMensaje, Mensaje
 			if err != nil {
 				return MensajeEnviado{}, err
 			}
-			destinatarios, err := m.destinatarios(ctx, t, c, a.usuario)
-			if err != nil {
-				return MensajeEnviado{}, err
+			if len(menciones) > 0 {
+				if err := q.InsertarMenciones(ctx, mensajeriabd.InsertarMencionesParams{MensajeID: f.ID, ConversacionID: c.ID, EmpresaID: c.EmpresaID,
+					Seq: seq, Usuarios: menciones}); err != nil {
+					return MensajeEnviado{}, err
+				}
 			}
+			destinatarios := make([]int64, 0, len(miembros))
+			for _, mb := range miembros {
+				if mb.UsuarioID != a.usuario {
+					destinatarios = append(destinatarios, mb.UsuarioID)
+				}
+			}
+			slices.Sort(destinatarios)
 			contenido := map[string]bool{"texto": texto != nil, "foto": in.AdjuntoID != nil, "ubicacion": in.Ubicacion != nil}
 			if err := t.Emitir("chat.mensaje_enviado", map[string]any{"conversacion_id": c.ID, "mensaje_id": f.ID, "empresa_id": c.EmpresaID,
 				"tipo": c.Tipo, "cuadrilla_id": c.CuadrillaID, "orden_id": c.OrdenID, "autor_id": a.usuario, "seq": seq, "contenido": contenido,
 				"enviado_en": ahora, "destinatarios": destinatarios}); err != nil {
 				return MensajeEnviado{}, err
+			}
+			// Uno por mencionado (el autor nunca está: validarMenciones lo rechaza). Mismo payload que
+			// conversacion.mencion; el emisor de push lo une al push del mensaje.
+			for _, u := range menciones {
+				if err := t.Emitir("chat.mencion", map[string]any{"conversacion_id": c.ID, "mensaje_id": f.ID, "empresa_id": c.EmpresaID,
+					"usuario_id": u, "autor_id": a.usuario}); err != nil {
+					return MensajeEnviado{}, err
+				}
 			}
 			if err := emitirEventoChat(ctx, t, c, EventoMensajeNuevo, &f.ID, &a.usuario, ahora); err != nil {
 				return MensajeEnviado{}, err
@@ -588,12 +649,17 @@ func mensajeVisto(ctx context.Context, q *mensajeriabd.Queries, id uuid.UUID) (M
 	if len(fs) == 0 {
 		return MensajeChat{}, nucleo.NoEncontrado("")
 	}
-	return aMensaje(fs[0].MensajeriaChatMensaje, fs[0].AutorNombre, fs[0].AdjuntoEstado), nil
+	msjs := []MensajeChat{aMensaje(fs[0].MensajeriaChatMensaje, fs[0].AutorNombre, fs[0].AdjuntoEstado)}
+	if err := completarMenciones(ctx, q, msjs); err != nil {
+		return MensajeChat{}, err
+	}
+	return msjs[0], nil
 }
 
-// destinatarios: a quién avisar de un mensaje (para el emisor de push, fuera de esta fase).
-func (m *Modulo) destinatarios(ctx context.Context, t *auditoria.Tx, c mensajeriabd.MensajeriaChatConversacion, autor int64) ([]int64, error) {
-	p := mensajeriabd.DestinatariosChatParams{AutorID: autor, Empresa: c.EmpresaID, ConversacionID: c.ID, Tipo: c.Tipo,
+// miembrosDe: quiénes ven la conversación y por qué (contratos/chat.md §2.2). Para un hilo de
+// orden usa la orden ya leída (o la lee).
+func (m *Modulo) miembrosDe(ctx context.Context, t *auditoria.Tx, c mensajeriabd.MensajeriaChatConversacion, orden *campobd.CampoOrden) ([]mensajeriabd.MiembrosChatRow, error) {
+	p := mensajeriabd.MiembrosChatParams{Empresa: c.EmpresaID, ConversacionID: c.ID, Tipo: c.Tipo,
 		CuadrillaID: c.CuadrillaID, OrdenID: c.OrdenID, AlcanceZonas: []int64{}}
 	switch c.Tipo {
 	case TipoCuadrilla:
@@ -606,20 +672,23 @@ func (m *Modulo) destinatarios(ctx context.Context, t *auditoria.Tx, c mensajeri
 			p.AlcanceZonas = append(p.AlcanceZonas, z.ZonaID)
 		}
 	case TipoOrden:
-		o, err := campobd.New(t).OrdenPorID(ctx, *c.OrdenID)
-		if err != nil {
-			return nil, err
+		if orden == nil {
+			o, err := campobd.New(t).OrdenPorID(ctx, *c.OrdenID)
+			if err != nil {
+				return nil, err
+			}
+			orden = &o
 		}
-		p.AlcanceCuadrilla = o.CuadrillaID
-		if o.ZonaID != nil {
-			p.AlcanceZonas = append(p.AlcanceZonas, *o.ZonaID)
+		p.AlcanceCuadrilla = orden.CuadrillaID
+		if orden.ZonaID != nil {
+			p.AlcanceZonas = append(p.AlcanceZonas, *orden.ZonaID)
 		}
 	}
-	ds, err := mensajeriabd.New(t).DestinatariosChat(ctx, p)
-	if ds == nil {
-		ds = []int64{}
+	ms, err := mensajeriabd.New(t).MiembrosChat(ctx, p)
+	if ms == nil {
+		ms = []mensajeriabd.MiembrosChatRow{}
 	}
-	return ds, err
+	return ms, err
 }
 
 // Eliminar ----------------------------------------------------------------------------------------
@@ -676,6 +745,10 @@ func nuevoEliminarMensaje(m *Modulo) *auditoria.Caso[EntradaEliminarMensaje, Men
 					fmt.Sprintf("Solo se puede eliminar un mensaje hasta %d minutos después de enviarlo", int(m.cfg.ChatPlazoEliminar/time.Minute)))
 			}
 			if _, err := q.EliminarMensaje(ctx, mensajeriabd.EliminarMensajeParams{Ahora: &ahora, ID: f.ID}); err != nil {
+				return MensajeEliminado{}, err
+			}
+			// Las menciones son contenido: la lápida no las guarda (dejan de contar como no leídas).
+			if err := q.BorrarMenciones(ctx, f.ID); err != nil {
 				return MensajeEliminado{}, err
 			}
 			// La foto también se va: rechazada (no se ve ni se descarga) y, tras el COMMIT, fuera del
@@ -745,6 +818,9 @@ func nuevoMarcarLeido(m *Modulo) *auditoria.Caso[EntradaMarcarLeido, LecturaProp
 			default:
 				return LecturaPropia{}, err
 			}
+			// Su contador de GET /chat/resumen baja enseguida (no espera el tope de frecuencia).
+			claveRes := claveResumen(a.usuario, a.clave())
+			t.AlConfirmar(func(context.Context) { m.resumenes.olvidar(claveRes) })
 			nl, err := q.NoLeidos(ctx, mensajeriabd.NoLeidosParams{Usuario: a.usuario, Ids: []int64{c.ID}})
 			if err != nil {
 				return LecturaPropia{}, err
@@ -811,6 +887,9 @@ func nuevoListarMensajes(m *Modulo) *auditoria.Caso[EntradaListarMensajes, nucle
 				} else {
 					data[len(fs)-1-i] = msj // siempre en orden de seq ascendente
 				}
+			}
+			if err := completarMenciones(ctx, q, data); err != nil {
+				return nucleo.Pagina[MensajeChat]{}, err
 			}
 			p := nucleo.Pagina[MensajeChat]{Data: data}
 			if hayMas && len(fs) > 0 {

@@ -77,7 +77,7 @@ mismo token puede estar en varias). Sin conector (sin empresas registradas), en 
 | Tipo y canal Android | Evento que lo dispara | A quién | Urgente |
 | --- | --- | --- | --- |
 | `chat` · «Mensajes del equipo» | `chat.mensaje_enviado` | `destinatarios[]` del evento menos el autor | no |
-| `mencion` · «Menciones» | `conversacion.mencion` (nota interna de la bandeja) y `chat.mencion` (cuando el chat tenga menciones; mismo payload) | el mencionado (`usuario_id`), nunca el autor | **sí** |
+| `mencion` · «Menciones» | `conversacion.mencion` (nota interna de la bandeja) y `chat.mencion` (mención en el chat del equipo, chat.md §3.2; mismo payload) | el mencionado (`usuario_id`), nunca el autor | **sí** |
 | `orden` · «Órdenes» | `orden.asignada` con `tecnico_id` nuevo (distinto del anterior); `orden.programada` con `reprogramada: true` (no la de `origen: asignar`, que ya avisa `orden.asignada`) | el técnico de la orden | **sí** si la orden es para **hoy** (en la zona del usuario) |
 | `bandeja` · «Bandeja de clientes» | `conversacion.aviso_sin_atender` («¿Alguien la atiende?») | los `usuarios[]` del evento (disponibles en la cola) | no |
 

@@ -16,30 +16,50 @@ cookie `HttpOnly` del panel o `Authorization: Bearer` de la app. Multiempresa: l
 | --- | --- | --- |
 | `directa` | par de usuarios y empresa | los dos (fijos) |
 | `cuadrilla` | cuadrilla y empresa | técnicos activos de la cuadrilla (`agenda.tecnicos`) + quien tiene `chat.supervisar` global, con la cuadrilla o con una zona que la cuadrilla atiende |
-| `orden` | orden | su técnico asignado (`campo.ordenes.tecnico_id`) + `chat.supervisar` global, con la zona o con la cuadrilla de la orden + despacho que se unió, **mientras** su `ordenes.ver` (con alcance) cubra la orden |
+| `orden` | orden | su técnico asignado (`campo.ordenes.tecnico_id`) + `chat.supervisar` global, con la zona o con la cuadrilla de la orden + despacho que se unió, **mientras** su `ordenes.ver` (con alcance) cubra la orden + quien agregó la supervisión (§2.2) |
 
 - Los miembros de cuadrilla y de orden **se derivan al leer**: si la orden se reasigna, el técnico
   nuevo entra y el anterior sale; si un técnico cambia de cuadrilla, cambia de chat. Solo quien se
   une a un hilo de orden desde despacho queda guardado como miembro, y aun así deja de verlo si la
   orden sale de su alcance de `ordenes.ver` (otra zona o cuadrilla); vuelve a verlo si regresa.
+- Quien **agrega la supervisión** (`POST /conversaciones/{id}/miembros`, §2.2) queda guardado como
+  miembro `agregado` y ve el hilo mientras opere en la empresa y tenga `chat.ver`, sin depender de
+  su `ordenes.ver` (lo invitó alguien con alcance sobre la orden).
+- **Solo lectura:** el hilo de una orden `cerrada`, `fallida` o `cancelada` es de solo lectura
+  (`solo_lectura: true`): enviar y agregar miembros responden **422** `conversacion_cerrada`. Leer,
+  marcar leído, listar miembros y eliminar un mensaje propio dentro de sus 15 min siguen permitidos
+  (retirar un error no agrega nada). Se deriva del estado de la orden al leer: si la orden se
+  reabre, el hilo vuelve a aceptar mensajes. Cerrar la orden no manda un evento al feed del chat:
+  `solo_lectura` se ve al recargar la conversación (si un envío responde `conversacion_cerrada`,
+  recarga la conversación y deshabilita el campo de texto).
+  **Carrera con el cierre (aceptada):** el chat lee el estado de la orden sin bloquearla (no toma
+  candados del módulo campo). Un mensaje, o un miembro agregado, que llega justo a la vez que el cierre
+  puede quedar guardado aunque su transacción termine después: el hilo muestra ese último mensaje y
+  desde ahí ya es de solo lectura. No se pierde ni se corrompe nada.
 - Las directas nunca se ven por alcance: ninguna supervisión lee mensajes directos.
 - Lo que no ves responde **404** (no se revela que existe).
 - Permisos: `chat.ver` (leer, marcar leído, flujo), `chat.enviar` (abrir, enviar, eliminar),
-  `chat.supervisar` (alcance). Roles base: técnico, despacho, soporte y supervisor tienen ver y
+  `chat.supervisar` (alcance; agregar miembros a un hilo de orden). Roles base: técnico, despacho, soporte y supervisor tienen ver y
   enviar; supervisor y admin, supervisar; lectura, solo ver.
 
 ## 2. Endpoints
 
 | Método y ruta | Permiso | Qué hace |
 | --- | --- | --- |
-| `GET /conversaciones?cursor=&limit=&tipo=` | ver | Mis conversaciones, la más reciente primero. `{ data: ConversacionChat[], nextCursor }` |
+| `GET /conversaciones?cursor=&limit=&tipo=&q=` | ver | Mis conversaciones, la más reciente primero. `{ data: ConversacionChat[], nextCursor }`. `q` busca en el título (persona, cuadrilla o número de orden) |
+| `GET /resumen` | ver | Contadores del ícono del encabezado y de las pestañas (§2.1) |
 | `GET /conversaciones/{id}` | ver | `ConversacionChatDetalle`: la conversación + `lecturas[]` (hasta dónde leyó cada uno: «visto») |
+| `GET /conversaciones/{id}/miembros` | ver | Quiénes están en el chat y por qué (§2.2). `{ data: MiembroChat[] }` |
+| `POST /conversaciones/{id}/miembros` `{ usuario_id }` | supervisar | Agrega a alguien al hilo de una orden (§2.2). 201 agregado, 200 ya estaba |
+| `GET /ordenes/{orden_id}/conversacion` | ver | El hilo de la orden **sin crearlo ni unirse** (pestaña «Chat» de la orden). 404 si no existe o no lo ves: entonces `POST /ordenes/{orden_id}/abrir` |
+| `GET /personas?q=&cursor=&limit=` | enviar | «Nuevo mensaje» → Persona: con quién puedes abrir una directa (§2.3) |
+| `GET /cuadrillas?q=` | enviar | «Nuevo mensaje» → Cuadrilla: las cuadrillas cuyo chat puedes abrir (§2.3) |
 | `POST /directas` `{ usuario_id }` | enviar | Abre o trae la directa. 201 nueva, 200 existente. 422 `usuario_no_disponible` |
 | `POST /cuadrillas/{cuadrilla_id}/abrir` | enviar | Abre o trae el chat de la cuadrilla (técnico de ella o supervisión). 201/200; 404 |
 | `POST /ordenes/{orden_id}/abrir` | enviar | Abre o trae el hilo de la orden. Despacho queda como miembro (201 al unirse). 404 |
 | `GET /conversaciones/{id}/mensajes?direccion=&cursor=&limit=&desde_seq=` | ver | Mensajes, siempre en `seq` ascendente. `anteriores` (defecto): del más reciente hacia atrás; `siguientes`: hacia adelante |
 | `POST /conversaciones/{id}/mensajes` | enviar | Envía (ver §3). 201 nuevo, 200 reenvío |
-| `POST /mensajes/{mensaje_id}/eliminar` | enviar | Lápida. Solo el autor, hasta 15 min (403 `no_es_autor`, 422 `plazo_vencido`). Repetir: 200 |
+| `POST /mensajes/{mensaje_id}/eliminar` | enviar | Lápida. Solo el autor, hasta 15 min (403 `no_es_autor`, 422 `plazo_vencido`). Repetir: 200. «Deshacer» del panel: §3.1 |
 | `POST /conversaciones/{id}/leer` `{ hasta_mensaje_id }` | ver | Avanza tu lectura (nunca retrocede). `{ conversacion_id, leido_hasta_mensaje_id, no_leidos }` |
 | `GET /cambios?cursor=&limit=` | ver | Sondeo del feed (§4). `{ data: EventoChat[], nextCursor, hayMas }` |
 | `GET /eventos` | ver | Server-Sent Events (§4) |
@@ -56,14 +76,78 @@ que debe desaparecer si se elimina). Repetir el POST da lo mismo.
   "otro_usuario": { "id": 7, "nombre": "Andrea Castillo" },          // solo directa
   "ultimo_mensaje": { "id": "0193…", "autor_id": 5, "autor_nombre": "Tomás Herrera",
                       "contenido": "texto", "texto": "Listo, −21 dBm…", "enviado_en": "…" },
-  "no_leidos": 2, "leido_hasta_mensaje_id": "0193…",
+  "no_leidos": 2, "menciones": 1, "leido_hasta_mensaje_id": "0193…",
+  "orden_tipo": "Instalación",                                       // null fuera de un hilo de orden
+  "solo_lectura": false,
   "ultima_actividad": "…", "creada_en": "…" }
 ```
 
 `titulo`: el otro usuario (directa), el nombre de la cuadrilla o el número de la orden (el cliente
 lo arma el panel con la orden). `contenido`: `texto | foto | ubicacion | eliminado`; `texto` son los
 primeros 140 caracteres. `ultimo_mensaje` y `otro_usuario` faltan si no aplican. `no_leidos`:
-mensajes de otros, sin eliminar, después de tu lectura.
+mensajes de otros, sin eliminar, después de tu lectura. `menciones`: de esos, los que te mencionan
+(«hace falta actuar»: el indicador crece; §2.1). `orden_tipo`: el nombre del tipo de la orden (para
+«OT-000214 · Instalación»). `solo_lectura`: §1.
+
+### 2.1 Contadores: `GET /resumen`
+
+```json
+{ "no_leidos": 5, "menciones": 1, "conversaciones_no_leidas": 3, "requiere_accion": 2,
+  "por_tipo": {
+    "directa":   { "no_leidos": 1, "menciones": 0, "conversaciones_no_leidas": 1, "requiere_accion": 1 },
+    "cuadrilla": { "no_leidos": 3, "menciones": 0, "conversaciones_no_leidas": 1, "requiere_accion": 0 },
+    "orden":     { "no_leidos": 1, "menciones": 1, "conversaciones_no_leidas": 1, "requiere_accion": 1 } } }
+```
+
+- Sobre **todas** las conversaciones que ves en la empresa activa (no solo la página cargada).
+- `requiere_accion` = no leídos de las **directas** + **menciones** sin leer en cuadrillas y
+  órdenes. Es el número del ícono del encabezado y de las pestañas; lo demás no leído es un punto
+  (CLAUDE.md §10: el indicador solo crece cuando hace falta actuar).
+- Cada `EventoChat` trae `no_leidos` y `menciones` de su conversación; para los totales, vuelve a
+  pedir `GET /resumen` con un respiro (p. ej. 1 s tras el último evento), no por cada evento.
+- **Tope de frecuencia:** el servidor reutiliza el resultado de hace menos de **2 s** por usuario y
+  empresa (en memoria del proceso). Lo que escriben otros aparece a más tardar en 2 s; tu propia
+  lectura (`POST /leer`) lo invalida y tu contador baja enseguida.
+
+### 2.2 Miembros: `GET` y `POST /conversaciones/{id}/miembros`
+
+```json
+{ "data": [
+  { "usuario_id": 5, "nombre": "Mario Ixcot", "motivo": "tecnico" },
+  { "usuario_id": 9, "nombre": "Ana López", "motivo": "despacho" },
+  { "usuario_id": 3, "nombre": "Laura Méndez", "motivo": "supervision" },
+  { "usuario_id": 12, "nombre": "Pedro Gómez", "motivo": "agregado" } ] }
+```
+
+- Los usuarios activos de la empresa que ven la conversación, tú incluido, ordenados por motivo y nombre. `motivo`:
+  `directa` (los dos de una directa), `tecnico` (técnico de la cuadrilla o asignado a la orden),
+  `despacho` (se unió al hilo), `agregado` (lo agregó la supervisión) o `supervision`
+  (`chat.supervisar` que la cubre). Con varios motivos, el primero de esta lista.
+- No paginada: es acotada (los miembros de un chat). Sirve también para el autocompletado de
+  `@menciones`.
+- **Agregar** (`chat.supervisar`; sin él, **403**): solo en hilos de **orden** (otro tipo: 422
+  `tipo_no_admite_miembros`); tu `chat.supervisar` debe cubrir la orden (global, su zona o su
+  cuadrilla; si ves el hilo por otra vía, **403** `fuera_de_alcance`); orden cerrada, fallida o
+  cancelada: 422 `conversacion_cerrada`. El agregado debe ser una persona activa, de la empresa y
+  con `chat.ver` (422 `usuario_no_disponible`). Si ya lo ve (por cualquier motivo): **200** sin
+  cambios; si no: **201**, queda `agregado`, se audita, emite `chat.miembro_agregado` y un
+  `conversacion_actualizada` en el feed (al agregado le aparece el hilo). Responde la lista de
+  miembros. Acepta `Idempotency-Key`.
+- Quitar miembros queda fuera de esta fase.
+
+### 2.3 «Nuevo mensaje»
+
+- `GET /personas?q=&cursor=&limit=` → `{ data: PersonaChat[], nextCursor }`:
+  `{ "id": 7, "nombre": "Andrea Castillo", "conversacion_id": 31 }`. Personas activas de la empresa
+  con `chat.ver`, sin ti, por nombre. `conversacion_id`: la directa que ya tienen (o null). Elegir
+  una → `POST /directas`.
+- `GET /cuadrillas?q=` → `{ data: CuadrillaChat[] }` (no paginada: acotada):
+  `{ "id": 3, "nombre": "Cuadrilla Sur", "tecnicos": 4, "zonas": ["San Lucas", "Amatitlán"],
+  "conversacion_id": 18 }`. Las activas cuyo chat puedes abrir: la tuya (técnico) y las que cubre tu
+  `chat.supervisar`. `conversacion_id` no nulo = «Ya existe». Elegir una →
+  `POST /cuadrillas/{id}/abrir`.
+- Los hilos de orden se abren desde la orden (`GET /ordenes/{id}/conversacion` y, si no existe o
+  no estás, `POST /ordenes/{id}/abrir`).
 
 ### `MensajeChat`
 
@@ -72,10 +156,13 @@ mensajes de otros, sin eliminar, después de tu lectura.
   "texto": "La ONU tiene LOS en rojo.",                          // null si no tiene o se eliminó
   "adjunto": { "id": "…", "estado": "subiendo", "url_descarga": "/api/v1/adjuntos/…" },  // opcional
   "ubicacion": { "lat": 14.6, "lon": -90.5 },                     // opcional
+  "menciones": [ { "id": 7, "nombre": "Mario Ixcot" } ],           // siempre ([] sin menciones)
   "creado_en": "…",   // hora del teléfono al escribirlo (o null)
   "enviado_en": "…",  // hora del servidor al recibirlo («enviado sin señal, llegó 11:34»)
   "eliminado": false, "eliminado_en": null }
 ```
+
+`menciones`: a quiénes menciona (§3.2), por id; `[]` sin menciones o eliminado.
 
 **Texto plano.** El servidor no limpia nada y nunca interpreta HTML: el cliente lo muestra como
 texto (React lo escapa; nada de `dangerouslySetInnerHTML` ni Markdown). Con `eliminado: true` se
@@ -85,8 +172,12 @@ muestra «Mensaje eliminado».
 
 ```
 POST /conversaciones/{id}/mensajes
-{ "id": "<uuid v7>", "texto": "…", "adjunto_id": "<uuid>", "ubicacion": { "lat": …, "lon": … }, "creado_en": "…" }
+{ "id": "<uuid v7>", "texto": "…", "adjunto_id": "<uuid>", "ubicacion": { "lat": …, "lon": … }, "creado_en": "…",
+  "menciones": [7, 12] }
 ```
+
+- Hilo de orden cerrada, fallida o cancelada: **422** `conversacion_cerrada` (§1); un reenvío de un
+  `id` que ya había llegado responde 200 igual (la cola no se traba).
 
 - `id` lo genera el cliente **al escribir** (uuid v7; otro formato: 422) y se guarda en la cola
   local. Reenviar el mismo `id` con el mismo contenido responde **200** con el mensaje actual y
@@ -118,6 +209,39 @@ POST /conversaciones/{id}/mensajes
 - Errores que la cola **no** reintenta: 403, 404 (ya no eres miembro), 409, 422. Reintenta 429 (con
   `Retry-After`), 5xx y sin red, con espera exponencial.
 
+### 3.1 Eliminar con «Deshacer» (panel)
+
+El servidor **no** tiene «restaurar»: eliminar borra el texto, la foto (también del almacén), la
+ubicación y las menciones, y no guarda nada para devolverlos (§3). El «Deshacer» es del cliente:
+
+1. Al pulsar «Eliminar», el panel muestra el mensaje como «Mensaje eliminado» (local) y el aviso
+   con «Deshacer» durante **5 s**. Todavía **no** llama al servidor.
+2. «Deshacer» dentro de esos 5 s: cancela el temporizador y vuelve a mostrar el mensaje. Nada salió.
+3. Pasados los 5 s (o al cerrar el aviso): `POST /mensajes/{id}/eliminar`. Si responde 422
+   `plazo_vencido` (se pasó de los 15 min) u otro error, vuelve a mostrar el mensaje con el error y
+   «Reintentar».
+4. Si la página se cierra u oculta (`pagehide`, o `visibilitychange` a `hidden`) con una
+   eliminación pendiente, se manda ya (`fetch` con `keepalive: true`, la misma cookie y el CSRF).
+5. No ofrezcas «Eliminar» si al mensaje le quedan menos de 10 s del plazo de 15 min.
+
+Mientras dura la espera los demás siguen viendo el mensaje (aún no se eliminó) y su push pudo haber
+salido, como con cualquier eliminación.
+
+### 3.2 Menciones
+
+- `menciones`: ids de usuarios (hasta **20**; los repetidos cuentan una vez). Cada uno debe **ver
+  la conversación** ahora (los de `GET /conversaciones/{id}/miembros`) y no puede ser el autor: si
+  no, **422** `mencion_invalida` con `errors[]` (`menciones[i]`). Una mención necesita texto (422
+  `mencion_sin_texto`). El texto lleva `@Nombre` tal cual lo escribió el usuario; el servidor no lo
+  interpreta: vale la lista de ids (el panel resalta los `@Nombre` de los mencionados).
+- Las menciones son parte del contenido: reenviar el mismo `id` con otras menciones da **409**
+  `mensaje_id_reutilizado`. Al eliminar el mensaje se borran (la lápida trae `menciones: []`).
+- Cada mencionado (nunca el autor) genera el evento `chat.mencion` → push de tipo `mencion`
+  (push.md §3; urgente: sale aun en «No molestar» con `urgenteIgual`). El mencionado no recibe
+  además el push `chat` del mismo mensaje: el emisor los une (gana la mención).
+- Cuentan en `menciones` de la conversación y en `GET /resumen` hasta que las lees (`POST /leer`
+  hasta ese mensaje o uno posterior).
+
 ## 4. Tiempo real y sondeo
 
 Un solo feed por usuario y empresa: los cambios de las conversaciones que ves, con un cursor
@@ -125,7 +249,7 @@ creciente. SSE y sondeo dan el **mismo** `EventoChat` con el **mismo** cursor: s
 otro sin perder nada.
 
 ```json
-{ "id": "1543", "tipo": "mensaje_nuevo", "conversacion_id": 12, "ocurrido_en": "…", "no_leidos": 3,
+{ "id": "1543", "tipo": "mensaje_nuevo", "conversacion_id": 12, "ocurrido_en": "…", "no_leidos": 3, "menciones": 1,
   "mensaje": { …MensajeChat… } }               // mensaje_nuevo, mensaje_eliminado
 { "id": "1544", "tipo": "leido", "conversacion_id": 12, "ocurrido_en": "…", "no_leidos": 0,
   "lectura": { "usuario_id": 7, "hasta_mensaje_id": "0193…", "leido_en": "…" } }
@@ -133,7 +257,8 @@ otro sin perder nada.
   "conversacion": { …ConversacionChat… } }       // nueva, o te uniste
 ```
 
-- `no_leidos` es el tuyo en esa conversación al leer el evento: úsalo para el contador.
+- `no_leidos` y `menciones` son los tuyos en esa conversación al leer el evento: úsalos para los
+  contadores.
 - `mensaje` es el estado **actual** del mensaje: si se eliminó después, un `mensaje_nuevo` viejo ya
   llega como lápida. Aplica todo por `id` (upsert): un evento puede llegar dos veces.
 - `leido` de otro usuario = «visto»; el tuyo (de otro dispositivo) = baja tu contador.
@@ -203,13 +328,14 @@ data: {"id":"1543","tipo":"mensaje_nuevo",…}
 
 ## 6. Eventos de negocio (outbox)
 
-`chat.conversacion_creada`, `chat.mensaje_enviado` y `chat.mensaje_eliminado`
-(`contratos/eventos.md`, «Chat»). Nunca llevan el texto: el emisor de push (fase siguiente) lee el
+`chat.conversacion_creada`, `chat.mensaje_enviado`, `chat.mensaje_eliminado`, `chat.mencion` y
+`chat.miembro_agregado`
+(`contratos/eventos.md`, «Chat»). Nunca llevan el texto: el emisor de push (`internal/notificaciones`) lee el
 mensaje por `mensaje_id` y avisa a `destinatarios[]`. No hay `chat.leido` (ver eventos.md).
 
 ## 7. Fuera de esta fase
 
-Push a teléfonos (Expo/FCM; el evento ya trae `destinatarios`), grupos libres («Despacho»,
+Quitar miembros de un hilo de orden, «restaurar» un mensaje eliminado (§3.1), grupos libres («Despacho»,
 «Soporte nivel 2»), menciones de orden o cliente, mensajes de sistema en el hilo de la orden
 («Tomás llegó al sitio»), indicador «escribiendo», presencia y moderación (eliminar mensajes de
 otros).
