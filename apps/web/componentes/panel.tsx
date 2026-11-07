@@ -21,6 +21,8 @@ import { ControlDisponibilidad } from "./conversaciones/disponibilidad";
 import { BuscadorGlobal } from "./buscador-global";
 import { MenuCuentaLista, MenuUsuarioLateral, ProveedorCuenta } from "./cuenta/menu-usuario";
 import { BotonAvisos, BotonCrear } from "./barra-superior";
+import { BotonChatEquipo, PanelChatEquipo } from "./chat/panel-chat";
+import { ProveedorChatEquipo, useChatEquipo } from "./chat/proveedor";
 import { MigasPanel, ProveedorMigas } from "./migas-panel";
 import { ErrorLectura, SinEmpresa } from "./error-lectura";
 import { MisVistas, Navegacion } from "./navegacion";
@@ -177,7 +179,9 @@ function Estructura({ children }: { children: ReactNode }) {
             <ProveedorMigas>
                 <ProveedorCuenta>
                     <DisponibilidadSiAplica>
-                        <EstructuraPanel>{children}</EstructuraPanel>
+                        <ProveedorChatEquipo>
+                            <EstructuraPanel>{children}</EstructuraPanel>
+                        </ProveedorChatEquipo>
                     </DisponibilidadSiAplica>
                 </ProveedorCuenta>
             </ProveedorMigas>
@@ -200,12 +204,12 @@ function DisponibilidadSiAplica({ children }: { children: ReactNode }) {
 const CONSULTA_ESCRITORIO = "(min-width: 1024px)";
 
 /**
- * Pantallas de ancho completo (la bandeja de conversaciones): la barra lateral se compacta a riel
+ * Pantallas de ancho completo (la bandeja de conversaciones y el chat del equipo): la barra lateral se compacta a riel
  * de íconos (sin tocar la preferencia guardada) y el contenido usa todo el ancho y el alto que
  * queda bajo la barra superior, sin márgenes. En el teléfono las migas no se repiten arriba: la
  * pantalla tiene su título y su «Atrás».
  */
-const RUTAS_ANCHO_COMPLETO = ["/conversaciones"];
+const RUTAS_ANCHO_COMPLETO = ["/conversaciones", "/equipo"];
 export const esAnchoCompleto = (ruta: string) => RUTAS_ANCHO_COMPLETO.includes(ruta);
 
 /**
@@ -297,7 +301,10 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
 
     const resumen = useResumenTickets();
     const noLeidos = useNoLeidosConversaciones(puede(["conversaciones.ver"]) && (yo.modoEmpresa === "sin_conector" || yo.empresaActiva !== undefined), `${yo.empresaActiva?.id ?? 0}`);
-    const contadores = { "/tickets": contadorDe(resumen, "activos"), "/conversaciones": noLeidos };
+    const chat = useChatEquipo();
+    const contadores = { "/tickets": contadorDe(resumen, "activos"), "/conversaciones": noLeidos, "/equipo": chat?.contadores.todas };
+    // Panel lateral del chat abierto (escritorio): la pantalla se corre para que nada quede debajo.
+    const conPanelChat = Boolean(chat?.panel.abierto) && ruta !== "/equipo";
 
     return (
         <div className={cn("min-h-dvh bg-background-secondary text-[0.875rem]", contraida ? "lg:pl-16" : "lg:pl-60")}>
@@ -353,18 +360,21 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
                 <div className="ml-auto flex min-w-0 items-center justify-end gap-2 lg:ml-0 lg:flex-[0_1_21.25rem]">
                     <BuscadorGlobal />
                 </div>
+                <BotonChatEquipo />
                 <BotonAvisos />
                 <BotonCrear />
             </header>
+            {ruta !== "/equipo" ? <PanelChatEquipo /> : null}
 
             <main
                 id="contenido"
                 data-ancho-completo={anchoCompleto || undefined}
-                className={
+                className={cn(
                     anchoCompleto
                         ? "min-w-0"
-                        : "mx-auto max-w-[96rem] p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:px-6 sm:pt-5 sm:pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:pb-7"
-                }
+                        : "mx-auto max-w-[96rem] p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:px-6 sm:pt-5 sm:pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:pb-7",
+                    conPanelChat && (anchoCompleto ? "lg:mr-[23.75rem]" : "lg:pr-[calc(23.75rem+1.5rem)]"),
+                )}
             >
                 {anchoCompleto ? null : (
                     <div className="lg:hidden">

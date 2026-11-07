@@ -1,0 +1,80 @@
+"use client";
+
+import { useEffect, useRef, type ComponentProps, type KeyboardEvent, type ReactNode } from "react";
+import { cn } from "../utilidades";
+
+/*
+ * Panel lateral sin telón (excepción aprobada por el PM a la regla de `Hoja`, nov. 2026): un panel
+ * fijo a la derecha, bajo la barra superior, que deja la pantalla de atrás a la vista y usable. Lo
+ * usa el chat del equipo del panel.
+ *
+ * - No es modal: no atrapa el foco ni vuelve inerte la página (`role="dialog"` con
+ *   `aria-modal="false"` y su nombre).
+ * - Al abrir, el foco entra al panel (al elemento con `data-foco-inicial` o al panel mismo); al
+ *   cerrar, vuelve a donde estaba (el disparador), si sigue en la página.
+ * - Escape lo cierra mientras el foco está dentro, salvo que algo de adentro ya lo haya usado
+ *   (una lista abierta, un diálogo encima).
+ * - Panel sólido (la capa flotante del tema, `--overlay`), con borde y sombra; en el teléfono ocupa el ancho bajo la barra.
+ */
+
+export type PropsPanelLateral = Omit<ComponentProps<"section">, "role" | "title"> & {
+    abierto: boolean;
+    alCerrar: () => void;
+    /** Nombre accesible del panel (la cabecera visible la pone quien lo usa). */
+    etiqueta: string;
+    children: ReactNode;
+};
+
+const FOCO_INICIAL = "[data-foco-inicial]";
+
+export function PanelLateral({ abierto, alCerrar, etiqueta, className, children, onKeyDown, ...props }: PropsPanelLateral) {
+    const panel = useRef<HTMLElement>(null);
+    const previo = useRef<HTMLElement | null>(null);
+
+    useEffect(() => {
+        if (!abierto) return undefined;
+        const activo = document.activeElement;
+        previo.current = activo instanceof HTMLElement && activo !== document.body ? activo : null;
+        const destino = panel.current?.querySelector<HTMLElement>(FOCO_INICIAL) ?? panel.current;
+        destino?.focus({ preventScroll: true });
+        return () => {
+            const volver = previo.current;
+            previo.current = null;
+            // Solo si el foco seguía dentro del panel (o se perdió): no se le roba a otra parte.
+            const actual = document.activeElement;
+            const dentro = actual === null || actual === document.body || (panel.current?.contains(actual) ?? true);
+            if (volver?.isConnected && dentro) volver.focus({ preventScroll: true });
+        };
+    }, [abierto]);
+
+    if (!abierto) return null;
+
+    const alTeclear = (evento: KeyboardEvent<HTMLElement>) => {
+        onKeyDown?.(evento);
+        if (evento.key !== "Escape" || evento.defaultPrevented || evento.nativeEvent.defaultPrevented) return;
+        // Un Escape que viene de una capa portada (diálogo, lista) no es del panel.
+        if (!(evento.target instanceof Node) || !panel.current?.contains(evento.target)) return;
+        evento.preventDefault();
+        alCerrar();
+    };
+
+    return (
+        <section
+            ref={panel}
+            role="dialog"
+            aria-modal="false"
+            aria-label={etiqueta}
+            tabIndex={-1}
+            data-slot="panel-lateral"
+            className={cn(
+                "fixed top-14 right-0 bottom-0 z-40 flex w-full min-w-0 flex-col outline-none sm:w-[23.75rem]",
+                "border-l border-border bg-[var(--overlay)] text-[var(--overlay-foreground)] shadow-[var(--overlay-shadow)]",
+                className,
+            )}
+            onKeyDown={alTeclear}
+            {...props}
+        >
+            {children}
+        </section>
+    );
+}
