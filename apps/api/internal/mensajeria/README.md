@@ -126,6 +126,10 @@ Contrato completo (endpoints, payloads, SSE, reglas de la cola sin conexión):
     llegó sigue respondiendo 200 y eliminar lo propio dentro de los 15 min sigue permitido.
   - *Listas:* `q` en `GET /conversaciones` (título), `GET /chat/ordenes/{id}/conversacion` (sin crear
     ni unirse), `GET /chat/personas` (paginada) y `GET /chat/cuadrillas` para «Nuevo mensaje».
+  - *Resumen:* `GET /chat/resumen` reutiliza el resultado de hace menos de 2 s por usuario y empresa
+    (`cacheResumen`, en memoria del proceso); `POST /leer` olvida el del usuario al confirmar.
+  - *Cierre a la vez:* el estado de la orden se lee sin bloquearla; un mensaje o un miembro que llega
+    justo con el cierre puede quedar (aceptado, chat.md §1).
   - *Deshacer:* no hay «restaurar» en el servidor; el panel retrasa la eliminación 5 s (chat.md §3.1).
 
 Emite `chat.conversacion_creada`, `chat.mensaje_enviado` (con `destinatarios[]` para el emisor de

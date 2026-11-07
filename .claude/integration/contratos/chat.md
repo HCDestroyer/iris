@@ -32,6 +32,10 @@ cookie `HttpOnly` del panel o `Authorization: Bearer` de la app. Multiempresa: l
   reabre, el hilo vuelve a aceptar mensajes. Cerrar la orden no manda un evento al feed del chat:
   `solo_lectura` se ve al recargar la conversación (si un envío responde `conversacion_cerrada`,
   recarga la conversación y deshabilita el campo de texto).
+  **Carrera con el cierre (aceptada):** el chat lee el estado de la orden sin bloquearla (no toma
+  candados del módulo campo). Un mensaje, o un miembro agregado, que llega justo a la vez que el cierre
+  puede quedar guardado aunque su transacción termine después: el hilo muestra ese último mensaje y
+  desde ahí ya es de solo lectura. No se pierde ni se corrompe nada.
 - Las directas nunca se ven por alcance: ninguna supervisión lee mensajes directos.
 - Lo que no ves responde **404** (no se revela que existe).
 - Permisos: `chat.ver` (leer, marcar leído, flujo), `chat.enviar` (abrir, enviar, eliminar),
@@ -101,6 +105,9 @@ mensajes de otros, sin eliminar, después de tu lectura. `menciones`: de esos, l
   (CLAUDE.md §10: el indicador solo crece cuando hace falta actuar).
 - Cada `EventoChat` trae `no_leidos` y `menciones` de su conversación; para los totales, vuelve a
   pedir `GET /resumen` con un respiro (p. ej. 1 s tras el último evento), no por cada evento.
+- **Tope de frecuencia:** el servidor reutiliza el resultado de hace menos de **2 s** por usuario y
+  empresa (en memoria del proceso). Lo que escriben otros aparece a más tardar en 2 s; tu propia
+  lectura (`POST /leer`) lo invalida y tu contador baja enseguida.
 
 ### 2.2 Miembros: `GET` y `POST /conversaciones/{id}/miembros`
 

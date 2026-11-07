@@ -165,6 +165,8 @@ type Modulo struct {
 	difusor *difusor
 	// lecturas: semáforo de las lecturas del feed de los flujos SSE (ChatLecturas).
 	lecturas chan struct{}
+	// resumenes: GET /chat/resumen reciente por usuario y empresa (tope de frecuencia, en memoria).
+	resumenes *cacheResumen
 	// trasLeerCabeza: solo pruebas (entre la cabeza y los eventos de leerFeed).
 	trasLeerCabeza func()
 	// fallarFila: solo pruebas (un error en una fila del barrido de disponibilidad o del bot).
@@ -245,7 +247,8 @@ func Nuevo(cfg Config) *Modulo {
 	if cfg.EnlaceManual <= 0 {
 		cfg.EnlaceManual = 30 * 24 * time.Hour
 	}
-	m := &Modulo{cfg: cfg, difusor: nuevoDifusor(), difusorConv: nuevoDifusor(), lecturas: make(chan struct{}, cfg.ChatLecturas)}
+	m := &Modulo{cfg: cfg, difusor: nuevoDifusor(), difusorConv: nuevoDifusor(), lecturas: make(chan struct{}, cfg.ChatLecturas),
+		resumenes: nuevoCacheResumen(vigenciaResumen)}
 	m.EnviarAviso = nuevoEnviarAviso(m)
 	m.VerAviso = nuevoVerAviso(m)
 	m.RegistrarConsentimiento = nuevoRegistrarConsentimiento(m)
