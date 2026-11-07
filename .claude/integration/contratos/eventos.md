@@ -209,6 +209,11 @@ Contrato de la API en `contratos/chat.md`. Ninguno lleva el texto de un mensaje:
 | `chat.conversacion_creada` | `conversacion_id`, `empresa_id` (o null), `tipo` (`directa` \| `cuadrilla` \| `orden`), `cuadrilla_id` (o null), `orden_id` (o null), `creada_por`, `miembros[]` (los explícitos: los dos de la directa, o despacho que abrió el hilo; los derivados no van) | Primera vez que se abre (`POST /chat/directas`, `/chat/cuadrillas/{id}/abrir`, `/chat/ordenes/{id}/abrir`). Abrirla de nuevo no emite. |
 | `chat.mensaje_enviado` | `conversacion_id`, `mensaje_id` (uuid v7 del cliente), `empresa_id`, `tipo`, `cuadrilla_id`, `orden_id`, `autor_id`, `seq`, `contenido` `{ texto, foto, ubicacion }` (booleanos), `enviado_en`, `destinatarios[]` (usuarios activos de la empresa que la ven, sin el autor: miembros, técnicos y supervisión por alcance; en una directa, el otro) | `POST /chat/conversaciones/{id}/mensajes`. Un reenvío del mismo id no emite. Para el emisor de push. |
 | `chat.mensaje_eliminado` | `conversacion_id`, `mensaje_id`, `empresa_id`, `autor_id`, `eliminado_en` | El autor lo eliminó (15 min). Para retirar un push ya enviado. |
+| `chat.mencion` | `conversacion_id`, `mensaje_id`, `empresa_id` (o null), `usuario_id` (el mencionado), `autor_id` — el mismo payload que `conversacion.mencion` | Uno por mencionado al enviar un mensaje con `menciones[]` (`contratos/chat.md` §3.2); nunca para el autor. Un reenvío del mismo id no emite. Lo consume el emisor de push (tipo `mencion`). |
+| `chat.miembro_agregado` | `conversacion_id`, `empresa_id` (o null), `orden_id`, `usuario_id` (el agregado), `agregado_por` | La supervisión agregó a alguien al hilo de una orden (`POST /chat/conversaciones/{id}/miembros`, `chat.supervisar`). Si ya lo veía, no emite. |
+
+Sin `chat.mensaje_restaurado`: el «Deshacer» del panel retrasa la eliminación en el cliente
+(`contratos/chat.md` §3.1); el servidor no restaura mensajes.
 
 **Sin `chat.leido`.** Las lecturas son muy frecuentes, no cambian nada de negocio y nadie fuera del
 chat las consume: el «visto» y los contadores viajan por el feed propio del chat
@@ -234,8 +239,8 @@ Contrato con la app en `contratos/push.md`. Nunca llevan el token FCM completo (
 
 **Consume** `chat.mensaje_enviado`, `chat.mencion`, `conversacion.mencion`,
 `conversacion.aviso_sin_atender`, `orden.asignada` y `orden.programada` (push.md §3). `chat.mencion`
-todavía no lo emite nadie: cuando el chat tenga menciones, con el payload de `conversacion.mencion`
-(`conversacion_id`, `mensaje_id`, `empresa_id`, `usuario_id`, `autor_id`) el emisor lo une al push
+lo emite el chat al enviar un mensaje con menciones, con el payload de `conversacion.mencion`
+(`conversacion_id`, `mensaje_id`, `empresa_id`, `usuario_id`, `autor_id`); el emisor lo une al push
 del mismo mensaje. Los envíos no emiten eventos (son muchos y no cambian nada de negocio): su
 estado queda en `notificaciones.envios`.
 
