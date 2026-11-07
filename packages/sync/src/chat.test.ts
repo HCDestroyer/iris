@@ -330,8 +330,8 @@ describe("deduplicación y orden por seq (§4)", () => {
         await motor.cargarConversacion(12);
         motor.establecerConexion(false);
         const s = await motor.escribir(12, { texto: "hola" });
-        const eco: MensajeChat = { id: s.id, conversacion_id: 12, seq: 1, autor_id: YO, autor_nombre: "Yo", texto: "hola", creado_en: s.creadoEn, enviado_en: "2026-11-05T17:00:01Z", eliminado: false, eliminado_en: null };
-        await motor.aplicarEventos([{ id: "9", tipo: "mensaje_nuevo", conversacion_id: 12, no_leidos: 0, ocurrido_en: eco.enviado_en, mensaje: eco }]);
+        const eco: MensajeChat = { id: s.id, conversacion_id: 12, seq: 1, autor_id: YO, autor_nombre: "Yo", texto: "hola", creado_en: s.creadoEn, enviado_en: "2026-11-05T17:00:01Z", eliminado: false, eliminado_en: null, menciones: [] };
+        await motor.aplicarEventos([{ id: "9", tipo: "mensaje_nuevo", conversacion_id: 12, no_leidos: 0, menciones: 0, ocurrido_en: eco.enviado_en, mensaje: eco }]);
         expect(motor.obtenerConversacion(12).mensajes.map((m) => [m.texto, m.seq, m.envio])).toEqual([["hola", 1, "enviado"]]);
         void servidor;
     });
@@ -342,7 +342,7 @@ describe("deduplicación y orden por seq (§4)", () => {
         await motor.cargarConversacion(12);
         const m = servidor.recibir(12, ANDREA, "secreto");
         const lapida = { ...m, texto: null, eliminado: true, eliminado_en: m.enviado_en };
-        await motor.aplicarEventos([{ id: "5", tipo: "mensaje_nuevo", conversacion_id: 12, no_leidos: 0, ocurrido_en: m.enviado_en, mensaje: lapida }]);
+        await motor.aplicarEventos([{ id: "5", tipo: "mensaje_nuevo", conversacion_id: 12, no_leidos: 0, menciones: 0, ocurrido_en: m.enviado_en, mensaje: lapida }]);
         expect(motor.obtenerConversacion(12).mensajes[0]).toMatchObject({ eliminado: true, texto: null });
         expect(motor.obtenerEstado().conversaciones[0]?.ultimo_mensaje).toMatchObject({ contenido: "eliminado", texto: null });
     });
@@ -673,7 +673,7 @@ describe("lógica de pantalla", () => {
     });
 
     it("vista previa de la lista", () => {
-        const c = { id: 1, tipo: "cuadrilla" as const, titulo: "Norte", empresa_id: 1, cuadrilla_id: 3, orden_id: null, orden_estado: null, no_leidos: 0, leido_hasta_mensaje_id: null, ultima_actividad: "", creada_en: "", pendientes: 0, fallidos: 0 };
+        const c = { id: 1, tipo: "cuadrilla" as const, titulo: "Norte", empresa_id: 1, cuadrilla_id: 3, orden_id: null, orden_estado: null, orden_tipo: null, no_leidos: 0, menciones: 0, solo_lectura: false, leido_hasta_mensaje_id: null, ultima_actividad: "", creada_en: "", pendientes: 0, fallidos: 0 };
         expect(vistaPrevia({ ...c, ultimo_mensaje: { id: "x", autor_id: 7, autor_nombre: "Andrea Castillo", contenido: "texto", texto: "hola", enviado_en: "" } }, YO)).toBe("Andrea: hola");
         expect(vistaPrevia({ ...c, ultimo_mensaje: { id: "x", autor_id: YO, autor_nombre: "Yo", contenido: "foto", texto: null, enviado_en: "" } }, YO)).toBe("Tú: Foto");
         expect(vistaPrevia(c, YO)).toBe("Sin mensajes todavía");
@@ -721,7 +721,7 @@ describe.each<[string, () => AlmacenChat]>([
     it("guarda la cola, la caché y los bytes; borrarCacheChat deja la cola", async () => {
         const a = crear();
         const conv = new ServidorChatFalso(YO).crearConversacion({ id: 12, tipo: "orden", titulo: "OT-000102" });
-        const m: MensajeChat = { id: "m1", conversacion_id: 12, seq: 1, autor_id: 7, autor_nombre: "Andrea", texto: "hola", creado_en: null, enviado_en: "2026-11-05T17:00:00Z", eliminado: false, eliminado_en: null };
+        const m: MensajeChat = { id: "m1", conversacion_id: 12, seq: 1, autor_id: 7, autor_nombre: "Andrea", texto: "hola", creado_en: null, enviado_en: "2026-11-05T17:00:00Z", eliminado: false, eliminado_en: null, menciones: [] };
         await a.escribirChat({
             salida: { poner: [salidaDePrueba] },
             conversaciones: { poner: [conv] },

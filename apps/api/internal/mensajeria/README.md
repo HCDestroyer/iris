@@ -105,15 +105,33 @@ Contrato completo (endpoints, payloads, SSE, reglas de la cola sin conexión):
   servidor y pone un plazo por escritura; el proxy de la API (`servidor.ProxyHacia`) solo en
   `GET /api/v1/mensajeria/chat/eventos` usa un plazo de escritura móvil (60 s) y un máximo de 31 min,
   y ReverseProxy copia cada evento sin búfer.
-- **Auditoría:** abrir una conversación nueva, enviar y eliminar, con el id del mensaje y nunca el
-  texto. Listar, ver, leer, cambios y el flujo no dejan fila. Los logs no llevan cuerpos.
+- **Auditoría:** abrir una conversación nueva, enviar, eliminar y agregar un miembro, con los ids y
+  nunca el texto. Listar, ver, leer, cambios y el flujo no dejan fila. Los logs no llevan cuerpos.
 - `Config`: `ChatPorMinuto` (30), `ChatPlazoEliminar` (15 min), `ChatLatido` (25 s),
   `ChatDuracionMax` (30 min), `ChatRetencion` (7 días), `ChatSSEMax`, `ChatSSEPorUsuario`,
   `ChatLecturas`, `ChatFotosSinEnviar` y `Almacen`.
 
-Emite `chat.conversacion_creada`, `chat.mensaje_enviado` (con `destinatarios[]` para el futuro emisor
-de push) y `chat.mensaje_eliminado`. No emite `chat.leido` (ver `contratos/eventos.md`). No consume
-eventos.
+- **Panel (chat.md §2.1–§2.3, §3.2; `chat_panel.go`):**
+  - *Menciones* (`chat_menciones`, con `empresa_id` y `seq`): `menciones[]` al enviar (hasta 20),
+    validadas contra `MiembrosChat` (quienes ven la conversación; nunca el autor). Entran en el hash
+    del contenido (otro conjunto con el mismo id → 409) y se borran al eliminar el mensaje. Cuentan
+    en `menciones` de la conversación, del `EventoChat` y de `GET /chat/resumen` hasta leerlas.
+  - *Miembros:* `MiembrosChat` (consulta única) da quién ve la conversación y por qué (`directa`,
+    `tecnico`, `despacho`, `agregado`, `supervision`); la usan `GET …/miembros`, los
+    `destinatarios[]` del push y la validación de menciones. `POST …/miembros` (`chat.supervisar` con
+    alcance sobre la orden) guarda el miembro `agregado` (con `agregado_por`), que `chat_visibles` deja
+    ver sin depender de `ordenes.ver`.
+  - *Solo lectura:* el hilo de una orden `cerrada`, `fallida` o `cancelada` no acepta mensajes nuevos
+    ni miembros (422 `conversacion_cerrada`); se deriva del estado al leer. Un reenvío de un id que ya
+    llegó sigue respondiendo 200 y eliminar lo propio dentro de los 15 min sigue permitido.
+  - *Listas:* `q` en `GET /conversaciones` (título), `GET /chat/ordenes/{id}/conversacion` (sin crear
+    ni unirse), `GET /chat/personas` (paginada) y `GET /chat/cuadrillas` para «Nuevo mensaje».
+  - *Deshacer:* no hay «restaurar» en el servidor; el panel retrasa la eliminación 5 s (chat.md §3.1).
+
+Emite `chat.conversacion_creada`, `chat.mensaje_enviado` (con `destinatarios[]` para el emisor de
+push), `chat.mensaje_eliminado`, `chat.mencion` (uno por mencionado; lo consume
+`internal/notificaciones`) y `chat.miembro_agregado`. No emite `chat.leido` (ver
+`contratos/eventos.md`). No consume eventos.
 
 ## Bandeja de conversaciones con clientes (fase 1, sin IA)
 
