@@ -25,8 +25,11 @@ type Busqueda = { estado: "buscando" } | { estado: "no_existe" } | { estado: "er
 export function ChatDeOrden({ ordenId, numero }: { ordenId: number; numero: string }) {
     const chat = useChatEquipo();
     const conocida = chat?.estado.conversaciones.find((x) => x.tipo === "orden" && x.orden_id === ordenId) ?? null;
-    const [busqueda, setBusqueda] = useState<Busqueda>({ estado: "buscando" });
     const [intento, setIntento] = useState(0);
+    const clave = `${ordenId}|${intento}`;
+    // El resultado vale solo para la lectura que lo pidió; mientras tanto, «buscando».
+    const [leida, setLeida] = useState<{ clave: string; b: Busqueda } | null>(null);
+    const busqueda: Busqueda = leida?.clave === clave ? leida.b : { estado: "buscando" };
     const [abriendo, setAbriendo] = useState(false);
     const [errorAbrir, setErrorAbrir] = useState<unknown>(null);
     const motor = chat?.motor;
@@ -34,18 +37,19 @@ export function ChatDeOrden({ ordenId, numero }: { ordenId: number; numero: stri
     useEffect(() => {
         if (!motor || conocida) return undefined;
         const c = new AbortController();
-        setBusqueda({ estado: "buscando" });
         hiloDeOrden(ordenId, c.signal).then(
             async (id) => {
-                if (id === null) setBusqueda({ estado: "no_existe" });
+                if (id === null) setLeida({ clave, b: { estado: "no_existe" } });
                 else await motor.cargarConversacion(id);
             },
             (error: unknown) => {
-                if (!c.signal.aborted) setBusqueda({ estado: "error", error });
+                if (!c.signal.aborted) setLeida({ clave, b: { estado: "error", error } });
             },
         );
         return () => c.abort();
-    }, [motor, ordenId, conocida, intento]);
+        // `clave` ya lleva la orden y el intento.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [motor, clave, conocida]);
 
     if (!chat) return null;
     if (conocida) return <ConversacionEquipo id={conocida.id} variante="orden" />;

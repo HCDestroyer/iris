@@ -1,7 +1,7 @@
 "use client";
 
 import type { Schema } from "@iris/contratos";
-import { Aviso, Boton, Esqueleto, EstadoVacio, Pestanas, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { Aviso, Boton, cn, Esqueleto, EstadoVacio, Pestanas, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { LifeBuoy, MessageCircle, SearchX } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -100,6 +100,7 @@ function Detalle({ id }: { id: number }) {
     // «Chat del equipo» (con `chat.ver` y el chat ya arrancado): el mismo hilo que el panel lateral.
     const conChat = useChatEquipo() !== null;
     const noLeidosChat = useNoLeidosOrden(id);
+    const enChat = pestana === "chat" && conChat;
 
     if (orden.estado === "cargando") {
         return (
@@ -166,7 +167,8 @@ function Detalle({ id }: { id: number }) {
                 />
             </header>
 
-            <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+            {/* En «Chat del equipo» el hilo usa todo el ancho (su propia columna «En este chat»). */}
+            <div className={cn("grid grid-cols-[minmax(0,1fr)] gap-4", enChat ? "" : "lg:grid-cols-[minmax(0,1fr)_22rem]")}>
                 <div className="grid min-w-0 content-start gap-4">
                     <Pestanas<PestanaOrden>
                         etiqueta="Secciones de la orden"
@@ -276,7 +278,7 @@ function Detalle({ id }: { id: number }) {
                         ]}
                     />
                 </div>
-                <aside className="grid content-start gap-4" aria-label="Cliente y Argos">
+                <aside className={cn("grid content-start gap-4", enChat && "hidden")} aria-label="Cliente y Argos">
                     {o.ticketId !== null ? <TicketVinculado ticketId={o.ticketId} orden={o} usuarios={listaUsuarios} recargarOrden={recargar} /> : null}
                     {o.clienteId !== null && puede(["clientes.ver"]) ? (
                         <FichaArgos

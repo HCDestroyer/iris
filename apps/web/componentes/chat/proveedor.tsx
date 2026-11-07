@@ -197,12 +197,12 @@ function ChatActivo({ motor, yoId, children }: { motor: MotorChat; yoId: number;
     const [largo, setLargo] = useState(false);
     const conectando = estado.tiempoReal === "conectando";
     useEffect(() => {
-        if (!conectando) {
-            setLargo(false);
-            return undefined;
-        }
+        if (!conectando) return undefined;
         const t = setTimeout(() => setLargo(true), GRACIA_RECONEXION_MS);
-        return () => clearTimeout(t);
+        return () => {
+            clearTimeout(t);
+            setLargo(false);
+        };
     }, [conectando]);
     const enVivo: EstadoEnVivo = estado.sesionCerrada
         ? "sesion"

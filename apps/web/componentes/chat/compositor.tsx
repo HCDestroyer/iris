@@ -3,7 +3,7 @@
 import { AreaTexto, avisar, Boton, Camara, cn, idOpcion, inicialesDe, ListaSugerencias, teclasSugerencias } from "@iris/ui";
 import { MAXIMO_TEXTO, textoValido, type MotorChat } from "@iris/sync/chat";
 import { Camera, Info, Lock, MapPin, Send } from "lucide-react";
-import { useEffect, useId, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
+import { useId, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import { comprimirFoto } from "@/lib/campo/imagen";
 import { aplicarMencion, candidatosMencion, consultaMencion, mencionesVigentes, textoMotivo, type ConsultaMencion } from "@/lib/chat/presentacion";
 import type { MiembroChat } from "@/lib/chat/api";
@@ -44,14 +44,6 @@ export function CompositorChat({ motor, conversacionId, tipo, nombre, miembros, 
     const idLista = useId();
     const telefono = useAnchoTelefono();
     const conGeo = typeof navigator !== "undefined" && "geolocation" in navigator;
-
-    // Otra conversación: el borrador no se arrastra.
-    useEffect(() => {
-        setTexto("");
-        setElegidos([]);
-        setConsulta(null);
-        setError(null);
-    }, [conversacionId]);
 
     const candidatos = consulta ? candidatosMencion(miembros, consulta.texto, yoId) : [];
     const abierta = candidatos.length > 0;
@@ -144,7 +136,7 @@ export function CompositorChat({ motor, conversacionId, tipo, nombre, miembros, 
     }
 
     return (
-        <div className={cn("relative m-3 grid gap-2 rounded-xl border border-border bg-card p-2.5 focus-within:border-primary", className)} data-slot="compositor-chat">
+        <div className={cn("@container/compositor relative m-3 grid gap-2 rounded-xl border border-border bg-card p-2.5 focus-within:border-primary", className)} data-slot="compositor-chat">
             {abierta ? (
                 <ListaSugerencias
                     id={idLista}
@@ -197,7 +189,7 @@ export function CompositorChat({ motor, conversacionId, tipo, nombre, miembros, 
                 {telefono ? (
                     <>
                         <Camara alElegir={enviarFoto} variante="fantasma" tamano="icono-sm" aria-label="Enviar una foto">
-                            <Camera />
+                            <span className="sr-only">Foto</span>
                         </Camara>
                         {conGeo ? (
                             <Boton variante="fantasma" tamano="icono-sm" aria-label="Compartir tu ubicación" onClick={enviarUbicacion}>
@@ -213,7 +205,7 @@ export function CompositorChat({ motor, conversacionId, tipo, nombre, miembros, 
                         <Boton variante="fantasma" tamano="icono-sm" disabled aria-label="Ubicación: desde la app de campo o el teléfono">
                             <MapPin />
                         </Boton>
-                        <span className="ml-1 hidden min-w-0 items-center gap-1 truncate text-xs text-muted-foreground md:inline-flex">
+                        <span className="ml-1 hidden min-w-0 items-center gap-1 truncate text-xs text-muted-foreground @min-[32rem]/compositor:inline-flex">
                             <Info aria-hidden className="size-3.5 shrink-0" />
                             Foto y ubicación, desde la app de campo
                         </span>

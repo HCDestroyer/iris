@@ -113,6 +113,8 @@ dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`avis
 | `DialogoConfirmar` | `AlertDialog.Backdrop` + `AlertDialog.Container` + `AlertDialog.Dialog` + `AlertDialog.Heading` | `role="alertdialog"`, foco inicial en «Cancelar», no se cierra tocando fuera |
 | `Hoja*`, `PanelProtegido` | `Drawer.Backdrop` + `Drawer.Content` + `Drawer.Dialog` + `Drawer.Heading` | Siempre con telón oscurecido: `fondo="transparente"` se acepta pero ya no quita el telón. Se cierra también arrastrando hacia su lado; el contenido se desplaza en vertical (`touch-action: pan-y`) |
 | `PanelEmergente` | `Popover`, `Popover.Content`, `Popover.Dialog`, `Popover.Heading` | Diálogo no modal junto al disparador |
+| `PanelLateral` | — (`<section role="dialog" aria-modal="false">` propio) | **Excepción aprobada por el PM a la regla de `Hoja`:** panel fijo a la derecha bajo la barra superior (380 px; en el teléfono, a lo ancho), **sin telón**, que deja la pantalla de atrás a la vista y usable (el panel corre el contenido en escritorio). No atrapa el foco: al abrir lo lleva al elemento con `data-foco-inicial` (o al panel), Escape lo cierra solo con el foco adentro (y si nada de adentro usó la tecla) y al cerrar vuelve al disparador. Sólido (`--overlay`), con borde y sombra. Hoy solo lo usa el chat del equipo |
+| `ListaSugerencias`, `teclasSugerencias`, `idOpcion` | — (combobox de ARIA con foco virtual) | Sugerencias bajo un `AreaTexto` que sigue con el foco: las `@menciones` del chat. El área lleva `role="combobox"`, `aria-controls` y `aria-activedescendant`; flechas, Enter/Tab y Escape. `Autocompletar` no sirve: reemplaza todo el valor de un campo de una línea |
 | `MenuDesplegable*`, `MenuEnLinea` | `Dropdown`, `Dropdown.Popover`, `Dropdown.Menu`, `Dropdown.Section`, `Dropdown.Item`, `Menu` y `Separator` | `onSelect` → `onAction`. Un `Boton` como disparador se conecta solo; otro elemento, por `Pressable` |
 | `Globo` | `Tooltip`, `Tooltip.Content` | Un `Boton` se conecta solo; otro elemento, por `Focusable` |
 | `GrupoSegmentado` | `ToggleButtonGroup` + `ToggleButton` (selección única) | `role="radiogroup"` y `role="radio"`; como un grupo de radios, las flechas mueven y eligen |
@@ -295,6 +297,43 @@ Diseño aprobado por el PM («compactar menús, mejor integración y que nada se
 - **Pruebas de «nada cortado»:** `e2e/desbordes.ts` (`esperarSinDesbordes`) falla si la página
   se desplaza a lo ancho, si algo queda fuera de la ventana o si un texto se sale de su caja sin
   elipsis.
+
+## Chat del equipo en el panel (nov. 2026)
+
+Diseño aprobado por el PM (combinación de las opciones A y B; `contratos/chat.md`, parte del panel):
+
+- **Tres lugares, un solo chat:** el mismo `MotorChat` de `@iris/sync/chat` (caché en memoria,
+  flujo SSE leído con `fetch` para mandar `X-Iris-Empresa`, sondeo de `/cambios` si el flujo no se
+  sostiene) y los mismos componentes de hilo y compositor (`componentes/chat/`):
+    - **ícono en la barra superior** (burbuja redonda) con el número de lo que pide actuar
+      (`GET /resumen`: directas sin leer + menciones) o un punto si solo hay mensajes nuevos; abre el
+      **`PanelLateral`** (lista y conversación se turnan con «Atrás»; «Abrir en página» lleva a
+      `/equipo?c=<id>` con la misma conversación);
+    - **página «Equipo»** (`/equipo`, en el riel con su icono, `chat.ver`): ancho completo como la
+      bandeja, lista con Todas / Directas / Cuadrillas / Órdenes (con su contador), búsqueda y el
+      hilo; en el teléfono, lista **o** hilo;
+    - **pestaña «Chat del equipo»** en la ficha de la orden: lee el hilo sin unirse
+      (`GET /ordenes/{id}/conversacion`); si no existe, «Abrir el chat de la orden». A la derecha,
+      «En este chat» (miembros con su motivo) y «Agregar persona» (`chat.supervisar`, diálogo de un
+      campo).
+- **Se distingue de la bandeja de clientes:** burbujas propias en teal relleno; avatares cuadrados
+  con icono para cuadrillas y órdenes; la franja «Chat interno: el cliente no lo ve»; nombre y rol
+  de quien escribe; «visto» (no «leído»).
+- **Insignias (§10):** número solo en directas y en menciones; una cuadrilla con mensajes nuevos es
+  un punto.
+- **«En vivo»** es un punto y dos palabras. Si conectar tarda más de 4 s: «Reconectando…» y un aviso
+  «Sin conexión en vivo» con «Reintentar».
+- **Menciones con @:** sugerencias de los miembros (`ListaSugerencias`); el mensaje sale por la cola
+  del motor con `menciones: [ids]` (los `@Nombre` que siguen en el texto). Los `@Nombre` de los
+  miembros se resaltan; el tuyo, con fondo.
+- **Eliminar un mensaje propio:** sin confirmación; se ve eliminado y el aviso trae «Deshacer» 5 s.
+  La llamada sale a los 5 s (o con `keepalive` al cerrar u ocultar la página); el servidor no
+  restaura (§3.1). No se ofrece si quedan menos de 10 s de los 15 min.
+- **Orden cerrada, fallida o cancelada:** solo lectura (`solo_lectura`), con el motivo en lugar del
+  compositor y sin «Agregar persona».
+- **Foto y ubicación:** en escritorio, deshabilitadas («Foto y ubicación, desde la app de campo»);
+  en el ancho del teléfono, habilitadas (cámara del navegador y geolocalización, por la cola).
+- **Nuevo mensaje:** diálogo con Persona / Cuadrilla, búsqueda en el servidor y «Ya existe».
 
 ## Navegación del panel (fase 1, hecha)
 

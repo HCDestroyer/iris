@@ -26,7 +26,7 @@ export function HiloChat({ motor, vista, miembros, yoId, eliminando, puedeElimin
     const caja = useRef<HTMLDivElement>(null);
     const pegado = useRef(true);
     const tipo = vista.conversacion?.tipo ?? "directa";
-    const mensajes = vista.mensajes.map((m) => (eliminando.has(m.id) && !m.eliminado ? { ...m, eliminado: true, texto: null, foto: null, ubicacion: null } : m));
+    const mensajes = vista.mensajes.map((m) => (eliminando.has(m.id) && !m.eliminado ? { ...m, eliminado: true, texto: null, foto: null, ubicacion: null, menciones: [] } : m));
     const elementos = elementosHilo(mensajes, true, ahora);
     const ultimo = vista.mensajes.at(-1);
 
@@ -35,6 +35,17 @@ export function HiloChat({ motor, vista, miembros, yoId, eliminando, puedeElimin
         const el = caja.current;
         if (el && pegado.current) el.scrollTop = el.scrollHeight;
     }, [ultimo?.id, ultimo?.envio, vista.carga]);
+
+    // Si la caja cambia de alto (un aviso arriba, el teclado del teléfono) sigue pegada al final.
+    useEffect(() => {
+        const el = caja.current;
+        if (!el || typeof ResizeObserver === "undefined") return undefined;
+        const o = new ResizeObserver(() => {
+            if (pegado.current) el.scrollTop = el.scrollHeight;
+        });
+        o.observe(el);
+        return () => o.disconnect();
+    }, []);
 
     // Leído: con el último mensaje a la vista y la pestaña visible.
     useEffect(() => {

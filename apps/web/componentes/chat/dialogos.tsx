@@ -19,22 +19,23 @@ type Busqueda<T> = { estado: "cargando" } | { estado: "error"; error: unknown } 
 function useBusqueda<T>(q: string, buscar: (q: string, s: AbortSignal) => Promise<T[]>, activa = true): [Busqueda<T>, () => void] {
     const diferido = useDiferido(q, 250);
     const [intento, setIntento] = useState(0);
-    const [r, setR] = useState<Busqueda<T>>({ estado: "cargando" });
+    const clave = `${intento}|${diferido}`;
+    // El resultado vale solo para la búsqueda que lo pidió; mientras llega el de otra, «cargando».
+    const [r, setR] = useState<{ clave: string; r: Busqueda<T> } | null>(null);
     useEffect(() => {
         if (!activa) return undefined;
         const c = new AbortController();
-        setR({ estado: "cargando" });
         buscar(diferido, c.signal).then(
-            (datos) => setR({ estado: "listo", datos }),
+            (datos) => setR({ clave, r: { estado: "listo", datos } }),
             (error: unknown) => {
-                if (!c.signal.aborted) setR({ estado: "error", error });
+                if (!c.signal.aborted) setR({ clave, r: { estado: "error", error } });
             },
         );
         return () => c.abort();
         // `buscar` es una función de módulo.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [diferido, intento, activa]);
-    return [r, () => setIntento((i) => i + 1)];
+    }, [clave, activa]);
+    return [r?.clave === clave ? r.r : { estado: "cargando" }, () => setIntento((i) => i + 1)];
 }
 
 function ErrorBusqueda({ error, reintentar, que }: { error: unknown; reintentar: () => void; que: string }) {

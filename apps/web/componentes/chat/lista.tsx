@@ -110,23 +110,23 @@ function Fila({ c, actual, ahora, yoId, href, alElegir }: { c: ConversacionVista
             </span>
         </>
     );
-    if (href) {
-        return (
-            <Link href={href} scroll={false} aria-current={actual ? "true" : undefined} data-conversacion-chat={c.id} className={CLASES_FILA}>
-                {contenido}
-            </Link>
-        );
-    }
+    // Siempre un enlace a la página (se puede abrir en otra pestaña); en el panel lateral, el clic
+    // simple abre la conversación ahí mismo.
     return (
-        <Boton
-            variante="fantasma"
+        <Link
+            href={href ?? `/equipo?c=${c.id}`}
+            scroll={false}
             aria-current={actual ? "true" : undefined}
             data-conversacion-chat={c.id}
-            className={cn(CLASES_FILA, "h-auto justify-stretch rounded-none font-normal")}
-            onClick={() => alElegir?.(c.id)}
+            className={CLASES_FILA}
+            onClick={(e) => {
+                if (!alElegir || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                e.preventDefault();
+                alElegir(c.id);
+            }}
         >
             {contenido}
-        </Boton>
+        </Link>
     );
 }
 

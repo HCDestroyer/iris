@@ -43,17 +43,12 @@ export async function pedirMiembros(conversacionId: number, signal?: AbortSignal
     return r.data ?? [];
 }
 
-/**
- * `POST /conversaciones/{id}/miembros` (§2.2, `chat.supervisar`): la lista de miembros. El OpenAPI
- * declara el 201 como `Problema` (pedido a I1 en `i3.md`): se comprueba la forma.
- */
+/** `POST /conversaciones/{id}/miembros` (§2.2, `chat.supervisar`): la lista de miembros. */
 export async function agregarMiembro(conversacionId: number, usuarioId: number, idempotencia: string): Promise<MiembroChat[]> {
-    const r: unknown = await resolver(
+    const r = await resolver(
         api().POST(`${BASE}/conversaciones/{id}/miembros`, { params: { path: { id: conversacionId }, header: { "Idempotency-Key": idempotencia } }, body: { usuario_id: usuarioId } }),
     );
-    const datos = typeof r === "object" && r !== null ? (r as { data?: unknown }).data : undefined;
-    if (!Array.isArray(datos)) throw new ErrorApi({ estado: 502, codigo: "respuesta_invalida", titulo: "La API respondió los miembros con otra forma" });
-    return datos as MiembroChat[];
+    return r.data ?? [];
 }
 
 /** `GET /personas?q=` (§2.3). */

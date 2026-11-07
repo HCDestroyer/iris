@@ -52,7 +52,7 @@ export function Pestanas<I extends string = string>({ etiqueta, pestanas, selecc
                     {pestanas.map((p) => {
                         const Icono = p.icono;
                         return (
-                            <Tabs.Tab key={p.id} id={p.id} {...(p.href ? { href: p.href } : {})} className="gap-1.5">
+                            <Tabs.Tab key={p.id} id={p.id} {...(p.href ? { href: p.href } : {})} className="gap-1.5 whitespace-nowrap">
                                 {Icono ? <Icono aria-hidden className="size-4 shrink-0" /> : null}
                                 {p.etiqueta}
                                 {p.contador !== undefined ? <span className="text-xs text-muted-foreground tabular-nums">{p.contador}</span> : null}

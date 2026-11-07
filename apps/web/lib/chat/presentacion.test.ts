@@ -103,8 +103,8 @@ describe("menciones", () => {
 
     it("inserta el nombre y conserva solo las menciones que siguen en el texto", () => {
         const c = consultaMencion("ok @ma", 6);
-        expect(c).not.toBeNull();
-        const r = aplicarMencion("ok @ma", c!, "Mario Ixcot");
+        if (!c) throw new Error("sin consulta");
+        const r = aplicarMencion("ok @ma", c, "Mario Ixcot");
         expect(r).toEqual({ texto: "ok @Mario Ixcot ", cursor: 16 });
         expect(mencionesVigentes(`${r.texto}revisa`, [{ id: 5, nombre: "Mario Ixcot" }, { id: 3, nombre: "Laura Méndez" }])).toEqual([5]);
     });

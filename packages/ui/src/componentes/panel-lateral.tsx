@@ -35,14 +35,15 @@ export function PanelLateral({ abierto, alCerrar, etiqueta, className, children,
         if (!abierto) return undefined;
         const activo = document.activeElement;
         previo.current = activo instanceof HTMLElement && activo !== document.body ? activo : null;
-        const destino = panel.current?.querySelector<HTMLElement>(FOCO_INICIAL) ?? panel.current;
+        const nodo = panel.current;
+        const destino = nodo?.querySelector<HTMLElement>(FOCO_INICIAL) ?? nodo;
         destino?.focus({ preventScroll: true });
         return () => {
             const volver = previo.current;
             previo.current = null;
             // Solo si el foco seguía dentro del panel (o se perdió): no se le roba a otra parte.
             const actual = document.activeElement;
-            const dentro = actual === null || actual === document.body || (panel.current?.contains(actual) ?? true);
+            const dentro = actual === null || actual === document.body || !actual.isConnected || (nodo?.contains(actual) ?? true);
             if (volver?.isConnected && dentro) volver.focus({ preventScroll: true });
         };
     }, [abierto]);

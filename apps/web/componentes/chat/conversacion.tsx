@@ -105,12 +105,12 @@ function Conversacion({ id, variante, alAtras, acciones, className }: Props) {
     const cuerpo = (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <FranjaInterno estado={enVivo} texto={variante === "orden" ? "Chat interno de la orden: el cliente no lo ve. El técnico lo tiene en la app de campo." : "Chat interno: el cliente no lo ve"} />
-            <AvisoTiempoReal estado={enVivo} reintentar={reintentar} className="mx-3 mt-3" />
+            <AvisoTiempoReal estado={enVivo} reintentar={reintentar} className="mx-3 mt-3 w-auto" />
             {aviso ? (
                 <Aviso
                     tono={aviso.tono}
                     titulo={aviso.texto}
-                    className="mx-3 mt-3"
+                    className="mx-3 mt-3 w-auto"
                     accion={
                         <Boton variante="fantasma" tamano="sm" onClick={() => motor.descartarAviso(aviso.id)}>
                             Entendido
@@ -139,7 +139,7 @@ function Conversacion({ id, variante, alAtras, acciones, className }: Props) {
 
     if (variante === "orden") {
         return (
-            <div className={cn("grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_17rem]", className)}>
+            <div data-slot="chat-orden" className={cn("grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_17rem]", className)}>
                 <section aria-label={`Chat del equipo de ${c.titulo}`} className="flex h-[min(42rem,calc(100dvh-14rem))] min-h-[26rem] min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card">
                     {cuerpo}
                 </section>
@@ -186,7 +186,6 @@ function Conversacion({ id, variante, alAtras, acciones, className }: Props) {
                         </Link>
                     </Boton>
                 ) : null}
-                {acciones}
                 {verOrden || puedeAgregar ? (
                     <MenuDesplegable>
                         <MenuDesplegableDisparador>
@@ -208,6 +207,7 @@ function Conversacion({ id, variante, alAtras, acciones, className }: Props) {
                         </MenuDesplegableContenido>
                     </MenuDesplegable>
                 ) : null}
+                {acciones}
             </header>
             {cuerpo}
             {dialogo}
