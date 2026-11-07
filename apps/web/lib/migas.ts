@@ -11,6 +11,7 @@ const ETIQUETAS: Readonly<Record<string, string>> = {
     "/tickets": "Tickets",
     "/conversaciones": "Conversaciones",
     "/conversaciones/nueva": "Nueva conversación",
+    "/equipo": "Equipo",
     "/ordenes": "Órdenes",
     "/agenda": "Agenda",
     "/despacho": "Despacho",

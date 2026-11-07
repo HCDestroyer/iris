@@ -650,7 +650,7 @@ describe("lógica de pantalla", () => {
     });
 
     it("separadores de día y autor en grupos solo al cambiar de autor", () => {
-        const base = { seq: 1, autorNombre: "Andrea", propio: false, texto: "x", ubicacion: null, foto: null, enviadoEn: null, eliminado: false, envio: "enviado" as const, error: null, visto: false };
+        const base = { seq: 1, autorNombre: "Andrea", propio: false, texto: "x", ubicacion: null, foto: null, enviadoEn: null, eliminado: false, menciones: [], envio: "enviado" as const, error: null, visto: false };
         const e = elementosHilo(
             [
                 { ...base, id: "a", autorId: 7, creadoEn: "2026-11-04T17:00:00Z" },

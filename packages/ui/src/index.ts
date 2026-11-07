@@ -96,6 +96,7 @@ export { Interruptor, type PropsInterruptor } from "./componentes/interruptor";
 export { LienzoFirma, type PropsLienzoFirma } from "./componentes/lienzo-firma";
 export { ListaEleccion, type OpcionEleccion, type PropsListaEleccion } from "./componentes/lista-eleccion";
 export { ListaOpciones, type OpcionLista, type PropsListaOpciones } from "./componentes/lista-opciones";
+export { idOpcion, ListaSugerencias, teclasSugerencias, type PropsListaSugerencias, type SugerenciaLista } from "./componentes/lista-sugerencias";
 export { LogoIris, MarcaIris } from "./componentes/marca";
 export { Migas, ProveedorRutas, type Miga, type PropsMigas, type PropsProveedorRutas } from "./componentes/migas";
 export {
@@ -113,6 +114,7 @@ export {
 } from "./componentes/menu-desplegable";
 export { PaletaBusqueda, type ElementoPaleta, type PropsPaletaBusqueda, type SeccionPaleta } from "./componentes/paleta-busqueda";
 export { PanelEmergente, type PropsPanelEmergente } from "./componentes/panel-emergente";
+export { PanelLateral, type PropsPanelLateral } from "./componentes/panel-lateral";
 export { Pestanas, type Pestana, type PropsPestanas } from "./componentes/pestanas";
 export { SelectorArchivo, type PropsSelectorArchivo } from "./componentes/selector-archivo";
 export { CampoSelector, leerOpciones, Selector, type OpcionSelector, type PropsCampoSelector, type PropsSelector } from "./componentes/selector";

@@ -83,7 +83,7 @@ describe("menú por permisos", () => {
         const todos = [...new Set(MENU.flatMap((e) => e.permisos ?? []))];
         const grupos = menuAgrupado(todos).map((g) => [g.etiqueta, g.entradas.map((e) => e.etiqueta)]);
         expect(grupos).toEqual([
-            ["Operación", ["Inicio", "Tickets", "Conversaciones", "Órdenes y tareas", "Agenda", "Mapa", "Técnicos"]],
+            ["Operación", ["Inicio", "Tickets", "Conversaciones", "Equipo", "Órdenes y tareas", "Agenda", "Mapa", "Técnicos"]],
             ["Negocio", ["Comercial", "Encuestas", "Reportes"]],
             ["Administración", ["Usuarios", "Administración"]],
         ]);
@@ -107,7 +107,7 @@ describe("menú por permisos", () => {
         const todos = [...new Set(MENU.flatMap((e) => e.permisos ?? []))];
         const { barra, resto } = repartoTelefono(todos);
         expect(barra.map((e) => e.etiquetaCorta ?? e.etiqueta)).toEqual(["Inicio", "Tickets", "Órdenes", "Agenda"]);
-        expect(resto.flatMap((g) => g.entradas.map((e) => e.etiqueta))).toEqual(["Conversaciones", "Mapa", "Técnicos", "Comercial", "Encuestas", "Reportes", "Usuarios", "Administración"]);
+        expect(resto.flatMap((g) => g.entradas.map((e) => e.etiqueta))).toEqual(["Conversaciones", "Equipo", "Mapa", "Técnicos", "Comercial", "Encuestas", "Reportes", "Usuarios", "Administración"]);
         const soloTickets = repartoTelefono(["tickets.ver"]);
         expect(soloTickets.barra.map((e) => e.etiqueta)).toEqual(["Inicio", "Tickets"]);
         expect(soloTickets.resto).toEqual([]);

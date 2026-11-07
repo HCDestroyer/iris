@@ -8,6 +8,7 @@ import {
     LayoutDashboard,
     LifeBuoy,
     Map as IconoMapa,
+    MessageCircle,
     MessageSquareHeart,
     MessagesSquare,
     Route,
@@ -68,6 +69,8 @@ export const MENU: readonly EntradaMenu[] = [
     { href: "/", grupo: "operacion", etiqueta: "Inicio", icono: LayoutDashboard, permisos: null },
     { href: "/tickets", grupo: "operacion", etiqueta: "Tickets", icono: LifeBuoy, permisos: ["tickets.ver"] },
     { href: "/conversaciones", grupo: "operacion", etiqueta: "Conversaciones", icono: MessagesSquare, permisos: ["conversaciones.ver"] },
+    // Chat interno del equipo (burbuja redonda: no se confunde con la bandeja de clientes).
+    { href: "/equipo", grupo: "operacion", etiqueta: "Equipo", icono: MessageCircle, permisos: ["chat.ver"] },
     {
         href: "/ordenes",
         grupo: "operacion",

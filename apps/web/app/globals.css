@@ -23,21 +23,26 @@ body:has([data-slot="formulario-pagina"]) #contenido {
 /*
  * Bandeja de conversaciones (pantalla de ancho completo): ocupa el alto que queda entre la barra
  * superior (3.5rem) y, en el teléfono, la barra inferior. Con una conversación abierta en el
- * teléfono la barra inferior se oculta (se vuelve con «Atrás») y la bandeja toma ese alto.
+ * teléfono la barra inferior se oculta (se vuelve con «Atrás») y la bandeja toma ese alto. Igual la
+ * página «Equipo» (chat del equipo).
  */
-[data-slot="bandeja"] {
+[data-slot="bandeja"],
+[data-slot="equipo"] {
     height: calc(100dvh - 3.5rem - 3.5rem - 1px - env(safe-area-inset-bottom));
 }
 @media (min-width: 1024px) {
-    [data-slot="bandeja"] {
+    [data-slot="bandeja"],
+    [data-slot="equipo"] {
         height: calc(100dvh - 3.5rem);
     }
 }
 @media (max-width: 1023.98px) {
-    body:has([data-slot="bandeja"][data-vista="conversacion"]) [data-slot="barra-inferior"] {
+    body:has([data-slot="bandeja"][data-vista="conversacion"]) [data-slot="barra-inferior"],
+    body:has([data-slot="equipo"][data-vista="conversacion"]) [data-slot="barra-inferior"] {
         display: none;
     }
-    [data-slot="bandeja"][data-vista="conversacion"] {
+    [data-slot="bandeja"][data-vista="conversacion"],
+    [data-slot="equipo"][data-vista="conversacion"] {
         height: calc(100dvh - 3.5rem);
     }
 }
