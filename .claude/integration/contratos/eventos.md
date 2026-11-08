@@ -305,6 +305,30 @@ Cambios a eventos existentes (aditivos): `conversacion.asignada` suma los oríge
 (`cliente` si la abrió un mensaje del cliente, `agente` al iniciar);
 `cola.actualizada` puede traer `campos: ["supervisores"]`.
 
+### Conexión con Meta, QR y préstamo de números (contratos/conversaciones.md §15)
+
+Ninguno lleva secretos (app secret, clave de enlace, verify token, token del negocio) ni el `code` de
+Meta.
+
+| Evento | Payload | Cuándo |
+| --- | --- | --- |
+| `meta.conexion_cambiada` | `modo` (`propia`, `compartida`), `anterior` (`sin_configurar`, `propia`, `compartida`), `campos[]` (los secretos cambiados van con su nombre, nunca el valor) | `POST /mensajeria/conexion-meta/actualizar` (una por instalación; sin `empresa_id`). |
+| `meta.conexion_probada` | `modo`, `estado` (`lista`, `error`, `sin_servicio_central`) | `POST /mensajeria/conexion-meta/probar`. |
+| `canal_mensajeria.desconectado` | `canal_id`, `empresa_id`, `motivo` (`partner_removed`, `account_offboarded` o la razón de Meta en minúsculas: `primary_inactivity`, `companion_inactivity`, `business_downgrade`…) | Webhook `account_update` de un número QR. Una vez por desconexión. |
+| `canal_mensajeria.reconectado` | `canal_id`, `empresa_id`, `origen` (`qr`: se repitió el QR; `meta`: `ACCOUNT_RECONNECTED`) | El número vuelve a recibir y enviar. |
+| `canal_mensajeria.prestado` | `canal_id`, `empresa_id` (la dueña), `prestatario_id`, `usos[]`, `cola_id` (o null), `nuevo` (bool: alta o reactivación) | `POST /mensajeria/canales/{id}/prestamos`. |
+| `canal_mensajeria.prestamo_revocado` | `canal_id`, `empresa_id` (la dueña), `prestatario_id`, `motivo`, `conversaciones_cerradas`, `avisos_cancelados` | `POST /mensajeria/canales/{id}/prestamos/{empresa}/revocar`. Sale con un `conversacion.resuelta` (`actor_id` null, `motivo: prestamo_revocado`) por conversación y un `aviso.fallido` por aviso. |
+| `conversacion.empresa_asignada` | `conversacion_id`, `empresa_id` (la elegida), `canal_id`, `motivo` (`iniciada_por_empresa`, `cliente_de_empresa`, `sin_coincidencia`, `varias_coincidencias`, `pasada`), `anterior_empresa_id` (o null), `actor_id` (solo `pasada`) | Un mensaje que llega a un número compartido sin conversación abierta, o la dueña pasa una conversación (`POST /conversaciones/{id}/pasar-empresa`). |
+
+Cambios a eventos existentes (aditivos): `canal_mensajeria.creado` suma `tipo_conexion` (`qr` en
+`POST /canales/qr`); `canal_mensajeria.actualizado` sale con `campos: ["sincronizacion"]` al pedir
+contactos o historial y con la `empresa_id` de quien usa el número al marcarlo como su número de
+avisos; `conversacion.creada` suma `origen: telefono` (un eco del teléfono abrió la conversación);
+`conversacion.mensaje_enviado` suma `origen` (`telefono` con `autor_id: null` para lo mandado desde
+el teléfono); `contacto_iris.creado` suma `origen` (`agente` | `telefono`, con `conversacion_id`
+null para los contactos del teléfono); `conversacion.resuelta` suma `motivo: prestamo_revocado`
+(con `actor_id` null). El historial traído del teléfono no emite eventos de conversación.
+
 ## Soporte (I2)
 
 Emite el módulo `soporte`, con `empresa_id` = la empresa del ticket (null sin conector). Las fechas van en UTC (RFC 3339).

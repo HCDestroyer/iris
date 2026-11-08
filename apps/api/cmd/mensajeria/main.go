@@ -134,7 +134,7 @@ func servir(ctx context.Context, cfg config.Config, ent mensajeria.Entorno, log 
 		Almacen: almacen, ChatSSEMax: ent.ChatSSEMax,
 		Cifrador: cif, Contactos: conectorArgos, Simulado: ent.Simulado, LimiteDiario: ent.LimiteDiario, PorMinuto: ent.PorMinuto,
 		Silencio: ent.Silencio, MetaURL: ent.MetaURL, HTTPArgos: conector.NuevoHTTP(cfg.ArgosRedesPermitidas), Version: version,
-		Encolar: encolar,
+		Encolar: encolar, Meta: ent.Meta,
 	})
 	workers := river.NewWorkers()
 	m.RegistrarWorkers(workers, pool)

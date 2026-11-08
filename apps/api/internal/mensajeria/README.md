@@ -258,3 +258,34 @@ escribe a clientes por iniciativa propia; soporte, ventas, supervisor) y `conver
 Emite además `conversacion.iniciada`, `conversacion.aviso_sin_atender`, `conversacion.bot_atendio`,
 `conversacion.menu_elegido`, `agente.disponibilidad_cambiada` y `conversaciones.ajustes_cambiados`
 (`conversacion.asignada` suma los orígenes `pasar` e `iniciar`). No consume eventos nuevos.
+
+## Conexión con Meta, WhatsApp por QR y préstamo de números (`contratos/conversaciones.md` §15)
+
+- **Conexión con Meta** (`conexion_meta.go`): una por instalación en `mensajeria.conexion_meta`
+  (modo `propia` con app ID, app secret, config ID y versión de la Graph API; `compartida` con el
+  servicio central «Iris Cloud», que todavía no existe), o la del entorno (`IRIS_META_MODO=saas`,
+  solo lectura). Permiso `mensajeria.conexion_meta` (sensible, solo admin). Los secretos se cifran
+  con `IRIS_CLAVE_CIFRADO` y nunca se devuelven. Webhook de la app: `GET/POST /meta/webhook`
+  (verify token y firma de la conexión); cada `entry` se reparte al número QR de su
+  `phone_number_id` (o de su WABA en `account_update`).
+- **Registro con QR** (`canal_qr.go`, `registro_meta.go`): `POST /canales/qr` canjea el `code` de
+  Embedded Signup una sola vez (`registros_qr` guarda solo su SHA-256), lee el número, suscribe la
+  app a la WABA (con `override_callback_uri` cuando hay varios números QR) y nunca llama
+  `/register`. La interfaz `RegistroMeta` tiene la implementación de la app propia (Graph API) y la
+  del servicio central (hoy `servicio_central_no_disponible`). `POST /canales/{id}/sincronizar`
+  pide contactos e historial (`smb_app_data`, una vez y dentro de 24 h).
+- **Coexistencia** (`coexistencia.go`): `smb_message_echoes` entra como saliente `origen: telefono`
+  (sin asignar ni bot); `history` entra resuelto, sin eventos de conversación ni feed;
+  `smb_app_state_sync` crea o renombra contactos de Iris (los clientes de Argos solo se cuentan);
+  `account_update` desconecta o reconecta el número.
+- **Préstamo de números** (`prestamos.go`): la dueña comparte un número con otras empresas
+  (`mensajeria.canal_prestamos`: usos, cola y número de avisos de quien lo usa). Un mensaje que
+  llega a un número compartido va a la empresa de la regla de §15.3 (conversación abierta → quien
+  la empezó en 24 h → cliente de una sola empresa → la dueña). Una conversación es de una sola
+  empresa: listas, contadores, detalle y feed filtran por ella. Revocar resuelve lo abierto de esa
+  empresa (queda de solo lectura) y cancela sus avisos en cola.
+
+Emite: `meta.conexion_cambiada`, `meta.conexion_probada`, `canal_mensajeria.desconectado`,
+`canal_mensajeria.reconectado`, `canal_mensajeria.prestado`, `canal_mensajeria.prestamo_revocado` y
+`conversacion.empresa_asignada`; suma `tipo_conexion` a `canal_mensajeria.creado` y `origen` a
+`conversacion.creada`, `conversacion.mensaje_enviado` y `contacto_iris.creado`. No consume eventos.

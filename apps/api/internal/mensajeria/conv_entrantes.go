@@ -112,15 +112,34 @@ func (m *Modulo) recibirMensaje(ctx context.Context, t *auditoria.Tx, canal mens
 		return nil
 	}
 	q := mensajeriabd.New(t)
-	empresa := int64(0)
-	if canal.EmpresaID != nil {
-		empresa = *canal.EmpresaID
-	}
-	t.FijarEmpresa(empresa)
-	cuando := instanteMeta(msg.Timestamp, ahora)
-	c, nueva, err := m.conversacionDe(ctx, t, canal, empresa, numero, perfil, ahora)
+	// Un número compartido: la empresa la elige la regla de §15.3; si no, la dueña.
+	d, err := m.rutearEntrante(ctx, q, canal, numero)
 	if err != nil {
 		return err
+	}
+	empresa := d.empresa
+	t.FijarEmpresa(empresa)
+	cuando := instanteMeta(msg.Timestamp, ahora)
+	c, nueva, err := m.conversacionDe(ctx, t, canal, d, numero, perfil, ahora, "cliente")
+	if err != nil {
+		return err
+	}
+	if d.compartido && d.motivo != RutaConversacionAbierta {
+		if err := t.Emitir("conversacion.empresa_asignada", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID, "canal_id": c.CanalID,
+			"motivo": d.motivo, "anterior_empresa_id": nil}); err != nil {
+			return err
+		}
+	}
+	if empresa != derefEmpresa(canal.EmpresaID) && msg.Type == "text" && palabrasBaja[palabraDe(msg.Text.Body)] {
+		// La baja también vale en la empresa que atiende la conversación por el número prestado.
+		porNumero := cuando
+		if ahora.After(porNumero) {
+			porNumero = ahora
+		}
+		if _, err := q.InsertarConsentimientoNumero(ctx, mensajeriabd.InsertarConsentimientoNumeroParams{EmpresaID: c.EmpresaID, Telefono: numero,
+			Estado: "baja", Origen: "cliente", OcurridoEn: porNumero}); err != nil {
+			return err
+		}
 	}
 	// El mismo mensaje dos veces (Meta reintenta, o el mismo mensaje en otro webhook): nada.
 	wamid := msg.ID
@@ -188,7 +207,9 @@ func (m *Modulo) recibirMensaje(ctx context.Context, t *auditoria.Tx, canal mens
 			return err
 		}
 	}
-	if m.alRecibir != nil {
+	// Horario, bot y fuera de horario son de la dueña del número: no se aplican a las
+	// conversaciones de otra empresa (§15.3).
+	if m.alRecibir != nil && empresa == derefEmpresa(canal.EmpresaID) {
 		if err := m.alRecibir(ctx, t, &c, canal, f); err != nil {
 			return err
 		}
@@ -198,8 +219,10 @@ func (m *Modulo) recibirMensaje(ctx context.Context, t *auditoria.Tx, canal mens
 }
 
 // conversacionDe lee (bloqueada) o crea la conversación de (empresa, canal, número).
-func (m *Modulo) conversacionDe(ctx context.Context, t *auditoria.Tx, canal mensajeriabd.MensajeriaCanal, empresa int64, numero, perfil string, ahora time.Time) (mensajeriabd.MensajeriaConversacion, bool, error) {
+func (m *Modulo) conversacionDe(ctx context.Context, t *auditoria.Tx, canal mensajeriabd.MensajeriaCanal, d destinoEntrante, numero, perfil string,
+	ahora time.Time, origen string) (mensajeriabd.MensajeriaConversacion, bool, error) {
 	q := mensajeriabd.New(t)
+	empresa := d.empresa
 	c, err := q.ConversacionPorContacto(ctx, mensajeriabd.ConversacionPorContactoParams{Empresa: empresa, CanalID: canal.ID, Numero: numero})
 	if err == nil {
 		return c, false, nil
@@ -208,10 +231,14 @@ func (m *Modulo) conversacionDe(ctx context.Context, t *auditoria.Tx, canal mens
 		return c, false, err
 	}
 	var cola *int64
-	if canal.ColaID != nil {
-		if co, err := q.ColaPorID(ctx, mensajeriabd.ColaPorIDParams{ID: *canal.ColaID, Empresa: empresa}); err == nil && co.Activa {
-			cola = canal.ColaID
+	if d.cola != nil {
+		if co, err := q.ColaPorID(ctx, mensajeriabd.ColaPorIDParams{ID: *d.cola, Empresa: empresa}); err == nil && co.Activa {
+			cola = d.cola
 		}
+	}
+	empresaConv := canal.EmpresaID
+	if empresa != derefEmpresa(canal.EmpresaID) {
+		empresaConv = &empresa
 	}
 	// Una sola coincidencia exacta del número en la instantánea de Argos de la empresa: se asocia sola.
 	var cliente *int64
@@ -240,7 +267,7 @@ func (m *Modulo) conversacionDe(ctx context.Context, t *auditoria.Tx, canal mens
 	if perfil != "" {
 		perfilNombre = nombrePtr(recortar(perfil, 120))
 	}
-	c, err = q.InsertarConversacionCliente(ctx, mensajeriabd.InsertarConversacionClienteParams{EmpresaID: canal.EmpresaID, CanalID: canal.ID,
+	c, err = q.InsertarConversacionCliente(ctx, mensajeriabd.InsertarConversacionClienteParams{EmpresaID: empresaConv, CanalID: canal.ID,
 		Numero: numero, PerfilNombre: perfilNombre, ColaID: cola, ClienteID: cliente, Asociacion: asociacion, ClienteVerificado: cliente != nil,
 		UltimaActividad: ahora})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -255,7 +282,7 @@ func (m *Modulo) conversacionDe(ctx context.Context, t *auditoria.Tx, canal mens
 		return c, false, err
 	}
 	return c, true, t.Emitir("conversacion.creada", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID, "canal_id": c.CanalID,
-		"cola_id": c.ColaID, "cliente_id": c.ClienteID, "asociacion": c.Asociacion, "origen": "cliente"})
+		"cola_id": c.ColaID, "cliente_id": c.ClienteID, "asociacion": c.Asociacion, "origen": origen})
 }
 
 func (m *Modulo) nombreCola(ctx context.Context, q *mensajeriabd.Queries, empresa int64, id *int64) *string {
@@ -314,6 +341,10 @@ func (m *Modulo) marcarRespuestaAviso(ctx context.Context, t *auditoria.Tx, c *m
 	}
 	if err != nil {
 		return err
+	}
+	if aviso.EmpresaID != empresaDeConv(*c) {
+		// En un número compartido, el aviso de otra empresa no se muestra aquí.
+		return nil
 	}
 	id := aviso.ID.String()
 	return m.sistema(ctx, t, c, EventoSistema{Tipo: "respondio_aviso", Plantilla: &aviso.Plantilla, EntidadID: &id})

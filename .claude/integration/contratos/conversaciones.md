@@ -1233,8 +1233,13 @@ empresa y está activa (422 `colaId`); el número está activo (422 `canal_inact
 - `GET /canales` y `GET /canales/{id}` lo muestran con `prestadoPor` (`{ empresaId, nombre }`) y
   `prestamo` (`{ usos, colaId, avisosEmpresa, version, prestadoEn }`), **sin** datos de Meta ni
   conexión: `phoneNumberId`, `wabaId`, `webhookUrl`, `plantillas` y las fechas de credenciales van
-  vacíos (`""`, `{}` o null). `GET /conversaciones/canales` lo trae con `prestadoPor`, y los `usos` y
-  la `colaId` **del préstamo**. Editar, probar, activar, desactivar o prestar: 404.
+  vacíos (`""`, `{}` o null) y `empresaId` es la empresa que lo usa. Quien ve todas las empresas
+  (`empresas.todas`) recibe en `GET /canales` el número como de su dueña **y además**, para la
+  empresa activa, la entrada prestada (mismo `id`, `empresaId` = la empresa activa, con
+  `prestadoPor`): el panel filtra por `empresaId`. `GET /canales/{id}` con la empresa activa que lo
+  usa devuelve la vista prestada. `GET /conversaciones/canales` lo trae con `prestadoPor`, y los
+  `usos` y la `colaId` **del préstamo**. Editar, probar, activar, desactivar o prestar: 404 (salvo
+  quien ve todas las empresas, que lo administra como dueña).
 - `POST /canales/{id}/prestamo/configurar` `{ version, avisosEmpresa }` (`canales.configurar`, en la
   empresa que lo usa; `version` la del préstamo) → `Canal`: lo marca como su **número de avisos de la
   empresa** (exige `avisos` en el préstamo: 422 `uso_no_permitido`); quita la marca de sus números

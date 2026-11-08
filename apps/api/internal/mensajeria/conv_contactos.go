@@ -419,7 +419,7 @@ func nuevoContactoIrisConv(m *Modulo) *auditoria.Caso[EntradaContactoIrisConv, C
 					return err
 				}
 				return t.Emitir("contacto_iris.creado", map[string]any{"contacto_iris_id": f.ID, "empresa_id": f.EmpresaID, "tipo": f.Tipo,
-					"conversacion_id": c.ID})
+					"conversacion_id": c.ID, "origen": "agente"})
 			})
 		},
 	})

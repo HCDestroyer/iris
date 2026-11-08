@@ -275,11 +275,25 @@ func nuevoVerCanal(m *Modulo) *auditoria.Caso[EntradaVerCanal, Canal] {
 		AuditarExito: func(Canal) bool { return false },
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaVerCanal) (Canal, error) {
 			// Como probar: solo personas con sesión (un token o una integración, 404).
+			q := mensajeriabd.New(t)
 			f, err := m.canalPersona(ctx, t, in.ID)
+			var p *nucleo.Problema
+			if errors.As(err, &p) && p.Status == http.StatusNotFound && soloPersonas(ctx) == nil {
+				// Un número prestado a la empresa activa: sin datos de Meta (§15.3).
+				if pf, pr, dueno, perr := canalPrestadoA(ctx, q, in.ID, empresaActiva(ctx)); perr == nil {
+					return m.aCanalPrestado(pf, pr, dueno), nil
+				}
+			}
 			if err != nil {
 				return Canal{}, err
 			}
-			return m.aCanal(f), nil
+			// Quien ve todas las empresas, con la empresa activa que lo usa prestado: como lo ve ella.
+			if e := empresaActiva(ctx); e != 0 && e != derefEmpresa(f.EmpresaID) {
+				if pf, pr, dueno, perr := canalPrestadoA(ctx, q, in.ID, e); perr == nil {
+					return m.aCanalPrestado(pf, pr, dueno), nil
+				}
+			}
+			return m.canalVisto(ctx, q, f, f.EmpresaID)
 		},
 	})
 }

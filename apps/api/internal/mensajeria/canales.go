@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -155,6 +156,10 @@ type resuelto struct {
 // o, sin él y con Simulado, el simulado. nil = ningún canal (canal_no_disponible).
 func (m *Modulo) resolver(ctx context.Context, q *mensajeriabd.Queries, empresa int64, medio string) (*resuelto, error) {
 	f, err := q.CanalAvisosDeEmpresa(ctx, mensajeriabd.CanalAvisosDeEmpresaParams{EmpresaID: empresa, Canal: medio})
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Un número prestado que la empresa marcó como su número de avisos (§15.3).
+		f, err = q.CanalAvisosPrestado(ctx, mensajeriabd.CanalAvisosPrestadoParams{EmpresaID: empresa, Canal: medio})
+	}
 	switch {
 	case err == nil:
 		return m.resueltoDe(f)
@@ -178,8 +183,15 @@ func (m *Modulo) resolverPorID(ctx context.Context, q *mensajeriabd.Queries, id 
 	if err != nil {
 		return nil, err
 	}
-	if !f.Activo {
+	if !f.Activo || f.DesconectadoEn != nil {
 		return nil, nil
+	}
+	// Un número de otra empresa solo con su préstamo activo y el uso avisos (§15.3).
+	if derefEmpresa(f.EmpresaID) != empresa {
+		u, err := usoDe(ctx, q, f, empresa)
+		if err != nil || !u.activo || !slices.Contains(u.usos, "avisos") {
+			return nil, err
+		}
 	}
 	return m.resueltoDe(f)
 }

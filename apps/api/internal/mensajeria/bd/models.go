@@ -1082,6 +1082,30 @@ type MensajeriaCanal struct {
 	TokenGuardadoEn       *time.Time
 	AppSecretGuardadoEn   *time.Time
 	VerifyTokenGuardadoEn *time.Time
+	TipoConexion          string
+	Coexistencia          bool
+	ConectadoEn           *time.Time
+	DesconectadoEn        *time.Time
+	DesconectadoMotivo    *string
+	UltimoEcoEn           *time.Time
+	Sincronizacion        []byte
+}
+
+type MensajeriaCanalPrestamo struct {
+	CanalID          int64
+	EmpresaID        int64
+	Usos             []string
+	ColaID           *int64
+	AvisosEmpresa    bool
+	Activo           bool
+	PrestadoEn       time.Time
+	PrestadoPor      *int64
+	RevocadoEn       *time.Time
+	RevocadoPor      *int64
+	MotivoRevocacion *string
+	Version          int32
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 type MensajeriaChatConversacion struct {
@@ -1192,6 +1216,28 @@ type MensajeriaColaSupervisor struct {
 	UsuarioID   *int64
 	AsistenteID *int64
 	CreatedAt   time.Time
+}
+
+type MensajeriaConexionMeta struct {
+	ID                    int16
+	Modo                  string
+	AppID                 *string
+	ConfigID              *string
+	GraphVersion          *string
+	ServicioUrl           *string
+	SecretosCifrados      []byte
+	AppSecretGuardadoEn   *time.Time
+	ClaveEnlaceGuardadaEn *time.Time
+	VerifyTokenGuardadoEn *time.Time
+	WebhookVerificadoEn   *time.Time
+	UltimoWebhookEn       *time.Time
+	UltimaPruebaEn        *time.Time
+	UltimoEstadoPrueba    *string
+	Comprobaciones        []byte
+	ActualizadoPor        *int64
+	Version               int32
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 type MensajeriaConsentimiento struct {
@@ -1330,6 +1376,7 @@ type MensajeriaConversacionMensaje struct {
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 	Automatico        *string
+	Origen            *string
 }
 
 type MensajeriaConversacionParticipante struct {
@@ -1443,6 +1490,13 @@ type MensajeriaPromesa struct {
 	HashPeticion   []byte
 	SolicitadaPor  *int64
 	CreatedAt      time.Time
+}
+
+type MensajeriaRegistrosQr struct {
+	HashCodigo []byte
+	EmpresaID  *int64
+	UsuarioID  *int64
+	CreatedAt  time.Time
 }
 
 type MensajeriaRespuestaRapida struct {

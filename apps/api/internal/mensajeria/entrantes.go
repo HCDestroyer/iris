@@ -86,11 +86,11 @@ func nuevoRecibirMeta(m *Modulo) *auditoria.Caso[EntradaMeta, MetaRecibido] {
 			if err != nil {
 				return MetaRecibido{}, err
 			}
-			cr, err := m.credencialesDe(c)
+			secreto, err := m.secretoFirma(ctx, q, c)
 			if err != nil {
 				return MetaRecibido{}, err
 			}
-			if !FirmaMetaValida(cr.AppSecret, in.Firma, in.Cuerpo) {
+			if secreto == "" || !FirmaMetaValida(secreto, in.Firma, in.Cuerpo) {
 				return MetaRecibido{}, firmaMetaInvalida()
 			}
 			if !json.Valid(in.Cuerpo) {
@@ -102,18 +102,38 @@ func nuevoRecibirMeta(m *Modulo) *auditoria.Caso[EntradaMeta, MetaRecibido] {
 			if err := q.MarcarWebhookRecibido(ctx, mensajeriabd.MarcarWebhookRecibidoParams{ID: c.ID, RecibidoEn: m.ahora()}); err != nil {
 				return MetaRecibido{}, err
 			}
-			h := sha256.Sum256(in.Cuerpo)
-			id, err := q.InsertarEntrante(ctx, mensajeriabd.InsertarEntranteParams{CanalID: c.ID, HashCuerpo: h[:], Payload: in.Cuerpo})
-			if errors.Is(err, pgx.ErrNoRows) {
-				return MetaRecibido{Duplicado: true}, nil
+			id, nuevo, err := m.guardarEntrante(ctx, t, q, c.ID, in.Cuerpo)
+			if err != nil || !nuevo {
+				return MetaRecibido{Duplicado: !nuevo}, err
 			}
-			if err != nil {
-				return MetaRecibido{}, err
-			}
-			t.Anotar(map[string]any{"entrante_id": id})
 			return MetaRecibido{}, m.encolar(ctx, t.Tx, ArgsProcesarEntrante{EntranteID: id})
 		},
 	})
+}
+
+// guardarEntrante deja el cuerpo en mensajeria.entrantes (deduplicado por su SHA-256).
+func (m *Modulo) guardarEntrante(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Queries, canal int64, cuerpo []byte) (int64, bool, error) {
+	h := sha256.Sum256(cuerpo)
+	id, err := q.InsertarEntrante(ctx, mensajeriabd.InsertarEntranteParams{CanalID: canal, HashCuerpo: h[:], Payload: cuerpo})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	t.Anotar(map[string]any{"entrante_id": id})
+	return id, true, nil
+}
+
+// secretoFirma: el app secret con que Meta firma los webhooks del número. Un número QR usa el de la
+// conexión con Meta de la instalación (§15.2); los demás, el suyo.
+func (m *Modulo) secretoFirma(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaCanal) (string, error) {
+	if c.TipoConexion == ConexionQR {
+		con, err := m.secretoWebhookApp(ctx, q)
+		return con.appSecret, err
+	}
+	cr, err := m.credencialesDe(c)
+	return cr.AppSecret, err
 }
 
 func nuevoVerificarMeta(m *Modulo) *auditoria.Caso[EntradaVerificarMeta, string] {
@@ -211,6 +231,13 @@ func nuevoProcesarMeta(m *Modulo) *auditoria.Caso[int64, struct{}] {
 			for _, en := range w.Entry {
 				for _, ch := range en.Changes {
 					fila := fila
+					// account_update no trae phone_number_id: es de la WABA del número (§15.2).
+					if ch.Field == "account_update" {
+						if err := m.cuentaActualizada(ctx, t, q, fila, en.ID, ch.Value.Event, ch.Value.WabaInfo, ch.Value.DisconnectionInfo); err != nil {
+							return struct{}{}, err
+						}
+						continue
+					}
 					if pid := ch.Value.Metadata.PhoneNumberID; pid != fila.PhoneNumberID {
 						h, ok := hermanos[pid]
 						if !ok {
@@ -253,6 +280,10 @@ func nuevoProcesarMeta(m *Modulo) *auditoria.Caso[int64, struct{}] {
 						if err := m.recibirMensaje(ctx, t, fila, msg, perfiles[msg.From], ahora); err != nil {
 							return struct{}{}, err
 						}
+					}
+					// Coexistencia: lo mandado desde el teléfono, el historial y los contactos (§15.2).
+					if err := m.coexistencia(ctx, t, fila, ch.Field, ch.Value.MessageEchoes, ch.Value.History, ch.Value.StateSync, perfiles, ahora); err != nil {
+						return struct{}{}, err
 					}
 					if ch.Field == "phone_number_quality_update" {
 						if err := m.calidadDelNumero(ctx, t, q, canal, ch.Value.Event, ahora); err != nil {
@@ -322,15 +353,15 @@ func (m *Modulo) canalHermano(ctx context.Context, q *mensajeriabd.Queries, fila
 	if h.ID == fila.ID || h.EmpresaID == nil || fila.EmpresaID == nil || *h.EmpresaID != *fila.EmpresaID {
 		return nil, nil
 	}
-	a, err := m.credencialesDe(fila)
+	a, err := m.secretoFirma(ctx, q, fila)
 	if err != nil {
 		return nil, err
 	}
-	b, err := m.credencialesDe(h)
+	b, err := m.secretoFirma(ctx, q, h)
 	if err != nil {
 		return nil, err
 	}
-	if a.AppSecret == "" || subtle.ConstantTimeCompare([]byte(a.AppSecret), []byte(b.AppSecret)) != 1 {
+	if a == "" || subtle.ConstantTimeCompare([]byte(a), []byte(b)) != 1 {
 		return nil, nil
 	}
 	return &h, nil
