@@ -26,8 +26,13 @@ describe("PanelLateral", () => {
         expect(html).toContain("Contenido");
         // Sin telón: ni el de HeroUI ni uno propio.
         expect(html).not.toMatch(/backdrop/);
-        // Sólido (la capa flotante del tema), a la derecha bajo la barra superior.
+        // Sólido (la capa flotante del tema), bajo la barra superior: a pantalla completa en el
+        // teléfono y, desde `sm`, tarjeta flotante de 380 px separada de los bordes.
         expect(html).toContain("bg-[var(--overlay)]");
-        expect(html).toMatch(/fixed top-14 right-0/);
+        expect(html).toMatch(/fixed inset-x-0 top-14 bottom-0/);
+        expect(html).toContain("sm:right-3");
+        expect(html).toContain("sm:bottom-3");
+        expect(html).toContain("sm:w-[min(23.75rem,calc(100vw-1.5rem))]");
+        expect(html).toContain("sm:rounded-[var(--hx-radius-card)]");
     });
 });

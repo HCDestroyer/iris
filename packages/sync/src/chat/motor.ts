@@ -740,6 +740,14 @@ export class MotorChat {
         this.despertarSalida();
     }
 
+    /**
+     * Mensajes con una eliminación todavía en la cola de salida (sin respuesta del servidor). Al
+     * cerrar sesión, lo que quede aquí tras la espera sale con `keepalive` antes de cerrarla.
+     */
+    eliminacionesPendientes(): string[] {
+        return [...this.salida.values()].filter((s) => s.tipo === "eliminar").map((s) => s.mensajeId);
+    }
+
     descartarAviso(id: number): void {
         this.avisos = this.avisos.filter((a) => a.id !== id);
         this.emitir();

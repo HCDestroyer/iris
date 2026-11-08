@@ -1,12 +1,12 @@
 # Chat del equipo (panel)
 
 Chat interno del equipo en el panel (`contratos/chat.md`): ícono con insignia en la barra superior,
-panel lateral sin telón (`PanelLateral`), página `/equipo` y pestaña «Chat del equipo» de la orden.
+panel lateral flotante sin telón (`PanelLateral`: flota sobre la página sin correrla), página `/equipo` y pestaña «Chat del equipo» de la orden.
 Diseño y reglas: `docs/ui/guia.md`, «Chat del equipo en el panel».
 
 - `proveedor.tsx`: un solo `MotorChat` (`@iris/sync/chat`) por usuario y empresa, con `chat.ver`;
-  contadores de `GET /resumen`, «En vivo» / «Reconectando…», eliminar con «Deshacer» (5 s) y el
-  estado del panel lateral.
+  contadores de `GET /resumen`, «En vivo» / «Reconectando…», eliminar con «Deshacer» (5 s), el
+  estado del panel lateral y los borradores del compositor por conversación (en memoria).
 - `lista.tsx`, `conversacion.tsx`, `hilo.tsx`, `compositor.tsx`: lo mismo en los tres lugares.
 - `dialogos.tsx`: «Nuevo mensaje» (persona o cuadrilla) y «Agregar persona» (`chat.supervisar`).
 - Lógica sin React en `lib/chat/` (presentación, eliminaciones diferidas, llamadas fuera del motor).

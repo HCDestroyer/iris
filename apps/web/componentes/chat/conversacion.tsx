@@ -119,7 +119,7 @@ function Conversacion({ id, variante, alAtras, acciones, className }: Props) {
                 />
             ) : null}
             <HiloChat motor={motor} vista={vista} miembros={lista(miembros)} yoId={yoId} eliminando={eliminando} puedeEliminar={puedeEnviar} alEliminar={eliminar} />
-            <CompositorChat motor={motor} conversacionId={id} tipo={c.tipo} nombre={c.tipo === "directa" ? titulo : c.titulo} miembros={lista(miembros)} yoId={yoId} bloqueado={bloqueado} />
+            <CompositorChat key={id} motor={motor} conversacionId={id} tipo={c.tipo} nombre={c.tipo === "directa" ? titulo : c.titulo} miembros={lista(miembros)} yoId={yoId} bloqueado={bloqueado} />
         </div>
     );
 
