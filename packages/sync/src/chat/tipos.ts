@@ -18,6 +18,9 @@ export type UbicacionChat = Schema<"UbicacionChat">;
 export type VistaPreviaChat = Schema<"VistaPreviaChat">;
 export type PaginaMensajeChat = Schema<"PaginaMensajeChat">;
 export type PaginaConversacionChat = Schema<"PaginaConversacionChat">;
+/** Alguien con quien abrir una directa (`GET /chat/personas`). */
+export type PersonaChat = Schema<"PersonaChat">;
+export type PaginaPersonaChat = Schema<"PaginaPersonaChat">;
 export type TipoConversacion = ConversacionChat["tipo"];
 
 /** Error que se muestra (nunca con el texto del mensaje). */
@@ -126,6 +129,8 @@ export interface MensajeEnviado {
 export interface TransporteChat {
     listarConversaciones(cursor?: string): Promise<PaginaConversacionChat>;
     verConversacion(id: number): Promise<ConversacionChatDetalle>;
+    /** «Nuevo mensaje» → Persona: personas activas de la empresa con `chat.ver` (sin ti), por nombre. */
+    personas(q: string, cursor?: string): Promise<PaginaPersonaChat>;
     abrirDirecta(usuarioId: number): Promise<ConversacionChatDetalle>;
     abrirCuadrilla(cuadrillaId: number): Promise<ConversacionChatDetalle>;
     abrirOrden(ordenId: number): Promise<ConversacionChatDetalle>;

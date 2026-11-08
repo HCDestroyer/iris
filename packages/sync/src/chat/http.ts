@@ -42,6 +42,12 @@ export function crearTransporteChatApi(cliente: ClienteIris, app?: IdentidadApp)
             const { datos } = await resolver(cliente.GET(`${BASE}/conversaciones/{id}`, { params: { path: { id } }, headers: h() }));
             return datos;
         },
+        async personas(q, cursor) {
+            const texto = q.trim();
+            const query = { limit: 50, ...(texto ? { q: texto } : {}), ...(cursor ? { cursor } : {}) };
+            const { datos } = await resolver(cliente.GET(`${BASE}/personas`, { params: { query }, headers: h() }));
+            return datos;
+        },
         async abrirDirecta(usuarioId) {
             const { datos } = await resolver(cliente.POST(`${BASE}/directas`, { body: { usuario_id: usuarioId }, headers: h() }));
             return conversacionDe(datos);

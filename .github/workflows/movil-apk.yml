@@ -108,8 +108,14 @@ jobs:
           }
 
           if [[ "$EVENTO" == "workflow_dispatch" ]]; then
-            ultimo="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "$GITHUB_SHA" 2>/dev/null || echo v0.0.0)"
-            base="${ultimo#v}"
+            # La versión de este commit es la de release-please (.release-please-manifest.json, la que
+            # sube su PR «publicar versión»), no el último tag: el tag se crea después del merge y un
+            # APK compilado en ese hueco salía con la anterior (0.18.0 → «iris-campo-0.17.0-dev+…»).
+            base="$(jq -r '."." // empty' .release-please-manifest.json 2>/dev/null || true)"
+            if [[ ! "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              ultimo="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "$GITHUB_SHA" 2>/dev/null || echo v0.0.0)"
+              base="${ultimo#v}"
+            fi
             [[ "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || base=0.0.0
             version="${base}-dev+${GITHUB_SHA::7}"
             codigo=$(($(codigo_de "$base") + CORRIDA % 99 + 1))
@@ -129,6 +135,17 @@ jobs:
               exit 1
             fi
             version="${TAG_ENTRADA#v}"
+            # La etiqueta y el manifiesto de release-please de su commit dicen la misma versión.
+            # Sin manifiesto, o con algo que no es X.Y.Z, es error (y no se imprime lo que traiga).
+            manifiesto="$(git show "$commit:.release-please-manifest.json" 2>/dev/null | jq -r '."." // empty' 2>/dev/null || true)"
+            if [[ ! "$manifiesto" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::El commit de $TAG_ENTRADA no tiene una versión X.Y.Z válida en .release-please-manifest.json."
+              exit 1
+            fi
+            if [[ "$manifiesto" != "$version" ]]; then
+              echo "::error::La etiqueta $TAG_ENTRADA no coincide con .release-please-manifest.json ($manifiesto) de su commit."
+              exit 1
+            fi
             codigo="$(codigo_de "$version")"
             ref="$commit"
             tag="$TAG_ENTRADA"
@@ -165,6 +182,8 @@ jobs:
       CI: '1'
       EXPO_PUBLIC_IRIS_API_URL: ${{ needs.preparar.outputs.api_url }}
       IRIS_MOVIL_VERSION: ${{ needs.preparar.outputs.version }}
+      # La misma versión dentro del bundle (X-Iris-App y «Yo»); sin ella quedaba la de app.json.
+      EXPO_PUBLIC_IRIS_MOVIL_VERSION: ${{ needs.preparar.outputs.version }}
       IRIS_MOVIL_VERSION_CODE: ${{ needs.preparar.outputs.codigo }}
     defaults:
       run:

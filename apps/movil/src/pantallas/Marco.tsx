@@ -32,7 +32,18 @@ import { Yo } from "./Yo";
 const ESPERA_BASE_MS = 5_000;
 const ESPERA_MAX_MS = 10 * 60_000;
 
-export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: string | null; cambiarEmpresa?: () => void; alSesionVencida: () => void }) {
+export function Marco({
+    empresa,
+    cambiarEmpresa,
+    alSesionVencida,
+    alExigirContrasena,
+}: {
+    empresa: string | null;
+    cambiarEmpresa?: () => void;
+    alSesionVencida: () => void;
+    /** Un admin le puso una contraseña temporal con la app abierta: «Crea tu contraseña». */
+    alExigirContrasena?: () => void;
+}) {
     const { motor, estado, vista, atras } = useCampo();
     useAtrasAndroid(atras);
     useAvisoDeRechazos();
@@ -81,7 +92,12 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
                 setCarga({ estado: "lista" });
             } catch (e) {
                 if (e instanceof ErrorTransporte && e.codigo === CODIGO_CAMBIO_CONTRASENA) {
-                    setCarga({ estado: "error", mensaje: "Tienes que cambiar tu contraseña en el panel de Iris antes de seguir." });
+                    // Se cambia en la app («Crea tu contraseña»), no en el panel.
+                    if (alExigirContrasena) {
+                        alExigirContrasena();
+                        return;
+                    }
+                    setCarga({ estado: "error", mensaje: "Tienes que cambiar tu contraseña antes de seguir." });
                     return;
                 }
                 if (e instanceof ErrorTransporte && e.esDeSesion) {
@@ -95,7 +111,7 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
                 descargando.current = false;
             }
         },
-        [motor, alSesionVencida],
+        [motor, alSesionVencida, alExigirContrasena],
     );
 
     useEffect(() => {

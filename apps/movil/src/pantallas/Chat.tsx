@@ -23,15 +23,17 @@ import {
     vistaPrevia,
     type ConversacionVista,
     type MensajeVista,
+    type PersonaChat,
 } from "@iris/sync/chat";
 import { iniciales } from "@iris/sync/campo";
-import { ArrowLeft, Ban, Camera, ChevronRight, ClipboardList, MapPin, MessageCircle, MessageSquarePlus, RotateCcw, Send, Trash2, TriangleAlert, Users, WifiOff } from "lucide-react-native";
+import { ArrowDown, ArrowLeft, Ban, Camera, ChevronRight, ClipboardList, MapPin, MessageCircle, MessageSquarePlus, RotateCcw, Search, Send, Trash2, TriangleAlert, Users, WifiOff } from "lucide-react-native";
 import { useEffect, useRef, useState, type ComponentRef, type ReactNode } from "react";
 import { Image, Linking, RefreshControl, ScrollView, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Aviso, Boton, BotonRedondo, CampoMensaje, Cargando, Dialogo, EvitarTeclado, Pila, Texto, Titulo, Tocable, TocableLargo, useAltoTeclado } from "../componentes";
+import { Aviso, Boton, BotonRedondo, Campo, CampoMensaje, Cargando, Dialogo, EvitarTeclado, Pila, Texto, Titulo, Tocable, TocableLargo, useAltoTeclado } from "../componentes";
 import { useChat, useChatOpcional, useConversacion } from "../campo/chat";
 import { useCampo } from "../campo/contexto";
+import { useSeguirFinal } from "../campo/seguir-final";
 import { entorno } from "../entorno";
 import { useTema } from "../tema/tema";
 
@@ -208,7 +210,7 @@ export function ListaChat() {
                     <Cargando etiqueta="Leyendo tus conversaciones" />
                 ) : (
                     <Aviso tono="neutral" icono={MessageCircle} titulo="Todavía no tienes conversaciones">
-                        Abre el chat desde una orden o escribe un «Nuevo mensaje» a alguien de tu equipo.
+                        {puedeEnviar ? "Abre el chat desde una orden o escribe un «Nuevo mensaje» a alguien de tu equipo." : "Cuando alguien de tu equipo te escriba, aparecerá aquí."}
                     </Aviso>
                 )
             ) : (
@@ -241,14 +243,78 @@ export function ListaChat() {
     );
 }
 
-/** «Nuevo mensaje»: personas que el teléfono ya conoce del chat (no hay lista de contactos en la API). */
-export function NuevoChat() {
+/** Espera (ms) tras teclear antes de buscar. */
+const ESPERA_BUSQUEDA_MS = 300;
+
+type BusquedaPersonas =
+    | { estado: "cargando" }
+    | { estado: "lista"; personas: PersonaChat[]; siguiente: string | null; masCargando: boolean }
+    | { estado: "sin_senal" }
+    | { estado: "error" };
+
+/**
+ * `GET /chat/personas?q=` con espera al teclear: cualquier persona activa de la empresa con
+ * `chat.ver` (la regla del servidor), no solo quien el teléfono ya conoce. Respuestas viejas se
+ * descartan (la de la última búsqueda manda).
+ */
+function useBuscarPersonas(q: string, activo: boolean): { busqueda: BusquedaPersonas; reintentar: () => void; mas: () => void } {
     const { chat } = useChat();
+    const [busqueda, setBusqueda] = useState<BusquedaPersonas>({ estado: "cargando" });
+    const [vez, setVez] = useState(0);
+    const pedido = useRef(0);
+    const deError = (e: unknown): BusquedaPersonas => (e instanceof ErrorTransporte && e.tipo === "red" ? { estado: "sin_senal" } : { estado: "error" });
+    // Otra búsqueda (texto o «Reintentar»): vuelve a «cargando» en el mismo render.
+    const clave = `${vez}|${q}`;
+    const [buscada, setBuscada] = useState(clave);
+    if (buscada !== clave) {
+        setBuscada(clave);
+        setBusqueda({ estado: "cargando" });
+    }
+    useEffect(() => {
+        const n = ++pedido.current;
+        if (!activo) {
+            return undefined;
+        }
+        const t = setTimeout(() => {
+            chat.buscarPersonas(q)
+                .then((r) => n === pedido.current && setBusqueda({ estado: "lista", personas: r.personas, siguiente: r.siguiente, masCargando: false }))
+                .catch((e: unknown) => n === pedido.current && setBusqueda(deError(e)));
+        }, ESPERA_BUSQUEDA_MS);
+        return () => clearTimeout(t);
+    }, [chat, q, vez, activo]);
+    const mas = () => {
+        if (busqueda.estado !== "lista" || !busqueda.siguiente || busqueda.masCargando) {
+            return;
+        }
+        const n = pedido.current;
+        const actual = busqueda;
+        setBusqueda({ ...actual, masCargando: true });
+        chat.buscarPersonas(q, actual.siguiente ?? undefined)
+            .then((r) => {
+                if (n === pedido.current) {
+                    const vistos = new Set(actual.personas.map((p) => p.id));
+                    setBusqueda({ estado: "lista", personas: [...actual.personas, ...r.personas.filter((p) => !vistos.has(p.id))], siguiente: r.siguiente, masCargando: false });
+                }
+            })
+            .catch(() => n === pedido.current && setBusqueda({ ...actual, masCargando: false }));
+    };
+    return { busqueda, reintentar: () => setVez((v) => v + 1), mas };
+}
+
+/**
+ * «Nuevo mensaje»: busca a cualquiera de la empresa que use el chat (despacho, soporte,
+ * supervisores, técnicos) y abre la directa. Sin señal ofrece a quienes el teléfono ya conoce (abrir
+ * igual necesita señal).
+ */
+export function NuevoChat() {
+    const { chat, puedeEnviar } = useChat();
     const { navegar, notificar, atras } = useCampo();
     const { campo } = useTema();
     const margen = useSafeAreaInsets();
     const [abriendo, setAbriendo] = useState<number | null>(null);
-    const contactos = chat.contactosConocidos();
+    const [texto, setTexto] = useState("");
+    // `GET /chat/personas` y abrir una directa exigen `chat.enviar`: sin él no se busca.
+    const { busqueda, reintentar, mas } = useBuscarPersonas(texto, puedeEnviar);
     const abrir = async (id: number) => {
         setAbriendo(id);
         try {
@@ -256,30 +322,74 @@ export function NuevoChat() {
             navegar({ tipo: "conversacion", id: c.id });
         } catch (e) {
             const codigo = e instanceof ErrorTransporte ? e.codigo : null;
-            notificar({ tono: "error", texto: codigo === "usuario_no_disponible" ? "Esa persona ya no está disponible para el chat." : "No se pudo abrir la conversación." });
+            notificar({
+                tono: "error",
+                texto:
+                    codigo === "usuario_no_disponible"
+                        ? "Esa persona ya no está disponible para el chat."
+                        : e instanceof ErrorTransporte && e.tipo === "red"
+                          ? "Sin señal: para empezar una conversación hace falta señal."
+                          : "No se pudo abrir la conversación.",
+            });
         } finally {
             setAbriendo(null);
         }
     };
+    const filtro = texto.trim().toLocaleLowerCase("es");
+    const conocidos = busqueda.estado === "sin_senal" ? chat.contactosConocidos().filter((p) => !filtro || p.nombre.toLocaleLowerCase("es").includes(filtro)) : [];
+    const personas = busqueda.estado === "lista" ? busqueda.personas : conocidos;
     return (
-        <ScrollView style={{ backgroundColor: campo.lienzo }} contentContainerStyle={[estilos.contenido, { paddingTop: margen.top + 16, paddingBottom: margen.bottom + 180 }]}>
+        <ScrollView
+            style={{ backgroundColor: campo.lienzo }}
+            contentContainerStyle={[estilos.contenido, { paddingTop: margen.top + 16, paddingBottom: margen.bottom + 180 }]}
+            keyboardShouldPersistTaps="handled"
+            testID="nuevo-chat"
+        >
             <View style={estilos.filaEntre}>
                 <Boton variante="fantasma" icono={ArrowLeft} alPresionar={() => (atras() ? undefined : navegar({ tipo: "chat" }))}>
                     Chat
                 </Boton>
             </View>
             <Titulo>Nuevo mensaje</Titulo>
-            <Texto suave>Personas de tu equipo con las que ya coincidiste en el chat (tu cuadrilla, despacho y tus órdenes).</Texto>
-            {contactos.length === 0 ? (
-                <Aviso tono="neutral" icono={Users} titulo="Aún no hay personas para elegir">
-                    Cuando alguien de despacho o de tu cuadrilla te escriba, aparecerá aquí. Mientras, usa el chat de tu cuadrilla o el de una orden.
+            {!puedeEnviar ? (
+                <Aviso tono="neutral" icono={Ban} titulo="No puedes iniciar conversaciones" testID="sin-chat-enviar">
+                    Tu usuario puede leer el chat pero no escribir. Pídele a un administrador el permiso «chat.enviar».
                 </Aviso>
             ) : (
-                contactos.map((p) => (
-                    <Boton key={p.id} variante="secundario" cargando={abriendo === p.id} deshabilitado={abriendo !== null} alPresionar={() => void abrir(p.id)}>
-                        {p.nombre}
-                    </Boton>
-                ))
+            <>
+            <Texto suave>Escríbele a cualquier persona de tu empresa que use el chat: despacho, soporte, supervisores o técnicos.</Texto>
+            <Campo etiqueta="Buscar persona" icono={Search} maxLength={100} valor={texto} alCambiar={setTexto} autoCorrect={false} autoCapitalize="words" returnKeyType="search" placeholder="Nombre" testID="buscar-persona" />
+            {busqueda.estado === "cargando" ? <Cargando etiqueta="Buscando personas" /> : null}
+            {busqueda.estado === "error" ? (
+                <Aviso tono="error" titulo="No se pudo leer la lista de personas" accion={<Boton variante="secundario" alPresionar={reintentar}>Reintentar</Boton>} testID="error-personas">
+                    Vuelve a intentarlo en un momento.
+                </Aviso>
+            ) : null}
+            {busqueda.estado === "sin_senal" ? (
+                <Aviso tono="warning" icono={WifiOff} titulo="Sin señal" accion={<Boton variante="secundario" alPresionar={reintentar}>Reintentar</Boton>} testID="personas-sin-senal">
+                    {conocidos.length > 0 ? "Abajo, las personas con las que ya hablaste. Para abrir una conversación hace falta señal." : "Para buscar personas y abrir una conversación hace falta señal."}
+                </Aviso>
+            ) : null}
+            {busqueda.estado === "lista" && personas.length === 0 ? (
+                <Aviso tono="neutral" icono={Users} titulo={filtro ? "Nadie con ese nombre" : "Aún no hay personas para elegir"} testID="personas-vacio">
+                    {filtro ? "Revisa cómo se escribe o busca por otro nombre." : "Nadie más de tu empresa usa el chat todavía. Mientras, usa el chat de tu cuadrilla o el de una orden."}
+                </Aviso>
+            ) : null}
+            {personas.length > 0 ? (
+                <View style={estilos.personas} accessibilityLabel="Personas" testID="lista-personas">
+                    {personas.map((p) => (
+                        <Boton key={p.id} variante="secundario" icono={MessageCircle} cargando={abriendo === p.id} deshabilitado={abriendo !== null} alPresionar={() => void abrir(p.id)} etiqueta={p.nombre} estilo={estilos.persona} testID={`persona-${p.id}`}>
+                            {p.nombre}
+                        </Boton>
+                    ))}
+                </View>
+            ) : null}
+            {busqueda.estado === "lista" && busqueda.siguiente ? (
+                <Boton variante="fantasma" cargando={busqueda.masCargando} alPresionar={mas} testID="mas-personas">
+                    Ver más personas
+                </Boton>
+            ) : null}
+            </>
             )}
         </ScrollView>
     );
@@ -411,7 +521,7 @@ function MenuMensaje({ m, alCerrar }: { m: MensajeVista | null; alCerrar: () => 
     );
 }
 
-function Compositor({ conversacionId, placeholder }: { conversacionId: number; placeholder: string }) {
+function Compositor({ conversacionId, placeholder, alEnviar }: { conversacionId: number; placeholder: string; alEnviar: () => void }) {
     const { chat, agregarFotoLocal } = useChat();
     const { notificar, servicios } = useCampo();
     const { campo, colores } = useTema();
@@ -435,6 +545,7 @@ function Compositor({ conversacionId, placeholder }: { conversacionId: number; p
             if (limpiar) {
                 setTexto("");
             }
+            alEnviar();
             return s;
         } catch (e) {
             notificar({ tono: "error", texto: e instanceof ErrorChatLocal ? e.message : "No se pudo guardar el mensaje en el teléfono." });
@@ -497,7 +608,7 @@ export function ConversacionChat({ id }: { id: number }) {
     const margen = useSafeAreaInsets();
     const v = useConversacion(id);
     const lista = useRef<ComponentRef<typeof ScrollView>>(null);
-    const alFinal = useRef(true);
+    const teclado = useAltoTeclado();
     const [menu, setMenu] = useState<MensajeVista | null>(null);
     const ahora = useAhora(60_000);
 
@@ -510,19 +621,21 @@ export function ConversacionChat({ id }: { id: number }) {
             chat.descartarAviso(a.id);
         }
     }, [estado.avisos, chat, notificar]);
-    const ultimo = v.mensajes.at(-1)?.id;
+    const ultimoMensaje = v.mensajes.at(-1);
+    const ultimo = ultimoMensaje?.id;
+    // El hilo sigue al último mensaje (teclado, envío, llegada) salvo que la persona lea arriba.
+    const seguir = useSeguirFinal(lista, ultimoMensaje ? { id: ultimoMensaje.id, propio: ultimoMensaje.propio } : null, teclado);
+    const { enFinal } = seguir;
+    // Al final (también al volver a él desplazándose) se marca leído.
     useEffect(() => {
-        if (alFinal.current && v.carga !== "cargando") {
+        if (enFinal && v.carga !== "cargando") {
             void chat.marcarLeido(id);
         }
-    }, [chat, id, ultimo, v.carga, v.conversacion?.no_leidos]);
+    }, [chat, id, ultimo, v.carga, v.conversacion?.no_leidos, enFinal]);
 
     const alDesplazar = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-        const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-        alFinal.current = contentSize.height - contentOffset.y - layoutMeasurement.height < 48;
-        if (alFinal.current) {
-            void chat.marcarLeido(id);
-        }
+        seguir.alDesplazar(e);
+        const { contentOffset } = e.nativeEvent;
         if (contentOffset.y < 80 && v.hayAnteriores && !v.cargandoAnteriores) {
             void chat.cargarAnteriores(id);
         }
@@ -594,20 +707,30 @@ export function ConversacionChat({ id }: { id: number }) {
                     </View>
                 ) : null}
             </View>
-            <ScrollView
-                ref={lista}
-                style={estilos.flex}
-                contentContainerStyle={estilos.hilo}
-                onScroll={alDesplazar}
-                scrollEventThrottle={64}
-                maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-                onContentSizeChange={() => alFinal.current && lista.current?.scrollToEnd({ animated: false })}
-                keyboardShouldPersistTaps="handled"
-                testID="hilo-chat"
-            >
-                {cuerpo}
-            </ScrollView>
-            {c && puedeEnviar ? <Compositor conversacionId={id} placeholder={c.tipo === "orden" ? "Escribe a despacho…" : c.tipo === "cuadrilla" ? "Escribe a tu cuadrilla…" : `Escribe a ${tituloConversacion(c)}…`} /> : null}
+            <View style={estilos.flex}>
+                <ScrollView
+                    ref={lista}
+                    style={estilos.flex}
+                    contentContainerStyle={estilos.hilo}
+                    onScroll={alDesplazar}
+                    scrollEventThrottle={64}
+                    maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+                    onContentSizeChange={seguir.alCambiarContenido}
+                    onLayout={seguir.alMedir}
+                    keyboardShouldPersistTaps="handled"
+                    testID="hilo-chat"
+                >
+                    {cuerpo}
+                </ScrollView>
+                {seguir.hayNuevos ? (
+                    <View style={estilos.nuevos} pointerEvents="box-none">
+                        <Boton variante="secundario" icono={ArrowDown} alPresionar={seguir.irAlFinal} etiqueta="Mensajes nuevos: ir al final" estilo={estilos.botonNuevos} testID="mensajes-nuevos">
+                            Mensajes nuevos
+                        </Boton>
+                    </View>
+                ) : null}
+            </View>
+            {c && puedeEnviar ? <Compositor conversacionId={id} alEnviar={seguir.alEnviar} placeholder={c.tipo === "orden" ? "Escribe a despacho…" : c.tipo === "cuadrilla" ? "Escribe a tu cuadrilla…" : `Escribe a ${tituloConversacion(c)}…`} /> : null}
             <MenuMensaje m={menu} alCerrar={() => setMenu(null)} />
         </View>
         </EvitarTeclado>
@@ -650,5 +773,9 @@ const estilos = StyleSheet.create({
     textoSeparador: { fontSize: 12, fontWeight: "600" },
     compositor: { borderTopWidth: 1, paddingHorizontal: 14, paddingTop: 10, gap: 10 },
     rapidas: { gap: 8 },
+    personas: { gap: 8 },
+    persona: { justifyContent: "flex-start", minHeight: 56 },
+    nuevos: { position: "absolute", left: 0, right: 0, bottom: 12, alignItems: "center" },
+    botonNuevos: { borderRadius: 999, minHeight: 44, paddingHorizontal: 16 },
     filaCompositor: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
 });
