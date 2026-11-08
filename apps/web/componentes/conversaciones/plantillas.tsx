@@ -8,6 +8,7 @@ import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
+import { EN_OTRA_EMPRESA, esEnOtraEmpresa } from "@/lib/conversaciones/atencion";
 import { cabeceraIdem } from "@/lib/conversaciones/api";
 import { useIdEnvio } from "@/lib/conversaciones/id-envio";
 import { esSesionCambiada, verificarSesion, type Identidad } from "@/lib/conversaciones/sesion";
@@ -137,18 +138,23 @@ function FormPlantilla({ conv, identidad, plantilla, volver, alEnviado }: { conv
         }
     }
 
-    const textoError = (e: unknown) =>
-        esSesionCambiada(e)
-            ? "La sesión de este navegador cambió: no se envió."
-            : e instanceof ErrorApi && e.codigo === "baja"
-              ? "Este número se dio de baja de WhatsApp: no se le pueden mandar plantillas."
-              : e instanceof ErrorApi && e.codigo === "sin_permiso"
-                ? "No hay permiso de contacto vigente por WhatsApp para este número."
-                : e instanceof ErrorApi && e.codigo === "cliente_sin_confirmar"
-                  ? "Falta que un supervisor confirme el cliente de esta conversación."
-                  : e instanceof ErrorApi && e.codigo === "plantilla_no_aprobada"
-                    ? "Esta plantilla ya no está aprobada en este número."
-                    : mensajeDeError(e).titulo;
+    const textoError = (e: unknown) => {
+        if (esSesionCambiada(e)) return "La sesión de este navegador cambió: no se envió.";
+        if (esEnOtraEmpresa(e)) return EN_OTRA_EMPRESA.texto;
+        if (!(e instanceof ErrorApi)) return mensajeDeError(e).titulo;
+        switch (e.codigo) {
+            case "baja":
+                return "Este número se dio de baja de WhatsApp: no se le pueden mandar plantillas.";
+            case "sin_permiso":
+                return "No hay permiso de contacto vigente por WhatsApp para este número.";
+            case "cliente_sin_confirmar":
+                return "Falta que un supervisor confirme el cliente de esta conversación.";
+            case "plantilla_no_aprobada":
+                return "Esta plantilla ya no está aprobada en este número.";
+            default:
+                return mensajeDeError(e).titulo;
+        }
+    };
 
     return (
         <form noValidate className="grid gap-3" aria-label={`Plantilla ${plantilla.nombre}`} onSubmit={form.handleSubmit(enviar)}>

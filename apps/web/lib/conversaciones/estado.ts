@@ -113,6 +113,8 @@ export type Pendiente = {
     texto: string;
     creadoEn: string;
     error: string | null;
+    /** El servidor lo rechazó por una regla que reintentar no cambia (sin «Reintentar»). */
+    definitivo?: boolean;
 };
 
 /**

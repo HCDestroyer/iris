@@ -24,7 +24,7 @@ import {
     MenuDesplegableSeparador,
     useCambiosSinGuardar,
 } from "@iris/ui";
-import { ArrowLeftRight, AtSign, BookOpen, Building2, Check, ChevronDown, Ellipsis, LifeBuoy, Lock, RotateCcw, RotateCw, Tag, Unlink, User, UserCheck, UserMinus, UserPlus } from "lucide-react";
+import { ArrowLeftRight, AtSign, BookOpen, Building2, Check, ChevronDown, Ellipsis, LifeBuoy, Lock, RotateCcw, RotateCw, Tag, Unlink, User, UserCheck, UserMinus, UserPlus, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useForm, useWatch, type FieldValues, type Path, type UseFormSetError } from "react-hook-form";
 import { z } from "zod";
@@ -37,7 +37,7 @@ import { erroresACampos } from "@/lib/formularios";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useSesion } from "@/lib/sesion";
 import { pasarConversacion } from "@/lib/conversaciones/api-equipo";
-import { estaDisponible, personasDeCola, supervisaCola, textoCarga, textoMotivoNoDisponible } from "@/lib/conversaciones/atencion";
+import { EN_OTRA_EMPRESA, esEnOtraEmpresa, estaDisponible, personasDeCola, supervisaCola, textoCarga, textoMotivoNoDisponible } from "@/lib/conversaciones/atencion";
 import { leerEmpresasDestino, pasarAEmpresa } from "@/lib/meta/api";
 import { esquemaPasarEmpresa } from "@/lib/meta/esquemas";
 import type { EmpresaDestino } from "@/lib/meta/tipos";
@@ -312,6 +312,25 @@ function OpcionConDetalle({ titulo, detalle }: { titulo: string; detalle: string
 
 /** Error de una acción de un toque: aviso flotante bajo la cabecera, con «Recargar» si fue un conflicto. */
 function ErrorRapido({ error, cerrar, recargar }: { error: unknown; cerrar: () => void; recargar: () => Promise<void> }) {
+    // Otra empresa del número la atiende: reintentar no cambia nada, solo se explica y se cierra.
+    if (esEnOtraEmpresa(error)) {
+        return (
+            <div className="absolute inset-x-3 top-[4.25rem] z-10" data-error-rapido="conversacion_en_otra_empresa">
+                <Aviso
+                    tono="warning"
+                    titulo={EN_OTRA_EMPRESA.titulo}
+                    accion={
+                        <Boton variante="secundario" tamano="sm" onClick={cerrar}>
+                            <X />
+                            Cerrar
+                        </Boton>
+                    }
+                >
+                    {EN_OTRA_EMPRESA.texto}
+                </Aviso>
+            </div>
+        );
+    }
     const conflicto = error instanceof ErrorApi && error.estado === 409;
     const otro = error instanceof ErrorApi && error.codigo === "ya_asignada" ? error.detalle : undefined;
     return (

@@ -101,9 +101,11 @@ export function Hilo({ mensajes, pendientes, ahora, hayAnteriores, cargandoAnter
                         <span className="flex flex-wrap items-center justify-end gap-x-2 text-xs text-error">
                             <AlertTriangle aria-hidden className="size-3.5" />
                             {p.error}
-                            <Boton variante="enlace" className="text-xs" onClick={() => reintentarPendiente(p)}>
-                                Reintentar
-                            </Boton>
+                            {p.definitivo ? null : (
+                                <Boton variante="enlace" className="text-xs" onClick={() => reintentarPendiente(p)}>
+                                    Reintentar
+                                </Boton>
+                            )}
                         </span>
                     ) : (
                         <span className="self-end text-[0.71875rem] text-muted-foreground">Enviando…</span>
