@@ -1570,7 +1570,7 @@ export interface paths {
         };
         /**
          * Un canal de mensajería (sin credenciales)
-         * @description Permiso: `mensajeria.configurar`.
+         * @description Permiso: `mensajeria.configurar`. Solo personas con sesión del panel (un token o una integración: 404). 404 también si es de otra empresa o no tiene empresa.
          */
         get: operations["verCanalMensajeria"];
         put?: never;

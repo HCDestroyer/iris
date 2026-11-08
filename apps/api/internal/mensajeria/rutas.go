@@ -184,8 +184,10 @@ func (m *Modulo) Registrar(api huma.API) {
 		}
 		return responder(c, err)
 	})
-	huma.Register(api, op("verCanalMensajeria", http.MethodGet, "/canales/{id}", "Un canal de mensajería (sin credenciales)", nucleo.PermMensajeriaConfigurar,
-		http.StatusOK, http.StatusNotFound), func(ctx context.Context, in *entradaCambioHTTP) (*cuerpo[Canal], error) {
+	verCanal := op("verCanalMensajeria", http.MethodGet, "/canales/{id}", "Un canal de mensajería (sin credenciales)", nucleo.PermMensajeriaConfigurar,
+		http.StatusOK, http.StatusNotFound)
+	verCanal.Description += " Solo personas con sesión del panel (un token o una integración: 404). 404 también si es de otra empresa o no tiene empresa."
+	huma.Register(api, verCanal, func(ctx context.Context, in *entradaCambioHTTP) (*cuerpo[Canal], error) {
 		return responder(m.VerCanal.Ejecutar(ctx, EntradaVerCanal{ID: in.ID}))
 	})
 	probar := op("probarCanalMensajeria", http.MethodPost, "/canales/{id}/probar", "Probar la conexión de un número con Meta", nucleo.PermMensajeriaConfigurar,

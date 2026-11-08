@@ -26,6 +26,7 @@ aprobada, permiso de contacto, límites, horario).
 | `GET/POST /canales`, `POST /canales/{id}/actualizar\|activar\|desactivar` | `mensajeria.configurar` | WhatsApp Cloud API: **varios números por empresa** (credenciales cifradas, nunca se devuelven). |
 | `POST /canales/{id}/configurar` | `canales.configurar` | Usos (avisos, soporte, cobros, ventas), cola y número de avisos de la empresa (uno activo). |
 | `GET/POST /canales/{id}/webhook` | público | Verificación y webhook de Meta (`X-Hub-Signature-256`). |
+| `GET /canales/{id}`, `POST /canales/{id}/probar` | `mensajeria.configurar` | Detalle y prueba de conexión con la Graph API (`probar`: solo personas con sesión). `Canal` trae `conexion`, la última prueba, `webhookVerificadoEn`, `ultimoMensajeEn`, `*GuardadoEn` y `webhookUrl` (contratos/conversaciones.md §1.1). |
 
 ## Reglas (§6.5)
 
@@ -54,7 +55,7 @@ WhatsApp por QR y Telegram son de fases siguientes: QR declarará `PermiteAvisos
 Emite (outbox; detalle en `.claude/integration/contratos/eventos.md`):
 `aviso.creado`, `aviso.enviado`, `aviso.entregado`, `aviso.leido`, `aviso.fallido`,
 `consentimiento.registrado`, `contacto.baja`, `canal_mensajeria.creado`, `canal_mensajeria.actualizado`,
-`canal_mensajeria.activado`, `canal_mensajeria.desactivado`, `canal_mensajeria.calidad`.
+`canal_mensajeria.activado`, `canal_mensajeria.desactivado`, `canal_mensajeria.calidad`, `canal_mensajeria.probado`.
 
 Consume: `aviso.entregado`, `aviso.fallido` (solo los de origen `argos`) y `contacto.baja` (suscriptor
 `mensajeria.webhooks` en el relay de `cmd/worker`) para los webhooks hacia Argos (§6.6): cuerpo
