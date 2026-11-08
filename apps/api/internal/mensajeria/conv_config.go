@@ -192,7 +192,7 @@ func nuevoConfigurarCanal(m *Modulo) *auditoria.Caso[EntradaConfigurarCanal, Can
 			if campos == nil {
 				campos = []string{}
 			}
-			return aCanal(f), t.Emitir("canal_mensajeria.actualizado", map[string]any{"canal_id": f.ID, "empresa_id": f.EmpresaID, "campos": campos})
+			return m.aCanal(f), t.Emitir("canal_mensajeria.actualizado", map[string]any{"canal_id": f.ID, "empresa_id": f.EmpresaID, "campos": campos})
 		},
 	})
 }

@@ -48,7 +48,11 @@ Una empresa tiene **varios números** (`mensajeria.canales`), cada uno con:
 - Uso, cola, número de avisos y (PR B) horario: `POST /canales/{id}/configurar`
   `{ version, usos, avisosEmpresa, colaId, horarioId?, fueraDeHorario? }` con `canales.configurar`
   (solo personas con sesión: un token o una integración recibe 404).
-- 409 `canal_existente` solo si el `phoneNumberId` ya está en otro número activo.
+- 409 `canal_existente` solo si el `phoneNumberId` ya está en otro número **activo** (al crear, al
+  actualizar o al activar). Hay varios números por empresa: no hay límite de uno activo. (Caso raro:
+  activar un número que conserva `avisosEmpresa: true` cuando la empresa ya tiene otro número de
+  avisos activo también responde `canal_existente`; márcalo de avisos con `configurar` después.)
+  Crear con `avisosEmpresa: true` lo quita del número de avisos anterior (antes respondía 409).
 - **Varios números en la misma app de Meta.** Meta manda los webhooks de todos los números de una
   app a una sola URL, salvo que cada número tenga la suya: configura en Meta, por número,
   `override_callback_uri` = `…/api/v1/mensajeria/canales/{id}/webhook` (Graph API
@@ -57,6 +61,73 @@ Una empresa tiene **varios números** (`mensajeria.canales`), cada uno con:
   canal un cambio de otro `phone_number_id`, Iris lo pasa al número activo de ese
   `phone_number_id` **solo** si es de la misma empresa y tiene el mismo `app_secret` con el que se
   verificó la firma; si no, lo descarta (queda anotado en el entrante).
+
+### 1.1 Alta, credenciales y conexión de un número (pantalla «Números de WhatsApp»)
+
+Todo con `mensajeria.configurar`. Las credenciales (token, app secret, verify token) se guardan
+cifradas y **nunca** se devuelven ni salen en logs, auditoría o eventos.
+
+**Campos nuevos de `Canal`** (los devuelven `GET /canales`, `GET /canales/{id}` y las respuestas de
+crear, actualizar, configurar, activar, desactivar):
+
+| Campo | Qué es |
+| --- | --- |
+| `estado` | `activo` \| `inactivo` (lo mismo que `activo`, para la columna de la lista) |
+| `conexion` | Lo que muestra la columna «Conexión», calculado en el servidor: `desactivado` (inactivo), `sin_probar` (nunca se probó o cambiaron token, `phoneNumberId` o `numero` después de la última prueba), `token_invalido`, `numero_no_coincide`, `sin_permiso`, `error_meta` (la última prueba falló así), `webhook_sin_verificar` (la prueba dio `conectado` pero Meta aún no verificó el webhook) o `conectado` |
+| `ultimoEstado` | Resultado de la última prueba (`conectado`, `token_invalido`, `numero_no_coincide`, `sin_permiso`, `error_meta`) o null (sin probar) |
+| `ultimoDetalle` | Texto corto en español de la última prueba (null si fue `conectado`); nunca lleva el token |
+| `ultimaPruebaEn` | Cuándo se probó por última vez (null = nunca) |
+| `webhookVerificadoEn` | Última verificación correcta de Meta (`GET …/webhook` con `hub.challenge` y el verify token del número). Null = Meta no la ha hecho, o se cambió el verify token después |
+| `ultimoMensajeEn` | Último webhook firmado que llegó de Meta a este número (cualquier cambio: mensaje, estado, calidad). Precisión de 1 minuto |
+| `tokenGuardadoEn`, `appSecretGuardadoEn`, `verifyTokenGuardadoEn` | Cuándo se guardó por última vez cada credencial (para «•••• guardado el …»). Nunca el valor |
+| `webhookUrl` | URL completa para pegar en Meta (`IRIS_BASE_URL` + `webhookRuta`). Sin `IRIS_BASE_URL` es solo la ruta y `webhookUrlCompleta` es `false` (el panel antepone su propio origen) |
+| `webhookUrlCompleta` | `true` si `webhookUrl` es absoluta |
+| `verifyTokenGenerado` | **Solo** en la respuesta de crear o actualizar cuando Iris generó el verify token (ver abajo). Ausente en cualquier otra respuesta |
+
+`webhookRuta` se mantiene. Probar, la verificación del webhook y la llegada de webhooks **no**
+cambian `version` (no le dan 409 a un formulario abierto).
+
+**Crear** (`POST /canales`): `verifyToken` pasa a ser opcional. Vacío o ausente = Iris genera uno
+(`vt_` + 32 caracteres aleatorios) y lo devuelve **una sola vez** en `verifyTokenGenerado`. Si el
+cliente manda el suyo (16–256), se usa y la respuesta no trae `verifyTokenGenerado`. Con
+`Idempotency-Key`, una respuesta con `verifyTokenGenerado` no se guarda: repetir la clave responde 409
+`idempotencia_no_repetible` (el número ya quedó creado; se ve en la lista).
+
+**Actualizar** (`POST /canales/{id}/actualizar`): suma `generarVerifyToken: bool` («Generar otro»):
+Iris genera uno nuevo y lo devuelve una vez en `verifyTokenGenerado` (no se puede mandar junto con
+`verifyToken`: 422 `validacion`). Cambiar el verify token (generado o enviado) borra
+`webhookVerificadoEn`: hay que pegarlo en Meta y verificar otra vez. Cambiar `token`,
+`phoneNumberId` o `numero` borra el resultado de la última prueba (`conexion: sin_probar`).
+
+**Detalle**: `GET /canales/{id}` → `Canal`. Solo personas con sesión del panel (un token de API o una
+integración reciben 404; `GET /canales` no cambia). 404 si no existe, es de otra empresa o no tiene
+empresa cuando ya hay empresas registradas (lo mismo en probar, actualizar, activar y desactivar).
+
+**Probar conexión**: `POST /canales/{id}/probar`, sin cuerpo (acepta `Idempotency-Key`). Solo
+personas con sesión del panel: un token de API o una integración recibe 404. Iris llama a la Graph
+API `GET /{phone_number_id}?fields=display_phone_number,verified_name,quality_rating` con el token
+guardado (mismo host y tiempos que los envíos; 15 s) y responde 200 `PruebaCanal`:
+
+```
+{ canalId, estado, detalle, probadoEn, numeroMeta, nombreVerificado, calidad,
+  webhookVerificado, webhookVerificadoEn, ultimoMensajeEn, conexion }
+```
+
+| `estado` | Cuándo |
+| --- | --- |
+| `conectado` | 2xx, el `id` es el `phoneNumberId` del número y `display_phone_number` es `numero` (se comparan solo los dígitos) |
+| `token_invalido` | HTTP 401 o error de Meta con código 190 (token vencido, revocado o mal pegado) |
+| `numero_no_coincide` | El `display_phone_number` de Meta no es `numero`, el `id` devuelto es otro, o Meta no encuentra ese `phone_number_id` con este token (código 100, subcódigo 33). `numeroMeta` trae lo que Meta dice cuando lo sabe |
+| `sin_permiso` | HTTP 403 o códigos 10 o 200–299 (al token le falta `whatsapp_business_management` / `whatsapp_business_messaging` o acceso a la WABA) |
+| `error_meta` | Cualquier otra cosa: Meta no respondió, 5xx, 429, cuerpo ilegible. `detalle` dice qué pasó sin el mensaje de Meta (que puede repetir el token) |
+
+- `calidad`: `alta` (GREEN), `media` (YELLOW), `baja` (RED), `desconocida` (otro), o null si no se
+  leyó. `nombreVerificado`: el `verified_name` de Meta (o null).
+- `webhookVerificado` = `webhookVerificadoEn` no es null.
+- El resultado queda en el número (`ultimoEstado`, `ultimoDetalle`, `ultimaPruebaEn`), con su fila de
+  auditoría (`mensajeria.probar_canal`, sin credenciales) y el evento `canal_mensajeria.probado`
+  `{ canal_id, empresa_id, estado }`. Un número inactivo también se puede probar.
+- 404 si el número no existe o es de otra empresa; 422 `cifrado_no_disponible` sin `IRIS_CLAVE_CIFRADO`.
 
 ## 2. Colas, etiquetas y respuestas rápidas
 
@@ -549,6 +620,7 @@ mensaje.
 `respuesta_rapida.creada` / `.actualizada`, `boleta.registrada`, `boleta.registrada_en_argos`,
 `boleta.fallida`, `promesa.solicitada`; PR B: `horario.creado` / `.actualizado`, `conversacion.fuera_de_horario`,
 `conversacion.guardia_avisada`, `manual.creado` / `.actualizado` / `.enviado` / `.enlace_revocado`.
+Números (§1.1): `canal_mensajeria.probado`.
 
 **Pendiente (fase 1.1, decisión abierta):** consumir los webhooks de Argos `comprobante.aprobado` /
 `.rechazado` y `promesa.*` para mover la boleta y la promesa en la conversación y avisar al cliente

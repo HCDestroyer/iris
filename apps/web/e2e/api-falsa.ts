@@ -5,6 +5,7 @@ import { simularChatPanel, type ApiChatPanel } from "./api-chat-panel";
 import { apiComercial, type ApiComercial } from "./api-comercial";
 import { apiConversaciones, PERMISOS_CONVERSACIONES, type ApiConversaciones, type OpcionesConversaciones } from "./api-conversaciones";
 import { apiEncuestas, type ApiEncuestas } from "./api-encuestas";
+import { apiNumeros, type ApiNumeros, type OpcionesNumeros } from "./api-numeros";
 import { apiReportes, type ApiReportes } from "./api-reportes";
 import { apiSSO, type ApiSSO } from "./api-sso";
 import { apiCuenta, CONTRASENA_DEFECTO, type ApiCuenta } from "./api-cuenta";
@@ -66,6 +67,8 @@ export const VENDEDORA = usuario({ id: 13, nombre: "Valeria Cux", correo: "valer
 export const ELENA = usuario({ id: 12, nombre: "Elena Toj", correo: "elena@iris.test", mfaActivo: true, roles: [{ rol: "admin" }] });
 /** Agente de la bandeja (rol soporte): responde y asocia, pero no supervisa. */
 export const AGENTE_CONV = usuario({ id: 14, nombre: "Rosa Pop", correo: "rosa@iris.test", roles: [{ rol: "soporte" }] });
+/** Solo administra las credenciales de los números (`mensajeria.configurar`), sin ver la bandeja. */
+export const CREDENCIALES_WA = usuario({ id: 17, nombre: "Iván Pac", correo: "ivan@iris.test", roles: [{ rol: "lectura" }] });
 export const BLOQUEADO = "bloqueado@iris.test";
 
 const PERMISOS_CHAT: Permiso[] = ["chat.ver", "chat.enviar", "chat.supervisar"];
@@ -211,6 +214,8 @@ export const PERMISOS_ADMIN: Permiso[] = [
     "usuarios.quitar_empresa",
     // Bandeja de conversaciones (e2e/api-conversaciones.ts).
     ...PERMISOS_CONVERSACIONES,
+    // Credenciales y conexión de los números de WhatsApp (e2e/api-numeros.ts).
+    "mensajeria.configurar",
     "adjuntos.subir",
 ];
 
@@ -224,6 +229,7 @@ const permisosPorCorreo: Record<string, Permiso[]> = {
     [CONSULTA.correo]: ["conversaciones.ver", "agenda.ver", "clientes.ver", "prospectos.ver", "reportes.ver", "rutas.ver", "tickets.ver", "usuarios.ver"],
     [VENDEDORA.correo]: PERMISOS_VENTAS,
     [AGENTE_CONV.correo]: PERMISOS_CONVERSACIONES.filter((p) => p !== "conversaciones.supervisar"),
+    [CREDENCIALES_WA.correo]: ["mensajeria.configurar"],
     // Con integraciones.conectar pero sin empresas.todas: no puede conectar (la API exige rol global).
     [SUPERVISOR_ZONA.correo]: [...PERMISOS_BUZONES, "integraciones.conectar", "integraciones.ver", "tickets.ver"],
     [ASIGNADOR.correo]: ["agenda.ver", "ordenes.asignar", "ordenes.ver"],
@@ -231,7 +237,7 @@ const permisosPorCorreo: Record<string, Permiso[]> = {
 };
 /** Usuarios cuyos permisos `buzones.*` tienen alcance de zona (no global). */
 const alcanceDeZona = new Set([SUPERVISOR_ZONA.correo]);
-const usuarios = [ADMIN, CON_MFA, LECTOR, SOPORTE, CONSULTA, SUPERVISOR_ZONA, DESPACHO, ASIGNADOR, TEMPORAL, ELENA, VENDEDORA, AGENTE_CONV];
+const usuarios = [ADMIN, CON_MFA, LECTOR, SOPORTE, CONSULTA, SUPERVISOR_ZONA, DESPACHO, ASIGNADOR, TEMPORAL, ELENA, VENDEDORA, AGENTE_CONV, CREDENCIALES_WA];
 
 export const PAGINA_1: Schema<"PaginaUsuario"> = {
     data: [ADMIN, CON_MFA, LECTOR, SOPORTE],
@@ -279,6 +285,8 @@ export type OpcionesApi = {
     argos050?: boolean;
     /** Bandeja de conversaciones (e2e/api-conversaciones.ts). */
     conversaciones?: OpcionesConversaciones;
+    /** Números de WhatsApp: alta, credenciales y conexión (e2e/api-numeros.ts). */
+    numeros?: OpcionesNumeros;
     /**
      * Chat del equipo (e2e/api-chat-panel.ts): Ana (admin) tiene `chat.ver`, `chat.enviar` y
      * `chat.supervisar`. Sin esta opción nadie tiene permisos del chat y el panel no lo arranca.
@@ -327,6 +335,8 @@ export type ApiFalsa = {
     conversaciones: Pick<ApiConversaciones, "conversaciones" | "mensajes" | "enviados" | "mensajeDelCliente" | "horarios" | "manuales" | "canales" | "configurados" | "respuestas" | "colas" | "agentes" | "bandeja11">;
     /** Chat del equipo (solo con `chat: true`). */
     chat: ApiChatPanel | null;
+    /** Números de WhatsApp: resultados de Meta, cuerpos recibidos y credenciales guardadas. */
+    numeros: Pick<ApiNumeros, "resultados" | "cuerpos" | "secretos" | "ultimoCreado">;
     /** Encuestas: lista, respuestas públicas y peticiones públicas que llevaron sesión. */
     encuestas: Pick<ApiEncuestas, "encuestas" | "publicasConSesion" | "respuestas" | "enlacesPedidos">;
     /** Autologin desde Argos, re-autenticación, vínculos y conectores. */
@@ -456,6 +466,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     const encuestas = apiEncuestas();
     const enlaceActor = { id: 0 };
     const conversaciones = apiConversaciones(() => enlaceActor.id, opciones.conversaciones);
+    const numeros = apiNumeros(conversaciones.canales, opciones.numeros);
     const listables = [...(PAGINA_1.data ?? []), ...(PAGINA_2.data ?? [])];
     const cuenta = apiCuenta(() => [...usuarios, ...listables.filter((u) => !usuarios.some((x) => x.id === u.id))]);
     const sso = apiSSO({
@@ -808,6 +819,9 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             return;
         }
         enlaceActor.id = actual.id;
+        if (await numeros.manejar({ route, metodo, ruta, cuerpo, idempotencia: cabeceras["idempotency-key"], puede, empresaId })) {
+            return;
+        }
         if (await conversaciones.manejar({ route, metodo, ruta, query: url.searchParams, cuerpo, idempotencia: cabeceras["idempotency-key"], puede })) {
             return;
         }
@@ -944,6 +958,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
 
     return {
         chat,
+        numeros: { resultados: numeros.resultados, cuerpos: numeros.cuerpos, secretos: numeros.secretos, ultimoCreado: numeros.ultimoCreado },
         mutaciones,
         peticiones,
         tickets: esc.tickets,
