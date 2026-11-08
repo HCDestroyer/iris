@@ -1043,7 +1043,8 @@ que se conectan con QR; los números por «datos de la API» (§1.1) no la neces
 `POST /conexion-meta/probar` (sin cuerpo; `mensajeria.conexion_meta`, `Idempotency-Key`) →
 `ConexionMeta` con `comprobaciones` y `ultimaPruebaEn` nuevas:
 
-- `app`: `GET /{app_id}?fields=id,name&access_token={app_id}|{app_secret}` (Graph, 15 s). 2xx con el
+- `app`: `GET /{app_id}?fields=id,name` con el token de la app (`{app_id}|{app_secret}`) en la cabecera
+  `Authorization: Bearer` (nunca en la URL; Graph, 15 s). 2xx con el
   mismo `id` → `ok`; código 190/101 o HTTP 400–401 → `error` («Meta no aceptó el app ID o el app
   secret»); otra cosa → `error` con el HTTP y el código (nunca el mensaje de Meta).
 - `configuracion`: Iris solo revisa el formato (Meta no publica una lectura de la configuración):
@@ -1059,7 +1060,8 @@ que se conectan con QR; los números por «datos de la API» (§1.1) no la neces
 `GET /meta/webhook` (verificación con `hub.verify_token` = el verify token de la conexión; 403
 `verificacion_invalida`) y `POST /meta/webhook` (firmado `X-Hub-Signature-256` con el app secret de
 la conexión; 401 `firma_invalida`). Cada `entry` se reparte al número QR de su `phone_number_id`
-(o de su WABA en `account_update`) y sigue igual que el webhook de un número (`entrantes`, job).
+(o de su WABA en `account_update`); un `entry` con cambios de varios números se separa por número.
+Sigue igual que el webhook de un número (`entrantes`, job).
 Entradas de números que Iris no tiene se descartan. Suscribe en Meta los campos de
 `camposWebhook`. El webhook propio de un número QR (`/canales/{id}/webhook`) también vale y se
 verifica con el app secret de la conexión.
@@ -1109,16 +1111,21 @@ lo llama **en cuanto** recibe el `code` (vive ~30 s):
 1. Valida la entrada, el modo de la conexión y que el `phoneNumberId` no esté en otro número activo
    (409 `canal_existente`). Si ya hay un número QR **de la misma empresa** con ese
    `phoneNumberId` (p. ej. desconectado por Meta), lo **reconecta** (mismo id; 200).
-2. Canjea el código **una sola vez** (`GET /oauth/access_token` con el app secret guardado). El
+2. Canjea el código **una sola vez** (`POST /oauth/access_token` con cuerpo
+   `application/x-www-form-urlencoded`: `client_id`, `client_secret`, `code`; ni el secreto ni el
+   código van en la URL). El
    SHA-256 del código queda registrado: el mismo código otra vez (aunque sea con otra clave) da 422
    `codigo_vencido` sin volver a llamar a Meta. Repetir la misma `Idempotency-Key` devuelve la misma
    respuesta.
-3. Lee el número (`GET /{phone_number_id}?fields=display_phone_number,verified_name,is_on_biz_app,platform_type`)
+3. Comprueba que el número es de la WABA (`GET /{waba_id}/phone_numbers?fields=id`; si no está,
+   422 `numero_no_elegible`) y lo lee (`GET /{phone_number_id}?fields=display_phone_number,verified_name,is_on_biz_app,platform_type`)
    con el token del negocio. `is_on_biz_app: false` → 422 `numero_no_elegible`.
-4. Suscribe la app a la WABA (`POST /{waba_id}/subscribed_apps`). Si la instalación ya tiene otro
-   número QR activo y `IRIS_BASE_URL` es absoluta, con `override_callback_uri` = el webhook de este
-   número (`…/canales/{id}/webhook`) y su `verify_token`; si no, los webhooks llegan al de la app.
-   **Nunca** llama `/register`.
+4. Suscribe la app a la WABA (`POST /{waba_id}/subscribed_apps`) con `override_callback_uri` = el
+   webhook de este número (`…/canales/{id}/webhook`) y su `verify_token`: **siempre** en modo
+   `saas` y `compartida` (la app no es de esta instalación; sin `IRIS_BASE_URL` absoluta, 422
+   `base_url_requerida` antes de canjear el código), y en `propia` cuando ya hay otro número QR
+   activo y `IRIS_BASE_URL` es absoluta (si no, los webhooks llegan al de la app). **Nunca** llama
+   `/register`.
 5. Guarda el número con `tipoConexion: "qr"`, `coexistencia: true`, el token del negocio cifrado y un
    verify token propio; `conectadoEn` = ahora y el plazo de sincronización = `conectadoEn + 24 h`.
    Evento `canal_mensajeria.creado` (con `tipo_conexion: qr`), o `canal_mensajeria.reconectado`.
@@ -1144,7 +1151,8 @@ bool }` (`mensajeria.configurar`, `Idempotency-Key`; al menos uno en `true`, si 
 
 - ya pedido (y Meta lo aceptó): 422 `sincronizacion_ya_pedida`;
 - pasado el plazo: 422 `sincronizacion_vencida`;
-- si la llamada a Meta falló, queda `fallido` y se puede pedir otra vez dentro del plazo.
+- si la llamada a Meta falló, queda `fallido` y se puede pedir otra vez dentro del plazo; un
+  `pedido` sin respuesta de Meta (la llamada no terminó) se puede repetir pasados 10 minutos.
 
 `Canal.sincronizacion` (solo en números QR; ausente en los demás):
 
@@ -1172,15 +1180,18 @@ mensajes: `progress` 100), `rechazado` (el dueño no aceptó compartir el histor
   `origen: "historial"` (entrante si `from` es el cliente, saliente si no), con su fecha original
   (`creadoEn`), deduplicados por id. **Sin** eventos de outbox de conversación (ni creada, ni
   recibido), sin bot, sin avisos, sin encuestas, sin SLA y sin cambiar el estado de una conversación
-  que ya existía. El historial se agrega al final (`seq`) con su fecha original. Actualiza
+  que ya existía. El historial se agrega al final (`seq`) con su fecha original; un mensaje más viejo
+  que el último de la conversación no cambia `ultimoMensaje` ni `ultimaActividad`. Actualiza
   `sincronizacion.mensajes` (`progreso`, `fase`, `mensajes`). `errors[].code = 2593109` →
   `rechazado`.
 - `smb_app_state_sync` (contactos del teléfono, `action: add`): si el teléfono es de **un** cliente
   de la instantánea de Argos de la empresa dueña, cuenta como `asociados` y no se crea nada (los datos
-  de Argos nunca se tocan); si no, crea un contacto de Iris (`tipo: otro`, nombre = `full_name`) o, si
-  ya existe con ese teléfono, le actualiza el nombre (sube `version`). Evento `contacto_iris.creado`
-  con `origen: telefono` al crear. `remove` no borra nada.
-- `account_update` (por `waba_info.waba_id` o `entry.id`): `PARTNER_REMOVED` (con
+  de Argos nunca se tocan); si no, crea un contacto de Iris (`tipo: otro`, nombre = `full_name`,
+  origen teléfono) o, si ya existe con ese teléfono **y vino del teléfono**, le actualiza el nombre
+  (sube `version`). Un contacto que creó una persona no se toca. Evento `contacto_iris.creado` con
+  `origen: telefono` al crear. `remove` no borra nada.
+- `account_update` (por `waba_info.waba_id` o `entry.id`; vale para **todos** los números QR de la
+  WABA): `PARTNER_REMOVED` (con
   `disconnection_info.reason`, p. ej. `PRIMARY_INACTIVITY` = ~14 días sin abrir la app) y
   `ACCOUNT_OFFBOARDED` dejan el número **desconectado** (`desconectadoEn`, `desconectadoMotivo` =
   la razón en minúsculas, o `partner_removed` / `account_offboarded`); `ACCOUNT_RECONNECTED` lo
@@ -1188,7 +1199,8 @@ mensajes: `progress` 100), `rechazado` (el dueño no aceptó compartir el histor
   `canal_mensajeria.reconectado { canal_id, empresa_id, origen }`. Un número desconectado no envía
   (avisos `fallido` / `rechazado_por_canal`; mensajes `fallido` / `rechazado_por_canal`) y su
   `conexion` es `desconectado`; «Reconectar» = repetir el QR (paso 2).
-- `MensajeConversacion.origen`: `"telefono"` | `"historial"` | `null` (Iris).
+- `MensajeConversacion.origen`: `"telefono"` | `"historial"`; **ausente** = salió de Iris (opcional
+  para no romper los tipos que ya existen).
 
 **Campos nuevos de `Canal`**: `tipoConexion` (`api` | `qr`), `coexistencia` (bool), `ultimoEcoEn`
 (último mensaje mandado desde el teléfono, precisión de 1 minuto; el panel muestra «Teléfono sin
@@ -1220,11 +1232,12 @@ Endpoints (todos con `canales.configurar` **en la empresa dueña** y solo person
 | Método y ruta | Qué hace |
 | --- | --- |
 | `GET /canales/{id}/prestamos` | `{ data: Prestamo[], nextCursor: null }` (activos y revocados) |
-| `GET /canales/{id}/prestamos/opciones` | `{ empresas: [{ id, nombre, colas: [{ id, nombre }] }] }`: las otras empresas activas de la instalación con sus colas activas (para «Agregar empresa» y «Cola en …») |
+| `GET /canales/{id}/prestamos/opciones` | `{ empresas: [{ id, nombre, colas: [{ id, nombre }] }] }`: las otras empresas registradas de la instalación (no tienen estado inactivo) con sus colas activas (para «Agregar empresa» y «Cola en …») |
 | `POST /canales/{id}/prestamos` | `{ empresaId, usos[], colaId, version? }` crea o cambia el préstamo (`version` obligatoria si ya existe; 0/ausente para uno nuevo; uno revocado se vuelve a activar) → `Prestamo`. Evento `canal_mensajeria.prestado` `{ canal_id, empresa_id (dueña), prestatario_id, usos, cola_id, nuevo }` |
 | `POST /canales/{id}/prestamos/{empresa}/revocar` | `{ version, motivo }` (motivo 5–300, la confirmación) → `Prestamo`. Evento `canal_mensajeria.prestamo_revocado` `{ canal_id, empresa_id, prestatario_id, motivo, conversaciones_cerradas, avisos_cancelados }` |
 
-Validaciones: la empresa existe y no es la dueña (422 `empresa_no_valida`); la cola es de **esa**
+Validaciones: la empresa existe (las empresas no tienen estado activo/inactivo en Iris: vale cualquiera
+registrada) y no es la dueña (422 `empresa_no_valida`); la cola es de **esa**
 empresa y está activa (422 `colaId`); el número está activo (422 `canal_inactivo`). Quitar
 `avisos` de los usos quita `avisosEmpresa`.
 
@@ -1261,7 +1274,7 @@ pausa) para todas. El tope por minuto de Iris (§6.5 de Argos) también es por n
 revocado). «Empresas del número» = la dueña + las que lo usan con préstamo activo:
 
 1. Si hay una conversación **no resuelta** de ese teléfono en ese número en una empresa del
-   número, sigue ahí (la de actividad más reciente). Motivo `conversacion_abierta`.
+   número, sigue ahí: la de la dueña si la hay; si no, la más antigua. Motivo `conversacion_abierta`.
 2. Si no, si una empresa del número **empezó** la conversación en las últimas 24 h (un aviso
    enviado a ese teléfono por ese número, o una plantilla mandada por una persona), va a esa
    empresa (la más reciente). Motivo `iniciada_por_empresa`.
@@ -1272,6 +1285,14 @@ revocado). «Empresas del número» = la dueña + las que lo usan con préstamo 
    `cliente_de_empresa`. **Ninguna** o **varias** → la dueña (motivos `sin_coincidencia`,
    `varias_coincidencias`).
 
+**Lo mandado desde el teléfono** (ecos de un número QR compartido) solo sigue al paso 1; sin
+conversación abierta es de la dueña (el teléfono es suyo), nunca por los pasos 2 y 3.
+
+**Iniciar sobre una conversación ajena:** en un número compartido, `POST /conversaciones/iniciar`
+responde 409 `conversacion_en_otra_empresa` si otra empresa del número tiene una conversación no
+resuelta con ese teléfono (y `Destinatario.motivo` lo dice). Así nadie le quita a otra empresa una
+conversación abierta con una plantilla.
+
 Cuando la regla elige empresa (pasos 2 y 3) se emite `conversacion.empresa_asignada`
 `{ conversacion_id, empresa_id, canal_id, motivo, anterior_empresa_id (o null) }`. El paso 1 no
 emite nada.
@@ -1279,10 +1300,15 @@ emite nada.
 **Pasar a otra empresa** — `POST /conversaciones/{id}/pasar-empresa` `{ version, empresaId, nota? }`
 (`conversaciones.transferir`; solo en la empresa **dueña** del número y solo a una empresa con
 préstamo activo de ese número que tenga un uso de conversación; si no, 422 `empresa_no_valida`).
-La conversación **pasa** a esa empresa con su historial: queda en la cola del préstamo, sin asignar,
-sin etiquetas, sin participantes y sin contacto (cliente, contacto de Iris y prospecto son de la
-dueña); `nota` (1–1000) queda como nota interna y el evento de sistema `pasada_a_empresa`
-(`detalle` = nombre de la empresa). Desde ahí la ve **solo** la otra empresa → `200
+La conversación **pasa** a esa empresa: queda en la cola del préstamo, sin asignar, sin etiquetas,
+sin participantes y sin contacto (cliente, contacto de Iris y prospecto son de la dueña). Pasan
+**solo** los mensajes del cliente y los salientes, con sus adjuntos (su `empresa_id` pasa a la otra
+empresa: solo los de esos mensajes). Las notas internas previas de la dueña, sus menciones y sus
+eventos de sistema **no** pasan: siguen guardados con la dueña y la otra empresa no los ve (los
+mensajes se listan por la empresa de la conversación). `nota` (1–1000), escrita para quien la
+recibe, queda como su primera nota interna, y el evento de sistema `pasada_a_empresa` (`detalle` =
+nombre de la empresa dueña, sin `actorNombre`) dice «Pasada por <empresa dueña>». Desde ahí la ve
+**solo** la otra empresa → `200
 ConversacionCliente` (como la ve ahora quien la pasó: `soloLectura`, ya no la puede abrir). 409
 `conversacion_existente` si esa empresa ya tiene una conversación de ese teléfono en ese número;
 422 `conversacion_con_vinculos` si tiene tickets, órdenes, prospectos, boletas o promesas. Evento
@@ -1298,7 +1324,7 @@ filtran por la empresa de la conversación.
 - el préstamo queda `revocado` (sin `avisosEmpresa`);
 - las conversaciones **no resueltas** de esa empresa por ese número se **resuelven** (evento de
   sistema `prestamo_revocado`, outbox `conversacion.resuelta` con `actor_id: null`) y quedan de
-  **solo lectura** para ella: `ConversacionCliente.soloLectura: true`, y responder, anotar, tomar,
+  **solo lectura** para ella: `ConversacionCliente.soloLectura: true` (también en el detalle), y responder, anotar, tomar,
   asignar, pasar, transferir, etiquetar, resolver, reabrir o asociar responden 422
   `conversacion_solo_lectura`. Su historial se sigue viendo;
 - si esos clientes vuelven a escribir, llegan a la **dueña** (la empresa ya no es del número);
@@ -1308,7 +1334,7 @@ filtran por la empresa de la conversación.
 
 **Campos nuevos**: `Canal.prestadoPor`, `Canal.prestamo`, `Canal.compartidoCon` (cuántas empresas
 lo usan con préstamo activo; 0 si no está compartido), `NumeroConversaciones.prestadoPor`,
-`ConversacionCliente.soloLectura`.
+`ConversacionCliente.soloLectura` (solo viene, en `true`, cuando aplica; ausente = `false`).
 
 ### 15.4 Errores nuevos
 
@@ -1329,6 +1355,8 @@ lo usan con préstamo activo; 0 si no está compartido), `NumeroConversaciones.p
 | `uso_no_permitido` | 422 | El préstamo no permite ese uso (plantilla, iniciar, número de avisos) |
 | `conversacion_solo_lectura` | 422 | Acción sobre una conversación de un préstamo revocado |
 | `conversacion_existente` | 409 | Pasar a una empresa que ya tiene esa conversación |
+| `conversacion_en_otra_empresa` | 409 | Iniciar en un número compartido con un teléfono que tiene una conversación abierta en otra empresa |
+| `base_url_requerida` | 422 | QR en modo `saas` o `compartida` sin `IRIS_BASE_URL` absoluta |
 | `conversacion_con_vinculos` | 422 | Pasar una conversación con vínculos |
 
 ### 15.5 Eventos nuevos (outbox)

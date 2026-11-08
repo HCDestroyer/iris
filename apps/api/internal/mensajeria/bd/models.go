@@ -1280,6 +1280,7 @@ type MensajeriaContactoIris struct {
 	Version   int32
 	CreatedAt time.Time
 	UpdatedAt time.Time
+	Origen    string
 }
 
 type MensajeriaConvEvento struct {

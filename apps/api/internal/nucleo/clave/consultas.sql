@@ -60,3 +60,12 @@ FOR UPDATE;
 
 -- name: RecifrarCanalMensajeria :exec
 UPDATE mensajeria.canales SET credenciales_cifradas = @credenciales_cifradas WHERE id = @id;
+
+-- name: ConexionMetaCifrada :many
+-- Secretos de la conexión con Meta de la instalación (una fila).
+SELECT id, secretos_cifrados FROM mensajeria.conexion_meta
+ORDER BY id
+FOR UPDATE;
+
+-- name: RecifrarConexionMeta :exec
+UPDATE mensajeria.conexion_meta SET secretos_cifrados = @secretos_cifrados WHERE id = 1;

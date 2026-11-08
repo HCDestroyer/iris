@@ -4189,7 +4189,7 @@
             "$ref": "#/components/schemas/SLAConversacion"
           },
           "soloLectura": {
-            "description": "El número ya no está compartido con tu empresa (préstamo revocado, §15.3): solo se puede leer",
+            "description": "true: el número ya no está compartido con tu empresa (préstamo revocado, §15.3) y solo se puede leer. Ausente = false",
             "type": "boolean"
           },
           "titulo": {
@@ -4226,7 +4226,6 @@
           "ventana",
           "sla",
           "noLeidos",
-          "soloLectura",
           "ultimaActividad",
           "creadaEn"
         ],
@@ -4326,7 +4325,7 @@
             "$ref": "#/components/schemas/SLAConversacion"
           },
           "soloLectura": {
-            "description": "El número ya no está compartido con tu empresa (préstamo revocado, §15.3): solo se puede leer",
+            "description": "true: el número ya no está compartido con tu empresa (préstamo revocado, §15.3) y solo se puede leer. Ausente = false",
             "type": "boolean"
           },
           "supervisores": {
@@ -4380,7 +4379,6 @@
           "ventana",
           "sla",
           "noLeidos",
-          "soloLectura",
           "ultimaActividad",
           "creadaEn"
         ],
@@ -5038,6 +5036,7 @@
               "cliente_fuera_de_empresa",
               "conversacion_de_otro",
               "conversacion_de_otra_cola",
+              "conversacion_en_otra_empresa",
               "numero_no_permitido"
             ],
             "type": [
@@ -14509,15 +14508,12 @@
             ]
           },
           "origen": {
-            "description": "No salió de Iris: telefono (mandado desde la app WhatsApp Business, «Desde el teléfono») o historial (traído de la app). null = Iris (§15.2)",
+            "description": "No salió de Iris: telefono (mandado desde la app WhatsApp Business, «Desde el teléfono») o historial (traído de la app). Ausente = Iris (§15.2)",
             "enum": [
               "telefono",
               "historial"
             ],
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "plantilla": {
             "$ref": "#/components/schemas/PlantillaMensaje"
@@ -14565,8 +14561,7 @@
           "enviadoEn",
           "entregadoEn",
           "leidoEn",
-          "automatico",
-          "origen"
+          "automatico"
         ],
         "type": "object"
       },

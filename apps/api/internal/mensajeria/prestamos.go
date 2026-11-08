@@ -122,6 +122,7 @@ func (m *Modulo) aCanalPrestado(f mensajeriabd.MensajeriaCanal, p mensajeriabd.M
 	c.Usos, c.ColaID, c.AvisosEmpresa = p.Usos, p.ColaID, p.AvisosEmpresa
 	c.HorarioID, c.Bot = nil, botDe([]byte(`{}`))
 	c.FueraDeHorario = FueraDeHorario{}
+	c.CompartidoCon = 0 // con quién más lo comparte la dueña no es de su incumbencia
 	c.PrestadoPor = &EmpresaRef{EmpresaID: derefEmpresa(f.EmpresaID), Nombre: dueno}
 	c.Prestamo = &PrestamoPropio{Usos: p.Usos, ColaID: p.ColaID, AvisosEmpresa: p.AvisosEmpresa, Version: p.Version, PrestadoEn: p.PrestadoEn}
 	if c.Conexion != "desactivado" && c.Conexion != "desconectado" {
@@ -560,8 +561,37 @@ type destinoEntrante struct {
 	compartido bool
 }
 
+// otraEmpresaConversa: 409 conversacion_en_otra_empresa si otra empresa del número (compartido)
+// tiene una conversación no resuelta con ese teléfono.
+func otraEmpresaConversa(ctx context.Context, q *mensajeriabd.Queries, canal, empresa int64, numero string) error {
+	hay, err := q.HayPrestamos(ctx, canal)
+	if err != nil || !hay {
+		return err
+	}
+	abiertas, err := q.ConversacionesNoResueltasDeNumero(ctx, mensajeriabd.ConversacionesNoResueltasDeNumeroParams{CanalID: canal, Numero: numero})
+	if err != nil {
+		return err
+	}
+	for _, a := range abiertas {
+		if derefEmpresa(a.EmpresaID) != empresa {
+			return nucleo.Conflicto("conversacion_en_otra_empresa", "Otra empresa que usa este número tiene una conversación abierta con ese teléfono")
+		}
+	}
+	return nil
+}
+
 // rutearEntrante aplica la regla de §15.3 para un número compartido. Sin préstamos, la dueña.
 func (m *Modulo) rutearEntrante(ctx context.Context, q *mensajeriabd.Queries, canal mensajeriabd.MensajeriaCanal, numero string) (destinoEntrante, error) {
+	return m.rutear(ctx, q, canal, numero, false)
+}
+
+// rutearEco: lo mandado desde el teléfono de la dueña solo sigue a una conversación abierta (regla
+// 1); si no hay, es de la dueña.
+func (m *Modulo) rutearEco(ctx context.Context, q *mensajeriabd.Queries, canal mensajeriabd.MensajeriaCanal, numero string) (destinoEntrante, error) {
+	return m.rutear(ctx, q, canal, numero, true)
+}
+
+func (m *Modulo) rutear(ctx context.Context, q *mensajeriabd.Queries, canal mensajeriabd.MensajeriaCanal, numero string, soloAbierta bool) (destinoEntrante, error) {
 	dueno := derefEmpresa(canal.EmpresaID)
 	d := destinoEntrante{empresa: dueno, cola: canal.ColaID}
 	hay, err := q.HayPrestamos(ctx, canal.ID)
@@ -582,15 +612,30 @@ func (m *Modulo) rutearEntrante(ctx context.Context, q *mensajeriabd.Queries, ca
 	elegir := func(e int64, motivo string) destinoEntrante {
 		return destinoEntrante{empresa: e, cola: colas[e], motivo: motivo, compartido: true}
 	}
-	// 1. Una conversación no resuelta en una empresa del número la conserva.
+	// 1. Una conversación no resuelta en una empresa del número la conserva: la de la dueña si la
+	// hay; si no, la más antigua.
 	abiertas, err := q.ConversacionesNoResueltasDeNumero(ctx, mensajeriabd.ConversacionesNoResueltasDeNumeroParams{CanalID: canal.ID, Numero: numero})
 	if err != nil {
 		return d, err
 	}
+	primera := int64(-1)
 	for _, a := range abiertas {
-		if _, ok := colas[derefEmpresa(a.EmpresaID)]; ok {
-			return elegir(derefEmpresa(a.EmpresaID), RutaConversacionAbierta), nil
+		e := derefEmpresa(a.EmpresaID)
+		if _, ok := colas[e]; !ok {
+			continue
 		}
+		if e == dueno {
+			return elegir(dueno, RutaConversacionAbierta), nil
+		}
+		if primera < 0 {
+			primera = e
+		}
+	}
+	if primera >= 0 {
+		return elegir(primera, RutaConversacionAbierta), nil
+	}
+	if soloAbierta {
+		return elegir(dueno, RutaConversacionAbierta), nil
 	}
 	// 2. La empresa que la empezó en las últimas 24 h.
 	inicios, err := q.IniciosRecientes(ctx, mensajeriabd.IniciosRecientesParams{CanalID: &canal.ID, Numero: &numero, Desde: ptrTiempo(m.ahora().Add(-ventanaInicio))})
@@ -695,31 +740,40 @@ func nuevoPasarEmpresa(m *Modulo) *auditoria.Caso[EntradaPasarEmpresa, Conversac
 			} else if !errors.Is(err, pgx.ErrNoRows) {
 				return ConversacionCliente{}, err
 			}
-			nombre, err := q.NombreEmpresa(ctx, in.EmpresaID)
+			dueno := ""
+			if canal.EmpresaID != nil {
+				if dueno, err = q.NombreEmpresa(ctx, *canal.EmpresaID); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+					return ConversacionCliente{}, err
+				}
+			}
+			antes := c
+			for _, quitar := range []func(context.Context, int64) error{q.QuitarEtiquetasConversacion, q.QuitarParticipantesConversacion, q.QuitarLecturasConversacion} {
+				if err := quitar(ctx, c.ID); err != nil {
+					return ConversacionCliente{}, err
+				}
+			}
+			// Pasan los mensajes del cliente y los salientes (con sus adjuntos). Las notas internas,
+			// sus menciones y los eventos de sistema de la dueña se quedan con la dueña: la otra
+			// empresa no los ve (los mensajes se listan por la empresa de la conversación).
+			destino := in.EmpresaID
+			if err := q.MoverMensajesAEmpresa(ctx, mensajeriabd.MoverMensajesAEmpresaParams{EmpresaID: &destino, ConversacionID: c.ID}); err != nil {
+				return ConversacionCliente{}, err
+			}
+			if err := q.MoverAdjuntosAEmpresa(ctx, mensajeriabd.MoverAdjuntosAEmpresaParams{EmpresaID: &destino, ConversacionID: c.ID}); err != nil {
+				return ConversacionCliente{}, err
+			}
+			c, err = q.MoverConversacionAEmpresa(ctx, mensajeriabd.MoverConversacionAEmpresaParams{ID: c.ID, EmpresaID: &destino, ColaID: p.ColaID})
 			if err != nil {
 				return ConversacionCliente{}, err
 			}
-			antes := c
+			// Ya en la otra empresa: la nota para quien la recibe y «Pasada por <dueña>».
 			if in.Nota != nil && strings.TrimSpace(*in.Nota) != "" {
 				nota := strings.TrimSpace(*in.Nota)
 				if _, err := m.agregarMensaje(ctx, t, &c, nuevoMensaje{direccion: DirNota, tipo: "texto", texto: &nota, autor: &a.usuario}); err != nil {
 					return ConversacionCliente{}, err
 				}
 			}
-			if err := m.sistema(ctx, t, &c, EventoSistema{Tipo: "pasada_a_empresa", ActorNombre: actorNombre(ctx, q, a.usuario), Detalle: &nombre}); err != nil {
-				return ConversacionCliente{}, err
-			}
-			for _, quitar := range []func(context.Context, int64) error{q.QuitarEtiquetasConversacion, q.QuitarParticipantesConversacion, q.QuitarLecturasConversacion} {
-				if err := quitar(ctx, c.ID); err != nil {
-					return ConversacionCliente{}, err
-				}
-			}
-			destino := in.EmpresaID
-			if err := q.MoverMensajesAEmpresa(ctx, mensajeriabd.MoverMensajesAEmpresaParams{EmpresaID: &destino, ConversacionID: c.ID}); err != nil {
-				return ConversacionCliente{}, err
-			}
-			c, err = q.MoverConversacionAEmpresa(ctx, mensajeriabd.MoverConversacionAEmpresaParams{ID: c.ID, EmpresaID: &destino, ColaID: p.ColaID})
-			if err != nil {
+			if err := m.sistema(ctx, t, &c, EventoSistema{Tipo: "pasada_a_empresa", Detalle: &dueno}); err != nil {
 				return ConversacionCliente{}, err
 			}
 			// El feed de las dos empresas: la anterior deja de verla, la nueva la recibe.

@@ -87,3 +87,7 @@ func (m *Modulo) VaciarResumenes() { m.resumenes.vaciar() }
 
 // FijarRelojResumen cambia el reloj del tope de frecuencia de GET /chat/resumen.
 func (m *Modulo) FijarRelojResumen(f func() time.Time) { m.resumenes.ahora = f }
+
+func (m *Modulo) PurgarRegistrosQR(ctx context.Context, bd nucleo.BD) error {
+	return m.purgarRegistrosQR(ctx, bd)
+}

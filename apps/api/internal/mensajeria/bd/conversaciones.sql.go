@@ -58,7 +58,7 @@ func (q *Queries) ActualizarCola(ctx context.Context, arg ActualizarColaParams) 
 
 const actualizarContactoIris = `-- name: ActualizarContactoIris :one
 UPDATE mensajeria.contactos_iris SET nombre = $1, tipo = $2, nota = $3, version = version + 1, updated_at = now()
-WHERE id = $4 RETURNING id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at
+WHERE id = $4 RETURNING id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at, origen
 `
 
 type ActualizarContactoIrisParams struct {
@@ -89,6 +89,7 @@ func (q *Queries) ActualizarContactoIris(ctx context.Context, arg ActualizarCont
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Origen,
 	)
 	return i, err
 }
@@ -399,7 +400,7 @@ func (q *Queries) BorrarMiembrosCola(ctx context.Context, colaID int64) error {
 }
 
 const buscarContactosIris = `-- name: BuscarContactosIris :many
-SELECT id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at FROM mensajeria.contactos_iris
+SELECT id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at, origen FROM mensajeria.contactos_iris
 WHERE coalesce(empresa_id, 0) = $1::bigint
   AND ($2::text = '' OR nombre ILIKE '%' || $2::text || '%' OR telefono LIKE '%' || $2::text || '%')
   AND (NOT $3::boolean OR id < $4::bigint)
@@ -443,6 +444,7 @@ func (q *Queries) BuscarContactosIris(ctx context.Context, arg BuscarContactosIr
 			&i.Version,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Origen,
 		); err != nil {
 			return nil, err
 		}
@@ -913,7 +915,7 @@ func (q *Queries) ConsentimientoNumeroVigente(ctx context.Context, arg Consentim
 }
 
 const contactoIrisParaActualizar = `-- name: ContactoIrisParaActualizar :one
-SELECT id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at FROM mensajeria.contactos_iris WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint FOR UPDATE
+SELECT id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at, origen FROM mensajeria.contactos_iris WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint FOR UPDATE
 `
 
 type ContactoIrisParaActualizarParams struct {
@@ -937,12 +939,13 @@ func (q *Queries) ContactoIrisParaActualizar(ctx context.Context, arg ContactoIr
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Origen,
 	)
 	return i, err
 }
 
 const contactosIrisPorIDs = `-- name: ContactosIrisPorIDs :many
-SELECT id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at FROM mensajeria.contactos_iris WHERE id = ANY ($1::bigint[])
+SELECT id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at, origen FROM mensajeria.contactos_iris WHERE id = ANY ($1::bigint[])
 `
 
 func (q *Queries) ContactosIrisPorIDs(ctx context.Context, ids []int64) ([]MensajeriaContactoIris, error) {
@@ -967,6 +970,7 @@ func (q *Queries) ContactosIrisPorIDs(ctx context.Context, ids []int64) ([]Mensa
 			&i.Version,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Origen,
 		); err != nil {
 			return nil, err
 		}
@@ -979,7 +983,7 @@ func (q *Queries) ContactosIrisPorIDs(ctx context.Context, ids []int64) ([]Mensa
 }
 
 const contactosIrisPorTelefono = `-- name: ContactosIrisPorTelefono :many
-SELECT id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at FROM mensajeria.contactos_iris
+SELECT id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at, origen FROM mensajeria.contactos_iris
 WHERE coalesce(empresa_id, 0) = $1::bigint AND telefono = $2
 ORDER BY id DESC LIMIT 5
 `
@@ -1011,6 +1015,7 @@ func (q *Queries) ContactosIrisPorTelefono(ctx context.Context, arg ContactosIri
 			&i.Version,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Origen,
 		); err != nil {
 			return nil, err
 		}
@@ -1964,7 +1969,7 @@ func (q *Queries) InsertarConsentimientoNumero(ctx context.Context, arg Insertar
 const insertarContactoIris = `-- name: InsertarContactoIris :one
 
 INSERT INTO mensajeria.contactos_iris (empresa_id, nombre, tipo, telefono, nota, creado_por)
-VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at
+VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at, origen
 `
 
 type InsertarContactoIrisParams struct {
@@ -2000,6 +2005,7 @@ func (q *Queries) InsertarContactoIris(ctx context.Context, arg InsertarContacto
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Origen,
 	)
 	return i, err
 }
@@ -2581,6 +2587,8 @@ func (q *Queries) ListarEtiquetas(ctx context.Context, empresa int64) ([]Mensaje
 const listarMensajesConversacion = `-- name: ListarMensajesConversacion :many
 SELECT id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id, lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, motivo_falla, detalle_falla, proveedor_id, intentos, hash_contenido, idempotency_key, creado_en, enviado_en, entregado_en, leido_en, created_at, updated_at, automatico, origen FROM mensajeria.conversacion_mensajes
 WHERE conversacion_id = $1
+  -- Una conversación pasada a otra empresa: las notas de la anterior no se ven (§15.3).
+  AND coalesce(empresa_id, 0) = (SELECT coalesce(c.empresa_id, 0) FROM mensajeria.conversaciones c WHERE c.id = $1)
   AND (CASE WHEN $2::boolean THEN seq > $3::bigint ELSE seq < $3::bigint END)
 ORDER BY CASE WHEN $2::boolean THEN seq END ASC, CASE WHEN NOT $2::boolean THEN seq END DESC
 LIMIT $4
@@ -3750,7 +3758,7 @@ func (q *Queries) UltimoAvisoA(ctx context.Context, arg UltimoAvisoAParams) (Men
 
 const unirContactoIris = `-- name: UnirContactoIris :one
 UPDATE mensajeria.contactos_iris SET cliente_id = $1, unido_en = $2, version = version + 1, updated_at = now()
-WHERE id = $3 RETURNING id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at
+WHERE id = $3 RETURNING id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at, origen
 `
 
 type UnirContactoIrisParams struct {
@@ -3775,6 +3783,7 @@ func (q *Queries) UnirContactoIris(ctx context.Context, arg UnirContactoIrisPara
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Origen,
 	)
 	return i, err
 }

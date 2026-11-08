@@ -385,6 +385,8 @@ FOR UPDATE OF m;
 -- name: ListarMensajesConversacion :many
 SELECT * FROM mensajeria.conversacion_mensajes
 WHERE conversacion_id = @conversacion_id
+  -- Una conversación pasada a otra empresa: las notas de la anterior no se ven (§15.3).
+  AND coalesce(empresa_id, 0) = (SELECT coalesce(c.empresa_id, 0) FROM mensajeria.conversaciones c WHERE c.id = @conversacion_id)
   AND (CASE WHEN @adelante::boolean THEN seq > @desde::bigint ELSE seq < @desde::bigint END)
 ORDER BY CASE WHEN @adelante::boolean THEN seq END ASC, CASE WHEN NOT @adelante::boolean THEN seq END DESC
 LIMIT @limite;

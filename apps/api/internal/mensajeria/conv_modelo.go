@@ -159,7 +159,7 @@ type ConversacionCliente struct {
 	UltimoMensaje   *UltimoMensajeResumen `json:"ultimoMensaje,omitempty"`
 	Espera          *EsperaConversacion   `json:"espera,omitempty" doc:"Ausente si está asignada o resuelta: quién está disponible en la cola y cuándo contesta el bot"`
 	NoLeidos        int64                 `json:"noLeidos" doc:"Mensajes del cliente después de tu lectura"`
-	SoloLectura     bool                  `json:"soloLectura" doc:"El número ya no está compartido con tu empresa (préstamo revocado, §15.3): solo se puede leer"`
+	SoloLectura     bool                  `json:"soloLectura,omitempty" doc:"true: el número ya no está compartido con tu empresa (préstamo revocado, §15.3) y solo se puede leer. Ausente = false"`
 	UltimaActividad time.Time             `json:"ultimaActividad"`
 	CreadaEn        time.Time             `json:"creadaEn"`
 }
@@ -274,7 +274,7 @@ type MensajeConversacion struct {
 	EntregadoEn    *time.Time        `json:"entregadoEn" nullable:"true"`
 	LeidoEn        *time.Time        `json:"leidoEn" nullable:"true"`
 	Automatico     *string           `json:"automatico" nullable:"true" enum:"bot,fuera_de_horario" doc:"Saliente sin autor: el bot o la respuesta de fuera de horario"`
-	Origen         *string           `json:"origen" nullable:"true" enum:"telefono,historial" doc:"No salió de Iris: telefono (mandado desde la app WhatsApp Business, «Desde el teléfono») o historial (traído de la app). null = Iris (§15.2)"`
+	Origen         *string           `json:"origen,omitempty" enum:"telefono,historial" doc:"No salió de Iris: telefono (mandado desde la app WhatsApp Business, «Desde el teléfono») o historial (traído de la app). Ausente = Iris (§15.2)"`
 }
 
 // Alcance -------------------------------------------------------------------------------------
@@ -722,8 +722,6 @@ type nuevoMensaje struct {
 	automatico    *string
 	// origen: telefono (eco) o historial (§15.2).
 	origen *string
-	// sinFeed: no se avisa al flujo en tiempo real (historial: miles de mensajes viejos).
-	sinFeed bool
 }
 
 // agregarMensaje asigna el seq (la conversación debe estar bloqueada), lo guarda y lo pone en el
@@ -763,7 +761,7 @@ func (m *Modulo) agregarMensaje(ctx context.Context, t *auditoria.Tx, c *mensaje
 		Plantilla: n.plantilla, Variables: n.variables, AutorID: n.autor, Menciones: n.menciones, Evento: evento, RespuestaRapidaID: n.respuesta,
 		EstadoEntrega: n.estadoEntrega, ProveedorID: n.proveedor, HashContenido: n.hash, IdempotencyKey: n.clave, CreadoEn: n.creadoEn, Automatico: n.automatico,
 		Origen: n.origen})
-	if err != nil || n.sinFeed {
+	if err != nil {
 		return f, err
 	}
 	return f, m.emitirEventoConv(ctx, t, *c, EventoConvMensajeNuevo, &f.ID, nil)

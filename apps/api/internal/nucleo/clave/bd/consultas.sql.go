@@ -139,6 +139,38 @@ func (q *Queries) ConectoresCifrados(ctx context.Context) ([]ConectoresCifradosR
 	return items, nil
 }
 
+const conexionMetaCifrada = `-- name: ConexionMetaCifrada :many
+SELECT id, secretos_cifrados FROM mensajeria.conexion_meta
+ORDER BY id
+FOR UPDATE
+`
+
+type ConexionMetaCifradaRow struct {
+	ID               int16
+	SecretosCifrados []byte
+}
+
+// Secretos de la conexión con Meta de la instalación (una fila).
+func (q *Queries) ConexionMetaCifrada(ctx context.Context) ([]ConexionMetaCifradaRow, error) {
+	rows, err := q.db.Query(ctx, conexionMetaCifrada)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ConexionMetaCifradaRow
+	for rows.Next() {
+		var i ConexionMetaCifradaRow
+		if err := rows.Scan(&i.ID, &i.SecretosCifrados); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const recifrarAutorizacion = `-- name: RecifrarAutorizacion :exec
 UPDATE integracion.autorizaciones SET verificador_cifrado = $1 WHERE id = $2
 `
@@ -198,6 +230,15 @@ type RecifrarConectorParams struct {
 
 func (q *Queries) RecifrarConector(ctx context.Context, arg RecifrarConectorParams) error {
 	_, err := q.db.Exec(ctx, recifrarConector, arg.TokenCifrado, arg.SecretoWebhookCifrado, arg.ID)
+	return err
+}
+
+const recifrarConexionMeta = `-- name: RecifrarConexionMeta :exec
+UPDATE mensajeria.conexion_meta SET secretos_cifrados = $1 WHERE id = 1
+`
+
+func (q *Queries) RecifrarConexionMeta(ctx context.Context, secretosCifrados []byte) error {
+	_, err := q.db.Exec(ctx, recifrarConexionMeta, secretosCifrados)
 	return err
 }
 

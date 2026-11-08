@@ -211,9 +211,10 @@ FOR UPDATE;
 -- A qué empresa va un mensaje (§15.3) ---------------------------------------------------------------
 
 -- name: ConversacionesNoResueltasDeNumero :many
+-- La más antigua primero (la regla 1 prefiere la de la dueña y, si no, la más antigua).
 SELECT id, empresa_id, ultima_actividad FROM mensajeria.conversaciones
 WHERE canal_id = @canal_id AND numero = @numero AND estado <> 'resuelta'
-ORDER BY ultima_actividad DESC, id DESC;
+ORDER BY id;
 
 -- name: IniciosRecientes :many
 -- Empresas que empezaron una conversación con ese número por ese canal: avisos enviados y
@@ -254,7 +255,16 @@ WHERE id = @id
 RETURNING *;
 
 -- name: MoverMensajesAEmpresa :exec
-UPDATE mensajeria.conversacion_mensajes SET empresa_id = @empresa_id WHERE conversacion_id = @conversacion_id;
+-- Solo los del cliente y los salientes: las notas y los eventos de sistema se quedan con la dueña.
+UPDATE mensajeria.conversacion_mensajes SET empresa_id = @empresa_id
+WHERE conversacion_id = @conversacion_id AND direccion IN ('entrante', 'saliente');
+
+-- name: MoverAdjuntosAEmpresa :exec
+-- Los adjuntos de los mensajes que pasan (y solo esos) quedan de la otra empresa.
+UPDATE nucleo.adjuntos SET empresa_id = @empresa_id, updated_at = now()
+WHERE entidad = 'conversacion' AND entidad_id = sqlc.arg(conversacion_id)::bigint::text
+  AND id IN (SELECT m.adjunto_id FROM mensajeria.conversacion_mensajes m
+             WHERE m.conversacion_id = sqlc.arg(conversacion_id)::bigint AND m.direccion IN ('entrante', 'saliente') AND m.adjunto_id IS NOT NULL);
 
 -- name: QuitarEtiquetasConversacion :exec
 DELETE FROM mensajeria.conversacion_etiquetas WHERE conversacion_id = @conversacion_id;
@@ -276,8 +286,25 @@ VALUES (sqlc.narg('empresa_id'), @canal_id, @numero, sqlc.narg('perfil_nombre'),
 ON CONFLICT DO NOTHING
 RETURNING *;
 
--- name: FijarUltimaActividad :exec
-UPDATE mensajeria.conversaciones SET ultima_actividad = @ultima_actividad WHERE id = @id;
+-- name: AvanzarSeqHistorial :one
+-- Un mensaje del historial: el último mensaje y la actividad solo cambian si es más nuevo.
+UPDATE mensajeria.conversaciones c
+SET ultimo_seq = c.ultimo_seq + 1,
+    ultimo_mensaje_id = CASE WHEN c.ultimo_mensaje_id IS NULL
+            OR sqlc.arg(creado_en)::timestamptz > coalesce((SELECT m.creado_en FROM mensajeria.conversacion_mensajes m WHERE m.id = c.ultimo_mensaje_id), '-infinity'::timestamptz)
+        THEN sqlc.arg(mensaje_id)::uuid ELSE c.ultimo_mensaje_id END,
+    ultima_actividad = GREATEST(c.ultima_actividad, sqlc.arg(creado_en)::timestamptz)
+WHERE c.id = sqlc.arg(id)::bigint
+RETURNING c.ultimo_seq;
 
 -- name: RenombrarContactoIris :one
-UPDATE mensajeria.contactos_iris SET nombre = @nombre, version = version + 1, updated_at = now() WHERE id = @id RETURNING *;
+-- Solo los que vinieron del teléfono.
+UPDATE mensajeria.contactos_iris SET nombre = @nombre, version = version + 1, updated_at = now() WHERE id = @id AND origen = 'telefono' RETURNING *;
+
+-- name: InsertarContactoTelefono :one
+INSERT INTO mensajeria.contactos_iris (empresa_id, nombre, tipo, telefono, nota, origen)
+VALUES (sqlc.narg('empresa_id'), @nombre, 'otro', @telefono, @nota, 'telefono') RETURNING *;
+
+-- name: PurgarRegistrosQR :execrows
+-- Los códigos de Embedded Signup viven ~30 s: su huella sobra a los 7 días.
+DELETE FROM mensajeria.registros_qr WHERE created_at < @antes;

@@ -247,7 +247,7 @@ func (q *Queries) BuscarClientesInstantanea(ctx context.Context, arg BuscarClien
 }
 
 const buscarContactosIrisDestino = `-- name: BuscarContactosIrisDestino :many
-SELECT id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at FROM mensajeria.contactos_iris
+SELECT id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at, origen FROM mensajeria.contactos_iris
 WHERE coalesce(empresa_id, 0) = $1::bigint
   AND (nombre ILIKE '%' || $2::text || '%' OR ($3::text <> '' AND telefono LIKE '%' || $3::text || '%'))
 ORDER BY lower(nombre), id
@@ -288,6 +288,7 @@ func (q *Queries) BuscarContactosIrisDestino(ctx context.Context, arg BuscarCont
 			&i.Version,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Origen,
 		); err != nil {
 			return nil, err
 		}
@@ -424,7 +425,7 @@ func (q *Queries) ConfigurarBotCanal(ctx context.Context, arg ConfigurarBotCanal
 }
 
 const contactoIrisDeEmpresa = `-- name: ContactoIrisDeEmpresa :one
-SELECT id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at FROM mensajeria.contactos_iris WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint
+SELECT id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at, origen FROM mensajeria.contactos_iris WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint
 `
 
 type ContactoIrisDeEmpresaParams struct {
@@ -448,6 +449,7 @@ func (q *Queries) ContactoIrisDeEmpresa(ctx context.Context, arg ContactoIrisDeE
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Origen,
 	)
 	return i, err
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
@@ -53,9 +54,9 @@ func (m *Modulo) ecoTelefono(ctx context.Context, t *auditoria.Tx, canal mensaje
 		return nil
 	}
 	q := mensajeriabd.New(t)
-	// La misma regla que un mensaje que llega: una conversación abierta en otra empresa del número
-	// recibe el eco (el cliente ve una sola conversación).
-	d, err := m.rutearEntrante(ctx, q, canal, numero)
+	// El teléfono es de la dueña: el eco solo sigue a una conversación abierta en otra empresa del
+	// número (regla 1); si no hay, es de la dueña (nunca por las reglas 2 y 3).
+	d, err := m.rutearEco(ctx, q, canal, numero)
 	if err != nil {
 		return err
 	}
@@ -214,12 +215,18 @@ func (m *Modulo) hiloHistorial(ctx context.Context, t *auditoria.Tx, canal mensa
 		if len(titulares) == 1 {
 			cliente, asociacion = &titulares[0], texto("automatica")
 		}
+		// La actividad empieza en su mensaje más viejo y crece con cada uno (nunca «ahora»).
+		primero := ahora
+		for _, msg := range mensajes {
+			if t := instanteMeta(msg.Timestamp, ahora); t.Before(primero) {
+				primero = t
+			}
+		}
 		c, err = q.InsertarConversacionHistorial(ctx, mensajeriabd.InsertarConversacionHistorialParams{EmpresaID: canal.EmpresaID, CanalID: canal.ID,
 			Numero: numero, ColaID: canal.ColaID, ClienteID: cliente, Asociacion: asociacion, ClienteVerificado: cliente != nil,
-			UltimaActividad: ahora, ResueltaEn: &ahora})
+			UltimaActividad: primero, ResueltaEn: &ahora})
 		if errors.Is(err, pgx.ErrNoRows) {
 			c, err = q.ConversacionPorContacto(ctx, mensajeriabd.ConversacionPorContactoParams{Empresa: empresa, CanalID: canal.ID, Numero: numero})
-			nueva = false
 		}
 		if err != nil {
 			return 0, err
@@ -231,7 +238,6 @@ func (m *Modulo) hiloHistorial(ctx context.Context, t *auditoria.Tx, canal mensa
 		return instanteMeta(orden[i].Timestamp, ahora).Before(instanteMeta(orden[j].Timestamp, ahora))
 	})
 	guardados := 0
-	var ultimo time.Time
 	for _, msg := range orden {
 		if msg.ID == "" {
 			continue
@@ -249,25 +255,33 @@ func (m *Modulo) hiloHistorial(ctx context.Context, t *auditoria.Tx, canal mensa
 		}
 		n.medio = nil
 		cuando := instanteMeta(msg.Timestamp, ahora)
-		n.proveedor, n.creadoEn, n.origen, n.sinFeed = &wamid, cuando, texto(OrigenHistorial), true
+		n.proveedor, n.creadoEn, n.origen = &wamid, cuando, texto(OrigenHistorial)
 		if soloDigitos(msg.From) == negocio {
 			n.direccion, n.estadoEntrega = DirSaliente, texto(EntregaEnviado)
 		}
-		if _, err := m.agregarMensaje(ctx, t, &c, n); err != nil {
+		if err := agregarHistorial(ctx, q, c, n); err != nil {
 			return 0, err
-		}
-		if cuando.After(ultimo) {
-			ultimo = cuando
 		}
 		guardados++
 	}
-	if nueva && !ultimo.IsZero() {
-		// Una conversación que solo trae historia queda con la fecha de su último mensaje.
-		if err := q.FijarUltimaActividad(ctx, mensajeriabd.FijarUltimaActividadParams{ID: c.ID, UltimaActividad: ultimo}); err != nil {
-			return 0, err
-		}
-	}
 	return guardados, nil
+}
+
+// agregarHistorial guarda un mensaje del historial sin pasar por el feed. Un mensaje más viejo
+// que el último de la conversación no cambia ni el último mensaje ni la actividad.
+func agregarHistorial(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaConversacion, n nuevoMensaje) error {
+	id, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
+	seq, err := q.AvanzarSeqHistorial(ctx, mensajeriabd.AvanzarSeqHistorialParams{ID: c.ID, MensajeID: id, CreadoEn: n.creadoEn})
+	if err != nil {
+		return err
+	}
+	_, err = q.InsertarMensajeConversacion(ctx, mensajeriabd.InsertarMensajeConversacionParams{ID: id, ConversacionID: c.ID, EmpresaID: c.EmpresaID,
+		Seq: seq, Direccion: n.direccion, Tipo: n.tipo, Texto: n.texto, Lat: n.lat, Lon: n.lon, Menciones: []int64{},
+		EstadoEntrega: n.estadoEntrega, ProveedorID: n.proveedor, CreadoEn: n.creadoEn, Origen: n.origen})
+	return err
 }
 
 // contactosTelefono: los contactos de la app del teléfono. Un cliente de Argos de la dueña solo se
@@ -319,8 +333,9 @@ func (m *Modulo) contactosTelefono(ctx context.Context, t *auditoria.Tx, canal m
 			return err
 		}
 		if len(existentes) > 0 {
+			// Solo se renombra el que vino del teléfono; el que creó una persona no se toca.
 			e := existentes[0]
-			if e.Nombre != nombre {
+			if e.Origen == OrigenTelefono && e.Nombre != nombre {
 				if _, err := q.RenombrarContactoIris(ctx, mensajeriabd.RenombrarContactoIrisParams{ID: e.ID, Nombre: nombre}); err != nil {
 					return err
 				}
@@ -328,8 +343,8 @@ func (m *Modulo) contactosTelefono(ctx context.Context, t *auditoria.Tx, canal m
 			}
 			continue
 		}
-		ci, err := q.InsertarContactoIris(ctx, mensajeriabd.InsertarContactoIrisParams{EmpresaID: canal.EmpresaID, Nombre: nombre, Tipo: "otro",
-			Telefono: numero, Nota: "Contacto del teléfono del número " + canal.Nombre})
+		ci, err := q.InsertarContactoTelefono(ctx, mensajeriabd.InsertarContactoTelefonoParams{EmpresaID: canal.EmpresaID, Nombre: nombre,
+			Telefono: numero, Nota: recortar("Contacto del teléfono del número "+canal.Nombre, 500)})
 		if err != nil {
 			return err
 		}
@@ -367,7 +382,25 @@ func (m *Modulo) cuentaActualizada(ctx context.Context, t *auditoria.Tx, q *mens
 		t.Anotar(map[string]any{"account_update_ajeno": true})
 		return nil
 	}
-	f, err := q.CanalParaSincronizar(ctx, canal.ID)
+	// Se aplica a todos los números QR de la WABA.
+	fs, err := q.CanalesQRPorWaba(ctx, canal.WabaID)
+	if err != nil {
+		return err
+	}
+	for _, x := range fs {
+		if err := m.estadoCuenta(ctx, t, q, x.ID, evento, desconexion); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// estadoCuenta aplica PARTNER_REMOVED / ACCOUNT_OFFBOARDED / ACCOUNT_RECONNECTED a un número.
+func (m *Modulo) estadoCuenta(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Queries, canal int64, evento string, desconexion *struct {
+	Reason      string `json:"reason"`
+	InitiatedBy string `json:"initiated_by"`
+}) error {
+	f, err := q.CanalParaSincronizar(ctx, canal)
 	if err != nil {
 		return err
 	}

@@ -7974,8 +7974,8 @@ export interface components {
             /** Format: date-time */
             reabiertaEn: string | null;
             sla: components["schemas"]["SLAConversacion"];
-            /** @description El número ya no está compartido con tu empresa (préstamo revocado, §15.3): solo se puede leer */
-            soloLectura: boolean;
+            /** @description true: el número ya no está compartido con tu empresa (préstamo revocado, §15.3) y solo se puede leer. Ausente = false */
+            soloLectura?: boolean;
             /** @description Cliente de Argos > contacto de Iris > perfil de WhatsApp > número */
             titulo: string;
             /** Format: date-time */
@@ -8020,8 +8020,8 @@ export interface components {
             /** Format: date-time */
             reabiertaEn: string | null;
             sla: components["schemas"]["SLAConversacion"];
-            /** @description El número ya no está compartido con tu empresa (préstamo revocado, §15.3): solo se puede leer */
-            soloLectura: boolean;
+            /** @description true: el número ya no está compartido con tu empresa (préstamo revocado, §15.3) y solo se puede leer. Ausente = false */
+            soloLectura?: boolean;
             /** @description Supervisores de su cola */
             supervisores: components["schemas"]["UsuarioRef"][];
             /** @description Cliente de Argos > contacto de Iris > perfil de WhatsApp > número */
@@ -8259,7 +8259,7 @@ export interface components {
              * @description Por qué no (los códigos de POST /conversaciones/iniciar)
              * @enum {string|null}
              */
-            motivo: "sin_contacto" | "sin_permiso" | "baja" | "cliente_fuera_de_empresa" | "conversacion_de_otro" | "conversacion_de_otra_cola" | "numero_no_permitido" | null;
+            motivo: "sin_contacto" | "sin_permiso" | "baja" | "cliente_fuera_de_empresa" | "conversacion_de_otro" | "conversacion_de_otra_cola" | "conversacion_en_otra_empresa" | "numero_no_permitido" | null;
             nombre: string;
             /** @description El número al que saldría (E.164); null si no tiene */
             numero: string | null;
@@ -11789,10 +11789,10 @@ export interface components {
             menciones: components["schemas"]["UsuarioRef"][];
             motivoFalla: string | null;
             /**
-             * @description No salió de Iris: telefono (mandado desde la app WhatsApp Business, «Desde el teléfono») o historial (traído de la app). null = Iris (§15.2)
-             * @enum {string|null}
+             * @description No salió de Iris: telefono (mandado desde la app WhatsApp Business, «Desde el teléfono») o historial (traído de la app). Ausente = Iris (§15.2)
+             * @enum {string}
              */
-            origen: "telefono" | "historial" | null;
+            origen?: "telefono" | "historial";
             plantilla?: components["schemas"]["PlantillaMensaje"];
             /** Format: int64 */
             seq: number;

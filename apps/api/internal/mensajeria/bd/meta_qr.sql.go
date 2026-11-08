@@ -8,7 +8,34 @@ package mensajeriabd
 import (
 	"context"
 	"time"
+
+	"github.com/google/uuid"
 )
+
+const avanzarSeqHistorial = `-- name: AvanzarSeqHistorial :one
+UPDATE mensajeria.conversaciones c
+SET ultimo_seq = c.ultimo_seq + 1,
+    ultimo_mensaje_id = CASE WHEN c.ultimo_mensaje_id IS NULL
+            OR $1::timestamptz > coalesce((SELECT m.creado_en FROM mensajeria.conversacion_mensajes m WHERE m.id = c.ultimo_mensaje_id), '-infinity'::timestamptz)
+        THEN $2::uuid ELSE c.ultimo_mensaje_id END,
+    ultima_actividad = GREATEST(c.ultima_actividad, $1::timestamptz)
+WHERE c.id = $3::bigint
+RETURNING c.ultimo_seq
+`
+
+type AvanzarSeqHistorialParams struct {
+	CreadoEn  time.Time
+	MensajeID uuid.UUID
+	ID        int64
+}
+
+// Un mensaje del historial: el último mensaje y la actividad solo cambian si es más nuevo.
+func (q *Queries) AvanzarSeqHistorial(ctx context.Context, arg AvanzarSeqHistorialParams) (int64, error) {
+	row := q.db.QueryRow(ctx, avanzarSeqHistorial, arg.CreadoEn, arg.MensajeID, arg.ID)
+	var ultimo_seq int64
+	err := row.Scan(&ultimo_seq)
+	return ultimo_seq, err
+}
 
 const avisosEnColaDePrestamo = `-- name: AvisosEnColaDePrestamo :many
 SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at FROM mensajeria.avisos
@@ -601,7 +628,7 @@ const conversacionesNoResueltasDeNumero = `-- name: ConversacionesNoResueltasDeN
 
 SELECT id, empresa_id, ultima_actividad FROM mensajeria.conversaciones
 WHERE canal_id = $1 AND numero = $2 AND estado <> 'resuelta'
-ORDER BY ultima_actividad DESC, id DESC
+ORDER BY id
 `
 
 type ConversacionesNoResueltasDeNumeroParams struct {
@@ -616,6 +643,7 @@ type ConversacionesNoResueltasDeNumeroRow struct {
 }
 
 // A qué empresa va un mensaje (§15.3) ---------------------------------------------------------------
+// La más antigua primero (la regla 1 prefiere la de la dueña y, si no, la más antigua).
 func (q *Queries) ConversacionesNoResueltasDeNumero(ctx context.Context, arg ConversacionesNoResueltasDeNumeroParams) ([]ConversacionesNoResueltasDeNumeroRow, error) {
 	rows, err := q.db.Query(ctx, conversacionesNoResueltasDeNumero, arg.CanalID, arg.Numero)
 	if err != nil {
@@ -793,20 +821,6 @@ func (q *Queries) FijarAvisosPrestamo(ctx context.Context, arg FijarAvisosPresta
 		&i.UpdatedAt,
 	)
 	return i, err
-}
-
-const fijarUltimaActividad = `-- name: FijarUltimaActividad :exec
-UPDATE mensajeria.conversaciones SET ultima_actividad = $1 WHERE id = $2
-`
-
-type FijarUltimaActividadParams struct {
-	UltimaActividad time.Time
-	ID              int64
-}
-
-func (q *Queries) FijarUltimaActividad(ctx context.Context, arg FijarUltimaActividadParams) error {
-	_, err := q.db.Exec(ctx, fijarUltimaActividad, arg.UltimaActividad, arg.ID)
-	return err
 }
 
 const guardarConexionMeta = `-- name: GuardarConexionMeta :one
@@ -1166,6 +1180,44 @@ func (q *Queries) InsertarCanalQR(ctx context.Context, arg InsertarCanalQRParams
 	return i, err
 }
 
+const insertarContactoTelefono = `-- name: InsertarContactoTelefono :one
+INSERT INTO mensajeria.contactos_iris (empresa_id, nombre, tipo, telefono, nota, origen)
+VALUES ($1, $2, 'otro', $3, $4, 'telefono') RETURNING id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at, origen
+`
+
+type InsertarContactoTelefonoParams struct {
+	EmpresaID *int64
+	Nombre    string
+	Telefono  string
+	Nota      string
+}
+
+func (q *Queries) InsertarContactoTelefono(ctx context.Context, arg InsertarContactoTelefonoParams) (MensajeriaContactoIris, error) {
+	row := q.db.QueryRow(ctx, insertarContactoTelefono,
+		arg.EmpresaID,
+		arg.Nombre,
+		arg.Telefono,
+		arg.Nota,
+	)
+	var i MensajeriaContactoIris
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Nombre,
+		&i.Tipo,
+		&i.Telefono,
+		&i.Nota,
+		&i.ClienteID,
+		&i.UnidoEn,
+		&i.CreadoPor,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Origen,
+	)
+	return i, err
+}
+
 const insertarConversacionHistorial = `-- name: InsertarConversacionHistorial :one
 
 INSERT INTO mensajeria.conversaciones (empresa_id, canal_id, numero, perfil_nombre, cola_id, cliente_id, asociacion, cliente_verificado,
@@ -1302,6 +1354,24 @@ func (q *Queries) MarcarEcoTelefono(ctx context.Context, arg MarcarEcoTelefonoPa
 	return err
 }
 
+const moverAdjuntosAEmpresa = `-- name: MoverAdjuntosAEmpresa :exec
+UPDATE nucleo.adjuntos SET empresa_id = $1, updated_at = now()
+WHERE entidad = 'conversacion' AND entidad_id = $2::bigint::text
+  AND id IN (SELECT m.adjunto_id FROM mensajeria.conversacion_mensajes m
+             WHERE m.conversacion_id = $2::bigint AND m.direccion IN ('entrante', 'saliente') AND m.adjunto_id IS NOT NULL)
+`
+
+type MoverAdjuntosAEmpresaParams struct {
+	EmpresaID      *int64
+	ConversacionID int64
+}
+
+// Los adjuntos de los mensajes que pasan (y solo esos) quedan de la otra empresa.
+func (q *Queries) MoverAdjuntosAEmpresa(ctx context.Context, arg MoverAdjuntosAEmpresaParams) error {
+	_, err := q.db.Exec(ctx, moverAdjuntosAEmpresa, arg.EmpresaID, arg.ConversacionID)
+	return err
+}
+
 const moverConversacionAEmpresa = `-- name: MoverConversacionAEmpresa :one
 UPDATE mensajeria.conversaciones
 SET empresa_id = $1, cola_id = $2, asignado_a = NULL, asignado_en = NULL,
@@ -1364,7 +1434,8 @@ func (q *Queries) MoverConversacionAEmpresa(ctx context.Context, arg MoverConver
 }
 
 const moverMensajesAEmpresa = `-- name: MoverMensajesAEmpresa :exec
-UPDATE mensajeria.conversacion_mensajes SET empresa_id = $1 WHERE conversacion_id = $2
+UPDATE mensajeria.conversacion_mensajes SET empresa_id = $1
+WHERE conversacion_id = $2 AND direccion IN ('entrante', 'saliente')
 `
 
 type MoverMensajesAEmpresaParams struct {
@@ -1372,6 +1443,7 @@ type MoverMensajesAEmpresaParams struct {
 	ConversacionID int64
 }
 
+// Solo los del cliente y los salientes: las notas y los eventos de sistema se quedan con la dueña.
 func (q *Queries) MoverMensajesAEmpresa(ctx context.Context, arg MoverMensajesAEmpresaParams) error {
 	_, err := q.db.Exec(ctx, moverMensajesAEmpresa, arg.EmpresaID, arg.ConversacionID)
 	return err
@@ -1591,6 +1663,19 @@ func (q *Queries) PrestamosDeCanal(ctx context.Context, canalID int64) ([]Presta
 		return nil, err
 	}
 	return items, nil
+}
+
+const purgarRegistrosQR = `-- name: PurgarRegistrosQR :execrows
+DELETE FROM mensajeria.registros_qr WHERE created_at < $1
+`
+
+// Los códigos de Embedded Signup viven ~30 s: su huella sobra a los 7 días.
+func (q *Queries) PurgarRegistrosQR(ctx context.Context, antes time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, purgarRegistrosQR, antes)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const quitarAvisosPrestados = `-- name: QuitarAvisosPrestados :many
@@ -1818,7 +1903,7 @@ func (q *Queries) RegistrarPruebaConexionMeta(ctx context.Context, arg Registrar
 }
 
 const renombrarContactoIris = `-- name: RenombrarContactoIris :one
-UPDATE mensajeria.contactos_iris SET nombre = $1, version = version + 1, updated_at = now() WHERE id = $2 RETURNING id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at
+UPDATE mensajeria.contactos_iris SET nombre = $1, version = version + 1, updated_at = now() WHERE id = $2 AND origen = 'telefono' RETURNING id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at, origen
 `
 
 type RenombrarContactoIrisParams struct {
@@ -1826,6 +1911,7 @@ type RenombrarContactoIrisParams struct {
 	ID     int64
 }
 
+// Solo los que vinieron del teléfono.
 func (q *Queries) RenombrarContactoIris(ctx context.Context, arg RenombrarContactoIrisParams) (MensajeriaContactoIris, error) {
 	row := q.db.QueryRow(ctx, renombrarContactoIris, arg.Nombre, arg.ID)
 	var i MensajeriaContactoIris
@@ -1842,6 +1928,7 @@ func (q *Queries) RenombrarContactoIris(ctx context.Context, arg RenombrarContac
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Origen,
 	)
 	return i, err
 }

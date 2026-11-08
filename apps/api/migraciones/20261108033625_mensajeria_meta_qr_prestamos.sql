@@ -56,7 +56,7 @@ ALTER TABLE mensajeria.conversacion_mensajes
 -- 4. Préstamo de un número a otra empresa de la instalación.
 CREATE TABLE mensajeria.canal_prestamos (
     canal_id          bigint      NOT NULL REFERENCES mensajeria.canales (id),
-    empresa_id        bigint      NOT NULL,
+    empresa_id        bigint      NOT NULL REFERENCES nucleo.empresas (id),
     usos              text[]      NOT NULL CHECK (cardinality(usos) BETWEEN 1 AND 4
                                                  AND usos <@ ARRAY['avisos', 'soporte', 'cobros', 'ventas']::text[]),
     cola_id           bigint REFERENCES mensajeria.colas (id),
@@ -78,7 +78,13 @@ CREATE INDEX canal_prestamos_empresa_idx ON mensajeria.canal_prestamos (empresa_
 -- Un solo número de avisos prestado por empresa (con el propio lo cuida el caso de uso).
 CREATE UNIQUE INDEX canal_prestamos_avisos_uk ON mensajeria.canal_prestamos (empresa_id) WHERE avisos_empresa;
 
+-- 5. Contactos de Iris que vienen del teléfono (smb_app_state_sync): solo esos se renombran desde el
+--    teléfono; los que creó una persona no se tocan.
+ALTER TABLE mensajeria.contactos_iris
+    ADD COLUMN origen text NOT NULL DEFAULT 'agente' CHECK (origen IN ('agente', 'telefono'));
+
 -- +goose Down
+ALTER TABLE mensajeria.contactos_iris DROP COLUMN origen;
 DROP TABLE mensajeria.canal_prestamos;
 ALTER TABLE mensajeria.conversacion_mensajes DROP COLUMN origen;
 DROP TABLE mensajeria.registros_qr;
