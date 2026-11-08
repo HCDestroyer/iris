@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.19.0](https://github.com/HCDestroyer/iris/compare/v0.18.0...v0.19.0) (2026-11-08)
+
+
+### Funcionalidades
+
+* **mensajeria:** conexión con Meta, WhatsApp por QR (coexistencia) y préstamo de números entre empresas, con su panel ([#145](https://github.com/HCDestroyer/iris/issues/145), incluye [#144](https://github.com/HCDestroyer/iris/issues/144)) ([e0841fb](https://github.com/HCDestroyer/iris/commit/e0841fb901b41a2def9429fae62779a406298854))
+* **mensajeria:** probar conexión y estado de los números de WhatsApp ([#141](https://github.com/HCDestroyer/iris/issues/141)) ([d2adcdc](https://github.com/HCDestroyer/iris/commit/d2adcdcdbcf96a68ae618ea2fcf1b5c7ca665b40))
+* **panel:** agregar números de WhatsApp, credenciales y guía para conectar Meta ([#143](https://github.com/HCDestroyer/iris/issues/143)) ([ccb0ee0](https://github.com/HCDestroyer/iris/commit/ccb0ee0fe175dc350a9f9f342a79159c3b5f0e5a))
+* **panel:** chat flotante y manuales de inicio para ISP (WISP y FTTH) ([#142](https://github.com/HCDestroyer/iris/issues/142)) ([e47f250](https://github.com/HCDestroyer/iris/commit/e47f25018902fb786de44e97d37bcb7b989feb4f))
+
+
+### Correcciones
+
+* **movil:** cambiar la contraseña temporal en la app, salida en pantallas de bloqueo y chat sobre el teclado ([#147](https://github.com/HCDestroyer/iris/issues/147)) ([6ef779d](https://github.com/HCDestroyer/iris/commit/6ef779d4f370b1965d1a3bea15b6424f15ef97cb))
+
 ## [0.18.0](https://github.com/HCDestroyer/iris/compare/v0.17.0...v0.18.0) (2026-11-07)
 
 
