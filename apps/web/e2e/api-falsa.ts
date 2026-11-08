@@ -67,6 +67,8 @@ export const VENDEDORA = usuario({ id: 13, nombre: "Valeria Cux", correo: "valer
 export const ELENA = usuario({ id: 12, nombre: "Elena Toj", correo: "elena@iris.test", mfaActivo: true, roles: [{ rol: "admin" }] });
 /** Agente de la bandeja (rol soporte): responde y asocia, pero no supervisa. */
 export const AGENTE_CONV = usuario({ id: 14, nombre: "Rosa Pop", correo: "rosa@iris.test", roles: [{ rol: "soporte" }] });
+/** Solo administra las credenciales de los números (`mensajeria.configurar`), sin ver la bandeja. */
+export const CREDENCIALES_WA = usuario({ id: 17, nombre: "Iván Pac", correo: "ivan@iris.test", roles: [{ rol: "lectura" }] });
 export const BLOQUEADO = "bloqueado@iris.test";
 
 const PERMISOS_CHAT: Permiso[] = ["chat.ver", "chat.enviar", "chat.supervisar"];
@@ -227,6 +229,7 @@ const permisosPorCorreo: Record<string, Permiso[]> = {
     [CONSULTA.correo]: ["conversaciones.ver", "agenda.ver", "clientes.ver", "prospectos.ver", "reportes.ver", "rutas.ver", "tickets.ver", "usuarios.ver"],
     [VENDEDORA.correo]: PERMISOS_VENTAS,
     [AGENTE_CONV.correo]: PERMISOS_CONVERSACIONES.filter((p) => p !== "conversaciones.supervisar"),
+    [CREDENCIALES_WA.correo]: ["mensajeria.configurar"],
     // Con integraciones.conectar pero sin empresas.todas: no puede conectar (la API exige rol global).
     [SUPERVISOR_ZONA.correo]: [...PERMISOS_BUZONES, "integraciones.conectar", "integraciones.ver", "tickets.ver"],
     [ASIGNADOR.correo]: ["agenda.ver", "ordenes.asignar", "ordenes.ver"],
@@ -234,7 +237,7 @@ const permisosPorCorreo: Record<string, Permiso[]> = {
 };
 /** Usuarios cuyos permisos `buzones.*` tienen alcance de zona (no global). */
 const alcanceDeZona = new Set([SUPERVISOR_ZONA.correo]);
-const usuarios = [ADMIN, CON_MFA, LECTOR, SOPORTE, CONSULTA, SUPERVISOR_ZONA, DESPACHO, ASIGNADOR, TEMPORAL, ELENA, VENDEDORA, AGENTE_CONV];
+const usuarios = [ADMIN, CON_MFA, LECTOR, SOPORTE, CONSULTA, SUPERVISOR_ZONA, DESPACHO, ASIGNADOR, TEMPORAL, ELENA, VENDEDORA, AGENTE_CONV, CREDENCIALES_WA];
 
 export const PAGINA_1: Schema<"PaginaUsuario"> = {
     data: [ADMIN, CON_MFA, LECTOR, SOPORTE],

@@ -22,14 +22,26 @@ export function leerCanal(id: number, signal?: AbortSignal): Promise<Canal> {
     return resolver(api().GET("/api/v1/mensajeria/canales/{id}", { params: { path: { id } }, ...(signal ? { signal } : {}) }));
 }
 
-/** Alta: sin `verifyToken`, Iris lo genera y lo devuelve una sola vez en `verifyTokenGenerado`. */
-export function crearCanal(body: Schema<"EntradaCrearCanal">, clave: string): Promise<Canal> {
-    return resolver(api().POST("/api/v1/mensajeria/canales", { params: { header: { "Idempotency-Key": clave } }, body }));
+/**
+ * Respuesta de crear o actualizar: el número **sin** `verifyTokenGenerado` y, aparte, el token
+ * generado (solo cuando Iris lo generó). Así el token nunca queda guardado dentro del número en el
+ * estado de una pantalla: la pantalla decide cuánto lo muestra y lo olvida.
+ */
+export type CanalConToken = { canal: Canal; verifyToken: string | null };
+
+export function separarToken(respuesta: Canal): CanalConToken {
+    const { verifyTokenGenerado, ...canal } = respuesta;
+    return { canal, verifyToken: verifyTokenGenerado || null };
+}
+
+/** Alta: sin `verifyToken`, Iris lo genera y lo devuelve una sola vez. */
+export async function crearCanal(body: Schema<"EntradaCrearCanal">, clave: string): Promise<CanalConToken> {
+    return separarToken(await resolver(api().POST("/api/v1/mensajeria/canales", { params: { header: { "Idempotency-Key": clave } }, body })));
 }
 
 /** Datos y credenciales; un secreto vacío no cambia. `generarVerifyToken` = «Generar otro». */
-export function actualizarCanal(id: number, body: Schema<"EntradaActualizarCanal">, clave: string): Promise<Canal> {
-    return resolver(api().POST("/api/v1/mensajeria/canales/{id}/actualizar", { params: { path: { id }, header: { "Idempotency-Key": clave } }, body }));
+export async function actualizarCanal(id: number, body: Schema<"EntradaActualizarCanal">, clave: string): Promise<CanalConToken> {
+    return separarToken(await resolver(api().POST("/api/v1/mensajeria/canales/{id}/actualizar", { params: { path: { id }, header: { "Idempotency-Key": clave } }, body })));
 }
 
 /** Prueba con Meta las credenciales guardadas y dice si el webhook ya se verificó. */

@@ -1,7 +1,7 @@
 "use client";
 
 import { Aviso, Boton } from "@iris/ui";
-import { Info, RefreshCw } from "lucide-react";
+import { Check, Info, RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
 import { ANCLAS } from "@/lib/numeros/guia";
 import { EnlaceGuia } from "./checklist-meta";
@@ -20,6 +20,7 @@ export function WebhookMeta({
     alGenerarOtro,
     generando = false,
     error,
+    alPegado,
 }: {
     /** `null` antes de guardar: la URL lleva el número que Iris le da al canal. */
     url: string | null;
@@ -31,6 +32,8 @@ export function WebhookMeta({
     generando?: boolean;
     /** Aviso de un error de «Generar otro». */
     error?: ReactNode;
+    /** «Ya lo pegué en Meta»: la pantalla borra el token de su estado. */
+    alPegado?: () => void;
 }) {
     const generarOtro = alGenerarOtro ? (
         <Boton variante="contorno" onClick={alGenerarOtro} disabled={generando}>
@@ -49,13 +52,22 @@ export function WebhookMeta({
                 {...(url ? {} : { ayuda: "La URL completa sale al guardar: lleva el número que Iris le da a este canal." })}
             />
             {verifyToken ? (
-                <CampoCopiar
-                    etiqueta="Token de verificación"
-                    valor={verifyToken}
-                    queSeCopio="Token de verificación copiado"
-                    ayuda="Lo generó Iris. Se muestra solo en esta pantalla: pégalo en Meta antes de salir."
-                    acciones={generarOtro}
-                />
+                <div className="grid gap-2">
+                    <CampoCopiar
+                        etiqueta="Token de verificación"
+                        valor={verifyToken}
+                        secreto
+                        queSeCopio="Token de verificación copiado"
+                        ayuda="Lo generó Iris. Se muestra solo en esta pantalla: pégalo en Meta antes de salir."
+                        acciones={generarOtro}
+                    />
+                    {alPegado ? (
+                        <Boton variante="contorno" tamano="sm" className="justify-self-start" onClick={alPegado}>
+                            <Check aria-hidden />
+                            Ya lo pegué en Meta
+                        </Boton>
+                    ) : null}
+                </div>
             ) : url && alGenerarOtro ? (
                 <div className="grid gap-1.5">
                     <SecretoGuardado etiqueta="Token de verificación" guardadoEn={verifyTokenGuardadoEn ?? null} accion="Generar otro" alAccion={alGenerarOtro} ocupado={generando} />

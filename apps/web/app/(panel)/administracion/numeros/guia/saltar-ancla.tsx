@@ -8,7 +8,13 @@ import { useEffect } from "react";
  */
 export function SaltarAncla() {
     useEffect(() => {
-        const id = decodeURIComponent(window.location.hash.slice(1));
+        let id: string;
+        try {
+            id = decodeURIComponent(window.location.hash.slice(1));
+        } catch {
+            // `#%E0…` mal formado: no hay ancla a la que ir.
+            return;
+        }
         if (!id) return;
         document.getElementById(id)?.scrollIntoView({ block: "start" });
     }, []);

@@ -9,18 +9,28 @@ import type { Canal, PruebaCanal } from "./tipos";
 
 export type RecienCreado = { canal: Canal; verifyToken: string | null; prueba: PruebaCanal | null; errorPrueba: unknown };
 
-let pendiente: RecienCreado | null = null;
+/** Lo que tarda «Conectar» en abrir es mucho menos; pasado esto, el token se olvida aunque nadie lo tome. */
+export const VIDA_RECIEN_CREADO_MS = 60_000;
 
-export function dejarRecienCreado(datos: RecienCreado): void {
-    pendiente = datos;
+let pendiente: (RecienCreado & { expira: number }) | null = null;
+
+export function dejarRecienCreado(datos: RecienCreado, ahora: number = Date.now()): void {
+    pendiente = { ...datos, expira: ahora + VIDA_RECIEN_CREADO_MS };
 }
 
 /**
- * Lo de ese número, si lo hay. No lo borra: la pantalla lo guarda en su estado y luego llama
- * `olvidarRecienCreado` en un efecto (en modo estricto, React llama dos veces al inicializador).
+ * Lo de ese número, si lo hay y no venció. No lo borra: la pantalla lo guarda en su estado y luego
+ * llama `olvidarRecienCreado` en un efecto (en modo estricto, React llama dos veces al
+ * inicializador).
  */
-export function leerRecienCreado(canalId: number): RecienCreado | null {
-    return pendiente && pendiente.canal.id === canalId ? pendiente : null;
+export function leerRecienCreado(canalId: number, ahora: number = Date.now()): RecienCreado | null {
+    if (!pendiente) return null;
+    if (ahora > pendiente.expira) {
+        pendiente = null;
+        return null;
+    }
+    if (pendiente.canal.id !== canalId) return null;
+    return { canal: pendiente.canal, verifyToken: pendiente.verifyToken, prueba: pendiente.prueba, errorPrueba: pendiente.errorPrueba };
 }
 
 /** Ya se mostró (o se salió): no queda en memoria. */

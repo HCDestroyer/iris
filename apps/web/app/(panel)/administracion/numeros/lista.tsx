@@ -44,6 +44,8 @@ export function ListaNumeros() {
     const { yo, puede } = useSesion();
     const credenciales = puede(["mensajeria.configurar"]);
     const configurar = puede(["canales.configurar"]);
+    // Colas y horarios se leen con `conversaciones.ver`; sin él, esas columnas dicen «—».
+    const verBandeja = puede(["conversaciones.ver"]);
     const clave = useClaveIdempotencia();
     const [errorAccion, setErrorAccion] = useState<{ nombre: string; error: unknown } | null>(null);
     const [activando, setActivando] = useState<number | null>(null);
@@ -52,10 +54,10 @@ export function ListaNumeros() {
             credenciales
                 ? leerCanales(signal).then((cs) => cs.map((c): Fila => ({ ...c, conexion: c.conexion })))
                 : resolver(api().GET("/api/v1/mensajeria/conversaciones/canales", { signal })).then((r) => (r.data ?? []).map((c): Fila => ({ ...c, conexion: null }))),
-            resolver(api().GET("/api/v1/mensajeria/colas", { signal })),
-            resolver(api().GET("/api/v1/mensajeria/horarios", { signal })),
+            verBandeja ? resolver(api().GET("/api/v1/mensajeria/colas", { signal })).then((r) => r.data ?? []) : Promise.resolve(null),
+            verBandeja ? resolver(api().GET("/api/v1/mensajeria/horarios", { signal })).then((r) => r.data ?? []) : Promise.resolve(null),
         ]);
-        return { numeros, colas: colas.data ?? [], horarios: horarios.data ?? [] };
+        return { numeros, colas, horarios };
     });
 
     async function activar(f: Fila) {
@@ -150,8 +152,8 @@ export function ListaNumeros() {
                     </div>
                     <ul aria-label="Números de WhatsApp" className="grid gap-3 lg:gap-0">
                         {numeros.map((n) => {
-                            const horario = horarios.find((h) => h.id === n.horarioId);
-                            const cola = colas.find((x) => x.id === n.colaId);
+                            const horario = horarios?.find((h) => h.id === n.horarioId);
+                            const cola = colas?.find((x) => x.id === n.colaId);
                             const pide = n.conexion ? presentarConexion(n.conexion).credenciales : false;
                             return (
                                 <li
@@ -178,10 +180,10 @@ export function ListaNumeros() {
                                     <div className={cn("min-w-0 flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground [grid-area:det] lg:contents lg:text-foreground", n.activo ? "flex" : "hidden")}>
                                         <span className="min-w-0 [grid-area:cola]">
                                             <span className="lg:hidden">Cola: </span>
-                                            {n.activo ? (cola?.nombre ?? <span className="text-muted-foreground">Sin cola</span>) : <Nada />}
+                                            {!n.activo || !colas ? <Nada /> : (cola?.nombre ?? <span className="text-muted-foreground">Sin cola</span>)}
                                         </span>
                                         <span className="min-w-0 [grid-area:hor]">
-                                            {!n.activo ? <Nada /> : horario ? resumirFranjas(horario.franjas) : <span className="text-muted-foreground">Siempre abierto</span>}
+                                            {!n.activo || !horarios ? <Nada /> : horario ? resumirFranjas(horario.franjas) : <span className="text-muted-foreground">Siempre abierto</span>}
                                         </span>
                                     </div>
                                     {n.conexion ? (

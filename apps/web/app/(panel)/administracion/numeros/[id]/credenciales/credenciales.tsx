@@ -89,7 +89,7 @@ function Formulario({ inicial, recargar }: { inicial: Canal; recargar: () => voi
         setError(null);
         let nuevo: Canal;
         try {
-            nuevo = await actualizarCanal(
+            ({ canal: nuevo } = await actualizarCanal(
                 canal.id,
                 cuerpoActualizar(canal, {
                     nombre: d.nombre,
@@ -101,7 +101,7 @@ function Formulario({ inicial, recargar }: { inicial: Canal; recargar: () => voi
                     ...(d.appSecret ? { appSecret: d.appSecret } : {}),
                 }),
                 clave.actual(),
-            );
+            ));
             clave.renovar();
         } catch (e) {
             clave.trasError(e);
@@ -247,7 +247,14 @@ function Formulario({ inicial, recargar }: { inicial: Canal; recargar: () => voi
             </SeccionFormulario>
 
             <SeccionFormulario titulo="Webhook">
-                <WebhookMeta url={url} verifyToken={verifyToken} verifyTokenGuardadoEn={canal.verifyTokenGuardadoEn} alGenerarOtro={generar.pedir} generando={generar.generando} error={generar.error} />
+                <WebhookMeta url={url} verifyToken={verifyToken} verifyTokenGuardadoEn={canal.verifyTokenGuardadoEn} alGenerarOtro={generar.pedir}
+                    generando={generar.generando}
+                    error={generar.error}
+                    alPegado={() => {
+                        setVerifyToken(null);
+                        avisar({ titulo: "Token de verificación oculto: ya no se muestra en esta pantalla" });
+                    }}
+                />
                 <EstadoWebhook canal={canal} probando={probando} alProbar={() => void probar()} sucio={form.formState.isDirty} />
             </SeccionFormulario>
 
