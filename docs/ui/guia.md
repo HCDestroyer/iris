@@ -141,10 +141,11 @@ dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`avis
 | `SelectorArchivo` | — (`<input type="file">` oculto en su `<label>`, como `Camara`) | Adjuntar sin cámara (compositor de la bandeja); clip de Lucide; se limpia tras elegir |
 | `AvatarUsuario` | `Avatar`, `Avatar.Fallback` | Iniciales (decorativo: el nombre va al lado) |
 | `Entrada`, `Campo` | `Input` | Un `<input>` nativo: sirve con `register` |
+| `CampoSecreto` | `Input` | Credencial que se pega una vez (token, app secret), con el ojo «Mostrar …», monoespaciada y sin corrector. Para que el gestor de contraseñas no ofrezca guardarla: `type="text"` con `-webkit-text-security: disc` donde el navegador lo soporta y, si no, `type="password"`; siempre `autocomplete="new-password"`, `data-1p-ignore` y `data-lpignore`. Sirve con `register` |
 | `AreaTexto`, `CampoArea` | `TextArea` | |
 | `Etiqueta` | `Label` | |
 | `ProveedorRutas` | `RouterProvider` de React Aria | |
-| `BarraGuardar`, `FormularioPagina`, `SeccionFormulario` | — | Composición propia de Iris con `Boton` |
+| `BarraGuardar`, `FormularioPagina`, `SeccionFormulario` | — | Composición propia de Iris con `Boton`. `BarraGuardar` acepta `nota` (una línea a la izquierda: «Al guardar, Iris prueba la conexión con Meta.») |
 
 `useCambiosSinGuardar(isDirty, isSubmitting)` sirve igual dentro de `DialogoProtegido` que dentro de
 `FormularioPagina`.
@@ -369,6 +370,25 @@ Pedido del PM: la biblioteca trae ejemplos para un ISP con fibra (FTTH) e inalá
       resumen de la lista no lo trae) y el formulario lo dice junto a «Quién lo ve».
 - Con la carga empezada (o detenida por un error) la selección queda congelada. La biblioteca pide
   hasta 100 manuales; si llegan 100, dice «Se muestran los primeros 100» y pide usar la búsqueda.
+
+## Números de WhatsApp (nov. 2026)
+
+Diseño aprobado por el PM («Números de WhatsApp», contrato §1.1):
+
+- **Lista:** columna «Conexión» tal como la calcula el servidor (`Canal.conexion`), con icono +
+  texto + color: «Conectado» es solo un punto; «Token vencido», «Número no coincide» y «Sin permiso
+  en Meta» en rojo (y «Credenciales» con borde rojo); «Webhook sin verificar» y «Meta no respondió»
+  en naranja; «Sin probar» y «Desactivado» neutros. En el teléfono, tarjetas.
+- **Agregar número** en una página con tres pasos numerados (en Meta · datos · webhook) y «Guardar
+  y probar». Las casillas de «En Meta» son una ayuda y no cuentan como cambios. Los enlaces a la
+  guía desde un formulario abren otra pestaña (no se pierde lo escrito).
+- **Secretos:** `CampoSecreto` para pegarlos; guardados, solo «•••• guardado el …» con «Cambiar»
+  (vacío = se queda el guardado). El verify token que genera Iris se ve una vez, en «Conectar»; luego,
+  «Generar otro» (con confirmación: deja el webhook sin verificar).
+- **Guía «Cómo conectar WhatsApp»** dentro del panel (`/administracion/numeros/guia`), en español
+  llano y diciendo dónde pueden variar los menús de Meta.
+- **Migas:** el número no tiene pantalla propia; su miga lleva el nombre sin enlace
+  («Números de WhatsApp › Avisos › Credenciales») y «‹» en el teléfono vuelve a la lista.
 
 ## Navegación del panel (fase 1, hecha)
 

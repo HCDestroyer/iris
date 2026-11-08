@@ -38,6 +38,8 @@ const ETIQUETAS: Readonly<Record<string, string>> = {
     "/administracion/roles/nuevo": "Nuevo rol",
     "/administracion/buzones/nuevo": "Nuevo buzón",
     "/administracion/numeros": "Números de WhatsApp",
+    "/administracion/numeros/nuevo": "Agregar número",
+    "/administracion/numeros/guia": "Cómo conectar WhatsApp",
     "/administracion/colas": "Colas",
     "/administracion/colas/nueva": "Nueva cola",
     "/administracion/bandeja": "Ajustes de la bandeja",
@@ -68,6 +70,8 @@ const SUBPANTALLAS: readonly (readonly [RegExp, string])[] = [
     [/^\/conversaciones\/[^/]+\/orden$/, "Nueva orden"],
     [/^\/conversaciones\/[^/]+\/boleta$/, "Boleta de pago"],
     [/^\/administracion\/numeros\/[^/]+\/configurar$/, "Configurar número"],
+    [/^\/administracion\/numeros\/[^/]+\/conectar$/, "Conectar"],
+    [/^\/administracion\/numeros\/[^/]+\/credenciales$/, "Credenciales"],
     [/^\/administracion\/colas\/[^/]+\/editar$/, "Editar cola"],
     [/^\/administracion\/horarios\/[^/]+\/editar$/, "Editar horario"],
     [/^\/administracion\/manuales\/[^/]+\/editar$/, "Editar manual"],
@@ -82,7 +86,14 @@ const FICHAS: readonly (readonly [RegExp, string])[] = [
     [/^\/comercial\/[^/]+$/, "Prospecto"],
     [/^\/administracion\/plantillas\/[^/]+$/, "Plantilla"],
     [/^\/administracion\/roles\/[^/]+$/, "Rol"],
+    [/^\/administracion\/numeros\/[^/]+$/, "Número"],
 ];
+
+/**
+ * Fichas sin pantalla propia: su miga lleva el nombre del registro pero no es enlace (y «‹» en el
+ * teléfono lleva a la lista). Un número de WhatsApp solo tiene sus subpantallas.
+ */
+const FICHAS_SIN_PAGINA: readonly RegExp[] = [/^\/administracion\/numeros\/[^/]+$/];
 
 /** `conNombre`: este tramo es la ficha del registro cuyo nombre se conoce (la última ficha de la ruta). */
 function etiqueta(ruta: string, nombre: string | null | undefined, conNombre: boolean): string | undefined {
@@ -114,7 +125,8 @@ export function migasDeRuta(ruta: string, nombre?: string | null): Miga[] {
     prefijos.forEach((prefijo, i) => {
         const ultima = i === tramos.length - 1;
         const texto = etiqueta(prefijo, nombre, i === ultimaFicha);
-        if (texto) migas.push(ultima ? { etiqueta: texto } : { etiqueta: texto, href: prefijo });
+        const sinPagina = !ETIQUETAS[prefijo] && FICHAS_SIN_PAGINA.some((patron) => patron.test(prefijo));
+        if (texto) migas.push(ultima || sinPagina ? { etiqueta: texto } : { etiqueta: texto, href: prefijo });
     });
     return migas;
 }
