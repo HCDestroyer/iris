@@ -13,6 +13,7 @@ import { nuevaClaveIdempotencia } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { formatearNumero, nombreUso } from "@/lib/conversaciones/presentacion";
 import { useLectura } from "@/lib/lectura";
+import { useIrAPrestamo, YendoAPrestamo } from "@/componentes/numeros/ir-a-prestamo";
 import { guardarPrestamo, leerCanalMeta, leerOpcionesPrestamo, leerPrestamos, revocarPrestamo } from "@/lib/meta/api";
 import { esquemaRevocar } from "@/lib/meta/esquemas";
 import { etiquetaTipoConexion, iniciales } from "@/lib/meta/presentacion";
@@ -37,10 +38,14 @@ export function CompartirNumero() {
     const id = idDeParametro(useParams<{ id: string }>().id);
     const lectura = useLectura(async (signal) => {
         if (id === null) return null;
-        const [canal, prestamos, opciones] = await Promise.all([leerCanalMeta(id, signal), leerPrestamos(id, signal), leerOpcionesPrestamo(id, signal)]);
+        // Primero el número: si es prestado, no hay préstamos que leer (se va a su detalle).
+        const canal = await leerCanalMeta(id, signal);
+        if (canal.prestadoPor) return { canal, prestamos: [], opciones: { empresas: [] } };
+        const [prestamos, opciones] = await Promise.all([leerPrestamos(id, signal), leerOpcionesPrestamo(id, signal)]);
         return { canal, prestamos, opciones };
     });
     useNombreEnMigas(lectura.estado === "listo" ? lectura.datos?.canal.nombre : null);
+    if (useIrAPrestamo(lectura.estado === "listo" ? lectura.datos?.canal : null)) return <YendoAPrestamo />;
     return (
         <CargaRegistro lectura={lectura} que="el número" noEncontrado="Número no encontrado">
             {(d) => <Pantalla {...d} recargar={lectura.reintentar} />}

@@ -334,12 +334,15 @@ function FilaNumero({
             </div>
             <div className="grid grid-cols-2 gap-2 [grid-area:acc] lg:flex lg:flex-col lg:items-end [&>*]:w-full lg:[&>*]:w-auto">
                 {prestado ? (
-                    <Boton asChild variante="contorno" tamano="sm">
-                        <Link href={`/administracion/numeros/${n.id}/prestamo`} aria-label={`Ver detalle de ${n.nombre}`}>
-                            <Eye aria-hidden />
-                            Ver detalle
-                        </Link>
-                    </Boton>
+                    // El detalle lee GET /canales/{id}, que pide mensajeria.configurar.
+                    permisos.credenciales ? (
+                        <Boton asChild variante="contorno" tamano="sm">
+                            <Link href={`/administracion/numeros/${n.id}/prestamo`} aria-label={`Ver detalle de ${n.nombre}`}>
+                                <Eye aria-hidden />
+                                Ver detalle
+                            </Link>
+                        </Boton>
+                    ) : null
                 ) : (
                     <>
                         {permisos.configurar && n.activo ? (

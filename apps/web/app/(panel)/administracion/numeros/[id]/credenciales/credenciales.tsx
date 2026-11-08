@@ -21,6 +21,7 @@ import { formatearNumero } from "@/lib/conversaciones/presentacion";
 import { erroresACampos } from "@/lib/formularios";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
+import { useIrAPrestamo, YendoAPrestamo } from "@/componentes/numeros/ir-a-prestamo";
 import { activarCanal, actualizarCanal, cuerpoActualizar, desactivarCanal, leerCanal, probarCanal } from "@/lib/numeros/api";
 import { cuando, textoUltimoMensaje, webhookUrlDe } from "@/lib/numeros/conexion";
 import { esquemaCredenciales, normalizarNumero, type EntradaCredenciales, type ValoresCredenciales } from "@/lib/numeros/esquemas";
@@ -40,6 +41,7 @@ export function CredencialesNumero() {
     const id = idDeParametro(useParams<{ id: string }>().id);
     const lectura = useLectura(async (signal) => (id === null ? null : leerCanal(id, signal)));
     useNombreEnMigas(lectura.estado === "listo" ? lectura.datos?.nombre : null);
+    if (useIrAPrestamo(lectura.estado === "listo" ? lectura.datos : null)) return <YendoAPrestamo />;
     return (
         <CargaRegistro lectura={lectura} que="el número" noEncontrado="Número no encontrado">
             {(canal) => <Formulario inicial={canal} recargar={lectura.reintentar} />}

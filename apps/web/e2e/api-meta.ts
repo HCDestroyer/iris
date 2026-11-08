@@ -30,6 +30,8 @@ export type OpcionesMeta = {
     prestamos?: boolean;
     /** La empresa activa (Cable Norte, id 2) usa «Avisos de Red Sur», prestado por Red Sur. */
     prestado?: boolean;
+    /** Conversaciones cuyo contacto tiene otra abierta en otra empresa del número compartido (§15.3). */
+    enOtraEmpresa?: number[];
 };
 
 export type ApiMeta = {
@@ -365,6 +367,17 @@ export function apiMeta(numeros: ApiNumeros["interno"], conversaciones: Conversa
                 return (await json(route, p), true);
             }
             return false;
+        }
+
+        // --- Otra empresa del número ya atiende al contacto (409 al reabrir, y al responder resuelta o con plantilla) ---
+        const oe = /^\/api\/v1\/mensajeria\/conversaciones\/(\d+)\/(reabrir|mensajes)$/.exec(ruta);
+        if (oe && metodo === "POST" && (opciones.enOtraEmpresa ?? []).includes(Number(oe[1]))) {
+            const c = conversaciones.find((x) => x.id === Number(oe[1]));
+            const plantilla = "plantilla" in cuerpo;
+            if (c && (oe[2] === "reabrir" || c.estado === "resuelta" || plantilla)) {
+                cuerpos.push({ ruta, cuerpo, idempotencia });
+                return (await problema(route, P("conversacion_en_otra_empresa", 409, "Otra empresa atiende a este contacto", { detail: "Otra empresa que usa este número tiene una conversación abierta con este teléfono." })), true);
+            }
         }
 
         // --- Pasar a otra empresa ---

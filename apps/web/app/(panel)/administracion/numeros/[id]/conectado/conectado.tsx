@@ -17,6 +17,7 @@ import { mensajeDeError } from "@/lib/api/errores";
 import { formatearNumero, nombreUso } from "@/lib/conversaciones/presentacion";
 import { erroresACampos } from "@/lib/formularios";
 import { useLectura } from "@/lib/lectura";
+import { useIrAPrestamo, YendoAPrestamo } from "@/componentes/numeros/ir-a-prestamo";
 import { leerCanalMeta, sincronizarCanal } from "@/lib/meta/api";
 import { MINUTOS_REPETIR_PEDIDO, plazoRestante, presentarSincronizacion, sePuedePedir, textoDesconexion } from "@/lib/meta/presentacion";
 import type { CanalMeta, Sincronizacion } from "@/lib/meta/tipos";
@@ -53,6 +54,7 @@ export function NumeroConectado() {
         return { canal, colas: colas ? colas.filter((c) => c.activa) : null };
     });
     useNombreEnMigas(lectura.estado === "listo" ? lectura.datos?.canal.nombre : null);
+    if (useIrAPrestamo(lectura.estado === "listo" ? lectura.datos?.canal : null)) return <YendoAPrestamo />;
     return (
         <CargaRegistro lectura={lectura} que="el número" noEncontrado="Número no encontrado">
             {(d) => <Pantalla inicial={d.canal} colas={d.colas} />}

@@ -1,6 +1,6 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { ADMIN, CONSULTA, CREDENCIALES_WA, conSesion, simularApi, type ApiFalsa, type OpcionesApi } from "./api-falsa";
+import { ADMIN, AGENTE_CONV, CONSULTA, CREDENCIALES_WA, conSesion, simularApi, type ApiFalsa, type OpcionesApi } from "./api-falsa";
 import type { ResultadoQr } from "./api-meta";
 import { esTelefono } from "./ayudas";
 import { elegirOpcion } from "./controles";
@@ -267,6 +267,30 @@ test.describe("compartir números entre empresas", () => {
         expect(api.meta.cuerpos.find((c) => c.ruta.endsWith("/prestamo/configurar"))?.cuerpo).toEqual({ version: 1, avisosEmpresa: true });
     });
 
+    test("número prestado: credenciales, conectado y compartir llevan a su detalle", async ({ page }) => {
+        await abrir(page, "/administracion/numeros", { empresas: [{ id: 2, nombre: "Cable Norte" }], meta: { prestado: true } });
+        for (const sub of ["credenciales", "conectado", "compartir"]) {
+            await page.goto(`/administracion/numeros/9/${sub}`);
+            await expect(page).toHaveURL(/\/administracion\/numeros\/9\/prestamo$/);
+            await expect(page.getByRole("heading", { level: 1, name: "Avisos de Red Sur" })).toBeVisible();
+        }
+    });
+
+    test("sin `mensajeria.configurar`: ni «Ver detalle» del prestado ni se entra a préstamo o compartir", async ({ page }) => {
+        // Rosa tiene canales.configurar pero no mensajeria.configurar (GET /canales/{id} lo pide).
+        const { api } = await abrir(page, "/administracion", { empresas: [{ id: 2, nombre: "Cable Norte" }], meta: { prestado: true, prestamos: true } }, AGENTE_CONV.correo);
+        // Sin mensajeria.configurar la lista sale de GET /conversaciones/canales, con el prestado incluido.
+        const base = api.conversaciones.canales[0];
+        if (base) api.conversaciones.canales.push({ ...structuredClone(base), id: 9, nombre: "Avisos de Red Sur", numero: "+50222000005", prestadoPor: { empresaId: 1, nombre: "Red Sur" } });
+        await page.goto("/administracion/numeros");
+        await expect(page.locator('[data-numero="9"] [data-insignia="prestado"]')).toHaveText("Prestado por Red Sur");
+        await expect(page.getByRole("link", { name: /Ver detalle/ })).toHaveCount(0);
+        for (const ruta of ["/administracion/numeros/9/prestamo", "/administracion/numeros/2/compartir"]) {
+            await page.goto(ruta);
+            await expect(page.getByText("No tienes permiso para ver esta sección")).toBeVisible();
+        }
+    });
+
     test("compartir con otra empresa y dejar de compartir con motivo", async ({ page }) => {
         test.slow();
         const { api } = await abrir(page, "/administracion/numeros/2/compartir", { meta: { prestamos: true } });
@@ -313,9 +337,13 @@ test.describe("compartir números entre empresas", () => {
 });
 
 test.describe("bandeja con números compartidos", () => {
-    async function abrirConversacion(page: Page, correo = ADMIN.correo, prestamos = true) {
+    async function abrirConversacion(page: Page, correo = ADMIN.correo, prestamos = true, enOtraEmpresa = false) {
         await page.clock.setFixedTime(new Date(AHORA_CONV));
-        const ctx = await abrir(page, "/administracion", { meta: { prestamos } }, correo);
+        const ctx = await abrir(page, "/administracion", { meta: { prestamos, ...(enOtraEmpresa ? { enOtraEmpresa: [41] } : {}) } }, correo);
+        if (enOtraEmpresa) {
+            const c = ctx.api.conversaciones.conversaciones.find((x) => x.id === 41);
+            if (c) c.estado = "resuelta";
+        }
         ctx.api.conversaciones.mensajes.get(41)?.push(mensaje(41, { direccion: "saliente", texto: "Ya voy para allá", origen: "telefono", creadoEn: new Date(AHORA_CONV - 60_000).toISOString() }));
         await page.goto("/conversaciones?c=41");
         return ctx;
@@ -342,6 +370,38 @@ test.describe("bandeja con números compartidos", () => {
         expect(api.meta.cuerpos.find((c) => c.ruta.endsWith("/41/pasar-empresa"))?.cuerpo).toEqual({ version: 7, empresaId: 2, nota: "Es cliente de ustedes" });
         await expect(conv.locator("[data-solo-lectura]")).toHaveText("Solo lectura");
         await expect(conv.getByText(/Solo lectura: esta conversación pasó a otra empresa/)).toBeVisible();
+    });
+
+    test("409 conversacion_en_otra_empresa al reabrir: su mensaje, sin «Reintentar»", async ({ page }) => {
+        const { api } = await abrirConversacion(page, ADMIN.correo, true, true);
+        const conv = page.getByRole("region", { name: "Conversación con Carlos Ruiz" });
+        // En el teléfono «Reabrir» está en «Más acciones».
+        if (esTelefono(page)) {
+            await conv.getByRole("button", { name: "Más acciones" }).click();
+            await page.getByRole("menuitem", { name: "Reabrir" }).click();
+        } else await conv.getByRole("button", { name: "Reabrir" }).click();
+        const aviso = page.locator('[data-error-rapido="conversacion_en_otra_empresa"]');
+        await expect(aviso).toContainText("La atiende otra empresa que usa este número");
+        await expect(aviso).toContainText("Hasta que la resuelvan, aquí no se puede reabrir ni responder.");
+        await expect(aviso.getByRole("button", { name: /Reintentar|Recargar/ })).toHaveCount(0);
+        expect(api.meta.cuerpos.some((c) => c.ruta.endsWith("/41/reabrir"))).toBe(true);
+        await esperarSinDesbordes(page);
+        await captura(page, "en-otra-empresa-reabrir");
+        await aviso.getByRole("button", { name: "Cerrar" }).click();
+        await expect(aviso).toHaveCount(0);
+    });
+
+    test("409 conversacion_en_otra_empresa al responder una resuelta: su mensaje, sin «Reintentar»", async ({ page }) => {
+        const { api } = await abrirConversacion(page, ADMIN.correo, true, true);
+        const conv = page.getByRole("region", { name: "Conversación con Carlos Ruiz" });
+        await conv.getByRole("textbox", { name: /Mensaje para/ }).fill("¿Sigue sin servicio?");
+        await conv.getByRole("button", { name: "Enviar" }).click();
+        const hilo = conv.getByRole("log", { name: "Mensajes" });
+        await expect(hilo).toContainText("No se envió: la atiende otra empresa que usa este número");
+        await expect(hilo.getByRole("button", { name: "Reintentar" })).toHaveCount(0);
+        expect(api.meta.cuerpos.some((c) => c.ruta.endsWith("/41/mensajes"))).toBe(true);
+        await esperarSinDesbordes(page);
+        await captura(page, "en-otra-empresa-responder");
     });
 
     test("sin empresas destino (lista vacía), no se ofrece", async ({ page }) => {

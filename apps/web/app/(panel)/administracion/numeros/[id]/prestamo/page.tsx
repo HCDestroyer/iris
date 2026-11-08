@@ -6,7 +6,8 @@ export const metadata: Metadata = { title: "Número prestado" };
 
 export default function Pagina() {
     return (
-        <RequierePermiso permisos={["canales.configurar", "mensajeria.configurar"]}>
+        // GET /canales/{id} pide mensajeria.configurar.
+        <RequierePermiso permisos={["mensajeria.configurar"]}>
             <NumeroPrestado />
         </RequierePermiso>
     );

@@ -40,7 +40,7 @@ let cargando: Promise<SdkFacebook> | null = null;
 export function cargarSdk(appId: string, version: string, tiempoMs = 20_000): Promise<SdkFacebook> {
     if (typeof window === "undefined") return Promise.reject(new Error("sin navegador"));
     const iniciar = (fb: SdkFacebook) => {
-        fb.init({ appId, autoLogAppEvents: true, xfbml: false, version });
+        fb.init({ appId, autoLogAppEvents: false, xfbml: false, version });
         return fb;
     };
     if (window.FB) return Promise.resolve(iniciar(window.FB));
