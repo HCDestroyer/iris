@@ -5,12 +5,11 @@ import type { PlantillaManual } from "./tipos";
 export const MANUALES_FIBRA: PlantillaManual[] = [
     {
         codigo: "ftth-luces-ont",
-        revision: 1,
+        revision: 2,
         tecnologia: "ftth",
         titulo: "Fibra (FTTH): qué significan las luces de la ONT",
         resumen: "Cómo leer las luces PWR, PON, LOS, LAN y WiFi de la ONT o módem de fibra, qué es normal y qué hacer si LOS está en rojo o PON parpadea.",
         etiquetas: ["ftth", "fibra", "ont", "onu", "luces", "los", "pon"],
-        visibilidad: "cliente",
         cuerpo: `La **ONT** (también llamada ONU o módem de fibra) es la caja a la que llega el cable de fibra. Sus luces dicen en qué estado está el servicio. Los nombres cambian un poco según el modelo, pero casi todas tienen estas.
 
 ## Las luces y lo que es normal
@@ -34,7 +33,7 @@ export const MANUALES_FIBRA: PlantillaManual[] = [
 
 No llega señal por la fibra. Casi siempre es un cable doblado, aplastado o desconectado, o una falla en la calle.
 
-1. Revise el cable de fibra desde la ONT hasta donde entra a su casa: que no esté doblado, pisado por un mueble ni prensado por una puerta o ventana.
+1. Revise el cable de fibra desde la ONT hasta donde entra a su casa (solo mírelo, sin jalarlo ni moverlo): que no esté doblado, pisado por un mueble ni prensado por una puerta o ventana.
 2. **No** desconecte ni limpie el conector verde o azul.
 3. Reinicie la ONT una vez.
 4. Si LOS sigue en rojo, llámenos. Normalmente se necesita una revisión técnica.
@@ -61,12 +60,11 @@ Escríbanos al [número de WhatsApp] o llame al [número de soporte]. Si puede, 
     },
     {
         codigo: "ftth-cuidados-fibra",
-        revision: 1,
+        revision: 2,
         tecnologia: "ftth",
         titulo: "Fibra (FTTH): cuidados del cable de fibra",
         resumen: "El cable de fibra es delgado y delicado: cómo evitar doblarlo, pisarlo o desconectarlo, y por qué no hay que mirar el conector verde o azul.",
         etiquetas: ["ftth", "fibra", "cable", "conector", "cuidados"],
-        visibilidad: "cliente",
         cuerpo: `La fibra óptica lleva la señal como luz por un hilo de vidrio muy delgado. Es muy confiable, pero un mal trato puede cortar el servicio.
 
 ## No lo doble

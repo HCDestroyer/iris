@@ -5,12 +5,11 @@ import type { PlantillaManual } from "./tipos";
 export const MANUALES_INALAMBRICO: PlantillaManual[] = [
     {
         codigo: "wisp-antena-poe",
-        revision: 1,
+        revision: 2,
         tecnologia: "wisp",
         titulo: "Inalámbrico (WISP): la antena y el inyector PoE",
         resumen: "Cómo funcionan la antena del techo y el inyector PoE, cómo van los cables, qué luces revisar y por qué no hay que mover la antena.",
         etiquetas: ["wisp", "inalambrico", "antena", "poe", "cpe"],
-        visibilidad: "cliente",
         cuerpo: `En el servicio inalámbrico la señal llega por aire, desde una torre o antena de [Nombre del ISP], hasta la **antena** instalada en su techo. Así funciona su instalación.
 
 ## Los equipos
@@ -31,7 +30,7 @@ El inyector PoE tiene dos puertos:
 ## Las luces
 
 - El inyector PoE tiene una luz de **encendido**. Si está apagada, revise que esté bien conectado a la corriente.
-- Muchas antenas tienen luces de **señal** (varias barras o puntos). No hace falta subir a verlas; si el técnico se lo pide, puede describirlas.
+- Muchas antenas tienen luces de **señal** (varias barras o puntos). No suba a verlas: si se ven desde el suelo, sin subir, y el técnico se lo pide, puede describirlas.
 
 ## Cuide la antena
 
@@ -44,7 +43,7 @@ El inyector PoE tiene dos puertos:
 
 - Una lluvia fuerte puede bajar un poco la señal por un momento. Si al pasar la lluvia sigue fallando, avísenos.
 - Un viento fuerte puede mover la antena o el mástil. Si después de un ventarrón el servicio quedó lento o se corta, puede que la antena se haya desalineado.
-- En tormentas eléctricas fuertes puede desconectar el inyector PoE de la corriente y volver a conectarlo cuando pase.
+- Si se anuncia una tormenta eléctrica, desconecte de la corriente el inyector PoE y el router antes de que empiece. Durante la tormenta no toque los equipos ni el cable que baja de la antena. Vuelva a conectarlos cuando haya pasado.
 
 ## Cuándo llamar a soporte
 
@@ -56,12 +55,11 @@ Escríbanos al [número de WhatsApp] o llame al [número de soporte]. **No suba 
     },
     {
         codigo: "wisp-senal-baja",
-        revision: 1,
+        revision: 2,
         tecnologia: "wisp",
         titulo: "Inalámbrico (WISP): señal baja o intermitente",
         resumen: "Por qué la señal de la antena puede bajar (árboles, construcciones, línea de vista, cables), qué puede revisar usted y cuándo pedir una visita.",
         etiquetas: ["wisp", "inalambrico", "señal", "intermitencia", "linea de vista"],
-        visibilidad: "cliente",
         cuerpo: `Si su internet inalámbrico se corta seguido, va lento a ratos o falla más en ciertos momentos, puede ser un problema de señal entre su antena y nuestra torre.
 
 ## La línea de vista
@@ -81,7 +79,7 @@ La antena de su techo y nuestra torre necesitan **verse**: un camino libre de ob
 ## Qué puede revisar usted
 
 1. Que el inyector PoE esté encendido y que los cables estén bien conectados (vea «La antena y el inyector PoE»).
-2. Que el cable que baja del techo no esté pelado, quemado por el sol, mordido ni con agua en los conectores.
+2. Lo que se ve del cable desde el suelo o dentro de la casa: que no esté pelado, quemado por el sol o mordido.
 3. Desde el suelo, sin subir al techo: si la antena se ve movida, inclinada o con algo enfrente.
 4. Si hay árboles que crecieron entre su casa y la dirección de nuestra torre.
 5. Reinicie el inyector PoE y el router en orden.

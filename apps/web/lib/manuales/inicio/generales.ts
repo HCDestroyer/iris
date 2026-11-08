@@ -10,12 +10,11 @@ import type { PlantillaManual } from "./tipos";
 export const MANUALES_GENERALES: PlantillaManual[] = [
     {
         codigo: "sin-internet-primeros-pasos",
-        revision: 1,
+        revision: 2,
         tecnologia: "general",
         titulo: "Sin internet: primeros pasos",
         resumen: "Qué revisar antes de llamar: si falla en todos los dispositivos, la luz y los cables del equipo, reiniciar en orden y cuándo reportarlo.",
         etiquetas: ["general", "sin servicio", "sin internet", "reinicio", "diagnostico"],
-        visibilidad: "cliente",
         cuerpo: `Si se quedó sin internet, estos pasos resuelven la mayoría de los casos en pocos minutos.
 
 ## 1. ¿Falla en todos los dispositivos?
@@ -58,12 +57,11 @@ Tenga a mano el nombre del titular del servicio y cuéntenos qué luces ve encen
     },
     {
         codigo: "reiniciar-equipos",
-        revision: 1,
+        revision: 2,
         tecnologia: "general",
         titulo: "Reiniciar correctamente sus equipos (router, ONT o antena)",
         resumen: "El orden correcto para reiniciar el router y la ONT de fibra o el inyector PoE de la antena, cuánto esperar y qué no hacer.",
         etiquetas: ["general", "reinicio", "router", "ont", "poe"],
-        visibilidad: "cliente",
         cuerpo: `Reiniciar los equipos resuelve muchas fallas. Hacerlo en el orden correcto evita que el router arranque antes de tener señal.
 
 ## Antes de empezar
@@ -98,12 +96,11 @@ Si después de un reinicio completo sigue sin servicio, o si un equipo no encien
     },
     {
         codigo: "medir-velocidad",
-        revision: 1,
+        revision: 2,
         tecnologia: "general",
         titulo: "Internet lento: cómo medir la velocidad correctamente",
         resumen: "Cómo hacer una prueba de velocidad que sirva: por cable, sin otros dispositivos usando internet y a distintas horas. Qué datos enviarnos.",
         etiquetas: ["general", "lentitud", "velocidad", "prueba de velocidad", "wifi"],
-        visibilidad: "cliente",
         cuerpo: `Una prueba de velocidad hecha por WiFi, lejos del router o con otros dispositivos descargando, casi siempre da un resultado más bajo que su plan. Así se mide bien.
 
 ## Prepare la prueba
@@ -142,12 +139,11 @@ Si por cable los resultados quedan muy por debajo de su plan en varias pruebas, 
     },
     {
         codigo: "mejorar-wifi",
-        revision: 1,
+        revision: 2,
         tecnologia: "general",
         titulo: "Mejorar el WiFi en casa",
         resumen: "Dónde poner el router, cuándo usar 2.4 GHz o 5 GHz, qué causa interferencia y cuándo conviene un repetidor o un sistema de malla.",
         etiquetas: ["general", "wifi", "cobertura", "router", "repetidor"],
-        visibilidad: "cliente",
         cuerpo: `Muchas veces el servicio llega bien a la casa, pero el WiFi no alcanza a todos los ambientes. Estos consejos ayudan.
 
 ## Ubique bien el router
@@ -183,12 +179,11 @@ Muchos routers tienen dos redes con nombres parecidos, por ejemplo «MiCasa» y 
     },
     {
         codigo: "cambiar-nombre-clave-wifi",
-        revision: 1,
+        revision: 2,
         tecnologia: "general",
         titulo: "Cambiar el nombre y la contraseña del WiFi",
         resumen: "Pasos generales para cambiar el nombre de la red y la contraseña desde el navegador. Cada router es distinto: si tiene dudas, le ayudamos.",
         etiquetas: ["general", "wifi", "contraseña", "router", "seguridad"],
-        visibilidad: "cliente",
         cuerpo: `Cambiar la contraseña del WiFi de vez en cuando protege su red. Los menús cambian según la marca y el modelo del router; estos son los pasos generales.
 
 ## Antes de empezar
@@ -204,7 +199,7 @@ Muchos routers tienen dos redes con nombres parecidos, por ejemplo «MiCasa» y 
 3. Busque la sección **WiFi**, **WLAN** o **Inalámbrico**.
 4. Cambie el **nombre de la red** (SSID), si quiere.
 5. Cambie la **contraseña** (puede llamarse «clave», «WPA key» o «passphrase»).
-6. Si el router lo permite, elija la seguridad **WPA2-Personal** o **WPA3-Personal**.
+6. Si el router lo permite, elija la seguridad **WPA2/WPA3 (mixto)**. Si no aparece, use **WPA2-Personal**.
 7. Guarde los cambios. El WiFi se reiniciará y tendrá que volver a conectar todos sus dispositivos con la contraseña nueva.
 
 Si el router tiene dos redes (2.4 GHz y 5 GHz), cambie la contraseña en las dos.
@@ -213,7 +208,7 @@ Si el router tiene dos redes (2.4 GHz y 5 GHz), cambie la contraseña en las dos
 
 - Al menos **12 caracteres**, con letras, números y algún símbolo.
 - Que no sea su nombre, su número de teléfono, su fecha de nacimiento ni su dirección.
-- Una frase fácil de recordar también sirve: «MiPerroComeTortillas!24».
+- Una frase fácil de recordar, con algún número y símbolo, también sirve. Invente la suya: no use ejemplos que vea publicados.
 
 ## Tenga cuidado
 
@@ -226,12 +221,11 @@ Si no logra entrar al router o después del cambio no se conecta ningún disposi
     },
     {
         codigo: "cortes-de-energia",
-        revision: 1,
+        revision: 2,
         tecnologia: "general",
         titulo: "Cortes de energía: qué pasa con su servicio y cómo protegerlo",
         resumen: "Por qué se va el internet cuando se va la luz, qué hacer cuando vuelve la energía y qué UPS sirve para el router y la ONT o la antena.",
         etiquetas: ["general", "energia", "corte de luz", "ups", "proteccion"],
-        visibilidad: "cliente",
         cuerpo: `Sus equipos de internet necesitan electricidad. Cuando se va la luz en su casa, el servicio se detiene aunque la red de [Nombre del ISP] siga funcionando.
 
 ## Cuando se va la luz
@@ -248,7 +242,7 @@ Si no logra entrar al router o después del cambio no se conecta ningún disposi
 ## Proteja sus equipos
 
 - Conecte el router y la ONT o el inyector PoE a un **regulador de voltaje** o a un **protector contra picos**.
-- En tormentas eléctricas fuertes puede desconectar de la corriente el inyector PoE y el router. Vuelva a conectarlos cuando pase la tormenta.
+- Si se anuncia una tormenta eléctrica, desconecte de la corriente el inyector PoE y el router antes de que empiece. Durante la tormenta no toque los equipos ni el cable que baja de la antena. Vuelva a conectarlos cuando haya pasado.
 
 ## Una UPS para seguir conectado
 
@@ -263,17 +257,16 @@ Una **UPS** (batería de respaldo) mantiene encendidos los equipos durante un co
 ## Cuándo llamar a soporte
 
 - Volvió la luz hace más de 10 minutos, ya reinició y sigue sin internet.
-- Un equipo no enciende o huele a quemado después del corte. Desconéctelo y no lo vuelva a conectar.
+- Un equipo no enciende o huele a quemado después del corte. Si es seguro, desconéctelo del tomacorriente tomándolo del enchufe y con las manos secas. Si sale humo, no lo toque.
 - Escríbanos al [número de WhatsApp] o llame al [número de soporte].`,
     },
     {
         codigo: "visita-tecnica",
-        revision: 1,
+        revision: 2,
         tecnologia: "general",
         titulo: "Visita técnica: qué esperar y cómo prepararse",
         resumen: "Cómo se programa la visita, quién debe estar en casa, cómo identificar al técnico y cómo preparar el lugar para instalación de fibra o antena.",
         etiquetas: ["general", "visita tecnica", "instalacion", "tecnico"],
-        visibilidad: "cliente",
         cuerpo: `Cuando una falla no se resuelve por teléfono, o para instalar el servicio, enviamos a un técnico. Así puede prepararse.
 
 ## La cita
@@ -297,7 +290,7 @@ Una **UPS** (batería de respaldo) mantiene encendidos los equipos durante un co
 
 - Despeje el paso hasta donde está o donde irá el equipo.
 - Asegure a las mascotas.
-- **Fibra (FTTH)**: piense dónde quiere la ONT. Debe quedar cerca de un tomacorriente, en un lugar ventilado y donde el cable de fibra no quede doblado ni a la pasada.
+- **Fibra (FTTH)**: piense dónde quiere la ONT. Debe quedar cerca de un tomacorriente, en un lugar ventilado y donde el cable de fibra no quede doblado ni en el paso.
 - **Inalámbrico (WISP)**: el técnico necesitará subir al techo o a la terraza. Avísenos si el acceso es difícil o si necesita permiso de alguien más (administración, vecinos).
 
 ## Durante la visita
@@ -321,12 +314,11 @@ Escríbanos al [número de WhatsApp] o llame al [número de soporte].`,
     },
     {
         codigo: "pagos-y-reconexion",
-        revision: 1,
+        revision: 2,
         tecnologia: "general",
         titulo: "Pagos y reconexión: reportar un pago y promesa de pago",
         resumen: "Cómo reportar un pago con la foto de la boleta por WhatsApp, cómo pedir una promesa de pago y qué pasa con la reconexión del servicio.",
         etiquetas: ["general", "pagos", "boleta", "reconexion", "promesa de pago"],
-        visibilidad: "cliente",
         cuerpo: `Si su servicio se suspendió por falta de pago, o quiere avisarnos que ya pagó, estos son los pasos.
 
 ## Dónde pagar
@@ -368,12 +360,11 @@ Si no puede pagar hoy, puede pedir una **promesa de pago**: se compromete a paga
     },
     {
         codigo: "traslado-de-domicilio",
-        revision: 1,
+        revision: 2,
         tecnologia: "general",
         titulo: "Traslado o cambio de domicilio",
         resumen: "Cómo pedir el traslado de su servicio a otra dirección, por qué primero revisamos la cobertura y qué hacer con los equipos.",
         etiquetas: ["general", "traslado", "cambio de domicilio", "cobertura", "factibilidad"],
-        visibilidad: "cliente",
         cuerpo: `Si se va a mudar, puede llevarse su servicio de [Nombre del ISP]. Avísenos con anticipación para planificarlo.
 
 ## 1. Solicite el traslado
@@ -412,12 +403,11 @@ Puede que en la nueva dirección el servicio sea de otra tecnología o de otro p
     },
     {
         codigo: "seguridad-y-estafas",
-        revision: 1,
+        revision: 2,
         tecnologia: "general",
         titulo: "Seguridad: cuide su WiFi y evite estafas",
         resumen: "Por qué no compartir la contraseña del WiFi, cómo detectar dispositivos desconocidos y cómo reconocer estafas que se hacen pasar por su proveedor.",
         etiquetas: ["general", "seguridad", "estafas", "wifi", "contraseña"],
-        visibilidad: "cliente",
         cuerpo: `Su conexión es parte de su casa. Estos cuidados la protegen a usted y a su familia.
 
 ## No comparta la contraseña del WiFi
@@ -441,6 +431,8 @@ Puede que en la nueva dirección el servicio sea de otra tecnología o de otro p
 - códigos que le lleguen por mensaje de texto (SMS) o por WhatsApp;
 - depósitos a cuentas personales ni pagos con tarjetas de regalo o recargas;
 - instalar aplicaciones para controlar su teléfono o computadora a distancia.
+
+[Nota para el administrador: deje el «nunca» de las aplicaciones de control remoto solo si su soporte no las usa. Si las usa, explique aquí cómo reconocer una sesión legítima (quién la inicia y desde qué número). Borre esta nota antes de pasar el manual a «Para el cliente».]
 
 Desconfíe si:
 
