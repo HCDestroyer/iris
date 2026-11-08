@@ -199,6 +199,17 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
   plantilla aprobada, id idempotente); colas con miembros y supervisores
   (`/administracion/colas`); «Cuando no hay agentes» en cada número (bot, saludo y menú de hasta 9
   opciones) y ajustes de la bandeja (`/administracion/bandeja`, minutos de inactividad).
+- **Números de WhatsApp** (`/administracion/numeros`, `lib/numeros`, `componentes/numeros`,
+  contratos/conversaciones.md §1.1): lista con la conexión que calcula el servidor (icono + texto +
+  color; «Conectado» es un punto), «Credenciales» y «Activar» con `mensajeria.configurar` y
+  «Configurar» con `canales.configurar`. «Agregar número» (`/nuevo`) en tres pasos (lo que hay que
+  tener en Meta con «¿Dónde lo encuentro?», datos y webhook) y «Guardar y probar»: crea el número
+  (Iris genera el verify token) y abre «Conectar» (`/[id]/conectar`) con el resultado de
+  `POST /canales/{id}/probar` y el token una sola vez (pasa en memoria, nunca en la URL). «Credenciales»
+  (`/[id]/credenciales`): secretos «•••• guardado el …» (vacío = se queda el guardado), «Generar otro»
+  verify token, «Probar conexión» y «Desactivar número» con confirmación. La guía «Cómo conectar
+  WhatsApp» (`/guia`, `lib/numeros/guia.ts`) se dibuja con `MarkdownSeguro` y cada «¿Dónde lo
+  encuentro?» abre su sección en otra pestaña.
 
 No emite ni consume eventos.
 
