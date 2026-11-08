@@ -52,7 +52,9 @@ adjuntos. Lo que agrega lo nativo: cámara del sistema, escáner de códigos y G
 - **Pantallas de bloqueo del arranque** (`src/pantallas/Bloqueo.tsx`, `PantallaBloqueo`, con la
   opción B del login: logo centrado, título, explicación, el contenido y «Usar otra cuenta»). Toda
   pantalla que no deja seguir, también en sus errores, tiene «Usar otra cuenta» (cierra la sesión
-  como «¿No eres tú?») y el «Atrás» de Android hace lo mismo: **«Crea tu contraseña»** (contraseña
+  como «¿No eres tú?» y borra lo mismo que el cierre normal: push local y fotos en caché). El «Atrás»
+  de Android nunca cierra la sesión: sale de la app («Elegir empresa» desde «Cambiar empresa» vuelve
+  a la app; el bloqueo con huella sale dejándola bloqueada): **«Crea tu contraseña»** (contraseña
   temporal: la cambia ahí con el formulario de «Yo» y `POST /yo/contrasena` —lo único que la sesión
   limitada puede hacer además de salir— y entra directo; también si un admin se la pone con la app
   abierta), **sin empresa**, **elegir empresa**, **no se pudo abrir la base del teléfono** y el
