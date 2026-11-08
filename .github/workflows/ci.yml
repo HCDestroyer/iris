@@ -106,13 +106,11 @@ jobs:
   # OpenAPI, generado del catálogo de internal/nucleo/permisos.go). El job `contratos` asegura que el
   # enum esté al día con la API y `pnpm typecheck` falla si el panel usa un permiso que no existe.
   web:
-    name: Web (lint, typecheck, pruebas, build y Playwright)
+    name: Web (lint, typecheck, pruebas y build)
     needs: detectar
     if: needs.detectar.outputs.web == 'true'
     runs-on: ubuntu-24.04
-    # La suite de Playwright (4 proyectos, más de 1150 pruebas) ya tarda de 26 a 40 min: con 40 el
-    # job se cortaba por tiempo con todas las pruebas en verde. 60 deja margen mientras no se reparte.
-    timeout-minutes: 60
+    timeout-minutes: 30
     env:
       TZ: UTC
       NEXT_TELEMETRY_DISABLED: '1'
@@ -142,6 +140,37 @@ jobs:
       - name: Build
         run: pnpm build
 
+  # Playwright repartido en 4 máquinas (--shard): la suite pasó de 2000 pruebas (4 proyectos) y en
+  # una sola máquina superaba los 60 min. Cada parte hace su propio build de apps/web.
+  web-e2e:
+    name: Web Playwright (${{ matrix.parte }}/4)
+    needs: detectar
+    if: needs.detectar.outputs.web == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        parte: [1, 2, 3, 4]
+    env:
+      TZ: UTC
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Instalar dependencias
+        run: pnpm install --frozen-lockfile
+
+      - name: Build de apps/web
+        run: pnpm --filter @iris/web build
+
       # Solo Chromium (escritorio y teléfono 390 px se emulan en él; playwright.config.ts). Versión
       # del navegador = la de @playwright/test fijada en apps/web.
       - name: Instalar Chromium para Playwright
@@ -149,7 +178,7 @@ jobs:
 
       # Reutiliza el build anterior (next start); la API se simula con page.route.
       - name: Playwright (escritorio y teléfono, claro y oscuro)
-        run: pnpm --filter @iris/web e2e
+        run: pnpm --filter @iris/web exec playwright test --shard=${{ matrix.parte }}/4
         env:
           CI: '1'
           IRIS_E2E_SIN_BUILD: '1'
@@ -159,7 +188,7 @@ jobs:
         # actions/upload-artifact v7.0.2 fijada por SHA (acción nueva en el repo).
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.parte }}
           path: |
             apps/web/playwright-report/
             apps/web/test-results/
