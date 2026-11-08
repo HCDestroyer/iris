@@ -1052,28 +1052,36 @@ type MensajeriaBoleta struct {
 }
 
 type MensajeriaCanal struct {
-	ID                   int64
-	EmpresaID            *int64
-	Tipo                 string
-	Canal                string
-	Nombre               string
-	Numero               string
-	PhoneNumberID        string
-	WabaID               string
-	CredencialesCifradas []byte
-	Plantillas           []byte
-	PausadoHasta         *time.Time
-	Activo               bool
-	CreadoPor            *int64
-	Version              int32
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
-	Usos                 []string
-	AvisosEmpresa        bool
-	ColaID               *int64
-	HorarioID            *int64
-	FueraHorario         []byte
-	Bot                  []byte
+	ID                    int64
+	EmpresaID             *int64
+	Tipo                  string
+	Canal                 string
+	Nombre                string
+	Numero                string
+	PhoneNumberID         string
+	WabaID                string
+	CredencialesCifradas  []byte
+	Plantillas            []byte
+	PausadoHasta          *time.Time
+	Activo                bool
+	CreadoPor             *int64
+	Version               int32
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	Usos                  []string
+	AvisosEmpresa         bool
+	ColaID                *int64
+	HorarioID             *int64
+	FueraHorario          []byte
+	Bot                   []byte
+	UltimaPruebaEn        *time.Time
+	UltimoEstado          *string
+	UltimoDetalle         *string
+	WebhookVerificadoEn   *time.Time
+	UltimoMensajeEn       *time.Time
+	TokenGuardadoEn       *time.Time
+	AppSecretGuardadoEn   *time.Time
+	VerifyTokenGuardadoEn *time.Time
 }
 
 type MensajeriaChatConversacion struct {

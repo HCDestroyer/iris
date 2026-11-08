@@ -23,16 +23,27 @@ SELECT nextval(pg_get_serial_sequence('mensajeria.canales', 'id'))::bigint;
 
 -- name: InsertarCanal :one
 INSERT INTO mensajeria.canales (id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id,
-    credenciales_cifradas, plantillas, creado_por, usos, avisos_empresa, cola_id)
+    credenciales_cifradas, plantillas, creado_por, usos, avisos_empresa, cola_id,
+    token_guardado_en, app_secret_guardado_en, verify_token_guardado_en)
 OVERRIDING SYSTEM VALUE
 VALUES (@id, @empresa_id, @tipo, @canal, @nombre, @numero, @phone_number_id, @waba_id,
-    @credenciales_cifradas, @plantillas, @creado_por, @usos::text[], @avisos_empresa, sqlc.narg('cola_id'))
+    @credenciales_cifradas, @plantillas, @creado_por, @usos::text[], @avisos_empresa, sqlc.narg('cola_id'),
+    @guardado_en, @guardado_en, @guardado_en)
 RETURNING *;
 
 -- name: ActualizarCanal :one
+-- Cuándo se guardó cada credencial; un verify token nuevo obliga a verificar otra vez en Meta y
+-- un token, phone_number_id o número nuevos dejan el número sin probar (§1.1).
 UPDATE mensajeria.canales
 SET nombre = @nombre, numero = @numero, phone_number_id = @phone_number_id, waba_id = @waba_id,
     credenciales_cifradas = @credenciales_cifradas, plantillas = @plantillas,
+    token_guardado_en = CASE WHEN @cambio_token::boolean THEN @ahora ELSE token_guardado_en END,
+    app_secret_guardado_en = CASE WHEN @cambio_app_secret::boolean THEN @ahora ELSE app_secret_guardado_en END,
+    verify_token_guardado_en = CASE WHEN @cambio_verify_token::boolean THEN @ahora ELSE verify_token_guardado_en END,
+    webhook_verificado_en = CASE WHEN @cambio_verify_token::boolean THEN NULL ELSE webhook_verificado_en END,
+    ultimo_estado = CASE WHEN @limpiar_prueba::boolean THEN NULL ELSE ultimo_estado END,
+    ultimo_detalle = CASE WHEN @limpiar_prueba::boolean THEN NULL ELSE ultimo_detalle END,
+    ultima_prueba_en = CASE WHEN @limpiar_prueba::boolean THEN NULL ELSE ultima_prueba_en END,
     version = version + 1, updated_at = now()
 WHERE id = @id
 RETURNING *;
@@ -41,6 +52,21 @@ RETURNING *;
 UPDATE mensajeria.canales SET activo = @activo, version = version + 1, updated_at = now()
 WHERE id = @id
 RETURNING *;
+
+-- name: RegistrarPruebaCanal :one
+-- Resultado de POST /canales/{id}/probar (no sube version: no es una edición).
+UPDATE mensajeria.canales
+SET ultima_prueba_en = @probado_en, ultimo_estado = @estado, ultimo_detalle = sqlc.narg('detalle')
+WHERE id = @id
+RETURNING *;
+
+-- name: MarcarWebhookVerificado :exec
+UPDATE mensajeria.canales SET webhook_verificado_en = @verificado_en WHERE id = @id;
+
+-- name: MarcarWebhookRecibido :exec
+-- Último webhook firmado de Meta, con precisión de 1 minuto (no escribe la fila en cada mensaje).
+UPDATE mensajeria.canales SET ultimo_mensaje_en = sqlc.arg(recibido_en)::timestamptz
+WHERE id = sqlc.arg(id) AND (ultimo_mensaje_en IS NULL OR ultimo_mensaje_en < sqlc.arg(recibido_en)::timestamptz - '1 minute'::interval);
 
 -- name: PausarCanal :exec
 UPDATE mensajeria.canales SET pausado_hasta = @pausado_hasta, updated_at = now() WHERE id = @id;

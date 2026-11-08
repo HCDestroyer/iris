@@ -173,16 +173,43 @@ func (m *Modulo) Registrar(api huma.API) {
 	})
 	crear := op("crearCanalMensajeria", http.MethodPost, "/canales", "Configurar WhatsApp Cloud API de una empresa", nucleo.PermMensajeriaConfigurar,
 		http.StatusCreated, http.StatusConflict)
-	crear.Description += " Token, app secret y verify token se guardan cifrados (IRIS_CLAVE_CIFRADO) y nunca se devuelven. Uno activo por empresa (409 `canal_existente`). " +
-		"`webhookRuta` es la ruta que se configura en la app de Meta (verificación con el verify token y firma con el app secret)."
+	crear.Description += " Token, app secret y verify token se guardan cifrados (IRIS_CLAVE_CIFRADO) y nunca se devuelven. Una empresa puede tener varios números; " +
+		"409 `canal_existente` solo si el `phoneNumberId` ya está en otro número activo. Sin `verifyToken`, Iris genera uno y lo devuelve **una sola vez** " +
+		"en `verifyTokenGenerado` (con Idempotency-Key esa respuesta no se guarda: repetir la clave responde 409 `idempotencia_no_repetible`). " +
+		"`webhookUrl` es la URL que se pega en la app de Meta (verificación con el verify token y firma con el app secret); contratos/conversaciones.md §1.1."
 	huma.Register(api, crear, func(ctx context.Context, in *entradaCrearHTTP) (*cuerpo[Canal], error) {
-		return responder(m.CrearCanal.Ejecutar(ctx, in.Body))
+		c, err := m.CrearCanal.Ejecutar(ctx, in.Body)
+		if err == nil && c.VerifyTokenGenerado != nil {
+			nucleo.NoRepetible(ctx)
+		}
+		return responder(c, err)
+	})
+	verCanal := op("verCanalMensajeria", http.MethodGet, "/canales/{id}", "Un canal de mensajería (sin credenciales)", nucleo.PermMensajeriaConfigurar,
+		http.StatusOK, http.StatusNotFound)
+	verCanal.Description += " Solo personas con sesión del panel (un token o una integración: 404). 404 también si es de otra empresa o no tiene empresa."
+	huma.Register(api, verCanal, func(ctx context.Context, in *entradaCambioHTTP) (*cuerpo[Canal], error) {
+		return responder(m.VerCanal.Ejecutar(ctx, EntradaVerCanal{ID: in.ID}))
+	})
+	probar := op("probarCanalMensajeria", http.MethodPost, "/canales/{id}/probar", "Probar la conexión de un número con Meta", nucleo.PermMensajeriaConfigurar,
+		http.StatusOK, http.StatusNotFound, http.StatusConflict)
+	probar.Description += " Solo personas con sesión del panel (un token o una integración: 404). Llama a la Graph API `GET /{phone_number_id}` con el token guardado y " +
+		"responde `conectado`, `token_invalido` (401/190), `numero_no_coincide`, `sin_permiso` (403/10/200–299) o `error_meta`, con `webhookVerificado`. " +
+		"Guarda el resultado en el número (sin subir `version`), audita y emite `canal_mensajeria.probado`. 409 `conflicto_version` si el número se editó durante la prueba. " +
+		"contratos/conversaciones.md §1.1."
+	huma.Register(api, probar, func(ctx context.Context, in *entradaCambioHTTP) (*cuerpo[PruebaCanal], error) {
+		return responder(m.ProbarCanal.Ejecutar(ctx, EntradaProbarCanal{ID: in.ID}))
 	})
 	act := op("actualizarCanalMensajeria", http.MethodPost, "/canales/{id}/actualizar", "Actualizar un canal (credenciales vacías: no cambian)",
 		nucleo.PermMensajeriaConfigurar, http.StatusOK, http.StatusNotFound, http.StatusConflict)
+	act.Description += " `generarVerifyToken: true` genera un verify token nuevo y lo devuelve una vez en `verifyTokenGenerado` (la respuesta no se guarda con la " +
+		"Idempotency-Key). Un verify token nuevo borra `webhookVerificadoEn`; otro token, `phoneNumberId` o `numero` dejan el número sin probar."
 	huma.Register(api, act, func(ctx context.Context, in *entradaActualizarHTTP) (*cuerpo[Canal], error) {
 		in.Body.ID = in.ID
-		return responder(m.ActualizarCanal.Ejecutar(ctx, in.Body))
+		c, err := m.ActualizarCanal.Ejecutar(ctx, in.Body)
+		if err == nil && c.VerifyTokenGenerado != nil {
+			nucleo.NoRepetible(ctx)
+		}
+		return responder(c, err)
 	})
 	huma.Register(api, op("activarCanalMensajeria", http.MethodPost, "/canales/{id}/activar", "Activar un canal", nucleo.PermMensajeriaConfigurar,
 		http.StatusOK, http.StatusNotFound, http.StatusConflict), func(ctx context.Context, in *entradaCambioHTTP) (*cuerpo[Canal], error) {

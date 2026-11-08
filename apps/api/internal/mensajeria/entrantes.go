@@ -98,6 +98,10 @@ func nuevoRecibirMeta(m *Modulo) *auditoria.Caso[EntradaMeta, MetaRecibido] {
 			}
 			t.FijarEntidad("canal_mensajeria", c.ID)
 			fijarEmpresaCanal(t, c.EmpresaID)
+			// Último webhook de Meta (contratos/conversaciones.md §1.1), aunque sea un reenvío.
+			if err := q.MarcarWebhookRecibido(ctx, mensajeriabd.MarcarWebhookRecibidoParams{ID: c.ID, RecibidoEn: m.ahora()}); err != nil {
+				return MetaRecibido{}, err
+			}
 			h := sha256.Sum256(in.Cuerpo)
 			id, err := q.InsertarEntrante(ctx, mensajeriabd.InsertarEntranteParams{CanalID: c.ID, HashCuerpo: h[:], Payload: in.Cuerpo})
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -133,6 +137,11 @@ func nuevoVerificarMeta(m *Modulo) *auditoria.Caso[EntradaVerificarMeta, string]
 			}
 			t.FijarEntidad("canal_mensajeria", c.ID)
 			fijarEmpresaCanal(t, c.EmpresaID)
+			// Meta verificó la suscripción: el panel deja de mostrar «Webhook sin verificar» (§1.1).
+			ahora := m.ahora()
+			if err := mensajeriabd.New(t).MarcarWebhookVerificado(ctx, mensajeriabd.MarcarWebhookVerificadoParams{ID: c.ID, VerificadoEn: &ahora}); err != nil {
+				return "", err
+			}
 			return in.Challenge, nil
 		},
 	})
