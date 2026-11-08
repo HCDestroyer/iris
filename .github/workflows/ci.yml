@@ -77,10 +77,13 @@ jobs:
           go-version-file: apps/api/go.mod
           cache-dependency-path: apps/api/go.sum
 
+      # Se compila desde el proxy de módulos de Go (goinstall) y no se baja de las Releases de GitHub:
+      # esa descarga respondía 504 de forma intermitente y tumbaba el job antes de las pruebas.
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
+          install-mode: goinstall
           working-directory: apps/api
 
       - name: go vet
