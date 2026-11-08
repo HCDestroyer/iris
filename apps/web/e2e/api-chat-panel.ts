@@ -53,7 +53,7 @@ function idMensaje(): string {
     return `0193a000-0000-7000-8000-${n}`;
 }
 
-export async function simularChatPanel(page: Page): Promise<ApiChatPanel> {
+export async function simularChatPanel(page: Page, registrar?: (peticion: string) => void): Promise<ApiChatPanel> {
     const conversaciones = new Map<number, Conversacion>();
     const mensajes = new Map<number, Mensaje[]>();
     const lecturas = new Map<number, Lectura[]>();
@@ -209,6 +209,7 @@ export async function simularChatPanel(page: Page): Promise<ApiChatPanel> {
                 cuerpo = undefined;
             }
             api.peticiones.push({ metodo, ruta, cuerpo });
+            registrar?.(`${metodo} ${BASE}${ruta}`);
             const q = url.searchParams;
             const num = (re: RegExp) => Number(re.exec(ruta)?.[1]);
 

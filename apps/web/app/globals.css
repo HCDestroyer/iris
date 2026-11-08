@@ -46,3 +46,15 @@ body:has([data-slot="formulario-pagina"]) #contenido {
         height: calc(100dvh - 3.5rem);
     }
 }
+
+/*
+ * Chat del equipo flotante (`PanelLateral`): flota sobre la página sin correrla. En escritorio
+ * (desde 1024 px) los avisos emergentes van abajo a la derecha: con el panel abierto se corren a su
+ * izquierda para no tapar su compositor. Debajo de 1024 px los avisos van en la barra superior,
+ * por encima del panel, y no se cruzan.
+ */
+@media (min-width: 1024px) {
+    body:has([data-slot="panel-lateral"]) [data-region="avisos-emergentes"][data-ubicacion="bottom end"] {
+        inset-inline-end: calc(23.75rem + 1.5rem);
+    }
+}
