@@ -16,9 +16,9 @@ export const SECCIONES: readonly Seccion[] = [
     {
         href: "/administracion/numeros",
         titulo: "Números de WhatsApp",
-        descripcion: "Uso, cola, horario y fuera de horario de cada número de la empresa.",
+        descripcion: "Agregar números, credenciales de Meta, conexión, uso, cola y horario.",
         icono: Phone,
-        permisos: ["canales.configurar"],
+        permisos: ["canales.configurar", "mensajeria.configurar"],
     },
     {
         href: "/administracion/colas",

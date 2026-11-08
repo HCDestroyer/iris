@@ -29,7 +29,8 @@ test.describe("administración de la bandeja", () => {
         await expect(avisos).toContainText("Avisos de la empresa");
         await expect(avisos).toContainText("Todos los días 6:00–22:00");
         await expect(page.locator('[data-numero="4"]')).toContainText("Lun–Vie 8:00–17:00 · Sáb 8:00–12:00");
-        await expect(page.locator('[data-numero="3"]')).toContainText("Mensaje automático y guardia para fallas masivas");
+        // La conexión con Meta la calcula el servidor (contrato §1.1).
+        await expect(page.locator('[data-numero="3"] [data-conexion]')).toHaveText("Conectado");
         await esperarSinDesbordes(page);
         await page.screenshot({ path: path.join(carpeta, `numeros-${info.project.name}.png`), fullPage: true });
 
