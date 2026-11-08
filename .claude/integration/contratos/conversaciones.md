@@ -1280,7 +1280,8 @@ pausa) para todas. El tope por minuto de Iris (§6.5 de Argos) también es por n
 revocado). «Empresas del número» = la dueña + las que lo usan con préstamo activo:
 
 1. Si hay una conversación **no resuelta** de ese teléfono en ese número en una empresa del
-   número, sigue ahí: la de la dueña si la hay; si no, la más antigua. Motivo `conversacion_abierta`.
+   número, sigue ahí: la de la dueña si la hay; si no, la de actividad más reciente del cliente
+   (su último mensaje). Motivo `conversacion_abierta`.
 2. Si no, si una empresa del número **empezó** la conversación en las últimas 24 h (un aviso
    enviado a ese teléfono por ese número, o una plantilla mandada por una persona), va a esa
    empresa (la más reciente). Motivo `iniciada_por_empresa`.
@@ -1294,10 +1295,16 @@ revocado). «Empresas del número» = la dueña + las que lo usan con préstamo 
 **Lo mandado desde el teléfono** (ecos de un número QR compartido) solo sigue al paso 1; sin
 conversación abierta es de la dueña (el teléfono es suyo), nunca por los pasos 2 y 3.
 
-**Iniciar sobre una conversación ajena:** en un número compartido, `POST /conversaciones/iniciar`
-responde 409 `conversacion_en_otra_empresa` si otra empresa del número tiene una conversación no
-resuelta con ese teléfono (y `Destinatario.motivo` lo dice). Así nadie le quita a otra empresa una
-conversación abierta con una plantilla.
+**Iniciar sobre una conversación ajena:** en un número compartido, `POST /conversaciones/iniciar`,
+`POST /conversaciones/{id}/reabrir` y `POST /conversaciones/{id}/mensajes` en una conversación
+resuelta o con plantilla responden 409 `conversacion_en_otra_empresa` si otra empresa del número
+tiene una conversación no resuelta con ese teléfono (y `Destinatario.motivo` lo dice). Así nadie le
+quita a otra empresa una conversación abierta. El mensaje rechazado no queda guardado ni cuenta como
+inicio de la conversación.
+
+**Adjuntos:** al responder con `adjuntoId` y al registrar una boleta, el adjunto debe ser de la
+empresa de la conversación (si no, 422 `adjunto_no_listo`): los de las notas que se quedaron con la
+dueña al pasar una conversación no se pueden usar.
 
 Cuando la regla elige empresa (pasos 2 y 3) se emite `conversacion.empresa_asignada`
 `{ conversacion_id, empresa_id, canal_id, motivo, anterior_empresa_id (o null) }`. El paso 1 no
@@ -1368,7 +1375,7 @@ lo usan con préstamo activo; 0 si no está compartido), `NumeroConversaciones.p
 | `uso_no_permitido` | 422 | El préstamo no permite ese uso (plantilla, iniciar, número de avisos) |
 | `conversacion_solo_lectura` | 422 | Acción sobre una conversación de un préstamo revocado |
 | `conversacion_existente` | 409 | Pasar a una empresa que ya tiene esa conversación |
-| `conversacion_en_otra_empresa` | 409 | Iniciar en un número compartido con un teléfono que tiene una conversación abierta en otra empresa |
+| `conversacion_en_otra_empresa` | 409 | Iniciar, reabrir, o responder en una resuelta o con plantilla, en un número compartido con un teléfono que tiene una conversación abierta en otra empresa |
 | `base_url_requerida` | 422 | QR en modo `saas` o `compartida` sin `IRIS_BASE_URL` absoluta |
 | `conversacion_con_vinculos` | 422 | Pasar una conversación con vínculos |
 

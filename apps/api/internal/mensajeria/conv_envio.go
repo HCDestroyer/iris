@@ -225,6 +225,13 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 			if !canal.Activo {
 				return MensajeConvEnviado{}, reglaConv("canal_inactivo", "El número de esta conversación está desactivado")
 			}
+			// Responder en una resuelta o con plantilla abre la conversación al cliente: en un número
+			// compartido, no si otra empresa tiene una abierta con ese teléfono (§15.3).
+			if c.Estado == EstadoConvResuelta || in.Plantilla != nil {
+				if err := otraEmpresaConversa(ctx, q, canal.ID, empresaDeConv(c), c.Numero); err != nil {
+					return MensajeConvEnviado{}, err
+				}
+			}
 			if in.Plantilla != nil {
 				// Un número prestado: las plantillas solo con un uso de conversación (§15.3).
 				u, err := usoDe(ctx, q, canal, empresaDeConv(c))
@@ -271,7 +278,7 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 			}
 			if in.AdjuntoID != nil {
 				adj, err := adjuntos.DeEntidad(ctx, t, *in.AdjuntoID, EntidadAdjuntosConversacion, strconv.FormatInt(c.ID, 10))
-				if err != nil || adj.Estado != adjuntos.EstadoCompleto {
+				if err != nil || adj.Estado != adjuntos.EstadoCompleto || !adjuntoDeEmpresa(ctx, q, adj.ID, empresaDeConv(c)) {
 					return MensajeConvEnviado{}, reglaConv("adjunto_no_listo", "El adjunto no es de esta conversación o aún no termina de subir")
 				}
 				if adj.Tamano > MaxAdjuntoSaliente {

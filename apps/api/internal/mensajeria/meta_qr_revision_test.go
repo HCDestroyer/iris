@@ -1,13 +1,17 @@
 package mensajeria_test
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
@@ -63,7 +67,7 @@ func TestRevisionM1NoCapturaConversacionAbierta(t *testing.T) {
 	if n := p.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND proveedor_id = $2`, c1, wamid); n != 1 {
 		t.Fatalf("la regla 1 no prefirió a la dueña (conversación de la 2: %d)", c2)
 	}
-	// Sin la dueña: la más antigua (empresa 3 antes que la 2).
+	// Sin la dueña: la de actividad más reciente del cliente (la 3 escribió después).
 	if _, err := p.bd.Exec(p.ctx, `INSERT INTO nucleo.empresas (id, nombre, origen) VALUES (3, 'Empresa 3', 'argos') ON CONFLICT DO NOTHING`); err != nil {
 		t.Fatal(err)
 	}
@@ -73,18 +77,18 @@ func TestRevisionM1NoCapturaConversacionAbierta(t *testing.T) {
 	}
 	n3 := numeroCliente()
 	var c3 int64
-	if err := p.bd.QueryRow(p.ctx, `INSERT INTO mensajeria.conversaciones (empresa_id, canal_id, numero, ultima_actividad) VALUES (3, $1, $2, now()) RETURNING id`,
-		p.canal.ID, "+"+n3).Scan(&c3); err != nil {
+	if _, err := p.bd.Exec(p.ctx, `INSERT INTO mensajeria.conversaciones (empresa_id, canal_id, numero, ultima_actividad, ultimo_entrante_en)
+		VALUES (2, $1, $2, now() + interval '3 hour', now())`, p.canal.ID, "+"+n3); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.bd.Exec(p.ctx, `INSERT INTO mensajeria.conversaciones (empresa_id, canal_id, numero, ultima_actividad) VALUES (2, $1, $2, now() + interval '1 hour')`,
-		p.canal.ID, "+"+n3); err != nil {
+	if err := p.bd.QueryRow(p.ctx, `INSERT INTO mensajeria.conversaciones (empresa_id, canal_id, numero, ultima_actividad, ultimo_entrante_en)
+		VALUES (3, $1, $2, now(), now() + interval '1 hour') RETURNING id`, p.canal.ID, "+"+n3).Scan(&c3); err != nil {
 		t.Fatal(err)
 	}
 	wamid = "wamid.m1e-" + pruebas.Unico()
 	p.texto(n3, wamid, "Hola")
 	if n := p.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND proveedor_id = $2`, c3, wamid); n != 1 {
-		t.Fatal("la regla 1 no eligió la más antigua")
+		t.Fatal("la regla 1 no eligió la de actividad más reciente del cliente")
 	}
 }
 
@@ -346,4 +350,184 @@ func TestEmpresasDestino(t *testing.T) {
 	}
 	// La conversación de la otra empresa: 404.
 	p.exigir(p.api(p.sup2, http.MethodGet, fmt.Sprintf("/conversaciones/%d/empresas-destino", c), nil), http.StatusNotFound)
+}
+
+// N1: reabrir una conversación vieja en un número compartido no le quita a otra empresa la abierta.
+func TestRevisionN1Reabrir(t *testing.T) {
+	p := nuevoPrestamo(t)
+	n := numeroCliente()
+	p.texto(n, "wamid.n1-"+pruebas.Unico(), "Hola")
+	c1, e, _ := p.convDe(n)
+	if e != 1 {
+		t.Fatal("no fue a la dueña")
+	}
+	d := p.api(p.supervisor, http.MethodGet, fmt.Sprintf("/conversaciones/%d", c1), nil)
+	p.exigir(p.api(p.supervisor, http.MethodPost, fmt.Sprintf("/conversaciones/%d/resolver", c1), map[string]any{"version": d.cuerpo["version"]}), http.StatusOK)
+	p.clienteArgos(2, n)
+	p.texto(n, "wamid.n1b-"+pruebas.Unico(), "Ahora soy de Cable Norte")
+	c2, e2, _ := p.convDe(n)
+	if e2 != 2 {
+		t.Fatal("no fue a la 2")
+	}
+	d = p.api(p.supervisor, http.MethodGet, fmt.Sprintf("/conversaciones/%d", c1), nil)
+	r := p.api(p.supervisor, http.MethodPost, fmt.Sprintf("/conversaciones/%d/reabrir", c1), map[string]any{"version": d.cuerpo["version"]})
+	if r.status != http.StatusConflict || !strings.HasSuffix(fmt.Sprint(r.cuerpo["type"]), "conversacion_en_otra_empresa") {
+		t.Fatalf("reabrir: %d %v", r.status, r.cuerpo)
+	}
+	wamid := "wamid.n1c-" + pruebas.Unico()
+	p.texto(n, wamid, "¿Siguen ahí?")
+	if c := p.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND proveedor_id = $2`, c2, wamid); c != 1 {
+		t.Fatal("el mensaje no siguió en la conversación de la 2")
+	}
+}
+
+// N2: responder en una resuelta (o con plantilla) tampoco le quita a otra empresa la abierta.
+func TestRevisionN2Responder(t *testing.T) {
+	p := nuevoPrestamo(t)
+	n := numeroCliente()
+	p.texto(n, "wamid.n2-"+pruebas.Unico(), "Hola")
+	c1, _, _ := p.convDe(n)
+	d := p.api(p.supervisor, http.MethodGet, fmt.Sprintf("/conversaciones/%d", c1), nil)
+	p.exigir(p.api(p.supervisor, http.MethodPost, fmt.Sprintf("/conversaciones/%d/resolver", c1), map[string]any{"version": d.cuerpo["version"]}), http.StatusOK)
+	p.clienteArgos(2, n)
+	p.texto(n, "wamid.n2b-"+pruebas.Unico(), "Soy de Cable Norte")
+	if _, e, _ := p.convDe(n); e != 2 {
+		t.Fatal("no fue a la 2")
+	}
+	for _, cuerpo := range []map[string]any{
+		{"id": uuid.Must(uuid.NewV7()).String(), "texto": "Hola de nuevo"},
+		{"id": uuid.Must(uuid.NewV7()).String(), "plantilla": map[string]any{"codigo": "bienvenida", "variables": map[string]any{"plan": "Fibra"}}},
+	} {
+		r := p.api(p.supervisor, http.MethodPost, fmt.Sprintf("/conversaciones/%d/mensajes", c1), cuerpo)
+		if r.status != http.StatusConflict || !strings.HasSuffix(fmt.Sprint(r.cuerpo["type"]), "conversacion_en_otra_empresa") {
+			t.Fatalf("responder: %d %v", r.status, r.cuerpo)
+		}
+	}
+	// Nada quedó registrado como inicio de la dueña.
+	if c := p.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND direccion = 'saliente'`, c1); c != 0 {
+		t.Fatalf("quedaron %d salientes", c)
+	}
+	wamid := "wamid.n2c-" + pruebas.Unico()
+	p.texto(n, wamid, "¿Hola?")
+	if c := p.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes m JOIN mensajeria.conversaciones c ON c.id = m.conversacion_id
+		WHERE m.proveedor_id = $1 AND c.empresa_id = 2`, wamid); c != 1 {
+		t.Fatal("el mensaje no siguió en la 2")
+	}
+}
+
+// N3: un adjunto de otra empresa no se manda ni se registra como boleta en la conversación.
+func TestRevisionN3AdjuntoDeOtraEmpresa(t *testing.T) {
+	p := nuevoPrestamo(t)
+	n := numeroCliente()
+	p.clienteArgos(2, n)
+	p.webhook(p.mensajeCliente(n, "wamid.n3-"+pruebas.Unico(), `"type":"image","image":{"id":"foto-n3","mime_type":"image/jpeg"}`))
+	c, e, _ := p.convDe(n)
+	if e != 2 {
+		t.Fatal("no fue a la 2")
+	}
+	ms := p.mensajes(p.sup2, fmt.Sprint(c))
+	if err := p.m.DescargarMedio(p.ctx, uuid.MustParse(ms[len(ms)-1]["id"].(string)), false); err != nil {
+		t.Fatal(err)
+	}
+	ms = p.mensajes(p.sup2, fmt.Sprint(c))
+	adj := ms[len(ms)-1]["adjunto"].(map[string]any)["id"].(string)
+	// El adjunto queda de otra empresa (p. ej. el de una nota de la dueña de una conversación pasada).
+	if _, err := p.bd.Exec(p.ctx, `UPDATE nucleo.adjuntos SET empresa_id = 1 WHERE id = $1`, adj); err != nil {
+		t.Fatal(err)
+	}
+	r := p.api(p.sup2, http.MethodPost, fmt.Sprintf("/conversaciones/%d/mensajes", c), map[string]any{"id": uuid.Must(uuid.NewV7()).String(), "adjuntoId": adj})
+	p.exigir(r, http.StatusUnprocessableEntity, "type", "urn:iris:problema:adjunto_no_listo")
+	boleta := map[string]any{"adjuntoId": adj, "metodo": "deposito", "cuentaBancariaId": 3, "referencia": "N3-" + pruebas.Unico(), "monto": "250.00",
+		"fechaDeposito": "2026-11-04"}
+	p.exigir(p.api(p.sup2, http.MethodPost, fmt.Sprintf("/conversaciones/%d/boletas", c), boleta), http.StatusUnprocessableEntity, "type",
+		"urn:iris:problema:adjunto_no_listo")
+	// De su empresa, sí.
+	if _, err := p.bd.Exec(p.ctx, `UPDATE nucleo.adjuntos SET empresa_id = 2 WHERE id = $1`, adj); err != nil {
+		t.Fatal(err)
+	}
+	p.exigir(p.api(p.sup2, http.MethodPost, fmt.Sprintf("/conversaciones/%d/mensajes", c), map[string]any{"id": uuid.Must(uuid.NewV7()).String(), "adjuntoId": adj}),
+		http.StatusCreated)
+	if r := p.api(p.sup2, http.MethodPost, fmt.Sprintf("/conversaciones/%d/boletas", c), boleta); r.status/100 != 2 {
+		t.Fatalf("boleta con el adjunto de su empresa: %d %v", r.status, r.cuerpo)
+	}
+}
+
+// transporteCaido falla como un error de red real: su texto trae la URL completa.
+type transporteCaido struct{}
+
+func (transporteCaido) RoundTrip(r *http.Request) (*http.Response, error) {
+	return nil, &url.Error{Op: r.Method, URL: r.URL.String(), Err: errors.New("dial tcp: conexión rechazada")}
+}
+
+// N4 · B2: con la red caída, ni el secreto ni el código salen en la respuesta ni en la auditoría.
+func TestRevisionN4RedCaidaSinSecretos(t *testing.T) {
+	b, _, admin := entornoQR(t, func(c *mensajeria.Config) { c.HTTPMeta = &http.Client{Transport: transporteCaido{}} })
+	conectarMeta(b, admin)
+	r := b.api(admin, http.MethodPost, "/conexion-meta/probar", nil)
+	b.exigir(r, http.StatusOK, "estado", "error")
+	codigo := "AQB-red-" + pruebas.Unico()
+	q := conectarQR(b, admin, pnidNuevo(), codigo, "")
+	if q.status != http.StatusBadGateway {
+		t.Fatalf("QR con la red caída: %d %v", q.status, q.cuerpo)
+	}
+	var aud string
+	if err := b.bd.QueryRow(b.ctx, `SELECT coalesce(string_agg(entrada::text || coalesce(resultado::text, ''), ''), '') FROM auditoria.acciones
+		WHERE accion LIKE 'mensajeria.%conexion%' OR accion LIKE 'mensajeria.conectar_qr%'`).Scan(&aud); err != nil {
+		t.Fatal(err)
+	}
+	sinSecretos(t, cadena(r.cuerpo)+cadena(q.cuerpo)+aud, appSecretQR, codigo, "access_token", "client_secret")
+}
+
+// centralFalso es un servicio central que sí responde (para probar M3 en modo compartida).
+type centralFalso struct {
+	alternos []*mensajeria.WebhookAlterno
+}
+
+func (c *centralFalso) CanjearCodigo(context.Context, string) (string, error) {
+	return tokenNegocio, nil
+}
+func (c *centralFalso) ConsultarNumero(context.Context, string, string, string) (mensajeria.NumeroRegistrado, error) {
+	return mensajeria.NumeroRegistrado{Numero: "+50255123344"}, nil
+}
+func (c *centralFalso) SuscribirWABA(_ context.Context, _, _ string, a *mensajeria.WebhookAlterno) error {
+	c.alternos = append(c.alternos, a)
+	return nil
+}
+func (c *centralFalso) PedirSincronizacion(context.Context, string, string, string) (string, error) {
+	return "req", nil
+}
+
+// N4 · M3 en modo compartida: siempre la URL del número; sin IRIS_BASE_URL, 422.
+func TestRevisionN4CompartidaSiempreURLDelNumero(t *testing.T) {
+	central := &centralFalso{}
+	b, _, admin := entornoQR(t, func(c *mensajeria.Config) { c.ServicioCentral = central })
+	b.exigir(b.api(admin, http.MethodPost, "/conexion-meta/actualizar", map[string]any{"version": 0, "modo": "compartida", "claveEnlace": "clave-de-enlace-horus-0123456"}),
+		http.StatusOK)
+	r := conectarQR(b, admin, pnidNuevo(), "AQB-"+pruebas.Unico(), "")
+	b.exigir(r, http.StatusCreated)
+	if len(central.alternos) != 1 || central.alternos[0] == nil ||
+		central.alternos[0].URL != fmt.Sprintf("https://iris.ejemplo.gt/api/v1/mensajeria/canales/%v/webhook", r.cuerpo["id"]) {
+		t.Fatalf("compartida sin override: %v", central.alternos)
+	}
+	central2 := &centralFalso{}
+	b2, _, admin2 := entornoQR(t, func(c *mensajeria.Config) {
+		c.ServicioCentral = central2
+		c.BaseURL = ""
+	})
+	b2.exigir(b2.api(admin2, http.MethodPost, "/conexion-meta/actualizar", map[string]any{"version": 0, "modo": "compartida", "claveEnlace": "clave-de-enlace-horus-0123456"}),
+		http.StatusOK)
+	q := conectarQR(b2, admin2, pnidNuevo(), "AQB-"+pruebas.Unico(), "")
+	if q.status != http.StatusUnprocessableEntity || !strings.HasSuffix(fmt.Sprint(q.cuerpo["type"]), "base_url_requerida") || len(central2.alternos) != 0 {
+		t.Fatalf("compartida sin IRIS_BASE_URL: %d %v", q.status, q.cuerpo)
+	}
+}
+
+// N4 · B7: el préstamo solo a una empresa registrada (FK).
+func TestRevisionN4FKPrestamo(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	_, err := b.bd.Exec(b.ctx, `INSERT INTO mensajeria.canal_prestamos (canal_id, empresa_id, usos, prestado_en) VALUES ($1, 987654321, '{soporte}', now())`, b.canal.ID)
+	var pg *pgconn.PgError
+	if !errors.As(err, &pg) || pg.Code != "23503" {
+		t.Fatalf("FK de canal_prestamos.empresa_id: %v", err)
+	}
 }

@@ -628,7 +628,7 @@ const conversacionesNoResueltasDeNumero = `-- name: ConversacionesNoResueltasDeN
 
 SELECT id, empresa_id, ultima_actividad FROM mensajeria.conversaciones
 WHERE canal_id = $1 AND numero = $2 AND estado <> 'resuelta'
-ORDER BY id
+ORDER BY coalesce(ultimo_entrante_en, ultima_actividad) DESC, id DESC
 `
 
 type ConversacionesNoResueltasDeNumeroParams struct {
@@ -643,7 +643,8 @@ type ConversacionesNoResueltasDeNumeroRow struct {
 }
 
 // A qué empresa va un mensaje (§15.3) ---------------------------------------------------------------
-// La más antigua primero (la regla 1 prefiere la de la dueña y, si no, la más antigua).
+// La de actividad más reciente del cliente primero (la regla 1 prefiere la de la dueña y, si no,
+// esta).
 func (q *Queries) ConversacionesNoResueltasDeNumero(ctx context.Context, arg ConversacionesNoResueltasDeNumeroParams) ([]ConversacionesNoResueltasDeNumeroRow, error) {
 	rows, err := q.db.Query(ctx, conversacionesNoResueltasDeNumero, arg.CanalID, arg.Numero)
 	if err != nil {
@@ -787,6 +788,17 @@ func (q *Queries) DesconectarCanal(ctx context.Context, arg DesconectarCanalPara
 		&i.Sincronizacion,
 	)
 	return i, err
+}
+
+const empresaAdjunto = `-- name: EmpresaAdjunto :one
+SELECT empresa_id FROM nucleo.adjuntos WHERE id = $1
+`
+
+func (q *Queries) EmpresaAdjunto(ctx context.Context, id uuid.UUID) (*int64, error) {
+	row := q.db.QueryRow(ctx, empresaAdjunto, id)
+	var empresa_id *int64
+	err := row.Scan(&empresa_id)
+	return empresa_id, err
 }
 
 const fijarAvisosPrestamo = `-- name: FijarAvisosPrestamo :one

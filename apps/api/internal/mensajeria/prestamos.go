@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
@@ -613,7 +614,7 @@ func (m *Modulo) rutear(ctx context.Context, q *mensajeriabd.Queries, canal mens
 		return destinoEntrante{empresa: e, cola: colas[e], motivo: motivo, compartido: true}
 	}
 	// 1. Una conversación no resuelta en una empresa del número la conserva: la de la dueña si la
-	// hay; si no, la más antigua.
+	// hay; si no, la de actividad más reciente del cliente.
 	abiertas, err := q.ConversacionesNoResueltasDeNumero(ctx, mensajeriabd.ConversacionesNoResueltasDeNumeroParams{CanalID: canal.ID, Numero: numero})
 	if err != nil {
 		return d, err
@@ -851,4 +852,11 @@ func nuevoEmpresasDestino() *auditoria.Caso[EntradaEmpresasDestino, ListaEmpresa
 			return out, nil
 		},
 	})
+}
+
+// adjuntoDeEmpresa: el adjunto es de la empresa de la conversación (una conversación pasada a otra
+// empresa deja con la anterior los adjuntos de sus notas).
+func adjuntoDeEmpresa(ctx context.Context, q *mensajeriabd.Queries, id uuid.UUID, empresa int64) bool {
+	e, err := q.EmpresaAdjunto(ctx, id)
+	return err == nil && derefEmpresa(e) == empresa
 }

@@ -211,10 +211,14 @@ FOR UPDATE;
 -- A qué empresa va un mensaje (§15.3) ---------------------------------------------------------------
 
 -- name: ConversacionesNoResueltasDeNumero :many
--- La más antigua primero (la regla 1 prefiere la de la dueña y, si no, la más antigua).
+-- La de actividad más reciente del cliente primero (la regla 1 prefiere la de la dueña y, si no,
+-- esta).
 SELECT id, empresa_id, ultima_actividad FROM mensajeria.conversaciones
 WHERE canal_id = @canal_id AND numero = @numero AND estado <> 'resuelta'
-ORDER BY id;
+ORDER BY coalesce(ultimo_entrante_en, ultima_actividad) DESC, id DESC;
+
+-- name: EmpresaAdjunto :one
+SELECT empresa_id FROM nucleo.adjuntos WHERE id = @id;
 
 -- name: IniciosRecientes :many
 -- Empresas que empezaron una conversación con ese número por ese canal: avisos enviados y
