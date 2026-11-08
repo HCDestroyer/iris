@@ -243,6 +243,8 @@ export type PropsBarraGuardar = {
     alCancelar?: () => void;
     /** `id` del `<form>` si la barra queda fuera de él. */
     form?: string;
+    /** Línea a la izquierda de los botones («Al guardar, Iris prueba la conexión con Meta.»). */
+    nota?: ReactNode;
     className?: string;
 };
 
@@ -259,6 +261,7 @@ export function BarraGuardar({
     motivo,
     alCancelar,
     form,
+    nota,
     className,
 }: PropsBarraGuardar) {
     return (
@@ -278,6 +281,12 @@ export function BarraGuardar({
             <BotonEnviar enviando={enviando} textoEnviando={textoEnviando} faltan={faltan} {...(motivo ? { motivo } : {})} {...(form ? { form } : {})}>
                 {textoGuardar}
             </BotonEnviar>
+            {/* Arriba de los botones en el teléfono (columna invertida); a la izquierda en escritorio. */}
+            {nota ? (
+                <p data-slot="nota-barra" className="min-w-0 text-sm text-muted-foreground sm:order-first sm:mr-auto">
+                    {nota}
+                </p>
+            ) : null}
         </div>
     );
 }
