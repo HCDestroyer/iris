@@ -25,7 +25,7 @@ SET nombre = $1, numero = $2, phone_number_id = $3, waba_id = $4,
     ultima_prueba_en = CASE WHEN $11::boolean THEN NULL ELSE ultima_prueba_en END,
     version = version + 1, updated_at = now()
 WHERE id = $12
-RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en
+RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en, tipo_conexion, coexistencia, conectado_en, desconectado_en, desconectado_motivo, ultimo_eco_en, sincronizacion
 `
 
 type ActualizarCanalParams struct {
@@ -92,6 +92,13 @@ func (q *Queries) ActualizarCanal(ctx context.Context, arg ActualizarCanalParams
 		&i.TokenGuardadoEn,
 		&i.AppSecretGuardadoEn,
 		&i.VerifyTokenGuardadoEn,
+		&i.TipoConexion,
+		&i.Coexistencia,
+		&i.ConectadoEn,
+		&i.DesconectadoEn,
+		&i.DesconectadoMotivo,
+		&i.UltimoEcoEn,
+		&i.Sincronizacion,
 	)
 	return i, err
 }
@@ -344,7 +351,7 @@ func (q *Queries) BloquearRemitente(ctx context.Context, remitente string) error
 const canalPorID = `-- name: CanalPorID :one
 
 
-SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en FROM mensajeria.canales WHERE id = $1
+SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en, tipo_conexion, coexistencia, conectado_en, desconectado_en, desconectado_motivo, ultimo_eco_en, sincronizacion FROM mensajeria.canales WHERE id = $1
 `
 
 // Mensajería (contrato Iris ↔ ArgosISP 0.6.0 §6). sqlc: mensajeriabd.
@@ -383,12 +390,19 @@ func (q *Queries) CanalPorID(ctx context.Context, id int64) (MensajeriaCanal, er
 		&i.TokenGuardadoEn,
 		&i.AppSecretGuardadoEn,
 		&i.VerifyTokenGuardadoEn,
+		&i.TipoConexion,
+		&i.Coexistencia,
+		&i.ConectadoEn,
+		&i.DesconectadoEn,
+		&i.DesconectadoMotivo,
+		&i.UltimoEcoEn,
+		&i.Sincronizacion,
 	)
 	return i, err
 }
 
 const canalPorIDParaActualizar = `-- name: CanalPorIDParaActualizar :one
-SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en FROM mensajeria.canales WHERE id = $1 FOR UPDATE
+SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en, tipo_conexion, coexistencia, conectado_en, desconectado_en, desconectado_motivo, ultimo_eco_en, sincronizacion FROM mensajeria.canales WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) CanalPorIDParaActualizar(ctx context.Context, id int64) (MensajeriaCanal, error) {
@@ -425,12 +439,19 @@ func (q *Queries) CanalPorIDParaActualizar(ctx context.Context, id int64) (Mensa
 		&i.TokenGuardadoEn,
 		&i.AppSecretGuardadoEn,
 		&i.VerifyTokenGuardadoEn,
+		&i.TipoConexion,
+		&i.Coexistencia,
+		&i.ConectadoEn,
+		&i.DesconectadoEn,
+		&i.DesconectadoMotivo,
+		&i.UltimoEcoEn,
+		&i.Sincronizacion,
 	)
 	return i, err
 }
 
 const canalesActivosDeEmpresas = `-- name: CanalesActivosDeEmpresas :many
-SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en FROM mensajeria.canales
+SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en, tipo_conexion, coexistencia, conectado_en, desconectado_en, desconectado_motivo, ultimo_eco_en, sincronizacion FROM mensajeria.canales
 WHERE activo AND ($1::boolean OR coalesce(empresa_id, 0) = ANY($2::bigint[]))
 ORDER BY id
 `
@@ -480,6 +501,13 @@ func (q *Queries) CanalesActivosDeEmpresas(ctx context.Context, arg CanalesActiv
 			&i.TokenGuardadoEn,
 			&i.AppSecretGuardadoEn,
 			&i.VerifyTokenGuardadoEn,
+			&i.TipoConexion,
+			&i.Coexistencia,
+			&i.ConectadoEn,
+			&i.DesconectadoEn,
+			&i.DesconectadoMotivo,
+			&i.UltimoEcoEn,
+			&i.Sincronizacion,
 		); err != nil {
 			return nil, err
 		}
@@ -770,7 +798,7 @@ func (q *Queries) EnviadosRecientes(ctx context.Context, arg EnviadosRecientesPa
 const fijarCanalActivo = `-- name: FijarCanalActivo :one
 UPDATE mensajeria.canales SET activo = $1, version = version + 1, updated_at = now()
 WHERE id = $2
-RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en
+RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en, tipo_conexion, coexistencia, conectado_en, desconectado_en, desconectado_motivo, ultimo_eco_en, sincronizacion
 `
 
 type FijarCanalActivoParams struct {
@@ -812,6 +840,13 @@ func (q *Queries) FijarCanalActivo(ctx context.Context, arg FijarCanalActivoPara
 		&i.TokenGuardadoEn,
 		&i.AppSecretGuardadoEn,
 		&i.VerifyTokenGuardadoEn,
+		&i.TipoConexion,
+		&i.Coexistencia,
+		&i.ConectadoEn,
+		&i.DesconectadoEn,
+		&i.DesconectadoMotivo,
+		&i.UltimoEcoEn,
+		&i.Sincronizacion,
 	)
 	return i, err
 }
@@ -923,7 +958,7 @@ OVERRIDING SYSTEM VALUE
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
     $9, $10, $11, $12::text[], $13, $14,
     $15, $15, $15)
-RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en
+RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en, tipo_conexion, coexistencia, conectado_en, desconectado_en, desconectado_motivo, ultimo_eco_en, sincronizacion
 `
 
 type InsertarCanalParams struct {
@@ -994,6 +1029,13 @@ func (q *Queries) InsertarCanal(ctx context.Context, arg InsertarCanalParams) (M
 		&i.TokenGuardadoEn,
 		&i.AppSecretGuardadoEn,
 		&i.VerifyTokenGuardadoEn,
+		&i.TipoConexion,
+		&i.Coexistencia,
+		&i.ConectadoEn,
+		&i.DesconectadoEn,
+		&i.DesconectadoMotivo,
+		&i.UltimoEcoEn,
+		&i.Sincronizacion,
 	)
 	return i, err
 }
@@ -1105,7 +1147,7 @@ func (q *Queries) InsertarWebhookSalida(ctx context.Context, arg InsertarWebhook
 }
 
 const listarCanales = `-- name: ListarCanales :many
-SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en FROM mensajeria.canales
+SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en, tipo_conexion, coexistencia, conectado_en, desconectado_en, desconectado_motivo, ultimo_eco_en, sincronizacion FROM mensajeria.canales
 WHERE ($1::boolean OR coalesce(empresa_id, 0) = ANY($2::bigint[]))
 ORDER BY id
 `
@@ -1155,6 +1197,13 @@ func (q *Queries) ListarCanales(ctx context.Context, arg ListarCanalesParams) ([
 			&i.TokenGuardadoEn,
 			&i.AppSecretGuardadoEn,
 			&i.VerifyTokenGuardadoEn,
+			&i.TipoConexion,
+			&i.Coexistencia,
+			&i.ConectadoEn,
+			&i.DesconectadoEn,
+			&i.DesconectadoMotivo,
+			&i.UltimoEcoEn,
+			&i.Sincronizacion,
 		); err != nil {
 			return nil, err
 		}
@@ -1437,7 +1486,7 @@ const registrarPruebaCanal = `-- name: RegistrarPruebaCanal :one
 UPDATE mensajeria.canales
 SET ultima_prueba_en = $1, ultimo_estado = $2, ultimo_detalle = $3
 WHERE id = $4
-RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en
+RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en, tipo_conexion, coexistencia, conectado_en, desconectado_en, desconectado_motivo, ultimo_eco_en, sincronizacion
 `
 
 type RegistrarPruebaCanalParams struct {
@@ -1487,6 +1536,13 @@ func (q *Queries) RegistrarPruebaCanal(ctx context.Context, arg RegistrarPruebaC
 		&i.TokenGuardadoEn,
 		&i.AppSecretGuardadoEn,
 		&i.VerifyTokenGuardadoEn,
+		&i.TipoConexion,
+		&i.Coexistencia,
+		&i.ConectadoEn,
+		&i.DesconectadoEn,
+		&i.DesconectadoMotivo,
+		&i.UltimoEcoEn,
+		&i.Sincronizacion,
 	)
 	return i, err
 }

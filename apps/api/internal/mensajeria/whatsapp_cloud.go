@@ -276,6 +276,8 @@ func FirmarMeta(appSecret string, cuerpo []byte) string {
 type metaWebhook struct {
 	Object string `json:"object"`
 	Entry  []struct {
+		// ID de la WABA (account_update de un socio puede traer otro; ver waba_info).
+		ID      string `json:"id"`
 		Changes []struct {
 			Field string `json:"field"`
 			Value struct {
@@ -285,11 +287,55 @@ type metaWebhook struct {
 				Statuses []metaEstado   `json:"statuses"`
 				Messages []metaMensaje  `json:"messages"`
 				Contacts []metaContacto `json:"contacts"`
-				// phone_number_quality_update
+				// phone_number_quality_update y account_update.
 				Event string `json:"event"`
+				// Coexistencia (contratos/conversaciones.md §15.2): lo que se manda desde el teléfono,
+				// el historial y los contactos de la app WhatsApp Business.
+				MessageEchoes []metaMensaje       `json:"message_echoes"`
+				History       []metaHistorial     `json:"history"`
+				StateSync     []metaEstadoContact `json:"state_sync"`
+				// account_update.
+				WabaInfo *struct {
+					WabaID string `json:"waba_id"`
+				} `json:"waba_info"`
+				DisconnectionInfo *struct {
+					Reason      string `json:"reason"`
+					InitiatedBy string `json:"initiated_by"`
+				} `json:"disconnection_info"`
 			} `json:"value"`
 		} `json:"changes"`
 	} `json:"entry"`
+}
+
+// metaHistorial es un lote del historial (webhook history).
+type metaHistorial struct {
+	Metadata struct {
+		Phase      int `json:"phase"`
+		ChunkOrder int `json:"chunk_order"`
+		Progress   int `json:"progress"`
+	} `json:"metadata"`
+	Threads []struct {
+		ID      string `json:"id"`
+		Context struct {
+			WaID     string `json:"wa_id"`
+			Username string `json:"username"`
+		} `json:"context"`
+		Messages []metaMensaje `json:"messages"`
+	} `json:"threads"`
+	Errors []struct {
+		Code int `json:"code"`
+	} `json:"errors"`
+}
+
+// metaEstadoContact es un contacto de la app del teléfono (webhook smb_app_state_sync).
+type metaEstadoContact struct {
+	Type    string `json:"type"`
+	Action  string `json:"action"`
+	Contact struct {
+		FullName    string `json:"full_name"`
+		FirstName   string `json:"first_name"`
+		PhoneNumber string `json:"phone_number"`
+	} `json:"contact"`
 }
 
 type metaEstado struct {
@@ -303,7 +349,9 @@ type metaEstado struct {
 }
 
 type metaMensaje struct {
-	From      string `json:"from"`
+	From string `json:"from"`
+	// To: el cliente en los ecos (smb_message_echoes) y en el historial mandado desde el número.
+	To        string `json:"to"`
 	ID        string `json:"id"`
 	Timestamp string `json:"timestamp"`
 	Type      string `json:"type"`

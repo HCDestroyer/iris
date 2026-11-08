@@ -186,6 +186,7 @@ sql:
       - internal/mensajeria/conversaciones.sql
       - internal/mensajeria/horarios.sql
       - internal/mensajeria/bandeja.sql
+      - internal/mensajeria/meta_qr.sql
     gen:
       go:
         <<: *gen
@@ -199,6 +200,7 @@ sql:
           mensajeria_respuestas_rapida: MensajeriaRespuestaRapida
           mensajeria_cola: MensajeriaCola
           mensajeria_cola_supervisore: MensajeriaColaSupervisor
+          mensajeria_conexion_metum: MensajeriaConexionMeta
   - <<: *base
     queries: internal/notificaciones/consultas.sql
     gen:

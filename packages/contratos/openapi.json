@@ -1761,6 +1761,10 @@
             ],
             "type": "string"
           },
+          "coexistencia": {
+            "description": "El número sigue en la app WhatsApp Business del teléfono",
+            "type": "boolean"
+          },
           "colaId": {
             "description": "Cola de las conversaciones nuevas de este número",
             "format": "int64",
@@ -1769,10 +1773,24 @@
               "null"
             ]
           },
+          "compartidoCon": {
+            "description": "Empresas que lo usan con préstamo activo (0 = no compartido)",
+            "format": "int64",
+            "type": "integer"
+          },
+          "conectadoEn": {
+            "description": "Cuándo se conectó con QR",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "conexion": {
             "description": "Estado de la conexión para la lista (§1.1), calculado en el servidor",
             "enum": [
               "desactivado",
+              "desconectado",
               "sin_probar",
               "conectado",
               "webhook_sin_verificar",
@@ -1786,6 +1804,21 @@
           "creadoEn": {
             "format": "date-time",
             "type": "string"
+          },
+          "desconectadoEn": {
+            "description": "Meta lo desconectó (account_update)",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "desconectadoMotivo": {
+            "description": "partner_removed, account_offboarded o la razón de Meta en minúsculas (primary_inactivity…)",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "empresaId": {
             "format": "int64",
@@ -1841,9 +1874,29 @@
             "description": "Plantillas aprobadas en Meta por código de Iris",
             "type": "object"
           },
+          "prestadoPor": {
+            "$ref": "#/components/schemas/EmpresaRef",
+            "description": "Solo en un número prestado a tu empresa: la empresa dueña"
+          },
+          "prestamo": {
+            "$ref": "#/components/schemas/PrestamoPropio",
+            "description": "Solo en un número prestado a tu empresa: usos, cola y número de avisos"
+          },
+          "sincronizacion": {
+            "$ref": "#/components/schemas/SincronizacionCanal",
+            "description": "Solo números QR: contactos e historial"
+          },
           "tipo": {
             "enum": [
               "whatsapp_cloud"
+            ],
+            "type": "string"
+          },
+          "tipoConexion": {
+            "description": "api: datos de la API; qr: conectado con QR (coexistencia con la app WhatsApp Business)",
+            "enum": [
+              "api",
+              "qr"
             ],
             "type": "string"
           },
@@ -1864,6 +1917,14 @@
           },
           "ultimoDetalle": {
             "description": "Detalle corto de la última prueba (nunca credenciales)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ultimoEcoEn": {
+            "description": "Último mensaje mandado desde el teléfono (precisión de 1 minuto). Meta desconecta el número a los ~14 días sin abrir la app",
+            "format": "date-time",
             "type": [
               "string",
               "null"
@@ -1969,6 +2030,13 @@
           "tokenGuardadoEn",
           "appSecretGuardadoEn",
           "verifyTokenGuardadoEn",
+          "tipoConexion",
+          "coexistencia",
+          "ultimoEcoEn",
+          "conectadoEn",
+          "desconectadoEn",
+          "desconectadoMotivo",
+          "compartidoCon",
           "version",
           "creadoEn"
         ],
@@ -2962,6 +3030,39 @@
         ],
         "type": "object"
       },
+      "ComprobacionMeta": {
+        "additionalProperties": false,
+        "properties": {
+          "clave": {
+            "enum": [
+              "app",
+              "configuracion",
+              "webhook",
+              "tech_provider"
+            ],
+            "type": "string"
+          },
+          "detalle": {
+            "description": "En español; nunca lleva secretos ni el mensaje de Meta",
+            "type": "string"
+          },
+          "estado": {
+            "enum": [
+              "ok",
+              "error",
+              "advertencia",
+              "sin_verificar"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "clave",
+          "estado",
+          "detalle"
+        ],
+        "type": "object"
+      },
       "Conector": {
         "additionalProperties": false,
         "properties": {
@@ -3158,6 +3259,181 @@
           "webhookUrl",
           "webhookSecreto",
           "estado"
+        ],
+        "type": "object"
+      },
+      "ConexionMeta": {
+        "additionalProperties": false,
+        "properties": {
+          "actualizadoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "appId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "appSecretGuardadoEn": {
+            "description": "Cuándo se guardó el app secret (nunca el valor)",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "camposWebhook": {
+            "description": "Campos del webhook a suscribir en Meta",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "claveEnlaceGuardadaEn": {
+            "description": "Cuándo se guardó la clave de enlace (nunca el valor)",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "comprobaciones": {
+            "items": {
+              "$ref": "#/components/schemas/ComprobacionMeta"
+            },
+            "type": "array"
+          },
+          "configId": {
+            "description": "Configuración de Facebook Login para empresas (WhatsApp Embedded Signup)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "sin_configurar",
+              "sin_probar",
+              "lista",
+              "error",
+              "sin_servicio_central",
+              "gestionada"
+            ],
+            "type": "string"
+          },
+          "gestionada": {
+            "description": "true en modo saas: solo lectura",
+            "type": "boolean"
+          },
+          "graphVersion": {
+            "description": "Versión efectiva de la Graph API",
+            "type": "string"
+          },
+          "graphVersionPropia": {
+            "description": "La guardada; null = la de Iris",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "modo": {
+            "enum": [
+              "sin_configurar",
+              "propia",
+              "compartida",
+              "saas"
+            ],
+            "type": "string"
+          },
+          "motivoQr": {
+            "enum": [
+              "sin_configurar",
+              "servicio_central_no_disponible"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "qrDisponible": {
+            "type": "boolean"
+          },
+          "servicioUrl": {
+            "description": "Servicio central (modo compartida)",
+            "type": "string"
+          },
+          "ultimaPruebaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ultimoWebhookEn": {
+            "description": "Último webhook firmado en la URL de la app (precisión de 1 minuto)",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "verifyTokenGenerado": {
+            "description": "Verify token del webhook de la app: solo en esta respuesta, una vez",
+            "type": "string"
+          },
+          "verifyTokenGuardadoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "webhookUrl": {
+            "description": "URL del webhook de la app para pegar en Meta",
+            "type": "string"
+          },
+          "webhookUrlCompleta": {
+            "type": "boolean"
+          },
+          "webhookVerificadoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "modo",
+          "gestionada",
+          "appId",
+          "configId",
+          "graphVersion",
+          "graphVersionPropia",
+          "appSecretGuardadoEn",
+          "servicioUrl",
+          "claveEnlaceGuardadaEn",
+          "webhookUrl",
+          "webhookUrlCompleta",
+          "verifyTokenGuardadoEn",
+          "webhookVerificadoEn",
+          "ultimoWebhookEn",
+          "camposWebhook",
+          "estado",
+          "qrDisponible",
+          "motivoQr",
+          "ultimaPruebaEn",
+          "comprobaciones",
+          "version",
+          "actualizadoEn"
         ],
         "type": "object"
       },
@@ -3912,6 +4188,10 @@
           "sla": {
             "$ref": "#/components/schemas/SLAConversacion"
           },
+          "soloLectura": {
+            "description": "El número ya no está compartido con tu empresa (préstamo revocado, §15.3): solo se puede leer",
+            "type": "boolean"
+          },
           "titulo": {
             "description": "Cliente de Argos \u003e contacto de Iris \u003e perfil de WhatsApp \u003e número",
             "type": "string"
@@ -3946,6 +4226,7 @@
           "ventana",
           "sla",
           "noLeidos",
+          "soloLectura",
           "ultimaActividad",
           "creadaEn"
         ],
@@ -4044,6 +4325,10 @@
           "sla": {
             "$ref": "#/components/schemas/SLAConversacion"
           },
+          "soloLectura": {
+            "description": "El número ya no está compartido con tu empresa (préstamo revocado, §15.3): solo se puede leer",
+            "type": "boolean"
+          },
           "supervisores": {
             "description": "Supervisores de su cola",
             "items": {
@@ -4095,6 +4380,7 @@
           "ventana",
           "sla",
           "noLeidos",
+          "soloLectura",
           "ultimaActividad",
           "creadaEn"
         ],
@@ -5112,6 +5398,47 @@
           "id",
           "nombre",
           "nit"
+        ],
+        "type": "object"
+      },
+      "EmpresaOpcion": {
+        "additionalProperties": false,
+        "properties": {
+          "colas": {
+            "items": {
+              "$ref": "#/components/schemas/ColaRef"
+            },
+            "type": "array"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "nombre": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nombre",
+          "colas"
+        ],
+        "type": "object"
+      },
+      "EmpresaRef": {
+        "additionalProperties": false,
+        "properties": {
+          "empresaId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "nombre": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "empresaId",
+          "nombre"
         ],
         "type": "object"
       },
@@ -6167,6 +6494,66 @@
         ],
         "type": "object"
       },
+      "EntradaCanalQR": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "description": "El código del callback de FB.login (vive ~30 s). Nunca se guarda",
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          },
+          "colaId": {
+            "format": "int64",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "empresaId": {
+            "description": "Por defecto la empresa activa",
+            "format": "int64",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "nombre": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "phoneNumberId": {
+            "pattern": "^[0-9]{1,30}$",
+            "type": "string"
+          },
+          "usos": {
+            "description": "Por defecto soporte",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 4,
+            "type": [
+              "array",
+              "null"
+            ],
+            "uniqueItems": true
+          },
+          "wabaId": {
+            "pattern": "^[0-9]{1,30}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "wabaId",
+          "phoneNumberId",
+          "nombre"
+        ],
+        "type": "object"
+      },
       "EntradaCanjear": {
         "additionalProperties": false,
         "properties": {
@@ -6487,6 +6874,73 @@
         ],
         "type": "object"
       },
+      "EntradaConexionMeta": {
+        "additionalProperties": false,
+        "properties": {
+          "appId": {
+            "pattern": "^[0-9]{1,30}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "appSecret": {
+            "description": "Solo escritura; vacío = no cambia",
+            "maxLength": 256,
+            "type": "string"
+          },
+          "claveEnlace": {
+            "description": "Solo escritura; vacío = no cambia",
+            "maxLength": 512,
+            "type": "string"
+          },
+          "configId": {
+            "pattern": "^[0-9]{1,30}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "generarVerifyToken": {
+            "description": "Genera otro verify token para el webhook de la app",
+            "type": "boolean"
+          },
+          "graphVersion": {
+            "description": "null = la de Iris",
+            "pattern": "^v[0-9]{1,2}\\.[0-9]$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "modo": {
+            "enum": [
+              "propia",
+              "compartida"
+            ],
+            "type": "string"
+          },
+          "servicioUrl": {
+            "description": "https; null = la por defecto",
+            "maxLength": 300,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "description": "0 la primera vez",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "modo"
+        ],
+        "type": "object"
+      },
       "EntradaConfigurarCanal": {
         "additionalProperties": false,
         "properties": {
@@ -6540,6 +6994,26 @@
         "required": [
           "version",
           "usos",
+          "avisosEmpresa"
+        ],
+        "type": "object"
+      },
+      "EntradaConfigurarPrestamoHTTPBody": {
+        "additionalProperties": false,
+        "properties": {
+          "avisosEmpresa": {
+            "description": "Número de avisos de tu empresa (exige el uso avisos)",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "Canal.prestamo.version",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
           "avisosEmpresa"
         ],
         "type": "object"
@@ -9355,6 +9829,30 @@
         ],
         "type": "object"
       },
+      "EntradaPasarEmpresa": {
+        "additionalProperties": false,
+        "properties": {
+          "empresaId": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "nota": {
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "empresaId"
+        ],
+        "type": "object"
+      },
       "EntradaPausar": {
         "additionalProperties": false,
         "properties": {
@@ -9525,6 +10023,49 @@
           "contenido",
           "noMolestar",
           "zonaHoraria"
+        ],
+        "type": "object"
+      },
+      "EntradaPrestamoHTTPBody": {
+        "additionalProperties": false,
+        "properties": {
+          "colaId": {
+            "description": "Cola de esa empresa donde caen sus conversaciones (null = sin cola)",
+            "format": "int64",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "empresaId": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "usos": {
+            "description": "avisos, soporte, cobros, ventas: para esa empresa sí limitan",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "type": [
+              "array",
+              "null"
+            ],
+            "uniqueItems": true
+          },
+          "version": {
+            "description": "La del préstamo si ya existe",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "empresaId",
+          "usos"
         ],
         "type": "object"
       },
@@ -10319,6 +10860,27 @@
         ],
         "type": "object"
       },
+      "EntradaRevocarHTTPBody": {
+        "additionalProperties": false,
+        "properties": {
+          "motivo": {
+            "description": "La confirmación: por qué deja de compartirse",
+            "maxLength": 300,
+            "minLength": 5,
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "motivo"
+        ],
+        "type": "object"
+      },
       "EntradaRevocarToken": {
         "additionalProperties": false,
         "properties": {
@@ -10385,6 +10947,20 @@
         "required": [
           "servicioId"
         ],
+        "type": "object"
+      },
+      "EntradaSincronizarHTTPBody": {
+        "additionalProperties": false,
+        "properties": {
+          "contactos": {
+            "description": "Pedir los contactos del teléfono (smb_app_state_sync)",
+            "type": "boolean"
+          },
+          "mensajes": {
+            "description": "Pedir el historial de 180 días (history)",
+            "type": "boolean"
+          }
+        },
         "type": "object"
       },
       "EntradaSupervisoresCola": {
@@ -13276,6 +13852,28 @@
         ],
         "type": "object"
       },
+      "ListaPrestamos": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Prestamo"
+            },
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
       "ListaRespuestasRapidas": {
         "additionalProperties": false,
         "properties": {
@@ -13910,6 +14508,17 @@
               "null"
             ]
           },
+          "origen": {
+            "description": "No salió de Iris: telefono (mandado desde la app WhatsApp Business, «Desde el teléfono») o historial (traído de la app). null = Iris (§15.2)",
+            "enum": [
+              "telefono",
+              "historial"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "plantilla": {
             "$ref": "#/components/schemas/PlantillaMensaje"
           },
@@ -13956,7 +14565,8 @@
           "enviadoEn",
           "entregadoEn",
           "leidoEn",
-          "automatico"
+          "automatico",
+          "origen"
         ],
         "type": "object"
       },
@@ -14398,6 +15008,10 @@
           "numero": {
             "type": "string"
           },
+          "prestadoPor": {
+            "$ref": "#/components/schemas/EmpresaRef",
+            "description": "Número prestado por otra empresa: sus usos y su cola son los del préstamo"
+          },
           "usos": {
             "items": {
               "type": "string"
@@ -14518,6 +15132,21 @@
           "texto",
           "colaId",
           "etiquetaIds"
+        ],
+        "type": "object"
+      },
+      "OpcionesPrestamo": {
+        "additionalProperties": false,
+        "properties": {
+          "empresas": {
+            "items": {
+              "$ref": "#/components/schemas/EmpresaOpcion"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "empresas"
         ],
         "type": "object"
       },
@@ -17473,6 +18102,71 @@
         ],
         "type": "object"
       },
+      "ParteSincronizacion": {
+        "additionalProperties": false,
+        "properties": {
+          "asociados": {
+            "description": "Contactos que coinciden con un cliente de Argos",
+            "format": "int64",
+            "type": "integer"
+          },
+          "detalle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "sin_pedir",
+              "pedido",
+              "recibiendo",
+              "listo",
+              "rechazado",
+              "fallido"
+            ],
+            "type": "string"
+          },
+          "fase": {
+            "description": "Historial: fase de Meta (0: día 0–1, 1: días 1–90, 2: días 90–180)",
+            "format": "int64",
+            "type": "integer"
+          },
+          "mensajes": {
+            "description": "Historial: mensajes guardados",
+            "format": "int64",
+            "type": "integer"
+          },
+          "pedidoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "progreso": {
+            "description": "Historial: 0–100 (progress de Meta)",
+            "format": "int64",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Contactos recibidos",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "estado",
+          "pedidoEn",
+          "total",
+          "asociados",
+          "progreso",
+          "fase",
+          "mensajes",
+          "detalle"
+        ],
+        "type": "object"
+      },
       "ParticipanteConversacion": {
         "additionalProperties": false,
         "properties": {
@@ -17983,6 +18677,7 @@
           "manuales.editar",
           "manuales.revocar_enlace",
           "manuales.ver",
+          "mensajeria.conexion_meta",
           "mensajeria.configurar",
           "mensajeria.enviar",
           "mensajeria.registrar_consentimiento",
@@ -18785,6 +19480,134 @@
           "zonaHoraria",
           "push",
           "bandejaDisponible"
+        ],
+        "type": "object"
+      },
+      "Prestamo": {
+        "additionalProperties": false,
+        "properties": {
+          "avisosEmpresa": {
+            "type": "boolean"
+          },
+          "avisosProgramados": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "canalId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "colaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "colaNombre": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "conversacionesAbiertas": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "empresaId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "empresaNombre": {
+            "type": "string"
+          },
+          "estado": {
+            "enum": [
+              "activo",
+              "revocado"
+            ],
+            "type": "string"
+          },
+          "motivoRevocacion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "prestadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "revocadoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "usos": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "canalId",
+          "empresaId",
+          "empresaNombre",
+          "usos",
+          "colaId",
+          "colaNombre",
+          "avisosEmpresa",
+          "estado",
+          "prestadoEn",
+          "revocadoEn",
+          "motivoRevocacion",
+          "conversacionesAbiertas",
+          "avisosProgramados",
+          "version"
+        ],
+        "type": "object"
+      },
+      "PrestamoPropio": {
+        "additionalProperties": false,
+        "properties": {
+          "avisosEmpresa": {
+            "type": "boolean"
+          },
+          "colaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "prestadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "usos": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "usos",
+          "colaId",
+          "avisosEmpresa",
+          "version",
+          "prestadoEn"
         ],
         "type": "object"
       },
@@ -19673,6 +20496,67 @@
           "primeraEn",
           "ultimaEn",
           "ordenVisitado"
+        ],
+        "type": "object"
+      },
+      "RegistroQR": {
+        "additionalProperties": false,
+        "properties": {
+          "appId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "configId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "disponible": {
+            "type": "boolean"
+          },
+          "featureType": {
+            "description": "extras.featureType de FB.login (coexistencia)",
+            "type": "string"
+          },
+          "graphVersion": {
+            "type": "string"
+          },
+          "modo": {
+            "enum": [
+              "sin_configurar",
+              "propia",
+              "compartida",
+              "saas"
+            ],
+            "type": "string"
+          },
+          "motivo": {
+            "enum": [
+              "sin_configurar",
+              "servicio_central_no_disponible"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sessionInfoVersion": {
+            "description": "extras.sessionInfoVersion de FB.login",
+            "type": "string"
+          }
+        },
+        "required": [
+          "disponible",
+          "motivo",
+          "modo",
+          "appId",
+          "configId",
+          "graphVersion",
+          "featureType",
+          "sessionInfoVersion"
         ],
         "type": "object"
       },
@@ -21808,6 +22692,28 @@
           "motivo",
           "monto",
           "limites"
+        ],
+        "type": "object"
+      },
+      "SincronizacionCanal": {
+        "additionalProperties": false,
+        "properties": {
+          "contactos": {
+            "$ref": "#/components/schemas/ParteSincronizacion"
+          },
+          "mensajes": {
+            "$ref": "#/components/schemas/ParteSincronizacion"
+          },
+          "plazo": {
+            "description": "Hasta cuándo se puede pedir (24 h después de conectar)",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plazo",
+          "contactos",
+          "mensajes"
         ],
         "type": "object"
       },
@@ -33207,6 +34113,139 @@
         "x-permiso": "mensajeria.configurar"
       }
     },
+    "/api/v1/mensajeria/canales/qr": {
+      "post": {
+        "description": "Permiso: `mensajeria.configurar`. Llamar en cuanto llega el `code` de FB.login (vive ~30 s). Iris lo canjea una sola vez, lee el número, suscribe la app a la WABA (nunca `/register`) y guarda el número con `tipoConexion: qr`. 200 si reconecta un número QR de la empresa con ese phone number ID. 422 `codigo_vencido`, `app_no_aprobada`, `numero_no_elegible`, `servicio_central_no_disponible`, `conexion_meta_sin_configurar`; 502 `error_meta`; 409 `canal_existente`.",
+        "operationId": "crearCanalQR",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCanalQR"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Canal"
+                }
+              }
+            },
+            "description": "Reconectado: el mismo número con un token nuevo"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Canal"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Conectar un número de WhatsApp Business con QR (coexistencia)",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "mensajeria.configurar"
+      }
+    },
     "/api/v1/mensajeria/canales/{id}": {
       "get": {
         "description": "Permiso: `mensajeria.configurar`. Solo personas con sesión del panel (un token o una integración: 404). 404 también si es de otra empresa o no tiene empresa.",
@@ -33772,6 +34811,589 @@
         "x-permiso": "mensajeria.configurar"
       }
     },
+    "/api/v1/mensajeria/canales/{id}/prestamo/configurar": {
+      "post": {
+        "description": "Permiso: `canales.configurar`. La empresa que usa el número. 422 `uso_no_permitido` si el préstamo no tiene el uso avisos.",
+        "operationId": "configurarPrestamoCanal",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaConfigurarPrestamoHTTPBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Canal"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Marcar un número prestado como el de avisos de tu empresa",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "canales.configurar"
+      }
+    },
+    "/api/v1/mensajeria/canales/{id}/prestamos": {
+      "get": {
+        "description": "Permiso: `canales.configurar`.",
+        "operationId": "listarPrestamosCanal",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListaPrestamos"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Empresas con las que se comparte un número",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "canales.configurar"
+      },
+      "post": {
+        "description": "Permiso: `canales.configurar`. Solo la empresa dueña. 422 `empresa_no_valida`, `canal_inactivo`; `colaId` debe ser una cola activa de esa empresa. Evento `canal_mensajeria.prestado`.",
+        "operationId": "prestarCanal",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaPrestamoHTTPBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Prestamo"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Compartir un número con otra empresa (o cambiar el préstamo)",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "canales.configurar"
+      }
+    },
+    "/api/v1/mensajeria/canales/{id}/prestamos/opciones": {
+      "get": {
+        "description": "Permiso: `canales.configurar`.",
+        "operationId": "opcionesPrestamoCanal",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpcionesPrestamo"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Empresas y colas a las que se puede prestar",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "canales.configurar"
+      }
+    },
+    "/api/v1/mensajeria/canales/{id}/prestamos/{empresa}/revocar": {
+      "post": {
+        "description": "Permiso: `canales.configurar`. Sus conversaciones abiertas por el número se resuelven y quedan de solo lectura; sus avisos en cola fallan; lo nuevo llega a la dueña. Evento `canal_mensajeria.prestamo_revocado`.",
+        "operationId": "revocarPrestamoCanal",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "empresa",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaRevocarHTTPBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Prestamo"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Dejar de compartir un número con una empresa",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "canales.configurar"
+      }
+    },
     "/api/v1/mensajeria/canales/{id}/probar": {
       "post": {
         "description": "Permiso: `mensajeria.configurar`. Solo personas con sesión del panel (un token o una integración: 404). Llama a la Graph API `GET /{phone_number_id}` con el token guardado y responde `conectado`, `token_invalido` (401/190), `numero_no_coincide`, `sin_permiso` (403/10/200–299) o `error_meta`, con `webhookVerificado`. Guarda el resultado en el número (sin subir `version`), audita y emite `canal_mensajeria.probado`. 409 `conflicto_version` si el número se editó durante la prueba. contratos/conversaciones.md §1.1.",
@@ -33879,6 +35501,129 @@
           }
         ],
         "summary": "Probar la conexión de un número con Meta",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "mensajeria.configurar"
+      }
+    },
+    "/api/v1/mensajeria/canales/{id}/sincronizar": {
+      "post": {
+        "description": "Permiso: `mensajeria.configurar`. Una vez cada uno y dentro de 24 h desde la conexión (`smb_app_data`). 422 `no_es_coexistencia`, `sincronizacion_ya_pedida`, `sincronizacion_vencida`; 502 `error_meta` si Meta rechazó todo lo pedido (queda `fallido` y se puede pedir otra vez).",
+        "operationId": "sincronizarCanalQR",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaSincronizarHTTPBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Canal"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Traer contactos e historial de un número QR",
         "tags": [
           "mensajeria"
         ],
@@ -36686,6 +38431,384 @@
           "mensajeria"
         ],
         "x-permiso": "canales.configurar"
+      }
+    },
+    "/api/v1/mensajeria/conexion-meta": {
+      "get": {
+        "description": "Permiso: `mensajeria.conexion_meta`. Una sola para todo el Iris: `propia`, `compartida`, `saas` o `sin_configurar`. Solo personas con sesión del panel (contratos/conversaciones.md §15.1).",
+        "operationId": "verConexionMeta",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConexionMeta"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Conexión con Meta de la instalación (sin secretos)",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "mensajeria.conexion_meta"
+      }
+    },
+    "/api/v1/mensajeria/conexion-meta/actualizar": {
+      "post": {
+        "description": "Permiso: `mensajeria.conexion_meta`. `version` 0 la primera vez. App secret y clave de enlace son de solo escritura (vacío = no cambia). El verify token del webhook de la app se genera la primera vez (o con `generarVerifyToken`) y se devuelve **una vez** en `verifyTokenGenerado` (la respuesta no se guarda con la Idempotency-Key). 422 `conexion_gestionada` en modo saas. Evento `meta.conexion_cambiada`.",
+        "operationId": "actualizarConexionMeta",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaConexionMeta"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConexionMeta"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Guardar la conexión con Meta",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "mensajeria.conexion_meta"
+      }
+    },
+    "/api/v1/mensajeria/conexion-meta/probar": {
+      "post": {
+        "description": "Permiso: `mensajeria.conexion_meta`. Valida el app ID y el app secret con la Graph API (`GET /{app_id}` con el token de la app) y revisa el webhook de la app; el ID de configuración y la aprobación como Tech Provider quedan `sin_verificar`. 422 `conexion_meta_sin_configurar`. Evento `meta.conexion_probada`.",
+        "operationId": "probarConexionMeta",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConexionMeta"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Probar la conexión con Meta",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "mensajeria.conexion_meta"
+      }
+    },
+    "/api/v1/mensajeria/conexion-meta/registro": {
+      "get": {
+        "description": "Permiso: `mensajeria.configurar`. `appId`, `configId`, `graphVersion`, `featureType` y `sessionInfoVersion` para `FB.login` (Embedded Signup con coexistencia, §15.2).",
+        "operationId": "registroQRMeta",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistroQR"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Datos para abrir el registro con QR de Meta (sin secretos)",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "mensajeria.configurar"
       }
     },
     "/api/v1/mensajeria/consentimientos": {
@@ -41285,6 +43408,129 @@
         "x-permiso": "conversaciones.pasar"
       }
     },
+    "/api/v1/mensajeria/conversaciones/{id}/pasar-empresa": {
+      "post": {
+        "description": "Permiso: `conversaciones.transferir`. Solo la empresa dueña del número y solo a una empresa con préstamo activo y un uso de conversación. 422 `empresa_no_valida`, `conversacion_con_vinculos`; 409 `conversacion_existente`. Evento `conversacion.empresa_asignada` (motivo `pasada`).",
+        "operationId": "pasarConversacionEmpresa",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaPasarEmpresa"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversacionCliente"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Pasar una conversación a otra empresa que usa el número",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "conversaciones.transferir"
+      }
+    },
     "/api/v1/mensajeria/conversaciones/{id}/plantillas": {
       "get": {
         "description": "Permiso: `conversaciones.responder`.",
@@ -43828,6 +46074,186 @@
           "mensajeria"
         ],
         "x-permiso": "manuales.editar"
+      }
+    },
+    "/api/v1/mensajeria/meta/webhook": {
+      "get": {
+        "description": "Meta llama con `hub.mode=subscribe`, `hub.verify_token` (el de la conexión) y `hub.challenge`; responde el challenge. 403 `verificacion_invalida`.",
+        "operationId": "verificarWebhookMetaApp",
+        "parameters": [
+          {
+            "explode": false,
+            "in": "query",
+            "name": "hub.mode",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "hub.verify_token",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "hub.challenge",
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "contentEncoding": "base64",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Content-Type": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Verificación del webhook de la app de Meta",
+        "tags": [
+          "mensajeria"
+        ]
+      },
+      "post": {
+        "description": "Firmado con el app secret de la conexión (`X-Hub-Signature-256`; 401 `firma_invalida`, sin auditar). Cada `entry` se reparte al número QR de su `phone_number_id` (o de su WABA en `account_update`) y se procesa en un job.",
+        "operationId": "webhookMetaApp",
+        "parameters": [
+          {
+            "description": "sha256=\u003chex(HMAC-SHA256(app_secret, cuerpo))\u003e",
+            "in": "header",
+            "name": "X-Hub-Signature-256",
+            "schema": {
+              "description": "sha256=\u003chex(HMAC-SHA256(app_secret, cuerpo))\u003e",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaRecibido"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Webhook de la app de Meta (números conectados con QR)",
+        "tags": [
+          "mensajeria"
+        ]
       }
     },
     "/api/v1/mensajeria/plantillas": {

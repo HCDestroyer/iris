@@ -182,6 +182,8 @@ type NumeroConversaciones struct {
 	// Bot: lo que hace el número cuando no hay agentes (§14.6).
 	Bot     BotNumero `json:"bot"`
 	Iniciar bool      `json:"iniciar" doc:"Puedes iniciar conversaciones desde este número (conversaciones.iniciar y número de una de tus colas)"`
+	// PrestadoPor: el número es de otra empresa y tu empresa lo usa (usos y cola del préstamo, §15.3).
+	PrestadoPor *EmpresaRef `json:"prestadoPor,omitempty" doc:"Número prestado por otra empresa: sus usos y su cola son los del préstamo"`
 }
 
 // ListaNumeros es { data, nextCursor }.
@@ -213,6 +215,22 @@ func nuevoListarNumeros(*Modulo) *auditoria.Caso[struct{}, ListaNumeros] {
 					ColaID: f.ColaID, Activo: f.Activo, Version: f.Version,
 					HorarioID: f.HorarioID, FueraDeHorario: fueraDeHorarioDe(f.FueraHorario), Bot: botDe(f.Bot),
 					Iniciar: inicia && contexto.PermisosDe(ctx).Tiene(string(nucleo.PermConversacionesIniciar))})
+			}
+			prestados, err := q.CanalesPrestadosAEmpresa(ctx, a.empresa)
+			if err != nil {
+				return ListaNumeros{}, err
+			}
+			for _, p := range prestados {
+				f := p.MensajeriaCanal
+				inicia, err := puedeIniciarDesde(ctx, q, a, f)
+				if err != nil {
+					return ListaNumeros{}, err
+				}
+				out.Data = append(out.Data, NumeroConversaciones{ID: f.ID, Nombre: f.Nombre, Numero: f.Numero, Usos: p.MensajeriaCanalPrestamo.Usos,
+					AvisosEmpresa: p.MensajeriaCanalPrestamo.AvisosEmpresa, ColaID: p.MensajeriaCanalPrestamo.ColaID, Activo: f.Activo,
+					Version: p.MensajeriaCanalPrestamo.Version, FueraDeHorario: FueraDeHorario{}, Bot: botDe([]byte(`{}`)),
+					Iniciar:     inicia && contexto.PermisosDe(ctx).Tiene(string(nucleo.PermConversacionesIniciar)),
+					PrestadoPor: &EmpresaRef{EmpresaID: derefEmpresa(f.EmpresaID), Nombre: p.DuenoNombre}})
 			}
 			return out, nil
 		},

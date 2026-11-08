@@ -225,6 +225,16 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 			if !canal.Activo {
 				return MensajeConvEnviado{}, reglaConv("canal_inactivo", "El número de esta conversación está desactivado")
 			}
+			if in.Plantilla != nil {
+				// Un número prestado: las plantillas solo con un uso de conversación (§15.3).
+				u, err := usoDe(ctx, q, canal, empresaDeConv(c))
+				if err != nil {
+					return MensajeConvEnviado{}, err
+				}
+				if !u.propio && !tieneUsoConversacion(u.usos) {
+					return MensajeConvEnviado{}, usoNoPermitido("Tu empresa usa este número solo para avisos: no puede mandar plantillas")
+				}
+			}
 			ahora := m.ahora()
 			ventana := ventanaDe(c.UltimoEntranteEn, ahora)
 			n := nuevoMensaje{id: in.ID, direccion: DirSaliente, tipo: "texto", texto: in.Texto, autor: &a.usuario, hash: hash,
@@ -500,6 +510,15 @@ func nuevoPrepararMensaje(m *Modulo) *auditoria.Caso[uuid.UUID, mensajePreparado
 			ahora := m.ahora()
 			if !canal.Activo {
 				return mensajePreparado{Accion: accionNada}, m.fallarMensaje(ctx, t, f, c, MotivoRechazado, "el número se desactivó")
+			}
+			if canal.DesconectadoEn != nil {
+				return mensajePreparado{Accion: accionNada}, m.fallarMensaje(ctx, t, f, c, MotivoRechazado, "Meta desconectó el número")
+			}
+			if u, err := usoDe(ctx, q, canal, empresaDeConv(c)); err != nil || !u.activo {
+				if err != nil {
+					return mensajePreparado{}, err
+				}
+				return mensajePreparado{Accion: accionNada}, m.fallarMensaje(ctx, t, f, c, MotivoRechazado, "prestamo_revocado")
 			}
 			if canal.PausadoHasta != nil && canal.PausadoHasta.After(ahora) {
 				return mensajePreparado{Accion: accionEsperar, Espera: canal.PausadoHasta.Sub(ahora)}, nil

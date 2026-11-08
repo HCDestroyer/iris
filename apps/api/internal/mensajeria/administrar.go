@@ -144,7 +144,7 @@ type Canal struct {
 	WebhookURL            string     `json:"webhookUrl" doc:"URL completa del webhook para pegar en Meta (IRIS_BASE_URL + webhookRuta); sin IRIS_BASE_URL, solo la ruta"`
 	WebhookURLCompleta    bool       `json:"webhookUrlCompleta" doc:"true si webhookUrl es absoluta (false: el panel antepone su origen)"`
 	Estado                string     `json:"estado" enum:"activo,inactivo"`
-	Conexion              string     `json:"conexion" enum:"desactivado,sin_probar,conectado,webhook_sin_verificar,token_invalido,numero_no_coincide,sin_permiso,error_meta" doc:"Estado de la conexión para la lista (§1.1), calculado en el servidor"`
+	Conexion              string     `json:"conexion" enum:"desactivado,desconectado,sin_probar,conectado,webhook_sin_verificar,token_invalido,numero_no_coincide,sin_permiso,error_meta" doc:"Estado de la conexión para la lista (§1.1), calculado en el servidor"`
 	UltimoEstado          *string    `json:"ultimoEstado" nullable:"true" enum:"conectado,token_invalido,numero_no_coincide,sin_permiso,error_meta" doc:"Resultado de la última prueba (null = sin probar)"`
 	UltimoDetalle         *string    `json:"ultimoDetalle" nullable:"true" doc:"Detalle corto de la última prueba (nunca credenciales)"`
 	UltimaPruebaEn        *time.Time `json:"ultimaPruebaEn" nullable:"true"`
@@ -154,9 +154,21 @@ type Canal struct {
 	AppSecretGuardadoEn   *time.Time `json:"appSecretGuardadoEn" nullable:"true" doc:"Cuándo se guardó el app secret (nunca el valor)"`
 	VerifyTokenGuardadoEn *time.Time `json:"verifyTokenGuardadoEn" nullable:"true" doc:"Cuándo se guardó el verify token (nunca el valor)"`
 	// VerifyTokenGenerado solo sale en la respuesta de crear o actualizar cuando Iris lo generó.
-	VerifyTokenGenerado *string   `json:"verifyTokenGenerado,omitempty" doc:"Verify token que generó Iris: solo en esta respuesta, una vez (cópialo a Meta)"`
-	Version             int32     `json:"version"`
-	CreadoEn            time.Time `json:"creadoEn"`
+	VerifyTokenGenerado *string `json:"verifyTokenGenerado,omitempty" doc:"Verify token que generó Iris: solo en esta respuesta, una vez (cópialo a Meta)"`
+	// QR y coexistencia (contratos/conversaciones.md §15.2).
+	TipoConexion       string               `json:"tipoConexion" enum:"api,qr" doc:"api: datos de la API; qr: conectado con QR (coexistencia con la app WhatsApp Business)"`
+	Coexistencia       bool                 `json:"coexistencia" doc:"El número sigue en la app WhatsApp Business del teléfono"`
+	UltimoEcoEn        *time.Time           `json:"ultimoEcoEn" nullable:"true" doc:"Último mensaje mandado desde el teléfono (precisión de 1 minuto). Meta desconecta el número a los ~14 días sin abrir la app"`
+	ConectadoEn        *time.Time           `json:"conectadoEn" nullable:"true" doc:"Cuándo se conectó con QR"`
+	DesconectadoEn     *time.Time           `json:"desconectadoEn" nullable:"true" doc:"Meta lo desconectó (account_update)"`
+	DesconectadoMotivo *string              `json:"desconectadoMotivo" nullable:"true" doc:"partner_removed, account_offboarded o la razón de Meta en minúsculas (primary_inactivity…)"`
+	Sincronizacion     *SincronizacionCanal `json:"sincronizacion,omitempty" doc:"Solo números QR: contactos e historial"`
+	// Préstamo (§15.3).
+	CompartidoCon int             `json:"compartidoCon" doc:"Empresas que lo usan con préstamo activo (0 = no compartido)"`
+	PrestadoPor   *EmpresaRef     `json:"prestadoPor,omitempty" doc:"Solo en un número prestado a tu empresa: la empresa dueña"`
+	Prestamo      *PrestamoPropio `json:"prestamo,omitempty" doc:"Solo en un número prestado a tu empresa: usos, cola y número de avisos"`
+	Version       int32           `json:"version"`
+	CreadoEn      time.Time       `json:"creadoEn"`
 }
 
 // Estados de una prueba de conexión (POST /canales/{id}/probar).
@@ -173,6 +185,8 @@ func conexionDe(f mensajeriabd.MensajeriaCanal) string {
 	switch {
 	case !f.Activo:
 		return "desactivado"
+	case f.DesconectadoEn != nil:
+		return "desconectado"
 	case f.UltimoEstado == nil:
 		return "sin_probar"
 	case *f.UltimoEstado != PruebaConectado:
@@ -214,6 +228,11 @@ func (m *Modulo) aCanal(f mensajeriabd.MensajeriaCanal) Canal {
 	c.UltimoEstado, c.UltimoDetalle, c.UltimaPruebaEn = f.UltimoEstado, f.UltimoDetalle, f.UltimaPruebaEn
 	c.WebhookVerificadoEn, c.UltimoMensajeEn = f.WebhookVerificadoEn, f.UltimoMensajeEn
 	c.TokenGuardadoEn, c.AppSecretGuardadoEn, c.VerifyTokenGuardadoEn = f.TokenGuardadoEn, f.AppSecretGuardadoEn, f.VerifyTokenGuardadoEn
+	c.TipoConexion, c.Coexistencia, c.UltimoEcoEn, c.ConectadoEn = f.TipoConexion, f.Coexistencia, f.UltimoEcoEn, f.ConectadoEn
+	c.DesconectadoEn, c.DesconectadoMotivo = f.DesconectadoEn, f.DesconectadoMotivo
+	if s, ok := sincronizacionDe(f); ok {
+		c.Sincronizacion = &SincronizacionCanal{Plazo: s.Plazo, Contactos: aParte(s.Contactos), Mensajes: aParte(s.Mensajes)}
+	}
 	return c
 }
 
@@ -454,6 +473,11 @@ func nuevoActualizarCanal(m *Modulo) *auditoria.Caso[EntradaActualizarCanal, Can
 			if antes.Version != in.Version {
 				return Canal{}, nucleo.ConflictoVersion("canal", in.ID)
 			}
+			// Un número QR: el token es el del registro y el app secret el de la conexión (§15.2).
+			if antes.TipoConexion == ConexionQR && (in.Token != "" || in.AppSecret != "" || in.VerifyToken != "" || in.GenerarVerifyToken ||
+				in.PhoneNumberID != antes.PhoneNumberID || in.Numero != antes.Numero) {
+				return Canal{}, reglaConv("numero_qr", "Un número conectado con QR no cambia su token, app secret, verify token, phone number ID ni número: reconéctalo con QR")
+			}
 			cr, err := m.credencialesDe(antes)
 			if err != nil {
 				return Canal{}, err
@@ -552,9 +576,45 @@ func nuevoListarCanales(m *Modulo) *auditoria.Caso[struct{}, ListaCanales] {
 			if err != nil {
 				return ListaCanales{}, err
 			}
+			q := mensajeriabd.New(t)
+			ids := make([]int64, 0, len(fs))
+			for _, f := range fs {
+				ids = append(ids, f.ID)
+			}
+			compartidos, err := compartidosDe(ctx, q, ids)
+			if err != nil {
+				return ListaCanales{}, err
+			}
 			out := ListaCanales{Data: make([]Canal, 0, len(fs))}
 			for _, f := range fs {
-				out.Data = append(out.Data, m.aCanal(f))
+				c := m.aCanal(f)
+				c.CompartidoCon = compartidos[f.ID]
+				out.Data = append(out.Data, c)
+			}
+			// Los números que otras empresas le prestan (sin datos de Meta, con empresaId = la que
+			// los usa). Quien ve todas las empresas los ve además como de su dueña: se suman solo los
+			// de la empresa activa.
+			prestadasA := empresas
+			if todas {
+				prestadasA = nil
+				if e := empresaActiva(ctx); e != 0 {
+					prestadasA = []int64{e}
+				}
+			}
+			for _, e := range prestadasA {
+				if e == 0 {
+					continue
+				}
+				ps, err := q.CanalesPrestadosAEmpresa(ctx, e)
+				if err != nil {
+					return ListaCanales{}, err
+				}
+				for _, p := range ps {
+					if !todas && slices.Contains(empresas, derefEmpresa(p.MensajeriaCanal.EmpresaID)) {
+						continue
+					}
+					out.Data = append(out.Data, m.aCanalPrestado(p.MensajeriaCanal, p.MensajeriaCanalPrestamo, p.DuenoNombre))
+				}
 			}
 			return out, nil
 		},

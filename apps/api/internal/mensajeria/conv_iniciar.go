@@ -42,20 +42,22 @@ func plantillasDisponibles(canal mensajeriabd.MensajeriaCanal) ListaPlantillasCo
 // puedeIniciarDesde: el número es activo, de la empresa y de una de las colas del usuario (miembro
 // o supervisor de la cola); un supervisor global, cualquier número activo de la empresa.
 func puedeIniciarDesde(ctx context.Context, q *mensajeriabd.Queries, a alcanceConv, canal mensajeriabd.MensajeriaCanal) (bool, error) {
-	e := int64(0)
-	if canal.EmpresaID != nil {
-		e = *canal.EmpresaID
-	}
-	if !canal.Activo || e != a.empresa {
+	if !canal.Activo || canal.DesconectadoEn != nil {
 		return false, nil
+	}
+	// Un número prestado: con préstamo activo y un uso de conversación; cuenta como de la cola
+	// del préstamo (§15.3).
+	u, err := usoDe(ctx, q, canal, a.empresa)
+	if err != nil || !u.activo || (!u.propio && !tieneUsoConversacion(u.usos)) {
+		return false, err
 	}
 	if a.supervisa {
 		return true, nil
 	}
-	if canal.ColaID == nil {
+	if u.cola == nil {
 		return false, nil
 	}
-	cola, err := q.ColaPorID(ctx, mensajeriabd.ColaPorIDParams{ID: *canal.ColaID, Empresa: a.empresa})
+	cola, err := q.ColaPorID(ctx, mensajeriabd.ColaPorIDParams{ID: *u.cola, Empresa: a.empresa})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -212,18 +214,19 @@ func canalDeEntrada(ctx context.Context, q *mensajeriabd.Queries, a alcanceConv,
 	return &c, err
 }
 
-// canalDeEmpresa: pgx.ErrNoRows si no existe o es de otra empresa.
+// canalDeEmpresa: pgx.ErrNoRows si no existe o es de otra empresa. Un número prestado a la
+// empresa (préstamo activo) vale, con la cola y los usos del préstamo (§15.3).
 func canalDeEmpresa(ctx context.Context, q *mensajeriabd.Queries, a alcanceConv, id int64) (mensajeriabd.MensajeriaCanal, error) {
 	c, err := q.CanalPorID(ctx, id)
 	if err != nil {
 		return c, err
 	}
-	e := int64(0)
-	if c.EmpresaID != nil {
-		e = *c.EmpresaID
-	}
-	if e != a.empresa {
-		return mensajeriabd.MensajeriaCanal{}, pgx.ErrNoRows
+	if derefEmpresa(c.EmpresaID) != a.empresa {
+		p, err := q.PrestamoActivo(ctx, mensajeriabd.PrestamoActivoParams{CanalID: c.ID, EmpresaID: a.empresa})
+		if err != nil {
+			return mensajeriabd.MensajeriaCanal{}, err
+		}
+		c.ColaID, c.Usos = p.ColaID, p.Usos
 	}
 	return c, nil
 }
@@ -521,6 +524,9 @@ func (m *Modulo) iniciar(ctx context.Context, t *auditoria.Tx, in entradaIniciar
 	if err != nil {
 		return ConversacionIniciada{}, err
 	}
+	if derefEmpresa(canal.EmpresaID) != a.empresa && !tieneUsoConversacion(canal.Usos) {
+		return ConversacionIniciada{}, usoNoPermitido("Tu empresa usa este número solo para avisos: no puede iniciar conversaciones")
+	}
 	ok, err := puedeIniciarDesde(ctx, q, a, canal)
 	if err != nil {
 		return ConversacionIniciada{}, err
@@ -558,7 +564,7 @@ func (m *Modulo) iniciar(ctx context.Context, t *auditoria.Tx, in entradaIniciar
 				cola = canal.ColaID
 			}
 		}
-		c, err = q.InsertarConversacionCliente(ctx, mensajeriabd.InsertarConversacionClienteParams{EmpresaID: canal.EmpresaID, CanalID: canal.ID,
+		c, err = q.InsertarConversacionCliente(ctx, mensajeriabd.InsertarConversacionClienteParams{EmpresaID: a.empresaPtr(), CanalID: canal.ID,
 			Numero: numero, ColaID: cola, UltimaActividad: ahora})
 		if errors.Is(err, pgx.ErrNoRows) {
 			// Llegó a la vez un mensaje del cliente: se usa esa.

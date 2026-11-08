@@ -652,6 +652,12 @@ func nuevasPromesas(m *Modulo) *Promesas {
 			if err != nil {
 				return previaPromesa{}, err
 			}
+			if lectura, err := soloLecturaConv(ctx, q, c); err != nil || lectura {
+				if err == nil {
+					err = conversacionSoloLectura()
+				}
+				return previaPromesa{}, err
+			}
 			if c.ClienteID == nil {
 				return previaPromesa{}, reglaConv("sin_cliente", "Asocia la conversación a un cliente de Argos antes de pedir una promesa")
 			}

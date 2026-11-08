@@ -103,7 +103,12 @@ func fijarAvisos(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Queries, 
 	if err != nil {
 		return err
 	}
-	for _, o := range otros {
+	// También deja de serlo un número prestado (§15.3).
+	prestados, err := q.QuitarAvisosPrestados(ctx, mensajeriabd.QuitarAvisosPrestadosParams{EmpresaID: e, Excepto: id})
+	if err != nil {
+		return err
+	}
+	for _, o := range append(otros, prestados...) {
 		if err := t.Emitir("canal_mensajeria.actualizado", map[string]any{"canal_id": o, "empresa_id": empresa, "campos": []string{"avisos_empresa"}}); err != nil {
 			return err
 		}

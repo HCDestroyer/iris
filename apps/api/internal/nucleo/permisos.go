@@ -228,6 +228,9 @@ const (
 	PermMensajeriaVer Permiso = "mensajeria.ver"
 	// PermMensajeriaConfigurar: configurar los canales de una empresa (credenciales de WhatsApp).
 	PermMensajeriaConfigurar Permiso = "mensajeria.configurar"
+	// PermMensajeriaConexionMeta: la conexión con Meta de la instalación (app propia, servicio
+	// central o la del entorno) para conectar números con QR (contratos/conversaciones.md §15.1).
+	PermMensajeriaConexionMeta Permiso = "mensajeria.conexion_meta"
 )
 
 // Chat interno del equipo (servicio cmd/mensajeria; contratos/chat.md).
@@ -310,7 +313,7 @@ var PermisosSensibles = map[Permiso]bool{
 	PermIntegracionesConectar: true, PermIntegracionesActivar: true, PermIntegracionesDesactivar: true, PermIntegracionesReintentar: true,
 	PermIntegracionesResolverPendiente: true, PermPlantillasCrear: true, PermPlantillasEditar: true, PermPlantillasActivar: true, PermPlantillasDesactivar: true,
 	PermFactibilidadConfigurar: true, PermPortalEmitir: true, PermSSOEmitir: true,
-	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true, PermMensajeriaConfigurar: true, PermCanalesConfigurar: true, PermConversacionesConfigurar: true,
+	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true, PermMensajeriaConfigurar: true, PermMensajeriaConexionMeta: true, PermCanalesConfigurar: true, PermConversacionesConfigurar: true,
 	PermConversacionesRegistrarPromesa: true, PermConversacionesRegistrarBoleta: true, PermConversacionesSupervisar: true,
 	PermConversacionesIniciar: true, PermCampoConfigurar: true,
 }
@@ -407,6 +410,7 @@ var Catalogo = []DefPermiso{
 	{PermManualesEditar, "Crear, editar, activar y desactivar artículos de la biblioteca de manuales"},
 	{PermManualesRevocarEnlace, "Revocar el enlace público de un manual enviado a un cliente"},
 	{PermManualesVer, "Buscar y leer la biblioteca de manuales y sus sugerencias para una conversación"},
+	{PermMensajeriaConexionMeta, "Configurar la conexión con Meta de la instalación (app de Meta propia o servicio central) para conectar números de WhatsApp con QR"},
 	{PermMensajeriaConfigurar, "Configurar los canales de mensajería de una empresa (WhatsApp: número, credenciales y plantillas aprobadas)"},
 	{PermMensajeriaEnviar, "Pedir avisos por la mensajería de Iris y consultar su estado (lo usa Argos con su token de integración)"},
 	{PermMensajeriaRegistrarConsentimiento, "Registrar el permiso de contacto (acepta o baja) de un cliente de Argos por un canal"},
