@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.18.0](https://github.com/HCDestroyer/iris/compare/v0.17.0...v0.18.0) (2026-11-07)
+
+
+### Funcionalidades
+
+* **mensajeria:** chat del equipo para el panel — menciones, miembros de orden y solo lectura ([#138](https://github.com/HCDestroyer/iris/issues/138)) ([dc59528](https://github.com/HCDestroyer/iris/commit/dc59528c45de4ea42cc26f9dd17a3b863526d97b))
+* **panel:** chat del equipo — panel lateral, página Equipo y pestaña en la orden ([#139](https://github.com/HCDestroyer/iris/issues/139)) ([92fb696](https://github.com/HCDestroyer/iris/commit/92fb696999bbabb718b61f9c98f479cde38fb998))
+
 ## [0.17.0](https://github.com/HCDestroyer/iris/compare/v0.16.0...v0.17.0) (2026-11-06)
 
 
