@@ -85,7 +85,11 @@ export type PropsProveedorAvisosEmergentes = {
     className?: string;
 };
 
-/** Región de los avisos emergentes. Va una sola vez, en el layout de la app. */
+/**
+ * Región de los avisos emergentes. Va una sola vez, en el layout de la app. HeroUI le pone su
+ * propio `data-slot="toast-region"`, así que la región se marca con `data-region="avisos-emergentes"`
+ * y su `data-ubicacion` (las reglas de la app la buscan por ahí, nunca por las clases de HeroUI).
+ */
 export function ProveedorAvisosEmergentes({ ubicacion = "bottom end", className }: PropsProveedorAvisosEmergentes) {
-    return <Toast.Provider data-slot="avisos-emergentes" queue={colaAvisos} placement={ubicacion} {...(className ? { className } : {})} />;
+    return <Toast.Provider data-region="avisos-emergentes" data-ubicacion={ubicacion} queue={colaAvisos} placement={ubicacion} {...(className ? { className } : {})} />;
 }

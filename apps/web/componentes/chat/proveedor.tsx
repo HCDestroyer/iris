@@ -156,32 +156,48 @@ function ChatActivo({ motor, yoId, empresaId, children }: { motor: MotorChat; yo
 
     // «Eliminar» con 5 s para «Deshacer» (§3.1). El plazo se vuelve a comprobar al pedirlo y al salir.
     const [, setVersionEliminando] = useState(0);
+    // Eliminaciones que pasaron su «Deshacer» y se están encolando en el motor (guardar es async):
+    // `vaciar` las espera antes de mandar la cola, para que ninguna quede detrás de cerrar sesión.
+    const [encolando] = useState(() => new Set<Promise<void>>());
     const eliminaciones = useMemo(
         () =>
             new EliminacionesDiferidas({
                 ejecutar: (id) => {
-                    void motor.eliminar(id).catch((e: unknown) => {
-                        avisar({ tono: "error", titulo: "No se pudo eliminar el mensaje", descripcion: e instanceof Error ? e.message : undefined });
-                    });
+                    const p: Promise<void> = motor
+                        .eliminar(id)
+                        .catch((e: unknown) => {
+                            avisar({ tono: "error", titulo: "No se pudo eliminar el mensaje", descripcion: e instanceof Error ? e.message : undefined });
+                        })
+                        .finally(() => encolando.delete(p));
+                    encolando.add(p);
                 },
                 alVencer: () => avisar({ tono: "error", titulo: "No se eliminó el mensaje", descripcion: "Ya pasaron los 15 minutos para eliminarlo: sigue visible para todos." }),
                 // La empresa de este chat (fija), nunca la activa al momento de salir.
                 alSalir: (id) => eliminarAlSalir(id, empresaId),
                 alCambiar: () => setVersionEliminando((v) => v + 1),
             }),
-        [motor, empresaId],
+        [motor, empresaId, encolando],
     );
+    /*
+     * Antes de cerrar sesión (o al ocultar la pestaña): lo que espera su «Deshacer» se encola ya, se
+     * esperan las que se están encolando y se manda la cola del motor **siempre** (aunque no haya
+     * nada esperando aquí: una eliminación pudo vencer su «Deshacer» un instante antes). Si en
+     * `TOPE_VACIAR_MS` alguna eliminación sigue sin respuesta, sale con `keepalive` antes de seguir.
+     */
     const vaciar = useCallback(async () => {
         const ids = eliminaciones.sacarTodo();
-        if (ids.length === 0) return;
+        let tope: ReturnType<typeof setTimeout> | undefined;
         const todo = (async () => {
             for (const id of ids) {
                 await motor.eliminar(id).catch(() => undefined);
             }
+            await Promise.all([...encolando]);
             await motor.enviarPendientes().catch(() => undefined);
         })();
-        await Promise.race([todo, new Promise<void>((r) => setTimeout(r, TOPE_VACIAR_MS))]);
-    }, [eliminaciones, motor]);
+        await Promise.race([todo, new Promise<void>((r) => (tope = setTimeout(r, TOPE_VACIAR_MS)))]);
+        clearTimeout(tope);
+        for (const id of motor.eliminacionesPendientes()) eliminarAlSalir(id, empresaId);
+    }, [eliminaciones, motor, encolando, empresaId]);
     useEffect(() => {
         // La página se descarga: no hay tiempo de esperar, sale con `keepalive`.
         const descarga = () => eliminaciones.vaciarAlSalir();

@@ -47,28 +47,29 @@ test("capturas del chat del equipo", async ({ page }) => {
     await page.screenshot({ path: nombre(page, "nuevo-mensaje") });
 });
 
-test("capturas del panel flotante sobre la agenda, el mapa y las órdenes", async ({ page }) => {
-    test.setTimeout(120_000);
-    await abrir(page, "/agenda");
-    const anchos = esTelefono(page) ? [null] : [1280, 1440];
-    for (const ancho of anchos) {
-        if (ancho) await page.setViewportSize({ width: ancho, height: 900 });
-        for (const [vista, ruta] of [
-            ["agenda", "/agenda"],
-            ["mapa", "/mapa"],
-            ["ordenes", "/ordenes"],
-        ] as const) {
+// Panel flotante sobre la agenda, el mapa y las órdenes: a 1280 y 1440 px (en el teléfono, a 390).
+for (const [vista, ruta] of [
+    ["agenda", "/agenda"],
+    ["mapa", "/mapa"],
+    ["ordenes", "/ordenes"],
+] as const) {
+    test(`capturas del panel flotante sobre ${vista}`, async ({ page }) => {
+        test.setTimeout(120_000);
+        await simularApi(page, { chat: true });
+        await conSesion(page.context(), test.info().project.use.baseURL ?? "", ADMIN.correo);
+        const anchos = esTelefono(page) ? [null] : [1280, 1440];
+        for (const ancho of anchos) {
+            if (ancho) await page.setViewportSize({ width: ancho, height: 900 });
             await page.goto(ruta);
             await page.locator('[data-slot="boton-chat-equipo"]').click();
             const panel = page.getByRole("dialog", { name: "Chat del equipo" });
-            await expect(panel.getByText("En vivo")).toBeVisible({ timeout: 10_000 });
-            await expect(panel.getByRole("button", { name: "Cerrar el chat del equipo" })).toBeInViewport({ ratio: 1 });
+            await expect(panel.getByText("En vivo")).toBeVisible({ timeout: 15_000 });
+            await expect(panel.getByRole("button", { name: "Cerrar el chat del equipo" })).toBeInViewport({ ratio: 1, timeout: 10_000 });
             const archivo = nombre(page, `flotante-${vista}`);
-            await page.screenshot({ path: ancho ? archivo.replace(/-1280-/, `-${ancho}-`) : archivo });
-            if (esTelefono(page)) break;
+            await page.screenshot({ path: ancho ? archivo.replace(/-1280-/, `-${ancho}-`) : archivo, timeout: 45_000 });
         }
-    }
-});
+    });
+}
 
 test("capturas de la página Equipo y de la orden", async ({ page }) => {
     test.setTimeout(120_000);

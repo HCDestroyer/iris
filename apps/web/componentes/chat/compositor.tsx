@@ -74,8 +74,11 @@ export function CompositorChat({ motor, conversacionId, tipo, nombre, miembros, 
         setElegidos((e) => (e.some((x) => x.id === m.usuario_id) ? e : [...e, { id: m.usuario_id, nombre: m.nombre }]));
         setConsulta(null);
         requestAnimationFrame(() => {
-            area.current?.focus();
-            area.current?.setSelectionRange(r.cursor, r.cursor);
+            const nodo = area.current;
+            if (!nodo) return;
+            nodo.focus();
+            // Solo si nada cambió desde la elección: si ya se siguió escribiendo, el cursor va donde está.
+            if (nodo.value === r.texto) nodo.setSelectionRange(r.cursor, r.cursor);
         });
     };
 

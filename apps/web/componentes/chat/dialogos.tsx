@@ -256,14 +256,23 @@ export function DialogoAgregarPersona({
     const form = useForm({ resolver: zodResolver(esquemaAgregar), defaultValues: { usuarioId: "" } });
     useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
     const [q, setQ] = useState("");
-    const [personas, reintentar] = useBusqueda<PersonaChat>(q, buscarPersonas, abierto);
+    // Lo que se busca en el servidor: elegir a alguien pone su nombre en el campo y eso no es otra
+    // búsqueda (volvería a abrir la lista encima de «Agregar»).
+    const [consulta, setConsulta] = useState("");
+    const [personas, reintentar] = useBusqueda<PersonaChat>(consulta, buscarPersonas, abierto);
     const [error, setError] = useState<unknown>(null);
     const [clave, setClave] = useState(nuevaClaveIdempotencia);
     const ya = new Set(miembros.map((m) => m.usuario_id));
-    const opciones = personas.estado === "listo" ? personas.datos.filter((p) => !ya.has(p.id)).map((p) => ({ valor: String(p.id), etiqueta: p.nombre })) : [];
+    // La elegida sigue entre las opciones aunque su nombre dispare otra búsqueda (mientras carga, la
+    // lista queda vacía y el combo soltaba la elección: «Agregar» no tenía a quién).
+    const [elegida, setElegida] = useState<{ valor: string; etiqueta: string } | null>(null);
+    const encontradas = personas.estado === "listo" ? personas.datos.filter((p) => !ya.has(p.id)).map((p) => ({ valor: String(p.id), etiqueta: p.nombre })) : [];
+    const opciones = elegida && !encontradas.some((o) => o.valor === elegida.valor) ? [elegida, ...encontradas] : encontradas;
     const cerrar = () => {
         form.reset();
+        setElegida(null);
         setQ("");
+        setConsulta("");
         setError(null);
         alCerrar();
     };
@@ -276,7 +285,9 @@ export function DialogoAgregarPersona({
             avisar({ titulo: `${nombre ?? "La persona"} ya está en el chat de ${titulo}` });
             alAgregar(lista);
             form.reset();
+            setElegida(null);
             setQ("");
+            setConsulta("");
             alCerrar();
         } catch (e) {
             setClave((c) => claveTrasError(e, c));
@@ -298,8 +309,15 @@ export function DialogoAgregarPersona({
                                 placeholder="Buscar por nombre"
                                 opciones={opciones}
                                 valor={field.value || null}
-                                alCambiar={(v) => field.onChange(v ?? "")}
-                                alBuscar={setQ}
+                                alCambiar={(v) => {
+                                    setElegida(v ? (opciones.find((o) => o.valor === v) ?? null) : null);
+                                    field.onChange(v ?? "");
+                                }}
+                                alBuscar={(texto) => {
+                                    setQ(texto);
+                                    // El nombre de una opción ya listada (la que se acaba de elegir) no es otra búsqueda.
+                                    if (!opciones.some((o) => o.etiqueta === texto)) setConsulta(texto);
+                                }}
                                 texto={q}
                                 cargando={personas.estado === "cargando"}
                                 sinResultados={q.trim() ? `Nadie más coincide con «${q.trim()}».` : "No hay a quién agregar."}
