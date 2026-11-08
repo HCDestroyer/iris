@@ -18,7 +18,7 @@ import { formatearNumero, nombreUso } from "@/lib/conversaciones/presentacion";
 import { erroresACampos } from "@/lib/formularios";
 import { useLectura } from "@/lib/lectura";
 import { leerCanalMeta, sincronizarCanal } from "@/lib/meta/api";
-import { plazoRestante, presentarSincronizacion, sePuedePedir, textoDesconexion } from "@/lib/meta/presentacion";
+import { MINUTOS_REPETIR_PEDIDO, plazoRestante, presentarSincronizacion, sePuedePedir, textoDesconexion } from "@/lib/meta/presentacion";
 import type { CanalMeta, Sincronizacion } from "@/lib/meta/tipos";
 import { actualizarCanal, cuerpoActualizar } from "@/lib/numeros/api";
 import { cuando } from "@/lib/numeros/conexion";
@@ -228,6 +228,8 @@ function TraerHistorial({ canal, alCambiar }: { canal: CanalMeta; alCambiar: (c:
         }
     }
 
+    // §15.2: un «pedido» sin respuesta de Meta en 10 minutos se puede volver a pedir.
+    const sinRespuesta = (tipo: "contactos" | "mensajes") => s[tipo].estado === "pedido" && sePuedePedir(s, tipo, ahora);
     const puedeAlguno = sePuedePedir(s, "contactos", ahora) || sePuedePedir(s, "mensajes", ahora);
     const elegido = (pedir.contactos && sePuedePedir(s, "contactos", ahora)) || (pedir.mensajes && sePuedePedir(s, "mensajes", ahora));
     const pedidoEn = s.contactos.pedidoEn ?? s.mensajes.pedidoEn;
@@ -261,6 +263,7 @@ function TraerHistorial({ canal, alCambiar }: { canal: CanalMeta; alCambiar: (c:
                             ? `${s.contactos.total} contactos. Los que coinciden con un cliente de Argos se asocian solos (${s.contactos.asociados}).`
                             : "Los del teléfono. Los que coinciden con un cliente de Argos se asocian solos; los datos de Argos no cambian."
                     }
+                    pie={sinRespuesta("contactos") ? SIN_RESPUESTA : null}
                     detalle={s.contactos.detalle}
                 />
                 <FilaSincronizacion
@@ -273,7 +276,7 @@ function TraerHistorial({ canal, alCambiar }: { canal: CanalMeta; alCambiar: (c:
                     elegible={sePuedePedir(s, "mensajes", ahora)}
                     texto="De los últimos 180 días (lo más que da Meta)."
                     progreso={s.mensajes.estado === "recibiendo" || s.mensajes.estado === "listo" ? s.mensajes.progreso : null}
-                    pie={s.mensajes.estado === "recibiendo" ? `${s.mensajes.mensajes.toLocaleString("es-GT")} mensajes hasta ahora. Puedes salir: sigue solo.` : null}
+                    pie={s.mensajes.estado === "recibiendo" ? `${s.mensajes.mensajes.toLocaleString("es-GT")} mensajes hasta ahora. Puedes salir: sigue solo.` : sinRespuesta("mensajes") ? SIN_RESPUESTA : null}
                     detalle={s.mensajes.detalle}
                 />
             </ul>
@@ -301,6 +304,8 @@ function TraerHistorial({ canal, alCambiar }: { canal: CanalMeta; alCambiar: (c:
         </SeccionFormulario>
     );
 }
+
+const SIN_RESPUESTA = `Meta no respondió en ${MINUTOS_REPETIR_PEDIDO} minutos. Puedes pedirlo otra vez.`;
 
 const COLOR: Record<string, string> = { success: "text-success", info: "text-info", warning: "text-warning", error: "text-error", neutral: "text-muted-foreground" };
 

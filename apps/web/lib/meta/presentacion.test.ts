@@ -51,6 +51,7 @@ describe("QR", () => {
         expect(errorQr("numero_no_elegible").revisa).toHaveLength(3);
         expect(errorQr("app_no_aprobada")).toMatchObject({ ofrecerApi: true, ofrecerConexion: true });
         expect(errorQr("otro_codigo")).toEqual(errorQr("error_meta"));
+        expect(errorQr("base_url_requerida").texto).toBe("Falta configurar la dirección pública de Iris (IRIS_BASE_URL); pide ayuda a quien administra el servidor.");
     });
 
     it("tipo de conexión, teléfono sin actividad y desconexión", () => {
@@ -72,6 +73,11 @@ describe("QR", () => {
         expect(sePuedePedir(s, "contactos", AHORA)).toBe(false);
         expect(sePuedePedir(s, "mensajes", AHORA)).toBe(true);
         expect(sePuedePedir({ ...s, plazo: "2026-11-08T15:00:00Z" }, "mensajes", AHORA)).toBe(false);
+        // Un «pedido» sin respuesta de Meta se puede repetir a los 10 minutos.
+        const pedido = (hace: number): Sincronizacion => ({ ...s, mensajes: { ...parte, estado: "pedido", pedidoEn: new Date(AHORA - hace * 60_000).toISOString() } });
+        expect(sePuedePedir(pedido(9), "mensajes", AHORA)).toBe(false);
+        expect(sePuedePedir(pedido(10), "mensajes", AHORA)).toBe(true);
+        expect(sePuedePedir({ ...s, mensajes: { ...parte, estado: "recibiendo", pedidoEn: "2026-11-08T10:00:00Z" } }, "mensajes", AHORA)).toBe(false);
         expect(presentarSincronizacion("rechazado")).toEqual({ texto: "No aceptado en el teléfono", tono: "warning" });
     });
 });

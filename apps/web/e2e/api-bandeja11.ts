@@ -71,6 +71,8 @@ const DESTINATARIOS: Destinatario[] = [
     { tipo: "cliente", id: 3877, nombre: "Carlos Cifuentes", codigo: "C-3877", detalle: null, numero: "+50257301122", puede: false, motivo: "baja", conversacionId: null },
     { tipo: "cliente", id: 2290, nombre: "Carlos Pérez", codigo: "C-2290", detalle: null, numero: null, puede: false, motivo: "sin_contacto", conversacionId: null },
     { tipo: "cliente", id: 6620, nombre: "Carlos Toj", codigo: "C-6620", detalle: null, numero: "+50255006620", puede: false, motivo: "conversacion_de_otra_cola", conversacionId: null },
+    // §15.3: número compartido y otra empresa tiene abierta una conversación con ese teléfono.
+    { tipo: "cliente", id: 6631, nombre: "Carlos Velásquez", codigo: "C-6631", detalle: null, numero: "+50255006631", puede: false, motivo: "conversacion_en_otra_empresa", conversacionId: null },
 ];
 
 export type OpcionesBandeja11 = {
@@ -197,7 +199,6 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
             const existente = e.conversaciones.find((c) => c.numero === dest.numero && c.canal.id === canal.id);
             const yoAgente = e.agentes.find((a) => a.id === yo);
             const c: Conversacion = existente ?? {
-                soloLectura: false,
                 id: siguienteConv++,
                 empresaId: 1,
                 version: 1,
@@ -244,7 +245,6 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
                 entregadoEn: null,
                 leidoEn: null,
                 automatico: null,
-                origen: null,
             };
             c.ultimoMensaje = { direccion: "saliente", tipo: "plantilla", texto, evento: null, creadoEn: ahora, automatico: null };
             if (!existente) {
@@ -268,7 +268,6 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
                     entregadoEn: null,
                     leidoEn: null,
                     automatico: null,
-                    origen: null,
                 },
                 m,
             );
@@ -296,7 +295,7 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
             c.version += 1;
             const ahora = new Date().toISOString();
             const nota = typeof cuerpo.nota === "string" ? cuerpo.nota : "";
-            const base = { conversacionId: c.id, seq: 0, tipo: "texto" as const, estadoEntrega: null, motivoFalla: null, menciones: [], creadoEn: ahora, enviadoEn: null, entregadoEn: null, leidoEn: null, automatico: null, origen: null };
+            const base = { conversacionId: c.id, seq: 0, tipo: "texto" as const, estadoEntrega: null, motivoFalla: null, menciones: [], creadoEn: ahora, enviadoEn: null, entregadoEn: null, leidoEn: null, automatico: null };
             const sistema: Mensaje = {
                 ...base,
                 id: `pasada-${c.version}`,

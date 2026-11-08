@@ -80,6 +80,7 @@ describe("motivos de un destinatario", () => {
         expect(textoMotivoDestinatario("baja")).toBe("No acepta mensajes: se dio de baja");
         expect(textoMotivoDestinatario("sin_contacto")).toBe("Sin número de WhatsApp en Argos");
         expect(textoMotivoDestinatario("conversacion_de_otra_cola")).toBe("La atiende otra cola");
+        expect(textoMotivoDestinatario("conversacion_en_otra_empresa")).toBe("La atiende otra empresa que usa este número");
     });
 });
 
@@ -90,6 +91,7 @@ describe("eventos del bot", () => {
         expect(textoEventoBot({ tipo: "aviso_sin_atender", disponibles: 3, colaNombre: "Soporte" })).toBe("Se avisó a 3 agentes de Soporte");
         expect(textoEventoBot({ tipo: "pasada", actorNombre: "Ana", asignadoNombre: "Mario Ixcot", detalle: "no_disponible" })).toBe("Ana la pasó a Mario Ixcot (no disponible)");
         expect(textoEventoBot({ tipo: "menu_elegido", detalle: "Pagos", colaNombre: "Caja" })).toBe("Eligió «Pagos» en el menú: pasó a Caja");
+        expect(textoEventoBot({ tipo: "pasada_a_empresa", detalle: "Red Sur" })).toBe("Pasada por Red Sur");
         expect(textoEventoBot({ tipo: "tomada" })).toBeNull();
     });
 });

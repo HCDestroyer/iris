@@ -197,6 +197,7 @@ test.describe("agregar número con QR", () => {
         ["app_no_aprobada", "La app de Meta no tiene permiso para el QR"],
         ["numero_no_elegible", "Meta dice que este número no se puede conectar con QR"],
         ["error_meta", "Meta no respondió bien"],
+        ["base_url_requerida", "Falta la dirección pública de Iris"],
     ] as const) {
         test(`QR con error del servidor: ${codigo}`, async ({ page }) => {
             await iniciarQr(page, codigo);
@@ -207,6 +208,7 @@ test.describe("agregar número con QR", () => {
             await expect(page.getByText("No se guardó ningún dato del número.")).toBeVisible();
             if (codigo === "numero_no_elegible" || codigo === "app_no_aprobada") await expect(error.getByRole("link", { name: "Usar datos de la API" })).toBeVisible();
             if (codigo === "error_meta") await expect(error).toContainText("fbtrace");
+            if (codigo === "base_url_requerida") await expect(error).toContainText("Falta configurar la dirección pública de Iris (IRIS_BASE_URL); pide ayuda a quien administra el servidor.");
             await captura(page, `qr-error-${codigo}`);
             await error.getByRole("button", { name: "Reintentar" }).click();
             await expect(page.getByRole("button", { name: "Conectar con Meta" })).toBeVisible();
@@ -251,6 +253,7 @@ test.describe("compartir números entre empresas", () => {
         const { api } = await abrir(page, "/administracion/numeros", { empresas: [{ id: 2, nombre: "Cable Norte" }], meta: { prestado: true } });
         await expect(page.locator('[data-numero="9"]')).toHaveCount(1);
         await expect(page.locator('[data-numero="9"] [data-insignia="prestado"]')).toHaveText("Prestado por Red Sur");
+        await expect(page.locator('[data-numero="9"] [data-insignia="compartido"], [data-numero="9"] [data-insignia="compartir"]')).toHaveCount(0);
         await expect(page.locator('[data-aviso-prestado="9"]')).toContainText("Avisos de Red Sur es de Red Sur");
         await expect(page.locator('[data-aviso-prestado="9"]')).toContainText("lo puede usar para avisos y soporte");
         await expect(page.locator('[data-numero="9"]').getByRole("link", { name: /Configurar|Credenciales/ })).toHaveCount(0);

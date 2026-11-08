@@ -17,7 +17,7 @@ type Prestamo = Schema<"Prestamo">;
 type Problema = Schema<"Problema">;
 type Permiso = Schema<"Permiso">;
 
-export type ResultadoQr = "ok" | "codigo_vencido" | "app_no_aprobada" | "numero_no_elegible" | "error_meta";
+export type ResultadoQr = "ok" | "codigo_vencido" | "app_no_aprobada" | "numero_no_elegible" | "error_meta" | "base_url_requerida";
 
 export type OpcionesMeta = {
     /** Modo de la conexión con Meta al empezar (por defecto `propia`, lista). */
@@ -166,6 +166,8 @@ export function apiMeta(numeros: ApiNumeros["interno"], conversaciones: Conversa
             verifyTokenGuardadoEn: null,
             conexion: "conectado",
             prestadoPor: { empresaId: 1, nombre: "Red Sur" },
+            // §15.3: a quien usa un número prestado, compartidoCon le llega en 0.
+            compartidoCon: 0,
             prestamo: { usos: ["avisos", "soporte"], colaId: 21, avisosEmpresa: false, version: 1, prestadoEn: "2026-11-02T15:00:00Z" },
         };
         numeros.listaExtra.push(vista, { ...numeros.vista(n), empresaId: 1, conexion: "conectado", compartidoCon: 1 });

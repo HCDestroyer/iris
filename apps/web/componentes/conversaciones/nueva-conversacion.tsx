@@ -382,6 +382,13 @@ function VistaPrevia({ plantilla, valores, nombre, canal, cola }: { plantilla: P
 /** Error del envío con lo que se puede hacer. */
 function ErrorEnvio({ error }: { error: unknown }) {
     const e = error instanceof ErrorApi ? error : null;
+    if (e?.codigo === "conversacion_en_otra_empresa") {
+        return (
+            <Aviso tono="warning" titulo="La atiende otra empresa que usa este número">
+                Ese teléfono tiene una conversación abierta en otra empresa que comparte este número. No se puede iniciar otra hasta que la resuelvan.
+            </Aviso>
+        );
+    }
     if (e?.codigo === "conversacion_de_otra_cola") {
         return (
             <Aviso tono="warning" titulo="La atiende otra cola">

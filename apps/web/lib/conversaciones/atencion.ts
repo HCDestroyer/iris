@@ -89,6 +89,9 @@ export function textoEventoBot(e: EventoSistema): string | null {
         }
         case "pasada":
             return `${e.actorNombre ?? "Iris"} la pasó a ${e.asignadoNombre ?? "otra persona"}${e.detalle === "no_disponible" ? " (no disponible)" : ""}`;
+        case "pasada_a_empresa":
+            // §15.3: `detalle` = empresa dueña; sin `actorNombre` (quien la recibe no ve a sus agentes).
+            return `Pasada por ${e.detalle ?? "otra empresa"}`;
         case "menu_elegido":
             return `Eligió «${e.detalle ?? "una opción"}» en el menú${e.colaNombre ? `: pasó a ${e.colaNombre}` : ""}`;
         case "iniciada":
@@ -116,6 +119,8 @@ export function textoMotivoDestinatario(motivo: MotivoDestinatario | null): stri
             return "Ya tiene una conversación con otra persona";
         case "conversacion_de_otra_cola":
             return "La atiende otra cola";
+        case "conversacion_en_otra_empresa":
+            return "La atiende otra empresa que usa este número";
         case "numero_no_permitido":
             return "Ese número de salida no es de tus colas";
         default:

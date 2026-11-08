@@ -40,7 +40,6 @@ export function conversacion(datos: Partial<Conversacion> & Pick<Conversacion, "
     return {
         empresaId: 1,
         version: 1,
-        soloLectura: false,
         canal: CANAL_SOPORTE,
         cola: { id: 2, nombre: "Soporte" },
         numero: "+50255120041",
@@ -172,7 +171,6 @@ export function mensaje(conversacionId: number, datos: Partial<Mensaje> & Pick<M
         conversacionId,
         seq,
         tipo: datos.direccion === "sistema" ? "sistema" : "texto",
-        origen: null,
         texto: null,
         estadoEntrega: null,
         motivoFalla: null,

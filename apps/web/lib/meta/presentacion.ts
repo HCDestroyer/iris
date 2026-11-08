@@ -126,6 +126,12 @@ const ERRORES_QR: Record<string, ErrorQr> = {
         ofrecerApi: true,
         ofrecerConexion: true,
     },
+    base_url_requerida: {
+        titulo: "Falta la dirección pública de Iris",
+        texto: "Falta configurar la dirección pública de Iris (IRIS_BASE_URL); pide ayuda a quien administra el servidor.",
+        ofrecerApi: true,
+        ofrecerConexion: false,
+    },
     conexion_meta_sin_configurar: {
         titulo: "Falta configurar la conexión con Meta",
         texto: "Pide a un administrador que la configure en Administración → Conexión con Meta.",
@@ -190,11 +196,17 @@ export function presentarSincronizacion(estado: EstadoSincronizacion): { texto: 
     }
 }
 
-/** Se puede pedir este tipo (una vez, dentro del plazo; si falló, otra vez). */
+/** Minutos sin respuesta de Meta tras los que un «pedido» se puede repetir (§15.2). */
+export const MINUTOS_REPETIR_PEDIDO = 10;
+
+/** Se puede pedir este tipo (una vez, dentro del plazo; si falló o Meta no respondió en 10 min, otra vez). */
 export function sePuedePedir(s: Sincronizacion, tipo: "contactos" | "mensajes", ahora: number = Date.now()): boolean {
     if (plazoRestante(s.plazo, ahora).vencido) return false;
-    const e = s[tipo].estado;
-    return e === "sin_pedir" || e === "fallido";
+    const { estado, pedidoEn } = s[tipo];
+    if (estado === "sin_pedir" || estado === "fallido") return true;
+    if (estado !== "pedido") return false;
+    const pedido = pedidoEn ? Date.parse(pedidoEn) : Number.NaN;
+    return !Number.isNaN(pedido) && ahora - pedido >= MINUTOS_REPETIR_PEDIDO * 60_000;
 }
 
 // --- Préstamos ---------------------------------------------------------------------------------

@@ -255,7 +255,7 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
                             ) : null}
                             {empresasDestino.length > 0 ? (
                                 <MenuDesplegableElemento icono={Building2} onSelect={() => setDialogo("pasar-empresa")} textValue="Pasar a otra empresa" className="h-auto py-2">
-                                    <OpcionConDetalle titulo="Pasar a otra empresa" detalle={`A ${empresasDestino.map((e) => e.empresaNombre).join(" o ")}, con su historial.`} />
+                                    <OpcionConDetalle titulo="Pasar a otra empresa" detalle={`A ${empresasDestino.map((e) => e.empresaNombre).join(" o ")}, con los mensajes del cliente.`} />
                                 </MenuDesplegableElemento>
                             ) : null}
                             {p.asignar || p.pasar || empresasDestino.length > 0 ? <MenuDesplegableSeparador /> : null}
@@ -777,8 +777,8 @@ function useEmpresasParaPasar(conv: Conversacion): Prestamo[] {
 }
 
 /**
- * «Pasar a otra empresa» (§15.3): la conversación pasa con su historial a la cola del préstamo,
- * sin asignar, sin etiquetas y sin contacto; desde ahí solo la ve la otra empresa (aquí queda de
+ * «Pasar a otra empresa» (§15.3): pasan los mensajes del cliente y los enviados (no las notas
+ * internas ni los eventos de la dueña) a la cola del préstamo, sin asignar, sin etiquetas y sin contacto; desde ahí solo la ve la otra empresa (aquí queda de
  * solo lectura). Nota opcional para quien la recibe.
  */
 function DialogoPasarEmpresa(props: PropsDialogo & { empresas: Prestamo[] }) {
@@ -788,7 +788,7 @@ function DialogoPasarEmpresa(props: PropsDialogo & { empresas: Prestamo[] }) {
     const empresaId = useWatch({ control: form.control, name: "empresaId" });
     const elegida = empresas.find((e) => String(e.empresaId) === empresaId);
     return (
-        <DialogoCorto {...props} titulo="Pasar a otra empresa" descripcion={`${conv.titulo}: pasa con su historial y aquí queda de solo lectura.`}>
+        <DialogoCorto {...props} titulo="Pasar a otra empresa" descripcion={`${conv.titulo}: pasan los mensajes con el cliente y aquí queda de solo lectura.`}>
             {(enviar, pie) => (
                 <form
                     noValidate
@@ -820,7 +820,7 @@ function DialogoPasarEmpresa(props: PropsDialogo & { empresas: Prestamo[] }) {
                         ))}
                     </CampoSelector>
                     <CampoArea etiqueta="Nota para quien la recibe (opcional)" rows={3} maxLength={1000} error={form.formState.errors.nota?.message} {...form.register("nota")} />
-                    <p className="text-sm text-muted-foreground">Se pasa sin asignar, sin etiquetas y sin el cliente asociado: esos datos son de tu empresa.</p>
+                    <p className="text-sm text-muted-foreground">Se pasa sin asignar, sin etiquetas, sin el cliente asociado y sin las notas internas: esos datos son de tu empresa. La nota de aquí es lo único interno que verán.</p>
                     {pie(elegida ? `Pasar a ${elegida.empresaNombre}` : "Pasar", form.formState.isSubmitting, empresaId ? [] : ["la empresa"])}
                 </form>
             )}
