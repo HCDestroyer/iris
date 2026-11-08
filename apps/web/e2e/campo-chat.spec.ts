@@ -221,10 +221,19 @@ test("«Chat de la orden» del menú «⋯» va tras «Agregar formulario» y ab
     expect(chat.servidor.llamadasA("abrirOrden").map(([id]) => id)).toContain(101);
 });
 
-test("«Nuevo mensaje» abre una directa con alguien conocido", async ({ page }) => {
+test("«Nuevo mensaje» busca en GET /chat/personas (también soporte, sin chat previo) y abre la directa", async ({ page }) => {
     const { chat } = await montar(page);
+    chat.servidor.nombres.set(77, "Sofía Soporte");
     await page.goto("/campo?vista=chat");
     await page.getByRole("button", { name: "Nuevo mensaje" }).click();
+    // Alguien de soporte con quien nunca habló aparece en la lista (no solo los conocidos).
+    await expect(page.getByRole("button", { name: "Sofía Soporte" })).toBeVisible();
+    await page.getByRole("searchbox", { name: "Buscar persona" }).fill("andr");
+    // Al teclear la lista pasa a «cargando» en el acto y la búsqueda sale tras la espera
+    // (ESPERA_BUSQUEDA_MS): se espera al resultado, no solo a que Sofía se oculte.
+    await expect(page.getByRole("button", { name: ANDREA.nombre })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sofía Soporte" })).toBeHidden();
+    await expect.poll(() => chat.servidor.llamadasA("personas").map(([q]) => q)).toContain("andr");
     await page.getByRole("button", { name: ANDREA.nombre }).click();
     await expect(page.getByRole("heading", { level: 1, name: ANDREA.nombre })).toBeVisible();
     expect(chat.servidor.llamadasA("abrirDirecta")).toEqual([[ANDREA.id]]);

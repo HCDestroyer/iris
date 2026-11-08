@@ -5,7 +5,7 @@ cuentas externas: workflow `.github/workflows/movil-apk.yml` («APK de Android»
 
 | Cuándo | Versión (`versionName`) | Firma | URL de la API | Dónde queda |
 | --- | --- | --- | --- | --- |
-| A mano desde `main` | `X.Y.Z-dev+<sha corto>` (X.Y.Z = último tag) | real si el environment tiene la llave; si no, prueba | input `api_url` | artefacto (30 días) |
+| A mano desde `main` | `X.Y.Z-dev+<sha corto>` (X.Y.Z = `.release-please-manifest.json` del commit; si falta, el último tag) | real si el environment tiene la llave; si no, prueba | input `api_url` | artefacto (30 días) |
 | A mano desde otra rama | igual | **siempre prueba** (no entra al environment) | input `api_url` | artefacto (30 días) |
 | Versión de release-please | `X.Y.Z` | real (falla si falta la llave) | variable `IRIS_MOVIL_API_URL` | artefacto + GitHub Release |
 | Release publicada a mano | la etiqueta sin `v` | real (falla si falta la llave) | variable `IRIS_MOVIL_API_URL` | artefacto + GitHub Release |

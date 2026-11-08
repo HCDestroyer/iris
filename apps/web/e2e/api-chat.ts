@@ -90,6 +90,9 @@ export async function simularChat(page: Page, preparar?: (s: ServidorChatFalso) 
                 if (metodo === "POST" && /^\/mensajes\/[^/]+\/eliminar$/.test(ruta)) {
                     return json(route, await servidor.eliminarMensaje(/^\/mensajes\/([^/]+)\//.exec(ruta)?.[1] ?? ""));
                 }
+                if (metodo === "GET" && ruta === "/personas") {
+                    return json(route, await servidor.personas(q.get("q") ?? "", q.get("cursor") ?? undefined));
+                }
                 if (metodo === "POST" && ruta === "/directas") {
                     return json(route, await servidor.abrirDirecta((req.postDataJSON() as { usuario_id: number }).usuario_id));
                 }

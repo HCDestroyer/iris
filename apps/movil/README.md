@@ -49,6 +49,21 @@ adjuntos. Lo que agrega lo nativo: cámara del sistema, escáner de códigos y G
   guarda la contraseña. «¿No eres tú?» con una sesión guardada la cierra entera (`noSoyYo`:
   `DELETE /sesion` o cierre pendiente sin señal, CSRF del llavero, sesión guardada, huella apagada).
   Vuelve a pedirla al regresar al frente tras más de 5 min fuera (`src/campo/bloqueo.ts`).
+- **Pantallas de bloqueo del arranque** (`src/pantallas/Bloqueo.tsx`, `PantallaBloqueo`, con la
+  opción B del login: logo centrado, título, explicación, el contenido y «Usar otra cuenta»). Toda
+  pantalla que no deja seguir, también en sus errores, tiene «Usar otra cuenta» (cierra la sesión
+  como «¿No eres tú?» y borra lo mismo que el cierre normal: push local y fotos en caché). El «Atrás»
+  de Android nunca cierra la sesión: sale de la app («Elegir empresa» desde «Cambiar empresa» vuelve
+  a la app; el bloqueo con huella sale dejándola bloqueada): **«Crea tu contraseña»** (contraseña
+  temporal: la cambia ahí con el formulario de «Yo» y `POST /yo/contrasena` —lo único que la sesión
+  limitada puede hacer además de salir— y entra directo; también si un admin se la pone con la app
+  abierta), **sin empresa**, **elegir empresa**, **no se pudo abrir la base del teléfono** y el
+  **error de pantalla** (`RecuperarError`). «Sin conexión» va en el login, que ya es la salida.
+- **Chat del equipo** (`src/pantallas/Chat.tsx`, lógica de `@iris/sync/chat`): «Nuevo mensaje»
+  busca en `GET /chat/personas?q=` a cualquiera de la empresa con `chat.ver` (despacho, soporte,
+  supervisores, técnicos) y abre la directa (`POST /chat/directas`); sin señal ofrece a quienes el
+  teléfono ya conoce. En la conversación el hilo sigue al último mensaje sobre el teclado y el
+  compositor (`src/campo/seguir-final.ts`) salvo que la persona lea arriba («Mensajes nuevos»).
 - **La orden paso a paso:** resumen (cliente, avisos, pausa con motivo / reanudar, avance, notas,
   «No se pudo») → «Empezar trabajo» → **Llegada** (En camino y Llegué, con GPS si hay permiso) ·
   **Checklist** (formularios de todos los tipos; agregar y quitar) · **Materiales y equipos**
@@ -225,7 +240,10 @@ El adaptador SQLite se prueba en `packages/sync` con `node:sqlite`.
 
 El APK de Android se compila en GitHub Actions (`.github/workflows/movil-apk.yml`, sin EAS):
 a mano con la URL de la API o solo en cada versión. La versión y el `versionCode` los pone el CI por
-`app.config.js` (`IRIS_MOVIL_VERSION`, `IRIS_MOVIL_VERSION_CODE`); `android/` se genera con
+`app.config.js` (`IRIS_MOVIL_VERSION`, `IRIS_MOVIL_VERSION_CODE`; la misma va al bundle como
+`EXPO_PUBLIC_IRIS_MOVIL_VERSION` para `X-Iris-App`). En una versión, la de la etiqueta; a mano,
+`X.Y.Z-dev+<sha>` con X.Y.Z de `.release-please-manifest.json` (no del último tag, que se crea
+después del merge de release-please). `android/` se genera con
 `expo prebuild` y no se commitea. Llave, instalación y cómo reconocer un APK de prueba:
 `docs/runbooks/movil-apk.md`.
 
