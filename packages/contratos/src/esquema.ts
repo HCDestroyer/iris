@@ -1552,9 +1552,29 @@ export interface paths {
         put?: never;
         /**
          * Configurar WhatsApp Cloud API de una empresa
-         * @description Permiso: `mensajeria.configurar`. Token, app secret y verify token se guardan cifrados (IRIS_CLAVE_CIFRADO) y nunca se devuelven. Uno activo por empresa (409 `canal_existente`). `webhookRuta` es la ruta que se configura en la app de Meta (verificación con el verify token y firma con el app secret).
+         * @description Permiso: `mensajeria.configurar`. Token, app secret y verify token se guardan cifrados (IRIS_CLAVE_CIFRADO) y nunca se devuelven. Una empresa puede tener varios números; 409 `canal_existente` solo si el `phoneNumberId` ya está en otro número activo. Sin `verifyToken`, Iris genera uno y lo devuelve **una sola vez** en `verifyTokenGenerado` (con Idempotency-Key esa respuesta no se guarda: repetir la clave responde 409 `idempotencia_no_repetible`). `webhookUrl` es la URL que se pega en la app de Meta (verificación con el verify token y firma con el app secret); contratos/conversaciones.md §1.1.
          */
         post: operations["crearCanalMensajeria"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/canales/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Un canal de mensajería (sin credenciales)
+         * @description Permiso: `mensajeria.configurar`.
+         */
+        get: operations["verCanalMensajeria"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1592,7 +1612,7 @@ export interface paths {
         put?: never;
         /**
          * Actualizar un canal (credenciales vacías: no cambian)
-         * @description Permiso: `mensajeria.configurar`.
+         * @description Permiso: `mensajeria.configurar`. `generarVerifyToken: true` genera un verify token nuevo y lo devuelve una vez en `verifyTokenGenerado` (la respuesta no se guarda con la Idempotency-Key). Un verify token nuevo borra `webhookVerificadoEn`; otro token, `phoneNumberId` o `numero` dejan el número sin probar.
          */
         post: operations["actualizarCanalMensajeria"];
         delete?: never;
@@ -1635,6 +1655,26 @@ export interface paths {
          * @description Permiso: `mensajeria.configurar`.
          */
         post: operations["desactivarCanalMensajeria"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/canales/{id}/probar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Probar la conexión de un número con Meta
+         * @description Permiso: `mensajeria.configurar`. Solo personas con sesión del panel (un token o una integración: 404). Llama a la Graph API `GET /{phone_number_id}` con el token guardado y responde `conectado`, `token_invalido` (401/190), `numero_no_coincide`, `sin_permiso` (403/10/200–299) o `error_meta`, con `webhookVerificado`. Guarda el resultado en el número (sin subir `version`), audita y emite `canal_mensajeria.probado`. 409 `conflicto_version` si el número se editó durante la prueba. contratos/conversaciones.md §1.1.
+         */
+        post: operations["probarCanalMensajeria"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6825,7 +6865,12 @@ export interface components {
         };
         Canal: {
             activo: boolean;
-            /** @description Es el número por el que salen los avisos de la empresa (uno activo por empresa) */
+            /**
+             * Format: date-time
+             * @description Cuándo se guardó el app secret (nunca el valor)
+             */
+            appSecretGuardadoEn: string | null;
+            /** @description Es el número por el que salen los avisos de la empresa (uno solo por empresa; la empresa puede tener varios números) */
             avisosEmpresa: boolean;
             /** @description Cuando no hay agentes (contratos/conversaciones.md §14.6) */
             bot: components["schemas"]["BotNumero"];
@@ -6836,10 +6881,17 @@ export interface components {
              * @description Cola de las conversaciones nuevas de este número
              */
             colaId: number | null;
+            /**
+             * @description Estado de la conexión para la lista (§1.1), calculado en el servidor
+             * @enum {string}
+             */
+            conexion: "desactivado" | "sin_probar" | "conectado" | "webhook_sin_verificar" | "token_invalido" | "numero_no_coincide" | "sin_permiso" | "error_meta";
             /** Format: date-time */
             creadoEn: string;
             /** Format: int64 */
             empresaId: number | null;
+            /** @enum {string} */
+            estado: "activo" | "inactivo";
             fueraDeHorario: components["schemas"]["FueraDeHorario"];
             /**
              * Format: int64
@@ -6863,13 +6915,48 @@ export interface components {
             };
             /** @enum {string} */
             tipo: "whatsapp_cloud";
+            /**
+             * Format: date-time
+             * @description Cuándo se guardó el token (nunca el valor)
+             */
+            tokenGuardadoEn: string | null;
+            /** Format: date-time */
+            ultimaPruebaEn: string | null;
+            /** @description Detalle corto de la última prueba (nunca credenciales) */
+            ultimoDetalle: string | null;
+            /**
+             * @description Resultado de la última prueba (null = sin probar)
+             * @enum {string|null}
+             */
+            ultimoEstado: "conectado" | "token_invalido" | "numero_no_coincide" | "sin_permiso" | "error_meta" | null;
+            /**
+             * Format: date-time
+             * @description Último webhook firmado recibido de Meta (precisión de 1 minuto)
+             */
+            ultimoMensajeEn: string | null;
             /** @description avisos, soporte, cobros, ventas (contratos/conversaciones.md §1) */
             usos: string[];
+            /** @description Verify token que generó Iris: solo en esta respuesta, una vez (cópialo a Meta) */
+            verifyTokenGenerado?: string;
+            /**
+             * Format: date-time
+             * @description Cuándo se guardó el verify token (nunca el valor)
+             */
+            verifyTokenGuardadoEn: string | null;
             /** Format: int32 */
             version: number;
             wabaId: string;
             /** @description Ruta del webhook a configurar en la app de Meta (sobre IRIS_BASE_URL) */
             webhookRuta: string;
+            /** @description URL completa del webhook para pegar en Meta (IRIS_BASE_URL + webhookRuta); sin IRIS_BASE_URL, solo la ruta */
+            webhookUrl: string;
+            /** @description true si webhookUrl es absoluta (false: el panel antepone su origen) */
+            webhookUrlCompleta: boolean;
+            /**
+             * Format: date-time
+             * @description Última verificación correcta de Meta (hub.challenge); null si no la hizo o cambió el verify token
+             */
+            webhookVerificadoEn: string | null;
         };
         CanalRef: {
             /** Format: int64 */
@@ -8119,6 +8206,8 @@ export interface components {
         EntradaActualizarCanal: {
             /** @description Vacío = no cambia */
             appSecret?: string;
+            /** @description Iris genera un verify token nuevo y lo devuelve una vez en verifyTokenGenerado (no junto con verifyToken). Meta debe verificar el webhook otra vez */
+            generarVerifyToken?: boolean;
             nombre: string;
             numero: string;
             phoneNumberId: string;
@@ -8609,8 +8698,8 @@ export interface components {
             token: string;
             /** @description avisos, soporte, cobros, ventas (por defecto avisos y soporte) */
             usos?: string[] | null;
-            /** @description Token de verificación del webhook que se escribe en Meta (solo escritura) */
-            verifyToken: string;
+            /** @description Token de verificación del webhook que se escribe en Meta (16–256; solo escritura). Vacío = lo genera Iris y lo devuelve una vez en verifyTokenGenerado */
+            verifyToken?: string;
             /** @description WhatsApp Business Account ID */
             wabaId?: string;
         };
@@ -11014,7 +11103,7 @@ export interface components {
             nextCursor: string | null;
         };
         ListaCanales: {
-            data: components["schemas"]["Canal"][] | null;
+            data: components["schemas"]["Canal"][];
             nextCursor: string | null;
         };
         ListaColas: {
@@ -12993,6 +13082,36 @@ export interface components {
             version: number;
             /** Format: int64 */
             zonaId: number | null;
+        };
+        PruebaCanal: {
+            /**
+             * @description quality_rating de Meta: GREEN alta, YELLOW media, RED baja
+             * @enum {string|null}
+             */
+            calidad: "alta" | "media" | "baja" | "desconocida" | null;
+            /** Format: int64 */
+            canalId: number;
+            /**
+             * @description Lo mismo que Canal.conexion después de la prueba
+             * @enum {string}
+             */
+            conexion: "desactivado" | "sin_probar" | "conectado" | "webhook_sin_verificar" | "token_invalido" | "numero_no_coincide" | "sin_permiso" | "error_meta";
+            /** @description Qué pasó, en español (null si conectado). Nunca lleva credenciales */
+            detalle: string | null;
+            /** @enum {string} */
+            estado: "conectado" | "token_invalido" | "numero_no_coincide" | "sin_permiso" | "error_meta";
+            /** @description verified_name de Meta */
+            nombreVerificado: string | null;
+            /** @description display_phone_number de Meta en E.164, cuando se leyó */
+            numeroMeta: string | null;
+            /** Format: date-time */
+            probadoEn: string;
+            /** Format: date-time */
+            ultimoMensajeEn: string | null;
+            /** @description Meta ya verificó el webhook (webhookVerificadoEn no es null) */
+            webhookVerificado: boolean;
+            /** Format: date-time */
+            webhookVerificadoEn: string | null;
         };
         PruebaServidor: {
             /** @enum {string|null} */
@@ -20780,6 +20899,76 @@ export interface operations {
             };
         };
     };
+    verCanalMensajeria: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Canal"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     activarCanalMensajeria: {
         parameters: {
             query?: never;
@@ -21068,6 +21257,85 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    probarCanalMensajeria: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PruebaCanal"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

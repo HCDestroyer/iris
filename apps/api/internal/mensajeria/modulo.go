@@ -135,6 +135,8 @@ type Modulo struct {
 	ActivarCanal            *auditoria.Caso[EntradaCambioCanal, Canal]
 	DesactivarCanal         *auditoria.Caso[EntradaCambioCanal, Canal]
 	ListarCanales           *auditoria.Caso[struct{}, ListaCanales]
+	VerCanal                *auditoria.Caso[EntradaVerCanal, Canal]
+	ProbarCanal             *ProbarCanal
 	RecibirMeta             *auditoria.Caso[EntradaMeta, MetaRecibido]
 	VerificarMeta           *auditoria.Caso[EntradaVerificarMeta, string]
 
@@ -258,6 +260,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.ActivarCanal = nuevoCambioCanal(m, "mensajeria.activar_canal", true)
 	m.DesactivarCanal = nuevoCambioCanal(m, "mensajeria.desactivar_canal", false)
 	m.ListarCanales = nuevoListarCanales(m)
+	m.VerCanal = nuevoVerCanal(m)
+	m.ProbarCanal = nuevoProbarCanal(m)
 	m.RecibirMeta = nuevoRecibirMeta(m)
 	m.VerificarMeta = nuevoVerificarMeta(m)
 	m.prepararEnvio = nuevoPrepararEnvio(m)

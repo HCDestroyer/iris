@@ -1739,8 +1739,16 @@
           "activo": {
             "type": "boolean"
           },
+          "appSecretGuardadoEn": {
+            "description": "Cuándo se guardó el app secret (nunca el valor)",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "avisosEmpresa": {
-            "description": "Es el número por el que salen los avisos de la empresa (uno activo por empresa)",
+            "description": "Es el número por el que salen los avisos de la empresa (uno solo por empresa; la empresa puede tener varios números)",
             "type": "boolean"
           },
           "bot": {
@@ -1761,6 +1769,20 @@
               "null"
             ]
           },
+          "conexion": {
+            "description": "Estado de la conexión para la lista (§1.1), calculado en el servidor",
+            "enum": [
+              "desactivado",
+              "sin_probar",
+              "conectado",
+              "webhook_sin_verificar",
+              "token_invalido",
+              "numero_no_coincide",
+              "sin_permiso",
+              "error_meta"
+            ],
+            "type": "string"
+          },
           "creadoEn": {
             "format": "date-time",
             "type": "string"
@@ -1771,6 +1793,13 @@
               "integer",
               "null"
             ]
+          },
+          "estado": {
+            "enum": [
+              "activo",
+              "inactivo"
+            ],
+            "type": "string"
           },
           "fueraDeHorario": {
             "$ref": "#/components/schemas/FueraDeHorario"
@@ -1818,12 +1847,68 @@
             ],
             "type": "string"
           },
+          "tokenGuardadoEn": {
+            "description": "Cuándo se guardó el token (nunca el valor)",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ultimaPruebaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ultimoDetalle": {
+            "description": "Detalle corto de la última prueba (nunca credenciales)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ultimoEstado": {
+            "description": "Resultado de la última prueba (null = sin probar)",
+            "enum": [
+              "conectado",
+              "token_invalido",
+              "numero_no_coincide",
+              "sin_permiso",
+              "error_meta"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ultimoMensajeEn": {
+            "description": "Último webhook firmado recibido de Meta (precisión de 1 minuto)",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "usos": {
             "description": "avisos, soporte, cobros, ventas (contratos/conversaciones.md §1)",
             "items": {
               "type": "string"
             },
             "type": "array"
+          },
+          "verifyTokenGenerado": {
+            "description": "Verify token que generó Iris: solo en esta respuesta, una vez (cópialo a Meta)",
+            "type": "string"
+          },
+          "verifyTokenGuardadoEn": {
+            "description": "Cuándo se guardó el verify token (nunca el valor)",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "version": {
             "format": "int32",
@@ -1835,6 +1920,22 @@
           "webhookRuta": {
             "description": "Ruta del webhook a configurar en la app de Meta (sobre IRIS_BASE_URL)",
             "type": "string"
+          },
+          "webhookUrl": {
+            "description": "URL completa del webhook para pegar en Meta (IRIS_BASE_URL + webhookRuta); sin IRIS_BASE_URL, solo la ruta",
+            "type": "string"
+          },
+          "webhookUrlCompleta": {
+            "description": "true si webhookUrl es absoluta (false: el panel antepone su origen)",
+            "type": "boolean"
+          },
+          "webhookVerificadoEn": {
+            "description": "Última verificación correcta de Meta (hub.challenge); null si no la hizo o cambió el verify token",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -1856,6 +1957,18 @@
           "activo",
           "pausadoHasta",
           "webhookRuta",
+          "webhookUrl",
+          "webhookUrlCompleta",
+          "estado",
+          "conexion",
+          "ultimoEstado",
+          "ultimoDetalle",
+          "ultimaPruebaEn",
+          "webhookVerificadoEn",
+          "ultimoMensajeEn",
+          "tokenGuardadoEn",
+          "appSecretGuardadoEn",
+          "verifyTokenGuardadoEn",
           "version",
           "creadoEn"
         ],
@@ -5451,6 +5564,10 @@
             "maxLength": 256,
             "type": "string"
           },
+          "generarVerifyToken": {
+            "description": "Iris genera un verify token nuevo y lo devuelve una vez en verifyTokenGenerado (no junto con verifyToken). Meta debe verificar el webhook otra vez",
+            "type": "boolean"
+          },
           "nombre": {
             "maxLength": 120,
             "minLength": 1,
@@ -6705,9 +6822,8 @@
             "uniqueItems": true
           },
           "verifyToken": {
-            "description": "Token de verificación del webhook que se escribe en Meta (solo escritura)",
+            "description": "Token de verificación del webhook que se escribe en Meta (16–256; solo escritura). Vacío = lo genera Iris y lo devuelve una vez en verifyTokenGenerado",
             "maxLength": 256,
-            "minLength": 16,
             "type": "string"
           },
           "wabaId": {
@@ -6721,8 +6837,7 @@
           "numero",
           "phoneNumberId",
           "token",
-          "appSecret",
-          "verifyToken"
+          "appSecret"
         ],
         "type": "object"
       },
@@ -12930,10 +13045,7 @@
             "items": {
               "$ref": "#/components/schemas/Canal"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "nextCursor": {
             "type": [
@@ -19261,6 +19373,109 @@
           "creadoEn",
           "actualizadoEn",
           "version"
+        ],
+        "type": "object"
+      },
+      "PruebaCanal": {
+        "additionalProperties": false,
+        "properties": {
+          "calidad": {
+            "description": "quality_rating de Meta: GREEN alta, YELLOW media, RED baja",
+            "enum": [
+              "alta",
+              "media",
+              "baja",
+              "desconocida"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "canalId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "conexion": {
+            "description": "Lo mismo que Canal.conexion después de la prueba",
+            "enum": [
+              "desactivado",
+              "sin_probar",
+              "conectado",
+              "webhook_sin_verificar",
+              "token_invalido",
+              "numero_no_coincide",
+              "sin_permiso",
+              "error_meta"
+            ],
+            "type": "string"
+          },
+          "detalle": {
+            "description": "Qué pasó, en español (null si conectado). Nunca lleva credenciales",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "conectado",
+              "token_invalido",
+              "numero_no_coincide",
+              "sin_permiso",
+              "error_meta"
+            ],
+            "type": "string"
+          },
+          "nombreVerificado": {
+            "description": "verified_name de Meta",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "numeroMeta": {
+            "description": "display_phone_number de Meta en E.164, cuando se leyó",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "probadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "ultimoMensajeEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "webhookVerificado": {
+            "description": "Meta ya verificó el webhook (webhookVerificadoEn no es null)",
+            "type": "boolean"
+          },
+          "webhookVerificadoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "canalId",
+          "estado",
+          "detalle",
+          "probadoEn",
+          "numeroMeta",
+          "nombreVerificado",
+          "calidad",
+          "webhookVerificado",
+          "webhookVerificadoEn",
+          "ultimoMensajeEn",
+          "conexion"
         ],
         "type": "object"
       },
@@ -32891,7 +33106,7 @@
         "x-permiso": "mensajeria.configurar"
       },
       "post": {
-        "description": "Permiso: `mensajeria.configurar`. Token, app secret y verify token se guardan cifrados (IRIS_CLAVE_CIFRADO) y nunca se devuelven. Uno activo por empresa (409 `canal_existente`). `webhookRuta` es la ruta que se configura en la app de Meta (verificación con el verify token y firma con el app secret).",
+        "description": "Permiso: `mensajeria.configurar`. Token, app secret y verify token se guardan cifrados (IRIS_CLAVE_CIFRADO) y nunca se devuelven. Una empresa puede tener varios números; 409 `canal_existente` solo si el `phoneNumberId` ya está en otro número activo. Sin `verifyToken`, Iris genera uno y lo devuelve **una sola vez** en `verifyTokenGenerado` (con Idempotency-Key esa respuesta no se guarda: repetir la clave responde 409 `idempotencia_no_repetible`). `webhookUrl` es la URL que se pega en la app de Meta (verificación con el verify token y firma con el app secret); contratos/conversaciones.md §1.1.",
         "operationId": "crearCanalMensajeria",
         "parameters": [
           {
@@ -32986,6 +33201,109 @@
           }
         ],
         "summary": "Configurar WhatsApp Cloud API de una empresa",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "mensajeria.configurar"
+      }
+    },
+    "/api/v1/mensajeria/canales/{id}": {
+      "get": {
+        "description": "Permiso: `mensajeria.configurar`.",
+        "operationId": "verCanalMensajeria",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Canal"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Un canal de mensajería (sin credenciales)",
         "tags": [
           "mensajeria"
         ],
@@ -33107,7 +33425,7 @@
     },
     "/api/v1/mensajeria/canales/{id}/actualizar": {
       "post": {
-        "description": "Permiso: `mensajeria.configurar`.",
+        "description": "Permiso: `mensajeria.configurar`. `generarVerifyToken: true` genera un verify token nuevo y lo devuelve una vez en `verifyTokenGenerado` (la respuesta no se guarda con la Idempotency-Key). Un verify token nuevo borra `webhookVerificadoEn`; otro token, `phoneNumberId` o `numero` dejan el número sin probar.",
         "operationId": "actualizarCanalMensajeria",
         "parameters": [
           {
@@ -33448,6 +33766,119 @@
           }
         ],
         "summary": "Desactivar un canal",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "mensajeria.configurar"
+      }
+    },
+    "/api/v1/mensajeria/canales/{id}/probar": {
+      "post": {
+        "description": "Permiso: `mensajeria.configurar`. Solo personas con sesión del panel (un token o una integración: 404). Llama a la Graph API `GET /{phone_number_id}` con el token guardado y responde `conectado`, `token_invalido` (401/190), `numero_no_coincide`, `sin_permiso` (403/10/200–299) o `error_meta`, con `webhookVerificado`. Guarda el resultado en el número (sin subir `version`), audita y emite `canal_mensajeria.probado`. 409 `conflicto_version` si el número se editó durante la prueba. contratos/conversaciones.md §1.1.",
+        "operationId": "probarCanalMensajeria",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PruebaCanal"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Probar la conexión de un número con Meta",
         "tags": [
           "mensajeria"
         ],

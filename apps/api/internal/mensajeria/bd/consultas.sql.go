@@ -16,9 +16,16 @@ const actualizarCanal = `-- name: ActualizarCanal :one
 UPDATE mensajeria.canales
 SET nombre = $1, numero = $2, phone_number_id = $3, waba_id = $4,
     credenciales_cifradas = $5, plantillas = $6,
+    token_guardado_en = CASE WHEN $7::boolean THEN $8 ELSE token_guardado_en END,
+    app_secret_guardado_en = CASE WHEN $9::boolean THEN $8 ELSE app_secret_guardado_en END,
+    verify_token_guardado_en = CASE WHEN $10::boolean THEN $8 ELSE verify_token_guardado_en END,
+    webhook_verificado_en = CASE WHEN $10::boolean THEN NULL ELSE webhook_verificado_en END,
+    ultimo_estado = CASE WHEN $11::boolean THEN NULL ELSE ultimo_estado END,
+    ultimo_detalle = CASE WHEN $11::boolean THEN NULL ELSE ultimo_detalle END,
+    ultima_prueba_en = CASE WHEN $11::boolean THEN NULL ELSE ultima_prueba_en END,
     version = version + 1, updated_at = now()
-WHERE id = $7
-RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot
+WHERE id = $12
+RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en
 `
 
 type ActualizarCanalParams struct {
@@ -28,9 +35,16 @@ type ActualizarCanalParams struct {
 	WabaID               string
 	CredencialesCifradas []byte
 	Plantillas           []byte
+	CambioToken          bool
+	Ahora                *time.Time
+	CambioAppSecret      bool
+	CambioVerifyToken    bool
+	LimpiarPrueba        bool
 	ID                   int64
 }
 
+// Cuándo se guardó cada credencial; un verify token nuevo obliga a verificar otra vez en Meta y
+// un token, phone_number_id o número nuevos dejan el número sin probar (§1.1).
 func (q *Queries) ActualizarCanal(ctx context.Context, arg ActualizarCanalParams) (MensajeriaCanal, error) {
 	row := q.db.QueryRow(ctx, actualizarCanal,
 		arg.Nombre,
@@ -39,6 +53,11 @@ func (q *Queries) ActualizarCanal(ctx context.Context, arg ActualizarCanalParams
 		arg.WabaID,
 		arg.CredencialesCifradas,
 		arg.Plantillas,
+		arg.CambioToken,
+		arg.Ahora,
+		arg.CambioAppSecret,
+		arg.CambioVerifyToken,
+		arg.LimpiarPrueba,
 		arg.ID,
 	)
 	var i MensajeriaCanal
@@ -65,6 +84,14 @@ func (q *Queries) ActualizarCanal(ctx context.Context, arg ActualizarCanalParams
 		&i.HorarioID,
 		&i.FueraHorario,
 		&i.Bot,
+		&i.UltimaPruebaEn,
+		&i.UltimoEstado,
+		&i.UltimoDetalle,
+		&i.WebhookVerificadoEn,
+		&i.UltimoMensajeEn,
+		&i.TokenGuardadoEn,
+		&i.AppSecretGuardadoEn,
+		&i.VerifyTokenGuardadoEn,
 	)
 	return i, err
 }
@@ -317,7 +344,7 @@ func (q *Queries) BloquearRemitente(ctx context.Context, remitente string) error
 const canalPorID = `-- name: CanalPorID :one
 
 
-SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot FROM mensajeria.canales WHERE id = $1
+SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en FROM mensajeria.canales WHERE id = $1
 `
 
 // Mensajería (contrato Iris ↔ ArgosISP 0.6.0 §6). sqlc: mensajeriabd.
@@ -348,12 +375,20 @@ func (q *Queries) CanalPorID(ctx context.Context, id int64) (MensajeriaCanal, er
 		&i.HorarioID,
 		&i.FueraHorario,
 		&i.Bot,
+		&i.UltimaPruebaEn,
+		&i.UltimoEstado,
+		&i.UltimoDetalle,
+		&i.WebhookVerificadoEn,
+		&i.UltimoMensajeEn,
+		&i.TokenGuardadoEn,
+		&i.AppSecretGuardadoEn,
+		&i.VerifyTokenGuardadoEn,
 	)
 	return i, err
 }
 
 const canalPorIDParaActualizar = `-- name: CanalPorIDParaActualizar :one
-SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot FROM mensajeria.canales WHERE id = $1 FOR UPDATE
+SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en FROM mensajeria.canales WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) CanalPorIDParaActualizar(ctx context.Context, id int64) (MensajeriaCanal, error) {
@@ -382,12 +417,20 @@ func (q *Queries) CanalPorIDParaActualizar(ctx context.Context, id int64) (Mensa
 		&i.HorarioID,
 		&i.FueraHorario,
 		&i.Bot,
+		&i.UltimaPruebaEn,
+		&i.UltimoEstado,
+		&i.UltimoDetalle,
+		&i.WebhookVerificadoEn,
+		&i.UltimoMensajeEn,
+		&i.TokenGuardadoEn,
+		&i.AppSecretGuardadoEn,
+		&i.VerifyTokenGuardadoEn,
 	)
 	return i, err
 }
 
 const canalesActivosDeEmpresas = `-- name: CanalesActivosDeEmpresas :many
-SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot FROM mensajeria.canales
+SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en FROM mensajeria.canales
 WHERE activo AND ($1::boolean OR coalesce(empresa_id, 0) = ANY($2::bigint[]))
 ORDER BY id
 `
@@ -429,6 +472,14 @@ func (q *Queries) CanalesActivosDeEmpresas(ctx context.Context, arg CanalesActiv
 			&i.HorarioID,
 			&i.FueraHorario,
 			&i.Bot,
+			&i.UltimaPruebaEn,
+			&i.UltimoEstado,
+			&i.UltimoDetalle,
+			&i.WebhookVerificadoEn,
+			&i.UltimoMensajeEn,
+			&i.TokenGuardadoEn,
+			&i.AppSecretGuardadoEn,
+			&i.VerifyTokenGuardadoEn,
 		); err != nil {
 			return nil, err
 		}
@@ -719,7 +770,7 @@ func (q *Queries) EnviadosRecientes(ctx context.Context, arg EnviadosRecientesPa
 const fijarCanalActivo = `-- name: FijarCanalActivo :one
 UPDATE mensajeria.canales SET activo = $1, version = version + 1, updated_at = now()
 WHERE id = $2
-RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot
+RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en
 `
 
 type FijarCanalActivoParams struct {
@@ -753,6 +804,14 @@ func (q *Queries) FijarCanalActivo(ctx context.Context, arg FijarCanalActivoPara
 		&i.HorarioID,
 		&i.FueraHorario,
 		&i.Bot,
+		&i.UltimaPruebaEn,
+		&i.UltimoEstado,
+		&i.UltimoDetalle,
+		&i.WebhookVerificadoEn,
+		&i.UltimoMensajeEn,
+		&i.TokenGuardadoEn,
+		&i.AppSecretGuardadoEn,
+		&i.VerifyTokenGuardadoEn,
 	)
 	return i, err
 }
@@ -858,11 +917,13 @@ func (q *Queries) InsertarAviso(ctx context.Context, arg InsertarAvisoParams) (M
 
 const insertarCanal = `-- name: InsertarCanal :one
 INSERT INTO mensajeria.canales (id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id,
-    credenciales_cifradas, plantillas, creado_por, usos, avisos_empresa, cola_id)
+    credenciales_cifradas, plantillas, creado_por, usos, avisos_empresa, cola_id,
+    token_guardado_en, app_secret_guardado_en, verify_token_guardado_en)
 OVERRIDING SYSTEM VALUE
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
-    $9, $10, $11, $12::text[], $13, $14)
-RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot
+    $9, $10, $11, $12::text[], $13, $14,
+    $15, $15, $15)
+RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en
 `
 
 type InsertarCanalParams struct {
@@ -880,6 +941,7 @@ type InsertarCanalParams struct {
 	Usos                 []string
 	AvisosEmpresa        bool
 	ColaID               *int64
+	GuardadoEn           *time.Time
 }
 
 func (q *Queries) InsertarCanal(ctx context.Context, arg InsertarCanalParams) (MensajeriaCanal, error) {
@@ -898,6 +960,7 @@ func (q *Queries) InsertarCanal(ctx context.Context, arg InsertarCanalParams) (M
 		arg.Usos,
 		arg.AvisosEmpresa,
 		arg.ColaID,
+		arg.GuardadoEn,
 	)
 	var i MensajeriaCanal
 	err := row.Scan(
@@ -923,6 +986,14 @@ func (q *Queries) InsertarCanal(ctx context.Context, arg InsertarCanalParams) (M
 		&i.HorarioID,
 		&i.FueraHorario,
 		&i.Bot,
+		&i.UltimaPruebaEn,
+		&i.UltimoEstado,
+		&i.UltimoDetalle,
+		&i.WebhookVerificadoEn,
+		&i.UltimoMensajeEn,
+		&i.TokenGuardadoEn,
+		&i.AppSecretGuardadoEn,
+		&i.VerifyTokenGuardadoEn,
 	)
 	return i, err
 }
@@ -1034,7 +1105,7 @@ func (q *Queries) InsertarWebhookSalida(ctx context.Context, arg InsertarWebhook
 }
 
 const listarCanales = `-- name: ListarCanales :many
-SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot FROM mensajeria.canales
+SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en FROM mensajeria.canales
 WHERE ($1::boolean OR coalesce(empresa_id, 0) = ANY($2::bigint[]))
 ORDER BY id
 `
@@ -1076,6 +1147,14 @@ func (q *Queries) ListarCanales(ctx context.Context, arg ListarCanalesParams) ([
 			&i.HorarioID,
 			&i.FueraHorario,
 			&i.Bot,
+			&i.UltimaPruebaEn,
+			&i.UltimoEstado,
+			&i.UltimoDetalle,
+			&i.WebhookVerificadoEn,
+			&i.UltimoMensajeEn,
+			&i.TokenGuardadoEn,
+			&i.AppSecretGuardadoEn,
+			&i.VerifyTokenGuardadoEn,
 		); err != nil {
 			return nil, err
 		}
@@ -1310,6 +1389,36 @@ func (q *Queries) MarcarLeido(ctx context.Context, arg MarcarLeidoParams) (Mensa
 	return i, err
 }
 
+const marcarWebhookRecibido = `-- name: MarcarWebhookRecibido :exec
+UPDATE mensajeria.canales SET ultimo_mensaje_en = $1::timestamptz
+WHERE id = $2 AND (ultimo_mensaje_en IS NULL OR ultimo_mensaje_en < $1::timestamptz - '1 minute'::interval)
+`
+
+type MarcarWebhookRecibidoParams struct {
+	RecibidoEn time.Time
+	ID         int64
+}
+
+// Último webhook firmado de Meta, con precisión de 1 minuto (no escribe la fila en cada mensaje).
+func (q *Queries) MarcarWebhookRecibido(ctx context.Context, arg MarcarWebhookRecibidoParams) error {
+	_, err := q.db.Exec(ctx, marcarWebhookRecibido, arg.RecibidoEn, arg.ID)
+	return err
+}
+
+const marcarWebhookVerificado = `-- name: MarcarWebhookVerificado :exec
+UPDATE mensajeria.canales SET webhook_verificado_en = $1 WHERE id = $2
+`
+
+type MarcarWebhookVerificadoParams struct {
+	VerificadoEn *time.Time
+	ID           int64
+}
+
+func (q *Queries) MarcarWebhookVerificado(ctx context.Context, arg MarcarWebhookVerificadoParams) error {
+	_, err := q.db.Exec(ctx, marcarWebhookVerificado, arg.VerificadoEn, arg.ID)
+	return err
+}
+
 const pausarCanal = `-- name: PausarCanal :exec
 UPDATE mensajeria.canales SET pausado_hasta = $1, updated_at = now() WHERE id = $2
 `
@@ -1322,6 +1431,64 @@ type PausarCanalParams struct {
 func (q *Queries) PausarCanal(ctx context.Context, arg PausarCanalParams) error {
 	_, err := q.db.Exec(ctx, pausarCanal, arg.PausadoHasta, arg.ID)
 	return err
+}
+
+const registrarPruebaCanal = `-- name: RegistrarPruebaCanal :one
+UPDATE mensajeria.canales
+SET ultima_prueba_en = $1, ultimo_estado = $2, ultimo_detalle = $3
+WHERE id = $4
+RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en
+`
+
+type RegistrarPruebaCanalParams struct {
+	ProbadoEn *time.Time
+	Estado    *string
+	Detalle   *string
+	ID        int64
+}
+
+// Resultado de POST /canales/{id}/probar (no sube version: no es una edición).
+func (q *Queries) RegistrarPruebaCanal(ctx context.Context, arg RegistrarPruebaCanalParams) (MensajeriaCanal, error) {
+	row := q.db.QueryRow(ctx, registrarPruebaCanal,
+		arg.ProbadoEn,
+		arg.Estado,
+		arg.Detalle,
+		arg.ID,
+	)
+	var i MensajeriaCanal
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Tipo,
+		&i.Canal,
+		&i.Nombre,
+		&i.Numero,
+		&i.PhoneNumberID,
+		&i.WabaID,
+		&i.CredencialesCifradas,
+		&i.Plantillas,
+		&i.PausadoHasta,
+		&i.Activo,
+		&i.CreadoPor,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Usos,
+		&i.AvisosEmpresa,
+		&i.ColaID,
+		&i.HorarioID,
+		&i.FueraHorario,
+		&i.Bot,
+		&i.UltimaPruebaEn,
+		&i.UltimoEstado,
+		&i.UltimoDetalle,
+		&i.WebhookVerificadoEn,
+		&i.UltimoMensajeEn,
+		&i.TokenGuardadoEn,
+		&i.AppSecretGuardadoEn,
+		&i.VerifyTokenGuardadoEn,
+	)
+	return i, err
 }
 
 const reservarEnvio = `-- name: ReservarEnvio :exec
