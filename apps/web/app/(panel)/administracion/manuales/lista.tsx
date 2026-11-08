@@ -8,6 +8,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ErrorLectura } from "@/componentes/error-lectura";
+import { CargarManualesInicio } from "@/componentes/manuales/cargar-inicio";
 import { MarkdownSeguro } from "@/componentes/manuales/markdown";
 import { api, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { mensajeDeError } from "@/lib/api/errores";
@@ -21,7 +22,8 @@ type Visibilidad = "todas" | "interna" | "cliente";
 
 /**
  * Biblioteca de manuales (§11): búsqueda de texto completo en el servidor, filtro por visibilidad,
- * «Ver» con la vista segura del Markdown y, con `manuales.editar`, crear, editar y desactivar.
+ * «Ver» con la vista segura del Markdown y, con `manuales.editar`, crear, editar, desactivar y
+ * «Cargar manuales de inicio» (ejemplos para un ISP con fibra e inalámbrico).
  */
 export function BibliotecaManuales() {
     const { puede } = useSesion();
@@ -31,6 +33,8 @@ export function BibliotecaManuales() {
     const router = useRouter();
     const ruta = usePathname();
     const [texto, setTexto] = useState(params.get("q") ?? "");
+    // Sube al cargar los manuales de inicio: los resultados se vuelven a leer.
+    const [recarga, setRecarga] = useState(0);
     const q = useDiferido(texto.trim(), 300);
     const visibilidad: Visibilidad = params.get("visibilidad") === "interna" || params.get("visibilidad") === "cliente" ? (params.get("visibilidad") as Visibilidad) : "todas";
     useEffect(() => {
@@ -47,12 +51,15 @@ export function BibliotecaManuales() {
                 descripcion="Guías para el equipo y artículos que se mandan al cliente desde la bandeja. La bandeja sugiere los que comparten etiqueta, equipo o asunto con la conversación."
                 acciones={
                     edita ? (
-                        <Boton asChild>
-                            <Link href="/administracion/manuales/nuevo">
-                                <Plus />
-                                Nuevo manual
-                            </Link>
-                        </Boton>
+                        <div className="flex flex-wrap gap-2">
+                            <CargarManualesInicio alCargar={() => setRecarga((n) => n + 1)} />
+                            <Boton asChild>
+                                <Link href="/administracion/manuales/nuevo">
+                                    <Plus />
+                                    Nuevo manual
+                                </Link>
+                            </Boton>
+                        </div>
                     ) : null
                 }
             />
@@ -74,7 +81,7 @@ export function BibliotecaManuales() {
                     ]}
                 />
             </div>
-            <Resultados key={`${q}|${visibilidad}`} q={q} visibilidad={visibilidad} edita={edita} alVer={setVer} />
+            <Resultados key={`${q}|${visibilidad}|${recarga}`} q={q} visibilidad={visibilidad} edita={edita} alVer={setVer} />
             {/* Fuera de los resultados: cambiar la búsqueda no cierra el manual abierto. */}
             <VerManual manual={ver} cerrar={() => setVer(null)} />
         </>
@@ -85,7 +92,7 @@ export function BibliotecaManuales() {
 function Resultados({ q, visibilidad, edita, alVer: setVer }: { q: string; visibilidad: Visibilidad; edita: boolean; alVer: (m: Manual) => void }) {
     const lista = useLectura(async (signal) => {
         const r = await resolver(
-            api().GET("/api/v1/mensajeria/manuales", { params: { query: { ...(q ? { q } : {}), ...(visibilidad !== "todas" ? { visibilidad } : {}), incluirInactivos: true } }, signal }),
+            api().GET("/api/v1/mensajeria/manuales", { params: { query: { ...(q ? { q } : {}), ...(visibilidad !== "todas" ? { visibilidad } : {}), incluirInactivos: true, limit: 100 } }, signal }),
         );
         return r.data ?? [];
     });
