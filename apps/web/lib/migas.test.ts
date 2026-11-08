@@ -49,4 +49,17 @@ describe("migas de los formularios en pantalla propia", () => {
         // El buzón no tiene ficha: «Buzones de correo › Editar buzón».
         expect(migasDeRuta("/administracion/buzones/4/editar").map((m) => m.etiqueta)).toEqual(["Administración", "Buzones de correo", "Editar buzón"]);
     });
+
+    it("números de WhatsApp: el nombre del número va entre la lista y la subpantalla", () => {
+        expect(migasDeRuta("/administracion/numeros/7/credenciales", "Avisos")).toEqual([
+            { etiqueta: "Administración", href: "/administracion" },
+            { etiqueta: "Números de WhatsApp", href: "/administracion/numeros" },
+            // Sin pantalla propia: no es enlace (en el teléfono, «‹» lleva a la lista).
+            { etiqueta: "Avisos" },
+            { etiqueta: "Credenciales" },
+        ]);
+        expect(migasDeRuta("/administracion/numeros/7/conectar", "Soporte técnico").map((m) => m.etiqueta)).toEqual(["Administración", "Números de WhatsApp", "Soporte técnico", "Conectar"]);
+        expect(migasDeRuta("/administracion/numeros/nuevo", "x").map((m) => m.etiqueta)).toEqual(["Administración", "Números de WhatsApp", "Agregar número"]);
+        expect(migasDeRuta("/administracion/numeros/guia").map((m) => m.etiqueta)).toEqual(["Administración", "Números de WhatsApp", "Cómo conectar WhatsApp"]);
+    });
 });

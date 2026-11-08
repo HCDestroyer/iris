@@ -6,7 +6,7 @@ export const metadata: Metadata = { title: "Números de WhatsApp" };
 
 export default function Pagina() {
     return (
-        <RequierePermiso permisos={["canales.configurar"]}>
+        <RequierePermiso permisos={["canales.configurar", "mensajeria.configurar"]}>
             <ListaNumeros />
         </RequierePermiso>
     );
