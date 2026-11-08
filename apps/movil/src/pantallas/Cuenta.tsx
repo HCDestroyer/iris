@@ -118,9 +118,9 @@ function SesionCerrada({ titulo, detalle }: { titulo: string; detalle: string })
     );
 }
 
-type ErrorPantalla = { tipo: "sin_senal" } | { tipo: "sesion"; titulo: string; detalle: string } | { tipo: "otro"; titulo: string; detalle: string };
+export type ErrorPantalla = { tipo: "sin_senal" } | { tipo: "sesion"; titulo: string; detalle: string } | { tipo: "otro"; titulo: string; detalle: string };
 
-function errorDePantalla(e: unknown, que: string): ErrorPantalla {
+export function errorDePantalla(e: unknown, que: string): ErrorPantalla {
     if (e instanceof ErrorApi && e.estado === 0) {
         return { tipo: "sin_senal" };
     }
@@ -157,29 +157,36 @@ function AvisoError({ error, reintentar }: { error: ErrorPantalla; reintentar: (
 
 // --- Cambiar contraseña -----------------------------------------------------------------------
 
-export function CambiarContrasena() {
-    const { navegar, notificar } = useCampo();
-    const { colores } = useTema();
-    const conSenal = useConSenal();
+/**
+ * El formulario de la contraseña propia (actual, nueva y repetir, con el ojo y las ayudas en
+ * verde), compartido por «Yo › Cambiar contraseña» y por «Crea tu contraseña» al entrar con una
+ * temporal. `POST /yo/contrasena` con `Idempotency-Key` (la misma al reintentar sin respuesta); los
+ * 422 van al campo; lo demás, a `alError`.
+ */
+export function useFormularioContrasena({
+    etiquetaActual = "Contraseña actual",
+    alCambiada,
+    alError,
+}: {
+    etiquetaActual?: string;
+    alCambiada: (usuario: Schema<"Usuario">) => void;
+    alError: (e: unknown) => void;
+}): { enviar: () => Promise<void>; campos: ReactNode; enviando: boolean; sucio: boolean } {
     const clave = useRef<string | null>(null);
-    const [error, setError] = useState<ErrorPantalla | null>(null);
     const formulario = useForm<DatosContrasenaPropia>({ resolver: zodResolver(esquemaContrasenaPropia), defaultValues: { actual: "", nueva: "", repetir: "" }, reValidateMode: "onChange" });
     const { errors, isSubmitting, isDirty } = formulario.formState;
     const valores = useWatch({ control: formulario.control });
     const reglas = reglasContrasena({ actual: valores.actual ?? "", nueva: valores.nueva ?? "", repetir: valores.repetir ?? "" });
-    const { volver, pregunta } = useSalida(isDirty && error?.tipo !== "sesion");
 
     // El manejador se arma al tocar (no en el render): la clave vive en un ref.
     const enviar = () =>
         formulario.handleSubmit(async (datos) => {
-            setError(null);
             clave.current ??= nuevaClave();
             try {
-                await cambiarContrasena(cuerpoContrasenaPropia(datos), clave.current);
+                const usuario = await cambiarContrasena(cuerpoContrasenaPropia(datos), clave.current);
                 clave.current = null;
                 formulario.reset({ actual: "", nueva: "", repetir: "" });
-                notificar({ tono: "success", texto: "Contraseña cambiada" });
-                navegar({ tipo: "yo" });
+                alCambiada(usuario);
             } catch (e) {
                 // Sin respuesta se reintenta con la misma clave; con respuesta (guardada), con otra.
                 if (!(e instanceof ErrorApi && e.estado === 0)) {
@@ -201,49 +208,73 @@ export function CambiarContrasena() {
                         return;
                     }
                 }
-                setError(errorDePantalla(e, "cambiar la contraseña"));
+                alError(e);
             }
         })();
+
+    const campos = (
+        <Tarjeta testID="tarjeta-contrasena">
+            <Controller
+                control={formulario.control}
+                name="actual"
+                render={({ field }) => (
+                    <Campo etiqueta={etiquetaActual} secreto valor={field.value} alCambiar={field.onChange} onBlur={field.onBlur} error={errors.actual?.message} autoComplete="current-password" textContentType="password" autoCapitalize="none" testID="campo-actual" />
+                )}
+            />
+            <View style={estilos.campo}>
+                <Controller
+                    control={formulario.control}
+                    name="nueva"
+                    render={({ field }) => (
+                        <Campo etiqueta="Nueva contraseña" secreto valor={field.value} alCambiar={field.onChange} onBlur={field.onBlur} error={errors.nueva?.message} autoComplete="new-password" textContentType="newPassword" autoCapitalize="none" testID="campo-nueva" />
+                    )}
+                />
+                {errors.nueva ? null : <AyudaCumplida texto={`${LONGITUD_MINIMA_CONTRASENA} caracteres o más`} cumplida={reglas.largo} testID="ayuda-largo" />}
+            </View>
+            <View style={estilos.campo}>
+                <Controller
+                    control={formulario.control}
+                    name="repetir"
+                    render={({ field }) => (
+                        <Campo etiqueta="Repite la nueva" secreto valor={field.value} alCambiar={field.onChange} onBlur={field.onBlur} error={errors.repetir?.message} autoComplete="new-password" textContentType="newPassword" autoCapitalize="none" testID="campo-repetir" />
+                    )}
+                />
+                {errors.repetir ? null : <AyudaCumplida texto="Coinciden" cumplida={reglas.coinciden} testID="ayuda-coinciden" />}
+            </View>
+        </Tarjeta>
+    );
+    return { enviar, campos, enviando: isSubmitting, sucio: isDirty };
+}
+
+export function CambiarContrasena() {
+    const { navegar, notificar } = useCampo();
+    const { colores } = useTema();
+    const conSenal = useConSenal();
+    const [error, setError] = useState<ErrorPantalla | null>(null);
+    const { enviar, campos, enviando, sucio } = useFormularioContrasena({
+        alCambiada: () => {
+            notificar({ tono: "success", texto: "Contraseña cambiada" });
+            navegar({ tipo: "yo" });
+        },
+        alError: (e) => setError(errorDePantalla(e, "cambiar la contraseña")),
+    });
+    const { volver, pregunta } = useSalida(sucio && error?.tipo !== "sesion");
+    const guardar = () => {
+        setError(null);
+        return enviar();
+    };
 
     return (
         <Pila espacio={18}>
             <EncabezadoPantalla titulo="Cambiar contraseña" alVolver={volver} />
             {!conSenal ? <AvisoSinSenal /> : null}
-            {error ? <AvisoError error={error} reintentar={() => void enviar()} /> : null}
+            {error ? <AvisoError error={error} reintentar={() => void guardar()} /> : null}
             {error?.tipo === "sesion" ? null : (
                 <>
-                    <Tarjeta testID="tarjeta-contrasena">
-                        <Controller
-                            control={formulario.control}
-                            name="actual"
-                            render={({ field }) => (
-                                <Campo etiqueta="Contraseña actual" secreto valor={field.value} alCambiar={field.onChange} onBlur={field.onBlur} error={errors.actual?.message} autoComplete="current-password" textContentType="password" autoCapitalize="none" testID="campo-actual" />
-                            )}
-                        />
-                        <View style={estilos.campo}>
-                            <Controller
-                                control={formulario.control}
-                                name="nueva"
-                                render={({ field }) => (
-                                    <Campo etiqueta="Nueva contraseña" secreto valor={field.value} alCambiar={field.onChange} onBlur={field.onBlur} error={errors.nueva?.message} autoComplete="new-password" textContentType="newPassword" autoCapitalize="none" testID="campo-nueva" />
-                                )}
-                            />
-                            {errors.nueva ? null : <AyudaCumplida texto={`${LONGITUD_MINIMA_CONTRASENA} caracteres o más`} cumplida={reglas.largo} testID="ayuda-largo" />}
-                        </View>
-                        <View style={estilos.campo}>
-                            <Controller
-                                control={formulario.control}
-                                name="repetir"
-                                render={({ field }) => (
-                                    <Campo etiqueta="Repite la nueva" secreto valor={field.value} alCambiar={field.onChange} onBlur={field.onBlur} error={errors.repetir?.message} autoComplete="new-password" textContentType="newPassword" autoCapitalize="none" testID="campo-repetir" />
-                                )}
-                            />
-                            {errors.repetir ? null : <AyudaCumplida texto="Coinciden" cumplida={reglas.coinciden} testID="ayuda-coinciden" />}
-                        </View>
-                    </Tarjeta>
+                    {campos}
                     <Text style={[estilos.nota, { color: colores.textoSuave }]}>{TEXTO_SESIONES_CONTRASENA}</Text>
-                    <Boton variante="tinta" cargando={isSubmitting} deshabilitado={!conSenal} alPresionar={() => void enviar()} estilo={estilos.pildora} testID="guardar-contrasena">
-                        {isSubmitting ? "Guardando…" : "Guardar contraseña"}
+                    <Boton variante="tinta" cargando={enviando} deshabilitado={!conSenal} alPresionar={() => void guardar()} estilo={estilos.pildora} testID="guardar-contrasena">
+                        {enviando ? "Guardando…" : "Guardar contraseña"}
                     </Boton>
                 </>
             )}

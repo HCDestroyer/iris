@@ -9,7 +9,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import "./global.css";
-import { Aviso, Boton, Cargando, Pila, useAltoTeclado } from "./componentes";
+import { AvisoEmergente, Cargando, Pila, useAltoTeclado, type ContenidoAvisoEmergente } from "./componentes";
 import type { ServiciosNativos } from "./campo/contexto";
 import { tomarFoto, vaciarCacheFotos } from "./campo/foto";
 import { gpsNativo, posicionSiPermitida, ubicacionPermitida } from "./campo/gps-nativo";
@@ -19,6 +19,7 @@ import { abrirMotor, borrarBase, borrarCachesChat } from "./campo/motor";
 import { entorno } from "./entorno";
 import { AppCampo, type DependenciasCampo } from "./pantallas/AppCampo";
 import { pushNativo } from "./push";
+import { CrearContrasena } from "./pantallas/Bloqueo";
 import { ElegirEmpresa } from "./pantallas/ElegirEmpresa";
 import { RecuperarError } from "./pantallas/RecuperarError";
 import { Entrar } from "./pantallas/Entrar";
@@ -48,7 +49,7 @@ import { ProveedorTema, useTema } from "./tema/tema";
 type Paso =
     | { tipo: "cargando" }
     | { tipo: "entrar"; motivo?: "expirada" | "salida"; huella?: boolean; sinConexion?: { titulo: string; detalle: string } | null }
-    | { tipo: "aviso"; titulo: string; detalle: string }
+    | { tipo: "contrasena"; nombre: string }
     | { tipo: "empresa"; sesion: SesionCampo }
     | { tipo: "campo"; sesion: SesionCampo; empresa: number | null };
 
@@ -96,6 +97,19 @@ function dependenciasNativas(): DependenciasCampo {
 }
 
 /**
+ * «¿No eres tú?» / «Usar otra cuenta»: cierra la sesión del teléfono por completo (en la API o como
+ * cierre pendiente si no hay señal), olvida al usuario recordado y la caché de su chat (no la cola).
+ */
+async function cerrarParaOtraCuenta(): Promise<void> {
+    // La caché del chat de esa sesión también se va (no la cola): se toma antes de olvidarla.
+    const guardada = sesionGuardada();
+    await noSoyYo();
+    if (guardada) {
+        await borrarCachesChat(guardada.usuarioId, [null, ...guardada.empresas.map((e) => e.id)]).catch(() => undefined);
+    }
+}
+
+/**
  * `GestureHandlerRootView` va por fuera de todo (lo pide HeroUI Native y Gesture Handler 3); dentro,
  * el área segura, el seguimiento del teclado y el tema (HeroUI con Horus).
  */
@@ -106,7 +120,7 @@ export default function App() {
                 {/* Sigue el teclado con edge-to-edge (también dentro de un `Modal`): `EvitarTeclado`, `useAltoTeclado`. */}
                 <KeyboardProvider>
                     <ProveedorTema>
-                        <RecuperarError claves={() => entorno().claves} gps={gpsNativo}>
+                        <RecuperarError claves={() => entorno().claves} gps={gpsNativo} usarOtraCuenta={cerrarParaOtraCuenta}>
                             <Raiz />
                         </RecuperarError>
                     </ProveedorTema>
@@ -152,7 +166,8 @@ function Raiz() {
             case "yo": {
                 const yo = a.yo;
                 if (yo.usuario.cambioContrasenaRequerido) {
-                    setPaso({ tipo: "aviso", titulo: "Tienes que cambiar tu contraseña", detalle: "Entra al panel de Iris desde un navegador, cambia la contraseña temporal y vuelve." });
+                    // Contraseña temporal: se cambia aquí mismo (la sesión solo puede eso o salir).
+                    setPaso({ tipo: "contrasena", nombre: yo.usuario.nombre.split(" ")[0] ?? "" });
                     return;
                 }
                 const sesion = sesionDesdeYo(yo);
@@ -172,12 +187,7 @@ function Raiz() {
 
     /** «¿No eres tú?» con una sesión guardada: la cierra por completo y pide entrar. */
     const noEsEl = useCallback(async () => {
-        // La caché del chat de esa sesión también se va (no la cola): se toma antes de olvidarla.
-        const guardada = sesionGuardada();
-        await noSoyYo();
-        if (guardada) {
-            await borrarCachesChat(guardada.usuarioId, [null, ...guardada.empresas.map((e) => e.id)]).catch(() => undefined);
-        }
+        await cerrarParaOtraCuenta();
         setBloqueada(false);
         setDesbloqueada(false);
         setPaso({ tipo: "entrar", motivo: "salida" });
@@ -187,6 +197,17 @@ function Raiz() {
         const abrir = () => void verificar();
         abrir();
     }, [verificar]);
+
+    // Aviso emergente de las pantallas de arranque («Contraseña guardada»): se va solo.
+    const [aviso, setAviso] = useState<ContenidoAvisoEmergente | null>(null);
+    useEffect(() => {
+        if (!aviso) {
+            return undefined;
+        }
+        const t = setTimeout(() => setAviso(null), 4000);
+        return () => clearTimeout(t);
+    }, [aviso]);
+    const cerrarAviso = useCallback(() => setAviso(null), []);
 
     const salir = useCallback((motivo: "expirada" | "salida") => {
         if (motivo === "expirada") {
@@ -246,12 +267,20 @@ function Raiz() {
                 </Formulario>
             );
             break;
-        case "aviso":
+        case "contrasena":
             contenido = (
                 <Formulario>
-                    <Aviso tono="warning" titulo={paso.titulo} accion={<Boton alPresionar={() => void verificar()}>Reintentar</Boton>}>
-                        {paso.detalle}
-                    </Aviso>
+                    <CrearContrasena
+                        nombre={paso.nombre}
+                        alUsarOtraCuenta={noEsEl}
+                        alSesionCerrada={() => salir("expirada")}
+                        alListo={() => {
+                            // La sesión sigue (la API solo cierra las otras): entra directo.
+                            setAviso({ tono: "success", texto: "Contraseña guardada" });
+                            setPaso({ tipo: "cargando" });
+                            void verificar();
+                        }}
+                    />
                 </Formulario>
             );
             break;
@@ -260,7 +289,7 @@ function Raiz() {
                 <Formulario>
                     <ElegirEmpresa
                         sesion={paso.sesion}
-                        alSalir={() => void cerrarSesionApi(paso.sesion.usuarioId).finally(() => setPaso({ tipo: "entrar", motivo: "salida" }))}
+                        alSalir={noEsEl}
                         alElegir={(id) => {
                             elegirEmpresa(paso.sesion.usuarioId, id);
                             setPaso({ tipo: "campo", sesion: paso.sesion, empresa: id });
@@ -276,6 +305,7 @@ function Raiz() {
                     sesion={paso.sesion}
                     empresa={paso.empresa}
                     alSalir={salir}
+                    alExigirContrasena={() => setPaso({ tipo: "contrasena", nombre: paso.sesion.nombre.split(" ")[0] ?? "" })}
                     deps={dependenciasNativas()}
                     cambiarEmpresa={
                         paso.sesion.empresas.length > 1
@@ -293,6 +323,7 @@ function Raiz() {
         <>
             <StatusBar style={oscuro ? "light" : "dark"} />
             {contenido}
+            <AvisoEmergente aviso={aviso} alCerrar={cerrarAviso} />
             {bloqueada ? (
                 <View style={StyleSheet.absoluteFill} testID="bloqueo-huella">
                     <Formulario>

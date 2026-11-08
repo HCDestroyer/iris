@@ -166,13 +166,15 @@ export interface OpcionesArnes {
     margen?: { top: number; bottom: number; left: number; right: number };
     /** «Cerrar sesión» de la app (por defecto, no hace nada). */
     cerrarSesion?: (opciones: { conservarPendientes: boolean }) => Promise<void>;
+    /** La API pide cambiar la contraseña (la raíz lleva a «Crea tu contraseña»). */
+    alExigirContrasena?: () => void;
 }
 
 export async function abrirCampo(m: Montaje, o: OpcionesArnes = {}) {
     const inventario = o.inventario ?? new InventarioFalso();
     const libres = o.libres ?? new LibresFalso();
     const servicios: ServiciosNativos = { tomarFoto: async () => null, posicion: async () => null, enLinea: o.enLinea ?? (() => true), ...o.servicios };
-    const marco = <Marco empresa={null} alSesionVencida={jest.fn()} />;
+    const marco = <Marco empresa={null} alSesionVencida={jest.fn()} {...(o.alExigirContrasena ? { alExigirContrasena: o.alExigirContrasena } : {})} />;
     const conPush = o.push ? (
         <ProveedorPush {...o.push} empresa={null} baseUrl="http://iris.prueba" alVolverAlFrente={o.push.alVolverAlFrente ?? (() => () => undefined)} primerUso={(p) => <PrimerUsoPush {...p} />}>
             {marco}

@@ -7,9 +7,10 @@ import { ErrorTransporte, type ColaPosiciones, type Conexion, type InventarioCam
 import type { MotorChat } from "@iris/sync/chat";
 import { ProveedorChat } from "../campo/chat";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ErrorApi } from "../api/errores";
-import { Aviso, Cargando } from "../componentes";
+import { Aviso, Boton, Cargando } from "../componentes";
 import { ProveedorAgenda, type LeerAgenda } from "../campo/agenda";
 import { ProveedorHistorial, type LeerHistorial } from "../campo/historial";
 import { ProveedorInventario } from "../campo/inventario";
@@ -24,6 +25,7 @@ import { ProveedorPush } from "../push/contexto";
 import { cerrarPushDeSesion } from "../push/locales";
 import type { RegistroDispositivo } from "../push/registro";
 import type { ServicioPush } from "../push/servicio";
+import { PantallaBloqueo } from "./Bloqueo";
 import { Marco } from "./Marco";
 import { PrimerUsoPush } from "./Notificaciones";
 
@@ -103,6 +105,17 @@ export class ConfirmacionesServidor {
     }
 }
 
+/** Lienzo de una pantalla de bloqueo (como el login: desplazable, con el área segura). */
+function Bloqueada({ children }: { children: ReactNode }) {
+    const { campo } = useTema();
+    const margen = useSafeAreaInsets();
+    return (
+        <ScrollView style={{ backgroundColor: campo.lienzo }} contentContainerStyle={[estilos.bloqueada, { paddingTop: margen.top + 32, paddingBottom: Math.max(48, margen.bottom + 24) }]}>
+            {children}
+        </ScrollView>
+    );
+}
+
 function Centro({ children }: { children: ReactNode }) {
     const { colores } = useTema();
     return <View style={[estilos.centro, { backgroundColor: colores.fondo }]}>{children}</View>;
@@ -112,17 +125,21 @@ export function AppCampo({
     sesion,
     empresa,
     alSalir,
+    alExigirContrasena,
     cambiarEmpresa,
     deps,
 }: {
     sesion: SesionCampo;
     empresa: number | null;
     alSalir: (motivo: MotivoSalida) => void;
+    /** La API pide cambiar la contraseña (temporal puesta con la app abierta). */
+    alExigirContrasena?: () => void;
     cambiarEmpresa: (() => void) | undefined;
     deps: DependenciasCampo;
 }) {
     const [abierto, setAbierto] = useState<MotorDeSesion | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [intento, setIntento] = useState(0);
     const [confirmaciones] = useState(() => new ConfirmacionesServidor());
     const actual = useRef<MotorDeSesion | null>(null);
 
@@ -153,15 +170,40 @@ export function AppCampo({
                 void m.cerrar();
             }
         };
-    }, [sesion.usuarioId, empresa, alSalir, deps, confirmaciones]);
+    }, [sesion.usuarioId, empresa, alSalir, deps, confirmaciones, intento]);
 
     if (error) {
+        // Pantalla de bloqueo: «Reintentar» y, siempre, «Usar otra cuenta» (y «Atrás» de Android).
         return (
-            <Centro>
-                <Aviso tono="error" titulo="No se pudo abrir la base del teléfono">
-                    {error}
-                </Aviso>
-            </Centro>
+            <Bloqueada>
+                <PantallaBloqueo
+                    titulo="No se pudo abrir Iris"
+                    explicacion="La base de datos del teléfono no abrió. Lo que guardaste sigue en el teléfono."
+                    alUsarOtraCuenta={async () => {
+                        await deps.cerrarSesionApi(sesion.usuarioId).catch(() => undefined);
+                        alSalir("salida");
+                    }}
+                    testID="error-base"
+                >
+                    <Aviso
+                        tono="error"
+                        titulo="No se pudo abrir la base del teléfono"
+                        accion={
+                            <Boton
+                                variante="secundario"
+                                alPresionar={() => {
+                                    setError(null);
+                                    setIntento((i) => i + 1);
+                                }}
+                            >
+                                Reintentar
+                            </Boton>
+                        }
+                    >
+                        {error}
+                    </Aviso>
+                </PantallaBloqueo>
+            </Bloqueada>
         );
     }
     if (!abierto) {
@@ -171,7 +213,7 @@ export function AppCampo({
             </Centro>
         );
     }
-    return <CampoAbierto abierto={abierto} sesion={sesion} empresa={empresa} alSalir={alSalir} cambiarEmpresa={cambiarEmpresa} deps={deps} confirmaciones={confirmaciones} />;
+    return <CampoAbierto abierto={abierto} sesion={sesion} empresa={empresa} alSalir={alSalir} {...(alExigirContrasena ? { alExigirContrasena } : {})} cambiarEmpresa={cambiarEmpresa} deps={deps} confirmaciones={confirmaciones} />;
 }
 
 function CampoAbierto({
@@ -179,10 +221,12 @@ function CampoAbierto({
     sesion,
     empresa,
     alSalir,
+    alExigirContrasena,
     cambiarEmpresa,
     deps,
     confirmaciones,
 }: {
+    alExigirContrasena?: () => void;
     confirmaciones: ConfirmacionesServidor;
     abierto: MotorDeSesion;
     sesion: SesionCampo;
@@ -286,7 +330,7 @@ function CampoAbierto({
     const sesionVencida = useCallback(() => alSalir("expirada"), [alSalir]);
     const nombreEmpresa = empresa === null ? null : (sesion.empresas.find((e) => e.id === empresa)?.nombre ?? null);
     const conChat = sesion.permisos?.includes("chat.ver") === true;
-    const marco = <Marco empresa={nombreEmpresa} alSesionVencida={sesionVencida} {...(cambiarEmpresa ? { cambiarEmpresa } : {})} />;
+    const marco = <Marco empresa={nombreEmpresa} alSesionVencida={sesionVencida} {...(alExigirContrasena ? { alExigirContrasena } : {})} {...(cambiarEmpresa ? { cambiarEmpresa } : {})} />;
     const push = deps.push;
     const conPush = push ? (
         <ProveedorPush
@@ -338,4 +382,5 @@ function CampoAbierto({
 
 const estilos = StyleSheet.create({
     centro: { flex: 1, alignItems: "center", justifyContent: "center", padding: 16 },
+    bloqueada: { paddingHorizontal: 20 },
 });
