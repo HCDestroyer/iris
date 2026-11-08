@@ -1,5 +1,6 @@
-import { ClipboardList, DatabaseZap, History, KeyRound, Mail, Map as IconoMapa, Plug, ShieldCheck, Smartphone, Users, Zap, Phone, CalendarClock, BookOpen, Inbox, Settings2, type LucideIcon } from "lucide-react";
+import { Cloud, ClipboardList, DatabaseZap, History, KeyRound, Mail, Map as IconoMapa, Plug, ShieldCheck, Smartphone, Users, Zap, Phone, CalendarClock, BookOpen, Inbox, Settings2, type LucideIcon } from "lucide-react";
 import { PERMISOS_CUADRILLAS, PERMISOS_ZONAS } from "@/lib/agenda/permisos";
+import { PERMISO_CONEXION_META } from "@/lib/meta/tipos";
 import type { Permiso } from "@/lib/menu";
 
 /** Secciones de Administración (índice y buscador global). Sin `href`: aún sin pantalla. */
@@ -19,6 +20,13 @@ export const SECCIONES: readonly Seccion[] = [
         descripcion: "Agregar números, credenciales de Meta, conexión, uso, cola y horario.",
         icono: Phone,
         permisos: ["canales.configurar", "mensajeria.configurar"],
+    },
+    {
+        href: "/administracion/conexion-meta",
+        titulo: "Conexión con Meta",
+        descripcion: "La app de Meta (o el servicio central) con que se conectan los números por QR.",
+        icono: Cloud,
+        permisos: [PERMISO_CONEXION_META],
     },
     {
         href: "/administracion/colas",

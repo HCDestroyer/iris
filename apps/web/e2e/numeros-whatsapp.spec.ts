@@ -45,7 +45,7 @@ async function llenarNumero(page: Page) {
 }
 
 async function agregarYProbar(page: Page, resultado?: ResultadoMeta) {
-    const api = await abrir(page, "/administracion/numeros/nuevo", resultado ? { numeros: { resultadoNuevo: resultado } } : {});
+    const api = await abrir(page, "/administracion/numeros/nuevo/api", resultado ? { numeros: { resultadoNuevo: resultado } } : {});
     const form = await llenarNumero(page);
     await form.getByRole("button", { name: "Guardar y probar" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Conectar Soporte técnico" })).toBeVisible();
@@ -56,7 +56,7 @@ test.describe("números de WhatsApp", () => {
     test("lista: conexión de cada número con icono y texto, credenciales y activar", async ({ page }) => {
         const api = await abrir(page, "/administracion/numeros", { numeros: { conInactivo: true } });
         await expect(page.getByRole("heading", { name: "Números de WhatsApp" })).toBeVisible();
-        await expect(page.getByText("4 activos y 1 desactivado, por la API oficial de Meta (WhatsApp Cloud API)")).toBeVisible();
+        await expect(page.getByText("4 activos y 1 desactivado", { exact: true })).toBeVisible();
         const fila = (id: number) => page.locator(`[data-numero="${id}"]`);
         await expect(fila(2).locator("[data-conexion]")).toHaveText("Conectado");
         await expect(fila(4).locator("[data-conexion]")).toHaveText("Token vencido");
@@ -86,7 +86,8 @@ test.describe("números de WhatsApp", () => {
         await expect(fila.locator("[data-conexion]")).toHaveText("Token vencido");
         await expect(fila.getByRole("link", { name: "Credenciales de Cobros" })).toBeVisible();
         await expect(fila.getByRole("link", { name: /Configurar/ })).toHaveCount(0);
-        await expect(fila.getByText("Sin dato")).toHaveCount(2);
+        // Cola, horario y empresas (sin `canales.configurar` no hay «Compartir»).
+        await expect(fila.getByText("Sin dato")).toHaveCount(3);
         expect(api.peticiones.some((p) => p.ruta === "/api/v1/mensajeria/colas" || p.ruta === "/api/v1/mensajeria/horarios")).toBe(false);
         await expect(page.getByText("No se pudo")).toHaveCount(0);
         await esperarSinDesbordes(page);
@@ -102,10 +103,12 @@ test.describe("números de WhatsApp", () => {
     });
 
     test("agregar número: errores del validador espejo y pregunta antes de salir con cambios", async ({ page }, info) => {
-        await abrir(page, "/administracion/numeros/nuevo");
+        await abrir(page, "/administracion/numeros/nuevo/api");
         const form = page.getByRole("form", { name: "Agregar número" });
-        await expect(form.getByRole("heading", { name: /Paso 1: En Meta/ })).toBeVisible();
-        await expect(form.getByText("Próximamente: conectar con QR un número que ya usas en WhatsApp Business (coexistencia oficial de Meta).")).toBeVisible();
+        // La primera lectura (números y colas) puede tardar con varias pruebas en paralelo.
+        await expect(form.getByRole("heading", { name: /Paso 1: En Meta/ })).toBeVisible({ timeout: 15_000 });
+        await expect(form.getByText("Conéctalo con QR: sigue funcionando en el teléfono y también llega a Iris (coexistencia oficial de Meta).")).toBeVisible();
+        await expect(form.getByRole("link", { name: "Conectar con QR" })).toHaveAttribute("href", "/administracion/numeros/nuevo/qr");
         // El verify token lo genera el servidor: antes de guardar no hay ninguno.
         await expect(form.getByText("Iris lo genera al guardar")).toBeVisible();
         await form.getByRole("button", { name: "Guardar y probar" }).click();
@@ -151,7 +154,7 @@ test.describe("números de WhatsApp", () => {
     });
 
     test("agregar número: «¿Dónde lo encuentro?» y la guía en otra pestaña", async ({ page }) => {
-        await abrir(page, "/administracion/numeros/nuevo");
+        await abrir(page, "/administracion/numeros/nuevo/api");
         const punto = page.locator('[data-punto="token"]');
         await punto.getByRole("button", { name: "¿Dónde lo encuentro?" }).click();
         await expect(punto.getByRole("button", { name: "¿Dónde lo encuentro?" })).toHaveAttribute("aria-expanded", "true");
@@ -320,7 +323,7 @@ test.describe("números de WhatsApp", () => {
         await expect(token).toContainText("whatsapp_business_messaging");
         await expect(token).toContainText("Nunca");
         await expect(page.locator("section#varios-numeros")).toContainText("override_callback_uri");
-        await expect(page.locator("section#qr")).toContainText("servicio de Horus");
+        await expect(page.locator("section#qr")).toContainText("Iris Cloud (todavía no disponible)");
         await expect(page.locator("section#estados")).toContainText("Webhook sin verificar");
         await expect(page.getByRole("navigation", { name: "Contenido de la guía" }).getByRole("link")).toHaveCount(SECCIONES_GUIA.length);
         if (!esTelefono(page)) {

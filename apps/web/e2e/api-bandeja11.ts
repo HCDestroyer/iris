@@ -197,6 +197,7 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
             const existente = e.conversaciones.find((c) => c.numero === dest.numero && c.canal.id === canal.id);
             const yoAgente = e.agentes.find((a) => a.id === yo);
             const c: Conversacion = existente ?? {
+                soloLectura: false,
                 id: siguienteConv++,
                 empresaId: 1,
                 version: 1,
@@ -243,6 +244,7 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
                 entregadoEn: null,
                 leidoEn: null,
                 automatico: null,
+                origen: null,
             };
             c.ultimoMensaje = { direccion: "saliente", tipo: "plantilla", texto, evento: null, creadoEn: ahora, automatico: null };
             if (!existente) {
@@ -266,6 +268,7 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
                     entregadoEn: null,
                     leidoEn: null,
                     automatico: null,
+                    origen: null,
                 },
                 m,
             );
@@ -293,7 +296,7 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
             c.version += 1;
             const ahora = new Date().toISOString();
             const nota = typeof cuerpo.nota === "string" ? cuerpo.nota : "";
-            const base = { conversacionId: c.id, seq: 0, tipo: "texto" as const, estadoEntrega: null, motivoFalla: null, menciones: [], creadoEn: ahora, enviadoEn: null, entregadoEn: null, leidoEn: null, automatico: null };
+            const base = { conversacionId: c.id, seq: 0, tipo: "texto" as const, estadoEntrega: null, motivoFalla: null, menciones: [], creadoEn: ahora, enviadoEn: null, entregadoEn: null, leidoEn: null, automatico: null, origen: null };
             const sistema: Mensaje = {
                 ...base,
                 id: `pasada-${c.version}`,

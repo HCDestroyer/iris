@@ -226,6 +226,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             entregadoEn: null,
             leidoEn: null,
             automatico: null,
+            origen: null,
         };
         mensajes.get(id)?.push(m);
         c.version += 1;
@@ -426,6 +427,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                     entregadoEn: null,
                     leidoEn: null,
                     automatico: null,
+                    origen: null,
                     ...(cuerpo.plantilla ? { plantilla: cuerpo.plantilla as Schema<"PlantillaMensaje"> } : {}),
                 };
                 mensajes.get(c.id)?.push(nuevo);

@@ -359,6 +359,31 @@ Diseño aprobado por el PM («Números de WhatsApp», contrato §1.1):
 - **Migas:** el número no tiene pantalla propia; su miga lleva el nombre sin enlace
   («Números de WhatsApp › Avisos › Credenciales») y «‹» en el teléfono vuelve a la lista.
 
+## Conexión con Meta, QR y préstamos (nov. 2026)
+
+Diseño aprobado por el PM («Conexión con Meta», contrato §15):
+
+- **Conexión con Meta** (`/administracion/conexion-meta`, solo `mensajeria.conexion_meta`): tres
+  modos. «App propia» (datos de la app, «Dominio permitido» para copiar, tarjeta de comprobaciones
+  con «Volver a probar» y webhook de la app con el verify token oculto tras «Mostrar»); «Servicio
+  central» (Iris Cloud, `https://cloud.iris.kns.gt`: hoy la tarjeta dice «Servicio central no
+  disponible todavía»); «Gestionada» (solo lectura). Guardar y probar son llamadas separadas.
+- **Agregar número** ahora elige primero: «Con QR (WhatsApp Business)» o «Con datos de la API»
+  (`/nuevo/qr`, `/nuevo/api`).
+- **QR:** el SDK de Facebook se carga solo en `/nuevo/qr` (`es_LA`) y se precarga para que
+  `FB.login` corra dentro del clic. Los mensajes `WA_EMBEDDED_SIGNUP` solo se aceptan de
+  `https://facebook.com`, `www.` y `web.`; el código se manda en cuanto llegan los ids (vive ~30 s).
+  Pantallas: inicio, esperando a Meta, creando, error (cada motivo con su texto, «Reintentar» y, si
+  sirve, «Usar datos de la API») y «Número conectado» con «Traer historial» (plazo de 24 h) y
+  «Terminar de configurar». No hace falta tocar la CSP (solo `frame-ancestors`, sin COOP).
+- **Lista:** insignias «QR · WhatsApp Business» / «API», «Compartido con N», «Prestado por X»; aviso
+  de días sin abrir la app en el teléfono y «Desconectado por Meta». Con `empresas.todas` el número
+  prestado no se repite (se queda la entrada de la empresa activa).
+- **Compartir** (`/[id]/compartir`): empresas con sus usos y cola; los cambios se guardan juntos;
+  «Dejar de compartir» con confirmación y motivo, explicando adónde van las conversaciones.
+- **Bandeja:** «Desde el teléfono» en los mensajes con `origen` telefono; «Pasar a otra empresa» solo
+  para la dueña y solo a empresas con el número prestado; conversación revocada = «Solo lectura».
+
 ## Navegación del panel (fase 1, hecha)
 
 - **Barra lateral por grupos:**

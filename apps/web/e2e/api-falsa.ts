@@ -5,6 +5,7 @@ import { simularChatPanel, type ApiChatPanel } from "./api-chat-panel";
 import { apiComercial, type ApiComercial } from "./api-comercial";
 import { apiConversaciones, PERMISOS_CONVERSACIONES, type ApiConversaciones, type OpcionesConversaciones } from "./api-conversaciones";
 import { apiEncuestas, type ApiEncuestas } from "./api-encuestas";
+import { apiMeta, type ApiMeta, type OpcionesMeta } from "./api-meta";
 import { apiNumeros, type ApiNumeros, type OpcionesNumeros } from "./api-numeros";
 import { apiReportes, type ApiReportes } from "./api-reportes";
 import { apiSSO, type ApiSSO } from "./api-sso";
@@ -214,8 +215,9 @@ export const PERMISOS_ADMIN: Permiso[] = [
     "usuarios.quitar_empresa",
     // Bandeja de conversaciones (e2e/api-conversaciones.ts).
     ...PERMISOS_CONVERSACIONES,
-    // Credenciales y conexión de los números de WhatsApp (e2e/api-numeros.ts).
+    // Credenciales y conexión de los números de WhatsApp (e2e/api-numeros.ts) y conexión con Meta (§15).
     "mensajeria.configurar",
+    "mensajeria.conexion_meta",
     "adjuntos.subir",
 ];
 
@@ -287,6 +289,8 @@ export type OpcionesApi = {
     conversaciones?: OpcionesConversaciones;
     /** Números de WhatsApp: alta, credenciales y conexión (e2e/api-numeros.ts). */
     numeros?: OpcionesNumeros;
+    /** Conexión con Meta, QR y préstamos (e2e/api-meta.ts, contrato §15). */
+    meta?: OpcionesMeta;
     /**
      * Chat del equipo (e2e/api-chat-panel.ts): Ana (admin) tiene `chat.ver`, `chat.enviar` y
      * `chat.supervisar`. Sin esta opción nadie tiene permisos del chat y el panel no lo arranca.
@@ -337,6 +341,8 @@ export type ApiFalsa = {
     chat: ApiChatPanel | null;
     /** Números de WhatsApp: resultados de Meta, cuerpos recibidos y credenciales guardadas. */
     numeros: Pick<ApiNumeros, "resultados" | "cuerpos" | "secretos" | "ultimoCreado">;
+    /** Conexión con Meta, QR y préstamos: cuerpos recibidos, préstamos y el resultado del QR. */
+    meta: Pick<ApiMeta, "conexion" | "cuerpos" | "prestamos" | "resultadoQr">;
     /** Encuestas: lista, respuestas públicas y peticiones públicas que llevaron sesión. */
     encuestas: Pick<ApiEncuestas, "encuestas" | "publicasConSesion" | "respuestas" | "enlacesPedidos">;
     /** Autologin desde Argos, re-autenticación, vínculos y conectores. */
@@ -467,6 +473,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     const enlaceActor = { id: 0 };
     const conversaciones = apiConversaciones(() => enlaceActor.id, opciones.conversaciones);
     const numeros = apiNumeros(conversaciones.canales, opciones.numeros);
+    const meta = apiMeta(numeros.interno, conversaciones.conversaciones, opciones.meta);
     const listables = [...(PAGINA_1.data ?? []), ...(PAGINA_2.data ?? [])];
     const cuenta = apiCuenta(() => [...usuarios, ...listables.filter((u) => !usuarios.some((x) => x.id === u.id))]);
     const sso = apiSSO({
@@ -819,6 +826,9 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             return;
         }
         enlaceActor.id = actual.id;
+        if (await meta.manejar({ route, metodo, ruta, cuerpo, idempotencia: cabeceras["idempotency-key"], puede, empresaId })) {
+            return;
+        }
         if (await numeros.manejar({ route, metodo, ruta, cuerpo, idempotencia: cabeceras["idempotency-key"], puede, empresaId })) {
             return;
         }
@@ -959,6 +969,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     return {
         chat,
         numeros: { resultados: numeros.resultados, cuerpos: numeros.cuerpos, secretos: numeros.secretos, ultimoCreado: numeros.ultimoCreado },
+        meta: { conexion: meta.conexion, cuerpos: meta.cuerpos, prestamos: meta.prestamos, resultadoQr: meta.resultadoQr },
         mutaciones,
         peticiones,
         tickets: esc.tickets,

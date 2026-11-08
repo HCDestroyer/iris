@@ -1,7 +1,7 @@
 "use client";
 
 import { Boton, Cargando, cn } from "@iris/ui";
-import { AlertTriangle, ArrowLeftRight, Bot, FileText, MapPin, MessageCircle, Paperclip, PencilLine, RotateCw, Timer } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, Bot, FileText, History, MapPin, MessageCircle, Paperclip, PencilLine, RotateCw, Smartphone, Timer } from "lucide-react";
 import { Fragment, useEffect, useLayoutEffect, useRef } from "react";
 import type { Pendiente } from "@/lib/conversaciones/estado";
 import { hora, separadorDia, tamanoLegible, textoEntrega, textoEvento } from "@/lib/conversaciones/presentacion";
@@ -149,8 +149,11 @@ function Burbuja({ m }: { m: Mensaje }) {
     // Fase 1.1: mensajes del bot (`automatico: "bot"`) con su etiqueta y borde punteado de información.
     const automatico = m.automatico ?? null;
     const delBot = propia && automatico === "bot";
+    // §15.2: lo mandado desde la app WhatsApp Business del teléfono (sin autor) y lo traído del historial.
+    const desdeTelefono = m.origen === "telefono";
+    const delHistorial = m.origen === "historial";
     const pie = [
-        nota || (propia && !delBot) ? (m.autor?.nombre ?? (propia ? "Respuesta automática" : null)) : null,
+        nota || (propia && !delBot && !m.origen) ? (m.autor?.nombre ?? (propia ? "Respuesta automática" : null)) : null,
         hora(m.creadoEn),
         propia ? textoEntrega(m) : null,
     ]
@@ -170,6 +173,17 @@ function Burbuja({ m }: { m: Mensaje }) {
             )}
         >
             {nota ? <EtiquetaNota /> : null}
+            {desdeTelefono ? (
+                <span className="flex items-center gap-1 text-[0.6875rem] font-semibold text-muted-foreground" data-slot="etiqueta-telefono">
+                    <Smartphone aria-hidden className="size-3.5" />
+                    Desde el teléfono
+                </span>
+            ) : delHistorial ? (
+                <span className="flex items-center gap-1 text-[0.6875rem] font-semibold text-muted-foreground" data-slot="etiqueta-historial">
+                    <History aria-hidden className="size-3.5" />
+                    Del historial del teléfono
+                </span>
+            ) : null}
             {delBot ? (
                 <span className="flex items-center gap-1 text-[0.6875rem] font-semibold text-info" data-slot="etiqueta-bot">
                     <Bot aria-hidden className="size-3.5" />

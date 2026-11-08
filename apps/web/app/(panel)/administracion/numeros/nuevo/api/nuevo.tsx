@@ -120,7 +120,7 @@ function Formulario({ canales, colas }: { canales: Canal[]; colas: Schema<"ColaC
             }
             alEnviar={form.handleSubmit(guardar)}
             navegar={router.push}
-            volverA="/administracion/numeros"
+            volverA="/administracion/numeros/nuevo"
             sucio={form.formState.isDirty}
             barra={{ textoGuardar: "Guardar y probar", textoEnviando: "Guardando y probando…", enviando: form.formState.isSubmitting, nota: "Al guardar, Iris prueba la conexión con Meta." }}
             error={

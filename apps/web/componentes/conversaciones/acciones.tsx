@@ -24,7 +24,7 @@ import {
     MenuDesplegableSeparador,
     useCambiosSinGuardar,
 } from "@iris/ui";
-import { ArrowLeftRight, AtSign, BookOpen, Check, ChevronDown, Ellipsis, LifeBuoy, RotateCcw, RotateCw, Tag, Unlink, User, UserCheck, UserMinus, UserPlus } from "lucide-react";
+import { ArrowLeftRight, AtSign, BookOpen, Building2, Check, ChevronDown, Ellipsis, LifeBuoy, Lock, RotateCcw, RotateCw, Tag, Unlink, User, UserCheck, UserMinus, UserPlus } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useForm, useWatch, type FieldValues, type Path, type UseFormSetError } from "react-hook-form";
 import { z } from "zod";
@@ -38,11 +38,15 @@ import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useSesion } from "@/lib/sesion";
 import { pasarConversacion } from "@/lib/conversaciones/api-equipo";
 import { estaDisponible, personasDeCola, supervisaCola, textoCarga, textoMotivoNoDisponible } from "@/lib/conversaciones/atencion";
+import { leerPrestamos, pasarAEmpresa } from "@/lib/meta/api";
+import { esquemaPasarEmpresa } from "@/lib/meta/esquemas";
+import { prestamoConversa } from "@/lib/meta/presentacion";
+import type { Prestamo } from "@/lib/meta/tipos";
 import type { Schema } from "@iris/contratos";
 import { agentesDeCola, useCatalogos } from "./catalogos";
 import { AvatarDisponible, EstadoDisponible } from "./disponibilidad";
 
-type Dialogo = "asignar" | "pasar" | "transferir" | "etiquetar" | "mencionar" | "ayuda" | "desasociar" | null;
+type Dialogo = "asignar" | "pasar" | "pasar-empresa" | "transferir" | "etiquetar" | "mencionar" | "ayuda" | "desasociar" | null;
 
 type Props = {
     conv: Conversacion;
@@ -87,6 +91,8 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
             (mia || puede(["conversaciones.supervisar"]) || supervisaCola(yoAgente, conv.cola?.id)),
     };
 
+    const empresasDestino = useEmpresasParaPasar(conv);
+
     /** Acción de un toque (tomar, resolver, reabrir, quitar asignación), con aviso y «Deshacer» si se puede. */
     async function rapida(nombre: string, hacer: (clave: string) => Promise<Conversacion>, aviso: (c: Conversacion) => Parameters<typeof avisar>[0]) {
         setOcupado(true);
@@ -128,6 +134,16 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
             async (clave) => await resolver(api().POST(`${BASE}/resolver`, { params: ruta(conv, clave), body: { version: conv.version } })),
             (c) => ({ titulo: `Conversación con ${c.titulo} resuelta`, ...(p.resolver ? { accion: { texto: "Deshacer", alPresionar: () => void reabrir(c) } } : {}) }),
         );
+
+    // §15.3: préstamo revocado o pasada a otra empresa: no hay acciones (el servidor responde 422).
+    if (conv.soloLectura) {
+        return (
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-background-secondary px-2.5 py-1 text-xs font-medium text-muted-foreground" data-solo-lectura>
+                <Lock aria-hidden className="size-3.5" />
+                Solo lectura
+            </span>
+        );
+    }
 
     const nombreAsignado = conv.asignado ? (mia ? "Tú" : conv.asignado.nombre.split(" ")[0]) : "Sin asignar";
     const menuAsignado = (
@@ -237,7 +253,12 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
                                     <OpcionConDetalle titulo="Pasar a…" detalle={`A un compañero de ${conv.cola?.nombre ?? "la empresa"}, con una nota.`} />
                                 </MenuDesplegableElemento>
                             ) : null}
-                            {p.asignar || p.pasar ? <MenuDesplegableSeparador /> : null}
+                            {empresasDestino.length > 0 ? (
+                                <MenuDesplegableElemento icono={Building2} onSelect={() => setDialogo("pasar-empresa")} textValue="Pasar a otra empresa" className="h-auto py-2">
+                                    <OpcionConDetalle titulo="Pasar a otra empresa" detalle={`A ${empresasDestino.map((e) => e.empresaNombre).join(" o ")}, con su historial.`} />
+                                </MenuDesplegableElemento>
+                            ) : null}
+                            {p.asignar || p.pasar || empresasDestino.length > 0 ? <MenuDesplegableSeparador /> : null}
                             {p.etiquetar ? (
                                 <MenuDesplegableElemento icono={Tag} onSelect={() => setDialogo("etiquetar")}>
                                     Etiquetas…
@@ -255,6 +276,7 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
             {errorRapido ? <ErrorRapido error={errorRapido} cerrar={() => setErrorRapido(null)} recargar={recargar} /> : null}
             {dialogo === "asignar" ? <DialogoAsignar conv={conv} cerrar={() => setDialogo(null)} alHecho={alActualizar} recargar={recargar} /> : null}
             {dialogo === "pasar" ? <DialogoPasar conv={conv} cerrar={() => setDialogo(null)} alHecho={alActualizar} recargar={recargar} /> : null}
+            {dialogo === "pasar-empresa" ? <DialogoPasarEmpresa conv={conv} empresas={empresasDestino} cerrar={() => setDialogo(null)} alHecho={alActualizar} recargar={recargar} /> : null}
             {dialogo === "transferir" ? <DialogoTransferir conv={conv} cerrar={() => setDialogo(null)} alHecho={alActualizar} recargar={recargar} /> : null}
             {dialogo === "etiquetar" ? <DialogoEtiquetas conv={conv} cerrar={() => setDialogo(null)} alHecho={alActualizar} recargar={recargar} /> : null}
             {dialogo === "mencionar" || dialogo === "ayuda" ? <DialogoMencion conv={conv} ayuda={dialogo === "ayuda"} cerrar={() => setDialogo(null)} /> : null}
@@ -720,6 +742,86 @@ function DialogoPasar(props: PropsDialogo) {
                         {...form.register("nota")}
                     />
                     {pie(primero ? `Pasar a ${primero}` : "Pasar", form.formState.isSubmitting, elegido ? [] : ["a quién pasarla"])}
+                </form>
+            )}
+        </DialogoCorto>
+    );
+}
+
+/**
+ * Empresas a las que se puede pasar esta conversación (contrato §15.3): solo en la empresa dueña
+ * del número (no si el número es prestado), con `conversaciones.transferir`, y solo a empresas con
+ * préstamo activo de ese número que tenga un uso de conversación. Los préstamos se leen con
+ * `canales.configurar` (`GET /canales/{id}/prestamos`); sin ese permiso no se ofrece.
+ */
+function useEmpresasParaPasar(conv: Conversacion): Prestamo[] {
+    const { puede } = useSesion();
+    const { canales } = useCatalogos();
+    const numero = canales.estado === "listo" ? canales.datos.find((c) => c.id === conv.canal.id) : undefined;
+    const habilitado = puede(["conversaciones.transferir"]) && puede(["canales.configurar"]) && !conv.soloLectura && numero !== undefined && !numero.prestadoPor;
+    const canalId = conv.canal.id;
+    // Se lee cuando el catálogo de números dice que la empresa es la dueña (llega después de montar).
+    // Si la lectura falla, la opción no aparece: nunca se ofrece una empresa que no se pudo comprobar.
+    const [prestamos, setPrestamos] = useState<{ canalId: number; lista: Prestamo[] } | null>(null);
+    useEffect(() => {
+        if (!habilitado) return undefined;
+        const control = new AbortController();
+        leerPrestamos(canalId, control.signal).then(
+            (lista) => setPrestamos({ canalId, lista }),
+            () => undefined,
+        );
+        return () => control.abort();
+    }, [habilitado, canalId]);
+    if (!habilitado || prestamos?.canalId !== canalId) return [];
+    return prestamos.lista.filter((p) => p.estado === "activo" && prestamoConversa(p.usos));
+}
+
+/**
+ * «Pasar a otra empresa» (§15.3): la conversación pasa con su historial a la cola del préstamo,
+ * sin asignar, sin etiquetas y sin contacto; desde ahí solo la ve la otra empresa (aquí queda de
+ * solo lectura). Nota opcional para quien la recibe.
+ */
+function DialogoPasarEmpresa(props: PropsDialogo & { empresas: Prestamo[] }) {
+    const { conv, empresas } = props;
+    const form = useForm({ resolver: zodResolver(esquemaPasarEmpresa), defaultValues: { empresaId: empresas.length === 1 ? String(empresas[0]?.empresaId ?? "") : "", nota: "" } });
+    useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
+    const empresaId = useWatch({ control: form.control, name: "empresaId" });
+    const elegida = empresas.find((e) => String(e.empresaId) === empresaId);
+    return (
+        <DialogoCorto {...props} titulo="Pasar a otra empresa" descripcion={`${conv.titulo}: pasa con su historial y aquí queda de solo lectura.`}>
+            {(enviar, pie) => (
+                <form
+                    noValidate
+                    className="grid gap-4"
+                    onSubmit={form.handleSubmit((d) =>
+                        enviar(
+                            async (clave) => {
+                                try {
+                                    return await pasarAEmpresa(conv.id, { version: conv.version, empresaId: Number(d.empresaId), ...(d.nota ? { nota: d.nota } : {}) }, clave);
+                                } catch (e) {
+                                    if (e instanceof ErrorApi && e.codigo === "conversacion_existente") form.setError("empresaId", { message: "Esa empresa ya tiene una conversación con este cliente por este número" });
+                                    if (e instanceof ErrorApi && e.codigo === "conversacion_con_vinculos") form.setError("empresaId", { message: "Tiene tickets, órdenes, prospectos, boletas o promesas: no se puede pasar" });
+                                    throw e;
+                                }
+                            },
+                            ["empresaId", "nota"],
+                            form.setError,
+                            () => `Conversación con ${conv.titulo} pasada a ${elegida?.empresaNombre ?? "otra empresa"}`,
+                        ),
+                    )}
+                >
+                    <CampoSelector etiqueta="Empresa" error={form.formState.errors.empresaId?.message} {...form.register("empresaId")}>
+                        <option value="">Elegir…</option>
+                        {empresas.map((e) => (
+                            <option key={e.empresaId} value={String(e.empresaId)}>
+                                {e.empresaNombre}
+                                {e.colaNombre ? ` · cola ${e.colaNombre}` : ""}
+                            </option>
+                        ))}
+                    </CampoSelector>
+                    <CampoArea etiqueta="Nota para quien la recibe (opcional)" rows={3} maxLength={1000} error={form.formState.errors.nota?.message} {...form.register("nota")} />
+                    <p className="text-sm text-muted-foreground">Se pasa sin asignar, sin etiquetas y sin el cliente asociado: esos datos son de tu empresa.</p>
+                    {pie(elegida ? `Pasar a ${elegida.empresaNombre}` : "Pasar", form.formState.isSubmitting, empresaId ? [] : ["la empresa"])}
                 </form>
             )}
         </DialogoCorto>

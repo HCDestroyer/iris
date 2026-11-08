@@ -5,13 +5,13 @@ import { avisar, Aviso, Boton, Campo, CampoSecreto, DialogoConfirmar, Formulario
 import { CircleCheck, Clock, Power, RefreshCw, SlidersHorizontal, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { CargaRegistro } from "@/componentes/carga-registro";
 import { useNombreEnMigas } from "@/componentes/migas-panel";
 import { EstadoConexion } from "@/componentes/numeros/estado-conexion";
 import { useGenerarVerifyToken } from "@/componentes/numeros/generar-verify-token";
-import { SecretoGuardado } from "@/componentes/numeros/secreto-guardado";
+import { SecretoCambiable as Secreto } from "@/componentes/numeros/secreto-guardado";
 import { TarjetaPrueba } from "@/componentes/numeros/tarjeta-prueba";
 import { WebhookMeta } from "@/componentes/numeros/webhook-meta";
 import { nuevaClaveIdempotencia } from "@/lib/api/cliente";
@@ -22,7 +22,7 @@ import { erroresACampos } from "@/lib/formularios";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
 import { activarCanal, actualizarCanal, cuerpoActualizar, desactivarCanal, leerCanal, probarCanal } from "@/lib/numeros/api";
-import { cuando, fechaCorta, textoUltimoMensaje, webhookUrlDe } from "@/lib/numeros/conexion";
+import { cuando, textoUltimoMensaje, webhookUrlDe } from "@/lib/numeros/conexion";
 import { esquemaCredenciales, normalizarNumero, type EntradaCredenciales, type ValoresCredenciales } from "@/lib/numeros/esquemas";
 import type { Canal, PruebaCanal } from "@/lib/numeros/tipos";
 import { idDeParametro } from "@/lib/parametros";
@@ -303,22 +303,6 @@ function Formulario({ inicial, recargar }: { inicial: Canal; recargar: () => voi
             </DialogoConfirmar>
             {generar.dialogo}
         </FormularioPagina>
-    );
-}
-
-/** Un secreto guardado: «•••• guardado el …» con «Cambiar», o el campo con «No cambiar». */
-function Secreto({ etiqueta, guardadoEn, abierto, abrir, cerrar, campo }: { etiqueta: string; guardadoEn: string | null; abierto: boolean; abrir: () => void; cerrar: () => void; campo: ReactNode }) {
-    if (!abierto) return <SecretoGuardado etiqueta={etiqueta} guardadoEn={guardadoEn} accion="Cambiar" alAccion={abrir} />;
-    return (
-        <div className="grid gap-1">
-            {campo}
-            <p className="text-sm text-muted-foreground">
-                Vacío: se queda el {guardadoEn ? `guardado el ${fechaCorta(guardadoEn)}` : "guardado"}.{" "}
-                <Boton variante="enlace" tamano="sm" className="h-auto px-0 align-baseline" onClick={cerrar} aria-label={`No cambiar ${etiqueta.toLowerCase()}`}>
-                    No cambiar
-                </Boton>
-            </p>
-        </div>
     );
 }
 
