@@ -27,11 +27,21 @@ type graphFalsa struct {
 	tokens  []string
 	rutas   []string
 	consult int
+	// bloqueo: si no es nil, la consulta avisa en entro y espera a que se cierre bloqueo.
+	bloqueo chan struct{}
+	entro   chan struct{}
 }
 
 func nuevaGraph(t *testing.T) *graphFalsa {
 	g := &graphFalsa{status: http.StatusOK}
 	g.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		g.mu.Lock()
+		bloqueo, entro := g.bloqueo, g.entro
+		g.mu.Unlock()
+		if bloqueo != nil {
+			entro <- struct{}{}
+			<-bloqueo
+		}
 		g.mu.Lock()
 		defer g.mu.Unlock()
 		g.consult++
@@ -337,6 +347,18 @@ func TestProbarNumeroSoloPersonas(t *testing.T) {
 	b.exigir(b.api(otra, http.MethodPost, ruta, nil), http.StatusNotFound)
 	b.exigir(b.api(otra, http.MethodGet, fmt.Sprintf("/canales/%v", r.cuerpo["id"]), nil), http.StatusNotFound)
 	b.exigir(b.api(admin, http.MethodPost, "/canales/999999999/probar", nil), http.StatusNotFound)
+	// El detalle también es solo de personas con sesión.
+	b.exigir(b.api(tk, http.MethodGet, fmt.Sprintf("/canales/%v", r.cuerpo["id"]), nil), http.StatusNotFound)
+	b.exigir(b.api(admin, http.MethodGet, fmt.Sprintf("/canales/%v", r.cuerpo["id"]), nil), http.StatusOK)
+	// Un número sin empresa cuando ya hay empresas: 404 (no 422) para ver, probar y editar.
+	if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.canales SET empresa_id = NULL WHERE id = $1`, r.cuerpo["id"]); err != nil {
+		t.Fatal(err)
+	}
+	b.exigir(b.api(admin, http.MethodGet, fmt.Sprintf("/canales/%v", r.cuerpo["id"]), nil), http.StatusNotFound)
+	b.exigir(b.api(admin, http.MethodPost, ruta, nil), http.StatusNotFound)
+	b.exigir(b.api(admin, http.MethodPost, fmt.Sprintf("/canales/%v/actualizar", r.cuerpo["id"]), map[string]any{"version": r.cuerpo["version"],
+		"nombre": "Otro", "numero": r.cuerpo["numero"], "phoneNumberId": r.cuerpo["phoneNumberId"], "plantillas": map[string]any{}}), http.StatusNotFound)
+	b.exigir(b.api(admin, http.MethodPost, fmt.Sprintf("/canales/%v/desactivar", r.cuerpo["id"]), nil), http.StatusNotFound)
 	if g.consult != antes {
 		t.Fatal("se consultó a Meta sin autorización")
 	}
@@ -388,5 +410,83 @@ func TestNumerosVariosPorEmpresa(t *testing.T) {
 	b.exigir(dup, http.StatusConflict, "type", "urn:iris:problema:canal_existente")
 	if d, _ := dup.cuerpo["detail"].(string); !strings.Contains(d, "phone number ID") {
 		t.Fatalf("detalle de canal_existente: %v", dup.cuerpo)
+	}
+}
+
+// Lo que diga Meta no infla el número ni el detalle guardados.
+func TestProbarNumeroRespuestaEnorme(t *testing.T) {
+	b, g, admin := numerosWA(t)
+	r := crearNumero(b, admin, nil)
+	b.exigir(r, http.StatusCreated)
+	g.responder(http.StatusOK, fmt.Sprintf(`{"id":%q,"display_phone_number":"+%s","verified_name":%q}`, r.cuerpo["phoneNumberId"],
+		strings.Repeat("9", 5000), strings.Repeat("N", 5000)))
+	p := b.api(admin, http.MethodPost, fmt.Sprintf("/canales/%v/probar", r.cuerpo["id"]), nil)
+	b.exigir(p, http.StatusOK, "estado", "numero_no_coincide", "numeroMeta", "+"+strings.Repeat("9", 20))
+	d, _ := p.cuerpo["detalle"].(string)
+	if n := len([]rune(d)); n == 0 || n > 300 {
+		t.Fatalf("detalle de %d caracteres", n)
+	}
+	if n := len([]rune(p.cuerpo["nombreVerificado"].(string))); n > 120 {
+		t.Fatalf("nombreVerificado de %d caracteres", n)
+	}
+	if n := b.contar(`SELECT count(*) FROM mensajeria.canales WHERE id = $1 AND length(ultimo_detalle) <= 300`, r.cuerpo["id"]); n != 1 {
+		t.Fatal("detalle guardado sin recortar")
+	}
+}
+
+// Si el número se edita mientras se consulta a Meta, la prueba responde 409 y no guarda nada.
+func TestProbarNumeroEditadoDuranteLaPrueba(t *testing.T) {
+	b, g, admin := numerosWA(t)
+	r := crearNumero(b, admin, nil)
+	b.exigir(r, http.StatusCreated)
+	id := r.cuerpo["id"]
+	ruta := fmt.Sprintf("/canales/%v/probar", id)
+	g.responder(http.StatusOK, fmt.Sprintf(`{"id":%q,"display_phone_number":"+502 2200 0040"}`, r.cuerpo["phoneNumberId"]))
+	b.exigir(b.api(admin, http.MethodPost, ruta, nil), http.StatusOK, "estado", "conectado")
+	leer := func() (string, time.Time) {
+		var e string
+		var en time.Time
+		if err := b.bd.QueryRow(b.ctx, `SELECT ultimo_estado, ultima_prueba_en FROM mensajeria.canales WHERE id = $1`, id).Scan(&e, &en); err != nil {
+			t.Fatal(err)
+		}
+		return e, en
+	}
+	estado, en := leer()
+
+	// La siguiente prueba se queda en Meta (que esta vez diría token_invalido)…
+	*b.reloj = b.reloj.Add(time.Hour)
+	g.responder(http.StatusUnauthorized, `{"error":{"code":190}}`)
+	g.mu.Lock()
+	g.bloqueo, g.entro = make(chan struct{}), make(chan struct{}, 1)
+	bloqueo, entro := g.bloqueo, g.entro
+	g.mu.Unlock()
+	hecha := make(chan respuesta, 1)
+	go func() { hecha <- b.api(admin, http.MethodPost, ruta, nil) }()
+	select {
+	case <-entro:
+	case <-time.After(10 * time.Second):
+		t.Fatal("la prueba no llegó a Meta")
+	}
+	// …mientras alguien edita el número.
+	ver := b.api(admin, http.MethodGet, fmt.Sprintf("/canales/%v", id), nil)
+	b.exigir(b.api(admin, http.MethodPost, fmt.Sprintf("/canales/%v/actualizar", id), map[string]any{"version": ver.cuerpo["version"],
+		"nombre": "Renombrado " + pruebas.Unico(), "numero": ver.cuerpo["numero"], "phoneNumberId": ver.cuerpo["phoneNumberId"],
+		"plantillas": map[string]any{}}), http.StatusOK)
+	g.mu.Lock()
+	g.bloqueo, g.entro = nil, nil
+	g.mu.Unlock()
+	close(bloqueo)
+	var p respuesta
+	select {
+	case p = <-hecha:
+	case <-time.After(20 * time.Second):
+		t.Fatal("la prueba no terminó")
+	}
+	b.exigir(p, http.StatusConflict, "type", "urn:iris:problema:conflicto_version")
+	if e2, en2 := leer(); e2 != estado || !en2.Equal(en) {
+		t.Fatalf("la prueba vieja se guardó: %s %v → %s %v", estado, en, e2, en2)
+	}
+	if n := b.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'canal_mensajeria.probado' AND payload->>'canal_id' = $1`, fmt.Sprint(id)); n != 1 {
+		t.Fatalf("eventos de prueba: %d", n)
 	}
 }

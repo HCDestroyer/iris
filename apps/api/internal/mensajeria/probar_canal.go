@@ -152,11 +152,7 @@ func (m *Modulo) canalPersona(ctx context.Context, t *auditoria.Tx, id int64) (m
 	if err != nil {
 		return f, err
 	}
-	if err := exigirEmpresaCanal(ctx, t, f.EmpresaID); err != nil {
-		var pr *nucleo.Problema
-		if errors.As(err, &pr) && pr.Status == http.StatusForbidden {
-			return f, nucleo.NoEncontrado("El número no existe")
-		}
+	if err := empresaDeCanalExistente(ctx, t, f.EmpresaID, "El número no existe"); err != nil {
 		return f, err
 	}
 	return f, nil
@@ -219,7 +215,8 @@ func clasificarPrueba(status int, cuerpo []byte, phoneNumberID, numero string) r
 			v := recortar(r.VerifiedName, 120)
 			out.NombreVerificado = &v
 		}
-		meta := soloDigitos(r.DisplayPhoneNumber)
+		// Solo dígitos y a lo más 20 (un E.164 tiene 15): lo que diga Meta no infla el detalle.
+		meta := recortar(soloDigitos(r.DisplayPhoneNumber), 20)
 		if meta != "" {
 			n := "+" + meta
 			out.NumeroMeta = &n
@@ -232,7 +229,7 @@ func clasificarPrueba(status int, cuerpo []byte, phoneNumberID, numero string) r
 			d := "Meta no devolvió el número de este phone number ID"
 			out.Estado, out.Detalle = PruebaErrorMeta, &d
 		case meta != soloDigitos(numero):
-			d := fmt.Sprintf("Este phone number ID es del número +%s en Meta, no de %s", meta, numero)
+			d := recortar(fmt.Sprintf("Este phone number ID es del número +%s en Meta, no de %s", meta, numero), 300)
 			out.Estado, out.Detalle = PruebaNumeroNoCoincide, &d
 		default:
 			out.Estado = PruebaConectado
@@ -277,18 +274,9 @@ func nuevoVerCanal(m *Modulo) *auditoria.Caso[EntradaVerCanal, Canal] {
 		Accion: "mensajeria.ver_canales", Permiso: nucleo.PermMensajeriaConfigurar, SinEmpresa: true,
 		AuditarExito: func(Canal) bool { return false },
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaVerCanal) (Canal, error) {
-			f, err := mensajeriabd.New(t).CanalPorID(ctx, in.ID)
-			if errors.Is(err, pgx.ErrNoRows) {
-				return Canal{}, nucleo.NoEncontrado("El canal no existe")
-			}
+			// Como probar: solo personas con sesión (un token o una integración, 404).
+			f, err := m.canalPersona(ctx, t, in.ID)
 			if err != nil {
-				return Canal{}, err
-			}
-			if err := exigirEmpresaCanal(ctx, t, f.EmpresaID); err != nil {
-				var pr *nucleo.Problema
-				if errors.As(err, &pr) && pr.Status == http.StatusForbidden {
-					return Canal{}, nucleo.NoEncontrado("El canal no existe")
-				}
 				return Canal{}, err
 			}
 			return m.aCanal(f), nil

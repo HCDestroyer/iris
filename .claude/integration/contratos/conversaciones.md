@@ -99,7 +99,9 @@ Iris genera uno nuevo y lo devuelve una vez en `verifyTokenGenerado` (no se pued
 `webhookVerificadoEn`: hay que pegarlo en Meta y verificar otra vez. Cambiar `token`,
 `phoneNumberId` o `numero` borra el resultado de la última prueba (`conexion: sin_probar`).
 
-**Detalle**: `GET /canales/{id}` → `Canal` (404 si no existe o es de otra empresa).
+**Detalle**: `GET /canales/{id}` → `Canal`. Solo personas con sesión del panel (un token de API o una
+integración reciben 404; `GET /canales` no cambia). 404 si no existe, es de otra empresa o no tiene
+empresa cuando ya hay empresas registradas (lo mismo en probar, actualizar, activar y desactivar).
 
 **Probar conexión**: `POST /canales/{id}/probar`, sin cuerpo (acepta `Idempotency-Key`). Solo
 personas con sesión del panel: un token de API o una integración recibe 404. Iris llama a la Graph
