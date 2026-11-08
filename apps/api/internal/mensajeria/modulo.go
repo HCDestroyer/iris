@@ -120,6 +120,13 @@ type Config struct {
 	BaseURL string
 	// EnlaceManual: cuánto vale un enlace público a un manual (30 días).
 	EnlaceManual time.Duration
+
+	// Conexión con Meta y QR (contratos/conversaciones.md §15).
+	// Meta: la conexión fija del entorno (IRIS_META_MODO=saas); vacía = la configura el administrador.
+	Meta MetaEntorno
+	// ServicioCentral: el cliente del servicio central «Iris Cloud» (modo compartida). nil = aún no
+	// existe y todo responde servicio_central_no_disponible.
+	ServicioCentral RegistroMeta
 }
 
 // Modulo reúne los casos de uso.
@@ -146,6 +153,8 @@ type Modulo struct {
 	Conv casosConv
 	// Horarios y manuales (PR B).
 	Horarios casosHorarios
+	// Conexión con Meta, QR y préstamo de números (§15).
+	Meta casosMeta
 	// difusorConv despierta los flujos SSE de la bandeja (NOTIFY iris_conversaciones).
 	difusorConv *difusor
 	// alRecibir: lo que pasa después de guardar un mensaje del cliente (fuera de horario, PR B).
@@ -286,6 +295,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.permisoBoleta = nuevoPermisoBoleta()
 	m.alRecibir = m.alRecibirBandeja
 	m.Horarios = nuevosCasosHorarios(m)
+	m.Meta = nuevosCasosMeta(m)
 	return m
 }
 
@@ -319,6 +329,8 @@ type Entorno struct {
 	RedesArgos []netip.Prefix
 	// ChatSSEMax: flujos SSE del chat abiertos a la vez en el proceso (IRIS_CHAT_SSE_MAX, 1000).
 	ChatSSEMax int
+	// Meta: conexión fija del entorno (IRIS_META_MODO=saas y sus IRIS_META_*).
+	Meta MetaEntorno
 }
 
 // EntornoDesdeVariables lee IRIS_MENSAJERIA_*:
@@ -363,6 +375,25 @@ func EntornoDesdeVariables() (Entorno, error) {
 			errs = append(errs, "IRIS_MENSAJERIA_META_URL inválida: "+v)
 		}
 		e.MetaURL = v
+	}
+	// Iris en la nube (§15.1): la conexión con Meta la fija el entorno.
+	switch modo := strings.ToLower(strings.TrimSpace(os.Getenv("IRIS_META_MODO"))); modo {
+	case "":
+	case ModoMetaSaaS:
+		e.Meta = MetaEntorno{Modo: ModoMetaSaaS, AppID: strings.TrimSpace(os.Getenv("IRIS_META_APP_ID")),
+			AppSecret: strings.TrimSpace(os.Getenv("IRIS_META_APP_SECRET")), ConfigID: strings.TrimSpace(os.Getenv("IRIS_META_CONFIG_ID")),
+			GraphVersion: strings.TrimSpace(os.Getenv("IRIS_META_GRAPH_VERSION")), VerifyToken: strings.TrimSpace(os.Getenv("IRIS_META_VERIFY_TOKEN"))}
+		if e.Meta.AppID != "" && !reDigitos.MatchString(e.Meta.AppID) {
+			errs = append(errs, "IRIS_META_APP_ID inválido (solo dígitos)")
+		}
+		if e.Meta.ConfigID != "" && !reDigitos.MatchString(e.Meta.ConfigID) {
+			errs = append(errs, "IRIS_META_CONFIG_ID inválido (solo dígitos)")
+		}
+		if e.Meta.GraphVersion != "" && !reVersionGraph.MatchString(e.Meta.GraphVersion) {
+			errs = append(errs, "IRIS_META_GRAPH_VERSION inválida (vNN.N)")
+		}
+	default:
+		errs = append(errs, "IRIS_META_MODO inválido (vacío o saas): "+modo)
 	}
 	if len(errs) > 0 {
 		return e, fmt.Errorf("configuración de mensajería: %s", strings.Join(errs, "; "))

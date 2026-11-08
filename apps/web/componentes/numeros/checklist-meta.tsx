@@ -95,12 +95,12 @@ export function ChecklistMeta() {
                     />
                 ))}
             </ul>
-            <Aviso tono="info" icono={QrCode} titulo="¿Y conectar con código QR?">
-                <p>Próximamente: conectar con QR un número que ya usas en WhatsApp Business (coexistencia oficial de Meta).</p>
+            <Aviso tono="info" icono={QrCode} titulo="¿El número ya está en la app WhatsApp Business?">
+                <p>Conéctalo con QR: sigue funcionando en el teléfono y también llega a Iris (coexistencia oficial de Meta).</p>
                 <p className="mt-1">Iris no usa conexiones por QR que no son de Meta: Meta bloquea esos números.</p>
-                <EnlaceGuia ancla={ANCLAS.qr} className="mt-1 inline-block">
-                    Saber más
-                </EnlaceGuia>
+                <Link href="/administracion/numeros/nuevo/qr" className="mt-1 inline-block font-medium text-primary underline-offset-2 hover:underline">
+                    Conectar con QR
+                </Link>
             </Aviso>
         </div>
     );

@@ -425,6 +425,12 @@ func nuevoEnviarManual(m *Modulo) *auditoria.Caso[EntradaEnviarManual, MensajeCo
 			if err != nil {
 				return MensajeConvEnviado{}, err
 			}
+			if lectura, err := soloLecturaConv(ctx, q, c); err != nil || lectura {
+				if err == nil {
+					err = conversacionSoloLectura()
+				}
+				return MensajeConvEnviado{}, err
+			}
 			// Un reenvío del mismo id no crea otro enlace.
 			if f, err := q.MensajeConversacionPorID(ctx, in.ID); err == nil && f.ConversacionID == c.ID {
 				ms, err := mensajesConv(ctx, q, []mensajeriabd.MensajeriaConversacionMensaje{f})

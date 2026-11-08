@@ -8,6 +8,7 @@ import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
+import { EN_OTRA_EMPRESA, esEnOtraEmpresa } from "@/lib/conversaciones/atencion";
 import { ACEPTA_ADJUNTO, motivoArchivoInvalido, subirAdjunto } from "@/lib/conversaciones/adjuntar";
 import { cabeceraIdem, nuevoIdMensaje } from "@/lib/conversaciones/api";
 import { idTrasError } from "@/lib/conversaciones/id-envio";
@@ -121,19 +122,24 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
             if (m) alConfirmado(m);
             else alReenvio();
         } catch (err) {
+            const definitivo = esEnOtraEmpresa(err);
             const texto = esSesionCambiada(err)
                 ? "La sesión de este navegador cambió: no se envió"
-                : err instanceof ErrorApi && err.codigo === "fuera_de_ventana"
-                  ? "La ventana de 24 h se cerró: usa una plantilla"
-                  : `No se envió: ${mensajeDeError(err).titulo}`;
+                : definitivo
+                  ? `No se envió: ${EN_OTRA_EMPRESA.titulo.toLowerCase()}`
+                  : err instanceof ErrorApi && err.codigo === "fuera_de_ventana"
+                    ? "La ventana de 24 h se cerró: usa una plantilla"
+                    : err instanceof ErrorApi && err.codigo === "adjunto_no_listo"
+                      ? "No se envió: el archivo no está listo o no es de esta conversación"
+                      : `No se envió: ${mensajeDeError(err).titulo}`;
             // Sin red se reintenta con el mismo id; si el servidor respondió, guardó ese resultado con
             // esa clave y el siguiente intento lleva un id nuevo (id del cuerpo y clave juntos).
             const id = idTrasError(err, e.id);
-            if (id === e.id) alPendiente({ ...pendiente, error: texto });
+            if (id === e.id) alPendiente({ ...pendiente, error: texto, definitivo });
             else {
                 envios.current.delete(e.id);
                 envios.current.set(id, { ...e, id });
-                alPendiente({ ...pendiente, id, error: texto }, e.id);
+                alPendiente({ ...pendiente, id, error: texto, definitivo }, e.id);
             }
             if (err instanceof ErrorApi && (err.codigo === "fuera_de_ventana" || err.estado === 409)) void recargar();
         }

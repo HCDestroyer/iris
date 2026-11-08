@@ -320,7 +320,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                         reintentarPendiente={(p) => reintentar.current?.(p)}
                     />
                 )}
-                {puede(["conversaciones.responder"]) && !detenido ? (
+                {puede(["conversaciones.responder"]) && !detenido && !conv.soloLectura ? (
                     <Compositor
                         conv={conv}
                         identidad={identidad}
@@ -339,7 +339,11 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                     />
                 ) : (
                     <p className="border-t border-border bg-card px-4 py-3 text-sm text-muted-foreground">
-                        {detenido ? "Recarga la página para seguir." : "Puedes ver esta conversación, pero no responderla."}
+                        {detenido
+                            ? "Recarga la página para seguir."
+                            : conv.soloLectura
+                              ? "Solo lectura: esta conversación pasó a otra empresa o el número ya no se comparte con la tuya. Si el cliente vuelve a escribir, llega a la empresa dueña del número."
+                              : "Puedes ver esta conversación, pero no responderla."}
                     </p>
                 )}
             </section>

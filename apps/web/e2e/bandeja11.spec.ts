@@ -150,6 +150,7 @@ test.describe("bandeja 1.1", () => {
         await expect(resultados.getByRole("radio", { name: "Carlos Pérez, Sin número de WhatsApp en Argos" })).toBeDisabled();
         await expect(resultados.locator('[data-opcion="cliente:3877"]')).toContainText("No acepta mensajes: se dio de baja");
         await expect(resultados.getByRole("radio", { name: "Carlos Toj, La atiende otra cola" })).toBeDisabled();
+        await expect(resultados.getByRole("radio", { name: "Carlos Velásquez, La atiende otra empresa que usa este número" })).toBeDisabled();
         await resultados.locator('[data-opcion="cliente:4101"]').click();
         await expect(resultados.getByRole("radio", { name: "Carlos Ruiz, acepta mensajes" })).toBeChecked();
         await elegirOpcion(form.getByLabel("Plantilla aprobada"), { label: "Confirmar visita técnica" });

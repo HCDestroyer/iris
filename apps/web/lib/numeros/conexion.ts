@@ -9,7 +9,7 @@ import type { CalidadNumero, Canal, Conexion, EstadoPrueba, PruebaCanal } from "
  */
 
 /** Nombre del icono de Lucide de cada estado (lo dibuja `EstadoConexion`). */
-export type IconoConexion = "punto" | "reloj" | "x" | "aviso" | "apagado" | "pendiente";
+export type IconoConexion = "punto" | "reloj" | "x" | "aviso" | "apagado" | "pendiente" | "desconectado";
 
 export type PresentacionConexion = { texto: string; tono: Tono; icono: IconoConexion; /** Hace falta tocar las credenciales. */ credenciales: boolean };
 
@@ -22,6 +22,8 @@ const CONEXION: Record<Conexion, PresentacionConexion> = {
     error_meta: { texto: "Meta no respondió", tono: "warning", icono: "aviso", credenciales: false },
     sin_probar: { texto: "Sin probar", tono: "neutral", icono: "pendiente", credenciales: false },
     desactivado: { texto: "Desactivado", tono: "neutral", icono: "apagado", credenciales: false },
+    // Número QR que Meta desconectó (§15.2): «Reconectar» es repetir el QR.
+    desconectado: { texto: "Desconectado por Meta", tono: "error", icono: "desconectado", credenciales: false },
 };
 
 export function presentarConexion(conexion: Conexion): PresentacionConexion {

@@ -159,6 +159,7 @@ type ConversacionCliente struct {
 	UltimoMensaje   *UltimoMensajeResumen `json:"ultimoMensaje,omitempty"`
 	Espera          *EsperaConversacion   `json:"espera,omitempty" doc:"Ausente si está asignada o resuelta: quién está disponible en la cola y cuándo contesta el bot"`
 	NoLeidos        int64                 `json:"noLeidos" doc:"Mensajes del cliente después de tu lectura"`
+	SoloLectura     bool                  `json:"soloLectura,omitempty" doc:"true: el número ya no está compartido con tu empresa (préstamo revocado, §15.3) y solo se puede leer. Ausente = false"`
 	UltimaActividad time.Time             `json:"ultimaActividad"`
 	CreadaEn        time.Time             `json:"creadaEn"`
 }
@@ -273,6 +274,7 @@ type MensajeConversacion struct {
 	EntregadoEn    *time.Time        `json:"entregadoEn" nullable:"true"`
 	LeidoEn        *time.Time        `json:"leidoEn" nullable:"true"`
 	Automatico     *string           `json:"automatico" nullable:"true" enum:"bot,fuera_de_horario" doc:"Saliente sin autor: el bot o la respuesta de fuera de horario"`
+	Origen         *string           `json:"origen,omitempty" enum:"telefono,historial" doc:"No salió de Iris: telefono (mandado desde la app WhatsApp Business, «Desde el teléfono») o historial (traído de la app). Ausente = Iris (§15.2)"`
 }
 
 // Alcance -------------------------------------------------------------------------------------
@@ -323,7 +325,18 @@ func convVisible(ctx context.Context, q *mensajeriabd.Queries, a alcanceConv, id
 		return mensajeriabd.MensajeriaConversacion{}, conversacionClienteNoEncontrada()
 	}
 	if bloquear {
-		return q.ConversacionClienteParaActualizar(ctx, id)
+		// Una acción: la conversación de un préstamo revocado es de solo lectura (§15.3).
+		c, err := q.ConversacionClienteParaActualizar(ctx, id)
+		if err != nil {
+			return c, err
+		}
+		if lectura, err := soloLecturaConv(ctx, q, c); err != nil || lectura {
+			if err == nil {
+				err = conversacionSoloLectura()
+			}
+			return mensajeriabd.MensajeriaConversacion{}, err
+		}
+		return c, nil
 	}
 	return q.ConversacionClientePorID(ctx, id)
 }
@@ -466,7 +479,7 @@ func (m *Modulo) resumirConvs(ctx context.Context, q *mensajeriabd.Queries, usua
 			Numero: f.Numero, PerfilNombre: f.PerfilNombre, Contacto: contactoDeConv(c), Estado: f.Estado, ReabiertaEn: f.ReabiertaEn,
 			Etiquetas: etiquetas[f.ID], Ventana: ventanaDe(f.UltimoEntranteEn, ahora),
 			SLA:      estadoSLA(f.SlaVenceEn, f.EsperaDesde, f.SlaRespuestaMin, f.SlaPorVencerMin, ahora),
-			NoLeidos: f.NoLeidos, UltimaActividad: f.UltimaActividad, CreadaEn: f.CreatedAt}
+			NoLeidos: f.NoLeidos, SoloLectura: f.SoloLectura, UltimaActividad: f.UltimaActividad, CreadaEn: f.CreatedAt}
 		if v.Etiquetas == nil {
 			v.Etiquetas = []EtiquetaRef{}
 		}
@@ -652,7 +665,7 @@ func mensajesConv(ctx context.Context, q *mensajeriabd.Queries, filas []mensajer
 func aMensajeConv(f mensajeriabd.MensajeriaConversacionMensaje, nombres map[int64]string, estados map[uuid.UUID]mensajeriabd.EstadosAdjuntosRow) MensajeConversacion {
 	m := MensajeConversacion{ID: f.ID, ConversacionID: f.ConversacionID, Seq: f.Seq, Direccion: f.Direccion, Tipo: f.Tipo, Texto: f.Texto,
 		EstadoEntrega: f.EstadoEntrega, MotivoFalla: f.MotivoFalla, Menciones: []UsuarioRef{}, CreadoEn: f.CreadoEn, EnviadoEn: f.EnviadoEn,
-		EntregadoEn: f.EntregadoEn, LeidoEn: f.LeidoEn, Automatico: f.Automatico}
+		EntregadoEn: f.EntregadoEn, LeidoEn: f.LeidoEn, Automatico: f.Automatico, Origen: f.Origen}
 	if f.AutorID != nil {
 		m.Autor = &UsuarioRef{ID: *f.AutorID, Nombre: nombres[*f.AutorID]}
 	}
@@ -707,6 +720,8 @@ type nuevoMensaje struct {
 	creadoEn      time.Time
 	estadoEntrega *string
 	automatico    *string
+	// origen: telefono (eco) o historial (§15.2).
+	origen *string
 }
 
 // agregarMensaje asigna el seq (la conversación debe estar bloqueada), lo guarda y lo pone en el
@@ -744,7 +759,8 @@ func (m *Modulo) agregarMensaje(ctx context.Context, t *auditoria.Tx, c *mensaje
 	f, err := q.InsertarMensajeConversacion(ctx, mensajeriabd.InsertarMensajeConversacionParams{ID: n.id, ConversacionID: c.ID, EmpresaID: c.EmpresaID,
 		Seq: seq, Direccion: n.direccion, Tipo: n.tipo, Texto: n.texto, AdjuntoID: pgUUID(n.adjunto), MedioID: n.medio, Lat: n.lat, Lon: n.lon,
 		Plantilla: n.plantilla, Variables: n.variables, AutorID: n.autor, Menciones: n.menciones, Evento: evento, RespuestaRapidaID: n.respuesta,
-		EstadoEntrega: n.estadoEntrega, ProveedorID: n.proveedor, HashContenido: n.hash, IdempotencyKey: n.clave, CreadoEn: n.creadoEn, Automatico: n.automatico})
+		EstadoEntrega: n.estadoEntrega, ProveedorID: n.proveedor, HashContenido: n.hash, IdempotencyKey: n.clave, CreadoEn: n.creadoEn, Automatico: n.automatico,
+		Origen: n.origen})
 	if err != nil {
 		return f, err
 	}

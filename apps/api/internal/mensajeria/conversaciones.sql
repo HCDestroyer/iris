@@ -5,7 +5,7 @@
 -- name: CanalAvisosDeEmpresa :one
 -- El número por el que salen los avisos de la empresa.
 SELECT * FROM mensajeria.canales
-WHERE coalesce(empresa_id, 0) = @empresa_id::bigint AND canal = @canal AND activo AND avisos_empresa;
+WHERE coalesce(empresa_id, 0) = @empresa_id::bigint AND canal = @canal AND activo AND avisos_empresa AND desconectado_en IS NULL;
 
 -- name: HayCanalAvisos :one
 SELECT EXISTS (SELECT 1 FROM mensajeria.canales WHERE coalesce(empresa_id, 0) = @empresa_id::bigint AND activo AND avisos_empresa AND id <> @excepto::bigint)::boolean;
@@ -249,6 +249,9 @@ SELECT c.*,
     ac.nombre AS cliente_nombre, ci.nombre AS contacto_iris_nombre,
     um.direccion AS ultimo_direccion, um.tipo AS ultimo_tipo, um.texto AS ultimo_texto, um.creado_en AS ultimo_creado_en,
     um.evento AS ultimo_evento, um.automatico AS ultimo_automatico,
+    -- §15.3: la conversación es de una empresa que ya no usa el número (préstamo revocado).
+    (coalesce(ca.empresa_id, 0) <> coalesce(c.empresa_id, 0) AND NOT EXISTS (
+        SELECT 1 FROM mensajeria.canal_prestamos pr WHERE pr.canal_id = c.canal_id AND pr.empresa_id = c.empresa_id AND pr.activo))::boolean AS solo_lectura,
     (SELECT count(*) FROM mensajeria.conversacion_mensajes m
      WHERE m.conversacion_id = c.id AND m.direccion = 'entrante'
        AND m.seq > coalesce((SELECT l.hasta_seq FROM mensajeria.conversacion_lecturas l WHERE l.conversacion_id = c.id AND l.usuario_id = @usuario::bigint), 0)
@@ -355,11 +358,11 @@ SELECT * FROM mensajeria.canales WHERE coalesce(empresa_id, 0) = @empresa::bigin
 -- name: InsertarMensajeConversacion :one
 INSERT INTO mensajeria.conversacion_mensajes (id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id,
     lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, proveedor_id, hash_contenido,
-    idempotency_key, creado_en, automatico)
+    idempotency_key, creado_en, automatico, origen)
 VALUES (@id, @conversacion_id, sqlc.narg('empresa_id'), @seq, @direccion, @tipo, sqlc.narg('texto'), sqlc.narg('adjunto_id'),
     sqlc.narg('medio_id'), sqlc.narg('lat'), sqlc.narg('lon'), sqlc.narg('plantilla'), sqlc.narg('variables'), sqlc.narg('autor_id'),
     @menciones::bigint[], sqlc.narg('evento'), sqlc.narg('respuesta_rapida_id'), sqlc.narg('estado_entrega'), sqlc.narg('proveedor_id'),
-    sqlc.narg('hash_contenido'), sqlc.narg('idempotency_key'), @creado_en, sqlc.narg('automatico'))
+    sqlc.narg('hash_contenido'), sqlc.narg('idempotency_key'), @creado_en, sqlc.narg('automatico'), sqlc.narg('origen'))
 RETURNING *;
 
 -- name: MensajeConversacionPorID :one
@@ -382,6 +385,8 @@ FOR UPDATE OF m;
 -- name: ListarMensajesConversacion :many
 SELECT * FROM mensajeria.conversacion_mensajes
 WHERE conversacion_id = @conversacion_id
+  -- Una conversación pasada a otra empresa: las notas de la anterior no se ven (§15.3).
+  AND coalesce(empresa_id, 0) = (SELECT coalesce(c.empresa_id, 0) FROM mensajeria.conversaciones c WHERE c.id = @conversacion_id)
   AND (CASE WHEN @adelante::boolean THEN seq > @desde::bigint ELSE seq < @desde::bigint END)
 ORDER BY CASE WHEN @adelante::boolean THEN seq END ASC, CASE WHEN NOT @adelante::boolean THEN seq END DESC
 LIMIT @limite;
@@ -508,6 +513,8 @@ SELECT e.* FROM mensajeria.conv_eventos e
 JOIN mensajeria.conversaciones c ON c.id = e.conversacion_id
 WHERE e.id > @desde::bigint
   AND coalesce(e.empresa_id, 0) = @empresa::bigint
+  -- Una conversación pasada a otra empresa deja de verse en la anterior (§15.3).
+  AND coalesce(c.empresa_id, 0) = @empresa::bigint
   AND (e.usuario_id IS NULL OR e.usuario_id = @usuario::bigint)
   AND mensajeria.conv_visible(@usuario::bigint, @supervisa::boolean, c.id, c.cola_id, c.asignado_a)
 ORDER BY e.id

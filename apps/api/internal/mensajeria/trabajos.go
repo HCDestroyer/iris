@@ -61,6 +61,9 @@ func (w *trabajadorMantenimiento) Work(ctx context.Context, _ *river.Job[ArgsMan
 	if err := w.m.purgarFeedConv(ctx, w.bd); err != nil {
 		return err
 	}
+	if err := w.m.purgarRegistrosQR(ctx, w.bd); err != nil {
+		return err
+	}
 	if _, err := w.m.vencerSLA.Ejecutar(ctx, struct{}{}); err != nil {
 		return err
 	}

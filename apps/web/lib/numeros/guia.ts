@@ -41,7 +41,7 @@ export const SECCIONES_GUIA: readonly SeccionGuia[] = [
 Necesitas:
 
 - Ser administrador del **portafolio comercial de Meta** de tu empresa (antes «Business Manager»).
-- Un **número de teléfono** que pueda recibir un SMS o una llamada para verificarlo. No puede estar en uso en la app de WhatsApp ni en WhatsApp Business: si lo está, primero se borra la cuenta de esa app (o espera a la conexión con QR, al final de esta guía).
+- Un **número de teléfono** que pueda recibir un SMS o una llamada para verificarlo. No puede estar en uso en la app de WhatsApp ni en WhatsApp Business: si lo está, primero se borra la cuenta de esa app, o se conecta con QR (al final de esta guía).
 - Una **tarjeta** para el método de pago de WhatsApp.
 - Que Iris se pueda abrir desde internet con **https** (Meta no entrega mensajes a direcciones sin https).
 - Unos 30 a 60 minutos, más lo que tarde Meta en revisar el nombre del número y las plantillas.`,
@@ -130,7 +130,7 @@ Si algún día la cambias en Meta («Restablecer»), cámbiala también en Iris,
     {
         id: "iris",
         titulo: "9. Agregar el número en Iris",
-        cuerpo: `En Iris, abre **Administración** → **Números de WhatsApp** → **Agregar número** y llena:
+        cuerpo: `En Iris, abre **Administración** → **Números de WhatsApp** → **Agregar número**, elige **Ingresar datos de la API** y llena:
 
 - **Nombre**: como lo verá tu equipo en la bandeja (por ejemplo, «Soporte técnico»).
 - **Número**: con \`+\`, código de país y sin espacios, por ejemplo \`+50222000040\`.
@@ -207,15 +207,22 @@ La forma más sencilla: **una app de Meta por número**.`,
         titulo: "Errores comunes",
         cuerpo: `- **«Verificar y guardar» falla en Meta.** Revisa que pegaste la URL completa y el token de verificación sin espacios, que Iris se abre desde internet con https y que el token es el último que generó Iris (si pulsaste **Generar otro**, el anterior ya no sirve).
 - **Meta verificó, pero no llegan mensajes** («Último mensaje» en **Credenciales** no cambia). Falta suscribirse a \`messages\` en **Campos del webhook**, la app sigue en modo de desarrollo, la app tiene otro número y Meta manda todo a la URL de ese (paso 13), o el app secret de Iris no es el de la app (por ejemplo, se restableció en Meta): Iris descarta lo que no viene firmado con él. Cámbialo en **Credenciales**.
-- **El número ya está en WhatsApp.** Meta no deja agregar a la API un número activo en la app de WhatsApp o WhatsApp Business. Borra esa cuenta en la app o espera la conexión con QR.
+- **El número ya está en WhatsApp.** Meta no deja agregar a la API un número activo en la app de WhatsApp o WhatsApp Business. Borra esa cuenta en la app o conéctalo con QR (al final de esta guía).
 - **Los avisos no salen y las respuestas sí.** Falta el método de pago (paso 11) o la plantilla no está aprobada (paso 12).
 - **«Ya existe un número con ese Phone number ID».** Ese Phone number ID ya está en otro número activo de Iris. Desactiva el anterior o corrige el ID.`,
     },
     {
         id: ANCLAS.qr,
         titulo: "Conectar un número que ya usas en WhatsApp Business (QR)",
-        cuerpo: `Si tu número ya está en la app **WhatsApp Business** del teléfono, Meta tiene una forma oficial de usarlo también desde la API sin borrarlo de la app: la **coexistencia**. Se conecta escaneando un código QR con la app, dentro del registro de Meta.
+        cuerpo: `Si tu número ya está en la app **WhatsApp Business** del teléfono, Meta tiene una forma oficial de usarlo también en Iris sin borrarlo de la app: la **coexistencia**. Se conecta escaneando un código QR con la app, dentro del registro de Meta.
 
-Llegará a Iris como un **servicio de Horus**. Todavía no tiene fecha: cuando esté listo, aparecerá en **Agregar número**. Mientras tanto, conecta un número que no esté en la app, como explica esta guía.`,
+1. Un administrador configura una vez la **Conexión con Meta** (Administración → Conexión con Meta): una app propia del ISP aprobada por Meta como Tech Provider, o el servicio central de Horus, **Iris Cloud** (todavía no disponible).
+2. En **Agregar número**, elige **Conectar con QR**, lee lo que cambia en la app del teléfono y pulsa **Conectar con Meta**.
+3. En la ventana de Meta, entra con tu Facebook, elige tu portafolio, escribe el número y elige «Conectar tu app WhatsApp Business». Confirma en el teléfono con el QR o el código.
+4. De vuelta en Iris, puedes **traer el historial** (contactos y mensajes de hasta 180 días). Meta lo permite una vez y solo en las 24 horas después de conectar.
+
+Lo que cambia (lo pone Meta): la app sigue funcionando y lo que mandes desde el teléfono también aparece en Iris («Desde el teléfono»); los grupos no pasan; las listas de difusión quedan de solo lectura; se apagan «ver una vez», ubicación en tiempo real y mensajes temporales en los chats 1:1; y si no abres la app en el teléfono por unos **14 días**, Meta desconecta el número (en la lista sale «Desconectado por Meta» con «Reconectar»).
+
+Si la conexión con Meta no está lista, conecta el número con los datos de la API, como explica esta guía.`,
     },
 ];

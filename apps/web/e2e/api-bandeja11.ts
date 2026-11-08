@@ -71,6 +71,8 @@ const DESTINATARIOS: Destinatario[] = [
     { tipo: "cliente", id: 3877, nombre: "Carlos Cifuentes", codigo: "C-3877", detalle: null, numero: "+50257301122", puede: false, motivo: "baja", conversacionId: null },
     { tipo: "cliente", id: 2290, nombre: "Carlos Pérez", codigo: "C-2290", detalle: null, numero: null, puede: false, motivo: "sin_contacto", conversacionId: null },
     { tipo: "cliente", id: 6620, nombre: "Carlos Toj", codigo: "C-6620", detalle: null, numero: "+50255006620", puede: false, motivo: "conversacion_de_otra_cola", conversacionId: null },
+    // §15.3: número compartido y otra empresa tiene abierta una conversación con ese teléfono.
+    { tipo: "cliente", id: 6631, nombre: "Carlos Velásquez", codigo: "C-6631", detalle: null, numero: "+50255006631", puede: false, motivo: "conversacion_en_otra_empresa", conversacionId: null },
 ];
 
 export type OpcionesBandeja11 = {

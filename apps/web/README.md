@@ -211,6 +211,14 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
   WhatsApp» (`/guia`, `lib/numeros/guia.ts`) se dibuja con `MarkdownSeguro` y cada «¿Dónde lo
   encuentro?» abre su sección en otra pestaña.
 
+- **Conexión con Meta y QR** (`/administracion/conexion-meta`, `lib/meta`, contratos §15): modos
+  app propia, servicio central (Iris Cloud, todavía no disponible) y gestionada, con
+  `mensajeria.conexion_meta`. «Agregar número» elige QR o API; el QR usa el registro embebido de Meta
+  (`lib/meta/registro-embebido.ts` valida el origen de los mensajes; `lib/meta/sdk.ts` carga el SDK
+  solo en esa pantalla) y termina en `/[id]/conectado` («Traer historial», «Terminar de configurar»).
+  Préstamo de números: `/[id]/compartir` (dueña) y `/[id]/prestamo` (quien lo recibe); en la bandeja,
+  «Desde el teléfono», «Pasar a otra empresa» y conversaciones «Solo lectura».
+
 No emite ni consume eventos.
 
 ## Uso

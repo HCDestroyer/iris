@@ -36,6 +36,15 @@ export type ApiNumeros = {
     secretos: Map<number, { token: string; appSecret: string; verifyToken: string }>;
     /** El verify token se generó con esta prueba (el número creado). */
     ultimoCreado: () => Canal | null;
+    /** Para `api-meta.ts` (§15): números, sus datos de Meta y entradas extra de la lista. */
+    interno: {
+        todos: () => Numero[];
+        extra: (id: number) => Extra | undefined;
+        vista: (n: Numero) => Canal;
+        agregar: (n: Numero, extra: Partial<Extra>) => void;
+        /** Entradas que `GET /canales` agrega tal cual (p. ej. la vista prestada de un número). */
+        listaExtra: Canal[];
+    };
     manejar: (x: { route: Route; metodo: string; ruta: string; cuerpo: unknown; idempotencia: string | undefined; puede: (p: Permiso) => boolean; empresaId: number | null }) => Promise<boolean>;
 };
 
@@ -45,12 +54,13 @@ const P = (codigo: string, status: number, title: string, extra: Partial<Problem
 const problema = (route: Route, p: Problema) => route.fulfill({ status: p.status, contentType: "application/problem+json", body: JSON.stringify(p) });
 const json = (route: Route, cuerpo: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(cuerpo) });
 
-type Extra = Omit<Canal, keyof Numero | "bot" | "fueraDeHorario" | "verifyTokenGenerado"> & { webhookVerificado: boolean };
+export type Extra = Omit<Canal, keyof Numero | "bot" | "fueraDeHorario" | "verifyTokenGenerado"> & { webhookVerificado: boolean };
 
 const META_ID: Record<number, string> = { 2: "104455667788990", 3: "104455667788991", 4: "104455667788992", 5: "104455667788993", 6: "104455667788994" };
 
-function conexionDe(n: Pick<Numero, "activo">, e: Pick<Extra, "ultimoEstado" | "webhookVerificado">): Canal["conexion"] {
+function conexionDe(n: Pick<Numero, "activo">, e: Pick<Extra, "ultimoEstado" | "webhookVerificado" | "desconectadoEn">): Canal["conexion"] {
     if (!n.activo) return "desactivado";
+    if (e.desconectadoEn) return "desconectado";
     if (!e.ultimoEstado) return "sin_probar";
     if (e.ultimoEstado !== "conectado") return e.ultimoEstado;
     return e.webhookVerificado ? "conectado" : "webhook_sin_verificar";
@@ -71,6 +81,7 @@ export function apiNumeros(canales: Numero[], opciones: OpcionesNumeros = {}): A
     const propios: Numero[] = [];
     let siguiente = 7;
     let creado: Canal | null = null;
+    const listaExtra: Canal[] = [];
 
     function extraBase(id: number, r: ResultadoMeta | undefined): Extra {
         return {
@@ -96,6 +107,14 @@ export function apiNumeros(canales: Numero[], opciones: OpcionesNumeros = {}): A
             appSecretGuardadoEn: guardado,
             verifyTokenGuardadoEn: guardado,
             webhookVerificado: r?.webhookVerificado ?? false,
+            // §15: por defecto, números por datos de la API, sin préstamos.
+            tipoConexion: "api",
+            coexistencia: false,
+            ultimoEcoEn: null,
+            conectadoEn: null,
+            desconectadoEn: null,
+            desconectadoMotivo: null,
+            compartidoCon: 0,
         };
     }
     for (const n of canales) {
@@ -131,7 +150,7 @@ export function apiNumeros(canales: Numero[], opciones: OpcionesNumeros = {}): A
         const accion = m[2];
 
         if (id === null) {
-            if (metodo === "GET") return (await json(route, { data: todos().map(vista), nextCursor: null } satisfies Schema<"ListaCanales">), true);
+            if (metodo === "GET") return (await json(route, { data: [...todos().map(vista), ...listaExtra], nextCursor: null } satisfies Schema<"ListaCanales">), true);
             if (metodo !== "POST") return false;
             if (!idempotencia) return (await problema(route, P("validacion", 422, "Falta Idempotency-Key")), true);
             const e = cuerpo as Partial<Schema<"EntradaCrearCanal">>;
@@ -210,7 +229,7 @@ export function apiNumeros(canales: Numero[], opciones: OpcionesNumeros = {}): A
                 webhookVerificado: r.webhookVerificado,
                 webhookVerificadoEn: e.webhookVerificadoEn,
                 ultimoMensajeEn: e.ultimoMensajeEn,
-                conexion: conexionDe(n, e),
+                conexion: ((c) => (c === "desconectado" ? "sin_probar" : c))(conexionDe(n, e)),
             };
             return (await json(route, respuesta), true);
         }
@@ -265,5 +284,15 @@ export function apiNumeros(canales: Numero[], opciones: OpcionesNumeros = {}): A
         return (await json(route, { ...vista(n), ...(generado ? { verifyTokenGenerado: generado } : {}) }), true);
     }
 
-    return { resultados, cuerpos, secretos, ultimoCreado: () => creado, manejar };
+    const interno: ApiNumeros["interno"] = {
+        todos,
+        extra: (id) => extras.get(id),
+        vista,
+        agregar: (n, extra) => {
+            propios.push(n);
+            extras.set(n.id, { ...extraBase(n.id, resultados.get(n.id)), ...extra });
+        },
+        listaExtra,
+    };
+    return { resultados, cuerpos, secretos, ultimoCreado: () => creado, manejar, interno };
 }

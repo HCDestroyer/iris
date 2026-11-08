@@ -247,7 +247,7 @@ func (q *Queries) BuscarClientesInstantanea(ctx context.Context, arg BuscarClien
 }
 
 const buscarContactosIrisDestino = `-- name: BuscarContactosIrisDestino :many
-SELECT id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at FROM mensajeria.contactos_iris
+SELECT id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at, origen FROM mensajeria.contactos_iris
 WHERE coalesce(empresa_id, 0) = $1::bigint
   AND (nombre ILIKE '%' || $2::text || '%' OR ($3::text <> '' AND telefono LIKE '%' || $3::text || '%'))
 ORDER BY lower(nombre), id
@@ -288,6 +288,7 @@ func (q *Queries) BuscarContactosIrisDestino(ctx context.Context, arg BuscarCont
 			&i.Version,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Origen,
 		); err != nil {
 			return nil, err
 		}
@@ -369,7 +370,7 @@ func (q *Queries) ColasSupervisadasDeUsuarios(ctx context.Context, arg ColasSupe
 
 const configurarBotCanal = `-- name: ConfigurarBotCanal :one
 
-UPDATE mensajeria.canales SET bot = $1 WHERE id = $2 RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en
+UPDATE mensajeria.canales SET bot = $1 WHERE id = $2 RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en, tipo_conexion, coexistencia, conectado_en, desconectado_en, desconectado_motivo, ultimo_eco_en, sincronizacion
 `
 
 type ConfigurarBotCanalParams struct {
@@ -412,12 +413,19 @@ func (q *Queries) ConfigurarBotCanal(ctx context.Context, arg ConfigurarBotCanal
 		&i.TokenGuardadoEn,
 		&i.AppSecretGuardadoEn,
 		&i.VerifyTokenGuardadoEn,
+		&i.TipoConexion,
+		&i.Coexistencia,
+		&i.ConectadoEn,
+		&i.DesconectadoEn,
+		&i.DesconectadoMotivo,
+		&i.UltimoEcoEn,
+		&i.Sincronizacion,
 	)
 	return i, err
 }
 
 const contactoIrisDeEmpresa = `-- name: ContactoIrisDeEmpresa :one
-SELECT id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at FROM mensajeria.contactos_iris WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint
+SELECT id, empresa_id, nombre, tipo, telefono, nota, cliente_id, unido_en, creado_por, version, created_at, updated_at, origen FROM mensajeria.contactos_iris WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint
 `
 
 type ContactoIrisDeEmpresaParams struct {
@@ -441,6 +449,7 @@ func (q *Queries) ContactoIrisDeEmpresa(ctx context.Context, arg ContactoIrisDeE
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Origen,
 	)
 	return i, err
 }

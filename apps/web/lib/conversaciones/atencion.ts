@@ -1,4 +1,17 @@
+import { ErrorApi } from "@/lib/api/errores";
 import type { Agente, EventoSistema, MotivoDestinatario, OrigenDisponibilidad } from "./tipos";
+
+/**
+ * 409 `conversacion_en_otra_empresa` (§15.3): en un número compartido, otra empresa ya atiende a
+ * este contacto. Sale al iniciar, al reabrir y al responder una conversación resuelta o con
+ * plantilla. Reintentar no sirve: se muestra su texto, sin «Reintentar».
+ */
+export const EN_OTRA_EMPRESA = {
+    titulo: "La atiende otra empresa que usa este número",
+    texto: "Este contacto tiene una conversación abierta en otra empresa que comparte este número. Hasta que la resuelvan, aquí no se puede reabrir ni responder.",
+} as const;
+
+export const esEnOtraEmpresa = (e: unknown): boolean => e instanceof ErrorApi && e.codigo === "conversacion_en_otra_empresa";
 
 /*
  * «¿Alguien la atiende?», disponibilidad y bot (fase 1.1, contrato §14): textos y cálculos puros.
@@ -89,6 +102,9 @@ export function textoEventoBot(e: EventoSistema): string | null {
         }
         case "pasada":
             return `${e.actorNombre ?? "Iris"} la pasó a ${e.asignadoNombre ?? "otra persona"}${e.detalle === "no_disponible" ? " (no disponible)" : ""}`;
+        case "pasada_a_empresa":
+            // §15.3: `detalle` = empresa dueña; sin `actorNombre` (quien la recibe no ve a sus agentes).
+            return `Pasada por ${e.detalle ?? "otra empresa"}`;
         case "menu_elegido":
             return `Eligió «${e.detalle ?? "una opción"}» en el menú${e.colaNombre ? `: pasó a ${e.colaNombre}` : ""}`;
         case "iniciada":
@@ -116,6 +132,8 @@ export function textoMotivoDestinatario(motivo: MotivoDestinatario | null): stri
             return "Ya tiene una conversación con otra persona";
         case "conversacion_de_otra_cola":
             return "La atiende otra cola";
+        case "conversacion_en_otra_empresa":
+            return "La atiende otra empresa que usa este número";
         case "numero_no_permitido":
             return "Ese número de salida no es de tus colas";
         default:

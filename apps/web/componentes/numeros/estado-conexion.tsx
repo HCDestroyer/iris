@@ -1,9 +1,9 @@
 import { cn, type Tono } from "@iris/ui";
-import { CircleAlert, CircleDashed, CircleX, Clock, Power, type LucideIcon } from "lucide-react";
+import { CircleAlert, CircleDashed, CircleX, Clock, Power, Unlink, type LucideIcon } from "lucide-react";
 import { presentarConexion, type IconoConexion } from "@/lib/numeros/conexion";
 import type { Conexion } from "@/lib/numeros/tipos";
 
-const ICONOS: Record<Exclude<IconoConexion, "punto">, LucideIcon> = { reloj: Clock, x: CircleX, aviso: CircleAlert, apagado: Power, pendiente: CircleDashed };
+const ICONOS: Record<Exclude<IconoConexion, "punto">, LucideIcon> = { reloj: Clock, x: CircleX, aviso: CircleAlert, apagado: Power, pendiente: CircleDashed, desconectado: Unlink };
 
 const COLOR: Record<Tono, string> = {
     success: "text-success",

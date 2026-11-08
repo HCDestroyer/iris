@@ -2,7 +2,7 @@
 
 import { Boton } from "@iris/ui";
 import { Lock } from "lucide-react";
-import { useId } from "react";
+import { useId, type ReactNode } from "react";
 import { fechaCorta } from "@/lib/numeros/conexion";
 
 /**
@@ -42,6 +42,27 @@ export function SecretoGuardado({
                     {ocupado ? `${accion}…` : accion}
                 </Boton>
             </div>
+        </div>
+    );
+}
+
+/**
+ * Un secreto guardado que se puede cambiar: «•••• guardado el …» con «Cambiar», o el campo con
+ * «Vacío: se queda el guardado… No cambiar». Sin nada guardado (`guardadoEn` null y `abierto`),
+ * solo el campo.
+ */
+export function SecretoCambiable({ etiqueta, guardadoEn, abierto, abrir, cerrar, campo }: { etiqueta: string; guardadoEn: string | null; abierto: boolean; abrir: () => void; cerrar: () => void; campo: ReactNode }) {
+    if (!abierto) return <SecretoGuardado etiqueta={etiqueta} guardadoEn={guardadoEn} accion="Cambiar" alAccion={abrir} />;
+    if (!guardadoEn) return <>{campo}</>;
+    return (
+        <div className="grid gap-1">
+            {campo}
+            <p className="text-sm text-muted-foreground">
+                Vacío: se queda el guardado el {fechaCorta(guardadoEn)}.{" "}
+                <Boton variante="enlace" tamano="sm" className="h-auto px-0 align-baseline" onClick={cerrar} aria-label={`No cambiar ${etiqueta.toLowerCase()}`}>
+                    No cambiar
+                </Boton>
+            </p>
         </div>
     );
 }

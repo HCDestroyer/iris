@@ -167,6 +167,8 @@ var esquemasBandeja = []string{
 	"FueraDeHorario", "GuardiaFueraDeHorario", "FeriadoHorario", "FranjaHorario",
 	// Fase 1.1.
 	"BotNumero", "OpcionMenuBot", "EsperaConversacion", "ListaDestinatarios", "ConversacionIniciada", "PaseConversacion", "Canal", "ListaCanales",
+	// Conexión con Meta, QR y préstamos (§15).
+	"ConexionMeta", "ListaPrestamos", "ListaEmpresasDestino", "Prestamo", "PrestamoPropio", "OpcionesPrestamo", "EmpresaOpcion",
 }
 
 // EsquemasBandeja devuelve los nombres (para la prueba del contrato).

@@ -37,7 +37,9 @@ describe("guía «Cómo conectar WhatsApp»", () => {
             "`POST /{waba_id}/subscribed_apps`",
             "webhook_configuration.override_callback_uri",
             "coexistencia",
-            "servicio de Horus",
+            "**Iris Cloud** (todavía no disponible)",
+            "**Conectar con QR**",
+            "**traer el historial**",
         ]) {
             expect(texto).toContain(frase);
         }
@@ -50,9 +52,9 @@ describe("guía «Cómo conectar WhatsApp»", () => {
         }
     });
 
-    it("no promete fechas para el QR y avisa que los menús de Meta cambian", () => {
+    it("no promete fechas para el servicio central y avisa que los menús de Meta cambian", () => {
         const qr = SECCIONES_GUIA.find((s) => s.id === ANCLAS.qr)?.cuerpo ?? "";
-        expect(qr).toContain("Todavía no tiene fecha");
+        expect(qr).toContain("todavía no disponible");
         expect(qr).not.toMatch(/\b20\d\d\b|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|trimestre/i);
         expect(texto).toContain("Las opciones de este asistente cambian seguido");
     });
