@@ -168,7 +168,7 @@ func TestRevisionM3SaaSSiempreURLDelNumero(t *testing.T) {
 	if q.status != http.StatusUnprocessableEntity || !strings.HasSuffix(fmt.Sprint(q.cuerpo["type"]), "base_url_requerida") {
 		t.Fatalf("saas sin IRIS_BASE_URL: %d %v", q.status, q.cuerpo)
 	}
-	if g2.cuenta("POST /oauth/access_token", "") != 0 {
+	if g2.cuenta("GET /oauth/access_token", "") != 0 {
 		t.Fatal("canjeó el código sin poder suscribir el número")
 	}
 }
@@ -307,4 +307,43 @@ func TestRevisionB7(t *testing.T) {
 	admin1 := p.persona([]int64{1}, rolBase("admin"))
 	admin1.empresa = 1
 	p.exigir(p.api(admin1, http.MethodGet, fmt.Sprintf("/canales/%d", p.canal.ID), nil), http.StatusOK, "compartidoCon", "1")
+}
+
+// Empresas a las que se puede pasar una conversación: con el permiso de pasar (sin
+// canales.configurar), solo préstamos activos con uso de conversación y solo para la dueña.
+func TestEmpresasDestino(t *testing.T) {
+	p := nuevoPrestamo(t)
+	if _, err := p.bd.Exec(p.ctx, `INSERT INTO nucleo.empresas (id, nombre, origen) VALUES (3, 'Empresa 3', 'argos') ON CONFLICT DO NOTHING`); err != nil {
+		t.Fatal(err)
+	}
+	// La 3 lo usa solo para avisos: no es destino.
+	p.exigir(p.api(p.supervisor, http.MethodPost, fmt.Sprintf("/canales/%d/prestamos", p.canal.ID), map[string]any{"empresaId": 3, "usos": []string{"avisos"}}),
+		http.StatusOK)
+	n := numeroCliente()
+	p.texto(n, "wamid.ed-"+pruebas.Unico(), "Hola")
+	c, _, _ := p.convDe(n)
+	// soporte (sin canales.configurar) de la cola de la conversación.
+	r := p.api(p.agente, http.MethodGet, fmt.Sprintf("/conversaciones/%d/empresas-destino", c), nil)
+	p.exigir(r, http.StatusOK)
+	if d := r.cuerpo["data"].([]any); len(d) != 1 || d[0].(map[string]any)["empresaId"].(float64) != 2 || d[0].(map[string]any)["nombre"] != "Empresa 2" {
+		t.Fatalf("destinos: %v", r.cuerpo)
+	}
+	p.exigir(p.api(p.agente, http.MethodGet, fmt.Sprintf("/canales/%d/prestamos", p.canal.ID), nil), http.StatusForbidden)
+	// Sin el permiso de pasar (lectura): 403.
+	p.exigir(p.api(p.lectura, http.MethodGet, fmt.Sprintf("/conversaciones/%d/empresas-destino", c), nil), http.StatusForbidden)
+	// Quien usa el número: en su conversación, [].
+	n2 := numeroCliente()
+	p.clienteArgos(2, n2)
+	p.texto(n2, "wamid.ed2-"+pruebas.Unico(), "Hola")
+	c2, e2, _ := p.convDe(n2)
+	if e2 != 2 {
+		t.Fatal("no fue a la 2")
+	}
+	r = p.api(p.sup2, http.MethodGet, fmt.Sprintf("/conversaciones/%d/empresas-destino", c2), nil)
+	p.exigir(r, http.StatusOK)
+	if d := r.cuerpo["data"].([]any); len(d) != 0 {
+		t.Fatalf("destinos de quien usa el número: %v", d)
+	}
+	// La conversación de la otra empresa: 404.
+	p.exigir(p.api(p.sup2, http.MethodGet, fmt.Sprintf("/conversaciones/%d/empresas-destino", c), nil), http.StatusNotFound)
 }

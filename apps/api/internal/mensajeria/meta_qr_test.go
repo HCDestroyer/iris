@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -61,9 +60,9 @@ func nuevoGrafoQR(t *testing.T) *grafoQR {
 		partes := strings.Split(strings.Trim(ruta, "/"), "/")
 		switch {
 		case ruta == "/oauth/access_token":
-			// POST con cuerpo form: nada en la URL.
-			form, _ := url.ParseQuery(string(crudo))
-			if r.Method != http.MethodPost || r.URL.RawQuery != "" || form.Get("client_secret") != appSecretQR || form.Get("client_id") != appIDQR {
+			// GET con los parámetros en la consulta, como lo documenta Meta.
+			q := r.URL.Query()
+			if r.Method != http.MethodGet || q.Get("client_secret") != appSecretQR || q.Get("client_id") != appIDQR || q.Get("code") == "" {
 				responder([2]any{}, 400, `{"error":{"code":101,"type":"OAuthException"}}`)
 				return
 			}
@@ -82,9 +81,9 @@ func nuevoGrafoQR(t *testing.T) *grafoQR {
 		case len(partes) == 2 && partes[1] == "messages":
 			responder([2]any{}, 200, `{"messages":[{"id":"wamid.`+uuid.NewString()+`"}]}`)
 		case len(partes) == 1 && r.URL.Query().Get("fields") == "id,name":
-			// El token de la app va en la cabecera, nunca en la URL.
-			if r.URL.Query().Get("access_token") != "" || r.Header.Get("Authorization") != "Bearer "+appIDQR+"|"+appSecretQR {
-				responder([2]any{}, 400, `{"error":{"code":190,"type":"OAuthException","message":"Invalid token `+r.Header.Get("Authorization")+`"}}`)
+			// El token de la app en access_token, como lo documenta Meta.
+			if r.URL.Query().Get("access_token") != appIDQR+"|"+appSecretQR {
+				responder([2]any{}, 400, `{"error":{"code":190,"type":"OAuthException","message":"Invalid token `+r.URL.Query().Get("access_token")+`"}}`)
 				return
 			}
 			responder(g.app, 200, `{"id":"`+partes[0]+`","name":"Red Sur Iris"}`)
@@ -356,7 +355,7 @@ func TestConexionMetaSaaS(t *testing.T) {
 	b.exigir(b.api(admin, http.MethodPost, "/conexion-meta/probar", nil), http.StatusOK)
 	// El QR funciona con la app del entorno.
 	b.exigir(conectarQR(b, admin, pnidNuevo(), "AQB-saas-"+pruebas.Unico(), ""), http.StatusCreated, "tipoConexion", "qr")
-	if g.cuenta("POST /oauth/access_token", "") != 1 {
+	if g.cuenta("GET /oauth/access_token", "") != 1 {
 		t.Fatalf("canjes: %v", g.llamadas)
 	}
 }
@@ -392,7 +391,7 @@ func TestCanalQRConectaYCanjeaUnaVez(t *testing.T) {
 	if r.cuerpo["appSecretGuardadoEn"] != nil || r.cuerpo["tokenGuardadoEn"] == nil || r.cuerpo["conectadoEn"] == nil {
 		t.Fatalf("credenciales del QR: %v", r.cuerpo)
 	}
-	if g.cuenta("POST /oauth/access_token", "") != 1 || g.cuenta("POST /", "/subscribed_apps") != 1 || g.cuenta("POST /", "/register") != 0 {
+	if g.cuenta("GET /oauth/access_token", "") != 1 || g.cuenta("POST /", "/subscribed_apps") != 1 || g.cuenta("POST /", "/register") != 0 {
 		t.Fatalf("llamadas a Meta: %v", g.llamadas)
 	}
 	// El primer número QR usa el webhook de la app (sin override).
@@ -408,7 +407,7 @@ func TestCanalQRConectaYCanjeaUnaVez(t *testing.T) {
 	if !strings.HasSuffix(fmt.Sprint(r3.cuerpo["type"]), "codigo_vencido") {
 		t.Fatalf("código repetido: %v", r3.cuerpo)
 	}
-	if g.cuenta("POST /oauth/access_token", "") != 1 {
+	if g.cuenta("GET /oauth/access_token", "") != 1 {
 		t.Fatalf("canjeó dos veces: %v", g.llamadas)
 	}
 	// Nada guarda el código ni el token en claro.

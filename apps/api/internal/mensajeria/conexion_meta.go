@@ -585,8 +585,10 @@ func (p *ProbarConexionMeta) Ejecutar(ctx context.Context) (ConexionMeta, error)
 func (m *Modulo) probarApp(ctx context.Context, c conexionEfectiva) ComprobacionMeta {
 	ctx, cancelar := context.WithTimeout(ctx, 15*time.Second)
 	defer cancelar()
-	// El token de la app ({app_id}|{app_secret}) va en la cabecera Authorization, nunca en la URL.
-	destino := m.hostGraph() + "/" + c.graphVersion + "/" + url.PathEscape(c.appID) + "?fields=id,name"
+	// access_token={app_id}|{app_secret} en la consulta, como lo documenta Meta (token de la app).
+	// Va de servidor a servidor por TLS; la URL nunca se registra (el error de Do() se descarta).
+	q := url.Values{"fields": {"id,name"}, "access_token": {c.appID + "|" + c.appSecret}}
+	destino := m.hostGraph() + "/" + c.graphVersion + "/" + url.PathEscape(c.appID) + "?" + q.Encode()
 	falla := func(d string) ComprobacionMeta {
 		return ComprobacionMeta{Clave: "app", Estado: "error", Detalle: recortar(d, 300)}
 	}
@@ -594,11 +596,10 @@ func (m *Modulo) probarApp(ctx context.Context, c conexionEfectiva) Comprobacion
 	if err != nil {
 		return falla("No se pudo armar la consulta a Meta")
 	}
-	req.Header.Set("Authorization", "Bearer "+c.appID+"|"+c.appSecret)
 	req.Header.Set("User-Agent", "Iris/"+m.cfg.Version)
 	resp, err := m.cfg.HTTPMeta.Do(req)
 	if err != nil {
-		// Sin el texto del error.
+		// El error de Do() trae la URL con el secreto: se descarta, nunca se devuelve ni se registra.
 		return falla("Meta no respondió (tiempo agotado o sin conexión); vuelve a probar en unos minutos")
 	}
 	defer func() { _ = resp.Body.Close() }()
