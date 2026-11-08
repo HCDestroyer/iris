@@ -368,6 +368,15 @@ export function apiMeta(numeros: ApiNumeros["interno"], conversaciones: Conversa
         }
 
         // --- Pasar a otra empresa ---
+        const ed = /^\/api\/v1\/mensajeria\/conversaciones\/(\d+)\/empresas-destino$/.exec(ruta);
+        if (ed && metodo === "GET") {
+            if (!puede("conversaciones.transferir")) return prohibido();
+            const c = conversaciones.find((x) => x.id === Number(ed[1]));
+            if (!c) return noExiste();
+            // Solo la dueña (la empresa de la conversación es la del número y no está en solo lectura).
+            const data = c.soloLectura ? [] : (prestamos.get(c.canal.id) ?? []).filter((p) => p.estado === "activo" && p.usos.some((u) => u !== "avisos")).map((p) => ({ empresaId: p.empresaId, nombre: p.empresaNombre }));
+            return (await json(route, { data, nextCursor: null }), true);
+        }
         const pe = /^\/api\/v1\/mensajeria\/conversaciones\/(\d+)\/pasar-empresa$/.exec(ruta);
         if (pe && metodo === "POST") {
             if (!puede("conversaciones.transferir")) return prohibido();

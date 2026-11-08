@@ -38,10 +38,9 @@ import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useSesion } from "@/lib/sesion";
 import { pasarConversacion } from "@/lib/conversaciones/api-equipo";
 import { estaDisponible, personasDeCola, supervisaCola, textoCarga, textoMotivoNoDisponible } from "@/lib/conversaciones/atencion";
-import { leerPrestamos, pasarAEmpresa } from "@/lib/meta/api";
+import { leerEmpresasDestino, pasarAEmpresa } from "@/lib/meta/api";
 import { esquemaPasarEmpresa } from "@/lib/meta/esquemas";
-import { prestamoConversa } from "@/lib/meta/presentacion";
-import type { Prestamo } from "@/lib/meta/tipos";
+import type { EmpresaDestino } from "@/lib/meta/tipos";
 import type { Schema } from "@iris/contratos";
 import { agentesDeCola, useCatalogos } from "./catalogos";
 import { AvatarDisponible, EstadoDisponible } from "./disponibilidad";
@@ -255,7 +254,7 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
                             ) : null}
                             {empresasDestino.length > 0 ? (
                                 <MenuDesplegableElemento icono={Building2} onSelect={() => setDialogo("pasar-empresa")} textValue="Pasar a otra empresa" className="h-auto py-2">
-                                    <OpcionConDetalle titulo="Pasar a otra empresa" detalle={`A ${empresasDestino.map((e) => e.empresaNombre).join(" o ")}, con los mensajes del cliente.`} />
+                                    <OpcionConDetalle titulo="Pasar a otra empresa" detalle={`A ${empresasDestino.map((e) => e.nombre).join(" o ")}, con los mensajes del cliente.`} />
                                 </MenuDesplegableElemento>
                             ) : null}
                             {p.asignar || p.pasar || empresasDestino.length > 0 ? <MenuDesplegableSeparador /> : null}
@@ -749,31 +748,27 @@ function DialogoPasar(props: PropsDialogo) {
 }
 
 /**
- * Empresas a las que se puede pasar esta conversación (contrato §15.3): solo en la empresa dueña
- * del número (no si el número es prestado), con `conversaciones.transferir`, y solo a empresas con
- * préstamo activo de ese número que tenga un uso de conversación. Los préstamos se leen con
- * `canales.configurar` (`GET /canales/{id}/prestamos`); sin ese permiso no se ofrece.
+ * Empresas a las que se puede pasar esta conversación (contrato §15.3): las da el servidor
+ * (`GET /conversaciones/{id}/empresas-destino`, con `conversaciones.transferir`); si la empresa no es
+ * la dueña del número, la lista viene vacía. La opción solo aparece con la lista no vacía; si la
+ * lectura falla, tampoco: nunca se ofrece una empresa que no se pudo comprobar.
  */
-function useEmpresasParaPasar(conv: Conversacion): Prestamo[] {
+function useEmpresasParaPasar(conv: Conversacion): EmpresaDestino[] {
     const { puede } = useSesion();
-    const { canales } = useCatalogos();
-    const numero = canales.estado === "listo" ? canales.datos.find((c) => c.id === conv.canal.id) : undefined;
-    const habilitado = puede(["conversaciones.transferir"]) && puede(["canales.configurar"]) && !conv.soloLectura && numero !== undefined && !numero.prestadoPor;
-    const canalId = conv.canal.id;
-    // Se lee cuando el catálogo de números dice que la empresa es la dueña (llega después de montar).
-    // Si la lectura falla, la opción no aparece: nunca se ofrece una empresa que no se pudo comprobar.
-    const [prestamos, setPrestamos] = useState<{ canalId: number; lista: Prestamo[] } | null>(null);
+    const habilitado = puede(["conversaciones.transferir"]) && !conv.soloLectura;
+    const id = conv.id;
+    const [empresas, setEmpresas] = useState<{ id: number; lista: EmpresaDestino[] } | null>(null);
     useEffect(() => {
         if (!habilitado) return undefined;
         const control = new AbortController();
-        leerPrestamos(canalId, control.signal).then(
-            (lista) => setPrestamos({ canalId, lista }),
+        leerEmpresasDestino(id, control.signal).then(
+            (lista) => setEmpresas({ id, lista }),
             () => undefined,
         );
         return () => control.abort();
-    }, [habilitado, canalId]);
-    if (!habilitado || prestamos?.canalId !== canalId) return [];
-    return prestamos.lista.filter((p) => p.estado === "activo" && prestamoConversa(p.usos));
+    }, [habilitado, id]);
+    if (!habilitado || empresas?.id !== id) return [];
+    return empresas.lista;
 }
 
 /**
@@ -781,7 +776,7 @@ function useEmpresasParaPasar(conv: Conversacion): Prestamo[] {
  * internas ni los eventos de la dueña) a la cola del préstamo, sin asignar, sin etiquetas y sin contacto; desde ahí solo la ve la otra empresa (aquí queda de
  * solo lectura). Nota opcional para quien la recibe.
  */
-function DialogoPasarEmpresa(props: PropsDialogo & { empresas: Prestamo[] }) {
+function DialogoPasarEmpresa(props: PropsDialogo & { empresas: EmpresaDestino[] }) {
     const { conv, empresas } = props;
     const form = useForm({ resolver: zodResolver(esquemaPasarEmpresa), defaultValues: { empresaId: empresas.length === 1 ? String(empresas[0]?.empresaId ?? "") : "", nota: "" } });
     useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
@@ -806,7 +801,7 @@ function DialogoPasarEmpresa(props: PropsDialogo & { empresas: Prestamo[] }) {
                             },
                             ["empresaId", "nota"],
                             form.setError,
-                            () => `Conversación con ${conv.titulo} pasada a ${elegida?.empresaNombre ?? "otra empresa"}`,
+                            () => `Conversación con ${conv.titulo} pasada a ${elegida?.nombre ?? "otra empresa"}`,
                         ),
                     )}
                 >
@@ -814,14 +809,13 @@ function DialogoPasarEmpresa(props: PropsDialogo & { empresas: Prestamo[] }) {
                         <option value="">Elegir…</option>
                         {empresas.map((e) => (
                             <option key={e.empresaId} value={String(e.empresaId)}>
-                                {e.empresaNombre}
-                                {e.colaNombre ? ` · cola ${e.colaNombre}` : ""}
+                                {e.nombre}
                             </option>
                         ))}
                     </CampoSelector>
                     <CampoArea etiqueta="Nota para quien la recibe (opcional)" rows={3} maxLength={1000} error={form.formState.errors.nota?.message} {...form.register("nota")} />
                     <p className="text-sm text-muted-foreground">Se pasa sin asignar, sin etiquetas, sin el cliente asociado y sin las notas internas: esos datos son de tu empresa. La nota de aquí es lo único interno que verán.</p>
-                    {pie(elegida ? `Pasar a ${elegida.empresaNombre}` : "Pasar", form.formState.isSubmitting, empresaId ? [] : ["la empresa"])}
+                    {pie(elegida ? `Pasar a ${elegida.nombre}` : "Pasar", form.formState.isSubmitting, empresaId ? [] : ["la empresa"])}
                 </form>
             )}
         </DialogoCorto>

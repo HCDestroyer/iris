@@ -2,7 +2,7 @@
 
 import type { Schema } from "@iris/contratos";
 import { api, resolver } from "@/lib/api/cliente";
-import type { CanalMeta, ConexionMeta, EntradaCanalQr, EntradaConexionMeta, OpcionesPrestamo, Prestamo, RegistroMeta } from "./tipos";
+import type { CanalMeta, ConexionMeta, EmpresaDestino, EntradaCanalQr, EntradaConexionMeta, OpcionesPrestamo, Prestamo, RegistroMeta } from "./tipos";
 
 /*
  * Llamadas de §15 (conexión con Meta, QR y préstamos). Pasan por el cliente del panel (cookies,
@@ -56,6 +56,11 @@ export function sincronizarCanal(id: number, body: { contactos: boolean; mensaje
 
 export async function leerPrestamos(id: number, signal?: AbortSignal): Promise<Prestamo[]> {
     return (await resolver(api().GET("/api/v1/mensajeria/canales/{id}/prestamos", { params: { path: { id } }, ...conSenal(signal) }))).data ?? [];
+}
+
+/** Empresas a las que se puede pasar la conversación (solo la dueña del número; si no, `[]`). */
+export async function leerEmpresasDestino(conversacionId: number, signal?: AbortSignal): Promise<EmpresaDestino[]> {
+    return (await resolver(api().GET("/api/v1/mensajeria/conversaciones/{id}/empresas-destino", { params: { path: { id: conversacionId } }, ...conSenal(signal) }))).data;
 }
 
 export function leerOpcionesPrestamo(id: number, signal?: AbortSignal): Promise<OpcionesPrestamo> {

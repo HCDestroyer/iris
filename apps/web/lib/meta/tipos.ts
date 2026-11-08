@@ -25,6 +25,8 @@ export type Sincronizacion = Schema<"SincronizacionCanal">;
 export type EstadoSincronizacion = Schema<"ParteSincronizacion">["estado"];
 
 export type Prestamo = Schema<"Prestamo">;
+/** Empresa a la que se puede pasar una conversación (§15.3, `empresasDestinoConversacion`). */
+export type EmpresaDestino = Schema<"EmpresaRef">;
 export type OpcionesPrestamo = Schema<"OpcionesPrestamo">;
 
 /** `MensajeConversacion.origen`: `null` = lo mandó Iris. */

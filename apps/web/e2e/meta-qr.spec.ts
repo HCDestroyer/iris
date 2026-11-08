@@ -313,15 +313,17 @@ test.describe("compartir números entre empresas", () => {
 });
 
 test.describe("bandeja con números compartidos", () => {
-    async function abrirConversacion(page: Page, correo = ADMIN.correo) {
+    async function abrirConversacion(page: Page, correo = ADMIN.correo, prestamos = true) {
         await page.clock.setFixedTime(new Date(AHORA_CONV));
-        const ctx = await abrir(page, "/administracion", { meta: { prestamos: true } }, correo);
+        const ctx = await abrir(page, "/administracion", { meta: { prestamos } }, correo);
         ctx.api.conversaciones.mensajes.get(41)?.push(mensaje(41, { direccion: "saliente", texto: "Ya voy para allá", origen: "telefono", creadoEn: new Date(AHORA_CONV - 60_000).toISOString() }));
         await page.goto("/conversaciones?c=41");
         return ctx;
     }
 
     test("«Desde el teléfono» y «Pasar a otra empresa»", async ({ page }) => {
+        const lecturas: string[] = [];
+        page.on("request", (r) => lecturas.push(new URL(r.url()).pathname));
         const { api } = await abrirConversacion(page);
         const conv = page.getByRole("region", { name: "Conversación con Carlos Ruiz" });
         const telefono = conv.locator('[data-slot="etiqueta-telefono"]');
@@ -330,6 +332,9 @@ test.describe("bandeja con números compartidos", () => {
         await page.getByRole("menuitem", { name: /Pasar a otra empresa/ }).click();
         const dialogo = page.getByRole("dialog", { name: "Pasar a otra empresa" });
         await expect(dialogo).toContainText("aquí queda de solo lectura");
+        // Las empresas las da /empresas-destino (con conversaciones.transferir), nunca /prestamos.
+        expect(lecturas).toContain("/api/v1/mensajeria/conversaciones/41/empresas-destino");
+        expect(lecturas.some((r) => r.includes("/prestamos"))).toBe(false);
         await dialogo.getByRole("textbox", { name: /Nota para quien la recibe/ }).fill("Es cliente de ustedes");
         if (!esTelefono(page)) await captura(page, "pasar-empresa");
         await dialogo.getByRole("button", { name: "Pasar a Cable Norte" }).click();
@@ -337,6 +342,16 @@ test.describe("bandeja con números compartidos", () => {
         expect(api.meta.cuerpos.find((c) => c.ruta.endsWith("/41/pasar-empresa"))?.cuerpo).toEqual({ version: 7, empresaId: 2, nota: "Es cliente de ustedes" });
         await expect(conv.locator("[data-solo-lectura]")).toHaveText("Solo lectura");
         await expect(conv.getByText(/Solo lectura: esta conversación pasó a otra empresa/)).toBeVisible();
+    });
+
+    test("sin empresas destino (lista vacía), no se ofrece", async ({ page }) => {
+        const respuesta = page.waitForResponse((r) => r.url().endsWith("/conversaciones/41/empresas-destino"));
+        await abrirConversacion(page, ADMIN.correo, false);
+        expect(await (await respuesta).json()).toEqual({ data: [], nextCursor: null });
+        const conv = page.getByRole("region", { name: "Conversación con Carlos Ruiz" });
+        await conv.getByRole("button", { name: "Más acciones" }).click();
+        await expect(page.getByRole("menuitem", { name: /Pasar a/ }).first()).toBeVisible();
+        await expect(page.getByRole("menuitem", { name: /Pasar a otra empresa/ })).toHaveCount(0);
     });
 
     test("sin permisos para pasar, no se ofrece", async ({ page }) => {
