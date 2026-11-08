@@ -4,10 +4,14 @@ import { CampoSecreto } from "./componentes/campo-secreto";
 import { BarraGuardar } from "./componentes/formulario-pagina";
 
 describe("CampoSecreto", () => {
-    it("oculta lo escrito, sin autocompletar ni corrector, con el ojo que dice qué muestra", () => {
+    it("oculta lo escrito, sin que el gestor de contraseñas lo tome ni el corrector, con el ojo que dice qué muestra", () => {
         const html = renderToStaticMarkup(<CampoSecreto id="t" etiqueta="Token de acceso" ayuda="Iris lo guarda cifrado." />);
+        // En el servidor (sin saber si hay `-webkit-text-security`) es `password`; nunca en claro.
         expect(html).toMatch(/<input[^>]*type="password"/);
-        expect(html).toMatch(/<input[^>]*autocomplete="off"/i);
+        expect(html).toMatch(/<input[^>]*autocomplete="new-password"/i);
+        expect(html).toMatch(/<input[^>]*data-oculto="true"/);
+        expect(html).toMatch(/<input[^>]*data-1p-ignore/);
+        expect(html).toMatch(/<input[^>]*data-lpignore="true"/);
         expect(html).toMatch(/<input[^>]*spellcheck="false"/i);
         expect(html).toMatch(/<input[^>]*autocapitalize="off"/i);
         expect(html).toContain('aria-label="Mostrar token de acceso"');

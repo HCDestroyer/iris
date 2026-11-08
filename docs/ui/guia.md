@@ -141,7 +141,7 @@ dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`avis
 | `SelectorArchivo` | — (`<input type="file">` oculto en su `<label>`, como `Camara`) | Adjuntar sin cámara (compositor de la bandeja); clip de Lucide; se limpia tras elegir |
 | `AvatarUsuario` | `Avatar`, `Avatar.Fallback` | Iniciales (decorativo: el nombre va al lado) |
 | `Entrada`, `Campo` | `Input` | Un `<input>` nativo: sirve con `register` |
-| `CampoSecreto` | `Input` | Credencial que se pega una vez (token, app secret): oculta, con el ojo «Mostrar …», monoespaciada, `autoComplete="off"` y sin corrector. Sirve con `register` |
+| `CampoSecreto` | `Input` | Credencial que se pega una vez (token, app secret), con el ojo «Mostrar …», monoespaciada y sin corrector. Para que el gestor de contraseñas no ofrezca guardarla: `type="text"` con `-webkit-text-security: disc` donde el navegador lo soporta y, si no, `type="password"`; siempre `autocomplete="new-password"`, `data-1p-ignore` y `data-lpignore`. Sirve con `register` |
 | `AreaTexto`, `CampoArea` | `TextArea` | |
 | `Etiqueta` | `Label` | |
 | `ProveedorRutas` | `RouterProvider` de React Aria | |
