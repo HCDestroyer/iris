@@ -79,14 +79,14 @@ type secretosConexion struct {
 	VerifyToken string `json:"verify_token,omitempty"`
 }
 
-// datosAsociadosConexion ata los secretos cifrados a la fila.
-func datosAsociadosConexion() []byte { return []byte("mensajeria.conexion_meta:1:secretos") }
+// DatosAsociadosConexion ata los secretos cifrados a la fila (también lo usa la rotación de la clave).
+func DatosAsociadosConexion() []byte { return []byte("mensajeria.conexion_meta:1:secretos") }
 
 func (m *Modulo) secretosDe(f mensajeriabd.MensajeriaConexionMeta) (secretosConexion, error) {
 	if m.cfg.Cifrador == nil {
 		return secretosConexion{}, errSinCifrado()
 	}
-	plano, err := m.cfg.Cifrador.Descifrar(f.SecretosCifrados, datosAsociadosConexion())
+	plano, err := m.cfg.Cifrador.Descifrar(f.SecretosCifrados, DatosAsociadosConexion())
 	if err != nil {
 		return secretosConexion{}, fmt.Errorf("conexión con Meta: descifrar secretos: %w", err)
 	}
@@ -104,7 +104,7 @@ func (m *Modulo) cifrarSecretos(s secretosConexion) ([]byte, error) {
 		return nil, err
 	}
 	defer clear(plano)
-	return m.cfg.Cifrador.Cifrar(plano, datosAsociadosConexion())
+	return m.cfg.Cifrador.Cifrar(plano, DatosAsociadosConexion())
 }
 
 // conexionEfectiva es la conexión con la que se trabaja (la de la base o la del entorno).

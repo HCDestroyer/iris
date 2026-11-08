@@ -1188,7 +1188,8 @@ mensajes: `progress` 100), `rechazado` (el dueño no aceptó compartir el histor
   `canal_mensajeria.reconectado { canal_id, empresa_id, origen }`. Un número desconectado no envía
   (avisos `fallido` / `rechazado_por_canal`; mensajes `fallido` / `rechazado_por_canal`) y su
   `conexion` es `desconectado`; «Reconectar» = repetir el QR (paso 2).
-- `MensajeConversacion.origen`: `"telefono"` | `"historial"` | `null` (Iris).
+- `MensajeConversacion.origen`: `"telefono"` | `"historial"`; **ausente** = salió de Iris (opcional
+  para no romper los tipos que ya existen).
 
 **Campos nuevos de `Canal`**: `tipoConexion` (`api` | `qr`), `coexistencia` (bool), `ultimoEcoEn`
 (último mensaje mandado desde el teléfono, precisión de 1 minuto; el panel muestra «Teléfono sin
@@ -1298,7 +1299,7 @@ filtran por la empresa de la conversación.
 - el préstamo queda `revocado` (sin `avisosEmpresa`);
 - las conversaciones **no resueltas** de esa empresa por ese número se **resuelven** (evento de
   sistema `prestamo_revocado`, outbox `conversacion.resuelta` con `actor_id: null`) y quedan de
-  **solo lectura** para ella: `ConversacionCliente.soloLectura: true`, y responder, anotar, tomar,
+  **solo lectura** para ella: `ConversacionCliente.soloLectura: true` (también en el detalle), y responder, anotar, tomar,
   asignar, pasar, transferir, etiquetar, resolver, reabrir o asociar responden 422
   `conversacion_solo_lectura`. Su historial se sigue viendo;
 - si esos clientes vuelven a escribir, llegan a la **dueña** (la empresa ya no es del número);
@@ -1308,7 +1309,7 @@ filtran por la empresa de la conversación.
 
 **Campos nuevos**: `Canal.prestadoPor`, `Canal.prestamo`, `Canal.compartidoCon` (cuántas empresas
 lo usan con préstamo activo; 0 si no está compartido), `NumeroConversaciones.prestadoPor`,
-`ConversacionCliente.soloLectura`.
+`ConversacionCliente.soloLectura` (solo viene, en `true`, cuando aplica; ausente = `false`).
 
 ### 15.4 Errores nuevos
 

@@ -885,7 +885,7 @@ func TestPrestamoVisibilidad(t *testing.T) {
 	p.exigir(pe, http.StatusOK, "soloLectura", "true")
 	p.exigir(p.api(p.supervisor, http.MethodGet, fmt.Sprintf("/conversaciones/%d", c1), nil), http.StatusNotFound)
 	v := p.api(p.sup2, http.MethodGet, fmt.Sprintf("/conversaciones/%d", c1), nil)
-	p.exigir(v, http.StatusOK, "soloLectura", "false")
+	p.exigir(v, http.StatusOK, "soloLectura", "<nil>")
 	if v.cuerpo["cola"].(map[string]any)["id"].(float64) != float64(p.cola2) || v.cuerpo["asignado"] != nil {
 		t.Fatalf("pasada: %v", v.cuerpo)
 	}
@@ -1080,4 +1080,55 @@ func TestPrestamoUsos(t *testing.T) {
 	// Dentro de la ventana, el texto sí sale (es su conversación).
 	p.exigir(p.api(p.sup2, http.MethodPost, fmt.Sprintf("/conversaciones/%d/mensajes", cid), map[string]any{"id": uuid.Must(uuid.NewV7()).String(), "texto": "Hola"}),
 		http.StatusCreated)
+}
+
+// Pasar a otra empresa y prestar: los errores que faltan (conversación que ya existe, con vínculos,
+// número inactivo, versión vieja).
+func TestPrestamoErrores(t *testing.T) {
+	p := nuevoPrestamo(t)
+	n := numeroCliente()
+	p.texto(n, "wamid.e1-"+pruebas.Unico(), "Hola")
+	c1, e, _ := p.convDe(n)
+	if e != 1 {
+		t.Fatal("no fue a la dueña")
+	}
+	d := p.api(p.supervisor, http.MethodGet, fmt.Sprintf("/conversaciones/%d", c1), nil)
+	p.exigir(p.api(p.supervisor, http.MethodPost, fmt.Sprintf("/conversaciones/%d/resolver", c1), map[string]any{"version": d.cuerpo["version"]}), http.StatusOK)
+	// El cliente resulta ser de la 2: lo siguiente va allá.
+	p.clienteArgos(2, n)
+	p.texto(n, "wamid.e2-"+pruebas.Unico(), "Otra vez")
+	if _, e, _ := p.convDe(n); e != 2 {
+		t.Fatalf("segunda conversación: empresa %d", e)
+	}
+	// Pasar la de la dueña: la 2 ya tiene una de ese teléfono.
+	d = p.api(p.supervisor, http.MethodGet, fmt.Sprintf("/conversaciones/%d", c1), nil)
+	r := p.api(p.supervisor, http.MethodPost, fmt.Sprintf("/conversaciones/%d/pasar-empresa", c1), map[string]any{"version": d.cuerpo["version"], "empresaId": 2})
+	if r.status != http.StatusConflict || !strings.HasSuffix(fmt.Sprint(r.cuerpo["type"]), "conversacion_existente") {
+		t.Fatalf("conversación existente: %d %v", r.status, r.cuerpo)
+	}
+	// Con vínculos (un ticket de la dueña): no se pasa.
+	n2 := numeroCliente()
+	p.texto(n2, "wamid.e3-"+pruebas.Unico(), "Hola")
+	c2, _, _ := p.convDe(n2)
+	if _, err := p.bd.Exec(p.ctx, `INSERT INTO mensajeria.conversacion_vinculos (conversacion_id, tipo, entidad_id, referencia) VALUES ($1, 'ticket', '1', 'TK-000001')`, c2); err != nil {
+		t.Fatal(err)
+	}
+	d = p.api(p.supervisor, http.MethodGet, fmt.Sprintf("/conversaciones/%d", c2), nil)
+	r = p.api(p.supervisor, http.MethodPost, fmt.Sprintf("/conversaciones/%d/pasar-empresa", c2), map[string]any{"version": d.cuerpo["version"], "empresaId": 2})
+	if r.status != http.StatusUnprocessableEntity || !strings.HasSuffix(fmt.Sprint(r.cuerpo["type"]), "conversacion_con_vinculos") {
+		t.Fatalf("con vínculos: %d %v", r.status, r.cuerpo)
+	}
+	// Un número inactivo no se presta.
+	admin := p.persona([]int64{1}, rolBase("admin"))
+	p.exigir(p.api(admin, http.MethodPost, fmt.Sprintf("/canales/%d/desactivar", p.canal.ID), nil), http.StatusOK)
+	pr := p.api(p.supervisor, http.MethodGet, fmt.Sprintf("/canales/%d/prestamos", p.canal.ID), nil).cuerpo["data"].([]any)[0].(map[string]any)
+	r = p.api(p.supervisor, http.MethodPost, fmt.Sprintf("/canales/%d/prestamos", p.canal.ID), map[string]any{"empresaId": 2, "usos": []string{"soporte"},
+		"version": pr["version"]})
+	if r.status != http.StatusUnprocessableEntity || !strings.HasSuffix(fmt.Sprint(r.cuerpo["type"]), "canal_inactivo") {
+		t.Fatalf("inactivo: %d %v", r.status, r.cuerpo)
+	}
+	// Versión vieja del préstamo: 409.
+	p.exigir(p.api(admin, http.MethodPost, fmt.Sprintf("/canales/%d/activar", p.canal.ID), nil), http.StatusOK)
+	p.exigir(p.api(p.supervisor, http.MethodPost, fmt.Sprintf("/canales/%d/prestamos", p.canal.ID), map[string]any{"empresaId": 2, "usos": []string{"soporte"},
+		"version": 0}), http.StatusConflict)
 }
