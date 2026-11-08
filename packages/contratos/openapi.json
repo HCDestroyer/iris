@@ -13701,6 +13701,28 @@
         ],
         "type": "object"
       },
+      "ListaEmpresasDestino": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/EmpresaRef"
+            },
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
       "ListaEnlacesManual": {
         "additionalProperties": false,
         "properties": {
@@ -42278,6 +42300,99 @@
           "mensajeria"
         ],
         "x-permiso": "conversaciones.asociar"
+      }
+    },
+    "/api/v1/mensajeria/conversaciones/{id}/empresas-destino": {
+      "get": {
+        "description": "Permiso: `conversaciones.transferir`. Mismo permiso que pasar-empresa. Solo empresas con préstamo activo del número y un uso de conversación; `[]` si la conversación no es de la dueña del número o no hay ninguna. Lectura sin auditar.",
+        "operationId": "empresasDestinoConversacion",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListaEmpresasDestino"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Empresas a las que se puede pasar la conversación",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "conversaciones.transferir"
       }
     },
     "/api/v1/mensajeria/conversaciones/{id}/enviar-manual": {

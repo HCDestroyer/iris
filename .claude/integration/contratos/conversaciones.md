@@ -1043,8 +1043,9 @@ que se conectan con QR; los números por «datos de la API» (§1.1) no la neces
 `POST /conexion-meta/probar` (sin cuerpo; `mensajeria.conexion_meta`, `Idempotency-Key`) →
 `ConexionMeta` con `comprobaciones` y `ultimaPruebaEn` nuevas:
 
-- `app`: `GET /{app_id}?fields=id,name` con el token de la app (`{app_id}|{app_secret}`) en la cabecera
-  `Authorization: Bearer` (nunca en la URL; Graph, 15 s). 2xx con el
+- `app`: `GET /{app_id}?fields=id,name&access_token={app_id}|{app_secret}` (Graph, 15 s; el token de
+  la app como lo documenta Meta en https://developers.facebook.com/docs/facebook-login/guides/access-tokens/).
+  2xx con el
   mismo `id` → `ok`; código 190/101 o HTTP 400–401 → `error` («Meta no aceptó el app ID o el app
   secret»); otra cosa → `error` con el HTTP y el código (nunca el mensaje de Meta).
 - `configuracion`: Iris solo revisa el formato (Meta no publica una lectura de la configuración):
@@ -1065,6 +1066,11 @@ Sigue igual que el webhook de un número (`entrantes`, job).
 Entradas de números que Iris no tiene se descartan. Suscribe en Meta los campos de
 `camposWebhook`. El webhook propio de un número QR (`/canales/{id}/webhook`) también vale y se
 verifica con el app secret de la conexión.
+
+**Secretos en la URL:** el canje y la prueba de la app llevan el secreto (y el código) en la consulta
+porque es lo que Meta documenta. Son llamadas de servidor a servidor por TLS; Iris nunca registra esas
+URLs: el error de red de la llamada (que incluye la URL) se descarta y la respuesta, la auditoría y
+los logs solo llevan un texto fijo, el HTTP y el código de Meta.
 
 **Servicio central (modo `compartida`)**: el código define la interfaz `RegistroMeta`
 (`CanjearCodigo`, `ConsultarNumero`, `SuscribirWABA`, `PedirSincronizacion`) con dos implementaciones:
@@ -1111,9 +1117,9 @@ lo llama **en cuanto** recibe el `code` (vive ~30 s):
 1. Valida la entrada, el modo de la conexión y que el `phoneNumberId` no esté en otro número activo
    (409 `canal_existente`). Si ya hay un número QR **de la misma empresa** con ese
    `phoneNumberId` (p. ej. desconectado por Meta), lo **reconecta** (mismo id; 200).
-2. Canjea el código **una sola vez** (`POST /oauth/access_token` con cuerpo
-   `application/x-www-form-urlencoded`: `client_id`, `client_secret`, `code`; ni el secreto ni el
-   código van en la URL). El
+2. Canjea el código **una sola vez** (`GET /oauth/access_token?client_id&client_secret&code`, el
+   método que documenta Meta en
+   https://developers.facebook.com/docs/whatsapp/embedded-signup/onboarding-customers-as-a-tech-provider). El
    SHA-256 del código queda registrado: el mismo código otra vez (aunque sea con otra clave) da 422
    `codigo_vencido` sin volver a llamar a Meta. Repetir la misma `Idempotency-Key` devuelve la misma
    respuesta.
@@ -1296,6 +1302,13 @@ conversación abierta con una plantilla.
 Cuando la regla elige empresa (pasos 2 y 3) se emite `conversacion.empresa_asignada`
 `{ conversacion_id, empresa_id, canal_id, motivo, anterior_empresa_id (o null) }`. El paso 1 no
 emite nada.
+
+**A qué empresas se puede pasar** — `GET /conversaciones/{id}/empresas-destino`
+(`conversaciones.transferir`, el mismo permiso que pasar; lectura sin auditar; quien no ve la
+conversación, 404) → `{ data: [{ empresaId, nombre }], nextCursor: null }`: las empresas con
+préstamo activo del número y un uso de conversación (`soporte`, `cobros` o `ventas`). `[]` si la
+conversación no es de la dueña del número o no hay ninguna. El panel no necesita
+`canales.configurar` para mostrar «Pasar a otra empresa».
 
 **Pasar a otra empresa** — `POST /conversaciones/{id}/pasar-empresa` `{ version, empresaId, nota? }`
 (`conversaciones.transferir`; solo en la empresa **dueña** del número y solo a una empresa con

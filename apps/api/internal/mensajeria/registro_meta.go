@@ -162,25 +162,8 @@ func (r *registroGraph) pedir(ctx context.Context, metodo, ruta string, token st
 	req.Header.Set("User-Agent", "Iris/"+r.m.cfg.Version)
 	resp, err := r.m.cfg.HTTPMeta.Do(req)
 	if err != nil {
-		return 0, nil, &ErrorRegistro{Codigo: ErrQRErrorMeta, Detalle: "Meta no respondió (tiempo agotado o sin conexión); espera un minuto y vuelve a intentar"}
-	}
-	defer func() { _ = resp.Body.Close() }()
-	leido, _ := io.ReadAll(io.LimitReader(resp.Body, limiteRespuestaRegistroQR))
-	return resp.StatusCode, leido, nil
-}
-
-// pedirForm hace un POST application/x-www-form-urlencoded (sin token en la cabecera).
-func (r *registroGraph) pedirForm(ctx context.Context, ruta string, form url.Values) (int, []byte, error) {
-	ctx, cancelar := context.WithTimeout(ctx, tiempoLlamadaRegistroMeta)
-	defer cancelar()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.base+ruta, strings.NewReader(form.Encode()))
-	if err != nil {
-		return 0, nil, &ErrorRegistro{Codigo: ErrQRErrorMeta, Detalle: "No se pudo armar la llamada a Meta"}
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", "Iris/"+r.m.cfg.Version)
-	resp, err := r.m.cfg.HTTPMeta.Do(req)
-	if err != nil {
+		// El error de Do() trae la URL (con el secreto o el código en la consulta): se descarta,
+		// nunca se devuelve ni se registra.
 		return 0, nil, &ErrorRegistro{Codigo: ErrQRErrorMeta, Detalle: "Meta no respondió (tiempo agotado o sin conexión); espera un minuto y vuelve a intentar"}
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -211,9 +194,11 @@ func sinPermisoApp(status, codigo int) bool {
 }
 
 func (r *registroGraph) CanjearCodigo(ctx context.Context, codigo string) (string, error) {
-	// POST con cuerpo form: el secreto y el código nunca van en la URL (logs de proxies).
-	form := url.Values{"client_id": {r.appID}, "client_secret": {r.appSecret}, "code": {codigo}}
-	status, cuerpo, err := r.pedirForm(ctx, "/oauth/access_token", form)
+	// GET con client_id, client_secret y code en la consulta: es lo que documenta Meta (onboarding
+	// como Tech Provider). Va de servidor a servidor por TLS; la URL nunca se registra: pedir no
+	// devuelve ni anota el error de Do() (que la incluye).
+	q := url.Values{"client_id": {r.appID}, "client_secret": {r.appSecret}, "code": {codigo}}
+	status, cuerpo, err := r.pedir(ctx, http.MethodGet, "/oauth/access_token?"+q.Encode(), "", nil)
 	if err != nil {
 		return "", err
 	}

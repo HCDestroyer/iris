@@ -32,6 +32,7 @@ type casosMeta struct {
 	RevocarPrestamo    *auditoria.Caso[EntradaRevocarPrestamo, Prestamo]
 	ConfigurarPrestamo *auditoria.Caso[EntradaConfigurarPrestamo, Canal]
 	PasarEmpresa       *auditoria.Caso[EntradaPasarEmpresa, ConversacionCliente]
+	EmpresasDestino    *auditoria.Caso[EntradaEmpresasDestino, ListaEmpresasDestino]
 }
 
 func nuevosCasosMeta(m *Modulo) casosMeta {
@@ -41,6 +42,7 @@ func nuevosCasosMeta(m *Modulo) casosMeta {
 		RecibirApp: nuevoRecibirMetaApp(m), VerificarApp: nuevoVerificarMetaApp(m),
 		ListarPrestamos: nuevoListarPrestamos(m), OpcionesPrestamo: nuevoOpcionesPrestamo(m), GuardarPrestamo: nuevoGuardarPrestamo(m),
 		RevocarPrestamo: nuevoRevocarPrestamo(m), ConfigurarPrestamo: nuevoConfigurarPrestamo(m), PasarEmpresa: nuevoPasarEmpresa(m),
+		EmpresasDestino: nuevoEmpresasDestino(),
 	}
 }
 
@@ -203,6 +205,14 @@ func (m *Modulo) registrarMeta(api huma.API) {
 	huma.Register(api, pe, func(ctx context.Context, in *idCuerpoHTTP[EntradaPasarEmpresa]) (*cuerpo[ConversacionCliente], error) {
 		in.Body.ID = in.ID
 		return responder(k.PasarEmpresa.Ejecutar(ctx, in.Body))
+	})
+
+	ed := op("empresasDestinoConversacion", http.MethodGet, "/conversaciones/{id}/empresas-destino", "Empresas a las que se puede pasar la conversación",
+		nucleo.PermConversacionesTransferir, http.StatusOK, http.StatusNotFound)
+	ed.Description += " Mismo permiso que pasar-empresa. Solo empresas con préstamo activo del número y un uso de conversación; `[]` si la " +
+		"conversación no es de la dueña del número o no hay ninguna. Lectura sin auditar."
+	huma.Register(api, ed, func(ctx context.Context, in *EntradaEmpresasDestino) (*cuerpo[ListaEmpresasDestino], error) {
+		return responder(k.EmpresasDestino.Ejecutar(ctx, *in))
 	})
 
 	// Webhook de la app (§15.1).

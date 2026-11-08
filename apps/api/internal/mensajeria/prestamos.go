@@ -796,3 +796,59 @@ func nuevoPasarEmpresa(m *Modulo) *auditoria.Caso[EntradaPasarEmpresa, Conversac
 }
 
 func ptrTiempo(t time.Time) *time.Time { return &t }
+
+// Empresas a las que se puede pasar una conversación ------------------------------------------------
+
+// ListaEmpresasDestino es { data, nextCursor } (sin más páginas).
+type ListaEmpresasDestino struct {
+	Data       []EmpresaRef `json:"data"`
+	NextCursor *string      `json:"nextCursor" nullable:"true"`
+}
+
+// EntradaEmpresasDestino es GET /conversaciones/{id}/empresas-destino.
+type EntradaEmpresasDestino struct {
+	ID int64 `path:"id" minimum:"1"`
+}
+
+// nuevoEmpresasDestino: las empresas a las que quien puede pasar la conversación (el mismo permiso
+// que pasar-empresa) la puede pasar: con préstamo activo del número y un uso de conversación. Solo
+// en una conversación de la dueña del número; en las demás, [].
+func nuevoEmpresasDestino() *auditoria.Caso[EntradaEmpresasDestino, ListaEmpresasDestino] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaEmpresasDestino, ListaEmpresasDestino]{
+		Accion: "conversaciones.empresas_destino", Permiso: nucleo.PermConversacionesTransferir, AuditarExito: sinAuditar[ListaEmpresasDestino],
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaEmpresasDestino) (ListaEmpresasDestino, error) {
+			a, err := alcanceConvDe(ctx)
+			if err != nil {
+				return ListaEmpresasDestino{}, err
+			}
+			q := mensajeriabd.New(t)
+			c, err := convVisible(ctx, q, a, in.ID, false)
+			if err != nil {
+				return ListaEmpresasDestino{}, err
+			}
+			out := ListaEmpresasDestino{Data: []EmpresaRef{}}
+			canal, err := q.CanalPorID(ctx, c.CanalID)
+			if err != nil {
+				return out, err
+			}
+			if derefEmpresa(canal.EmpresaID) != empresaDeConv(c) {
+				return out, nil
+			}
+			ps, err := q.PrestamosDeCanal(ctx, canal.ID)
+			if err != nil {
+				return out, err
+			}
+			for _, p := range ps {
+				if !p.Activo || !tieneUsoConversacion(p.Usos) {
+					continue
+				}
+				nombre := ""
+				if p.EmpresaNombre != nil {
+					nombre = *p.EmpresaNombre
+				}
+				out.Data = append(out.Data, EmpresaRef{EmpresaID: p.EmpresaID, Nombre: nombre})
+			}
+			return out, nil
+		},
+	})
+}
