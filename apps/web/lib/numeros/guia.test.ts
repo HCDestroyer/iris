@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { bloquesMarkdown } from "@/componentes/manuales/markdown";
 import { ANCLAS, enlaceGuia, SECCIONES_GUIA } from "./guia";
-import { leerRecienCreado, dejarRecienCreado, olvidarRecienCreado } from "./recien-creado";
+import { leerRecienCreado, dejarRecienCreado, olvidarRecienCreado, VIDA_RECIEN_CREADO_MS } from "./recien-creado";
 import type { Canal } from "./tipos";
 
 const texto = SECCIONES_GUIA.map((s) => `${s.titulo}\n${s.cuerpo}`).join("\n");
@@ -70,8 +70,16 @@ describe("verify token recién generado", () => {
     it("se entrega solo al número que se creó y se olvida", () => {
         dejarRecienCreado({ canal, verifyToken: "vt_x", prueba: null, errorPrueba: null });
         expect(leerRecienCreado(8)).toBeNull();
-        expect(leerRecienCreado(7)?.verifyToken).toBe("vt_x");
+        expect(leerRecienCreado(7)).toEqual({ canal, verifyToken: "vt_x", prueba: null, errorPrueba: null });
         olvidarRecienCreado();
         expect(leerRecienCreado(7)).toBeNull();
+    });
+
+    it("vence solo al minuto aunque nadie lo tome", () => {
+        dejarRecienCreado({ canal, verifyToken: "vt_x", prueba: null, errorPrueba: null }, 1_000);
+        expect(leerRecienCreado(7, 1_000 + VIDA_RECIEN_CREADO_MS)?.verifyToken).toBe("vt_x");
+        expect(leerRecienCreado(7, 1_001 + VIDA_RECIEN_CREADO_MS)).toBeNull();
+        // Ya vencido, no vuelve.
+        expect(leerRecienCreado(7, 1_000)).toBeNull();
     });
 });

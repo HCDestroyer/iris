@@ -1,13 +1,15 @@
 "use client";
 
 import { avisar, Boton, cn } from "@iris/ui";
-import { Copy } from "lucide-react";
-import { useId, useRef, type ReactNode } from "react";
+import { Copy, Eye, EyeOff } from "lucide-react";
+import { useId, useRef, useState, type ReactNode } from "react";
 
 /**
  * Valor de solo lectura para pegar en Meta (URL del webhook, token de verificación) con «Copiar».
  * Si el navegador no deja copiar, selecciona el texto para copiarlo a mano. El valor nunca se
- * escribe en un log ni en la URL; el aviso dice qué se copió, no el valor.
+ * escribe en un log ni en la URL; el aviso dice qué se copió, no el valor. Con `secreto`, se ve
+ * enmascarado hasta pulsar «Mostrar» (alguien mirando la pantalla no lo lee); «Copiar» copia el
+ * valor de verdad.
  */
 export function CampoCopiar({
     etiqueta,
@@ -16,6 +18,7 @@ export function CampoCopiar({
     ayuda,
     acciones,
     placeholder,
+    secreto = false,
 }: {
     etiqueta: string;
     /** `null`: todavía no hay valor (se muestra `placeholder`, sin «Copiar»). */
@@ -25,9 +28,12 @@ export function CampoCopiar({
     ayuda?: ReactNode;
     acciones?: ReactNode;
     placeholder?: string;
+    secreto?: boolean;
 }) {
     const id = useId();
     const caja = useRef<HTMLElement>(null);
+    const [mostrar, setMostrar] = useState(false);
+    const enmascarado = secreto && !mostrar && valor !== null;
 
     async function copiar() {
         if (!valor) return;
@@ -35,6 +41,8 @@ export function CampoCopiar({
             await navigator.clipboard.writeText(valor);
             avisar({ titulo: queSeCopio });
         } catch {
+            // Para seleccionarlo a mano tiene que verse.
+            if (secreto) setMostrar(true);
             const nodo = caja.current;
             const seleccion = window.getSelection();
             if (nodo && seleccion) {
@@ -63,10 +71,16 @@ export function CampoCopiar({
                         !valor && "text-muted-foreground select-none",
                     )}
                 >
-                    {valor ?? placeholder}
+                    {enmascarado ? <span aria-label="Oculto">{"•".repeat(Math.min((valor ?? "").length, 24))}</span> : (valor ?? placeholder)}
                 </code>
                 {valor || acciones ? (
-                    <div className="flex shrink-0 gap-2 [&>*]:flex-1 sm:[&>*]:flex-none">
+                    <div className="flex min-w-0 shrink-0 flex-wrap gap-2 [&>*]:flex-1 sm:flex-nowrap sm:[&>*]:flex-none">
+                        {valor && secreto ? (
+                            <Boton variante="contorno" onClick={() => setMostrar((m) => !m)} aria-pressed={mostrar} aria-label={`${mostrar ? "Ocultar" : "Mostrar"} ${etiqueta.toLowerCase()}`}>
+                                {mostrar ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
+                                {mostrar ? "Ocultar" : "Mostrar"}
+                            </Boton>
+                        ) : null}
                         {valor ? (
                             <Boton variante="contorno" onClick={copiar} aria-label={`Copiar ${etiqueta.toLowerCase()}`}>
                                 <Copy aria-hidden />

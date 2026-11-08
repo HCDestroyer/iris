@@ -96,7 +96,7 @@ function Conectar({ inicial, reciente }: { inicial: Canal; reciente: RecienCread
     async function guardarToken(d: ValoresCambiarToken) {
         setErrorGuardar(null);
         try {
-            const nuevo = await actualizarCanal(canal.id, cuerpoActualizar(canal, { token: d.token, ...(d.appSecret ? { appSecret: d.appSecret } : {}) }), clave.actual());
+            const { canal: nuevo } = await actualizarCanal(canal.id, cuerpoActualizar(canal, { token: d.token, ...(d.appSecret ? { appSecret: d.appSecret } : {}) }), clave.actual());
             clave.renovar();
             setCanal(nuevo);
             form.reset({ token: "", appSecret: "" });
@@ -188,7 +188,14 @@ function Conectar({ inicial, reciente }: { inicial: Canal; reciente: RecienCread
             </SeccionFormulario>
 
             <SeccionFormulario titulo={<TituloPaso numero={3} titulo="Conectar el webhook" listo={Boolean(canal.webhookVerificadoEn)} />} descripcion="Así Meta le entrega a Iris los mensajes de este número.">
-                <WebhookMeta url={url} verifyToken={verifyToken} verifyTokenGuardadoEn={canal.verifyTokenGuardadoEn} alGenerarOtro={generar.pedir} generando={generar.generando} error={generar.error} />
+                <WebhookMeta url={url} verifyToken={verifyToken} verifyTokenGuardadoEn={canal.verifyTokenGuardadoEn} alGenerarOtro={generar.pedir}
+                    generando={generar.generando}
+                    error={generar.error}
+                    alPegado={() => {
+                        setVerifyToken(null);
+                        avisar({ titulo: "Token de verificación oculto: ya no se muestra en esta pantalla" });
+                    }}
+                />
             </SeccionFormulario>
 
             {pideToken ? (

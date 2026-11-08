@@ -33,15 +33,12 @@ export function useGenerarVerifyToken(canal: Canal, alGenerado: (canal: Canal, t
         setGenerando(true);
         setError(null);
         try {
-            const nuevo = await actualizarCanal(canal.id, cuerpoActualizar(canal, { generarVerifyToken: true }), clave.actual());
+            // El número llega ya sin `verifyTokenGenerado` (`separarToken`): el token va aparte.
+            const { canal: nuevo, verifyToken } = await actualizarCanal(canal.id, cuerpoActualizar(canal, { generarVerifyToken: true }), clave.actual());
             clave.renovar();
             setAbierto(false);
-            if (nuevo.verifyTokenGenerado) {
-                alGenerado(nuevo, nuevo.verifyTokenGenerado);
-                avisar({ titulo: "Token de verificación nuevo: pégalo en Meta" });
-            } else {
-                alGenerado(nuevo, "");
-            }
+            alGenerado(nuevo, verifyToken ?? "");
+            if (verifyToken) avisar({ titulo: "Token de verificación nuevo: pégalo en Meta" });
         } catch (e) {
             clave.trasError(e);
             setAbierto(false);

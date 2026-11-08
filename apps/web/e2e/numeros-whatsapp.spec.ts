@@ -1,6 +1,6 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { ADMIN, conSesion, simularApi, type ApiFalsa, type OpcionesApi } from "./api-falsa";
+import { ADMIN, conSesion, CREDENCIALES_WA, simularApi, type ApiFalsa, type OpcionesApi } from "./api-falsa";
 import type { ResultadoMeta } from "./api-numeros";
 import { esTelefono } from "./ayudas";
 import { buscarDesbordes } from "./desbordes";
@@ -78,6 +78,20 @@ test.describe("números de WhatsApp", () => {
         expect(activar?.idempotencia).toBeTruthy();
     });
 
+    test("lista sin `conversaciones.ver`: no lee colas ni horarios y muestra «—»", async ({ page }) => {
+        const api = await simularApi(page);
+        await conSesion(page.context(), test.info().project.use.baseURL ?? "", CREDENCIALES_WA.correo);
+        await page.goto("/administracion/numeros");
+        const fila = page.locator('[data-numero="4"]');
+        await expect(fila.locator("[data-conexion]")).toHaveText("Token vencido");
+        await expect(fila.getByRole("link", { name: "Credenciales de Cobros" })).toBeVisible();
+        await expect(fila.getByRole("link", { name: /Configurar/ })).toHaveCount(0);
+        await expect(fila.getByText("Sin dato")).toHaveCount(2);
+        expect(api.peticiones.some((p) => p.ruta === "/api/v1/mensajeria/colas" || p.ruta === "/api/v1/mensajeria/horarios")).toBe(false);
+        await expect(page.getByText("No se pudo")).toHaveCount(0);
+        await esperarSinDesbordes(page);
+    });
+
     test("lista vacía: ver la guía o agregar el primer número", async ({ page }) => {
         await abrir(page, "/administracion/numeros", { numeros: { vacio: true } });
         await expect(page.getByText("Todavía no hay números de WhatsApp")).toBeVisible();
@@ -112,12 +126,18 @@ test.describe("números de WhatsApp", () => {
         await expect(form.getByText("El token tiene entre 20 y 1024 caracteres")).toBeVisible();
         await expect(form.getByText("El app secret tiene entre 16 y 256 caracteres")).toBeVisible();
         await expect(form.getByText("Elige al menos un uso")).toBeVisible();
-        // Los secretos no se ven, no se autocompletan y se pueden mostrar.
+        // Los secretos no se ven y el gestor de contraseñas no los toma: en Chromium es un campo de
+        // texto con los puntos por CSS (nunca `type=password`), y se pueden mostrar.
         const token = form.getByRole("textbox", { name: "Token de acceso" });
-        await expect(token).toHaveAttribute("type", "password");
-        await expect(token).toHaveAttribute("autocomplete", "off");
-        await form.getByRole("button", { name: "Mostrar token de acceso" }).click();
+        await expect(token).toHaveAttribute("data-oculto", "true");
         await expect(token).toHaveAttribute("type", "text");
+        await expect(token).toHaveAttribute("autocomplete", "new-password");
+        await expect(token).toHaveAttribute("data-1p-ignore");
+        await expect(token).toHaveAttribute("data-lpignore", "true");
+        expect(await token.evaluate((n) => getComputedStyle(n).getPropertyValue("-webkit-text-security"))).toBe("disc");
+        await form.getByRole("button", { name: "Mostrar token de acceso" }).click();
+        await expect(token).toHaveAttribute("data-oculto", "false");
+        expect(await token.evaluate((n) => getComputedStyle(n).getPropertyValue("-webkit-text-security"))).toBe("none");
         expect(page.url()).not.toContain("EAAG");
         await captura(page, "agregar-errores");
 
@@ -161,7 +181,11 @@ test.describe("números de WhatsApp", () => {
         await expect(prueba.getByRole("heading", { name: "Webhook sin verificar todavía" })).toBeVisible();
         await expect(prueba).toContainText("«Red Sur Soporte», calidad alta.");
         await expect(page.getByText(`https://iris.redsur.com.gt/api/v1/mensajeria/canales/${creado?.id}/webhook`)).toBeVisible();
+        // El token se ve enmascarado hasta «Mostrar»; «Copiar» copia el valor de verdad.
+        await expect(page.getByText(creado?.verifyTokenGenerado ?? "nunca")).toHaveCount(0);
+        await page.getByRole("button", { name: "Mostrar token de verificación" }).click();
         await expect(page.getByText(creado?.verifyTokenGenerado ?? "nunca")).toBeVisible();
+        await page.getByRole("button", { name: "Ocultar token de verificación" }).click();
         await page.getByRole("button", { name: "Copiar token de verificación" }).click();
         await expect(page.getByText("Token de verificación copiado")).toBeVisible();
         expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(creado?.verifyTokenGenerado);
@@ -178,6 +202,12 @@ test.describe("números de WhatsApp", () => {
         await expect(page.getByText("Listo: el número ya recibe mensajes.")).toBeVisible();
         await expect(page.getByRole("link", { name: "Configurar uso y horario" })).toBeVisible();
         await captura(page, "agregar-probado-ok");
+
+        // «Ya lo pegué en Meta» lo borra de la pantalla.
+        await page.getByRole("button", { name: "Ya lo pegué en Meta" }).click();
+        await expect(page.getByText("Token de verificación oculto: ya no se muestra en esta pantalla")).toBeVisible();
+        await expect(page.getByRole("group", { name: "Token de verificación" })).toContainText("•••• guardado");
+        await expect(page.getByRole("button", { name: "Mostrar token de verificación" })).toHaveCount(0);
 
         // Recargar: el token de verificación ya no se muestra (está «Generar otro»).
         await page.reload();
@@ -255,6 +285,8 @@ test.describe("números de WhatsApp", () => {
         await expect(page.getByText("Token de verificación nuevo: pégalo en Meta")).toBeVisible();
         const nuevo = api.numeros.secretos.get(2)?.verifyToken ?? "";
         expect(nuevo).toMatch(/^vt_/);
+        await expect(form.getByText(nuevo)).toHaveCount(0);
+        await form.getByRole("button", { name: "Mostrar token de verificación" }).click();
         await expect(form.getByText(nuevo)).toBeVisible();
         await expect(form.getByText("Meta aún no verificó el webhook")).toBeVisible();
         const generar = api.numeros.cuerpos.filter((c) => c.ruta.endsWith("/2/actualizar")).at(-1)?.cuerpo;

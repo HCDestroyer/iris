@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Aviso, Campo, CampoSecreto, CampoSelector, Casilla, FormularioPagina, Interruptor, liberarProteccion, SeccionFormulario, avisar } from "@iris/ui";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { CargaRegistro } from "@/componentes/carga-registro";
 import { ChecklistMeta, EnlaceGuia } from "@/componentes/numeros/checklist-meta";
@@ -18,7 +18,7 @@ import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
 import { crearCanal, leerCanales, probarCanal } from "@/lib/numeros/api";
 import { esquemaNuevoNumero, USOS, type EntradaNuevoNumero, type ValoresNuevoNumero } from "@/lib/numeros/esquemas";
-import { dejarRecienCreado } from "@/lib/numeros/recien-creado";
+import { dejarRecienCreado, olvidarRecienCreado } from "@/lib/numeros/recien-creado";
 import type { Canal, PruebaCanal } from "@/lib/numeros/tipos";
 import type { Schema } from "@iris/contratos";
 import { useSesion } from "@/lib/sesion";
@@ -50,6 +50,11 @@ function Formulario({ canales, colas }: { canales: Canal[]; colas: Schema<"ColaC
     const { yo } = useSesion();
     const clave = useClaveIdempotencia();
     const [error, setError] = useState<unknown>(null);
+    // Lo que quedara de un alta anterior que no llegó a «Conectar» se olvida al abrir esta pantalla;
+    // y, aunque nadie vuelva, vence solo al minuto (`VIDA_RECIEN_CREADO_MS`).
+    useEffect(() => {
+        olvidarRecienCreado();
+    }, []);
     const form = useForm<EntradaNuevoNumero, unknown, ValoresNuevoNumero>({
         resolver: zodResolver(esquemaNuevoNumero),
         defaultValues: { nombre: "", numero: "", phoneNumberId: "", wabaId: "", token: "", appSecret: "", usos: ["soporte"], avisosEmpresa: false, colaId: colas?.[0] ? String(colas[0].id) : "" },
@@ -62,8 +67,9 @@ function Formulario({ canales, colas }: { canales: Canal[]; colas: Schema<"ColaC
     async function guardar(d: ValoresNuevoNumero) {
         setError(null);
         let canal: Canal;
+        let verifyToken: string | null;
         try {
-            canal = await crearCanal(
+            ({ canal, verifyToken } = await crearCanal(
                 {
                     empresaId: empresa?.id ?? null,
                     nombre: d.nombre,
@@ -78,7 +84,7 @@ function Formulario({ canales, colas }: { canales: Canal[]; colas: Schema<"ColaC
                     colaId: d.colaId ? Number(d.colaId) : null,
                 },
                 clave.actual(),
-            );
+            ));
             clave.renovar();
         } catch (e) {
             clave.trasError(e);
@@ -98,7 +104,7 @@ function Formulario({ canales, colas }: { canales: Canal[]; colas: Schema<"ColaC
             errorPrueba = e;
         }
         // El token de verificación generado pasa a «Conectar» solo en memoria (nunca en la URL).
-        dejarRecienCreado({ canal, verifyToken: canal.verifyTokenGenerado ?? null, prueba, errorPrueba });
+        dejarRecienCreado({ canal, verifyToken, prueba, errorPrueba });
         await liberarProteccion();
         router.replace(`/administracion/numeros/${canal.id}/conectar`);
     }
