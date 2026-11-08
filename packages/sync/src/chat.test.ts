@@ -632,6 +632,51 @@ describe("caché y cierre de sesión", () => {
     });
 });
 
+describe("«Nuevo mensaje» → personas (GET /chat/personas)", () => {
+    it("busca en la API a cualquiera con chat.ver (también soporte sin chat previo), sin ti y con búsqueda", async () => {
+        const { motor, servidor } = await montar();
+        await arrancar(motor);
+        servidor.nombres.set(ANDREA.id, ANDREA.nombre);
+        servidor.nombres.set(21, "Sofía Soporte");
+        servidor.nombres.set(YO, "Yo mismo");
+        // Nadie le ha escrito: los conocidos están vacíos, la API no.
+        expect(motor.contactosConocidos()).toEqual([]);
+        const todas = await motor.buscarPersonas("");
+        expect(todas.personas.map((p) => p.nombre)).toEqual(["Andrea Castillo", "Sofía Soporte"]);
+        expect(todas.siguiente).toBeNull();
+        const filtradas = await motor.buscarPersonas("sof");
+        expect(filtradas.personas).toEqual([{ id: 21, nombre: "Sofía Soporte", conversacion_id: null }]);
+        expect(servidor.llamadasA("personas")).toEqual([
+            ["", undefined],
+            ["sof", undefined],
+        ]);
+    });
+
+    it("pagina con nextCursor y deja pasar la falta de señal (la pantalla ofrece los conocidos)", async () => {
+        const { motor, servidor } = await montar();
+        await arrancar(motor);
+        servidor.tamanoPersonas = 1;
+        servidor.nombres.set(ANDREA.id, ANDREA.nombre);
+        servidor.nombres.set(21, "Sofía Soporte");
+        const p1 = await motor.buscarPersonas("");
+        expect(p1.personas.map((p) => p.id)).toEqual([ANDREA.id]);
+        const p2 = await motor.buscarPersonas("", hay(p1.siguiente));
+        expect(p2.personas.map((p) => p.id)).toEqual([21]);
+        expect(p2.siguiente).toBeNull();
+        servidor.fallar("personas", errorRed());
+        await expect(motor.buscarPersonas("")).rejects.toMatchObject({ tipo: "red" });
+    });
+
+    it("abrir la directa con alguien de la lista la guarda y la abre", async () => {
+        const { motor, servidor } = await montar();
+        await arrancar(motor);
+        servidor.nombres.set(21, "Sofía Soporte");
+        const c = await motor.abrirDirecta(21);
+        expect(c.otro_usuario).toEqual({ id: 21, nombre: "Sofía Soporte" });
+        expect((await motor.buscarPersonas("")).personas).toEqual([{ id: 21, nombre: "Sofía Soporte", conversacion_id: c.id }]);
+    });
+});
+
 describe("lógica de pantalla", () => {
     it("vistas del chat en la URL, del botón «Chat» de la isla", () => {
         for (const v of [{ tipo: "chat" as const }, { tipo: "chat_nuevo" as const }, { tipo: "conversacion" as const, id: 12 }]) {

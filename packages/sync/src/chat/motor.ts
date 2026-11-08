@@ -32,6 +32,7 @@ import {
     type MensajeChat,
     type MetaChat,
     type SalidaChat,
+    type PersonaChat,
     type TransporteChat,
     type UbicacionChat,
     type VistaPreviaChat,
@@ -447,6 +448,18 @@ export class MotorChat {
         } catch (e) {
             this.alFallarLectura(e);
         }
+    }
+
+    /**
+     * «Nuevo mensaje» → Persona: busca en la API (`GET /chat/personas`) a cualquiera de la empresa
+     * con `chat.ver` (despacho, soporte, supervisores, técnicos), no solo a quien el teléfono ya
+     * conoce. Necesita señal: sin ella lanza `ErrorTransporte` de red (la pantalla ofrece los
+     * conocidos). `data` puede venir `null` del contrato: se normaliza a `[]`.
+     */
+    async buscarPersonas(q: string, cursor?: string): Promise<{ personas: PersonaChat[]; siguiente: string | null }> {
+        await this.verificar();
+        const p = await this.transporte.personas(q, cursor);
+        return { personas: (p.data ?? []).filter((x) => x.id !== this.usuarioId), siguiente: p.nextCursor ?? null };
     }
 
     /** Abre (o trae) la directa con esa persona. Lanza `ErrorTransporte` (422 `usuario_no_disponible`). */

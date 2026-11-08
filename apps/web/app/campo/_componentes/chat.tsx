@@ -18,9 +18,10 @@ import {
     vistaPrevia,
     type ConversacionVista,
     type MensajeVista,
+    type PersonaChat,
 } from "@iris/sync/chat";
 import { iniciales, urlDeVista, type Vista } from "@iris/sync/campo";
-import { AreaTexto, Aviso, Boton, Camara, Cargando, EstadoVacio, cn } from "@iris/ui";
+import { AreaTexto, Aviso, Boton, Camara, CampoBusqueda, Cargando, EstadoVacio, cn } from "@iris/ui";
 import { ArrowLeft, Ban, ChevronRight, ClipboardList, Copy, MapPin, MessageCircle, MessageSquarePlus, RefreshCw, RotateCcw, Send, Trash2, TriangleAlert, Users, WifiOff } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 import { ErrorTransporte } from "@iris/sync";
@@ -323,11 +324,69 @@ export function ListaChat() {
  * Nuevo mensaje (directa)
  * --------------------------------------------------------------------------------------------*/
 
+/** Espera (ms) tras teclear antes de buscar. */
+const ESPERA_BUSQUEDA_MS = 300;
+
+type BusquedaPersonas =
+    | { estado: "cargando" }
+    | { estado: "lista"; personas: PersonaChat[]; siguiente: string | null; masCargando: boolean }
+    | { estado: "sin_senal" }
+    | { estado: "error" };
+
+/**
+ * `GET /chat/personas?q=` con espera al teclear: cualquier persona activa de la empresa con
+ * `chat.ver` (la regla del servidor), no solo quien el teléfono ya conoce. La última búsqueda manda.
+ */
+function useBuscarPersonas(q: string): { busqueda: BusquedaPersonas; reintentar: () => void; mas: () => void } {
+    const { chat } = useChat();
+    const [busqueda, setBusqueda] = useState<BusquedaPersonas>({ estado: "cargando" });
+    const [vez, setVez] = useState(0);
+    const pedido = useRef(0);
+    // Otra búsqueda (texto o «Reintentar»): vuelve a «cargando» en el mismo render.
+    const clave = `${vez}|${q}`;
+    const [buscada, setBuscada] = useState(clave);
+    if (buscada !== clave) {
+        setBuscada(clave);
+        setBusqueda({ estado: "cargando" });
+    }
+    useEffect(() => {
+        const n = ++pedido.current;
+        const t = setTimeout(() => {
+            chat.buscarPersonas(q)
+                .then((r) => n === pedido.current && setBusqueda({ estado: "lista", personas: r.personas, siguiente: r.siguiente, masCargando: false }))
+                .catch((e: unknown) => n === pedido.current && setBusqueda(e instanceof ErrorTransporte && e.tipo === "red" ? { estado: "sin_senal" } : { estado: "error" }));
+        }, ESPERA_BUSQUEDA_MS);
+        return () => clearTimeout(t);
+    }, [chat, q, vez]);
+    const mas = () => {
+        if (busqueda.estado !== "lista" || !busqueda.siguiente || busqueda.masCargando) {
+            return;
+        }
+        const n = pedido.current;
+        const actual = busqueda;
+        setBusqueda({ ...actual, masCargando: true });
+        chat.buscarPersonas(q, actual.siguiente ?? undefined)
+            .then((r) => {
+                if (n === pedido.current) {
+                    const vistos = new Set(actual.personas.map((p) => p.id));
+                    setBusqueda({ estado: "lista", personas: [...actual.personas, ...r.personas.filter((p) => !vistos.has(p.id))], siguiente: r.siguiente, masCargando: false });
+                }
+            })
+            .catch(() => n === pedido.current && setBusqueda({ ...actual, masCargando: false }));
+    };
+    return { busqueda, reintentar: () => setVez((v) => v + 1), mas };
+}
+
+/**
+ * «Nuevo mensaje»: busca a cualquiera de la empresa que use el chat (despacho, soporte,
+ * supervisores, técnicos) y abre la directa. Sin señal ofrece a quienes el teléfono ya conoce.
+ */
 export function NuevoChat() {
     const { chat } = useChat();
     const { navegar, notificar } = useCampo();
     const [abriendo, setAbriendo] = useState<number | null>(null);
-    const contactos = chat.contactosConocidos();
+    const [texto, setTexto] = useState("");
+    const { busqueda, reintentar, mas } = useBuscarPersonas(texto);
     const abrir = async (id: number) => {
         setAbriendo(id);
         try {
@@ -343,6 +402,9 @@ export function NuevoChat() {
             setAbriendo(null);
         }
     };
+    const filtro = texto.trim().toLocaleLowerCase("es");
+    const conocidos = busqueda.estado === "sin_senal" ? chat.contactosConocidos().filter((p) => !filtro || p.nombre.toLocaleLowerCase("es").includes(filtro)) : [];
+    const personas = busqueda.estado === "lista" ? busqueda.personas : conocidos;
     return (
         <section aria-labelledby="titulo-nuevo-chat" className="grid grid-cols-[minmax(0,1fr)] gap-4">
             <div className="flex items-center gap-3">
@@ -353,12 +415,29 @@ export function NuevoChat() {
                     Nuevo mensaje
                 </h1>
             </div>
-            <p className="text-sm text-muted-foreground">Personas de tu equipo con las que ya coincidiste en el chat (tu cuadrilla, despacho y tus órdenes).</p>
-            {contactos.length === 0 ? (
-                <EstadoVacio icono={Users} titulo="Aún no hay personas para elegir" descripcion="Cuando alguien de despacho o de tu cuadrilla te escriba, aparecerá aquí. Mientras, usa el chat de tu cuadrilla o el de una orden." />
-            ) : (
+            <p className="text-sm text-muted-foreground">Escríbele a cualquier persona de tu empresa que use el chat: despacho, soporte, supervisores o técnicos.</p>
+            <CampoBusqueda etiqueta="Buscar persona" valor={texto} alCambiar={setTexto} placeholder="Nombre" maxLength={100} />
+            {busqueda.estado === "cargando" ? <Cargando texto="Buscando personas…" visible /> : null}
+            {busqueda.estado === "error" ? (
+                <Aviso tono="error" titulo="No se pudo leer la lista de personas" accion={<Boton variante="secundario" onClick={reintentar}>Reintentar</Boton>}>
+                    Vuelve a intentarlo en un momento.
+                </Aviso>
+            ) : null}
+            {busqueda.estado === "sin_senal" ? (
+                <Aviso tono="warning" icono={WifiOff} titulo="Sin señal" accion={<Boton variante="secundario" onClick={reintentar}>Reintentar</Boton>}>
+                    {conocidos.length > 0 ? "Abajo, las personas con las que ya hablaste. Para abrir una conversación hace falta señal." : "Para buscar personas y abrir una conversación hace falta señal."}
+                </Aviso>
+            ) : null}
+            {busqueda.estado === "lista" && personas.length === 0 ? (
+                <EstadoVacio
+                    icono={Users}
+                    titulo={filtro ? "Nadie con ese nombre" : "Aún no hay personas para elegir"}
+                    descripcion={filtro ? "Revisa cómo se escribe o busca por otro nombre." : "Nadie más de tu empresa usa el chat todavía. Mientras, usa el chat de tu cuadrilla o el de una orden."}
+                />
+            ) : null}
+            {personas.length > 0 ? (
                 <ul className="grid grid-cols-[minmax(0,1fr)] gap-2" aria-label="Personas">
-                    {contactos.map((p) => (
+                    {personas.map((p) => (
                         <li key={p.id}>
                             <Boton variante="secundario" tamano="lg" className="h-auto min-h-14 w-full justify-start py-2" disabled={abriendo !== null} onClick={() => void abrir(p.id)}>
                                 <span aria-hidden className="grid size-10 shrink-0 place-content-center rounded-full bg-[var(--campo-marca-suave)] text-sm font-bold text-[var(--campo-marca-suave-texto)]">
@@ -370,7 +449,12 @@ export function NuevoChat() {
                         </li>
                     ))}
                 </ul>
-            )}
+            ) : null}
+            {busqueda.estado === "lista" && busqueda.siguiente ? (
+                <Boton variante="fantasma" disabled={busqueda.masCargando} onClick={mas}>
+                    {busqueda.masCargando ? "Cargando…" : "Ver más personas"}
+                </Boton>
+            ) : null}
         </section>
     );
 }

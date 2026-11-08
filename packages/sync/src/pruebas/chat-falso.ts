@@ -15,6 +15,7 @@ import type {
     LecturaMiembroChat,
     MensajeChat,
     OyentesFlujo,
+    PaginaPersonaChat,
     TransporteChat,
 } from "../chat/tipos";
 
@@ -172,6 +173,24 @@ export class ServidorChatFalso implements TransporteChat {
     verConversacion(id: number) {
         this.registrar("verConversacion", [id]);
         return Promise.resolve(this.detalle(id));
+    }
+
+    /**
+     * `GET /chat/personas`: las de `nombres` (personas de la empresa con `chat.ver`), sin el dueño,
+     * por nombre; `q` filtra sin distinguir mayúsculas. Páginas de `tamanoPersonas`.
+     */
+    tamanoPersonas = 50;
+    personas(q: string, cursor?: string): Promise<PaginaPersonaChat> {
+        this.registrar("personas", [q, cursor]);
+        const filtro = q.trim().toLocaleLowerCase("es");
+        const todas = [...this.nombres.entries()]
+            .filter(([id, nombre]) => id !== this.yo && (!filtro || nombre.toLocaleLowerCase("es").includes(filtro)))
+            .sort((a, b) => a[1].localeCompare(b[1], "es") || a[0] - b[0])
+            .map(([id, nombre]) => ({ id, nombre, conversacion_id: [...this.conversaciones.values()].find((c) => c.tipo === "directa" && c.otro_usuario?.id === id)?.id ?? null }));
+        const desde = cursor ? Number(cursor) : 0;
+        const data = todas.slice(desde, desde + this.tamanoPersonas);
+        const siguiente = desde + this.tamanoPersonas;
+        return Promise.resolve({ data, nextCursor: siguiente < todas.length ? String(siguiente) : null });
     }
 
     abrirDirecta(usuarioId: number) {
