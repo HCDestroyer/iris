@@ -202,9 +202,9 @@ func nuevoCrearCanalQR(m *Modulo) *CrearCanalQR {
 				return qrPreparado{}, err
 			}
 			switch {
-			case c.modo == ModoMetaCompartida:
+			case c.modo == ModoMetaCompartida && m.cfg.ServicioCentral == nil:
 				return qrPreparado{}, servicioCentralNoDisponible()
-			case !c.completa():
+			case c.modo != ModoMetaCompartida && !c.completa():
 				return qrPreparado{}, sinConexionMeta()
 			}
 			empresa := in.EmpresaID
@@ -454,7 +454,7 @@ func nuevoSincronizar(m *Modulo) *Sincronizar {
 			if out.conexion, err = m.conexion(ctx, mensajeriabd.New(t)); err != nil {
 				return syncReservada{}, err
 			}
-			if out.conexion.modo == ModoMetaCompartida {
+			if out.conexion.modo == ModoMetaCompartida && m.cfg.ServicioCentral == nil {
 				return syncReservada{}, servicioCentralNoDisponible()
 			}
 			cr, err := m.credencialesDe(f)

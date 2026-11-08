@@ -808,6 +808,10 @@ func nuevoReabrirConv(m *Modulo) *auditoria.Caso[EntradaAccionConv, Conversacion
 				if c.Estado != EstadoConvResuelta {
 					return reglaConv("no_resuelta", "Solo se reabre una conversación resuelta")
 				}
+				// Un número compartido: no se le quita a otra empresa su conversación abierta (§15.3).
+				if err := otraEmpresaConversa(ctx, q, c.CanalID, empresaDeConv(*c), c.Numero); err != nil {
+					return err
+				}
 				ahora := m.ahora()
 				c.Estado, c.ReabiertaEn, c.ResueltaEn = EstadoConvAbierta, &ahora, nil
 				if err := m.sistema(ctx, t, c, EventoSistema{Tipo: "reabierta", ActorNombre: actorNombre(ctx, q, a.usuario)}); err != nil {

@@ -331,7 +331,7 @@ func nuevoRegistrarBoleta(m *Modulo) *auditoria.Caso[EntradaBoleta, Boleta] {
 					return err
 				}
 				datos, _, err := adjuntos.Contenido(ctx, m.cfg.Almacen, t, in.AdjuntoID, EntidadAdjuntosConversacion, strconv.FormatInt(c.ID, 10), 5<<20)
-				if err != nil || !esMimeBoleta(http.DetectContentType(datos)) {
+				if err != nil || !esMimeBoleta(http.DetectContentType(datos)) || !adjuntoDeEmpresa(ctx, q, in.AdjuntoID, empresaDeConv(*c)) {
 					return reglaConv("adjunto_no_listo", "La boleta debe ser una imagen JPG, PNG o WebP o un PDF completo de esta conversación, de hasta 5 MB")
 				}
 				id, err := uuid.NewV7()
