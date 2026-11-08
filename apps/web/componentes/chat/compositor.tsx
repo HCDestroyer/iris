@@ -3,10 +3,11 @@
 import { AreaTexto, avisar, Boton, Camara, cn, idOpcion, inicialesDe, ListaSugerencias, teclasSugerencias } from "@iris/ui";
 import { MAXIMO_TEXTO, textoValido, type MotorChat } from "@iris/sync/chat";
 import { Camera, Info, Lock, MapPin, Send } from "lucide-react";
-import { useId, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import { comprimirFoto } from "@/lib/campo/imagen";
 import { aplicarMencion, candidatosMencion, consultaMencion, mencionesVigentes, textoMotivo, type ConsultaMencion } from "@/lib/chat/presentacion";
 import type { MiembroChat } from "@/lib/chat/api";
+import { useChatEquipo } from "./proveedor";
 
 type Props = {
     motor: MotorChat;
@@ -32,10 +33,20 @@ function useAnchoTelefono(): boolean {
     return useSyncExternalStore(suscribirTelefono, () => window.matchMedia(CONSULTA_TELEFONO).matches, () => false);
 }
 
-/** Compositor del chat del equipo: Enter envía, Mayús + Enter baja de línea, `@` menciona. */
+/**
+ * Compositor del chat del equipo: Enter envía, Mayús + Enter baja de línea, `@` menciona. Lo escrito
+ * sin enviar queda como borrador de la conversación (en memoria): cerrar y volver a abrir el panel
+ * flotante, o pasar a la página Equipo, no lo pierde. Se monta con `key` por conversación.
+ */
 export function CompositorChat({ motor, conversacionId, tipo, nombre, miembros, yoId, bloqueado, className }: Props) {
-    const [texto, setTexto] = useState("");
-    const [elegidos, setElegidos] = useState<{ id: number; nombre: string }[]>([]);
+    const borradores = useChatEquipo()?.borradores;
+    const [texto, setTexto] = useState(() => borradores?.get(conversacionId)?.texto ?? "");
+    const [elegidos, setElegidos] = useState<{ id: number; nombre: string }[]>(() => borradores?.get(conversacionId)?.elegidos ?? []);
+    useEffect(() => {
+        if (!borradores) return;
+        if (texto.trim()) borradores.set(conversacionId, { texto, elegidos });
+        else borradores.delete(conversacionId);
+    }, [borradores, conversacionId, texto, elegidos]);
     const [consulta, setConsulta] = useState<ConsultaMencion | null>(null);
     const [activa, setActiva] = useState(0);
     const [enviando, setEnviando] = useState(false);

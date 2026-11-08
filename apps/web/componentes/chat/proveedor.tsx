@@ -49,7 +49,15 @@ type ContextoChatEquipo = {
     abrirPanel: (conversacion?: number | null) => void;
     cerrarPanel: () => void;
     elegirEnPanel: (conversacion: number | null) => void;
+    /**
+     * Lo escrito y sin enviar por conversación, solo en memoria de esta pestaña (se pierde al
+     * recargar y al cambiar de usuario o de empresa): cerrar y volver a abrir el panel lo conserva.
+     */
+    borradores: Map<number, BorradorChat>;
 };
+
+/** Texto sin enviar del compositor y las menciones ya elegidas. */
+export type BorradorChat = { texto: string; elegidos: { id: number; nombre: string }[] };
 
 const Contexto = createContext<ContextoChatEquipo | null>(null);
 
@@ -272,6 +280,7 @@ function ChatActivo({ motor, yoId, empresaId, children }: { motor: MotorChat; yo
     const abrirPanel = useCallback((conversacion?: number | null) => setPanel((p) => ({ abierto: true, conversacion: conversacion === undefined ? p.conversacion : conversacion })), []);
     const cerrarPanel = useCallback(() => setPanel((p) => ({ ...p, abierto: false })), []);
     const elegirEnPanel = useCallback((conversacion: number | null) => setPanel({ abierto: true, conversacion }), []);
+    const [borradores] = useState(() => new Map<number, BorradorChat>());
     const reintentar = useCallback(() => {
         motor.reintentarAhora();
         void motor.recargar();
@@ -299,8 +308,9 @@ function ChatActivo({ motor, yoId, empresaId, children }: { motor: MotorChat; yo
             abrirPanel,
             cerrarPanel,
             elegirEnPanel,
+            borradores,
         }),
-        [motor, estado, yoId, puedeEnviar, puedeSupervisar, resumen, enVivo, reintentar, eliminando, eliminar, vaciar, panel, abrirPanel, cerrarPanel, elegirEnPanel],
+        [motor, estado, yoId, puedeEnviar, puedeSupervisar, resumen, enVivo, reintentar, eliminando, eliminar, vaciar, panel, abrirPanel, cerrarPanel, elegirEnPanel, borradores],
     );
     return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;
 }

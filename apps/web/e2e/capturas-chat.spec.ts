@@ -47,6 +47,29 @@ test("capturas del chat del equipo", async ({ page }) => {
     await page.screenshot({ path: nombre(page, "nuevo-mensaje") });
 });
 
+test("capturas del panel flotante sobre la agenda, el mapa y las órdenes", async ({ page }) => {
+    test.setTimeout(120_000);
+    await abrir(page, "/agenda");
+    const anchos = esTelefono(page) ? [null] : [1280, 1440];
+    for (const ancho of anchos) {
+        if (ancho) await page.setViewportSize({ width: ancho, height: 900 });
+        for (const [vista, ruta] of [
+            ["agenda", "/agenda"],
+            ["mapa", "/mapa"],
+            ["ordenes", "/ordenes"],
+        ] as const) {
+            await page.goto(ruta);
+            await page.locator('[data-slot="boton-chat-equipo"]').click();
+            const panel = page.getByRole("dialog", { name: "Chat del equipo" });
+            await expect(panel.getByText("En vivo")).toBeVisible({ timeout: 10_000 });
+            await expect(panel.getByRole("button", { name: "Cerrar el chat del equipo" })).toBeInViewport({ ratio: 1 });
+            const archivo = nombre(page, `flotante-${vista}`);
+            await page.screenshot({ path: ancho ? archivo.replace(/-1280-/, `-${ancho}-`) : archivo });
+            if (esTelefono(page)) break;
+        }
+    }
+});
+
 test("capturas de la página Equipo y de la orden", async ({ page }) => {
     test.setTimeout(120_000);
     await abrir(page, "/equipo");

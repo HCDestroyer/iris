@@ -76,6 +76,78 @@ test.describe("chat del equipo", () => {
         await expect(botonChat(page)).toHaveAttribute("aria-expanded", "false");
     });
 
+    test("panel flotante: la página no se corre, la agenda de atrás responde y «Cerrar» siempre se ve", async ({ page }) => {
+        await abrir(page, "/agenda");
+        await expect(page.getByRole("radio", { name: "Mes" })).toBeChecked();
+        const contenido = page.locator("#contenido");
+        // Ancho de la página y caja horizontal del contenido (el alto puede cambiar al llegar los datos).
+        const medir = () =>
+            page.evaluate(() => {
+                const c = document.getElementById("contenido")?.getBoundingClientRect();
+                const estilo = document.getElementById("contenido") ? getComputedStyle(document.getElementById("contenido") as HTMLElement) : null;
+                return { ancho: document.documentElement.scrollWidth, x: c?.x, width: c?.width, padding: estilo?.paddingRight, margen: estilo?.marginRight };
+            });
+        const antes = await medir();
+        await botonChat(page).click();
+        const panel = panelChat(page);
+        await expect(panel.getByText("En vivo")).toBeVisible({ timeout: 10_000 });
+        const cerrar = panel.getByRole("button", { name: "Cerrar el chat del equipo" });
+        await expect(cerrar).toBeInViewport({ ratio: 1 });
+        // La página de atrás no cambia de ancho ni se reacomoda al abrir el panel.
+        expect(await medir()).toEqual(antes);
+        await expect(page.locator(".modal__backdrop, .drawer__backdrop")).toHaveCount(0);
+        const vista = page.viewportSize() ?? { width: 0, height: 0 };
+        const caja = await panel.boundingBox();
+        if (!caja) throw new Error("sin panel");
+        if (vista.width < 640) {
+            // Teléfono: a pantalla completa bajo la barra superior.
+            expect(Math.round(caja.x)).toBe(0);
+            expect(Math.round(caja.width)).toBe(vista.width);
+            expect(Math.round(caja.y)).toBe(56);
+            expect(Math.round(caja.y + caja.height)).toBe(vista.height);
+        } else {
+            // Escritorio: tarjeta flotante de 380 px a 12 px de los bordes, con esquinas y sombra.
+            expect(Math.round(caja.width)).toBe(380);
+            expect(Math.round(vista.width - (caja.x + caja.width))).toBe(12);
+            expect(Math.round(caja.y)).toBe(56 + 12);
+            expect(Math.round(vista.height - (caja.y + caja.height))).toBe(12);
+            const estilo = await panel.evaluate((n) => {
+                const e = getComputedStyle(n);
+                return { radio: Number.parseFloat(e.borderTopLeftRadius), sombra: e.boxShadow, borde: e.borderLeftWidth };
+            });
+            expect(estilo.radio).toBeGreaterThan(0);
+            expect(estilo.sombra).not.toBe("none");
+            expect(estilo.borde).toBe("1px");
+            // Un clic en la agenda de atrás (fuera del panel) le llega a ella, con el panel abierto.
+            await page.getByRole("button", { name: "Mes siguiente" }).click();
+            await expect(page).toHaveURL(/dia=\d{4}-\d{2}-\d{2}/);
+            await expect(panel).toBeVisible();
+            await expect(contenido).toBeVisible();
+            // A 1440 px igual: la página no se corre y «Cerrar» se ve.
+            await page.setViewportSize({ width: 1440, height: 900 });
+            await expect(cerrar).toBeInViewport({ ratio: 1 });
+            const ancho = await medir();
+            await cerrar.click();
+            await expect(panel).toBeHidden();
+            expect(await medir()).toEqual(ancho);
+        }
+        await esperarSinDesbordes(page);
+    });
+
+    test("cerrar y volver a abrir el panel conserva la conversación y lo escrito sin enviar", async ({ page }) => {
+        await abrir(page);
+        await botonChat(page).click();
+        const panel = panelChat(page);
+        await fila(page, CONV.ordenViva).click();
+        await expect(panel.getByRole("heading", { name: "OT-000005 · Mantenimiento" })).toBeVisible();
+        await compositor(page).fill("Voy en camino con el conector");
+        await panel.getByRole("button", { name: "Cerrar el chat del equipo" }).click();
+        await expect(panel).toBeHidden();
+        await botonChat(page).click();
+        await expect(panel.getByRole("heading", { name: "OT-000005 · Mantenimiento" })).toBeVisible();
+        await expect(compositor(page)).toHaveValue("Voy en camino con el conector");
+    });
+
     test("lista y conversación se turnan con «Atrás»; «Abrir en página» conserva la conversación", async ({ page }) => {
         await abrir(page);
         await botonChat(page).click();
