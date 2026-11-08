@@ -650,6 +650,9 @@ describe("«Nuevo mensaje» → personas (GET /chat/personas)", () => {
             ["", undefined],
             ["sof", undefined],
         ]);
+        // `q` va recortado a los 100 caracteres del contrato.
+        await motor.buscarPersonas(` ${"á".repeat(150)} `);
+        expect(hay(servidor.llamadasA("personas").at(-1))[0]).toBe("á".repeat(100));
     });
 
     it("pagina con nextCursor y deja pasar la falta de señal (la pantalla ofrece los conocidos)", async () => {

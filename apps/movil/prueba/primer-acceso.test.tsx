@@ -2,7 +2,8 @@
 // panel de Iris desde un navegador…» con solo «Reintentar», y un técnico con solo el teléfono quedaba
 // atrapado. Ahora la cambia ahí mismo («Crea tu contraseña», opción B del login) con
 // `POST /yo/contrasena` (cookie + CSRF de la sesión limitada) y entra directo; y toda pantalla de
-// bloqueo del arranque tiene «Usar otra cuenta» y el «Atrás» de Android lleva al login.
+// bloqueo del arranque tiene «Usar otra cuenta», que borra lo mismo que el cierre normal (push y
+// fotos). El «Atrás» de Android nunca cierra la sesión: sale de la app o vuelve a donde estaba.
 import type { Schema } from "@iris/contratos";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
 import { BackHandler, StyleSheet } from "react-native";
@@ -13,12 +14,20 @@ import { crearTema } from "../src/tema/tokens";
 import { ErrorTransporte } from "@iris/sync";
 import { montar } from "@iris/sync/pruebas";
 import { ApiFalsa, problema, usuario, yo } from "./api-falsa";
-import { abrirCampo } from "./arnes";
+import { vaciarCacheFotos } from "../src/campo/foto";
+import { ElegirEmpresa } from "../src/pantallas/ElegirEmpresa";
+import { CLAVE_GRUPOS, CLAVE_HECHAS, CLAVE_PENDIENTES, claveGrupo } from "../src/push/locales";
+import { abrirCampo, sesion as sesionDePrueba } from "./arnes";
+import { TemaDePrueba } from "./raiz";
 import { clavesMemoria, secretoMemoria } from "./preparar";
+
+const clavesPush = () => [...(entorno().claves as ReturnType<typeof clavesMemoria>).datos.keys()].filter((k) => k.startsWith("iris-push"));
 
 // Uniwind compila el CSS en Metro; en Jest no hace falta.
 jest.mock("../src/global.css", () => ({}));
 jest.mock("expo-camera", () => ({ CameraView: () => null, useCameraPermissions: () => [null, jest.fn()] }));
+// Las fotos en caché del teléfono: se espía que «Usar otra cuenta» las vacíe.
+jest.mock("../src/campo/foto", () => ({ ...jest.requireActual<object>("../src/campo/foto"), vaciarCacheFotos: jest.fn() }));
 
 const NUEVA = "una frase bastante larga";
 
@@ -187,47 +196,75 @@ describe("contraseña temporal al entrar", () => {
 });
 
 describe("salida de las pantallas de bloqueo", () => {
-    it("«Usar otra cuenta» cierra la sesión limitada (DELETE /sesion con su CSRF) y lleva al login", async () => {
+    it("«Usar otra cuenta» cierra la sesión limitada (DELETE /sesion con su CSRF), borra push y fotos como el cierre normal y lleva al login", async () => {
         const a = api();
+        // Restos de push de una sesión anterior en el teléfono.
+        entorno().claves.escribir(CLAVE_GRUPOS, JSON.stringify(["chat-40"]));
+        entorno().claves.escribir(claveGrupo("chat-40"), JSON.stringify(["Andrea: hola"]));
+        entorno().claves.escribir(CLAVE_HECHAS, JSON.stringify(["x"]));
+        entorno().claves.escribir(CLAVE_PENDIENTES, JSON.stringify([{ usuarioId: 99, accion: "leer" }]));
+        (vaciarCacheFotos as jest.Mock).mockClear();
         await abrir();
         await fireEvent.press(screen.getByTestId("usar-otra-cuenta"));
         expect(await screen.findByRole("header", { name: "Iris Campo" })).toBeTruthy();
         const borrar = a.peticiones.find((p) => p.metodo === "DELETE" && p.ruta === "/api/v1/sesion");
         expect(borrar?.cabeceras.get("X-CSRF-Token")).toBe("csrf-temporal");
+        expect(clavesPush()).toEqual([]);
+        expect(vaciarCacheFotos).toHaveBeenCalled();
         // Pide correo (otra cuenta), no recuerda a nadie.
         expect(screen.getByLabelText("Correo")).toBeTruthy();
     });
 
-    it("«Atrás» de Android en «Crea tu contraseña» lleva al login (no deja la app atrapada)", async () => {
+    it("«Atrás» de Android en «Crea tu contraseña» sale de la app sin cerrar la sesión", async () => {
         const atras = atrasAndroid();
         const a = api();
         await abrir();
-        expect(await atras()).toBe(true);
-        expect(await screen.findByRole("header", { name: "Iris Campo" })).toBeTruthy();
-        expect(a.peticiones.some((p) => p.metodo === "DELETE" && p.ruta === "/api/v1/sesion")).toBe(true);
+        // Sin atender: Android sale de la app; nada se cierra sin preguntar.
+        expect(await atras()).toBe(false);
+        expect(screen.getByTestId("crear-contrasena")).toBeTruthy();
+        expect(a.peticiones.some((p) => p.metodo === "DELETE")).toBe(false);
     });
 
-    it("sin empresa asignada: el mismo diseño con «Usar otra cuenta» y «Atrás» al login", async () => {
+    it("sin empresa asignada: el mismo diseño con «Usar otra cuenta»; «Atrás» sale sin cerrar la sesión", async () => {
         const atras = atrasAndroid();
-        new ApiFalsa()
+        const a = new ApiFalsa()
             .en("GET", "/api/v1/yo", () => ({ status: 200, cuerpo: { ...yo(5, []), modoEmpresa: "sin_empresa" } }))
             .en("DELETE", "/api/v1/sesion", () => ({ status: 204 }))
             .instalar();
         await render(<App />);
         expect(await screen.findByRole("header", { name: "Sin empresa asignada" })).toBeTruthy();
         expect(within(screen.getByTestId("sin-empresa")).getByLabelText("Iris")).toBeTruthy();
-        expect(screen.getByTestId("usar-otra-cuenta")).toBeTruthy();
-        expect(await atras()).toBe(true);
+        expect(await atras()).toBe(false);
+        expect(a.peticiones.some((p) => p.metodo === "DELETE")).toBe(false);
+        await fireEvent.press(screen.getByTestId("usar-otra-cuenta"));
         expect(await screen.findByRole("header", { name: "Iris Campo" })).toBeTruthy();
+        expect(a.peticiones.some((p) => p.metodo === "DELETE" && p.ruta === "/api/v1/sesion")).toBe(true);
     });
 
-    it("elegir empresa también tiene «Usar otra cuenta»", async () => {
+    it("elegir empresa al abrir: «Usar otra cuenta» al login; «Atrás» sale sin cerrar la sesión", async () => {
+        const atras = atrasAndroid();
         const a = api();
         a.estado.cambiada = true;
         await render(<App />);
         expect(await screen.findByRole("header", { name: "¿Con qué empresa trabajas?" })).toBeTruthy();
+        expect(await atras()).toBe(false);
+        expect(a.peticiones.some((p) => p.metodo === "DELETE")).toBe(false);
         await fireEvent.press(screen.getByTestId("usar-otra-cuenta"));
         expect(await screen.findByRole("header", { name: "Iris Campo" })).toBeTruthy();
+    });
+
+    it("elegir empresa desde «Cambiar empresa»: «Atrás» vuelve a la app", async () => {
+        const atras = atrasAndroid();
+        const alVolver = jest.fn();
+        const alSalir = jest.fn();
+        await render(
+            <TemaDePrueba>
+                <ElegirEmpresa sesion={{ ...sesionDePrueba, empresas: DOS }} alElegir={jest.fn()} alSalir={alSalir} alVolver={alVolver} />
+            </TemaDePrueba>,
+        );
+        expect(await atras()).toBe(true);
+        expect(alVolver).toHaveBeenCalledTimes(1);
+        expect(alSalir).not.toHaveBeenCalled();
     });
 });
 

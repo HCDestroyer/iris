@@ -1,8 +1,8 @@
 // Pantallas de bloqueo al abrir la app (reporte del PM, APK 0.18.0): con la opción B del login
 // aprobada (logo centrado, título, explicación corta, el contenido y «Usar otra cuenta»). Toda
 // pantalla que no deja seguir —también en sus estados de error— tiene salida: «Usar otra cuenta»
-// cierra la sesión y lleva a entrar, y el «Atrás» de Android hace lo mismo (nunca sale de la app
-// dejando a la persona atrapada al volver).
+// cierra la sesión y lleva a entrar. El «Atrás» de Android nunca cierra la sesión sin preguntar:
+// sale de la app (o, si la pantalla tiene adónde volver, vuelve).
 // - «Crea tu contraseña»: entró con una contraseña temporal. La cambia aquí mismo con el formulario
 //   de «Yo» (`POST /yo/contrasena`, lo único que la sesión limitada puede hacer además de salir) y
 //   entra directo a la app.
@@ -18,13 +18,15 @@ import { errorDePantalla, useFormularioContrasena, type ErrorPantalla } from "./
 
 /**
  * Marco de una pantalla de bloqueo: logo centrado, título y explicación (como «Iris Campo» del
- * login), el contenido y, al pie, «Usar otra cuenta». «Atrás» de Android = «Usar otra cuenta».
+ * login), el contenido y, al pie, «Usar otra cuenta» (lo único que cierra la sesión). «Atrás» de
+ * Android: `alVolver` si lo hay; si no, sale de la app con la sesión intacta.
  */
 export function PantallaBloqueo({
     titulo,
     explicacion,
     children,
     alUsarOtraCuenta,
+    alVolver,
     testID,
 }: {
     titulo: string;
@@ -32,6 +34,8 @@ export function PantallaBloqueo({
     children?: ReactNode;
     /** Cierra la sesión y lleva a entrar. Devuelve una promesa mientras sale. */
     alUsarOtraCuenta: () => Promise<void> | void;
+    /** Adónde lleva «Atrás» de Android (p. ej. de vuelta a la app); sin él, sale de la app. */
+    alVolver?: () => void;
     testID?: string;
 }) {
     const { colores } = useTema();
@@ -45,9 +49,13 @@ export function PantallaBloqueo({
     }, [alUsarOtraCuenta, saliendo]);
     useAtrasAndroid(
         useCallback(() => {
-            salir();
-            return true;
-        }, [salir]),
+            if (alVolver) {
+                alVolver();
+                return true;
+            }
+            // Sin atender: Android sale de la app (la sesión sigue; nada se cierra sin preguntar).
+            return false;
+        }, [alVolver]),
     );
     return (
         <Pila espacio={20}>

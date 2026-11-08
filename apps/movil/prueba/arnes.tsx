@@ -168,6 +168,8 @@ export interface OpcionesArnes {
     cerrarSesion?: (opciones: { conservarPendientes: boolean }) => Promise<void>;
     /** La API pide cambiar la contraseña (la raíz lleva a «Crea tu contraseña»). */
     alExigirContrasena?: () => void;
+    /** Con `chat.enviar` (por defecto sí). */
+    puedeEnviar?: boolean;
 }
 
 export async function abrirCampo(m: Montaje, o: OpcionesArnes = {}) {
@@ -189,7 +191,7 @@ export async function abrirCampo(m: Montaje, o: OpcionesArnes = {}) {
                     <ProveedorAgenda leer={inventario.agenda}>
                         <ProveedorLibres api={libres}>
                             {o.chat ? (
-                                <ProveedorChat chat={o.chat} alCambiarPlano={o.alCambiarPlano}>
+                                <ProveedorChat chat={o.chat} alCambiarPlano={o.alCambiarPlano} {...(o.puedeEnviar === false ? { puedeEnviar: false } : {})}>
                                     {conPush}
                                 </ProveedorChat>
                             ) : (

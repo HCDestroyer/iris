@@ -6,9 +6,20 @@ import { PantallaBloqueo } from "./Bloqueo";
 
 /**
  * Con varias empresas: con cuál trabaja el teléfono (la cola de cada una va aparte). Sin empresas,
- * bloquea. Las dos son pantallas de arranque: «Usar otra cuenta» (y «Atrás» de Android) salen al login.
+ * bloquea. Las dos son pantallas de arranque con «Usar otra cuenta». «Atrás» de Android: si llegó
+ * por «Cambiar empresa» (`alVolver`), vuelve a la app con la empresa de antes; si no, sale de la app.
  */
-export function ElegirEmpresa({ sesion, alElegir, alSalir }: { sesion: SesionCampo; alElegir: (id: number) => void; alSalir: () => Promise<void> | void }) {
+export function ElegirEmpresa({
+    sesion,
+    alElegir,
+    alSalir,
+    alVolver,
+}: {
+    sesion: SesionCampo;
+    alElegir: (id: number) => void;
+    alSalir: () => Promise<void> | void;
+    alVolver?: () => void;
+}) {
     const [elegida, setElegida] = useState<string | undefined>();
     if (sesion.empresas.length === 0) {
         return (
@@ -20,7 +31,7 @@ export function ElegirEmpresa({ sesion, alElegir, alSalir }: { sesion: SesionCam
         );
     }
     return (
-        <PantallaBloqueo titulo="¿Con qué empresa trabajas?" explicacion="Lo que hagas sin señal se guarda aparte por empresa." alUsarOtraCuenta={alSalir} testID="elegir-empresa">
+        <PantallaBloqueo titulo="¿Con qué empresa trabajas?" explicacion="Lo que hagas sin señal se guarda aparte por empresa." alUsarOtraCuenta={alSalir} {...(alVolver ? { alVolver } : {})} testID="elegir-empresa">
             <Opciones etiqueta="Empresa" columna opciones={sesion.empresas.map((e) => ({ valor: String(e.id), etiqueta: e.nombre }))} valor={elegida} alCambiar={setElegida} />
             <Boton variante="tinta" deshabilitado={!elegida} alPresionar={() => elegida && alElegir(Number(elegida))}>
                 Continuar

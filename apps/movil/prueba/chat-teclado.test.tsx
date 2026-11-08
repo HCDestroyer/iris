@@ -205,6 +205,18 @@ describe("«Nuevo mensaje»: personas de la empresa", () => {
         await waitFor(() => expect(within(screen.getByTestId("lista-personas")).getAllByRole("button")).toHaveLength(3));
     });
 
+    it("sin chat.enviar no busca personas (la API lo exige) y lo dice", async () => {
+        const { m, chat, servidor } = await conChat();
+        await abrirNuevo(servidor);
+        await abrirCampo(m, { chat, vista: { tipo: "chat_nuevo" }, puedeEnviar: false });
+        expect(await screen.findByText("No puedes iniciar conversaciones")).toBeTruthy();
+        await act(async () => {
+            await new Promise((r) => setTimeout(r, 400));
+        });
+        expect(servidor.llamadasA("personas")).toHaveLength(0);
+        expect(screen.queryByLabelText("Buscar persona")).toBeNull();
+    });
+
     it("error de la API: «Reintentar» (nunca una lista inventada)", async () => {
         const { m, chat, servidor } = await conChat();
         await abrirNuevo(servidor);

@@ -211,6 +211,9 @@ interface CargaConversacion {
     cargandoAnteriores: boolean;
 }
 
+/** `maxLength` de `q` en `GET /chat/personas`. */
+export const LARGO_MAXIMO_BUSQUEDA_PERSONAS = 100;
+
 export class MotorChat {
     readonly usuarioId: number;
     private readonly almacen: AlmacenChat;
@@ -458,7 +461,8 @@ export class MotorChat {
      */
     async buscarPersonas(q: string, cursor?: string): Promise<{ personas: PersonaChat[]; siguiente: string | null }> {
         await this.verificar();
-        const p = await this.transporte.personas(q, cursor);
+        // El contrato admite hasta 100 caracteres en `q` (como los cuenta Go: puntos de código).
+        const p = await this.transporte.personas([...q.trim()].slice(0, LARGO_MAXIMO_BUSQUEDA_PERSONAS).join(""), cursor);
         return { personas: (p.data ?? []).filter((x) => x.id !== this.usuarioId), siguiente: p.nextCursor ?? null };
     }
 

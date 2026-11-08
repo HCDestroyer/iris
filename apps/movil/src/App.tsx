@@ -4,7 +4,7 @@
 import * as Network from "expo-network";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
-import { AppState, ScrollView, StyleSheet, View } from "react-native";
+import { AppState, BackHandler, ScrollView, StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -14,11 +14,13 @@ import type { ServiciosNativos } from "./campo/contexto";
 import { tomarFoto, vaciarCacheFotos } from "./campo/foto";
 import { gpsNativo, posicionSiPermitida, ubicacionPermitida } from "./campo/gps-nativo";
 import { useVolverTrasAusencia } from "./campo/bloqueo";
+import { useAtrasAndroid } from "./campo/atras";
 import { escucharPlano } from "./campo/plano";
 import { abrirMotor, borrarBase, borrarCachesChat } from "./campo/motor";
 import { entorno } from "./entorno";
 import { AppCampo, type DependenciasCampo } from "./pantallas/AppCampo";
 import { pushNativo } from "./push";
+import { cerrarPushDeSesion, olvidarPushLocal } from "./push/locales";
 import { CrearContrasena } from "./pantallas/Bloqueo";
 import { ElegirEmpresa } from "./pantallas/ElegirEmpresa";
 import { RecuperarError } from "./pantallas/RecuperarError";
@@ -49,8 +51,9 @@ import { ProveedorTema, useTema } from "./tema/tema";
 type Paso =
     | { tipo: "cargando" }
     | { tipo: "entrar"; motivo?: "expirada" | "salida"; huella?: boolean; sinConexion?: { titulo: string; detalle: string } | null }
-    | { tipo: "contrasena"; nombre: string }
-    | { tipo: "empresa"; sesion: SesionCampo }
+    | { tipo: "contrasena"; nombre: string; usuarioId: number }
+    /** `desde`: la empresa con la que trabajaba si llegó por «Cambiar empresa» («Atrás» vuelve a ella). */
+    | { tipo: "empresa"; sesion: SesionCampo; desde?: number | null }
     | { tipo: "campo"; sesion: SesionCampo; empresa: number | null };
 
 let enLinea = true;
@@ -100,9 +103,19 @@ function dependenciasNativas(): DependenciasCampo {
  * «¿No eres tú?» / «Usar otra cuenta»: cierra la sesión del teléfono por completo (en la API o como
  * cierre pendiente si no hay señal), olvida al usuario recordado y la caché de su chat (no la cola).
  */
-async function cerrarParaOtraCuenta(): Promise<void> {
+export async function cerrarParaOtraCuenta(usuarioId?: number): Promise<void> {
     // La caché del chat de esa sesión también se va (no la cola): se toma antes de olvidarla.
     const guardada = sesionGuardada();
+    // Lo mismo que el cierre normal (`cerrarSesion` de AppCampo): las fotos en caché y lo local de
+    // push (lo pendiente de esta persona se conserva) y sus dispositivos, con la sesión aún abierta.
+    vaciarCacheFotos();
+    const id = usuarioId ?? guardada?.usuarioId;
+    const push = dependenciasNativas().push;
+    if (id !== undefined) {
+        await cerrarPushDeSesion({ servicio: push?.servicio ?? null, registro: push?.registro ?? null, claves: entorno().claves, usuarioId: id, conservarPendientes: true }).catch(() => undefined);
+    } else {
+        olvidarPushLocal(entorno().claves, 0, false);
+    }
     await noSoyYo();
     if (guardada) {
         await borrarCachesChat(guardada.usuarioId, [null, ...guardada.empresas.map((e) => e.id)]).catch(() => undefined);
@@ -167,7 +180,7 @@ function Raiz() {
                 const yo = a.yo;
                 if (yo.usuario.cambioContrasenaRequerido) {
                     // Contraseña temporal: se cambia aquí mismo (la sesión solo puede eso o salir).
-                    setPaso({ tipo: "contrasena", nombre: yo.usuario.nombre.split(" ")[0] ?? "" });
+                    setPaso({ tipo: "contrasena", nombre: yo.usuario.nombre.split(" ")[0] ?? "", usuarioId: yo.usuario.id });
                     return;
                 }
                 const sesion = sesionDesdeYo(yo);
@@ -186,8 +199,8 @@ function Raiz() {
     });
 
     /** «¿No eres tú?» con una sesión guardada: la cierra por completo y pide entrar. */
-    const noEsEl = useCallback(async () => {
-        await cerrarParaOtraCuenta();
+    const noEsEl = useCallback(async (usuarioId?: number) => {
+        await cerrarParaOtraCuenta(usuarioId);
         setBloqueada(false);
         setDesbloqueada(false);
         setPaso({ tipo: "entrar", motivo: "salida" });
@@ -272,7 +285,7 @@ function Raiz() {
                 <Formulario>
                     <CrearContrasena
                         nombre={paso.nombre}
-                        alUsarOtraCuenta={noEsEl}
+                        alUsarOtraCuenta={() => noEsEl(paso.usuarioId)}
                         alSesionCerrada={() => salir("expirada")}
                         alListo={() => {
                             // La sesión sigue (la API solo cierra las otras): entra directo.
@@ -289,7 +302,17 @@ function Raiz() {
                 <Formulario>
                     <ElegirEmpresa
                         sesion={paso.sesion}
-                        alSalir={noEsEl}
+                        alSalir={() => noEsEl(paso.sesion.usuarioId)}
+                        {...(paso.desde !== undefined
+                            ? {
+                                  // Llegó por «Cambiar empresa»: «Atrás» vuelve a trabajar con la de antes.
+                                  alVolver: () => {
+                                      const desde = paso.desde ?? null;
+                                      elegirEmpresa(paso.sesion.usuarioId, desde);
+                                      setPaso({ tipo: "campo", sesion: paso.sesion, empresa: desde });
+                                  },
+                              }
+                            : {})}
                         alElegir={(id) => {
                             elegirEmpresa(paso.sesion.usuarioId, id);
                             setPaso({ tipo: "campo", sesion: paso.sesion, empresa: id });
@@ -305,13 +328,18 @@ function Raiz() {
                     sesion={paso.sesion}
                     empresa={paso.empresa}
                     alSalir={salir}
-                    alExigirContrasena={() => setPaso({ tipo: "contrasena", nombre: paso.sesion.nombre.split(" ")[0] ?? "" })}
+                    alExigirContrasena={() => {
+                        // Con una temporal la sesión guardada ya no abre la app sin señal.
+                        olvidarSesionGuardada();
+                        setPaso({ tipo: "contrasena", nombre: paso.sesion.nombre.split(" ")[0] ?? "", usuarioId: paso.sesion.usuarioId });
+                    }}
+                    alUsarOtraCuenta={() => noEsEl(paso.sesion.usuarioId)}
                     deps={dependenciasNativas()}
                     cambiarEmpresa={
                         paso.sesion.empresas.length > 1
                             ? () => {
                                   elegirEmpresa(paso.sesion.usuarioId, null);
-                                  setPaso({ tipo: "empresa", sesion: paso.sesion });
+                                  setPaso({ tipo: "empresa", sesion: paso.sesion, desde: paso.empresa });
                               }
                             : undefined
                     }
@@ -326,6 +354,7 @@ function Raiz() {
             <AvisoEmergente aviso={aviso} alCerrar={cerrarAviso} />
             {bloqueada ? (
                 <View style={StyleSheet.absoluteFill} testID="bloqueo-huella">
+                    <AtrasBloqueoHuella />
                     <Formulario>
                         <Entrar
                             recordado={usuarioRecordado()}
@@ -342,6 +371,20 @@ function Raiz() {
             ) : null}
         </>
     );
+}
+
+/**
+ * «Atrás» de Android con la app bloqueada por la huella: sale de la app (sigue bloqueada) sin que
+ * la vista de abajo cambie ni se cierre la sesión.
+ */
+function AtrasBloqueoHuella() {
+    useAtrasAndroid(
+        useCallback(() => {
+            BackHandler.exitApp();
+            return true;
+        }, []),
+    );
+    return null;
 }
 
 function Centro({ children }: { children: React.ReactNode }) {

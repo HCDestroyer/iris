@@ -126,9 +126,12 @@ export function AppCampo({
     empresa,
     alSalir,
     alExigirContrasena,
+    alUsarOtraCuenta,
     cambiarEmpresa,
     deps,
 }: {
+    /** «Usar otra cuenta» de las pantallas de bloqueo (lo mismo que borra el cierre normal). */
+    alUsarOtraCuenta?: () => Promise<void>;
     sesion: SesionCampo;
     empresa: number | null;
     alSalir: (motivo: MotivoSalida) => void;
@@ -180,6 +183,10 @@ export function AppCampo({
                     titulo="No se pudo abrir Iris"
                     explicacion="La base de datos del teléfono no abrió. Lo que guardaste sigue en el teléfono."
                     alUsarOtraCuenta={async () => {
+                        if (alUsarOtraCuenta) {
+                            await alUsarOtraCuenta();
+                            return;
+                        }
                         await deps.cerrarSesionApi(sesion.usuarioId).catch(() => undefined);
                         alSalir("salida");
                     }}

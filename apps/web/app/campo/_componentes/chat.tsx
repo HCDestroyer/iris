@@ -271,7 +271,7 @@ export function ListaChat() {
                 estado.lista.estado === "cargando" || actualizando ? (
                     <Cargando visible texto="Leyendo tus conversaciones…" />
                 ) : (
-                    <EstadoVacio icono={MessageCircle} titulo="Todavía no tienes conversaciones" descripcion="Abre el chat desde una orden o escribe un «Nuevo mensaje» a alguien de tu equipo." />
+                    <EstadoVacio icono={MessageCircle} titulo="Todavía no tienes conversaciones" descripcion={puedeEnviar ? "Abre el chat desde una orden o escribe un «Nuevo mensaje» a alguien de tu equipo." : "Cuando alguien de tu equipo te escriba, aparecerá aquí."} />
                 )
             ) : (
                 <ul className="grid grid-cols-[minmax(0,1fr)] gap-2" aria-label="Conversaciones">
@@ -337,7 +337,7 @@ type BusquedaPersonas =
  * `GET /chat/personas?q=` con espera al teclear: cualquier persona activa de la empresa con
  * `chat.ver` (la regla del servidor), no solo quien el teléfono ya conoce. La última búsqueda manda.
  */
-function useBuscarPersonas(q: string): { busqueda: BusquedaPersonas; reintentar: () => void; mas: () => void } {
+function useBuscarPersonas(q: string, activo: boolean): { busqueda: BusquedaPersonas; reintentar: () => void; mas: () => void } {
     const { chat } = useChat();
     const [busqueda, setBusqueda] = useState<BusquedaPersonas>({ estado: "cargando" });
     const [vez, setVez] = useState(0);
@@ -351,13 +351,16 @@ function useBuscarPersonas(q: string): { busqueda: BusquedaPersonas; reintentar:
     }
     useEffect(() => {
         const n = ++pedido.current;
+        if (!activo) {
+            return undefined;
+        }
         const t = setTimeout(() => {
             chat.buscarPersonas(q)
                 .then((r) => n === pedido.current && setBusqueda({ estado: "lista", personas: r.personas, siguiente: r.siguiente, masCargando: false }))
                 .catch((e: unknown) => n === pedido.current && setBusqueda(e instanceof ErrorTransporte && e.tipo === "red" ? { estado: "sin_senal" } : { estado: "error" }));
         }, ESPERA_BUSQUEDA_MS);
         return () => clearTimeout(t);
-    }, [chat, q, vez]);
+    }, [chat, q, vez, activo]);
     const mas = () => {
         if (busqueda.estado !== "lista" || !busqueda.siguiente || busqueda.masCargando) {
             return;
@@ -382,11 +385,24 @@ function useBuscarPersonas(q: string): { busqueda: BusquedaPersonas; reintentar:
  * supervisores, técnicos) y abre la directa. Sin señal ofrece a quienes el teléfono ya conoce.
  */
 export function NuevoChat() {
-    const { chat } = useChat();
+    const { chat, puedeEnviar } = useChat();
     const { navegar, notificar } = useCampo();
     const [abriendo, setAbriendo] = useState<number | null>(null);
     const [texto, setTexto] = useState("");
-    const { busqueda, reintentar, mas } = useBuscarPersonas(texto);
+    // `GET /chat/personas` y abrir una directa exigen `chat.enviar`: sin él no se busca.
+    const { busqueda, reintentar, mas } = useBuscarPersonas(texto, puedeEnviar);
+    if (!puedeEnviar) {
+        return (
+            <section aria-labelledby="titulo-nuevo-chat" className="grid grid-cols-[minmax(0,1fr)] gap-4">
+                <h1 id="titulo-nuevo-chat" className="text-2xl font-semibold tracking-[-0.015em]">
+                    Nuevo mensaje
+                </h1>
+                <Aviso tono="info" icono={Ban} titulo="No puedes iniciar conversaciones" accion={<Boton variante="secundario" onClick={() => navegar({ tipo: "chat" })}>Volver al chat</Boton>}>
+                    Tu usuario puede leer el chat pero no escribir. Pídele a un administrador el permiso «chat.enviar».
+                </Aviso>
+            </section>
+        );
+    }
     const abrir = async (id: number) => {
         setAbriendo(id);
         try {

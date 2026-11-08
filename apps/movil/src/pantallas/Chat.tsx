@@ -210,7 +210,7 @@ export function ListaChat() {
                     <Cargando etiqueta="Leyendo tus conversaciones" />
                 ) : (
                     <Aviso tono="neutral" icono={MessageCircle} titulo="Todavía no tienes conversaciones">
-                        Abre el chat desde una orden o escribe un «Nuevo mensaje» a alguien de tu equipo.
+                        {puedeEnviar ? "Abre el chat desde una orden o escribe un «Nuevo mensaje» a alguien de tu equipo." : "Cuando alguien de tu equipo te escriba, aparecerá aquí."}
                     </Aviso>
                 )
             ) : (
@@ -257,7 +257,7 @@ type BusquedaPersonas =
  * `chat.ver` (la regla del servidor), no solo quien el teléfono ya conoce. Respuestas viejas se
  * descartan (la de la última búsqueda manda).
  */
-function useBuscarPersonas(q: string): { busqueda: BusquedaPersonas; reintentar: () => void; mas: () => void } {
+function useBuscarPersonas(q: string, activo: boolean): { busqueda: BusquedaPersonas; reintentar: () => void; mas: () => void } {
     const { chat } = useChat();
     const [busqueda, setBusqueda] = useState<BusquedaPersonas>({ estado: "cargando" });
     const [vez, setVez] = useState(0);
@@ -272,13 +272,16 @@ function useBuscarPersonas(q: string): { busqueda: BusquedaPersonas; reintentar:
     }
     useEffect(() => {
         const n = ++pedido.current;
+        if (!activo) {
+            return undefined;
+        }
         const t = setTimeout(() => {
             chat.buscarPersonas(q)
                 .then((r) => n === pedido.current && setBusqueda({ estado: "lista", personas: r.personas, siguiente: r.siguiente, masCargando: false }))
                 .catch((e: unknown) => n === pedido.current && setBusqueda(deError(e)));
         }, ESPERA_BUSQUEDA_MS);
         return () => clearTimeout(t);
-    }, [chat, q, vez]);
+    }, [chat, q, vez, activo]);
     const mas = () => {
         if (busqueda.estado !== "lista" || !busqueda.siguiente || busqueda.masCargando) {
             return;
@@ -304,13 +307,14 @@ function useBuscarPersonas(q: string): { busqueda: BusquedaPersonas; reintentar:
  * igual necesita señal).
  */
 export function NuevoChat() {
-    const { chat } = useChat();
+    const { chat, puedeEnviar } = useChat();
     const { navegar, notificar, atras } = useCampo();
     const { campo } = useTema();
     const margen = useSafeAreaInsets();
     const [abriendo, setAbriendo] = useState<number | null>(null);
     const [texto, setTexto] = useState("");
-    const { busqueda, reintentar, mas } = useBuscarPersonas(texto);
+    // `GET /chat/personas` y abrir una directa exigen `chat.enviar`: sin él no se busca.
+    const { busqueda, reintentar, mas } = useBuscarPersonas(texto, puedeEnviar);
     const abrir = async (id: number) => {
         setAbriendo(id);
         try {
@@ -347,8 +351,14 @@ export function NuevoChat() {
                 </Boton>
             </View>
             <Titulo>Nuevo mensaje</Titulo>
+            {!puedeEnviar ? (
+                <Aviso tono="neutral" icono={Ban} titulo="No puedes iniciar conversaciones" testID="sin-chat-enviar">
+                    Tu usuario puede leer el chat pero no escribir. Pídele a un administrador el permiso «chat.enviar».
+                </Aviso>
+            ) : (
+            <>
             <Texto suave>Escríbele a cualquier persona de tu empresa que use el chat: despacho, soporte, supervisores o técnicos.</Texto>
-            <Campo etiqueta="Buscar persona" icono={Search} valor={texto} alCambiar={setTexto} autoCorrect={false} autoCapitalize="words" returnKeyType="search" placeholder="Nombre" testID="buscar-persona" />
+            <Campo etiqueta="Buscar persona" icono={Search} maxLength={100} valor={texto} alCambiar={setTexto} autoCorrect={false} autoCapitalize="words" returnKeyType="search" placeholder="Nombre" testID="buscar-persona" />
             {busqueda.estado === "cargando" ? <Cargando etiqueta="Buscando personas" /> : null}
             {busqueda.estado === "error" ? (
                 <Aviso tono="error" titulo="No se pudo leer la lista de personas" accion={<Boton variante="secundario" alPresionar={reintentar}>Reintentar</Boton>} testID="error-personas">
@@ -379,6 +389,8 @@ export function NuevoChat() {
                     Ver más personas
                 </Boton>
             ) : null}
+            </>
+            )}
         </ScrollView>
     );
 }
