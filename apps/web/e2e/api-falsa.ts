@@ -305,6 +305,8 @@ export type ApiFalsa = {
     mutaciones: { metodo: string; ruta: string; csrf: string | undefined }[];
     /** Todas las peticiones a la API (con `X-Iris-Empresa` e `Idempotency-Key`). */
     peticiones: Peticion[];
+    /** «MÉTODO /api/v1/…» en el orden en que llegaron, incluido el chat del equipo (`/mensajeria/chat`). */
+    orden: string[];
     /** Hace fallar `GET /yo` o `GET /usuarios` las próximas `n` veces con 500. */
     fallar: (ruta: "/api/v1/yo" | "/api/v1/usuarios", n: number) => void;
     /** Responde `problema` en las próximas `n` peticiones cuya ruta empiece con `prefijo`. */
@@ -444,6 +446,7 @@ export async function conSesion(context: BrowserContext, baseURL: string, correo
 export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promise<ApiFalsa> {
     const mutaciones: ApiFalsa["mutaciones"] = [];
     const peticiones: Peticion[] = [];
+    const orden: string[] = [];
     let busquedasFallidas = 0;
     const fallos = new Map<string, number>();
     const problemas: { prefijo: string; p: Problema; n: number }[] = [];
@@ -489,6 +492,8 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         const url = new URL(req.url());
         const ruta = url.pathname;
         const metodo = req.method();
+        // Antes de cualquier espera: el orden de llegada queda tal cual.
+        orden.push(`${metodo} ${ruta}`);
         const cabeceras = await req.allHeaders();
         const cookies = cabeceras.cookie ?? "";
         const sesion = /(?:^|;\s*)iris_sesion=([^;]+)/.exec(cookies)?.[1];
@@ -964,7 +969,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         return noEncontrado();
     });
     // Después de la ruta general: atiende primero `/mensajeria/chat/*`.
-    const chat = opciones.chat ? await simularChatPanel(page) : null;
+    const chat = opciones.chat ? await simularChatPanel(page, (p) => orden.push(p)) : null;
 
     return {
         chat,
@@ -972,6 +977,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         meta: { conexion: meta.conexion, cuerpos: meta.cuerpos, prestamos: meta.prestamos, resultadoQr: meta.resultadoQr },
         mutaciones,
         peticiones,
+        orden,
         tickets: esc.tickets,
         responderProblema: (prefijo, p, n) => {
             problemas.push({ prefijo, p, n });

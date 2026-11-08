@@ -552,9 +552,12 @@ describe("eliminar (§3, §5.7)", () => {
         await motor.eliminar(m.id);
         await motor.eliminar(m.id);
         expect(motor.obtenerConversacion(12).mensajes[0]).toMatchObject({ eliminado: true, envio: "eliminando" });
+        // Sin respuesta todavía: queda pendiente (al cerrar sesión sale con `keepalive`).
+        expect(motor.eliminacionesPendientes()).toEqual([m.id]);
         motor.establecerConexion(true);
         await vaciarPromesas(10);
         expect(servidor.llamadasA("eliminarMensaje")).toEqual([[m.id]]);
+        expect(motor.eliminacionesPendientes()).toEqual([]);
         expect(motor.obtenerConversacion(12).mensajes[0]).toMatchObject({ eliminado: true, texto: null, envio: "enviado" });
     });
 

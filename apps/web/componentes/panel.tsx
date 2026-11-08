@@ -305,8 +305,6 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
     const resumen = useResumenTickets();
     const noLeidos = useNoLeidosConversaciones(puede(["conversaciones.ver"]) && (yo.modoEmpresa === "sin_conector" || yo.empresaActiva !== undefined), `${yo.empresaActiva?.id ?? 0}`);
     const contadores = { "/tickets": contadorDe(resumen, "activos"), "/conversaciones": noLeidos, "/equipo": chat?.contadores.todas };
-    // Panel lateral del chat abierto (escritorio): la pantalla se corre para que nada quede debajo.
-    const conPanelChat = Boolean(chat?.panel.abierto) && ruta !== "/equipo";
 
     return (
         <div className={cn("min-h-dvh bg-background-secondary text-[0.875rem]", contraida ? "lg:pl-16" : "lg:pl-60")}>
@@ -375,7 +373,6 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
                     anchoCompleto
                         ? "min-w-0"
                         : "mx-auto max-w-[96rem] p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:px-6 sm:pt-5 sm:pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:pb-7",
-                    conPanelChat && (anchoCompleto ? "lg:mr-[23.75rem]" : "lg:pr-[calc(23.75rem+1.5rem)]"),
                 )}
             >
                 {anchoCompleto ? null : (

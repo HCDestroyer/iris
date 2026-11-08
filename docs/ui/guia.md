@@ -113,7 +113,7 @@ dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`avis
 | `DialogoConfirmar` | `AlertDialog.Backdrop` + `AlertDialog.Container` + `AlertDialog.Dialog` + `AlertDialog.Heading` | `role="alertdialog"`, foco inicial en «Cancelar», no se cierra tocando fuera |
 | `Hoja*`, `PanelProtegido` | `Drawer.Backdrop` + `Drawer.Content` + `Drawer.Dialog` + `Drawer.Heading` | Siempre con telón oscurecido: `fondo="transparente"` se acepta pero ya no quita el telón. Se cierra también arrastrando hacia su lado; el contenido se desplaza en vertical (`touch-action: pan-y`) |
 | `PanelEmergente` | `Popover`, `Popover.Content`, `Popover.Dialog`, `Popover.Heading` | Diálogo no modal junto al disparador |
-| `PanelLateral` | — (`<section role="dialog" aria-modal="false">` propio) | **Excepción aprobada por el PM a la regla de `Hoja`:** panel fijo a la derecha bajo la barra superior (380 px; en el teléfono, a lo ancho), **sin telón**, que deja la pantalla de atrás a la vista y usable (el panel corre el contenido en escritorio). No atrapa el foco: al abrir lo lleva al elemento con `data-foco-inicial` (o al panel), Escape lo cierra solo con el foco adentro (y si nada de adentro usó la tecla) y al cerrar vuelve al disparador. Sólido (`--overlay`), con borde y sombra. Hoy solo lo usa el chat del equipo |
+| `PanelLateral` | — (`<section role="dialog" aria-modal="false">` propio) | **Excepción aprobada por el PM a la regla de `Hoja`:** panel **flotante** sin telón, bajo la barra superior. Desde `sm`: tarjeta de 380 px a 12 px de los bordes, con borde, sombra y esquinas (`--hx-radius-card`); en el teléfono, a pantalla completa bajo la barra. **Flota sobre la pantalla: la página no se corre ni cambia de ancho al abrirlo, y los clics fuera del panel le llegan a ella** (pedido del PM, nov. 2026: la agenda quedaba apretada). Lo que queda debajo se recupera cerrándolo: la cabecera con «Cerrar» no se desplaza y siempre se ve. En escritorio (desde 1024 px) los avisos emergentes se corren a su izquierda (`globals.css`, por `[data-region="avisos-emergentes"]`: HeroUI pisa el `data-slot` de la región); debajo van en la barra superior y no se cruzan con él. No atrapa el foco: al abrir lo lleva al elemento con `data-foco-inicial` (o al panel), Escape lo cierra solo con el foco adentro (y si nada de adentro usó la tecla) y al cerrar vuelve al disparador. Sólido (`--overlay`). Hoy solo lo usa el chat del equipo |
 | `ListaSugerencias`, `teclasSugerencias`, `idOpcion` | — (combobox de ARIA con foco virtual) | Sugerencias bajo un `AreaTexto` que sigue con el foco: las `@menciones` del chat. El área lleva `role="combobox"`, `aria-controls` y `aria-activedescendant`; flechas, Enter/Tab y Escape. `Autocompletar` no sirve: reemplaza todo el valor de un campo de una línea |
 | `MenuDesplegable*`, `MenuEnLinea` | `Dropdown`, `Dropdown.Popover`, `Dropdown.Menu`, `Dropdown.Section`, `Dropdown.Item`, `Menu` y `Separator` | `onSelect` → `onAction`. Un `Boton` como disparador se conecta solo; otro elemento, por `Pressable` |
 | `Globo` | `Tooltip`, `Tooltip.Content` | Un `Boton` se conecta solo; otro elemento, por `Focusable` |
@@ -308,8 +308,12 @@ Diseño aprobado por el PM (combinación de las opciones A y B; `contratos/chat.
   sostiene) y los mismos componentes de hilo y compositor (`componentes/chat/`):
     - **ícono en la barra superior** (burbuja redonda) con el número de lo que pide actuar
       (`GET /resumen`: directas sin leer + menciones) o un punto si solo hay mensajes nuevos; abre el
-      **`PanelLateral`** (lista y conversación se turnan con «Atrás»; «Abrir en página» lleva a
-      `/equipo?c=<id>` con la misma conversación);
+      **`PanelLateral`** flotante (lista y conversación se turnan con «Atrás»; «Abrir en página»
+      lleva a `/equipo?c=<id>` con la misma conversación). Cerrarlo y volver a abrirlo conserva la
+      conversación, el filtro, la búsqueda y lo escrito sin enviar (borrador por conversación, en
+      memoria). Lo prueban `e2e/chat-equipo.spec.ts` («panel flotante»: ancho de la página igual,
+      clic en la agenda de atrás, «Cerrar» a la vista a 1280 y 1440 px) y las capturas sobre agenda,
+      mapa y órdenes (`e2e/capturas-chat.spec.ts`);
     - **página «Equipo»** (`/equipo`, en el riel con su icono, `chat.ver`): ancho completo como la
       bandeja, lista con Todas / Directas / Cuadrillas / Órdenes (con su contador), búsqueda y el
       hilo; en el teléfono, lista **o** hilo;
@@ -339,6 +343,33 @@ Diseño aprobado por el PM (combinación de las opciones A y B; `contratos/chat.
 - **Foto y ubicación:** en escritorio, deshabilitadas («Foto y ubicación, desde la app de campo»);
   en el ancho del teléfono, habilitadas (cámara del navegador y geolocalización, por la cola).
 - **Nuevo mensaje:** diálogo con Persona / Cuadrilla, búsqueda en el servidor y «Ya existe».
+
+## Manuales de inicio (nov. 2026)
+
+Pedido del PM: la biblioteca trae ejemplos para un ISP con fibra (FTTH) e inalámbrico (WISP).
+
+- «Cargar manuales de inicio» (`manuales.editar`) en `/administracion/manuales` abre un diálogo
+  corto con las plantillas marcadas; las que ya están en la biblioteca (mismo título, sin importar
+  mayúsculas ni acentos) salen deshabilitadas con «Ya está en la biblioteca».
+- Se crean con el `POST /mensajeria/manuales` de siempre, uno por llamada, con
+  `Idempotency-Key: manual-inicio:<empresa>:<código>:r<revisión>`; antes de crear se vuelven a leer
+  los títulos. Avance con barra y «Creando 3 de 14…»; si algo falla, «Reintentar» sigue donde quedó.
+  Al final, aviso con los creados y los omitidos.
+- Los textos viven en `apps/web/lib/manuales/inicio/` como datos tipados (`PlantillaManual`): de
+  «usted», cortos, con «Cuándo llamar a soporte», sin precios ni plazos y con los datos de la
+  empresa entre corchetes («[Nombre del ISP]», «[número de soporte]»). La tecnología va en el título
+  y como primera etiqueta (`general`, `ftth`, `wisp`). Si cambia un texto, sube su `revision`.
+  `inicio.test.ts` los valida contra el esquema del formulario, los límites del servidor y la vista
+  segura del Markdown.
+- **Se crean «Del equipo»** (interna): primero se completan los corchetes y luego se pasan a «Para
+  el cliente» desde «Editar». Mientras el cuerpo tenga marcadores `[…]` (`lib/manuales/marcadores.ts`;
+  un enlace `[texto](url)` no cuenta):
+    - la bandeja **no lo envía al cliente**: lee el cuerpo antes de «Enviar al cliente» y dice qué
+      falta; «Usar en la respuesta» avisa qué cambiar en el texto;
+    - la biblioteca lo marca «Falta completar datos de tu empresa» (lee cada cuerpo, de 4 en 4: el
+      resumen de la lista no lo trae) y el formulario lo dice junto a «Quién lo ve».
+- Con la carga empezada (o detenida por un error) la selección queda congelada. La biblioteca pide
+  hasta 100 manuales; si llegan 100, dice «Se muestran los primeros 100» y pide usar la búsqueda.
 
 ## Números de WhatsApp (nov. 2026)
 

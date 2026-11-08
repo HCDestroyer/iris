@@ -1,9 +1,13 @@
-import { expect, test, type Page } from "@playwright/test";
-import { ADMIN, conSesion, simularApi, type ApiFalsa } from "./api-falsa";
+import { expect as expectBase, test, type Page } from "@playwright/test";
+import { ADMIN, CONTRASENA, conSesion, EMPRESAS, simularApi, type ApiFalsa } from "./api-falsa";
 import { CONV, MARIO, ORDEN_CERRADA, ORDEN_SIN_CHAT, ORDEN_VIVA, PEDRO, type ApiChatPanel } from "./api-chat-panel";
-import { abrirMenu, esTelefono, hojaMas } from "./ayudas";
-import { elegirSugerencia } from "./controles";
+import { abrirMenu, cerrarMenu, entrar, esTelefono, hojaMas, selectorEmpresa } from "./ayudas";
+import { elegirOpcion, elegirSugerencia } from "./controles";
 import { esperarSinDesbordes } from "./desbordes";
+
+// Con 4 workers el motor del chat (flujo, cola y verificación de la sesión) y las lecturas en serie
+// tardan más que los 5 s por defecto: 10 s por espera.
+const expect = expectBase.configure({ timeout: 10_000 });
 
 /*
  * Chat del equipo en el panel (`contratos/chat.md`, panel): ícono con su insignia en la barra
@@ -24,6 +28,16 @@ const botonChat = (page: Page) => page.locator('[data-slot="boton-chat-equipo"]'
 const panelChat = (page: Page) => page.getByRole("dialog", { name: "Chat del equipo" });
 const fila = (page: Page, id: number) => page.locator(`[data-conversacion-chat="${id}"]`);
 const compositor = (page: Page) => page.getByRole("combobox", { name: /Mensaje para/ });
+
+async function cerrarSesion(page: Page) {
+    if (esTelefono(page)) {
+        await abrirMenu(page);
+        await hojaMas(page).getByRole("menuitem", { name: "Cerrar sesión" }).click();
+    } else {
+        await page.getByRole("button", { name: /^Tu cuenta/ }).click();
+        await page.getByRole("dialog", { name: "Tu cuenta y disponibilidad" }).getByRole("menuitem", { name: "Cerrar sesión" }).click();
+    }
+}
 
 test.describe("chat del equipo", () => {
     test("insignias: número en directas y menciones, punto en cuadrillas", async ({ page }) => {
@@ -62,7 +76,10 @@ test.describe("chat del equipo", () => {
         await esperarSinDesbordes(page);
         if (!esTelefono(page)) {
             // La pantalla de atrás sigue usable: la barra lateral responde con el panel abierto.
-            await page.getByRole("complementary", { name: "Barra lateral" }).getByRole("link", { name: /Tickets/ }).click();
+            await page
+                .getByRole("complementary", { name: "Barra lateral" })
+                .getByRole("link", { name: /Tickets/ })
+                .click();
             await expect(page).toHaveURL(/\/tickets/);
             await expect(panel).toBeVisible();
             // Escape cierra el panel solo con el foco adentro (no le roba la tecla a la página).
@@ -74,6 +91,149 @@ test.describe("chat del equipo", () => {
         await expect(panel).toBeHidden();
         await expect(botonChat(page)).toBeFocused();
         await expect(botonChat(page)).toHaveAttribute("aria-expanded", "false");
+    });
+
+    test("panel flotante: la página no se corre, la agenda de atrás responde y «Cerrar» siempre se ve", async ({ page }) => {
+        await abrir(page, "/agenda");
+        await expect(page.getByRole("radio", { name: "Mes" })).toBeChecked();
+        const contenido = page.locator("#contenido");
+        // Ancho de la página y caja horizontal del contenido (el alto puede cambiar al llegar los datos).
+        const medir = () =>
+            page.evaluate(() => {
+                const c = document.getElementById("contenido")?.getBoundingClientRect();
+                const estilo = document.getElementById("contenido") ? getComputedStyle(document.getElementById("contenido") as HTMLElement) : null;
+                return { ancho: document.documentElement.scrollWidth, x: c?.x, width: c?.width, padding: estilo?.paddingRight, margen: estilo?.marginRight };
+            });
+        const antes = await medir();
+        await botonChat(page).click();
+        const panel = panelChat(page);
+        await expect(panel.getByText("En vivo")).toBeVisible({ timeout: 10_000 });
+        const cerrar = panel.getByRole("button", { name: "Cerrar el chat del equipo" });
+        await expect(cerrar).toBeInViewport({ ratio: 1 });
+        // La página de atrás no cambia de ancho ni se reacomoda al abrir el panel.
+        expect(await medir()).toEqual(antes);
+        await expect(page.locator(".modal__backdrop, .drawer__backdrop")).toHaveCount(0);
+        const vista = page.viewportSize() ?? { width: 0, height: 0 };
+        const caja = await panel.boundingBox();
+        if (!caja) throw new Error("sin panel");
+        if (vista.width < 640) {
+            // Teléfono: a pantalla completa bajo la barra superior.
+            expect(Math.round(caja.x)).toBe(0);
+            expect(Math.round(caja.width)).toBe(vista.width);
+            expect(Math.round(caja.y)).toBe(56);
+            expect(Math.round(caja.y + caja.height)).toBe(vista.height);
+        } else {
+            // Escritorio: tarjeta flotante de 380 px a 12 px de los bordes, con esquinas y sombra.
+            expect(Math.round(caja.width)).toBe(380);
+            expect(Math.round(vista.width - (caja.x + caja.width))).toBe(12);
+            expect(Math.round(caja.y)).toBe(56 + 12);
+            expect(Math.round(vista.height - (caja.y + caja.height))).toBe(12);
+            const estilo = await panel.evaluate((n) => {
+                const e = getComputedStyle(n);
+                return { radio: Number.parseFloat(e.borderTopLeftRadius), sombra: e.boxShadow, borde: e.borderLeftWidth };
+            });
+            expect(estilo.radio).toBeGreaterThan(0);
+            expect(estilo.sombra).not.toBe("none");
+            expect(estilo.borde).toBe("1px");
+            // Un clic en la agenda de atrás (fuera del panel) le llega a ella, con el panel abierto.
+            await page.getByRole("button", { name: "Mes siguiente" }).click();
+            await expect(page).toHaveURL(/dia=\d{4}-\d{2}-\d{2}/);
+            await expect(panel).toBeVisible();
+            await expect(contenido).toBeVisible();
+            // A 1440 px igual: la página no se corre y «Cerrar» se ve.
+            await page.setViewportSize({ width: 1440, height: 900 });
+            await expect(cerrar).toBeInViewport({ ratio: 1 });
+            const ancho = await medir();
+            await cerrar.click();
+            await expect(panel).toBeHidden();
+            expect(await medir()).toEqual(ancho);
+        }
+        await esperarSinDesbordes(page);
+    });
+
+    test("con el panel abierto los avisos emergentes no quedan encima ni debajo de él", async ({ page }) => {
+        await abrir(page);
+        const panel = panelChat(page);
+        const anchos = esTelefono(page) ? [null] : [1280, 800];
+        for (const ancho of anchos) {
+            if (ancho) await page.setViewportSize({ width: ancho, height: 800 });
+            if (!(await panel.isVisible())) await botonChat(page).click();
+            if (await fila(page, CONV.ordenViva).isVisible()) await fila(page, CONV.ordenViva).click();
+            await compositor(page).fill(`Aviso a ${ancho ?? "teléfono"}`);
+            await page.keyboard.press("Enter");
+            const mensaje = page.locator("[data-mensaje]").filter({ hasText: `Aviso a ${ancho ?? "teléfono"}` });
+            await expect(mensaje.locator('[data-slot="estado-envio"]')).toHaveText("enviado");
+            await mensaje.getByRole("button", { name: "Opciones del mensaje" }).click();
+            await page.getByRole("menuitem", { name: "Eliminar" }).click();
+            const aviso = page.locator('[data-region="avisos-emergentes"] [data-slot="toast"]').filter({ hasText: "Mensaje eliminado" });
+            await expect(aviso).toBeVisible();
+            const [a, p] = [await aviso.boundingBox(), await panel.boundingBox()];
+            if (!a || !p) throw new Error("sin cajas");
+            const cruzan = a.x < p.x + p.width && p.x < a.x + a.width && a.y < p.y + p.height && p.y < a.y + a.height;
+            expect(cruzan, `aviso ${JSON.stringify(a)} y panel ${JSON.stringify(p)}`).toBe(false);
+            await expect(aviso).toBeInViewport({ ratio: 1 });
+            await aviso.getByRole("button", { name: "Deshacer" }).click();
+            // El puntero sale de los avisos (si no, HeroUI los deja expandidos).
+            await page.mouse.move(1, (page.viewportSize()?.height ?? 800) - 1);
+        }
+    });
+
+    test("cerrar y volver a abrir el panel conserva la conversación y lo escrito sin enviar", async ({ page }) => {
+        await abrir(page);
+        await botonChat(page).click();
+        const panel = panelChat(page);
+        await fila(page, CONV.ordenViva).click();
+        await expect(panel.getByRole("heading", { name: "OT-000005 · Mantenimiento" })).toBeVisible();
+        await compositor(page).fill("Voy en camino con el conector");
+        await panel.getByRole("button", { name: "Cerrar el chat del equipo" }).click();
+        await expect(panel).toBeHidden();
+        await botonChat(page).click();
+        await expect(panel.getByRole("heading", { name: "OT-000005 · Mantenimiento" })).toBeVisible();
+        await expect(compositor(page)).toHaveValue("Voy en camino con el conector");
+    });
+
+    test("el borrador no pasa a otra empresa ni sobrevive a cerrar sesión", async ({ page }) => {
+        test.setTimeout(60_000);
+        await simularApi(page, { chat: true, empresas: EMPRESAS });
+        await conSesion(page.context(), test.info().project.use.baseURL ?? "", ADMIN.correo);
+        await page.goto("/");
+        await page.getByRole("list", { name: "Empresas" }).getByRole("button", { name: "Cable Norte" }).click();
+        const panel = panelChat(page);
+        const abrirConversacion = async () => {
+            await botonChat(page).click();
+            const titulo = panel.getByRole("heading", { name: "OT-000005 · Mantenimiento" });
+            await expect(titulo.or(fila(page, CONV.ordenViva))).toBeVisible();
+            if (!(await titulo.isVisible())) await fila(page, CONV.ordenViva).click();
+            await expect(titulo).toBeVisible();
+        };
+        const escribirBorrador = async () => {
+            await abrirConversacion();
+            await compositor(page).fill("Borrador de Cable Norte");
+            await panel.getByRole("button", { name: "Cerrar el chat del equipo" }).click();
+            await expect(panel).toBeHidden();
+        };
+
+        // Otra empresa: el chat (y su borrador) es otro.
+        await escribirBorrador();
+        await elegirOpcion(await selectorEmpresa(page), { label: "Fibra Sur" });
+        await cerrarMenu(page);
+        await abrirConversacion();
+        await expect(compositor(page)).toHaveValue("");
+        await panel.getByRole("button", { name: "Cerrar el chat del equipo" }).click();
+
+        // Cerrar sesión y volver a entrar (sin recargar la página): tampoco queda.
+        await elegirOpcion(await selectorEmpresa(page), { label: "Cable Norte" });
+        await cerrarMenu(page);
+        await escribirBorrador();
+        await cerrarSesion(page);
+        // Cerrar sesión espera hasta 3 s a que salga la cola del chat.
+        await expect(page).toHaveURL(/\/entrar/, { timeout: 10_000 });
+        await entrar(page, ADMIN.correo, CONTRASENA);
+        const empresas = page.getByRole("list", { name: "Empresas" });
+        await expect(empresas.or(botonChat(page)).first()).toBeVisible({ timeout: 20_000 });
+        if (await empresas.isVisible()) await empresas.getByRole("button", { name: "Cable Norte" }).click();
+        await abrirConversacion();
+        await expect(compositor(page)).toHaveValue("");
     });
 
     test("lista y conversación se turnan con «Atrás»; «Abrir en página» conserva la conversación", async ({ page }) => {
@@ -126,7 +286,9 @@ test.describe("chat del equipo", () => {
         await area.pressSequentially("revisa la potencia");
         await page.keyboard.press("Enter");
         await expect(area).toHaveValue("");
-        await expect.poll(() => chat.peticiones.find((p) => p.metodo === "POST" && p.ruta.endsWith("/mensajes"))?.cuerpo).toMatchObject({ texto: "Hola @Mario Ixcot revisa la potencia", menciones: [MARIO.id] });
+        await expect
+            .poll(() => chat.peticiones.find((p) => p.metodo === "POST" && p.ruta.endsWith("/mensajes"))?.cuerpo)
+            .toMatchObject({ texto: "Hola @Mario Ixcot revisa la potencia", menciones: [MARIO.id] });
         const enviado = page.locator("[data-mensaje]").filter({ hasText: "revisa la potencia" });
         await expect(enviado.locator("[data-mencion]")).toHaveText("@Mario Ixcot");
     });
@@ -155,33 +317,39 @@ test.describe("chat del equipo", () => {
         await expect(page.locator(`[data-mensaje="${id}"]`)).toContainText("Mensaje eliminado");
     });
 
-    test("cerrar sesión con una eliminación esperando su «Deshacer»: sale antes de cerrar la sesión", async ({ page }) => {
-        const { chat } = await abrir(page, `/equipo?c=${CONV.directaLaura}`);
-        const orden: string[] = [];
-        page.on("request", (r) => orden.push(`${r.method()} ${new URL(r.url()).pathname}`));
-        await compositor(page).fill("Se borra al salir");
-        await page.keyboard.press("Enter");
-        const mensaje = page.locator("[data-mensaje]").filter({ hasText: "Se borra al salir" });
-        await expect(mensaje.locator('[data-slot="estado-envio"]')).toHaveText("enviado");
-        const id = await mensaje.getAttribute("data-mensaje");
-        await mensaje.getByRole("button", { name: "Opciones del mensaje" }).click();
-        await page.getByRole("menuitem", { name: "Eliminar" }).click();
-        await expect(page.locator(`[data-mensaje="${id}"]`)).toHaveAttribute("data-eliminado", "true");
-        if (esTelefono(page)) {
-            // Dentro de la conversación la barra inferior se oculta: «Atrás» vuelve a la lista.
-            await page.getByRole("button", { name: "Atrás" }).click();
-            await abrirMenu(page);
-            await hojaMas(page).getByRole("menuitem", { name: "Cerrar sesión" }).click();
-        } else {
-            await page.getByRole("button", { name: /^Tu cuenta/ }).click();
-            await page.getByRole("dialog", { name: "Tu cuenta y disponibilidad" }).getByRole("menuitem", { name: "Cerrar sesión" }).click();
-        }
-        await expect(page).toHaveURL(/\/entrar/);
-        expect(chat.eliminados).toEqual([id]);
-        // Salió por la cola (con la sesión verificada), antes de `DELETE /sesion`.
-        expect(orden.indexOf(`POST /api/v1/mensajeria/chat/mensajes/${id}/eliminar`)).toBeGreaterThan(-1);
-        expect(orden.indexOf(`POST /api/v1/mensajeria/chat/mensajes/${id}/eliminar`)).toBeLessThan(orden.indexOf("DELETE /api/v1/sesion"));
-    });
+    for (const caso of [
+        { nombre: "esperando su «Deshacer»", vencida: false },
+        { nombre: "con el «Deshacer» recién vencido (ya en la cola del motor)", vencida: true },
+    ]) {
+        test(`cerrar sesión con una eliminación ${caso.nombre}: sale antes de cerrar la sesión`, async ({ page }) => {
+            // Reloj controlado: la espera de 5 s del «Deshacer» vence solo cuando la prueba lo dice.
+            await page.clock.install({ time: new Date() });
+            const { api, chat } = await abrir(page, `/equipo?c=${CONV.directaLaura}`);
+            await compositor(page).fill("Se borra al salir");
+            await page.keyboard.press("Enter");
+            const mensaje = page.locator("[data-mensaje]").filter({ hasText: "Se borra al salir" });
+            await expect(mensaje.locator('[data-slot="estado-envio"]')).toHaveText("enviado");
+            const id = await mensaje.getAttribute("data-mensaje");
+            await mensaje.getByRole("button", { name: "Opciones del mensaje" }).click();
+            await page.getByRole("menuitem", { name: "Eliminar" }).click();
+            await expect(page.locator(`[data-mensaje="${id}"]`)).toHaveAttribute("data-eliminado", "true");
+            if (caso.vencida) await page.clock.runFor(5_500);
+            if (esTelefono(page)) {
+                // Dentro de la conversación la barra inferior se oculta: «Atrás» vuelve a la lista.
+                await page.getByRole("button", { name: "Atrás" }).click();
+            }
+            await cerrarSesion(page);
+            // Cerrar sesión espera hasta 3 s a que salga la cola del chat.
+            await expect(page).toHaveURL(/\/entrar/, { timeout: 10_000 });
+            // Orden en que la API falsa recibió las peticiones: la eliminación, antes de `DELETE /sesion`.
+            const orden = () => api.orden;
+            const eliminar = `POST /api/v1/mensajeria/chat/mensajes/${id}/eliminar`;
+            await expect.poll(() => orden().indexOf("DELETE /api/v1/sesion")).toBeGreaterThan(-1);
+            await expect.poll(() => orden().indexOf(eliminar)).toBeGreaterThan(-1);
+            expect(orden().indexOf(eliminar)).toBeLessThan(orden().indexOf("DELETE /api/v1/sesion"));
+            expect(chat.eliminados).toEqual([id]);
+        });
+    }
 
     test("pestaña «Chat del equipo» de la orden: hilo, miembros y «Agregar persona»", async ({ page }) => {
         await abrir(page, `/ordenes/${ORDEN_VIVA}?pestana=chat`);

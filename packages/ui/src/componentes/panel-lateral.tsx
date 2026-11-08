@@ -4,9 +4,11 @@ import { useEffect, useRef, type ComponentProps, type KeyboardEvent, type ReactN
 import { cn } from "../utilidades";
 
 /*
- * Panel lateral sin telón (excepción aprobada por el PM a la regla de `Hoja`, nov. 2026): un panel
- * fijo a la derecha, bajo la barra superior, que deja la pantalla de atrás a la vista y usable. Lo
- * usa el chat del equipo del panel.
+ * Panel lateral flotante sin telón (excepción aprobada por el PM a la regla de `Hoja`, nov. 2026):
+ * una tarjeta elevada a la derecha, bajo la barra superior, que **flota sobre la pantalla** y la deja
+ * a la vista y usable. La página de atrás no se corre ni se reacomoda al abrirlo (pedido del PM:
+ * la agenda quedaba apretada) y los clics fuera del panel le llegan a ella. Lo usa el chat del
+ * equipo del panel.
  *
  * - No es modal: no atrapa el foco ni vuelve inerte la página (`role="dialog"` con
  *   `aria-modal="false"` y su nombre).
@@ -14,7 +16,10 @@ import { cn } from "../utilidades";
  *   cerrar, vuelve a donde estaba (el disparador), si sigue en la página.
  * - Escape lo cierra mientras el foco está dentro, salvo que algo de adentro ya lo haya usado
  *   (una lista abierta, un diálogo encima).
- * - Panel sólido (la capa flotante del tema, `--overlay`), con borde y sombra; en el teléfono ocupa el ancho bajo la barra.
+ * - Panel sólido (la capa flotante del tema, `--overlay`), con borde, sombra y esquinas redondeadas,
+ *   separado 12 px de los bordes (desde `sm`, 380 px de ancho). En el teléfono ocupa toda la
+ *   pantalla bajo la barra superior, sin esquinas. La cabecera de quien lo usa (con «Cerrar») va
+ *   fuera de lo que se desplaza: siempre hay salida.
  */
 
 export type PropsPanelLateral = Omit<ComponentProps<"section">, "role" | "title"> & {
@@ -68,8 +73,12 @@ export function PanelLateral({ abierto, alCerrar, etiqueta, className, children,
             tabIndex={-1}
             data-slot="panel-lateral"
             className={cn(
-                "fixed top-14 right-0 bottom-0 z-40 flex w-full min-w-0 flex-col outline-none sm:w-[23.75rem]",
-                "border-l border-border bg-[var(--overlay)] text-[var(--overlay-foreground)] shadow-[var(--overlay-shadow)]",
+                // Teléfono: a pantalla completa bajo la barra superior.
+                "fixed inset-x-0 top-14 bottom-0 z-40 flex min-w-0 flex-col overflow-hidden outline-none",
+                "border-t border-border bg-[var(--overlay)] text-[var(--overlay-foreground)] shadow-[var(--overlay-shadow)]",
+                // Desde `sm`: tarjeta flotante de 380 px, a 12 px de la barra y de los bordes.
+                "sm:top-[calc(3.5rem+0.75rem)] sm:right-3 sm:bottom-3 sm:left-auto sm:w-[min(23.75rem,calc(100vw-1.5rem))]",
+                "sm:rounded-[var(--hx-radius-card)] sm:border",
                 className,
             )}
             onKeyDown={alTeclear}

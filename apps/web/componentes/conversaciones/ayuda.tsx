@@ -14,6 +14,7 @@ import { esSesionCambiada, verificarSesion, type Identidad } from "@/lib/convers
 import type { Conversacion } from "@/lib/conversaciones/tipos";
 import { useDiferido } from "@/lib/diferido";
 import { useLectura } from "@/lib/lectura";
+import { marcadoresPendientes, TEXTO_FALTA_COMPLETAR, textoMarcadores } from "@/lib/manuales/marcadores";
 import { useSesion } from "@/lib/sesion";
 import { useAhora } from "./reloj";
 
@@ -31,7 +32,8 @@ const MOTIVO: Record<string, { texto: string; icono: typeof Tag }> = {
  * Pestaña «Ayuda» de la ficha (§11): manuales sugeridos para la conversación (con su motivo) y la
  * búsqueda en la biblioteca. «Ver» muestra el artículo con la vista segura; «Usar en la respuesta»
  * lo pasa como texto al compositor; «Enviar al cliente» (solo artículos para el cliente) manda el
- * enlace firmado, dentro de la ventana de 24 h.
+ * enlace firmado, dentro de la ventana de 24 h. Un manual con datos de la empresa por completar
+ * («[Nombre del ISP]», `lib/manuales/marcadores.ts`) nunca se envía: se lee su cuerpo antes.
  */
 export function AyudaManuales({ conv, identidad, alUsarTexto }: { conv: Conversacion; identidad: Identidad; alUsarTexto: (t: string) => void }) {
     const [texto, setTexto] = useState("");
@@ -135,6 +137,7 @@ function Articulo({
     const [error, setError] = useState<string | null>(null);
     const m = motivo ? MOTIVO[motivo.tipo] : undefined;
     const [usando, setUsando] = useState(false);
+    const [advertencia, setAdvertencia] = useState<string | null>(null);
 
     /** El resumen no trae el cuerpo: se lee el manual y se pasa en texto plano al compositor. */
     async function usar() {
@@ -143,6 +146,8 @@ function Articulo({
         try {
             const completo = await resolver(api().GET("/api/v1/mensajeria/manuales/{id}", { params: { path: { id: manual.id } } }));
             alUsarTexto(markdownATexto(completo.cuerpo));
+            const marcadores = marcadoresPendientes(completo.cuerpo);
+            setAdvertencia(marcadores.length > 0 ? `Antes de enviar, cambia en la respuesta ${textoMarcadores(marcadores)} por los datos de tu empresa.` : null);
         } catch (e) {
             setError(mensajeDeError(e).titulo);
         } finally {
@@ -159,6 +164,13 @@ function Articulo({
         // Sin red se repite el id (el servidor no manda un segundo WhatsApp); tras una respuesta, otro.
         const id = envio.actual();
         try {
+            // Nunca sale con datos de la empresa sin completar: se revisa el cuerpo vigente.
+            const completo = await resolver(api().GET("/api/v1/mensajeria/manuales/{id}", { params: { path: { id: manual.id } } }));
+            const marcadores = marcadoresPendientes(completo.cuerpo);
+            if (marcadores.length > 0) {
+                setError(`${TEXTO_FALTA_COMPLETAR}: ${textoMarcadores(marcadores)}. Pide a un administrador que complete el manual antes de enviarlo.`);
+                return;
+            }
             await verificarSesion(identidad);
             await resolver(
                 api().POST("/api/v1/mensajeria/conversaciones/{id}/enviar-manual", {
@@ -220,6 +232,11 @@ function Articulo({
                 {error ? (
                     <p role="alert" className="text-xs text-error">
                         {error}
+                    </p>
+                ) : null}
+                {advertencia ? (
+                    <p role="status" className="text-xs text-warning">
+                        {advertencia}
                     </p>
                 ) : null}
             </div>
