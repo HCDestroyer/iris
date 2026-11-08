@@ -585,8 +585,8 @@ func (p *ProbarConexionMeta) Ejecutar(ctx context.Context) (ConexionMeta, error)
 func (m *Modulo) probarApp(ctx context.Context, c conexionEfectiva) ComprobacionMeta {
 	ctx, cancelar := context.WithTimeout(ctx, 15*time.Second)
 	defer cancelar()
-	q := url.Values{"fields": {"id,name"}, "access_token": {c.appID + "|" + c.appSecret}}
-	destino := m.hostGraph() + "/" + c.graphVersion + "/" + url.PathEscape(c.appID) + "?" + q.Encode()
+	// El token de la app ({app_id}|{app_secret}) va en la cabecera Authorization, nunca en la URL.
+	destino := m.hostGraph() + "/" + c.graphVersion + "/" + url.PathEscape(c.appID) + "?fields=id,name"
 	falla := func(d string) ComprobacionMeta {
 		return ComprobacionMeta{Clave: "app", Estado: "error", Detalle: recortar(d, 300)}
 	}
@@ -594,10 +594,11 @@ func (m *Modulo) probarApp(ctx context.Context, c conexionEfectiva) Comprobacion
 	if err != nil {
 		return falla("No se pudo armar la consulta a Meta")
 	}
+	req.Header.Set("Authorization", "Bearer "+c.appID+"|"+c.appSecret)
 	req.Header.Set("User-Agent", "Iris/"+m.cfg.Version)
 	resp, err := m.cfg.HTTPMeta.Do(req)
 	if err != nil {
-		// Sin el texto del error: lleva la URL con el secreto.
+		// Sin el texto del error.
 		return falla("Meta no respondió (tiempo agotado o sin conexión); vuelve a probar en unos minutos")
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -715,32 +716,51 @@ func nuevoRecibirMetaApp(m *Modulo) *auditoria.Caso[EntradaMetaApp, MetaRecibido
 					return MetaRecibido{}, err
 				}
 			}
-			// Cada entry va al número QR de su phone_number_id (o de su WABA en account_update).
+			// Cada change va al número QR de su phone_number_id (o al de su WABA en account_update):
+			// un entry con cambios de varios números se separa por número.
 			repartidos, descartados, duplicados := 0, 0, 0
 			for _, crudo := range w.Entry {
-				canal, err := m.canalDeEntrada(ctx, q, crudo)
-				if err != nil {
-					return MetaRecibido{}, err
+				var e struct {
+					ID      string            `json:"id"`
+					Changes []json.RawMessage `json:"changes"`
 				}
-				if canal == nil {
+				if json.Unmarshal(crudo, &e) != nil {
 					descartados++
 					continue
 				}
-				cuerpo, err := json.Marshal(map[string]any{"object": w.Object, "entry": []json.RawMessage{crudo}})
-				if err != nil {
-					return MetaRecibido{}, err
+				porCanal := map[int64][]json.RawMessage{}
+				orden := []int64{}
+				for _, ch := range e.Changes {
+					canal, err := m.canalDeCambio(ctx, q, e.ID, ch)
+					if err != nil {
+						return MetaRecibido{}, err
+					}
+					if canal == nil {
+						descartados++
+						continue
+					}
+					if _, ok := porCanal[canal.ID]; !ok {
+						orden = append(orden, canal.ID)
+					}
+					porCanal[canal.ID] = append(porCanal[canal.ID], ch)
 				}
-				id, nuevo, err := m.guardarEntrante(ctx, t, q, canal.ID, cuerpo)
-				if err != nil {
-					return MetaRecibido{}, err
-				}
-				if !nuevo {
-					duplicados++
-					continue
-				}
-				repartidos++
-				if err := m.encolar(ctx, t.Tx, ArgsProcesarEntrante{EntranteID: id}); err != nil {
-					return MetaRecibido{}, err
+				for _, canal := range orden {
+					cuerpo, err := json.Marshal(map[string]any{"object": w.Object, "entry": []any{map[string]any{"id": e.ID, "changes": porCanal[canal]}}})
+					if err != nil {
+						return MetaRecibido{}, err
+					}
+					id, nuevo, err := m.guardarEntrante(ctx, t, q, canal, cuerpo)
+					if err != nil {
+						return MetaRecibido{}, err
+					}
+					if !nuevo {
+						duplicados++
+						continue
+					}
+					repartidos++
+					if err := m.encolar(ctx, t.Tx, ArgsProcesarEntrante{EntranteID: id}); err != nil {
+						return MetaRecibido{}, err
+					}
 				}
 			}
 			t.Anotar(map[string]any{"repartidos": repartidos, "descartados": descartados, "duplicados": duplicados})
@@ -749,38 +769,36 @@ func nuevoRecibirMetaApp(m *Modulo) *auditoria.Caso[EntradaMetaApp, MetaRecibido
 	})
 }
 
-// canalDeEntrada: el número QR al que va una entry del webhook de la app (nil = de nadie).
-func (m *Modulo) canalDeEntrada(ctx context.Context, q *mensajeriabd.Queries, crudo json.RawMessage) (*mensajeriabd.MensajeriaCanal, error) {
-	var e struct {
-		ID      string `json:"id"`
-		Changes []struct {
-			Value struct {
-				Metadata struct {
-					PhoneNumberID string `json:"phone_number_id"`
-				} `json:"metadata"`
-				WabaInfo *struct {
-					WabaID string `json:"waba_id"`
-				} `json:"waba_info"`
-			} `json:"value"`
-		} `json:"changes"`
+// canalDeCambio: el número QR al que va un change del webhook de la app (nil = de nadie). Un
+// account_update va al primero de su WABA (se aplica a todos los números de la WABA al procesarlo).
+func (m *Modulo) canalDeCambio(ctx context.Context, q *mensajeriabd.Queries, entrada string, crudo json.RawMessage) (*mensajeriabd.MensajeriaCanal, error) {
+	var ch struct {
+		Field string `json:"field"`
+		Value struct {
+			Metadata struct {
+				PhoneNumberID string `json:"phone_number_id"`
+			} `json:"metadata"`
+			WabaInfo *struct {
+				WabaID string `json:"waba_id"`
+			} `json:"waba_info"`
+		} `json:"value"`
 	}
-	if json.Unmarshal(crudo, &e) != nil {
+	if json.Unmarshal(crudo, &ch) != nil {
 		return nil, nil
 	}
-	for _, ch := range e.Changes {
-		if pid := ch.Value.Metadata.PhoneNumberID; reDigitos.MatchString(pid) {
-			fs, err := q.CanalesQRPorPhoneNumber(ctx, pid)
-			if err != nil || len(fs) == 0 {
-				return nil, err
-			}
-			return &fs[0], nil
+	if pid := ch.Value.Metadata.PhoneNumberID; ch.Field != "account_update" {
+		if !reDigitos.MatchString(pid) {
+			return nil, nil
 		}
+		fs, err := q.CanalesQRPorPhoneNumber(ctx, pid)
+		if err != nil || len(fs) == 0 {
+			return nil, err
+		}
+		return &fs[0], nil
 	}
-	waba := e.ID
-	for _, ch := range e.Changes {
-		if ch.Value.WabaInfo != nil && reDigitos.MatchString(ch.Value.WabaInfo.WabaID) {
-			waba = ch.Value.WabaInfo.WabaID
-		}
+	waba := entrada
+	if ch.Value.WabaInfo != nil && reDigitos.MatchString(ch.Value.WabaInfo.WabaID) {
+		waba = ch.Value.WabaInfo.WabaID
 	}
 	if !reDigitos.MatchString(waba) {
 		return nil, nil

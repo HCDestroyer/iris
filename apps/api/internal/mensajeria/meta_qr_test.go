@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -35,8 +36,8 @@ type grafoQR struct {
 	llamadas []string
 	cuerpos  map[string][]string
 	// Respuestas (status, cuerpo) por paso; vacías = las de éxito.
-	canje, numero, suscribir, sync, app [2]any
-	enAppNegocio                        bool
+	canje, numero, suscribir, sync, app, wabaNums [2]any
+	enAppNegocio                                  bool
 }
 
 func nuevoGrafoQR(t *testing.T) *grafoQR {
@@ -60,11 +61,20 @@ func nuevoGrafoQR(t *testing.T) *grafoQR {
 		partes := strings.Split(strings.Trim(ruta, "/"), "/")
 		switch {
 		case ruta == "/oauth/access_token":
-			if r.URL.Query().Get("client_secret") != appSecretQR || r.URL.Query().Get("client_id") != appIDQR {
+			// POST con cuerpo form: nada en la URL.
+			form, _ := url.ParseQuery(string(crudo))
+			if r.Method != http.MethodPost || r.URL.RawQuery != "" || form.Get("client_secret") != appSecretQR || form.Get("client_id") != appIDQR {
 				responder([2]any{}, 400, `{"error":{"code":101,"type":"OAuthException"}}`)
 				return
 			}
 			responder(g.canje, 200, `{"access_token":"`+tokenNegocio+`","token_type":"bearer"}`)
+		case len(partes) == 2 && partes[1] == "phone_numbers":
+			// Las pruebas usan wabaId = "9" + pnid[1:]: la WABA tiene esos números.
+			ids := []string{}
+			for d := 0; d <= 9; d++ {
+				ids = append(ids, `{"id":"`+fmt.Sprint(d)+partes[0][1:]+`"}`)
+			}
+			responder(g.wabaNums, 200, `{"data":[`+strings.Join(ids, ",")+`]}`)
 		case len(partes) == 2 && partes[1] == "subscribed_apps":
 			responder(g.suscribir, 200, `{"success":true}`)
 		case len(partes) == 2 && partes[1] == "smb_app_data":
@@ -72,8 +82,9 @@ func nuevoGrafoQR(t *testing.T) *grafoQR {
 		case len(partes) == 2 && partes[1] == "messages":
 			responder([2]any{}, 200, `{"messages":[{"id":"wamid.`+uuid.NewString()+`"}]}`)
 		case len(partes) == 1 && r.URL.Query().Get("fields") == "id,name":
-			if r.URL.Query().Get("access_token") != appIDQR+"|"+appSecretQR {
-				responder([2]any{}, 400, `{"error":{"code":190,"type":"OAuthException","message":"Invalid token `+r.URL.Query().Get("access_token")+`"}}`)
+			// El token de la app va en la cabecera, nunca en la URL.
+			if r.URL.Query().Get("access_token") != "" || r.Header.Get("Authorization") != "Bearer "+appIDQR+"|"+appSecretQR {
+				responder([2]any{}, 400, `{"error":{"code":190,"type":"OAuthException","message":"Invalid token `+r.Header.Get("Authorization")+`"}}`)
 				return
 			}
 			responder(g.app, 200, `{"id":"`+partes[0]+`","name":"Red Sur Iris"}`)
@@ -345,7 +356,7 @@ func TestConexionMetaSaaS(t *testing.T) {
 	b.exigir(b.api(admin, http.MethodPost, "/conexion-meta/probar", nil), http.StatusOK)
 	// El QR funciona con la app del entorno.
 	b.exigir(conectarQR(b, admin, pnidNuevo(), "AQB-saas-"+pruebas.Unico(), ""), http.StatusCreated, "tipoConexion", "qr")
-	if g.cuenta("GET /oauth/access_token", "") != 1 {
+	if g.cuenta("POST /oauth/access_token", "") != 1 {
 		t.Fatalf("canjes: %v", g.llamadas)
 	}
 }
@@ -381,7 +392,7 @@ func TestCanalQRConectaYCanjeaUnaVez(t *testing.T) {
 	if r.cuerpo["appSecretGuardadoEn"] != nil || r.cuerpo["tokenGuardadoEn"] == nil || r.cuerpo["conectadoEn"] == nil {
 		t.Fatalf("credenciales del QR: %v", r.cuerpo)
 	}
-	if g.cuenta("GET /oauth/access_token", "") != 1 || g.cuenta("POST /", "/subscribed_apps") != 1 || g.cuenta("POST /", "/register") != 0 {
+	if g.cuenta("POST /oauth/access_token", "") != 1 || g.cuenta("POST /", "/subscribed_apps") != 1 || g.cuenta("POST /", "/register") != 0 {
 		t.Fatalf("llamadas a Meta: %v", g.llamadas)
 	}
 	// El primer número QR usa el webhook de la app (sin override).
@@ -397,7 +408,7 @@ func TestCanalQRConectaYCanjeaUnaVez(t *testing.T) {
 	if !strings.HasSuffix(fmt.Sprint(r3.cuerpo["type"]), "codigo_vencido") {
 		t.Fatalf("código repetido: %v", r3.cuerpo)
 	}
-	if g.cuenta("GET /oauth/access_token", "") != 1 {
+	if g.cuenta("POST /oauth/access_token", "") != 1 {
 		t.Fatalf("canjeó dos veces: %v", g.llamadas)
 	}
 	// Nada guarda el código ni el token en claro.
@@ -878,7 +889,24 @@ func TestPrestamoVisibilidad(t *testing.T) {
 		t.Fatalf("cambios de la 2: %v", cs)
 	}
 
-	// La dueña pasa la suya a la empresa 2: desde ahí solo la ve la 2 (con su historial).
+	// Antes de pasarla, la dueña anota algo interno (con un adjunto) y el cliente mandó una foto.
+	nota := p.api(p.supervisor, http.MethodPost, fmt.Sprintf("/conversaciones/%d/notas", c1), map[string]any{"id": uuid.Must(uuid.NewV7()).String(),
+		"texto": "Dato interno de Red Sur", "menciones": []int64{p.agente.id}})
+	p.exigir(nota, http.StatusCreated)
+	adjCliente, adjNota := uuid.New(), uuid.New()
+	for _, a := range []uuid.UUID{adjCliente, adjNota} {
+		if _, err := p.bd.Exec(p.ctx, `INSERT INTO nucleo.adjuntos (id, empresa_id, entidad, entidad_id, tipo, mime, tamano, sha256, recibido, estado, almacenamiento, clave)
+			VALUES ($1, 1, 'conversacion', $2, 'foto', 'image/jpeg', 10, repeat('a', 64), 10, 'completo', 'local', $3)`, a, fmt.Sprint(c1), "prueba/"+a.String()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := p.bd.Exec(p.ctx, `UPDATE mensajeria.conversacion_mensajes SET adjunto_id = $2 WHERE conversacion_id = $1 AND direccion = 'entrante'`, c1, adjCliente); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.bd.Exec(p.ctx, `UPDATE mensajeria.conversacion_mensajes SET adjunto_id = $2 WHERE id = $1`, nota.cuerpo["id"], adjNota); err != nil {
+		t.Fatal(err)
+	}
+	// La dueña pasa la suya a la empresa 2: desde ahí solo la ve la 2 (con los mensajes del cliente).
 	d := p.api(p.supervisor, http.MethodGet, fmt.Sprintf("/conversaciones/%d", c1), nil)
 	pe := p.api(p.supervisor, http.MethodPost, fmt.Sprintf("/conversaciones/%d/pasar-empresa", c1), map[string]any{"version": d.cuerpo["version"], "empresaId": 2,
 		"nota": "Es cliente de Cable Norte"})
@@ -889,9 +917,32 @@ func TestPrestamoVisibilidad(t *testing.T) {
 	if v.cuerpo["cola"].(map[string]any)["id"].(float64) != float64(p.cola2) || v.cuerpo["asignado"] != nil {
 		t.Fatalf("pasada: %v", v.cuerpo)
 	}
+	// Ve los mensajes del cliente, la nota de quien la pasó y «Pasada por Empresa 1»; nunca las
+	// notas internas previas ni los eventos de sistema de la dueña.
 	ms := p.mensajes(p.sup2, fmt.Sprint(c1))
-	if len(eventosSistema(ms, "pasada_a_empresa")) != 1 || ms[0]["direccion"] != "sistema" {
-		t.Fatalf("historial pasado: %v", ms)
+	pasada := eventosSistema(ms, "pasada_a_empresa")
+	if len(pasada) != 1 || pasada[0]["detalle"] != "Empresa 1" || pasada[0]["actorNombre"] != nil {
+		t.Fatalf("pasada_a_empresa: %v", ms)
+	}
+	textos := cadena(ms)
+	if strings.Contains(textos, "Dato interno de Red Sur") || len(eventosSistema(ms, "conversacion_creada")) != 0 ||
+		!strings.Contains(textos, "Soy de Red Sur") || !strings.Contains(textos, "Es cliente de Cable Norte") {
+		t.Fatalf("mensajes pasados: %v", ms)
+	}
+	if n := p.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND direccion = 'nota' AND empresa_id = 1`, c1); n != 1 {
+		t.Fatalf("la nota de la dueña debía quedarse con la dueña: %d", n)
+	}
+	// El adjunto del cliente pasa con su mensaje; el de la nota de la dueña, no.
+	var eCliente, eNota int64
+	if err := p.bd.QueryRow(p.ctx, `SELECT (SELECT empresa_id FROM nucleo.adjuntos WHERE id = $1), (SELECT empresa_id FROM nucleo.adjuntos WHERE id = $2)`,
+		adjCliente, adjNota).Scan(&eCliente, &eNota); err != nil {
+		t.Fatal(err)
+	}
+	if eCliente != 2 || eNota != 1 {
+		t.Fatalf("adjuntos: cliente %d nota %d", eCliente, eNota)
+	}
+	if n := p.contar(`SELECT count(*) FROM mensajeria.conversacion_participantes WHERE conversacion_id = $1`, c1); n != 0 {
+		t.Fatal("las menciones de la dueña pasaron")
 	}
 	if o := p.outbox("conversacion.empresa_asignada", fmt.Sprint(c1)); o[len(o)-1]["motivo"] != "pasada" {
 		t.Fatalf("empresa_asignada: %v", o)

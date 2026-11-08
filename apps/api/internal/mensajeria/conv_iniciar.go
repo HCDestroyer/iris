@@ -117,7 +117,7 @@ type Destinatario struct {
 	Detalle        *string `json:"detalle" nullable:"true" doc:"Contacto de Iris: su tipo (proveedor, personal, prospecto, otro)"`
 	Numero         *string `json:"numero" nullable:"true" doc:"El número al que saldría (E.164); null si no tiene"`
 	Puede          bool    `json:"puede"`
-	Motivo         *string `json:"motivo" nullable:"true" enum:"sin_contacto,sin_permiso,baja,cliente_fuera_de_empresa,conversacion_de_otro,conversacion_de_otra_cola,numero_no_permitido" doc:"Por qué no (los códigos de POST /conversaciones/iniciar)"`
+	Motivo         *string `json:"motivo" nullable:"true" enum:"sin_contacto,sin_permiso,baja,cliente_fuera_de_empresa,conversacion_de_otro,conversacion_de_otra_cola,conversacion_en_otra_empresa,numero_no_permitido" doc:"Por qué no (los códigos de POST /conversaciones/iniciar)"`
 	ConversacionID *int64  `json:"conversacionId" nullable:"true" doc:"Con canalId: la conversación que ya existe de ese número en ese canal"`
 }
 
@@ -170,6 +170,13 @@ func (m *Modulo) evaluarDestino(ctx context.Context, q *mensajeriabd.Queries, a 
 		}
 		if !ok {
 			return motivo("numero_no_permitido")
+		}
+		if err := otraEmpresaConversa(ctx, q, canal.ID, a.empresa, numero); err != nil {
+			var p *nucleo.Problema
+			if errors.As(err, &p) {
+				return motivo(p.Codigo())
+			}
+			return err
 		}
 		c, err := q.ConversacionDeContacto(ctx, mensajeriabd.ConversacionDeContactoParams{Empresa: a.empresa, CanalID: canal.ID, Numero: numero})
 		switch {
@@ -551,6 +558,11 @@ func (m *Modulo) iniciar(ctx context.Context, t *auditoria.Tx, in entradaIniciar
 	// Destinatario: el número lo pone Iris.
 	numero, err := m.numeroDestino(ctx, q, a, in)
 	if err != nil {
+		return ConversacionIniciada{}, err
+	}
+	// Un número compartido: si otra empresa del número tiene una conversación no resuelta con ese
+	// teléfono, no se le quita iniciando con una plantilla (§15.3).
+	if err := otraEmpresaConversa(ctx, q, canal.ID, a.empresa, numero); err != nil {
 		return ConversacionIniciada{}, err
 	}
 	ahora := m.ahora()

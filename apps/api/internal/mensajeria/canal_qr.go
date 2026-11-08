@@ -32,6 +32,9 @@ const (
 // conectar.
 const plazoSincronizacion = 24 * time.Hour
 
+// pedidoSinRespuesta: un pedido a Meta que no terminó en este tiempo se puede repetir.
+const pedidoSinRespuesta = 10 * time.Minute
+
 // Estados de la sincronización (contactos y mensajes).
 const (
 	SyncSinPedir   = "sin_pedir"
@@ -247,13 +250,19 @@ func nuevoCrearCanalQR(m *Modulo) *CrearCanalQR {
 				return qrPreparado{}, err
 			}
 			// Con varios números QR, cada uno con su URL (override_callback_uri); con uno solo
-			// alcanza el webhook de la app.
+			// alcanza el webhook de la app. En saas y compartida la app no es de esta instalación:
+			// siempre con la URL del número, que exige IRIS_BASE_URL absoluta.
 			otro, err := q.HayOtroCanalQRActivo(ctx, p.id)
 			if err != nil {
 				return qrPreparado{}, err
 			}
 			_, completa := m.webhookURL(p.id)
-			p.alterno = otro && completa
+			siempre := c.modo == ModoMetaSaaS || c.modo == ModoMetaCompartida
+			if siempre && !completa {
+				return qrPreparado{}, reglaConv("base_url_requerida",
+					"Falta IRIS_BASE_URL (la URL pública de Iris, absoluta): Meta debe mandar los mensajes de este número a la URL propia del número")
+			}
+			p.alterno = completa && (otro || siempre)
 			h := sha256.Sum256([]byte(in.Code))
 			n, err := q.InsertarRegistroQR(ctx, mensajeriabd.InsertarRegistroQRParams{HashCodigo: h[:], EmpresaID: empresa, UsuarioID: usuarioDe(ctx)})
 			if err != nil {
@@ -353,7 +362,7 @@ func (k *CrearCanalQR) Ejecutar(ctx context.Context, in EntradaCanalQR) (CanalQR
 	if err != nil {
 		return falla("canje", err)
 	}
-	numero, err := reg.ConsultarNumero(ctx, token, in.PhoneNumberID)
+	numero, err := reg.ConsultarNumero(ctx, token, in.WabaID, in.PhoneNumberID)
 	if err != nil {
 		return falla("numero", err)
 	}
@@ -432,7 +441,11 @@ func nuevoSincronizar(m *Modulo) *Sincronizar {
 				if !x.pedir {
 					continue
 				}
-				if x.parte.Estado != SyncSinPedir && x.parte.Estado != SyncFallido {
+				// Un «pedido» de más de 10 min sin respuesta de Meta (la llamada no terminó) se
+				// puede pedir otra vez.
+				trabado := x.parte.Estado == SyncPedido && x.parte.RequestID == "" && x.parte.PedidoEn != nil &&
+					ahora.Sub(*x.parte.PedidoEn) > pedidoSinRespuesta
+				if x.parte.Estado != SyncSinPedir && x.parte.Estado != SyncFallido && !trabado {
 					return syncReservada{}, reglaConv("sincronizacion_ya_pedida", "Ya se pidió a Meta y solo se puede pedir una vez")
 				}
 				*x.parte = parteSincronizacion{Estado: SyncPedido, PedidoEn: &ahora}
@@ -527,4 +540,11 @@ func mapaValores(m map[string]string) []string {
 		out = append(out, v)
 	}
 	return out
+}
+
+// purgarRegistrosQR borra las huellas de los códigos de Embedded Signup de más de 7 días (el
+// código vive ~30 s; la huella solo evita canjearlo dos veces).
+func (m *Modulo) purgarRegistrosQR(ctx context.Context, bd nucleo.BD) error {
+	_, err := mensajeriabd.New(bd).PurgarRegistrosQR(ctx, m.ahora().Add(-7*24*time.Hour))
+	return err
 }

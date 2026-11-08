@@ -24,8 +24,8 @@ import (
 type RegistroMeta interface {
 	// CanjearCodigo cambia el código de Embedded Signup (vive ~30 s) por el token del negocio.
 	CanjearCodigo(ctx context.Context, codigo string) (string, error)
-	// ConsultarNumero lee el número con el token del negocio.
-	ConsultarNumero(ctx context.Context, token, phoneNumberID string) (NumeroRegistrado, error)
+	// ConsultarNumero lee el número con el token del negocio y comprueba que es de la WABA.
+	ConsultarNumero(ctx context.Context, token, wabaID, phoneNumberID string) (NumeroRegistrado, error)
 	// SuscribirWABA suscribe la app a los webhooks de la WABA (alterno: URL propia del número).
 	SuscribirWABA(ctx context.Context, token, wabaID string, alterno *WebhookAlterno) error
 	// PedirSincronizacion pide a Meta los contactos (smb_app_state_sync) o el historial (history).
@@ -106,7 +106,7 @@ func (registroServicioCentral) CanjearCodigo(context.Context, string) (string, e
 	return "", &ErrorRegistro{Codigo: ErrQRServicioNoDisponible, Detalle: detalleServicioCentral}
 }
 
-func (registroServicioCentral) ConsultarNumero(context.Context, string, string) (NumeroRegistrado, error) {
+func (registroServicioCentral) ConsultarNumero(context.Context, string, string, string) (NumeroRegistrado, error) {
 	return NumeroRegistrado{}, &ErrorRegistro{Codigo: ErrQRServicioNoDisponible, Detalle: detalleServicioCentral}
 }
 
@@ -169,6 +169,25 @@ func (r *registroGraph) pedir(ctx context.Context, metodo, ruta string, token st
 	return resp.StatusCode, leido, nil
 }
 
+// pedirForm hace un POST application/x-www-form-urlencoded (sin token en la cabecera).
+func (r *registroGraph) pedirForm(ctx context.Context, ruta string, form url.Values) (int, []byte, error) {
+	ctx, cancelar := context.WithTimeout(ctx, tiempoLlamadaRegistroMeta)
+	defer cancelar()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.base+ruta, strings.NewReader(form.Encode()))
+	if err != nil {
+		return 0, nil, &ErrorRegistro{Codigo: ErrQRErrorMeta, Detalle: "No se pudo armar la llamada a Meta"}
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", "Iris/"+r.m.cfg.Version)
+	resp, err := r.m.cfg.HTTPMeta.Do(req)
+	if err != nil {
+		return 0, nil, &ErrorRegistro{Codigo: ErrQRErrorMeta, Detalle: "Meta no respondió (tiempo agotado o sin conexión); espera un minuto y vuelve a intentar"}
+	}
+	defer func() { _ = resp.Body.Close() }()
+	leido, _ := io.ReadAll(io.LimitReader(resp.Body, limiteRespuestaRegistroQR))
+	return resp.StatusCode, leido, nil
+}
+
 func errorDe(cuerpo []byte) *errorGraphQR {
 	var r struct {
 		Error *errorGraphQR `json:"error"`
@@ -192,8 +211,9 @@ func sinPermisoApp(status, codigo int) bool {
 }
 
 func (r *registroGraph) CanjearCodigo(ctx context.Context, codigo string) (string, error) {
-	q := url.Values{"client_id": {r.appID}, "client_secret": {r.appSecret}, "code": {codigo}}
-	status, cuerpo, err := r.pedir(ctx, http.MethodGet, "/oauth/access_token?"+q.Encode(), "", nil)
+	// POST con cuerpo form: el secreto y el código nunca van en la URL (logs de proxies).
+	form := url.Values{"client_id": {r.appID}, "client_secret": {r.appSecret}, "code": {codigo}}
+	status, cuerpo, err := r.pedirForm(ctx, "/oauth/access_token", form)
 	if err != nil {
 		return "", err
 	}
@@ -214,8 +234,33 @@ func (r *registroGraph) CanjearCodigo(ctx context.Context, codigo string) (strin
 	return "", &ErrorRegistro{Codigo: ErrQRErrorMeta, Detalle: detalleErrorMeta(status, e)}
 }
 
-func (r *registroGraph) ConsultarNumero(ctx context.Context, token, phoneNumberID string) (NumeroRegistrado, error) {
-	status, cuerpo, err := r.pedir(ctx, http.MethodGet, "/"+url.PathEscape(phoneNumberID)+"?fields=display_phone_number,verified_name,is_on_biz_app,platform_type", token, nil)
+func (r *registroGraph) ConsultarNumero(ctx context.Context, token, wabaID, phoneNumberID string) (NumeroRegistrado, error) {
+	// El número debe ser de la WABA que dijo la ventana de Meta (GET /{waba_id}/phone_numbers).
+	status, cuerpo, err := r.pedir(ctx, http.MethodGet, "/"+url.PathEscape(wabaID)+"/phone_numbers?fields=id&limit=100", token, nil)
+	if err != nil {
+		return NumeroRegistrado{}, err
+	}
+	var lista struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if status/100 != 2 || json.Unmarshal(cuerpo, &lista) != nil {
+		e := errorDe(cuerpo)
+		c, _ := codigoDe(e)
+		if sinPermisoApp(status, c) {
+			return NumeroRegistrado{}, &ErrorRegistro{Codigo: ErrQRAppNoAprobada, Detalle: detalleAppNoAprobada}
+		}
+		return NumeroRegistrado{}, &ErrorRegistro{Codigo: ErrQRErrorMeta, Detalle: detalleErrorMeta(status, e)}
+	}
+	deLaWABA := false
+	for _, n := range lista.Data {
+		deLaWABA = deLaWABA || n.ID == phoneNumberID
+	}
+	if !deLaWABA {
+		return NumeroRegistrado{}, &ErrorRegistro{Codigo: ErrQRNumeroNoElegible, Detalle: "Ese número no es de la cuenta de WhatsApp Business que se conectó en la ventana de Meta"}
+	}
+	status, cuerpo, err = r.pedir(ctx, http.MethodGet, "/"+url.PathEscape(phoneNumberID)+"?fields=display_phone_number,verified_name,is_on_biz_app,platform_type", token, nil)
 	if err != nil {
 		return NumeroRegistrado{}, err
 	}

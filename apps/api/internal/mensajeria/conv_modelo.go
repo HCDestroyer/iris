@@ -722,8 +722,6 @@ type nuevoMensaje struct {
 	automatico    *string
 	// origen: telefono (eco) o historial (§15.2).
 	origen *string
-	// sinFeed: no se avisa al flujo en tiempo real (historial: miles de mensajes viejos).
-	sinFeed bool
 }
 
 // agregarMensaje asigna el seq (la conversación debe estar bloqueada), lo guarda y lo pone en el
@@ -763,7 +761,7 @@ func (m *Modulo) agregarMensaje(ctx context.Context, t *auditoria.Tx, c *mensaje
 		Plantilla: n.plantilla, Variables: n.variables, AutorID: n.autor, Menciones: n.menciones, Evento: evento, RespuestaRapidaID: n.respuesta,
 		EstadoEntrega: n.estadoEntrega, ProveedorID: n.proveedor, HashContenido: n.hash, IdempotencyKey: n.clave, CreadoEn: n.creadoEn, Automatico: n.automatico,
 		Origen: n.origen})
-	if err != nil || n.sinFeed {
+	if err != nil {
 		return f, err
 	}
 	return f, m.emitirEventoConv(ctx, t, *c, EventoConvMensajeNuevo, &f.ID, nil)

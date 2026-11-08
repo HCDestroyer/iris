@@ -5036,6 +5036,7 @@
               "cliente_fuera_de_empresa",
               "conversacion_de_otro",
               "conversacion_de_otra_cola",
+              "conversacion_en_otra_empresa",
               "numero_no_permitido"
             ],
             "type": [
