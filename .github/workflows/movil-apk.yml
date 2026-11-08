@@ -136,8 +136,13 @@ jobs:
             fi
             version="${TAG_ENTRADA#v}"
             # La etiqueta y el manifiesto de release-please de su commit dicen la misma versión.
-            manifiesto="$(git show "$commit:.release-please-manifest.json" 2>/dev/null | jq -r '."." // empty' || true)"
-            if [[ -n "$manifiesto" && "$manifiesto" != "$version" ]]; then
+            # Sin manifiesto, o con algo que no es X.Y.Z, es error (y no se imprime lo que traiga).
+            manifiesto="$(git show "$commit:.release-please-manifest.json" 2>/dev/null | jq -r '."." // empty' 2>/dev/null || true)"
+            if [[ ! "$manifiesto" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::El commit de $TAG_ENTRADA no tiene una versión X.Y.Z válida en .release-please-manifest.json."
+              exit 1
+            fi
+            if [[ "$manifiesto" != "$version" ]]; then
               echo "::error::La etiqueta $TAG_ENTRADA no coincide con .release-please-manifest.json ($manifiesto) de su commit."
               exit 1
             fi
