@@ -166,7 +166,7 @@ var esquemasBandeja = []string{
 	"Horario", "ListaHorarios", "Manual", "ManualResumen", "ListaManuales", "ManualSugerido", "ListaSugeridos", "ListaEnlacesManual",
 	"FueraDeHorario", "GuardiaFueraDeHorario", "FeriadoHorario", "FranjaHorario",
 	// Fase 1.1.
-	"BotNumero", "OpcionMenuBot", "EsperaConversacion", "ListaDestinatarios", "ConversacionIniciada", "PaseConversacion", "Canal",
+	"BotNumero", "OpcionMenuBot", "EsperaConversacion", "ListaDestinatarios", "ConversacionIniciada", "PaseConversacion", "Canal", "ListaCanales",
 }
 
 // EsquemasBandeja devuelve los nombres (para la prueba del contrato).

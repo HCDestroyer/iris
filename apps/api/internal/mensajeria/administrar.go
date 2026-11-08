@@ -2,10 +2,13 @@ package mensajeria
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -128,7 +131,7 @@ type Canal struct {
 	WabaID         string                   `json:"wabaId"`
 	Plantillas     map[string]PlantillaMeta `json:"plantillas" doc:"Plantillas aprobadas en Meta por código de Iris"`
 	Usos           []string                 `json:"usos" doc:"avisos, soporte, cobros, ventas (contratos/conversaciones.md §1)"`
-	AvisosEmpresa  bool                     `json:"avisosEmpresa" doc:"Es el número por el que salen los avisos de la empresa (uno activo por empresa)"`
+	AvisosEmpresa  bool                     `json:"avisosEmpresa" doc:"Es el número por el que salen los avisos de la empresa (uno solo por empresa; la empresa puede tener varios números)"`
 	ColaID         *int64                   `json:"colaId" nullable:"true" doc:"Cola de las conversaciones nuevas de este número"`
 	HorarioID      *int64                   `json:"horarioId" nullable:"true" doc:"Horario del número"`
 	FueraDeHorario FueraDeHorario           `json:"fueraDeHorario"`
@@ -136,8 +139,57 @@ type Canal struct {
 	Activo         bool                     `json:"activo"`
 	PausadoHasta   *time.Time               `json:"pausadoHasta" nullable:"true" doc:"Pausa automática por calidad o límite de Meta"`
 	WebhookRuta    string                   `json:"webhookRuta" doc:"Ruta del webhook a configurar en la app de Meta (sobre IRIS_BASE_URL)"`
-	Version        int32                    `json:"version"`
-	CreadoEn       time.Time                `json:"creadoEn"`
+	// Conexión (contratos/conversaciones.md §1.1).
+	WebhookURL            string     `json:"webhookUrl" doc:"URL completa del webhook para pegar en Meta (IRIS_BASE_URL + webhookRuta); sin IRIS_BASE_URL, solo la ruta"`
+	WebhookURLCompleta    bool       `json:"webhookUrlCompleta" doc:"true si webhookUrl es absoluta (false: el panel antepone su origen)"`
+	Estado                string     `json:"estado" enum:"activo,inactivo"`
+	Conexion              string     `json:"conexion" enum:"desactivado,sin_probar,conectado,webhook_sin_verificar,token_invalido,numero_no_coincide,sin_permiso,error_meta" doc:"Estado de la conexión para la lista (§1.1), calculado en el servidor"`
+	UltimoEstado          *string    `json:"ultimoEstado" nullable:"true" enum:"conectado,token_invalido,numero_no_coincide,sin_permiso,error_meta" doc:"Resultado de la última prueba (null = sin probar)"`
+	UltimoDetalle         *string    `json:"ultimoDetalle" nullable:"true" doc:"Detalle corto de la última prueba (nunca credenciales)"`
+	UltimaPruebaEn        *time.Time `json:"ultimaPruebaEn" nullable:"true"`
+	WebhookVerificadoEn   *time.Time `json:"webhookVerificadoEn" nullable:"true" doc:"Última verificación correcta de Meta (hub.challenge); null si no la hizo o cambió el verify token"`
+	UltimoMensajeEn       *time.Time `json:"ultimoMensajeEn" nullable:"true" doc:"Último webhook firmado recibido de Meta (precisión de 1 minuto)"`
+	TokenGuardadoEn       *time.Time `json:"tokenGuardadoEn" nullable:"true" doc:"Cuándo se guardó el token (nunca el valor)"`
+	AppSecretGuardadoEn   *time.Time `json:"appSecretGuardadoEn" nullable:"true" doc:"Cuándo se guardó el app secret (nunca el valor)"`
+	VerifyTokenGuardadoEn *time.Time `json:"verifyTokenGuardadoEn" nullable:"true" doc:"Cuándo se guardó el verify token (nunca el valor)"`
+	// VerifyTokenGenerado solo sale en la respuesta de crear o actualizar cuando Iris lo generó.
+	VerifyTokenGenerado *string   `json:"verifyTokenGenerado,omitempty" doc:"Verify token que generó Iris: solo en esta respuesta, una vez (cópialo a Meta)"`
+	Version             int32     `json:"version"`
+	CreadoEn            time.Time `json:"creadoEn"`
+}
+
+// Estados de una prueba de conexión (POST /canales/{id}/probar).
+const (
+	PruebaConectado        = "conectado"
+	PruebaTokenInvalido    = "token_invalido"
+	PruebaNumeroNoCoincide = "numero_no_coincide"
+	PruebaSinPermiso       = "sin_permiso"
+	PruebaErrorMeta        = "error_meta"
+)
+
+// conexionDe resume el número para la columna «Conexión» de la lista.
+func conexionDe(f mensajeriabd.MensajeriaCanal) string {
+	switch {
+	case !f.Activo:
+		return "desactivado"
+	case f.UltimoEstado == nil:
+		return "sin_probar"
+	case *f.UltimoEstado != PruebaConectado:
+		return *f.UltimoEstado
+	case f.WebhookVerificadoEn == nil:
+		return "webhook_sin_verificar"
+	}
+	return PruebaConectado
+}
+
+// webhookURL: la URL completa para Meta (sobre IRIS_BASE_URL) o, sin ella, solo la ruta.
+func (m *Modulo) webhookURL(id int64) (string, bool) {
+	ruta := rutaWebhookMeta(id)
+	base := strings.TrimRight(strings.TrimSpace(m.cfg.BaseURL), "/")
+	if base == "" {
+		return ruta, false
+	}
+	return base + ruta, true
 }
 
 // ListaCanales es { data, nextCursor }.
@@ -146,12 +198,22 @@ type ListaCanales struct {
 	NextCursor *string `json:"nextCursor" nullable:"true"`
 }
 
-func aCanal(f mensajeriabd.MensajeriaCanal) Canal {
+func (m *Modulo) aCanal(f mensajeriabd.MensajeriaCanal) Canal {
 	p := map[string]PlantillaMeta{}
 	_ = json.Unmarshal(f.Plantillas, &p)
-	return Canal{ID: f.ID, EmpresaID: f.EmpresaID, Tipo: f.Tipo, Canal: f.Canal, Nombre: f.Nombre, Numero: f.Numero, PhoneNumberID: f.PhoneNumberID,
+	c := Canal{ID: f.ID, EmpresaID: f.EmpresaID, Tipo: f.Tipo, Canal: f.Canal, Nombre: f.Nombre, Numero: f.Numero, PhoneNumberID: f.PhoneNumberID,
 		WabaID: f.WabaID, Plantillas: p, Usos: f.Usos, AvisosEmpresa: f.AvisosEmpresa, ColaID: f.ColaID,
 		HorarioID: f.HorarioID, FueraDeHorario: fueraDeHorarioDe(f.FueraHorario), Bot: botDe(f.Bot), Activo: f.Activo, PausadoHasta: f.PausadoHasta, WebhookRuta: rutaWebhookMeta(f.ID), Version: f.Version, CreadoEn: f.CreatedAt}
+	c.WebhookURL, c.WebhookURLCompleta = m.webhookURL(f.ID)
+	c.Estado = "inactivo"
+	if f.Activo {
+		c.Estado = "activo"
+	}
+	c.Conexion = conexionDe(f)
+	c.UltimoEstado, c.UltimoDetalle, c.UltimaPruebaEn = f.UltimoEstado, f.UltimoDetalle, f.UltimaPruebaEn
+	c.WebhookVerificadoEn, c.UltimoMensajeEn = f.WebhookVerificadoEn, f.UltimoMensajeEn
+	c.TokenGuardadoEn, c.AppSecretGuardadoEn, c.VerifyTokenGuardadoEn = f.TokenGuardadoEn, f.AppSecretGuardadoEn, f.VerifyTokenGuardadoEn
+	return c
 }
 
 func rutaWebhookMeta(id int64) string {
@@ -184,7 +246,7 @@ type EntradaCrearCanal struct {
 	WabaID        string                   `json:"wabaId,omitempty" pattern:"^[0-9]{0,30}$" doc:"WhatsApp Business Account ID"`
 	Token         string                   `json:"token" minLength:"20" maxLength:"1024" auditoria:"sensible" doc:"Token de acceso del usuario del sistema de Meta (solo escritura)"`
 	AppSecret     string                   `json:"appSecret" minLength:"16" maxLength:"256" auditoria:"sensible" doc:"App secret de la app de Meta (verifica X-Hub-Signature-256; solo escritura)"`
-	VerifyToken   string                   `json:"verifyToken" minLength:"16" maxLength:"256" auditoria:"sensible" doc:"Token de verificación del webhook que se escribe en Meta (solo escritura)"`
+	VerifyToken   string                   `json:"verifyToken,omitempty" maxLength:"256" auditoria:"sensible" doc:"Token de verificación del webhook que se escribe en Meta (16–256; solo escritura). Vacío = lo genera Iris y lo devuelve una vez en verifyTokenGenerado"`
 	Plantillas    map[string]PlantillaMeta `json:"plantillas,omitempty" doc:"Plantillas aprobadas en Meta por código de Iris (§6.3)"`
 	Usos          []string                 `json:"usos,omitempty" maxItems:"4" uniqueItems:"true" doc:"avisos, soporte, cobros, ventas (por defecto avisos y soporte)"`
 	AvisosEmpresa *bool                    `json:"avisosEmpresa,omitempty" doc:"Número de avisos de la empresa. Por defecto, sí cuando la empresa no tiene otro y usos incluye avisos"`
@@ -193,16 +255,27 @@ type EntradaCrearCanal struct {
 
 // EntradaActualizarCanal es POST /mensajeria/canales/{id}/actualizar (las credenciales vacías no cambian).
 type EntradaActualizarCanal struct {
-	ID            int64                    `json:"-"`
-	Version       int32                    `json:"version" minimum:"1"`
-	Nombre        string                   `json:"nombre" minLength:"1" maxLength:"120"`
-	Numero        string                   `json:"numero" pattern:"^\\+[1-9][0-9]{7,14}$"`
-	PhoneNumberID string                   `json:"phoneNumberId" pattern:"^[0-9]{1,30}$"`
-	WabaID        string                   `json:"wabaId,omitempty" pattern:"^[0-9]{0,30}$"`
-	Token         string                   `json:"token,omitempty" maxLength:"1024" auditoria:"sensible" doc:"Vacío = no cambia"`
-	AppSecret     string                   `json:"appSecret,omitempty" maxLength:"256" auditoria:"sensible" doc:"Vacío = no cambia"`
-	VerifyToken   string                   `json:"verifyToken,omitempty" maxLength:"256" auditoria:"sensible" doc:"Vacío = no cambia"`
-	Plantillas    map[string]PlantillaMeta `json:"plantillas"`
+	ID            int64  `json:"-"`
+	Version       int32  `json:"version" minimum:"1"`
+	Nombre        string `json:"nombre" minLength:"1" maxLength:"120"`
+	Numero        string `json:"numero" pattern:"^\\+[1-9][0-9]{7,14}$"`
+	PhoneNumberID string `json:"phoneNumberId" pattern:"^[0-9]{1,30}$"`
+	WabaID        string `json:"wabaId,omitempty" pattern:"^[0-9]{0,30}$"`
+	Token         string `json:"token,omitempty" maxLength:"1024" auditoria:"sensible" doc:"Vacío = no cambia"`
+	AppSecret     string `json:"appSecret,omitempty" maxLength:"256" auditoria:"sensible" doc:"Vacío = no cambia"`
+	VerifyToken   string `json:"verifyToken,omitempty" maxLength:"256" auditoria:"sensible" doc:"Vacío = no cambia"`
+	// GenerarVerifyToken: «Generar otro» (no junto con verifyToken).
+	GenerarVerifyToken bool                     `json:"generarVerifyToken,omitempty" doc:"Iris genera un verify token nuevo y lo devuelve una vez en verifyTokenGenerado (no junto con verifyToken). Meta debe verificar el webhook otra vez"`
+	Plantillas         map[string]PlantillaMeta `json:"plantillas"`
+}
+
+// generarVerifyToken: vt_ + 32 caracteres aleatorios (base64 url, 192 bits).
+func generarVerifyToken() (string, error) {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return "vt_" + base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 // EntradaCambioCanal activa o desactiva un canal.
@@ -265,9 +338,28 @@ func nuevoCrearCanal(m *Modulo) *auditoria.Caso[EntradaCrearCanal, Canal] {
 			if err := validarUsos(in.Usos, avisos); err != nil {
 				return Canal{}, err
 			}
+			var generado *string
+			switch {
+			case in.VerifyToken == "":
+				vt, err := generarVerifyToken()
+				if err != nil {
+					return Canal{}, err
+				}
+				in.VerifyToken, generado = vt, &vt
+			case len(in.VerifyToken) < 16:
+				return Canal{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "verifyToken", Message: "Demasiado corto (mínimo 16)", Rule: "minLength"})
+			}
 			id, err := q.SiguienteIDCanal(ctx)
 			if err != nil {
 				return Canal{}, err
+			}
+			fijarEmpresaCanal(t, in.EmpresaID)
+			if avisos {
+				// Antes de insertar: el número de avisos anterior deja de serlo (si no, el índice
+				// único de avisos respondía 409 canal_existente).
+				if err := fijarAvisos(ctx, t, q, in.EmpresaID, id); err != nil {
+					return Canal{}, err
+				}
 			}
 			cifradas, err := m.cifrarCredenciales(id, credenciales{Token: in.Token, AppSecret: in.AppSecret, VerifyToken: in.VerifyToken})
 			if err != nil {
@@ -277,20 +369,16 @@ func nuevoCrearCanal(m *Modulo) *auditoria.Caso[EntradaCrearCanal, Canal] {
 				in.Plantillas = map[string]PlantillaMeta{}
 			}
 			plantillas, _ := json.Marshal(in.Plantillas)
+			ahora := m.ahora()
 			f, err := q.InsertarCanal(ctx, mensajeriabd.InsertarCanalParams{ID: id, EmpresaID: in.EmpresaID, Tipo: TipoWhatsAppCloud, Canal: CanalWhatsApp,
 				Nombre: in.Nombre, Numero: in.Numero, PhoneNumberID: in.PhoneNumberID, WabaID: in.WabaID, CredencialesCifradas: cifradas,
-				Plantillas: plantillas, CreadoPor: usuarioDe(ctx), Usos: in.Usos, AvisosEmpresa: avisos, ColaID: in.ColaID})
+				Plantillas: plantillas, CreadoPor: usuarioDe(ctx), Usos: in.Usos, AvisosEmpresa: avisos, ColaID: in.ColaID, GuardadoEn: &ahora})
 			if err != nil {
 				return Canal{}, conflictoCanal(err)
 			}
-			c := aCanal(f)
-			fijarEmpresaCanal(t, f.EmpresaID)
-			if avisos {
-				if err := fijarAvisos(ctx, t, q, f.EmpresaID, f.ID); err != nil {
-					return Canal{}, err
-				}
-			}
+			c := m.aCanal(f)
 			t.RegistrarCambios("canal_mensajeria", f.ID, nil, auditableCanal(c, "***"))
+			c.VerifyTokenGenerado = generado
 			return c, t.Emitir("canal_mensajeria.creado", map[string]any{"canal_id": f.ID, "empresa_id": f.EmpresaID, "tipo": f.Tipo, "canal": f.Canal})
 		},
 	})
@@ -361,6 +449,17 @@ func nuevoActualizarCanal(m *Modulo) *auditoria.Caso[EntradaActualizarCanal, Can
 			if err != nil {
 				return Canal{}, err
 			}
+			if in.GenerarVerifyToken && in.VerifyToken != "" {
+				return Canal{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "generarVerifyToken", Message: "No se puede generar y enviar un verify token a la vez", Rule: "excluyente"})
+			}
+			var generado *string
+			if in.GenerarVerifyToken {
+				vt, err := generarVerifyToken()
+				if err != nil {
+					return Canal{}, err
+				}
+				in.VerifyToken, generado = vt, &vt
+			}
 			cambioCred := "sin_cambio" //nolint:gosec // marcador de auditoría, no una credencial
 			for _, par := range []struct {
 				nuevo   string
@@ -383,17 +482,23 @@ func nuevoActualizarCanal(m *Modulo) *auditoria.Caso[EntradaActualizarCanal, Can
 				in.Plantillas = map[string]PlantillaMeta{}
 			}
 			plantillas, _ := json.Marshal(in.Plantillas)
+			ahora := m.ahora()
+			cambioToken := in.Token != ""
 			f, err := mensajeriabd.New(t).ActualizarCanal(ctx, mensajeriabd.ActualizarCanalParams{ID: in.ID, Nombre: in.Nombre, Numero: in.Numero,
-				PhoneNumberID: in.PhoneNumberID, WabaID: in.WabaID, CredencialesCifradas: cifradas, Plantillas: plantillas})
+				PhoneNumberID: in.PhoneNumberID, WabaID: in.WabaID, CredencialesCifradas: cifradas, Plantillas: plantillas,
+				Ahora: &ahora, CambioToken: cambioToken, CambioAppSecret: in.AppSecret != "", CambioVerifyToken: in.VerifyToken != "",
+				// Otro token, phone_number_id o número: la última prueba ya no dice nada.
+				LimpiarPrueba: cambioToken || in.PhoneNumberID != antes.PhoneNumberID || in.Numero != antes.Numero})
 			if err != nil {
 				return Canal{}, conflictoCanal(err)
 			}
-			c := aCanal(f)
+			c := m.aCanal(f)
 			fijarEmpresaCanal(t, f.EmpresaID)
-			campos := t.RegistrarCambios("canal_mensajeria", f.ID, auditableCanal(aCanal(antes), "sin_cambio"), auditableCanal(c, cambioCred))
+			campos := t.RegistrarCambios("canal_mensajeria", f.ID, auditableCanal(m.aCanal(antes), "sin_cambio"), auditableCanal(c, cambioCred))
 			if campos == nil {
 				campos = []string{}
 			}
+			c.VerifyTokenGenerado = generado
 			return c, t.Emitir("canal_mensajeria.actualizado", map[string]any{"canal_id": f.ID, "empresa_id": f.EmpresaID, "campos": campos})
 		},
 	})
@@ -413,19 +518,19 @@ func nuevoCambioCanal(m *Modulo, accion string, activo bool) *auditoria.Caso[Ent
 			}
 			fijarEmpresaCanal(t, antes.EmpresaID)
 			if antes.Activo == activo {
-				return aCanal(antes), nil
+				return m.aCanal(antes), nil
 			}
 			f, err := mensajeriabd.New(t).FijarCanalActivo(ctx, mensajeriabd.FijarCanalActivoParams{ID: in.ID, Activo: activo})
 			if err != nil {
 				return Canal{}, conflictoCanal(err)
 			}
 			t.RegistrarCambios("canal_mensajeria", f.ID, map[string]any{"activo": antes.Activo}, map[string]any{"activo": f.Activo})
-			return aCanal(f), t.Emitir(evento, map[string]any{"canal_id": f.ID, "empresa_id": f.EmpresaID})
+			return m.aCanal(f), t.Emitir(evento, map[string]any{"canal_id": f.ID, "empresa_id": f.EmpresaID})
 		},
 	})
 }
 
-func nuevoListarCanales(_ *Modulo) *auditoria.Caso[struct{}, ListaCanales] {
+func nuevoListarCanales(m *Modulo) *auditoria.Caso[struct{}, ListaCanales] {
 	return auditoria.Nuevo(auditoria.Caso[struct{}, ListaCanales]{
 		Accion: "mensajeria.ver_canales", Permiso: nucleo.PermMensajeriaConfigurar, SinEmpresa: true,
 		AuditarExito: func(ListaCanales) bool { return false },
@@ -440,7 +545,7 @@ func nuevoListarCanales(_ *Modulo) *auditoria.Caso[struct{}, ListaCanales] {
 			}
 			out := ListaCanales{Data: make([]Canal, 0, len(fs))}
 			for _, f := range fs {
-				out.Data = append(out.Data, aCanal(f))
+				out.Data = append(out.Data, m.aCanal(f))
 			}
 			return out, nil
 		},

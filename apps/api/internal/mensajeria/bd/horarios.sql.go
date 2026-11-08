@@ -189,7 +189,7 @@ const configurarHorarioCanal = `-- name: ConfigurarHorarioCanal :one
 UPDATE mensajeria.canales
 SET horario_id = $1, fuera_horario = $2, version = version + 1, updated_at = now()
 WHERE id = $3
-RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot
+RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en
 `
 
 type ConfigurarHorarioCanalParams struct {
@@ -224,6 +224,14 @@ func (q *Queries) ConfigurarHorarioCanal(ctx context.Context, arg ConfigurarHora
 		&i.HorarioID,
 		&i.FueraHorario,
 		&i.Bot,
+		&i.UltimaPruebaEn,
+		&i.UltimoEstado,
+		&i.UltimoDetalle,
+		&i.WebhookVerificadoEn,
+		&i.UltimoMensajeEn,
+		&i.TokenGuardadoEn,
+		&i.AppSecretGuardadoEn,
+		&i.VerifyTokenGuardadoEn,
 	)
 	return i, err
 }
