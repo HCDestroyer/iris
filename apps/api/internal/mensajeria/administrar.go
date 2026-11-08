@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"slices"
 	"sort"
 	"strings"
@@ -421,14 +422,22 @@ func (m *Modulo) canalParaActualizar(ctx context.Context, t *auditoria.Tx, id in
 	if err != nil {
 		return f, err
 	}
-	if err := exigirEmpresaCanal(ctx, t, f.EmpresaID); err != nil {
-		var p *nucleo.Problema
-		if errors.As(err, &p) && p.Status == 403 {
-			return f, nucleo.NoEncontrado("El canal no existe")
-		}
+	if err := empresaDeCanalExistente(ctx, t, f.EmpresaID, "El canal no existe"); err != nil {
 		return f, err
 	}
 	return f, nil
+}
+
+// empresaDeCanalExistente: un número que no es de las empresas del actor no existe para él (404).
+// También uno sin empresa (empresa_id null) cuando ya hay empresas registradas: exigirEmpresaCanal
+// responde 422 para la entrada de crear, pero sobre un número que ya existe es «no lo ves».
+func empresaDeCanalExistente(ctx context.Context, q identidadbd.DBTX, empresa *int64, noExiste string) error {
+	err := exigirEmpresaCanal(ctx, q, empresa)
+	var p *nucleo.Problema
+	if errors.As(err, &p) && (p.Status == http.StatusForbidden || p.Status == http.StatusUnprocessableEntity) {
+		return nucleo.NoEncontrado(noExiste)
+	}
+	return err
 }
 
 func nuevoActualizarCanal(m *Modulo) *auditoria.Caso[EntradaActualizarCanal, Canal] {

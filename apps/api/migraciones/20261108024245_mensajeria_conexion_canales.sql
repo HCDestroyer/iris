@@ -20,6 +20,9 @@ ALTER TABLE mensajeria.canales
 
 -- Los números que ya existían: credenciales guardadas al crearlos (o en su última edición), y el
 -- webhook se da por verificado si ya llegó alguno firmado (Meta solo los manda tras verificar).
+-- Ojo: el backfill recorre toda mensajeria.entrantes (un GROUP BY por canal) en una sola sentencia,
+-- dentro de la transacción de la migración. Con muchos entrantes tarda y bloquea mensajeria.canales
+-- mientras corre: aplícala fuera de horas pico.
 UPDATE mensajeria.canales c
 SET token_guardado_en = c.updated_at, app_secret_guardado_en = c.updated_at, verify_token_guardado_en = c.updated_at,
     ultimo_mensaje_en = e.ultimo, webhook_verificado_en = e.primero
