@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { bloquesMarkdown, markdownATexto } from "@/componentes/manuales/markdown";
 import { esquemaManual, leerEtiquetas } from "../esquema";
+import { tieneMarcadores } from "../marcadores";
 import { claveManualInicio, entradaDe, MANUALES_INICIO, textoResultadoCarga, tituloComparable, yaExistentes } from ".";
 
 // Límites del servidor (`EntradaManual` en apps/api/internal/mensajeria/manuales.go).
@@ -29,7 +30,10 @@ describe("manuales de inicio", () => {
         // Las etiquetas llegan como el formulario las dejaría (minúsculas, sin repetir, hasta 10).
         expect(leerEtiquetas(m.etiquetas.join(", "))).toEqual(m.etiquetas);
         expect(m.etiquetas[0]).toBe(m.tecnologia);
-        expect(entrada.visibilidad).toBe("cliente");
+        // Se crean «Del equipo»: traen datos de la empresa entre corchetes que hay que completar
+        // antes de pasarlos a «Para el cliente» (la bandeja no envía uno con corchetes).
+        expect(entrada.visibilidad).toBe("interna");
+        expect(tieneMarcadores(m.cuerpo)).toBe(true);
     });
 
     it.each(MANUALES_INICIO.map((m) => [m.codigo, m] as const))("%s es corto, se lee con la vista segura y dice cuándo llamar a soporte", (_codigo, m) => {
@@ -48,6 +52,16 @@ describe("manuales de inicio", () => {
         expect(m.cuerpo).not.toMatch(/(^|\s)_|_(\s|$)/m);
         // En texto plano (WhatsApp) no queda ninguna marca de Markdown.
         expect(markdownATexto(m.cuerpo)).not.toMatch(/\*\*|^#|^>/m);
+    });
+
+    it("no piden tocar equipos durante una tormenta ni dan una contraseña de ejemplo", () => {
+        for (const m of MANUALES_INICIO) {
+            for (const linea of m.cuerpo.split("\n").filter((l) => /tormenta/i.test(l))) {
+                expect(linea, m.codigo).toMatch(/antes de que empiece/);
+                expect(linea, m.codigo).toMatch(/no toque los equipos/);
+            }
+            expect(m.cuerpo, m.codigo).not.toMatch(/MiPerro/);
+        }
     });
 
     it("no promete precios", () => {

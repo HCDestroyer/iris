@@ -37,9 +37,12 @@ export const MANUALES_INICIO: readonly PlantillaManual[] = [
 
 export const NOMBRE_TECNOLOGIA: Record<TecnologiaManual, string> = { general: "General", ftth: "Fibra (FTTH)", wisp: "Inalámbrico (WISP)" };
 
-/** Cuerpo del alta: «Para el cliente», sin modelo de equipo. */
+/**
+ * Cuerpo del alta: «Del equipo» (interna), sin modelo de equipo. Traen datos entre corchetes que
+ * completa la empresa; recién entonces se pasan a «Para el cliente» desde «Editar».
+ */
 export function entradaDe(p: PlantillaManual): EntradaManual {
-    return { titulo: p.titulo, resumen: p.resumen, cuerpo: p.cuerpo, etiquetas: p.etiquetas, equipo: "", visibilidad: p.visibilidad };
+    return { titulo: p.titulo, resumen: p.resumen, cuerpo: p.cuerpo, etiquetas: p.etiquetas, equipo: "", visibilidad: "interna" };
 }
 
 /**

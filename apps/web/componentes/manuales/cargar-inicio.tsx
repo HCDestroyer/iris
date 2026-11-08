@@ -73,12 +73,17 @@ function ContenidoCarga({ alOcupar, alTerminar }: { alOcupar: (ocupado: boolean)
     const [error, setError] = useState<unknown>(null);
     // Lo ya hecho en esta carga (sobrevive a «Reintentar» para el aviso final).
     const hecho = useRef<{ creados: number; omitidos: string[]; listos: Set<string> }>({ creados: 0, omitidos: [], listos: new Set() });
+    // La selección con que empezó la carga, congelada: «Reintentar» sigue con la misma lista.
+    const [congelada, setCongelada] = useState<readonly PlantillaManual[] | null>(null);
 
     const ocupado = avance !== null && error === null;
+    // Empezada la carga (también tras un error) la selección ya no cambia.
+    const bloqueado = avance !== null;
     const disponibles = existentes.estado === "listo" ? MANUALES_INICIO.filter((p) => !existentes.datos.has(p.codigo)) : [];
     const elegidos = disponibles.filter((p) => !quitados.has(p.codigo));
 
     async function cargar(lista: readonly PlantillaManual[]) {
+        setCongelada(lista);
         setError(null);
         alOcupar(true);
         setAvance({ hechos: hecho.current.listos.size, total: lista.length, actual: null });
@@ -113,11 +118,11 @@ function ContenidoCarga({ alOcupar, alTerminar }: { alOcupar: (ocupado: boolean)
         }
     }
 
-    const lista = avance ? elegidos : null;
+    const lista = congelada;
     return (
         <DialogoContenido
             titulo="Cargar manuales de inicio"
-            descripcion="Ejemplos editables para un ISP con fibra (FTTH) e inalámbrico (WISP), escritos para el cliente. Se crean «Para el cliente»: antes de enviarlos, edítalos y cambia lo que va entre corchetes ([Nombre del ISP], [número de soporte]…) por los datos de tu empresa."
+            descripcion="Ejemplos editables para un ISP con fibra (FTTH) e inalámbrico (WISP), escritos para el cliente. Se crean «Del equipo»: primero edita cada uno y cambia lo que va entre corchetes ([Nombre del ISP], [número de soporte]…) por los datos de tu empresa; después pásalo a «Para el cliente». Mientras tenga corchetes, la bandeja no deja enviarlo."
             cerrable={!ocupado}
         >
             {existentes.estado === "cargando" ? (
@@ -131,7 +136,7 @@ function ContenidoCarga({ alOcupar, alTerminar }: { alOcupar: (ocupado: boolean)
                             Los {MANUALES_INICIO.length} manuales de inicio ya se cargaron. Puedes editarlos desde la lista.
                         </Aviso>
                     ) : null}
-                    <fieldset className="grid min-w-0 gap-2" disabled={ocupado}>
+                    <fieldset className="grid min-w-0 gap-2" disabled={bloqueado}>
                         <legend className="mb-2 flex w-full flex-wrap items-center justify-between gap-2 text-sm font-medium">
                             <span>
                                 {elegidos.length} de {disponibles.length} {disponibles.length === 1 ? "elegido" : "elegidos"}
@@ -140,7 +145,7 @@ function ContenidoCarga({ alOcupar, alTerminar }: { alOcupar: (ocupado: boolean)
                                 <Boton
                                     variante="fantasma"
                                     tamano="sm"
-                                    disabled={ocupado}
+                                    disabled={bloqueado}
                                     onClick={() => setQuitados(elegidos.length === disponibles.length ? new Set(disponibles.map((p) => p.codigo)) : new Set())}
                                 >
                                     {elegidos.length === disponibles.length ? "Quitar todos" : "Marcar todos"}
@@ -156,7 +161,7 @@ function ContenidoCarga({ alOcupar, alTerminar }: { alOcupar: (ocupado: boolean)
                                             etiqueta={p.titulo}
                                             ayuda={esta ? `${NOMBRE_TECNOLOGIA[p.tecnologia]} · Ya está en la biblioteca` : NOMBRE_TECNOLOGIA[p.tecnologia]}
                                             checked={!esta && !quitados.has(p.codigo)}
-                                            disabled={esta || ocupado}
+                                            disabled={esta || bloqueado}
                                             onChange={(e) => {
                                                 const marcar = e.target.checked;
                                                 setQuitados((q) => {

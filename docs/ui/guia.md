@@ -113,7 +113,7 @@ dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`avis
 | `DialogoConfirmar` | `AlertDialog.Backdrop` + `AlertDialog.Container` + `AlertDialog.Dialog` + `AlertDialog.Heading` | `role="alertdialog"`, foco inicial en «Cancelar», no se cierra tocando fuera |
 | `Hoja*`, `PanelProtegido` | `Drawer.Backdrop` + `Drawer.Content` + `Drawer.Dialog` + `Drawer.Heading` | Siempre con telón oscurecido: `fondo="transparente"` se acepta pero ya no quita el telón. Se cierra también arrastrando hacia su lado; el contenido se desplaza en vertical (`touch-action: pan-y`) |
 | `PanelEmergente` | `Popover`, `Popover.Content`, `Popover.Dialog`, `Popover.Heading` | Diálogo no modal junto al disparador |
-| `PanelLateral` | — (`<section role="dialog" aria-modal="false">` propio) | **Excepción aprobada por el PM a la regla de `Hoja`:** panel **flotante** sin telón, bajo la barra superior. Desde `sm`: tarjeta de 380 px a 12 px de los bordes, con borde, sombra y esquinas (`--hx-radius-card`); en el teléfono, a pantalla completa bajo la barra. **Flota sobre la pantalla: la página no se corre ni cambia de ancho al abrirlo, y los clics fuera del panel le llegan a ella** (pedido del PM, nov. 2026: la agenda quedaba apretada). Lo que queda debajo se recupera cerrándolo: la cabecera con «Cerrar» no se desplaza y siempre se ve. En escritorio los avisos emergentes se corren a su izquierda (`globals.css`). No atrapa el foco: al abrir lo lleva al elemento con `data-foco-inicial` (o al panel), Escape lo cierra solo con el foco adentro (y si nada de adentro usó la tecla) y al cerrar vuelve al disparador. Sólido (`--overlay`). Hoy solo lo usa el chat del equipo |
+| `PanelLateral` | — (`<section role="dialog" aria-modal="false">` propio) | **Excepción aprobada por el PM a la regla de `Hoja`:** panel **flotante** sin telón, bajo la barra superior. Desde `sm`: tarjeta de 380 px a 12 px de los bordes, con borde, sombra y esquinas (`--hx-radius-card`); en el teléfono, a pantalla completa bajo la barra. **Flota sobre la pantalla: la página no se corre ni cambia de ancho al abrirlo, y los clics fuera del panel le llegan a ella** (pedido del PM, nov. 2026: la agenda quedaba apretada). Lo que queda debajo se recupera cerrándolo: la cabecera con «Cerrar» no se desplaza y siempre se ve. En escritorio (desde 1024 px) los avisos emergentes se corren a su izquierda (`globals.css`, por `[data-region="avisos-emergentes"]`: HeroUI pisa el `data-slot` de la región); debajo van en la barra superior y no se cruzan con él. No atrapa el foco: al abrir lo lleva al elemento con `data-foco-inicial` (o al panel), Escape lo cierra solo con el foco adentro (y si nada de adentro usó la tecla) y al cerrar vuelve al disparador. Sólido (`--overlay`). Hoy solo lo usa el chat del equipo |
 | `ListaSugerencias`, `teclasSugerencias`, `idOpcion` | — (combobox de ARIA con foco virtual) | Sugerencias bajo un `AreaTexto` que sigue con el foco: las `@menciones` del chat. El área lleva `role="combobox"`, `aria-controls` y `aria-activedescendant`; flechas, Enter/Tab y Escape. `Autocompletar` no sirve: reemplaza todo el valor de un campo de una línea |
 | `MenuDesplegable*`, `MenuEnLinea` | `Dropdown`, `Dropdown.Popover`, `Dropdown.Menu`, `Dropdown.Section`, `Dropdown.Item`, `Menu` y `Separator` | `onSelect` → `onAction`. Un `Boton` como disparador se conecta solo; otro elemento, por `Pressable` |
 | `Globo` | `Tooltip`, `Tooltip.Content` | Un `Boton` se conecta solo; otro elemento, por `Focusable` |
@@ -357,9 +357,18 @@ Pedido del PM: la biblioteca trae ejemplos para un ISP con fibra (FTTH) e inalá
 - Los textos viven en `apps/web/lib/manuales/inicio/` como datos tipados (`PlantillaManual`): de
   «usted», cortos, con «Cuándo llamar a soporte», sin precios ni plazos y con los datos de la
   empresa entre corchetes («[Nombre del ISP]», «[número de soporte]»). La tecnología va en el título
-  y como primera etiqueta (`general`, `ftth`, `wisp`); todos son «Para el cliente». Si cambia un
-  texto, sube su `revision`. `inicio.test.ts` los valida contra el esquema del formulario, los
-  límites del servidor y la vista segura del Markdown.
+  y como primera etiqueta (`general`, `ftth`, `wisp`). Si cambia un texto, sube su `revision`.
+  `inicio.test.ts` los valida contra el esquema del formulario, los límites del servidor y la vista
+  segura del Markdown.
+- **Se crean «Del equipo»** (interna): primero se completan los corchetes y luego se pasan a «Para
+  el cliente» desde «Editar». Mientras el cuerpo tenga marcadores `[…]` (`lib/manuales/marcadores.ts`;
+  un enlace `[texto](url)` no cuenta):
+    - la bandeja **no lo envía al cliente**: lee el cuerpo antes de «Enviar al cliente» y dice qué
+      falta; «Usar en la respuesta» avisa qué cambiar en el texto;
+    - la biblioteca lo marca «Falta completar datos de tu empresa» (lee cada cuerpo, de 4 en 4: el
+      resumen de la lista no lo trae) y el formulario lo dice junto a «Quién lo ve».
+- Con la carga empezada (o detenida por un error) la selección queda congelada. La biblioteca pide
+  hasta 100 manuales; si llegan 100, dice «Se muestran los primeros 100» y pide usar la búsqueda.
 
 ## Navegación del panel (fase 1, hecha)
 

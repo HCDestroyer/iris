@@ -18,8 +18,6 @@ export type PlantillaManual = {
     cuerpo: string;
     /** En minúsculas; la primera es la tecnología (`general`, `ftth` o `wisp`). */
     etiquetas: string[];
-    /** Todas son «Para el cliente»: se comparten por enlace desde la bandeja. */
-    visibilidad: Extract<Schema<"Manual">["visibilidad"], "cliente">;
 };
 
 /** Cuerpo de `POST /mensajeria/manuales`. */

@@ -14,6 +14,7 @@ import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { erroresACampos } from "@/lib/formularios";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { esquemaManual, leerEtiquetas } from "@/lib/manuales/esquema";
+import { marcadoresPendientes, TEXTO_FALTA_COMPLETAR, textoMarcadores } from "@/lib/manuales/marcadores";
 
 type Manual = Schema<"Manual">;
 
@@ -40,6 +41,8 @@ export function FormularioManual({ manual }: { manual?: Manual }) {
         },
     });
     const cuerpo = useWatch({ control: form.control, name: "cuerpo" });
+    const visibilidad = useWatch({ control: form.control, name: "visibilidad" });
+    const marcadores = marcadoresPendientes(cuerpo);
     const errores = form.formState.errors;
 
     async function guardar(d: Valores) {
@@ -135,6 +138,12 @@ export function FormularioManual({ manual }: { manual?: Manual }) {
                         />
                     )}
                 />
+                {marcadores.length > 0 ? (
+                    <Aviso tono="warning" titulo={TEXTO_FALTA_COMPLETAR}>
+                        {`Cambia ${textoMarcadores(marcadores, 3)} por los datos de tu empresa.`}{" "}
+                        {visibilidad === "cliente" ? "Mientras queden corchetes, la bandeja no deja enviarlo al cliente." : "Después pásalo a «Para el cliente»."}
+                    </Aviso>
+                ) : null}
             </SeccionFormulario>
         </FormularioPagina>
     );
