@@ -375,14 +375,18 @@ Diseño aprobado por el PM («Conexión con Meta», contrato §15):
   `https://facebook.com`, `www.` y `web.`; el código se manda en cuanto llegan los ids (vive ~30 s).
   Pantallas: inicio, esperando a Meta, creando, error (cada motivo con su texto, «Reintentar» y, si
   sirve, «Usar datos de la API») y «Número conectado» con «Traer historial» (plazo de 24 h) y
-  «Terminar de configurar». No hace falta tocar la CSP (solo `frame-ancestors`, sin COOP).
+  «Terminar de configurar» (un pedido sin respuesta de Meta en 10 minutos se puede repetir). Sin
+  `IRIS_BASE_URL` (servicio central o gestionada), el error lo dice. No hace falta tocar la CSP (solo `frame-ancestors`, sin COOP).
 - **Lista:** insignias «QR · WhatsApp Business» / «API», «Compartido con N», «Prestado por X»; aviso
   de días sin abrir la app en el teléfono y «Desconectado por Meta». Con `empresas.todas` el número
   prestado no se repite (se queda la entrada de la empresa activa).
 - **Compartir** (`/[id]/compartir`): empresas con sus usos y cola; los cambios se guardan juntos;
   «Dejar de compartir» con confirmación y motivo, explicando adónde van las conversaciones.
 - **Bandeja:** «Desde el teléfono» en los mensajes con `origen` telefono; «Pasar a otra empresa» solo
-  para la dueña y solo a empresas con el número prestado; conversación revocada = «Solo lectura».
+  para la dueña y solo a empresas con el número prestado (pasan los mensajes con el cliente, no las
+  notas internas; quien la recibe ve «Pasada por <empresa dueña>»); conversación revocada = «Solo
+  lectura». Al iniciar, un contacto con conversación abierta en otra empresa del número sale
+  deshabilitado: «La atiende otra empresa que usa este número».
 
 ## Navegación del panel (fase 1, hecha)
 
