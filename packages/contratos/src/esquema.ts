@@ -1497,6 +1497,126 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/asistente/ajustes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ajustes del asistente de IA de la empresa
+         * @description Permiso: `mensajeria.asistente_configurar`.
+         */
+        get: operations["verAjustesAsistente"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/asistente/ajustes/actualizar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Guardar los ajustes del asistente de IA
+         * @description Permiso: `mensajeria.asistente_configurar`. `clave` es solo escritura (ausente la deja, "" la borra) y nunca se devuelve: `claveGuardadaEn`. `version` 0 la primera vez (409 `conflicto_version`). Activar exige URL y modelo (Anthropic: clave); 422 `sin_configurar`, `url_no_permitida`. Evento `asistente.ajustes_cambiados`.
+         */
+        post: operations["actualizarAjustesAsistente"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/asistente/estado": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Si el asistente está activo, su modo y si está en pausa
+         * @description Permiso: `conversaciones.sugerencias`. Para decidir si el panel muestra «Sugerir». Sin proveedor, URL, clave ni uso.
+         */
+        get: operations["estadoAsistente"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/asistente/modelos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Modelos que ofrece el proveedor
+         * @description Permiso: `mensajeria.asistente_configurar`. Sin parámetros: lo guardado. 502 `proveedor_no_responde` / `proveedor_error` / `clave_invalida` si el proveedor falla.
+         */
+        get: operations["modelosAsistente"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/asistente/probar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Probar la conexión con el proveedor de IA
+         * @description Permiso: `mensajeria.asistente_configurar`. Manda un pedido corto real (no cuenta para el tope) y responde `estado` ok o error con `detalle` en español, sin secretos. Sin `clave` usa la guardada solo si proveedor y URL son los guardados. No guarda nada.
+         */
+        post: operations["probarAsistente"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/asistente/uso": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Uso del asistente en un mes (tokens, sugerencias y costo)
+         * @description Permiso: `mensajeria.asistente_configurar`.
+         */
+        get: operations["usoAsistente"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/avisos": {
         parameters: {
             query?: never;
@@ -2718,7 +2838,7 @@ export interface paths {
         };
         /**
          * Tiempo real de la bandeja (Server-Sent Events)
-         * @description Permiso: `conversaciones.ver`. Igual que el flujo del chat: `id` (cursor), `event` (mensaje_nuevo, mensaje_actualizado, conversacion_actualizada, mencion, guardia, aviso_sin_atender), `data` (un EventoConversacion). Last-Event-ID o ?desde=; latido cada 25 s; cierre a los 30 min; revalidación de la sesión.
+         * @description Permiso: `conversaciones.ver`. Igual que el flujo del chat: `id` (cursor), `event` (mensaje_nuevo, mensaje_actualizado, conversacion_actualizada, mencion, guardia, aviso_sin_atender, sugerencia), `data` (un EventoConversacion). Last-Event-ID o ?desde=; latido cada 25 s; cierre a los 30 min; revalidación de la sesión.
          */
         get: operations["eventosConversaciones"];
         put?: never;
@@ -3273,6 +3393,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/conversaciones/{id}/resumen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resumen de la conversación (ficha del cliente)
+         * @description Permiso: `conversaciones.sugerencias`. Síncrono (hasta 90 s). Cuenta para el tope; no se guarda el texto. 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje`; 502 `proveedor_no_responde`, `proveedor_error`, `clave_invalida`, `rechazo_modelo`.
+         */
+        post: operations["resumirConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/sugerencias": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pedir una sugerencia de respuesta (también «Otra»)
+         * @description Permiso: `conversaciones.sugerencias`. → 202 con la sugerencia en `generando`; cuando termina llega por el flujo (evento `sugerencia`) o en `GET …/sugerencias/actual`. La vigente queda `descartada`. 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje`, `conversacion_resuelta`. El asistente nunca envía.
+         */
+        post: operations["pedirSugerencia"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/sugerencias/actual": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * La sugerencia vigente (generando, lista o error)
+         * @description Permiso: `conversaciones.sugerencias`.
+         */
+        get: operations["sugerenciaActual"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/conversaciones/{id}/tomar": {
         parameters: {
             query?: never;
@@ -3747,6 +3927,66 @@ export interface paths {
          * @description Permiso: `conversaciones.configurar`.
          */
         post: operations["desactivarRespuestaRapida"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/sugerencias/{id}/calificar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 👍 / 👎 a una sugerencia
+         * @description Permiso: `conversaciones.sugerencias`.
+         */
+        post: operations["calificarSugerencia"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/sugerencias/{id}/descartar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ocultar la sugerencia
+         * @description Permiso: `conversaciones.sugerencias`.
+         */
+        post: operations["descartarSugerencia"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/sugerencias/{id}/usar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Usar la sugerencia (el panel copia el texto a la caja)
+         * @description Permiso: `conversaciones.sugerencias`. Solo desde `lista` (422 `sugerencia_no_vigente`); repetir sobre `usada` es 200. No envía nada: lo envía la persona.
+         */
+        post: operations["usarSugerencia"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6593,6 +6833,13 @@ export interface components {
             /** @description <IRIS_BASE_URL>/soporte/entrar#<ticket>: válida 60 s y de un solo uso; se muestra una sola vez */
             url: string;
         };
+        AccionSugerencia: {
+            etiqueta: string;
+            /** Format: int64 */
+            etiquetaId: number;
+            /** @enum {string} */
+            tipo: "etiquetar";
+        };
         AccionesDisponible: {
             aceptar: boolean;
             /** @description Ganar exige confirmarObra (factibilidad requiere_obra) */
@@ -6783,6 +7030,33 @@ export interface components {
             nombre: string;
             /** @description Tiene conversaciones.supervisar: ve todas las colas */
             supervisa: boolean;
+        };
+        AjustesAsistente: {
+            activo: boolean;
+            /**
+             * Format: date-time
+             * @description Cuándo se guardó la clave (nunca se devuelve)
+             */
+            claveGuardadaEn: string | null;
+            fuentes: components["schemas"]["FuentesAsistente"];
+            modelo: string;
+            /** @enum {string} */
+            modo: "automatico" | "boton";
+            /** @description Precio por millón de tokens de entrada (decimal como texto) */
+            precioEntradaMillon: string | null;
+            /** @description Precio por millón de tokens de salida (decimal como texto) */
+            precioSalidaMillon: string | null;
+            /** @enum {string} */
+            proveedor: "ollama" | "openai_compatible" | "anthropic";
+            /** Format: int64 */
+            topeTokensMes: number;
+            /** @description URL base del servidor (vacía en anthropic = https://api.anthropic.com) */
+            url: string;
+            /**
+             * Format: int32
+             * @description 0 si nunca se guardaron
+             */
+            version: number;
         };
         AjustesBandeja: {
             /**
@@ -8210,6 +8484,9 @@ export interface components {
              */
             usuario_id: number;
         };
+        CuerpoCalificar: {
+            util: boolean;
+        };
         CuerpoEnviarMensaje: {
             /** @description Una foto registrada antes en POST /api/v1/adjuntos con entidad chat_conversacion y entidadId = la conversación (puede seguir subiéndose) */
             adjunto_id?: string;
@@ -8230,6 +8507,10 @@ export interface components {
         CuerpoLeerChat: {
             /** @description El último mensaje que viste; la lectura solo avanza */
             hasta_mensaje_id: string;
+        };
+        CuerpoPedirSugerencia: {
+            /** @description «Otra»: descarta la vigente y pide una nueva (origen otra) */
+            otra?: boolean;
         };
         CuerpoWebhook: {
             /** @description Argos: cliente.actualizado, servicio.estado_cambiado…; Horus: horus.router_estado_cambiado, horus.hallazgo_abierto… */
@@ -8640,6 +8921,24 @@ export interface components {
              * @description Versión leída (opcional); si cambió, 409
              */
             version?: number;
+        };
+        EntradaAjustesAsistente: {
+            activo: boolean;
+            /** @description Solo escritura: ausente la deja, "" la borra */
+            clave?: string;
+            fuentes: components["schemas"]["FuentesAsistente"];
+            modelo: string;
+            /** @enum {string} */
+            modo: "automatico" | "boton";
+            precioEntradaMillon: string | null;
+            precioSalidaMillon: string | null;
+            /** @enum {string} */
+            proveedor: "ollama" | "openai_compatible" | "anthropic";
+            /** Format: int64 */
+            topeTokensMes: number;
+            url: string;
+            /** Format: int32 */
+            version: number;
         };
         EntradaAjustesBandeja: {
             /** Format: int32 */
@@ -10215,6 +10514,14 @@ export interface components {
              */
             version?: number;
         };
+        EntradaProbarAsistente: {
+            /** @description Sin clave: la guardada, solo si proveedor y URL son los guardados */
+            clave?: string;
+            modelo: string;
+            /** @enum {string} */
+            proveedor: "ollama" | "openai_compatible" | "anthropic";
+            url: string;
+        };
         EntradaProgramarOrden: {
             /**
              * Format: int64
@@ -10509,6 +10816,8 @@ export interface components {
              * @description Si el texto salió de una respuesta rápida (métricas)
              */
             respuestaRapidaId?: number;
+            /** @description Si el texto salió de una sugerencia del asistente (lista o usada, de esta conversación; si no, 422 sugerencia_no_vigente): la marca usada y mide si se envió editada (§16.2) */
+            sugerenciaId?: string;
             /** @description Texto plano (o pie del adjunto) */
             texto?: string;
         };
@@ -10753,6 +11062,12 @@ export interface components {
             /** @description Regla que falló */
             rule?: string;
         };
+        ErrorSugerencia: {
+            /** @enum {string} */
+            codigo: "proveedor_no_responde" | "proveedor_error" | "clave_invalida" | "tope_alcanzado" | "sin_configurar" | "rechazo_modelo" | "respuesta_invalida" | "url_no_permitida";
+            /** @description En español */
+            detalle: string;
+        };
         EsperaConversacion: {
             /** @description El bot ya contestó en esta espera */
             botAtendio: boolean;
@@ -10767,6 +11082,13 @@ export interface components {
             disponibles: components["schemas"]["UsuarioRef"][];
             /** Format: int64 */
             totalDisponibles: number;
+        };
+        EstadoAsistente: {
+            activo: boolean;
+            /** @enum {string} */
+            modo: "automatico" | "boton";
+            /** @description Se llegó al tope de tokens del mes */
+            pausado: boolean;
         };
         EstadoCuenta: {
             /** Format: int64 */
@@ -10884,8 +11206,10 @@ export interface components {
             noLeidos: number;
             /** Format: date-time */
             ocurridoEn: string;
+            /** @description sugerencia: la sugerencia del asistente como está ahora (§16.2) */
+            sugerencia?: components["schemas"]["Sugerencia"];
             /** @enum {string} */
-            tipo: "mensaje_nuevo" | "mensaje_actualizado" | "conversacion_actualizada" | "mencion" | "guardia" | "aviso_sin_atender";
+            tipo: "mensaje_nuevo" | "mensaje_actualizado" | "conversacion_actualizada" | "mencion" | "guardia" | "aviso_sin_atender" | "sugerencia";
         };
         EventoOrden: {
             a: string | null;
@@ -11376,6 +11700,24 @@ export interface components {
             /** @description Fase 2: conjunto de permisos de un asistente en esta franja (se guarda; hoy nada lo usa) */
             perfil?: string | null;
         };
+        FuenteSugerencia: {
+            /** @description Id del manual, del servicio o clave de Horus */
+            entidadId: string | null;
+            /** @description P. ej. «Falla en Zona 4 · Horus» */
+            etiqueta: string;
+            /** @enum {string} */
+            tipo: "manual" | "argos" | "horus" | "historial";
+        };
+        FuentesAsistente: {
+            /** @description Plan y estado de los servicios del cliente asociado (instantánea de Argos) */
+            argos: boolean;
+            /** @description Últimos 30 mensajes del cliente y de agentes (sin notas internas) */
+            historial: boolean;
+            /** @description Fallas abiertas (router caído) de la zona del cliente */
+            horus: boolean;
+            /** @description Los 3 manuales más relevantes de la empresa */
+            manuales: boolean;
+        };
         FueraDeHorario: {
             asistente?: components["schemas"]["AsistenteFueraDeHorario"];
             guardia?: components["schemas"]["GuardiaFueraDeHorario"];
@@ -11596,6 +11938,9 @@ export interface components {
         ListaManuales: {
             data: components["schemas"]["ManualResumen"][];
             nextCursor: string | null;
+        };
+        ListaModelosAsistente: {
+            data: components["schemas"]["ModeloIA"][];
         };
         ListaNumeros: {
             data: components["schemas"]["NumeroConversaciones"][];
@@ -11900,6 +12245,10 @@ export interface components {
         };
         MiembrosChat: {
             data: components["schemas"]["MiembroChat"][] | null;
+        };
+        ModeloIA: {
+            id: string;
+            nombre: string;
         };
         MotivoSugerencia: {
             /** @description La etiqueta, el modelo de equipo o el número del ticket */
@@ -13145,7 +13494,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.ver" | "integraciones.ver_pendientes" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.ver" | "integraciones.ver_pendientes" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -13628,6 +13977,16 @@ export interface components {
             /** Format: int64 */
             zonaId: number | null;
         };
+        PruebaAsistente: {
+            /** @description En español, sin secretos */
+            detalle: string;
+            /** @enum {string} */
+            estado: "ok" | "error";
+            /** Format: int64 */
+            latenciaMs: number;
+            /** Format: double */
+            tokensPorSegundo: number | null;
+        };
         PruebaCanal: {
             /**
              * @description quality_rating de Meta: GREEN alta, YELLOW media, RED baja
@@ -13997,6 +14356,11 @@ export interface components {
              * @description No leídos de las directas + menciones sin leer en cuadrillas y órdenes: el número que se muestra
              */
             requiere_accion: number;
+        };
+        ResumenConversacion: {
+            /** Format: date-time */
+            generadoEn: string;
+            texto: string;
         };
         ResumenTickets: {
             /**
@@ -14520,6 +14884,29 @@ export interface components {
              */
             plazo: string;
         };
+        Sugerencia: {
+            /** @description Ausente si no propone nada */
+            accion?: components["schemas"]["AccionSugerencia"];
+            /** Format: date-time */
+            actualizadaEn: string;
+            /** @enum {string|null} */
+            calificacion: "util" | "no_util" | null;
+            /** Format: int64 */
+            conversacionId: number;
+            /** Format: date-time */
+            creadaEn: string;
+            /** @description Solo en estado error */
+            error?: components["schemas"]["ErrorSugerencia"];
+            /** @enum {string} */
+            estado: "generando" | "lista" | "error" | "descartada" | "usada" | "vencida";
+            fuentes: components["schemas"]["FuenteSugerencia"][];
+            id: string;
+            /** @enum {string} */
+            origen: "automatico" | "boton" | "otra";
+            /** @description El mensaje del cliente al que responde */
+            paraMensajeId: string | null;
+            texto: string | null;
+        };
         Tarea: {
             /** Format: date-time */
             anuladaEn: string | null;
@@ -15008,6 +15395,33 @@ export interface components {
             /** Format: int64 */
             productoId: number;
             serie: string;
+        };
+        UsoAsistente: {
+            /** @description Con los dos precios: (entrada × precio + salida × precio) / 1 000 000 */
+            costo: string | null;
+            mes: string;
+            /** Format: int64 */
+            noUtiles: number;
+            pausado: boolean;
+            /**
+             * Format: int64
+             * @description Del tope usado este mes (entero)
+             */
+            porcentaje: number;
+            /** Format: int64 */
+            resumenes: number;
+            /** Format: int64 */
+            sugerencias: number;
+            /** Format: int64 */
+            tokensEntrada: number;
+            /** Format: int64 */
+            tokensSalida: number;
+            /** Format: int64 */
+            topeTokensMes: number;
+            /** Format: int64 */
+            usadas: number;
+            /** Format: int64 */
+            utiles: number;
         };
         UsoCapacidad: {
             /** Format: int32 */
@@ -21180,6 +21594,381 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verAjustesAsistente: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AjustesAsistente"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    actualizarAjustesAsistente: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAjustesAsistente"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AjustesAsistente"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    estadoAsistente: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EstadoAsistente"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    modelosAsistente: {
+        parameters: {
+            query?: {
+                /** @description Vacío: lo guardado */
+                proveedor?: "ollama" | "openai_compatible" | "anthropic" | "";
+                url?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaModelosAsistente"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    probarAsistente: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaProbarAsistente"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PruebaAsistente"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    usoAsistente: {
+        parameters: {
+            query?: {
+                /** @description YYYY-MM (por defecto el mes actual, hora de Guatemala) */
+                mes?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UsoAsistente"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -28264,6 +29053,226 @@ export interface operations {
             };
         };
     };
+    resumirConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResumenConversacion"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    pedirSugerencia: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CuerpoPedirSugerencia"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Sugerencia"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    sugerenciaActual: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Sugerencia"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     tomarConversacion: {
         parameters: {
             query?: never;
@@ -30167,6 +31176,220 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RespuestaRapida"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    calificarSugerencia: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CuerpoCalificar"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Sugerencia"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    descartarSugerencia: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Sugerencia"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    usarSugerencia: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Sugerencia"];
                 };
             };
             /** @description Unauthorized */

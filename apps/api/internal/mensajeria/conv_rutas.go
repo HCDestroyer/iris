@@ -169,6 +169,8 @@ var esquemasBandeja = []string{
 	"BotNumero", "OpcionMenuBot", "EsperaConversacion", "ListaDestinatarios", "ConversacionIniciada", "PaseConversacion", "Canal", "ListaCanales",
 	// Conexión con Meta, QR y préstamos (§15).
 	"ConexionMeta", "ListaPrestamos", "ListaEmpresasDestino", "Prestamo", "PrestamoPropio", "OpcionesPrestamo", "EmpresaOpcion",
+	// Asistente de IA (§16).
+	"Sugerencia", "ListaModelosAsistente",
 }
 
 // EsquemasBandeja devuelve los nombres (para la prueba del contrato).
@@ -313,7 +315,7 @@ func (m *Modulo) registrarConversaciones(api huma.API) {
 		})
 	eventos := op("eventosConversaciones", http.MethodGet, base+"/eventos", "Tiempo real de la bandeja (Server-Sent Events)", ver,
 		http.StatusOK, http.StatusGone, http.StatusTooManyRequests, http.StatusServiceUnavailable)
-	eventos.Description += " Igual que el flujo del chat: `id` (cursor), `event` (mensaje_nuevo, mensaje_actualizado, conversacion_actualizada, mencion, guardia, aviso_sin_atender), " +
+	eventos.Description += " Igual que el flujo del chat: `id` (cursor), `event` (mensaje_nuevo, mensaje_actualizado, conversacion_actualizada, mencion, guardia, aviso_sin_atender, sugerencia), " +
 		"`data` (un EventoConversacion). Last-Event-ID o ?desde=; latido cada 25 s; cierre a los 30 min; revalidación de la sesión."
 	eventos.Responses = map[string]*huma.Response{"200": {Description: "Flujo de eventos",
 		Content: map[string]*huma.MediaType{"text/event-stream": {Schema: &huma.Schema{Type: huma.TypeString}}}}}

@@ -231,6 +231,9 @@ const (
 	// PermMensajeriaConexionMeta: la conexión con Meta de la instalación (app propia, servicio
 	// central o la del entorno) para conectar números con QR (contratos/conversaciones.md §15.1).
 	PermMensajeriaConexionMeta Permiso = "mensajeria.conexion_meta"
+	// PermMensajeriaAsistenteConfigurar: el asistente de IA de la empresa (proveedor, URL, clave,
+	// modelo, fuentes, tope y uso; contratos/conversaciones.md §16.1).
+	PermMensajeriaAsistenteConfigurar Permiso = "mensajeria.asistente_configurar"
 )
 
 // Chat interno del equipo (servicio cmd/mensajeria; contratos/chat.md).
@@ -260,6 +263,9 @@ const (
 	PermConversacionesIniciar Permiso = "conversaciones.iniciar"
 	// PermConversacionesPasar: pasar la conversación que tienes a un compañero de la cola.
 	PermConversacionesPasar Permiso = "conversaciones.pasar"
+	// PermConversacionesSugerencias: ver y pedir sugerencias del asistente de IA y el resumen de una
+	// conversación (§16.2; el asistente nunca envía: lo envía la persona).
+	PermConversacionesSugerencias Permiso = "conversaciones.sugerencias"
 	// PermConversacionesTomar: asignarse una conversación sin asignar.
 	PermConversacionesTomar Permiso = "conversaciones.tomar"
 	// PermConversacionesAsignar: asignar una conversación a otro agente o quitar la asignación.
@@ -313,7 +319,7 @@ var PermisosSensibles = map[Permiso]bool{
 	PermIntegracionesConectar: true, PermIntegracionesActivar: true, PermIntegracionesDesactivar: true, PermIntegracionesReintentar: true,
 	PermIntegracionesResolverPendiente: true, PermPlantillasCrear: true, PermPlantillasEditar: true, PermPlantillasActivar: true, PermPlantillasDesactivar: true,
 	PermFactibilidadConfigurar: true, PermPortalEmitir: true, PermSSOEmitir: true,
-	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true, PermMensajeriaConfigurar: true, PermMensajeriaConexionMeta: true, PermCanalesConfigurar: true, PermConversacionesConfigurar: true,
+	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true, PermMensajeriaConfigurar: true, PermMensajeriaConexionMeta: true, PermMensajeriaAsistenteConfigurar: true, PermCanalesConfigurar: true, PermConversacionesConfigurar: true,
 	PermConversacionesRegistrarPromesa: true, PermConversacionesRegistrarBoleta: true, PermConversacionesSupervisar: true,
 	PermConversacionesIniciar: true, PermCampoConfigurar: true,
 }
@@ -384,6 +390,7 @@ var Catalogo = []DefPermiso{
 	{PermConversacionesRegistrarPromesa, "Simular y pedir a Argos una promesa de pago desde una conversación (Argos decide)"},
 	{PermConversacionesResolver, "Resolver y reabrir conversaciones"},
 	{PermConversacionesResponder, "Responder a los clientes por WhatsApp (texto, adjuntos y plantillas aprobadas) y escribir notas internas con menciones"},
+	{PermConversacionesSugerencias, "Ver y pedir sugerencias de respuesta del asistente de IA (con sus fuentes) y el resumen de una conversación; el asistente nunca envía: el texto lo envía la persona"},
 	{PermConversacionesSupervisar, "Ver todas las conversaciones con clientes de la empresa, de todas las colas"},
 	{PermConversacionesTomar, "Tomar (asignarse) una conversación sin asignar"},
 	{PermConversacionesTransferir, "Pasar una conversación a otra cola con un resumen"},
@@ -410,6 +417,7 @@ var Catalogo = []DefPermiso{
 	{PermManualesEditar, "Crear, editar, activar y desactivar artículos de la biblioteca de manuales"},
 	{PermManualesRevocarEnlace, "Revocar el enlace público de un manual enviado a un cliente"},
 	{PermManualesVer, "Buscar y leer la biblioteca de manuales y sus sugerencias para una conversación"},
+	{PermMensajeriaAsistenteConfigurar, "Configurar el asistente de IA de la empresa (proveedor, URL, clave, modelo, fuentes y tope de tokens) y ver su uso"},
 	{PermMensajeriaConexionMeta, "Configurar la conexión con Meta de la instalación (app de Meta propia o servicio central) para conectar números de WhatsApp con QR"},
 	{PermMensajeriaConfigurar, "Configurar los canales de mensajería de una empresa (WhatsApp: número, credenciales y plantillas aprobadas)"},
 	{PermMensajeriaEnviar, "Pedir avisos por la mensajería de Iris y consultar su estado (lo usa Argos con su token de integración)"},
@@ -533,7 +541,7 @@ var permisosRutas = []Permiso{PermRutasVer, PermRutasProponer, PermRutasPublicar
 // permisosAtencion son los de atender conversaciones con clientes (despacho, ventas, soporte y
 // supervisor); cada rol suma los suyos (contratos/conversaciones.md §4).
 var permisosAtencion = []Permiso{PermConversacionesVer, PermConversacionesResponder, PermConversacionesTomar, PermConversacionesPasar,
-	PermConversacionesEtiquetar, PermConversacionesResolver, PermManualesVer}
+	PermConversacionesEtiquetar, PermConversacionesResolver, PermManualesVer, PermConversacionesSugerencias}
 
 // permisosComercial son todos los del seguimiento comercial (ventas, supervisor) salvo
 // factibilidad.configurar (umbrales de la empresa: supervisor y admin).

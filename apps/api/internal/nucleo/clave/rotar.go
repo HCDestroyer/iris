@@ -35,11 +35,14 @@ const (
 	// ColumnaConexionMeta: secretos de la conexión con Meta de la instalación (app secret, clave de
 	// enlace y verify token del webhook de la app; contratos/conversaciones.md §15.1).
 	ColumnaConexionMeta = "mensajeria.conexion_meta.secretos_cifrados"
+	// ColumnaAsistente: clave del proveedor de IA del asistente de cada empresa
+	// (contratos/conversaciones.md §16.1).
+	ColumnaAsistente = "mensajeria.asistente_ajustes.clave_cifrada"
 )
 
 // Columnas en el orden en que se rotan y se informan.
 var Columnas = []string{ColumnaTOTP, ColumnaTokenConector, ColumnaSecretoWebhook, ColumnaIMAP, ColumnaSMTP, ColumnaVerificador,
-	ColumnaWebhookSalida, ColumnaCanalMensajeria, ColumnaConexionMeta}
+	ColumnaWebhookSalida, ColumnaCanalMensajeria, ColumnaConexionMeta, ColumnaAsistente}
 
 // datoAsociadoBuzon es el de internal/soporte (buzones.go, de I2): "soporte.buzon:<id>:imap|smtp".
 // La prueba de la rotación lo verifica leyendo el buzón con el módulo de soporte.
@@ -137,6 +140,9 @@ func nuevoRotar(c *nucleo.Cifrador) *auditoria.Caso[EntradaRotar, Resultado] {
 				return Resultado{}, err
 			}
 			if err := r.conexionMeta(ctx, q, in.Simular); err != nil {
+				return Resultado{}, err
+			}
+			if err := r.asistentes(ctx, q, in.Simular); err != nil {
 				return Resultado{}, err
 			}
 			for _, col := range Columnas {
@@ -339,6 +345,25 @@ func (r *rotador) conexionMeta(ctx context.Context, q *clavebd.Queries, simular 
 		}
 		if cambio && !simular {
 			if err := q.RecifrarConexionMeta(ctx, nuevo); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (r *rotador) asistentes(ctx context.Context, q *clavebd.Queries, simular bool) error {
+	filas, err := q.AsistentesCifrados(ctx)
+	if err != nil {
+		return err
+	}
+	for _, f := range filas {
+		nuevo, cambio, err := r.valor(ColumnaAsistente, f.ID, f.ClaveCifrada, mensajeria.DatosAsociadosAsistente(f.ID))
+		if err != nil {
+			return err
+		}
+		if cambio && !simular {
+			if err := q.RecifrarAsistente(ctx, clavebd.RecifrarAsistenteParams{ID: f.ID, ClaveCifrada: nuevo}); err != nil {
 				return err
 			}
 		}

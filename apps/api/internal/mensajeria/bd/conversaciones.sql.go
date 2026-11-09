@@ -1506,24 +1506,27 @@ func (q *Queries) EtiquetasDeConversaciones(ctx context.Context, ids []int64) ([
 }
 
 const eventosConv = `-- name: EventosConv :many
-SELECT e.id, e.empresa_id, e.conversacion_id, e.tipo, e.mensaje_id, e.usuario_id, e.ocurrido_en, e.created_at FROM mensajeria.conv_eventos e
+SELECT e.id, e.empresa_id, e.conversacion_id, e.tipo, e.mensaje_id, e.usuario_id, e.ocurrido_en, e.created_at, e.sugerencia_id FROM mensajeria.conv_eventos e
 JOIN mensajeria.conversaciones c ON c.id = e.conversacion_id
 WHERE e.id > $1::bigint
   AND coalesce(e.empresa_id, 0) = $2::bigint
   -- Una conversación pasada a otra empresa deja de verse en la anterior (§15.3).
   AND coalesce(c.empresa_id, 0) = $2::bigint
   AND (e.usuario_id IS NULL OR e.usuario_id = $3::bigint)
-  AND mensajeria.conv_visible($3::bigint, $4::boolean, c.id, c.cola_id, c.asignado_a)
+  -- Las sugerencias del asistente solo a quien tiene conversaciones.sugerencias (§16.2).
+  AND (e.tipo <> 'sugerencia' OR $4::boolean)
+  AND mensajeria.conv_visible($3::bigint, $5::boolean, c.id, c.cola_id, c.asignado_a)
 ORDER BY e.id
-LIMIT $5
+LIMIT $6
 `
 
 type EventosConvParams struct {
-	Desde     int64
-	Empresa   int64
-	Usuario   int64
-	Supervisa bool
-	Limite    int32
+	Desde       int64
+	Empresa     int64
+	Usuario     int64
+	Sugerencias bool
+	Supervisa   bool
+	Limite      int32
 }
 
 func (q *Queries) EventosConv(ctx context.Context, arg EventosConvParams) ([]MensajeriaConvEvento, error) {
@@ -1531,6 +1534,7 @@ func (q *Queries) EventosConv(ctx context.Context, arg EventosConvParams) ([]Men
 		arg.Desde,
 		arg.Empresa,
 		arg.Usuario,
+		arg.Sugerencias,
 		arg.Supervisa,
 		arg.Limite,
 	)
@@ -1550,6 +1554,7 @@ func (q *Queries) EventosConv(ctx context.Context, arg EventosConvParams) ([]Men
 			&i.UsuarioID,
 			&i.OcurridoEn,
 			&i.CreatedAt,
+			&i.SugerenciaID,
 		); err != nil {
 			return nil, err
 		}
@@ -2125,8 +2130,8 @@ func (q *Queries) InsertarEtiquetaConversacion(ctx context.Context, arg Insertar
 
 const insertarEventoConv = `-- name: InsertarEventoConv :one
 
-INSERT INTO mensajeria.conv_eventos (empresa_id, conversacion_id, tipo, mensaje_id, usuario_id, ocurrido_en)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO mensajeria.conv_eventos (empresa_id, conversacion_id, tipo, mensaje_id, usuario_id, ocurrido_en, sugerencia_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING id
 `
 
@@ -2137,6 +2142,7 @@ type InsertarEventoConvParams struct {
 	MensajeID      pgtype.UUID
 	UsuarioID      *int64
 	OcurridoEn     time.Time
+	SugerenciaID   pgtype.UUID
 }
 
 // Feed ------------------------------------------------------------------------------------------
@@ -2148,6 +2154,7 @@ func (q *Queries) InsertarEventoConv(ctx context.Context, arg InsertarEventoConv
 		arg.MensajeID,
 		arg.UsuarioID,
 		arg.OcurridoEn,
+		arg.SugerenciaID,
 	)
 	var id int64
 	err := row.Scan(&id)

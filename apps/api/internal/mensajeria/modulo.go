@@ -127,6 +127,17 @@ type Config struct {
 	// ServicioCentral: el cliente del servicio central «Iris Cloud» (modo compartida). nil = aún no
 	// existe y todo responde servicio_central_no_disponible.
 	ServicioCentral RegistroMeta
+
+	// Asistente de IA (contratos/conversaciones.md §16).
+	// FabricaIA arma el proveedor de una empresa (nil = NuevoProveedor; pruebas: uno falso).
+	FabricaIA FabricaProveedor
+	// PlazoIA: cuánto se espera una sugerencia o un resumen (90 s; Ollama puede tardar 20–40 s).
+	PlazoIA time.Duration
+	// PlazoPruebaIA: probar la conexión y listar modelos (30 s).
+	PlazoPruebaIA time.Duration
+	// EsperaAsistente: en modo automático, cuánto se espera desde el último mensaje del cliente
+	// para juntar mensajes seguidos (20 s).
+	EsperaAsistente time.Duration
 }
 
 // Modulo reúne los casos de uso.
@@ -155,6 +166,8 @@ type Modulo struct {
 	Horarios casosHorarios
 	// Conexión con Meta, QR y préstamo de números (§15).
 	Meta casosMeta
+	// Asistente de IA (§16).
+	Asistente casosAsistente
 	// difusorConv despierta los flujos SSE de la bandeja (NOTIFY iris_conversaciones).
 	difusorConv *difusor
 	// alRecibir: lo que pasa después de guardar un mensaje del cliente (fuera de horario, PR B).
@@ -255,6 +268,18 @@ func Nuevo(cfg Config) *Modulo {
 	if cfg.MaxMedioEntrante <= 0 {
 		cfg.MaxMedioEntrante = 25 << 20
 	}
+	if cfg.FabricaIA == nil {
+		cfg.FabricaIA = NuevoProveedor
+	}
+	if cfg.PlazoIA <= 0 {
+		cfg.PlazoIA = 90 * time.Second
+	}
+	if cfg.PlazoPruebaIA <= 0 {
+		cfg.PlazoPruebaIA = 30 * time.Second
+	}
+	if cfg.EsperaAsistente <= 0 {
+		cfg.EsperaAsistente = 20 * time.Second
+	}
 	if cfg.EnlaceManual <= 0 {
 		cfg.EnlaceManual = 30 * 24 * time.Hour
 	}
@@ -296,6 +321,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.alRecibir = m.alRecibirBandeja
 	m.Horarios = nuevosCasosHorarios(m)
 	m.Meta = nuevosCasosMeta(m)
+	m.Asistente = nuevosCasosAsistente(m)
 	return m
 }
 

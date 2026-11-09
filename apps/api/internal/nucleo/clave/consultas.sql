@@ -69,3 +69,13 @@ FOR UPDATE;
 
 -- name: RecifrarConexionMeta :exec
 UPDATE mensajeria.conexion_meta SET secretos_cifrados = @secretos_cifrados WHERE id = 1;
+
+-- name: AsistentesCifrados :many
+-- Clave del proveedor de IA del asistente de cada empresa.
+SELECT id, clave_cifrada FROM mensajeria.asistente_ajustes
+WHERE clave_cifrada IS NOT NULL
+ORDER BY id
+FOR UPDATE;
+
+-- name: RecifrarAsistente :exec
+UPDATE mensajeria.asistente_ajustes SET clave_cifrada = @clave_cifrada WHERE id = @id;

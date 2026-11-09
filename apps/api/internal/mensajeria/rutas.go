@@ -32,8 +32,14 @@ func IdempotenciaPropia(r *http.Request) bool {
 		return false
 	}
 	return r.URL.Path == Prefijo+"/avisos" || r.URL.Path == Prefijo+"/consentimientos" || rutaChatPropia.MatchString(r.URL.Path) ||
-		rutaConvPropia.MatchString(r.URL.Path)
+		rutaConvPropia.MatchString(r.URL.Path) || rutaAsistentePropia.MatchString(r.URL.Path)
 }
+
+// rutaAsistentePropia: el resumen y las acciones sobre una sugerencia responden con texto del
+// modelo, que no se guarda fuera de mensajeria.sugerencias; son idempotentes por naturaleza
+// (usar, descartar y calificar repetidos responden 200 sin cambios) (§16).
+var rutaAsistentePropia = regexp.MustCompile(`^` + regexp.QuoteMeta(Prefijo) +
+	`/(conversaciones/[0-9]+/resumen|sugerencias/[0-9a-fA-F-]{36}/(usar|descartar|calificar))$`)
 
 // rutaConvPropia: responder y anotar en una conversación con un cliente (la clave queda en el
 // mensaje; la respuesta trae el texto) y pedir una promesa (la aplica el caso).
@@ -247,5 +253,6 @@ func (m *Modulo) Registrar(api huma.API) {
 	m.registrarConversaciones(api)
 	m.registrarHorariosManuales(api)
 	m.registrarMeta(api)
+	m.registrarAsistente(api)
 	listasNoNulas(api)
 }

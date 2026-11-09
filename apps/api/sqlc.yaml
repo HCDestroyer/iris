@@ -187,6 +187,7 @@ sql:
       - internal/mensajeria/horarios.sql
       - internal/mensajeria/bandeja.sql
       - internal/mensajeria/meta_qr.sql
+      - internal/mensajeria/asistente.sql
     gen:
       go:
         <<: *gen
