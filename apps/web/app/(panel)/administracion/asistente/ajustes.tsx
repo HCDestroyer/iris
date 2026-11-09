@@ -19,7 +19,7 @@ import {
 } from "@iris/ui";
 import { Ban, CircleAlert, CircleCheck, Cloud, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useForm, useWatch, type UseFormReturn } from "react-hook-form";
 import { CargaRegistro } from "@/componentes/carga-registro";
 import { ErrorLectura } from "@/componentes/error-lectura";
@@ -66,6 +66,12 @@ function Formulario({ ajustes }: { ajustes: Ajustes }) {
         if (guardada && !d.quitarClave && !d.cambiarClave && cambiaDestino(d)) form.setValue("cambiarClave", true);
     }
     const cargarModelos = useRef<(() => void) | null>(null);
+    // La lista de modelos se pide al salir de «Dirección», no con cada tecla.
+    const regUrl = form.register("url", { onChange: abrirClaveSiCambia });
+    const alSalirDeUrl = useCallback((e: { target: { value: string } }) => {
+        const v = e.target.value.trim();
+        if (v && urlValida(v)) cargarModelos.current?.();
+    }, []);
 
     return (
         <FormularioPagina
@@ -147,14 +153,11 @@ function Formulario({ ajustes }: { ajustes: Ajustes }) {
                     placeholder={ejemploUrl(proveedor)}
                     ayuda={proveedor === "anthropic" ? "Déjala vacía para usar la de Anthropic." : proveedor === "ollama" ? "La del servidor de Ollama en tu red, con su puerto." : "La URL base del servicio (termina en /v1 o sin él)."}
                     error={errores.url?.message}
-                    {...form.register("url", {
-                        onChange: abrirClaveSiCambia,
-                        // La lista de modelos se pide al salir del campo, no con cada tecla.
-                        onBlur: (e: { target: { value: string } }) => {
-                            const v = e.target.value.trim();
-                            if (v && urlValida(v)) cargarModelos.current?.();
-                        },
-                    })}
+                    {...regUrl}
+                    onBlur={(e) => {
+                        void regUrl.onBlur(e);
+                        alSalirDeUrl(e);
+                    }}
                 />
                 {ajustes.claveGuardadaEn && quitarClave ? (
                     <div className="grid gap-1" data-slot="clave-quitada">

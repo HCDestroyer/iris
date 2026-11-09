@@ -447,6 +447,19 @@ envía:** sugiere y la persona revisa y envía.
   otro modelo» (y a mano si la lista falla), «Probar conexión» con el resultado en una línea (icono +
   texto + color), `Aviso` informativo de privacidad con un proveedor en la nube, «Nunca» con `Ban` en
   rojo y el uso del mes con barra (`role="progressbar"`) que pasa a naranja al 80 % y a rojo en pausa.
+- **Clave que no viaja (revisión de seguridad):** con una clave guardada, cambiar el proveedor o la
+  dirección abre «Cambiar» solo y dice «Con otro proveedor u otra dirección hay que escribir la clave
+  de nuevo» (en Ollama, «… o quitarla», con «Quitar clave», que manda `clave: ""`). Si el servidor
+  responde 422 `clave_requerida` con el campo oculto, primero lo abre y después marca el error. El
+  `detail` de 422 `url_no_permitida` va en «Dirección».
+- **Modelos:** la lista de lo guardado se lee al abrir (`GET`); otra dirección o clave se consulta por
+  `POST` al salir de «Dirección» o con «Cargar modelos», nunca con cada tecla. Si falla, dice por qué
+  (el `detail` del servidor) con «Volver a cargar los modelos» y deja escribirlo a mano.
+- **Demasiados pedidos (429):** la sugerencia y el resumen dicen «Demasiados pedidos. Vuelve a
+  intentar en N s» (`Retry-After`) con la cuenta regresiva y «Reintentar» deshabilitado hasta
+  entonces (`componentes/conversaciones/error-asistente.tsx`); «Reintentar» repite el mismo pedido
+  («Otra» o «Sugerir»). Tras pasar la conversación a otra empresa, el 404 de la sugerencia es «sin
+  sugerencia»: la tarjeta se va sin error.
 - Pruebas: `e2e/asistente.spec.ts` (4 proyectos) y `lib/asistente/presentacion.test.ts`.
 
 ## Navegación del panel (fase 1, hecha)

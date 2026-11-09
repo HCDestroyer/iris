@@ -1,7 +1,7 @@
 "use client";
 
 import { avisar, Boton, cn, Esqueleto } from "@iris/ui";
-import { BookOpen, Check, ChevronDown, CircleCheck, Eye, History, RefreshCw, RotateCw, Sparkles, Tag, ThumbsDown, ThumbsUp, WifiOff, X, type LucideIcon } from "lucide-react";
+import { BookOpen, Check, ChevronDown, CircleCheck, Eye, History, RefreshCw, Sparkles, Tag, ThumbsDown, ThumbsUp, WifiOff, X, type LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";

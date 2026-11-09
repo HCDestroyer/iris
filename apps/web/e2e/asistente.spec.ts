@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, AGENTE_CONV, conSesion, simularApi } from "./api-falsa";
-import { TEXTO_OTRA, TEXTO_SUGERIDO, type OpcionesAsistente } from "./api-asistente";
+import { DETALLE_PROVEEDOR, TEXTO_OTRA, TEXTO_SUGERIDO, type OpcionesAsistente } from "./api-asistente";
 import { abrirMenu, esTelefono, hojaMas } from "./ayudas";
 import { elegirOpcion } from "./controles";
 import { AHORA_CONV } from "./datos-conversaciones";
@@ -216,6 +216,52 @@ test.describe("asistente de IA en la bandeja", () => {
         await page.goto("/administracion/asistente");
         await expect(page.getByRole("form", { name: "Asistente de IA" })).toHaveCount(0);
     });
+
+    test("429 al pedir «Otra»: cuánto esperar, «Reintentar» deshabilitado y después repite el mismo pedido", async ({ page }, info) => {
+        const api = await abrir(page, { limite429: "sugerencia" });
+        const t = tarjeta(page);
+        await t.getByRole("button", { name: "Otra" }).click();
+        await expect(t.getByRole("alert")).toContainText("Demasiados pedidos. Vuelve a intentar en 5 s.");
+        await expect(t.getByRole("button", { name: "Reintentar" })).toBeDisabled();
+        await esperarSinDesbordes(page);
+        await page.screenshot({ path: path.join(carpeta, `bandeja-429-${info.project.name}.png`) });
+        await page.clock.setFixedTime(new Date(AHORA_CONV + 6_000));
+        await expect(t.getByRole("button", { name: "Reintentar" })).toBeEnabled();
+        await t.getByRole("button", { name: "Reintentar" }).click();
+        await expect(t).toContainText(TEXTO_OTRA);
+        expect(rutas(api, "/sugerencias").map((e) => e.cuerpo)).toEqual([{ otra: true }, { otra: true }]);
+    });
+
+    test("429 al resumir: espera y «Reintentar» deshabilitado hasta entonces", async ({ page }) => {
+        await abrir(page, { inicial: null, limite429: "resumen" });
+        let ficha = page.getByRole("complementary", { name: "Ficha del cliente" });
+        if (esTelefono(page)) {
+            await page.getByRole("button", { name: "Ver la ficha del cliente" }).click();
+            ficha = page.getByRole("dialog", { name: "Ficha del cliente" });
+        }
+        const resumen = ficha.getByRole("region", { name: "Resumen del asistente" });
+        await resumen.getByRole("button", { name: "Resumir" }).click();
+        await expect(resumen.getByRole("alert")).toContainText("Demasiados pedidos. Vuelve a intentar en 5 s.");
+        await expect(resumen.getByRole("button", { name: "Reintentar" })).toBeDisabled();
+        await page.clock.setFixedTime(new Date(AHORA_CONV + 6_000));
+        await resumen.getByRole("button", { name: "Reintentar" }).click();
+        await expect(resumen).toContainText("Cliente sin internet desde la mañana");
+    });
+
+    test("la conversación pasó a otra empresa: el 404 de la sugerencia es «sin sugerencia», no un error", async ({ page }) => {
+        const api = await abrir(page);
+        await expect(tarjeta(page)).toContainText(TEXTO_SUGERIDO);
+        api.conversaciones.asistente.prestar();
+        await tarjeta(page).getByRole("button", { name: "Usar" }).click();
+        await expect(tarjeta(page)).toHaveCount(0);
+        await expect(compositor(page)).toHaveValue("");
+        await expect(page.getByRole("alert").filter({ hasText: /No se pudo usar/ })).toHaveCount(0);
+
+        await page.unrouteAll({ behavior: "ignoreErrors" });
+        await abrir(page, { prestada: true });
+        await expect(page.getByRole("log", { name: "Mensajes" })).toContainText("Ya lo reinicié");
+        await expect(tarjeta(page)).toHaveCount(0);
+    });
 });
 
 test.describe("administración › asistente de IA", () => {
@@ -250,6 +296,10 @@ test.describe("administración › asistente de IA", () => {
         await expect(f.getByRole("radio", { name: "Compatible con OpenAI" })).toBeChecked();
         await expect(f.getByText("Los mensajes salen hacia el proveedor")).toBeVisible();
         await f.getByLabel("Dirección").fill("https://openrouter.ai/api/v1");
+        // Nada con cada tecla: la lista se pide al salir del campo, por POST.
+        expect(api.conversaciones.asistente.consultasModelos).toHaveLength(0);
+        await f.getByLabel("Dirección").blur();
+        await expect.poll(() => api.conversaciones.asistente.consultasModelos).toEqual([{ proveedor: "openai_compatible", url: "https://openrouter.ai/api/v1" }]);
         await elegirOpcion(f.getByLabel("Modelo"), { label: "llama3.1:8b" });
         await f.locator(`[data-opcion="boton"]`).click();
         await f.getByRole("checkbox", { name: /Fallas de red de Horus/ }).click();
@@ -269,12 +319,8 @@ test.describe("administración › asistente de IA", () => {
         const f = formulario(page);
         await expect(f.getByRole("group", { name: "Clave" })).toContainText("guardada el");
         await expect(f.getByText("Los mensajes salen hacia el proveedor")).toBeVisible();
-        await f.getByLabel("Dirección").fill("https://otro.example.com");
-        await expect(f.getByText("Con otro proveedor u otra dirección no se usa la clave guardada")).toBeVisible();
-        await f.getByLabel("Dirección").fill("");
-        await expect(f.getByText("Con otro proveedor u otra dirección no se usa la clave guardada")).toHaveCount(0);
         await f.getByRole("button", { name: "Cambiar: clave" }).click();
-        const campo = f.getByLabel("Clave", { exact: true });
+        const campo = f.locator(`input[name="clave"]`);
         await expect(campo).toHaveAttribute("autocomplete", "new-password");
         await expect(campo).toHaveAttribute("data-1p-ignore", /.*/);
         await expect(campo).toHaveValue("");
@@ -288,8 +334,10 @@ test.describe("administración › asistente de IA", () => {
         const api = await abrir(page, { probar: "error", modelosFalla: true, conflicto: true }, "/administracion/asistente");
         const f = formulario(page);
         await f.getByRole("button", { name: "Probar conexión" }).click();
-        await expect(f.locator('[data-prueba="error"]')).toContainText("El servidor no respondió a tiempo");
-        await expect(f).toContainText("No se pudo leer la lista de modelos");
+        await expect(f.locator('[data-prueba="error"]')).toContainText(DETALLE_PROVEEDOR);
+        // La lista no cae en silencio a la entrada manual: dice por qué.
+        await expect(f.locator('[data-slot="error-modelos"]')).toContainText(`No se pudo leer la lista de modelos: ${DETALLE_PROVEEDOR}`);
+        await expect(f.getByRole("button", { name: "Volver a cargar los modelos" })).toBeVisible();
         const modelo = f.getByRole("textbox", { name: "Modelo" });
         await expect(modelo).toHaveValue("qwen3:32b");
         await modelo.fill("mistral-small");
@@ -304,8 +352,72 @@ test.describe("administración › asistente de IA", () => {
         const f = formulario(page);
         await f.getByLabel("Dirección").fill("ftp://servidor");
         await page.getByRole("button", { name: "Guardar" }).click();
-        await expect(f.getByText("Una dirección http:// o https:// sin usuario ni contraseña")).toBeVisible();
+        await expect(f.getByText("Una dirección http:// o https:// sin usuario, contraseña ni parámetros")).toBeVisible();
         await page.getByRole("button", { name: "Cancelar" }).click();
         await expect(page.getByRole("alertdialog")).toBeVisible();
+    });
+
+    const conClave = { proveedor: "openai_compatible", url: "https://openrouter.ai/api/v1", modelo: "llama3.1:8b", claveGuardadaEn: "2026-10-20T15:00:00Z" } as const;
+
+    test("otro proveedor u otra dirección con clave guardada: abre «Cambiar» solo y la pide de nuevo", async ({ page }, info) => {
+        const api = await abrir(page, { ajustes: conClave }, "/administracion/asistente");
+        const f = formulario(page);
+        await expect(f.getByRole("group", { name: "Clave" })).toContainText("guardada el");
+        // La misma dirección normalizada (sin /v1) no cuenta como cambio.
+        await f.getByLabel("Dirección").fill("https://openrouter.ai/api");
+        await expect(f.locator('[data-slot="clave-requerida"]')).toHaveCount(0);
+        await f.getByLabel("Dirección").fill("https://api.groq.com/openai/v1");
+        await expect(f.locator('[data-slot="clave-requerida"]')).toHaveText("Con otro proveedor u otra dirección hay que escribir la clave de nuevo.");
+        const campo = f.locator(`input[name="clave"]`);
+        await expect(campo).toBeVisible();
+        await esperarSinDesbordes(page);
+        await page.screenshot({ path: path.join(carpeta, `ajustes-clave-requerida-${info.project.name}.png`) });
+        await page.getByRole("button", { name: "Guardar" }).click();
+        await expect(f.getByText("Con otro proveedor u otra dirección hay que escribir la clave de nuevo").last()).toBeVisible();
+        expect(api.conversaciones.asistente.guardados).toHaveLength(0);
+        await campo.fill("gsk-nueva");
+        await page.getByRole("button", { name: "Guardar" }).click();
+        await expect(page).toHaveURL(/\/administracion$/);
+        expect(api.conversaciones.asistente.guardados[0]).toMatchObject({ url: "https://api.groq.com/openai/v1", clave: "gsk-nueva" });
+    });
+
+    test("422 `clave_requerida` del servidor con la clave oculta: abre el campo y marca el error", async ({ page }) => {
+        const api = await abrir(page, { ajustes: conClave, claveRequerida: true }, "/administracion/asistente");
+        const f = formulario(page);
+        await expect(f.getByRole("group", { name: "Clave" })).toContainText("guardada el");
+        await expect(f.locator(`input[name="clave"]`)).toHaveCount(0);
+        await f.locator(`[data-opcion="boton"]`).click();
+        await page.getByRole("button", { name: "Guardar" }).click();
+        const campo = f.locator(`input[name="clave"]`);
+        await expect(campo).toBeVisible();
+        await expect(campo).toHaveAttribute("aria-invalid", "true");
+        await expect(f.getByText("Con otro proveedor u otra dirección hay que escribir la clave de nuevo")).toBeVisible();
+        expect(api.conversaciones.asistente.guardados).toHaveLength(1);
+    });
+
+    test("Ollama: «Quitar clave» manda la clave vacía", async ({ page }) => {
+        const api = await abrir(page, { ajustes: { ...conClave, proveedor: "ollama", url: "http://10.0.0.20:11434" } }, "/administracion/asistente");
+        const f = formulario(page);
+        await f.getByLabel("Dirección").fill("http://10.0.0.21:11434");
+        await expect(f.locator('[data-slot="clave-requerida"]')).toHaveText("Con otro proveedor u otra dirección hay que escribir la clave de nuevo o quitarla.");
+        await f.getByRole("button", { name: "Quitar clave" }).click();
+        await expect(f.locator('[data-slot="clave-quitada"]')).toContainText("La clave guardada se quitará al guardar.");
+        await page.getByRole("button", { name: "Guardar" }).click();
+        await expect(page).toHaveURL(/\/administracion$/);
+        expect(api.conversaciones.asistente.guardados[0]).toMatchObject({ url: "http://10.0.0.21:11434", clave: "" });
+    });
+
+    test("422 `url_no_permitida`: el detalle va en el campo Dirección; «Cargar modelos» por POST", async ({ page }) => {
+        const api = await abrir(page, { ajustes: { url: "", modelo: "", activo: false } }, "/administracion/asistente");
+        const f = formulario(page);
+        await expect(f.locator('[data-lista-modelos="inicial"]')).toBeVisible();
+        await f.getByLabel("Dirección").fill("http://10.0.0.30:11434");
+        await f.getByRole("button", { name: "Cargar modelos" }).click();
+        await expect(f.locator('[data-lista-modelos="listo"]')).toBeVisible();
+        expect(api.conversaciones.asistente.consultasModelos[0]).toEqual({ proveedor: "ollama", url: "http://10.0.0.30:11434" });
+        await f.getByLabel("Dirección").fill("http://localhost:11434");
+        await page.getByRole("button", { name: "Guardar" }).click();
+        await expect(f.getByText("No se permiten direcciones de este equipo ni de metadatos")).toBeVisible();
+        await expect(page).toHaveURL(/\/administracion\/asistente$/);
     });
 });
