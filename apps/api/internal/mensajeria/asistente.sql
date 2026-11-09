@@ -60,8 +60,8 @@ WHERE coalesce(empresa_id, 0) = @empresa::bigint AND created_at >= @desde AND cr
 -- Sugerencias -----------------------------------------------------------------------------------
 
 -- name: InsertarSugerencia :one
-INSERT INTO mensajeria.sugerencias (id, empresa_id, conversacion_id, para_mensaje_id, estado, origen, pedida_por)
-VALUES (@id, sqlc.narg('empresa_id'), @conversacion_id, sqlc.narg('para_mensaje_id'), 'generando', @origen, sqlc.narg('pedida_por'))
+INSERT INTO mensajeria.sugerencias (id, empresa_id, conversacion_id, para_mensaje_id, estado, origen, pedida_por, created_at, updated_at)
+VALUES (@id, sqlc.narg('empresa_id'), @conversacion_id, sqlc.narg('para_mensaje_id'), 'generando', @origen, sqlc.narg('pedida_por'), @creada_en, @creada_en)
 RETURNING *;
 
 -- name: SugerenciaPorID :one
@@ -71,10 +71,16 @@ SELECT * FROM mensajeria.sugerencias WHERE id = @id;
 SELECT * FROM mensajeria.sugerencias WHERE id = @id FOR UPDATE;
 
 -- name: SugerenciaVigente :one
-SELECT * FROM mensajeria.sugerencias WHERE conversacion_id = @conversacion_id AND estado IN ('generando', 'lista', 'error');
+-- Solo la de la empresa actual de la conversación (un préstamo pudo pasarla a otra, §15.3).
+SELECT s.* FROM mensajeria.sugerencias s
+JOIN mensajeria.conversaciones c ON c.id = s.conversacion_id
+WHERE s.conversacion_id = @conversacion_id AND s.estado IN ('generando', 'lista', 'error')
+  AND coalesce(s.empresa_id, 0) = coalesce(c.empresa_id, 0);
 
 -- name: SugerenciasPorIDs :many
-SELECT * FROM mensajeria.sugerencias WHERE id = ANY (@ids::uuid[]);
+SELECT s.* FROM mensajeria.sugerencias s
+JOIN mensajeria.conversaciones c ON c.id = s.conversacion_id
+WHERE s.id = ANY (@ids::uuid[]) AND coalesce(s.empresa_id, 0) = coalesce(c.empresa_id, 0);
 
 -- name: CerrarSugerenciasVigentes :many
 -- Deja descartada o vencida la vigente de la conversación (antes de pedir otra o al llegar un
@@ -149,3 +155,52 @@ FROM mensajeria.manuales m
 WHERE coalesce(m.empresa_id, 0) = @empresa::bigint AND m.activo AND m.busqueda @@ to_tsquery('spanish', @consulta::text)
 ORDER BY rango DESC, m.id DESC
 LIMIT 3;
+
+-- Reservas de tokens ------------------------------------------------------------------------------
+
+-- name: AsegurarUsoAsistente :exec
+INSERT INTO mensajeria.asistente_uso (empresa_id, mes) VALUES (sqlc.narg('empresa_id'), @mes)
+ON CONFLICT (coalesce(empresa_id, 0), mes) DO NOTHING;
+
+-- name: ReservarTokens :one
+-- Atómica: solo si lo usado más lo reservado más esta reserva cabe en el tope.
+UPDATE mensajeria.asistente_uso
+SET tokens_reservados = tokens_reservados + @tokens::bigint, updated_at = now()
+WHERE coalesce(empresa_id, 0) = @empresa::bigint AND mes = @mes
+  AND tokens_entrada + tokens_salida + tokens_reservados + @tokens::bigint <= @tope::bigint
+RETURNING tokens_reservados;
+
+-- name: InsertarReserva :exec
+INSERT INTO mensajeria.asistente_reservas (id, empresa_id, mes, tokens, creada_en)
+VALUES (@id, sqlc.narg('empresa_id'), @mes, @tokens, @creada_en);
+
+-- name: LiberarReserva :one
+DELETE FROM mensajeria.asistente_reservas WHERE id = @id RETURNING *;
+
+-- name: DescontarReservados :exec
+UPDATE mensajeria.asistente_uso SET tokens_reservados = GREATEST(0, tokens_reservados - @tokens::bigint), updated_at = now()
+WHERE coalesce(empresa_id, 0) = @empresa::bigint AND mes = @mes;
+
+-- name: ReservasHuerfanas :many
+SELECT id FROM mensajeria.asistente_reservas WHERE creada_en < @antes ORDER BY creada_en LIMIT 200;
+
+-- Límites --------------------------------------------------------------------------------------------
+
+-- name: InsertarPedidoAsistente :exec
+INSERT INTO mensajeria.asistente_pedidos (usuario_id, empresa_id, conversacion_id, tipo, creado_en)
+VALUES (@usuario_id, sqlc.narg('empresa_id'), @conversacion_id, @tipo, @creado_en);
+
+-- name: PedidosRecientesUsuario :one
+SELECT count(*)::bigint AS total, coalesce(min(creado_en), @desde)::timestamptz AS primero
+FROM mensajeria.asistente_pedidos WHERE usuario_id = @usuario_id AND creado_en > @desde;
+
+-- name: SugerenciasRecientesConv :one
+SELECT count(*)::bigint AS total, coalesce(min(created_at), @desde)::timestamptz AS primera,
+    count(*) FILTER (WHERE origen = 'automatico')::bigint AS automaticas
+FROM mensajeria.sugerencias WHERE conversacion_id = @conversacion_id AND created_at > @desde;
+
+-- name: PurgarPedidosAsistente :exec
+DELETE FROM mensajeria.asistente_pedidos WHERE creado_en < @antes;
+
+-- name: SugerenciasAtascadas :many
+SELECT id FROM mensajeria.sugerencias WHERE estado = 'generando' AND created_at < @antes ORDER BY created_at LIMIT 200;

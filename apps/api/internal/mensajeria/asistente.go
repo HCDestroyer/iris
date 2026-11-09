@@ -94,10 +94,11 @@ type PruebaAsistente struct {
 	Detalle          string   `json:"detalle" doc:"En español, sin secretos"`
 }
 
-// EntradaModelosAsistente es GET /asistente/modelos.
+// EntradaModelosAsistente es POST /asistente/modelos (GET: vacía, lo guardado).
 type EntradaModelosAsistente struct {
-	Proveedor string `query:"proveedor" enum:"ollama,openai_compatible,anthropic," doc:"Vacío: lo guardado"`
-	URL       string `query:"url" maxLength:"500"`
+	Proveedor string  `json:"proveedor" enum:"ollama,openai_compatible,anthropic"`
+	URL       string  `json:"url" maxLength:"500"`
+	Clave     *string `json:"clave,omitempty" maxLength:"500" auditoria:"sensible" doc:"Sin clave: la guardada, solo si proveedor y URL son los guardados"`
 }
 
 // ListaModelosAsistente es la respuesta de GET /asistente/modelos.
@@ -142,9 +143,10 @@ type casosAsistente struct {
 	Calificar *auditoria.Caso[EntradaCalificar, Sugerencia]
 	Resumen   *ResumirConversacion
 
-	prepararGen *auditoria.Caso[uuidSugerencia, generacion]
-	guardarGen  *auditoria.Caso[resultadoGeneracion, struct{}]
-	crearAuto   *auditoria.Caso[int64, autoCreada]
+	prepararGen    *auditoria.Caso[uuidSugerencia, generacion]
+	guardarGen     *auditoria.Caso[resultadoGeneracion, struct{}]
+	crearAuto      *auditoria.Caso[int64, autoCreada]
+	vencerAtascada *auditoria.Caso[uuidSugerencia, bool]
 }
 
 func nuevosCasosAsistente(m *Modulo) casosAsistente {
@@ -153,7 +155,7 @@ func nuevosCasosAsistente(m *Modulo) casosAsistente {
 		Probar: nuevoProbarAsistente(m), Modelos: nuevoModelosAsistente(m), Uso: nuevoUsoAsistente(m),
 		Pedir: nuevoPedirSugerencia(m), Actual: nuevoSugerenciaActual(m), Usar: nuevoUsarSugerencia(m),
 		Descartar: nuevoDescartarSugerencia(m), Calificar: nuevoCalificarSugerencia(m), Resumen: nuevoResumirConversacion(m),
-		prepararGen: nuevoPrepararGeneracion(m), guardarGen: nuevoGuardarGeneracion(m), crearAuto: nuevoCrearAuto(m),
+		prepararGen: nuevoPrepararGeneracion(m), guardarGen: nuevoGuardarGeneracion(m), crearAuto: nuevoCrearAuto(m), vencerAtascada: nuevoVencerAtascada(m),
 	}
 }
 
@@ -358,10 +360,10 @@ func nuevoEstadoAsistente(m *Modulo) *auditoria.Caso[struct{}, EstadoAsistente] 
 	})
 }
 
-// validarConexion: la URL (si hay) y lo que exige activar.
-func validarConexionAsistente(proveedor, url, modelo string, conClave, activo bool) error {
-	if url != "" {
-		if err := validarURLIA(url); err != nil {
+// validarConexion: la URL (si hay, o la de Anthropic por defecto) y lo que exige activar.
+func validarConexionAsistente(proveedor, url, modelo string, conClave, activo, loopback bool) error {
+	if u := NormalizarURLIA(proveedor, url); u != "" {
+		if err := validarURLIA(u, loopback, conClave); err != nil {
 			var e *ErrorIA
 			if errors.As(err, &e) {
 				return nucleo.NuevoProblema(http.StatusUnprocessableEntity, "url_no_permitida", "URL no permitida", e.Detalle,
@@ -437,7 +439,13 @@ func nuevoFijarAjustesAsistente(m *Modulo) *auditoria.Caso[EntradaAjustesAsisten
 			if clave != nil {
 				conClave = *clave != ""
 			}
-			if err := validarConexionAsistente(in.Proveedor, in.URL, in.Modelo, conClave, in.Activo); err != nil {
+			// La clave guardada nunca viaja a otro servidor: si cambia el proveedor o la URL, hay que
+			// volver a escribirla (o mandar "" para quitarla).
+			if !nuevo && antes.ClaveCifrada != nil && clave == nil && (antes.Proveedor != in.Proveedor ||
+				NormalizarURLIA(antes.Proveedor, antes.Url) != NormalizarURLIA(in.Proveedor, in.URL)) {
+				return AjustesAsistente{}, claveAsistenteRequerida()
+			}
+			if err := validarConexionAsistente(in.Proveedor, in.URL, in.Modelo, conClave, in.Activo, m.cfg.PermitirLoopbackIA); err != nil {
 				return AjustesAsistente{}, err
 			}
 			var f mensajeriabd.MensajeriaAsistenteAjuste
@@ -507,8 +515,14 @@ func nuevoFijarAjustesAsistente(m *Modulo) *auditoria.Caso[EntradaAjustesAsisten
 }
 
 // conexionAsistente arma la configuración del proveedor desde los ajustes (descifra la clave).
+func claveAsistenteRequerida() *nucleo.Problema {
+	return nucleo.NuevoProblema(http.StatusUnprocessableEntity, "clave_requerida", "Falta la clave",
+		"Cambiaste el proveedor o la URL: la clave guardada no se manda a otro servidor. Vuelve a escribirla (o envía \"\" para quitarla)",
+		nucleo.ErrorCampo{Field: "clave", Message: "Vuelve a escribir la clave", Rule: "clave_requerida"})
+}
+
 func (m *Modulo) conexionAsistente(f mensajeriabd.MensajeriaAsistenteAjuste) (ConfigProveedor, error) {
-	cfg := ConfigProveedor{Proveedor: f.Proveedor, URL: f.Url, Modelo: f.Modelo}
+	cfg := ConfigProveedor{Proveedor: f.Proveedor, URL: f.Url, Modelo: f.Modelo, PermitirLoopback: m.cfg.PermitirLoopbackIA}
 	if f.ClaveCifrada != nil {
 		if m.cfg.Cifrador == nil {
 			return cfg, &ErrorIA{Codigo: ErrIASinConfig, Detalle: "Falta IRIS_CLAVE_CIFRADO para leer la clave"}
@@ -526,17 +540,17 @@ func (m *Modulo) conexionAsistente(f mensajeriabd.MensajeriaAsistenteAjuste) (Co
 }
 
 func (m *Modulo) proveedorDe(cfg ConfigProveedor, plazo time.Duration) (Proveedor, error) {
-	return m.cfg.FabricaIA(cfg, NuevoHTTPIA(plazo))
+	return m.cfg.FabricaIA(cfg, NuevoHTTPIA(plazo, m.cfg.PermitirLoopbackIA))
 }
 
-// conexionPedida: la de la prueba o la lista de modelos; sin clave usa la guardada solo si el
-// proveedor y la URL son los guardados (una clave no viaja a otro servidor).
+// conexionPedida: la de la prueba o la lista de modelos. Sin proveedor: lo guardado. Sin clave
+// usa la guardada solo si el proveedor y la URL (normalizada) son los guardados: una clave nunca
+// viaja a otro servidor.
 func (m *Modulo) conexionPedida(ctx context.Context, t *auditoria.Tx, proveedor, url, modelo string, clave *string) (ConfigProveedor, error) {
 	empresa, err := empresaPersona(ctx)
 	if err != nil {
 		return ConfigProveedor{}, err
 	}
-	url = strings.TrimRight(strings.TrimSpace(url), "/")
 	f, err := leerAjustesAsistente(ctx, mensajeriabd.New(t), empresa)
 	if err != nil {
 		return ConfigProveedor{}, err
@@ -547,24 +561,38 @@ func (m *Modulo) conexionPedida(ctx context.Context, t *auditoria.Tx, proveedor,
 		}
 		return m.conexionAsistente(*f)
 	}
-	if err := validarConexionAsistente(proveedor, url, modelo, true, false); err != nil {
-		return ConfigProveedor{}, err
+	switch proveedor {
+	case ProveedorOllama, ProveedorOpenAICompatible, ProveedorAnthropic:
+	default:
+		return ConfigProveedor{}, campoConv("proveedor", "ollama, openai_compatible o anthropic", "enum")
 	}
-	cfg := ConfigProveedor{Proveedor: proveedor, URL: url, Modelo: strings.TrimSpace(modelo)}
+	url = strings.TrimRight(strings.TrimSpace(url), "/")
+	cfg := ConfigProveedor{Proveedor: proveedor, URL: url, Modelo: strings.TrimSpace(modelo), PermitirLoopback: m.cfg.PermitirLoopbackIA}
 	if clave != nil {
 		cfg.Clave = strings.TrimSpace(*clave)
-	} else if f != nil && f.Proveedor == proveedor && f.Url == url {
+	} else if f != nil && f.ClaveCifrada != nil && f.Proveedor == proveedor && NormalizarURLIA(f.Proveedor, f.Url) == NormalizarURLIA(proveedor, url) {
 		guardada, err := m.conexionAsistente(*f)
 		if err != nil {
 			return ConfigProveedor{}, err
 		}
 		cfg.Clave = guardada.Clave
 	}
+	if NormalizarURLIA(proveedor, url) == "" {
+		return ConfigProveedor{}, campoConv("url", "Falta la URL del servidor", "required")
+	}
+	if err := validarConexionAsistente(proveedor, url, cfg.Modelo, cfg.Clave != "", false, m.cfg.PermitirLoopbackIA); err != nil {
+		return ConfigProveedor{}, err
+	}
 	if cfg.Proveedor == ProveedorAnthropic && cfg.Modelo == "" {
 		cfg.Modelo = AnthropicModeloPorDefecto
 	}
 	return cfg, nil
 }
+
+// DetalleFallaIA: la misma respuesta para cualquier falla al probar o listar modelos (conexión
+// rechazada, tiempo agotado, DNS, 4xx/5xx, redirección, respuesta que no es de IA): así probar no
+// sirve para escanear puertos de la red.
+const DetalleFallaIA = "No se pudo usar ese servidor como proveedor de IA: revisa la URL, la clave y el modelo"
 
 // ProbarAsistente: lee la conexión, manda un pedido corto real (fuera de la transacción) y audita
 // el resultado (sin la clave). No guarda nada ni cuenta para el tope.
@@ -627,10 +655,13 @@ func (p *ProbarAsistente) Ejecutar(ctx context.Context, in EntradaProbarAsistent
 		if err == nil && resp.Rechazo {
 			r.Detalle = "El servidor respondió (el modelo se negó a la prueba)"
 		}
+		if err == nil && strings.TrimSpace(resp.Texto) == "" && !resp.Rechazo && !resp.Truncada && uso.Salida == 0 {
+			err = &ErrorIA{Codigo: ErrIAProveedor, Detalle: "Respuesta vacía"}
+		}
 	}
 	if err != nil {
-		r.Estado, r.Detalle = "error", detalleIA(err)
-		r.LatenciaMs = time.Since(inicio).Milliseconds()
+		// Un solo mensaje y sin latencia: no se distingue un puerto cerrado de uno abierto.
+		r = PruebaAsistente{Estado: "error", Detalle: DetalleFallaIA}
 	}
 	return p.registro.Ejecutar(ctx, r)
 }
@@ -651,7 +682,8 @@ func codigoIA(err error) string {
 	return ErrIAProveedor
 }
 
-// ModelosAsistente lista los modelos del proveedor (fuera de la transacción).
+// ModelosAsistente lista los modelos del proveedor (fuera de la transacción). Con lo guardado
+// (GET) o con una URL y clave dadas (POST con CSRF, para no listar a un tercero con un enlace).
 type ModelosAsistente struct {
 	m    *Modulo
 	leer *auditoria.Caso[EntradaProbarAsistente, conexionLeida]
@@ -661,27 +693,28 @@ func nuevoModelosAsistente(m *Modulo) *ModelosAsistente {
 	return &ModelosAsistente{m: m, leer: auditoria.Nuevo(auditoria.Caso[EntradaProbarAsistente, conexionLeida]{
 		Accion: "mensajeria.asistente_modelos", Permiso: nucleo.PermMensajeriaAsistenteConfigurar, AuditarExito: sinAuditar[conexionLeida],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaProbarAsistente) (conexionLeida, error) {
-			cfg, err := m.conexionPedida(ctx, t, in.Proveedor, in.URL, "", nil)
+			cfg, err := m.conexionPedida(ctx, t, in.Proveedor, in.URL, "", in.Clave)
 			return conexionLeida{cfg: cfg}, err
 		},
 	})}
 }
 
-// Ejecutar lista los modelos.
+// Ejecutar lista los modelos (sin proveedor: lo guardado).
 func (k *ModelosAsistente) Ejecutar(ctx context.Context, in EntradaModelosAsistente) (ListaModelosAsistente, error) {
-	c, err := k.leer.Ejecutar(ctx, EntradaProbarAsistente{Proveedor: in.Proveedor, URL: in.URL})
+	c, err := k.leer.Ejecutar(ctx, EntradaProbarAsistente{Proveedor: in.Proveedor, URL: in.URL, Clave: in.Clave})
 	if err != nil {
 		return ListaModelosAsistente{}, err
 	}
+	falla := nucleo.NuevoProblema(http.StatusBadGateway, ErrIAProveedor, "El proveedor de IA falló", DetalleFallaIA)
 	prov, err := k.m.proveedorDe(c.cfg, k.m.cfg.PlazoPruebaIA)
 	if err != nil {
-		return ListaModelosAsistente{}, problemaIA(err)
+		return ListaModelosAsistente{}, falla
 	}
 	cctx, cancelar := context.WithTimeout(ctx, k.m.cfg.PlazoPruebaIA)
 	defer cancelar()
 	ms, err := prov.Modelos(cctx)
 	if err != nil {
-		return ListaModelosAsistente{}, problemaIA(err)
+		return ListaModelosAsistente{}, falla
 	}
 	if ms == nil {
 		ms = []ModeloIA{}

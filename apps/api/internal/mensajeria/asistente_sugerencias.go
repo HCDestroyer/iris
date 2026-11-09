@@ -161,7 +161,8 @@ func sugerenciaVisible(ctx context.Context, q *mensajeriabd.Queries, a alcanceCo
 		return s, mensajeriabd.MensajeriaConversacion{}, err
 	}
 	c, err := convVisible(ctx, q, a, s.ConversacionID, false)
-	if err != nil {
+	// Una sugerencia de la empresa anterior (préstamo) no la ve la empresa nueva.
+	if err != nil || derefEmpresa(s.EmpresaID) != empresaDeConv(c) {
 		return s, c, nucleo.NoEncontrado("La sugerencia no existe o no la puedes ver")
 	}
 	return s, c, nil
@@ -263,6 +264,13 @@ func nuevoPedirSugerencia(m *Modulo) *auditoria.Caso[EntradaPedirSugerencia, Sug
 			if err != nil {
 				return Sugerencia{}, err
 			}
+			if err := m.limiteConversacion(ctx, q, c.ID); err != nil {
+				return Sugerencia{}, err
+			}
+			if err := m.limitePedidos(ctx, q, a.usuario, c, "sugerencia"); err != nil {
+				return Sugerencia{}, err
+			}
+			// «Otra»: la vigente queda descartada y su generación en curso se corta.
 			if err := m.cerrarVigentes(ctx, t, c, SugDescartada); err != nil {
 				return Sugerencia{}, err
 			}
@@ -275,7 +283,7 @@ func nuevoPedirSugerencia(m *Modulo) *auditoria.Caso[EntradaPedirSugerencia, Sug
 				return Sugerencia{}, err
 			}
 			f, err := q.InsertarSugerencia(ctx, mensajeriabd.InsertarSugerenciaParams{ID: id, EmpresaID: c.EmpresaID, ConversacionID: c.ID,
-				ParaMensajeID: pgtype.UUID{Bytes: ultimo.ID, Valid: true}, Origen: origen, PedidaPor: &a.usuario})
+				ParaMensajeID: pgtype.UUID{Bytes: ultimo.ID, Valid: true}, Origen: origen, PedidaPor: &a.usuario, CreadaEn: m.ahora()})
 			if err != nil {
 				return Sugerencia{}, err
 			}
@@ -564,6 +572,11 @@ func nuevoPrepararGeneracion(m *Modulo) *auditoria.Caso[uuidSugerencia, generaci
 			if err != nil {
 				return generacion{}, err
 			}
+			// La conversación pasó a otra empresa (préstamo): vence sin llamar al proveedor ni cobrar.
+			if derefEmpresa(s.EmpresaID) != empresaDeConv(c) {
+				_, err := q.FijarEstadoSugerencia(ctx, mensajeriabd.FijarEstadoSugerenciaParams{ID: s.ID, Estado: SugVencida})
+				return generacion{listo: true}, err
+			}
 			fallar := func(codigo, detalle string) (generacion, error) {
 				return generacion{listo: true}, m.terminarSugerencia(ctx, t, s, SugError, "", nil, nil, codigo, detalle, resultadoGeneracion{SugerenciaID: s.ID})
 			}
@@ -574,12 +587,6 @@ func nuevoPrepararGeneracion(m *Modulo) *auditoria.Caso[uuidSugerencia, generaci
 			if aj == nil || !aj.Activo {
 				return fallar(ErrIASinConfig, "El asistente no está activo en esta empresa")
 			}
-			if pausado, err := m.pausadoPorTope(ctx, q, empresaDeConv(c), aj.TopeTokensMes); err != nil || pausado {
-				if err != nil {
-					return generacion{}, err
-				}
-				return fallar(ErrIATope, "Se llegó al tope de tokens del mes")
-			}
 			cfg, err := m.conexionAsistente(*aj)
 			if err != nil {
 				return fallar(codigoIA(err), detalleIA(err))
@@ -588,8 +595,16 @@ func nuevoPrepararGeneracion(m *Modulo) *auditoria.Caso[uuidSugerencia, generaci
 			if err != nil {
 				return generacion{}, err
 			}
-			return generacion{cfg: cfg, contexto: ctxIA, pedido: PedidoIA{Modelo: cfg.Modelo, Instrucciones: InstruccionesSugerencia,
-				Contenido: ctxIA.contenido + "\n\nEscribe la respuesta sugerida para el último mensaje del cliente. Devuelve solo el JSON.", MaxTokens: 8192}}, nil
+			p := PedidoIA{Modelo: cfg.Modelo, Instrucciones: InstruccionesSugerencia,
+				Contenido: ctxIA.contenido + "\n\nEscribe la respuesta sugerida para el último mensaje del cliente. Devuelve solo el JSON.", MaxTokens: 8192}
+			// Reserva atómica de lo estimado: si no cabe en el tope, no se llama al proveedor.
+			if err := m.reservarTokens(ctx, q, s.ID, empresaDeConv(c), aj.TopeTokensMes, estimarTokens(p)); err != nil {
+				if codigoIA(err) == ErrIATope {
+					return fallar(ErrIATope, detalleIA(err))
+				}
+				return generacion{}, err
+			}
+			return generacion{cfg: cfg, contexto: ctxIA, pedido: p}, nil
 		},
 	})
 }
@@ -608,6 +623,20 @@ func nuevoGuardarGeneracion(m *Modulo) *auditoria.Caso[resultadoGeneracion, stru
 			}
 			t.FijarEmpresa(derefEmpresa(s.EmpresaID))
 			t.FijarEntidad("conversacion", s.ConversacionID)
+			if err := m.liberarReserva(ctx, q, s.ID); err != nil {
+				return struct{}{}, err
+			}
+			c, err := q.ConversacionClientePorID(ctx, s.ConversacionID)
+			if err != nil {
+				return struct{}{}, err
+			}
+			// Pasó a otra empresa mientras se generaba: vencida, sin cobrar a ninguna de las dos.
+			if derefEmpresa(s.EmpresaID) != empresaDeConv(c) {
+				if s.Estado == SugGenerando {
+					_, err = q.FijarEstadoSugerencia(ctx, mensajeriabd.FijarEstadoSugerenciaParams{ID: s.ID, Estado: SugVencida})
+				}
+				return struct{}{}, err
+			}
 			if err := m.sumarUso(ctx, t, derefEmpresa(s.EmpresaID), UsoIA{Entrada: in.TokensEntrada, Salida: in.TokensSalida}, 1, 0); err != nil {
 				return struct{}{}, err
 			}
@@ -621,10 +650,6 @@ func nuevoGuardarGeneracion(m *Modulo) *auditoria.Caso[resultadoGeneracion, stru
 			if estado != SugGenerando {
 				_, err := q.GuardarResultadoSugerencia(ctx, mensajeriabd.GuardarResultadoSugerenciaParams{ID: s.ID, Estado: estado, Fuentes: []byte("[]"),
 					Proveedor: &in.Proveedor, Modelo: &in.Modelo, TokensEntrada: in.TokensEntrada, TokensSalida: in.TokensSalida, GeneradaEn: ptrTiempo(m.ahora())})
-				if err != nil {
-					return struct{}{}, err
-				}
-				c, err := q.ConversacionClientePorID(ctx, s.ConversacionID)
 				if err != nil {
 					return struct{}{}, err
 				}
@@ -658,8 +683,9 @@ func nuevoGuardarGeneracion(m *Modulo) *auditoria.Caso[resultadoGeneracion, stru
 	})
 }
 
-// GenerarSugerencia corre una generación: prepara (transacción), llama al proveedor (fuera) y
-// guarda (otra transacción). La usa el job y, en pruebas, se llama directo.
+// GenerarSugerencia corre una generación: prepara (transacción, con la reserva de tokens), llama al
+// proveedor (fuera; se corta si la descartan) y guarda (otra transacción, ajusta el uso). La usa el
+// job y, en pruebas, se llama directo.
 func (m *Modulo) GenerarSugerencia(ctx context.Context, id uuid.UUID) error {
 	g, err := m.Asistente.prepararGen.Ejecutar(ctx, uuidSugerencia{ID: id})
 	if err != nil || g.listo {
@@ -668,16 +694,19 @@ func (m *Modulo) GenerarSugerencia(ctx context.Context, id uuid.UUID) error {
 	r := resultadoGeneracion{SugerenciaID: id, Proveedor: g.cfg.Proveedor, Modelo: g.cfg.Modelo, contexto: g.contexto}
 	prov, err := m.proveedorDe(g.cfg, m.cfg.PlazoIA)
 	if err == nil {
-		cctx, cancelar := context.WithTimeout(ctx, m.cfg.PlazoIA)
+		vctx, parar := m.vigilarCancelacion(ctx, id)
+		cctx, cancelar := context.WithTimeout(vctx, m.cfg.PlazoIA)
 		var uso UsoIA
 		r.respuesta, uso, err = prov.Generar(cctx, g.pedido)
 		cancelar()
+		parar()
 		r.TokensEntrada, r.TokensSalida = uso.Entrada, uso.Salida
 	}
 	if err != nil {
 		r.Codigo, r.detalle = codigoIA(err), detalleIA(err)
 	}
-	_, err = m.Asistente.guardarGen.Ejecutar(ctx, r)
+	// Se guarda aunque el pedido original se haya cancelado.
+	_, err = m.Asistente.guardarGen.Ejecutar(context.WithoutCancel(ctx), r)
 	return err
 }
 
@@ -711,6 +740,16 @@ func nuevoCrearAuto(m *Modulo) *auditoria.Caso[int64, autoCreada] {
 			if pausado, err := m.pausadoPorTope(ctx, q, empresaDeConv(c), aj.TopeTokensMes); err != nil || pausado {
 				return autoCreada{}, err
 			}
+			// Solo si alguien la va a leer: asignada, o en una cola con agentes disponibles.
+			if c.AsignadoA == nil {
+				if c.ColaID == nil {
+					return autoCreada{}, nil
+				}
+				disp, err := disponiblesDe(ctx, q, empresaDeConv(c), c.ColaID)
+				if err != nil || len(disp) == 0 {
+					return autoCreada{}, err
+				}
+			}
 			ultimo, err := q.UltimoEntranteConv(ctx, c.ID)
 			if errors.Is(err, pgx.ErrNoRows) {
 				return autoCreada{}, nil
@@ -729,6 +768,11 @@ func nuevoCrearAuto(m *Modulo) *auditoria.Caso[int64, autoCreada] {
 			} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 				return autoCreada{}, err
 			}
+			// Como mucho 6 automáticas y 20 en total por conversación y hora.
+			rec, err := q.SugerenciasRecientesConv(ctx, mensajeriabd.SugerenciasRecientesConvParams{ConversacionID: c.ID, Desde: m.ahora().Add(-time.Hour)})
+			if err != nil || rec.Automaticas >= AutomaticasPorHoraConv || rec.Total >= SugerenciasPorHoraConv {
+				return autoCreada{}, err
+			}
 			if err := m.cerrarVigentes(ctx, t, c, SugVencida); err != nil {
 				return autoCreada{}, err
 			}
@@ -737,7 +781,7 @@ func nuevoCrearAuto(m *Modulo) *auditoria.Caso[int64, autoCreada] {
 				return autoCreada{}, err
 			}
 			if _, err := q.InsertarSugerencia(ctx, mensajeriabd.InsertarSugerenciaParams{ID: id, EmpresaID: c.EmpresaID, ConversacionID: c.ID,
-				ParaMensajeID: pgtype.UUID{Bytes: ultimo.ID, Valid: true}, Origen: "automatico"}); err != nil {
+				ParaMensajeID: pgtype.UUID{Bytes: ultimo.ID, Valid: true}, Origen: "automatico", CreadaEn: m.ahora()}); err != nil {
 				return autoCreada{}, err
 			}
 			if err := m.emitirSugerencia(ctx, t, c, id); err != nil {
@@ -858,6 +902,8 @@ type contextoIA struct {
 	contenido  string
 	catalogo   map[string]FuenteSugerencia
 	hayCliente bool
+	// internos: el texto de los manuales «del equipo» que vio (no se copian al cliente).
+	internos []string
 }
 
 func (m *Modulo) contextoAsistente(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaConversacion, aj mensajeriabd.MensajeriaAsistenteAjuste) (contextoIA, error) {
@@ -932,6 +978,7 @@ func (m *Modulo) contextoAsistente(ctx context.Context, q *mensajeriabd.Queries,
 					sumar(FuenteSugerencia{Tipo: "manual", Etiqueta: "Manual «" + titulo + "»", EntidadID: &id},
 						"(manual, se puede compartir con el cliente) «"+titulo+"»: "+cuerpo)
 				} else {
+					out.internos = append(out.internos, mn.Resumen+"\n"+mn.Cuerpo)
 					sumar(FuenteSugerencia{Tipo: "manual", Etiqueta: "Manual del equipo «" + titulo + "»", EntidadID: &id},
 						"(manual del equipo: interno, NO lo menciones al cliente) «"+titulo+"»: "+cuerpo)
 				}
@@ -1031,28 +1078,95 @@ func consultaManuales(texto string) string {
 
 // Redacción: lo que el modelo nunca ve -------------------------------------------------------------
 
-var redacciones = []*regexp.Regexp{
-	// «mi contraseña es X», «clave: X», «PIN 1234», «código de verificación 482913», «usuario wifi X».
-	regexp.MustCompile(`(?i)\b(contrase(?:ñ|n)as?|password|passwd|pass|clave(?:\s+del?\s+wi-?fi)?|pin|c(?:ó|o)digos?(?:\s+de\s+(?:verificaci(?:ó|o)n|seguridad|acceso|confirmaci(?:ó|o)n))?|otp|token)(\s*(?:es|era|nueva|:|=|->)?\s*)(\S+)`),
-	// DPI (13 dígitos, con o sin espacios) y tarjetas (13 a 19 dígitos).
-	regexp.MustCompile(`\b(?:\d[ -]?){12,18}\d\b`),
-	// NIT.
-	regexp.MustCompile(`(?i)\b(nit)(\s*:?\s*)([0-9][0-9-]*k?)\b`),
-	// DPI / documento / pasaporte con número.
-	regexp.MustCompile(`(?i)\b(dpi|cui|documento|pasaporte)(\s*(?:es|:|#|no\.?)?\s*)([0-9A-Z][0-9A-Z -]{4,})`),
-}
+// reSecreto: palabras tras las que viene un secreto. Después de la palabra se saltan los conectores
+// («es», «de mi wifi», «:», …) y se oculta hasta el fin de la frase.
+var reSecreto = regexp.MustCompile(`(?i)\b(contrase(?:ñ|n)as?|password|passwd|pass|claves?|pin|c(?:ó|o)digos?|otp|token|cvv2?|cvc)\b`)
 
-// RedactarParaIA reemplaza por *** contraseñas, códigos, PIN, documentos y tarjetas del texto que
-// se le manda al modelo (además de lo que la auditoría ya enmascara).
+// conectoresSecreto: lo que puede ir entre la palabra y el secreto (se deja visible).
+var conectoresSecreto = map[string]bool{"es": true, "era": true, "son": true, "sería": true, "seria": true, "de": true, "del": true, "mi": true,
+	"mis": true, "tu": true, "su": true, "la": true, "el": true, "los": true, "las": true, "wifi": true, "wi-fi": true, "red": true,
+	"nueva": true, "nuevo": true, "actual": true, "que": true, "me": true, "llegó": true, "llego": true, "verificación": true,
+	"verificacion": true, "seguridad": true, "acceso": true, "confirmación": true, "confirmacion": true, "internet": true, "router": true,
+	"módem": true, "modem": true, "al": true, "para": true, "puse": true, "tengo": true, "dice": true, "sms": true}
+
+var (
+	rePalabraConector = regexp.MustCompile(`^[\s:=#>\-–—"'«»(]*([\p{L}-]+)`)
+	reSeparadores     = regexp.MustCompile(`^[\s:=#>\-–—"'«»(]*`)
+	reFinFrase        = regexp.MustCompile(`[.!?;](\s|$)|\n`)
+	reNumeroCorto     = regexp.MustCompile(`\b\d{4,8}\b`)
+	// Tarjetas (13 a 19 dígitos con espacios, puntos o guiones) y DPI (13 dígitos).
+	reTarjeta = regexp.MustCompile(`\b\d(?:[ .-]?\d){12,18}\b`)
+	reNIT     = regexp.MustCompile(`(?i)\b(nit)(\s*:?\s*)([0-9][0-9-]*k?)\b`)
+	reDPI     = regexp.MustCompile(`(?i)\b(dpi|cui|documento|pasaporte)(\s*(?:es|:|#|no\.?)?\s*)([0-9A-Z][0-9A-Z -]{4,})`)
+)
+
+// CercaniaSecreto: un número de 4 a 8 dígitos a esta distancia (bytes) de «código», «pin» o
+// «clave» se oculta aunque esté antes de la palabra.
+const CercaniaSecreto = 40
+
+// RedactarParaIA reemplaza por *** contraseñas, claves, PIN, códigos, CVV, documentos y tarjetas del
+// texto que se le manda al modelo.
 func RedactarParaIA(s string) string {
-	for i, re := range redacciones {
-		if i == 1 {
-			s = re.ReplaceAllString(s, auditoria.Mascara)
-			continue
+	s = reTarjeta.ReplaceAllString(s, auditoria.Mascara)
+	s = reNIT.ReplaceAllString(s, "${1}${2}"+auditoria.Mascara)
+	s = reDPI.ReplaceAllString(s, "${1}${2}"+auditoria.Mascara)
+	// Números cortos cerca de una palabra de secreto (antes o después).
+	claves := reSecreto.FindAllStringIndex(s, -1)
+	if len(claves) > 0 {
+		var b strings.Builder
+		ult := 0
+		for _, n := range reNumeroCorto.FindAllStringIndex(s, -1) {
+			cerca := false
+			for _, k := range claves {
+				if (n[0] >= k[1] && n[0]-k[1] <= CercaniaSecreto) || (k[0] >= n[1] && k[0]-n[1] <= CercaniaSecreto) {
+					cerca = true
+					break
+				}
+			}
+			if cerca {
+				b.WriteString(s[ult:n[0]])
+				b.WriteString(auditoria.Mascara)
+				ult = n[1]
+			}
 		}
-		s = re.ReplaceAllString(s, "${1}${2}"+auditoria.Mascara)
+		b.WriteString(s[ult:])
+		s = b.String()
 	}
-	return s
+	// Lo que sigue a la palabra (saltando conectores) hasta el fin de la frase.
+	var b strings.Builder
+	pos := 0
+	for pos < len(s) {
+		k := reSecreto.FindStringIndex(s[pos:])
+		if k == nil {
+			break
+		}
+		fin := pos + k[1]
+		b.WriteString(s[pos:fin])
+		i := fin
+		for {
+			m := rePalabraConector.FindStringSubmatchIndex(s[i:])
+			if m == nil || !conectoresSecreto[strings.ToLower(s[i+m[2]:i+m[3]])] {
+				break
+			}
+			i += m[1]
+		}
+		if sep := reSeparadores.FindStringIndex(s[i:]); sep != nil {
+			i += sep[1]
+		}
+		b.WriteString(s[fin:i])
+		finFrase := len(s)
+		if f := reFinFrase.FindStringIndex(s[i:]); f != nil {
+			finFrase = i + f[0]
+		}
+		if strings.TrimSpace(s[i:finFrase]) != "" && s[i:finFrase] != auditoria.Mascara {
+			b.WriteString(auditoria.Mascara)
+		} else {
+			b.WriteString(s[i:finFrase])
+		}
+		pos = finFrase
+	}
+	b.WriteString(s[pos:])
+	return b.String()
 }
 
 // Validación de la respuesta del modelo -------------------------------------------------------------
@@ -1063,7 +1177,38 @@ type salidaValida struct {
 	accion  *AccionSugerencia
 }
 
-var reEnlace = regexp.MustCompile(`(?i)(https?://|www\.|\b[a-z0-9-]+\.(com|net|org|gt|io|ly|me|info|xyz|app|link)\b)`)
+// reEnlace: un esquema (http://, ftp://…), www., cualquier dominio con TLD de letras o una IPv4.
+var reEnlace = regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://|\bwww\.|\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}\b|\b(?:\d{1,3}\.){3}\d{1,3}\b`)
+
+// MaxPalabrasDelEquipo: más de estas palabras seguidas copiadas de un manual «del equipo» invalidan
+// la sugerencia (no se cita al cliente).
+const MaxPalabrasDelEquipo = 12
+
+var rePalabra = regexp.MustCompile(`[\p{L}\p{N}]+`)
+
+func palabrasDe(s string) []string { return rePalabra.FindAllString(strings.ToLower(s), -1) }
+
+// copiaDelEquipo: el texto repite más de MaxPalabrasDelEquipo palabras seguidas de un manual interno.
+func copiaDelEquipo(texto string, internos []string) bool {
+	n := MaxPalabrasDelEquipo + 1
+	ps := palabrasDe(texto)
+	if len(ps) < n {
+		return false
+	}
+	tramos := map[string]bool{}
+	for _, m := range internos {
+		ws := palabrasDe(m)
+		for i := 0; i+n <= len(ws); i++ {
+			tramos[strings.Join(ws[i:i+n], " ")] = true
+		}
+	}
+	for i := 0; i+n <= len(ps); i++ {
+		if tramos[strings.Join(ps[i:i+n], " ")] {
+			return true
+		}
+	}
+	return false
+}
 
 func invalida(detalle string) error {
 	return &ErrorIA{Codigo: ErrIARespInvalida, Detalle: detalle}
@@ -1096,7 +1241,10 @@ func validarSalidaModelo(r RespuestaIA, ctxIA contextoIA, etiquetas []mensajeria
 		return salidaValida{}, invalida("El texto sugerido está vacío o es demasiado largo")
 	}
 	if reEnlace.MatchString(texto) {
-		return salidaValida{}, invalida("El texto sugerido traía un enlace")
+		return salidaValida{}, invalida("El texto sugerido traía un enlace o una dirección")
+	}
+	if copiaDelEquipo(texto, ctxIA.internos) {
+		return salidaValida{}, invalida("El texto sugerido copiaba un manual del equipo (interno)")
 	}
 	if strings.Contains(texto, "<datos>") || strings.Contains(texto, "<conversacion>") || strings.Contains(texto, "[F") {
 		return salidaValida{}, invalida("El texto sugerido traía marcas internas")
@@ -1142,91 +1290,105 @@ func validarSalidaModelo(r RespuestaIA, ctxIA contextoIA, etiquetas []mensajeria
 
 // Resumen ---------------------------------------------------------------------------------------------
 
-// ResumirConversacion: prepara (transacción), llama al proveedor y registra el uso (otra transacción).
+// ResumirConversacion: prepara (transacción, con el límite por persona y la reserva de tokens), llama
+// al proveedor y registra el uso (otra transacción, aunque el pedido se haya cancelado).
 type ResumirConversacion struct {
 	m         *Modulo
-	preparar  *auditoria.Caso[EntradaConversacion, generacion]
+	preparar  *auditoria.Caso[EntradaConversacion, resumenPreparado]
 	registrar *auditoria.Caso[usoResumen, struct{}]
 }
 
+type resumenPreparado struct {
+	g       generacion
+	empresa int64
+	reserva uuid.UUID
+}
+
 type usoResumen struct {
-	ConversacionID int64  `json:"conversacion_id"`
-	TokensEntrada  int64  `json:"tokens_entrada"`
-	TokensSalida   int64  `json:"tokens_salida"`
-	Error          string `json:"error,omitempty"`
+	ConversacionID int64     `json:"conversacion_id"`
+	TokensEntrada  int64     `json:"tokens_entrada"`
+	TokensSalida   int64     `json:"tokens_salida"`
+	Error          string    `json:"error,omitempty"`
+	empresa        int64     // la de la conversación al preparar (no se vuelve a exigir visibilidad)
+	reserva        uuid.UUID // la reserva de tokens que se libera
 }
 
 func nuevoResumirConversacion(m *Modulo) *ResumirConversacion {
 	return &ResumirConversacion{m: m,
-		preparar: auditoria.Nuevo(auditoria.Caso[EntradaConversacion, generacion]{
-			Accion: "conversaciones.resumen", Permiso: nucleo.PermConversacionesSugerencias, AuditarExito: sinAuditar[generacion],
-			Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaConversacion) (generacion, error) {
+		preparar: auditoria.Nuevo(auditoria.Caso[EntradaConversacion, resumenPreparado]{
+			Accion: "conversaciones.resumen", Permiso: nucleo.PermConversacionesSugerencias, AuditarExito: sinAuditar[resumenPreparado],
+			Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaConversacion) (resumenPreparado, error) {
 				a, err := alcanceConvDe(ctx)
 				if err != nil {
-					return generacion{}, err
+					return resumenPreparado{}, err
 				}
 				q := mensajeriabd.New(t)
 				c, err := convVisible(ctx, q, a, in.ID, false)
 				if err != nil {
-					return generacion{}, err
+					return resumenPreparado{}, err
 				}
 				aj, err := m.asistenteDisponible(ctx, q, empresaDeConv(c))
 				if err != nil {
-					return generacion{}, err
+					return resumenPreparado{}, err
 				}
 				if _, err := q.UltimoEntranteConv(ctx, c.ID); errors.Is(err, pgx.ErrNoRows) {
-					return generacion{}, reglaConv("sin_mensaje", "El cliente todavía no escribió nada")
+					return resumenPreparado{}, reglaConv("sin_mensaje", "El cliente todavía no escribió nada")
 				} else if err != nil {
-					return generacion{}, err
+					return resumenPreparado{}, err
+				}
+				if err := m.limitePedidos(ctx, q, a.usuario, c, "resumen"); err != nil {
+					return resumenPreparado{}, err
 				}
 				cfg, err := m.conexionAsistente(*aj)
 				if err != nil {
-					return generacion{}, problemaIA(err)
+					return resumenPreparado{}, problemaIA(err)
 				}
 				// El resumen siempre lee el historial (sin notas) y, si está permitido, Argos.
 				sinManuales := *aj
 				sinManuales.FuenteManuales, sinManuales.FuenteHorus, sinManuales.FuenteHistorial = false, false, true
 				ctxIA, err := m.contextoAsistente(ctx, q, c, sinManuales)
 				if err != nil {
-					return generacion{}, err
+					return resumenPreparado{}, err
 				}
-				return generacion{cfg: cfg, contexto: ctxIA, pedido: PedidoIA{Modelo: cfg.Modelo, Instrucciones: InstruccionesResumen,
-					Contenido: ctxIA.contenido + "\n\nResume la conversación.", MaxTokens: 4096}}, nil
+				p := PedidoIA{Modelo: cfg.Modelo, Instrucciones: InstruccionesResumen, Contenido: ctxIA.contenido + "\n\nResume la conversación.", MaxTokens: 4096}
+				reserva, err := uuid.NewV7()
+				if err != nil {
+					return resumenPreparado{}, err
+				}
+				if err := m.reservarTokens(ctx, q, reserva, empresaDeConv(c), aj.TopeTokensMes, estimarTokens(p)); err != nil {
+					return resumenPreparado{}, problemaIA(err)
+				}
+				return resumenPreparado{g: generacion{cfg: cfg, contexto: ctxIA, pedido: p}, empresa: empresaDeConv(c), reserva: reserva}, nil
 			},
 		}),
 		registrar: auditoria.Nuevo(auditoria.Caso[usoResumen, struct{}]{
 			Accion: "conversaciones.resumen", Permiso: nucleo.PermConversacionesSugerencias,
 			Logica: func(ctx context.Context, t *auditoria.Tx, in usoResumen) (struct{}, error) {
-				a, err := alcanceConvDe(ctx)
-				if err != nil {
+				t.FijarEmpresa(in.empresa)
+				t.FijarEntidad("conversacion", in.ConversacionID)
+				if err := m.liberarReserva(ctx, mensajeriabd.New(t), in.reserva); err != nil {
 					return struct{}{}, err
 				}
-				q := mensajeriabd.New(t)
-				c, err := convVisible(ctx, q, a, in.ConversacionID, false)
-				if err != nil {
-					return struct{}{}, err
-				}
-				t.FijarEmpresa(empresaDeConv(c))
-				t.FijarEntidad("conversacion", c.ID)
-				return struct{}{}, m.sumarUso(ctx, t, empresaDeConv(c), UsoIA{Entrada: in.TokensEntrada, Salida: in.TokensSalida}, 0, 1)
+				return struct{}{}, m.sumarUso(ctx, t, in.empresa, UsoIA{Entrada: in.TokensEntrada, Salida: in.TokensSalida}, 0, 1)
 			},
 		})}
 }
 
 // Ejecutar genera el resumen (no se guarda el texto, solo el uso).
 func (k *ResumirConversacion) Ejecutar(ctx context.Context, in EntradaConversacion) (ResumenConversacion, error) {
-	g, err := k.preparar.Ejecutar(ctx, in)
+	pr, err := k.preparar.Ejecutar(ctx, in)
 	if err != nil {
 		return ResumenConversacion{}, err
 	}
-	prov, err := k.m.proveedorDe(g.cfg, k.m.cfg.PlazoIA)
-	if err != nil {
-		return ResumenConversacion{}, problemaIA(err)
+	var r RespuestaIA
+	var uso UsoIA
+	prov, err := k.m.proveedorDe(pr.g.cfg, k.m.cfg.PlazoIA)
+	if err == nil {
+		cctx, cancelar := context.WithTimeout(ctx, k.m.cfg.PlazoIA)
+		r, uso, err = prov.Generar(cctx, pr.g.pedido)
+		cancelar()
 	}
-	cctx, cancelar := context.WithTimeout(ctx, k.m.cfg.PlazoIA)
-	r, uso, err := prov.Generar(cctx, g.pedido)
-	cancelar()
-	reg := usoResumen{ConversacionID: in.ID, TokensEntrada: uso.Entrada, TokensSalida: uso.Salida}
+	reg := usoResumen{ConversacionID: in.ID, TokensEntrada: uso.Entrada, TokensSalida: uso.Salida, empresa: pr.empresa, reserva: pr.reserva}
 	if err == nil && r.Rechazo {
 		err = &ErrorIA{Codigo: ErrIARechazo, Detalle: "El modelo se negó a resumir esta conversación"}
 	}
@@ -1237,7 +1399,8 @@ func (k *ResumirConversacion) Ejecutar(ctx context.Context, in EntradaConversaci
 	if err != nil {
 		reg.Error = codigoIA(err)
 	}
-	if _, errReg := k.registrar.Ejecutar(ctx, reg); errReg != nil {
+	// El uso se registra aunque quien pidió el resumen se haya ido (contexto sin cancelar).
+	if _, errReg := k.registrar.Ejecutar(context.WithoutCancel(ctx), reg); errReg != nil {
 		return ResumenConversacion{}, errReg
 	}
 	if err != nil {

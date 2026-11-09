@@ -757,6 +757,10 @@ func nuevoPasarEmpresa(m *Modulo) *auditoria.Caso[EntradaPasarEmpresa, Conversac
 			// sus menciones y los eventos de sistema de la dueña se quedan con la dueña: la otra
 			// empresa no los ve (los mensajes se listan por la empresa de la conversación).
 			destino := in.EmpresaID
+			// La sugerencia del asistente es de la empresa anterior: vence aquí (§16.2).
+			if err := m.cerrarVigentes(ctx, t, c, SugVencida); err != nil {
+				return ConversacionCliente{}, err
+			}
 			if err := q.MoverMensajesAEmpresa(ctx, mensajeriabd.MoverMensajesAEmpresaParams{EmpresaID: &destino, ConversacionID: c.ID}); err != nil {
 				return ConversacionCliente{}, err
 			}

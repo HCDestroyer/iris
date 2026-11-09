@@ -1016,16 +1016,34 @@ type MensajeriaAsistenteAjuste struct {
 	UpdatedAt           time.Time
 }
 
+type MensajeriaAsistentePedido struct {
+	ID             int64
+	UsuarioID      int64
+	EmpresaID      *int64
+	ConversacionID int64
+	Tipo           string
+	CreadoEn       time.Time
+}
+
+type MensajeriaAsistenteReserva struct {
+	ID        uuid.UUID
+	EmpresaID *int64
+	Mes       time.Time
+	Tokens    int64
+	CreadaEn  time.Time
+}
+
 type MensajeriaAsistenteUso struct {
-	EmpresaID     *int64
-	Mes           time.Time
-	TokensEntrada int64
-	TokensSalida  int64
-	Sugerencias   int32
-	Resumenes     int32
-	Avisado80     bool
-	Avisado100    bool
-	UpdatedAt     time.Time
+	EmpresaID        *int64
+	Mes              time.Time
+	TokensEntrada    int64
+	TokensSalida     int64
+	Sugerencias      int32
+	Resumenes        int32
+	TokensReservados int64
+	Avisado80        bool
+	Avisado100       bool
+	UpdatedAt        time.Time
 }
 
 type MensajeriaAviso struct {

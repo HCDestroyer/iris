@@ -1528,7 +1528,7 @@ export interface paths {
         put?: never;
         /**
          * Guardar los ajustes del asistente de IA
-         * @description Permiso: `mensajeria.asistente_configurar`. `clave` es solo escritura (ausente la deja, "" la borra) y nunca se devuelve: `claveGuardadaEn`. `version` 0 la primera vez (409 `conflicto_version`). Activar exige URL y modelo (Anthropic: clave); 422 `sin_configurar`, `url_no_permitida`. Evento `asistente.ajustes_cambiados`.
+         * @description Permiso: `mensajeria.asistente_configurar`. `clave` es solo escritura (ausente la deja, "" la borra) y nunca se devuelve: `claveGuardadaEn`. `version` 0 la primera vez (409 `conflicto_version`). Activar exige URL y modelo (Anthropic: clave); 422 `sin_configurar`, `url_no_permitida`; 422 `clave_requerida` si cambia el proveedor o la URL con clave guardada y sin `clave`. Evento `asistente.ajustes_cambiados`.
          */
         post: operations["actualizarAjustesAsistente"];
         delete?: never;
@@ -1565,12 +1565,16 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Modelos que ofrece el proveedor
-         * @description Permiso: `mensajeria.asistente_configurar`. Sin parámetros: lo guardado. 502 `proveedor_no_responde` / `proveedor_error` / `clave_invalida` si el proveedor falla.
+         * Modelos del proveedor guardado
+         * @description Permiso: `mensajeria.asistente_configurar`. Solo con lo guardado (para otra URL o clave: `POST /asistente/modelos`). Si el proveedor falla: 502 `proveedor_error` con un detalle único (no distingue conexión rechazada, tiempo agotado ni respuesta inesperada).
          */
         get: operations["modelosAsistente"];
         put?: never;
-        post?: never;
+        /**
+         * Modelos de un proveedor (URL y clave dadas)
+         * @description Permiso: `mensajeria.asistente_configurar`. Con sesión y CSRF. Sin `clave` usa la guardada solo si proveedor y URL son los guardados. Mismas fallas que el GET.
+         */
+        post: operations["consultarModelosAsistente"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1588,7 +1592,7 @@ export interface paths {
         put?: never;
         /**
          * Probar la conexión con el proveedor de IA
-         * @description Permiso: `mensajeria.asistente_configurar`. Manda un pedido corto real (no cuenta para el tope) y responde `estado` ok o error con `detalle` en español, sin secretos. Sin `clave` usa la guardada solo si proveedor y URL son los guardados. No guarda nada.
+         * @description Permiso: `mensajeria.asistente_configurar`. Manda un pedido corto real (no cuenta para el tope). Cualquier falla responde lo mismo (`estado: error`, `latenciaMs: 0`, `detalle` único) para no servir como escáner de puertos. Sin `clave` usa la guardada solo si proveedor y URL son los guardados. No guarda nada.
          */
         post: operations["probarAsistente"];
         delete?: never;
@@ -3404,7 +3408,7 @@ export interface paths {
         put?: never;
         /**
          * Resumen de la conversación (ficha del cliente)
-         * @description Permiso: `conversaciones.sugerencias`. Síncrono (hasta 90 s). Cuenta para el tope; no se guarda el texto. 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje`; 502 `proveedor_no_responde`, `proveedor_error`, `clave_invalida`, `rechazo_modelo`.
+         * @description Permiso: `conversaciones.sugerencias`. Síncrono (hasta 90 s). Reserva y cuenta para el tope; no se guarda el texto. 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje`; 429 `demasiados_pedidos`; 502 `proveedor_no_responde`, `proveedor_error`, `clave_invalida`, `proveedor_redirige`, `rechazo_modelo`.
          */
         post: operations["resumirConversacion"];
         delete?: never;
@@ -3424,7 +3428,7 @@ export interface paths {
         put?: never;
         /**
          * Pedir una sugerencia de respuesta (también «Otra»)
-         * @description Permiso: `conversaciones.sugerencias`. → 202 con la sugerencia en `generando`; cuando termina llega por el flujo (evento `sugerencia`) o en `GET …/sugerencias/actual`. La vigente queda `descartada`. 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje`, `conversacion_resuelta`. El asistente nunca envía.
+         * @description Permiso: `conversaciones.sugerencias`. → 202 con la sugerencia en `generando`; cuando termina llega por el flujo (evento `sugerencia`) o en `GET …/sugerencias/actual`. La vigente queda `descartada` (y su generación se corta). 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje`, `conversacion_resuelta`; 429 `demasiados_pedidos` (10 por minuto por persona) o `demasiadas_sugerencias` (20 por hora por conversación) con `Retry-After`. El asistente nunca envía.
          */
         post: operations["pedirSugerencia"];
         delete?: never;
@@ -10371,6 +10375,13 @@ export interface components {
             usuarioIds: number[] | null;
             /** Format: int32 */
             version: number;
+        };
+        EntradaModelosAsistente: {
+            /** @description Sin clave: la guardada, solo si proveedor y URL son los guardados */
+            clave?: string;
+            /** @enum {string} */
+            proveedor: "ollama" | "openai_compatible" | "anthropic";
+            url: string;
         };
         EntradaMotivo: {
             motivo: string;
@@ -21789,16 +21800,84 @@ export interface operations {
     };
     modelosAsistente: {
         parameters: {
-            query?: {
-                /** @description Vacío: lo guardado */
-                proveedor?: "ollama" | "openai_compatible" | "anthropic" | "";
-                url?: string;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaModelosAsistente"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    consultarModelosAsistente: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaModelosAsistente"];
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -29112,6 +29191,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problema"];
                 };
             };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
             /** @description Internal Server Error */
             500: {
                 headers: {
@@ -29188,6 +29276,15 @@ export interface operations {
             };
             /** @description Unprocessable Entity */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

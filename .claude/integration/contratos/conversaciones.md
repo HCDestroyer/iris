@@ -1406,8 +1406,10 @@ este contrato (personas con sesión del panel, empresa activa, RFC 9457, `Idempo
 - Nunca registra pagos, boletas, promesas ni reconexiones; no promete precios ni plazos que no
   vengan de Argos o de un manual (va en las instrucciones del modelo).
 - Nunca ve contraseñas, documentos ni códigos: el texto que se le manda pasa por un filtro de
-  redacción (`***`: claves, PIN, códigos de verificación, DPI/NIT, tarjetas, tokens). Tampoco ve
-  notas internas.
+  redacción (`***`). Tras «contraseña», «clave», «pin», «código», «otp», «token», «cvv» se saltan los
+  conectores («es», «de mi wifi», «:», …) y se oculta **hasta el fin de la frase**; también los
+  números de 4 a 8 dígitos a menos de 40 caracteres de esas palabras, las tarjetas (13 a 19 dígitos
+  con espacios, puntos o guiones), DPI y NIT. Tampoco ve notas internas.
 - Los mensajes del cliente son **texto no confiable** (inyección de instrucciones): van delimitados
   como datos, y la respuesta del modelo se valida en el servidor (§16.3).
 
@@ -1453,11 +1455,20 @@ proveedor es `anthropic` (422 `sin_configurar`). Evento `asistente.ajustes_cambi
 clave aparece como `clave_guardada`, nunca su valor). Cambiar el tope recalcula los avisos del 80 % y
 100 % del mes con el tope nuevo.
 
-**URL (la pone un admin):** solo `http`/`https`; se permiten IP privadas y de la LAN (Ollama suele
-estar ahí), pero se bloquean link-local y metadata (`169.254.0.0/16`, `fe80::/10`,
-`fd00:ec2::254`), `0.0.0.0`/`::` y multicast, tanto al guardar como **en cada conexión** (después de
-resolver el DNS) y en cada redirección (máximo 3). Usuario/contraseña dentro de la URL: no.
-Error: 422 `url_no_permitida` (campo `url`).
+**La clave no viaja a otro servidor:** si hay clave guardada y cambia el `proveedor` o la URL
+normalizada (sin barra final; en OpenAI/Ollama sin `/v1`; Anthropic vacía = la oficial) y el cuerpo
+no trae `clave`, responde **422 `clave_requerida`** (campo `clave`): hay que escribirla otra vez o
+mandar `""` para quitarla. Vale para todos los proveedores, Ollama incluido.
+
+**URL (la pone un admin):** solo `http`/`https`, sin usuario/contraseña ni parámetros. Se permiten
+IP privadas y de la LAN (Ollama suele estar ahí). Se bloquean siempre link-local y metadata
+(`169.254.0.0/16`, `fe80::/10`, `fd00:ec2::254`, `100.100.100.200`, `168.63.129.16`), NAT64
+(`64:ff9b::/96`), Teredo (`2001::/32`), IPv4-compatible (`::/96`), 6to4 (`2002::/16`) con una IPv4
+embebida no permitida, `0.0.0.0`/`::` y multicast. **Loopback** (`127.0.0.0/8`, `::1`, `localhost`)
+está bloqueado salvo con `IRIS_ASISTENTE_PERMITIR_LOOPBACK=true` (Ollama en el mismo host). Se revisa
+al guardar y **en cada conexión** (después de resolver el DNS). **No se sigue ninguna redirección**:
+un 3xx es el error `proveedor_redirige`. **Con clave, la URL debe ser `https://`**, salvo una IP
+privada (o loopback permitido). Error: 422 `url_no_permitida` (campo `url`).
 
 **Tiempos:** conexión 10 s; respuesta completa hasta 90 s (Ollama puede tardar 20–40 s); `probar` y
 `modelos` 30 s.
@@ -1465,14 +1476,16 @@ Error: 422 `url_no_permitida` (campo `url`).
 `POST /asistente/probar` `{ proveedor, url, clave?, modelo }` (sin `clave` usa la guardada **solo si
 el proveedor y la URL son los guardados**: la clave nunca viaja a otro servidor) → 200
 `{ "estado": "ok" | "error", "latenciaMs": 1840, "tokensPorSegundo": 23.5 | null, "detalle": "…" }`.
-Manda un pedido corto real (no cuenta para el tope). `detalle` en español y sin secretos
-(«El servidor no respondió a tiempo», «La clave no es válida (401)», «El modelo no existe»…). No
-guarda nada; audita sin la clave.
+Manda un pedido corto real (no cuenta para el tope). No guarda nada; audita sin la clave. **Cualquier
+falla** (conexión rechazada, tiempo agotado, DNS, 4xx/5xx, redirección, respuesta que no es de IA)
+responde lo mismo: `estado: "error"`, `latenciaMs: 0`, `tokensPorSegundo: null` y `detalle`:
+«No se pudo usar ese servidor como proveedor de IA: revisa la URL, la clave y el modelo» (así no
+sirve para escanear puertos). La URL inválida sí es 422 `url_no_permitida` antes de conectar.
 
-`GET /asistente/modelos?proveedor=&url=` (sin parámetros: lo guardado; la clave guardada con la misma
-regla que `probar`) →
-`{ data: [{ id, nombre }] }`. Si el proveedor falla: 502 `proveedor_no_responde` /
-`proveedor_error` con `detail` en español.
+`GET /asistente/modelos` (sin parámetros: **solo lo guardado**) y
+`POST /asistente/modelos` `{ proveedor, url, clave? }` (otra URL o clave; con sesión y **CSRF**, la
+clave guardada con la misma regla que `probar`) → `{ data: [{ id, nombre }] }`. Si el proveedor
+falla: 502 `proveedor_error` con el mismo `detail` único de `probar`.
 
 `GET /asistente/uso?mes=YYYY-MM` (por defecto el mes actual) →
 `{ mes, tokensEntrada, tokensSalida, sugerencias, usadas, utiles, noUtiles, resumenes,
@@ -1504,24 +1517,43 @@ sobre conversaciones que ves (si no, 404).
 - `accion` por ahora solo `etiquetar` con una **etiqueta activa existente de la empresa**. El panel
   la ofrece como botón; aplicarla es la acción normal de etiquetar de la persona (el asistente no la
   aplica).
-- Códigos de `error`: `proveedor_no_responde` (sin conexión, tiempo agotado o 5xx), `proveedor_error`
-  (respuesta inesperada, 404, 429, otro 4xx), `clave_invalida` (401/403), `tope_alcanzado`,
-  `sin_configurar`, `rechazo_modelo` (el modelo se negó), `respuesta_invalida` (no pasó la validación
-  de §16.3), `url_no_permitida` (el servidor resolvió o redirigió a link-local/metadata).
+- Códigos de `error`: `proveedor_no_responde` (sin conexión, tiempo agotado, 5xx o atascada más de
+  90 s + 2 min), `proveedor_error` (respuesta inesperada, 404, 429, otro 4xx), `clave_invalida`
+  (401/403), `proveedor_redirige` (3xx: no se siguen), `tope_alcanzado`, `sin_configurar`,
+  `rechazo_modelo` (el modelo, y su respaldo en Anthropic, se negó), `respuesta_invalida` (no pasó la
+  validación de §16.3), `url_no_permitida` (el servidor resolvió a una dirección bloqueada).
 - Los manuales del equipo (`interna`) pueden salir como fuente para el agente con la etiqueta
   «Manual del equipo «…»»; el modelo tiene la instrucción de no mencionarlos al cliente.
 
 | Método y ruta | Qué hace |
 | --- | --- |
 | `GET /asistente/estado` | `{ activo: boolean, modo: "automatico" \| "boton", pausado: boolean }` de la empresa activa, para decidir si se muestra «Sugerir». Nada de proveedor, URL, clave ni uso. Sin ajustes guardados: `{ activo: false, modo: "automatico", pausado: false }` |
-| `POST /conversaciones/{id}/sugerencias` `{ otra?: boolean }` | Pide una (también «Otra»). → **202** con la `Sugerencia` en `generando`. La vigente (generando/lista/error) queda `descartada`; `otra: true` marca el origen `otra` (si no, `boton`). Funciona en modo `automatico` y `boton`. 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje` (no hay mensaje del cliente), `conversacion_resuelta`. Con `Idempotency-Key` la repetición devuelve la misma sugerencia |
+| `POST /conversaciones/{id}/sugerencias` `{ otra?: boolean }` | Pide una (también «Otra»). → **202** con la `Sugerencia` en `generando`. La vigente (generando/lista/error) queda `descartada` y **su generación en curso se corta**; `otra: true` marca el origen `otra` (si no, `boton`). Funciona en modo `automatico` y `boton`. 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje` (no hay mensaje del cliente), `conversacion_resuelta`; **429** `demasiados_pedidos` / `demasiadas_sugerencias` con `Retry-After` (§16.2.1). Con `Idempotency-Key` la repetición devuelve la misma sugerencia |
 | `GET /conversaciones/{id}/sugerencias/actual` | La vigente (`generando`, `lista` o `error`) o 404 `sin_sugerencia` |
 | `POST /sugerencias/{id}/usar` | Marca `usada` (el panel copia `texto` a la caja). Solo desde `lista` (si no, 422 `sugerencia_no_vigente`; repetir sobre `usada` es 200 sin cambios). Evento `asistente.sugerencia_usada` con `editada: null` (todavía no se envió) |
-| `POST /sugerencias/{id}/descartar` | `descartada` (ocultar). Desde `generando`, `lista` o `error`; repetir: 200 sin cambios |
+| `POST /sugerencias/{id}/descartar` | `descartada` (ocultar). Desde `generando` (corta la llamada al proveedor), `lista` o `error`; repetir: 200 sin cambios |
 | `POST /sugerencias/{id}/calificar` `{ util: boolean }` | 👍/👎; se puede cambiar. Evento `asistente.sugerencia_calificada` |
 
 Las tres acciones sobre `/sugerencias/{id}` devuelven la `Sugerencia` y dan 404 si no ves su
-conversación.
+conversación o si la sugerencia es de otra empresa (la conversación se pasó con un préstamo, §15.3).
+
+**Préstamo de números:** pasar la conversación a otra empresa (`pasar-empresa`) deja `vencida` la
+sugerencia vigente en la misma transacción. `GET …/sugerencias/actual` y el feed solo muestran
+sugerencias de la empresa actual de la conversación. Si al preparar o al guardar una generación la
+conversación ya es de otra empresa, la sugerencia queda `vencida` sin llamar al proveedor y sin
+cobrar uso a ninguna empresa.
+
+#### 16.2.1 Límites de costo y frecuencia
+
+| Límite | Valor | Respuesta |
+| --- | --- | --- |
+| Pedidos por persona (sugerencia con botón, «Otra» y resumen) | 10 por minuto | 429 `demasiados_pedidos` con `Retry-After` |
+| Sugerencias por conversación (de cualquier origen) | 20 por hora | 429 `demasiadas_sugerencias` con `Retry-After` (el automático no genera) |
+| Sugerencias automáticas por conversación | 6 por hora | el automático no genera (sin error) |
+| Reserva del tope | entrada estimada (3 caracteres por token) + 1 024 de salida | si no cabe, la sugerencia queda `error` / `tope_alcanzado` y el resumen 422 `tope_alcanzado`, sin llamar al proveedor |
+
+La reserva es atómica (`usados + reservados + estimado ≤ tope`) y se ajusta al terminar: se libera lo
+reservado y se suma lo real. Una reserva que quedó colgada se libera en el mantenimiento.
 
 **Al responder:** `POST /conversaciones/{id}/mensajes` acepta `sugerenciaId` opcional (de esa
 conversación, en `lista` o `usada`; si no, 422 `sugerencia_no_vigente`). Marca la sugerencia `usada`
@@ -1534,8 +1566,10 @@ persona (autor = ella). El texto nunca va a eventos ni auditoría.
 
 **Modo `automatico`:** además, al guardar un mensaje del cliente se encola un job de River (`mensajeria.asistente_sugerir`, único por
 conversación) que espera ~20 s desde el **último** mensaje del cliente para juntar mensajes
-seguidos. No genera para conversaciones `resueltas`, con el bot atendiendo (espera del bot o menú
-pendiente), de empresas sin asistente activo, en modo `boton` o pausadas por tope. Si llega otro
+seguidos. Solo genera si la conversación **tiene agente asignado o está en una cola con agentes
+disponibles**, y como mucho 6 automáticas por conversación y hora (20 en total). No genera para
+conversaciones `resueltas`, con el bot atendiendo (espera del bot o menú pendiente), de empresas sin
+asistente activo, en modo `boton` o pausadas por tope. Si llega otro
 mensaje del cliente mientras se genera, la sugerencia queda `vencida` al terminar (sus tokens sí
 cuentan).
 
@@ -1564,16 +1598,19 @@ quienes ven la conversación y tienen `conversaciones.sugerencias`.
   se muestra): JSON válido; `texto` no vacío ≤ 4096; `fuentes` solo ids que se le dieron (se
   traducen a `{ tipo, etiqueta, entidadId }` en el servidor; un manual interno no se cita);
   `accion` `null` o `etiquetar` con una etiqueta activa **existente** de la empresa (por nombre, sin
-  distinguir mayúsculas); el texto no puede traer enlaces que no estén en las fuentes. Un
-  `stop_reason: refusal` (Anthropic) o `finish_reason: content_filter` → `rechazo_modelo`.
+  distinguir mayúsculas); el texto no puede traer enlaces ni direcciones (cualquier esquema `x://`,
+  `www.`, cualquier dominio con TLD de letras o una IPv4) ni copiar **más de 12 palabras seguidas**
+  de un manual «del equipo». Un `stop_reason: refusal` (Anthropic, también tras el respaldo) o
+  `finish_reason: content_filter` → `rechazo_modelo`.
 
 ### 16.4 Resumen de la conversación (ficha del cliente)
 
 `POST /conversaciones/{id}/resumen` (`conversaciones.sugerencias`) → 200
 `{ "texto": "…", "generadoEn": "…" }`. Síncrono (hasta 90 s; el panel muestra «Generando…»). Usa el
-historial (últimos 30, sin notas) y lo de Argos según `fuentes`. Cuenta para el tope. No se guarda
-el texto (solo el uso). 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje`; 502
-`proveedor_no_responde` / `proveedor_error` / `rechazo_modelo`.
+historial (últimos 30, sin notas) y lo de Argos según `fuentes`. Reserva y cuenta para el tope; el
+uso se registra aunque quien lo pidió cierre la pantalla. No se guarda el texto. 422
+`asistente_inactivo`, `tope_alcanzado`, `sin_mensaje`; 429 `demasiados_pedidos`; 502
+`proveedor_no_responde` / `proveedor_error` / `clave_invalida` / `proveedor_redirige` / `rechazo_modelo`.
 
 ### 16.5 Permisos nuevos
 
@@ -1586,19 +1623,27 @@ el texto (solo el uso). 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje
 | --- | --- | --- |
 | `asistente_inactivo` | 422 | La empresa no tiene el asistente activo |
 | `sin_configurar` | 422 | Activar sin URL, modelo o clave necesaria |
-| `url_no_permitida` | 422 | URL con esquema distinto de http/https, credenciales, link-local o metadata |
+| `url_no_permitida` | 422 | URL con esquema distinto de http/https, credenciales, parámetros, dirección bloqueada (§16.1) o http con clave a un host que no es IP privada |
+| `clave_requerida` | 422 | Cambiar proveedor o URL con clave guardada sin mandar `clave` |
+| `demasiados_pedidos` / `demasiadas_sugerencias` | 429 | Límites de §16.2.1 (con `Retry-After`) |
 | `tope_alcanzado` | 422 | Se llegó al tope de tokens del mes |
 | `sin_mensaje` | 422 | Pedir sugerencia o resumen sin mensaje del cliente |
 | `conversacion_resuelta` | 422 | Pedir sugerencia en una conversación resuelta |
 | `sin_sugerencia` | 404 | No hay sugerencia vigente |
 | `sugerencia_no_vigente` | 422 | Usar una sugerencia que no está `lista`, o `sugerenciaId` de otra conversación |
-| `proveedor_no_responde` / `proveedor_error` / `rechazo_modelo` | 502 | Resumen o modelos cuando el proveedor falla |
+| `proveedor_no_responde` / `proveedor_error` / `clave_invalida` / `proveedor_redirige` / `rechazo_modelo` | 502 | Resumen cuando el proveedor falla (modelos: siempre `proveedor_error`) |
 
 ### 16.7 Notas de implementación
 
 - Tablas: `mensajeria.asistente_ajustes` (una por empresa; `clave_cifrada` rota con `iris clave
-  rotar`), `mensajeria.asistente_uso` (por empresa y mes) y `mensajeria.sugerencias` (el texto solo
-  vive aquí). El feed suma `conv_eventos.sugerencia_id` y el tipo `sugerencia`.
+  rotar`), `mensajeria.asistente_uso` (por empresa y mes, con `tokens_reservados`),
+  `mensajeria.asistente_reservas` (reservas en curso), `mensajeria.asistente_pedidos` (límite por
+  persona) y `mensajeria.sugerencias` (el texto solo vive aquí). El feed suma
+  `conv_eventos.sugerencia_id` y el tipo `sugerencia`.
+- Mantenimiento (cada minuto): una sugerencia en `generando` más de 90 s + 2 min pasa a `error`
+  `proveedor_no_responde`; las reservas colgadas se liberan; los pedidos de más de un día se borran.
+- Cancelación: mientras el proveedor responde, la generación mira cada 2 s si la sugerencia sigue en
+  `generando`; si la descartaron («Otra», descartar, vencida) corta la llamada.
 - Jobs de River (cola `mensajeria`): `mensajeria.asistente_generar` (botón/«Otra», único por
   sugerencia) y `mensajeria.asistente_sugerir` (automático, único por conversación mientras espera o
   corre; se pospone con `JobSnooze` hasta 20 s después del último mensaje del cliente).
@@ -1608,8 +1653,11 @@ el texto (solo el uso). 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje
   `pausado` en `GET /asistente/estado` y `/asistente/uso`; el push actual (`internal/notificaciones`)
   es de la app de campo y no avisa a administradores del panel.
 - Anthropic: SDK oficial de Go (`github.com/anthropics/anthropic-sdk-go` v1.84.0; la v2 exige Go 1.25),
-  sin `temperature`/`top_p`, instrucciones fijas en `system` con `cache_control`, `stop_reason:
-  refusal` → `rechazo_modelo`. El cliente no lee variables `ANTHROPIC_*` del servidor.
+  endpoint beta con el **respaldo del lado del servidor activado por defecto** (beta
+  `server-side-fallback-2026-07-01`, `fallbacks: "default"`: si el modelo declina, la API reintenta
+  en el modelo de respaldo dentro de la misma llamada), sin `temperature`/`top_p`, instrucciones
+  fijas en `system` con `cache_control`; si el respaldo también declina (`stop_reason: refusal`) →
+  `rechazo_modelo`. El cliente no lee variables `ANTHROPIC_*` del servidor.
 
 ### 16.8 Eventos nuevos (outbox, nunca el texto ni la clave)
 

@@ -73,6 +73,10 @@ func (w *trabajadorMantenimiento) Work(ctx context.Context, _ *river.Job[ArgsMan
 	// por fila: un error en una queda en el log y no corta el mantenimiento.
 	_, _ = w.m.vencerDisponibilidades(ctx, w.bd) // los errores ya quedaron en el log
 	_, _ = w.m.dispararBots(ctx, w.bd)
+	// Asistente de IA: atascadas, reservas huérfanas y pedidos viejos (errores al log).
+	if err := w.m.mantenerAsistente(ctx, w.bd, slog.Default()); err != nil {
+		slog.Default().WarnContext(ctx, "mensajeria: mantenimiento del asistente", "err", err)
+	}
 	ids, err := mensajeriabd.New(w.bd).EntrantesPendientes(ctx, w.m.ahora().Add(-5*time.Minute))
 	if err != nil {
 		return err

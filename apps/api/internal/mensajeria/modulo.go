@@ -135,6 +135,11 @@ type Config struct {
 	PlazoIA time.Duration
 	// PlazoPruebaIA: probar la conexión y listar modelos (30 s).
 	PlazoPruebaIA time.Duration
+	// PermitirLoopbackIA: el servidor de IA puede estar en loopback (127.0.0.0/8, ::1, localhost;
+	// IRIS_ASISTENTE_PERMITIR_LOOPBACK, para Ollama en el mismo host). Por defecto no.
+	PermitirLoopbackIA bool
+	// SondeoCancelacionIA: cada cuánto una generación mira si la descartaron (2 s).
+	SondeoCancelacionIA time.Duration
 	// EsperaAsistente: en modo automático, cuánto se espera desde el último mensaje del cliente
 	// para juntar mensajes seguidos (20 s).
 	EsperaAsistente time.Duration
@@ -277,6 +282,9 @@ func Nuevo(cfg Config) *Modulo {
 	if cfg.PlazoPruebaIA <= 0 {
 		cfg.PlazoPruebaIA = 30 * time.Second
 	}
+	if cfg.SondeoCancelacionIA <= 0 {
+		cfg.SondeoCancelacionIA = 2 * time.Second
+	}
 	if cfg.EsperaAsistente <= 0 {
 		cfg.EsperaAsistente = 20 * time.Second
 	}
@@ -357,6 +365,8 @@ type Entorno struct {
 	ChatSSEMax int
 	// Meta: conexión fija del entorno (IRIS_META_MODO=saas y sus IRIS_META_*).
 	Meta MetaEntorno
+	// PermitirLoopbackIA: IRIS_ASISTENTE_PERMITIR_LOOPBACK (false).
+	PermitirLoopbackIA bool
 }
 
 // EntornoDesdeVariables lee IRIS_MENSAJERIA_*:
@@ -388,6 +398,13 @@ func EntornoDesdeVariables() (Entorno, error) {
 			errs = append(errs, "IRIS_MENSAJERIA_SIMULADO inválido: "+v)
 		}
 		e.Simulado = b
+	}
+	if v := strings.TrimSpace(os.Getenv("IRIS_ASISTENTE_PERMITIR_LOOPBACK")); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			errs = append(errs, "IRIS_ASISTENTE_PERMITIR_LOOPBACK inválido: "+v)
+		}
+		e.PermitirLoopbackIA = b
 	}
 	if v := strings.TrimSpace(os.Getenv("IRIS_MENSAJERIA_SILENCIO")); v != "" {
 		s, err := ParsearVentana(v)
