@@ -1477,7 +1477,7 @@ costo: "12.40" | null, topeTokensMes, porcentaje, pausado }`. `costo` solo con l
 
 ### 16.2 Sugerencias (`conversaciones.sugerencias`)
 
-Roles: los que hoy responden conversaciones (`soporte`, `ventas`, `supervisor`, `admin`). Solo
+Roles: los que hoy responden conversaciones (`despacho`, `soporte`, `ventas`, `supervisor`, `admin`). Solo
 sobre conversaciones que ves (si no, 404).
 
 ```json
@@ -1507,6 +1507,7 @@ sobre conversaciones que ves (si no, 404).
 
 | Método y ruta | Qué hace |
 | --- | --- |
+| `GET /asistente/estado` | `{ activo: boolean, modo: "automatico" \| "boton", pausado: boolean }` de la empresa activa, para decidir si se muestra «Sugerir». Nada de proveedor, URL, clave ni uso. Sin ajustes guardados: `{ activo: false, modo: "automatico", pausado: false }` |
 | `POST /conversaciones/{id}/sugerencias` `{ otra?: boolean }` | Pide una (también «Otra»). → **202** con la `Sugerencia` en `generando`. La vigente (generando/lista/error) queda `descartada`; `otra: true` marca el origen `otra` (si no, `boton`). Funciona en modo `automatico` y `boton`. 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje` (no hay mensaje del cliente), `conversacion_resuelta`. Con `Idempotency-Key` la repetición devuelve la misma sugerencia |
 | `GET /conversaciones/{id}/sugerencias/actual` | La vigente (`generando`, `lista` o `error`) o 404 `sin_sugerencia` |
 | `POST /sugerencias/{id}/usar` | Marca `usada` (el panel copia `texto` a la caja). Solo desde `lista` (si no, 422 `sugerencia_no_vigente`; repetir sobre `usada` es 200 sin cambios). Evento `asistente.sugerencia_usada` con `editada: null` (todavía no se envió) |
@@ -1569,7 +1570,7 @@ el texto (solo el uso). 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje
 ### 16.5 Permisos nuevos
 
 - `mensajeria.asistente_configurar` (sensible: solo `admin`): ajustes, probar, modelos y uso.
-- `conversaciones.sugerencias`: `soporte`, `ventas`, `supervisor`, `admin` (los que responden).
+- `conversaciones.sugerencias`: `despacho`, `soporte`, `ventas`, `supervisor`, `admin` (los que responden). También da `GET /asistente/estado`.
 
 ### 16.6 Errores nuevos
 
