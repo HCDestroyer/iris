@@ -2,6 +2,10 @@
 
 Este archivo lo leen todos los agentes y es la ley del repositorio. Si una tarea te obliga a romper una regla, detente y pregunta al líder.
 
+## Regla del PM: siempre en español
+
+**Al PM se le responde siempre en español, sin excepción**, también después de que se comprima el contexto y aunque las herramientas, los agentes o los resúmenes vengan en inglés. Es la única regla que el PM pidió recordar siempre. Los mensajes al PM van breves y con el resultado primero: el PM no es técnico y lee en el teléfono.
+
 ## Qué es Iris
 
 Iris es el sistema de operación de campo y atención de un ISP. Forma parte de la familia Horus, junto con ArgosISP (gestión, facturación y RADIUS) y Horus Flow (tráfico y seguridad). Cubre:
