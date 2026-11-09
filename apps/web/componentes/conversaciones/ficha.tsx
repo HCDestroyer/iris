@@ -39,6 +39,8 @@ import { useSesion } from "@/lib/sesion";
 import { AvatarDisponible, EstadoDisponible } from "./disponibilidad";
 import { SelectorCliente } from "@/componentes/clientes/selector-cliente";
 import { AyudaManuales } from "./ayuda";
+import { ResumenAsistente } from "./resumen-asistente";
+import type { EstadoAsistente } from "@/lib/asistente/tipos";
 import { useAhora } from "./reloj";
 
 export type PestanaFicha = "resumen" | "historial" | "ayuda";
@@ -53,6 +55,8 @@ type Props = {
     recargar: () => Promise<void>;
     /** «Usar en la respuesta» (manuales): pasa el texto al compositor. */
     alUsarTexto: (t: string) => void;
+    /** Asistente de IA de la empresa (§16): con él activo, «Resumen del asistente» en Resumen. */
+    asistente?: EstadoAsistente | null;
 };
 
 const BASE = "/api/v1/mensajeria/conversaciones/{id}";
@@ -63,7 +67,7 @@ const BASE = "/api/v1/mensajeria/conversaciones/{id}";
  * Sin cliente: coincidencias por el número con «Asociar», buscar en Argos, crear prospecto o
  * guardar un contacto de Iris.
  */
-export function FichaCliente({ conv, identidad, pestana, alCambiarPestana, alActualizar, recargar, alUsarTexto }: Props) {
+export function FichaCliente({ conv, identidad, pestana, alCambiarPestana, alActualizar, recargar, alUsarTexto, asistente }: Props) {
     const { puede } = useSesion();
     const conCliente = conv.contacto.tipo === "cliente";
     const conAyuda = puede(["manuales.ver"]);
@@ -93,7 +97,12 @@ export function FichaCliente({ conv, identidad, pestana, alCambiarPestana, alAct
                     </Boton>
                 ))}
             </nav>
-            {actual === "historial" ? <Historial conv={conv} /> : actual === "ayuda" ? <AyudaManuales conv={conv} identidad={identidad} alUsarTexto={alUsarTexto} /> : <Resumen conv={conv} recargar={recargar} />}
+            {actual === "historial" ? <Historial conv={conv} /> : actual === "ayuda" ? <AyudaManuales conv={conv} identidad={identidad} alUsarTexto={alUsarTexto} /> : (
+                <>
+                    {asistente?.activo ? <ResumenAsistente key={conv.id} conversacionId={conv.id} estado={asistente} /> : null}
+                    <Resumen conv={conv} recargar={recargar} />
+                </>
+            )}
         </div>
     );
 }

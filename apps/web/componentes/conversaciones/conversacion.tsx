@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { api } from "@/lib/api/cliente";
 import { leerDetalle, leerMensajes } from "@/lib/conversaciones/api";
 import { fusionarMensajes, pendientesSinConfirmar, type Pendiente } from "@/lib/conversaciones/estado";
-import { CLASE_PUNTO, tituloVisible, formatearNumero, iniciales, tonoDeCanal } from "@/lib/conversaciones/presentacion";
+import { CLASE_PUNTO, tituloVisible, formatearNumero, iniciales, textoVentana, tonoDeCanal } from "@/lib/conversaciones/presentacion";
 import type { Identidad } from "@/lib/conversaciones/sesion";
 import type { Conversacion, ConversacionDetalle, Mensaje } from "@/lib/conversaciones/tipos";
 import { useLectura } from "@/lib/lectura";
@@ -22,6 +22,7 @@ import { PildoraCanal } from "./filtros";
 import { FichaCliente, type PestanaFicha } from "./ficha";
 import { Hilo } from "./hilo";
 import { useAhora, useAncho } from "./reloj";
+import { BotonSugerir, PausaAsistente, TarjetaSugerencia, useAsistente } from "./sugerencia";
 
 type Props = {
     id: number;
@@ -204,6 +205,9 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
     // Puentes hacia el compositor: reintentar un pendiente desde el hilo y usar un manual de la ficha.
     const reintentar = useRef<((p: Pendiente) => void) | null>(null);
     const usarTexto = useRef<((t: string) => void) | null>(null);
+    const usarSugerencia = useRef<((t: string, id: string) => void) | null>(null);
+    const responde = puede(["conversaciones.responder"]) && !detenido && conv !== null && !conv.soloLectura;
+    const asistente = useAsistente({ id }, suscribir, responde);
 
     if (detalle.estado === "error") {
         return (
@@ -244,6 +248,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
             }}
             recargar={refrescarDetalle}
             alUsarTexto={(t) => usarTexto.current?.(t)}
+            asistente={asistente.estado}
         />
     );
     return (
@@ -320,7 +325,13 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                         reintentarPendiente={(p) => reintentar.current?.(p)}
                     />
                 )}
-                {puede(["conversaciones.responder"]) && !detenido && !conv.soloLectura ? (
+                {responde && textoVentana(conv.ventana, ahora) !== null ? (
+                    <>
+                        <PausaAsistente asistente={asistente} />
+                        <TarjetaSugerencia key={asistente.sugerencia?.id ?? "sin-sugerencia"} conv={conv} asistente={asistente} alUsar={(t, sid) => usarSugerencia.current?.(t, sid)} alActualizar={aplicarConversacion} />
+                    </>
+                ) : null}
+                {responde ? (
                     <Compositor
                         conv={conv}
                         identidad={identidad}
@@ -336,6 +347,8 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                         abrirAyuda={abrirAyuda}
                         registrarReintento={(f) => (reintentar.current = f)}
                         registrarUsarTexto={(f) => (usarTexto.current = f)}
+                        registrarUsarSugerencia={(f) => (usarSugerencia.current = f)}
+                        accesorio={<BotonSugerir asistente={asistente} />}
                     />
                 ) : (
                     <p className="border-t border-border bg-card px-4 py-3 text-sm text-muted-foreground">

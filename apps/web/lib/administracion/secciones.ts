@@ -1,4 +1,5 @@
-import { Cloud, ClipboardList, DatabaseZap, History, KeyRound, Mail, Map as IconoMapa, Plug, ShieldCheck, Smartphone, Users, Zap, Phone, CalendarClock, BookOpen, Inbox, Settings2, type LucideIcon } from "lucide-react";
+import { Cloud, ClipboardList, DatabaseZap, History, KeyRound, Mail, Map as IconoMapa, Plug, ShieldCheck, Smartphone, Users, Zap, Phone, CalendarClock, BookOpen, Inbox, Settings2, Sparkles, type LucideIcon } from "lucide-react";
+import { PERMISO_CONFIGURAR_ASISTENTE } from "@/lib/asistente/permisos";
 import { PERMISOS_CUADRILLAS, PERMISOS_ZONAS } from "@/lib/agenda/permisos";
 import { PERMISO_CONEXION_META } from "@/lib/meta/tipos";
 import type { Permiso } from "@/lib/menu";
@@ -41,6 +42,13 @@ export const SECCIONES: readonly Seccion[] = [
         descripcion: "Minutos de inactividad para pasar a No disponible.",
         icono: Settings2,
         permisos: ["canales.configurar"],
+    },
+    {
+        href: "/administracion/asistente",
+        titulo: "Asistente de IA",
+        descripcion: "Proveedor, modelo y uso del asistente que sugiere respuestas en la bandeja.",
+        icono: Sparkles,
+        permisos: [PERMISO_CONFIGURAR_ASISTENTE],
     },
     {
         href: "/administracion/horarios",
