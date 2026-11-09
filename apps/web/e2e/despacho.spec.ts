@@ -124,9 +124,14 @@ test.describe("agenda", () => {
         const hoy = hoyGt();
         const semana = new Date(`${hoy}T00:00:00Z`).getUTCDay();
         const lunes = new Date(Date.parse(`${hoy}T00:00:00Z`) - ((semana + 6) % 7) * 86_400_000).toISOString().slice(0, 10);
-        await expect.poll(() => ultima(api, "/api/v1/agenda")?.query.get("desde")).toBe(utc(lunes, "00:00"));
-        const q = ultima(api, "/api/v1/agenda")?.query;
-        expect(Date.parse(q?.get("hasta") ?? "") - Date.parse(q?.get("desde") ?? "")).toBe(7 * 86_400_000);
+        // Se espera la consulta de 7 días: un lunes la del día también empieza en `lunes`.
+        await expect
+            .poll(() => {
+                const q = ultima(api, "/api/v1/agenda")?.query;
+                return Date.parse(q?.get("hasta") ?? "") - Date.parse(q?.get("desde") ?? "");
+            })
+            .toBe(7 * 86_400_000);
+        expect(ultima(api, "/api/v1/agenda")?.query.get("desde")).toBe(utc(lunes, "00:00"));
         await expect(page.getByRole("heading", { name: /^Semana del/ })).toBeVisible();
         await expect(cita(page, "OT-000003")).toBeVisible();
         await captura(page, info, "41-agenda-semana");
