@@ -38,6 +38,7 @@ type EntradaResponder struct {
 	Plantilla         *PlantillaMensaje `json:"plantilla,omitempty" doc:"Plantilla aprobada en el número (la única opción fuera de la ventana de 24 h)"`
 	AdjuntoID         *uuid.UUID        `json:"adjuntoId,omitempty" doc:"Adjunto completo de esta conversación (POST /api/v1/adjuntos, entidad conversacion)"`
 	RespuestaRapidaID *int64            `json:"respuestaRapidaId,omitempty" minimum:"1" doc:"Si el texto salió de una respuesta rápida (métricas)"`
+	SugerenciaID      *uuid.UUID        `json:"sugerenciaId,omitempty" doc:"Si el texto salió de una sugerencia del asistente (lista o usada, de esta conversación; si no, 422 sugerencia_no_vigente): la marca usada y mide si se envió editada (§16.2)"`
 	IdempotencyKey    string            `json:"-"`
 }
 
@@ -48,7 +49,8 @@ func (e EntradaResponder) MarshalJSON() ([]byte, error) {
 		plantilla = &e.Plantilla.Codigo
 	}
 	return json.Marshal(map[string]any{"conversacion_id": e.ConversacionID, "id": e.ID, "con_texto": e.Texto != nil, "plantilla": plantilla,
-		"adjunto_id": e.AdjuntoID, "respuesta_rapida_id": e.RespuestaRapidaID, "hash": hashContenidoConv(e.ConversacionID, e.Texto, e.Plantilla, e.AdjuntoID)})
+		"adjunto_id": e.AdjuntoID, "respuesta_rapida_id": e.RespuestaRapidaID, "sugerencia_id": e.SugerenciaID,
+		"hash": hashContenidoConv(e.ConversacionID, e.Texto, e.Plantilla, e.AdjuntoID)})
 }
 
 // EntradaNota es POST /conversaciones/{id}/notas.
@@ -291,8 +293,15 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 					return MensajeConvEnviado{}, campoConv("respuestaRapidaId", "No es una respuesta rápida de la empresa", "respuesta_rapida")
 				}
 			}
+			sug, err := sugerenciaParaResponder(ctx, q, c, in.SugerenciaID)
+			if err != nil {
+				return MensajeConvEnviado{}, err
+			}
 			f, err := m.agregarMensaje(ctx, t, &c, n)
 			if err != nil {
+				return MensajeConvEnviado{}, err
+			}
+			if err := m.registrarEnvioSugerencia(ctx, t, c, sug, a.usuario, in.Texto, f.ID); err != nil {
 				return MensajeConvEnviado{}, err
 			}
 			antes := c.Estado

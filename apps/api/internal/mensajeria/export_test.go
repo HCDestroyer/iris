@@ -2,6 +2,7 @@ package mensajeria
 
 import (
 	"context"
+	"net/netip"
 	"time"
 
 	"github.com/google/uuid"
@@ -91,3 +92,9 @@ func (m *Modulo) FijarRelojResumen(f func() time.Time) { m.resumenes.ahora = f }
 func (m *Modulo) PurgarRegistrosQR(ctx context.Context, bd nucleo.BD) error {
 	return m.purgarRegistrosQR(ctx, bd)
 }
+
+// Asistente de IA (§16).
+
+func ValidarURLIA(u string) error { return validarURLIA(u) }
+
+func IPPermitidaIA(ip string) bool { return ipPermitidaIA(netip.MustParseAddr(ip)) }

@@ -27,12 +27,13 @@ import (
 // EventoConversacion es un cambio del feed: el mismo cuerpo en SSE (data) y en /cambios.
 type EventoConversacion struct {
 	ID             string               `json:"id" doc:"Cursor del feed (el id de SSE / Last-Event-ID)"`
-	Tipo           string               `json:"tipo" enum:"mensaje_nuevo,mensaje_actualizado,conversacion_actualizada,mencion,guardia,aviso_sin_atender"`
+	Tipo           string               `json:"tipo" enum:"mensaje_nuevo,mensaje_actualizado,conversacion_actualizada,mencion,guardia,aviso_sin_atender,sugerencia"`
 	ConversacionID int64                `json:"conversacionId"`
 	OcurridoEn     time.Time            `json:"ocurridoEn"`
 	NoLeidos       int64                `json:"noLeidos" doc:"Tus no leídos de la conversación al leer el evento"`
 	Mensaje        *MensajeConversacion `json:"mensaje,omitempty" doc:"mensaje_nuevo, mensaje_actualizado, mencion y guardia (estado actual del mensaje)"`
 	Conversacion   *ConversacionCliente `json:"conversacion,omitempty" doc:"conversacion_actualizada, mencion y guardia (como la ves ahora)"`
+	Sugerencia     *Sugerencia          `json:"sugerencia,omitempty" doc:"sugerencia: la sugerencia del asistente como está ahora (§16.2)"`
 }
 
 // CambiosConversaciones es el feed desde un cursor.
@@ -76,7 +77,8 @@ func (m *Modulo) leerFeedConv(ctx context.Context, q *mensajeriabd.Queries, a al
 		return nil, false, desde, err
 	}
 	filas, err := q.EventosConv(ctx, mensajeriabd.EventosConvParams{Desde: desde, Empresa: a.empresa, Usuario: a.usuario, Supervisa: a.supervisa,
-		Limite: int32(limite + 1)}) //nolint:gosec // limite ≤ 200
+		Sugerencias: a.sugerencias,
+		Limite:      int32(limite + 1)}) //nolint:gosec // limite ≤ 200
 	if err != nil {
 		return nil, false, desde, err
 	}
@@ -101,12 +103,15 @@ func (m *Modulo) eventosConvPara(ctx context.Context, q *mensajeriabd.Queries, a
 	if len(filas) == 0 {
 		return []EventoConversacion{}, nil
 	}
-	var msjIDs []uuid.UUID
+	var msjIDs, sugIDs []uuid.UUID
 	var convs []int64
 	vistas := map[int64]bool{}
 	for _, f := range filas {
 		if id := uuidDe(f.MensajeID); id != nil {
 			msjIDs = append(msjIDs, *id)
+		}
+		if id := uuidDe(f.SugerenciaID); id != nil {
+			sugIDs = append(sugIDs, *id)
 		}
 		if !vistas[f.ConversacionID] {
 			vistas[f.ConversacionID] = true
@@ -127,6 +132,16 @@ func (m *Modulo) eventosConvPara(ctx context.Context, q *mensajeriabd.Queries, a
 			mensajes[x.ID] = x
 		}
 	}
+	sugerencias := map[uuid.UUID]Sugerencia{}
+	if len(sugIDs) > 0 {
+		fs, err := q.SugerenciasPorIDs(ctx, sugIDs)
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range fs {
+			sugerencias[f.ID] = aSugerencia(f)
+		}
+	}
 	cs, err := m.resumirConvs(ctx, q, a.usuario, convs)
 	if err != nil {
 		return nil, err
@@ -144,7 +159,12 @@ func (m *Modulo) eventosConvPara(ctx context.Context, q *mensajeriabd.Queries, a
 				e.Mensaje = &x
 			}
 		}
-		if f.Tipo != EventoConvMensajeNuevo && f.Tipo != EventoConvMensajeActualizad {
+		if id := uuidDe(f.SugerenciaID); id != nil {
+			if x, ok := sugerencias[*id]; ok {
+				e.Sugerencia = &x
+			}
+		}
+		if f.Tipo != EventoConvMensajeNuevo && f.Tipo != EventoConvMensajeActualizad && f.Tipo != EventoConvSugerencia {
 			if _, ok := resumenes[f.ConversacionID]; ok {
 				rc := r
 				e.Conversacion = &rc

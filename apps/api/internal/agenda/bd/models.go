@@ -994,6 +994,40 @@ type MensajeriaAjustesBandeja struct {
 	UpdatedAt          time.Time
 }
 
+type MensajeriaAsistenteAjuste struct {
+	ID                  int64
+	EmpresaID           *int64
+	Activo              bool
+	Proveedor           string
+	Url                 string
+	ClaveCifrada        []byte
+	ClaveGuardadaEn     *time.Time
+	Modelo              string
+	Modo                string
+	FuenteManuales      bool
+	FuenteArgos         bool
+	FuenteHorus         bool
+	FuenteHistorial     bool
+	TopeTokensMes       int64
+	PrecioEntradaMillon pgtype.Numeric
+	PrecioSalidaMillon  pgtype.Numeric
+	Version             int32
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+type MensajeriaAsistenteUso struct {
+	EmpresaID     *int64
+	Mes           time.Time
+	TokensEntrada int64
+	TokensSalida  int64
+	Sugerencias   int32
+	Resumenes     int32
+	Avisado80     bool
+	Avisado100    bool
+	UpdatedAt     time.Time
+}
+
 type MensajeriaAviso struct {
 	ID             uuid.UUID
 	EmpresaID      int64
@@ -1292,6 +1326,7 @@ type MensajeriaConvEvento struct {
 	UsuarioID      *int64
 	OcurridoEn     time.Time
 	CreatedAt      time.Time
+	SugerenciaID   *uuid.UUID
 }
 
 type MensajeriaConversacionEtiqueta struct {
@@ -1511,6 +1546,33 @@ type MensajeriaRespuestasRapida struct {
 	Version   int32
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+type MensajeriaSugerencia struct {
+	ID               uuid.UUID
+	EmpresaID        *int64
+	ConversacionID   int64
+	ParaMensajeID    *uuid.UUID
+	Estado           string
+	Origen           string
+	Texto            *string
+	Fuentes          []byte
+	Accion           []byte
+	ErrorCodigo      *string
+	ErrorDetalle     *string
+	Calificacion     *string
+	Proveedor        *string
+	Modelo           *string
+	TokensEntrada    int64
+	TokensSalida     int64
+	PedidaPor        *int64
+	UsadaPor         *int64
+	UsadaEn          *time.Time
+	EnviadaEditada   *bool
+	MensajeEnviadoID *uuid.UUID
+	GeneradaEn       *time.Time
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 type MensajeriaWebhooksSalida struct {

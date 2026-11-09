@@ -26,6 +26,8 @@ func (m *Modulo) RegistrarWorkers(w *river.Workers, bd nucleo.BD) {
 	river.AddWorker(w, &trabajadorMantenimiento{m: m, bd: bd})
 	river.AddWorker(w, &trabajadorMensaje{m: m, bd: bd})
 	river.AddWorker(w, &trabajadorMedio{m: m, bd: bd})
+	river.AddWorker(w, &trabajadorAsistenteSugerir{m: m, bd: bd})
+	river.AddWorker(w, &trabajadorAsistenteGenerar{m: m, bd: bd})
 }
 
 // ArgsMantenimiento: avisos sin acuse (agotado), webhooks de Meta que quedaron sin procesar y la

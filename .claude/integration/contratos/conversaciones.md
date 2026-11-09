@@ -26,7 +26,7 @@ Entrega en dos PR:
   de manuales.
 
 La opción «que atienda un asistente» y todo lo de IA son de la **fase 2**; aquí solo quedan los
-puntos de extensión (§10.4).
+puntos de extensión (§10.4). El asistente que **sugiere** respuestas (fase 2, aprobado) está en §16.
 
 ## 1. Números de WhatsApp (canales)
 
@@ -1450,7 +1450,8 @@ este contrato (personas con sesión del panel, empresa activa, RFC 9457, `Idempo
 (solo escritura; `""` la borra; ausente la deja) y `version` (0 la primera vez). → los ajustes.
 Activar exige `url` (salvo `anthropic`) y `modelo` (salvo `anthropic`), y clave guardada si el
 proveedor es `anthropic` (422 `sin_configurar`). Evento `asistente.ajustes_cambiados` (campos[]; la
-clave aparece como `clave`, nunca su valor).
+clave aparece como `clave_guardada`, nunca su valor). Cambiar el tope recalcula los avisos del 80 % y
+100 % del mes con el tope nuevo.
 
 **URL (la pone un admin):** solo `http`/`https`; se permiten IP privadas y de la LAN (Ollama suele
 estar ahí), pero se bloquean link-local y metadata (`169.254.0.0/16`, `fe80::/10`,
@@ -1461,13 +1462,15 @@ Error: 422 `url_no_permitida` (campo `url`).
 **Tiempos:** conexión 10 s; respuesta completa hasta 90 s (Ollama puede tardar 20–40 s); `probar` y
 `modelos` 30 s.
 
-`POST /asistente/probar` `{ proveedor, url, clave?, modelo }` (sin `clave` usa la guardada) → 200
+`POST /asistente/probar` `{ proveedor, url, clave?, modelo }` (sin `clave` usa la guardada **solo si
+el proveedor y la URL son los guardados**: la clave nunca viaja a otro servidor) → 200
 `{ "estado": "ok" | "error", "latenciaMs": 1840, "tokensPorSegundo": 23.5 | null, "detalle": "…" }`.
 Manda un pedido corto real (no cuenta para el tope). `detalle` en español y sin secretos
 («El servidor no respondió a tiempo», «La clave no es válida (401)», «El modelo no existe»…). No
 guarda nada; audita sin la clave.
 
-`GET /asistente/modelos?proveedor=&url=` (sin parámetros: lo guardado; usa la clave guardada) →
+`GET /asistente/modelos?proveedor=&url=` (sin parámetros: lo guardado; la clave guardada con la misma
+regla que `probar`) →
 `{ data: [{ id, nombre }] }`. Si el proveedor falla: 502 `proveedor_no_responde` /
 `proveedor_error` con `detail` en español.
 
@@ -1501,9 +1504,12 @@ sobre conversaciones que ves (si no, 404).
 - `accion` por ahora solo `etiquetar` con una **etiqueta activa existente de la empresa**. El panel
   la ofrece como botón; aplicarla es la acción normal de etiquetar de la persona (el asistente no la
   aplica).
-- Códigos de `error`: `proveedor_no_responde`, `proveedor_error` (respuesta inesperada, 4xx/5xx),
-  `clave_invalida`, `tope_alcanzado`, `sin_configurar`, `rechazo_modelo` (el modelo se negó),
-  `respuesta_invalida` (no pasó la validación de §16.3).
+- Códigos de `error`: `proveedor_no_responde` (sin conexión, tiempo agotado o 5xx), `proveedor_error`
+  (respuesta inesperada, 404, 429, otro 4xx), `clave_invalida` (401/403), `tope_alcanzado`,
+  `sin_configurar`, `rechazo_modelo` (el modelo se negó), `respuesta_invalida` (no pasó la validación
+  de §16.3), `url_no_permitida` (el servidor resolvió o redirigió a link-local/metadata).
+- Los manuales del equipo (`interna`) pueden salir como fuente para el agente con la etiqueta
+  «Manual del equipo «…»»; el modelo tiene la instrucción de no mencionarlos al cliente.
 
 | Método y ruta | Qué hace |
 | --- | --- |
@@ -1523,8 +1529,10 @@ conversación, en `lista` o `usada`; si no, 422 `sugerencia_no_vigente`). Marca 
 sobrantes) y emite `asistente.sugerencia_usada` con `editada: true|false`. El mensaje lo envía la
 persona (autor = ella). El texto nunca va a eventos ni auditoría.
 
-**Modo `automatico`:** al guardar un mensaje del cliente con texto, la sugerencia vigente de la
-conversación queda `vencida` y se encola un job de River (`mensajeria.asistente_sugerir`, único por
+**Mensaje nuevo del cliente (los dos modos):** la sugerencia vigente de la conversación queda
+`vencida` (un mensaje nuevo la deja vieja).
+
+**Modo `automatico`:** además, al guardar un mensaje del cliente se encola un job de River (`mensajeria.asistente_sugerir`, único por
 conversación) que espera ~20 s desde el **último** mensaje del cliente para juntar mensajes
 seguidos. No genera para conversaciones `resueltas`, con el bot atendiendo (espera del bot o menú
 pendiente), de empresas sin asistente activo, en modo `boton` o pausadas por tope. Si llega otro
@@ -1586,12 +1594,29 @@ el texto (solo el uso). 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje
 | `sugerencia_no_vigente` | 422 | Usar una sugerencia que no está `lista`, o `sugerenciaId` de otra conversación |
 | `proveedor_no_responde` / `proveedor_error` / `rechazo_modelo` | 502 | Resumen o modelos cuando el proveedor falla |
 
-### 16.7 Eventos nuevos (outbox, nunca el texto ni la clave)
+### 16.7 Notas de implementación
+
+- Tablas: `mensajeria.asistente_ajustes` (una por empresa; `clave_cifrada` rota con `iris clave
+  rotar`), `mensajeria.asistente_uso` (por empresa y mes) y `mensajeria.sugerencias` (el texto solo
+  vive aquí). El feed suma `conv_eventos.sugerencia_id` y el tipo `sugerencia`.
+- Jobs de River (cola `mensajeria`): `mensajeria.asistente_generar` (botón/«Otra», único por
+  sugerencia) y `mensajeria.asistente_sugerir` (automático, único por conversación mientras espera o
+  corre; se pospone con `JobSnooze` hasta 20 s después del último mensaje del cliente).
+- Las respuestas de `…/resumen` y de `/sugerencias/{id}/usar|descartar|calificar` no se guardan en
+  la tabla de idempotencia (traen texto del modelo); repetirlas responde 200 sin cambios.
+- Aviso a administradores al 80 %/100 %: hoy solo el evento `asistente.tope_alcanzado` y
+  `pausado` en `GET /asistente/estado` y `/asistente/uso`; el push actual (`internal/notificaciones`)
+  es de la app de campo y no avisa a administradores del panel.
+- Anthropic: SDK oficial de Go (`github.com/anthropics/anthropic-sdk-go` v1.84.0; la v2 exige Go 1.25),
+  sin `temperature`/`top_p`, instrucciones fijas en `system` con `cache_control`, `stop_reason:
+  refusal` → `rechazo_modelo`. El cliente no lee variables `ANTHROPIC_*` del servidor.
+
+### 16.8 Eventos nuevos (outbox, nunca el texto ni la clave)
 
 `asistente.ajustes_cambiados` (empresa_id, campos[]), `asistente.sugerencia_creada` (sugerencia_id,
 conversacion_id, empresa_id, origen `automatico|boton|otra`, proveedor, modelo, tokens_entrada,
-tokens_salida, estado `lista|error|vencida`, error (código o null); se emite al terminar de
-generar), `asistente.sugerencia_usada` (sugerencia_id, conversacion_id, empresa_id, editada
+tokens_salida, estado `lista|error|vencida|descartada`, error (código o null); se emite al terminar
+de generar), `asistente.sugerencia_usada` (sugerencia_id, conversacion_id, empresa_id, editada
 `true|false|null`), `asistente.sugerencia_calificada` (sugerencia_id, conversacion_id, empresa_id,
 util), `asistente.tope_alcanzado` (empresa_id, porcentaje `80|100`, mes, tokens, tope). Detalle en
 `contratos/eventos.md`.

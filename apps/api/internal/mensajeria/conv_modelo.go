@@ -284,6 +284,8 @@ type alcanceConv struct {
 	usuario   int64
 	empresa   int64
 	supervisa bool
+	// sugerencias: recibe las sugerencias del asistente (conversaciones.sugerencias, §16).
+	sugerencias bool
 }
 
 // alcanceConvDe exige una persona con sesión (no un token de API ni una integración) y
@@ -299,6 +301,7 @@ func alcanceConvDe(ctx context.Context) (alcanceConv, error) {
 		a.empresa = contexto.EmpresaDe(ctx)
 	}
 	a.supervisa = contexto.PermisosDe(ctx).Tiene(string(nucleo.PermConversacionesSupervisar))
+	a.sugerencias = contexto.PermisosDe(ctx).Tiene(string(nucleo.PermConversacionesSugerencias))
 	return a, nil
 }
 
