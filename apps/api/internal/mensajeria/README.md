@@ -289,3 +289,59 @@ Emite: `meta.conexion_cambiada`, `meta.conexion_probada`, `canal_mensajeria.desc
 `canal_mensajeria.reconectado`, `canal_mensajeria.prestado`, `canal_mensajeria.prestamo_revocado` y
 `conversacion.empresa_asignada`; suma `tipo_conexion` a `canal_mensajeria.creado` y `origen` a
 `conversacion.creada`, `conversacion.mensaje_enviado` y `contacto_iris.creado`. No consume eventos.
+
+## Asistente de IA que sugiere respuestas (fase 2, `contratos/conversaciones.md` §16)
+
+Código en `asistente*.go` y `asistente.sql`. **Nunca envía mensajes:** guarda una sugerencia que una
+persona copia a la caja y envía con `POST /conversaciones/{id}/mensajes` (con `sugerenciaId` para medir
+si se envió igual o editada). No registra pagos, promesas ni reconexiones.
+
+- **Proveedor por empresa** (`mensajeria.asistente_ajustes`, `mensajeria.asistente_configurar`):
+  `ollama` y `openai_compatible` con un adaptador (`POST {url}/v1/chat/completions`,
+  `GET {url}/v1/models`) y `anthropic` con el SDK oficial de Go (sin `temperature`, system con
+  `cache_control`, respaldo del lado del servidor `fallbacks: "default"`, `refusal` → `rechazo_modelo`,
+  sin leer `ANTHROPIC_*` del entorno). Interfaz
+  `Proveedor` (`Generar`, `Modelos`); los adaptadores no tienen reglas de negocio. La clave se cifra
+  con `IRIS_CLAVE_CIFRADO` (`DatosAsociadosAsistente`, rota con `iris clave rotar`) y nunca sale.
+- **Red (SSRF):** solo http/https sin credenciales ni parámetros; IP privadas sí; loopback solo con
+  `IRIS_ASISTENTE_PERMITIR_LOOPBACK`; link-local, metadata (AWS, GCP, Azure, Alibaba), NAT64, Teredo,
+  IPv4-compatible, 6to4 con IPv4 bloqueada, sin especificar y multicast nunca. Se revisa al guardar y
+  en cada conexión (después del DNS, `controlIA`). Ninguna redirección se sigue (`sinRedirecciones`:
+  un 3xx es `proveedor_redirige`, también en el SDK). Con clave, https salvo IP privada. La clave
+  guardada no viaja a otro proveedor o URL (422 `clave_requerida`). Probar y listar modelos dan una
+  sola respuesta para cualquier falla (no sirven para escanear puertos); listar con otra URL es POST
+  (CSRF). Sin proxy. Plazos: 10 s de conexión, 90 s por generación (`PlazoIA`), 30 s probar/modelos.
+- **Costo y abuso** (`asistente_limites.go`): reserva atómica de tokens estimados antes de llamar
+  (sugerencias y resúmenes) y ajuste al terminar; 10 pedidos por minuto por persona, 20 sugerencias
+  por hora por conversación (429 con `Retry-After`), 6 automáticas por hora; «Otra» y descartar
+  cortan la llamada en curso (sondeo cada 2 s); el automático solo con agente asignado o disponibles
+  en la cola; el mantenimiento vence las atascadas y libera reservas huérfanas.
+- **Préstamo de números:** pasar la conversación a otra empresa vence la sugerencia; las consultas
+  filtran por la empresa actual y una generación que cambió de empresa queda vencida sin cobrar.
+- **Contexto** (según `fuentes`): instantánea de Argos del cliente asociado (solo servicios de la
+  empresa de la conversación), fallas de Horus (router caído, `soporte.horus_estados`), los 3 mejores
+  manuales de la empresa (`to_tsquery` con OR) y los últimos 30 mensajes del cliente y de agentes (sin
+  notas ni sistema). Todo pasa por `RedactarParaIA` (tras «contraseña», «clave», «pin», «código»,
+  «cvv»… salta conectores y oculta hasta el fin de la frase; números de 4 a 8 dígitos cerca de esas
+  palabras, tarjetas con espacios/puntos/guiones, DPI y NIT → `***`) y se neutralizan `<`/`>` del texto no confiable. Cada dato lleva un id `F#`.
+- **Validación** (`validarSalidaModelo`): JSON `{ texto, fuentes[], accion }`; texto ≤ 4096 sin
+  enlaces (cualquier esquema, dominio o IPv4) ni marcas internas, sin copiar más de 12 palabras
+  seguidas de un manual del equipo; solo fuentes dadas; `accion` solo `etiquetar` con una etiqueta activa
+  existente. Si no, `error` / `respuesta_invalida`.
+- **Flujo:** `POST …/sugerencias` (botón/«Otra») crea la fila `generando` y encola
+  `mensajeria.asistente_generar`; modo automático: cada mensaje del cliente vence la vigente y encola
+  `mensajeria.asistente_sugerir` (único por conversación; `JobSnooze` hasta 20 s después del último
+  mensaje; no genera en resueltas, con bot atendiendo, inactivo, modo botón o en pausa). La llamada al
+  proveedor va entre dos transacciones; si llegó otro mensaje mientras tanto queda `vencida`.
+  Cada cambio sale por el feed de la bandeja como `sugerencia` (solo a quien tiene
+  `conversaciones.sugerencias`).
+- **Tope:** `mensajeria.asistente_uso` por empresa y mes (Guatemala). Al 80 % y 100 % emite
+  `asistente.tope_alcanzado`; al 100 % se pausa hasta el mes siguiente o hasta subir el tope. Costo
+  con `precioEntradaMillon`/`precioSalidaMillon`.
+- **Resumen** (`POST …/resumen`): síncrono, cuenta para el tope, no se guarda el texto.
+- **Auditoría:** ajustes (clave `***`), pruebas, pedir/usar/descartar/calificar, generación (ids,
+  códigos y tokens) y resumen; nunca el texto de la sugerencia ni del resumen. Las respuestas con
+  texto del modelo no pasan por la tabla de idempotencia (`rutaAsistentePropia`).
+
+Emite `asistente.ajustes_cambiados`, `asistente.sugerencia_creada`, `asistente.sugerencia_usada`,
+`asistente.sugerencia_calificada` y `asistente.tope_alcanzado`. No consume eventos.

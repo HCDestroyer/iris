@@ -501,8 +501,8 @@ RETURNING *;
 -- Feed ------------------------------------------------------------------------------------------
 
 -- name: InsertarEventoConv :one
-INSERT INTO mensajeria.conv_eventos (empresa_id, conversacion_id, tipo, mensaje_id, usuario_id, ocurrido_en)
-VALUES (sqlc.narg('empresa_id'), @conversacion_id, @tipo, sqlc.narg('mensaje_id'), sqlc.narg('usuario_id'), @ocurrido_en)
+INSERT INTO mensajeria.conv_eventos (empresa_id, conversacion_id, tipo, mensaje_id, usuario_id, ocurrido_en, sugerencia_id)
+VALUES (sqlc.narg('empresa_id'), @conversacion_id, @tipo, sqlc.narg('mensaje_id'), sqlc.narg('usuario_id'), @ocurrido_en, sqlc.narg('sugerencia_id'))
 RETURNING id;
 
 -- name: NotificarConv :exec
@@ -516,6 +516,8 @@ WHERE e.id > @desde::bigint
   -- Una conversación pasada a otra empresa deja de verse en la anterior (§15.3).
   AND coalesce(c.empresa_id, 0) = @empresa::bigint
   AND (e.usuario_id IS NULL OR e.usuario_id = @usuario::bigint)
+  -- Las sugerencias del asistente solo a quien tiene conversaciones.sugerencias (§16.2).
+  AND (e.tipo <> 'sugerencia' OR @sugerencias::boolean)
   AND mensajeria.conv_visible(@usuario::bigint, @supervisa::boolean, c.id, c.cola_id, c.asignado_a)
 ORDER BY e.id
 LIMIT @limite;

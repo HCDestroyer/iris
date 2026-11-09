@@ -9,6 +9,39 @@ import (
 	"context"
 )
 
+const asistentesCifrados = `-- name: AsistentesCifrados :many
+SELECT id, clave_cifrada FROM mensajeria.asistente_ajustes
+WHERE clave_cifrada IS NOT NULL
+ORDER BY id
+FOR UPDATE
+`
+
+type AsistentesCifradosRow struct {
+	ID           int64
+	ClaveCifrada []byte
+}
+
+// Clave del proveedor de IA del asistente de cada empresa.
+func (q *Queries) AsistentesCifrados(ctx context.Context) ([]AsistentesCifradosRow, error) {
+	rows, err := q.db.Query(ctx, asistentesCifrados)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AsistentesCifradosRow
+	for rows.Next() {
+		var i AsistentesCifradosRow
+		if err := rows.Scan(&i.ID, &i.ClaveCifrada); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const autorizacionesCifradas = `-- name: AutorizacionesCifradas :many
 SELECT id, verificador_cifrado FROM integracion.autorizaciones
 WHERE verificador_cifrado IS NOT NULL
@@ -169,6 +202,20 @@ func (q *Queries) ConexionMetaCifrada(ctx context.Context) ([]ConexionMetaCifrad
 		return nil, err
 	}
 	return items, nil
+}
+
+const recifrarAsistente = `-- name: RecifrarAsistente :exec
+UPDATE mensajeria.asistente_ajustes SET clave_cifrada = $1 WHERE id = $2
+`
+
+type RecifrarAsistenteParams struct {
+	ClaveCifrada []byte
+	ID           int64
+}
+
+func (q *Queries) RecifrarAsistente(ctx context.Context, arg RecifrarAsistenteParams) error {
+	_, err := q.db.Exec(ctx, recifrarAsistente, arg.ClaveCifrada, arg.ID)
+	return err
 }
 
 const recifrarAutorizacion = `-- name: RecifrarAutorizacion :exec

@@ -127,6 +127,22 @@ type Config struct {
 	// ServicioCentral: el cliente del servicio central «Iris Cloud» (modo compartida). nil = aún no
 	// existe y todo responde servicio_central_no_disponible.
 	ServicioCentral RegistroMeta
+
+	// Asistente de IA (contratos/conversaciones.md §16).
+	// FabricaIA arma el proveedor de una empresa (nil = NuevoProveedor; pruebas: uno falso).
+	FabricaIA FabricaProveedor
+	// PlazoIA: cuánto se espera una sugerencia o un resumen (90 s; Ollama puede tardar 20–40 s).
+	PlazoIA time.Duration
+	// PlazoPruebaIA: probar la conexión y listar modelos (30 s).
+	PlazoPruebaIA time.Duration
+	// PermitirLoopbackIA: el servidor de IA puede estar en loopback (127.0.0.0/8, ::1, localhost;
+	// IRIS_ASISTENTE_PERMITIR_LOOPBACK, para Ollama en el mismo host). Por defecto no.
+	PermitirLoopbackIA bool
+	// SondeoCancelacionIA: cada cuánto una generación mira si la descartaron (2 s).
+	SondeoCancelacionIA time.Duration
+	// EsperaAsistente: en modo automático, cuánto se espera desde el último mensaje del cliente
+	// para juntar mensajes seguidos (20 s).
+	EsperaAsistente time.Duration
 }
 
 // Modulo reúne los casos de uso.
@@ -155,6 +171,8 @@ type Modulo struct {
 	Horarios casosHorarios
 	// Conexión con Meta, QR y préstamo de números (§15).
 	Meta casosMeta
+	// Asistente de IA (§16).
+	Asistente casosAsistente
 	// difusorConv despierta los flujos SSE de la bandeja (NOTIFY iris_conversaciones).
 	difusorConv *difusor
 	// alRecibir: lo que pasa después de guardar un mensaje del cliente (fuera de horario, PR B).
@@ -255,6 +273,21 @@ func Nuevo(cfg Config) *Modulo {
 	if cfg.MaxMedioEntrante <= 0 {
 		cfg.MaxMedioEntrante = 25 << 20
 	}
+	if cfg.FabricaIA == nil {
+		cfg.FabricaIA = NuevoProveedor
+	}
+	if cfg.PlazoIA <= 0 {
+		cfg.PlazoIA = 90 * time.Second
+	}
+	if cfg.PlazoPruebaIA <= 0 {
+		cfg.PlazoPruebaIA = 30 * time.Second
+	}
+	if cfg.SondeoCancelacionIA <= 0 {
+		cfg.SondeoCancelacionIA = 2 * time.Second
+	}
+	if cfg.EsperaAsistente <= 0 {
+		cfg.EsperaAsistente = 20 * time.Second
+	}
 	if cfg.EnlaceManual <= 0 {
 		cfg.EnlaceManual = 30 * 24 * time.Hour
 	}
@@ -296,6 +329,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.alRecibir = m.alRecibirBandeja
 	m.Horarios = nuevosCasosHorarios(m)
 	m.Meta = nuevosCasosMeta(m)
+	m.Asistente = nuevosCasosAsistente(m)
 	return m
 }
 
@@ -331,6 +365,8 @@ type Entorno struct {
 	ChatSSEMax int
 	// Meta: conexión fija del entorno (IRIS_META_MODO=saas y sus IRIS_META_*).
 	Meta MetaEntorno
+	// PermitirLoopbackIA: IRIS_ASISTENTE_PERMITIR_LOOPBACK (false).
+	PermitirLoopbackIA bool
 }
 
 // EntornoDesdeVariables lee IRIS_MENSAJERIA_*:
@@ -362,6 +398,13 @@ func EntornoDesdeVariables() (Entorno, error) {
 			errs = append(errs, "IRIS_MENSAJERIA_SIMULADO inválido: "+v)
 		}
 		e.Simulado = b
+	}
+	if v := strings.TrimSpace(os.Getenv("IRIS_ASISTENTE_PERMITIR_LOOPBACK")); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			errs = append(errs, "IRIS_ASISTENTE_PERMITIR_LOOPBACK inválido: "+v)
+		}
+		e.PermitirLoopbackIA = b
 	}
 	if v := strings.TrimSpace(os.Getenv("IRIS_MENSAJERIA_SILENCIO")); v != "" {
 		s, err := ParsearVentana(v)

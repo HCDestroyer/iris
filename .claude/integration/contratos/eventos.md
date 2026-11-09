@@ -329,6 +329,19 @@ el teléfono); `contacto_iris.creado` suma `origen` (`agente` | `telefono`, con 
 null para los contactos del teléfono); `conversacion.resuelta` suma `motivo: prestamo_revocado`
 (con `actor_id` null). El historial traído del teléfono no emite eventos de conversación.
 
+### Asistente de IA que sugiere respuestas (contratos/conversaciones.md §16)
+
+Ninguno lleva el texto de una sugerencia, de un mensaje ni de un resumen, ni la clave del proveedor.
+`empresa_id` en el sobre = la de la conversación (o la de los ajustes).
+
+| Evento | Payload | Cuándo |
+| --- | --- | --- |
+| `asistente.ajustes_cambiados` | `empresa_id` (o null), `campos[]` (`activo`, `proveedor`, `url`, `modelo`, `modo`, `fuentes`, `tope_tokens_mes`, `precio_entrada_millon`, `precio_salida_millon`, `clave_guardada`; la clave solo por su nombre) | `POST /mensajeria/asistente/ajustes/actualizar` (`mensajeria.asistente_configurar`). |
+| `asistente.sugerencia_creada` | `sugerencia_id`, `conversacion_id`, `empresa_id`, `origen` (`automatico`, `boton`, `otra`), `proveedor` (o null), `modelo` (o null), `tokens_entrada`, `tokens_salida`, `estado` (`lista`, `error`, `vencida`, `descartada`), `error` (código o null: `proveedor_no_responde`, `proveedor_error`, `clave_invalida`, `tope_alcanzado`, `sin_configurar`, `rechazo_modelo`, `respuesta_invalida`, `url_no_permitida`, `proveedor_redirige`) | Al terminar de generar (job, actor sistema) o al vencer una atascada (mantenimiento, `proveedor_no_responde`). `vencida`/`descartada`: llegó otro mensaje del cliente o la descartaron mientras se generaba (sus tokens cuentan). Una sugerencia cuya conversación pasó a otra empresa queda `vencida` sin este evento ni cobro. |
+| `asistente.sugerencia_usada` | `sugerencia_id`, `conversacion_id`, `empresa_id`, `editada` (`null` al pulsar «Usar»; `true`/`false` al enviar el mensaje con `sugerenciaId`) | `POST /sugerencias/{id}/usar` y `POST /conversaciones/{id}/mensajes` con `sugerenciaId`. El mensaje lo envía la persona. |
+| `asistente.sugerencia_calificada` | `sugerencia_id`, `conversacion_id`, `empresa_id`, `util` (bool) | `POST /sugerencias/{id}/calificar` (solo si cambia). |
+| `asistente.tope_alcanzado` | `empresa_id`, `porcentaje` (`80` \| `100`), `mes` (`YYYY-MM`, Guatemala), `tokens` (entrada + salida del mes), `tope` | Al sumar el uso de una sugerencia o un resumen que cruza el 80 % o el 100 % del tope; una vez por mes y tope (subir el tope recalcula). Con 100 % el asistente queda en pausa hasta el mes siguiente o hasta subir el tope. Por ahora nadie lo consume (sin push a administradores del panel). |
+
 ## Soporte (I2)
 
 Emite el módulo `soporte`, con `empresa_id` = la empresa del ticket (null sin conector). Las fechas van en UTC (RFC 3339).

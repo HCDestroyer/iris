@@ -214,6 +214,11 @@ func (m *Modulo) recibirMensaje(ctx context.Context, t *auditoria.Tx, canal mens
 			return err
 		}
 	}
+	// Asistente de IA (§16.2): vence la sugerencia anterior y, en modo automático, pide otra. Vale
+	// también para la empresa que usa un número prestado.
+	if err := m.asistenteAlRecibir(ctx, t, &c, f); err != nil {
+		return err
+	}
 	return t.Emitir("conversacion.mensaje_recibido", map[string]any{"conversacion_id": c.ID, "mensaje_id": f.ID, "empresa_id": c.EmpresaID,
 		"canal_id": c.CanalID, "tipo": f.Tipo, "cliente_id": c.ClienteID, "asignado_a": c.AsignadoA, "cola_id": c.ColaID})
 }

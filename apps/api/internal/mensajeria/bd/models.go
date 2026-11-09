@@ -994,6 +994,58 @@ type MensajeriaAjustesBandeja struct {
 	UpdatedAt          time.Time
 }
 
+type MensajeriaAsistenteAjuste struct {
+	ID                  int64
+	EmpresaID           *int64
+	Activo              bool
+	Proveedor           string
+	Url                 string
+	ClaveCifrada        []byte
+	ClaveGuardadaEn     *time.Time
+	Modelo              string
+	Modo                string
+	FuenteManuales      bool
+	FuenteArgos         bool
+	FuenteHorus         bool
+	FuenteHistorial     bool
+	TopeTokensMes       int64
+	PrecioEntradaMillon pgtype.Numeric
+	PrecioSalidaMillon  pgtype.Numeric
+	Version             int32
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+type MensajeriaAsistentePedido struct {
+	ID             int64
+	UsuarioID      int64
+	EmpresaID      *int64
+	ConversacionID int64
+	Tipo           string
+	CreadoEn       time.Time
+}
+
+type MensajeriaAsistenteReserva struct {
+	ID        uuid.UUID
+	EmpresaID *int64
+	Mes       pgtype.Date
+	Tokens    int64
+	CreadaEn  time.Time
+}
+
+type MensajeriaAsistenteUso struct {
+	EmpresaID        *int64
+	Mes              pgtype.Date
+	TokensEntrada    int64
+	TokensSalida     int64
+	Sugerencias      int32
+	Resumenes        int32
+	TokensReservados int64
+	Avisado80        bool
+	Avisado100       bool
+	UpdatedAt        time.Time
+}
+
 type MensajeriaAviso struct {
 	ID             uuid.UUID
 	EmpresaID      int64
@@ -1292,6 +1344,7 @@ type MensajeriaConvEvento struct {
 	UsuarioID      *int64
 	OcurridoEn     time.Time
 	CreatedAt      time.Time
+	SugerenciaID   pgtype.UUID
 }
 
 type MensajeriaConversacion struct {
@@ -1511,6 +1564,33 @@ type MensajeriaRespuestaRapida struct {
 	Version   int32
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+type MensajeriaSugerencia struct {
+	ID               uuid.UUID
+	EmpresaID        *int64
+	ConversacionID   int64
+	ParaMensajeID    pgtype.UUID
+	Estado           string
+	Origen           string
+	Texto            *string
+	Fuentes          []byte
+	Accion           []byte
+	ErrorCodigo      *string
+	ErrorDetalle     *string
+	Calificacion     *string
+	Proveedor        *string
+	Modelo           *string
+	TokensEntrada    int64
+	TokensSalida     int64
+	PedidaPor        *int64
+	UsadaPor         *int64
+	UsadaEn          *time.Time
+	EnviadaEditada   *bool
+	MensajeEnviadoID pgtype.UUID
+	GeneradaEn       *time.Time
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 type MensajeriaWebhooksSalida struct {
