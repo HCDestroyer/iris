@@ -1,7 +1,7 @@
 import type { Schema } from "@iris/contratos";
 import { api, resolver } from "../api/cliente";
 import { cabeceraIdem } from "../conversaciones/api";
-import type { EntradaAjustesAsistente, ProveedorIA } from "./tipos";
+import type { EntradaAjustesAsistente } from "./tipos";
 
 /*
  * Llamadas del asistente de IA (contratos/conversaciones.md §16, base `/api/v1/mensajeria`), con
@@ -16,8 +16,11 @@ export const leerAjustesAsistente = (signal?: AbortSignal) => resolver(api().GET
 export const guardarAjustesAsistente = (cuerpo: EntradaAjustesAsistente, clave: string) =>
     resolver(api().POST(`${M}/asistente/ajustes/actualizar`, { params: { header: cabeceraIdem(clave) }, body: cuerpo }));
 export const probarAsistente = (cuerpo: Schema<"EntradaProbarAsistente">) => resolver(api().POST(`${M}/asistente/probar`, { body: cuerpo }));
-export const leerModelos = async (p: { proveedor: ProveedorIA; url: string }, signal?: AbortSignal) =>
-    (await resolver(api().GET(`${M}/asistente/modelos`, { params: { query: { proveedor: p.proveedor, ...(p.url ? { url: p.url } : {}) } }, signal }))).data ?? [];
+/** Modelos del proveedor guardado (`GET`, sin parámetros). */
+export const leerModelosGuardados = async (signal?: AbortSignal) => (await resolver(api().GET(`${M}/asistente/modelos`, { signal }))).data ?? [];
+/** Modelos de otro proveedor, dirección o clave (`POST` con CSRF; la clave no va en la URL). */
+export const consultarModelos = async (cuerpo: Schema<"EntradaModelosAsistente">, signal?: AbortSignal) =>
+    (await resolver(api().POST(`${M}/asistente/modelos`, { body: cuerpo, signal }))).data ?? [];
 export const leerUso = (mes: string | undefined, signal?: AbortSignal) => resolver(api().GET(`${M}/asistente/uso`, { params: { query: mes ? { mes } : {} }, signal }));
 
 // §16.2 Sugerencias.

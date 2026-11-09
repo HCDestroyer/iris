@@ -44,15 +44,33 @@ const TOPE_MIN = 1_000;
 const TOPE_MAX = 1_000_000_000;
 const PRECIO = /^\d{1,9}(\.\d{1,4})?$/;
 
-/** ¿Es una dirección que el servidor acepta? (http/https, sin usuario ni contraseña) */
+/** ¿Es una dirección que el servidor acepta? (http/https, sin usuario, contraseña ni parámetros) */
 export function urlValida(texto: string): boolean {
     try {
         const u = new URL(texto);
-        return (u.protocol === "http:" || u.protocol === "https:") && !u.username && !u.password && u.hostname !== "";
+        return (u.protocol === "http:" || u.protocol === "https:") && !u.username && !u.password && u.hostname !== "" && !u.search && !u.hash;
     } catch {
         return false;
     }
 }
+
+/**
+ * La dirección como la compara el servidor (§16.1): sin barra final; en OpenAI y Ollama sin `/v1`;
+ * Anthropic vacía es la oficial.
+ */
+export function urlNormalizada(proveedor: ProveedorIA, url: string): string {
+    let u = url.trim().replace(/\/+$/, "");
+    if (proveedor !== "anthropic") u = u.replace(/\/v1$/, "");
+    if (proveedor === "anthropic" && u === "") u = "https://api.anthropic.com";
+    return u.toLowerCase();
+}
+
+/** ¿Cambió el proveedor o la dirección respecto de lo guardado? (la clave guardada no viaja a otro servidor) */
+export function cambiaDestino(d: Pick<ValoresAjustes, "proveedor" | "url" | "proveedorGuardado" | "urlGuardada">): boolean {
+    return d.proveedor !== d.proveedorGuardado || urlNormalizada(d.proveedor, d.url) !== urlNormalizada(d.proveedorGuardado, d.urlGuardada);
+}
+
+export const TEXTO_CLAVE_REQUERIDA = "Con otro proveedor u otra dirección hay que escribir la clave de nuevo";
 
 export const esquemaAjustesAsistente = z
     .object({
@@ -65,6 +83,11 @@ export const esquemaAjustesAsistente = z
         claveGuardada: z.boolean(),
         /** «Cambiar» la clave abierto. */
         cambiarClave: z.boolean(),
+        /** «Quitar clave» (Ollama): al guardar se manda `clave: ""`. */
+        quitarClave: z.boolean(),
+        /** Proveedor y dirección guardados (no son campos: la clave guardada solo sirve para ellos). */
+        proveedorGuardado: z.enum(["ollama", "openai_compatible", "anthropic"]),
+        urlGuardada: z.string(),
         modelo: z.string().trim().max(200, "Hasta 200 caracteres"),
         modo: z.enum(["automatico", "boton"]),
         fuentes: z.object({ manuales: z.boolean(), argos: z.boolean(), horus: z.boolean(), historial: z.boolean() }),
@@ -74,10 +97,13 @@ export const esquemaAjustesAsistente = z
     })
     .superRefine((d, ctx) => {
         const anthropic = d.proveedor === "anthropic";
-        if (d.url && !urlValida(d.url)) ctx.addIssue({ code: "custom", path: ["url"], message: "Una dirección http:// o https:// sin usuario ni contraseña" });
+        if (d.url && !urlValida(d.url)) ctx.addIssue({ code: "custom", path: ["url"], message: "Una dirección http:// o https:// sin usuario, contraseña ni parámetros" });
         if (d.activo && !anthropic && !d.url) ctx.addIssue({ code: "custom", path: ["url"], message: "Falta la dirección para activar el asistente" });
         if (d.activo && !anthropic && !d.modelo) ctx.addIssue({ code: "custom", path: ["modelo"], message: "Falta el modelo para activar el asistente" });
-        const conClave = d.cambiarClave ? d.clave.trim() !== "" || d.claveGuardada : d.claveGuardada;
+        const nueva = d.cambiarClave && d.clave.trim() !== "";
+        // El servidor responde 422 `clave_requerida`: la clave guardada no viaja a otro servidor.
+        if (d.claveGuardada && !d.quitarClave && !nueva && cambiaDestino(d)) ctx.addIssue({ code: "custom", path: ["clave"], message: TEXTO_CLAVE_REQUERIDA });
+        const conClave = nueva || (d.claveGuardada && !d.quitarClave);
         if (d.activo && anthropic && !conClave) ctx.addIssue({ code: "custom", path: ["clave"], message: "Anthropic necesita una clave para activar el asistente" });
         const tope = Number(d.topeTokensMes);
         if (!/^\d+$/.test(d.topeTokensMes) || tope < TOPE_MIN || tope > TOPE_MAX) {
@@ -98,6 +124,9 @@ export function valoresDe(a: AjustesAsistente): ValoresAjustes {
         clave: "",
         claveGuardada: a.claveGuardadaEn !== null,
         cambiarClave: a.claveGuardadaEn === null,
+        quitarClave: false,
+        proveedorGuardado: a.proveedor,
+        urlGuardada: a.url,
         modelo: a.modelo,
         modo: a.modo,
         fuentes: { ...a.fuentes },
@@ -108,11 +137,11 @@ export function valoresDe(a: AjustesAsistente): ValoresAjustes {
 }
 
 /**
- * Cuerpo para el servidor. La clave solo va si se escribió una nueva: ausente deja la guardada
- * (nunca se manda `""`, que la borraría).
+ * Cuerpo para el servidor. La clave va si se escribió una nueva; `""` solo con «Quitar clave» (la
+ * borra); ausente deja la guardada.
  */
 export function entradaDe(d: ValoresAjustes, version: number): EntradaAjustesAsistente {
-    const clave = d.cambiarClave ? d.clave.trim() : "";
+    const escrita = d.cambiarClave ? d.clave.trim() : "";
     return {
         activo: d.activo,
         proveedor: d.proveedor,
@@ -124,7 +153,7 @@ export function entradaDe(d: ValoresAjustes, version: number): EntradaAjustesAsi
         precioEntradaMillon: d.precioEntradaMillon || null,
         precioSalidaMillon: d.precioSalidaMillon || null,
         version,
-        ...(clave ? { clave } : {}),
+        ...(escrita ? { clave: escrita } : d.quitarClave ? { clave: "" } : {}),
     };
 }
 

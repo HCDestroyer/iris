@@ -1,20 +1,22 @@
 "use client";
 
 import { Boton, Cargando } from "@iris/ui";
-import { RotateCw, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { useRef, useState } from "react";
 import { nuevaClaveIdempotencia } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { resumirConversacion } from "@/lib/asistente/api";
-import { explicarError, type ExplicacionError } from "@/lib/asistente/presentacion";
+import { explicarErrorDeApi, type ExplicacionError } from "@/lib/asistente/presentacion";
 import type { EstadoAsistente, ResumenConversacion } from "@/lib/asistente/tipos";
 import { horaLista } from "@/lib/conversaciones/presentacion";
+import { ErrorAsistente } from "./error-asistente";
 import { useAhora } from "./reloj";
 
 type Estado = { tipo: "inicio" } | { tipo: "generando" } | { tipo: "listo"; resumen: ResumenConversacion } | { tipo: "error"; explicacion: ExplicacionError };
 
 function explicar(e: unknown): ExplicacionError {
-    if (e instanceof ErrorApi && e.estado !== 0) return explicarError(e.codigo, e.detalle ?? e.titulo);
+    // La espera de un 429 se fija al llegar el error.
+    if (e instanceof ErrorApi) return explicarErrorDeApi(e, "resumen", Date.now());
     return { titulo: "No se pudo resumir", texto: mensajeDeError(e).titulo, reintentar: true };
 }
 
@@ -63,19 +65,7 @@ export function ResumenAsistente({ conversacionId, estado }: { conversacionId: n
                     <p className="text-xs text-muted-foreground">Puede tardar hasta un minuto y medio.</p>
                 </div>
             ) : e.tipo === "error" ? (
-                <div role="alert" className="grid gap-2">
-                    <p className="text-[0.8125rem]">
-                        <span className="font-semibold">{e.explicacion.titulo}.</span> <span className="text-muted-foreground">{e.explicacion.texto}</span>
-                    </p>
-                    {e.explicacion.reintentar ? (
-                        <div>
-                            <Boton variante="secundario" tamano="sm" onClick={() => void resumir()}>
-                                <RotateCw />
-                                Reintentar
-                            </Boton>
-                        </div>
-                    ) : null}
-                </div>
+                <ErrorAsistente explicacion={e.explicacion} alReintentar={() => void resumir()} />
             ) : (
                 <div className="grid gap-1.5">
                     <p className="text-[0.8125rem] leading-relaxed break-words whitespace-pre-wrap">{e.resumen.texto}</p>

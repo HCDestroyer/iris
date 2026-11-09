@@ -72,6 +72,12 @@ export function explicarError(codigo: string, detalle: string | null | undefined
             return { titulo: sujeto === "sugerencia" ? "El asistente no quiso sugerir esta vez" : "El asistente no quiso resumir esta vez", texto: detalle || otra, reintentar: true };
         case "respuesta_invalida":
             return { titulo: sujeto === "sugerencia" ? "La sugerencia no pasó la revisión" : "El resumen no pasó la revisión", texto: detalle || `Iris la descartó por no cumplir las reglas. ${otra}`, reintentar: true };
+        case "proveedor_redirige":
+            return {
+                titulo: NO_SE_PUDO[sujeto],
+                texto: "El proveedor de IA redirige a otra dirección y Iris no la sigue. Un administrador debe revisar la dirección en Administración › Asistente de IA.",
+                reintentar: false,
+            };
         case "clave_invalida":
             return { titulo: NO_SE_PUDO[sujeto], texto: detalle || "La clave del proveedor de IA no es válida.", reintentar: true };
         default:

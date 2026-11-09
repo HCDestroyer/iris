@@ -34,6 +34,11 @@ export type Asistente = {
     repetir: () => Promise<void>;
     aplicar: (s: Sugerencia) => void;
     ocultar: () => void;
+    /**
+     * La sugerencia ya no es de esta empresa (404 tras pasar la conversación con un préstamo,
+     * §16.2): se quita de la vista como «sin sugerencia», sin llamar al servidor.
+     */
+    quitar: () => void;
 };
 
 /** Estado del asistente, la sugerencia vigente y sus cambios por el feed. */
@@ -121,7 +126,14 @@ export function useAsistente(conv: Pick<Conversacion, "id">, suscribir: (o: Oyen
         if (s) void descartarSugerencia(s.id, nuevaClaveIdempotencia()).catch(() => undefined);
     }, []);
 
-    return { estado: permitido ? estado : null, sugerencia: permitido ? sugerencia : null, errorPedido, pidiendo, pedir, repetir, aplicar, ocultar };
+    const quitar = useCallback(() => {
+        const s = actual.current;
+        if (s) ocultas.current.add(s.id);
+        setErrorPedido(null);
+        setSugerencia(null);
+    }, []);
+
+    return { estado: permitido ? estado : null, sugerencia: permitido ? sugerencia : null, errorPedido, pidiendo, pedir, repetir, aplicar, ocultar, quitar };
 }
 
 const FUENTE: Record<FuenteSugerencia["tipo"], { icono: LucideIcon; clase: string }> = {
@@ -177,7 +189,8 @@ export function TarjetaSugerencia({ conv, asistente, alUsar, alActualizar }: Pro
             asistente.aplicar(await usarSugerencia(s.id, nuevaClaveIdempotencia()));
             alUsar(s.texto, s.id);
         } catch (e) {
-            if (e instanceof ErrorApi && e.estado !== 0) {
+            if (e instanceof ErrorApi && e.estado === 404) asistente.quitar();
+            else if (e instanceof ErrorApi && e.estado !== 0) {
                 setErrorAccion(e.codigo === "sugerencia_no_vigente" ? "Esta sugerencia ya no está vigente: llegó otro mensaje del cliente." : `No se pudo usar: ${mensajeDeError(e).titulo}`);
             } else {
                 // Sin red: el texto pasa igual y el envío lleva el id (el servidor la acepta en `lista`).
@@ -195,7 +208,8 @@ export function TarjetaSugerencia({ conv, asistente, alUsar, alActualizar }: Pro
             asistente.aplicar(await calificarSugerencia(s.id, util, nuevaClaveIdempotencia()));
             avisar({ titulo: util ? "Gracias: marcaste la sugerencia como útil" : "Gracias: marcaste la sugerencia como no útil" });
         } catch (e) {
-            setErrorAccion(`No se guardó tu opinión: ${mensajeDeError(e).titulo}`);
+            if (e instanceof ErrorApi && e.estado === 404) asistente.quitar();
+            else setErrorAccion(`No se guardó tu opinión: ${mensajeDeError(e).titulo}`);
         } finally {
             setOcupado(null);
         }

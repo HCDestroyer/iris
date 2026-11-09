@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { entradaDe, esquemaAjustesAsistente, urlValida, valoresDe } from "./ajustes";
-import { aplicarSugerencia, esVigente, explicarError, formatearTokens, nombreMes, porcentajeUsadas, textoPrueba } from "./presentacion";
+import { cambiaDestino, entradaDe, esquemaAjustesAsistente, urlValida, valoresDe } from "./ajustes";
+import { aplicarSugerencia, esVigente, explicarError, explicarErrorDeApi, formatearTokens, nombreMes, porcentajeUsadas, textoPrueba } from "./presentacion";
 import type { AjustesAsistente, Sugerencia } from "./tipos";
 
 const base: Sugerencia = {
@@ -49,13 +49,30 @@ describe("aplicarSugerencia", () => {
 
 describe("explicarError", () => {
     it("tope y sin configurar explican y no reintentan", () => {
-        expect(explicarError("tope_alcanzado").reintentar).toBe(false);
-        expect(explicarError("sin_configurar").reintentar).toBe(false);
-        expect(explicarError("asistente_inactivo").reintentar).toBe(false);
+        for (const codigo of ["tope_alcanzado", "sin_configurar", "asistente_inactivo", "proveedor_redirige"]) {
+            expect(explicarError(codigo, null, "sugerencia").reintentar).toBe(false);
+        }
     });
-    it("los del proveedor muestran el detalle del servidor y reintentan", () => {
-        const e = explicarError("proveedor_no_responde", "El servidor de IA no respondió a tiempo");
-        expect(e).toEqual({ titulo: "No se pudo preparar la sugerencia", texto: "El servidor de IA no respondió a tiempo", reintentar: true });
+    it("los del proveedor muestran el detalle del servidor y reintentan, con el sujeto", () => {
+        expect(explicarError("proveedor_no_responde", "El servidor de IA no respondió a tiempo", "sugerencia")).toEqual({
+            titulo: "No se pudo preparar la sugerencia",
+            texto: "El servidor de IA no respondió a tiempo",
+            reintentar: true,
+        });
+        expect(explicarError("proveedor_error", null, "resumen").titulo).toBe("No se pudo resumir");
+        expect(explicarError("sin_mensaje", null, "resumen").titulo).toBe("Todavía no hay qué resumir");
+    });
+    it("429: cuánto esperar (Retry-After o 30 s) y «Reintentar» deshabilitado hasta entonces", () => {
+        const base = { codigo: "demasiados_pedidos", titulo: "Demasiados pedidos", detalle: undefined };
+        expect(explicarErrorDeApi({ ...base, estado: 429, reintentarEn: 12 }, "sugerencia", 1000)).toEqual({
+            titulo: "Demasiados pedidos",
+            texto: "Vuelve a intentar en 12 s.",
+            reintentar: true,
+            esperarHasta: 13_000,
+        });
+        expect(explicarErrorDeApi({ ...base, codigo: "demasiadas_sugerencias", estado: 429, reintentarEn: undefined }, "sugerencia", 0).esperarHasta).toBe(30_000);
+        expect(explicarErrorDeApi({ ...base, codigo: "tope_alcanzado", estado: 422, reintentarEn: undefined }, "resumen", 0).reintentar).toBe(false);
+        expect(explicarErrorDeApi({ ...base, codigo: "sin_conexion", estado: 0, reintentarEn: undefined }, "resumen", 0).titulo).toBe("No se pudo resumir");
     });
 });
 
@@ -106,12 +123,30 @@ describe("formulario de ajustes (espejo del servidor)", () => {
         expect(campos(valida({ activo: true }))).toEqual(["url", "modelo"]);
         expect(campos(valida({ activo: true, proveedor: "anthropic" }))).toEqual(["clave"]);
         expect(valida({ activo: true, proveedor: "anthropic", clave: "sk-1" }).success).toBe(true);
-        expect(valida({ activo: true, proveedor: "anthropic", claveGuardada: true, cambiarClave: false }).success).toBe(true);
+        expect(valida({ activo: true, proveedor: "anthropic", proveedorGuardado: "anthropic", claveGuardada: true, cambiarClave: false }).success).toBe(true);
     });
-    it("dirección http/https sin credenciales", () => {
+    it("con clave guardada, otro proveedor u otra dirección piden la clave de nuevo (422 `clave_requerida`)", () => {
+        const guardada = { claveGuardada: true, cambiarClave: false, proveedorGuardado: "openai_compatible" as const, urlGuardada: "https://openrouter.ai/api/v1", proveedor: "openai_compatible" as const };
+        expect(valida({ ...guardada, url: "https://openrouter.ai/api/v1" }).success).toBe(true);
+        // La misma dirección normalizada (barra final, sin /v1) no cuenta como cambio.
+        expect(valida({ ...guardada, url: "https://openrouter.ai/api/" }).success).toBe(true);
+        expect(cambiaDestino({ ...guardada, url: "https://openrouter.ai/api/" })).toBe(false);
+        expect(campos(valida({ ...guardada, url: "https://api.groq.com/openai/v1" }))).toEqual(["clave"]);
+        expect(campos(valida({ ...guardada, url: "https://openrouter.ai/api/v1", proveedor: "anthropic" }))).toEqual(["clave"]);
+        expect(valida({ ...guardada, url: "https://api.groq.com/openai/v1", cambiarClave: true, clave: "gsk-1" }).success).toBe(true);
+        // Ollama: «Quitar clave» manda `""`.
+        const ollama = { ...guardada, proveedor: "ollama" as const, url: "http://10.0.0.20:11434" };
+        expect(campos(valida(ollama))).toEqual(["clave"]);
+        expect(valida({ ...ollama, quitarClave: true }).success).toBe(true);
+        expect(entradaDe({ ...valoresDe(ajustes), ...ollama, quitarClave: true }, 4)).toMatchObject({ clave: "" });
+        // Anthropic vacía es la oficial.
+        expect(cambiaDestino({ proveedor: "anthropic", url: "", proveedorGuardado: "anthropic", urlGuardada: "https://api.anthropic.com/" })).toBe(false);
+    });
+    it("dirección http/https sin credenciales ni parámetros", () => {
         expect(urlValida("http://10.0.0.20:11434")).toBe(true);
         expect(urlValida("ftp://x")).toBe(false);
         expect(urlValida("https://a:b@x.com")).toBe(false);
+        expect(urlValida("https://x.com/v1?k=1")).toBe(false);
         expect(campos(valida({ url: "no es url" }))).toEqual(["url"]);
     });
     it("tope y precios", () => {
