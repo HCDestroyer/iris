@@ -6,7 +6,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { calificarSugerencia, descartarSugerencia, leerEstadoAsistente, leerSugerenciaActual, pedirSugerencia, usarSugerencia } from "@/lib/asistente/api";
-import { aplicarSugerencia, explicarError, type ExplicacionError } from "@/lib/asistente/presentacion";
+import { aplicarSugerencia, explicarError, explicarErrorDeApi, type ExplicacionError } from "@/lib/asistente/presentacion";
+import { ErrorAsistente } from "./error-asistente";
 import { PERMISO_SUGERENCIAS } from "@/lib/asistente/permisos";
 import type { EstadoAsistente, FuenteSugerencia, Sugerencia } from "@/lib/asistente/tipos";
 import { cabeceraIdem } from "@/lib/conversaciones/api";
@@ -25,10 +26,12 @@ export type Asistente = {
     /** Estado del asistente de la empresa; `null` sin permiso, leyendo o si no se pudo leer. */
     estado: EstadoAsistente | null;
     sugerencia: Sugerencia | null;
-    /** Error al pedir una (422 `tope_alcanzado`, sin red…): se muestra en lugar de la tarjeta. */
-    errorPedido: unknown;
+    /** Error al pedir una (422 `tope_alcanzado`, 429, sin red…): se muestra en lugar de la tarjeta. */
+    errorPedido: ExplicacionError | null;
     pidiendo: boolean;
     pedir: (otra: boolean) => Promise<void>;
+    /** Repite el último pedido («Sugerir» u «Otra»). */
+    repetir: () => Promise<void>;
     aplicar: (s: Sugerencia) => void;
     ocultar: () => void;
 };
@@ -39,7 +42,8 @@ export function useAsistente(conv: Pick<Conversacion, "id">, suscribir: (o: Oyen
     const permitido = activo && puede([PERMISO_SUGERENCIAS]);
     const [estado, setEstado] = useState<EstadoAsistente | null>(null);
     const [sugerencia, setSugerencia] = useState<Sugerencia | null>(null);
-    const [errorPedido, setErrorPedido] = useState<unknown>(null);
+    const [errorPedido, setErrorPedido] = useState<ExplicacionError | null>(null);
+    const ultimoOtra = useRef(false);
     const [pidiendo, setPidiendo] = useState(false);
     const [lectura, setLectura] = useState(0);
     const id = conv.id;
@@ -87,18 +91,22 @@ export function useAsistente(conv: Pick<Conversacion, "id">, suscribir: (o: Oyen
 
     const pedir = useCallback(
         async (otra: boolean) => {
+            ultimoOtra.current = otra;
             setPidiendo(true);
             setErrorPedido(null);
             try {
                 aplicar(await pedirSugerencia(id, otra, nuevaClaveIdempotencia()));
             } catch (e) {
-                setErrorPedido(e);
+                // La espera de un 429 se fija al llegar, no en cada dibujo.
+                setErrorPedido(e instanceof ErrorApi ? explicarErrorDeApi(e, "sugerencia", Date.now()) : { titulo: "No se pudo pedir la sugerencia", texto: mensajeDeError(e).titulo, reintentar: true });
             } finally {
                 setPidiendo(false);
             }
         },
         [id, aplicar],
     );
+
+    const repetir = useCallback(() => pedir(ultimoOtra.current), [pedir]);
 
     const actual = useRef<Sugerencia | null>(null);
     useEffect(() => {
@@ -113,7 +121,7 @@ export function useAsistente(conv: Pick<Conversacion, "id">, suscribir: (o: Oyen
         if (s) void descartarSugerencia(s.id, nuevaClaveIdempotencia()).catch(() => undefined);
     }, []);
 
-    return { estado: permitido ? estado : null, sugerencia: permitido ? sugerencia : null, errorPedido, pidiendo, pedir, aplicar, ocultar };
+    return { estado: permitido ? estado : null, sugerencia: permitido ? sugerencia : null, errorPedido, pidiendo, pedir, repetir, aplicar, ocultar };
 }
 
 const FUENTE: Record<FuenteSugerencia["tipo"], { icono: LucideIcon; clase: string }> = {
@@ -158,13 +166,7 @@ export function TarjetaSugerencia({ conv, asistente, alUsar, alActualizar }: Pro
 
     if (!s && !errorPedido && !pidiendo) return null;
 
-    const explicacion: ExplicacionError | null = errorPedido
-        ? errorPedido instanceof ErrorApi && errorPedido.estado !== 0
-            ? explicarError(errorPedido.codigo, errorPedido.detalle ?? errorPedido.titulo)
-            : { titulo: "No se pudo pedir la sugerencia", texto: mensajeDeError(errorPedido).titulo, reintentar: true }
-        : s?.estado === "error"
-          ? explicarError(s.error?.codigo ?? "", s.error?.detalle)
-          : null;
+    const explicacion: ExplicacionError | null = errorPedido ?? (s?.estado === "error" ? explicarError(s.error?.codigo ?? "", s.error?.detalle, "sugerencia") : null);
     const generando = (pidiendo && !s) || s?.estado === "generando";
 
     async function usar() {
@@ -289,19 +291,7 @@ export function TarjetaSugerencia({ conv, asistente, alUsar, alActualizar }: Pro
                             <Esqueleto className="h-3.5 w-3/4" />
                         </div>
                     ) : explicacion ? (
-                        <div role="alert" className="grid gap-2">
-                            <p className="text-sm">
-                                <span className="font-semibold">{explicacion.titulo}.</span> <span className="text-muted-foreground">{explicacion.texto}</span>
-                            </p>
-                            {explicacion.reintentar ? (
-                                <div>
-                                    <Boton variante="secundario" tamano="sm" onClick={() => void asistente.pedir(false)} disabled={pidiendo}>
-                                        <RotateCw />
-                                        Reintentar
-                                    </Boton>
-                                </div>
-                            ) : null}
-                        </div>
+                        <ErrorAsistente explicacion={explicacion} alReintentar={() => void asistente.repetir()} ocupado={pidiendo} />
                     ) : s?.estado === "lista" && s.texto ? (
                         <>
                             <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">{s.texto}</p>

@@ -30,13 +30,25 @@ export function aplicarSugerencia(actual: Sugerencia | null, nueva: Sugerencia):
     return nueva;
 }
 
-export type ExplicacionError = { titulo: string; texto: string; reintentar: boolean };
+/** De qué se habla: la sugerencia en la conversación o el resumen en la ficha. */
+export type Sujeto = "sugerencia" | "resumen";
+
+export type ExplicacionError = {
+    titulo: string;
+    texto: string;
+    reintentar: boolean;
+    /** Con un 429: «Reintentar» queda deshabilitado hasta este instante (ms). */
+    esperarHasta?: number;
+};
+
+const NO_SE_PUDO: Record<Sujeto, string> = { sugerencia: "No se pudo preparar la sugerencia", resumen: "No se pudo resumir" };
 
 /**
- * Error de la sugerencia (o de pedirla) en palabras del agente. `tope_alcanzado` y
+ * Error de la sugerencia o del resumen (o de pedirlos) en palabras del agente. `tope_alcanzado` y
  * `sin_configurar` no se arreglan reintentando: lo explican y no ofrecen «Reintentar».
  */
-export function explicarError(codigo: string, detalle?: string | null): ExplicacionError {
+export function explicarError(codigo: string, detalle: string | null | undefined, sujeto: Sujeto): ExplicacionError {
+    const otra = sujeto === "sugerencia" ? "Puedes pedir otra." : "Puedes volver a intentarlo.";
     switch (codigo) {
         case "tope_alcanzado":
             return {
@@ -49,18 +61,42 @@ export function explicarError(codigo: string, detalle?: string | null): Explicac
         case "asistente_inactivo":
             return { titulo: "El asistente está apagado", texto: "Un administrador lo puede activar en Administración › Asistente de IA.", reintentar: false };
         case "sin_mensaje":
-            return { titulo: "Todavía no hay qué responder", texto: "El asistente sugiere cuando hay un mensaje del cliente.", reintentar: false };
+            return {
+                titulo: sujeto === "sugerencia" ? "Todavía no hay qué responder" : "Todavía no hay qué resumir",
+                texto: sujeto === "sugerencia" ? "El asistente sugiere cuando hay un mensaje del cliente." : "El asistente resume cuando hay mensajes del cliente.",
+                reintentar: false,
+            };
         case "conversacion_resuelta":
             return { titulo: "La conversación está resuelta", texto: "Reábrela para pedir una sugerencia.", reintentar: false };
         case "rechazo_modelo":
-            return { titulo: "El asistente no quiso sugerir esta vez", texto: detalle || "Escribe la respuesta tú o pide otra.", reintentar: true };
+            return { titulo: sujeto === "sugerencia" ? "El asistente no quiso sugerir esta vez" : "El asistente no quiso resumir esta vez", texto: detalle || otra, reintentar: true };
         case "respuesta_invalida":
-            return { titulo: "La sugerencia no pasó la revisión", texto: detalle || "Iris la descartó por no cumplir las reglas. Puedes pedir otra.", reintentar: true };
+            return { titulo: sujeto === "sugerencia" ? "La sugerencia no pasó la revisión" : "El resumen no pasó la revisión", texto: detalle || `Iris la descartó por no cumplir las reglas. ${otra}`, reintentar: true };
         case "clave_invalida":
-            return { titulo: "No se pudo preparar la sugerencia", texto: detalle || "La clave del proveedor de IA no es válida.", reintentar: true };
+            return { titulo: NO_SE_PUDO[sujeto], texto: detalle || "La clave del proveedor de IA no es válida.", reintentar: true };
         default:
-            return { titulo: "No se pudo preparar la sugerencia", texto: detalle || "El servidor de IA no respondió.", reintentar: true };
+            return { titulo: NO_SE_PUDO[sujeto], texto: detalle || "El servidor de IA no respondió.", reintentar: true };
     }
+}
+
+/** Lo que sabe `explicarErrorDeApi` de un error de la API (lo cumple `ErrorApi`). */
+export type ErrorConEstado = { estado: number; codigo: string; titulo: string; detalle: string | undefined; reintentarEn: number | undefined };
+
+/** Sin `Retry-After`, un 429 espera esto antes de dejar reintentar. */
+const ESPERA_429_S = 30;
+
+/**
+ * Error al pedir (POST) la sugerencia o el resumen. Un 429 (10 pedidos por minuto por persona, 20
+ * por hora por conversación) dice cuánto esperar y deja «Reintentar» deshabilitado hasta entonces.
+ * Sin respuesta (`estado` 0), el texto de la red.
+ */
+export function explicarErrorDeApi(e: ErrorConEstado, sujeto: Sujeto, ahora: number): ExplicacionError {
+    if (e.estado === 429) {
+        const s = Math.max(1, Math.ceil(e.reintentarEn ?? ESPERA_429_S));
+        return { titulo: "Demasiados pedidos", texto: `Vuelve a intentar en ${s} s.`, reintentar: true, esperarHasta: ahora + s * 1000 };
+    }
+    if (e.estado === 0) return { titulo: NO_SE_PUDO[sujeto], texto: "Sin conexión con Iris. Revisa la red.", reintentar: true };
+    return explicarError(e.codigo, e.detalle ?? e.titulo, sujeto);
 }
 
 const ENTERO = new Intl.NumberFormat("es-GT", { maximumFractionDigits: 0 });
