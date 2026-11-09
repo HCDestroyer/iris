@@ -80,6 +80,23 @@ func (q *Queries) ActualizarAsistenteAjustes(ctx context.Context, arg Actualizar
 	return i, err
 }
 
+const asegurarUsoAsistente = `-- name: AsegurarUsoAsistente :exec
+
+INSERT INTO mensajeria.asistente_uso (empresa_id, mes) VALUES ($1, $2)
+ON CONFLICT (coalesce(empresa_id, 0), mes) DO NOTHING
+`
+
+type AsegurarUsoAsistenteParams struct {
+	EmpresaID *int64
+	Mes       pgtype.Date
+}
+
+// Reservas de tokens ------------------------------------------------------------------------------
+func (q *Queries) AsegurarUsoAsistente(ctx context.Context, arg AsegurarUsoAsistenteParams) error {
+	_, err := q.db.Exec(ctx, asegurarUsoAsistente, arg.EmpresaID, arg.Mes)
+	return err
+}
+
 const asistenteAjustes = `-- name: AsistenteAjustes :one
 
 
@@ -243,6 +260,22 @@ func (q *Queries) CerrarSugerenciasVigentes(ctx context.Context, arg CerrarSuger
 		return nil, err
 	}
 	return items, nil
+}
+
+const descontarReservados = `-- name: DescontarReservados :exec
+UPDATE mensajeria.asistente_uso SET tokens_reservados = GREATEST(0, tokens_reservados - $1::bigint), updated_at = now()
+WHERE coalesce(empresa_id, 0) = $2::bigint AND mes = $3
+`
+
+type DescontarReservadosParams struct {
+	Tokens  int64
+	Empresa int64
+	Mes     pgtype.Date
+}
+
+func (q *Queries) DescontarReservados(ctx context.Context, arg DescontarReservadosParams) error {
+	_, err := q.db.Exec(ctx, descontarReservados, arg.Tokens, arg.Empresa, arg.Mes)
+	return err
 }
 
 const etiquetasActivasEmpresa = `-- name: EtiquetasActivasEmpresa :many
@@ -582,10 +615,60 @@ func (q *Queries) InsertarAsistenteAjustes(ctx context.Context, arg InsertarAsis
 	return i, err
 }
 
+const insertarPedidoAsistente = `-- name: InsertarPedidoAsistente :exec
+
+INSERT INTO mensajeria.asistente_pedidos (usuario_id, empresa_id, conversacion_id, tipo, creado_en)
+VALUES ($1, $2, $3, $4, $5)
+`
+
+type InsertarPedidoAsistenteParams struct {
+	UsuarioID      int64
+	EmpresaID      *int64
+	ConversacionID int64
+	Tipo           string
+	CreadoEn       time.Time
+}
+
+// Límites --------------------------------------------------------------------------------------------
+func (q *Queries) InsertarPedidoAsistente(ctx context.Context, arg InsertarPedidoAsistenteParams) error {
+	_, err := q.db.Exec(ctx, insertarPedidoAsistente,
+		arg.UsuarioID,
+		arg.EmpresaID,
+		arg.ConversacionID,
+		arg.Tipo,
+		arg.CreadoEn,
+	)
+	return err
+}
+
+const insertarReserva = `-- name: InsertarReserva :exec
+INSERT INTO mensajeria.asistente_reservas (id, empresa_id, mes, tokens, creada_en)
+VALUES ($1, $2, $3, $4, $5)
+`
+
+type InsertarReservaParams struct {
+	ID        uuid.UUID
+	EmpresaID *int64
+	Mes       pgtype.Date
+	Tokens    int64
+	CreadaEn  time.Time
+}
+
+func (q *Queries) InsertarReserva(ctx context.Context, arg InsertarReservaParams) error {
+	_, err := q.db.Exec(ctx, insertarReserva,
+		arg.ID,
+		arg.EmpresaID,
+		arg.Mes,
+		arg.Tokens,
+		arg.CreadaEn,
+	)
+	return err
+}
+
 const insertarSugerencia = `-- name: InsertarSugerencia :one
 
-INSERT INTO mensajeria.sugerencias (id, empresa_id, conversacion_id, para_mensaje_id, estado, origen, pedida_por)
-VALUES ($1, $2, $3, $4, 'generando', $5, $6)
+INSERT INTO mensajeria.sugerencias (id, empresa_id, conversacion_id, para_mensaje_id, estado, origen, pedida_por, created_at, updated_at)
+VALUES ($1, $2, $3, $4, 'generando', $5, $6, $7, $7)
 RETURNING id, empresa_id, conversacion_id, para_mensaje_id, estado, origen, texto, fuentes, accion, error_codigo, error_detalle, calificacion, proveedor, modelo, tokens_entrada, tokens_salida, pedida_por, usada_por, usada_en, enviada_editada, mensaje_enviado_id, generada_en, created_at, updated_at
 `
 
@@ -596,6 +679,7 @@ type InsertarSugerenciaParams struct {
 	ParaMensajeID  pgtype.UUID
 	Origen         string
 	PedidaPor      *int64
+	CreadaEn       time.Time
 }
 
 // Sugerencias -----------------------------------------------------------------------------------
@@ -607,6 +691,7 @@ func (q *Queries) InsertarSugerencia(ctx context.Context, arg InsertarSugerencia
 		arg.ParaMensajeID,
 		arg.Origen,
 		arg.PedidaPor,
+		arg.CreadaEn,
 	)
 	var i MensajeriaSugerencia
 	err := row.Scan(
@@ -634,6 +719,23 @@ func (q *Queries) InsertarSugerencia(ctx context.Context, arg InsertarSugerencia
 		&i.GeneradaEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const liberarReserva = `-- name: LiberarReserva :one
+DELETE FROM mensajeria.asistente_reservas WHERE id = $1 RETURNING id, empresa_id, mes, tokens, creada_en
+`
+
+func (q *Queries) LiberarReserva(ctx context.Context, id uuid.UUID) (MensajeriaAsistenteReserva, error) {
+	row := q.db.QueryRow(ctx, liberarReserva, id)
+	var i MensajeriaAsistenteReserva
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Mes,
+		&i.Tokens,
+		&i.CreadaEn,
 	)
 	return i, err
 }
@@ -744,6 +846,89 @@ func (q *Queries) MetricasSugerencias(ctx context.Context, arg MetricasSugerenci
 		&i.NoUtiles,
 	)
 	return i, err
+}
+
+const pedidosRecientesUsuario = `-- name: PedidosRecientesUsuario :one
+SELECT count(*)::bigint AS total, coalesce(min(creado_en), $1)::timestamptz AS primero
+FROM mensajeria.asistente_pedidos WHERE usuario_id = $2 AND creado_en > $1
+`
+
+type PedidosRecientesUsuarioParams struct {
+	Desde     time.Time
+	UsuarioID int64
+}
+
+type PedidosRecientesUsuarioRow struct {
+	Total   int64
+	Primero time.Time
+}
+
+func (q *Queries) PedidosRecientesUsuario(ctx context.Context, arg PedidosRecientesUsuarioParams) (PedidosRecientesUsuarioRow, error) {
+	row := q.db.QueryRow(ctx, pedidosRecientesUsuario, arg.Desde, arg.UsuarioID)
+	var i PedidosRecientesUsuarioRow
+	err := row.Scan(&i.Total, &i.Primero)
+	return i, err
+}
+
+const purgarPedidosAsistente = `-- name: PurgarPedidosAsistente :exec
+DELETE FROM mensajeria.asistente_pedidos WHERE creado_en < $1
+`
+
+func (q *Queries) PurgarPedidosAsistente(ctx context.Context, antes time.Time) error {
+	_, err := q.db.Exec(ctx, purgarPedidosAsistente, antes)
+	return err
+}
+
+const reservarTokens = `-- name: ReservarTokens :one
+UPDATE mensajeria.asistente_uso
+SET tokens_reservados = tokens_reservados + $1::bigint, updated_at = now()
+WHERE coalesce(empresa_id, 0) = $2::bigint AND mes = $3
+  AND tokens_entrada + tokens_salida + tokens_reservados + $1::bigint <= $4::bigint
+RETURNING tokens_reservados
+`
+
+type ReservarTokensParams struct {
+	Tokens  int64
+	Empresa int64
+	Mes     pgtype.Date
+	Tope    int64
+}
+
+// Atómica: solo si lo usado más lo reservado más esta reserva cabe en el tope.
+func (q *Queries) ReservarTokens(ctx context.Context, arg ReservarTokensParams) (int64, error) {
+	row := q.db.QueryRow(ctx, reservarTokens,
+		arg.Tokens,
+		arg.Empresa,
+		arg.Mes,
+		arg.Tope,
+	)
+	var tokens_reservados int64
+	err := row.Scan(&tokens_reservados)
+	return tokens_reservados, err
+}
+
+const reservasHuerfanas = `-- name: ReservasHuerfanas :many
+SELECT id FROM mensajeria.asistente_reservas WHERE creada_en < $1 ORDER BY creada_en LIMIT 200
+`
+
+func (q *Queries) ReservasHuerfanas(ctx context.Context, antes time.Time) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, reservasHuerfanas, antes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const serviciosClienteAsistente = `-- name: ServiciosClienteAsistente :many
@@ -873,9 +1058,13 @@ func (q *Queries) SugerenciaPorID(ctx context.Context, id uuid.UUID) (Mensajeria
 }
 
 const sugerenciaVigente = `-- name: SugerenciaVigente :one
-SELECT id, empresa_id, conversacion_id, para_mensaje_id, estado, origen, texto, fuentes, accion, error_codigo, error_detalle, calificacion, proveedor, modelo, tokens_entrada, tokens_salida, pedida_por, usada_por, usada_en, enviada_editada, mensaje_enviado_id, generada_en, created_at, updated_at FROM mensajeria.sugerencias WHERE conversacion_id = $1 AND estado IN ('generando', 'lista', 'error')
+SELECT s.id, s.empresa_id, s.conversacion_id, s.para_mensaje_id, s.estado, s.origen, s.texto, s.fuentes, s.accion, s.error_codigo, s.error_detalle, s.calificacion, s.proveedor, s.modelo, s.tokens_entrada, s.tokens_salida, s.pedida_por, s.usada_por, s.usada_en, s.enviada_editada, s.mensaje_enviado_id, s.generada_en, s.created_at, s.updated_at FROM mensajeria.sugerencias s
+JOIN mensajeria.conversaciones c ON c.id = s.conversacion_id
+WHERE s.conversacion_id = $1 AND s.estado IN ('generando', 'lista', 'error')
+  AND coalesce(s.empresa_id, 0) = coalesce(c.empresa_id, 0)
 `
 
+// Solo la de la empresa actual de la conversación (un préstamo pudo pasarla a otra, §15.3).
 func (q *Queries) SugerenciaVigente(ctx context.Context, conversacionID int64) (MensajeriaSugerencia, error) {
 	row := q.db.QueryRow(ctx, sugerenciaVigente, conversacionID)
 	var i MensajeriaSugerencia
@@ -908,8 +1097,34 @@ func (q *Queries) SugerenciaVigente(ctx context.Context, conversacionID int64) (
 	return i, err
 }
 
+const sugerenciasAtascadas = `-- name: SugerenciasAtascadas :many
+SELECT id FROM mensajeria.sugerencias WHERE estado = 'generando' AND created_at < $1 ORDER BY created_at LIMIT 200
+`
+
+func (q *Queries) SugerenciasAtascadas(ctx context.Context, antes time.Time) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, sugerenciasAtascadas, antes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const sugerenciasPorIDs = `-- name: SugerenciasPorIDs :many
-SELECT id, empresa_id, conversacion_id, para_mensaje_id, estado, origen, texto, fuentes, accion, error_codigo, error_detalle, calificacion, proveedor, modelo, tokens_entrada, tokens_salida, pedida_por, usada_por, usada_en, enviada_editada, mensaje_enviado_id, generada_en, created_at, updated_at FROM mensajeria.sugerencias WHERE id = ANY ($1::uuid[])
+SELECT s.id, s.empresa_id, s.conversacion_id, s.para_mensaje_id, s.estado, s.origen, s.texto, s.fuentes, s.accion, s.error_codigo, s.error_detalle, s.calificacion, s.proveedor, s.modelo, s.tokens_entrada, s.tokens_salida, s.pedida_por, s.usada_por, s.usada_en, s.enviada_editada, s.mensaje_enviado_id, s.generada_en, s.created_at, s.updated_at FROM mensajeria.sugerencias s
+JOIN mensajeria.conversaciones c ON c.id = s.conversacion_id
+WHERE s.id = ANY ($1::uuid[]) AND coalesce(s.empresa_id, 0) = coalesce(c.empresa_id, 0)
 `
 
 func (q *Queries) SugerenciasPorIDs(ctx context.Context, ids []uuid.UUID) ([]MensajeriaSugerencia, error) {
@@ -957,13 +1172,37 @@ func (q *Queries) SugerenciasPorIDs(ctx context.Context, ids []uuid.UUID) ([]Men
 	return items, nil
 }
 
+const sugerenciasRecientesConv = `-- name: SugerenciasRecientesConv :one
+SELECT count(*)::bigint AS total, coalesce(min(created_at), $1)::timestamptz AS primera,
+    count(*) FILTER (WHERE origen = 'automatico')::bigint AS automaticas
+FROM mensajeria.sugerencias WHERE conversacion_id = $2 AND created_at > $1
+`
+
+type SugerenciasRecientesConvParams struct {
+	Desde          time.Time
+	ConversacionID int64
+}
+
+type SugerenciasRecientesConvRow struct {
+	Total       int64
+	Primera     time.Time
+	Automaticas int64
+}
+
+func (q *Queries) SugerenciasRecientesConv(ctx context.Context, arg SugerenciasRecientesConvParams) (SugerenciasRecientesConvRow, error) {
+	row := q.db.QueryRow(ctx, sugerenciasRecientesConv, arg.Desde, arg.ConversacionID)
+	var i SugerenciasRecientesConvRow
+	err := row.Scan(&i.Total, &i.Primera, &i.Automaticas)
+	return i, err
+}
+
 const sumarUsoAsistente = `-- name: SumarUsoAsistente :one
 INSERT INTO mensajeria.asistente_uso AS u (empresa_id, mes, tokens_entrada, tokens_salida, sugerencias, resumenes)
 VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (coalesce(empresa_id, 0), mes) DO UPDATE
 SET tokens_entrada = u.tokens_entrada + EXCLUDED.tokens_entrada, tokens_salida = u.tokens_salida + EXCLUDED.tokens_salida,
     sugerencias = u.sugerencias + EXCLUDED.sugerencias, resumenes = u.resumenes + EXCLUDED.resumenes, updated_at = now()
-RETURNING empresa_id, mes, tokens_entrada, tokens_salida, sugerencias, resumenes, avisado_80, avisado_100, updated_at
+RETURNING empresa_id, mes, tokens_entrada, tokens_salida, sugerencias, resumenes, tokens_reservados, avisado_80, avisado_100, updated_at
 `
 
 type SumarUsoAsistenteParams struct {
@@ -993,6 +1232,7 @@ func (q *Queries) SumarUsoAsistente(ctx context.Context, arg SumarUsoAsistentePa
 		&i.TokensSalida,
 		&i.Sugerencias,
 		&i.Resumenes,
+		&i.TokensReservados,
 		&i.Avisado80,
 		&i.Avisado100,
 		&i.UpdatedAt,
@@ -1078,7 +1318,7 @@ func (q *Queries) UsarSugerencia(ctx context.Context, arg UsarSugerenciaParams) 
 
 const usoAsistente = `-- name: UsoAsistente :one
 
-SELECT empresa_id, mes, tokens_entrada, tokens_salida, sugerencias, resumenes, avisado_80, avisado_100, updated_at FROM mensajeria.asistente_uso WHERE coalesce(empresa_id, 0) = $1::bigint AND mes = $2
+SELECT empresa_id, mes, tokens_entrada, tokens_salida, sugerencias, resumenes, tokens_reservados, avisado_80, avisado_100, updated_at FROM mensajeria.asistente_uso WHERE coalesce(empresa_id, 0) = $1::bigint AND mes = $2
 `
 
 type UsoAsistenteParams struct {
@@ -1097,6 +1337,7 @@ func (q *Queries) UsoAsistente(ctx context.Context, arg UsoAsistenteParams) (Men
 		&i.TokensSalida,
 		&i.Sugerencias,
 		&i.Resumenes,
+		&i.TokensReservados,
 		&i.Avisado80,
 		&i.Avisado100,
 		&i.UpdatedAt,

@@ -33,6 +33,12 @@ type iaFalsa struct {
 	entrada   int64
 	salida    int64
 	rechazo   bool
+	betas     []string
+	// alPedir corre mientras «el modelo» atiende (fuera del candado).
+	alPedir func()
+	// bloquear: espera hasta que el pedido se cancele (o 5 s) y anota si se canceló.
+	bloquear  bool
+	cancelado bool
 }
 
 func nuevaIA(t *testing.T) *iaFalsa {
@@ -40,7 +46,24 @@ func nuevaIA(t *testing.T) *iaFalsa {
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		f.mu.Lock()
+		alPedir, bloquear := f.alPedir, f.bloquear
+		f.mu.Unlock()
+		if alPedir != nil {
+			alPedir()
+		}
+		if bloquear {
+			select {
+			case <-r.Context().Done():
+				f.mu.Lock()
+				f.cancelado = true
+				f.mu.Unlock()
+				return
+			case <-time.After(5 * time.Second):
+			}
+		}
+		f.mu.Lock()
 		defer f.mu.Unlock()
+		f.betas = append(f.betas, r.Header.Get("Anthropic-Beta"))
 		f.cuerpos = append(f.cuerpos, string(b))
 		f.auth = append(f.auth, r.Header.Get("Authorization")+"|"+r.Header.Get("X-Api-Key"))
 		f.rutas = append(f.rutas, r.Method+" "+r.URL.Path)
@@ -109,11 +132,15 @@ type bandejaIA struct {
 }
 
 func nuevaBandejaIA(t *testing.T) *bandejaIA {
-	b := nuevaBandeja(t, nil)
+	b := nuevaBandeja(t, func(c *mensajeria.Config) {
+		// El servidor falso de httptest está en 127.0.0.1 (IRIS_ASISTENTE_PERMITIR_LOOPBACK).
+		c.PermitirLoopbackIA = true
+		c.SondeoCancelacionIA = 20 * time.Millisecond
+	})
 	admin := b.persona([]int64{1}, rolBase("admin"))
 	admin.empresa = 1
 	x := &bandejaIA{bandeja: b, admin: admin, ia: nuevaIA(t)}
-	if _, err := b.bd.Exec(b.ctx, `DELETE FROM mensajeria.asistente_uso`); err != nil {
+	if _, err := b.bd.Exec(b.ctx, `DELETE FROM mensajeria.asistente_uso; DELETE FROM mensajeria.asistente_reservas; DELETE FROM mensajeria.asistente_pedidos; DELETE FROM mensajeria.asistente_ajustes; DELETE FROM mensajeria.sugerencias`); err != nil {
 		t.Fatal(err)
 	}
 	x.ajustes(map[string]any{"activo": false})
@@ -142,6 +169,8 @@ func (x *bandejaIA) activar(cambios map[string]any) {
 // pedirYGenerar pide una sugerencia con el botón y corre su job.
 func (x *bandejaIA) pedirYGenerar(p persona, conv string) map[string]any {
 	x.t.Helper()
+	// 7 s entre pedidos: por debajo del límite de 10 por minuto por persona.
+	*x.reloj = x.reloj.Add(7 * time.Second)
 	r := x.api(p, http.MethodPost, "/conversaciones/"+conv+"/sugerencias", map[string]any{})
 	x.exigir(r, http.StatusAccepted, "estado", "generando")
 	id := uuid.MustParse(r.cuerpo["id"].(string))
@@ -187,7 +216,8 @@ func TestAsistenteAjustesClaveYURL(t *testing.T) {
 	// Activar sin URL o modelo, o con URLs no permitidas.
 	x.exigir(x.ajustes(map[string]any{"proveedor": "ollama", "url": ""}), http.StatusUnprocessableEntity, "type", "urn:iris:problema:sin_configurar")
 	for _, u := range []string{"http://169.254.169.254/latest", "ftp://10.0.0.5", "http://usuario:clave@10.0.0.5:11434", "http://[fd00:ec2::254]/",
-		"http://metadata.google.internal", "http://[fe80::1]:11434", "file:///etc/passwd", "http://0.0.0.0:11434"} {
+		"http://metadata.google.internal", "http://[fe80::1]:11434", "file:///etc/passwd", "http://0.0.0.0:11434",
+		"http://168.63.129.16", "http://[64:ff9b::a9fe:a9fe]/", "http://[2002:a9fe:a9fe::1]/", "http://[::169.254.169.254]/", "http://10.0.0.5/?x=1"} {
 		x.exigir(x.ajustes(map[string]any{"url": u}), http.StatusUnprocessableEntity, "type", "urn:iris:problema:url_no_permitida")
 	}
 	// Anthropic sin clave no se activa.
@@ -227,38 +257,97 @@ func TestAsistenteAjustesClaveYURL(t *testing.T) {
 		t.Fatalf("estado con datos de más: %v", e.cuerpo)
 	}
 	x.exigir(x.api(x.tecnico, http.MethodGet, "/asistente/estado", nil), http.StatusForbidden)
+	// Cambiar la URL o el proveedor sin volver a escribir la clave: 422 (la clave no viaja a otro host).
+	x.exigir(x.ajustes(map[string]any{"url": "http://192.168.1.21:11434"}), http.StatusUnprocessableEntity, "type", "urn:iris:problema:clave_requerida")
+	x.exigir(x.ajustes(map[string]any{"url": "http://192.168.1.20:11434", "proveedor": "ollama"}), http.StatusUnprocessableEntity,
+		"type", "urn:iris:problema:clave_requerida")
+	// La misma URL escrita distinto (barra final, /v1) es la misma.
+	x.exigir(x.ajustes(map[string]any{"url": "http://192.168.1.20:11434/v1/"}), http.StatusOK)
+	// Con clave, http solo a una IP privada (o loopback permitido).
+	x.exigir(x.ajustes(map[string]any{"url": "http://ia.example.com", "clave": "otra-clave"}), http.StatusUnprocessableEntity,
+		"type", "urn:iris:problema:url_no_permitida")
+	x.exigir(x.ajustes(map[string]any{"url": "https://ia.example.com", "clave": "otra-clave"}), http.StatusOK)
 	// Borrar la clave.
 	r = x.ajustes(map[string]any{"clave": ""})
 	x.exigir(r, http.StatusOK, "claveGuardadaEn", "<nil>")
 }
 
 func TestAsistenteURLRedYRedirecciones(t *testing.T) {
-	for u, ok := range map[string]bool{"http://localhost:11434": true, "https://api.openai.com": true, "http://10.1.2.3:8000/v1": true,
-		"http://169.254.169.254": false, "gopher://x": false, "http://a:b@x": false, "http://x/?q=1": false} {
-		if (mensajeria.ValidarURLIA(u) == nil) != ok {
+	for u, ok := range map[string]bool{"https://api.openai.com": true, "http://10.1.2.3:8000/v1": true, "http://ia.example.com": true,
+		"http://localhost:11434": false, "http://127.0.0.1:11434": false, "http://[::1]:11434": false, "http://169.254.169.254": false,
+		"gopher://x": false, "http://a:b@x": false, "http://x/?q=1": false, "http://[64:ff9b::7f00:1]": false} {
+		if (mensajeria.ValidarURLIA(u, false, false) == nil) != ok {
 			t.Fatalf("ValidarURLIA(%s) debía ser %v", u, ok)
 		}
 	}
-	for ip, ok := range map[string]bool{"127.0.0.1": true, "192.168.0.10": true, "10.0.0.1": true, "172.16.0.1": true, "8.8.8.8": true,
-		"169.254.169.254": false, "::ffff:169.254.169.254": false, "fe80::1": false, "fd00:ec2::254": false, "0.0.0.0": false, "::": false,
-		"224.0.0.1": false, "100.100.100.200": false} {
-		if mensajeria.IPPermitidaIA(ip) != ok {
+	// Loopback solo con IRIS_ASISTENTE_PERMITIR_LOOPBACK; con clave, http solo a IP privada o loopback.
+	for u, ok := range map[string]bool{"http://localhost:11434": true, "http://127.0.0.1:11434": true} {
+		if (mensajeria.ValidarURLIA(u, true, true) == nil) != ok {
+			t.Fatalf("ValidarURLIA(%s, loopback) debía ser %v", u, ok)
+		}
+	}
+	for u, ok := range map[string]bool{"http://ia.example.com": false, "http://10.0.0.5:11434": true, "https://ia.example.com": true,
+		"http://8.8.8.8": false} {
+		if (mensajeria.ValidarURLIA(u, false, true) == nil) != ok {
+			t.Fatalf("ValidarURLIA(%s, con clave) debía ser %v", u, ok)
+		}
+	}
+	for ip, ok := range map[string]bool{"192.168.0.10": true, "10.0.0.1": true, "172.16.0.1": true, "8.8.8.8": true, "2800:3f0::1": true,
+		"127.0.0.1": false, "127.9.9.9": false, "::1": false, "169.254.169.254": false, "::ffff:169.254.169.254": false, "fe80::1": false,
+		"fd00:ec2::254": false, "0.0.0.0": false, "::": false, "224.0.0.1": false, "100.100.100.200": false, "168.63.129.16": false,
+		"64:ff9b::a9fe:a9fe": false, "64:ff9b::808:808": false, "2002:a9fe:a9fe::1": false, "2002:7f00:1::1": false, "2002:808:808::1": true,
+		"::a9fe:a9fe": false, "2001:0:4136:e378::1": false} {
+		if mensajeria.IPPermitidaIA(ip, false) != ok {
 			t.Fatalf("IPPermitidaIA(%s) debía ser %v", ip, ok)
 		}
 	}
-	// Una redirección hacia la metadata no se sigue.
+	if !mensajeria.IPPermitidaIA("127.0.0.1", true) || !mensajeria.IPPermitidaIA("::1", true) || mensajeria.IPPermitidaIA("169.254.169.254", true) {
+		t.Fatal("loopback permitido")
+	}
+	// Ninguna redirección se sigue: la prueba falla con el mensaje único y el destino no recibe nada.
 	x := nuevaBandejaIA(t)
+	var golpes int
+	destino := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { golpes++ }))
+	defer destino.Close()
 	red := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "http://169.254.169.254/latest/meta-data", http.StatusFound)
+		http.Redirect(w, r, destino.URL+r.URL.Path, http.StatusTemporaryRedirect)
 	}))
 	defer red.Close()
 	r := x.api(x.admin, http.MethodPost, "/asistente/probar", map[string]any{"proveedor": "openai_compatible", "url": red.URL, "modelo": "m"})
+	x.exigir(r, http.StatusOK, "estado", "error", "detalle", mensajeria.DetalleFallaIA, "latenciaMs", "0")
+	r = x.api(x.admin, http.MethodPost, "/asistente/probar", map[string]any{"proveedor": "anthropic", "url": red.URL, "clave": "sk-x", "modelo": "m"})
 	x.exigir(r, http.StatusOK, "estado", "error")
-	if !strings.Contains(r.cuerpo["detalle"].(string), "no se permite") {
-		t.Fatalf("detalle de la redirección: %v", r.cuerpo)
+	if golpes != 0 {
+		t.Fatalf("se siguió una redirección: %d", golpes)
 	}
+	// Una sugerencia contra un servidor que redirige queda en error proveedor_redirige.
+	x.activar(map[string]any{"url": red.URL})
+	num := numeroCliente()
+	x.texto(num, "wamid.red", "Hola")
+	if s := x.pedirYGenerar(x.agente, cid(x.conv(num))); s["error"].(map[string]any)["codigo"] != "proveedor_redirige" || golpes != 0 {
+		t.Fatalf("redirección: %v %d", s, golpes)
+	}
+	// Sin el permiso de loopback, una URL local no se guarda.
 	x.exigir(x.api(x.admin, http.MethodPost, "/asistente/probar", map[string]any{"proveedor": "ollama", "url": "http://169.254.169.254", "modelo": "m"}),
 		http.StatusUnprocessableEntity, "type", "urn:iris:problema:url_no_permitida")
+	// Puerto cerrado y servidor que no es de IA: la misma respuesta (no sirve para escanear).
+	cerrado := httptest.NewServer(http.NotFoundHandler())
+	urlCerrado := cerrado.URL
+	cerrado.Close()
+	html := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("<html>router</html>")) }))
+	defer html.Close()
+	var cuerpos []string
+	for _, u := range []string{urlCerrado, html.URL} {
+		r := x.api(x.admin, http.MethodPost, "/asistente/probar", map[string]any{"proveedor": "ollama", "url": u, "modelo": "m"})
+		x.exigir(r, http.StatusOK)
+		b, _ := json.Marshal(r.cuerpo)
+		cuerpos = append(cuerpos, string(b))
+		m := x.api(x.admin, http.MethodPost, "/asistente/modelos", map[string]any{"proveedor": "ollama", "url": u})
+		x.exigir(m, http.StatusBadGateway, "type", "urn:iris:problema:proveedor_error", "detail", mensajeria.DetalleFallaIA)
+	}
+	if cuerpos[0] != cuerpos[1] {
+		t.Fatalf("las fallas se distinguen: %v", cuerpos)
+	}
 }
 
 func TestAsistenteProbarYModelos(t *testing.T) {
@@ -284,11 +373,8 @@ func TestAsistenteProbarYModelos(t *testing.T) {
 	// Falla del servidor: estado error con detalle en español y sin secretos.
 	x.ia.status = http.StatusUnauthorized
 	r = x.api(x.admin, http.MethodPost, "/asistente/probar", map[string]any{"proveedor": "openai_compatible", "url": x.ia.srv.URL, "modelo": "m"})
-	x.exigir(r, http.StatusOK, "estado", "error")
-	if d := r.cuerpo["detalle"].(string); !strings.Contains(d, "clave") || strings.Contains(d, "clave-guardada") {
-		t.Fatalf("detalle: %q", d)
-	}
-	x.exigir(x.api(x.admin, http.MethodGet, "/asistente/modelos", nil), http.StatusBadGateway, "type", "urn:iris:problema:clave_invalida")
+	x.exigir(r, http.StatusOK, "estado", "error", "detalle", mensajeria.DetalleFallaIA)
+	x.exigir(x.api(x.admin, http.MethodGet, "/asistente/modelos", nil), http.StatusBadGateway, "type", "urn:iris:problema:proveedor_error")
 	x.ia.status = http.StatusOK
 	m := x.api(x.admin, http.MethodGet, "/asistente/modelos", nil)
 	x.exigir(m, http.StatusOK)
@@ -300,10 +386,14 @@ func TestAsistenteProbarYModelos(t *testing.T) {
 	x.exigir(r, http.StatusOK, "estado", "ok")
 	cuerpo, auth, ruta := x.ia.ultimo()
 	if ruta != "POST /v1/messages" || auth != "|sk-ant-prueba" || strings.Contains(cuerpo, "temperature") || strings.Contains(cuerpo, "top_p") ||
-		!strings.Contains(cuerpo, `"cache_control"`) || !strings.Contains(cuerpo, `"claude-opus-5-5"`) {
+		!strings.Contains(cuerpo, `"cache_control"`) || !strings.Contains(cuerpo, `"claude-opus-5-5"`) || !strings.Contains(cuerpo, `"fallbacks":"default"`) {
 		t.Fatalf("pedido a Anthropic: %s %s %s", ruta, auth, cuerpo)
 	}
-	m = x.api(x.admin, http.MethodGet, "/asistente/modelos?proveedor=anthropic&url="+x.ia.srv.URL, nil)
+	if b := x.ia.betas[len(x.ia.betas)-1]; !strings.Contains(b, "server-side-fallback-2026-07-01") {
+		t.Fatalf("beta del respaldo: %q", b)
+	}
+	// Modelos de otra URL: POST (con CSRF); el GET solo lee lo guardado.
+	m = x.api(x.admin, http.MethodPost, "/asistente/modelos", map[string]any{"proveedor": "anthropic", "url": x.ia.srv.URL, "clave": "sk-ant-prueba"})
 	x.exigir(m, http.StatusOK)
 	if d := m.cuerpo["data"].([]any); len(d) != 1 || d[0].(map[string]any)["nombre"] != "Llama 3.1 8B" {
 		t.Fatalf("modelos de Anthropic: %v", m.cuerpo)
@@ -501,6 +591,13 @@ func TestAsistenteAutomaticoYVencimiento(t *testing.T) {
 	c := x.conv(num)
 	id := int64(c["id"].(float64))
 	conv := cid(c)
+	// Nadie la puede leer (sin asignar y nadie disponible en la cola): no se genera.
+	*x.reloj = x.reloj.Add(21 * time.Second)
+	if espera, err := x.m.SugerirAutomatico(x.ctx, id); err != nil || espera != 0 || x.ia.pedidos() != 0 {
+		t.Fatalf("sin agentes: %v %v %d", espera, err, x.ia.pedidos())
+	}
+	x.disponible(x.agente, "disponible")
+	x.texto(num, "wamid.au1b", "¿Hola?")
 	// Espera ~20 s desde el último mensaje del cliente.
 	espera, err := x.m.SugerirAutomatico(x.ctx, id)
 	if err != nil || espera != 20*time.Second || x.ia.pedidos() != 0 {
@@ -533,6 +630,19 @@ func TestAsistenteAutomaticoYVencimiento(t *testing.T) {
 	if n := x.contar(`SELECT count(*) FROM mensajeria.sugerencias WHERE id = $1 AND estado = 'vencida'`, r.cuerpo["id"]); n != 1 {
 		t.Fatal("la que se generaba no quedó vencida")
 	}
+	// Como mucho 6 automáticas por conversación y hora.
+	for i := range 8 {
+		*x.reloj = x.reloj.Add(time.Minute)
+		x.texto(num, fmt.Sprintf("wamid.lim%d", i), fmt.Sprintf("Mensaje %d", i))
+		*x.reloj = x.reloj.Add(21 * time.Second)
+		if _, err := x.m.SugerirAutomatico(x.ctx, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.sugerencias WHERE conversacion_id = $1 AND origen = 'automatico'
+		AND created_at > $2`, conv, x.reloj.Add(-time.Hour)); n != 6 {
+		t.Fatalf("automáticas en la hora: %d", n)
+	}
 	// Resuelta: no se sugiere.
 	c = x.conv(num)
 	x.exigir(x.api(x.supervisor, http.MethodPost, "/conversaciones/"+conv+"/resolver", map[string]any{"version": ver(c)}), http.StatusOK)
@@ -558,37 +668,56 @@ func TestAsistenteAutomaticoYVencimiento(t *testing.T) {
 
 func TestAsistenteTopeDeTokens(t *testing.T) {
 	x := nuevaBandejaIA(t)
-	x.activar(map[string]any{"topeTokensMes": 2000, "precioEntradaMillon": "3", "precioSalidaMillon": "15"})
+	x.activar(map[string]any{"topeTokensMes": 4000, "precioEntradaMillon": "3", "precioSalidaMillon": "15"})
 	x.ia.entrada, x.ia.salida = 1500, 200
 	x.ia.decir(respuestaModelo("Hola", nil, nil))
 	num := numeroCliente()
 	x.texto(num, "wamid.tope", "Hola")
 	conv := cid(x.conv(num))
-	x.pedirYGenerar(x.agente, conv) // 1700 de 2000: 85 %
+	reservados := func() int {
+		return x.contar(`SELECT coalesce(sum(tokens_reservados), 0)::int FROM mensajeria.asistente_uso`) + x.contar(`SELECT count(*) FROM mensajeria.asistente_reservas`)
+	}
+	x.pedirYGenerar(x.agente, conv) // 1700 de 4000
+	x.pedirYGenerar(x.agente, conv) // 3400: 85 %
 	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'asistente.tope_alcanzado' AND (payload->>'porcentaje')::int = 80`); n != 1 {
 		t.Fatalf("aviso del 80 %%: %d", n)
 	}
+	if reservados() != 0 {
+		t.Fatal("quedaron tokens reservados")
+	}
+	// No cabe la reserva de otra llamada: error tope_alcanzado sin llamar al proveedor.
+	pedidos := x.ia.pedidos()
+	if s := x.pedirYGenerar(x.agente, conv); s["error"].(map[string]any)["codigo"] != "tope_alcanzado" || x.ia.pedidos() != pedidos {
+		t.Fatalf("reserva: %v", s)
+	}
 	x.exigir(x.api(x.agente, http.MethodGet, "/asistente/estado", nil), http.StatusOK, "pausado", "false")
-	x.pedirYGenerar(x.agente, conv) // 3400: 100 %
+	// Con más tope cabe; la llamada real gasta más de lo estimado y cruza el 100 %: pausa.
+	x.activar(map[string]any{"topeTokensMes": 5500, "precioEntradaMillon": "3", "precioSalidaMillon": "15"})
+	x.ia.entrada = 2500
+	x.pedirYGenerar(x.agente, conv) // 6100 de 5500
 	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'asistente.tope_alcanzado' AND (payload->>'porcentaje')::int = 100`); n != 1 {
 		t.Fatalf("aviso del 100 %%: %d", n)
 	}
 	x.exigir(x.api(x.agente, http.MethodGet, "/asistente/estado", nil), http.StatusOK, "pausado", "true")
+	*x.reloj = x.reloj.Add(7 * time.Second)
 	x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv+"/sugerencias", nil), http.StatusUnprocessableEntity, "type", "urn:iris:problema:tope_alcanzado")
 	x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv+"/resumen", nil), http.StatusUnprocessableEntity, "type", "urn:iris:problema:tope_alcanzado")
-	// Costo: (3000 × 3 + 400 × 15) / 1 000 000 = 0.015 → "0.02".
-	x.exigir(x.api(x.admin, http.MethodGet, "/asistente/uso", nil), http.StatusOK, "pausado", "true", "costo", "0.02", "porcentaje", "170", "topeTokensMes", "2000")
-	// Subir el tope quita la pausa; el 80 % vuelve a avisar al cruzarlo con el tope nuevo.
-	x.activar(map[string]any{"topeTokensMes": 5000})
-	x.exigir(x.api(x.agente, http.MethodGet, "/asistente/estado", nil), http.StatusOK, "pausado", "false")
-	x.pedirYGenerar(x.agente, conv) // 5100 de 5000
-	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'asistente.tope_alcanzado' AND (payload->>'porcentaje')::int = 100`); n != 2 {
-		t.Fatalf("100 %% con el tope nuevo: %d", n)
+	// Costo: (5500 × 3 + 600 × 15) / 1 000 000 = 0.0255 → "0.03".
+	x.exigir(x.api(x.admin, http.MethodGet, "/asistente/uso", nil), http.StatusOK, "pausado", "true", "costo", "0.03", "porcentaje", "110", "topeTokensMes", "5500")
+	if reservados() != 0 {
+		t.Fatal("quedaron tokens reservados")
+	}
+	// Un resumen también reserva: sin tope suficiente no llama al proveedor.
+	x.activar(map[string]any{"topeTokensMes": 6500})
+	pedidos = x.ia.pedidos()
+	x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv+"/resumen", nil), http.StatusUnprocessableEntity, "type", "urn:iris:problema:tope_alcanzado")
+	if x.ia.pedidos() != pedidos || reservados() != 0 {
+		t.Fatal("el resumen llamó sin reserva o dejó la reserva")
 	}
 	// Otro mes: sin pausa.
 	*x.reloj = x.reloj.AddDate(0, 1, 0)
 	x.exigir(x.api(x.agente, http.MethodGet, "/asistente/estado", nil), http.StatusOK, "pausado", "false")
-	x.exigir(x.api(x.admin, http.MethodGet, "/asistente/uso?mes=2026-11", nil), http.StatusOK, "pausado", "false", "tokensEntrada", "4500")
+	x.exigir(x.api(x.admin, http.MethodGet, "/asistente/uso?mes=2026-11", nil), http.StatusOK, "pausado", "false", "tokensEntrada", "5500")
 }
 
 func TestAsistenteAislamientoPermisosEIdempotencia(t *testing.T) {
@@ -633,5 +762,226 @@ func TestAsistenteAislamientoPermisosEIdempotencia(t *testing.T) {
 	x.exigir(x.api(ajeno, http.MethodPost, "/conversaciones/"+conv+"/resumen", nil), http.StatusNotFound)
 	if n := x.contar(`SELECT count(*) FROM nucleo.idempotencia WHERE respuesta::text LIKE '%El cliente saludó%'`); n != 0 {
 		t.Fatal("el resumen quedó guardado")
+	}
+}
+
+func TestAsistenteRedaccion(t *testing.T) {
+	for _, c := range []struct {
+		texto    string
+		ocultos  []string
+		visibles []string
+	}{
+		{"mi contraseña es: Hola123", []string{"Hola123"}, []string{"contraseña"}},
+		{"la clave de mi wifi es Perro2024", []string{"Perro2024"}, []string{"wifi"}},
+		{"mi contraseña es mi perro 2024", []string{"perro", "2024"}, nil},
+		{"mi contraseña es Gato123. Y no tengo internet", []string{"Gato123"}, []string{"no tengo internet"}},
+		{"pago con 4111.1111.1111.1111 mañana", []string{"4111", "1111"}, []string{"mañana"}},
+		{"tarjeta 4111 1111 1111 1111", []string{"4111"}, nil},
+		{"el CVV 123 de atrás", []string{"123"}, nil},
+		{"el código que me llegó es 482913", []string{"482913"}, nil},
+		{"482913 es mi código", []string{"482913"}, []string{"es mi código"}},
+		{"mi PIN: 1234.", []string{"1234"}, nil},
+		{"clave 87654321 gracias", []string{"87654321"}, nil},
+		{"mi DPI 2345 67890 0101", []string{"67890"}, nil},
+		{"NIT 1234567-8", []string{"1234567"}, nil},
+		{"Hola, no tengo internet desde 2024 en la zona 10", nil, []string{"Hola, no tengo internet desde 2024 en la zona 10"}},
+	} {
+		r := mensajeria.RedactarParaIA(c.texto)
+		for _, o := range c.ocultos {
+			if strings.Contains(r, o) {
+				t.Fatalf("%q → %q: quedó %q", c.texto, r, o)
+			}
+		}
+		for _, v := range c.visibles {
+			if !strings.Contains(r, v) {
+				t.Fatalf("%q → %q: se perdió %q", c.texto, r, v)
+			}
+		}
+		if len(c.ocultos) > 0 && !strings.Contains(r, "***") {
+			t.Fatalf("%q → %q: sin ***", c.texto, r)
+		}
+	}
+}
+
+func TestAsistenteEnlacesYManualDelEquipo(t *testing.T) {
+	x := nuevaBandejaIA(t)
+	interno := "Para reiniciar la ONT entra al panel de gestión con el usuario técnico y la contraseña maestra que está en la bóveda del equipo de red"
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/manuales", map[string]any{"titulo": "Reinicio de ONT interno", "cuerpo": interno,
+		"visibilidad": "interna"}), http.StatusCreated)
+	x.activar(nil)
+	num := numeroCliente()
+	x.texto(num, "wamid.ont", "Cómo reinicio la ONT del panel de gestión")
+	conv := cid(x.conv(num))
+	for nombre, texto := range map[string]string{
+		"ip":      "Entra a 192.168.1.1 y reinicia",
+		"dominio": "Revisa mipago.com.gt para pagar",
+		"co":      "Visita soporte.example.co",
+		"esquema": "Abre ftp://archivo",
+		"copia":   "Hola, " + strings.ToLower(interno[:120]),
+	} {
+		x.ia.decir(respuestaModelo(texto, nil, nil))
+		if s := x.pedirYGenerar(x.agente, conv); s["estado"] != "error" || s["error"].(map[string]any)["codigo"] != "respuesta_invalida" {
+			t.Fatalf("%s: %v", nombre, s)
+		}
+	}
+	// Usarlo para orientar sin copiarlo sí vale (y sale como fuente «Manual del equipo»).
+	x.ia.decir(respuestaModelo("Un técnico revisará tu ONT de forma remota en un momento.", []string{"F1"}, nil))
+	s := x.pedirYGenerar(x.agente, conv)
+	if s["estado"] != "lista" || !strings.HasPrefix(s["fuentes"].([]any)[0].(map[string]any)["etiqueta"].(string), "Manual del equipo") {
+		t.Fatalf("válida: %v", s)
+	}
+}
+
+func TestAsistenteLimitesDePedidos(t *testing.T) {
+	x := nuevaBandejaIA(t)
+	x.activar(nil)
+	num := numeroCliente()
+	x.texto(num, "wamid.lim", "Hola")
+	conv := cid(x.conv(num))
+	for range mensajeria.PedidosAsistentePorMinuto {
+		x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv+"/sugerencias", nil), http.StatusAccepted)
+	}
+	r := x.api(x.agente, http.MethodPost, "/conversaciones/"+conv+"/sugerencias", nil)
+	x.exigir(r, http.StatusTooManyRequests, "type", "urn:iris:problema:demasiados_pedidos")
+	if r.h.Get("Retry-After") == "" {
+		t.Fatal("sin Retry-After")
+	}
+	x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv+"/resumen", nil), http.StatusTooManyRequests)
+	// Pasado el minuto, sí.
+	*x.reloj = x.reloj.Add(61 * time.Second)
+	x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv+"/sugerencias", nil), http.StatusAccepted)
+	// 20 por hora por conversación (de cualquier origen y persona).
+	for range mensajeria.SugerenciasPorHoraConv - mensajeria.PedidosAsistentePorMinuto - 1 {
+		*x.reloj = x.reloj.Add(7 * time.Second)
+		x.exigir(x.api(x.supervisor, http.MethodPost, "/conversaciones/"+conv+"/sugerencias", nil), http.StatusAccepted)
+	}
+	*x.reloj = x.reloj.Add(7 * time.Second)
+	r = x.api(x.supervisor, http.MethodPost, "/conversaciones/"+conv+"/sugerencias", nil)
+	x.exigir(r, http.StatusTooManyRequests, "type", "urn:iris:problema:demasiadas_sugerencias")
+	if r.h.Get("Retry-After") == "" {
+		t.Fatal("sin Retry-After")
+	}
+}
+
+func TestAsistenteCancelacionYAtascadas(t *testing.T) {
+	x := nuevaBandejaIA(t)
+	x.activar(nil)
+	num := numeroCliente()
+	x.texto(num, "wamid.can", "Hola")
+	conv := cid(x.conv(num))
+	r := x.api(x.agente, http.MethodPost, "/conversaciones/"+conv+"/sugerencias", nil)
+	x.exigir(r, http.StatusAccepted)
+	id := r.cuerpo["id"].(string)
+	// El modelo tarda; mientras tanto la descartan: la llamada se corta.
+	x.ia.mu.Lock()
+	x.ia.bloquear = true
+	x.ia.mu.Unlock()
+	listo := make(chan error, 1)
+	go func() { listo <- x.m.GenerarSugerencia(x.ctx, uuid.MustParse(id)) }()
+	time.Sleep(150 * time.Millisecond)
+	x.exigir(x.api(x.agente, http.MethodPost, "/sugerencias/"+id+"/descartar", nil), http.StatusOK, "estado", "descartada")
+	select {
+	case err := <-listo:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("la generación no se canceló")
+	}
+	x.ia.mu.Lock()
+	cancelado := x.ia.cancelado
+	x.ia.bloquear = false
+	x.ia.mu.Unlock()
+	if !cancelado {
+		t.Fatal("el pedido al proveedor no se cortó")
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.sugerencias WHERE id = $1 AND estado = 'descartada'`, id); n != 1 {
+		t.Fatal("estado tras cancelar")
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.asistente_reservas`); n != 0 {
+		t.Fatal("quedó la reserva")
+	}
+	// Atascada: en generando más que el plazo más el margen → error proveedor_no_responde.
+	*x.reloj = x.reloj.Add(7 * time.Second)
+	x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv+"/sugerencias", map[string]any{"otra": true}), http.StatusAccepted)
+	if err := x.m.VencerAtascadas(x.ctx, x.bd); err != nil {
+		t.Fatal(err)
+	}
+	x.exigir(x.api(x.agente, http.MethodGet, "/conversaciones/"+conv+"/sugerencias/actual", nil), http.StatusOK, "estado", "generando")
+	*x.reloj = x.reloj.Add(x.m.Config().PlazoIA + mensajeria.MargenAtascadaIA + time.Second)
+	if err := x.m.VencerAtascadas(x.ctx, x.bd); err != nil {
+		t.Fatal(err)
+	}
+	a := x.api(x.agente, http.MethodGet, "/conversaciones/"+conv+"/sugerencias/actual", nil)
+	x.exigir(a, http.StatusOK, "estado", "error")
+	if a.cuerpo["error"].(map[string]any)["codigo"] != "proveedor_no_responde" {
+		t.Fatalf("atascada: %v", a.cuerpo)
+	}
+}
+
+func TestAsistentePrestamoDeNumero(t *testing.T) {
+	x := nuevaBandejaIA(t)
+	sup2 := x.persona([]int64{2}, rolBase("supervisor"))
+	r := x.api(sup2, http.MethodPost, "/colas", map[string]any{"nombre": "Norte " + pruebas.Unico()})
+	x.exigir(r, http.StatusCreated)
+	x.exigir(x.api(x.supervisor, http.MethodPost, fmt.Sprintf("/canales/%d/prestamos", x.canal.ID), map[string]any{"empresaId": 2,
+		"usos": []string{"soporte"}, "colaId": int64(r.cuerpo["id"].(float64))}), http.StatusOK)
+	x.activar(nil)
+	x.ia.decir(respuestaModelo("Hola", nil, nil))
+	num := numeroCliente()
+	x.texto(num, "wamid.pr1", "Hola")
+	conv := cid(x.conv(num))
+	// 1. Pasar la conversación a otra empresa vence la sugerencia en la misma transacción.
+	p := x.api(x.supervisor, http.MethodPost, "/conversaciones/"+conv+"/sugerencias", nil)
+	x.exigir(p, http.StatusAccepted)
+	d := x.api(x.supervisor, http.MethodGet, "/conversaciones/"+conv, nil)
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/conversaciones/"+conv+"/pasar-empresa", map[string]any{"version": d.cuerpo["version"], "empresaId": 2}),
+		http.StatusOK)
+	if n := x.contar(`SELECT count(*) FROM mensajeria.sugerencias WHERE id = $1 AND estado = 'vencida'`, p.cuerpo["id"]); n != 1 {
+		t.Fatal("pasar a otra empresa no venció la sugerencia")
+	}
+	if err := x.m.GenerarSugerencia(x.ctx, uuid.MustParse(p.cuerpo["id"].(string))); err != nil || x.ia.pedidos() != 0 {
+		t.Fatalf("generó una vencida: %v %d", err, x.ia.pedidos())
+	}
+	x.exigir(x.api(sup2, http.MethodGet, "/conversaciones/"+conv+"/sugerencias/actual", nil), http.StatusNotFound)
+	x.exigir(x.api(sup2, http.MethodPost, "/sugerencias/"+p.cuerpo["id"].(string)+"/usar", nil), http.StatusNotFound)
+	// 2. Cambia de empresa antes de preparar: no se ve en la nueva y queda vencida sin proveedor.
+	otro := numeroCliente()
+	x.texto(otro, "wamid.pr2", "Hola")
+	conv2 := cid(x.conv(otro))
+	p = x.api(x.supervisor, http.MethodPost, "/conversaciones/"+conv2+"/sugerencias", nil)
+	x.exigir(p, http.StatusAccepted)
+	if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.conversaciones SET empresa_id = 2 WHERE id = $1`, conv2); err != nil {
+		t.Fatal(err)
+	}
+	x.exigir(x.api(sup2, http.MethodGet, "/conversaciones/"+conv2+"/sugerencias/actual", nil), http.StatusNotFound)
+	if err := x.m.GenerarSugerencia(x.ctx, uuid.MustParse(p.cuerpo["id"].(string))); err != nil || x.ia.pedidos() != 0 {
+		t.Fatalf("preparar con otra empresa: %v %d", err, x.ia.pedidos())
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.sugerencias WHERE id = $1 AND estado = 'vencida'`, p.cuerpo["id"]); n != 1 {
+		t.Fatal("no quedó vencida")
+	}
+	// 3. Cambia mientras el modelo responde: vencida y sin cobrar uso a nadie.
+	tercero := numeroCliente()
+	x.texto(tercero, "wamid.pr3", "Hola")
+	conv3 := cid(x.conv(tercero))
+	*x.reloj = x.reloj.Add(7 * time.Second)
+	p = x.api(x.supervisor, http.MethodPost, "/conversaciones/"+conv3+"/sugerencias", nil)
+	x.exigir(p, http.StatusAccepted)
+	x.ia.mu.Lock()
+	x.ia.alPedir = func() {
+		if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.conversaciones SET empresa_id = 2 WHERE id = $1`, conv3); err != nil {
+			t.Error(err)
+		}
+	}
+	x.ia.mu.Unlock()
+	if err := x.m.GenerarSugerencia(x.ctx, uuid.MustParse(p.cuerpo["id"].(string))); err != nil || x.ia.pedidos() != 1 {
+		t.Fatalf("guardar con otra empresa: %v %d", err, x.ia.pedidos())
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.sugerencias WHERE id = $1 AND estado = 'vencida' AND texto IS NULL`, p.cuerpo["id"]); n != 1 {
+		t.Fatal("no quedó vencida al guardar")
+	}
+	if n := x.contar(`SELECT coalesce(sum(tokens_entrada + tokens_salida + tokens_reservados), 0)::int FROM mensajeria.asistente_uso`); n != 0 {
+		t.Fatalf("se cobró uso: %d", n)
 	}
 }

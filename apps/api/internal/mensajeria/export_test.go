@@ -95,6 +95,10 @@ func (m *Modulo) PurgarRegistrosQR(ctx context.Context, bd nucleo.BD) error {
 
 // Asistente de IA (§16).
 
-func ValidarURLIA(u string) error { return validarURLIA(u) }
+func ValidarURLIA(u string, loopback, conClave bool) error {
+	return validarURLIA(u, loopback, conClave)
+}
 
-func IPPermitidaIA(ip string) bool { return ipPermitidaIA(netip.MustParseAddr(ip)) }
+func IPPermitidaIA(ip string, loopback bool) bool {
+	return ipPermitidaIA(netip.MustParseAddr(ip), loopback)
+}

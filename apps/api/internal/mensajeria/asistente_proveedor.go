@@ -96,6 +96,8 @@ type ConfigProveedor struct {
 	URL       string
 	Clave     string
 	Modelo    string
+	// PermitirLoopback: IRIS_ASISTENTE_PERMITIR_LOOPBACK (Ollama en el mismo host).
+	PermitirLoopback bool
 }
 
 // FabricaProveedor arma el proveedor de una configuración (pruebas: uno falso).
@@ -109,13 +111,13 @@ func NuevoProveedor(cfg ConfigProveedor, cliente *http.Client) (Proveedor, error
 		if err != nil {
 			return nil, err
 		}
+		if err := validarURLIA(base, cfg.PermitirLoopback, cfg.Clave != ""); err != nil {
+			return nil, err
+		}
 		return &proveedorOpenAI{base: base, clave: cfg.Clave, http: cliente}, nil
 	case ProveedorAnthropic:
-		u := strings.TrimRight(strings.TrimSpace(cfg.URL), "/")
-		if u == "" {
-			u = AnthropicURLPorDefecto
-		}
-		if err := validarURLIA(u); err != nil {
+		u := NormalizarURLIA(cfg.Proveedor, cfg.URL)
+		if err := validarURLIA(u, cfg.PermitirLoopback, cfg.Clave != ""); err != nil {
 			return nil, err
 		}
 		cli := anthropic.NewClient(option.WithoutEnvironmentDefaults(), option.WithBaseURL(u+"/"), option.WithAPIKey(cfg.Clave),
@@ -125,98 +127,165 @@ func NuevoProveedor(cfg ConfigProveedor, cliente *http.Client) (Proveedor, error
 	return nil, &ErrorIA{Codigo: ErrIASinConfig, Detalle: "Proveedor desconocido"}
 }
 
+// NormalizarURLIA: sin espacios ni barra final; compatible con OpenAI sin /v1 (se agrega al
+// llamar); Anthropic vacía = la oficial. Es la forma con que se compara si la URL cambió.
+func NormalizarURLIA(proveedor, crudo string) string {
+	u := strings.TrimRight(strings.TrimSpace(crudo), "/")
+	switch proveedor {
+	case ProveedorAnthropic:
+		if u == "" {
+			return AnthropicURLPorDefecto
+		}
+	case ProveedorOllama, ProveedorOpenAICompatible:
+		u = strings.TrimSuffix(u, "/v1")
+	}
+	return u
+}
+
 // baseOpenAI normaliza la URL base: sin barra final y sin /v1 (se agrega al llamar).
 func baseOpenAI(crudo string) (string, error) {
-	u := strings.TrimRight(strings.TrimSpace(crudo), "/")
+	u := NormalizarURLIA(ProveedorOpenAICompatible, crudo)
 	if u == "" {
 		return "", &ErrorIA{Codigo: ErrIASinConfig, Detalle: "Falta la URL del servidor de IA"}
 	}
-	if err := validarURLIA(u); err != nil {
-		return "", err
-	}
-	return strings.TrimSuffix(u, "/v1"), nil
+	return u, nil
 }
 
 // URL y red ------------------------------------------------------------------------------------
 
-// validarURLIA: http/https, con host, sin usuario ni contraseña. Las IP se revisan al conectar.
-func validarURLIA(crudo string) error {
+// ErrIAURL es el código de una URL rechazada.
+const ErrIAURL = "url_no_permitida"
+
+// ErrIARedirige: el proveedor respondió con una redirección (no se siguen).
+const ErrIARedirige = "proveedor_redirige"
+
+func esLocalhost(host string) bool {
+	return host == "localhost" || strings.HasSuffix(host, ".localhost")
+}
+
+// validarURLIA: http/https, con host, sin usuario ni contraseña ni parámetros; una IP literal debe
+// estar permitida y, con clave, https (salvo IP privada o loopback permitido). Las IP de un nombre
+// se revisan al conectar (controlIA).
+func validarURLIA(crudo string, loopback, conClave bool) error {
 	u, err := url.Parse(crudo)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Hostname() == "" {
-		return &ErrorIA{Codigo: "url_no_permitida", Detalle: "La URL debe ser http:// o https:// con un servidor"}
+		return &ErrorIA{Codigo: ErrIAURL, Detalle: "La URL debe ser http:// o https:// con un servidor"}
 	}
 	if u.User != nil {
-		return &ErrorIA{Codigo: "url_no_permitida", Detalle: "La URL no puede llevar usuario ni contraseña (la clave va aparte)"}
+		return &ErrorIA{Codigo: ErrIAURL, Detalle: "La URL no puede llevar usuario ni contraseña (la clave va aparte)"}
 	}
-	if u.RawQuery != "" || u.Fragment != "" {
-		return &ErrorIA{Codigo: "url_no_permitida", Detalle: "La URL base no lleva parámetros"}
+	if u.RawQuery != "" || u.Fragment != "" || u.ForceQuery {
+		return &ErrorIA{Codigo: ErrIAURL, Detalle: "La URL base no lleva parámetros"}
 	}
-	if ip, err := netip.ParseAddr(strings.Trim(u.Hostname(), "[]")); err == nil && !ipPermitidaIA(ip) {
-		return &ErrorIA{Codigo: "url_no_permitida", Detalle: "Esa dirección no se permite (link-local o metadata de la nube)"}
+	host := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
+	ip, errIP := netip.ParseAddr(host)
+	if errIP == nil && !ipPermitidaIA(ip, loopback) {
+		return &ErrorIA{Codigo: ErrIAURL, Detalle: "Esa dirección no se permite (loopback, link-local o metadata de la nube)"}
 	}
-	if h := strings.ToLower(u.Hostname()); h == "metadata.google.internal" || strings.HasSuffix(h, ".metadata.google.internal") {
-		return &ErrorIA{Codigo: "url_no_permitida", Detalle: "Esa dirección no se permite (metadata de la nube)"}
+	if esLocalhost(host) && !loopback {
+		return &ErrorIA{Codigo: ErrIAURL, Detalle: "Esa dirección no se permite (loopback); se activa con IRIS_ASISTENTE_PERMITIR_LOOPBACK"}
+	}
+	if host == "metadata" || host == "metadata.google.internal" || strings.HasSuffix(host, ".metadata.google.internal") {
+		return &ErrorIA{Codigo: ErrIAURL, Detalle: "Esa dirección no se permite (metadata de la nube)"}
+	}
+	if conClave && u.Scheme == "http" {
+		local := errIP == nil && (ip.Unmap().IsPrivate() || (loopback && ip.Unmap().IsLoopback()))
+		if !local && (!loopback || !esLocalhost(host)) {
+			return &ErrorIA{Codigo: ErrIAURL, Detalle: "Con clave, la URL debe ser https:// (http solo con una IP privada)"}
+		}
 	}
 	return nil
 }
 
-var metadataIA = []netip.Prefix{
+var bloqueadasIA = []netip.Prefix{
 	netip.MustParsePrefix("169.254.0.0/16"),     // link-local (metadata de AWS, GCP, Azure)
 	netip.MustParsePrefix("fe80::/10"),          // link-local IPv6
 	netip.MustParsePrefix("fd00:ec2::254/128"),  // metadata de AWS por IPv6
 	netip.MustParsePrefix("100.100.100.200/32"), // metadata de Alibaba
+	netip.MustParsePrefix("168.63.129.16/32"),   // Azure (WireServer)
+	netip.MustParsePrefix("64:ff9b::/96"),       // NAT64
+	netip.MustParsePrefix("64:ff9b:1::/48"),     // NAT64 local
+	netip.MustParsePrefix("2001::/32"),          // Teredo (IPv4 embebida)
+	netip.MustParsePrefix("::/96"),              // IPv4-compatible (obsoleta)
 }
 
-// ipPermitidaIA: las IP privadas y de la LAN sí (Ollama suele estar ahí); link-local, metadata,
-// sin especificar y multicast no.
-func ipPermitidaIA(ip netip.Addr) bool {
-	ip = ip.Unmap()
-	if !ip.IsValid() || ip.IsUnspecified() || ip.IsMulticast() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() {
+var seisAcuatro = netip.MustParsePrefix("2002::/16")
+
+// ipPermitidaIA: las IP privadas y de la LAN sí (Ollama suele estar ahí); loopback solo con
+// IRIS_ASISTENTE_PERMITIR_LOOPBACK; link-local, metadata, NAT64, Teredo, IPv4-compatible, 6to4 con
+// una IPv4 no permitida, sin especificar y multicast no.
+func ipPermitidaIA(ip netip.Addr, loopback bool) bool {
+	if !ip.IsValid() {
 		return false
 	}
-	for _, p := range metadataIA {
+	ip = ip.Unmap()
+	if ip.IsLoopback() {
+		return loopback
+	}
+	if ip.IsUnspecified() || ip.IsMulticast() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() {
+		return false
+	}
+	for _, p := range bloqueadasIA {
 		if p.Contains(ip) {
 			return false
 		}
 	}
+	if seisAcuatro.Contains(ip) {
+		b := ip.As16()
+		return ipPermitidaIA(netip.AddrFrom4([4]byte{b[2], b[3], b[4], b[5]}), false)
+	}
 	return true
 }
 
-// controlIA revisa la IP ya resuelta en cada conexión (también tras una redirección o un DNS que
-// cambia): así un nombre que apunta a la metadata no pasa.
-func controlIA(_, direccion string, _ syscall.RawConn) error {
-	host, _, err := net.SplitHostPort(direccion)
-	if err != nil {
-		return err
+// controlIA revisa la IP ya resuelta en cada conexión (también si el DNS cambia): así un nombre
+// que apunta a la metadata o a loopback no pasa.
+func controlIA(loopback bool) func(_, direccion string, _ syscall.RawConn) error {
+	return func(_, direccion string, _ syscall.RawConn) error {
+		host, _, err := net.SplitHostPort(direccion)
+		if err != nil {
+			return err
+		}
+		ip, err := netip.ParseAddr(host)
+		if err != nil || !ipPermitidaIA(ip, loopback) {
+			return errDestinoIA
+		}
+		return nil
 	}
-	ip, err := netip.ParseAddr(host)
-	if err != nil || !ipPermitidaIA(ip) {
-		return errDestinoIA
-	}
-	return nil
 }
 
-var errDestinoIA = errors.New("destino no permitido para el asistente")
+var (
+	errDestinoIA     = errors.New("destino no permitido para el asistente")
+	errRedireccionIA = errors.New("el proveedor respondió con una redirección")
+)
 
-// MaxRedireccionesIA que se siguen (cada una revisada).
-const MaxRedireccionesIA = 3
+// sinRedirecciones convierte cualquier 3xx en error antes de que el cliente (o el SDK) lo vea: no
+// se sigue ninguna redirección.
+type sinRedirecciones struct{ base http.RoundTripper }
+
+func (s sinRedirecciones) RoundTrip(r *http.Request) (*http.Response, error) {
+	resp, err := s.base.RoundTrip(r)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 300 && resp.StatusCode <= 399 {
+		_ = resp.Body.Close()
+		return nil, errRedireccionIA
+	}
+	return resp, nil
+}
 
 // NuevoHTTPIA es el cliente hacia el proveedor: sin proxy (para que la revisión de la IP valga),
-// conexión en 10 s, sin keep-alive y hasta 3 redirecciones http/https.
-func NuevoHTTPIA(timeout time.Duration) *http.Client {
-	d := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second, Control: controlIA}
+// conexión en 10 s, sin keep-alive y sin seguir redirecciones (un 3xx es proveedor_redirige).
+func NuevoHTTPIA(timeout time.Duration, loopback bool) *http.Client {
+	d := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second, Control: controlIA(loopback)}
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.Proxy = nil
 	t.DialContext = d.DialContext
 	t.ResponseHeaderTimeout = timeout
 	// Un cliente por llamada: sin conexiones ociosas que queden abiertas.
 	t.DisableKeepAlives = true
-	return &http.Client{Transport: t, Timeout: timeout, CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		if len(via) > MaxRedireccionesIA {
-			return errors.New("demasiadas redirecciones")
-		}
-		return validarURLIA(req.URL.Scheme + "://" + req.URL.Host)
-	}}
+	return &http.Client{Transport: sinRedirecciones{base: t}, Timeout: timeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 }
 
 // clasificarErrorRed traduce una falla de red a un ErrorIA (sin la URL ni secretos).
@@ -226,7 +295,10 @@ func clasificarErrorRed(err error) error {
 		return e
 	}
 	if errors.Is(err, errDestinoIA) {
-		return &ErrorIA{Codigo: "url_no_permitida", Detalle: "El servidor resolvió a una dirección no permitida (link-local o metadata)"}
+		return &ErrorIA{Codigo: ErrIAURL, Detalle: "El servidor resolvió a una dirección no permitida (loopback, link-local o metadata)"}
+	}
+	if errors.Is(err, errRedireccionIA) {
+		return &ErrorIA{Codigo: ErrIARedirige, Detalle: "El servidor respondió con una redirección; usa la URL final"}
 	}
 	var ne net.Error
 	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout()) {
@@ -240,6 +312,8 @@ func clasificarErrorRed(err error) error {
 
 func errorPorStatus(status int) *ErrorIA {
 	switch {
+	case status >= 300 && status <= 399:
+		return &ErrorIA{Codigo: ErrIARedirige, Detalle: "El servidor respondió con una redirección; usa la URL final"}
 	case status == http.StatusUnauthorized || status == http.StatusForbidden:
 		return &ErrorIA{Codigo: ErrIAClave, Detalle: fmt.Sprintf("La clave no es válida o no tiene permiso (%d)", status)}
 	case status == http.StatusNotFound:
@@ -365,27 +439,31 @@ func (p *proveedorAnthropic) Generar(ctx context.Context, in PedidoIA) (Respuest
 		modelo = AnthropicModeloPorDefecto
 	}
 	// Sin temperature ni top_p (los modelos actuales los rechazan). Las instrucciones fijas van en
-	// system con un punto de caché: se repiten igual en cada pedido.
-	r, err := p.cli.Messages.New(ctx, anthropic.MessageNewParams{
+	// system con un punto de caché: se repiten igual en cada pedido. Con el respaldo del lado del
+	// servidor (fallbacks: "default"): si el modelo declina, la API reintenta en el modelo de
+	// respaldo dentro de la misma llamada; si ese también declina, es rechazo_modelo.
+	r, err := p.cli.Beta.Messages.New(ctx, anthropic.BetaMessageNewParams{
 		Model:     modelo,
 		MaxTokens: in.MaxTokens,
-		System:    []anthropic.TextBlockParam{{Text: in.Instrucciones, CacheControl: anthropic.NewCacheControlEphemeralParam()}},
-		Messages:  []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(in.Contenido))},
+		System:    []anthropic.BetaTextBlockParam{{Text: in.Instrucciones, CacheControl: anthropic.NewBetaCacheControlEphemeralParam()}},
+		Messages:  []anthropic.BetaMessageParam{anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(in.Contenido))},
+		Betas:     []anthropic.AnthropicBeta{anthropic.AnthropicBetaServerSideFallback2026_07_01},
+		Fallbacks: anthropic.BetaFallbacksParamOfDefault(),
 	})
 	if err != nil {
 		return RespuestaIA{}, UsoIA{}, errorAnthropic(err)
 	}
 	uso := UsoIA{Entrada: r.Usage.InputTokens + r.Usage.CacheCreationInputTokens + r.Usage.CacheReadInputTokens, Salida: r.Usage.OutputTokens}
-	if r.StopReason == anthropic.StopReasonRefusal {
+	if r.StopReason == anthropic.BetaStopReasonRefusal {
 		return RespuestaIA{Rechazo: true}, uso, nil
 	}
 	var b strings.Builder
 	for _, bloque := range r.Content {
-		if t, ok := bloque.AsAny().(anthropic.TextBlock); ok {
+		if t, ok := bloque.AsAny().(anthropic.BetaTextBlock); ok {
 			b.WriteString(t.Text)
 		}
 	}
-	return RespuestaIA{Texto: b.String(), Truncada: r.StopReason == anthropic.StopReasonMaxTokens}, uso, nil
+	return RespuestaIA{Texto: b.String(), Truncada: r.StopReason == anthropic.BetaStopReasonMaxTokens}, uso, nil
 }
 
 func (p *proveedorAnthropic) Modelos(ctx context.Context) ([]ModeloIA, error) {
