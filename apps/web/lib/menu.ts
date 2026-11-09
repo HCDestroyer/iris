@@ -1,4 +1,5 @@
 import type { Schema } from "@iris/contratos";
+import { PERMISO_CONFIGURAR_ASISTENTE } from "./asistente/permisos";
 import {
     CalendarDays,
     ChartColumn,
@@ -128,6 +129,7 @@ export const MENU: readonly EntradaMenu[] = [
             "conversaciones.configurar",
             "canales.configurar",
             "manuales.ver",
+            PERMISO_CONFIGURAR_ASISTENTE,
         ],
     },
 ];

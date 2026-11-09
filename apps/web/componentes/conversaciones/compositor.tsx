@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AreaTexto, Aviso, Boton, CampoBusqueda, Casilla, cn, GrupoSegmentado, PanelEmergente, SelectorArchivo } from "@iris/ui";
 import { AtSign, BookOpen, Clock, Send, Smile, X, Zap } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { api, resolver } from "@/lib/api/cliente";
@@ -40,11 +40,15 @@ type Props = {
     abrirAyuda: () => void;
     registrarReintento: (f: (p: Pendiente) => void) => void;
     registrarUsarTexto: (f: (t: string) => void) => void;
+    /** «Usar» del asistente (§16.2): el texto a la caja y, al enviar, `sugerenciaId`. */
+    registrarUsarSugerencia?: (f: (texto: string, sugerenciaId: string) => void) => void;
+    /** Junto a «Enviar» en Responder: «Sugerir» del asistente (modo `boton`). */
+    accesorio?: ReactNode;
 };
 
 const EMOJIS = ["👍", "🙏", "😊", "🙂", "👋", "✅", "📶", "🔧", "📅", "⏰", "📍", "💳", "🧾", "⚠️", "❗", "🎉"];
 
-type Envio = { id: string; modo: Modo; texto: string; menciones: number[]; respuestaRapidaId: number | null; adjuntoId: string | null };
+type Envio = { id: string; modo: Modo; texto: string; menciones: number[]; respuestaRapidaId: number | null; adjuntoId: string | null; sugerenciaId?: string | null };
 
 /**
  * Compositor único (diseño del PM): pestañas Responder / Nota interna, tiempo que queda de la
@@ -55,13 +59,15 @@ type Envio = { id: string; modo: Modo; texto: string; menciones: number[]; respu
  * Antes de guardar un borrador o de enviar, se comprueba con `GET /yo` que la sesión del navegador
  * sigue siendo la de quien está en pantalla: si cambió, nada sale (ver `lib/conversaciones/sesion`).
  */
-export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, alReenvio, alActualizar, recargar, abrirAyuda, registrarReintento, registrarUsarTexto }: Props) {
+export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, alReenvio, alActualizar, recargar, abrirAyuda, registrarReintento, registrarUsarTexto, registrarUsarSugerencia, accesorio }: Props) {
     const { puede } = useSesion();
     const { respuestas, agentes } = useCatalogos();
     const [modo, setModo] = useState<Modo>("responder");
     const form = useForm({ resolver: zodResolver(esquemaMensaje), defaultValues: { texto: "" } });
     const texto = useWatch({ control: form.control, name: "texto" });
     const [respuestaId, setRespuestaId] = useState<number | null>(null);
+    // Sugerencia del asistente que se pasó a la caja: viaja con el envío (aunque se edite).
+    const [sugerenciaId, setSugerenciaId] = useState<string | null>(null);
     const [menciones, setMenciones] = useState<number[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [subiendo, setSubiendo] = useState<string | null>(null);
@@ -115,6 +121,7 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                                   ...(e.texto ? { texto: e.texto } : {}),
                                   ...(e.adjuntoId ? { adjuntoId: e.adjuntoId } : {}),
                                   ...(e.respuestaRapidaId ? { respuestaRapidaId: e.respuestaRapidaId } : {}),
+                                  ...(e.sugerenciaId ? { sugerenciaId: e.sugerenciaId } : {}),
                               },
                           }),
                       );
@@ -122,6 +129,14 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
             if (m) alConfirmado(m);
             else alReenvio();
         } catch (err) {
+            // La sugerencia venció entre «Usar» y «Enviar»: el mensaje sale igual, sin ella.
+            if (err instanceof ErrorApi && err.codigo === "sugerencia_no_vigente" && e.sugerenciaId) {
+                const sin: Envio = { ...e, id: idTrasError(err, e.id), sugerenciaId: null };
+                envios.current.delete(e.id);
+                envios.current.set(sin.id, sin);
+                alPendiente({ ...pendiente, id: sin.id }, e.id);
+                return mandar(sin);
+            }
             const definitivo = esEnOtraEmpresa(err);
             const texto = esSesionCambiada(err)
                 ? "La sesión de este navegador cambió: no se envió"
@@ -159,6 +174,13 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
             form.setValue("texto", actual ? `${actual}\n\n${t}` : t, { shouldDirty: true });
             campo.current?.focus();
         });
+        registrarUsarSugerencia?.((t, id) => {
+            setModo("responder");
+            const actual = form.getValues("texto").trim();
+            form.setValue("texto", actual ? `${actual}\n\n${t}` : t, { shouldDirty: true });
+            setSugerenciaId(id);
+            campo.current?.focus();
+        });
     });
 
     function enviar() {
@@ -168,11 +190,20 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
             form.setError("texto", { message: "Hasta 4096 caracteres (límite de WhatsApp)." });
             return;
         }
-        const e: Envio = { id: nuevoIdMensaje(), modo, texto: limpio, menciones: modo === "nota" ? menciones : [], respuestaRapidaId: modo === "responder" ? respuestaId : null, adjuntoId: null };
+        const e: Envio = {
+            id: nuevoIdMensaje(),
+            modo,
+            texto: limpio,
+            menciones: modo === "nota" ? menciones : [],
+            respuestaRapidaId: modo === "responder" ? respuestaId : null,
+            adjuntoId: null,
+            sugerenciaId: modo === "responder" ? sugerenciaId : null,
+        };
         envios.current.set(e.id, e);
         form.reset({ texto: "" });
         guardarBorrador(identidad, conv.id, modo, "");
         setRespuestaId(null);
+        setSugerenciaId(null);
         setMenciones([]);
         setError(null);
         void mandar(e);
@@ -222,7 +253,8 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
     );
     const candidatos = agentes.estado === "listo" ? agentesDeCola(agentes.datos, conv.cola?.id).filter((a) => a.id !== identidad.usuarioId) : [];
     const soloPlantilla = modo === "responder" && cerrada;
-    const { ref: refCampo, ...registro } = form.register("texto");
+    // Borrar todo el texto suelta la sugerencia: lo que se escriba después ya no sale de ella.
+    const { ref: refCampo, ...registro } = form.register("texto", { onChange: (e: { target: { value: string } }) => !e.target.value.trim() && setSugerenciaId(null) });
 
     return (
         <div className="shrink-0 px-3 pt-2 pb-3 @min-[700px]/conv:px-3.5">
@@ -321,6 +353,7 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                             ) : null}
                             {soloPlantilla ? null : <SelectorPlantilla conv={conv} identidad={identidad} alEnviado={alConfirmado} alReenvio={alReenvio} alActualizar={alActualizar} />}
                             {cerrada ? null : <MenuRespuestas respuestas={deLaCola} alElegir={usarRespuesta} />}
+                            {cerrada ? null : accesorio}
                         </>
                     ) : (
                         <MenuMenciones candidatos={candidatos} elegidos={menciones} alCambiar={setMenciones} />

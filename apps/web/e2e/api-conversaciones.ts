@@ -1,6 +1,7 @@
 import type { Schema } from "@iris/contratos";
 import type { Route } from "@playwright/test";
 import { agentesBandeja11, bandeja11, canalesBandeja11, colasBandeja11, PERMISOS_BANDEJA11, type ColaBase, type NumeroBase, type OpcionesBandeja11 } from "./api-bandeja11";
+import { apiAsistente, PERMISO_SUGERENCIAS, type OpcionesAsistente } from "./api-asistente";
 import { ANDREA, CANAL_AVISOS, CANAL_COBROS, CANAL_SOPORTE, CANAL_VENTAS, CONVERSACIONES, detalle, mensajesDe } from "./datos-conversaciones";
 
 /*
@@ -38,11 +39,14 @@ export const PERMISOS_CONVERSACIONES: Permiso[] = [
     "manuales.editar",
     "manuales.revocar_enlace",
     ...PERMISOS_BANDEJA11,
+    PERMISO_SUGERENCIAS,
 ];
 
 export type OpcionesConversaciones = OpcionesBandeja11 & {
     /** `/eventos` responde 503: el panel trabaja con el sondeo. */
     sinFlujo?: boolean;
+    /** Asistente de IA (§16, e2e/api-asistente.ts). */
+    asistente?: OpcionesAsistente;
 };
 
 const BASE = "/api/v1/mensajeria";
@@ -63,6 +67,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
     const etiquetas: Schema<"EtiquetaConversacion">[] = [
         { id: 3, nombre: "Sin servicio", color: "peligro", activa: true, version: 1 },
         { id: 5, nombre: "Empresarial", color: "info", activa: true, version: 1 },
+        { id: 6, nombre: "Falla masiva", color: "alerta", activa: true, version: 1 },
     ];
     // Fase 1.1: con disponibilidad, conversaciones abiertas y colas que supervisa (§14.1, §14.5).
     const agentes = agentesBandeja11();
@@ -166,6 +171,18 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         eventos.push({ id: String(cursor), tipo: "conversacion_actualizada", ...base, conversacion: structuredClone(c) });
     }
 
+    const asistente = apiAsistente(
+        {
+            conversaciones,
+            enviados,
+            emitir: (sug) => {
+                cursor += 1;
+                const c = conversaciones.find((x) => x.id === sug.conversacionId);
+                eventos.push({ id: String(cursor), tipo: "sugerencia", conversacionId: sug.conversacionId, ocurridoEn: new Date().toISOString(), noLeidos: c?.noLeidos ?? 0, sugerencia: sug });
+            },
+        },
+        opciones.asistente,
+    );
     const b11 = bandeja11({ actorId, conversaciones, mensajes, agentes, colas, canales, emitir, enviados }, opciones);
 
     function filtrar(q: URLSearchParams): Conversacion[] {
@@ -234,6 +251,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         c.ultimoMensaje = { direccion: "entrante", tipo: "texto", texto, evento: null, creadoEn: m.creadoEn, automatico: null };
         c.ultimaActividad = m.creadoEn;
         emitir("mensaje_nuevo", c, m);
+        asistente.alMensajeCliente(id);
     }
 
     async function manejar(x: { route: Route; metodo: string; ruta: string; query: URLSearchParams; cuerpo: unknown; idempotencia: string | undefined; puede: (p: Permiso) => boolean }): Promise<boolean> {
@@ -241,6 +259,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         const cuerpo = (x.cuerpo ?? {}) as Record<string, unknown>;
         const prohibido = () => problema(route, P("permiso_denegado", 403, "Sin permiso"));
         if (await b11.manejar({ ...x, cuerpo })) return true;
+        if (await asistente.manejar({ ...x, cuerpo })) return true;
         if (await administrar(x.route, metodo, ruta, query, cuerpo, puede)) return true;
         if (!ruta.startsWith(`${BASE}/conversaciones`) && !ruta.startsWith(`${BASE}/contactos-iris/`) && ![`${BASE}/colas`, `${BASE}/etiquetas`, `${BASE}/respuestas-rapidas`].includes(ruta)) return false;
         if (!puede("conversaciones.ver")) return (await prohibido(), true);
@@ -409,6 +428,10 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                 const previo = mensajes.get(c.id)?.find((x) => x.id === id);
                 if (previo) return (await json(route, previo), true);
                 if (accion === "mensajes" && !cuerpo.plantilla && !c.ventana.abierta) return (await problema(route, P("fuera_de_ventana", 422, "La ventana de 24 h está cerrada")), true);
+                if (accion === "mensajes") {
+                    const p = asistente.alResponder(c.id, cuerpo.sugerenciaId);
+                    if (p) return (await problema(route, p), true);
+                }
                 seq += 1;
                 const nuevo: Mensaje = {
                     id,
@@ -535,7 +558,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         return false;
     }
 
-    return { manejar, conversaciones, mensajes, enviados, mensajeDelCliente, horarios, manuales, canales, configurados, respuestas, enlaces, consentimientos, colas, agentes, bandeja11: b11 };
+    return { manejar, conversaciones, mensajes, enviados, mensajeDelCliente, horarios, manuales, canales, configurados, respuestas, enlaces, consentimientos, colas, agentes, bandeja11: b11, asistente };
 }
 
 export type ApiConversaciones = ReturnType<typeof apiConversaciones>;

@@ -419,6 +419,49 @@ Diseño aprobado por el PM («Conexión con Meta», contrato §15):
   lectura». Al iniciar, un contacto con conversación abierta en otra empresa del número sale
   deshabilitado: «La atiende otra empresa que usa este número».
 
+## Asistente de IA (nov. 2026)
+
+Diseño aprobado por el PM («Asistente de IA», contrato `conversaciones.md` §16). **El asistente nunca
+envía:** sugiere y la persona revisa y envía.
+
+- **Tarjeta «Sugerencia del asistente»** encima del compositor, en escritorio y teléfono: icono
+  `Sparkles`, solo teal (sin morados), fondo de marca al 6 % sobre la tarjeta y borde de marca al
+  30 %. Lleva el texto, las fuentes como chips con icono + texto (Horus `WifiOff` en rojo, Argos
+  `CircleCheck` en verde, manual `BookOpen`, historial `History`), «Usar» (primaria), «Otra» y, si
+  viene, «Etiquetar «X»»; arriba a la derecha 👍/👎 (`ThumbsUp`/`ThumbsDown`, `aria-pressed`) y
+  ocultar (`X`). Nota fija: «Solo la ves tú. «Usar» la pasa a tu caja de texto: la revisas y la
+  envías tú.»
+- **Estados:** `generando` (esqueleto de dos líneas, «Preparando sugerencia…»), `lista`, `error`
+  (texto del servidor + «Reintentar», salvo tope y sin configurar, que solo explican). Una vencida,
+  usada o descartada desaparece; en modo automático la nueva llega por el feed.
+- **No tapa el hilo:** la cabecera de la tarjeta la pliega (`aria-expanded`) y el cuerpo se desplaza
+  dentro (máx. 38 dvh), así en 390 px con el teclado abierto se sigue viendo el último mensaje. En el
+  teléfono «Usar» y «Otra» van a medias y «Etiquetar» a lo ancho.
+- **Modo botón:** «Sugerir» (`Sparkles`, fantasma en teal) junto a «Enviar» en lugar de la tarjeta.
+  En pausa por el tope, una línea discreta y ningún botón.
+- **Ficha del cliente:** «Resumen del asistente» arriba de Resumen, a pedido («Resumir»), con
+  `Cargando` «Generando resumen…» y error con «Reintentar».
+- **Administración › Asistente de IA** (`/administracion/asistente`): `FormularioPagina` con proveedor
+  en `ListaEleccion` («Recomendado» en Ollama), clave como en las credenciales de números
+  (`SecretoCambiable` con `femenino`: «•••• guardada el …»), modelo en `CampoSelector` con «Escribir
+  otro modelo» (y a mano si la lista falla), «Probar conexión» con el resultado en una línea (icono +
+  texto + color), `Aviso` informativo de privacidad con un proveedor en la nube, «Nunca» con `Ban` en
+  rojo y el uso del mes con barra (`role="progressbar"`) que pasa a naranja al 80 % y a rojo en pausa.
+- **Clave que no viaja (revisión de seguridad):** con una clave guardada, cambiar el proveedor o la
+  dirección abre «Cambiar» solo y dice «Con otro proveedor u otra dirección hay que escribir la clave
+  de nuevo» (en Ollama, «… o quitarla», con «Quitar clave», que manda `clave: ""`). Si el servidor
+  responde 422 `clave_requerida` con el campo oculto, primero lo abre y después marca el error. El
+  `detail` de 422 `url_no_permitida` va en «Dirección».
+- **Modelos:** la lista de lo guardado se lee al abrir (`GET`); otra dirección o clave se consulta por
+  `POST` al salir de «Dirección» o con «Cargar modelos», nunca con cada tecla. Si falla, dice por qué
+  (el `detail` del servidor) con «Volver a cargar los modelos» y deja escribirlo a mano.
+- **Demasiados pedidos (429):** la sugerencia y el resumen dicen «Demasiados pedidos. Vuelve a
+  intentar en N s» (`Retry-After`) con la cuenta regresiva y «Reintentar» deshabilitado hasta
+  entonces (`componentes/conversaciones/error-asistente.tsx`); «Reintentar» repite el mismo pedido
+  («Otra» o «Sugerir»). Tras pasar la conversación a otra empresa, el 404 de la sugerencia es «sin
+  sugerencia»: la tarjeta se va sin error.
+- Pruebas: `e2e/asistente.spec.ts` (4 proyectos) y `lib/asistente/presentacion.test.ts`.
+
 ## Navegación del panel (fase 1, hecha)
 
 - **Barra lateral por grupos:**

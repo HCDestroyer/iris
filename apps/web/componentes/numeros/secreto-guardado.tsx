@@ -15,12 +15,15 @@ export function SecretoGuardado({
     accion,
     alAccion,
     ocupado = false,
+    femenino = false,
 }: {
     etiqueta: string;
     guardadoEn: string | null;
     accion: string;
     alAccion: () => void;
     ocupado?: boolean;
+    /** «guardada» (la clave) en vez de «guardado» (el token). */
+    femenino?: boolean;
 }) {
     const id = useId();
     return (
@@ -36,7 +39,7 @@ export function SecretoGuardado({
                 <Lock aria-hidden className="size-4 shrink-0" />
                 <span className="min-w-0 flex-1">
                     <span aria-hidden>•••• </span>
-                    {guardadoEn ? `guardado el ${fechaCorta(guardadoEn)}` : "guardado"}
+                    {`${femenino ? "guardada" : "guardado"}${guardadoEn ? ` el ${fechaCorta(guardadoEn)}` : ""}`}
                 </span>
                 <Boton variante="enlace" tamano="sm" className="h-auto shrink-0 px-0" onClick={alAccion} disabled={ocupado} aria-label={`${accion}: ${etiqueta.toLowerCase()}`}>
                     {ocupado ? `${accion}…` : accion}
@@ -51,14 +54,30 @@ export function SecretoGuardado({
  * «Vacío: se queda el guardado… No cambiar». Sin nada guardado (`guardadoEn` null y `abierto`),
  * solo el campo.
  */
-export function SecretoCambiable({ etiqueta, guardadoEn, abierto, abrir, cerrar, campo }: { etiqueta: string; guardadoEn: string | null; abierto: boolean; abrir: () => void; cerrar: () => void; campo: ReactNode }) {
-    if (!abierto) return <SecretoGuardado etiqueta={etiqueta} guardadoEn={guardadoEn} accion="Cambiar" alAccion={abrir} />;
+export function SecretoCambiable({
+    etiqueta,
+    guardadoEn,
+    abierto,
+    abrir,
+    cerrar,
+    campo,
+    femenino = false,
+}: {
+    etiqueta: string;
+    guardadoEn: string | null;
+    abierto: boolean;
+    abrir: () => void;
+    cerrar: () => void;
+    campo: ReactNode;
+    femenino?: boolean;
+}) {
+    if (!abierto) return <SecretoGuardado etiqueta={etiqueta} guardadoEn={guardadoEn} accion="Cambiar" alAccion={abrir} femenino={femenino} />;
     if (!guardadoEn) return <>{campo}</>;
     return (
         <div className="grid gap-1">
             {campo}
             <p className="text-sm text-muted-foreground">
-                Vacío: se queda el guardado el {fechaCorta(guardadoEn)}.{" "}
+                Vacío: se queda {femenino ? "la guardada" : "el guardado"} el {fechaCorta(guardadoEn)}.{" "}
                 <Boton variante="enlace" tamano="sm" className="h-auto px-0 align-baseline" onClick={cerrar} aria-label={`No cambiar ${etiqueta.toLowerCase()}`}>
                     No cambiar
                 </Boton>

@@ -3,6 +3,7 @@ import type { BrowserContext, Page, Route } from "@playwright/test";
 import { apiAgenda, type ApiAgenda } from "./api-agenda";
 import { simularChatPanel, type ApiChatPanel } from "./api-chat-panel";
 import { apiComercial, type ApiComercial } from "./api-comercial";
+import { PERMISO_CONFIGURAR } from "./api-asistente";
 import { apiConversaciones, PERMISOS_CONVERSACIONES, type ApiConversaciones, type OpcionesConversaciones } from "./api-conversaciones";
 import { apiEncuestas, type ApiEncuestas } from "./api-encuestas";
 import { apiMeta, type ApiMeta, type OpcionesMeta } from "./api-meta";
@@ -219,6 +220,7 @@ export const PERMISOS_ADMIN: Permiso[] = [
     "mensajeria.configurar",
     "mensajeria.conexion_meta",
     "adjuntos.subir",
+    PERMISO_CONFIGURAR,
 ];
 
 const permisosPorCorreo: Record<string, Permiso[]> = {
@@ -338,7 +340,7 @@ export type ApiFalsa = {
     /** Reportes: hacer que el próximo CSV responda 422 `exportacion_excedida`. */
     reportes: Pick<ApiReportes, "exportacionExcedida">;
     /** Bandeja de conversaciones: conversaciones, mensajes, lo enviado y mensajes del cliente. */
-    conversaciones: Pick<ApiConversaciones, "conversaciones" | "mensajes" | "enviados" | "mensajeDelCliente" | "horarios" | "manuales" | "canales" | "configurados" | "respuestas" | "colas" | "agentes" | "bandeja11">;
+    conversaciones: Pick<ApiConversaciones, "conversaciones" | "mensajes" | "enviados" | "mensajeDelCliente" | "horarios" | "manuales" | "canales" | "configurados" | "respuestas" | "colas" | "agentes" | "bandeja11" | "asistente">;
     /** Chat del equipo (solo con `chat: true`). */
     chat: ApiChatPanel | null;
     /** Números de WhatsApp: resultados de Meta, cuerpos recibidos y credenciales guardadas. */
