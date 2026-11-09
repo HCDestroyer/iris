@@ -16,9 +16,8 @@ const json = (route: Route, cuerpo: unknown, status = 200) => route.fulfill({ st
 const problema = (route: Route, p: Problema) => route.fulfill({ status: p.status, contentType: "application/problem+json", body: JSON.stringify(p) });
 const P = (codigo: string, status: number, title: string, extra: Partial<Problema> = {}): Problema => ({ type: `urn:iris:problema:${codigo}`, title, status, ...extra });
 
-// PROVISIONAL: los `as Permiso` se quitan al mergear agente/i1-asistente.
-export const PERMISO_SUGERENCIAS = "conversaciones.sugerencias" as Permiso;
-export const PERMISO_CONFIGURAR = "mensajeria.asistente_configurar" as Permiso;
+export const PERMISO_SUGERENCIAS: Permiso = "conversaciones.sugerencias";
+export const PERMISO_CONFIGURAR: Permiso = "mensajeria.asistente_configurar";
 
 export const TEXTO_SUGERIDO =
     "Buen día, don Carlos. Hay una falla en la red de su sector (Zona 4) desde las 7:40 a. m. y nuestro equipo ya está trabajando en ella. No necesita reiniciar su equipo. Le avisamos por aquí en cuanto se restablezca.";
@@ -108,7 +107,7 @@ export function apiAsistente(e: Contexto, opcionesDadas?: OpcionesAsistente) {
         e.emitir(structuredClone(s));
     }
 
-    const ERROR_PROVEEDOR = { codigo: "proveedor_no_responde", detalle: "El servidor de IA no respondió a tiempo" };
+    const ERROR_PROVEEDOR: Schema<"ErrorSugerencia"> = { codigo: "proveedor_no_responde", detalle: "El servidor de IA no respondió a tiempo" };
     const inicial = opciones.inicial === undefined ? "lista" : opciones.inicial;
     if (inicial === "lista") nueva(41, {});
     else if (inicial === "generando") nueva(41, { estado: "generando", texto: null, fuentes: [] });

@@ -269,6 +269,10 @@ test.describe("administración › asistente de IA", () => {
         const f = formulario(page);
         await expect(f.getByRole("group", { name: "Clave" })).toContainText("guardada el");
         await expect(f.getByText("Los mensajes salen hacia el proveedor")).toBeVisible();
+        await f.getByLabel("Dirección").fill("https://otro.example.com");
+        await expect(f.getByText("Con otro proveedor u otra dirección no se usa la clave guardada")).toBeVisible();
+        await f.getByLabel("Dirección").fill("");
+        await expect(f.getByText("Con otro proveedor u otra dirección no se usa la clave guardada")).toHaveCount(0);
         await f.getByRole("button", { name: "Cambiar: clave" }).click();
         const campo = f.getByLabel("Clave", { exact: true });
         await expect(campo).toHaveAttribute("autocomplete", "new-password");

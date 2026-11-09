@@ -121,8 +121,7 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                                   ...(e.texto ? { texto: e.texto } : {}),
                                   ...(e.adjuntoId ? { adjuntoId: e.adjuntoId } : {}),
                                   ...(e.respuestaRapidaId ? { respuestaRapidaId: e.respuestaRapidaId } : {}),
-                                  // PROVISIONAL: `sugerenciaId` aún no está en el OpenAPI de main.
-                                  ...((e.sugerenciaId ? { sugerenciaId: e.sugerenciaId } : {}) as object),
+                                  ...(e.sugerenciaId ? { sugerenciaId: e.sugerenciaId } : {}),
                               },
                           }),
                       );

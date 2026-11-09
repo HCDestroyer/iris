@@ -1,50 +1,15 @@
-// PROVISIONAL hasta mergear agente/i1-asistente: se reemplaza por alias de packages/contratos.
-export type FuenteSugerencia = { tipo: "manual" | "argos" | "horus" | "historial"; etiqueta: string; entidadId: string | null };
-export type EstadoSugerencia = "generando" | "lista" | "error" | "descartada" | "usada" | "vencida";
-export type Sugerencia = {
-    id: string;
-    conversacionId: number;
-    paraMensajeId: string;
-    estado: EstadoSugerencia;
-    texto: string | null;
-    fuentes: FuenteSugerencia[];
-    accion?: { tipo: "etiquetar"; etiquetaId: number; etiqueta: string };
-    error?: { codigo: string; detalle: string };
-    calificacion: "util" | "no_util" | null;
-    origen: "automatico" | "boton" | "otra";
-    creadaEn: string;
-    actualizadaEn: string;
-};
-export type EstadoAsistente = { activo: boolean; modo: "automatico" | "boton"; pausado: boolean };
-export type ProveedorIA = "ollama" | "openai_compatible" | "anthropic";
-export type AjustesAsistente = {
-    activo: boolean;
-    proveedor: ProveedorIA;
-    url: string;
-    claveGuardadaEn: string | null;
-    modelo: string;
-    modo: "automatico" | "boton";
-    fuentes: { manuales: boolean; argos: boolean; horus: boolean; historial: boolean };
-    topeTokensMes: number;
-    precioEntradaMillon: string | null;
-    precioSalidaMillon: string | null;
-    version: number;
-};
-export type EntradaAjustesAsistente = Omit<AjustesAsistente, "claveGuardadaEn"> & { clave?: string };
-export type PruebaAsistente = { estado: "ok" | "error"; latenciaMs: number; tokensPorSegundo: number | null; detalle: string };
-export type ModeloIA = { id: string; nombre: string };
-export type UsoAsistente = {
-    mes: string;
-    tokensEntrada: number;
-    tokensSalida: number;
-    sugerencias: number;
-    usadas: number;
-    utiles: number;
-    noUtiles: number;
-    resumenes: number;
-    costo: string | null;
-    topeTokensMes: number;
-    porcentaje: number;
-    pausado: boolean;
-};
-export type ResumenConversacion = { texto: string; generadoEn: string };
+import type { Schema } from "@iris/contratos";
+
+// Nombres cortos de los tipos generados del asistente de IA (contratos/conversaciones.md §16).
+// Solo alias: la fuente es packages/contratos.
+export type Sugerencia = Schema<"Sugerencia">;
+export type FuenteSugerencia = Schema<"FuenteSugerencia">;
+export type EstadoSugerencia = Sugerencia["estado"];
+export type EstadoAsistente = Schema<"EstadoAsistente">;
+export type AjustesAsistente = Schema<"AjustesAsistente">;
+export type EntradaAjustesAsistente = Schema<"EntradaAjustesAsistente">;
+export type ProveedorIA = AjustesAsistente["proveedor"];
+export type PruebaAsistente = Schema<"PruebaAsistente">;
+export type ModeloIA = Schema<"ModeloIA">;
+export type UsoAsistente = Schema<"UsoAsistente">;
+export type ResumenConversacion = Schema<"ResumenConversacion">;

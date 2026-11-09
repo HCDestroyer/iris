@@ -175,11 +175,10 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         {
             conversaciones,
             enviados,
-            // PROVISIONAL: `tipo: "sugerencia"` aún no está en el OpenAPI de main.
             emitir: (sug) => {
                 cursor += 1;
                 const c = conversaciones.find((x) => x.id === sug.conversacionId);
-                eventos.push({ id: String(cursor), tipo: "sugerencia", conversacionId: sug.conversacionId, ocurridoEn: new Date().toISOString(), noLeidos: c?.noLeidos ?? 0, sugerencia: sug } as unknown as Evento);
+                eventos.push({ id: String(cursor), tipo: "sugerencia", conversacionId: sug.conversacionId, ocurridoEn: new Date().toISOString(), noLeidos: c?.noLeidos ?? 0, sugerencia: sug });
             },
         },
         opciones.asistente,

@@ -149,7 +149,7 @@ function Formulario({ ajustes }: { ajustes: Ajustes }) {
                     <CampoClave form={form} proveedor={proveedor} />
                 )}
                 <SelectorModelo form={form} guardado={ajustes.modelo} />
-                <Prueba form={form} />
+                <Prueba form={form} guardado={ajustes} />
                 {esNube(proveedor) ? (
                     <Aviso tono="info" icono={Cloud} titulo="Los mensajes salen hacia el proveedor">
                         Con un proveedor en la nube, los mensajes del cliente salen de tu servidor hacia ese proveedor. Contraseñas, documentos y códigos nunca salen: llegan como ***.
@@ -321,7 +321,11 @@ function SelectorModelo({ form, guardado }: { form: UseFormReturn<ValoresAjustes
 }
 
 /** «Probar conexión» con lo que está en pantalla (sin clave escrita, el servidor usa la guardada). */
-function Prueba({ form }: { form: UseFormReturn<ValoresAjustes> }) {
+function Prueba({ form, guardado }: { form: UseFormReturn<ValoresAjustes>; guardado: Ajustes }) {
+    const [proveedor, url, cambiarClave, clave] = useWatch({ control: form.control, name: ["proveedor", "url", "cambiarClave", "clave"] });
+    // La clave guardada solo viaja al proveedor y la dirección guardados (§16.1): con otros, hay que escribirla.
+    const sinClaveParaProbar =
+        guardado.claveGuardadaEn !== null && proveedor !== "ollama" && !(cambiarClave && clave.trim()) && (proveedor !== guardado.proveedor || url.trim() !== guardado.url);
     const [estado, setEstado] = useState<{ tipo: "nada" } | { tipo: "probando" } | { tipo: "hecho"; prueba: PruebaAsistente } | { tipo: "fallo"; error: unknown }>({ tipo: "nada" });
     async function probar() {
         const d = form.getValues();
@@ -345,6 +349,9 @@ function Prueba({ form }: { form: UseFormReturn<ValoresAjustes> }) {
                 <RefreshCw className={cn(estado.tipo === "probando" && "motion-safe:animate-spin")} />
                 {estado.tipo === "probando" ? "Probando…" : "Probar conexión"}
             </Boton>
+            {sinClaveParaProbar ? (
+                <p className="text-sm text-muted-foreground">Con otro proveedor u otra dirección no se usa la clave guardada: escríbela en «Cambiar» para probar.</p>
+            ) : null}
             {estado.tipo === "hecho" || estado.tipo === "fallo" ? (
                 <p role="status" data-prueba={ok ? "ok" : "error"} className={cn("flex items-start gap-1.5 text-sm font-medium", ok ? "text-success" : "text-error")}>
                     {ok ? <CircleCheck aria-hidden className="mt-0.5 size-4 shrink-0" /> : <CircleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />}

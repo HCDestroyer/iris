@@ -10,7 +10,7 @@ import { aplicarSugerencia, explicarError, type ExplicacionError } from "@/lib/a
 import { PERMISO_SUGERENCIAS } from "@/lib/asistente/permisos";
 import type { EstadoAsistente, FuenteSugerencia, Sugerencia } from "@/lib/asistente/tipos";
 import { cabeceraIdem } from "@/lib/conversaciones/api";
-import type { Conversacion, EventoBandeja } from "@/lib/conversaciones/tipos";
+import type { Conversacion } from "@/lib/conversaciones/tipos";
 import { useSesion } from "@/lib/sesion";
 import type { OyenteFeed } from "./bandeja";
 
@@ -20,9 +20,6 @@ import type { OyenteFeed } from "./bandeja";
  * él. El asistente nunca envía: «Usar» pasa el texto a la caja y la persona lo revisa y lo envía
  * (con `sugerenciaId`). Solo la ve quien tiene `conversaciones.sugerencias`.
  */
-
-/** Evento del feed con la sugerencia (§16.2, `tipo: "sugerencia"`). */
-type EventoConSugerencia = EventoBandeja & { sugerencia?: Sugerencia };
 
 export type Asistente = {
     /** Estado del asistente de la empresa; `null` sin permiso, leyendo o si no se pudo leer. */
@@ -83,9 +80,8 @@ export function useAsistente(conv: Pick<Conversacion, "id">, suscribir: (o: Oyen
                 setLectura((n) => n + 1);
                 return;
             }
-            const e = s.evento as EventoConSugerencia;
-            // PROVISIONAL: `tipo` sin "sugerencia" en el OpenAPI de main.
-            if ((e.tipo as string) === "sugerencia" && e.sugerencia && e.conversacionId === id) aplicar(e.sugerencia);
+            const e = s.evento;
+            if (e.tipo === "sugerencia" && e.sugerencia && e.conversacionId === id) aplicar(e.sugerencia);
         });
     }, [permitido, suscribir, id, aplicar]);
 
