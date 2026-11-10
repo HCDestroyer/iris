@@ -47,6 +47,9 @@ type argosFalso struct {
 	claves         []string
 	actores        []argos.AtencionIris
 	modelos        []string
+	// cuenta: el estado de cuenta que responde (nil = Argos no responde); cuentas: cuántas lecturas.
+	cuenta  *argos.EstadoCuenta
+	cuentas int
 }
 
 func (f *argosFalso) BuscarPorTelefono(_ context.Context, a argos.AtencionIris, _ string) ([]argos.ClienteTelefono, error) {
@@ -60,6 +63,18 @@ func (f *argosFalso) BuscarPorTelefono(_ context.Context, a argos.AtencionIris, 
 }
 
 func (f *argosFalso) AsegurarInstantanea(context.Context, int64, *int64) error { return nil }
+
+// EstadoCuentaCliente: sin cuenta configurada, «Argos» no responde (la sugerencia sale sin saldo).
+func (f *argosFalso) EstadoCuentaCliente(_ context.Context, a argos.AtencionIris, _ int64) (argos.EstadoCuenta, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.actores = append(f.actores, a)
+	f.cuentas++
+	if f.cuenta == nil || f.caido {
+		return argos.EstadoCuenta{}, &conector.ErrorRemoto{Status: 0}
+	}
+	return *f.cuenta, nil
+}
 
 func (f *argosFalso) EquiposEnComodato(context.Context, int64, int64) ([]argos.EquipoComodatoArgos, error) {
 	f.mu.Lock()

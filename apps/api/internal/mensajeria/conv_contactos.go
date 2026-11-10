@@ -34,6 +34,8 @@ type ArgosAtencion interface {
 	CuentasBancarias(ctx context.Context, a argos.AtencionIris) ([]argos.CuentaBancariaArgos, error)
 	Bancos(ctx context.Context, a argos.AtencionIris) ([]argos.BancoArgos, error)
 	EquiposEnComodato(ctx context.Context, empresaID, servicioID int64) ([]argos.EquipoComodatoArgos, error)
+	// EstadoCuentaCliente: el estado de cuenta en vivo (asistente de IA, §16.10). Nunca se guarda.
+	EstadoCuentaCliente(ctx context.Context, a argos.AtencionIris, clienteID int64) (argos.EstadoCuenta, error)
 }
 
 func atencionDe(a alcanceConv, conv int64) argos.AtencionIris {

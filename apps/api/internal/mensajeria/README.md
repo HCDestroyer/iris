@@ -337,7 +337,15 @@ si se envió igual o editada). No registra pagos, promesas ni reconexiones.
   `conversaciones.sugerencias`).
 - **Tope:** `mensajeria.asistente_uso` por empresa y mes (Guatemala). Al 80 % y 100 % emite
   `asistente.tope_alcanzado`; al 100 % se pausa hasta el mes siguiente o hasta subir el tope. Costo
-  con `precioEntradaMillon`/`precioSalidaMillon`.
+  con `precioEntradaMillon`/`precioSalidaMillon`. El aviso a los administradores (campana y correo)
+  lo hace `internal/notificaciones` al consumir el evento (§16.9).
+- **Saldo del cliente (2.1, `asistente_cuenta.go`, §16.10):** con la fuente `argos` y cliente asociado,
+  antes de preparar cada sugerencia se lee en vivo el estado de cuenta (`ArgosAtencion.EstadoCuentaCliente`,
+  `X-Iris-Actor: asistente_ia`, 5 s), fuera de la transacción y sin guardarlo (ni fuentes, ni eventos,
+  ni auditoría, ni logs). La fuente del servicio dice «Servicio activo, al día · Argos» o «Con saldo
+  vencido (N facturas) · Argos». El monto solo va al modelo con cliente verificado; sin verificar,
+  `validarSalidaModelo` rechaza un texto con un monto (`ContieneMonto`: Q, GTQ, $ o un decimal cerca de
+  «saldo», «debe», «pagar»). Si Argos falla, la sugerencia sale sin esa fuente. El resumen no lo lee.
 - **Resumen** (`POST …/resumen`): síncrono, cuenta para el tope, no se guarda el texto.
 - **Auditoría:** ajustes (clave `***`), pruebas, pedir/usar/descartar/calificar, generación (ids,
   códigos y tokens) y resumen; nunca el texto de la sugerencia ni del resumen. Las respuestas con

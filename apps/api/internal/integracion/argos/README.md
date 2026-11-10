@@ -258,6 +258,17 @@ partes (ficha, ticket, orden, comercial y app de campo).
   activo: es el job «de una vez» de los conectores ya activos y detecta una actualización o una
   vuelta atrás de Argos. `Conector.capacidades` trae
   `inventario_por_tecnico` con Argos ≥ 1.6.0; `InventarioPorTecnico` lo consulta la cola.
+- **Diagnóstico de la versión (2.1).** Cada corrida de `informar_contrato` guarda en el conector
+  `version_estado` (`ok`, `ruta_no_existe`, `sin_permiso`, `no_responde`, `error`), `version_detalle`
+  (español, con la URL base usada y el status HTTP, sin secretos) y `version_consultada_en`
+  (`Conector.versionEstado` / `versionDetalle`). Un 404/405 en HTML (`ErrorRemoto.HTML`: la URL del
+  panel de Nuxt en vez de la de la API) es `ruta_no_existe` con «La dirección <base> no responde como
+  la API de Argos: revisa que sea la de la API, no la del panel» y **no borra** una versión ≥ 1.6.0
+  guardada; un 401/403 en el PUT ya no corta el job: se lee `GET …/estado` y queda `sin_permiso`; la
+  vuelta atrás real (404 problem+json o 405) borra la versión como antes; Argos caído deja
+  `no_responde` y River reintenta. Un cambio de `version_estado` emite `conector.actualizado`.
+  `POST /integraciones/conectores/{id}/revisar-version` (`integraciones.revisar_version`, solo admin,
+  `Idempotency-Key`) encola el job enseguida y responde 202 con el conector (`revisar_version.go`).
 - **Contrato 0.6.2.** `ContratoIris = "0.6.2"`. El PUT manda `{ contrato, receptor_argos }`, con
   `receptor_argos: true` si el conector tiene guardados la URL y el secreto del receptor de Argos y
   `false` si no (conectores canjeados antes de B1: Argos marca `requiere_reconectar` y la mensajería
