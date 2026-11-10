@@ -109,6 +109,8 @@ type Modulo struct {
 	SincronizarCatalogos  *SincronizarCatalogos
 	// Contrato 0.5.0: versión de Argos e informe del contrato de Iris.
 	InformarContrato *InformarContrato
+	// RevisarVersion encola ya InformarContrato (POST /integraciones/conectores/{id}/revisar-version).
+	RevisarVersion *auditoria.Caso[EntradaRevisarVersion, Conector]
 	// Selector de técnicos de Argos para el vínculo de agenda.
 	ListarTecnicosArgos *ListarTecnicosArgos
 }
@@ -179,6 +181,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.ResolverIP = nuevoResolverIP(m)
 	m.SincronizarCatalogos = nuevoSincronizarCatalogos(m)
 	m.InformarContrato = nuevoInformarContrato(m)
+	m.RevisarVersion = nuevoRevisarVersion(m)
 	m.ListarTecnicosArgos = nuevoListarTecnicosArgos(m)
 	return m
 }

@@ -145,6 +145,49 @@ func (q *Queries) BorrarDispositivosDeSesion(ctx context.Context, sesionID *int6
 	return items, nil
 }
 
+const cerrarCorreo = `-- name: CerrarCorreo :one
+UPDATE notificaciones.correos
+SET estado = $1, motivo = $2, intentos = intentos + 1,
+    enviado_en = CASE WHEN $1 = 'enviado' THEN $3::timestamptz ELSE enviado_en END, updated_at = now()
+WHERE id = $4
+RETURNING id, usuario_id, empresa_id, aviso_id, tipo, clave, para, asunto, datos, estado, motivo, intentos, enviado_en, creado_en, updated_at
+`
+
+type CerrarCorreoParams struct {
+	Estado string
+	Motivo *string
+	Ahora  time.Time
+	ID     int64
+}
+
+func (q *Queries) CerrarCorreo(ctx context.Context, arg CerrarCorreoParams) (NotificacionesCorreo, error) {
+	row := q.db.QueryRow(ctx, cerrarCorreo,
+		arg.Estado,
+		arg.Motivo,
+		arg.Ahora,
+		arg.ID,
+	)
+	var i NotificacionesCorreo
+	err := row.Scan(
+		&i.ID,
+		&i.UsuarioID,
+		&i.EmpresaID,
+		&i.AvisoID,
+		&i.Tipo,
+		&i.Clave,
+		&i.Para,
+		&i.Asunto,
+		&i.Datos,
+		&i.Estado,
+		&i.Motivo,
+		&i.Intentos,
+		&i.EnviadoEn,
+		&i.CreadoEn,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const cerrarEnvio = `-- name: CerrarEnvio :exec
 UPDATE notificaciones.envios
 SET estado = $1, motivo = $2, fcm_mensaje = $3,
@@ -171,6 +214,23 @@ func (q *Queries) CerrarEnvio(ctx context.Context, arg CerrarEnvioParams) error 
 		arg.ID,
 	)
 	return err
+}
+
+const contarAvisosNoLeidos = `-- name: ContarAvisosNoLeidos :one
+SELECT count(*)::integer FROM notificaciones.avisos
+WHERE usuario_id = $1 AND coalesce(empresa_id, 0) = coalesce($2::bigint, 0) AND leido_en IS NULL
+`
+
+type ContarAvisosNoLeidosParams struct {
+	UsuarioID int64
+	Empresa   *int64
+}
+
+func (q *Queries) ContarAvisosNoLeidos(ctx context.Context, arg ContarAvisosNoLeidosParams) (int32, error) {
+	row := q.db.QueryRow(ctx, contarAvisosNoLeidos, arg.UsuarioID, arg.Empresa)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const contarIntento = `-- name: ContarIntento :exec
@@ -216,6 +276,85 @@ func (q *Queries) ConversacionParaPush(ctx context.Context, id int64) (Conversac
 		&i.ContactoNombre,
 	)
 	return i, err
+}
+
+const correoParaEnviar = `-- name: CorreoParaEnviar :one
+SELECT id, usuario_id, empresa_id, aviso_id, tipo, clave, para, asunto, datos, estado, motivo, intentos, enviado_en, creado_en, updated_at FROM notificaciones.correos WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) CorreoParaEnviar(ctx context.Context, id int64) (NotificacionesCorreo, error) {
+	row := q.db.QueryRow(ctx, correoParaEnviar, id)
+	var i NotificacionesCorreo
+	err := row.Scan(
+		&i.ID,
+		&i.UsuarioID,
+		&i.EmpresaID,
+		&i.AvisoID,
+		&i.Tipo,
+		&i.Clave,
+		&i.Para,
+		&i.Asunto,
+		&i.Datos,
+		&i.Estado,
+		&i.Motivo,
+		&i.Intentos,
+		&i.EnviadoEn,
+		&i.CreadoEn,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const destinatariosConPermiso = `-- name: DestinatariosConPermiso :many
+
+SELECT DISTINCT u.id, u.correo, u.nombre
+FROM nucleo.usuarios u
+JOIN nucleo.usuarios_roles ur ON ur.usuario_id = u.id
+JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
+JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id AND rp.permiso = $1::text
+WHERE u.activo AND u.tipo = 'persona'
+  AND ($2::bigint IS NULL
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = u.id AND ue.empresa_id = $2::bigint)
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur2
+                  JOIN nucleo.roles r2 ON r2.id = ur2.rol_id AND r2.activo
+                  JOIN nucleo.roles_permisos rp2 ON rp2.rol_id = ur2.rol_id
+                  WHERE ur2.usuario_id = u.id AND rp2.permiso = 'empresas.todas'
+                    AND ur2.zona_id IS NULL AND ur2.cuadrilla_id IS NULL))
+ORDER BY u.id
+`
+
+type DestinatariosConPermisoParams struct {
+	Permiso string
+	Empresa *int64
+}
+
+type DestinatariosConPermisoRow struct {
+	ID     int64
+	Correo string
+	Nombre string
+}
+
+// Avisos del panel (la campana) ------------------------------------------------------------------
+// Personas activas con el permiso (por un rol activo) que operan en la empresa: la tienen asignada o
+// tienen empresas.todas sin límite. Con @empresa null (sin conector), todas las que tienen el permiso.
+func (q *Queries) DestinatariosConPermiso(ctx context.Context, arg DestinatariosConPermisoParams) ([]DestinatariosConPermisoRow, error) {
+	rows, err := q.db.Query(ctx, destinatariosConPermiso, arg.Permiso, arg.Empresa)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DestinatariosConPermisoRow
+	for rows.Next() {
+		var i DestinatariosConPermisoRow
+		if err := rows.Scan(&i.ID, &i.Correo, &i.Nombre); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const dispositivoDeUsuario = `-- name: DispositivoDeUsuario :one
@@ -506,6 +645,113 @@ func (q *Queries) HayEmpresas(ctx context.Context) (bool, error) {
 	return column_1, err
 }
 
+const insertarAviso = `-- name: InsertarAviso :one
+INSERT INTO notificaciones.avisos (usuario_id, empresa_id, tipo, clave, nivel, titulo, enlace, datos, evento_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+ON CONFLICT (usuario_id, clave) DO NOTHING
+RETURNING id, usuario_id, empresa_id, tipo, clave, nivel, titulo, enlace, datos, evento_id, leido_en, creado_en
+`
+
+type InsertarAvisoParams struct {
+	UsuarioID int64
+	EmpresaID *int64
+	Tipo      string
+	Clave     string
+	Nivel     string
+	Titulo    string
+	Enlace    *string
+	Datos     []byte
+	EventoID  pgtype.UUID
+}
+
+// Uno por usuario y clave: un evento repetido no crea otro (sin filas).
+func (q *Queries) InsertarAviso(ctx context.Context, arg InsertarAvisoParams) (NotificacionesAviso, error) {
+	row := q.db.QueryRow(ctx, insertarAviso,
+		arg.UsuarioID,
+		arg.EmpresaID,
+		arg.Tipo,
+		arg.Clave,
+		arg.Nivel,
+		arg.Titulo,
+		arg.Enlace,
+		arg.Datos,
+		arg.EventoID,
+	)
+	var i NotificacionesAviso
+	err := row.Scan(
+		&i.ID,
+		&i.UsuarioID,
+		&i.EmpresaID,
+		&i.Tipo,
+		&i.Clave,
+		&i.Nivel,
+		&i.Titulo,
+		&i.Enlace,
+		&i.Datos,
+		&i.EventoID,
+		&i.LeidoEn,
+		&i.CreadoEn,
+	)
+	return i, err
+}
+
+const insertarCorreo = `-- name: InsertarCorreo :one
+
+INSERT INTO notificaciones.correos (usuario_id, empresa_id, aviso_id, tipo, clave, para, asunto, datos, estado, motivo)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+ON CONFLICT (usuario_id, clave) DO NOTHING
+RETURNING id, usuario_id, empresa_id, aviso_id, tipo, clave, para, asunto, datos, estado, motivo, intentos, enviado_en, creado_en, updated_at
+`
+
+type InsertarCorreoParams struct {
+	UsuarioID int64
+	EmpresaID *int64
+	AvisoID   *int64
+	Tipo      string
+	Clave     string
+	Para      string
+	Asunto    string
+	Datos     []byte
+	Estado    string
+	Motivo    *string
+}
+
+// Correos del sistema ----------------------------------------------------------------------------
+// Uno por usuario y clave (sin filas si ya estaba).
+func (q *Queries) InsertarCorreo(ctx context.Context, arg InsertarCorreoParams) (NotificacionesCorreo, error) {
+	row := q.db.QueryRow(ctx, insertarCorreo,
+		arg.UsuarioID,
+		arg.EmpresaID,
+		arg.AvisoID,
+		arg.Tipo,
+		arg.Clave,
+		arg.Para,
+		arg.Asunto,
+		arg.Datos,
+		arg.Estado,
+		arg.Motivo,
+	)
+	var i NotificacionesCorreo
+	err := row.Scan(
+		&i.ID,
+		&i.UsuarioID,
+		&i.EmpresaID,
+		&i.AvisoID,
+		&i.Tipo,
+		&i.Clave,
+		&i.Para,
+		&i.Asunto,
+		&i.Datos,
+		&i.Estado,
+		&i.Motivo,
+		&i.Intentos,
+		&i.EnviadoEn,
+		&i.CreadoEn,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const insertarEnvio = `-- name: InsertarEnvio :one
 
 INSERT INTO notificaciones.envios (evento_id, evento, dispositivo_id, usuario_id, empresa_id, tipo, clave, datos)
@@ -599,6 +845,121 @@ func (q *Queries) InsertarPreferencias(ctx context.Context, arg InsertarPreferen
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const leerAviso = `-- name: LeerAviso :one
+UPDATE notificaciones.avisos SET leido_en = coalesce(leido_en, $1)
+WHERE id = $2 AND usuario_id = $3 AND coalesce(empresa_id, 0) = coalesce($4::bigint, 0)
+RETURNING id, usuario_id, empresa_id, tipo, clave, nivel, titulo, enlace, datos, evento_id, leido_en, creado_en
+`
+
+type LeerAvisoParams struct {
+	Ahora     *time.Time
+	ID        int64
+	UsuarioID int64
+	Empresa   *int64
+}
+
+// Marca leído (si ya lo estaba, lo deja igual).
+func (q *Queries) LeerAviso(ctx context.Context, arg LeerAvisoParams) (NotificacionesAviso, error) {
+	row := q.db.QueryRow(ctx, leerAviso,
+		arg.Ahora,
+		arg.ID,
+		arg.UsuarioID,
+		arg.Empresa,
+	)
+	var i NotificacionesAviso
+	err := row.Scan(
+		&i.ID,
+		&i.UsuarioID,
+		&i.EmpresaID,
+		&i.Tipo,
+		&i.Clave,
+		&i.Nivel,
+		&i.Titulo,
+		&i.Enlace,
+		&i.Datos,
+		&i.EventoID,
+		&i.LeidoEn,
+		&i.CreadoEn,
+	)
+	return i, err
+}
+
+const leerTodosLosAvisos = `-- name: LeerTodosLosAvisos :execrows
+UPDATE notificaciones.avisos SET leido_en = $1
+WHERE usuario_id = $2 AND coalesce(empresa_id, 0) = coalesce($3::bigint, 0) AND leido_en IS NULL
+`
+
+type LeerTodosLosAvisosParams struct {
+	Ahora     *time.Time
+	UsuarioID int64
+	Empresa   *int64
+}
+
+func (q *Queries) LeerTodosLosAvisos(ctx context.Context, arg LeerTodosLosAvisosParams) (int64, error) {
+	result, err := q.db.Exec(ctx, leerTodosLosAvisos, arg.Ahora, arg.UsuarioID, arg.Empresa)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const listarAvisos = `-- name: ListarAvisos :many
+SELECT id, usuario_id, empresa_id, tipo, clave, nivel, titulo, enlace, datos, evento_id, leido_en, creado_en FROM notificaciones.avisos
+WHERE usuario_id = $1 AND coalesce(empresa_id, 0) = coalesce($2::bigint, 0)
+  AND (NOT $3::boolean OR leido_en IS NULL)
+  AND ($4::bigint = 0 OR id < $4::bigint)
+ORDER BY id DESC
+LIMIT $5
+`
+
+type ListarAvisosParams struct {
+	UsuarioID    int64
+	Empresa      *int64
+	SoloNoLeidos bool
+	AntesDe      int64
+	Limite       int32
+}
+
+// Los del usuario en la empresa activa (null = sin conector), del más nuevo al más viejo.
+func (q *Queries) ListarAvisos(ctx context.Context, arg ListarAvisosParams) ([]NotificacionesAviso, error) {
+	rows, err := q.db.Query(ctx, listarAvisos,
+		arg.UsuarioID,
+		arg.Empresa,
+		arg.SoloNoLeidos,
+		arg.AntesDe,
+		arg.Limite,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []NotificacionesAviso
+	for rows.Next() {
+		var i NotificacionesAviso
+		if err := rows.Scan(
+			&i.ID,
+			&i.UsuarioID,
+			&i.EmpresaID,
+			&i.Tipo,
+			&i.Clave,
+			&i.Nivel,
+			&i.Titulo,
+			&i.Enlace,
+			&i.Datos,
+			&i.EventoID,
+			&i.LeidoEn,
+			&i.CreadoEn,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listarDispositivos = `-- name: ListarDispositivos :many
@@ -726,6 +1087,17 @@ func (q *Queries) MensajeChatParaPush(ctx context.Context, id uuid.UUID) (Mensaj
 		&i.OrdenNumero,
 	)
 	return i, err
+}
+
+const nombreEmpresa = `-- name: NombreEmpresa :one
+SELECT nombre FROM nucleo.empresas WHERE id = $1
+`
+
+func (q *Queries) NombreEmpresa(ctx context.Context, id int64) (string, error) {
+	row := q.db.QueryRow(ctx, nombreEmpresa, id)
+	var nombre string
+	err := row.Scan(&nombre)
+	return nombre, err
 }
 
 const notaConversacionParaPush = `-- name: NotaConversacionParaPush :one
@@ -874,6 +1246,30 @@ func (q *Queries) PreferenciasParaActualizar(ctx context.Context, usuarioID int6
 	return i, err
 }
 
+const purgarAvisos = `-- name: PurgarAvisos :execrows
+DELETE FROM notificaciones.avisos WHERE creado_en < $1
+`
+
+func (q *Queries) PurgarAvisos(ctx context.Context, antes time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, purgarAvisos, antes)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const purgarCorreos = `-- name: PurgarCorreos :execrows
+DELETE FROM notificaciones.correos WHERE creado_en < $1 AND estado <> 'pendiente'
+`
+
+func (q *Queries) PurgarCorreos(ctx context.Context, antes time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, purgarCorreos, antes)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const purgarEnvios = `-- name: PurgarEnvios :execrows
 DELETE FROM notificaciones.envios WHERE created_at < $1
 `
@@ -932,6 +1328,20 @@ func (q *Queries) QuitarTokenDeOtros(ctx context.Context, arg QuitarTokenDeOtros
 		return nil, err
 	}
 	return items, nil
+}
+
+const reintentoCorreo = `-- name: ReintentoCorreo :exec
+UPDATE notificaciones.correos SET intentos = intentos + 1, motivo = $1, updated_at = now() WHERE id = $2
+`
+
+type ReintentoCorreoParams struct {
+	Motivo *string
+	ID     int64
+}
+
+func (q *Queries) ReintentoCorreo(ctx context.Context, arg ReintentoCorreoParams) error {
+	_, err := q.db.Exec(ctx, reintentoCorreo, arg.Motivo, arg.ID)
+	return err
 }
 
 const sobrantesDeUsuario = `-- name: SobrantesDeUsuario :many

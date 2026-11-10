@@ -912,6 +912,8 @@ type IntegracionConectore struct {
 	WebhookSalidaSecretoCifrado []byte
 	ReemplazaConectorID         *int64
 	ReemplazaTokenID            *int64
+	VersionEstado               *string
+	VersionDetalle              *string
 }
 
 type IntegracionEntrante struct {
@@ -1607,6 +1609,39 @@ type MensajeriaWebhooksSalida struct {
 	EntregadoEn    *time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+}
+
+type NotificacionesAviso struct {
+	ID        int64
+	UsuarioID int64
+	EmpresaID *int64
+	Tipo      string
+	Clave     string
+	Nivel     string
+	Titulo    string
+	Enlace    *string
+	Datos     []byte
+	EventoID  *uuid.UUID
+	LeidoEn   *time.Time
+	CreadoEn  time.Time
+}
+
+type NotificacionesCorreo struct {
+	ID        int64
+	UsuarioID int64
+	EmpresaID *int64
+	AvisoID   *int64
+	Tipo      string
+	Clave     string
+	Para      string
+	Asunto    string
+	Datos     []byte
+	Estado    string
+	Motivo    *string
+	Intentos  int32
+	EnviadoEn *time.Time
+	CreadoEn  time.Time
+	UpdatedAt time.Time
 }
 
 type NotificacionesDispositivo struct {

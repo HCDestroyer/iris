@@ -627,6 +627,12 @@ func (m *Modulo) iniciar(ctx context.Context, t *auditoria.Tx, in entradaIniciar
 			c.Asociacion = nombrePtr("manual")
 		}
 	}
+	// Cambió el cliente de la conversación: la sugerencia vigente (armada con el anterior) queda vencida.
+	if !mismoID(antes.ClienteID, c.ClienteID) {
+		if err := m.cerrarVigentes(ctx, t, c, SugVencida); err != nil {
+			return ConversacionIniciada{}, err
+		}
+	}
 	if c.Estado == EstadoConvResuelta {
 		c.ReabiertaEn, c.ResueltaEn = &ahora, nil
 		if canal.ColaID != nil {

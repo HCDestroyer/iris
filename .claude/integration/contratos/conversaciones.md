@@ -1443,7 +1443,9 @@ este contrato (personas con sesión del panel, empresa activa, RFC 9457, `Idempo
   Al **80 %** se avisa a los administradores (evento `asistente.tope_alcanzado` con `porcentaje: 80`,
   una vez por mes y empresa); al **100 %** se pausa (evento con `porcentaje: 100`) hasta el mes
   siguiente o hasta que suban el tope. En pausa no se generan sugerencias ni resúmenes
-  (`tope_alcanzado`).
+  (`tope_alcanzado`). **2.1:** los dos umbrales avisan a quienes tienen
+  `mensajeria.asistente_configurar` en esa empresa por la **campana del panel** y por **correo**
+  (§16.9), una sola vez por umbral, mes y valor del tope.
 - `precioEntradaMillon` / `precioSalidaMillon` (opcionales, por millón de tokens, en la moneda que
   el admin quiera; decimal como texto, p. ej. `"3.00"`, o `null`): con los dos, el uso se muestra
   también en dinero.
@@ -1514,6 +1516,12 @@ sobre conversaciones que ves (si no, 404).
   `fuentes` siempre es lista (`[]`).
 - `tipo` de fuente: `manual` | `argos` | `horus` | `historial`. `entidadId` es texto (id del
   manual, del servicio, clave del estado de Horus) o `null`.
+- **2.1, saldo del cliente (§16.10):** con la fuente `argos` y estado de cuenta leído en vivo, la
+  fuente del primer servicio (el de la conversación) dice «Servicio activo, al día · Argos» (o el
+  estado del servicio: «Servicio cortado, al día · Argos») o «Con saldo vencido (2 facturas) · Argos»
+  («(1 factura)»; sin número de facturas: «Con saldo vencido · Argos»). **Nunca lleva el monto**, y el
+  texto sugerido tampoco (el monto no se le da al modelo; lo escribe el agente desde la ficha). Si
+  Argos no responde, la fuente queda como antes («Servicio activo, plan 20 Mbps · Argos»).
 - `accion` por ahora solo `etiquetar` con una **etiqueta activa existente de la empresa**. El panel
   la ofrece como botón; aplicarla es la acción normal de etiquetar de la persona (el asistente no la
   aplica).
@@ -1587,7 +1595,9 @@ quienes ven la conversación y tienen `conversaciones.sugerencias`.
 - **Contexto** (según `fuentes`), cada dato con un id corto (`F1`, `F2`…) que es lo único que el
   modelo puede citar:
   - `argos`: solo el cliente **asociado a esa conversación y empresa** (instantánea: nombre y
-    plan/estado de sus servicios). Nunca teléfonos, documentos, direcciones ni coordenadas.
+    plan/estado de sus servicios). Nunca teléfonos, documentos, direcciones ni coordenadas. **2.1:**
+    con cliente verificado, además «al día» o «con saldo vencido (N facturas)» leído en vivo; nunca un
+    monto (§16.10).
   - `manuales`: búsqueda por texto de §11 con los últimos mensajes del cliente, los **3 mejores**
     activos de la empresa. Los `interna` («Del equipo») orientan pero no se citan al cliente (van
     marcados así y nunca salen como fuente).
@@ -1601,7 +1611,8 @@ quienes ven la conversación y tienen `conversaciones.sugerencias`.
   distinguir mayúsculas); el texto no puede traer enlaces ni direcciones (cualquier esquema `x://`,
   `www.`, cualquier dominio con TLD de letras o una IPv4) ni copiar **más de 12 palabras seguidas**
   de un manual «del equipo». Un `stop_reason: refusal` (Anthropic, también tras el respaldo) o
-  `finish_reason: content_filter` → `rechazo_modelo`.
+  `finish_reason: content_filter` → `rechazo_modelo`. **2.1:** el texto nunca puede traer un monto de deuda,
+  con cliente verificado o sin él (§16.10).
 
 ### 16.4 Resumen de la conversación (ficha del cliente)
 
@@ -1649,9 +1660,9 @@ uso se registra aunque quien lo pidió cierre la pantalla. No se guarda el texto
   corre; se pospone con `JobSnooze` hasta 20 s después del último mensaje del cliente).
 - Las respuestas de `…/resumen` y de `/sugerencias/{id}/usar|descartar|calificar` no se guardan en
   la tabla de idempotencia (traen texto del modelo); repetirlas responde 200 sin cambios.
-- Aviso a administradores al 80 %/100 %: hoy solo el evento `asistente.tope_alcanzado` y
-  `pausado` en `GET /asistente/estado` y `/asistente/uso`; el push actual (`internal/notificaciones`)
-  es de la app de campo y no avisa a administradores del panel.
+- Aviso a administradores al 80 %/100 % (2.1): el worker consume `asistente.tope_alcanzado` y crea
+  los avisos de la campana y los correos (§16.9, `internal/notificaciones`). `pausado` sigue en
+  `GET /asistente/estado` y `/asistente/uso`.
 - Anthropic: SDK oficial de Go (`github.com/anthropics/anthropic-sdk-go` v1.84.0; la v2 exige Go 1.25),
   endpoint beta con el **respaldo del lado del servidor activado por defecto** (beta
   `server-side-fallback-2026-07-01`, `fallbacks: "default"`: si el modelo declina, la API reintenta
@@ -1668,3 +1679,102 @@ de generar), `asistente.sugerencia_usada` (sugerencia_id, conversacion_id, empre
 `true|false|null`), `asistente.sugerencia_calificada` (sugerencia_id, conversacion_id, empresa_id,
 util), `asistente.tope_alcanzado` (empresa_id, porcentaje `80|100`, mes, tokens, tope). Detalle en
 `contratos/eventos.md`.
+
+**2.1 (notificaciones):** `notificaciones.avisos_creados` (tipo `asistente_tope`, clave, empresa_id,
+usuarios[], correo `enviar|omitido`), `notificaciones.correo_enviado` / `notificaciones.correo_fallido`
+(correo_id, usuario_id, tipo, clave, motivo o null).
+
+### 16.9 Avisos del panel y correo del tope (entrega 2.1, decisión del PM: «pueden ser ambos»)
+
+Lo implementa I1 en `internal/notificaciones` (API principal, no el servicio de mensajería: van sin
+el prefijo `/mensajeria`). Lo usa el panel (I3) en la campana de la barra superior.
+
+**Cuándo:** el worker consume `asistente.tope_alcanzado` (80 y 100). Destinatarios: personas activas
+con `mensajeria.asistente_configurar` (por un rol activo) que operan en esa empresa (la tienen
+asignada o tienen `empresas.todas` sin límite). **Una sola vez por umbral, mes y valor del tope** y por usuario
+(clave `asistente_tope:<empresa>:<YYYY-MM>:<80|100>:<tope>`, única por usuario): un evento repetido
+no vuelve a avisar. Si suben el tope dentro del mes y lo vuelven a cruzar, la clave es otra y se
+avisa de nuevo (campana y correo). `enlace` es siempre una ruta interna del panel (la base lo exige:
+`^/[A-Za-z0-9_\-/?=&#.]*$` y nunca `//…`).
+
+**Textos (decisión del PM):**
+
+- 80 %: «El asistente de IA de <empresa> usó el 80 % de su tope del mes» (`nivel: "alerta"`).
+- 100 %: «El asistente de IA de <empresa> se pausó: llegó a su tope del mes» (`nivel: "peligro"`).
+- Los dos con `enlace: "/administracion/asistente"`. `<empresa>` = nombre de la empresa en Iris
+  («tu empresa» sin conector).
+
+**Campana** (persona con sesión del panel o token propio; solo los suyos **de la empresa activa**):
+
+| Método y ruta | Qué hace |
+| --- | --- |
+| `GET /api/v1/yo/avisos?cursor=&limit=&soloNoLeidos=` | `{ data: [AvisoPanel], nextCursor }`, del más nuevo al más viejo |
+| `GET /api/v1/yo/avisos/resumen` | `{ "noLeidos": 2 }` (el punto de la campana) |
+| `POST /api/v1/yo/avisos/{id}/leer` | → `AvisoPanel` con `leido: true` (repetir no cambia `leidoEn`; 404 si no es tuyo) |
+| `POST /api/v1/yo/avisos/leer-todos` | → `{ "leidos": 3 }` |
+
+```json
+{ "id": 12, "tipo": "asistente_tope", "nivel": "alerta",
+  "titulo": "El asistente de IA de Cable Norte usó el 80 % de su tope del mes",
+  "enlace": "/administracion/asistente", "datos": { "porcentaje": 80, "mes": "2026-11", "tope": 2000000 },
+  "leido": false, "leidoEn": null, "creadoEn": "…", "empresaId": 7 }
+```
+
+Marcar leído es el estado personal de la campana: no emite evento ni deja auditoría. Los avisos y los
+correos se purgan a los 180 días.
+
+**Correo:** el asunto es el mismo texto; el cuerpo (texto plano) suma el uso del mes («1,600,000 de
+2,000,000 tokens»), qué pasa al 100 % y el enlace `<IRIS_BASE_URL>/administracion/asistente`. Sale por
+el **correo del sistema** (`IRIS_SMTP_HOST`, `IRIS_SMTP_PORT`, `IRIS_SMTP_USUARIO`,
+`IRIS_SMTP_CONTRASENA`, `IRIS_SMTP_TLS` `starttls|tls`, `IRIS_SMTP_REMITENTE`; TLS obligatorio y la
+protección de red de los buzones, `IRIS_CORREO_REDES_PERMITIDAS` / `IRIS_CORREO_CA`) con un job por
+correo (hasta 6 intentos con espera exponencial). **Sin `IRIS_SMTP_HOST` o sin
+`IRIS_SMTP_REMITENTE` se omite sin error y queda registrado** (`notificaciones.correos` con
+`estado: omitido`, `motivo: sin_correo_sistema`; `sin_correo` si el usuario no tiene correo); la
+campana sale igual.
+
+### 16.10 Saldo del cliente en las sugerencias (entrega 2.1, decisión del PM y del líder)
+
+**Regla (revisión de seguridad de la #155): el monto nunca llega al modelo ni aparece en una
+sugerencia, con cliente verificado o sin él.** El agente lo ve en la ficha del cliente y lo escribe
+él si quiere.
+
+- Con la fuente `argos` activa y un cliente asociado a la conversación, al preparar cada sugerencia
+  Iris lee **en vivo** `GET /api/v1/clientes/:id/estado-cuenta` de Argos (§2.1 del contrato con
+  Argos; la empresa de la conversación en `?empresa_id=` y `X-Empresa-Id`; `X-Iris-Actor:
+  asistente_ia`), fuera de la transacción y con 5 s de plazo. El servicio no trae saldo propio en lo
+  que Iris lee de Argos; su `estado` (instantánea) se combina con el estado de cuenta de la empresa.
+- **Qué se guarda y qué no.** De la respuesta de Argos Iris se queda solo con «al día» o «con saldo
+  vencido» y la cantidad de facturas vencidas. Eso **sí se guarda** como etiqueta de la fuente de la
+  sugerencia («Servicio activo, al día · Argos», «Con saldo vencido (2 facturas) · Argos»), que es
+  interna: la ve el agente. **El monto y el saldo no se guardan en ningún lado ni se le pasan al
+  modelo**: ni en la sugerencia (texto, fuentes, error), ni en eventos, auditoría o logs.
+- **Si Argos falla** (sin conector, caído, sin permiso `clientes.estado_cuenta`), la sugerencia sale
+  sin esa fuente (las de la instantánea quedan como antes); no se cae.
+- **Cliente verificado** = la conversación tiene cliente y `contacto.verificado: true` (el número
+  coincide con Argos o lo confirmó un supervisor, §5), la misma regla de boletas y promesas. La
+  verificación de identidad de §7.5 del contrato con Argos aún no está en Iris (§12, pendiente):
+  cuando exista, esta regla la exigirá.
+- **Al modelo, con cliente verificado:** solo «al día» o «con saldo vencido (N facturas vencidas)».
+  Puede decirle al cliente que tiene un saldo pendiente; si pide el monto, que un agente se lo confirma.
+- **Al modelo, con cliente sin verificar:** nada del estado de cuenta; solo la instrucción de no
+  hablar de saldos, deudas ni pagos pendientes y de ofrecer verificar su identidad. La etiqueta de la
+  fuente (para el agente) sí dice el estado.
+- **Validador de montos (siempre, verificado o no).** El texto sugerido se normaliza (NFKC, espacios
+  Unicode e invisibles, sin `*`, `_`, `~` ni comillas invertidas, minúsculas) y la sugerencia queda
+  `error` / `respuesta_invalida` («La sugerencia mencionaba un monto de deuda; el monto lo da el
+  agente desde la ficha del cliente», sin el número) si habla de deuda (saldo, debe, deuda, adeuda,
+  pendiente de pago, factura vencida, total a pagar, en mora…) y trae:
+    - una cifra con moneda en cualquier parte del texto, con la moneda antes o después (`Q`, `GTQ`,
+      `qtz`, `USD`, `$`, quetzal(es), dólar(es), peso(s); `Q350`, `350 Q`, `Q: 350`, «cien
+      quetzales»), o
+    - un número de 2 dígitos o más, un decimal o un numeral en letras de diez en adelante a menos de
+      60 caracteres de la palabra de deuda («debe 1,250», «su saldo es de 150», «tu deuda es de
+      mil»), salvo que cuente otra cosa (facturas, días, meses, Mbps, una fecha).
+  Un precio de plan tomado de un manual («el plan de 100 Mb cuesta Q 299 al mes») no habla de deuda
+  y pasa. Un texto que mezcla un precio con una palabra de deuda se rechaza (el agente pide otra).
+- **La cuenta es del cliente que se leyó.** Si la conversación cambió de cliente mientras Argos
+  respondía, el estado de cuenta leído no se usa. Si cambió mientras el modelo generaba, la
+  sugerencia queda `vencida` (sin texto ni fuentes; sus tokens cuentan). Asociar otro cliente,
+  desasociarlo, unir un contacto de Iris a un cliente o iniciar la conversación con otro cliente
+  dejan `vencida` la sugerencia vigente en la misma transacción.

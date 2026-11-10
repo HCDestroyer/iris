@@ -116,6 +116,8 @@ type ErrorRemoto struct {
 	Detalle string
 	// ProblemJSON: la respuesta vino como application/problem+json (no el HTML de un proxy).
 	ProblemJSON bool
+	// HTML: la respuesta vino como text/html (la página de un panel web o de un proxy, no la API).
+	HTML bool
 	// Campos: errors[].field (o location / campo) del problem+json, sin el prefijo body. (máx. 20).
 	Campos []string
 
@@ -259,6 +261,10 @@ func reintentable(err error) (bool, time.Duration) {
 }
 
 const maxRespuesta = 4 << 20
+
+// Base es el origen al que llama el cliente (sin /api/v1 ni barra final). No lleva credenciales:
+// sirve para explicar al administrador a qué dirección se llamó.
+func (c *Cliente) Base() string { return c.base }
 
 // Pedir hace la llamada a base + /api/v1 + ruta; con idempotente=true reintenta según las
 // opciones. destino recibe el JSON normalizado (Decodificar); nil = se descarta el cuerpo.
@@ -454,6 +460,8 @@ func (c *Cliente) errorDeRespuesta(resp *http.Response, crudo []byte) *ErrorRemo
 	}
 	if mt, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type")); err == nil && mt == "application/problem+json" {
 		e.ProblemJSON = true
+	} else if err == nil && (mt == "text/html" || mt == "application/xhtml+xml") {
+		e.HTML = true
 	}
 	if len(e.Detalle) > 500 {
 		e.Detalle = e.Detalle[:500]
