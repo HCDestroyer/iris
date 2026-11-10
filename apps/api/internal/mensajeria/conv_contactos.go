@@ -34,6 +34,8 @@ type ArgosAtencion interface {
 	CuentasBancarias(ctx context.Context, a argos.AtencionIris) ([]argos.CuentaBancariaArgos, error)
 	Bancos(ctx context.Context, a argos.AtencionIris) ([]argos.BancoArgos, error)
 	EquiposEnComodato(ctx context.Context, empresaID, servicioID int64) ([]argos.EquipoComodatoArgos, error)
+	// EstadoCuentaCliente: el estado de cuenta en vivo (asistente de IA, §16.10). Nunca se guarda.
+	EstadoCuentaCliente(ctx context.Context, a argos.AtencionIris, clienteID int64) (argos.EstadoCuenta, error)
 }
 
 func atencionDe(a alcanceConv, conv int64) argos.AtencionIris {
@@ -535,6 +537,10 @@ func nuevoUnirContacto(m *Modulo) *UnirContacto {
 					return ContactoIris{}, err
 				}
 				if _, err := guardarConv(ctx, q, c, false); err != nil {
+					return ContactoIris{}, err
+				}
+				// La conversación pasó a ser de un cliente de Argos: la sugerencia vigente queda vencida.
+				if err := m.cerrarVigentes(ctx, t, c, SugVencida); err != nil {
 					return ContactoIris{}, err
 				}
 				if err := m.emitirEventoConv(ctx, t, c, EventoConvActualizada, nil, nil); err != nil {

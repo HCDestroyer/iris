@@ -71,7 +71,12 @@ type Config struct {
 	Reloj func() time.Time
 	// RetencionEnvios: cuánto se guardan los envíos (30 días).
 	RetencionEnvios time.Duration
-	Log             *slog.Logger
+	// Correo saliente del sistema (IRIS_SMTP_*; nil = sin correo: los avisos por correo quedan
+	// «omitido» con motivo sin_correo_sistema).
+	Correo EmisorCorreo
+	// BaseURL del panel para los enlaces de los correos (IRIS_BASE_URL).
+	BaseURL string
+	Log     *slog.Logger
 }
 
 // Modulo reúne los casos de uso de notificaciones.
@@ -88,6 +93,14 @@ type Modulo struct {
 	PrepararEnvio  *auditoria.Caso[int64, *EnvioListo]
 	CerrarEnvio    *auditoria.Caso[ResultadoEnvio, bool]
 	PurgarCaducos  *auditoria.Caso[struct{}, ResultadoPurga]
+	// Avisos del panel (la campana) y correos del sistema.
+	ListarAvisos   *auditoria.Caso[EntradaListarAvisos, nucleo.Pagina[AvisoPanel]]
+	ResumenAvisos  *auditoria.Caso[struct{}, ResumenAvisos]
+	LeerAviso      *auditoria.Caso[EntradaLeerAviso, AvisoPanel]
+	LeerAvisos     *auditoria.Caso[struct{}, AvisosLeidos]
+	AvisarTope     *auditoria.Caso[EntradaAvisarTope, ResultadoAvisarTope]
+	prepararCorreo *auditoria.Caso[int64, *correoListo]
+	cerrarCorreo   *auditoria.Caso[ResultadoCorreo, bool]
 }
 
 // Nuevo arma el módulo.
@@ -117,11 +130,21 @@ func Nuevo(cfg Config) *Modulo {
 	m.PrepararEnvio = m.nuevoPrepararEnvio()
 	m.CerrarEnvio = m.nuevoCerrarEnvio()
 	m.PurgarCaducos = m.nuevoPurgarCaducos()
+	m.ListarAvisos = m.nuevoListarAvisos()
+	m.ResumenAvisos = m.nuevoResumenAvisos()
+	m.LeerAviso = m.nuevoLeerAviso()
+	m.LeerAvisos = m.nuevoLeerTodosLosAvisos()
+	m.AvisarTope = m.nuevoAvisarTope()
+	m.prepararCorreo = m.nuevoPrepararCorreo()
+	m.cerrarCorreo = m.nuevoCerrarCorreo()
 	return m
 }
 
 // Estado del push.
 func (m *Modulo) Estado() EstadoPush { return m.cfg.Estado }
+
+// CorreoActivo: hay correo saliente del sistema.
+func (m *Modulo) CorreoActivo() bool { return m.cfg.Correo != nil }
 
 // Activo: hay a quién mandar los mensajes.
 func (m *Modulo) Activo() bool { return m.cfg.FCM != nil }

@@ -204,6 +204,9 @@ const (
 	PermIntegracionesConectar   Permiso = "integraciones.conectar"
 	PermIntegracionesDesactivar Permiso = "integraciones.desactivar"
 	PermIntegracionesVer        Permiso = "integraciones.ver"
+	// PermIntegracionesRevisarVersion: releer ya la versión del otro sistema (diagnóstico del
+	// conector; POST /integraciones/conectores/{id}/revisar-version).
+	PermIntegracionesRevisarVersion Permiso = "integraciones.revisar_version"
 )
 
 // Adjuntos (fotos, firmas, documentos de órdenes y tickets) y cola de pendientes hacia Argos.
@@ -316,7 +319,7 @@ var PermisosSensibles = map[Permiso]bool{
 	PermUsuariosAsignarRol: true, PermUsuariosQuitarRol: true, PermUsuariosCerrarSesiones: true,
 	PermEmpresasCrear: true, PermEmpresasEditar: true, PermEmpresasAdoptar: true,
 	PermBuzonesCrear: true, PermBuzonesEditar: true, PermBuzonesActivar: true, PermBuzonesDesactivar: true,
-	PermIntegracionesConectar: true, PermIntegracionesActivar: true, PermIntegracionesDesactivar: true, PermIntegracionesReintentar: true,
+	PermIntegracionesConectar: true, PermIntegracionesActivar: true, PermIntegracionesDesactivar: true, PermIntegracionesReintentar: true, PermIntegracionesRevisarVersion: true,
 	PermIntegracionesResolverPendiente: true, PermPlantillasCrear: true, PermPlantillasEditar: true, PermPlantillasActivar: true, PermPlantillasDesactivar: true,
 	PermFactibilidadConfigurar: true, PermPortalEmitir: true, PermSSOEmitir: true,
 	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true, PermMensajeriaConfigurar: true, PermMensajeriaConexionMeta: true, PermMensajeriaAsistenteConfigurar: true, PermCanalesConfigurar: true, PermConversacionesConfigurar: true,
@@ -412,6 +415,7 @@ var Catalogo = []DefPermiso{
 	{PermIntegracionesDesactivar, "Desactivar un conector con ArgosISP u Horus"},
 	{PermIntegracionesReintentar, "Reintentar a mano una acción pendiente hacia Argos (fallida o agotada)"},
 	{PermIntegracionesResolverPendiente, "Dar por resuelta a mano una acción hacia Argos que Argos rechazó o que nació incompleta (ya corregida en Argos): no vuelve a salir y lo que esperaba por ella sale"},
+	{PermIntegracionesRevisarVersion, "Releer ya la versión de Argos en un conector (diagnóstico: la URL base y el status de la última lectura)"},
 	{PermIntegracionesVer, "Ver los conectores y su estado (nunca el token ni el secreto)"},
 	{PermIntegracionesVerPendientes, "Ver la cola de acciones pendientes hacia Argos y su último error"},
 	{PermManualesEditar, "Crear, editar, activar y desactivar artículos de la biblioteca de manuales"},

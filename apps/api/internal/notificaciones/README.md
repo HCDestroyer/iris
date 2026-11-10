@@ -35,12 +35,34 @@ dispositivos y las preferencias se guardan y `/salud` dice `sin_configurar`.
 Privacidad: los envíos solo guardan referencias (ids y banderas); el texto se lee al enviar y no va
 al log ni a la auditoría. La auditoría del dispositivo lleva `fin_fcm` (últimos 6 caracteres).
 
+## Avisos del panel y correo del sistema (2.1, `contratos/conversaciones.md` §16.9)
+
+- **Campana** (`avisos.go`, API principal): `GET /api/v1/yo/avisos` (cursor, `soloNoLeidos`),
+  `GET /api/v1/yo/avisos/resumen` (`noLeidos`), `POST /api/v1/yo/avisos/{id}/leer` y
+  `POST /api/v1/yo/avisos/leer-todos`; solo los del usuario en la empresa activa. Leer no audita ni
+  emite (es el estado personal de la campana).
+- **Tope del asistente:** el worker consume `asistente.tope_alcanzado` (también con el push apagado) y,
+  para cada persona activa con `mensajeria.asistente_configurar` en esa empresa (asignada o con
+  `empresas.todas` sin límite), crea un aviso y un correo. Uno por usuario y clave
+  `asistente_tope:<empresa>:<mes>:<80|100>:<tope>`: una sola vez por umbral, mes y valor del tope
+  aunque el evento llegue dos veces; si suben el tope y lo vuelven a cruzar, avisa de nuevo. El
+  `enlace` de un aviso solo puede ser una ruta interna del panel (CHECK en la tabla).
+- **Correo del sistema** (`correo.go`): `IRIS_SMTP_HOST`, `IRIS_SMTP_PORT`, `IRIS_SMTP_USUARIO`,
+  `IRIS_SMTP_CONTRASENA`, `IRIS_SMTP_TLS` (`starttls` | `tls`) e `IRIS_SMTP_REMITENTE`, con el cliente
+  SMTP de los buzones (TLS obligatorio, `IRIS_CORREO_REDES_PERMITIDAS`, `IRIS_CORREO_CA`). Un job
+  `notificaciones.enviar_correo` por correo (6 intentos con espera exponencial). Sin host o remitente,
+  el correo queda `omitido` (`sin_correo_sistema`) sin error.
+- Tablas `notificaciones.avisos` y `notificaciones.correos`; la purga de cada hora borra los de más
+  de 180 días.
+
 ## Eventos
 
 - **Emite:** `dispositivo.registrado`, `dispositivo.quitado`, `notificaciones.preferencias_cambiadas`
-  (payloads en `contratos/eventos.md`, «Notificaciones push»).
+  (payloads en `contratos/eventos.md`, «Notificaciones push»); `notificaciones.avisos_creados`,
+  `notificaciones.correo_enviado` y `notificaciones.correo_fallido` (avisos del panel).
 - **Consume:** `chat.mensaje_enviado`, `chat.mencion` (cuando el chat tenga menciones),
-  `conversacion.mencion`, `conversacion.aviso_sin_atender`, `orden.asignada`, `orden.programada`.
+  `conversacion.mencion`, `conversacion.aviso_sin_atender`, `orden.asignada`, `orden.programada` y
+  `asistente.tope_alcanzado` (avisos del panel).
 
 ## Tablas (`notificaciones`)
 

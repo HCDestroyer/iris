@@ -174,11 +174,21 @@ func correr() error {
 	// órdenes; un job por envío y la purga de cada hora. Sin IRIS_FCM_* no manda nada.
 	fcm, estPush := notificaciones.ConfigDesdeEntorno()
 	notificaciones.AvisarEstado(log, estPush)
-	notif := notificaciones.Nuevo(notificaciones.Config{FCM: fcm, Estado: estPush, Log: log,
+	// Correo saliente del sistema (IRIS_SMTP_*, con la protección de red de los buzones): avisos a
+	// usuarios de Iris. Sin host ni remitente, los avisos por correo quedan «omitido».
+	correoSistema, err := notificaciones.CorreoDesdeEntorno(ccfg.Red)
+	if err != nil {
+		log.Error("correo del sistema apagado: la configuración no sirve", "motivo", err.Error())
+	} else if correoSistema == nil {
+		log.Info("correo del sistema sin configurar (IRIS_SMTP_HOST e IRIS_SMTP_REMITENTE vacías): los avisos solo salen en la campana")
+	}
+	notif := notificaciones.Nuevo(notificaciones.Config{FCM: fcm, Estado: estPush, Log: log, Correo: correoSistema, BaseURL: cfg.BaseURL,
 		Encolar: func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
 			return integracion.Encolar(cliente)(ctx, tx, args)
 		}})
 	notif.Suscribir(bus, pool)
+	// Avisos del panel (la campana) y su correo: el tope del asistente de IA al 80 % y al 100 %.
+	notif.SuscribirAvisos(bus, pool)
 
 	cliente, err = integracion.NuevoClienteRiver(pool, relay, integracion.OpcionesWorker{
 		Esquema: migraciones.EsquemaRiver, RelayIntervalo: cfg.RelayIntervalo, Log: log,

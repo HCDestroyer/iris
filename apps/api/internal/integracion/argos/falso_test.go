@@ -51,6 +51,9 @@ type argosFalso struct {
 	alcanceGlobal *bool
 	// proxy404: rutas a las que un proxy responde 404 en HTML (no es «no encontrado» de Argos).
 	proxy404 map[string]bool
+	// rutaStatus: «METODO /ruta» a la que Argos responde ese status con problem+json (403 en el PUT
+	// del contrato, 405 en el GET del estado…).
+	rutaStatus map[string]int
 	// fueraDeAlcance: rutas por id a las que Argos responde 403 empresa_no_permitida (el recurso
 	// existe fuera del alcance del token; nunca 404).
 	fueraDeAlcance map[string]bool
@@ -108,7 +111,7 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 		t: t, token: tokenArgos, codigo: "codigo-de-argos-0123456789",
 		clientes: map[int64]map[string]any{}, servicios: map[int64][]map[string]any{},
 		estados: map[int64]map[string]any{}, ips: map[string]map[string]any{}, llamadas: map[string]int{},
-		proxy404: map[string]bool{}, fueraDeAlcance: map[string]bool{}, sinGet: map[int64]bool{},
+		proxy404: map[string]bool{}, rutaStatus: map[string]int{}, fueraDeAlcance: map[string]bool{}, sinGet: map[int64]bool{},
 		respuestasRevocar: map[string][]int{}, retryAfter: map[string]string{},
 	}
 	mux := http.NewServeMux()
@@ -305,7 +308,12 @@ func (a *argosFalso) conToken(fn http.HandlerFunc) http.HandlerFunc {
 		sinPermiso := a.sinPermiso
 		proxy := a.proxy404[r.URL.Path]
 		fuera := a.fueraDeAlcance[r.URL.Path]
+		forzado := a.rutaStatus[r.Method+" "+r.URL.Path]
 		a.mu.Unlock()
+		if forzado != 0 {
+			problema(w, forzado, "urn:argosisp:problema:forzado", "Respuesta forzada por la prueba")
+			return
+		}
 		if fuera {
 			problema(w, 403, "urn:argosisp:problema:empresa_no_permitida", "Fuera del alcance del token")
 			return

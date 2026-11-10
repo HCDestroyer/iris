@@ -177,3 +177,84 @@ WHERE o.id = @id;
 
 -- name: HayEmpresas :one
 SELECT EXISTS (SELECT 1 FROM nucleo.empresas)::boolean;
+
+-- Avisos del panel (la campana) ------------------------------------------------------------------
+
+-- name: DestinatariosConPermiso :many
+-- Personas activas con el permiso (por un rol activo) que operan en la empresa: la tienen asignada o
+-- tienen empresas.todas sin límite. Con @empresa null (sin conector), todas las que tienen el permiso.
+SELECT DISTINCT u.id, u.correo, u.nombre
+FROM nucleo.usuarios u
+JOIN nucleo.usuarios_roles ur ON ur.usuario_id = u.id
+JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
+JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id AND rp.permiso = @permiso::text
+WHERE u.activo AND u.tipo = 'persona'
+  AND (sqlc.narg('empresa')::bigint IS NULL
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = u.id AND ue.empresa_id = sqlc.narg('empresa')::bigint)
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur2
+                  JOIN nucleo.roles r2 ON r2.id = ur2.rol_id AND r2.activo
+                  JOIN nucleo.roles_permisos rp2 ON rp2.rol_id = ur2.rol_id
+                  WHERE ur2.usuario_id = u.id AND rp2.permiso = 'empresas.todas'
+                    AND ur2.zona_id IS NULL AND ur2.cuadrilla_id IS NULL))
+ORDER BY u.id;
+
+-- name: NombreEmpresa :one
+SELECT nombre FROM nucleo.empresas WHERE id = @id;
+
+-- name: InsertarAviso :one
+-- Uno por usuario y clave: un evento repetido no crea otro (sin filas).
+INSERT INTO notificaciones.avisos (usuario_id, empresa_id, tipo, clave, nivel, titulo, enlace, datos, evento_id)
+VALUES (@usuario_id, sqlc.narg('empresa_id'), @tipo, @clave, @nivel, @titulo, sqlc.narg('enlace'), @datos, sqlc.narg('evento_id'))
+ON CONFLICT (usuario_id, clave) DO NOTHING
+RETURNING *;
+
+-- name: ListarAvisos :many
+-- Los del usuario en la empresa activa (null = sin conector), del más nuevo al más viejo.
+SELECT * FROM notificaciones.avisos
+WHERE usuario_id = @usuario_id AND coalesce(empresa_id, 0) = coalesce(sqlc.narg('empresa')::bigint, 0)
+  AND (NOT @solo_no_leidos::boolean OR leido_en IS NULL)
+  AND (@antes_de::bigint = 0 OR id < @antes_de::bigint)
+ORDER BY id DESC
+LIMIT @limite;
+
+-- name: ContarAvisosNoLeidos :one
+SELECT count(*)::integer FROM notificaciones.avisos
+WHERE usuario_id = @usuario_id AND coalesce(empresa_id, 0) = coalesce(sqlc.narg('empresa')::bigint, 0) AND leido_en IS NULL;
+
+-- name: LeerAviso :one
+-- Marca leído (si ya lo estaba, lo deja igual).
+UPDATE notificaciones.avisos SET leido_en = coalesce(leido_en, @ahora)
+WHERE id = @id AND usuario_id = @usuario_id AND coalesce(empresa_id, 0) = coalesce(sqlc.narg('empresa')::bigint, 0)
+RETURNING *;
+
+-- name: LeerTodosLosAvisos :execrows
+UPDATE notificaciones.avisos SET leido_en = @ahora
+WHERE usuario_id = @usuario_id AND coalesce(empresa_id, 0) = coalesce(sqlc.narg('empresa')::bigint, 0) AND leido_en IS NULL;
+
+-- Correos del sistema ----------------------------------------------------------------------------
+
+-- name: InsertarCorreo :one
+-- Uno por usuario y clave (sin filas si ya estaba).
+INSERT INTO notificaciones.correos (usuario_id, empresa_id, aviso_id, tipo, clave, para, asunto, datos, estado, motivo)
+VALUES (@usuario_id, sqlc.narg('empresa_id'), sqlc.narg('aviso_id'), @tipo, @clave, @para, @asunto, @datos, @estado, sqlc.narg('motivo'))
+ON CONFLICT (usuario_id, clave) DO NOTHING
+RETURNING *;
+
+-- name: CorreoParaEnviar :one
+SELECT * FROM notificaciones.correos WHERE id = @id FOR UPDATE;
+
+-- name: CerrarCorreo :one
+UPDATE notificaciones.correos
+SET estado = @estado, motivo = sqlc.narg('motivo'), intentos = intentos + 1,
+    enviado_en = CASE WHEN @estado = 'enviado' THEN @ahora::timestamptz ELSE enviado_en END, updated_at = now()
+WHERE id = @id
+RETURNING *;
+
+-- name: ReintentoCorreo :exec
+UPDATE notificaciones.correos SET intentos = intentos + 1, motivo = sqlc.narg('motivo'), updated_at = now() WHERE id = @id;
+
+-- name: PurgarAvisos :execrows
+DELETE FROM notificaciones.avisos WHERE creado_en < @antes;
+
+-- name: PurgarCorreos :execrows
+DELETE FROM notificaciones.correos WHERE creado_en < @antes AND estado <> 'pendiente';

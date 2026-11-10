@@ -337,7 +337,20 @@ si se envió igual o editada). No registra pagos, promesas ni reconexiones.
   `conversaciones.sugerencias`).
 - **Tope:** `mensajeria.asistente_uso` por empresa y mes (Guatemala). Al 80 % y 100 % emite
   `asistente.tope_alcanzado`; al 100 % se pausa hasta el mes siguiente o hasta subir el tope. Costo
-  con `precioEntradaMillon`/`precioSalidaMillon`.
+  con `precioEntradaMillon`/`precioSalidaMillon`. El aviso a los administradores (campana y correo)
+  lo hace `internal/notificaciones` al consumir el evento (§16.9).
+- **Saldo del cliente (2.1, `asistente_cuenta.go`, §16.10):** con la fuente `argos` y cliente asociado,
+  antes de preparar cada sugerencia se lee en vivo el estado de cuenta (`ArgosAtencion.EstadoCuentaCliente`,
+  `X-Iris-Actor: asistente_ia`, 5 s), fuera de la transacción y sin guardarlo (ni fuentes, ni eventos,
+  ni auditoría, ni logs) el monto. Solo queda «al día» o «con saldo vencido (N facturas)», que sí se
+  guarda como etiqueta de la fuente («Servicio activo, al día · Argos», «Con saldo vencido (N facturas)
+  · Argos»). **El monto nunca llega al modelo ni sale en una sugerencia:** con cliente verificado el
+  modelo ve solo ese estado; sin verificar, nada del estado de cuenta y la instrucción de ofrecer
+  verificar. `validarSalidaModelo` rechaza siempre un monto de deuda (`ContieneMonto`: normaliza con
+  NFKC, moneda antes o después, enteros y numerales en letras cerca de «saldo», «debe», «deuda»…; los
+  precios de plan de un manual pasan). La cuenta va atada al cliente (`cuentaIA.clienteID`): si la
+  conversación cambia de cliente no se usa, y la sugerencia queda `vencida`; asociar o desasociar
+  vence la vigente. Si Argos falla, la sugerencia sale sin esa fuente. El resumen no lo lee.
 - **Resumen** (`POST …/resumen`): síncrono, cuenta para el tope, no se guarda el texto.
 - **Auditoría:** ajustes (clave `***`), pruebas, pedir/usar/descartar/calificar, generación (ids,
   códigos y tokens) y resumen; nunca el texto de la sugerencia ni del resumen. Las respuestas con

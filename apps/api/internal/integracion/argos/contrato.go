@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -102,18 +103,32 @@ type ResultadoContrato struct {
 	VersionRemota     *string `json:"version_remota"`
 	ContratoRemoto    *string `json:"contrato_remoto"`
 	ContratoInformado *string `json:"contrato_informado"`
-	Cambio            bool    `json:"cambio"`
+	// Estado del diagnóstico de esta lectura (ok, ruta_no_existe, sin_permiso, no_responde, error).
+	Estado string `json:"version_estado"`
+	Cambio bool   `json:"cambio"`
 }
+
+// Estados del diagnóstico de la versión (Conector.versionEstado).
+const (
+	VersionOK           = "ok"
+	VersionRutaNoExiste = "ruta_no_existe"
+	VersionSinPermiso   = "sin_permiso"
+	VersionNoResponde   = "no_responde"
+	VersionError        = "error"
+)
 
 type entradaGuardarContrato struct {
 	ConectorID int64   `json:"conector_id"`
 	Version    *string `json:"version_remota"`
 	Contrato   *string `json:"contrato_remoto"`
 	Informado  *string `json:"contrato_informado"`
-	// SinVersion: GET …/estado respondió 404/405 (Argos 1.5.x, o volvió a ella): la versión guardada
-	// se borra. SinInformado: PUT …/contrato respondió 404/405.
+	// SinVersion: GET …/estado respondió 404 JSON o 405 (Argos 1.5.x, o volvió a ella): la versión
+	// guardada se borra. SinInformado: PUT …/contrato respondió lo mismo.
 	SinVersion   bool `json:"sin_version,omitempty"`
 	SinInformado bool `json:"sin_informado,omitempty"`
+	// Diagnóstico de esta lectura (siempre se guarda, cambie o no la versión).
+	Estado  string `json:"version_estado"`
+	Detalle string `json:"version_detalle"`
 }
 
 // InformarContrato: PUT /integraciones/iris/contrato y GET /integraciones/iris/estado fuera de
@@ -136,15 +151,16 @@ func nuevoInformarContrato(m *Modulo) *InformarContrato {
 			if err != nil {
 				return ResultadoContrato{}, err
 			}
+			detalle := recortarDetalle(in.Detalle)
 			despues, err := q.FijarVersionConector(ctx, conectorbd.FijarVersionConectorParams{
 				ID: in.ConectorID, VersionRemota: in.Version, ContratoRemoto: in.Contrato, ContratoInformado: in.Informado,
-				SinVersion: in.SinVersion, SinInformado: in.SinInformado,
+				SinVersion: in.SinVersion, SinInformado: in.SinInformado, VersionEstado: in.Estado, VersionDetalle: &detalle,
 			})
 			if err != nil {
 				return ResultadoContrato{}, err
 			}
 			r := ResultadoContrato{ConectorID: despues.ID, VersionRemota: despues.VersionRemota, ContratoRemoto: despues.ContratoRemoto,
-				ContratoInformado: despues.ContratoInformado}
+				ContratoInformado: despues.ContratoInformado, Estado: in.Estado}
 			campos := []string{}
 			if !mismoTexto(antes.VersionRemota, despues.VersionRemota) {
 				campos = append(campos, "version_remota")
@@ -155,13 +171,17 @@ func nuevoInformarContrato(m *Modulo) *InformarContrato {
 			if !mismoTexto(antes.ContratoInformado, despues.ContratoInformado) {
 				campos = append(campos, "contrato_informado")
 			}
+			if !mismoTexto(antes.VersionEstado, despues.VersionEstado) {
+				campos = append(campos, "version_estado")
+			}
 			if len(campos) == 0 {
 				return r, nil
 			}
 			r.Cambio = true
 			t.RegistrarCambios("conector", despues.ID, map[string]any{"version_remota": antes.VersionRemota, "contrato_remoto": antes.ContratoRemoto,
-				"contrato_informado": antes.ContratoInformado}, map[string]any{"version_remota": despues.VersionRemota,
-				"contrato_remoto": despues.ContratoRemoto, "contrato_informado": despues.ContratoInformado})
+				"contrato_informado": antes.ContratoInformado, "version_estado": antes.VersionEstado}, map[string]any{"version_remota": despues.VersionRemota,
+				"contrato_remoto": despues.ContratoRemoto, "contrato_informado": despues.ContratoInformado, "version_estado": despues.VersionEstado})
+			t.Anotar(map[string]any{"version_detalle": detalle})
 			return r, t.Emitir("conector.actualizado", map[string]any{"conector_id": despues.ID, "sistema": despues.Sistema, "campos": campos})
 		},
 	})
@@ -172,9 +192,68 @@ func mismoTexto(a, b *string) bool {
 	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
 }
 
+func recortarDetalle(s string) string {
+	if r := []rune(s); len(r) > 500 {
+		return string(r[:499]) + "…"
+	}
+	return s
+}
+
+// Rutas que lee el job (para el detalle).
+const (
+	rutaContrato = "/integraciones/iris/contrato"
+	rutaEstado   = "/integraciones/iris/estado"
+)
+
+// lectura es el resultado de una de las dos llamadas.
+type lectura struct {
+	estado  string
+	detalle string
+	// sinRuta: 404 JSON o 405 (la ruta no existe en esa API: Argos 1.5.x).
+	sinRuta bool
+	// html: 404/405 con una página HTML (la dirección no es la de la API: p. ej. el panel de Nuxt).
+	html bool
+}
+
+// clasificar traduce el error de una llamada a Argos al diagnóstico (sin texto de Argos).
+func clasificar(err error, base, metodo, ruta string) lectura {
+	llamada := metodo + " " + base + "/api/v1" + ruta
+	var er *ErrorArgos
+	if !errors.As(err, &er) {
+		return lectura{estado: VersionError, detalle: "No se pudo llamar a Argos en " + base + " (" + llamada + ")"}
+	}
+	status := strconv.Itoa(er.Status)
+	switch {
+	case er.Bloqueado():
+		return lectura{estado: VersionError, detalle: "La dirección " + base + " resuelve a una red interna no permitida; si es intencional, agrégala a " + Remoto.VariableRedes}
+	case (er.Status == http.StatusNotFound || er.Status == http.StatusMethodNotAllowed) && er.HTML:
+		return lectura{estado: VersionRutaNoExiste, html: true,
+			detalle: "La dirección " + base + " no responde como la API de Argos: revisa que sea la de la API, no la del panel (" + llamada + " respondió HTTP " + status + " con una página HTML)"}
+	case er.Status == http.StatusNotFound || er.Status == http.StatusMethodNotAllowed:
+		return lectura{estado: VersionRutaNoExiste, sinRuta: true,
+			detalle: "Argos en " + base + " no tiene " + metodo + " /api/v1" + ruta + " (HTTP " + status + "): es anterior a " + VersionInventarioTecnico + "; Iris sigue con bodega_id"}
+	case er.Status == http.StatusUnauthorized || er.Status == http.StatusForbidden:
+		return lectura{estado: VersionSinPermiso,
+			detalle: "Argos en " + base + " rechazó el token del conector en " + metodo + " /api/v1" + ruta + " (HTTP " + status + "): revisa el usuario técnico Iris en Argos o vuelve a conectar"}
+	case er.Caido():
+		if er.Status == 0 {
+			return lectura{estado: VersionNoResponde, detalle: "Argos no respondió en " + base + " (" + llamada + "): sin conexión o tiempo agotado"}
+		}
+		return lectura{estado: VersionNoResponde, detalle: "Argos no respondió en " + base + " (" + llamada + " respondió HTTP " + status + ")"}
+	}
+	return lectura{estado: VersionError, detalle: "Argos en " + base + " respondió HTTP " + status + " a " + metodo + " /api/v1" + ruta}
+}
+
 // Ejecutar informa el contrato al conector (debe estar activo) y guarda la versión que responde
-// Argos. Un Argos anterior a 1.6.0 responde 404/405 a las dos rutas: no es error (queda sin versión
-// y Iris sigue con bodega_id). Argos caído: error (River reintenta).
+// Argos junto con el diagnóstico de la lectura (version_estado y version_detalle, con la URL base y
+// el status):
+//
+//   - un 401/403 en el PUT no corta: igual se lee GET …/estado (y queda sin_permiso del PUT);
+//   - un 404/405 con una página HTML es ruta_no_existe («no es la API, es el panel») y no borra la
+//     versión guardada si era ≥ 1.6.0;
+//   - un 404 JSON o un 405 en GET …/estado es la vuelta atrás real a 1.5.x: la versión se borra y
+//     Iris sigue con bodega_id;
+//   - Argos caído (sin respuesta, 429, 5xx): no_responde y error (River reintenta).
 func (k *InformarContrato) Ejecutar(ctx context.Context, conectorID int64) (ResultadoContrato, error) {
 	bd := nucleo.BDDe(ctx)
 	if bd == nil {
@@ -185,47 +264,75 @@ func (k *InformarContrato) Ejecutar(ctx context.Context, conectorID int64) (Resu
 		return ResultadoContrato{}, err
 	}
 	cli := k.m.clienteDe(c)
+	base := cli.Base()
+	versionAntes := c.VersionRemota
 	in := entradaGuardarContrato{ConectorID: conectorID}
 	var puesto EstadoIris
 	// receptor_argos (0.6.2): true si el conector tiene guardado el receptor de Argos (url y secreto
 	// cifrado, §6.6). Los canjeados antes de B1 no lo tienen: false, y Argos pide reconectar.
 	receptor := c.WebhookSalidaUrl != nil && len(c.WebhookSalidaSecretoCifrado) > 0
-	err = cli.Pedir(ctx, http.MethodPut, "/integraciones/iris/contrato", nil, map[string]any{"contrato": ContratoIris, "receptor_argos": receptor}, true,
+	errPut := cli.Pedir(ctx, http.MethodPut, rutaContrato, nil, map[string]any{"contrato": ContratoIris, "receptor_argos": receptor}, true,
 		&conector.Recurso{Destino: &puesto})
-	switch {
-	case err == nil:
+	var put lectura
+	if errPut == nil {
 		informado := ContratoIris
 		in.Informado = &informado
 		in.Version, in.Contrato = conector.TextoVersion(puesto.VersionArgos, 40), conector.TextoVersion(puesto.Contrato, 20)
-	case anteriorA16(err):
-		in.SinInformado = true
-	default:
-		return ResultadoContrato{}, err
+		put = lectura{estado: VersionOK}
+	} else {
+		put = clasificar(errPut, base, http.MethodPut, rutaContrato)
+		// Solo la ausencia real de la ruta (Argos 1.5.x) deja el contrato sin informar; un 404 HTML es
+		// una dirección equivocada y no dice nada de lo que Argos tiene registrado.
+		in.SinInformado = put.sinRuta
 	}
 	var estado EstadoIris
-	err = cli.Pedir(ctx, http.MethodGet, "/integraciones/iris/estado", nil, nil, true, &conector.Recurso{Destino: &estado})
-	switch {
-	case err == nil:
+	errGet := cli.Pedir(ctx, http.MethodGet, rutaEstado, nil, nil, true, &conector.Recurso{Destino: &estado})
+	if errGet == nil {
 		if v := conector.TextoVersion(estado.VersionArgos, 40); v != nil {
 			in.Version = v
 		}
 		if v := conector.TextoVersion(estado.Contrato, 20); v != nil {
 			in.Contrato = v
 		}
-	case anteriorA16(err):
-		// Sin /estado: Argos anterior a 1.6.0 (o volvió a ella). Nada de lo que informaba antes vale:
-		// sin versión, Iris manda bodega_id.
-		in.Version, in.Contrato, in.SinVersion = nil, nil, true
-	default:
-		return ResultadoContrato{}, err
+		in.Estado = VersionOK
+		version := "sin versión"
+		if in.Version != nil {
+			version = *in.Version
+		}
+		in.Detalle = "Argos " + version + " respondió en " + base + " (GET /api/v1" + rutaEstado + ": HTTP 200)"
+		if put.estado != VersionOK {
+			// El PUT falló pero la versión se leyó: queda el motivo del PUT (sin_permiso, sobre todo).
+			in.Estado = put.estado
+			in.Detalle = put.detalle + ". La versión " + version + " se leyó de GET /api/v1" + rutaEstado + " (HTTP 200)"
+		}
+	} else {
+		get := clasificar(errGet, base, http.MethodGet, rutaEstado)
+		in.Estado, in.Detalle = get.estado, get.detalle
+		switch {
+		case get.sinRuta:
+			// Sin /estado: Argos anterior a 1.6.0 (o volvió a ella). Nada de lo que informaba antes vale:
+			// sin versión, Iris manda bodega_id.
+			in.Version, in.Contrato, in.SinVersion = nil, nil, true
+		case get.html && !conector.VersionAlMenos(versionAntes, VersionInventarioTecnico):
+			// Una página HTML sin una versión ≥ 1.6.0 guardada: no hay nada que conservar.
+			in.Version, in.Contrato, in.SinVersion = nil, nil, true
+		default:
+			// HTML con una versión ≥ 1.6.0 guardada, token rechazado o Argos caído: la versión guardada
+			// se conserva (no es una vuelta atrás). Lo que respondió el PUT (si respondió) se descarta.
+			if errPut == nil {
+				in.Version, in.Contrato = nil, nil
+			}
+		}
 	}
-	return k.guardar.Ejecutar(ctx, in)
-}
-
-// anteriorA16: la ruta no existe en Argos (404 o 405): Argos anterior a 1.6.0.
-func anteriorA16(err error) bool {
-	var er *ErrorArgos
-	return errors.As(err, &er) && (er.Status == http.StatusNotFound || er.Status == http.StatusMethodNotAllowed)
+	r, err := k.guardar.Ejecutar(ctx, in)
+	if err != nil {
+		return r, err
+	}
+	// Argos caído: River reintenta (el diagnóstico ya quedó guardado).
+	if errGet != nil && EsCaido(errGet) {
+		return r, errGet
+	}
+	return r, nil
 }
 
 // RevisarContratoYa encola InformarContrato para el conector Argos activo, en tx: la cola de

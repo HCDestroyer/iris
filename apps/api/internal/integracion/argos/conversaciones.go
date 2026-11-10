@@ -200,3 +200,22 @@ func (m *Modulo) CrearPromesa(ctx context.Context, a AtencionIris, servicioID in
 	err = cli.Escribir(ctx, "POST", "/promesas", map[string]any{"servicio_id": servicioID, "vence_en": venceEn.UTC().Format(time.RFC3339)}, clave, &r)
 	return r, err
 }
+
+// EstadoCuentaCliente: GET /clientes/:id/estado-cuenta de la empresa de la conversación (§2.1), en
+// vivo y sin guardar, para el asistente de IA (contratos/conversaciones.md §16.10). Solo el saldo,
+// la cantidad de facturas vencidas y el monto vencido. Nunca va al log.
+func (m *Modulo) EstadoCuentaCliente(ctx context.Context, a AtencionIris, clienteID int64) (EstadoCuenta, error) {
+	cli, err := m.clienteAtencion(ctx, a)
+	if err != nil {
+		return EstadoCuenta{}, err
+	}
+	e, err := cli.EstadoCuenta(ctx, clienteID, a.EmpresaID)
+	if err != nil {
+		return EstadoCuenta{}, err
+	}
+	monto := e.MontoVencido.Texto()
+	if monto == nil {
+		monto = e.TotalVencido.Texto()
+	}
+	return EstadoCuenta{Saldo: e.Saldo.Texto(), Moneda: e.Moneda, FacturasVencidas: e.CantidadVencidas(), MontoVencido: monto}, nil
+}
