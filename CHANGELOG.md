@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.20.0](https://github.com/HCDestroyer/iris/compare/v0.19.0...v0.20.0) (2026-11-09)
+
+
+### Funcionalidades
+
+* **mensajeria:** asistente de IA que sugiere respuestas (fase 2) ([#151](https://github.com/HCDestroyer/iris/issues/151)) ([39bcc71](https://github.com/HCDestroyer/iris/commit/39bcc71e0c338e04b190aaeea22c49c7e37020db))
+* **panel:** asistente de IA en la bandeja y sus ajustes (fase 2) ([#152](https://github.com/HCDestroyer/iris/issues/152)) ([d1ca8d7](https://github.com/HCDestroyer/iris/commit/d1ca8d7c10835ff74320cf7e491e783b9e1a625c))
+
 ## [0.19.0](https://github.com/HCDestroyer/iris/compare/v0.18.0...v0.19.0) (2026-11-08)
 
 
