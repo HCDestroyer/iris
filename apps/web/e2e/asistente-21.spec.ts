@@ -26,7 +26,7 @@ const AVISO_80: AvisoPanel = {
     nivel: "alerta",
     titulo: "El asistente de IA de Cable Norte usó el 80 % de su tope del mes",
     enlace: "/administracion/asistente",
-    datos: { porcentaje: 80, mes: "2026-10" },
+    datos: { porcentaje: 80, mes: "2026-10", tope: 5000000 },
     leido: false,
     leidoEn: null,
     creadoEn: "2026-10-20T15:00:00Z",
@@ -37,7 +37,7 @@ const AVISO_100: AvisoPanel = {
     id: 12,
     nivel: "peligro",
     titulo: "El asistente de IA de Cable Norte se pausó: llegó a su tope del mes",
-    datos: { porcentaje: 100, mes: "2026-10" },
+    datos: { porcentaje: 100, mes: "2026-10", tope: 5000000 },
     creadoEn: "2026-10-27T15:00:00Z",
 };
 
