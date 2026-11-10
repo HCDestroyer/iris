@@ -472,7 +472,9 @@ envía:** sugiere y la persona revisa y envía.
   internas). «Marcar todo como leído» (`leer-todos`) con aviso emergente. El punto aparece con avisos
   sin leer y **crece** (`data-actuar="si"`, rojo con anillo) solo con un `peligro` sin leer. Si no se
   pudieron leer, lo dice con «Reintentar» y no pinta punto por ellos. Se relee cada minuto, al abrir y
-  al cambiar de empresa. Lógica: `lib/campana.ts`.
+  al cambiar de empresa. En error deja de sondear hasta «Reintentar»; con la sesión vencida (401)
+  manda a entrar como «sesión expirada». El `enlace` se resuelve como el navegador y debe quedar en
+  el mismo origen (sin caracteres de control ni `\`). Lógica: `lib/campana.ts`.
 - **Uso del mes en pausa:** el aviso dice «Pausado hasta el 1 de <mes siguiente> o hasta que subas el
   tope.» (`textoPausado`).
 - **Saldo de Argos en la sugerencia:** «Servicio activo, al día · Argos» en verde con `CircleCheck`;

@@ -35,10 +35,46 @@ export function detalleAvisoPanel(a: Pick<AvisoPanel, "tipo" | "nivel" | "datos"
     return "Al llegar al 100 % deja de sugerir. Puedes subir el tope.";
 }
 
-/** Solo rutas internas del panel («/administracion/asistente»): nunca otro origen. */
-export function enlaceAvisoPanel(enlace: string | null): string | null {
-    if (!enlace || !enlace.startsWith("/") || enlace.startsWith("//") || enlace.includes("\\")) return null;
-    return enlace;
+/** Caracteres de control y barra invertida: el navegador los quita o los lee como «/» al resolver. */
+function conNoPermitidos(texto: string): boolean {
+    for (let i = 0; i < texto.length; i++) {
+        const c = texto.charCodeAt(i);
+        if (c <= 0x1f || c === 0x5c) return true;
+    }
+    return false;
+}
+
+/** Origen con el que se resuelve el enlace fuera del navegador (pruebas, servidor). */
+const ORIGEN_LOCAL = "http://iris.invalid";
+
+/**
+ * Solo rutas internas del panel («/administracion/asistente»): el enlace se resuelve como lo haría
+ * el navegador y debe quedar en el mismo origen. Se devuelve la ruta ya resuelta (ruta, parámetros
+ * y ancla), nunca el texto que llegó. Otro origen, `//host`, `/\host` o un carácter de control: `null`.
+ */
+export function enlaceAvisoPanel(enlace: string | null, origen: string = typeof location === "undefined" ? ORIGEN_LOCAL : location.origin): string | null {
+    if (!enlace || !enlace.startsWith("/") || conNoPermitidos(enlace)) return null;
+    try {
+        const base = new URL(origen);
+        const url = new URL(enlace, base);
+        if (url.origin !== base.origin) return null;
+        return `${url.pathname}${url.search}${url.hash}`;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * La campana sondea solo con una lectura buena a la vista: mientras carga o está en error no se
+ * insiste (con la sesión vencida cada intento sería otro 401); «Reintentar» lo reanuda.
+ */
+export function sondeoActivo(estado: "cargando" | "error" | "listo"): boolean {
+    return estado === "listo";
+}
+
+/** La lectura falló porque la sesión venció (401): hay que entrar otra vez. */
+export function sesionVencida(error: unknown): boolean {
+    return typeof error === "object" && error !== null && "estado" in error && error.estado === 401;
 }
 
 /** El punto de la campana crece solo cuando hay que actuar: un aviso sin leer de nivel `peligro`. */

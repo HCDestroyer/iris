@@ -3,14 +3,14 @@
 import { avisar, Boton, cn, MenuDesplegable, MenuDesplegableContenido, MenuDesplegableDisparador, MenuDesplegableElemento, PanelEmergente } from "@iris/ui";
 import { Bell, CheckCheck, ClipboardPlus, Handshake, LifeBuoy, Plus, RotateCw, type LucideIcon } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api, resolver } from "@/lib/api/cliente";
 import { mensajeDeError } from "@/lib/api/errores";
-import { detalleAvisoPanel, enlaceAvisoPanel, hayQueActuar, iconoAvisoPanel, marcarLeido, tonoAvisoPanel, type AvisoPanel } from "@/lib/campana";
+import { detalleAvisoPanel, enlaceAvisoPanel, hayQueActuar, iconoAvisoPanel, marcarLeido, sesionVencida, sondeoActivo, tonoAvisoPanel, type AvisoPanel } from "@/lib/campana";
 import { useLectura, type Lectura } from "@/lib/lectura";
 import type { Permiso } from "@/lib/menu";
-import { useSesion } from "@/lib/sesion";
+import { rutaEntrar, useSesion } from "@/lib/sesion";
 import { useResumenTickets } from "@/lib/tickets/resumen";
 
 type Creable = { href: string; etiqueta: string; icono: LucideIcon; permiso: Permiso };
@@ -65,10 +65,14 @@ const LIMITE_AVISOS = 10;
 
 /**
  * Avisos personales de la campana (`GET /yo/avisos`, solo los de la empresa activa): hoy, el tope
- * del asistente de IA para los administradores. Se relee cada minuto y al cambiar de empresa.
+ * del asistente de IA para los administradores. Se relee cada minuto y al cambiar de empresa. En
+ * error no se sigue sondeando («Reintentar» lo reanuda) y, si la sesión venció (401), manda a entrar
+ * como «sesión expirada», igual que el resto del panel.
  */
 function useAvisosPanel(): Lectura<AvisoPanel[]> {
     const { yo } = useSesion();
+    const router = useRouter();
+    const ruta = usePathname();
     const lectura = useLectura(async (signal) => (await resolver(api().GET("/api/v1/yo/avisos", { params: { query: { limit: LIMITE_AVISOS } }, signal }))).data ?? []);
     const { refrescar, reintentar } = lectura;
     const empresa = yo.empresaActiva?.id ?? 0;
@@ -80,12 +84,18 @@ function useAvisosPanel(): Lectura<AvisoPanel[]> {
         }
         reintentar();
     }, [empresa, reintentar]);
+    const sondear = sondeoActivo(lectura.estado);
     useEffect(() => {
+        if (!sondear) return;
         const id = window.setInterval(() => {
             if (document.visibilityState === "visible") void refrescar();
         }, INTERVALO_AVISOS_MS);
         return () => window.clearInterval(id);
-    }, [refrescar]);
+    }, [sondear, refrescar]);
+    const vencida = lectura.estado === "error" && sesionVencida(lectura.error);
+    useEffect(() => {
+        if (vencida) router.replace(rutaEntrar(ruta, "expirada"));
+    }, [vencida, router, ruta]);
     return lectura;
 }
 
@@ -179,7 +189,7 @@ export function BotonAvisos() {
             abierto={abierto}
             alCambiar={(a) => {
                 setAbierto(a);
-                if (a && avisos.estado === "listo") void avisos.refrescar();
+                if (a && sondeoActivo(avisos.estado)) void avisos.refrescar();
             }}
             className="w-80 max-w-[calc(100vw-2rem)]"
             disparador={

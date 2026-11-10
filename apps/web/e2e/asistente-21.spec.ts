@@ -103,6 +103,46 @@ test.describe("aviso del tope del asistente en la campana", () => {
         await campana(page).click();
         await expect(panelAvisos(page).locator('[data-aviso="asistente_tope"]')).toHaveCount(0);
     });
+
+    test("con la campana en error no se sigue sondeando; «Reintentar» lo reanuda", async ({ page }) => {
+        await page.clock.install({ time: new Date(AHORA_CONV) });
+        const api = await simularApi(page, { avisosPanel: [AVISO_80] });
+        await conSesion(page.context(), test.info().project.use.baseURL ?? "", ADMIN.correo);
+        await page.goto("/administracion");
+        const lecturas = () => api.peticiones.filter((p) => p.ruta === "/api/v1/yo/avisos").length;
+        await expect(page.getByTestId("punto-avisos")).toBeVisible();
+        // Con una lectura buena, sondea cada minuto.
+        const antes = lecturas();
+        await page.clock.fastForward("01:01");
+        await expect.poll(lecturas).toBe(antes + 1);
+
+        api.responderProblema("/api/v1/yo/avisos", { type: "urn:iris:problema:error_interno", title: "Error interno", status: 500 }, 1);
+        await campana(page).click();
+        await expect(panelAvisos(page).getByText("No se pudieron leer tus avisos.")).toBeVisible();
+        const enError = lecturas();
+        await page.clock.fastForward("10:00");
+        expect(lecturas()).toBe(enError);
+
+        await panelAvisos(page).getByRole("button", { name: "Reintentar" }).click();
+        await expect(panelAvisos(page).locator('[data-aviso="asistente_tope"]')).toBeVisible();
+        const reanudado = lecturas();
+        await page.clock.fastForward("01:01");
+        await expect.poll(lecturas).toBe(reanudado + 1);
+    });
+
+    test("sesión vencida (401) al sondear: deja de leer y manda a entrar como «sesión expirada»", async ({ page }) => {
+        await page.clock.install({ time: new Date(AHORA_CONV) });
+        const api = await simularApi(page, { avisosPanel: [AVISO_80] });
+        await conSesion(page.context(), test.info().project.use.baseURL ?? "", ADMIN.correo);
+        await page.goto("/administracion");
+        await expect(page.getByTestId("punto-avisos")).toBeVisible();
+        api.responderProblema("/api/v1/yo/avisos", { type: "urn:iris:problema:no_autenticado", title: "No autenticado", status: 401 }, 1);
+        await page.clock.fastForward("01:01");
+        await expect(page).toHaveURL(/\/entrar\?siguiente=%2Fadministracion&motivo=expirada$/);
+        const lecturas = api.peticiones.filter((p) => p.ruta === "/api/v1/yo/avisos").length;
+        await page.clock.fastForward("05:00");
+        expect(api.peticiones.filter((p) => p.ruta === "/api/v1/yo/avisos").length).toBe(lecturas);
+    });
 });
 
 test.describe("saldo de Argos en la sugerencia", () => {

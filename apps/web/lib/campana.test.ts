@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { primeroDelMesSiguiente, textoPausado, tonoFuente } from "./asistente/presentacion";
-import { detalleAvisoPanel, enlaceAvisoPanel, hayQueActuar, marcarLeido, tonoAvisoPanel, type AvisoPanel } from "./campana";
+import { detalleAvisoPanel, enlaceAvisoPanel, hayQueActuar, marcarLeido, sesionVencida, sondeoActivo, tonoAvisoPanel, type AvisoPanel } from "./campana";
 
 const aviso = (x: Partial<AvisoPanel> = {}): AvisoPanel => ({
     id: 1,
@@ -34,6 +34,27 @@ describe("avisos de la campana", () => {
         expect(enlaceAvisoPanel("//malo.test")).toBeNull();
         expect(enlaceAvisoPanel("https://malo.test")).toBeNull();
         expect(enlaceAvisoPanel(null)).toBeNull();
+    });
+
+    it("resuelve como el navegador y exige el mismo origen", () => {
+        const origen = "https://iris.fibra.test";
+        expect(enlaceAvisoPanel("/administracion/asistente?mes=2026-11#uso", origen)).toBe("/administracion/asistente?mes=2026-11#uso");
+        expect(enlaceAvisoPanel("/a/../administracion/asistente", origen)).toBe("/administracion/asistente");
+        // El navegador quita tabuladores y saltos de línea y lee «\» como «/»: todo eso es `//evil.com`.
+        for (const malo of ["/\t/evil.com", "/\n/evil.com", "//evil.com", "/\\evil.com", "/\r/evil.com", "/\u0000/evil.com", "/administracion\\asistente"]) {
+            expect(enlaceAvisoPanel(malo, origen), JSON.stringify(malo)).toBeNull();
+        }
+        expect(enlaceAvisoPanel("javascript:alert(1)", origen)).toBeNull();
+        expect(enlaceAvisoPanel("/administracion/asistente", "no es un origen")).toBeNull();
+    });
+
+    it("sondea solo con una lectura buena; un 401 es sesión vencida", () => {
+        expect(sondeoActivo("listo")).toBe(true);
+        expect(sondeoActivo("error")).toBe(false);
+        expect(sondeoActivo("cargando")).toBe(false);
+        expect(sesionVencida({ estado: 401 })).toBe(true);
+        expect(sesionVencida({ estado: 500 })).toBe(false);
+        expect(sesionVencida(new Error("red"))).toBe(false);
     });
 
     it("el punto crece solo con un `peligro` sin leer", () => {
