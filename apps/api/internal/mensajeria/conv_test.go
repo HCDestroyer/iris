@@ -50,6 +50,8 @@ type argosFalso struct {
 	// cuenta: el estado de cuenta que responde (nil = Argos no responde); cuentas: cuántas lecturas.
 	cuenta  *argos.EstadoCuenta
 	cuentas int
+	// alLeerCuenta corre mientras «Argos» atiende el estado de cuenta.
+	alLeerCuenta func()
 }
 
 func (f *argosFalso) BuscarPorTelefono(_ context.Context, a argos.AtencionIris, _ string) ([]argos.ClienteTelefono, error) {
@@ -70,6 +72,9 @@ func (f *argosFalso) EstadoCuentaCliente(_ context.Context, a argos.AtencionIris
 	defer f.mu.Unlock()
 	f.actores = append(f.actores, a)
 	f.cuentas++
+	if f.alLeerCuenta != nil {
+		f.alLeerCuenta()
+	}
 	if f.cuenta == nil || f.caido {
 		return argos.EstadoCuenta{}, &conector.ErrorRemoto{Status: 0}
 	}

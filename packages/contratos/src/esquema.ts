@@ -7363,7 +7363,7 @@ export interface components {
         AvisoPanel: {
             /** Format: date-time */
             creadoEn: string;
-            /** @description Referencias del aviso; asistente_tope: porcentaje (80, 100) y mes (YYYY-MM) */
+            /** @description Referencias del aviso; asistente_tope: porcentaje (80, 100), mes (YYYY-MM) y tope (tokens del mes cuando se avisó) */
             datos: {
                 [key: string]: unknown;
             };

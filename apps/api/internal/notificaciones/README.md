@@ -44,8 +44,9 @@ al log ni a la auditoría. La auditoría del dispositivo lleva `fin_fcm` (últim
 - **Tope del asistente:** el worker consume `asistente.tope_alcanzado` (también con el push apagado) y,
   para cada persona activa con `mensajeria.asistente_configurar` en esa empresa (asignada o con
   `empresas.todas` sin límite), crea un aviso y un correo. Uno por usuario y clave
-  `asistente_tope:<empresa>:<mes>:<80|100>`: una sola vez por umbral y por mes aunque el evento llegue
-  dos veces.
+  `asistente_tope:<empresa>:<mes>:<80|100>:<tope>`: una sola vez por umbral, mes y valor del tope
+  aunque el evento llegue dos veces; si suben el tope y lo vuelven a cruzar, avisa de nuevo. El
+  `enlace` de un aviso solo puede ser una ruta interna del panel (CHECK en la tabla).
 - **Correo del sistema** (`correo.go`): `IRIS_SMTP_HOST`, `IRIS_SMTP_PORT`, `IRIS_SMTP_USUARIO`,
   `IRIS_SMTP_CONTRASENA`, `IRIS_SMTP_TLS` (`starttls` | `tls`) e `IRIS_SMTP_REMITENTE`, con el cliente
   SMTP de los buzones (TLS obligatorio, `IRIS_CORREO_REDES_PERMITIDAS`, `IRIS_CORREO_CA`). Un job

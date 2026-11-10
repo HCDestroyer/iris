@@ -110,8 +110,13 @@ func (x *entornoAvisos) configurador(empresas []int64) persona {
 
 func (x *entornoAvisos) avisar(empresa *int64, porcentaje int, mes string) notificaciones.ResultadoAvisarTope {
 	x.t.Helper()
+	return x.avisarCon(empresa, porcentaje, mes, 2_000_000)
+}
+
+func (x *entornoAvisos) avisarCon(empresa *int64, porcentaje int, mes string, tope int64) notificaciones.ResultadoAvisarTope {
+	x.t.Helper()
 	r, err := x.notif.AvisarTope.Ejecutar(x.ctx, notificaciones.EntradaAvisarTope{EventoID: uuid.Must(uuid.NewV7()), EmpresaID: empresa,
-		Porcentaje: porcentaje, Mes: mes, Tokens: 1_600_000, Tope: 2_000_000})
+		Porcentaje: porcentaje, Mes: mes, Tokens: 1_600_000, Tope: tope})
 	if err != nil {
 		x.t.Fatal(err)
 	}
@@ -176,7 +181,7 @@ func TestAvisoTopeCampanaYCorreo(t *testing.T) {
 		t.Fatalf("notificaciones.correo_enviado: %d", n)
 	}
 	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'notificaciones.avisos_creados' AND payload->>'clave' = $1
-		AND payload->'usuarios' @> to_jsonb($2::bigint)`, "asistente_tope:1:"+mes+":80", en1.id); n != 1 {
+		AND payload->'usuarios' @> to_jsonb($2::bigint)`, "asistente_tope:1:"+mes+":80:2000000", en1.id); n != 1 {
 		t.Fatalf("notificaciones.avisos_creados: %d", n)
 	}
 
@@ -302,7 +307,59 @@ func TestAvisoTopeDesdeElOutbox(t *testing.T) {
 	if _, err := x.relay.Ejecutar(x.ctx); err != nil {
 		t.Fatal(err)
 	}
-	if n := x.contar(`SELECT count(*) FROM notificaciones.avisos WHERE usuario_id = $1 AND clave = 'asistente_tope:1:2031-04:100'`, p.id); n != 1 {
+	if n := x.contar(`SELECT count(*) FROM notificaciones.avisos WHERE usuario_id = $1 AND clave = 'asistente_tope:1:2031-04:100:2000000'`, p.id); n != 1 {
 		t.Fatalf("avisos desde el outbox: %d", n)
+	}
+}
+
+// Suben el tope dentro del mes y lo vuelven a cruzar: avisa otra vez (la unicidad es por umbral, mes y
+// valor del tope). El mismo tope repetido no avisa dos veces.
+func TestAvisoTopeOtraVezAlSubirElTope(t *testing.T) {
+	x := nuevoEntornoAvisos(t, true)
+	p := x.configurador([]int64{1})
+	mes := "2031-05"
+	if r := x.avisarCon(emp(1), 100, mes, 2_000_000); r.Avisos < 1 {
+		t.Fatalf("primer aviso: %+v", r)
+	}
+	if r := x.avisarCon(emp(1), 100, mes, 2_000_000); r.Avisos != 0 {
+		t.Fatalf("el mismo tope no avisa dos veces: %+v", r)
+	}
+	if r := x.avisarCon(emp(1), 100, mes, 5_000_000); r.Avisos < 1 {
+		t.Fatalf("con el tope nuevo debía avisar otra vez: %+v", r)
+	}
+	if r := x.avisarCon(emp(1), 100, mes, 5_000_000); r.Avisos != 0 {
+		t.Fatalf("el tope nuevo repetido: %+v", r)
+	}
+	if n := x.contar(`SELECT count(*) FROM notificaciones.avisos WHERE usuario_id = $1 AND clave LIKE $2`, p.id, "asistente_tope:1:"+mes+":100:%"); n != 2 {
+		t.Fatalf("avisos del 100 %% en el mes: %d", n)
+	}
+	x.mandarCorreos(false)
+	if c := x.correo.para(p.correo); len(c) != 2 {
+		t.Fatalf("correos: %d", len(c))
+	}
+	// Un evento con datos que no sirven no avisa.
+	if r := x.avisarCon(emp(1), 100, "2031-13", 5_000_000); r.Avisos != 0 {
+		t.Fatalf("mes inválido: %+v", r)
+	}
+}
+
+// B3: el enlace de un aviso es una ruta interna del panel; nunca «//host» ni un esquema.
+func TestAvisoEnlaceSoloRutaInterna(t *testing.T) {
+	x := nuevoEntornoAvisos(t, false)
+	p := x.persona([]int64{1})
+	insertar := func(enlace string) error {
+		_, err := x.bd.Exec(x.ctx, `INSERT INTO notificaciones.avisos (usuario_id, empresa_id, tipo, clave, nivel, titulo, enlace)
+			VALUES ($1, 1, 'asistente_tope', $2, 'info', 'Prueba', $3)`, p.id, "prueba:"+pruebas.Unico(), enlace)
+		return err
+	}
+	for _, malo := range []string{"//evil.example/x", "/\\evil.example", "https://evil.example", "/a b", "/a\"onclick", "javascript:alert(1)", "/a%2f%2fevil", "/x;y"} {
+		if err := insertar(malo); err == nil {
+			t.Errorf("el enlace %q debía rechazarse", malo)
+		}
+	}
+	for _, bueno := range []string{"/administracion/asistente", "/administracion/asistente?mes=2031-05#uso", "/"} {
+		if err := insertar(bueno); err != nil {
+			t.Errorf("el enlace %q debía aceptarse: %v", bueno, err)
+		}
 	}
 }

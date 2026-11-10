@@ -539,6 +539,10 @@ func nuevoUnirContacto(m *Modulo) *UnirContacto {
 				if _, err := guardarConv(ctx, q, c, false); err != nil {
 					return ContactoIris{}, err
 				}
+				// La conversación pasó a ser de un cliente de Argos: la sugerencia vigente queda vencida.
+				if err := m.cerrarVigentes(ctx, t, c, SugVencida); err != nil {
+					return ContactoIris{}, err
+				}
 				if err := m.emitirEventoConv(ctx, t, c, EventoConvActualizada, nil, nil); err != nil {
 					return ContactoIris{}, err
 				}
