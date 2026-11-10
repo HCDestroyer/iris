@@ -1,4 +1,4 @@
-import type { PruebaAsistente, Sugerencia, UsoAsistente } from "./tipos";
+import type { FuenteSugerencia, PruebaAsistente, Sugerencia, UsoAsistente } from "./tipos";
 
 /*
  * Lógica de pantalla del asistente de IA (contratos/conversaciones.md §16), sin React: qué
@@ -140,4 +140,38 @@ export function nombreMes(mes: string): string {
     const [a, m] = mes.split("-").map(Number);
     if (!a || !m) return mes;
     return new Intl.DateTimeFormat("es-GT", { month: "long", year: "numeric", timeZone: "UTC" }).format(Date.UTC(a, m - 1, 1));
+}
+
+/** «1 de diciembre» desde `2026-11`: cuándo vuelve el asistente pausado por el tope. */
+export function primeroDelMesSiguiente(mes: string): string {
+    const [a, m] = mes.split("-").map(Number);
+    if (!a || !m) return "1 del mes siguiente";
+    const nombre = new Intl.DateTimeFormat("es-GT", { month: "long", timeZone: "UTC" }).format(Date.UTC(a, m, 1));
+    return `1 de ${nombre}`;
+}
+
+/** «Pausado hasta el 1 de diciembre o hasta que subas el tope.» (uso del mes al 100 %). */
+export function textoPausado(mes: string): string {
+    return `Pausado hasta el ${primeroDelMesSiguiente(mes)} o hasta que subas el tope.`;
+}
+
+/** Cómo se pinta el chip de una fuente: rojo (`error`), verde (`success`), normal o apagado. */
+export type TonoFuente = "error" | "success" | "neutral" | "apagado";
+
+/**
+ * Tono de una fuente de la sugerencia. Argos dice el saldo en la etiqueta («Servicio activo, al
+ * día · Argos» o «Con saldo vencido (N facturas) · Argos»): vencido va en rojo, al día en verde.
+ * Horus solo aparece con una falla abierta (rojo). El chip nunca muestra montos.
+ */
+export function tonoFuente(f: Pick<FuenteSugerencia, "tipo" | "etiqueta">): TonoFuente {
+    switch (f.tipo) {
+        case "horus":
+            return "error";
+        case "argos":
+            return /saldo vencido/i.test(f.etiqueta) ? "error" : "success";
+        case "manual":
+            return "neutral";
+        default:
+            return "apagado";
+    }
 }

@@ -23,6 +23,9 @@ export const TEXTO_SUGERIDO =
     "Buen día, don Carlos. Hay una falla en la red de su sector (Zona 4) desde las 7:40 a. m. y nuestro equipo ya está trabajando en ella. No necesita reiniciar su equipo. Le avisamos por aquí en cuanto se restablezca.";
 export const TEXTO_OTRA = "Hola, Carlos. Ya vimos la falla en su zona y el equipo técnico la está atendiendo. Le escribimos apenas vuelva el servicio.";
 
+/** Argos con saldo vencido (contrato de Argos: sin montos, solo cuántas facturas). */
+export const FUENTE_ARGOS_VENCIDO: Sugerencia["fuentes"][number] = { tipo: "argos", etiqueta: "Con saldo vencido (2 facturas) · Argos", entidadId: "41010" };
+
 const FUENTES: Sugerencia["fuentes"] = [
     { tipo: "horus", etiqueta: "Falla en Zona 4 · Horus", entidadId: "router:1:77" },
     { tipo: "argos", etiqueta: "Servicio activo, al día · Argos", entidadId: "41010" },
@@ -50,6 +53,10 @@ export type OpcionesAsistente = {
     prestada?: boolean;
     /** El primer guardado responde 422 `clave_requerida` aunque el panel no vea el cambio de destino. */
     claveRequerida?: boolean;
+    /** Uso del mes (`GET /asistente/uso`): por defecto 42 % del tope, sin pausa. */
+    /** La fuente de Argos de la sugerencia inicial: al día (por defecto) o con saldo vencido. */
+    saldo?: "al_dia" | "vencido";
+    uso?: Partial<Pick<UsoAsistente, "porcentaje" | "pausado" | "mes">>;
 };
 
 /** El `detail` único de §16.1 cuando el proveedor falla (no sirve para escanear puertos). */
@@ -151,7 +158,7 @@ export function apiAsistente(e: Contexto, opcionesDadas?: OpcionesAsistente) {
 
     const ERROR_PROVEEDOR: Schema<"ErrorSugerencia"> = { codigo: "proveedor_no_responde", detalle: "El servidor de IA no respondió a tiempo" };
     const inicial = opciones.inicial === undefined ? "lista" : opciones.inicial;
-    if (inicial === "lista") nueva(41, {});
+    if (inicial === "lista") nueva(41, opciones.saldo === "vencido" ? { fuentes: FUENTES.map((f) => (f.tipo === "argos" ? { ...FUENTE_ARGOS_VENCIDO } : { ...f })) } : {});
     else if (inicial === "generando") nueva(41, { estado: "generando", texto: null, fuentes: [] });
     else if (inicial === "error" || inicial === "tope") {
         const s = nueva(41, { estado: "error", texto: null, fuentes: [], error: inicial === "tope" ? { codigo: "tope_alcanzado", detalle: "Se llegó al tope del mes" } : ERROR_PROVEEDOR });
@@ -202,6 +209,7 @@ export function apiAsistente(e: Contexto, opcionesDadas?: OpcionesAsistente) {
             topeTokensMes: ajustes.topeTokensMes,
             porcentaje: Math.round((2_100_000 / ajustes.topeTokensMes) * 100),
             pausado: estado.pausado,
+            ...opciones.uso,
         };
     }
 

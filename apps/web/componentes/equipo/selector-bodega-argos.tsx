@@ -6,6 +6,7 @@ import { Link2, Pencil, RotateCw, Unplug, Warehouse } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { UseFormRegisterReturn } from "react-hook-form";
 import type { Tecnico } from "@/lib/agenda/esquemas";
+import { EnlaceConectorArgos } from "./enlace-conector-argos";
 import { bodegaEnEmpresa, opcionesBodegaArgos, SIN_INVENTARIO_POR_TECNICO, sinListaDeArgos, textoBodegaTecnico } from "@/lib/agenda/argos";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
@@ -180,6 +181,11 @@ function Lista({
                         ? "Actualiza Argos a 1.6.0 o más para elegir la bodega por nombre."
                         : [mensajeDeError(primera.error).titulo, mensajeDeError(primera.error).detalle].filter(Boolean).join(". ")}
                     {respaldo ? <span className="block">Mientras tanto puedes escribir el número de bodega.</span> : null}
+                    {sinCapacidad ? (
+                        <span className="block">
+                            <EnlaceConectorArgos />
+                        </span>
+                    ) : null}
                 </Aviso>
                 {respaldo ? (
                     <Campo

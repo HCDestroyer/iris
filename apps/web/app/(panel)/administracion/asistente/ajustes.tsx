@@ -27,7 +27,7 @@ import { SecretoCambiable } from "@/componentes/numeros/secreto-guardado";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { cambiaDestino, ejemploUrl, entradaDe, esNube, esquemaAjustesAsistente, FUENTES, NUNCA, PROVEEDORES, TEXTO_CLAVE_REQUERIDA, urlValida, valoresDe, type ValoresAjustes } from "@/lib/asistente/ajustes";
 import { consultarModelos, guardarAjustesAsistente, leerAjustesAsistente, leerModelosGuardados, leerUso, probarAsistente } from "@/lib/asistente/api";
-import { formatearTokens, nombreMes, porcentajeUsadas, textoPrueba } from "@/lib/asistente/presentacion";
+import { formatearTokens, nombreMes, porcentajeUsadas, textoPausado, textoPrueba } from "@/lib/asistente/presentacion";
 import type { AjustesAsistente as Ajustes, ModeloIA, PruebaAsistente, UsoAsistente } from "@/lib/asistente/tipos";
 import { erroresACampos } from "@/lib/formularios";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
@@ -503,8 +503,8 @@ function CifrasUso({ uso }: { uso: UsoAsistente }) {
                 {uso.costo !== null ? ` · ${uso.costo} con tus precios` : ""}
             </p>
             {uso.pausado ? (
-                <Aviso tono="error" titulo="En pausa por el tope">
-                    Se llegó al tope del mes: no sugiere ni resume hasta el mes siguiente o hasta que subas el tope.
+                <Aviso tono="error" titulo="En pausa por el tope" data-testid="uso-pausado">
+                    Se llegó al tope del mes y no sugiere ni resume. {textoPausado(uso.mes)}
                 </Aviso>
             ) : null}
         </div>

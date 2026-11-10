@@ -1,12 +1,12 @@
 "use client";
 
 import { avisar, Boton, cn, Esqueleto } from "@iris/ui";
-import { BookOpen, Check, ChevronDown, CircleCheck, Eye, History, RefreshCw, Sparkles, Tag, ThumbsDown, ThumbsUp, WifiOff, X, type LucideIcon } from "lucide-react";
+import { BookOpen, Check, ChevronDown, CircleAlert, CircleCheck, Eye, History, RefreshCw, Sparkles, Tag, ThumbsDown, ThumbsUp, WifiOff, X, type LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { calificarSugerencia, descartarSugerencia, leerEstadoAsistente, leerSugerenciaActual, pedirSugerencia, usarSugerencia } from "@/lib/asistente/api";
-import { aplicarSugerencia, explicarError, explicarErrorDeApi, type ExplicacionError } from "@/lib/asistente/presentacion";
+import { aplicarSugerencia, explicarError, explicarErrorDeApi, tonoFuente, type ExplicacionError, type TonoFuente } from "@/lib/asistente/presentacion";
 import { ErrorAsistente } from "./error-asistente";
 import { PERMISO_SUGERENCIAS } from "@/lib/asistente/permisos";
 import type { EstadoAsistente, FuenteSugerencia, Sugerencia } from "@/lib/asistente/tipos";
@@ -136,17 +136,22 @@ export function useAsistente(conv: Pick<Conversacion, "id">, suscribir: (o: Oyen
     return { estado: permitido ? estado : null, sugerencia: permitido ? sugerencia : null, errorPedido, pidiendo, pedir, repetir, aplicar, ocultar, quitar };
 }
 
-const FUENTE: Record<FuenteSugerencia["tipo"], { icono: LucideIcon; clase: string }> = {
-    horus: { icono: WifiOff, clase: "border-error/40 text-error" },
-    argos: { icono: CircleCheck, clase: "border-success/40 text-success" },
-    manual: { icono: BookOpen, clase: "border-border text-foreground" },
-    historial: { icono: History, clase: "border-border text-muted-foreground" },
+const ICONO_FUENTE: Record<FuenteSugerencia["tipo"], LucideIcon> = { horus: WifiOff, argos: CircleCheck, manual: BookOpen, historial: History };
+
+const CLASE_TONO: Record<TonoFuente, string> = {
+    error: "border-error/40 text-error",
+    success: "border-success/40 text-success",
+    neutral: "border-border text-foreground",
+    apagado: "border-border text-muted-foreground",
 };
 
+/** Icono + texto + color (§10): Argos con saldo vencido va en rojo con `CircleAlert`. */
 function ChipFuente({ f }: { f: FuenteSugerencia }) {
-    const { icono: Icono, clase } = FUENTE[f.tipo] ?? FUENTE.historial;
+    const tono = tonoFuente(f);
+    const Icono = f.tipo === "argos" && tono === "error" ? CircleAlert : (ICONO_FUENTE[f.tipo] ?? History);
+    const clase = CLASE_TONO[tono];
     return (
-        <li data-fuente={f.tipo} className={cn("inline-flex h-6 max-w-full min-w-0 items-center gap-1.5 rounded-full border bg-card px-2.5 text-xs font-medium", clase)}>
+        <li data-fuente={f.tipo} data-tono={tono} className={cn("inline-flex h-6 max-w-full min-w-0 items-center gap-1.5 rounded-full border bg-card px-2.5 text-xs font-medium", clase)}>
             <Icono aria-hidden className="size-3.5 shrink-0" />
             <span className="truncate">{f.etiqueta}</span>
         </li>

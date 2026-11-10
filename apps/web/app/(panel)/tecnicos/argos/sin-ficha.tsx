@@ -7,6 +7,7 @@ import Link from "next/link";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { PieLista } from "@/componentes/pie-lista";
+import { EnlaceConectorArgos } from "@/componentes/equipo/enlace-conector-argos";
 import { bodegaEnEmpresa, nombreBodega, rutaCrearFicha, SIN_INVENTARIO_POR_TECNICO, sinListaDeArgos } from "@/lib/agenda/argos";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
@@ -49,6 +50,9 @@ export function TecnicosArgosSinFicha() {
                 primera.error instanceof ErrorApi && primera.error.codigo === "argos_sin_inventario_tecnico" ? (
                     <Aviso tono="warning" titulo={SIN_INVENTARIO_POR_TECNICO} icono={Unplug}>
                         Actualiza Argos a 1.6.0 o más para ver sus técnicos con bodega.
+                        <span className="block">
+                            <EnlaceConectorArgos />
+                        </span>
                     </Aviso>
                 ) : sinListaDeArgos(primera.error) ? (
                     <Aviso

@@ -164,6 +164,7 @@ export const PERMISOS_ADMIN: Permiso[] = [
     "campo.ver_posiciones",
     "integraciones.activar",
     "integraciones.conectar",
+    "integraciones.revisar_version",
     "integraciones.desactivar",
     "integraciones.reintentar",
     "integraciones.resolver_pendiente",
@@ -262,6 +263,8 @@ export const EMPRESAS: Schema<"EmpresaResumen">[] = [
 ];
 
 export type OpcionesApi = {
+    /** Avisos de la campana (`GET /yo/avisos`, §16.9) del usuario con sesión; por defecto, ninguno. */
+    avisosPanel?: Schema<"AvisoPanel">[];
     /** Empresas registradas en que opera el usuario. Vacío (por defecto): modo sin conector. */
     empresas?: Schema<"EmpresaResumen">[];
     /** Hay empresas registradas pero el usuario no tiene ninguna (403 `sin_empresa`). */
@@ -303,6 +306,8 @@ export type OpcionesApi = {
 export type Peticion = { metodo: string; ruta: string; query: URLSearchParams; empresa: string | undefined; idempotencia: string | undefined; cuerpo: unknown };
 
 export type ApiFalsa = {
+    /** Avisos de la campana (`/yo/avisos`), con su `leido` al día. */
+    avisosPanel: Schema<"AvisoPanel">[];
     /** Peticiones que cambiaron estado: método, ruta y X-CSRF-Token recibido. */
     mutaciones: { metodo: string; ruta: string; csrf: string | undefined }[];
     /** Todas las peticiones a la API (con `X-Iris-Empresa` e `Idempotency-Key`). */
@@ -350,7 +355,7 @@ export type ApiFalsa = {
     /** Encuestas: lista, respuestas públicas y peticiones públicas que llevaron sesión. */
     encuestas: Pick<ApiEncuestas, "encuestas" | "publicasConSesion" | "respuestas" | "enlacesPedidos">;
     /** Autologin desde Argos, re-autenticación, vínculos y conectores. */
-    sso: Pick<ApiSSO, "canjes" | "vinculaciones" | "vinculos" | "conectores" | "autorizaciones" | "completados" | "enProceso" | "sesionesSSO"> & { reautenticaciones: () => number; descartes: () => number };
+    sso: Pick<ApiSSO, "canjes" | "vinculaciones" | "vinculos" | "conectores" | "revisiones" | "autorizaciones" | "completados" | "enProceso" | "sesionesSSO"> & { reautenticaciones: () => number; descartes: () => number };
 };
 
 const OPERATIVAS = [
@@ -447,6 +452,7 @@ export async function conSesion(context: BrowserContext, baseURL: string, correo
 
 export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promise<ApiFalsa> {
     const mutaciones: ApiFalsa["mutaciones"] = [];
+    const avisosPanel = structuredClone(opciones.avisosPanel ?? []);
     const peticiones: Peticion[] = [];
     const orden: string[] = [];
     let busquedasFallidas = 0;
@@ -661,6 +667,37 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
                     ].join("\n"),
                 },
             });
+        }
+        // Campana del panel (§16.9): avisos personales de la empresa activa.
+        if (metodo === "GET" && ruta === "/api/v1/yo/avisos") {
+            const solo = url.searchParams.get("soloNoLeidos") === "true";
+            const data = avisosPanel.filter((a) => !solo || !a.leido).sort((a, b) => b.id - a.id);
+            return route.fulfill({ json: { data, nextCursor: null } satisfies Schema<"PaginaAvisoPanel"> });
+        }
+        if (metodo === "GET" && ruta === "/api/v1/yo/avisos/resumen") {
+            return route.fulfill({ json: { noLeidos: avisosPanel.filter((a) => !a.leido).length } satisfies Schema<"ResumenAvisos"> });
+        }
+        if (metodo === "POST" && ruta === "/api/v1/yo/avisos/leer-todos") {
+            const ahora = new Date().toISOString();
+            let leidos = 0;
+            for (const a of avisosPanel) {
+                if (!a.leido) {
+                    a.leido = true;
+                    a.leidoEn = ahora;
+                    leidos += 1;
+                }
+            }
+            return route.fulfill({ json: { leidos } satisfies Schema<"AvisosLeidos"> });
+        }
+        const leerAviso = /^\/api\/v1\/yo\/avisos\/(\d+)\/leer$/.exec(ruta);
+        if (metodo === "POST" && leerAviso) {
+            const a = avisosPanel.find((x) => x.id === Number(leerAviso[1]));
+            if (!a) return problema(route, { type: "urn:iris:problema:no_encontrado", title: "No encontrado", status: 404 });
+            if (!a.leido) {
+                a.leido = true;
+                a.leidoEn = new Date().toISOString();
+            }
+            return route.fulfill({ json: a });
         }
         if (metodo === "GET" && ruta === "/api/v1/yo") {
             const yo: Schema<"Yo"> = {
@@ -979,6 +1016,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         meta: { conexion: meta.conexion, cuerpos: meta.cuerpos, prestamos: meta.prestamos, resultadoQr: meta.resultadoQr },
         mutaciones,
         peticiones,
+        avisosPanel,
         orden,
         tickets: esc.tickets,
         responderProblema: (prefijo, p, n) => {
@@ -1010,6 +1048,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             vinculaciones: sso.vinculaciones,
             vinculos: sso.vinculos,
             conectores: sso.conectores,
+            revisiones: sso.revisiones,
             autorizaciones: sso.autorizaciones,
             completados: sso.completados,
             enProceso: sso.enProceso,

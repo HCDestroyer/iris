@@ -1,4 +1,5 @@
 import type { Schema } from "@iris/contratos";
+import { CircleAlert, CircleCheck, CircleDashed, SearchX, ShieldAlert, Unplug, type LucideIcon } from "lucide-react";
 import { z } from "zod";
 
 export type Conector = Schema<"Conector">;
@@ -152,3 +153,40 @@ export function cuerpoCambioConector(
 ): Schema<"EntradaActivarConector"> {
     return { version, ...(d.motivo ? { motivo: d.motivo } : {}), ...(accion === "activar" && d.revocarAnterior ? { revocarAnterior: true } : {}) };
 }
+
+/** Resultado de la última lectura de la versión del otro sistema (`versionEstado`). */
+export type EstadoVersion = NonNullable<Conector["versionEstado"]>;
+
+/** Cómo se muestra el resultado: tono, icono y texto juntos (§10); `ayuda` si el servidor no trae detalle. */
+export type PresentacionVersion = { tono: "neutral" | "success" | "warning" | "error"; icono: LucideIcon; texto: string; ayuda: string };
+
+const PRESENTACION_VERSION: Record<EstadoVersion, PresentacionVersion> = {
+    ok: { tono: "success", icono: CircleCheck, texto: "Responde bien", ayuda: "Iris leyó la versión de Argos sin problemas." },
+    ruta_no_existe: {
+        tono: "warning",
+        icono: SearchX,
+        texto: "La ruta de la versión no existe",
+        ayuda: "Argos no conoce la ruta de la versión: es un Argos anterior a 1.6.0 o la dirección apunta al panel y no a la API.",
+    },
+    sin_permiso: { tono: "error", icono: ShieldAlert, texto: "Sin permiso", ayuda: "Argos rechazó el acceso de Iris. Revisa la conexión en Argos o vuelve a conectar." },
+    no_responde: { tono: "error", icono: Unplug, texto: "No responde", ayuda: "Iris no pudo hablar con Argos: revisa la dirección de la API y que Argos esté en línea." },
+    error: { tono: "error", icono: CircleAlert, texto: "Error al leer la versión", ayuda: "Argos respondió algo que Iris no esperaba." },
+};
+
+const SIN_REVISAR: PresentacionVersion = { tono: "neutral", icono: CircleDashed, texto: "Sin revisar", ayuda: "Iris todavía no leyó la versión de este conector." };
+
+/** Presentación de `versionEstado`; sin estado (nunca se revisó), «Sin revisar». */
+export function presentacionVersion(estado: Conector["versionEstado"]): PresentacionVersion {
+    return (estado ? PRESENTACION_VERSION[estado] : undefined) ?? SIN_REVISAR;
+}
+
+/** El conector de Argos que se diagnostica: el activo o, si no hay, el más reciente. */
+export function conectorArgos(conectores: readonly Conector[]): Conector | undefined {
+    const argos = conectores.filter((c) => c.sistema === "argosisp");
+    return argos.find((c) => c.estado === "activo") ?? argos.at(-1);
+}
+
+/** Ancla del diagnóstico del conector de Argos en `/administracion/integraciones`. */
+export const ANCLA_DIAGNOSTICO_ARGOS = "diagnostico-argos";
+/** Adónde lleva «Ver el conector de Argos» desde técnicos y bodegas. */
+export const RUTA_DIAGNOSTICO_ARGOS = `/administracion/integraciones#${ANCLA_DIAGNOSTICO_ARGOS}`;
