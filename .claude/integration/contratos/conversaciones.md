@@ -378,8 +378,10 @@ boleta (`mensajeria.boletas`, uuid) y la manda a Argos en un job (`POST /comprob
 <conversacion id>`, `canal_contacto = whatsapp`, `leido_por = persona`), con reintentos a 1 min,
 5 min, 30 min, 2 h y 12 h. Estados: `por_enviar` → `registrada` (Argos la aceptó, con
 `comprobanteId`) | `fallida` (rechazo de negocio: `referencia_duplicada`, validación…, con el
-`detalle` de Argos). La aprobación o el rechazo de caja (webhooks `comprobante.*`) se reflejan en
-la conversación cuando lleguen (ver «Pendiente» en §12).
+`detalle` de Argos). La aprobación o el rechazo (webhooks `comprobante.*`) se reflejan en
+la conversación cuando lleguen (ver «Pendiente» en §12). Decide caja en el panel de Argos o, desde
+el contrato con Argos 0.7.0 (§7.7, pedido B3, fase 3), la persona que atiende la conversación si es
+un usuario de Argos vinculado; el asistente de IA nunca.
 
 ### 6.5 Promesa (contrato con Argos §7.4)
 
@@ -626,6 +628,10 @@ Números (§1.1): `canal_mensajeria.probado`.
 `.rechazado` y `promesa.*` para mover la boleta y la promesa en la conversación y avisar al cliente
 con `boleta_confirmada` / `boleta_rechazada` / `boleta_falta_dato`; reconexión temporal (§7.3);
 verificación de identidad (§7.5); autologin a una conversación (pedido B2).
+
+**Pendiente (fase 3, contrato con Argos 0.7.0 §7.7, pedido B3):** «Vincular mi usuario de Argos»
+(autologin Iris → Argos, §1.3), los botones «Aprobar y registrar pago» / «Rechazar» en la boleta y
+el manejo de los cinco 403 `actor_*`.
 
 ## 13. Errores propios
 
