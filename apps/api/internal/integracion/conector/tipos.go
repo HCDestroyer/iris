@@ -36,7 +36,9 @@ type Conector struct {
 	VersionRemota       *string    `json:"versionRemota" nullable:"true" required:"false" doc:"Versión que informó el otro sistema (version_argos de Argos ≥ 1.6.0: \"1.6.0\"); null = no la informó (Argos anterior a 1.6.0) o aún no se consultó"`
 	ContratoRemoto      *string    `json:"contratoRemoto" nullable:"true" required:"false" doc:"Contrato que el otro sistema dice tener registrado para Iris (\"0.5.0\"); null = no lo informó"`
 	ContratoInformado   *string    `json:"contratoInformado" nullable:"true" required:"false" doc:"Contrato que Iris le informó y aceptó (en el canje o con PUT /integraciones/iris/contrato); null = todavía no (el worker lo reintenta)"`
-	VersionConsultadaEn *time.Time `json:"versionConsultadaEn" nullable:"true" required:"false" doc:"Cuándo se leyó la versión por última vez"`
+	VersionConsultadaEn *time.Time `json:"versionConsultadaEn" nullable:"true" required:"false" doc:"Cuándo se intentó leer la versión por última vez (con éxito o no: ver versionEstado)"`
+	VersionEstado       *string    `json:"versionEstado" nullable:"true" required:"false" enum:"ok,ruta_no_existe,sin_permiso,no_responde,error" doc:"Resultado de la última lectura de la versión (PUT …/contrato y GET …/estado). ok: Argos respondió; ruta_no_existe: la dirección no responde como la API de Argos (p. ej. es la del panel) o Argos es anterior a 1.6.0; sin_permiso: Argos rechazó el token (401/403); no_responde: sin respuesta, 429 o 5xx; error: otra respuesta. null = nunca se consultó"`
+	VersionDetalle      *string    `json:"versionDetalle" nullable:"true" required:"false" doc:"Explicación en español del último resultado, con la URL base usada y el status HTTP (sin secretos). null = nunca se consultó"`
 	Capacidades         []string   `json:"capacidades" required:"false" doc:"Lo que el otro sistema permite según su versión. inventario_por_tecnico: Argos ≥ 1.6.0 (contrato 0.5.0 §3.3: tecnico en consumos y comodatos, mi-bodega, traslados). Sin ella, el panel muestra «Argos < 1.6.0: inventario por técnico no disponible» y Iris sigue con bodega_id"`
 	Version             int32      `json:"version"`
 	CreadoEn            time.Time  `json:"creadoEn"`
@@ -54,7 +56,7 @@ func (n *Nucleo) AConector(f conectorbd.IntegracionConectore) Conector {
 		RemotoID: f.RemotoID, Empresas: empresas, AlcanceGlobal: f.AlcanceGlobal, WebhookURL: n.URLWebhook(f.Sistema, f.ID), ActivadoEn: f.ActivadoEn,
 		UltimoWebhookEn: f.UltimoWebhookEn, Version: f.Version, CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt,
 		VersionRemota: f.VersionRemota, ContratoRemoto: f.ContratoRemoto, ContratoInformado: f.ContratoInformado,
-		VersionConsultadaEn: f.VersionConsultadaEn, Capacidades: n.capacidadesDe(f),
+		VersionConsultadaEn: f.VersionConsultadaEn, VersionEstado: f.VersionEstado, VersionDetalle: f.VersionDetalle, Capacidades: n.capacidadesDe(f),
 	}
 }
 

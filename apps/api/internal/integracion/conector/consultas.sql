@@ -71,11 +71,13 @@ RETURNING *;
 -- informó (PUT /integraciones/iris/contrato; null = no cambia). No sube la versión de la fila: no es
 -- una edición del administrador. @sin_version: Argos ya no tiene GET …/estado (volvió a 1.5.x): la
 -- versión y el contrato que informaba quedan en null (Iris vuelve a bodega_id). @sin_informado: Argos
--- no conoce PUT …/contrato (el contrato de Iris ya no está informado).
+-- no conoce PUT …/contrato (el contrato de Iris ya no está informado). @version_estado y
+-- @version_detalle: el diagnóstico de esta lectura (ok, ruta_no_existe, sin_permiso, no_responde, error).
 UPDATE integracion.conectores
 SET version_remota = CASE WHEN @sin_version::boolean THEN NULL ELSE coalesce(sqlc.narg(version_remota), version_remota) END,
     contrato_remoto = CASE WHEN @sin_version::boolean THEN NULL ELSE coalesce(sqlc.narg(contrato_remoto), contrato_remoto) END,
     contrato_informado = CASE WHEN @sin_informado::boolean THEN NULL ELSE coalesce(sqlc.narg(contrato_informado), contrato_informado) END,
+    version_estado = @version_estado::text, version_detalle = sqlc.narg(version_detalle),
     version_consultada_en = now(), updated_at = now()
 WHERE id = @id
 RETURNING *;

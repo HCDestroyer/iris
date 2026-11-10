@@ -250,6 +250,8 @@ Una tarea está terminada solo si:
 | `asistente.sugerencia_creada` | mensajeria (asistente de IA) | sugerencia_id, conversacion_id, empresa_id, origen (automatico, boton, otra), proveedor, modelo, tokens_entrada, tokens_salida, estado, error (o null); nunca el texto |
 | `asistente.sugerencia_usada` / `asistente.sugerencia_calificada` | mensajeria (asistente de IA) | sugerencia_id, conversacion_id, empresa_id; editada (true, false o null) (usada); util (calificada) |
 | `asistente.tope_alcanzado` | mensajeria (asistente de IA) | empresa_id, porcentaje (80, 100), mes, tokens, tope |
+| `notificaciones.avisos_creados` | notificaciones (avisos del panel) | tipo (asistente_tope), clave, empresa_id (o null), usuarios[], correo (enviar, omitido) |
+| `notificaciones.correo_enviado` / `notificaciones.correo_fallido` | notificaciones (correo del sistema) | correo_id, usuario_id, tipo, clave, motivo (o null) |
 | `dispositivo.registrado` / `dispositivo.quitado` | notificaciones | dispositivo_id, usuario_id, empresa_id, token_fin; plataforma, app_version, nuevo (registrado); motivo (usuario, sesion_cerrada, token_invalido, otro_usuario, sin_acceso) (quitado); nunca el token |
 | `notificaciones.preferencias_cambiadas` | notificaciones | usuario_id, campos[], version |
 

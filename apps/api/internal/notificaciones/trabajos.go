@@ -83,6 +83,7 @@ func (m *Modulo) RegistrarTrabajos(bd nucleo.BD) func(*river.Workers) {
 	return func(w *river.Workers) {
 		river.AddWorker(w, &TrabajadorEnviar{BD: bd, Modulo: m})
 		river.AddWorker(w, &TrabajadorPurga{BD: bd, Modulo: m})
+		river.AddWorker(w, &TrabajadorCorreo{BD: bd, Modulo: m})
 	}
 }
 
@@ -90,6 +91,8 @@ func (m *Modulo) RegistrarTrabajos(bd nucleo.BD) func(*river.Workers) {
 type ResultadoPurga struct {
 	Dispositivos int   `json:"dispositivos"`
 	Envios       int64 `json:"envios"`
+	Avisos       int64 `json:"avisos"`
+	Correos      int64 `json:"correos"`
 }
 
 // porLote de la purga de dispositivos.
@@ -124,6 +127,13 @@ func (m *Modulo) nuevoPurgarCaducos() *auditoria.Caso[struct{}, ResultadoPurga] 
 				return r, err
 			}
 			r.Envios = n
+			// Avisos del panel y correos del sistema de más de 180 días (los correos primero: apuntan al aviso).
+			if r.Correos, err = q.PurgarCorreos(ctx, m.ahora().Add(-RetencionAvisos)); err != nil {
+				return r, err
+			}
+			if r.Avisos, err = q.PurgarAvisos(ctx, m.ahora().Add(-RetencionAvisos)); err != nil {
+				return r, err
+			}
 			return r, nil
 		},
 	})
