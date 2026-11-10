@@ -26,6 +26,7 @@ import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
 import { usePaginado } from "@/lib/paginado";
 import { useSesion } from "@/lib/sesion";
+import { EnlaceConectorArgos } from "./enlace-conector-argos";
 import { conInventarioPorTecnico, opcionTecnicoArgos, SIN_INVENTARIO_POR_TECNICO, textoErrorVinculo } from "@/lib/agenda/argos";
 
 type TecnicoArgos = Schema<"TecnicoDeArgos">;
@@ -82,6 +83,9 @@ export function VinculoArgos({ tecnico: t, alCambiar }: { tecnico: TecnicoDetall
                 {sinCapacidad ? (
                     <Aviso tono="warning" titulo={SIN_INVENTARIO_POR_TECNICO} icono={Unplug}>
                         Actualiza Argos a 1.6.0 o más para vincular técnicos; mientras tanto Iris usa la bodega de la ficha.
+                        <span className="block">
+                            <EnlaceConectorArgos />
+                        </span>
                     </Aviso>
                 ) : null}
             </div>
@@ -164,6 +168,9 @@ function Vincular({ tecnico: t, alVincular }: { tecnico: TecnicoDetalle; alVincu
                 ) : sinCapacidad ? (
                     <Aviso tono="warning" titulo={SIN_INVENTARIO_POR_TECNICO} icono={Unplug}>
                         Actualiza Argos a 1.6.0 o más para vincular técnicos; mientras tanto Iris usa la bodega de la ficha.
+                        <span className="block">
+                            <EnlaceConectorArgos />
+                        </span>
                     </Aviso>
                 ) : primera.estado === "error" ? (
                     <Aviso

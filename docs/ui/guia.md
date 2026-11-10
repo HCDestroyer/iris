@@ -462,6 +462,36 @@ envía:** sugiere y la persona revisa y envía.
   sugerencia»: la tarjeta se va sin error.
 - Pruebas: `e2e/asistente.spec.ts` (4 proyectos) y `lib/asistente/presentacion.test.ts`.
 
+### Entrega 2.1: tope en la campana, saldo y diagnóstico del conector
+
+- **Campana con avisos personales** (`GET /yo/avisos`, §16.9; hoy el tope del asistente para quien
+  tiene `mensajeria.asistente_configurar`): arriba van los avisos con su icono (`Sparkles` para
+  `asistente_tope`) y el `titulo` del servidor; `alerta` (80 %) en naranja, `peligro` (100 %) en rojo
+  con la línea «Pausado hasta el 1 de <mes siguiente> o hasta que subas el tope.». Debajo, lo de
+  tickets. Sin leer en negrita; abrirlo lo marca leído (`POST …/leer`) y lleva a `enlace` (solo rutas
+  internas). «Marcar todo como leído» (`leer-todos`) con aviso emergente. El punto aparece con avisos
+  sin leer y **crece** (`data-actuar="si"`, rojo con anillo) solo con un `peligro` sin leer. Si no se
+  pudieron leer, lo dice con «Reintentar» y no pinta punto por ellos. Se relee cada minuto, al abrir y
+  al cambiar de empresa. En error deja de sondear hasta «Reintentar»; con la sesión vencida (401)
+  manda a entrar como «sesión expirada». El `enlace` se resuelve como el navegador y debe quedar en
+  el mismo origen (sin caracteres de control ni `\`). Lógica: `lib/campana.ts`.
+- **Uso del mes en pausa:** el aviso dice «Pausado hasta el 1 de <mes siguiente> o hasta que subas el
+  tope.» (`textoPausado`).
+- **Saldo de Argos en la sugerencia:** «Servicio activo, al día · Argos» en verde con `CircleCheck`;
+  «Con saldo vencido (N facturas) · Argos» en rojo con `CircleAlert` (`tonoFuente`). Nunca montos.
+- **Diagnóstico del conector de Argos** (Administración › Integraciones, en la tarjeta del conector
+  de Argos activo, ancla `#diagnostico-argos`): «Versión de Argos» (`versionRemota` o «Sin leer»),
+  «Última revisión» (hora de Guatemala), el resultado con `InsigniaEstado` (icono + texto + color:
+  `ok` verde, `ruta_no_existe` naranja, `sin_permiso`/`no_responde`/`error` rojo, sin revisar neutro)
+  y el `versionDetalle` del servidor en una línea. «Revisar ahora» (`integraciones.revisar_version`)
+  manda `Idempotency-Key`; el servidor responde 202 y lee la versión en segundo plano, así que el
+  panel avisa «Revisando la versión de Argos» y vuelve a leer la lista enseguida, a los 3 s y a los
+  8 s. `conector_apagado` y `sistema_sin_version` se explican en palabras.
+- **«Ver el conector de Argos»** (`componentes/equipo/enlace-conector-argos.tsx`, con `Stethoscope`)
+  va dentro del aviso «Argos < 1.6.0: inventario por técnico no disponible» en técnicos sin ficha, en
+  el selector de bodega y en el vínculo de la ficha. Sin `integraciones.ver` no aparece.
+- Pruebas: `e2e/asistente-21.spec.ts` (4 proyectos), `lib/campana.test.ts` y `lib/integraciones/presentacion.test.ts`.
+
 ## Navegación del panel (fase 1, hecha)
 
 - **Barra lateral por grupos:**
