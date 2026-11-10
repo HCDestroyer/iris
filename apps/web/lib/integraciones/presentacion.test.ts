@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cuerpoCambioConector, esquemaPanelArgos, leerVuelta, mensajeVuelta, origenPanel, panelDe, panelDesconocido, panelesDeArgos, textoAlcance, type Conector } from "./presentacion";
+import { conectorArgos, cuerpoCambioConector, esquemaPanelArgos, leerVuelta, mensajeVuelta, origenPanel, panelDe, panelDesconocido, panelesDeArgos, presentacionVersion, RUTA_DIAGNOSTICO_ARGOS, textoAlcance, type Conector } from "./presentacion";
 
 describe("origenPanel", () => {
     it("normaliza al origen https://host[:puerto]", () => {
@@ -104,5 +104,27 @@ describe("cuerpoCambioConector", () => {
         expect(cuerpoCambioConector("activar", 3, { motivo: "", revocarAnterior: false })).toEqual({ version: 3 });
         expect(cuerpoCambioConector("activar", 3, { motivo: "fuga", revocarAnterior: true })).toEqual({ version: 3, motivo: "fuga", revocarAnterior: true });
         expect(cuerpoCambioConector("desactivar", 3, { motivo: "", revocarAnterior: true })).toEqual({ version: 3 });
+    });
+});
+
+describe("presentacionVersion", () => {
+    it("cada resultado con su tono, icono y texto; sin revisar, neutro", () => {
+        expect(presentacionVersion("ok")).toMatchObject({ tono: "success", texto: "Responde bien" });
+        expect(presentacionVersion("ruta_no_existe").tono).toBe("warning");
+        expect(presentacionVersion("sin_permiso").tono).toBe("error");
+        expect(presentacionVersion("no_responde").texto).toBe("No responde");
+        expect(presentacionVersion("error").tono).toBe("error");
+        expect(presentacionVersion(null)).toMatchObject({ tono: "neutral", texto: "Sin revisar" });
+        expect(presentacionVersion(undefined).texto).toBe("Sin revisar");
+    });
+});
+
+describe("conectorArgos", () => {
+    it("el activo de Argos o, si no hay, el más reciente; nunca el de Horus", () => {
+        const c = (id: number, sistema: Conector["sistema"], estado: Conector["estado"]) => ({ id, sistema, estado }) as Conector;
+        expect(conectorArgos([c(1, "argosisp", "apagado"), c(2, "argosisp", "activo"), c(3, "argosisp", "apagado")])?.id).toBe(2);
+        expect(conectorArgos([c(1, "argosisp", "apagado"), c(3, "argosisp", "apagado")])?.id).toBe(3);
+        expect(conectorArgos([c(4, "horus", "activo")])).toBeUndefined();
+        expect(RUTA_DIAGNOSTICO_ARGOS).toBe("/administracion/integraciones#diagnostico-argos");
     });
 });

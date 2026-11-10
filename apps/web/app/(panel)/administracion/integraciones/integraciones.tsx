@@ -25,11 +25,12 @@ import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { api, claveTrasError, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
-import { activoQueReemplaza, cuerpoCambioConector, enlaceValido, panelDe, panelesDeArgos, SISTEMAS, textoMotivoOrigen, type Conector, type Previsualizacion, type Sistema } from "@/lib/integraciones/presentacion";
+import { activoQueReemplaza, conectorArgos, cuerpoCambioConector, enlaceValido, panelDe, panelesDeArgos, SISTEMAS, textoMotivoOrigen, type Conector, type Previsualizacion, type Sistema } from "@/lib/integraciones/presentacion";
 import { useLectura } from "@/lib/lectura";
 import { textoFechaHora } from "@/lib/reportes/presentacion";
 import { useSesion } from "@/lib/sesion";
 import { ConectarArgos } from "./conectar-argos";
+import { DiagnosticoArgos } from "./diagnostico-argos";
 
 /**
  * `/administracion/integraciones`: conectores con Argos y Horus. Con Argos, «Conectar con Argos»
@@ -125,6 +126,7 @@ function FilaConector({ conector: c, todos, alCambiar }: { conector: Conector; t
                 {c.activadoEn ? ` · activo desde ${textoFechaHora(c.activadoEn)}` : ""}
                 {c.ultimoWebhookEn ? ` · último aviso ${textoFechaHora(c.ultimoWebhookEn)}` : ""}
             </p>
+            {c.sistema === "argosisp" && c.id === conectorArgos(todos)?.id ? <DiagnosticoArgos conector={c} alRevisar={alCambiar} /> : null}
             <div className="flex flex-wrap gap-2 empty:hidden">
                 {c.estado === "apagado" && puede(["integraciones.activar"]) ? (
                     <Boton tamano="sm" onClick={() => setDialogo("activar")}>

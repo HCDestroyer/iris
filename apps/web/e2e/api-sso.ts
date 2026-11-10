@@ -103,6 +103,12 @@ export type ApiSSO = {
     descartes: number;
     vinculos: Map<number, Vinculo[]>;
     conectores: Conector[];
+    /**
+     * `POST /integraciones/conectores/{id}/revisar-version`: pedidos recibidos (con su
+     * Idempotency-Key) y lo que deja la próxima lectura (por defecto, Argos 1.6.2 responde bien).
+     */
+    revisiones: { id: number; idempotencia: string | undefined }[];
+    resultadoRevision: Partial<Conector>;
     /** «Conectar con Argos» (0.4.0 §1.4): autorizaciones iniciadas, por state. */
     autorizaciones: Map<string, { panelUrl: string; usada: boolean }>;
     /** Cuerpos de `POST …/autorizaciones/completar` con su Idempotency-Key. */
@@ -145,6 +151,8 @@ export function apiSSO(deps: DepsSSO): ApiSSO {
         descartes: 0,
         vinculos,
         conectores,
+        revisiones: [],
+        resultadoRevision: { versionRemota: "1.6.2", versionEstado: "ok", versionDetalle: null, capacidades: ["inventario_por_tecnico"] },
         autorizaciones: new Map(),
         completados: [],
         enProceso: new Set(),
@@ -312,6 +320,19 @@ export function apiSSO(deps: DepsSSO): ApiSSO {
             if (ruta === "/api/v1/integraciones/conectores" && metodo === "GET") {
                 if (!puede("integraciones.ver")) return (await prohibido(), true);
                 await json(route, { data: conectores, nextCursor: null } satisfies Schema<"PaginaConector">);
+                return true;
+            }
+            const revision = /^\/api\/v1\/integraciones\/conectores\/(\d+)\/revisar-version$/.exec(ruta);
+            if (revision && metodo === "POST") {
+                if (!puede("integraciones.revisar_version")) return (await prohibido(), true);
+                const c = conectores.find((x) => x.id === Number(revision[1]));
+                if (!c) return (await problema(route, { type: "urn:iris:problema:no_encontrado", title: "No encontrado", status: 404 }), true);
+                if (c.sistema !== "argosisp") return (await problema(route, { type: "urn:iris:problema:sistema_sin_version", title: "Sistema sin versión", status: 422 }), true);
+                if (c.estado !== "activo") return (await problema(route, { type: "urn:iris:problema:conector_apagado", title: "Conector apagado", status: 422 }), true);
+                api.revisiones.push({ id: c.id, idempotencia });
+                // 202 con el conector como está ahora; el job deja el resultado para la próxima lectura.
+                await json(route, structuredClone(c), 202);
+                Object.assign(c, api.resultadoRevision, { versionConsultadaEn: new Date().toISOString() });
                 return true;
             }
             const cambio = /^\/api\/v1\/integraciones\/conectores\/(\d+)\/(activar|desactivar)$/.exec(ruta);
