@@ -43,10 +43,14 @@ func TestContratoEnCanjeYVersionArgos16(t *testing.T) {
 	// El job: PUT …/contrato (idempotente) y GET …/estado. Sin cambios: no audita ni emite.
 	ctx := pruebas.ContextoSistema(e.pool)
 	r, err := e.mod.InformarContrato.Ejecutar(ctx, id)
-	if err != nil || r.Cambio {
+	// La primera lectura deja el diagnóstico (version_estado ok); la versión no cambia.
+	if err != nil || !r.Cambio || r.Estado != argos.VersionOK {
 		t.Fatalf("informar: %+v %v", r, err)
 	}
-	if e.argos.contratos != 1 {
+	if r, err = e.mod.InformarContrato.Ejecutar(ctx, id); err != nil || r.Cambio {
+		t.Fatalf("informar otra vez, sin cambios: %+v %v", r, err)
+	}
+	if e.argos.contratos != 2 {
 		t.Fatalf("PUT contrato: %d", e.argos.contratos)
 	}
 }
@@ -95,7 +99,8 @@ func TestArgos15SinVersionYLuegoActualizado(t *testing.T) {
 	}
 	ctx := pruebas.ContextoSistema(e.pool)
 	r, err := e.mod.InformarContrato.Ejecutar(ctx, id)
-	if err != nil || r.Cambio || r.ContratoInformado != nil {
+	// Solo cambia el diagnóstico: ruta_no_existe (Argos anterior a 1.6.0).
+	if err != nil || !r.Cambio || r.ContratoInformado != nil || r.Estado != argos.VersionRutaNoExiste {
 		t.Fatalf("con Argos 1.5 no es error: %+v %v", r, err)
 	}
 	// El selector de técnicos dice por qué no.
@@ -119,7 +124,7 @@ func TestArgos15SinVersionYLuegoActualizado(t *testing.T) {
 		AND payload->'campos' ? 'version_remota' AND payload->'campos' ? 'contrato_informado'`, id); n != 1 {
 		t.Fatalf("conector.actualizado: %d", n)
 	}
-	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'integraciones.informar_contrato' AND resultado = 'ok' AND entidad_id = $1`, fmt.Sprint(id)); n != 1 {
+	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'integraciones.informar_contrato' AND resultado = 'ok' AND entidad_id = $1`, fmt.Sprint(id)); n != 2 {
 		t.Fatalf("auditoría: %d", n)
 	}
 }

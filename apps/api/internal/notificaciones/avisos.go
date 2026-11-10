@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/google/uuid"
@@ -43,7 +44,7 @@ type AvisoPanel struct {
 	Nivel     string         `json:"nivel" enum:"info,alerta,peligro" doc:"alerta al 80 %, peligro al 100 % (el asistente se pausó)"`
 	Titulo    string         `json:"titulo" doc:"Texto en español, listo para mostrar"`
 	Enlace    *string        `json:"enlace" nullable:"true" doc:"Ruta del panel a la que lleva (p. ej. /administracion/asistente)"`
-	Datos     map[string]any `json:"datos" doc:"Referencias del aviso; asistente_tope: porcentaje (80, 100) y mes (YYYY-MM)"`
+	Datos     map[string]any `json:"datos" doc:"Referencias del aviso; asistente_tope: porcentaje (80, 100), mes (YYYY-MM) y tope (tokens del mes cuando se avisó)"`
 	Leido     bool           `json:"leido"`
 	LeidoEn   *time.Time     `json:"leidoEn" nullable:"true"`
 	CreadoEn  time.Time      `json:"creadoEn"`
@@ -173,6 +174,9 @@ func (m *Modulo) nuevoLeerTodosLosAvisos() *auditoria.Caso[struct{}, AvisosLeido
 
 func ptr[T any](v T) *T { return &v }
 
+// reMes: el mes del evento (YYYY-MM); va en la clave y en el texto del correo.
+var reMes = regexp.MustCompile(`^\d{4}-(0[1-9]|1[0-2])$`)
+
 // Tope del asistente ------------------------------------------------------------------------------
 
 // EntradaAvisarTope es el evento asistente.tope_alcanzado (lo llama el suscriptor del worker).
@@ -200,13 +204,15 @@ func TituloTope(empresa string, porcentaje int) string {
 	return fmt.Sprintf("El asistente de IA de %s usó el 80 %% de su tope del mes", empresa)
 }
 
-// ClaveTope une los avisos de una empresa, un mes y un umbral: una sola vez por umbral y por mes.
-func ClaveTope(empresa *int64, mes string, porcentaje int) string {
+// ClaveTope une los avisos de una empresa, un mes, un umbral y un valor del tope: una sola vez por
+// umbral y por mes con ese tope. Si suben el tope dentro del mes y lo vuelven a cruzar, la clave es
+// otra y se avisa de nuevo.
+func ClaveTope(empresa *int64, mes string, porcentaje int, tope int64) string {
 	var id int64
 	if empresa != nil {
 		id = *empresa
 	}
-	return fmt.Sprintf("asistente_tope:%d:%s:%d", id, mes, porcentaje)
+	return fmt.Sprintf("asistente_tope:%d:%s:%d:%d", id, mes, porcentaje, tope)
 }
 
 func (m *Modulo) nuevoAvisarTope() *auditoria.Caso[EntradaAvisarTope, ResultadoAvisarTope] {
@@ -218,7 +224,7 @@ func (m *Modulo) nuevoAvisarTope() *auditoria.Caso[EntradaAvisarTope, ResultadoA
 				return ResultadoAvisarTope{}, err
 			}
 			r := ResultadoAvisarTope{}
-			if in.Porcentaje != 80 && in.Porcentaje != 100 {
+			if (in.Porcentaje != 80 && in.Porcentaje != 100) || in.Tope <= 0 || !reMes.MatchString(in.Mes) {
 				return r, nil
 			}
 			if in.EmpresaID != nil {
@@ -241,13 +247,13 @@ func (m *Modulo) nuevoAvisarTope() *auditoria.Caso[EntradaAvisarTope, ResultadoA
 			if err != nil {
 				return r, err
 			}
-			clave := ClaveTope(in.EmpresaID, in.Mes, in.Porcentaje)
+			clave := ClaveTope(in.EmpresaID, in.Mes, in.Porcentaje, in.Tope)
 			titulo := TituloTope(nombre, in.Porcentaje)
 			nivel := "alerta"
 			if in.Porcentaje >= 100 {
 				nivel = "peligro"
 			}
-			datos, err := json.Marshal(map[string]any{"porcentaje": in.Porcentaje, "mes": in.Mes})
+			datos, err := json.Marshal(map[string]any{"porcentaje": in.Porcentaje, "mes": in.Mes, "tope": in.Tope})
 			if err != nil {
 				return r, err
 			}

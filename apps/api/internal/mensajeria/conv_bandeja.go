@@ -567,6 +567,12 @@ func (m *Modulo) accionConv(ctx context.Context, t *auditoria.Tx, id int64, vers
 		return ConversacionClienteDetalle{}, err
 	}
 	c.BotEsperaEn, c.BotVenceEn, c.BotMotivo, c.BotAtendioEn, c.BotMenu = bot.BotEsperaEn, bot.BotVenceEn, bot.BotMotivo, bot.BotAtendioEn, bot.BotMenu
+	// Asociar otro cliente o desasociarlo vence la sugerencia vigente: se armó con los datos del anterior.
+	if !mismoID(antes.ClienteID, c.ClienteID) {
+		if err := m.cerrarVigentes(ctx, t, c, SugVencida); err != nil {
+			return ConversacionClienteDetalle{}, err
+		}
+	}
 	if limpiar {
 		if err := limpiarEspera(ctx, q, &c); err != nil {
 			return ConversacionClienteDetalle{}, err
