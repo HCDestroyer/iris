@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.21.0](https://github.com/HCDestroyer/iris/compare/v0.20.0...v0.21.0) (2026-11-10)
+
+
+### Funcionalidades
+
+* **mensajeria:** aviso de tope, saldo en sugerencias y diagnóstico del conector de Argos (2.1) ([#155](https://github.com/HCDestroyer/iris/issues/155)) ([c36b677](https://github.com/HCDestroyer/iris/commit/c36b677a5c815772f401132dd1812f9bde5e6673))
+* **panel:** avisos del tope, saldo en sugerencias y diagnóstico del conector de Argos (2.1) ([#154](https://github.com/HCDestroyer/iris/issues/154)) ([2a69f4a](https://github.com/HCDestroyer/iris/commit/2a69f4a4959e931a7f5273e8ae9613d5862c78a7))
+
 ## [0.20.0](https://github.com/HCDestroyer/iris/compare/v0.19.0...v0.20.0) (2026-11-09)
 
 
