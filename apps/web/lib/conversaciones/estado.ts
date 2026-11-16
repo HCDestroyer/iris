@@ -14,11 +14,13 @@ export type Filtros = {
     canalId: number | null;
     colaId: number | null;
     etiquetaId: number | null;
+    /** Fase 3: los chips de categoría arriba de la lista. */
+    categoriaId: number | null;
     sla: "por_vencer" | "vencido" | null;
     q: string;
 };
 
-export const FILTROS_INICIALES: Filtros = { vista: "todas", estado: "activas", canalId: null, colaId: null, etiquetaId: null, sla: null, q: "" };
+export const FILTROS_INICIALES: Filtros = { vista: "todas", estado: "activas", canalId: null, colaId: null, etiquetaId: null, categoriaId: null, sla: null, q: "" };
 
 const VISTAS: readonly Vista[] = ["mias", "sin_asignar", "todas"];
 const ESTADOS: readonly FiltroEstado[] = ["activas", "abierta", "esperando_cliente", "resuelta"];
@@ -39,6 +41,7 @@ export function filtrosDeUrl(p: URLSearchParams): Filtros {
         canalId: idDe(p.get("canal")),
         colaId: idDe(p.get("cola")),
         etiquetaId: idDe(p.get("etiqueta")),
+        categoriaId: idDe(p.get("categoria")),
         sla: sla === "por_vencer" || sla === "vencido" ? sla : null,
         q: (p.get("q") ?? "").slice(0, 100),
     };
@@ -52,6 +55,7 @@ export function urlDeFiltros(f: Filtros, conversacionId: number | null): string 
     if (f.canalId) p.set("canal", String(f.canalId));
     if (f.colaId) p.set("cola", String(f.colaId));
     if (f.etiquetaId) p.set("etiqueta", String(f.etiquetaId));
+    if (f.categoriaId) p.set("categoria", String(f.categoriaId));
     if (f.sla) p.set("sla", f.sla);
     if (f.q.trim()) p.set("q", f.q.trim());
     if (conversacionId) p.set("c", String(conversacionId));
@@ -72,6 +76,7 @@ export function coincide(c: Conversacion, f: Filtros, usuarioId: number): boolea
     if (f.canalId && c.canal.id !== f.canalId) return false;
     if (f.colaId && c.cola?.id !== f.colaId) return false;
     if (f.etiquetaId && !(c.etiquetas ?? []).some((e) => e.id === f.etiquetaId)) return false;
+    if (f.categoriaId && c.categoria?.id !== f.categoriaId) return false;
     if (f.sla && c.sla.estado !== f.sla) return false;
     return true;
 }

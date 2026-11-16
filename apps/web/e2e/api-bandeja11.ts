@@ -206,6 +206,8 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
                 ...(canal.colaId ? { cola: { id: canal.colaId, nombre: e.colas.find((q) => q.id === canal.colaId)?.nombre ?? "" } } : {}),
                 numero: dest.numero ?? "",
                 perfilNombre: null,
+                categoriaConfianza: null,
+                categoriaOrigen: null,
                 titulo: dest.nombre,
                 contacto: {
                     tipo: dest.tipo,
@@ -245,6 +247,7 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
                 entregadoEn: null,
                 leidoEn: null,
                 automatico: null,
+                autorTipo: "persona",
             };
             c.ultimoMensaje = { direccion: "saliente", tipo: "plantilla", texto, evento: null, creadoEn: ahora, automatico: null };
             if (!existente) {
@@ -268,6 +271,7 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
                     entregadoEn: null,
                     leidoEn: null,
                     automatico: null,
+                    autorTipo: "sistema",
                 },
                 m,
             );
@@ -298,6 +302,7 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
             const base = { conversacionId: c.id, seq: 0, tipo: "texto" as const, estadoEntrega: null, motivoFalla: null, menciones: [], creadoEn: ahora, enviadoEn: null, entregadoEn: null, leidoEn: null, automatico: null };
             const sistema: Mensaje = {
                 ...base,
+                autorTipo: "sistema",
                 id: `pasada-${c.version}`,
                 direccion: "sistema",
                 tipo: "sistema",
@@ -305,7 +310,7 @@ export function bandeja11(e: Estado, opciones: OpcionesBandeja11 = {}) {
                 evento: { tipo: "pasada", actorNombre: (yoAgente?.nombre ?? "Ana").split(" ")[0], asignadoNombre: destino.nombre, ...(disponible ? {} : { detalle: "no_disponible" }) },
             };
             e.mensajes.get(c.id)?.push(sistema);
-            if (nota) e.mensajes.get(c.id)?.push({ ...base, id: `nota-${c.version}`, direccion: "nota", texto: nota, autor: { id: yo, nombre: yoAgente?.nombre ?? "Ana López" } });
+            if (nota) e.mensajes.get(c.id)?.push({ ...base, id: `nota-${c.version}`, direccion: "nota", autorTipo: "persona", texto: nota, autor: { id: yo, nombre: yoAgente?.nombre ?? "Ana López" } });
             e.emitir("mensaje_nuevo", c, sistema);
             const r: Schema<"PaseConversacion"> = { conversacion: detalle(c), destino: { id: destino.id, nombre: destino.nombre }, destinoDisponible: disponible };
             return (await json(route, r), true);

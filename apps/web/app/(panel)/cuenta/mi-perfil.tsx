@@ -5,6 +5,7 @@ import { ShieldCheck, ShieldOff } from "lucide-react";
 import Link from "next/link";
 import { VinculosSSO } from "@/componentes/cuenta/vinculos-sso";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
+import { TarjetaVincularArgos } from "@/componentes/integraciones/abrir-argos";
 import { rutaConfigurarMfa } from "@/lib/cuenta/sesion";
 import { useSesion } from "@/lib/sesion";
 
@@ -38,6 +39,7 @@ export function MiPerfil() {
                         </div>
                     </TarjetaContenido>
                 </Tarjeta>
+                <TarjetaVincularArgos />
                 <VinculosSSO usuarioId={u.id} propio />
             </div>
         </>

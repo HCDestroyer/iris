@@ -3,6 +3,9 @@
 import type { Schema } from "@iris/contratos";
 import { createContext, use, useEffect, useMemo, type ReactNode } from "react";
 import { api, resolver } from "@/lib/api/cliente";
+import { ErrorApi } from "@/lib/api/errores";
+import { leerCategorias } from "@/lib/asistente/api-fase3";
+import type { Categoria } from "@/lib/asistente/fase3";
 import { leerAgentes, leerColas } from "@/lib/conversaciones/api-equipo";
 import type { Agente, Cola } from "@/lib/conversaciones/tipos";
 import type { Etiqueta, RespuestaRapida } from "@/lib/conversaciones/tipos";
@@ -24,6 +27,8 @@ type Catalogos = {
     colas: Lectura<Cola[]>;
     etiquetas: Lectura<Etiqueta[]>;
     respuestas: Lectura<RespuestaRapida[] | null>;
+    /** Fase 3 del asistente (§17.2): categorías activas de la empresa, por `orden`. */
+    categorias: Lectura<Categoria[]>;
 };
 
 const Contexto = createContext<Catalogos | null>(null);
@@ -46,7 +51,16 @@ export function ProveedorCatalogos({ children }: { children: ReactNode }) {
     const respuestas = useLectura<RespuestaRapida[] | null>(async (signal) =>
         responde ? ((await resolver(api().GET(`${M}/respuestas-rapidas`, { signal }))).data ?? []).filter((r) => r.activa) : null,
     );
-    const valor = useMemo(() => ({ canales, agentes, colas, etiquetas, respuestas }), [canales, agentes, colas, etiquetas, respuestas]);
+    // Un servidor anterior a §17 no las tiene: la bandeja queda como antes, sin categorías.
+    const categorias = useLectura<Categoria[]>(async (signal) => {
+        try {
+            return await leerCategorias(false, signal);
+        } catch (e) {
+            if (e instanceof ErrorApi && (e.estado === 404 || e.estado === 403)) return [];
+            throw e;
+        }
+    });
+    const valor = useMemo(() => ({ canales, agentes, colas, etiquetas, respuestas, categorias }), [canales, agentes, colas, etiquetas, respuestas, categorias]);
     return <Contexto value={valor}>{children}</Contexto>;
 }
 

@@ -14,9 +14,10 @@ import {
     MenuEnLinea,
     PanelEmergente,
 } from "@iris/ui";
-import { ChevronDown, CircleCheck, CircleUserRound, KeyRound, LogOut, ShieldCheck, UserRound } from "lucide-react";
+import { ChevronDown, CircleCheck, CircleUserRound, KeyRound, Link2, LogOut, ShieldCheck, UserRound } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { PERMISO_ABRIR_ARGOS } from "@/lib/asistente/permisos";
 import { rutaConfigurarMfa } from "@/lib/cuenta/sesion";
 import { listaColas, useDisponibilidad } from "@/lib/conversaciones/disponibilidad";
 import { rutaEntrar, useSesion } from "@/lib/sesion";
@@ -64,7 +65,7 @@ export function ProveedorCuenta({ children }: { children: ReactNode }) {
 
 /** Opciones de la cuenta: las mismas en el menú de la barra superior y en «Más» del teléfono. */
 function OpcionesCuenta({ cerrando, cerrarSesion, antes, soloCorreo = false }: Props & { antes?: () => void; soloCorreo?: boolean }) {
-    const { yo } = useSesion();
+    const { yo, puede } = useSesion();
     const router = useRouter();
     const ruta = usePathname();
     const cuenta = useContext(Cuenta);
@@ -93,6 +94,12 @@ function OpcionesCuenta({ cerrando, cerrarSesion, antes, soloCorreo = false }: P
                 Configurar verificación en dos pasos
             </MenuDesplegableElemento>
         ),
+        // B3: el vínculo con Argos autoriza aprobar y rechazar boletas; se hace desde «Mi perfil».
+        puede([PERMISO_ABRIR_ARGOS]) ? (
+            <MenuDesplegableElemento key="argos" icono={Link2} onSelect={con(() => router.push("/cuenta#argos"))}>
+                Vincular mi usuario de Argos
+            </MenuDesplegableElemento>
+        ) : null,
         <MenuDesplegableSeparador key="sep-2" />,
         <MenuDesplegableElemento key="salir" icono={LogOut} onSelect={con(cerrarSesion)} disabled={cerrando}>
             {cerrando ? "Cerrando sesión…" : "Cerrar sesión"}

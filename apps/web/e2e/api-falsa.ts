@@ -5,6 +5,7 @@ import { simularChatPanel, type ApiChatPanel } from "./api-chat-panel";
 import { apiComercial, type ApiComercial } from "./api-comercial";
 import { PERMISO_CONFIGURAR } from "./api-asistente";
 import { apiConversaciones, PERMISOS_CONVERSACIONES, type ApiConversaciones, type OpcionesConversaciones } from "./api-conversaciones";
+import { apiPagos, PERMISOS_ABRIR_ARGOS, PERMISOS_PAGOS, type ApiPagos, type OpcionesPagos } from "./api-pagos";
 import { apiEncuestas, type ApiEncuestas } from "./api-encuestas";
 import { apiMeta, type ApiMeta, type OpcionesMeta } from "./api-meta";
 import { apiNumeros, type ApiNumeros, type OpcionesNumeros } from "./api-numeros";
@@ -292,6 +293,13 @@ export type OpcionesApi = {
     argos050?: boolean;
     /** Bandeja de conversaciones (e2e/api-conversaciones.ts). */
     conversaciones?: OpcionesConversaciones;
+    /**
+     * Pedido B3 (e2e/api-pagos.ts): boletas que se aprueban o rechazan desde la conversación 42 y
+     * autologin Iris → Argos. El admin recibe `boletas.aprobar`, `boletas.rechazar` e
+     * `integraciones.abrir_argos` (como `admin` y `caja` en el servidor); quien atiende la bandeja,
+     * solo `integraciones.abrir_argos`. Sin esta opción nadie los tiene.
+     */
+    pagos?: OpcionesPagos;
     /** Números de WhatsApp: alta, credenciales y conexión (e2e/api-numeros.ts). */
     numeros?: OpcionesNumeros;
     /** Conexión con Meta, QR y préstamos (e2e/api-meta.ts, contrato §15). */
@@ -344,8 +352,10 @@ export type ApiFalsa = {
     cuenta: Pick<ApiCuenta, "cambiarVersion" | "sacarDelAlcance" | "reinicios">;
     /** Reportes: hacer que el próximo CSV responda 422 `exportacion_excedida`. */
     reportes: Pick<ApiReportes, "exportacionExcedida">;
+    /** Pedido B3: boletas, decisiones recibidas y enlaces a Argos pedidos. */
+    pagos: Pick<ApiPagos, "boletas" | "decisiones" | "aperturas" | "rechazadasPorSesion">;
     /** Bandeja de conversaciones: conversaciones, mensajes, lo enviado y mensajes del cliente. */
-    conversaciones: Pick<ApiConversaciones, "conversaciones" | "mensajes" | "enviados" | "mensajeDelCliente" | "horarios" | "manuales" | "canales" | "configurados" | "respuestas" | "colas" | "agentes" | "bandeja11" | "asistente">;
+    conversaciones: Pick<ApiConversaciones, "conversaciones" | "mensajes" | "enviados" | "mensajeDelCliente" | "horarios" | "manuales" | "canales" | "configurados" | "respuestas" | "colas" | "agentes" | "bandeja11" | "asistente" | "fase3">;
     /** Chat del equipo (solo con `chat: true`). */
     chat: ApiChatPanel | null;
     /** Números de WhatsApp: resultados de Meta, cuerpos recibidos y credenciales guardadas. */
@@ -482,7 +492,10 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     const reportes = apiReportes();
     const encuestas = apiEncuestas();
     const enlaceActor = { id: 0 };
+    const enlaceNombre = { nombre: "" };
     const conversaciones = apiConversaciones(() => enlaceActor.id, opciones.conversaciones);
+    // `sso` se crea más abajo; para cuando llega una petición ya existe.
+    const pagos = apiPagos(() => ({ id: enlaceActor.id, nombre: enlaceNombre.nombre }), opciones.pagos, () => sso.reautenticaciones > 0);
     const numeros = apiNumeros(conversaciones.canales, opciones.numeros);
     const meta = apiMeta(numeros.interno, conversaciones.conversaciones, opciones.meta);
     const listables = [...(PAGINA_1.data ?? []), ...(PAGINA_2.data ?? [])];
@@ -626,7 +639,12 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         if (await cuenta.cortar(route, actual, metodo, ruta)) {
             return;
         }
-        const permisos = [...(permisosPorCorreo[actual.correo] ?? []), ...(opciones.chat && actual.correo === ADMIN.correo ? PERMISOS_CHAT : [])];
+        const permisos = [
+            ...(permisosPorCorreo[actual.correo] ?? []),
+            ...(opciones.chat && actual.correo === ADMIN.correo ? PERMISOS_CHAT : []),
+            ...(opciones.pagos && actual.correo === ADMIN.correo ? PERMISOS_PAGOS.filter((p) => !pagos.sinPermisos.includes(p)) : []),
+            ...(opciones.pagos && actual.correo === AGENTE_CONV.correo ? PERMISOS_ABRIR_ARGOS : []),
+        ];
         if (await sso.manejar({ route, metodo, ruta, actual, puede: (p) => permisos.includes(p), cuerpo, cookies, idempotencia: cabeceras["idempotency-key"] })) {
             return;
         }
@@ -743,7 +761,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         }
 
         if (metodo === "GET" && ruta === "/api/v1/integraciones/enlaces") {
-            if (!puede("clientes.ver")) return prohibido();
+            if (!puede("clientes.ver") && !puede("integraciones.abrir_argos")) return prohibido();
             return route.fulfill({ json: opciones.enlaces ?? ({} satisfies Schema<"EnlacesExternos">) });
         }
 
@@ -870,6 +888,10 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             return;
         }
         enlaceActor.id = actual.id;
+        enlaceNombre.nombre = actual.nombre;
+        if (await pagos.manejar({ route, metodo, ruta, cuerpo, idempotencia: cabeceras["idempotency-key"], puede })) {
+            return;
+        }
         if (await meta.manejar({ route, metodo, ruta, cuerpo, idempotencia: cabeceras["idempotency-key"], puede, empresaId })) {
             return;
         }
@@ -1057,6 +1079,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             descartes: () => sso.descartes,
         },
         conversaciones,
+        pagos,
         encuestas: { encuestas: encuestas.encuestas, publicasConSesion: encuestas.publicasConSesion, respuestas: encuestas.respuestas, enlacesPedidos: encuestas.enlacesPedidos },
         cuenta: { cambiarVersion: cuenta.cambiarVersion, sacarDelAlcance: cuenta.sacarDelAlcance, reinicios: cuenta.reinicios },
         cambiarVersionOrden: (ordenId) => {

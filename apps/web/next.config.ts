@@ -40,6 +40,9 @@ const config: NextConfig = {
                 headers: [
                     { key: "X-Frame-Options", value: "DENY" },
                     { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+                    // A otro sitio (Argos, Horus, mapas) solo le llega el origen de Iris, nunca la ruta
+                    // ni la consulta (ids de clientes, conversaciones, filtros).
+                    { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
                 ],
             },
             // El service worker nunca se cachea en HTTP: el navegador debe ver cada versión nueva.

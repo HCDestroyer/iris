@@ -14,6 +14,7 @@ import { useDiferido } from "@/lib/diferido";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { useSesion } from "@/lib/sesion";
 import { AvisoAtencion, esperaDe, LineaDisponibles } from "./atencion";
+import { FiltroCategorias, LineaCategoria } from "./categoria";
 import { useAhora } from "./reloj";
 import { BotonFiltros } from "./filtros";
 
@@ -83,6 +84,7 @@ export function ListaConversaciones({ className, filtros, abierta, lista, contad
                     alCambiar={(vista) => alFiltrar({ ...filtros, vista })}
                     opciones={vistas}
                 />
+                <FiltroCategorias filtros={filtros} contadores={c} alCambiar={alFiltrar} />
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-slot="lista-conversaciones">
                 {lista.estado === "cargando" ? (
@@ -169,6 +171,7 @@ function FilaConversacion({ conv, href, actual, ahora }: { conv: Conversacion; h
                     </span>
                 ) : null}
             </span>
+            <LineaCategoria conv={conv} />
         </Link>
     );
 }

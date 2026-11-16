@@ -110,7 +110,7 @@ function ContenidoFiltros({ filtros, contadores, alCambiar }: { filtros: Filtros
                 </Grupo>
             ) : null}
             {cuantosFiltros(filtros) > 0 ? (
-                <Boton variante="fantasma" tamano="sm" className="mt-1 justify-start" onClick={() => alCambiar({ ...FILTROS_INICIALES, vista: filtros.vista, q: filtros.q })}>
+                <Boton variante="fantasma" tamano="sm" className="mt-1 justify-start" onClick={() => alCambiar({ ...FILTROS_INICIALES, vista: filtros.vista, q: filtros.q, categoriaId: filtros.categoriaId })}>
                     <X />
                     Quitar filtros
                 </Boton>

@@ -25,6 +25,7 @@ export function leerLista(f: Filtros, cursor: string | undefined, signal?: Abort
                     ...(f.canalId ? { canalId: f.canalId } : {}),
                     ...(f.colaId ? { colaId: f.colaId } : {}),
                     ...(f.etiquetaId ? { etiquetaId: f.etiquetaId } : {}),
+                    ...(f.categoriaId ? { categoriaId: f.categoriaId } : {}),
                     ...(f.sla ? { sla: f.sla } : {}),
                     ...(f.q.trim() ? { q: f.q.trim() } : {}),
                     ...(cursor ? { cursor } : {}),
