@@ -1046,7 +1046,9 @@ SELECT
     count(*) FILTER (WHERE c.estado = 'esperando_cliente')::bigint AS esperando,
     count(*) FILTER (WHERE c.sla_vence_en IS NOT NULL AND c.sla_vence_en <= $2::timestamptz)::bigint AS vencidas,
     count(*) FILTER (WHERE c.sla_vence_en IS NOT NULL AND c.sla_vence_en > $2::timestamptz
-        AND c.sla_vence_en - make_interval(mins => coalesce(co.sla_por_vencer_min, GREATEST(1, coalesce(co.sla_respuesta_min, 0) / 4))) <= $2::timestamptz)::bigint AS por_vencer,
+        AND c.sla_vence_en - make_interval(mins => coalesce(
+            (SELECT GREATEST(1, k.sla_primera_respuesta_min / 4) FROM mensajeria.asistente_categorias k WHERE k.id = c.categoria_id),
+            co.sla_por_vencer_min, GREATEST(1, coalesce(co.sla_respuesta_min, 0) / 4))) <= $2::timestamptz)::bigint AS por_vencer,
     coalesce(sum((SELECT count(*) FROM mensajeria.conversacion_mensajes m
         WHERE m.conversacion_id = c.id AND m.direccion = 'entrante'
           AND m.seq > coalesce((SELECT l.hasta_seq FROM mensajeria.conversacion_lecturas l WHERE l.conversacion_id = c.id AND l.usuario_id = $1::bigint), 0)))
@@ -1114,6 +1116,12 @@ FROM mensajeria.conversaciones c JOIN mensajeria.conversacion_etiquetas ce ON ce
 WHERE coalesce(c.empresa_id, 0) = $1::bigint AND c.estado <> 'resuelta'
   AND mensajeria.conv_visible($2::bigint, $3::boolean, c.id, c.cola_id, c.asignado_a)
 GROUP BY ce.etiqueta_id
+UNION ALL
+SELECT 'categoria'::text, c.categoria_id, count(*)::bigint
+FROM mensajeria.conversaciones c
+WHERE coalesce(c.empresa_id, 0) = $1::bigint AND c.estado <> 'resuelta' AND c.categoria_id IS NOT NULL
+  AND mensajeria.conv_visible($2::bigint, $3::boolean, c.id, c.cola_id, c.asignado_a)
+GROUP BY c.categoria_id
 `
 
 type ContadoresPorGrupoParams struct {
@@ -1164,7 +1172,7 @@ func (q *Queries) ContarIntentoMedio(ctx context.Context, arg ContarIntentoMedio
 }
 
 const conversacionClienteParaActualizar = `-- name: ConversacionClienteParaActualizar :one
-SELECT id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu FROM mensajeria.conversaciones WHERE id = $1 FOR UPDATE
+SELECT id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en FROM mensajeria.conversaciones WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) ConversacionClienteParaActualizar(ctx context.Context, id int64) (MensajeriaConversacion, error) {
@@ -1206,12 +1214,20 @@ func (q *Queries) ConversacionClienteParaActualizar(ctx context.Context, id int6
 		&i.BotMotivo,
 		&i.BotAtendioEn,
 		&i.BotMenu,
+		&i.CategoriaID,
+		&i.CategoriaConfianza,
+		&i.CategoriaOrigen,
+		&i.CategoriaEn,
+		&i.ClasificadoMensajeID,
+		&i.AsistenteActividadTipo,
+		&i.AsistenteActividadTexto,
+		&i.AsistenteActividadEn,
 	)
 	return i, err
 }
 
 const conversacionClientePorID = `-- name: ConversacionClientePorID :one
-SELECT id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu FROM mensajeria.conversaciones WHERE id = $1
+SELECT id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en FROM mensajeria.conversaciones WHERE id = $1
 `
 
 func (q *Queries) ConversacionClientePorID(ctx context.Context, id int64) (MensajeriaConversacion, error) {
@@ -1253,13 +1269,21 @@ func (q *Queries) ConversacionClientePorID(ctx context.Context, id int64) (Mensa
 		&i.BotMotivo,
 		&i.BotAtendioEn,
 		&i.BotMenu,
+		&i.CategoriaID,
+		&i.CategoriaConfianza,
+		&i.CategoriaOrigen,
+		&i.CategoriaEn,
+		&i.ClasificadoMensajeID,
+		&i.AsistenteActividadTipo,
+		&i.AsistenteActividadTexto,
+		&i.AsistenteActividadEn,
 	)
 	return i, err
 }
 
 const conversacionPorContacto = `-- name: ConversacionPorContacto :one
 
-SELECT id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu FROM mensajeria.conversaciones
+SELECT id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en FROM mensajeria.conversaciones
 WHERE coalesce(empresa_id, 0) = $1::bigint AND canal_id = $2 AND numero = $3
 FOR UPDATE
 `
@@ -1310,6 +1334,14 @@ func (q *Queries) ConversacionPorContacto(ctx context.Context, arg ConversacionP
 		&i.BotMotivo,
 		&i.BotAtendioEn,
 		&i.BotMenu,
+		&i.CategoriaID,
+		&i.CategoriaConfianza,
+		&i.CategoriaOrigen,
+		&i.CategoriaEn,
+		&i.ClasificadoMensajeID,
+		&i.AsistenteActividadTipo,
+		&i.AsistenteActividadTexto,
+		&i.AsistenteActividadEn,
 	)
 	return i, err
 }
@@ -1717,7 +1749,7 @@ SET perfil_nombre = $1, cola_id = $2, asignado_a = $3,
     sla_avisado = $16, resuelta_en = $17, reabierta_en = $18,
     ultima_actividad = $19, version = version + $20::integer, updated_at = now()
 WHERE id = $21
-RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu
+RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en
 `
 
 type GuardarConversacionParams struct {
@@ -1806,6 +1838,14 @@ func (q *Queries) GuardarConversacion(ctx context.Context, arg GuardarConversaci
 		&i.BotMotivo,
 		&i.BotAtendioEn,
 		&i.BotMenu,
+		&i.CategoriaID,
+		&i.CategoriaConfianza,
+		&i.CategoriaOrigen,
+		&i.CategoriaEn,
+		&i.ClasificadoMensajeID,
+		&i.AsistenteActividadTipo,
+		&i.AsistenteActividadTexto,
+		&i.AsistenteActividadEn,
 	)
 	return i, err
 }
@@ -2040,7 +2080,7 @@ INSERT INTO mensajeria.conversaciones (empresa_id, canal_id, numero, perfil_nomb
 VALUES ($1, $2, $3, $4, $5, $6,
     $7, $8, $9)
 ON CONFLICT DO NOTHING
-RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu
+RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en
 `
 
 type InsertarConversacionClienteParams struct {
@@ -2104,6 +2144,14 @@ func (q *Queries) InsertarConversacionCliente(ctx context.Context, arg InsertarC
 		&i.BotMotivo,
 		&i.BotAtendioEn,
 		&i.BotMenu,
+		&i.CategoriaID,
+		&i.CategoriaConfianza,
+		&i.CategoriaOrigen,
+		&i.CategoriaEn,
+		&i.ClasificadoMensajeID,
+		&i.AsistenteActividadTipo,
+		&i.AsistenteActividadTexto,
+		&i.AsistenteActividadEn,
 	)
 	return i, err
 }
@@ -2495,23 +2543,26 @@ WHERE coalesce(c.empresa_id, 0) = $1::bigint
   AND (CASE $5::text WHEN 'activas' THEN c.estado <> 'resuelta' WHEN 'todas' THEN true ELSE c.estado = $5::text END)
   AND ($6::bigint IS NULL OR c.canal_id = $6::bigint)
   AND ($7::bigint IS NULL OR c.cola_id = $7::bigint)
-  AND ($8::bigint IS NULL OR EXISTS (
-        SELECT 1 FROM mensajeria.conversacion_etiquetas ce WHERE ce.conversacion_id = c.id AND ce.etiqueta_id = $8::bigint))
-  AND (CASE $9::text
-        WHEN 'vencido' THEN c.sla_vence_en IS NOT NULL AND c.sla_vence_en <= $10::timestamptz
-        WHEN 'por_vencer' THEN c.sla_vence_en IS NOT NULL AND c.sla_vence_en > $10::timestamptz
-            AND c.sla_vence_en - make_interval(mins => coalesce((SELECT co.sla_por_vencer_min FROM mensajeria.colas co WHERE co.id = c.cola_id),
-                GREATEST(1, coalesce((SELECT co.sla_respuesta_min FROM mensajeria.colas co WHERE co.id = c.cola_id), 0) / 4))) <= $10::timestamptz
+  AND ($8::bigint IS NULL OR c.categoria_id = $8::bigint)
+  AND ($9::bigint IS NULL OR EXISTS (
+        SELECT 1 FROM mensajeria.conversacion_etiquetas ce WHERE ce.conversacion_id = c.id AND ce.etiqueta_id = $9::bigint))
+  AND (CASE $10::text
+        WHEN 'vencido' THEN c.sla_vence_en IS NOT NULL AND c.sla_vence_en <= $11::timestamptz
+        WHEN 'por_vencer' THEN c.sla_vence_en IS NOT NULL AND c.sla_vence_en > $11::timestamptz
+            AND c.sla_vence_en - make_interval(mins => coalesce(
+                (SELECT GREATEST(1, k.sla_primera_respuesta_min / 4) FROM mensajeria.asistente_categorias k WHERE k.id = c.categoria_id),
+                (SELECT co.sla_por_vencer_min FROM mensajeria.colas co WHERE co.id = c.cola_id),
+                GREATEST(1, coalesce((SELECT co.sla_respuesta_min FROM mensajeria.colas co WHERE co.id = c.cola_id), 0) / 4))) <= $11::timestamptz
         ELSE true END)
-  AND ($11::text = ''
-       OR coalesce(ac.nombre, '') ILIKE '%' || $11::text || '%'
-       OR coalesce(ci.nombre, '') ILIKE '%' || $11::text || '%'
-       OR coalesce(c.perfil_nombre, '') ILIKE '%' || $11::text || '%'
-       OR ($12::text <> '' AND c.numero LIKE '%' || $12::text || '%')
-       OR EXISTS (SELECT 1 FROM mensajeria.conversacion_vinculos v WHERE v.conversacion_id = c.id AND lower(v.referencia) = lower($11::text)))
-  AND (NOT $13::boolean OR (c.ultima_actividad, c.id) < ($14::timestamptz, $15::bigint))
+  AND ($12::text = ''
+       OR coalesce(ac.nombre, '') ILIKE '%' || $12::text || '%'
+       OR coalesce(ci.nombre, '') ILIKE '%' || $12::text || '%'
+       OR coalesce(c.perfil_nombre, '') ILIKE '%' || $12::text || '%'
+       OR ($13::text <> '' AND c.numero LIKE '%' || $13::text || '%')
+       OR EXISTS (SELECT 1 FROM mensajeria.conversacion_vinculos v WHERE v.conversacion_id = c.id AND lower(v.referencia) = lower($12::text)))
+  AND (NOT $14::boolean OR (c.ultima_actividad, c.id) < ($15::timestamptz, $16::bigint))
 ORDER BY c.ultima_actividad DESC, c.id DESC
-LIMIT $16
+LIMIT $17
 `
 
 type ListarConversacionesClienteParams struct {
@@ -2522,6 +2573,7 @@ type ListarConversacionesClienteParams struct {
 	Estado          string
 	CanalID         *int64
 	ColaID          *int64
+	CategoriaID     *int64
 	EtiquetaID      *int64
 	Sla             string
 	Ahora           time.Time
@@ -2548,6 +2600,7 @@ func (q *Queries) ListarConversacionesCliente(ctx context.Context, arg ListarCon
 		arg.Estado,
 		arg.CanalID,
 		arg.ColaID,
+		arg.CategoriaID,
 		arg.EtiquetaID,
 		arg.Sla,
 		arg.Ahora,
@@ -3486,9 +3539,10 @@ func (q *Queries) ResultadoBoleta(ctx context.Context, arg ResultadoBoletaParams
 }
 
 const resumenConversacionesCliente = `-- name: ResumenConversacionesCliente :many
-SELECT c.id, c.empresa_id, c.canal_id, c.numero, c.perfil_nombre, c.cola_id, c.asignado_a, c.asignado_en, c.estado, c.cliente_id, c.servicio_id, c.contacto_iris_id, c.prospecto_id, c.asociacion, c.cliente_verificado, c.verificado_por, c.ultimo_entrante_en, c.espera_desde, c.sla_vence_en, c.sla_avisado, c.resuelta_en, c.reabierta_en, c.ultimo_seq, c.ultimo_mensaje_id, c.ultima_actividad, c.version, c.created_at, c.updated_at, c.fuera_horario_hasta, c.guardia_hasta, c.bot_espera_en, c.bot_vence_en, c.bot_motivo, c.bot_atendio_en, c.bot_menu,
+SELECT c.id, c.empresa_id, c.canal_id, c.numero, c.perfil_nombre, c.cola_id, c.asignado_a, c.asignado_en, c.estado, c.cliente_id, c.servicio_id, c.contacto_iris_id, c.prospecto_id, c.asociacion, c.cliente_verificado, c.verificado_por, c.ultimo_entrante_en, c.espera_desde, c.sla_vence_en, c.sla_avisado, c.resuelta_en, c.reabierta_en, c.ultimo_seq, c.ultimo_mensaje_id, c.ultima_actividad, c.version, c.created_at, c.updated_at, c.fuera_horario_hasta, c.guardia_hasta, c.bot_espera_en, c.bot_vence_en, c.bot_motivo, c.bot_atendio_en, c.bot_menu, c.categoria_id, c.categoria_confianza, c.categoria_origen, c.categoria_en, c.clasificado_mensaje_id, c.asistente_actividad_tipo, c.asistente_actividad_texto, c.asistente_actividad_en,
     ca.nombre AS canal_nombre, ca.numero AS canal_numero, ca.usos AS canal_usos,
     co.nombre AS cola_nombre, co.sla_respuesta_min, co.sla_por_vencer_min,
+    k.nombre AS categoria_nombre, k.tono AS categoria_tono, k.sla_primera_respuesta_min AS categoria_sla_min,
     u.nombre AS asignado_nombre,
     ac.nombre AS cliente_nombre, ci.nombre AS contacto_iris_nombre,
     um.direccion AS ultimo_direccion, um.tipo AS ultimo_tipo, um.texto AS ultimo_texto, um.creado_en AS ultimo_creado_en,
@@ -3503,6 +3557,7 @@ SELECT c.id, c.empresa_id, c.canal_id, c.numero, c.perfil_nombre, c.cola_id, c.a
 FROM mensajeria.conversaciones c
 JOIN mensajeria.canales ca ON ca.id = c.canal_id
 LEFT JOIN mensajeria.colas co ON co.id = c.cola_id
+LEFT JOIN mensajeria.asistente_categorias k ON k.id = c.categoria_id
 LEFT JOIN nucleo.usuarios u ON u.id = c.asignado_a
 LEFT JOIN integracion.argos_clientes ac ON ac.id = c.cliente_id
 LEFT JOIN mensajeria.contactos_iris ci ON ci.id = c.contacto_iris_id
@@ -3516,58 +3571,69 @@ type ResumenConversacionesClienteParams struct {
 }
 
 type ResumenConversacionesClienteRow struct {
-	ID                 int64
-	EmpresaID          *int64
-	CanalID            int64
-	Numero             string
-	PerfilNombre       *string
-	ColaID             *int64
-	AsignadoA          *int64
-	AsignadoEn         *time.Time
-	Estado             string
-	ClienteID          *int64
-	ServicioID         *int64
-	ContactoIrisID     *int64
-	ProspectoID        *int64
-	Asociacion         *string
-	ClienteVerificado  bool
-	VerificadoPor      *int64
-	UltimoEntranteEn   *time.Time
-	EsperaDesde        *time.Time
-	SlaVenceEn         *time.Time
-	SlaAvisado         bool
-	ResueltaEn         *time.Time
-	ReabiertaEn        *time.Time
-	UltimoSeq          int64
-	UltimoMensajeID    pgtype.UUID
-	UltimaActividad    time.Time
-	Version            int32
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	FueraHorarioHasta  *time.Time
-	GuardiaHasta       *time.Time
-	BotEsperaEn        *time.Time
-	BotVenceEn         *time.Time
-	BotMotivo          *string
-	BotAtendioEn       *time.Time
-	BotMenu            *string
-	CanalNombre        string
-	CanalNumero        string
-	CanalUsos          []string
-	ColaNombre         *string
-	SlaRespuestaMin    *int32
-	SlaPorVencerMin    *int32
-	AsignadoNombre     *string
-	ClienteNombre      *string
-	ContactoIrisNombre *string
-	UltimoDireccion    *string
-	UltimoTipo         *string
-	UltimoTexto        *string
-	UltimoCreadoEn     *time.Time
-	UltimoEvento       []byte
-	UltimoAutomatico   *string
-	SoloLectura        bool
-	NoLeidos           int64
+	ID                      int64
+	EmpresaID               *int64
+	CanalID                 int64
+	Numero                  string
+	PerfilNombre            *string
+	ColaID                  *int64
+	AsignadoA               *int64
+	AsignadoEn              *time.Time
+	Estado                  string
+	ClienteID               *int64
+	ServicioID              *int64
+	ContactoIrisID          *int64
+	ProspectoID             *int64
+	Asociacion              *string
+	ClienteVerificado       bool
+	VerificadoPor           *int64
+	UltimoEntranteEn        *time.Time
+	EsperaDesde             *time.Time
+	SlaVenceEn              *time.Time
+	SlaAvisado              bool
+	ResueltaEn              *time.Time
+	ReabiertaEn             *time.Time
+	UltimoSeq               int64
+	UltimoMensajeID         pgtype.UUID
+	UltimaActividad         time.Time
+	Version                 int32
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+	FueraHorarioHasta       *time.Time
+	GuardiaHasta            *time.Time
+	BotEsperaEn             *time.Time
+	BotVenceEn              *time.Time
+	BotMotivo               *string
+	BotAtendioEn            *time.Time
+	BotMenu                 *string
+	CategoriaID             *int64
+	CategoriaConfianza      *float32
+	CategoriaOrigen         *string
+	CategoriaEn             *time.Time
+	ClasificadoMensajeID    pgtype.UUID
+	AsistenteActividadTipo  *string
+	AsistenteActividadTexto *string
+	AsistenteActividadEn    *time.Time
+	CanalNombre             string
+	CanalNumero             string
+	CanalUsos               []string
+	ColaNombre              *string
+	SlaRespuestaMin         *int32
+	SlaPorVencerMin         *int32
+	CategoriaNombre         *string
+	CategoriaTono           *string
+	CategoriaSlaMin         *int32
+	AsignadoNombre          *string
+	ClienteNombre           *string
+	ContactoIrisNombre      *string
+	UltimoDireccion         *string
+	UltimoTipo              *string
+	UltimoTexto             *string
+	UltimoCreadoEn          *time.Time
+	UltimoEvento            []byte
+	UltimoAutomatico        *string
+	SoloLectura             bool
+	NoLeidos                int64
 }
 
 func (q *Queries) ResumenConversacionesCliente(ctx context.Context, arg ResumenConversacionesClienteParams) ([]ResumenConversacionesClienteRow, error) {
@@ -3615,12 +3681,23 @@ func (q *Queries) ResumenConversacionesCliente(ctx context.Context, arg ResumenC
 			&i.BotMotivo,
 			&i.BotAtendioEn,
 			&i.BotMenu,
+			&i.CategoriaID,
+			&i.CategoriaConfianza,
+			&i.CategoriaOrigen,
+			&i.CategoriaEn,
+			&i.ClasificadoMensajeID,
+			&i.AsistenteActividadTipo,
+			&i.AsistenteActividadTexto,
+			&i.AsistenteActividadEn,
 			&i.CanalNombre,
 			&i.CanalNumero,
 			&i.CanalUsos,
 			&i.ColaNombre,
 			&i.SlaRespuestaMin,
 			&i.SlaPorVencerMin,
+			&i.CategoriaNombre,
+			&i.CategoriaTono,
+			&i.CategoriaSlaMin,
 			&i.AsignadoNombre,
 			&i.ClienteNombre,
 			&i.ContactoIrisNombre,

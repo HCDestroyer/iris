@@ -181,6 +181,9 @@ func (m *Modulo) mantenerAsistente(ctx context.Context, bd nucleo.BD, log *slog.
 			log.WarnContext(ctx, "mensajeria: liberar reserva", "reserva_id", id, "err", err)
 		}
 	}
+	if err := q.PurgarClasificaciones(ctx, m.ahora().Add(-24*time.Hour)); err != nil {
+		return err
+	}
 	return q.PurgarPedidosAsistente(ctx, m.ahora().Add(-24*time.Hour))
 }
 

@@ -116,4 +116,5 @@ func (m *Modulo) registrarAsistente(api huma.API) {
 	huma.Register(api, res, func(ctx context.Context, in *idHTTP) (*cuerpo[ResumenConversacion], error) {
 		return responder(k.Resumen.Ejecutar(ctx, EntradaConversacion{ID: in.ID}))
 	})
+	m.registrarAsistente3(api)
 }

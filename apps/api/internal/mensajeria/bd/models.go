@@ -1016,6 +1016,19 @@ type MensajeriaAsistenteAjuste struct {
 	Version             int32
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+	ModoAutonomo        string
+	EsperaMin           int32
+	MaxTurnos           int32
+	Perfiles            []byte
+	PorCola             []byte
+	ActivadoEn          *time.Time
+}
+
+type MensajeriaAsistenteClasificacione struct {
+	ID             uuid.UUID
+	EmpresaID      *int64
+	ConversacionID int64
+	CreadaEn       time.Time
 }
 
 type MensajeriaAsistentePedido struct {
@@ -1170,6 +1183,25 @@ type MensajeriaCanalPrestamo struct {
 	Version          int32
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+}
+
+type MensajeriaCategoria struct {
+	ID                     int64
+	EmpresaID              *int64
+	Nombre                 string
+	Descripcion            string
+	Tono                   string
+	ColaID                 *int64
+	SlaPrimeraRespuestaMin *int32
+	Modo                   string
+	Condicion              *string
+	ManualIds              []int64
+	EsOtro                 bool
+	Activa                 bool
+	Orden                  int32
+	Version                int32
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 type MensajeriaChatConversacion struct {
@@ -1360,41 +1392,49 @@ type MensajeriaConvEvento struct {
 }
 
 type MensajeriaConversacion struct {
-	ID                int64
-	EmpresaID         *int64
-	CanalID           int64
-	Numero            string
-	PerfilNombre      *string
-	ColaID            *int64
-	AsignadoA         *int64
-	AsignadoEn        *time.Time
-	Estado            string
-	ClienteID         *int64
-	ServicioID        *int64
-	ContactoIrisID    *int64
-	ProspectoID       *int64
-	Asociacion        *string
-	ClienteVerificado bool
-	VerificadoPor     *int64
-	UltimoEntranteEn  *time.Time
-	EsperaDesde       *time.Time
-	SlaVenceEn        *time.Time
-	SlaAvisado        bool
-	ResueltaEn        *time.Time
-	ReabiertaEn       *time.Time
-	UltimoSeq         int64
-	UltimoMensajeID   pgtype.UUID
-	UltimaActividad   time.Time
-	Version           int32
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-	FueraHorarioHasta *time.Time
-	GuardiaHasta      *time.Time
-	BotEsperaEn       *time.Time
-	BotVenceEn        *time.Time
-	BotMotivo         *string
-	BotAtendioEn      *time.Time
-	BotMenu           *string
+	ID                      int64
+	EmpresaID               *int64
+	CanalID                 int64
+	Numero                  string
+	PerfilNombre            *string
+	ColaID                  *int64
+	AsignadoA               *int64
+	AsignadoEn              *time.Time
+	Estado                  string
+	ClienteID               *int64
+	ServicioID              *int64
+	ContactoIrisID          *int64
+	ProspectoID             *int64
+	Asociacion              *string
+	ClienteVerificado       bool
+	VerificadoPor           *int64
+	UltimoEntranteEn        *time.Time
+	EsperaDesde             *time.Time
+	SlaVenceEn              *time.Time
+	SlaAvisado              bool
+	ResueltaEn              *time.Time
+	ReabiertaEn             *time.Time
+	UltimoSeq               int64
+	UltimoMensajeID         pgtype.UUID
+	UltimaActividad         time.Time
+	Version                 int32
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+	FueraHorarioHasta       *time.Time
+	GuardiaHasta            *time.Time
+	BotEsperaEn             *time.Time
+	BotVenceEn              *time.Time
+	BotMotivo               *string
+	BotAtendioEn            *time.Time
+	BotMenu                 *string
+	CategoriaID             *int64
+	CategoriaConfianza      *float32
+	CategoriaOrigen         *string
+	CategoriaEn             *time.Time
+	ClasificadoMensajeID    pgtype.UUID
+	AsistenteActividadTipo  *string
+	AsistenteActividadTexto *string
+	AsistenteActividadEn    *time.Time
 }
 
 type MensajeriaConversacionEtiqueta struct {
