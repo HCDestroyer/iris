@@ -1543,7 +1543,7 @@ func nuevoRegistrarAccion(m *Modulo) *auditoria.Caso[accionHecha, struct{}] {
 }
 
 // registrarAccion anota una acción del turno (una falla aquí no corta el turno: queda en el log).
-func (m *Modulo) registrarAccion(ctx context.Context, t *turnoIA, a accionHecha) {
+func (m *Modulo) registrarAccion(ctx context.Context, t *turnoIA, a accionHecha) bool {
 	t.paso++
 	a.TurnoID, a.ConversacionID, a.Paso, a.numero = t.id, t.conv, t.paso, t.numero
 	if a.Resultado == "ok" {
@@ -1554,5 +1554,7 @@ func (m *Modulo) registrarAccion(ctx context.Context, t *turnoIA, a accionHecha)
 	}
 	if _, err := m.Asistente.registrarAccion.Ejecutar(context.WithoutCancel(ctx), a); err != nil {
 		slog.WarnContext(ctx, "asistente: no se pudo anotar una acción del turno", "conversacion_id", t.conv, "accion", a.Accion, "err", err)
+		return false
 	}
+	return true
 }

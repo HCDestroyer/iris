@@ -143,3 +143,74 @@ func TestAutonomoRevision4VigenciaRecortada(t *testing.T) {
 		t.Fatalf("a los 65 min, con el ajuste alargado: %v", v)
 	}
 }
+
+// Quinta revisión. Con varios servicios, «activo» mira el servicio de la conversación.
+func TestAutonomoRevision5ActivoDelServicioDeLaConversacion(t *testing.T) {
+	x := nuevaBandejaIA(t)
+	x.autonomo("siempre_primero", nil)
+	conv, cliente := x.conClienteArgos()
+	num := x.numeroDe(conv)
+	// Dos servicios: el de la conversación cortado y otro activo.
+	if _, err := x.bd.Exec(x.ctx, `INSERT INTO integracion.argos_servicios (id, empresa_id, cliente_id, codigo, plan_nombre, estado, zona_nombre, sincronizado_en)
+		VALUES ($1, 1, $2, 'S-10', 'Fibra 50 Mbps', 'activo', 'Zona 1', now())`, cliente*10+1, cliente); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := x.bd.Exec(x.ctx, `UPDATE integracion.argos_servicios SET estado = 'cortado' WHERE id = $1`, cliente*10); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.conversaciones SET servicio_id = $2 WHERE id = $1`, conv, cliente*10); err != nil {
+		t.Fatal(err)
+	}
+	c := x.turno(num, "wamid.r5a1", "¿Cómo está mi servicio?", "Planes y precios", llama("estado_del_servicio", `{}`), dice("Tu servicio está activo."))
+	x.exigirPaso(c, "sin_respuesta")
+	for _, m := range x.delAsistente(conv) {
+		if strings.Contains(textoDe(m), "activo") {
+			t.Fatal("dijo «activo» por otro servicio del cliente")
+		}
+	}
+	// Sin servicio fijado en la conversación vale «alguno activo».
+	conv2, cliente2 := x.conClienteArgos()
+	if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.conversaciones SET servicio_id = NULL WHERE id = $1`, conv2); err != nil {
+		t.Fatal(err)
+	}
+	_ = cliente2
+	x.turno(x.numeroDe(conv2), "wamid.r5a2", "¿Cómo está mi servicio?", "Planes y precios", llama("estado_del_servicio", `{}`), dice("Tu servicio está activo."))
+	ms := x.delAsistente(conv2)
+	if len(ms) == 0 || !strings.Contains(textoDe(ms[len(ms)-1]), "Tu servicio está activo.") {
+		t.Fatalf("sin servicio fijado y con uno activo debía enviarse: %v", x.acciones(conv2))
+	}
+}
+
+// Quinta revisión. Si el rechazo de verificar_identidad no se puede registrar, el turno se corta y
+// pasa a una persona (los rechazos se cuentan con ese registro).
+func TestAutonomoRevision5RechazoSinRegistroCortaElTurno(t *testing.T) {
+	x := nuevaBandejaIA(t)
+	x.autonomo("siempre_primero", nil)
+	conv, _ := x.conClienteArgos()
+	num := x.numeroDe(conv)
+	*x.reloj = x.reloj.Add(21 * time.Second)
+	x.ia.decir(`{"categoria": "Pagos y saldo", "confianza": 0.95}`)
+	x.guion(dice("Escríbeme tu DPI completo."))
+	x.correr(conv)
+	// El insert del registro falla solo para verificar_identidad de esta conversación.
+	if _, err := x.bd.Exec(x.ctx, fmt.Sprintf(`CREATE FUNCTION mensajeria.prueba_r5_falla() RETURNS trigger LANGUAGE plpgsql AS $$
+		BEGIN IF NEW.accion = 'verificar_identidad' AND NEW.resultado = 'rechazada' AND NEW.conversacion_id = %s THEN RAISE EXCEPTION 'prueba: sin registro'; END IF; RETURN NEW; END $$`, conv)); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = x.bd.Exec(x.ctx, `DROP TRIGGER IF EXISTS prueba_r5_falla ON mensajeria.asistente_acciones`)
+		_, _ = x.bd.Exec(x.ctx, `DROP FUNCTION IF EXISTS mensajeria.prueba_r5_falla()`)
+	})
+	if _, err := x.bd.Exec(x.ctx, `CREATE TRIGGER prueba_r5_falla BEFORE INSERT ON mensajeria.asistente_acciones FOR EACH ROW EXECUTE FUNCTION mensajeria.prueba_r5_falla()`); err != nil {
+		t.Fatal(err)
+	}
+	c := x.turno(num, "wamid.r5b1", "mi dpi es 1234567800101", "Pagos y saldo", llama("verificar_identidad", `{}`), dice("No debería salir"))
+	if !strings.HasPrefix(estadoAsistente(c), "espera_persona/") || x.pasos(conv, "herramienta_fallo") != 1 {
+		t.Fatalf("sin registro del rechazo debía pasar a una persona: %v (%v)", c["asistente"], x.acciones(conv))
+	}
+	for _, m := range x.delAsistente(conv) {
+		if strings.Contains(textoDe(m), "No debería salir") {
+			t.Fatal("el turno siguió sin registro del rechazo")
+		}
+	}
+}

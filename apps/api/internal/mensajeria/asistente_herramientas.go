@@ -249,7 +249,11 @@ func (m *Modulo) ejecutarHerramienta(ctx context.Context, t *turnoIA, l LlamadaI
 	case res.rechazada:
 		hecha.Resultado = "rechazada"
 	}
-	m.registrarAccion(ctx, t, hecha)
+	if !m.registrarAccion(ctx, t, hecha) && hecha.Accion == HerrVerificarIdent && res.rechazada {
+		// Los rechazos de verificar_identidad se cuentan con este registro (a la segunda pasa a una
+		// persona): si no quedó anotado, el turno se corta aquí en vez de repetirse sin registro.
+		return resHerramienta{paso: PasoHerramientaFallo, resumen: "No se pudo registrar el intento de verificación de identidad."}
+	}
 	return res
 }
 
@@ -345,9 +349,14 @@ func (m *Modulo) herrEstadoServicio(ctx context.Context, t *turnoIA, l LlamadaIA
 		}
 		h.actividadTipo, h.actividadTexto = "respondio_falla", "Respondió: falla en "+zona
 	}
-	// El modelo puede decir «tu servicio está activo» solo si algún servicio vino activo.
+	// El modelo puede decir «tu servicio está activo» solo si el servicio de la conversación vino
+	// activo; sin servicio fijado (o si no está entre los leídos), si alguno lo está.
 	if slices.ContainsFunc(svs, func(s mensajeriabd.ServiciosClienteAsistenteRow) bool {
-		return strings.EqualFold(strings.TrimSpace(s.Estado), "activo")
+		activo := strings.EqualFold(strings.TrimSpace(s.Estado), "activo")
+		if t.servicioID != nil && slices.ContainsFunc(svs, func(o mensajeriabd.ServiciosClienteAsistenteRow) bool { return o.ID == *t.servicioID }) {
+			return activo && s.ID == *t.servicioID
+		}
+		return activo
 	}) {
 		t.permitir(ResActivo)
 	}
