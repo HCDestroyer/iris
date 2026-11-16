@@ -1349,7 +1349,7 @@ export interface paths {
         };
         /**
          * Orígenes de Argos y Horus para los enlaces «Ver en …»
-         * @description Permiso: `clientes.ver`. También vale con `integraciones.abrir_argos` (uno u otro): el panel compara con `argosisp.urlPublica` el origen del enlace de `POST /integraciones/argosisp/abrir`. No exige empresa activa. Sin secretos: solo la URL pública de cada sistema con conector activo (ausente si no hay).
+         * @description Permiso: `clientes.ver`. También vale con `integraciones.abrir_argos` (uno u otro; con solo ese permiso responde solo `argosisp`, sin `horus`): el panel compara con `argosisp.urlPublica` el origen del enlace de `POST /integraciones/argosisp/abrir`. No exige empresa activa. Sin secretos: solo la URL pública de cada sistema con conector activo (ausente si no hay).
          */
         get: operations["obtenerEnlacesExternos"];
         put?: never;

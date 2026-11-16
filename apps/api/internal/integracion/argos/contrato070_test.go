@@ -233,6 +233,16 @@ func TestAbrirArgosPermisosYErrores(t *testing.T) {
 			t.Fatalf("enlaces con %s: %d %s", rol, r.status, r.crudo)
 		}
 	}
+	// Con solo integraciones.abrir_argos no se entrega el origen de Horus (ese sigue siendo de clientes.ver).
+	e.exec(`INSERT INTO integracion.conectores (sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, estado)
+		VALUES ('horus', 'https://horus.prueba', 'enlace_remoto', '\x00', '\x00', 'activo')`)
+	if r := e.usuario("solo_abrir_argos").pedir(http.MethodGet, "/api/v1/integraciones/enlaces", nil); r.status != 200 || r.cuerpo["argosisp"] == nil || r.cuerpo["horus"] != nil {
+		t.Fatalf("enlaces con solo abrir_argos: sin Horus: %d %s", r.status, r.crudo)
+	}
+	if r := e.usuario("soporte").pedir(http.MethodGet, "/api/v1/integraciones/enlaces", nil); r.status != 200 || r.cuerpo["horus"] == nil {
+		t.Fatalf("enlaces con clientes.ver: con Horus: %d %s", r.status, r.crudo)
+	}
+	e.exec(`UPDATE integracion.conectores SET estado = 'apagado' WHERE sistema = 'horus'`)
 	if _, err := e.ident.CrearRol.Ejecutar(pruebas.ContextoSistema(e.pool), identidad.EntradaCrearRol{Codigo: "solo_tickets", Nombre: "Solo tickets",
 		Permisos: []nucleo.Permiso{nucleo.PermTicketsVer}}); err != nil {
 		t.Fatal(err)
@@ -348,7 +358,7 @@ func TestWebhookComprobanteEmiteEventoInterno(t *testing.T) {
 		t.Fatalf("comprobante.aprobado: %+v", r)
 	}
 	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'argos.comprobante_resuelto' AND (payload->>'comprobante_id')::bigint = $1
-		AND payload->>'estado' = 'aprobado' AND (payload->>'pago_id')::bigint = 9911 AND payload->>'monto' = '250.00' AND payload->>'canal' = 'iris'
+		AND payload->>'estado' = 'aprobado' AND (payload->>'pago_id')::bigint = 9911 AND NOT payload ? 'monto' AND payload->>'canal' = 'iris'
 		AND (payload->>'entrante_id')::bigint = $2 AND empresa_id = 1`, comprobante, r.EntranteID); n != 1 {
 		t.Fatalf("argos.comprobante_resuelto (aprobado): %d", n)
 	}
@@ -359,7 +369,7 @@ func TestWebhookComprobanteEmiteEventoInterno(t *testing.T) {
 	r = e.procesarWebhook(id, secreto, argos.EventoComprobanteRechazado, map[string]any{"comprobante_id": comprobante + 1, "empresa_id": 1, "cliente_id": 1201,
 		"servicio_id": nil, "canal": "iris", "monto": 99.5, "pago_id": nil, "motivo": "No aparece en el banco", "causa": "no_aparece", "servicio_estado": nil})
 	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'argos.comprobante_resuelto' AND (payload->>'comprobante_id')::bigint = $1
-		AND payload->>'estado' = 'rechazado' AND payload->>'causa' = 'no_aparece' AND payload->>'motivo' = 'No aparece en el banco' AND payload->>'pago_id' IS NULL`,
+		AND payload->>'estado' = 'rechazado' AND NOT payload ? 'causa' AND NOT payload ? 'motivo' AND payload::text NOT LIKE '%No aparece en el banco%' AND payload->>'pago_id' IS NULL`,
 		comprobante+1); r.Resultado != "aplicado" || n != 1 {
 		t.Fatalf("argos.comprobante_resuelto (rechazado): %+v %d", r, n)
 	}

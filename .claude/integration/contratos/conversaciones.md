@@ -527,10 +527,14 @@ de Iris o caja en Argos:
 | `falta_dato` | `boleta_falta_dato` | «revisa que se vean la referencia, el monto y la fecha» (la plantilla agrega «Envíala de nuevo, por favor.») |
 
 El motivo libre se agrega al final («. Detalle: …», todo en 200 caracteres) **solo si pasa el
-filtro**: no pasa si trae `://`, `www.`, un dominio (`algo.tld`) o 6 o más dígitos seguidos, con o
-sin separadores (espacios, guiones, puntos, barras). Si no pasa, el cliente recibe solo el texto
-fijo; el motivo completo igual queda en la boleta (`motivoRechazo`), va a Argos y se ve en el panel.
-Así el número oficial de la empresa no sirve para mandar enlaces, cuentas ni teléfonos.
+filtro**, que es una **lista blanca**. Primero se normaliza (Unicode NFKC, sin caracteres de formato
+`Cf` como el espacio de ancho cero, y con los espacios colapsados). Después solo se aceptan letras
+del español (`a`–`z`, `A`–`Z`, `áéíóúüñ` y sus mayúsculas), espacios y `,;:¿?¡!()`. **Cualquier
+dígito** (en cualquier escritura) **o punto** lo deja fuera, igual que una barra, un guion, una
+arroba o una letra de otro alfabeto; solo se perdona el punto final de la frase. Si no pasa, el
+cliente recibe solo el texto fijo; el motivo completo igual queda en la boleta (`motivoRechazo`), va
+a Argos y se ve en el panel. Así el número oficial de la empresa no sirve para mandar enlaces,
+dominios, cuentas ni teléfonos, tampoco disfrazados con Unicode.
 
 **Mensajes de sistema:** `boleta_aprobada` y `boleta_rechazada`, con `actorNombre` (la persona de
 Iris si decidió desde la conversación; si no, el usuario de Argos), `referencia`, `entidadId` (la
@@ -557,7 +561,8 @@ usuario de Argos». 409 `conector_apagado` / `iris_apagado`, 422 `argos_sin_apro
   conector no tiene ninguna, la de su API (`base_url`). Nunca un host libre (502 `argos_rechazo`). Es
   el mismo origen que el panel lee en `argosisp.urlPublica` de `GET /api/v1/integraciones/enlaces`,
   que acepta `clientes.ver` **o** `integraciones.abrir_argos` (así quien puede abrir Argos puede
-  validar el enlace aunque no vea clientes).
+  validar el enlace aunque no vea clientes). Con solo `integraciones.abrir_argos` responde solo
+  `argosisp`: el origen de Horus sigue siendo de `clientes.ver`.
 - **Nota para Argos** (la pasa el líder): la pantalla de Argos que confirma el vínculo debe mostrar
   claro **qué usuario de Iris** se está vinculando (nombre y correo del ticket), para que nadie
   vincule su usuario de Argos con el de otra persona al abrir un enlace ajeno.

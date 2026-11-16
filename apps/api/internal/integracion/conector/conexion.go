@@ -850,13 +850,16 @@ func nuevoObtenerEnlaces(n *Nucleo) *auditoria.Caso[struct{}, EnlacesExternos] {
 			if err != nil {
 				return EnlacesExternos{}, err
 			}
+			// Con solo integraciones.abrir_argos se entrega solo el enlace de Argos (lo que necesita para
+			// validar su enlace de autologin): el origen de Horus sigue siendo de clientes.ver.
+			todos := contexto.PermisosDe(ctx).Tiene(string(nucleo.PermClientesVer))
 			var e EnlacesExternos
 			for _, f := range filas {
 				enlace := &EnlaceExterno{ConectorID: f.ID, URLPublica: urlPublica(f)}
-				switch f.Sistema {
-				case "argosisp":
+				switch {
+				case f.Sistema == "argosisp":
 					e.Argos = enlace
-				case "horus":
+				case f.Sistema == "horus" && todos:
 					e.Horus = enlace
 				}
 			}

@@ -217,7 +217,8 @@ Contrato con Argos 0.7.0 §7.7 (pedido B3); la API está en `contratos/conversac
 - **Aviso al cliente** (`avisarBoleta`, `motivoParaCliente`): texto con la ventana abierta; plantilla
   aprobada y permiso con la ventana cerrada; si no, `sin_aviso`. En un rechazo va un texto fijo
   según la causa (`textosCausa`); el motivo libre (de Iris o de la caja de Argos) solo se agrega si
-  pasa `motivoSeguro` (sin enlaces, dominios ni 6 o más dígitos).
+  pasa `motivoSeguro`: lista blanca sobre el texto normalizado con NFKC y sin caracteres `Cf` (letras
+  del español, espacios y `,;:¿?¡!()`; ningún dígito ni punto).
 - **Auditoría:** el intento queda auditado antes de llamar a Argos (`fase: intento`). Si el guardado
   falla después del 200 (la persona ya no puede), lo aplica el sistema (`respuesta_sin_sesion`).
 - **Quién decidió:** la persona de la sesión en la respuesta directa; en webhook y relectura, el
@@ -233,7 +234,15 @@ Contrato con Argos 0.7.0 §7.7 (pedido B3); la API está en `contratos/conversac
   (`confirmacionArgos: agotada`, `boleta.confirmacion_agotada`). Un error en una boleta, o en otro
   despacho del mismo job, no corta la corrida. El worker no encola envíos de WhatsApp: por eso
   aplica este proceso.
-- **Un comprobante es de una sola boleta por empresa** (índice único parcial).
+- **Un comprobante es de una sola boleta por empresa** (índice único parcial
+  `boletas_comprobante_uidx`, migración `20261116095604`). Si una instalación probó la rama de B3
+  antes de esa migración, revisa primero que no haya repetidos (si la consulta devuelve filas, la
+  migración falla hasta corregirlas a mano; ver `docs/runbooks/boletas-comprobante-unico.md`):
+
+  ```sql
+  SELECT empresa_id, comprobante_id FROM mensajeria.boletas
+  WHERE comprobante_id IS NOT NULL GROUP BY 1,2 HAVING count(*)>1;
+  ```
 
 Emite `boleta.aprobada`, `boleta.rechazada`, `boleta.corregida` y `boleta.confirmacion_agotada`;
 consume `argos.comprobante_resuelto`.

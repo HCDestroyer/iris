@@ -377,16 +377,49 @@ func TestBoletaRechazar(t *testing.T) {
 			t.Fatalf("%s: el motivo completo va a Argos: %v", causa, ds[len(ds)-1].cuerpo)
 		}
 	}
-	// El filtro, caso por caso.
-	for motivo, pasa := range map[string]bool{
-		"El depósito es de otra fecha": true, "Falta la referencia": true, "Son 2 boletas del 4/11": true,
-		"vea http://x.y": false, "WWW.sitio.com": false, "escriba a caja@empresa.gt": false, "llame al 5512-3344": false, "cuenta 123 456": false,
-		"código 12.34.56": false, "ref 1234567": false, "bit.ly/abc": false,
+	// El filtro es una lista blanca sobre el texto normalizado (NFKC y sin caracteres de formato):
+	// letras del español, espacios y ,;:¿?¡!(). Cualquier dígito o punto lo deja fuera.
+	for _, c := range []struct {
+		caso, motivo string
+		pasa         bool
+	}{
+		{"frase simple", "El depósito es de otra fecha", true},
+		{"signos permitidos", "¿Es de otro mes? ¡Revise, por favor! (gracias); saludos: caja", true},
+		{"eñes y diéresis", "El señor envió la boleta de la cigüeña", true},
+		{"punto final", "Falta la referencia.", true},
+		{"un dígito", "Son 2 boletas", false},
+		{"punto en medio", "No se ve. Reenvíe", false},
+		{"enlace", "vea http://x.y", false},
+		{"www", "WWW.sitio.com", false},
+		{"correo", "escriba a caja@empresa", false},
+		{"teléfono", "llame al 5512-3344", false},
+		{"dígitos de ancho completo", "llame al ５５１２３３４４", false},
+		{"dígitos arábigos", "llame al ٥٥١٢٣٣٤٤", false},
+		{"dígitos partidos con espacio de ancho cero", "cuenta 12\u200b34\u200b56", false},
+		{"dígitos partidos con raya", "cuenta 12—34—56", false},
+		{"dígitos partidos con coma", "cuenta 12,34,56", false},
+		{"dígitos partidos con dos puntos", "cuenta 12:34:56", false},
+		{"dominio con letras no ASCII", "entre a p\u0430gos.com", false},
+		{"letras cirílicas sin punto", "p\u0430gos", false},
+		{"punto Unicode", "banco\u3002com", false},
+		{"punto de una sola línea", "banco\u2024com", false},
+		{"dominio separado", "banco .com", false},
+		{"dominio escrito con ancho completo", "ｂａｎｃｏ．ｃｏｍ", false},
+		{"barra", "pague en banco/pagos", false},
+		{"guion", "pague hoy - urgente", false},
+		{"arroba suelta", "busque @caja", false},
+		{"solo caracteres de formato", "\u200b\u200d", false},
 	} {
-		m := motivo
-		if tiene := strings.Contains(mensajeria.MotivoParaCliente("otro", &m), "Detalle: "); tiene != pasa {
-			t.Fatalf("filtro de %q: pasa=%v", motivo, tiene)
+		m := c.motivo
+		if tiene := strings.Contains(mensajeria.MotivoParaCliente("otro", &m), "Detalle: "); tiene != c.pasa {
+			t.Fatalf("filtro, %s (%q): pasa=%v", c.caso, c.motivo, tiene)
 		}
+	}
+	// Lo que pasa llega normalizado: las letras de ancho completo, como letras comunes, y sin
+	// caracteres invisibles.
+	ancho := "Ｆａｌｔａ la\u200b firma"
+	if got := mensajeria.MotivoParaCliente("otro", &ancho); !strings.HasSuffix(got, "Detalle: Falta la firma") {
+		t.Fatalf("motivo normalizado: %q", got)
 	}
 	if largo := strings.Repeat("palabra ", 60); len([]rune(mensajeria.MotivoParaCliente("no_aparece", &largo))) > 200 {
 		t.Fatal("el motivo para el cliente no pasa de 200 caracteres")
