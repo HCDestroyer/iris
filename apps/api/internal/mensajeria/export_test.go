@@ -162,3 +162,11 @@ func PayloadTapado(payload []byte, wamid string) []byte {
 	b, _, _ := payloadTapado(payload, wamid)
 	return b
 }
+
+// CrearOrdenDeVisita crea la orden de una visita como lo hace agendar_visita (el contexto de las
+// herramientas de visita y los topes dentro de la transacción), para probar la concurrencia.
+func (m *Modulo) CrearOrdenDeVisita(ctx context.Context, empresa, conv, servicio int64, clave string, maxAbiertas, porDiaEmpresa int32) error {
+	_, err := m.Conv.CrearOrden.Ejecutar(ctxVisitas(ctx, empresa), EntradaOrdenConv{ID: conv, Tipo: "visita", ServicioID: &servicio, Clave: clave,
+		visita: &topesVisita{maxAbiertas: maxAbiertas, porDiaEmpresa: porDiaEmpresa}})
+	return err
+}

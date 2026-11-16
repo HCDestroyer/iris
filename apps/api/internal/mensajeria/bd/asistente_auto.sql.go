@@ -1141,6 +1141,37 @@ func (q *Queries) TerminarTurno(ctx context.Context, arg TerminarTurnoParams) (M
 	return i, err
 }
 
+const ticketParaVisita = `-- name: TicketParaVisita :one
+SELECT tk.id FROM mensajeria.conversacion_vinculos v
+JOIN mensajeria.conversaciones c ON c.id = v.conversacion_id
+JOIN soporte.tickets tk ON tk.id = CASE WHEN v.entidad_id ~ '^[0-9]{1,18}$' THEN v.entidad_id::bigint END
+WHERE v.conversacion_id = $1 AND v.tipo = 'ticket' AND v.created_at >= coalesce(c.reabierta_en, 'epoch')
+  AND tk.cliente_id = $2 AND tk.servicio_id = $3 AND coalesce(tk.empresa_id, 0) = $4::bigint
+  AND tk.estado IN ('nuevo', 'abierto', 'en_espera')
+ORDER BY v.created_at DESC LIMIT 1
+`
+
+type TicketParaVisitaParams struct {
+	ConversacionID int64
+	ClienteID      *int64
+	ServicioID     *int64
+	Empresa        int64
+}
+
+// El último ticket creado desde la conversación en su periodo abierto que sirve para una visita: del
+// mismo cliente, del mismo servicio, de la empresa y todavía abierto (ni resuelto ni cerrado).
+func (q *Queries) TicketParaVisita(ctx context.Context, arg TicketParaVisitaParams) (int64, error) {
+	row := q.db.QueryRow(ctx, ticketParaVisita,
+		arg.ConversacionID,
+		arg.ClienteID,
+		arg.ServicioID,
+		arg.Empresa,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const ticketsAsistenteRecientes = `-- name: TicketsAsistenteRecientes :one
 SELECT count(*)::bigint FROM mensajeria.asistente_acciones
 WHERE conversacion_id = $1 AND accion = 'crear_ticket' AND resultado = 'ok' AND creada_en >= $2
@@ -1421,21 +1452,6 @@ func (q *Queries) UltimoAdjuntoEntrante(ctx context.Context, arg UltimoAdjuntoEn
 		&i.CreadoEn,
 	)
 	return i, err
-}
-
-const ultimoTicketDeConv = `-- name: UltimoTicketDeConv :one
-SELECT v.entidad_id FROM mensajeria.conversacion_vinculos v
-JOIN mensajeria.conversaciones c ON c.id = v.conversacion_id
-WHERE v.conversacion_id = $1 AND v.tipo = 'ticket' AND v.created_at >= coalesce(c.reabierta_en, 'epoch')
-ORDER BY v.created_at DESC LIMIT 1
-`
-
-// El último ticket creado desde la conversación en su periodo abierto.
-func (q *Queries) UltimoTicketDeConv(ctx context.Context, conversacionID int64) (string, error) {
-	row := q.db.QueryRow(ctx, ultimoTicketDeConv, conversacionID)
-	var entidad_id string
-	err := row.Scan(&entidad_id)
-	return entidad_id, err
 }
 
 const ultimosEntrantesTexto = `-- name: UltimosEntrantesTexto :many

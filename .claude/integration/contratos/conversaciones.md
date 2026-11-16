@@ -2520,7 +2520,28 @@ y el número de orden. Reprogramar o cancelar una visita: pasa a una persona.
 - Servicio `activo`. `cortado` (mora): pasa a una persona, salvo `visitas.permitirConMora`. Otro
   estado, sin zona, zona sin cobertura, sin huecos o tope de visitas abiertas: pasa a una persona.
 - `visitas.exigeTicket` (true): la visita nace del último ticket creado desde la conversación en este
-  periodo; si no hay, el asistente crea uno antes.
+  periodo **solo si** es del mismo cliente, del mismo servicio de la oferta y sigue abierto (`nuevo`,
+  `abierto`, `en_espera`). Si no (otro servicio, sin servicio, resuelto, cerrado, otro cliente), el
+  asistente crea uno con ese cliente y ese servicio.
+- **La orden es la de la oferta.** El asistente manda siempre a campo el cliente de la conversación y
+  el servicio ofrecido, también con ticket (campo rechaza la orden si el ticket no coincide: nunca
+  hereda en silencio). Antes de programar comprueba que la orden tiene el cliente, el servicio, la
+  zona y el tipo de la oferta; si no, no programa y pasa a una persona. Si la conversación se
+  reasoció a otro cliente después de la oferta, la ventana ya no vale.
+- **Cliente con una visita abierta** (tope `maxAbiertasPorCliente`): el asistente se lo dice con el
+  número de orden y su fecha (la ventana acordada, sin técnico) y no agenda otra. Solo si el cliente
+  pide moverla o cancelarla pasa a una persona.
+- **Topes atómicos.** El máximo de visitas abiertas por cliente y el tope por día de la empresa se
+  vuelven a comprobar dentro de la transacción que crea la orden, con un candado por cliente y otro
+  por empresa: dos conversaciones del mismo cliente a la vez no crean dos. Las ofertas y el tope por
+  conversación no necesitan candado: una conversación corre un solo turno a la vez.
+- **Reintentos.** Si el mismo turno se repite después de programar, reconoce su orden (por su clave
+  de idempotencia) ya programada en esa ventana y responde éxito sin crear ni programar otra vez. La
+  orden se programa con su versión real; un 409 de versión se resuelve releyendo y solo un 422 de la
+  agenda cuenta como «ventana sin espacio».
+- **Motivo.** Lo redacta el modelo con lo que dijo el cliente: pasa por la misma redacción que el
+  resto (`RedactarParaIA`) y en la descripción de la orden y en el ticket va rotulado «Dicho por el
+  cliente, sin verificar: …».
 
 **Ajustes por empresa** (`visitas` en `GET/POST /asistente/ajustes`; el POST reemplaza el bloque
 completo; los topes los valida el servidor, 422):
