@@ -37,7 +37,7 @@ func TestVersionOKConDetalle(t *testing.T) {
 	con := conectorDe(t, admin.pedir(http.MethodGet, "/api/v1/integraciones/conectores?limit=200", nil), id)
 	detalle, _ := con["versionDetalle"].(string)
 	if con["versionEstado"] != "ok" || !strings.Contains(detalle, "1.14.0") || !strings.Contains(detalle, e.argos.srv.URL) ||
-		!strings.Contains(detalle, "HTTP 200") || con["versionConsultadaEn"] == nil || fmt.Sprint(con["capacidades"]) != "[inventario_por_tecnico]" {
+		!strings.Contains(detalle, "HTTP 200") || con["versionConsultadaEn"] == nil || fmt.Sprint(con["capacidades"]) != "[inventario_por_tecnico aprobar_comprobantes]" {
 		t.Fatalf("conector: %v", con)
 	}
 	if strings.Contains(detalle, tokenArgos) {
@@ -62,7 +62,7 @@ func TestVersionPanelHTMLNoBorraLaVersion(t *testing.T) {
 	detalle, _ := con["versionDetalle"].(string)
 	esperado := "La dirección " + e.argos.srv.URL + " no responde como la API de Argos: revisa que sea la de la API, no la del panel"
 	if con["versionEstado"] != "ruta_no_existe" || !strings.HasPrefix(detalle, esperado) || !strings.Contains(detalle, "HTTP 404") ||
-		fmt.Sprint(con["capacidades"]) != "[inventario_por_tecnico]" {
+		fmt.Sprint(con["capacidades"]) != "[inventario_por_tecnico aprobar_comprobantes]" {
 		t.Fatalf("conector: %v", con)
 	}
 	if ok, _ := e.mod.InventarioPorTecnico(pruebas.ContextoSistema(e.pool), e.pool); !ok {
@@ -96,7 +96,7 @@ func TestVersionPutProhibidoLeeElEstado(t *testing.T) {
 	con := conectorDe(t, admin.pedir(http.MethodGet, "/api/v1/integraciones/conectores?limit=200", nil), id)
 	detalle, _ := con["versionDetalle"].(string)
 	if con["versionEstado"] != "sin_permiso" || !strings.Contains(detalle, "PUT /api/v1/integraciones/iris/contrato") || !strings.Contains(detalle, "HTTP 403") ||
-		!strings.Contains(detalle, e.argos.srv.URL) || !strings.Contains(detalle, "1.14.0") || fmt.Sprint(con["capacidades"]) != "[inventario_por_tecnico]" {
+		!strings.Contains(detalle, e.argos.srv.URL) || !strings.Contains(detalle, "1.14.0") || fmt.Sprint(con["capacidades"]) != "[inventario_por_tecnico aprobar_comprobantes]" {
 		t.Fatalf("conector: %v", con)
 	}
 }

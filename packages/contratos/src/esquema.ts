@@ -1051,7 +1051,7 @@ export interface paths {
         put?: never;
         /**
          * Abrir Argos con tu usuario («Abrir en Argos» y «Vincular mi usuario de Argos»)
-         * @description Permiso: `integraciones.abrir_argos`. Autologin Iris → Argos (contrato con Argos 0.7.0 §1.3). Solo una persona con su sesión del panel (un token o una integración: 403 `solo_personas`). Devuelve un enlace de **un solo uso** que dura 60 s: el panel lo abre en otra pestaña enseguida. Con `destino` llega a ese cliente o servicio; sin `destino` llega al inicio de Argos: es «Vincular mi usuario de Argos» (la primera vez Argos pide el correo y la contraseña de Argos y crea el vínculo que autoriza aprobar y rechazar boletas). Iris no sabe si el vínculo existe: el panel lo descubre con el 409 `argos_sin_vinculo` al aprobar o rechazar. Acepta `Idempotency-Key`, pero la respuesta no se guarda: repetir la clave responde 409 `idempotencia_no_repetible` (pide otro enlace con otra clave). 409 `conector_apagado` (sin conector con Argos activo) e `iris_apagado` (Argos tiene apagado su conector con Iris); 422 `argos_sin_aprobacion` (Argos no informa contrato ≥ 0.7.0); 429 `demasiados_intentos` con `Retry-After` (10 por minuto por persona); 502 `argos_no_disponible` (Argos no respondió: «Reintentar»).
+         * @description Permiso: `integraciones.abrir_argos`. Autologin Iris → Argos (contrato con Argos 0.7.0 §1.3). Solo una persona con su sesión del panel (un token o una integración: 403 `solo_personas`). Devuelve un enlace de **un solo uso** que dura 60 s: el panel lo abre en otra pestaña enseguida. Con `destino` llega a ese cliente o servicio; sin `destino` llega al inicio de Argos: es «Vincular mi usuario de Argos» (la primera vez Argos pide el correo y la contraseña de Argos y crea el vínculo que autoriza aprobar y rechazar boletas). Iris no sabe si el vínculo existe: el panel lo descubre con el 409 `argos_sin_vinculo` al aprobar o rechazar. Acepta `Idempotency-Key`, pero la respuesta no se guarda: repetir la clave responde 409 `idempotencia_no_repetible` (pide otro enlace con otra clave). 409 `conector_apagado` (sin conector con Argos activo) e `iris_apagado` (Argos tiene apagado su conector con Iris); 422 `argos_sin_aprobacion` (Argos no informa contrato ≥ 0.7.0); 429 `demasiados_intentos` con `Retry-After` (10 por minuto por persona); 403 `reautenticacion_requerida` en una sesión abierta por autologin sin re-autenticar; 502 `argos_no_disponible` (Argos no respondió: «Reintentar»).
          */
         post: operations["abrirArgos"];
         delete?: never;
@@ -1349,7 +1349,7 @@ export interface paths {
         };
         /**
          * Orígenes de Argos y Horus para los enlaces «Ver en …»
-         * @description Permiso: `clientes.ver`. No exige empresa activa. Sin secretos: solo la URL pública de cada sistema con conector activo (ausente si no hay).
+         * @description Permiso: `clientes.ver`. También vale con `integraciones.abrir_argos` (uno u otro): el panel compara con `argosisp.urlPublica` el origen del enlace de `POST /integraciones/argosisp/abrir`. No exige empresa activa. Sin secretos: solo la URL pública de cada sistema con conector activo (ausente si no hay).
          */
         get: operations["obtenerEnlacesExternos"];
         put?: never;
@@ -1856,7 +1856,7 @@ export interface paths {
         put?: never;
         /**
          * Aprobar la boleta y registrar el pago en Argos
-         * @description Permiso: `boletas.aprobar`. Se aprueba por el monto del comprobante (sin monto ni fecha): si el depósito es por otro monto, se rechaza con causa `monto_distinto`. Solo una persona con su sesión del panel (token, integración o asistente de IA: 403 `solo_personas`) que vea la conversación, en su empresa activa (si no, 404). La boleta debe estar `registrada` (con `comprobanteId`): si no, 422 `boleta_no_registrada`; ya decidida, 409 `boleta_ya_decidida` (repetir la misma decisión la misma persona responde 200 con la boleta). Iris llama a Argos en el momento (`X-Iris-Actor: usuario:<id>`, `X-Iris-Conversacion: iris:conversacion:<id>`) y **Argos decide** con el usuario de Argos vinculado. Acepta `Idempotency-Key`, pero la respuesta no se guarda con ella: la idempotencia la da el comprobante (repetir es seguro, también después de un error). Errores: 409 `argos_sin_vinculo` («Vincula tu usuario de Argos»: `POST /integraciones/argosisp/abrir` sin destino y reintentar); 403 `argos_usuario_inactivo`, `argos_sin_permiso` («Tu usuario de Argos no tiene permiso de caja») y `argos_sin_empresa`; 409 `comprobante_revisado` (ya lo resolvió caja u otra persona: la boleta local queda sincronizada, vuelve a leerla), `otra_persona_decidio`, `comprobante_no_es_de_iris`, `iris_apagado`, `idempotencia_en_curso` y `comprobante_no_existe`; 422 `argos_sin_aprobacion` (Argos no informa contrato ≥ 0.7.0), `decision_no_permitida` y `conversacion_solo_lectura`; 502 `argos_no_disponible` (Argos no respondió: «Reintentar», nada quedó a medias) y `argos_rechazo`; 503 `conector_apagado`. Con el 200 la boleta queda resuelta, la conversación recibe un mensaje de sistema (`boleta_aprobada` / `boleta_rechazada`) y al cliente se le avisa una sola vez (`avisoCliente`).
+         * @description Permiso: `boletas.aprobar`. Se aprueba por el monto del comprobante (sin monto ni fecha): si el depósito es por otro monto, se rechaza con causa `monto_distinto`. Con `montoEsperado` (el monto que la persona confirmó), Iris lo compara con la boleta y con el comprobante en Argos antes de aprobar: si no coincide, 409 `monto_cambio` con `montoActual` y no se aprueba. Permiso de `admin` y del rol `caja`. Solo una persona con su sesión del panel (token, integración o asistente de IA: 403 `solo_personas`) que vea la conversación, en su empresa activa (si no, 404). La boleta debe estar `registrada` (con `comprobanteId`): si no, 422 `boleta_no_registrada`; ya decidida, 409 `boleta_ya_decidida` (repetir la misma decisión la misma persona responde 200 con la boleta). Iris llama a Argos en el momento (`X-Iris-Actor: usuario:<id>`, `X-Iris-Conversacion: iris:conversacion:<id>`) y **Argos decide** con el usuario de Argos vinculado. Acepta `Idempotency-Key`, pero la respuesta no se guarda con ella: la idempotencia la da el comprobante (repetir es seguro, también después de un error). Errores: 409 `argos_sin_vinculo` («Vincula tu usuario de Argos»: `POST /integraciones/argosisp/abrir` sin destino y reintentar); 403 `argos_usuario_inactivo`, `argos_sin_permiso` («Tu usuario de Argos no tiene permiso de caja») y `argos_sin_empresa`; 409 `comprobante_revisado` (ya lo resolvió caja u otra persona: la boleta local queda sincronizada, vuelve a leerla), `otra_persona_decidio`, `comprobante_no_es_de_iris`, `iris_apagado`, `idempotencia_en_curso` y `comprobante_no_existe`; 422 `argos_sin_aprobacion` (Argos no informa contrato ≥ 0.7.0), `decision_no_permitida` y `conversacion_solo_lectura`; 502 `argos_no_disponible` (Argos no respondió y puede haberse aplicado: «Reintentar» lo confirma) y `argos_rechazo`; 503 `conector_apagado`. Con el 200 la boleta queda resuelta, la conversación recibe un mensaje de sistema (`boleta_aprobada` / `boleta_rechazada`) y al cliente se le avisa una sola vez (`avisoCliente`).
          */
         post: operations["aprobarBoleta"];
         delete?: never;
@@ -1876,7 +1876,7 @@ export interface paths {
         put?: never;
         /**
          * Rechazar la boleta en Argos, con motivo y causa
-         * @description Permiso: `boletas.rechazar`. El `motivo` se le dice al cliente. Con causa `falta_dato` el cliente recibe «le falta un dato» y puede mandar la boleta de nuevo. Solo una persona con su sesión del panel (token, integración o asistente de IA: 403 `solo_personas`) que vea la conversación, en su empresa activa (si no, 404). La boleta debe estar `registrada` (con `comprobanteId`): si no, 422 `boleta_no_registrada`; ya decidida, 409 `boleta_ya_decidida` (repetir la misma decisión la misma persona responde 200 con la boleta). Iris llama a Argos en el momento (`X-Iris-Actor: usuario:<id>`, `X-Iris-Conversacion: iris:conversacion:<id>`) y **Argos decide** con el usuario de Argos vinculado. Acepta `Idempotency-Key`, pero la respuesta no se guarda con ella: la idempotencia la da el comprobante (repetir es seguro, también después de un error). Errores: 409 `argos_sin_vinculo` («Vincula tu usuario de Argos»: `POST /integraciones/argosisp/abrir` sin destino y reintentar); 403 `argos_usuario_inactivo`, `argos_sin_permiso` («Tu usuario de Argos no tiene permiso de caja») y `argos_sin_empresa`; 409 `comprobante_revisado` (ya lo resolvió caja u otra persona: la boleta local queda sincronizada, vuelve a leerla), `otra_persona_decidio`, `comprobante_no_es_de_iris`, `iris_apagado`, `idempotencia_en_curso` y `comprobante_no_existe`; 422 `argos_sin_aprobacion` (Argos no informa contrato ≥ 0.7.0), `decision_no_permitida` y `conversacion_solo_lectura`; 502 `argos_no_disponible` (Argos no respondió: «Reintentar», nada quedó a medias) y `argos_rechazo`; 503 `conector_apagado`. Con el 200 la boleta queda resuelta, la conversación recibe un mensaje de sistema (`boleta_aprobada` / `boleta_rechazada`) y al cliente se le avisa una sola vez (`avisoCliente`).
+         * @description Permiso: `boletas.rechazar`. El cliente recibe un texto fijo según la `causa`; el `motivo` se agrega solo si no trae enlaces, dominios ni números largos (siempre queda en la boleta y en Argos). Permiso de `admin` y del rol `caja`. Solo una persona con su sesión del panel (token, integración o asistente de IA: 403 `solo_personas`) que vea la conversación, en su empresa activa (si no, 404). La boleta debe estar `registrada` (con `comprobanteId`): si no, 422 `boleta_no_registrada`; ya decidida, 409 `boleta_ya_decidida` (repetir la misma decisión la misma persona responde 200 con la boleta). Iris llama a Argos en el momento (`X-Iris-Actor: usuario:<id>`, `X-Iris-Conversacion: iris:conversacion:<id>`) y **Argos decide** con el usuario de Argos vinculado. Acepta `Idempotency-Key`, pero la respuesta no se guarda con ella: la idempotencia la da el comprobante (repetir es seguro, también después de un error). Errores: 409 `argos_sin_vinculo` («Vincula tu usuario de Argos»: `POST /integraciones/argosisp/abrir` sin destino y reintentar); 403 `argos_usuario_inactivo`, `argos_sin_permiso` («Tu usuario de Argos no tiene permiso de caja») y `argos_sin_empresa`; 409 `comprobante_revisado` (ya lo resolvió caja u otra persona: la boleta local queda sincronizada, vuelve a leerla), `otra_persona_decidio`, `comprobante_no_es_de_iris`, `iris_apagado`, `idempotencia_en_curso` y `comprobante_no_existe`; 422 `argos_sin_aprobacion` (Argos no informa contrato ≥ 0.7.0), `decision_no_permitida` y `conversacion_solo_lectura`; 502 `argos_no_disponible` (Argos no respondió y puede haberse aplicado: «Reintentar» lo confirma) y `argos_rechazo`; 503 `conector_apagado`. Con el 200 la boleta queda resuelta, la conversación recibe un mensaje de sistema (`boleta_aprobada` / `boleta_rechazada`) y al cliente se le avisa una sola vez (`avisoCliente`).
          */
         post: operations["rechazarBoleta"];
         delete?: never;
@@ -7729,6 +7729,11 @@ export interface components {
              * @description Id del comprobante en Argos
              */
             comprobanteId: number | null;
+            /**
+             * @description Argos avisó (webhook) que el comprobante se resolvió e Iris todavía lo está confirmando con Argos (pendiente), o no pudo confirmarlo después de varios intentos (agotada: revisarla en Argos; aprobar o rechazar desde aquí la sincroniza). null = nada por confirmar
+             * @enum {string|null}
+             */
+            confirmacionArgos: "pendiente" | "agotada" | null;
             /** Format: int64 */
             conversacionId: number;
             /** Format: date-time */
@@ -9637,6 +9642,8 @@ export interface components {
         EntradaAprobarBoleta: {
             /** @description Ids de Argos de las facturas a las que se aplica el pago; sin ellas, Argos lo aplica en su orden */
             facturas?: number[] | null;
+            /** @description El monto que la persona vio y confirmó (decimal con dos decimales). Si viene, Iris lo compara con el de la boleta y con el del comprobante en Argos (lo relee) ANTES de aprobar; si alguno no coincide, 409 monto_cambio con montoActual y no se aprueba nada */
+            montoEsperado?: string;
             /** @description Nota para caja (queda en Argos) */
             nota?: string;
         };
@@ -11359,11 +11366,11 @@ export interface components {
         };
         EntradaRechazarBoleta: {
             /**
-             * @description Sin causa, Argos usa otro. Con falta_dato el cliente recibe «le falta un dato» y puede mandarla de nuevo
+             * @description Sin causa, Argos usa otro. Decide el texto que recibe el cliente
              * @enum {string}
              */
             causa?: "no_aparece" | "monto_distinto" | "ilegible" | "falta_dato" | "duplicado" | "otro";
-            /** @description Por qué se rechaza: se le dice al cliente */
+            /** @description Por qué se rechaza: queda en Argos y en la boleta. Al cliente se le dice un texto fijo según la causa; este motivo se agrega solo si no trae enlaces, dominios ni números largos */
             motivo: string;
         };
         EntradaRecibirTraslado: {
@@ -14564,6 +14571,8 @@ export interface components {
             detail?: string;
             /** @description Errores por campo */
             errors?: components["schemas"]["ErrorCampo"][] | null;
+            /** @description monto_cambio: el monto actual (decimal con dos decimales) */
+            montoActual?: string;
             /**
              * Format: int64
              * @description Código HTTP

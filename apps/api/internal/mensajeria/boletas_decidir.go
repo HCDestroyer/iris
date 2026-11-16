@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,21 +29,21 @@ import (
 // tokens y las integraciones nunca pueden.
 //
 // La llamada a Argos es sincrónica y va fuera de la transacción (como las promesas): quien decide
-// necesita la respuesta al momento, así que no pasa por integracion.pendientes. Con el 200 de Argos
-// la boleta local se resuelve en una transacción (auditoría, mensaje de sistema, aviso al cliente y
-// evento).
+// necesita la respuesta al momento, así que no pasa por integracion.pendientes. El intento se audita
+// antes de llamar; con el 200 de Argos la boleta local se resuelve en otra transacción.
 //
-// Una boleta se resuelve UNA sola vez, por el camino que llegue primero, y todos pasan por
-// aplicarResolucion (la fila bloqueada, solo desde `registrada`):
+// El estado de una boleta solo cambia con lo que dice Argos de su comprobante, y todos los caminos
+// pasan por aplicarResolucion (la fila bloqueada):
 //
 //   - la respuesta 200 de Argos a quien decidió en Iris;
-//   - el webhook comprobante.aprobado / comprobante.rechazado (decidió caja en Argos, o llegó antes
-//     que la respuesta): el worker lo deja en boletas.resolucion y el despacho de este proceso lo
-//     aplica pasada la gracia;
-//   - releer el comprobante (GET /comprobantes/:id) cuando Argos dice que ya estaba revisado.
+//   - el webhook comprobante.aprobado / comprobante.rechazado: es solo un aviso. El worker lo deja en
+//     boletas.resolucion y el despacho de este proceso relee GET /comprobantes/:id pasada la gracia y
+//     aplica lo que diga Argos, nunca el payload;
+//   - releer el comprobante cuando Argos responde que ya estaba revisado.
 //
-// Por eso el aviso al cliente (boleta_confirmada, boleta_rechazada o boleta_falta_dato, §6.3 del
-// contrato con Argos) sale una sola vez.
+// La boleta se resuelve UNA vez (de registrada a aprobada o rechazada) y ahí sale el aviso al
+// cliente. Si después Argos dice otra cosa, gana Argos: se corrige con boleta.corregida y sin otro
+// aviso.
 
 // Estados de una boleta.
 const (
@@ -55,10 +58,18 @@ const (
 	AvisoBoletaSinAvis = "sin_aviso"
 )
 
-// GraciaResolucion: cuánto espera el despacho antes de aplicar la resolución que trajo un webhook.
-// Le da tiempo a la respuesta de Argos de quien decidió en Iris (así la boleta queda a su nombre);
-// si esa respuesta se perdió, el webhook la resuelve igual.
+// Confirmación con Argos de una resolución que avisó su webhook.
+const (
+	ConfirmacionPendiente = "pendiente"
+	ConfirmacionAgotada   = "agotada"
+)
+
+// GraciaResolucion: cuánto espera el despacho antes de confirmar la resolución que avisó un webhook.
+// Le da tiempo a la respuesta de Argos de quien decidió en Iris (así la boleta queda a su nombre).
 const GraciaResolucion = 20 * time.Second
+
+// EsperasConfirmacion son las esperas entre intentos de confirmar con Argos; después, agotada.
+var EsperasConfirmacion = []time.Duration{time.Minute, 5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 12 * time.Hour}
 
 // MonedaBoletas: los comprobantes de Argos son en quetzales (§7.2).
 const MonedaBoletas = "GTQ"
@@ -68,6 +79,8 @@ type EntradaAprobarBoleta struct {
 	ID       uuid.UUID `json:"-"`
 	Nota     *string   `json:"nota,omitempty" maxLength:"400" doc:"Nota para caja (queda en Argos)"`
 	Facturas []int64   `json:"facturas,omitempty" maxItems:"50" doc:"Ids de Argos de las facturas a las que se aplica el pago; sin ellas, Argos lo aplica en su orden"`
+	// MontoEsperado: el monto que la persona vio y confirmó en el diálogo.
+	MontoEsperado *string `json:"montoEsperado,omitempty" pattern:"^[0-9]{1,12}\\.[0-9]{2}$" doc:"El monto que la persona vio y confirmó (decimal con dos decimales). Si viene, Iris lo compara con el de la boleta y con el del comprobante en Argos (lo relee) ANTES de aprobar; si alguno no coincide, 409 monto_cambio con montoActual y no se aprueba nada"`
 }
 
 // MarshalJSON: lo auditado (sin el texto de la nota).
@@ -76,14 +89,35 @@ func (e EntradaAprobarBoleta) MarshalJSON() ([]byte, error) {
 	if e.Nota != nil {
 		largo = len([]rune(*e.Nota))
 	}
-	return json.Marshal(map[string]any{"boleta_id": e.ID, "largo_nota": largo, "facturas": e.Facturas})
+	return json.Marshal(map[string]any{"boleta_id": e.ID, "largo_nota": largo, "facturas": e.Facturas, "monto_esperado": e.MontoEsperado})
+}
+
+// montoCambio: lo que la persona confirmó ya no es lo que se aprobaría.
+func montoCambio(actual string) *nucleo.Problema {
+	p := nucleo.Conflicto("monto_cambio", "El monto de esta boleta ya no es el que confirmaste: ahora es "+MonedaBoletas+" "+actual+". Revísalo y vuelve a confirmar")
+	p.MontoActual = &actual
+	return p
+}
+
+// montoNormal deja un monto decimal con dos decimales y sin ceros a la izquierda ("" si no lo es).
+func montoNormal(s string) string {
+	s = strings.TrimSpace(s)
+	if !regexp.MustCompile(`^[0-9]{1,12}(\.[0-9]{1,2})?$`).MatchString(s) {
+		return ""
+	}
+	entero, decimales, _ := strings.Cut(s, ".")
+	entero = strings.TrimLeft(entero, "0")
+	if entero == "" {
+		entero = "0"
+	}
+	return entero + "." + (decimales + "00")[:2]
 }
 
 // EntradaRechazarBoleta es POST /boletas/{id}/rechazar.
 type EntradaRechazarBoleta struct {
 	ID     uuid.UUID `json:"-"`
-	Motivo string    `json:"motivo" minLength:"3" maxLength:"500" doc:"Por qué se rechaza: se le dice al cliente"`
-	Causa  string    `json:"causa,omitempty" enum:"no_aparece,monto_distinto,ilegible,falta_dato,duplicado,otro" doc:"Sin causa, Argos usa otro. Con falta_dato el cliente recibe «le falta un dato» y puede mandarla de nuevo"`
+	Motivo string    `json:"motivo" minLength:"3" maxLength:"500" doc:"Por qué se rechaza: queda en Argos y en la boleta. Al cliente se le dice un texto fijo según la causa; este motivo se agrega solo si no trae enlaces, dominios ni números largos"`
+	Causa  string    `json:"causa,omitempty" enum:"no_aparece,monto_distinto,ilegible,falta_dato,duplicado,otro" doc:"Sin causa, Argos usa otro. Decide el texto que recibe el cliente"`
 }
 
 // MarshalJSON: lo auditado.
@@ -112,8 +146,12 @@ func soloPersonasBoleta() *nucleo.Problema {
 		"Aprobar o rechazar una boleta solo lo puede hacer una persona con su sesión del panel: ni un token, ni una integración, ni el asistente de IA")
 }
 
-// argosNoDisponibleBoleta: 502 (no el 503 de las lecturas): nada quedó a medias y se puede repetir.
-func argosNoDisponibleBoleta() *nucleo.Problema { return argos.NoDisponible() }
+// argosNoDisponibleBoleta: 502 (no el 503 de las lecturas). Un timeout no dice si Argos llegó a
+// aplicar la decisión: repetir es seguro (la clave sale del comprobante) y confirma cómo quedó.
+func argosNoDisponibleBoleta() *nucleo.Problema {
+	return nucleo.NuevoProblema(http.StatusBadGateway, "argos_no_disponible", "Argos no respondió",
+		"Puede haberse aplicado en Argos: vuelve a intentar para confirmarlo")
+}
 
 func boletaYaDecidida(f mensajeriabd.MensajeriaBoleta) *nucleo.Problema {
 	return nucleo.Conflicto("boleta_ya_decidida", "Esta boleta ya fue "+descripcionDecision(f))
@@ -217,23 +255,84 @@ func nuevoListarBoletas(m *Modulo) *auditoria.Caso[EntradaConversacion, ListaBol
 	})
 }
 
+// Lo que se le dice al cliente ------------------------------------------------------------------------
+
+// textosCausa es lo que el cliente lee según la causa del rechazo (§6.4.1): un texto fijo que dice
+// qué pasó y qué hacer. Va en la variable `motivo` de boleta_rechazada («No pudimos confirmar tu
+// boleta de … : <texto>») o, con falta_dato, de boleta_falta_dato («… le falta un dato: <texto>.
+// Envíala de nuevo, por favor.»).
+var textosCausa = map[string]string{
+	"no_aparece":     "no encontramos el depósito. Revisa la referencia y la fecha, y envíala de nuevo",
+	"monto_distinto": "el monto no coincide con el depósito. Envíanos la boleta con el monto correcto",
+	"ilegible":       "la foto no se lee bien. Envíanos una foto más clara",
+	"falta_dato":     "revisa que se vean la referencia, el monto y la fecha",
+	"duplicado":      "esa boleta ya se había usado. Si hiciste otro pago, envíanos su boleta",
+	"otro":           "no pudimos confirmarla con el banco. Escríbenos por aquí para revisarla",
+}
+
+var (
+	reDominio      = regexp.MustCompile(`(?i)[a-z0-9-]+\.[a-z]{2,}`)
+	reMuchosDigito = regexp.MustCompile(`(\d[\s\-./()_]*){6,}`)
+)
+
+// motivoSeguro: el motivo libre (lo escribe quien rechaza, en Iris o en la caja de Argos) solo se le
+// manda al cliente si no puede llevarlo a otro lado: sin enlaces, dominios ni números largos
+// (teléfonos, cuentas), con o sin separadores. Sale por el número oficial de la empresa.
+func motivoSeguro(s string) bool {
+	bajo := strings.ToLower(s)
+	if strings.Contains(bajo, "://") || strings.Contains(bajo, "www.") {
+		return false
+	}
+	return !reDominio.MatchString(s) && !reMuchosDigito.MatchString(s)
+}
+
+// motivoParaCliente arma la variable `motivo` del aviso: el texto fijo de la causa y, si pasa el
+// filtro, el motivo libre al final. Hasta 200 caracteres (formato texto de las plantillas).
+func motivoParaCliente(causa *string, libre *string) string {
+	texto, ok := "", false
+	if causa != nil {
+		texto, ok = textosCausa[*causa]
+	}
+	if !ok {
+		texto = textosCausa["otro"]
+	}
+	if libre == nil {
+		return texto
+	}
+	l := strings.TrimRight(strings.Join(strings.Fields(*libre), " "), ". ")
+	if l == "" || !motivoSeguro(l) {
+		return texto
+	}
+	if resto := 200 - len([]rune(texto)) - len([]rune(". Detalle: ")); resto >= 10 {
+		return texto + ". Detalle: " + recortar(l, resto)
+	}
+	return texto
+}
+
 // Resolución (el único camino que cambia el estado) -----------------------------------------------
 
 // resolucionBoleta es lo que decidió Argos sobre el comprobante de una boleta.
 type resolucionBoleta struct {
 	// Estado: aprobada o rechazada.
-	Estado              string  `json:"estado"`
-	PagoID              *int64  `json:"pago_id"`
-	Motivo              *string `json:"motivo"`
-	Causa               *string `json:"causa"`
-	VerificadoPorNombre *string `json:"verificado_por_nombre,omitempty"`
-	// actor: el usuario de Iris que decidió desde la conversación (nil = caja en Argos).
+	Estado              string
+	PagoID              *int64
+	Motivo              *string
+	Causa               *string
+	VerificadoPorNombre *string
+	// monto: el del comprobante en Argos (decimal con dos decimales), para el aviso; vacío = el local.
+	monto string
+	// actor: el usuario de Iris que decidió desde la conversación (nil = caja en Argos, o Argos no lo dice).
 	actor *int64
 }
+
+var reMontoArgos = regexp.MustCompile(`^[0-9]{1,12}\.[0-9]{2}$`)
 
 // resolucionDeComprobante traduce el comprobante de Argos; ok = false si sigue pendiente.
 func resolucionDeComprobante(c argos.Comprobante) (resolucionBoleta, bool) {
 	r := resolucionBoleta{PagoID: c.PagoID, VerificadoPorNombre: c.VerificadoPorNombre}
+	if m := string(c.Monto); reMontoArgos.MatchString(m) {
+		r.monto = m
+	}
 	switch c.Estado {
 	case argos.ComprobanteAprobado:
 		r.Estado = BoletaAprobada
@@ -245,13 +344,48 @@ func resolucionDeComprobante(c argos.Comprobante) (resolucionBoleta, bool) {
 	return r, true
 }
 
+// comprobanteAjeno dice por qué el comprobante que devolvió Argos no es el de la boleta ("" = lo es).
+// El token de Iris lee cualquier comprobante de sus empresas, no solo los de canal iris: se valida aquí.
+func comprobanteAjeno(c argos.Comprobante, f mensajeriabd.MensajeriaBoleta, exigirEmpresa bool) string {
+	switch {
+	case f.ComprobanteID == nil || c.ID != *f.ComprobanteID:
+		return "Argos devolvió otro comprobante"
+	case !strings.EqualFold(strings.TrimSpace(c.Canal), argos.CanalComprobanteIris):
+		return "el comprobante no es de canal iris"
+	case c.EmpresaID != nil && f.EmpresaID != nil && *c.EmpresaID != *f.EmpresaID:
+		return "el comprobante es de otra empresa"
+	case exigirEmpresa && (c.EmpresaID == nil || f.EmpresaID == nil):
+		return "falta la empresa del comprobante"
+	}
+	return ""
+}
+
+// actorVerificado: el usuario de Iris que decidió según Argos (verificado_iris_actor, contrato 0.7.1):
+// solo «usuario:<id>» de una persona de esta instalación. Con Argos 1.15.0 no viene: nil.
+func actorVerificado(ctx context.Context, q *mensajeriabd.Queries, actor *string) *int64 {
+	if actor == nil {
+		return nil
+	}
+	crudo, ok := strings.CutPrefix(strings.TrimSpace(*actor), "usuario:")
+	if !ok {
+		return nil
+	}
+	id, err := strconv.ParseInt(crudo, 10, 64)
+	if err != nil || id <= 0 || strconv.FormatInt(id, 10) != crudo {
+		return nil
+	}
+	if _, err := q.UsuarioPersona(ctx, id); err != nil {
+		return nil
+	}
+	return &id
+}
+
 // causaValida deja solo las causas de §7.2 (lo demás es «otro»).
 func causaValida(c *string) *string {
 	if c == nil || *c == "" {
 		return nil
 	}
-	switch *c {
-	case "no_aparece", "monto_distinto", "ilegible", "falta_dato", "duplicado", "otro":
+	if _, ok := textosCausa[*c]; ok {
 		return c
 	}
 	return nombrePtr("otro")
@@ -268,32 +402,24 @@ func textoLimpio(s *string, max int) *string {
 	return nombrePtr(recortar(v, max))
 }
 
-// aplicarResolucion resuelve la boleta (leída con FOR UPDATE) si sigue registrada: mensaje de
-// sistema, aviso al cliente, auditoría y evento, una sola vez. Si ya estaba resuelta solo completa
-// quién decidió. cambio = true si esta llamada la resolvió.
-func (m *Modulo) aplicarResolucion(ctx context.Context, t *auditoria.Tx, f mensajeriabd.MensajeriaBoleta, r resolucionBoleta) (mensajeriabd.MensajeriaBoleta, bool, error) {
+// Resultados de aplicarResolucion.
+const (
+	resolucionNada       = ""
+	resolucionResuelta   = "resuelta"
+	resolucionCompletada = "completada"
+	resolucionCorregida  = "corregida"
+)
+
+// aplicarResolucion deja la boleta (leída con FOR UPDATE) como dice Argos:
+//
+//   - registrada → resuelta: mensaje de sistema, aviso al cliente, auditoría y evento, una sola vez;
+//   - ya resuelta con ese estado: solo completa quién decidió;
+//   - ya resuelta con el otro estado: gana Argos. Se corrige con boleta.corregida, sin otro aviso.
+func (m *Modulo) aplicarResolucion(ctx context.Context, t *auditoria.Tx, f mensajeriabd.MensajeriaBoleta, r resolucionBoleta) (mensajeriabd.MensajeriaBoleta, string, error) {
 	q := mensajeriabd.New(t)
 	r.Motivo, r.Causa, r.VerificadoPorNombre = textoLimpio(r.Motivo, 500), causaValida(r.Causa), textoLimpio(r.VerificadoPorNombre, 200)
-	switch f.Estado {
-	case BoletaAprobada, BoletaRechazada:
-		// Ya resuelta (llegó antes el webhook o la releyó otro): se completa quién decidió, sin otro
-		// aviso ni otro evento. Si Argos dice otra cosa, manda lo que ya se le dijo al cliente.
-		p := mensajeriabd.CompletarDecisionBoletaParams{ID: f.ID}
-		if f.Estado == r.Estado {
-			p.DecididaPor, p.VerificadoPorNombre, p.PagoID = r.actor, r.VerificadoPorNombre, r.PagoID
-		}
-		g, err := q.CompletarDecisionBoleta(ctx, p)
-		return g, false, err
-	case BoletaRegistrada:
-	default:
-		// por_enviar o fallida: no hay comprobante que resolver.
-		if len(f.Resolucion) > 0 {
-			return f, false, q.DescartarResolucionBoleta(ctx, f.ID)
-		}
-		return f, false, nil
-	}
 	if r.Estado != BoletaAprobada && r.Estado != BoletaRechazada {
-		return f, false, errors.New("mensajeria: resolución de boleta sin estado")
+		return f, resolucionNada, errors.New("mensajeria: resolución de boleta sin estado")
 	}
 	if r.Estado == BoletaAprobada {
 		r.Motivo, r.Causa = nil, nil
@@ -303,49 +429,80 @@ func (m *Modulo) aplicarResolucion(ctx context.Context, t *auditoria.Tx, f mensa
 			r.Causa = nombrePtr("otro")
 		}
 	}
+	switch f.Estado {
+	case r.Estado:
+		g, err := q.CompletarDecisionBoleta(ctx, mensajeriabd.CompletarDecisionBoletaParams{ID: f.ID, DecididaPor: r.actor,
+			VerificadoPorNombre: r.VerificadoPorNombre, PagoID: r.PagoID})
+		return g, resolucionCompletada, err
+	case BoletaAprobada, BoletaRechazada, BoletaRegistrada:
+	default:
+		// por_enviar o fallida: no hay comprobante que resolver.
+		if len(f.Resolucion) > 0 {
+			return f, resolucionNada, q.DescartarResolucionBoleta(ctx, f.ID)
+		}
+		return f, resolucionNada, nil
+	}
 	c, err := q.ConversacionClienteParaActualizar(ctx, f.ConversacionID)
 	if err != nil {
-		return f, false, err
+		return f, resolucionNada, err
 	}
 	if f.EmpresaID != nil {
 		t.FijarEmpresa(*f.EmpresaID)
 	}
 	t.FijarEntidad("boleta", f.ID)
+	// En el hilo se ve quién fue: la persona de Iris si decidió desde la conversación; si no, el
+	// usuario de Argos. Al cliente nunca se le dice.
 	nombre := r.VerificadoPorNombre
-	if nombre == nil && r.actor != nil {
-		nombre = actorNombre(ctx, q, *r.actor)
+	if r.actor != nil {
+		if n := actorNombre(ctx, q, *r.actor); n != nil {
+			nombre = n
+		}
 	}
+	corrige := f.Estado != BoletaRegistrada
 	ev := EventoSistema{Tipo: "boleta_" + r.Estado, ActorNombre: nombre, Referencia: nombrePtr("Boleta " + f.Referencia),
 		EntidadID: nombrePtr(f.ID.String()), Detalle: r.Motivo}
-	if err := m.sistema(ctx, t, &c, ev); err != nil {
-		return f, false, err
+	if corrige {
+		ev.Tipo, ev.Detalle = "boleta_corregida", nombrePtr(f.Estado+" → "+r.Estado)
 	}
-	aviso, mensaje, err := m.avisarBoleta(ctx, t, q, &c, f, r)
-	if err != nil {
-		return f, false, err
+	if err := m.sistema(ctx, t, &c, ev); err != nil {
+		return f, resolucionNada, err
+	}
+	// El cliente recibe un solo aviso: el de la primera resolución. Una corrección la ve el equipo.
+	aviso, mensaje := f.AvisoCliente, uuidDe(f.AvisoMensajeID)
+	if !corrige {
+		a, msg, err := m.avisarBoleta(ctx, t, q, &c, f, r)
+		if err != nil {
+			return f, resolucionNada, err
+		}
+		aviso, mensaje = &a, msg
 	}
 	ahora := m.ahora()
 	g, err := q.ResolverBoleta(ctx, mensajeriabd.ResolverBoletaParams{ID: f.ID, Estado: r.Estado, DecididaEn: &ahora, DecididaPor: r.actor, PagoID: r.PagoID,
-		MotivoRechazo: r.Motivo, CausaRechazo: r.Causa, VerificadoPorNombre: r.VerificadoPorNombre, AvisoCliente: &aviso, AvisoMensajeID: pgUUID(mensaje)})
+		MotivoRechazo: r.Motivo, CausaRechazo: r.Causa, VerificadoPorNombre: r.VerificadoPorNombre, AvisoCliente: aviso, AvisoMensajeID: pgUUID(mensaje)})
 	if err != nil {
-		return f, false, err
+		return f, resolucionNada, err
 	}
 	if _, err := guardarConv(ctx, q, c, false); err != nil {
-		return f, false, err
+		return f, resolucionNada, err
 	}
-	t.RegistrarCambios("boleta", g.ID, map[string]any{"estado": f.Estado}, map[string]any{"estado": g.Estado, "pago_id": g.PagoID,
+	t.RegistrarCambios("boleta", g.ID, map[string]any{"estado": f.Estado, "decidida_por": f.DecididaPor}, map[string]any{"estado": g.Estado, "pago_id": g.PagoID,
 		"causa_rechazo": g.CausaRechazo, "decidida_por": g.DecididaPor, "aviso_cliente": g.AvisoCliente})
 	origen := "argos"
 	if r.actor != nil {
 		origen = "iris"
 	}
 	payload := map[string]any{"boleta_id": g.ID, "conversacion_id": c.ID, "empresa_id": c.EmpresaID, "comprobante_id": g.ComprobanteID,
-		"pago_id": g.PagoID, "actor_id": g.DecididaPor, "origen": origen, "aviso_cliente": aviso}
+		"pago_id": g.PagoID, "actor_id": g.DecididaPor, "origen": origen}
+	if corrige {
+		payload["de"], payload["a"], payload["causa"] = f.Estado, g.Estado, g.CausaRechazo
+		return g, resolucionCorregida, t.Emitir("boleta.corregida", payload)
+	}
+	payload["aviso_cliente"] = g.AvisoCliente
 	if r.Estado == BoletaRechazada {
 		payload["causa"] = g.CausaRechazo
-		return g, true, t.Emitir("boleta.rechazada", payload)
+		return g, resolucionResuelta, t.Emitir("boleta.rechazada", payload)
 	}
-	return g, true, t.Emitir("boleta.aprobada", payload)
+	return g, resolucionResuelta, t.Emitir("boleta.aprobada", payload)
 }
 
 // avisarBoleta le dice al cliente, en la conversación, cómo quedó su boleta (§6.3 del contrato con
@@ -356,19 +513,21 @@ func (m *Modulo) avisarBoleta(ctx context.Context, t *auditoria.Tx, q *mensajeri
 	f mensajeriabd.MensajeriaBoleta, r resolucionBoleta) (string, *uuid.UUID, error) {
 	codigo, motivo := "boleta_confirmada", "¡Gracias!"
 	if r.Estado == BoletaRechazada {
-		codigo, motivo = "boleta_rechazada", "comunícate con nosotros para revisarla"
+		codigo = "boleta_rechazada"
 		if r.Causa != nil && *r.Causa == "falta_dato" {
-			codigo, motivo = "boleta_falta_dato", "revisa los datos del depósito"
+			codigo = "boleta_falta_dato"
 		}
-		if r.Motivo != nil {
-			motivo = recortar(*r.Motivo, 200)
-		}
+		motivo = motivoParaCliente(r.Causa, r.Motivo)
 	}
 	p, ok := PlantillaPorCodigo(codigo)
 	if !ok {
 		return AvisoBoletaSinAvis, nil, nil
 	}
-	vars := map[string]string{"monto": aBoleta(f).Monto, "moneda": MonedaBoletas, "motivo": motivo}
+	monto := r.monto
+	if monto == "" {
+		monto = aBoleta(f).Monto
+	}
+	vars := map[string]string{"monto": monto, "moneda": MonedaBoletas, "motivo": motivo}
 	canal, err := q.CanalPorID(ctx, c.CanalID)
 	if err != nil {
 		return "", nil, err
@@ -382,7 +541,18 @@ func (m *Modulo) avisarBoleta(ctx context.Context, t *auditoria.Tx, q *mensajeri
 	}
 	texto := recortar(p.Render(vars), MaxTextoWhatsApp)
 	n := nuevoMensaje{direccion: DirSaliente, tipo: "texto", texto: &texto, estadoEntrega: nombrePtr(EntregaEnCola), automatico: nombrePtr("bot")}
-	if ventanaDe(c.UltimoEntranteEn, m.ahora()).Abierta {
+	abierta := ventanaDe(c.UltimoEntranteEn, m.ahora()).Abierta
+	var pr *nucleo.Problema
+	if c.Estado == EstadoConvResuelta || !abierta {
+		// Escribir en una resuelta o fuera de la ventana abre la conversación al cliente: en un número
+		// compartido, no si otra empresa tiene una abierta con ese teléfono (§15.3).
+		if err := otraEmpresaConversa(ctx, q, canal.ID, empresaDeConv(*c), c.Numero); errors.As(err, &pr) {
+			return AvisoBoletaSinAvis, nil, nil
+		} else if err != nil {
+			return "", nil, err
+		}
+	}
+	if abierta {
 		puede, err := m.puedeContestarBot(ctx, q, *c)
 		if err != nil {
 			return "", nil, err
@@ -398,13 +568,7 @@ func (m *Modulo) avisarBoleta(ctx context.Context, t *auditoria.Tx, q *mensajeri
 		if p.validarVariables(vars) != nil {
 			return AvisoBoletaSinAvis, nil, nil
 		}
-		var pr *nucleo.Problema
 		if err := permisoPlantilla(ctx, q, *c, true); errors.As(err, &pr) {
-			return AvisoBoletaSinAvis, nil, nil
-		} else if err != nil {
-			return "", nil, err
-		}
-		if err := otraEmpresaConversa(ctx, q, canal.ID, empresaDeConv(*c), c.Numero); errors.As(err, &pr) {
 			return AvisoBoletaSinAvis, nil, nil
 		} else if err != nil {
 			return "", nil, err
@@ -437,8 +601,10 @@ type decision struct {
 	Accion   string    `json:"accion"`
 	Nota     string    `json:"-"`
 	Facturas []int64   `json:"facturas,omitempty"`
-	Motivo   string    `json:"motivo,omitempty"`
-	Causa    string    `json:"causa,omitempty"`
+	// MontoEsperado: lo que la persona confirmó en el diálogo ("" = no lo mandó).
+	MontoEsperado string `json:"monto_esperado,omitempty"`
+	Motivo        string `json:"motivo,omitempty"`
+	Causa         string `json:"causa,omitempty"`
 }
 
 func (d decision) estado() string {
@@ -455,28 +621,41 @@ type previaDecision struct {
 	comprobante int64
 }
 
-type entradaFinalDecision struct {
-	decision
-	ComprobanteID int64  `json:"comprobante_id"`
-	EstadoArgos   string `json:"estado_argos"`
-	// Origen: respuesta (el 200 de Argos a esta persona) o relectura (GET /comprobantes/:id).
+// entradaAplicar es lo que Argos dijo del comprobante de una boleta, listo para aplicar.
+type entradaAplicar struct {
+	Boleta        uuid.UUID `json:"boleta_id"`
+	Accion        string    `json:"accion,omitempty"`
+	ComprobanteID int64     `json:"comprobante_id"`
+	EstadoArgos   string    `json:"estado_argos"`
+	// Origen: respuesta (el 200 de Argos a esta persona), relectura (GET /comprobantes/:id tras un
+	// 409), webhook (GET tras el aviso de Argos) o respuesta_sin_sesion (el 200 llegó, pero la persona
+	// ya no podía guardar: lo aplica el sistema).
 	Origen string `json:"origen"`
-	r      resolucionBoleta
+	// DecididaPor: la persona de la sesión cuando la decisión sale de la respuesta a su propia llamada.
+	DecididaPor *int64 `json:"decidida_por,omitempty"`
+	// actorArgos: verificado_iris_actor del comprobante (webhook y relectura).
+	actorArgos *string
+	r          resolucionBoleta
 }
 
-type finalDecision struct {
-	boleta Boleta
-	fila   mensajeriabd.MensajeriaBoleta
+type boletaAplicada struct {
+	boleta    Boleta
+	fila      mensajeriabd.MensajeriaBoleta
+	resultado string
 }
 
 // DecidirBoleta aprueba o rechaza una boleta en Argos y deja el resultado en la conversación.
 type DecidirBoleta struct {
-	m        *Modulo
-	previo   map[string]*auditoria.Caso[decision, previaDecision]
-	final    map[string]*auditoria.Caso[entradaFinalDecision, finalDecision]
-	releida  *auditoria.Caso[entradaFinalDecision, finalDecision]
-	resolver *auditoria.Caso[EntradaBoletaID, bool]
-	recibir  *auditoria.Caso[entradaResolucionArgos, int64]
+	m      *Modulo
+	previo map[string]*auditoria.Caso[decision, previaDecision]
+	final  map[string]*auditoria.Caso[entradaAplicar, boletaAplicada]
+	// releida: quien provocó la relectura sincroniza lo que ya decidió otro (con conversaciones.ver).
+	releida *auditoria.Caso[entradaAplicar, boletaAplicada]
+	// sistema: aplica lo que dijo Argos sin sesión (webhook confirmado, o el 200 cuya persona ya no
+	// podía guardar).
+	sistema   *auditoria.Caso[entradaAplicar, boletaAplicada]
+	recibir   *auditoria.Caso[entradaResolucionArgos, int64]
+	reintento *auditoria.Caso[entradaReintento, bool]
 }
 
 func permisoDecision(accion string) nucleo.Permiso {
@@ -487,46 +666,52 @@ func permisoDecision(accion string) nucleo.Permiso {
 }
 
 func nuevoDecidirBoleta(m *Modulo) *DecidirBoleta {
-	k := &DecidirBoleta{m: m, previo: map[string]*auditoria.Caso[decision, previaDecision]{}, final: map[string]*auditoria.Caso[entradaFinalDecision, finalDecision]{}}
+	k := &DecidirBoleta{m: m, previo: map[string]*auditoria.Caso[decision, previaDecision]{}, final: map[string]*auditoria.Caso[entradaAplicar, boletaAplicada]{}}
 	for _, accion := range []string{accionAprobar, accionRechazar} {
+		// El intento queda auditado ANTES de llamar a Argos (acción, boleta, comprobante y actor): si
+		// después falla el guardado local, igual consta quién lo pidió.
 		k.previo[accion] = auditoria.Nuevo(auditoria.Caso[decision, previaDecision]{
-			Accion: "boletas." + accion, Permiso: permisoDecision(accion), AuditarExito: sinAuditar[previaDecision], Logica: k.revisar,
+			Accion: "boletas." + accion, Permiso: permisoDecision(accion), Logica: k.revisar,
+			AuditarExito: func(p previaDecision) bool { return p.repetida == nil },
 		})
-		k.final[accion] = auditoria.Nuevo(auditoria.Caso[entradaFinalDecision, finalDecision]{
+		k.final[accion] = auditoria.Nuevo(auditoria.Caso[entradaAplicar, boletaAplicada]{
 			Accion: "boletas." + accion, Permiso: permisoDecision(accion), Logica: k.guardar,
 		})
 	}
-	// La relectura sincroniza lo que ya decidió otro: la audita quien la provocó, con conversaciones.ver.
-	k.releida = auditoria.Nuevo(auditoria.Caso[entradaFinalDecision, finalDecision]{
+	k.releida = auditoria.Nuevo(auditoria.Caso[entradaAplicar, boletaAplicada]{
 		Accion: "boletas.sincronizar", Permiso: nucleo.PermConversacionesVer, Logica: k.guardar,
-		AuditarExito: func(finalDecision) bool { return false },
+		AuditarExito: func(boletaAplicada) bool { return false },
 	})
-	k.resolver = auditoria.Nuevo(auditoria.Caso[EntradaBoletaID, bool]{
-		Accion: "mensajeria.resolver_boleta", Acceso: auditoria.Autenticado, AuditarExito: sinAuditar[bool], Logica: k.resolverPendiente,
+	k.sistema = auditoria.Nuevo(auditoria.Caso[entradaAplicar, boletaAplicada]{
+		Accion: "mensajeria.resolver_boleta", Acceso: auditoria.Autenticado, Logica: k.aplicar,
+		AuditarExito: func(boletaAplicada) bool { return false },
 	})
 	k.recibir = auditoria.Nuevo(auditoria.Caso[entradaResolucionArgos, int64]{
 		Accion: "mensajeria.recibir_resolucion_boleta", Acceso: auditoria.Autenticado, AuditarExito: sinAuditar[int64],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaResolucionArgos) (int64, error) {
-			if in.ComprobanteID <= 0 || (in.Estado != argos.ComprobanteAprobado && in.Estado != argos.ComprobanteRechazado) {
+			// Sin empresa no se sabe de quién es el comprobante: no se toca ninguna boleta.
+			if in.ComprobanteID <= 0 || in.EmpresaID == nil || *in.EmpresaID <= 0 ||
+				(in.Estado != argos.ComprobanteAprobado && in.Estado != argos.ComprobanteRechazado) {
 				return 0, nil
 			}
-			r := resolucionBoleta{Estado: BoletaAprobada, PagoID: in.PagoID}
-			if in.Estado == argos.ComprobanteRechazado {
-				r = resolucionBoleta{Estado: BoletaRechazada, Motivo: in.Motivo, Causa: in.Causa}
-			}
-			crudo, err := json.Marshal(r)
+			// Solo queda dicho que Argos avisó (y qué): lo que se aplica sale de releer el comprobante.
+			crudo, err := json.Marshal(map[string]any{"estado": in.Estado})
 			if err != nil {
 				return 0, err
 			}
 			ahora := m.ahora()
+			proximo := ahora.Add(GraciaResolucion)
 			return mensajeriabd.New(t).GuardarResolucionBoleta(ctx, mensajeriabd.GuardarResolucionBoletaParams{Resolucion: crudo, Ahora: &ahora,
-				ComprobanteID: in.ComprobanteID, EmpresaID: in.EmpresaID})
+				Proximo: &proximo, ComprobanteID: in.ComprobanteID, EmpresaID: *in.EmpresaID})
 		},
+	})
+	k.reintento = auditoria.Nuevo(auditoria.Caso[entradaReintento, bool]{
+		Accion: "mensajeria.confirmar_boleta", Acceso: auditoria.Autenticado, AuditarExito: sinAuditar[bool], Logica: k.reintentar,
 	})
 	return k
 }
 
-// revisar: quién puede y sobre qué boleta (antes de llamar a Argos).
+// revisar: quién puede y sobre qué boleta (antes de llamar a Argos). Su éxito es la auditoría del intento.
 func (k *DecidirBoleta) revisar(ctx context.Context, t *auditoria.Tx, in decision) (previaDecision, error) {
 	// Solo una persona: un token de API, una integración o el sistema (el asistente de IA) nunca.
 	if actor := t.Actor(); actor.Tipo != contexto.ActorUsuario || actor.ID == 0 {
@@ -542,6 +727,7 @@ func (k *DecidirBoleta) revisar(ctx context.Context, t *auditoria.Tx, in decisio
 		return previaDecision{}, err
 	}
 	t.FijarEntidad("boleta", f.ID)
+	t.FijarEmpresa(empresaDeConv(c))
 	if lectura, err := soloLecturaConv(ctx, q, c); err != nil || lectura {
 		if err == nil {
 			err = conversacionSoloLectura()
@@ -573,38 +759,52 @@ func (k *DecidirBoleta) revisar(ctx context.Context, t *auditoria.Tx, in decisio
 	if !ok {
 		return previaDecision{}, argos.SinAprobacion()
 	}
+	t.Anotar(map[string]any{"fase": "intento", "comprobante_id": *f.ComprobanteID, "conversacion_id": f.ConversacionID})
 	return previaDecision{a: a, boleta: f, comprobante: *f.ComprobanteID}, nil
 }
 
-// guardar aplica lo que dijo Argos (su 200 o la relectura) sobre la boleta.
-func (k *DecidirBoleta) guardar(ctx context.Context, t *auditoria.Tx, in entradaFinalDecision) (finalDecision, error) {
+// guardar aplica lo que dijo Argos con la sesión de la persona (debe seguir viendo la boleta).
+func (k *DecidirBoleta) guardar(ctx context.Context, t *auditoria.Tx, in entradaAplicar) (boletaAplicada, error) {
 	a, err := alcanceConvDe(ctx)
 	if err != nil {
-		return finalDecision{}, boletaNoEncontrada()
+		return boletaAplicada{}, boletaNoEncontrada()
 	}
 	q := mensajeriabd.New(t)
 	if _, _, err := boletaVisible(ctx, q, a, in.Boleta); err != nil {
-		return finalDecision{}, err
+		return boletaAplicada{}, err
 	}
+	r, err := k.aplicar(ctx, t, in)
+	if err != nil {
+		return r, err
+	}
+	return r, k.m.tocarActividad(ctx, q, a)
+}
+
+// aplicar bloquea la boleta y la deja como dice Argos.
+func (k *DecidirBoleta) aplicar(ctx context.Context, t *auditoria.Tx, in entradaAplicar) (boletaAplicada, error) {
+	q := mensajeriabd.New(t)
 	f, err := q.BoletaParaEnviar(ctx, in.Boleta)
 	if err != nil {
-		return finalDecision{}, err
+		return boletaAplicada{}, err
 	}
 	t.FijarEntidad("boleta", f.ID)
 	if f.EmpresaID != nil {
 		t.FijarEmpresa(*f.EmpresaID)
 	}
 	if f.ComprobanteID == nil || *f.ComprobanteID != in.ComprobanteID {
-		return finalDecision{}, nucleo.Conflicto("boleta_cambiada", "La boleta cambió mientras Argos respondía; vuelve a abrirla")
+		return boletaAplicada{}, nucleo.Conflicto("boleta_cambiada", "La boleta cambió mientras Argos respondía; vuelve a abrirla")
 	}
-	g, _, err := k.m.aplicarResolucion(ctx, t, f, in.r)
+	r := in.r
+	r.actor = in.DecididaPor
+	if r.actor == nil {
+		r.actor = actorVerificado(ctx, q, in.actorArgos)
+	}
+	t.Anotar(map[string]any{"fase": "resultado"})
+	g, resultado, err := k.m.aplicarResolucion(ctx, t, f, r)
 	if err != nil {
-		return finalDecision{}, err
+		return boletaAplicada{}, err
 	}
-	if err := k.m.tocarActividad(ctx, q, a); err != nil {
-		return finalDecision{}, err
-	}
-	return finalDecision{boleta: k.m.boletaVista(ctx, q, g, false), fila: g}, nil
+	return boletaAplicada{boleta: k.m.boletaVista(ctx, q, g, false), fila: g, resultado: resultado}, nil
 }
 
 // Aprobar aprueba la boleta en Argos (registra el pago) y la deja aprobada en la conversación.
@@ -616,6 +816,11 @@ func (k *DecidirBoleta) Aprobar(ctx context.Context, in EntradaAprobarBoleta) (B
 	for _, f := range d.Facturas {
 		if f <= 0 {
 			return Boleta{}, campoConv("facturas", "Ids de factura inválidos", "minimum")
+		}
+	}
+	if in.MontoEsperado != nil {
+		if d.MontoEsperado = montoNormal(*in.MontoEsperado); d.MontoEsperado == "" {
+			return Boleta{}, campoConv("montoEsperado", "Monto inválido (decimal con dos decimales)", "pattern")
 		}
 	}
 	return k.decidir(ctx, d)
@@ -639,6 +844,9 @@ func (k *DecidirBoleta) decidir(ctx context.Context, d decision) (Boleta, error)
 		return *pre.repetida, nil
 	}
 	at := atencionDe(pre.a, pre.boleta.ConversacionID)
+	if err := k.exigirMonto(ctx, d, pre, at); err != nil {
+		return Boleta{}, err
+	}
 	var c argos.Comprobante
 	if d.Accion == accionAprobar {
 		c, err = k.m.cfg.Argos.AprobarComprobante(ctx, at, pre.comprobante, d.Facturas, d.Nota)
@@ -652,19 +860,64 @@ func (k *DecidirBoleta) decidir(ctx context.Context, d decision) (Boleta, error)
 	if !ok || (c.ID != 0 && c.ID != pre.comprobante) {
 		return Boleta{}, conector.Rechazo(argos.Remoto, "Argos respondió un comprobante que Iris no reconoce; revisa la boleta en Argos")
 	}
-	r.actor = &pre.a.usuario
 	if r.Estado == BoletaRechazada && r.Motivo == nil {
 		r.Motivo, r.Causa = &d.Motivo, causaValida(&d.Causa)
 	}
-	res, err := k.final[d.Accion].Ejecutar(context.WithoutCancel(ctx), entradaFinalDecision{decision: d, ComprobanteID: pre.comprobante, EstadoArgos: c.Estado, Origen: "respuesta", r: r})
+	// La respuesta 200 es a la llamada de esta persona: la decisión es suya.
+	in := entradaAplicar{Boleta: d.Boleta, Accion: d.Accion, ComprobanteID: pre.comprobante, EstadoArgos: c.Estado, Origen: "respuesta",
+		DecididaPor: &pre.a.usuario, r: r}
+	sinCancelar := context.WithoutCancel(ctx)
+	res, err := k.final[d.Accion].Ejecutar(sinCancelar, in)
 	if err != nil {
+		// Argos ya decidió. Si la persona ya no puede guardar (permiso retirado, re-autenticación
+		// vencida, conversación que dejó de ver), la boleta igual queda como dice Argos; el error se
+		// le responde tal cual.
+		in.Origen = "respuesta_sin_sesion"
+		if bd := nucleo.BDDe(ctx); bd != nil {
+			if _, errSis := k.sistema.Ejecutar(ctxSistema(sinCancelar, bd), in); errSis != nil {
+				slog.ErrorContext(ctx, "mensajeria: Argos decidió una boleta y no se pudo guardar; la sincroniza el webhook", "boleta", d.Boleta, "err", errSis)
+			}
+		}
 		return Boleta{}, err
 	}
-	// Llegó antes el webhook y Argos resolvió otra cosa que la pedida (no debería): se dice.
+	// Argos resolvió otra cosa que la pedida (no debería): se dice.
 	if res.fila.Estado != d.estado() {
 		return Boleta{}, boletaYaDecidida(res.fila)
 	}
 	return res.boleta, nil
+}
+
+// exigirMonto: si la persona mandó el monto que confirmó, debe ser el de la boleta y el del comprobante
+// en Argos ahora mismo (se relee antes de aprobar: aprobar no lleva monto). Si no, 409 monto_cambio y
+// no se llama a aprobar.
+func (k *DecidirBoleta) exigirMonto(ctx context.Context, d decision, pre previaDecision, at argos.AtencionIris) error {
+	if d.Accion != accionAprobar || d.MontoEsperado == "" {
+		return nil
+	}
+	if local := montoNormal(aBoleta(pre.boleta).Monto); local != d.MontoEsperado {
+		return montoCambio(local)
+	}
+	c, err := k.m.cfg.Argos.ObtenerComprobante(ctx, at, pre.comprobante)
+	if err != nil {
+		var er *conector.ErrorRemoto
+		switch {
+		case !errors.As(err, &er):
+			return err
+		case er.Caido():
+			// Solo fue la lectura previa: nada se aplicó.
+			return argos.NoDisponible()
+		case er.Status == http.StatusNotFound:
+			return nucleo.Conflicto("comprobante_no_existe", "Argos ya no tiene el comprobante de esta boleta; revísalo en Argos")
+		}
+		return argos.Problema(err)
+	}
+	if c.ID != pre.comprobante {
+		return conector.Rechazo(argos.Remoto, "Argos respondió un comprobante que Iris no reconoce; revisa la boleta en Argos")
+	}
+	if enArgos := montoNormal(string(c.Monto)); enArgos != d.MontoEsperado {
+		return montoCambio(enArgos)
+	}
+	return nil
 }
 
 // alFallar traduce el error de Argos a lo que ve la persona (contratos/conversaciones.md §6.4.1).
@@ -692,6 +945,9 @@ func (k *DecidirBoleta) alFallar(ctx context.Context, d decision, pre previaDeci
 				"Tu usuario de Argos no tiene acceso a la empresa de este pago")
 		case "actor_ia_no_permitido":
 			return Boleta{}, soloPersonasBoleta()
+		case "empresa_no_permitida":
+			// El alcance del usuario técnico Iris en Argos (el token), no el de la persona.
+			return Boleta{}, conector.Rechazo(argos.Remoto, "El conector de Iris no tiene acceso a la empresa de este pago en Argos: revisa en Argos el alcance del usuario técnico Iris")
 		}
 		return Boleta{}, conector.Rechazo(argos.Remoto, "Argos rechazó el token del conector: revisa en Argos los permisos del usuario técnico Iris (comprobantes.aprobar y comprobantes.rechazar)")
 	case http.StatusUnauthorized:
@@ -703,7 +959,7 @@ func (k *DecidirBoleta) alFallar(ctx context.Context, d decision, pre previaDeci
 		case er.Codigo == "comprobante_revisado":
 			return k.releer(ctx, d, pre, at, "comprobante_revisado")
 		case er.Codigo == "comprobante_no_es_de_iris":
-			return Boleta{}, nucleo.Conflicto("comprobante_no_es_de_iris", "Este comprobante no nació en Iris: se resuelve en la caja de Argos")
+			return Boleta{}, comprobanteNoEsDeIris()
 		case er.Codigo == "iris_apagado":
 			return Boleta{}, argos.IrisApagado()
 		case argos.EsEnCurso(err):
@@ -720,8 +976,12 @@ func (k *DecidirBoleta) alFallar(ctx context.Context, d decision, pre previaDeci
 	return Boleta{}, argos.Problema(err)
 }
 
-// releer lee el comprobante de Argos y sincroniza la boleta local. Si lo decidió esta misma persona
-// con el mismo resultado (se perdió la respuesta anterior), responde la boleta; si no, 409.
+func comprobanteNoEsDeIris() *nucleo.Problema {
+	return nucleo.Conflicto("comprobante_no_es_de_iris", "Este comprobante no nació en Iris: se resuelve en la caja de Argos")
+}
+
+// releer lee el comprobante de Argos y sincroniza la boleta local. Si Argos dice que lo decidió esta
+// misma persona con el mismo resultado (se perdió la respuesta), responde la boleta; si no, 409.
 func (k *DecidirBoleta) releer(ctx context.Context, d decision, pre previaDecision, at argos.AtencionIris, codigo string) (Boleta, error) {
 	c, err := k.m.cfg.Argos.ObtenerComprobante(ctx, at, pre.comprobante)
 	if err != nil {
@@ -730,20 +990,25 @@ func (k *DecidirBoleta) releer(ctx context.Context, d decision, pre previaDecisi
 		}
 		return Boleta{}, nucleo.Conflicto(codigo, "Argos ya tiene una decisión sobre este comprobante, pero no se pudo releer; vuelve a abrir la boleta")
 	}
+	// El token de Iris lee cualquier comprobante de sus empresas: se valida que sea el de la boleta.
+	if c.ID != pre.comprobante {
+		return Boleta{}, conector.Rechazo(argos.Remoto, "Argos respondió un comprobante que Iris no reconoce; revisa la boleta en Argos")
+	}
+	if comprobanteAjeno(c, pre.boleta, false) != "" {
+		return Boleta{}, comprobanteNoEsDeIris()
+	}
 	r, ok := resolucionDeComprobante(c)
 	if !ok {
 		// Sigue pendiente: otra persona tiene la decisión a medias (o la clave quedó de otra petición).
 		return Boleta{}, nucleo.Conflicto(codigo, "Otra persona está decidiendo esta boleta; vuelve a abrirla en unos segundos")
 	}
-	mia := c.IrisActor != nil && *c.IrisActor == at.Actor
-	if mia {
-		r.actor = &pre.a.usuario
-	}
-	res, err := k.releida.Ejecutar(context.WithoutCancel(ctx), entradaFinalDecision{decision: d, ComprobanteID: pre.comprobante, EstadoArgos: c.Estado, Origen: "relectura", r: r})
+	// Quién decidió lo dice verificado_iris_actor (contrato 0.7.1); iris_actor es quien registró la boleta.
+	res, err := k.releida.Ejecutar(context.WithoutCancel(ctx), entradaAplicar{Boleta: d.Boleta, Accion: d.Accion, ComprobanteID: pre.comprobante,
+		EstadoArgos: c.Estado, Origen: "relectura", actorArgos: c.VerificadoIrisActor, r: r})
 	if err != nil {
 		return Boleta{}, err
 	}
-	if mia && res.fila.Estado == d.estado() {
+	if c.VerificadoIrisActor != nil && *c.VerificadoIrisActor == at.Actor && res.fila.Estado == d.estado() {
 		return res.boleta, nil
 	}
 	detalle := "Esta boleta ya fue " + descripcionDecision(res.fila)
@@ -757,19 +1022,15 @@ func (k *DecidirBoleta) releer(ctx context.Context, d decision, pre previaDecisi
 
 // entradaResolucionArgos es el payload de argos.comprobante_resuelto.
 type entradaResolucionArgos struct {
-	ComprobanteID int64   `json:"comprobante_id"`
-	Estado        string  `json:"estado"`
-	EmpresaID     *int64  `json:"empresa_id"`
-	PagoID        *int64  `json:"pago_id"`
-	Motivo        *string `json:"motivo"`
-	Causa         *string `json:"causa"`
+	ComprobanteID int64  `json:"comprobante_id"`
+	Estado        string `json:"estado"`
+	EmpresaID     *int64 `json:"empresa_id"`
 }
 
 // SuscribirComprobantes registra en el bus del relay (cmd/worker) el suscriptor de
-// argos.comprobante_resuelto (webhooks comprobante.aprobado y comprobante.rechazado de Argos): deja
-// la resolución en la boleta de ese comprobante, si sigue registrada. La aplica el despacho del
-// proceso de mensajería (mensaje de sistema y aviso al cliente). Idempotente: una boleta ya resuelta
-// o con una resolución guardada no cambia.
+// argos.comprobante_resuelto (webhooks comprobante.aprobado y comprobante.rechazado de Argos): marca
+// la boleta de ese comprobante y esa empresa como «por confirmar». El despacho del proceso de
+// mensajería relee el comprobante en Argos y aplica lo que diga. Idempotente.
 func (m *Modulo) SuscribirComprobantes(bus *integracion.Bus, bd nucleo.BD) {
 	bus.Suscribir("mensajeria.boletas", argos.EventoComprobanteResuelto, func(ctx context.Context, e integracion.Evento) error {
 		var in entradaResolucionArgos
@@ -781,8 +1042,14 @@ func (m *Modulo) SuscribirComprobantes(bus *integracion.Bus, bd nucleo.BD) {
 	})
 }
 
-// resolverPendiente aplica la resolución que dejó el webhook (true si la boleta cambió).
-func (k *DecidirBoleta) resolverPendiente(ctx context.Context, t *auditoria.Tx, in EntradaBoletaID) (bool, error) {
+type entradaReintento struct {
+	ID    uuid.UUID `json:"boleta_id"`
+	Error string    `json:"error"`
+}
+
+// reintentar anota que Argos no confirmó: otro intento con más espera o, agotados, la boleta queda
+// marcada (mensaje de sistema y boleta.confirmacion_agotada). true si se agotó.
+func (k *DecidirBoleta) reintentar(ctx context.Context, t *auditoria.Tx, in entradaReintento) (bool, error) {
 	q := mensajeriabd.New(t)
 	f, err := q.BoletaParaEnviar(ctx, in.ID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -791,29 +1058,104 @@ func (k *DecidirBoleta) resolverPendiente(ctx context.Context, t *auditoria.Tx, 
 	if err != nil {
 		return false, err
 	}
-	if len(f.Resolucion) == 0 {
+	if len(f.Resolucion) == 0 || f.ResolucionAgotadaEn != nil {
 		return false, nil
 	}
-	var r resolucionBoleta
-	if err := json.Unmarshal(f.Resolucion, &r); err != nil || (r.Estado != BoletaAprobada && r.Estado != BoletaRechazada) {
-		return false, q.DescartarResolucionBoleta(ctx, f.ID)
+	ahora := k.m.ahora()
+	p := mensajeriabd.ReintentarResolucionBoletaParams{ID: f.ID, Error: nombrePtr(recortar(in.Error, 300))}
+	if i := int(f.ResolucionIntentos); i < len(EsperasConfirmacion) {
+		proximo := ahora.Add(EsperasConfirmacion[i])
+		p.Proximo = &proximo
+		_, err := q.ReintentarResolucionBoleta(ctx, p)
+		return false, err
 	}
-	_, cambio, err := k.m.aplicarResolucion(ctx, t, f, r)
-	return cambio, err
+	p.Proximo, p.AgotadaEn = f.ResolucionProximo, &ahora
+	g, err := q.ReintentarResolucionBoleta(ctx, p)
+	if err != nil {
+		return false, err
+	}
+	t.FijarEntidad("boleta", g.ID)
+	if g.EmpresaID != nil {
+		t.FijarEmpresa(*g.EmpresaID)
+	}
+	t.RegistrarCambios("boleta", g.ID, map[string]any{"confirmacion": ConfirmacionPendiente}, map[string]any{"confirmacion": ConfirmacionAgotada})
+	c, err := q.ConversacionClienteParaActualizar(ctx, g.ConversacionID)
+	if err != nil {
+		return false, err
+	}
+	if err := k.m.sistema(ctx, t, &c, EventoSistema{Tipo: "boleta_sin_confirmar", Referencia: nombrePtr("Boleta " + g.Referencia),
+		EntidadID: nombrePtr(g.ID.String()), Detalle: g.ResolucionError}); err != nil {
+		return false, err
+	}
+	if _, err := guardarConv(ctx, q, c, false); err != nil {
+		return false, err
+	}
+	return true, t.Emitir("boleta.confirmacion_agotada", map[string]any{"boleta_id": g.ID, "conversacion_id": g.ConversacionID, "empresa_id": g.EmpresaID,
+		"comprobante_id": g.ComprobanteID, "intentos": g.ResolucionIntentos, "detalle": g.ResolucionError})
 }
 
-// despacharResoluciones aplica las resoluciones de webhooks que ya pasaron la gracia (hasta 50).
-func (m *Modulo) despacharResoluciones(ctx context.Context, bd nucleo.BD) error {
-	hasta := m.ahora().Add(-GraciaResolucion)
-	ids, err := mensajeriabd.New(bd).BoletasPorResolver(ctx, &hasta)
+// confirmarResolucion relee en Argos el comprobante de una boleta «por confirmar» y aplica lo que
+// diga Argos (estado, monto, empresa y quién decidió), nunca el payload del webhook. Si Argos no lo
+// confirma, queda para otro intento. El error que devuelve es solo de la base.
+func (m *Modulo) confirmarResolucion(ctx context.Context, bd nucleo.BD, id uuid.UUID) error {
+	f, err := mensajeriabd.New(bd).BoletaPorID(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
-	var primero error
+	if len(f.Resolucion) == 0 || f.ResolucionAgotadaEn != nil {
+		return nil
+	}
+	reintentar := func(motivo string) error {
+		_, err := m.boletas.reintento.Ejecutar(ctx, entradaReintento{ID: id, Error: motivo})
+		return err
+	}
+	if m.cfg.Argos == nil || f.ComprobanteID == nil {
+		return reintentar("sin conector con Argos en este proceso")
+	}
+	// La lectura va a nombre de quien registró la boleta (como su envío): no hay persona en el despacho.
+	a := alcanceConv{}
+	if f.RegistradaPor != nil {
+		a.usuario = *f.RegistradaPor
+	}
+	if f.EmpresaID != nil {
+		a.empresa = *f.EmpresaID
+	}
+	c, err := m.cfg.Argos.ObtenerComprobante(ctx, atencionDe(a, f.ConversacionID), *f.ComprobanteID)
+	if err != nil {
+		motivo, _ := resumenErrorArgos(err)
+		return reintentar(motivo)
+	}
+	if ajeno := comprobanteAjeno(c, f, true); ajeno != "" {
+		return reintentar(ajeno)
+	}
+	r, ok := resolucionDeComprobante(c)
+	if !ok {
+		return reintentar("Argos todavía lo tiene pendiente")
+	}
+	_, err = m.boletas.sistema.Ejecutar(ctx, entradaAplicar{Boleta: id, ComprobanteID: *f.ComprobanteID, EstadoArgos: c.Estado, Origen: "webhook",
+		actorArgos: c.VerificadoIrisActor, r: r})
+	if err != nil {
+		return reintentar("no se pudo guardar la resolución")
+	}
+	return nil
+}
+
+// despacharResoluciones confirma con Argos las resoluciones que avisó su webhook (hasta 50). Un error
+// en una boleta no corta la corrida: cada una lleva su cuenta de intentos.
+func (m *Modulo) despacharResoluciones(ctx context.Context, bd nucleo.BD) error {
+	ahora := m.ahora()
+	ids, err := mensajeriabd.New(bd).BoletasPorResolver(ctx, &ahora)
+	if err != nil {
+		return err
+	}
+	var errs []error
 	for _, id := range ids {
-		if _, err := m.boletas.resolver.Ejecutar(ctx, EntradaBoletaID{ID: id}); err != nil && primero == nil {
-			primero = errors.New("resolver la boleta " + id.String() + ": " + err.Error())
+		if err := m.confirmarResolucion(ctx, bd, id); err != nil {
+			errs = append(errs, errors.New("confirmar la boleta "+id.String()+": "+err.Error()))
 		}
 	}
-	return primero
+	return errors.Join(errs...)
 }

@@ -325,7 +325,7 @@ func (q *Queries) BajaDelClientePendiente(ctx context.Context, arg BajaDelClient
 }
 
 const boletaParaEnviar = `-- name: BoletaParaEnviar :one
-SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en FROM mensajeria.boletas WHERE id = $1 FOR UPDATE
+SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en FROM mensajeria.boletas WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) BoletaParaEnviar(ctx context.Context, id uuid.UUID) (MensajeriaBoleta, error) {
@@ -363,6 +363,10 @@ func (q *Queries) BoletaParaEnviar(ctx context.Context, id uuid.UUID) (Mensajeri
 		&i.AvisoMensajeID,
 		&i.Resolucion,
 		&i.ResolucionEn,
+		&i.ResolucionProximo,
+		&i.ResolucionIntentos,
+		&i.ResolucionError,
+		&i.ResolucionAgotadaEn,
 	)
 	return i, err
 }
@@ -1881,7 +1885,7 @@ INSERT INTO mensajeria.boletas (id, empresa_id, conversacion_id, cliente_id, ser
     banco_origen_id, referencia, monto, fecha_deposito, nota, registrada_por, proximo_intento)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
     $9, $10, $11, $12, $13, $14, $15)
-RETURNING id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en
+RETURNING id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en
 `
 
 type InsertarBoletaParams struct {
@@ -1954,6 +1958,10 @@ func (q *Queries) InsertarBoleta(ctx context.Context, arg InsertarBoletaParams) 
 		&i.AvisoMensajeID,
 		&i.Resolucion,
 		&i.ResolucionEn,
+		&i.ResolucionProximo,
+		&i.ResolucionIntentos,
+		&i.ResolucionError,
+		&i.ResolucionAgotadaEn,
 	)
 	return i, err
 }
@@ -3495,7 +3503,7 @@ UPDATE mensajeria.boletas
 SET estado = $1, comprobante_id = $2, detalle = $3, intentos = intentos + 1,
     proximo_intento = $4, updated_at = now()
 WHERE id = $5
-RETURNING id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en
+RETURNING id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en
 `
 
 type ResultadoBoletaParams struct {
@@ -3547,6 +3555,10 @@ func (q *Queries) ResultadoBoleta(ctx context.Context, arg ResultadoBoletaParams
 		&i.AvisoMensajeID,
 		&i.Resolucion,
 		&i.ResolucionEn,
+		&i.ResolucionProximo,
+		&i.ResolucionIntentos,
+		&i.ResolucionError,
+		&i.ResolucionAgotadaEn,
 	)
 	return i, err
 }

@@ -294,6 +294,7 @@ type Boleta struct {
 	DecididaPor         *UsuarioRef `json:"decididaPor,omitempty" doc:"El usuario de Iris que decidió desde la conversación; ausente si decidió caja en el panel de Argos"`
 	DecididaEn          *time.Time  `json:"decididaEn" nullable:"true"`
 	AvisoCliente        *string     `json:"avisoCliente" nullable:"true" enum:"enviado,sin_aviso" doc:"Si se le avisó al cliente en la conversación al resolverla. sin_aviso: ventana de 24 h cerrada sin plantilla aprobada ni permiso de contacto, baja o número apagado"`
+	ConfirmacionArgos   *string     `json:"confirmacionArgos" nullable:"true" enum:"pendiente,agotada" doc:"Argos avisó (webhook) que el comprobante se resolvió e Iris todavía lo está confirmando con Argos (pendiente), o no pudo confirmarlo después de varios intentos (agotada: revisarla en Argos; aprobar o rechazar desde aquí la sincroniza). null = nada por confirmar"`
 }
 
 func aBoleta(f mensajeriabd.MensajeriaBoleta) Boleta {
@@ -303,7 +304,18 @@ func aBoleta(f mensajeriabd.MensajeriaBoleta) Boleta {
 	}
 	return Boleta{ID: f.ID, Estado: f.Estado, ComprobanteID: f.ComprobanteID, Detalle: f.Detalle, Referencia: f.Referencia, Monto: monto, CreadaEn: f.CreatedAt,
 		ConversacionID: f.ConversacionID, PagoID: f.PagoID, MotivoRechazo: f.MotivoRechazo, CausaRechazo: f.CausaRechazo,
-		VerificadoPorNombre: f.VerificadoPorNombre, DecididaEn: f.DecididaEn, AvisoCliente: f.AvisoCliente}
+		VerificadoPorNombre: f.VerificadoPorNombre, DecididaEn: f.DecididaEn, AvisoCliente: f.AvisoCliente, ConfirmacionArgos: confirmacionDe(f)}
+}
+
+// confirmacionDe: si hay una resolución avisada por Argos sin confirmar todavía.
+func confirmacionDe(f mensajeriabd.MensajeriaBoleta) *string {
+	switch {
+	case f.ResolucionAgotadaEn != nil:
+		return nombrePtr(ConfirmacionAgotada)
+	case len(f.Resolucion) > 0:
+		return nombrePtr(ConfirmacionPendiente)
+	}
+	return nil
 }
 
 func nuevoRegistrarBoleta(m *Modulo) *auditoria.Caso[EntradaBoleta, Boleta] {

@@ -41,6 +41,8 @@ type cajaFalsa struct {
 	// alDecidir corre mientras «Argos» atiende una decisión, ya aplicada y antes de responder.
 	alDecidir func(id int64)
 	pagos     int64
+	// sin071: Argos 1.15.0 (contrato 0.7.0): el comprobante no trae verificado_iris_actor.
+	sin071 bool
 }
 
 type usuarioArgos struct {
@@ -57,8 +59,11 @@ type comprobanteFalso struct {
 	pago             *int64
 	motivo, causa    *string
 	verificadoNombre *string
+	// irisActor e irisConversacion: quien REGISTRÓ la boleta (no quien la decidió).
 	irisActor        *string
 	irisConversacion *string
+	// verificadoActor: el X-Iris-Actor de quien la aprobó o rechazó desde Iris (0.7.1); nil = caja.
+	verificadoActor *string
 }
 
 type claveCaja struct {
@@ -104,9 +109,23 @@ func (c *cajaFalsa) vincular(usuario int64, nombre string, empresas ...int64) *u
 func (c *cajaFalsa) comprobante(id, empresa int64, monto string) *comprobanteFalso {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	f := &comprobanteFalso{id: id, empresa: empresa, canal: "iris", estado: "pendiente", monto: monto}
+	registro, conv := "usuario:1", "iris:conversacion:1"
+	f := &comprobanteFalso{id: id, empresa: empresa, canal: "iris", estado: "pendiente", monto: monto, irisActor: &registro, irisConversacion: &conv}
 	c.comprobantes[id] = f
 	return f
+}
+
+// lecturas cuenta los GET /comprobantes/:id que llegaron.
+func (c *cajaFalsa) lecturas() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for _, p := range c.peticiones {
+		if p.metodo == http.MethodGet {
+			n++
+		}
+	}
+	return n
 }
 
 // decisiones cuenta las peticiones de aprobar y rechazar que llegaron.
@@ -132,10 +151,27 @@ func (c *cajaFalsa) problema(w http.ResponseWriter, status int, codigo string) {
 	_ = json.NewEncoder(w).Encode(p)
 }
 
-func (f *comprobanteFalso) json() map[string]any {
-	return map[string]any{"id": f.id, "empresa_id": f.empresa, "cliente_id": 1201, "servicio_id": nil, "monto": f.monto, "canal": f.canal,
+func (c *cajaFalsa) json(f *comprobanteFalso) map[string]any {
+	m := map[string]any{"id": f.id, "empresa_id": f.empresa, "cliente_id": 1201, "servicio_id": nil, "monto": f.monto, "canal": f.canal,
 		"estado": f.estado, "pago_id": f.pago, "motivo_rechazo": f.motivo, "causa_rechazo": f.causa, "verificado_por": 9,
 		"verificado_por_nombre": f.verificadoNombre, "iris_actor": f.irisActor, "iris_conversacion": f.irisConversacion}
+	if !c.sin071 {
+		m["verificado_iris_actor"] = f.verificadoActor
+	}
+	return m
+}
+
+// decidirEnPanel: caja resuelve el comprobante en el panel de Argos (nadie de Iris).
+func (c *cajaFalsa) decidirEnPanel(id int64, estado, nombre string, motivo, causa *string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	f := c.comprobantes[id]
+	f.estado, f.verificadoNombre, f.verificadoActor, f.motivo, f.causa, f.pago = estado, &nombre, nil, motivo, causa, nil
+	if estado == "aprobado" {
+		c.pagos++
+		pago := 90000 + c.pagos
+		f.pago = &pago
+	}
 }
 
 func (c *cajaFalsa) anotar(r *http.Request, crudo []byte) peticionCaja {
@@ -165,7 +201,7 @@ func (c *cajaFalsa) leer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(f.json())
+	_ = json.NewEncoder(w).Encode(c.json(f))
 }
 
 func (c *cajaFalsa) decidir(w http.ResponseWriter, r *http.Request, accion string) {
@@ -243,8 +279,8 @@ func (c *cajaFalsa) decidir(w http.ResponseWriter, r *http.Request, accion strin
 		responder(http.StatusConflict, "comprobante_revisado")
 		return
 	}
-	actor, conv := p.actor, p.conversacion
-	f.verificadoNombre, f.irisActor, f.irisConversacion = &u.nombre, &actor, &conv
+	actor := p.actor
+	f.verificadoNombre, f.verificadoActor = &u.nombre, &actor
 	if accion == "aprobar" {
 		c.pagos++
 		pago := 90000 + c.pagos
@@ -257,7 +293,7 @@ func (c *cajaFalsa) decidir(w http.ResponseWriter, r *http.Request, accion strin
 		}
 		f.estado, f.motivo, f.causa = "rechazado", &motivo, &causa
 	}
-	cuerpo, _ := json.Marshal(f.json())
+	cuerpo, _ := json.Marshal(c.json(f))
 	c.claves[p.clave] = claveCaja{huella: huella, cuerpo: cuerpo}
 	gancho := c.alDecidir
 	c.mu.Unlock()

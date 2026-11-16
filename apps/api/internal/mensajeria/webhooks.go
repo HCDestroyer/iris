@@ -269,12 +269,11 @@ type trabajadorDespacho struct {
 
 func (w *trabajadorDespacho) Work(ctx context.Context, _ *river.Job[ArgsDespacharWebhooks]) error {
 	ctx = ctxSistema(ctx, w.bd)
-	if err := w.m.despacharWebhooks(ctx, w.bd); err != nil {
-		return err
-	}
-	if err := w.m.despacharBoletas(ctx, w.bd); err != nil {
-		return err
-	}
-	// Resoluciones que trajo el webhook de Argos (comprobante.aprobado / comprobante.rechazado).
-	return w.m.despacharResoluciones(ctx, w.bd)
+	// Cada despacho corre aunque otro falle: un webhook que no sale no detiene las boletas, ni al revés.
+	return errors.Join(
+		w.m.despacharWebhooks(ctx, w.bd),
+		w.m.despacharBoletas(ctx, w.bd),
+		// Resoluciones que avisó el webhook de Argos (comprobante.aprobado / comprobante.rechazado).
+		w.m.despacharResoluciones(ctx, w.bd),
+	)
 }

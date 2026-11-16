@@ -134,13 +134,15 @@ comunes de conectores); aquí queda lo propio de Argos.
 - **Emite:** `conector.creado`, `conector.activado`, `conector.desactivado`,
   `argos.servicio_retirado` (gancho para la orden de retiro de I2; solo si Argos confirma el
   estado al releer `GET /servicios/:id`), `argos.servicio_eliminado` y `argos.router_eliminado`
-  (contrato 0.3.1, confirmados con el 404), `argos.servicio_restaurado` y `argos.router_restaurado`.
+  (contrato 0.3.1, confirmados con el 404), `argos.servicio_restaurado` y `argos.router_restaurado`;
+  `argos.comprobante_resuelto` y `usuario.argos_abierto` (contrato 0.7.0).
   Detalle en
   `.claude/integration/contratos/eventos.md`.
 - **Consume (webhooks de Argos, §2.3):** `cliente.actualizado`, `servicio.creado`,
   `servicio.config_cambiada`, `asignacion.cambiada` y `servicio.estado_cambiado` → refrescan la
   instantánea del cliente si ya está en ella (si no, «ignorado»); `servicio.eliminado` y
-  `router.eliminado` (arriba). Los demás se guardan como «ignorado» (Fase 2).
+  `router.eliminado` (arriba); `comprobante.aprobado` y `comprobante.rechazado` →
+  `argos.comprobante_resuelto`. Los demás se guardan como «ignorado» (Fase 2).
 
 ## Jobs (cmd/worker)
 
@@ -291,6 +293,7 @@ partes (ficha, ticket, orden, comercial y app de campo).
 - **Contrato 0.6.4.** `ContratoIris = "0.6.4"` (A22): cada elemento de `bodegas[]` de
   `GET /inventario/tecnicos` trae `nombre`. Iris lo pasa como `bodegas[].nombre` en su selector; con
   un Argos anterior llega vacío y el panel muestra «Bodega <id>». Es compatible: nada más cambia.
+- **Contrato 0.7.0** (`ContratoIris = "0.7.0"`, pedido B3): ver «Contrato 0.7.0» abajo.
 - **Técnicos de Argos** (`tecnicos.go`). `GET /api/v1/integraciones/argosisp/tecnicos`
   (`agenda.vincular_argos`) es el proxy paginado de `GET /inventario/tecnicos` para el selector
   del vínculo; marca `enEmpresa` y `vinculadoA`. Con `?sinVincular=true` salta los que ya tiene
@@ -317,3 +320,35 @@ partes (ficha, ticket, orden, comercial y app de campo).
     con el técnico de Iris del vínculo (`usuario_id`).
 - **Errores** del inventario por técnico: 422 `argos_sin_inventario_tecnico` (Argos < 1.6.0),
   `tecnico_no_encontrado`, `tecnico_sin_bodega`.
+
+## Contrato 0.7.0: aprobar comprobantes desde Iris y autologin Iris → Argos (pedido B3)
+
+- **Capacidad** (`contrato.go`): `Conector.capacidades` trae `aprobar_comprobantes` cuando el conector
+  informa contrato ≥ 0.7.0 (`SoportaAprobarComprobantes`, `ApruebaComprobantes`). Sin ella, aprobar,
+  rechazar y abrir Argos responden 422 `argos_sin_aprobacion` sin llamar a Argos.
+- **Aprobar y rechazar** (`comprobantes.go`, §7.7): `AprobarComprobante`, `RechazarComprobante` y
+  `ObtenerComprobante`, con el patrón de `AtencionIris` (`X-Iris-Actor: usuario:<id>`,
+  `X-Iris-Conversacion`, `X-Empresa-Id`) e `Idempotency-Key` = `iris:aprobar:<comprobante_id>` /
+  `iris:rechazar:<comprobante_id>`. El cuerpo es un struct (un reintento manda los mismos bytes).
+  Un 409 `idempotencia_en_curso` se reintenta con espera corta (`EsperasEnCurso`). Son sincrónicas:
+  nunca van por `integracion.pendientes`. La acción, los permisos y la traducción de errores viven en
+  `internal/mensajeria` (`boletas_decidir.go`). `ErrorRemoto.Codigo` trae el `code` del problem+json
+  de Argos (o el último segmento de su `type`). `Comprobante.VerificadoIrisActor` (contrato 0.7.1,
+  opcional) es quien lo decidió desde Iris; `IrisActor` es quien registró la boleta.
+- **Abrir Argos** (`abrir_argos.go`, §1.3): `POST /api/v1/integraciones/argosisp/abrir
+  { destino?: { tipo, idExterno } }` (`integraciones.abrir_argos`; solo una persona con sesión del
+  panel: 403 `solo_personas`). Pide el ticket a `POST /integraciones/iris/sso/tickets` con el token del
+  conector y `usuario.id_externo` = el id del usuario de Iris en texto (el mismo de `X-Iris-Actor`);
+  `correo` y `nombre` son informativos. Devuelve `{ url, expiraEn }` solo si la URL es
+  `http(s)://<host>/sso/entrar#<ticket>` con el host de `conector.URLPublicaDe` (URL pública a mano,
+  `panel_url` o `base_url`: lo mismo que entrega `GET /integraciones/enlaces`, que acepta
+  `clientes.ver` o `integraciones.abrir_argos`); nunca un host libre. Si no, 502 `argos_rechazo`. Sin `destino` es «Vincular mi usuario de Argos». La URL lleva el ticket: en la
+  auditoría va `url: "***"`, el evento `usuario.argos_abierto` no la lleva y la respuesta se marca
+  `NoRepetible` (no queda en `nucleo.idempotencia`). Tope: 10 por minuto por persona
+  (`TopeAbrirArgos`, contado en `integracion.abrir_argos_cuotas`: vale con varias réplicas): 429
+  `demasiados_intentos`. En una sesión abierta por autologin exige re-autenticación
+  (`auditoria.RequiereReautenticacion`).
+  Errores: 409 `conector_apagado` e `iris_apagado`, 422 `argos_sin_aprobacion`, 502
+  `argos_no_disponible`. Iris no guarda si el vínculo existe: solo Argos lo sabe.
+- **Webhooks** (`webhook_070.go`): `comprobante.aprobado` y `comprobante.rechazado` (§7.2) emiten
+  `argos.comprobante_resuelto` con el payload firmado (no se relee Argos). Lo consume mensajería.

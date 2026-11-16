@@ -44,7 +44,7 @@ func comoMapas(t *testing.T, xs []tecnicoArgos064) []map[string]any {
 }
 
 func TestContratoIris064(t *testing.T) {
-	if argos.ContratoIris != "0.6.4" {
+	if argos.ContratoIris != "0.7.0" {
 		t.Fatalf("ContratoIris: %s", argos.ContratoIris)
 	}
 	e := nuevoEntorno(t)
@@ -52,8 +52,8 @@ func TestContratoIris064(t *testing.T) {
 	_, _, _ = e.conectado()
 	var canje map[string]any
 	e.argos.con(func() { canje = e.argos.canjes[len(e.argos.canjes)-1] })
-	if canje["contrato"] != "0.6.4" {
-		t.Fatalf("el canje debía mandar contrato 0.6.4: %v", canje["contrato"])
+	if canje["contrato"] != "0.7.0" {
+		t.Fatalf("el canje debía mandar contrato 0.7.0: %v", canje["contrato"])
 	}
 }
 

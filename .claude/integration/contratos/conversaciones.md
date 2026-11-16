@@ -359,6 +359,9 @@ agregan un mensaje de sistema y un vínculo. Exigen ver la conversación y el pe
 | `POST /conversaciones/{id}/boletas` | `conversaciones.registrar_boleta` | §6.4 | `boleta_registrada` |
 | `POST /conversaciones/{id}/promesas/simular` | `conversaciones.registrar_promesa` | `POST /promesas/simular` de Argos (lectura, sin auditar) | — |
 | `POST /conversaciones/{id}/promesas` | `conversaciones.registrar_promesa` | §6.5 | `promesa_creada` |
+| `GET /conversaciones/{id}/boletas` · `GET /boletas/{id}` | `conversaciones.ver` | §6.4.1 (lectura) | — |
+| `POST /boletas/{id}/aprobar` | `boletas.aprobar` | §6.4.1: `POST /comprobantes/:id/aprobar` de Argos | `boleta_aprobada` |
+| `POST /boletas/{id}/rechazar` | `boletas.rechazar` | §6.4.1: `POST /comprobantes/:id/rechazar` de Argos | `boleta_rechazada` |
 
 ### 6.4 Boleta (contrato con Argos §7.2)
 
@@ -378,10 +381,186 @@ boleta (`mensajeria.boletas`, uuid) y la manda a Argos en un job (`POST /comprob
 <conversacion id>`, `canal_contacto = whatsapp`, `leido_por = persona`), con reintentos a 1 min,
 5 min, 30 min, 2 h y 12 h. Estados: `por_enviar` → `registrada` (Argos la aceptó, con
 `comprobanteId`) | `fallida` (rechazo de negocio: `referencia_duplicada`, validación…, con el
-`detalle` de Argos). La aprobación o el rechazo (webhooks `comprobante.*`) se reflejan en
-la conversación cuando lleguen (ver «Pendiente» en §12). Decide caja en el panel de Argos o, desde
-el contrato con Argos 0.7.0 (§7.7, pedido B3, fase 3), la persona que atiende la conversación si es
+`detalle` de Argos) → `aprobada` | `rechazada` (§6.4.1). Decide caja en el panel de Argos o, desde
+el contrato con Argos 0.7.0 (§7.7, pedido B3), la persona que atiende la conversación si es
 un usuario de Argos vinculado; el asistente de IA nunca.
+
+### 6.4.1 Aprobar y rechazar la boleta (contrato con Argos 0.7.0 §7.7, pedido B3)
+
+Una **persona** aprueba o rechaza la boleta desde la conversación. Iris solo transmite la decisión:
+**decide Argos** con el usuario de Argos vinculado a esa persona.
+
+**Leer.** `GET /conversaciones/{id}/boletas` → `{ data: Boleta[] }` (en orden de registro) y
+`GET /boletas/{id}` → `Boleta`; exigen ver la conversación (si no, 404). `Boleta` =
+`{ id, conversacionId, estado, comprobanteId, detalle, referencia, monto, creadaEn, puedeDecidir,
+pagoId, motivoRechazo, causaRechazo, verificadoPorNombre, decididaPor?, decididaEn, avisoCliente,
+confirmacionArgos }`:
+
+- `estado`: `por_enviar` | `registrada` | `fallida` | `aprobada` | `rechazada`. La boleta pendiente
+  de decidir es la `registrada` (Argos la tiene como comprobante `pendiente`).
+- `puedeDecidir`: está `registrada`, tiene `comprobanteId` y el Argos conectado informa contrato
+  ≥ 0.7.0 (capacidad `aprobar_comprobantes` del conector). Las boletas de Iris son siempre de
+  `canal = iris`. El panel muestra los botones si además la persona tiene `boletas.aprobar` o
+  `boletas.rechazar`.
+- `verificadoPorNombre`: el usuario de Argos que decidió (el vinculado, o caja). `decididaPor`
+  (`{ id, nombre }`): el usuario de Iris que decidió desde la conversación; ausente si decidió caja
+  en el panel de Argos, o si Argos no dice quién fue. `avisoCliente`: `enviado` | `sin_aviso` (ver
+  «Aviso al cliente»).
+- `confirmacionArgos`: `pendiente` (Argos avisó por webhook que el comprobante se resolvió e Iris lo
+  está confirmando), `agotada` (no pudo confirmarlo después de varios intentos: revisarla en Argos;
+  aprobar o rechazar desde aquí la sincroniza) o null.
+
+**Decidir.**
+
+| Ruta | Cuerpo | Permiso |
+| --- | --- | --- |
+| `POST /boletas/{id}/aprobar` | `{ nota?: string ≤ 400, facturas?: number[], montoEsperado?: "250.00" }` | `boletas.aprobar` |
+| `POST /boletas/{id}/rechazar` | `{ motivo: string 3–500, causa?: no_aparece \| monto_distinto \| ilegible \| falta_dato \| duplicado \| otro }` | `boletas.rechazar` |
+
+- Responden **200** con la `Boleta` ya resuelta. Aprobar va sin monto ni fecha: se aprueba por el
+  monto del comprobante; si el depósito es por otro monto, se rechaza con `monto_distinto`.
+- **`montoEsperado`** (opcional, decimal con dos decimales): el monto que la persona vio y confirmó
+  en el diálogo. Si viene, Iris lo compara con el de la boleta y con el del comprobante en Argos
+  (lo relee con `GET /comprobantes/:id`) **antes** de aprobar. Si alguno no coincide: 409
+  `monto_cambio`, con `montoActual` en el problema, y no se llama a aprobar.
+- El `motivo` del rechazo queda en Argos y en la boleta. Lo que recibe el cliente está en «Aviso al
+  cliente».
+- **Quién.** Solo una persona con su sesión del panel: un token de API, una integración o el
+  asistente de IA reciben 403 `solo_personas` (aunque tengan el permiso). Debe ver la conversación,
+  en su empresa activa (si no, 404), y la conversación no puede ser de solo lectura (préstamo
+  revocado: 422 `conversacion_solo_lectura`; esa boleta la resuelve caja en Argos). `boletas.aprobar`
+  y `boletas.rechazar` los tienen solo `admin` y el rol base `caja` (`supervisor` no: un despliegue no
+  le da poder de caja a nadie; a quien lo necesite se le asigna el rol caja). Son permisos sensibles
+  (MFA y re-autenticación en una sesión abierta por autologin). El permiso real lo decide Argos.
+- **La boleta** debe estar `registrada` con `comprobanteId`: si no, 422 `boleta_no_registrada`. Ya
+  decidida: 409 `boleta_ya_decidida`, salvo que la misma persona repita la misma decisión, que
+  responde 200 con la boleta como quedó (sin volver a Argos).
+- **Llamada a Argos**, sincrónica y fuera de la transacción (como las promesas; nunca por
+  `integracion.pendientes`): `X-Iris-Actor: usuario:<id>`, `X-Iris-Conversacion:
+  iris:conversacion:<id>`, `X-Empresa-Id` de la empresa activa e `Idempotency-Key =
+  iris:aprobar:<comprobante_id>` / `iris:rechazar:<comprobante_id>`.
+- **Idempotencia.** Las dos rutas aceptan `Idempotency-Key`, pero la respuesta no se guarda con ella:
+  la clave hacia Argos sale del comprobante, así que repetir es seguro también después de un error
+  (después de vincular, «Reintentar» con la misma clave vuelve a preguntar a Argos).
+- **Auditoría del intento.** Antes de llamar a Argos queda una fila `boletas.aprobar` /
+  `boletas.rechazar` con la boleta, el comprobante y el actor (`fase: intento`); el guardado deja otra
+  (`fase: resultado`). La nota no se guarda; el motivo sí.
+- **Con el 200 de Argos** (el `Comprobante` completo) la boleta se resuelve en una transacción:
+  estado, `pagoId`, `verificadoPorNombre`, `decididaPor` (la persona de la sesión), mensaje de
+  sistema, aviso al cliente y evento `boleta.aprobada` / `boleta.rechazada`. Si ese guardado falla
+  (le quitaron el permiso, venció la re-autenticación o dejó de ver la conversación), la boleta
+  **igual** queda como dice Argos, a su nombre (lo guarda el sistema) y la persona recibe el error.
+
+**Errores** (problem+json en español; nunca el `detail` de Argos):
+
+| Argos | Iris | Qué hace el panel |
+| --- | --- | --- |
+| 403 `actor_sin_vinculo` | 409 `argos_sin_vinculo` | «Vincula tu usuario de Argos para aprobar pagos»: ofrece «Vincular» (`POST /integraciones/argosisp/abrir` sin destino) y reintenta |
+| 403 `actor_inactivo` | 403 `argos_usuario_inactivo` | Su usuario de Argos está inactivo |
+| 403 `actor_sin_permiso` | 403 `argos_sin_permiso` | «Tu usuario de Argos no tiene permiso de caja» |
+| 403 `actor_sin_empresa` | 403 `argos_sin_empresa` | Su usuario de Argos no tiene esa empresa |
+| 403 `actor_ia_no_permitido` | 403 `solo_personas` | (Iris no llama a Argos con `asistente_ia`) |
+| 409 `comprobante_revisado` | 409 `comprobante_revisado` | Ya lo resolvió caja u otra persona: Iris releyó `GET /comprobantes/:id` y la boleta local quedó sincronizada; volver a leerla |
+| 422 `idempotency_key_reutilizada` | 409 `otra_persona_decidio` | La clave la usó otro actor: Iris releyó el comprobante y sincronizó la boleta |
+| 409 `comprobante_no_es_de_iris` | 409 `comprobante_no_es_de_iris` | Se resuelve en la caja de Argos |
+| 409 `iris_apagado` | 409 `iris_apagado` | Argos tiene apagado su conector con Iris |
+| 409 `idempotencia_en_curso` | reintento corto (0,3 s, 0,7 s y 1,5 s); si no cede, 409 `idempotencia_en_curso` | «Reintentar» en unos segundos |
+| 404 | 409 `comprobante_no_existe` | Revisar en Argos |
+| otro 422 | 422 `decision_no_permitida` | Revisar facturas, motivo o causa |
+| 401 u otro 403 (el token del conector) | 502 `argos_rechazo` | Avisar a un administrador |
+| sin respuesta, 429 o 5xx | 502 `argos_no_disponible` | «Puede haberse aplicado en Argos: vuelve a intentar para confirmarlo». Repetir es seguro (la clave sale del comprobante) y dice cómo quedó |
+| (`montoEsperado` no coincide) | 409 `monto_cambio` (con `montoActual`) | Mostrar el monto actual y pedir confirmar de nuevo |
+| (sin conector activo) | 503 `conector_apagado` | — |
+| (Argos informa contrato < 0.7.0) | 422 `argos_sin_aprobacion` | No mostrar los botones (`puedeDecidir = false`) |
+
+Si la relectura muestra que el comprobante lo decidió **esta misma persona** (según
+`verificado_iris_actor`) con el mismo resultado (se había perdido la respuesta), la acción responde
+200 con la boleta.
+
+**Solo Argos cambia el estado.** La boleta queda como diga Argos de su comprobante, con la fila
+bloqueada, por tres caminos:
+
+1. la respuesta 200 de Argos a quien decidió en Iris (`origen: iris`, `actor_id` = esa persona);
+2. el webhook `comprobante.aprobado` / `comprobante.rechazado` de Argos (decidió caja en su panel, o
+   llegó antes que la respuesta). **Es solo un aviso:** debe traer `empresa_id` y solo marca la boleta
+   de ese comprobante en esa empresa (`confirmacionArgos: pendiente`). Pasados 20 s (la gracia deja
+   ganar a la respuesta de quien decidió), el despacho del proceso de mensajería relee
+   `GET /comprobantes/:id` y aplica lo que diga **Argos**, nunca el payload: estado, monto, motivo,
+   causa y quién decidió. Exige que el comprobante sea el de la boleta, de `canal = iris` y de la
+   misma empresa. Si Argos no lo confirma (no responde, sigue pendiente o no coincide), no se aplica
+   y se reintenta a 1 min, 5 min, 30 min, 2 h y 12 h; agotados, `confirmacionArgos: agotada`, mensaje
+   de sistema `boleta_sin_confirmar` y evento `boleta.confirmacion_agotada`. Otro webhook, o aprobar
+   o rechazar desde Iris, la vuelve a sincronizar;
+3. la relectura de `GET /comprobantes/:id` (409 `comprobante_revisado` u `otra_persona_decidio`), con
+   las mismas validaciones de comprobante y canal.
+
+**Quién decidió** (`decididaPor`, `actor_id` de los eventos): en el camino 1, la persona de la
+sesión. En los caminos 2 y 3, el `verificado_iris_actor` del comprobante (contrato con Argos 0.7.1,
+opcional) cuando es `usuario:<id>` de una persona de esta instalación; si no viene (Argos 1.15.0) o
+es null (decidió caja), queda sin actor de Iris y solo se muestra `verificadoPorNombre`. El
+`iris_actor` del comprobante es quien **registró** la boleta: nunca se usa para esto.
+
+**Una resolución, un aviso.** La boleta pasa de `registrada` a `aprobada` o `rechazada` una vez: ahí
+salen el mensaje de sistema, el aviso al cliente y `boleta.aprobada` / `boleta.rechazada`. Si otro
+camino la encuentra resuelta con el mismo estado, solo completa quién decidió. Si Argos dice **otro**
+estado que el guardado, gana Argos: la boleta se corrige, con mensaje de sistema `boleta_corregida`
+y evento `boleta.corregida` (`de`, `a`), y **sin** otro aviso al cliente.
+
+**Aviso al cliente** (una vez, al resolver; contrato con Argos §6.3): `boleta_confirmada`,
+`boleta_rechazada` o `boleta_falta_dato` (causa `falta_dato`), con `monto` (el del comprobante en
+Argos), `moneda` (GTQ) y `motivo`. Con la ventana de 24 h abierta sale como texto en la conversación;
+cerrada, solo como plantilla si está aprobada en el número y el cliente tiene permiso de contacto.
+Nunca a una baja, ni por un número apagado o que la empresa ya no usa: entonces
+`avisoCliente = sin_aviso` (el mensaje de sistema queda igual y el agente puede escribirle). El
+mensaje sale sin autor (`automatico: "bot"`) y nunca dice quién decidió.
+
+En un rechazo, la variable `motivo` es un **texto fijo según la causa**, igual si rechazó una persona
+de Iris o caja en Argos:
+
+| Causa | Plantilla | Texto fijo (`motivo`) |
+| --- | --- | --- |
+| `no_aparece` | `boleta_rechazada` | «no encontramos el depósito. Revisa la referencia y la fecha, y envíala de nuevo» |
+| `monto_distinto` | `boleta_rechazada` | «el monto no coincide con el depósito. Envíanos la boleta con el monto correcto» |
+| `ilegible` | `boleta_rechazada` | «la foto no se lee bien. Envíanos una foto más clara» |
+| `duplicado` | `boleta_rechazada` | «esa boleta ya se había usado. Si hiciste otro pago, envíanos su boleta» |
+| `otro` (o sin causa) | `boleta_rechazada` | «no pudimos confirmarla con el banco. Escríbenos por aquí para revisarla» |
+| `falta_dato` | `boleta_falta_dato` | «revisa que se vean la referencia, el monto y la fecha» (la plantilla agrega «Envíala de nuevo, por favor.») |
+
+El motivo libre se agrega al final («. Detalle: …», todo en 200 caracteres) **solo si pasa el
+filtro**: no pasa si trae `://`, `www.`, un dominio (`algo.tld`) o 6 o más dígitos seguidos, con o
+sin separadores (espacios, guiones, puntos, barras). Si no pasa, el cliente recibe solo el texto
+fijo; el motivo completo igual queda en la boleta (`motivoRechazo`), va a Argos y se ve en el panel.
+Así el número oficial de la empresa no sirve para mandar enlaces, cuentas ni teléfonos.
+
+**Mensajes de sistema:** `boleta_aprobada` y `boleta_rechazada`, con `actorNombre` (la persona de
+Iris si decidió desde la conversación; si no, el usuario de Argos), `referencia`, `entidadId` (la
+boleta) y, al rechazar, `detalle` (el motivo completo: lo ve el equipo). Además `boleta_corregida`
+(`detalle`: «aprobada → rechazada») y `boleta_sin_confirmar`. El panel vuelve a leer las boletas al
+recibirlos.
+
+**Vínculo.** Iris no sabe si la persona tiene su usuario de Argos vinculado: lo descubre con el 409
+`argos_sin_vinculo`. El vínculo lo crea Argos cuando la persona abre el enlace de
+`POST /api/v1/integraciones/argosisp/abrir` (contrato con Argos §1.3; API principal, permiso
+`integraciones.abrir_argos`): `{ destino?: { tipo: "cliente" | "servicio", idExterno } }` →
+`{ url, expiraEn }`, de un solo uso (60 s; se abre en otra pestaña). Sin `destino` es «Vincular mi
+usuario de Argos». 409 `conector_apagado` / `iris_apagado`, 422 `argos_sin_aprobacion`, 429
+`demasiados_intentos` (10 por minuto por persona, contado en Postgres), 502 `argos_no_disponible`,
+403 `solo_personas`. La respuesta no se repite con la misma `Idempotency-Key` (409
+`idempotencia_no_repetible`).
+
+- **Quién lo tiene:** `integraciones.abrir_argos` es de supervisor, despacho, soporte, ventas y caja
+  (no de `tecnico` ni de `lectura`).
+- **Sesión abierta por autologin desde Argos** (origen `sso`): exige re-autenticación reciente, como
+  los permisos sensibles (403 `reautenticacion_requerida`; `POST /api/v1/sesion/reautenticar`).
+- **El enlace** solo se entrega si es `http(s)://<host>/sso/entrar#<ticket>` y el host es el del panel
+  de Argos que Iris conoce: la URL pública configurada a mano, la del canje (`panel_url`) o, si el
+  conector no tiene ninguna, la de su API (`base_url`). Nunca un host libre (502 `argos_rechazo`). Es
+  el mismo origen que el panel lee en `argosisp.urlPublica` de `GET /api/v1/integraciones/enlaces`,
+  que acepta `clientes.ver` **o** `integraciones.abrir_argos` (así quien puede abrir Argos puede
+  validar el enlace aunque no vea clientes).
+- **Nota para Argos** (la pasa el líder): la pantalla de Argos que confirma el vínculo debe mostrar
+  claro **qué usuario de Iris** se está vinculando (nombre y correo del ticket), para que nadie
+  vincule su usuario de Argos con el de otra persona al abrir un enlace ajeno.
 
 ### 6.5 Promesa (contrato con Argos §7.4)
 
@@ -620,18 +799,21 @@ mensaje.
 `conversacion.vinculo_creado`, `conversacion.sla_vencido`, `conversacion.cliente_confirmado`,
 `contacto_iris.creado`, `contacto_iris.unido`, `contacto_iris.consentimiento`, `cola.creada` / `cola.actualizada`, `etiqueta.creada` / `.actualizada`,
 `respuesta_rapida.creada` / `.actualizada`, `boleta.registrada`, `boleta.registrada_en_argos`,
-`boleta.fallida`, `promesa.solicitada`; PR B: `horario.creado` / `.actualizado`, `conversacion.fuera_de_horario`,
+`boleta.fallida`, `boleta.aprobada`, `boleta.rechazada`, `boleta.corregida`, `boleta.confirmacion_agotada`
+(§6.4.1), `promesa.solicitada`; PR B: `horario.creado` / `.actualizado`, `conversacion.fuera_de_horario`,
 `conversacion.guardia_avisada`, `manual.creado` / `.actualizado` / `.enviado` / `.enlace_revocado`.
 Números (§1.1): `canal_mensajeria.probado`.
 
-**Pendiente (fase 1.1, decisión abierta):** consumir los webhooks de Argos `comprobante.aprobado` /
-`.rechazado` y `promesa.*` para mover la boleta y la promesa en la conversación y avisar al cliente
-con `boleta_confirmada` / `boleta_rechazada` / `boleta_falta_dato`; reconexión temporal (§7.3);
-verificación de identidad (§7.5); autologin a una conversación (pedido B2).
+Consume `argos.comprobante_resuelto` (webhooks `comprobante.aprobado` / `.rechazado` de Argos): es el
+aviso para releer el comprobante en Argos, mover la boleta en la conversación y avisar al cliente con
+`boleta_confirmada` / `boleta_rechazada` / `boleta_falta_dato` (§6.4.1).
 
-**Pendiente (fase 3, contrato con Argos 0.7.0 §7.7, pedido B3):** «Vincular mi usuario de Argos»
-(autologin Iris → Argos, §1.3), los botones «Aprobar y registrar pago» / «Rechazar» en la boleta y
-el manejo de los cinco 403 `actor_*`.
+**Pendiente (fase 1.1, decisión abierta):** consumir los webhooks de Argos `promesa.*` para mover la
+promesa en la conversación y explicarle al cliente; reconexión temporal (§7.3); verificación de
+identidad (§7.5); autologin a una conversación (pedido B2).
+
+**Pendiente en el panel (contrato con Argos 0.7.0 §7.7, pedido B3):** los botones «Aprobar y
+registrar pago» / «Rechazar» en la boleta y «Vincular mi usuario de Argos»; la API está en §6.4.1.
 
 ## 13. Errores propios
 
@@ -647,6 +829,15 @@ el manejo de los cinco 403 `actor_*`.
 | `cola_inactiva` | 422 | Transferir a una cola desactivada |
 | `adjunto_no_listo` | 422 | El adjunto no está completo o no es de la conversación |
 | `sin_cliente` | 422 | Boleta o promesa sin cliente asociado |
+| `solo_personas` | 403 | Aprobar o rechazar una boleta (o abrir Argos) con un token, una integración o el asistente de IA |
+| `boleta_no_registrada` / `boleta_ya_decidida` | 422 / 409 | La boleta no está `registrada` en Argos, o ya se aprobó o rechazó (§6.4.1) |
+| `argos_sin_vinculo` | 409 | Quien decide no tiene su usuario de Argos vinculado: «Vincular» y reintentar |
+| `argos_usuario_inactivo` / `argos_sin_permiso` / `argos_sin_empresa` | 403 | Lo que Argos dice del usuario de Argos vinculado (§6.4.1) |
+| `comprobante_revisado` / `otra_persona_decidio` | 409 | Ya lo resolvió caja u otra persona: la boleta local quedó sincronizada |
+| `comprobante_no_es_de_iris` / `comprobante_no_existe` / `iris_apagado` / `idempotencia_en_curso` | 409 | Argos no aplica la decisión (§6.4.1) |
+| `argos_sin_aprobacion` / `decision_no_permitida` | 422 | Argos informa contrato < 0.7.0, o no aceptó las facturas, el motivo o la causa |
+| `monto_cambio` | 409 | Aprobar con `montoEsperado` y el monto de la boleta o del comprobante en Argos ya es otro (`montoActual` en el problema) |
+| `argos_no_disponible` | 502 | Aprobar, rechazar o abrir Argos: Argos no respondió («Reintentar»). En las lecturas y promesas sigue siendo 503 |
 | `baja_del_cliente` | 422 | `acepta` sin `motivo` sobre una baja que pidió el propio cliente |
 | `cliente_cambiado` | 409 | La conversación cambió de cliente o perdió la verificación mientras Argos creaba la promesa (revisar en Argos) |
 | `cliente_sin_confirmar` | 422 | Asociación manual sin coincidencia de número, sin confirmar por un supervisor: plantilla fuera de ventana, boleta o promesa |

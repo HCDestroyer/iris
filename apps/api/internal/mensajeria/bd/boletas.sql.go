@@ -15,7 +15,7 @@ import (
 
 const boletaPorID = `-- name: BoletaPorID :one
 
-SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en FROM mensajeria.boletas WHERE id = $1
+SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en FROM mensajeria.boletas WHERE id = $1
 `
 
 // Boletas: aprobar y rechazar desde la conversación (contrato con Argos 0.7.0 §7.7, pedido B3).
@@ -54,12 +54,16 @@ func (q *Queries) BoletaPorID(ctx context.Context, id uuid.UUID) (MensajeriaBole
 		&i.AvisoMensajeID,
 		&i.Resolucion,
 		&i.ResolucionEn,
+		&i.ResolucionProximo,
+		&i.ResolucionIntentos,
+		&i.ResolucionError,
+		&i.ResolucionAgotadaEn,
 	)
 	return i, err
 }
 
 const boletasDeConversacion = `-- name: BoletasDeConversacion :many
-SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en FROM mensajeria.boletas WHERE conversacion_id = $1 ORDER BY created_at, id
+SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en FROM mensajeria.boletas WHERE conversacion_id = $1 ORDER BY created_at, id
 `
 
 func (q *Queries) BoletasDeConversacion(ctx context.Context, conversacionID int64) ([]MensajeriaBoleta, error) {
@@ -103,6 +107,10 @@ func (q *Queries) BoletasDeConversacion(ctx context.Context, conversacionID int6
 			&i.AvisoMensajeID,
 			&i.Resolucion,
 			&i.ResolucionEn,
+			&i.ResolucionProximo,
+			&i.ResolucionIntentos,
+			&i.ResolucionError,
+			&i.ResolucionAgotadaEn,
 		); err != nil {
 			return nil, err
 		}
@@ -115,11 +123,13 @@ func (q *Queries) BoletasDeConversacion(ctx context.Context, conversacionID int6
 }
 
 const boletasPorResolver = `-- name: BoletasPorResolver :many
-SELECT id FROM mensajeria.boletas WHERE resolucion IS NOT NULL AND resolucion_en <= $1 ORDER BY resolucion_en LIMIT 50
+SELECT id FROM mensajeria.boletas
+WHERE resolucion IS NOT NULL AND resolucion_agotada_en IS NULL AND resolucion_proximo <= $1
+ORDER BY resolucion_proximo LIMIT 50
 `
 
-func (q *Queries) BoletasPorResolver(ctx context.Context, hasta *time.Time) ([]uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, boletasPorResolver, hasta)
+func (q *Queries) BoletasPorResolver(ctx context.Context, ahora *time.Time) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, boletasPorResolver, ahora)
 	if err != nil {
 		return nil, err
 	}
@@ -142,9 +152,10 @@ const completarDecisionBoleta = `-- name: CompletarDecisionBoleta :one
 UPDATE mensajeria.boletas
 SET decidida_por = COALESCE(decidida_por, $1),
     verificado_por_nombre = COALESCE(verificado_por_nombre, $2),
-    pago_id = COALESCE(pago_id, $3), resolucion = NULL, resolucion_en = NULL, updated_at = now()
+    pago_id = COALESCE(pago_id, $3), resolucion = NULL, resolucion_en = NULL, resolucion_proximo = NULL,
+    resolucion_intentos = 0, resolucion_error = NULL, resolucion_agotada_en = NULL, updated_at = now()
 WHERE id = $4
-RETURNING id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en
+RETURNING id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en
 `
 
 type CompletarDecisionBoletaParams struct {
@@ -154,7 +165,7 @@ type CompletarDecisionBoletaParams struct {
 	ID                  uuid.UUID
 }
 
-// La boleta ya estaba resuelta (llegó antes el webhook): se completa quién decidió, sin tocar el resto.
+// La boleta ya estaba resuelta con ese mismo estado: se completa quién decidió, sin tocar el resto.
 func (q *Queries) CompletarDecisionBoleta(ctx context.Context, arg CompletarDecisionBoletaParams) (MensajeriaBoleta, error) {
 	row := q.db.QueryRow(ctx, completarDecisionBoleta,
 		arg.DecididaPor,
@@ -195,12 +206,19 @@ func (q *Queries) CompletarDecisionBoleta(ctx context.Context, arg CompletarDeci
 		&i.AvisoMensajeID,
 		&i.Resolucion,
 		&i.ResolucionEn,
+		&i.ResolucionProximo,
+		&i.ResolucionIntentos,
+		&i.ResolucionError,
+		&i.ResolucionAgotadaEn,
 	)
 	return i, err
 }
 
 const descartarResolucionBoleta = `-- name: DescartarResolucionBoleta :exec
-UPDATE mensajeria.boletas SET resolucion = NULL, resolucion_en = NULL, updated_at = now() WHERE id = $1
+UPDATE mensajeria.boletas
+SET resolucion = NULL, resolucion_en = NULL, resolucion_proximo = NULL, resolucion_intentos = 0, resolucion_error = NULL,
+    resolucion_agotada_en = NULL, updated_at = now()
+WHERE id = $1
 `
 
 func (q *Queries) DescartarResolucionBoleta(ctx context.Context, id uuid.UUID) error {
@@ -210,23 +228,29 @@ func (q *Queries) DescartarResolucionBoleta(ctx context.Context, id uuid.UUID) e
 
 const guardarResolucionBoleta = `-- name: GuardarResolucionBoleta :execrows
 UPDATE mensajeria.boletas
-SET resolucion = $1, resolucion_en = $2, updated_at = now()
-WHERE comprobante_id = $3::bigint AND estado = 'registrada' AND resolucion IS NULL
-  AND (empresa_id IS NULL OR $4::bigint IS NULL OR empresa_id = $4::bigint)
+SET resolucion = $1, resolucion_en = $2, resolucion_proximo = $3, resolucion_intentos = 0, resolucion_error = NULL,
+    resolucion_agotada_en = NULL, updated_at = now()
+WHERE comprobante_id = $4::bigint AND empresa_id = $5::bigint
+  AND estado IN ('registrada', 'aprobada', 'rechazada')
+  AND (resolucion IS NULL OR resolucion_agotada_en IS NOT NULL)
 `
 
 type GuardarResolucionBoletaParams struct {
 	Resolucion    []byte
 	Ahora         *time.Time
+	Proximo       *time.Time
 	ComprobanteID int64
-	EmpresaID     *int64
+	EmpresaID     int64
 }
 
-// El webhook de Argos dijo que el comprobante se aprobó o se rechazó: queda por aplicar (una sola vez).
+// El webhook de Argos dijo que el comprobante se aprobó o se rechazó: queda por confirmar con Argos
+// (GET /comprobantes/:id). Solo la boleta de ese comprobante en esa empresa, y sin pisar una
+// confirmación en curso (una agotada sí se reintenta).
 func (q *Queries) GuardarResolucionBoleta(ctx context.Context, arg GuardarResolucionBoletaParams) (int64, error) {
 	result, err := q.db.Exec(ctx, guardarResolucionBoleta,
 		arg.Resolucion,
 		arg.Ahora,
+		arg.Proximo,
 		arg.ComprobanteID,
 		arg.EmpresaID,
 	)
@@ -236,14 +260,79 @@ func (q *Queries) GuardarResolucionBoleta(ctx context.Context, arg GuardarResolu
 	return result.RowsAffected(), nil
 }
 
+const reintentarResolucionBoleta = `-- name: ReintentarResolucionBoleta :one
+UPDATE mensajeria.boletas
+SET resolucion_intentos = resolucion_intentos + 1, resolucion_error = $1, resolucion_proximo = $2,
+    resolucion_agotada_en = $3, updated_at = now()
+WHERE id = $4
+RETURNING id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en
+`
+
+type ReintentarResolucionBoletaParams struct {
+	Error     *string
+	Proximo   *time.Time
+	AgotadaEn *time.Time
+	ID        uuid.UUID
+}
+
+// Argos no confirmó: otro intento más tarde o, si se acabaron, agotada.
+func (q *Queries) ReintentarResolucionBoleta(ctx context.Context, arg ReintentarResolucionBoletaParams) (MensajeriaBoleta, error) {
+	row := q.db.QueryRow(ctx, reintentarResolucionBoleta,
+		arg.Error,
+		arg.Proximo,
+		arg.AgotadaEn,
+		arg.ID,
+	)
+	var i MensajeriaBoleta
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.ConversacionID,
+		&i.ClienteID,
+		&i.ServicioID,
+		&i.AdjuntoID,
+		&i.Metodo,
+		&i.CuentaBancariaID,
+		&i.BancoOrigenID,
+		&i.Referencia,
+		&i.Monto,
+		&i.FechaDeposito,
+		&i.Nota,
+		&i.Estado,
+		&i.ComprobanteID,
+		&i.Detalle,
+		&i.Intentos,
+		&i.ProximoIntento,
+		&i.RegistradaPor,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DecididaEn,
+		&i.DecididaPor,
+		&i.PagoID,
+		&i.MotivoRechazo,
+		&i.CausaRechazo,
+		&i.VerificadoPorNombre,
+		&i.AvisoCliente,
+		&i.AvisoMensajeID,
+		&i.Resolucion,
+		&i.ResolucionEn,
+		&i.ResolucionProximo,
+		&i.ResolucionIntentos,
+		&i.ResolucionError,
+		&i.ResolucionAgotadaEn,
+	)
+	return i, err
+}
+
 const resolverBoleta = `-- name: ResolverBoleta :one
 UPDATE mensajeria.boletas
 SET estado = $1, decidida_en = $2, decidida_por = $3, pago_id = $4,
     motivo_rechazo = $5, causa_rechazo = $6,
     verificado_por_nombre = $7, aviso_cliente = $8,
-    aviso_mensaje_id = $9, resolucion = NULL, resolucion_en = NULL, updated_at = now()
+    aviso_mensaje_id = $9, resolucion = NULL, resolucion_en = NULL, resolucion_proximo = NULL,
+    resolucion_intentos = 0, resolucion_error = NULL, resolucion_agotada_en = NULL, updated_at = now()
 WHERE id = $10
-RETURNING id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en
+RETURNING id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en
 `
 
 type ResolverBoletaParams struct {
@@ -259,7 +348,8 @@ type ResolverBoletaParams struct {
 	ID                  uuid.UUID
 }
 
-// Deja la boleta aprobada o rechazada (la fila se leyó con FOR UPDATE y estaba registrada).
+// Deja la boleta aprobada o rechazada como dice Argos (la fila se leyó con FOR UPDATE). Sirve para
+// resolverla (estaba registrada) y para corregirla (Argos dice otra cosa que lo guardado).
 func (q *Queries) ResolverBoleta(ctx context.Context, arg ResolverBoletaParams) (MensajeriaBoleta, error) {
 	row := q.db.QueryRow(ctx, resolverBoleta,
 		arg.Estado,
@@ -306,6 +396,21 @@ func (q *Queries) ResolverBoleta(ctx context.Context, arg ResolverBoletaParams) 
 		&i.AvisoMensajeID,
 		&i.Resolucion,
 		&i.ResolucionEn,
+		&i.ResolucionProximo,
+		&i.ResolucionIntentos,
+		&i.ResolucionError,
+		&i.ResolucionAgotadaEn,
 	)
 	return i, err
+}
+
+const usuarioPersona = `-- name: UsuarioPersona :one
+SELECT id FROM nucleo.usuarios WHERE id = $1 AND tipo = 'persona'
+`
+
+// Un usuario persona de esta instalación (para atribuir una decisión que informa Argos).
+func (q *Queries) UsuarioPersona(ctx context.Context, id int64) (int64, error) {
+	row := q.db.QueryRow(ctx, usuarioPersona, id)
+	err := row.Scan(&id)
+	return id, err
 }

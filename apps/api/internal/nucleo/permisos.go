@@ -590,7 +590,7 @@ var RolesBase = []DefRol{
 			PermChatVer, PermChatEnviar, PermChatSupervisar,
 			PermConversacionesSupervisar, PermConversacionesAsignar, PermConversacionesTransferir, PermConversacionesAsociar,
 			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesConfigurar, PermCanalesConfigurar, PermManualesEditar, PermManualesRevocarEnlace,
-			PermConversacionesIniciar, PermBoletasAprobar, PermBoletasRechazar},
+			PermConversacionesIniciar},
 			slices.Concat(permisosAtencion, permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas, permisosPlantillas, permisosComercial,
 				[]Permiso{PermFactibilidadConfigurar, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer, PermEncuestasCompartir})...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
@@ -607,7 +607,7 @@ var RolesBase = []DefRol{
 			PermOrdenesCerrar, PermOrdenesFallar, PermCampoSincronizar, PermCampoRegistrarPosiciones,
 			PermOrdenesPausar, PermOrdenesReanudar, PermPlantillasVer, PermFactibilidadRegistrarManual,
 			PermCampoVerBodega, PermCampoRecibirTraslado, PermChatVer, PermChatEnviar,
-			PermAgendaCrearTarea, PermAgendaCompletarTarea, PermAgendaAnularTarea, PermOrdenesTomar, PermIntegracionesAbrirArgos}},
+			PermAgendaCrearTarea, PermAgendaCompletarTarea, PermAgendaAnularTarea, PermOrdenesTomar}},
 	{Codigo: "soporte", Nombre: "Soporte", Descripcion: "Atiende tickets",
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosSubir, PermAdjuntosVer, PermEncuestasVer, PermEncuestasCompartir,
@@ -622,7 +622,8 @@ var RolesBase = []DefRol{
 			PermReportesVer, PermChatVer, PermConversacionesVer, PermManualesVer}},
 	// Caja (contrato argosisp.md 0.7.0 §7.7, pedido B3): aprueba y rechaza las boletas de las
 	// conversaciones que ve (las de sus colas o donde la mencionan). El permiso real lo decide Argos
-	// con su usuario de Argos vinculado.
+	// con su usuario de Argos vinculado. Es el único rol base, además de admin, con boletas.aprobar y
+	// boletas.rechazar: un despliegue no le da poder de caja a nadie; quien lo necesite recibe este rol.
 	{Codigo: "caja", Nombre: "Caja", Descripcion: "Aprueba y rechaza boletas de pago desde las conversaciones",
 		Permisos: []Permiso{PermUsuariosVer, PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosVer, PermConversacionesVer,
 			PermManualesVer, PermBoletasAprobar, PermBoletasRechazar, PermIntegracionesAbrirArgos}},

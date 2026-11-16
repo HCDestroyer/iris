@@ -92,6 +92,8 @@ type argosFalso struct {
 	respuestasRevocar map[string][]int
 	// retryAfter: Retry-After que acompaña a un 429 de revocar, por token (vacío = sin cabecera).
 	retryAfter map[string]string
+	// sso: autologin Iris → Argos (contrato 0.7.0 §1.3; contrato070_test.go).
+	sso ssoFalso
 }
 
 type usoToken struct {
@@ -128,6 +130,7 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 	mux.HandleFunc("GET /api/v1/routers", a.conToken(func(w http.ResponseWriter, r *http.Request) { a.paginar(w, r, a.routers) }))
 	mux.HandleFunc("GET /api/v1/routers/{id}", a.conToken(a.router))
 	a.rutas050(mux)
+	a.rutas070(mux)
 	a.srv = httptest.NewServer(mux)
 	t.Cleanup(a.srv.Close)
 	return a
