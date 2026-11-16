@@ -40,6 +40,10 @@ func todasLasPaginas(pedir func(ruta string) respuesta, ruta string) respuesta {
 			break
 		}
 		sig = pedir(ruta + sep + "cursor=" + url.QueryEscape(c))
+		if sig.status != http.StatusOK {
+			// Una página que falla no puede pasar por lista completa: se devuelve el fallo.
+			return sig
+		}
 		d, _ := sig.cuerpo["data"].([]any)
 		todo = append(todo, d...)
 	}
