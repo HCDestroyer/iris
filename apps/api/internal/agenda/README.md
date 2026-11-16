@@ -162,15 +162,16 @@ ficha expone `argos { idExterno, correo, nombre, vinculadoEn }`. No usa el vínc
 - Las rutas llaman a `CrearTecnicoVerificado` y `EditarTecnicoVerificado`. Si se llama al caso de
   uso sin esa verificación, también responde 422.
 
-## Huecos ofrecibles para el asistente (diseño, pendiente de implementar)
+## Huecos ofrecibles para el asistente (`huecos.go`)
 
-Lo pide mensajería para `agendar_visita` (`contratos/conversaciones.md` §17.10). Dos casos de uso
-internos, sin HTTP:
+Lo usa mensajería para `agendar_visita` (`contratos/conversaciones.md` §17.10). Sin HTTP, sin eventos
+(solo lectura):
 
-- `HuecosOfrecibles(empresa, zona, tipo, desde, hasta, max)`: ventanas `{ inicio, fin }` en las que
-  algún técnico que atiende la zona tiene un hueco del tamaño del tipo de orden, con las mismas
-  reglas que `ReservarCita` (turnos, ausencias, citas vivas, tareas y capacidad). Nunca devuelve
-  técnicos, cuadrillas ni cuántos hay libres.
-- `ElegirTecnicoEnVentana(empresa, zona, tipo, ventana)`: dentro de la transacción de programar, con
-  los candados de `ReservarCita`, elige al técnico con menos carga que todavía cabe; si nadie cabe,
-  `ventana_no_disponible`.
+- `HuecosOfrecibles(ctx, db, EntradaHuecos)`: ventanas `{ inicio, fin }` (un bloque de atención de un
+  día) en las que algún técnico activo que atiende la zona tiene un tramo libre del tamaño del tipo de
+  orden: turno menos ausencias, citas vivas (de cualquier empresa) y tareas pendientes, y sin la
+  capacidad del día agotada (la suya o la de su cuadrilla). Nunca devuelve técnicos, cuadrillas ni
+  cuántos hay libres. `SinCobertura`: nadie atiende esa zona (o la orden no tiene zona).
+- `ElegirTecnicoEnVentana(ctx, db, EntradaHuecos, Hueco)`: el técnico menos cargado que todavía cabe
+  y la hora de inicio de su cita; si nadie cabe, 422 `ventana_no_disponible`. No reserva: la reserva,
+  con sus candados y reglas, sigue siendo de `ReservarCita` al programar.

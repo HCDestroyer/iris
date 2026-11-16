@@ -63,6 +63,43 @@ func (q *Queries) AccionesAsistenteConv(ctx context.Context, arg AccionesAsisten
 	return items, nil
 }
 
+const accionesAsistenteEmpresa = `-- name: AccionesAsistenteEmpresa :one
+SELECT count(*)::bigint FROM mensajeria.asistente_acciones
+WHERE coalesce(empresa_id, 0) = $1::bigint AND accion = $2 AND resultado = 'ok' AND creada_en >= $3
+`
+
+type AccionesAsistenteEmpresaParams struct {
+	Empresa int64
+	Accion  string
+	Desde   time.Time
+}
+
+func (q *Queries) AccionesAsistenteEmpresa(ctx context.Context, arg AccionesAsistenteEmpresaParams) (int64, error) {
+	row := q.db.QueryRow(ctx, accionesAsistenteEmpresa, arg.Empresa, arg.Accion, arg.Desde)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const accionesAsistenteRecientes = `-- name: AccionesAsistenteRecientes :one
+SELECT count(*)::bigint FROM mensajeria.asistente_acciones
+WHERE conversacion_id = $1 AND accion = $2 AND resultado = 'ok' AND creada_en >= $3
+`
+
+type AccionesAsistenteRecientesParams struct {
+	ConversacionID int64
+	Accion         string
+	Desde          time.Time
+}
+
+// Veces que el asistente hizo esa acción (con éxito) en la conversación: los topes por día.
+func (q *Queries) AccionesAsistenteRecientes(ctx context.Context, arg AccionesAsistenteRecientesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, accionesAsistenteRecientes, arg.ConversacionID, arg.Accion, arg.Desde)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const boletaPorReferenciaConv = `-- name: BoletaPorReferenciaConv :one
 SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente FROM mensajeria.boletas
 WHERE conversacion_id = $1 AND referencia = $2 AND coalesce(empresa_id, 0) = $3::bigint
@@ -133,6 +170,15 @@ func (q *Queries) BoletasRecientesConv(ctx context.Context, arg BoletasRecientes
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const borrarOfertasVisita = `-- name: BorrarOfertasVisita :exec
+DELETE FROM mensajeria.asistente_ofertas_visita WHERE conversacion_id = $1
+`
+
+func (q *Queries) BorrarOfertasVisita(ctx context.Context, conversacionID int64) error {
+	_, err := q.db.Exec(ctx, borrarOfertasVisita, conversacionID)
+	return err
 }
 
 const botsDiferidosViejos = `-- name: BotsDiferidosViejos :many
@@ -429,6 +475,20 @@ func (q *Queries) FijarVerificacionFuerteMin(ctx context.Context, arg FijarVerif
 	return err
 }
 
+const fijarVisitasAsistente = `-- name: FijarVisitasAsistente :exec
+UPDATE mensajeria.asistente_ajustes SET visitas = $1, updated_at = now() WHERE id = $2
+`
+
+type FijarVisitasAsistenteParams struct {
+	Visitas []byte
+	ID      int64
+}
+
+func (q *Queries) FijarVisitasAsistente(ctx context.Context, arg FijarVisitasAsistenteParams) error {
+	_, err := q.db.Exec(ctx, fijarVisitasAsistente, arg.Visitas, arg.ID)
+	return err
+}
+
 const insertarAccionAsistente = `-- name: InsertarAccionAsistente :one
 INSERT INTO mensajeria.asistente_acciones (turno_id, empresa_id, conversacion_id, paso, accion, resultado, entidad, entidad_id, creada_en)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -463,6 +523,45 @@ func (q *Queries) InsertarAccionAsistente(ctx context.Context, arg InsertarAccio
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const insertarOfertaVisita = `-- name: InsertarOfertaVisita :exec
+INSERT INTO mensajeria.asistente_ofertas_visita (empresa_id, conversacion_id, cliente_id, servicio_id, zona_id, tipo, clave, inicio, fin, motivo,
+    ofrecida_en, vence_en)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+`
+
+type InsertarOfertaVisitaParams struct {
+	EmpresaID      *int64
+	ConversacionID int64
+	ClienteID      int64
+	ServicioID     int64
+	ZonaID         int64
+	Tipo           string
+	Clave          string
+	Inicio         time.Time
+	Fin            time.Time
+	Motivo         string
+	OfrecidaEn     time.Time
+	VenceEn        time.Time
+}
+
+func (q *Queries) InsertarOfertaVisita(ctx context.Context, arg InsertarOfertaVisitaParams) error {
+	_, err := q.db.Exec(ctx, insertarOfertaVisita,
+		arg.EmpresaID,
+		arg.ConversacionID,
+		arg.ClienteID,
+		arg.ServicioID,
+		arg.ZonaID,
+		arg.Tipo,
+		arg.Clave,
+		arg.Inicio,
+		arg.Fin,
+		arg.Motivo,
+		arg.OfrecidaEn,
+		arg.VenceEn,
+	)
+	return err
 }
 
 const insertarReconexion = `-- name: InsertarReconexion :one
@@ -618,6 +717,39 @@ func (q *Queries) MarcarMensajeConSaldo(ctx context.Context, id uuid.UUID) error
 	return err
 }
 
+const ofertaVisita = `-- name: OfertaVisita :one
+SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, zona_id, tipo, clave, inicio, fin, motivo, ofrecida_en, vence_en FROM mensajeria.asistente_ofertas_visita
+WHERE conversacion_id = $1 AND clave = $2 AND vence_en > $3
+`
+
+type OfertaVisitaParams struct {
+	ConversacionID int64
+	Clave          string
+	Ahora          time.Time
+}
+
+// Una ventana ofrecida a esta conversación y todavía vigente.
+func (q *Queries) OfertaVisita(ctx context.Context, arg OfertaVisitaParams) (MensajeriaAsistenteOfertasVisitum, error) {
+	row := q.db.QueryRow(ctx, ofertaVisita, arg.ConversacionID, arg.Clave, arg.Ahora)
+	var i MensajeriaAsistenteOfertasVisitum
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.ConversacionID,
+		&i.ClienteID,
+		&i.ServicioID,
+		&i.ZonaID,
+		&i.Tipo,
+		&i.Clave,
+		&i.Inicio,
+		&i.Fin,
+		&i.Motivo,
+		&i.OfrecidaEn,
+		&i.VenceEn,
+	)
+	return i, err
+}
+
 const personaEscribioDesde = `-- name: PersonaEscribioDesde :one
 SELECT EXISTS (
     SELECT 1 FROM mensajeria.conversacion_mensajes m
@@ -669,6 +801,15 @@ func (q *Queries) PromesaPorIDConv(ctx context.Context, arg PromesaPorIDConvPara
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const purgarOfertasVisita = `-- name: PurgarOfertasVisita :exec
+DELETE FROM mensajeria.asistente_ofertas_visita WHERE vence_en < $1
+`
+
+func (q *Queries) PurgarOfertasVisita(ctx context.Context, antes time.Time) error {
+	_, err := q.db.Exec(ctx, purgarOfertasVisita, antes)
+	return err
 }
 
 const purgarTurnosAsistente = `-- name: PurgarTurnosAsistente :exec
@@ -895,6 +1036,46 @@ func (q *Queries) ServicioDeClienteEmpresa(ctx context.Context, arg ServicioDeCl
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const serviciosParaVisita = `-- name: ServiciosParaVisita :many
+
+SELECT s.id, s.estado, s.zona_id FROM integracion.argos_servicios s
+WHERE s.cliente_id = $1 AND s.empresa_id = $2::bigint
+ORDER BY s.id LIMIT 20
+`
+
+type ServiciosParaVisitaParams struct {
+	ClienteID int64
+	Empresa   int64
+}
+
+type ServiciosParaVisitaRow struct {
+	ID     int64
+	Estado string
+	ZonaID *int64
+}
+
+// Visitas del asistente (§17.10) ---------------------------------------------------------------------
+// Los servicios del cliente en la empresa, con su estado y su zona (instantánea de Argos).
+func (q *Queries) ServiciosParaVisita(ctx context.Context, arg ServiciosParaVisitaParams) ([]ServiciosParaVisitaRow, error) {
+	rows, err := q.db.Query(ctx, serviciosParaVisita, arg.ClienteID, arg.Empresa)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ServiciosParaVisitaRow
+	for rows.Next() {
+		var i ServiciosParaVisitaRow
+		if err := rows.Scan(&i.ID, &i.Estado, &i.ZonaID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const sumarUsoAutonomo = `-- name: SumarUsoAutonomo :exec
@@ -1240,6 +1421,21 @@ func (q *Queries) UltimoAdjuntoEntrante(ctx context.Context, arg UltimoAdjuntoEn
 		&i.CreadoEn,
 	)
 	return i, err
+}
+
+const ultimoTicketDeConv = `-- name: UltimoTicketDeConv :one
+SELECT v.entidad_id FROM mensajeria.conversacion_vinculos v
+JOIN mensajeria.conversaciones c ON c.id = v.conversacion_id
+WHERE v.conversacion_id = $1 AND v.tipo = 'ticket' AND v.created_at >= coalesce(c.reabierta_en, 'epoch')
+ORDER BY v.created_at DESC LIMIT 1
+`
+
+// El último ticket creado desde la conversación en su periodo abierto.
+func (q *Queries) UltimoTicketDeConv(ctx context.Context, conversacionID int64) (string, error) {
+	row := q.db.QueryRow(ctx, ultimoTicketDeConv, conversacionID)
+	var entidad_id string
+	err := row.Scan(&entidad_id)
+	return entidad_id, err
 }
 
 const ultimosEntrantesTexto = `-- name: UltimosEntrantesTexto :many

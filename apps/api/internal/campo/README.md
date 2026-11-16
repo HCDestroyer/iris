@@ -305,3 +305,13 @@ del día programadas para él en los primeros huecos libres, por los casos de us
   `instantanea_no_coincide`, 409 por `version` o `aviso_argos_cambiado` (`avisoEn` ≠ `datosArgosCambiados.en`:
   Argos avisó otro campo después de leer); auditadas con el diff por campo; el técnico la recibe actualizada. La orden guarda
   también la `referencia` de Argos (cómo llegar) al crearse.
+
+## Órdenes del asistente de IA (`contratos/conversaciones.md` §17.10)
+
+- `origen: "asistente"` (valor nuevo de `campo.ordenes.origen` y de `orden.creada`): la orden la creó
+  el asistente de IA de mensajería al agendar una visita, con el actor `asistente_ia`. Si la ventana
+  que eligió el cliente ya no tenía espacio, la orden queda `pendiente` (sin programar) con una
+  descripción que lo dice: la programa despacho.
+- `OrdenesAbiertasDeCliente` (`visitas_asistente.go`): las órdenes vivas de un cliente, para el tope de
+  visitas abiertas del asistente.
+

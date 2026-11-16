@@ -228,3 +228,46 @@ WHERE conversacion_id = @conversacion_id AND accion = 'crear_ticket' AND resulta
 
 -- name: FijarPresupuestoAutonomo :exec
 UPDATE mensajeria.asistente_ajustes SET presupuesto_autonomo_pct = @pct, updated_at = now() WHERE id = @id;
+
+-- Visitas del asistente (§17.10) ---------------------------------------------------------------------
+
+-- name: ServiciosParaVisita :many
+-- Los servicios del cliente en la empresa, con su estado y su zona (instantánea de Argos).
+SELECT s.id, s.estado, s.zona_id FROM integracion.argos_servicios s
+WHERE s.cliente_id = @cliente_id AND s.empresa_id = @empresa::bigint
+ORDER BY s.id LIMIT 20;
+
+-- name: BorrarOfertasVisita :exec
+DELETE FROM mensajeria.asistente_ofertas_visita WHERE conversacion_id = @conversacion_id;
+
+-- name: InsertarOfertaVisita :exec
+INSERT INTO mensajeria.asistente_ofertas_visita (empresa_id, conversacion_id, cliente_id, servicio_id, zona_id, tipo, clave, inicio, fin, motivo,
+    ofrecida_en, vence_en)
+VALUES (sqlc.narg('empresa_id'), @conversacion_id, @cliente_id, @servicio_id, @zona_id, @tipo, @clave, @inicio, @fin, @motivo, @ofrecida_en, @vence_en);
+
+-- name: OfertaVisita :one
+-- Una ventana ofrecida a esta conversación y todavía vigente.
+SELECT * FROM mensajeria.asistente_ofertas_visita
+WHERE conversacion_id = @conversacion_id AND clave = @clave AND vence_en > @ahora;
+
+-- name: PurgarOfertasVisita :exec
+DELETE FROM mensajeria.asistente_ofertas_visita WHERE vence_en < @antes;
+
+-- name: AccionesAsistenteRecientes :one
+-- Veces que el asistente hizo esa acción (con éxito) en la conversación: los topes por día.
+SELECT count(*)::bigint FROM mensajeria.asistente_acciones
+WHERE conversacion_id = @conversacion_id AND accion = @accion AND resultado = 'ok' AND creada_en >= @desde;
+
+-- name: AccionesAsistenteEmpresa :one
+SELECT count(*)::bigint FROM mensajeria.asistente_acciones
+WHERE coalesce(empresa_id, 0) = @empresa::bigint AND accion = @accion AND resultado = 'ok' AND creada_en >= @desde;
+
+-- name: UltimoTicketDeConv :one
+-- El último ticket creado desde la conversación en su periodo abierto.
+SELECT v.entidad_id FROM mensajeria.conversacion_vinculos v
+JOIN mensajeria.conversaciones c ON c.id = v.conversacion_id
+WHERE v.conversacion_id = @conversacion_id AND v.tipo = 'ticket' AND v.created_at >= coalesce(c.reabierta_en, 'epoch')
+ORDER BY v.created_at DESC LIMIT 1;
+
+-- name: FijarVisitasAsistente :exec
+UPDATE mensajeria.asistente_ajustes SET visitas = @visitas, updated_at = now() WHERE id = @id;

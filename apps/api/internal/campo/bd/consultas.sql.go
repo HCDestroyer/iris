@@ -2995,6 +2995,63 @@ func (q *Queries) OrdenPorIdempotencia(ctx context.Context, idempotencia *string
 	return i, err
 }
 
+const ordenesAbiertasDeCliente = `-- name: OrdenesAbiertasDeCliente :many
+SELECT o.id, o.numero, o.estado, o.version, o.origen, o.servicio_id, o.zona_id, t.codigo AS tipo
+FROM campo.ordenes o
+JOIN campo.tipos_orden t ON t.id = o.tipo_id
+WHERE o.cliente_id = $1 AND o.empresa_id IS NOT DISTINCT FROM $2::bigint
+  AND o.estado NOT IN ('cerrada', 'fallida', 'cancelada') AND t.codigo = ANY($3::text[])
+ORDER BY o.id
+`
+
+type OrdenesAbiertasDeClienteParams struct {
+	ClienteID *int64
+	EmpresaID *int64
+	Tipos     []string
+}
+
+type OrdenesAbiertasDeClienteRow struct {
+	ID         int64
+	Numero     string
+	Estado     string
+	Version    int32
+	Origen     string
+	ServicioID *int64
+	ZonaID     *int64
+	Tipo       string
+}
+
+// Órdenes vivas (ni cerradas, ni fallidas, ni canceladas) de un cliente en la empresa, de esos tipos.
+// Para el tope de visitas abiertas por cliente del asistente de IA (conversaciones.md §17.10).
+func (q *Queries) OrdenesAbiertasDeCliente(ctx context.Context, arg OrdenesAbiertasDeClienteParams) ([]OrdenesAbiertasDeClienteRow, error) {
+	rows, err := q.db.Query(ctx, ordenesAbiertasDeCliente, arg.ClienteID, arg.EmpresaID, arg.Tipos)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OrdenesAbiertasDeClienteRow
+	for rows.Next() {
+		var i OrdenesAbiertasDeClienteRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Numero,
+			&i.Estado,
+			&i.Version,
+			&i.Origen,
+			&i.ServicioID,
+			&i.ZonaID,
+			&i.Tipo,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const ordenesAbiertasDeTicket = `-- name: OrdenesAbiertasDeTicket :many
 SELECT numero FROM campo.ordenes
 WHERE ticket_id = $1 AND id <> $2 AND estado NOT IN ('cerrada', 'cancelada')

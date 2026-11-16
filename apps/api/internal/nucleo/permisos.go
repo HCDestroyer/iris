@@ -740,6 +740,15 @@ const RolAsistenteIA = "asistente_ia"
 // registrar la boleta, pedir la promesa y pedir la reconexión temporal. Nada de configuración, de
 // aprobar o rechazar boletas, de supervisar ni de ver otras empresas; crear y programar órdenes
 // llegará con agendar_visita. Cada herramienta exige además su acción encendida en el perfil vigente.
+// PermisosAsistenteVisitas: lo que el rol asistente_ia suma para agendar una visita (crear la orden y
+// programarla, conversaciones.md §17.10). No van en el contexto de cada turno: solo los llevan las
+// herramientas de visita, y solo con la acción agendar_visita encendida en el perfil vigente.
+func PermisosAsistenteVisitas() []Permiso {
+	// tickets.ver: campo lee el ticket del que nace la orden (hereda su cliente, servicio y zona).
+	// ordenes.ver: programar toma la orden que acaba de crear.
+	return []Permiso{PermOrdenesCrear, PermOrdenesProgramar, PermOrdenesVer, PermTicketsVer}
+}
+
 func PermisosAsistenteIA() []Permiso {
 	return []Permiso{PermConversacionesResponder, PermTicketsCrear, PermConversacionesRegistrarBoleta,
 		PermConversacionesRegistrarPromesa, PermConversacionesPedirReconexion}

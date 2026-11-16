@@ -173,7 +173,7 @@ func nuevoCrearOrdenConv(m *Modulo) *CrearOrdenConv {
 		Accion: "conversaciones.crear_orden", Permiso: nucleo.PermOrdenesCrear,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaOrdenConv) (VinculoCreado, error) {
 			var v VinculoConversacion
-			d, err := m.accionConv(ctx, t, in.ID, 0, func(a alcanceConv, _ *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
+			d, err := m.accionConvDe(ctx, t, "conversaciones.crear_orden", in.ID, 0, func(a alcanceConv, _ *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
 				if m.cfg.Campo == nil {
 					return noDisponible("Crear órdenes")
 				}

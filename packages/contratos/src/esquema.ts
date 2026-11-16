@@ -7458,6 +7458,8 @@ export interface components {
              * @description 0 si nunca se guardaron
              */
             version: number;
+            /** @description Ajustes de agendar_visita: tipos, bloques, anticipación, días hacia adelante y límites. Siempre viene (con los valores de fábrica si la empresa no los cambió) */
+            visitas?: components["schemas"]["VisitasAsistente"];
         };
         AjustesBandeja: {
             /**
@@ -7711,6 +7713,12 @@ export interface components {
             /** Format: int64 */
             id: number;
             nombre: string;
+        };
+        BloqueVisita: {
+            /** @description HH:MM, después del inicio */
+            fin: string;
+            /** @description HH:MM */
+            inicio: string;
         };
         Bodega: {
             /** Format: int64 */
@@ -9637,6 +9645,8 @@ export interface components {
             verificacionFuerteMin?: number;
             /** Format: int32 */
             version: number;
+            /** @description Reemplaza los ajustes de visitas completos. Ausente = se dejan como están */
+            visitas?: components["schemas"]["VisitasAsistente"];
         };
         EntradaAjustesBandeja: {
             /** Format: int32 */
@@ -13225,10 +13235,10 @@ export interface components {
             /** @description Número legible (OT-000123) */
             numero: string;
             /**
-             * @description De dónde vino: panel, api, argos (retiro automático por servicio retirado) o sistema
+             * @description De dónde vino: panel, api, asistente (la agendó el asistente de IA de mensajería), argos (retiro automático por servicio retirado) o sistema
              * @enum {string}
              */
-            origen?: "panel" | "api" | "argos" | "sistema";
+            origen?: "panel" | "api" | "argos" | "sistema" | "asistente";
             /**
              * @description Solo pausada: el estado al que vuelve al reanudar
              * @enum {string}
@@ -13364,10 +13374,10 @@ export interface components {
             /** @description Número legible (OT-000123) */
             numero: string;
             /**
-             * @description De dónde vino: panel, api, argos (retiro automático por servicio retirado) o sistema
+             * @description De dónde vino: panel, api, asistente (la agendó el asistente de IA de mensajería), argos (retiro automático por servicio retirado) o sistema
              * @enum {string}
              */
-            origen?: "panel" | "api" | "argos" | "sistema";
+            origen?: "panel" | "api" | "argos" | "sistema" | "asistente";
             /**
              * @description Solo pausada: el estado al que vuelve al reanudar
              * @enum {string}
@@ -13506,10 +13516,10 @@ export interface components {
             /** @description Número legible (OT-000123) */
             numero: string;
             /**
-             * @description De dónde vino: panel, api, argos (retiro automático por servicio retirado) o sistema
+             * @description De dónde vino: panel, api, asistente (la agendó el asistente de IA de mensajería), argos (retiro automático por servicio retirado) o sistema
              * @enum {string}
              */
-            origen?: "panel" | "api" | "argos" | "sistema";
+            origen?: "panel" | "api" | "argos" | "sistema" | "asistente";
             /**
              * @description Solo pausada: el estado al que vuelve al reanudar
              * @enum {string}
@@ -13639,10 +13649,10 @@ export interface components {
             /** @description Número legible (OT-000123) */
             numero: string;
             /**
-             * @description De dónde vino: panel, api, argos (retiro automático por servicio retirado) o sistema
+             * @description De dónde vino: panel, api, asistente (la agendó el asistente de IA de mensajería), argos (retiro automático por servicio retirado) o sistema
              * @enum {string}
              */
-            origen?: "panel" | "api" | "argos" | "sistema";
+            origen?: "panel" | "api" | "argos" | "sistema" | "asistente";
             /**
              * @description Solo pausada: el estado al que vuelve al reanudar
              * @enum {string}
@@ -16308,6 +16318,8 @@ export interface components {
             cierraEn: string | null;
         };
         VerificacionFuerteAcciones: {
+            /** @description false (por defecto): para agendar una visita basta que el número coincida con el cliente; true: exige la verificación fuerte */
+            agendar_visita?: boolean;
             /** @description true (por defecto): el saldo solo a quien pasó la verificación fuerte; false: basta que el número coincida */
             dar_saldo: boolean;
         };
@@ -16374,6 +16386,46 @@ export interface components {
         VinculoSSOCreado: {
             destino: components["schemas"]["DestinoSSOResuelto"];
             vinculo: components["schemas"]["VinculoSSO"];
+        };
+        VisitasAsistente: {
+            /**
+             * Format: int32
+             * @description Horas mínimas entre ahora y el inicio de la ventana (12 por defecto)
+             */
+            anticipacionHoras: number;
+            /** @description Ventanas de llegada que se ofrecen cada día (08:00–12:00 y 13:00–17:00 por defecto) */
+            bloques: components["schemas"]["BloqueVisita"][] | null;
+            /**
+             * Format: int32
+             * @description Hasta cuántos días adelante ofrece (7 por defecto); el límite diasAdelanteMax del perfil lo puede acortar
+             */
+            diasAdelante: number;
+            /** @description true (por defecto): la visita nace de un ticket; si la conversación no tiene uno, el asistente lo crea antes */
+            exigeTicket: boolean;
+            /**
+             * Format: int32
+             * @description Visitas vivas por cliente (1 por defecto)
+             */
+            maxAbiertasPorCliente: number;
+            /**
+             * Format: int32
+             * @description Veces que ofrece ventanas por conversación y día (3 por defecto)
+             */
+            ofertasPorDia: number;
+            /** @description false (por defecto): con el servicio cortado por falta de pago no agenda y pasa a una persona */
+            permitirConMora: boolean;
+            /** @description Tipos de orden que puede agendar: visita y/o mantenimiento. El primero es el que usa */
+            tiposPermitidos: string[] | null;
+            /**
+             * Format: int32
+             * @description Visitas que agenda por conversación y día (1 por defecto)
+             */
+            visitasPorDia: number;
+            /**
+             * Format: int32
+             * @description Visitas que agenda en toda la empresa por día (20 por defecto)
+             */
+            visitasPorDiaEmpresa: number;
         };
         VistaPreviaChat: {
             /** Format: int64 */

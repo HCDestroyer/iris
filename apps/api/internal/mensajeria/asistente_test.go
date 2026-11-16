@@ -218,11 +218,17 @@ type bandejaIA struct {
 	ia    *iaFalsa
 }
 
-func nuevaBandejaIA(t *testing.T) *bandejaIA {
+func nuevaBandejaIA(t *testing.T) *bandejaIA { return nuevaBandejaIACon(t, nil) }
+
+// nuevaBandejaIACon: la bandeja del asistente con algo más en la configuración (p. ej. campo y agenda).
+func nuevaBandejaIACon(t *testing.T, extra func(*mensajeria.Config)) *bandejaIA {
 	b := nuevaBandeja(t, func(c *mensajeria.Config) {
 		// El servidor falso de httptest está en 127.0.0.1 (IRIS_ASISTENTE_PERMITIR_LOOPBACK).
 		c.PermitirLoopbackIA = true
 		c.SondeoCancelacionIA = 20 * time.Millisecond
+		if extra != nil {
+			extra(c)
+		}
 	})
 	admin := b.persona([]int64{1}, rolBase("admin"))
 	admin.empresa = 1
@@ -234,6 +240,13 @@ func nuevaBandejaIA(t *testing.T) *bandejaIA {
 		t.Fatal(err)
 	}
 	x.ajustes(map[string]any{"activo": false})
+	// Los ajustes del asistente son de la empresa 1, que comparte todo el paquete: al terminar la
+	// prueba se borran, para que el modo autónomo no cambie el bot de las pruebas que siguen.
+	t.Cleanup(func() {
+		if _, err := b.bd.Exec(b.ctx, `DELETE FROM mensajeria.asistente_ajustes`); err != nil {
+			t.Error(err)
+		}
+	})
 	return x
 }
 

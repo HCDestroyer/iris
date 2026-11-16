@@ -222,6 +222,9 @@ func (m *Modulo) mantenerAsistente(ctx context.Context, bd nucleo.BD, log *slog.
 	if err := q.PurgarTurnosAsistente(ctx, m.ahora().Add(-90*24*time.Hour)); err != nil {
 		return err
 	}
+	if err := q.PurgarOfertasVisita(ctx, m.ahora().Add(-24*time.Hour)); err != nil {
+		return err
+	}
 	// El bot y fuera de horario que esperaban a la clasificación y nadie disparó (el job agotó sus
 	// intentos o nunca corrió): salen ahora.
 	if err := m.barrerBotsDiferidos(ctx, bd, log); err != nil {

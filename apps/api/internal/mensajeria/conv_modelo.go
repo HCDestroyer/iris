@@ -326,6 +326,9 @@ var casosDelAsistente = map[string]bool{
 	"conversaciones.responder": true, "conversaciones.crear_ticket": true, "conversaciones.registrar_boleta": true,
 	"conversaciones.registrar_promesa": true, "conversaciones.simular_promesa": true, "conversaciones.pedir_reconexion": true,
 	"mensajeria.asistente_consultar": true,
+	// agendar_visita (§17.10): el caso lo acepta, pero su permiso (ordenes.crear) solo lo lleva el
+	// contexto que arman las herramientas de visita con la acción encendida en el perfil vigente.
+	"conversaciones.crear_orden": true,
 }
 
 // alcanceAccionDe es alcanceConvDe y, además, acepta al asistente de IA (actor asistente_ia) solo en

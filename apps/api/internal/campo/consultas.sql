@@ -699,3 +699,14 @@ SELECT nombre FROM nucleo.usuarios WHERE id = @id;
 
 -- name: NombresDeZonas :many
 SELECT id, nombre FROM agenda.zonas WHERE id = ANY(@ids::bigint[]) ORDER BY nombre;
+
+-- name: OrdenesAbiertasDeCliente :many
+-- Órdenes vivas (ni cerradas, ni fallidas, ni canceladas) de un cliente en la empresa, de esos tipos.
+-- Para el tope de visitas abiertas por cliente del asistente de IA (conversaciones.md §17.10).
+SELECT o.id, o.numero, o.estado, o.version, o.origen, o.servicio_id, o.zona_id, t.codigo AS tipo
+FROM campo.ordenes o
+JOIN campo.tipos_orden t ON t.id = o.tipo_id
+WHERE o.cliente_id = @cliente_id AND o.empresa_id IS NOT DISTINCT FROM sqlc.narg('empresa_id')::bigint
+  AND o.estado NOT IN ('cerrada', 'fallida', 'cancelada') AND t.codigo = ANY(@tipos::text[])
+ORDER BY o.id;
+

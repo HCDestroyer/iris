@@ -333,7 +333,7 @@ UPDATE mensajeria.asistente_ajustes
 SET modo_autonomo = $1, espera_min = $2, max_turnos = $3, perfiles = $4, por_cola = $5,
     activado_en = coalesce(activado_en, $6), updated_at = now()
 WHERE id = $7
-RETURNING id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en, presupuesto_autonomo_pct, verificacion_fuerte_min
+RETURNING id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en, presupuesto_autonomo_pct, verificacion_fuerte_min, visitas
 `
 
 type FijarAutonomoAsistenteParams struct {
@@ -387,6 +387,7 @@ func (q *Queries) FijarAutonomoAsistente(ctx context.Context, arg FijarAutonomoA
 		&i.ActivadoEn,
 		&i.PresupuestoAutonomoPct,
 		&i.VerificacionFuerteMin,
+		&i.Visitas,
 	)
 	return i, err
 }
