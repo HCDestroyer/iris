@@ -39,6 +39,7 @@ import { useSesion } from "@/lib/sesion";
 import { AvatarDisponible, EstadoDisponible } from "./disponibilidad";
 import { SelectorCliente } from "@/componentes/clientes/selector-cliente";
 import { AyudaManuales } from "./ayuda";
+import { BoletasConversacion } from "./boletas";
 import { ResumenAsistente } from "./resumen-asistente";
 import type { EstadoAsistente } from "@/lib/asistente/tipos";
 import { useAhora } from "./reloj";
@@ -53,6 +54,8 @@ type Props = {
     /** Una acción devolvió la conversación (asociar, contacto…): la bandeja y el detalle se actualizan. */
     alActualizar: (c: Conversacion) => void;
     recargar: () => Promise<void>;
+    /** Cambia cuando llega por el feed un mensaje de sistema de una boleta: se vuelven a leer. */
+    senalBoletas?: number;
     /** «Usar en la respuesta» (manuales): pasa el texto al compositor. */
     alUsarTexto: (t: string) => void;
     /** Asistente de IA de la empresa (§16): con él activo, «Resumen del asistente» en Resumen. */
@@ -67,7 +70,7 @@ const BASE = "/api/v1/mensajeria/conversaciones/{id}";
  * Sin cliente: coincidencias por el número con «Asociar», buscar en Argos, crear prospecto o
  * guardar un contacto de Iris.
  */
-export function FichaCliente({ conv, identidad, pestana, alCambiarPestana, alActualizar, recargar, alUsarTexto, asistente }: Props) {
+export function FichaCliente({ conv, identidad, pestana, alCambiarPestana, alActualizar, recargar, alUsarTexto, asistente, senalBoletas = 0 }: Props) {
     const { puede } = useSesion();
     const conCliente = conv.contacto.tipo === "cliente";
     const conAyuda = puede(["manuales.ver"]);
@@ -100,7 +103,7 @@ export function FichaCliente({ conv, identidad, pestana, alCambiarPestana, alAct
             {actual === "historial" ? <Historial conv={conv} /> : actual === "ayuda" ? <AyudaManuales conv={conv} identidad={identidad} alUsarTexto={alUsarTexto} /> : (
                 <>
                     {asistente?.activo ? <ResumenAsistente key={conv.id} conversacionId={conv.id} estado={asistente} /> : null}
-                    <Resumen conv={conv} recargar={recargar} />
+                    <Resumen conv={conv} recargar={recargar} senalBoletas={senalBoletas} />
                 </>
             )}
         </div>
@@ -304,12 +307,13 @@ function Vinculo({ v }: { v: NonNullable<ConversacionDetalle["vinculos"]>[number
     );
 }
 
-function Resumen({ conv }: { conv: ConversacionDetalle; recargar: () => Promise<void> }) {
+function Resumen({ conv, senalBoletas }: { conv: ConversacionDetalle; recargar: () => Promise<void>; senalBoletas: number }) {
     // Fase 1.1: supervisores y equipo de la cola en el detalle (contrato §14.1).
     const equipo = conv;
     const abiertos = (conv.vinculos ?? []).filter((v) => v.tipo === "ticket" || v.tipo === "orden").slice(-3);
     return (
         <div>
+            <BoletasConversacion conv={conv} senal={senalBoletas} />
             <Seccion titulo="Creado desde aquí">
                 {abiertos.length === 0 ? <p className="text-[0.8125rem] text-muted-foreground">Todavía no hay tickets ni órdenes de esta conversación.</p> : null}
                 <ul className="grid gap-1.5">

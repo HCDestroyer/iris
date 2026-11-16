@@ -47,6 +47,10 @@ const ETIQUETAS: Readonly<Record<string, string>> = {
     "/administracion/colas/nueva": "Nueva cola",
     "/administracion/bandeja": "Ajustes de la bandeja",
     "/administracion/asistente": "Asistente de IA",
+    "/administracion/asistente/conexion": "Conexión con la IA",
+    "/administracion/asistente/limites": "Límites",
+    "/administracion/asistente/categorias": "Categorías",
+    "/administracion/asistente/categorias/nueva": "Nueva categoría",
     "/administracion/horarios": "Horarios",
     "/administracion/horarios/nuevo": "Nuevo horario",
     "/administracion/manuales": "Biblioteca de manuales",
@@ -82,6 +86,7 @@ const SUBPANTALLAS: readonly (readonly [RegExp, string])[] = [
     [/^\/administracion\/colas\/[^/]+\/editar$/, "Editar cola"],
     [/^\/administracion\/horarios\/[^/]+\/editar$/, "Editar horario"],
     [/^\/administracion\/manuales\/[^/]+\/editar$/, "Editar manual"],
+    [/^\/administracion\/asistente\/categorias\/[^/]+\/editar$/, "Editar categoría"],
 ];
 
 /** Fichas: la etiqueta mientras no se conoce el nombre del registro. */

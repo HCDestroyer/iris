@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -26,7 +27,7 @@ type FranjaHorario struct {
 	Dias   []int   `json:"dias,omitempty" maxItems:"7" uniqueItems:"true" doc:"1 = lunes … 7 = domingo (en un feriado no va)"`
 	Inicio string  `json:"inicio" pattern:"^([01][0-9]|2[0-3]):[0-5][0-9]$" doc:"HH:MM local"`
 	Fin    string  `json:"fin" pattern:"^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$" doc:"HH:MM local (mayor que inicio; 24:00 = fin del día)"`
-	Perfil *string `json:"perfil,omitempty" maxLength:"60" nullable:"true" doc:"Fase 2: conjunto de permisos de un asistente en esta franja (se guarda; hoy nada lo usa)"`
+	Perfil *string `json:"perfil,omitempty" maxLength:"60" nullable:"true" doc:"Perfil del asistente de IA en esta franja (§17.1): un código de perfil o solo_sugerir"`
 }
 
 // FeriadoHorario cierra un día o reemplaza sus franjas.
@@ -100,6 +101,39 @@ func minutosHM(s string) (int, error) {
 		return 0, err
 	}
 	return t.Hour()*60 + t.Minute(), nil
+}
+
+// validarPerfilesDeFranjas: el perfil de una franja es «solo_sugerir» o el código de un perfil del
+// asistente de la empresa (§17.1). Un código que no existe sería una franja en la que el asistente no
+// actúa solo (se trata como solo_sugerir): mejor decirlo al guardar.
+func validarPerfilesDeFranjas(ctx context.Context, q *mensajeriabd.Queries, empresa int64, franjas []FranjaHorario, feriados []FeriadoHorario) error {
+	codigos := []string{PerfilSoloSugerir, PerfilDefecto}
+	aj, err := leerAjustesAsistente(ctx, q, empresa)
+	if err != nil {
+		return err
+	}
+	if aj != nil {
+		for _, p := range perfilesDe(aj.Perfiles) {
+			codigos = append(codigos, p.Codigo)
+		}
+	}
+	revisar := func(fs []FranjaHorario, campo string) error {
+		for i, f := range fs {
+			if f.Perfil != nil && !slices.Contains(codigos, *f.Perfil) {
+				return campoConv(fmt.Sprintf("%s[%d].perfil", campo, i), "No es un perfil del asistente de IA de la empresa (ni solo_sugerir)", "perfil")
+			}
+		}
+		return nil
+	}
+	if err := revisar(franjas, "franjas"); err != nil {
+		return err
+	}
+	for i, f := range feriados {
+		if err := revisar(f.Franjas, fmt.Sprintf("feriados[%d].franjas", i)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func tramosDe(fs []FranjaHorario, campo string) ([]tramo, error) {
@@ -367,6 +401,9 @@ func nuevoGuardarHorario(_ *Modulo, crear bool) *auditoria.Caso[EntradaHorario, 
 				}
 			}
 			if _, err := calendarioDe(in.Zona, in.Franjas, in.Feriados); err != nil {
+				return Horario{}, err
+			}
+			if err := validarPerfilesDeFranjas(ctx, mensajeriabd.New(t), a.empresa, in.Franjas, in.Feriados); err != nil {
 				return Horario{}, err
 			}
 			franjas, _ := json.Marshal(in.Franjas)

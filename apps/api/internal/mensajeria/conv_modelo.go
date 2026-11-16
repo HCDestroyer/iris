@@ -113,6 +113,7 @@ type ContactoConversacion struct {
 	ProspectoID    *int64  `json:"prospectoId" nullable:"true"`
 	Asociacion     *string `json:"asociacion" nullable:"true" enum:"automatica,manual" doc:"automatica: una sola coincidencia del número en la instantánea de Argos"`
 	Verificado     bool    `json:"verificado" doc:"El número coincide con un teléfono del cliente en Argos (o lo confirmó un supervisor). Sin verificar: ni plantillas fuera de ventana, ni boletas, ni promesas"`
+	Verificacion   *string `json:"verificacion" nullable:"true" required:"false" enum:"numero,fuerte" doc:"Nivel de la verificación (§17.8): numero = el número coincide; fuerte = lo confirmó una persona o pasó el desafío de identidad de Argos. null: sin verificar"`
 }
 
 // VentanaConversacion es la ventana de 24 h de WhatsApp.
@@ -163,7 +164,7 @@ type ConversacionCliente struct {
 	CategoriaConfianza *float32              `json:"categoriaConfianza" nullable:"true" required:"false" doc:"0 a 1; null si la puso un agente"`
 	CategoriaOrigen    *string               `json:"categoriaOrigen" nullable:"true" required:"false" enum:"asistente,agente"`
 	ActividadAsistente *ActividadAsistente   `json:"actividadAsistente,omitempty" doc:"Lo último que hizo el asistente en la conversación"`
-	Asistente          *AsistenteConv        `json:"asistente,omitempty" doc:"3b: el asistente atiende solo esta conversación. Ausente en 3a"`
+	Asistente          *AsistenteConv        `json:"asistente,omitempty" doc:"El asistente atiende (o atendió) solo esta conversación (§17.8). Ausente: nunca la atendió en este periodo"`
 	SoloLectura        bool                  `json:"soloLectura,omitempty" doc:"true: el número ya no está compartido con tu empresa (préstamo revocado, §15.3) y solo se puede leer. Ausente = false"`
 	UltimaActividad    time.Time             `json:"ultimaActividad"`
 	CreadaEn           time.Time             `json:"creadaEn"`
@@ -305,6 +306,109 @@ type alcanceConv struct {
 	supervisa bool
 	// sugerencias: recibe las sugerencias del asistente (conversaciones.sugerencias, §16).
 	sugerencias bool
+	// asistente: quien actúa es el asistente de IA que atiende solo (actor asistente_ia, §17.8). No
+	// hay usuario (0): solo ve las conversaciones de su empresa que él atiende y que nadie tiene.
+	asistente bool
+}
+
+// NombreAsistenteIA: cómo se muestra el asistente en los mensajes de sistema.
+const NombreAsistenteIA = "Asistente de IA"
+
+// casosDelAsistente son los únicos casos de uso de la bandeja que aceptan al actor asistente_ia
+// (§17.8). Cualquier otro lo rechaza aunque algún día su rol tuviera el permiso: se deniega por
+// defecto. Aprobar o rechazar boletas, tomar, asignar, resolver, asociar y configurar no están.
+var casosDelAsistente = map[string]bool{
+	"conversaciones.responder": true, "conversaciones.crear_ticket": true, "conversaciones.registrar_boleta": true,
+	"conversaciones.registrar_promesa": true, "conversaciones.simular_promesa": true, "conversaciones.pedir_reconexion": true,
+	"mensajeria.asistente_consultar": true,
+}
+
+// alcanceAccionDe es alcanceConvDe y, además, acepta al asistente de IA (actor asistente_ia) solo en
+// los casos de casosDelAsistente. El permiso de cada caso de uso sigue mandando.
+func alcanceAccionDe(ctx context.Context, caso string) (alcanceConv, error) {
+	actor := contexto.ActorDe(ctx)
+	if actor.Tipo != contexto.ActorAsistenteIA {
+		return alcanceConvDe(ctx)
+	}
+	if !casosDelAsistente[caso] {
+		return alcanceConv{}, nucleo.Prohibido("El asistente de IA no puede usar esta acción")
+	}
+	// La empresa es la que fijó el servidor al armar el contexto del turno; nunca sale del modelo.
+	if actor.EmpresaID != contexto.EmpresaDe(ctx) {
+		return alcanceConv{}, conversacionClienteNoEncontrada()
+	}
+	return alcanceConv{asistente: true, empresa: actor.EmpresaID}, nil
+}
+
+// Niveles de verificación del cliente de una conversación.
+const (
+	// VerificacionNumero: el número de WhatsApp coincide con un teléfono del cliente en Argos.
+	VerificacionNumero = "numero"
+	// VerificacionFuerte: lo confirmó una persona con permiso, o pasó el desafío de identidad de Argos,
+	// en este periodo abierto de la conversación (identidad_verificada_en; al resolverse se pierde).
+	VerificacionFuerte = "fuerte"
+)
+
+// verificacionDe: "" (sin verificar), numero o fuerte. La fuerte vale en el periodo abierto en que se
+// obtuvo y solo hasta identidad_vence_en (verificacionFuerteMin de la empresa, 60 min por defecto):
+// después vuelve a «numero» y hay que verificar otra vez.
+//
+// vigencia es el verificacionFuerteMin ACTUAL de la empresa: la vigencia efectiva es el mínimo entre
+// identidad_vence_en (lo fijado al verificar) e identidad_verificada_en + vigencia. Así, si la empresa
+// acorta el ajuste, las verificaciones ya dadas también se acortan (nunca se alargan).
+func verificacionDe(c mensajeriabd.MensajeriaConversacion, ahora time.Time, vigencia time.Duration) string {
+	switch {
+	case c.ClienteID == nil || !c.ClienteVerificado:
+		return ""
+	case c.Estado != EstadoConvResuelta && c.IdentidadVerificadaEn != nil && c.IdentidadVenceEn != nil && ahora.Before(*c.IdentidadVenceEn) &&
+		ahora.Before(c.IdentidadVerificadaEn.Add(vigencia)):
+		return VerificacionFuerte
+	}
+	return VerificacionNumero
+}
+
+// vigenciaFuerte: el verificacionFuerteMin actual de la empresa.
+func vigenciaFuerte(ctx context.Context, q *mensajeriabd.Queries, empresa int64) (time.Duration, error) {
+	aj, err := leerAjustesAsistente(ctx, q, empresa)
+	if err != nil {
+		return 0, err
+	}
+	if aj == nil {
+		return VerificacionFuerteMinDefecto * time.Minute, nil
+	}
+	return time.Duration(aj.VerificacionFuerteMin) * time.Minute, nil
+}
+
+// VerificacionFuerteMinDefecto: minutos que vale la verificación fuerte si la empresa no fijó otro valor.
+const VerificacionFuerteMinDefecto = 60
+
+// fijarVerificacionFuerte deja la conversación con la verificación fuerte desde ahora, por los minutos
+// que fijó la empresa.
+func (m *Modulo) fijarVerificacionFuerte(ctx context.Context, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
+	minutos := int32(VerificacionFuerteMinDefecto)
+	aj, err := leerAjustesAsistente(ctx, q, empresaDeConv(*c))
+	if err != nil {
+		return err
+	}
+	if aj != nil {
+		minutos = aj.VerificacionFuerteMin
+	}
+	ahora := m.ahora()
+	vence := ahora.Add(time.Duration(minutos) * time.Minute)
+	if err := q.FijarIdentidadVerificada(ctx, mensajeriabd.FijarIdentidadVerificadaParams{ID: c.ID, Ahora: &ahora, Vence: &vence}); err != nil {
+		return err
+	}
+	c.IdentidadVerificadaEn, c.IdentidadVenceEn = &ahora, &vence
+	return nil
+}
+
+// usuarioPtr: quién queda como autor (nil = el asistente de IA).
+func (a alcanceConv) usuarioPtr() *int64 {
+	if a.asistente || a.usuario == 0 {
+		return nil
+	}
+	u := a.usuario
+	return &u
 }
 
 // alcanceConvDe exige una persona con sesión (no un token de API ni una integración) y
@@ -339,6 +443,9 @@ func conversacionClienteNoEncontrada() *nucleo.Problema {
 
 // convVisible lee la conversación (con FOR UPDATE si bloquear) o 404 si el actor no la ve.
 func convVisible(ctx context.Context, q *mensajeriabd.Queries, a alcanceConv, id int64, bloquear bool) (mensajeriabd.MensajeriaConversacion, error) {
+	if a.asistente {
+		return convDelAsistente(ctx, q, a, id, bloquear)
+	}
 	ok, err := q.ConversacionVisible(ctx, mensajeriabd.ConversacionVisibleParams{ID: id, Empresa: a.empresa, Usuario: a.usuario, Supervisa: a.supervisa})
 	if err != nil {
 		return mensajeriabd.MensajeriaConversacion{}, err
@@ -361,6 +468,34 @@ func convVisible(ctx context.Context, q *mensajeriabd.Queries, a alcanceConv, id
 		return c, nil
 	}
 	return q.ConversacionClientePorID(ctx, id)
+}
+
+// convDelAsistente: lo que el asistente de IA puede tocar. La conversación es de su empresa, nadie
+// la tiene, no está resuelta ni es de solo lectura, y él la está atendiendo. Si una persona la tomó
+// o escribió a mitad del turno (estado detenido), ya no la ve: el turno en curso no envía nada más.
+func convDelAsistente(ctx context.Context, q *mensajeriabd.Queries, a alcanceConv, id int64, bloquear bool) (mensajeriabd.MensajeriaConversacion, error) {
+	leer := q.ConversacionClientePorID
+	if bloquear {
+		leer = q.ConversacionClienteParaActualizar
+	}
+	c, err := leer(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return c, conversacionClienteNoEncontrada()
+	}
+	if err != nil {
+		return c, err
+	}
+	if empresaDeConv(c) != a.empresa || c.AsignadoA != nil || c.Estado == EstadoConvResuelta ||
+		c.AsistenteEstado == nil || *c.AsistenteEstado != AsistenteAtendiendo {
+		return mensajeriabd.MensajeriaConversacion{}, conversacionClienteNoEncontrada()
+	}
+	if lectura, err := soloLecturaConv(ctx, q, c); err != nil || lectura {
+		if err == nil {
+			err = conversacionClienteNoEncontrada()
+		}
+		return mensajeriabd.MensajeriaConversacion{}, err
+	}
+	return c, nil
 }
 
 // exigirVersion: 409 si la versión leída ya cambió.
@@ -472,9 +607,12 @@ func ventanaDe(ultimoEntrante *time.Time, ahora time.Time) VentanaConversacion {
 	return VentanaConversacion{Abierta: ahora.Before(cierra), CierraEn: &cierra}
 }
 
-func contactoDeConv(c mensajeriabd.MensajeriaConversacion) ContactoConversacion {
+func contactoDeConv(c mensajeriabd.MensajeriaConversacion, ahora time.Time, vigencia time.Duration) ContactoConversacion {
 	k := ContactoConversacion{Tipo: "desconocido", ClienteID: c.ClienteID, ServicioID: c.ServicioID, ContactoIrisID: c.ContactoIrisID,
 		ProspectoID: c.ProspectoID, Asociacion: c.Asociacion, Verificado: c.ClienteID != nil && c.ClienteVerificado}
+	if v := verificacionDe(c, ahora, vigencia); v != "" {
+		k.Verificacion = &v
+	}
 	switch {
 	case c.ClienteID != nil:
 		k.Tipo = "cliente"
@@ -505,13 +643,22 @@ func (m *Modulo) resumirConvs(ctx context.Context, q *mensajeriabd.Queries, usua
 	}
 	ahora := m.ahora()
 	disp := map[[2]int64][]UsuarioRef{}
+	vigencias := map[int64]time.Duration{}
 	porID := make(map[int64]ConversacionCliente, len(filas))
 	for _, f := range filas {
 		c := mensajeriabd.MensajeriaConversacion{ID: f.ID, ClienteID: f.ClienteID, ServicioID: f.ServicioID, ContactoIrisID: f.ContactoIrisID,
-			ProspectoID: f.ProspectoID, Asociacion: f.Asociacion, ClienteVerificado: f.ClienteVerificado}
+			ProspectoID: f.ProspectoID, Asociacion: f.Asociacion, ClienteVerificado: f.ClienteVerificado, VerificadoPor: f.VerificadoPor,
+			IdentidadVerificadaEn: f.IdentidadVerificadaEn, IdentidadVenceEn: f.IdentidadVenceEn, Estado: f.Estado}
+		if _, ok := vigencias[derefEmpresa(f.EmpresaID)]; !ok {
+			v, err := vigenciaFuerte(ctx, q, derefEmpresa(f.EmpresaID))
+			if err != nil {
+				return nil, err
+			}
+			vigencias[derefEmpresa(f.EmpresaID)] = v
+		}
 		v := ConversacionCliente{ID: f.ID, EmpresaID: f.EmpresaID, Version: f.Version,
 			Canal:  CanalRef{ID: f.CanalID, Nombre: f.CanalNombre, Numero: f.CanalNumero, Usos: f.CanalUsos},
-			Numero: f.Numero, PerfilNombre: f.PerfilNombre, Contacto: contactoDeConv(c), Estado: f.Estado, ReabiertaEn: f.ReabiertaEn,
+			Numero: f.Numero, PerfilNombre: f.PerfilNombre, Contacto: contactoDeConv(c, ahora, vigencias[derefEmpresa(f.EmpresaID)]), Estado: f.Estado, ReabiertaEn: f.ReabiertaEn,
 			Etiquetas: etiquetas[f.ID], Ventana: ventanaDe(f.UltimoEntranteEn, ahora),
 			SLA:      estadoSLA(f.SlaVenceEn, f.EsperaDesde, f.SlaRespuestaMin, f.SlaPorVencerMin, ahora),
 			NoLeidos: f.NoLeidos, SoloLectura: f.SoloLectura, UltimaActividad: f.UltimaActividad, CreadaEn: f.CreatedAt,
@@ -525,6 +672,9 @@ func (m *Modulo) resumirConvs(ctx context.Context, q *mensajeriabd.Queries, usua
 		}
 		if f.AsistenteActividadTipo != nil && f.AsistenteActividadTexto != nil && f.AsistenteActividadEn != nil {
 			v.ActividadAsistente = &ActividadAsistente{Tipo: *f.AsistenteActividadTipo, Texto: *f.AsistenteActividadTexto, En: *f.AsistenteActividadEn}
+		}
+		if f.AsistenteEstado != nil {
+			v.Asistente = &AsistenteConv{Estado: *f.AsistenteEstado, Turnos: f.AsistenteTurnos}
 		}
 		if v.Etiquetas == nil {
 			v.Etiquetas = []EtiquetaRef{}

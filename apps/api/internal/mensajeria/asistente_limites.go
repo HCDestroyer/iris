@@ -57,6 +57,27 @@ func (m *Modulo) reservarTokens(ctx context.Context, q *mensajeriabd.Queries, id
 	return q.InsertarReserva(ctx, mensajeriabd.InsertarReservaParams{ID: id, EmpresaID: empresaPtrDe(empresa), Mes: mes, Tokens: tokens, CreadaEn: m.ahora()})
 }
 
+// reservarTokensAutonomo: como reservarTokens, y en la misma sentencia contra el presupuesto del modo
+// autónomo (pct del tope del mes): lo gastado más lo reservado por turnos autónomos más esta reserva.
+func (m *Modulo) reservarTokensAutonomo(ctx context.Context, q *mensajeriabd.Queries, id uuid.UUID, empresa, tope int64, pct int32, tokens int64) error {
+	if err := m.liberarReserva(ctx, q, id); err != nil {
+		return err
+	}
+	mes, _, _ := m.mesDe(m.ahora())
+	if err := q.AsegurarUsoAsistente(ctx, mensajeriabd.AsegurarUsoAsistenteParams{EmpresaID: empresaPtrDe(empresa), Mes: mes}); err != nil {
+		return err
+	}
+	if _, err := q.ReservarTokensAutonomo(ctx, mensajeriabd.ReservarTokensAutonomoParams{Tokens: tokens, Empresa: empresa, Mes: mes, Tope: tope,
+		Presupuesto: tope * int64(pct) / 100}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return &ErrorIA{Codigo: ErrIATope, Detalle: "No queda presupuesto de tokens este mes para atender solo"}
+		}
+		return err
+	}
+	return q.InsertarReserva(ctx, mensajeriabd.InsertarReservaParams{ID: id, EmpresaID: empresaPtrDe(empresa), Mes: mes, Tokens: tokens, CreadaEn: m.ahora(),
+		Autonomo: true})
+}
+
 // liberarReserva devuelve los tokens reservados (no hace nada si no hay reserva).
 func (m *Modulo) liberarReserva(ctx context.Context, q *mensajeriabd.Queries, id uuid.UUID) error {
 	r, err := q.LiberarReserva(ctx, id)
@@ -66,7 +87,7 @@ func (m *Modulo) liberarReserva(ctx context.Context, q *mensajeriabd.Queries, id
 	if err != nil {
 		return err
 	}
-	return q.DescontarReservados(ctx, mensajeriabd.DescontarReservadosParams{Tokens: r.Tokens, Empresa: derefEmpresa(r.EmpresaID), Mes: r.Mes})
+	return q.DescontarReservados(ctx, mensajeriabd.DescontarReservadosParams{Tokens: r.Tokens, Empresa: derefEmpresa(r.EmpresaID), Mes: r.Mes, Autonomo: r.Autonomo})
 }
 
 // limitePedidos: 10 por minuto por persona (429 con Retry-After). Toma el candado de la persona
@@ -172,7 +193,8 @@ func (m *Modulo) mantenerAsistente(ctx context.Context, bd nucleo.BD, log *slog.
 			log.WarnContext(ctx, "mensajeria: sugerencia atascada", "sugerencia_id", id, "err", err)
 		}
 	}
-	reservas, err := q.ReservasHuerfanas(ctx, antes)
+	// Una reserva vive lo que el arriendo de un turno autónomo (el pedido más largo que la usa).
+	reservas, err := q.ReservasHuerfanas(ctx, m.ahora().Add(-(m.arriendoTurno() + MargenAtascadaIA)))
 	if err != nil {
 		return err
 	}
@@ -184,7 +206,51 @@ func (m *Modulo) mantenerAsistente(ctx context.Context, bd nucleo.BD, log *slog.
 	if err := q.PurgarClasificaciones(ctx, m.ahora().Add(-24*time.Hour)); err != nil {
 		return err
 	}
+	// §17.8: un turno autónomo cuyo job murió se vuelve a encolar (el turno decide si lo repite o lo
+	// pasa a una persona); los turnos viejos se purgan.
+	convs, err := q.TurnosAtascados(ctx, m.ahora().Add(-(m.arriendoTurno() + MargenAtascadaIA)))
+	if err != nil {
+		return err
+	}
+	for _, conv := range convs {
+		if err := nucleo.EnTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+			return m.encolar(ctx, tx, ArgsAsistenteSugerir{ConversacionID: conv})
+		}); err != nil {
+			log.WarnContext(ctx, "mensajeria: reencolar turno del asistente", "conversacion_id", conv, "err", err)
+		}
+	}
+	if err := q.PurgarTurnosAsistente(ctx, m.ahora().Add(-90*24*time.Hour)); err != nil {
+		return err
+	}
+	// El bot y fuera de horario que esperaban a la clasificación y nadie disparó (el job agotó sus
+	// intentos o nunca corrió): salen ahora.
+	if err := m.barrerBotsDiferidos(ctx, bd, log); err != nil {
+		return err
+	}
+	// Reconexiones cuya respuesta de Argos se perdió: se repiten con la misma clave. created_at es
+	// la hora de la base, no la del módulo.
+	if m.Conv.Reconexion != nil {
+		if err := m.Conv.Reconexion.Reintentar(ctx, bd, time.Now().Add(-EsperaReintentoReconexion), log); err != nil {
+			return err
+		}
+	}
 	return q.PurgarPedidosAsistente(ctx, m.ahora().Add(-24*time.Hour))
+}
+
+// EsperaBotDiferido: lo máximo que el bot y fuera de horario esperan a la clasificación.
+const EsperaBotDiferido = 60 * time.Second
+
+func (m *Modulo) barrerBotsDiferidos(ctx context.Context, bd nucleo.BD, log *slog.Logger) error {
+	convs, err := mensajeriabd.New(bd).BotsDiferidosViejos(ctx, m.ahora().Add(-EsperaBotDiferido))
+	if err != nil {
+		return err
+	}
+	for _, conv := range convs {
+		if _, err := m.botDiferido.Ejecutar(ctx, conv); err != nil {
+			log.WarnContext(ctx, "mensajeria: bot diferido", "conversacion_id", conv, "err", err)
+		}
+	}
+	return nil
 }
 
 // VencerAtascadas corre el barrido (pruebas).

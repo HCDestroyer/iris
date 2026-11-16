@@ -135,7 +135,7 @@ dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`avis
 | `Autocompletar` | `ComboBox` | Con `alBuscar` busca en el servidor: `cargando`, `sinResultados`, `cabeceraLista` («Recientes») y opciones con `contenido` propio; la primera queda resaltada al llegar los resultados y Enter la elige. Enter nunca envía el formulario desde el campo. Salir del campo o Escape no borran lo escrito. `SelectorCliente` avisa con `alBuscarSinElegir` si hay una búsqueda sin elegir o «Cambiar cliente» abierto, y el formulario no se envía hasta elegir, borrar o «Dejar el cliente elegido» |
 | `ListaEleccion` | `RadioGroup`, `Label`, `Radio`, `Radio.Content`, `Radio.Indicator` | Una entre varias filas con contenido propio (avatar, detalle, estado a la derecha); `deshabilitada` no se elige, `atenuada` sí; `pegadas` para una lista de búsqueda |
 | `ListaOpciones` | `ListBox` (`onAction`) | Elegir una tarjeta entre pocas (servicio del cliente): flechas, Enter y clic |
-| `Interruptor` | `Switch`, `Switch.Content`, `Switch.Control`, `Switch.Thumb` | Ajustes de encendido/apagado que cambian lo que sigue. Con `register` como `Casilla` |
+| `Interruptor` | `Switch`, `Switch.Content`, `Switch.Control`, `Switch.Thumb` | Ajustes de encendido/apagado que cambian lo que sigue. Con `register` como `Casilla`. `alFinal`: la etiqueta a la izquierda y el control a la derecha, a todo el ancho (filas de una lista de ajustes) |
 | `CampoNumero` | `NumberField` (+ `DecrementButton` / `IncrementButton` con `conPasos`) | Cantidades y montos; el formulario recibe el texto del número (`"250.5"`) |
 | `CampoBusqueda` | `SearchField` (`SearchIcon`, `Input`, `ClearButton`) | Lupa y «X» de Lucide; Escape borra |
 | `SelectorArchivo` | — (`<input type="file">` oculto en su `<label>`, como `Camara`) | Adjuntar sin cámara (compositor de la bandeja); clip de Lucide; se limpia tras elegir |
@@ -145,7 +145,7 @@ dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`avis
 | `AreaTexto`, `CampoArea` | `TextArea` | |
 | `Etiqueta` | `Label` | |
 | `ProveedorRutas` | `RouterProvider` de React Aria | |
-| `BarraGuardar`, `FormularioPagina`, `SeccionFormulario` | — | Composición propia de Iris con `Boton`. `BarraGuardar` acepta `nota` (una línea a la izquierda: «Al guardar, Iris prueba la conexión con Meta.») |
+| `BarraGuardar`, `FormularioPagina`, `SeccionFormulario` | — | Composición propia de Iris con `Boton`. `BarraGuardar` acepta `nota` (una línea a la izquierda: «Al guardar, Iris prueba la conexión con Meta.»). `FormularioPagina` acepta `accionTitulo` (a la derecha del título: el interruptor que enciende lo que la pantalla configura) |
 
 `useCambiosSinGuardar(isDirty, isSubmitting)` sirve igual dentro de `DialogoProtegido` que dentro de
 `FormularioPagina`.
@@ -441,7 +441,8 @@ envía:** sugiere y la persona revisa y envía.
   En pausa por el tope, una línea discreta y ningún botón.
 - **Ficha del cliente:** «Resumen del asistente» arriba de Resumen, a pedido («Resumir»), con
   `Cargando` «Generando resumen…» y error con «Reintentar».
-- **Administración › Asistente de IA** (`/administracion/asistente`): `FormularioPagina` con proveedor
+- **Administración › Asistente de IA › Conexión con la IA** (`/administracion/asistente/conexion`;
+  desde la fase 3 la pantalla principal son las tres preguntas, ver más abajo): `FormularioPagina` con proveedor
   en `ListaEleccion` («Recomendado» en Ollama), clave como en las credenciales de números
   (`SecretoCambiable` con `femenino`: «•••• guardada el …»), modelo en `CampoSelector` con «Escribir
   otro modelo» (y a mano si la lista falla), «Probar conexión» con el resultado en una línea (icono +
@@ -491,6 +492,101 @@ envía:** sugiere y la persona revisa y envía.
   va dentro del aviso «Argos < 1.6.0: inventario por técnico no disponible» en técnicos sin ficha, en
   el selector de bodega y en el vínculo de la ficha. Sin `integraciones.ver` no aparece.
 - Pruebas: `e2e/asistente-21.spec.ts` (4 proyectos), `lib/campana.test.ts` y `lib/integraciones/presentacion.test.ts`.
+
+### Fase 3: el asistente en tres preguntas, categorías y boletas (nov. 2026)
+
+Diseño «más amigable y práctico» del PM (contrato `conversaciones.md` §17 y §6.4; Argos 0.7.0 §7.7).
+
+- **Administración › Asistente de IA** (`/administracion/asistente`) es una sola pantalla con tres
+  preguntas en lenguaje llano y el interruptor de encendido a la derecha del título
+  (`FormularioPagina` con `accionTitulo`):
+    1. **¿Cuándo atiende solo?** `ListaEleccion` con icono de Lucide: «Nunca» (`Hand`), «Cuando no
+       hay nadie» (`Moon`, píldora «Recomendado») y «Siempre primero» (`Zap`). Con «Cuando no hay
+       nadie» aparece «Esperar a un agente: N min». Mientras el servidor diga
+       `autonomoDisponible: false`, las dos últimas van deshabilitadas con la píldora «Próximamente».
+    2. **¿Qué puede hacer solo?** Una fila por acción: icono, título, nota corta y el `Interruptor`
+       a la derecha (`alFinal`). Con `autonomoDisponible: false` lleva la nota «Se aplicará cuando
+       el asistente atienda solo». Debajo, «Ajustar límites ›» y la línea fija «Siempre pasa a una
+       persona si el cliente lo pide, se enoja o no sabe la respuesta».
+    3. **¿Qué hace con cada tipo de mensaje?** Una fila por categoría activa: su chip y un
+       `Selector` «Responde solo / Sugiere al agente». Debajo, «Agregar tipo · Colas y tiempos de
+       respuesta ›».
+- **«Pruébalo antes de guardar»:** caja de marca al 6 % con `Sparkles`. Manda lo que hay en el
+  formulario **sin guardar** y muestra el chip de la categoría, qué haría («Respondería solo», «Le
+  sugeriría al agente», «Pasaría a una persona», con sus fuentes), el porqué cuando el servidor lo
+  da, la respuesta en una burbuja y las acciones que tomaría, descritas. Enter prueba (no guarda).
+  Estados: «El asistente está leyendo el mensaje…», error con «Reintentar» y 429 con la cuenta
+  regresiva (`ErrorAsistente`). No envía nada a ningún cliente, y lo dice.
+- **Sin proveedor conectado:** aviso arriba «Falta conectar la IA» con el botón «Conectar la IA»
+  (lleva a `/conexion`); el interruptor, las tres preguntas, «Pruébalo» y «Guardar» quedan
+  deshabilitados.
+- **«Efecto en el SLA (este mes)»:** primera respuesta promedio (con «antes N» si el servidor lo
+  sabe) y el % resuelto sin persona, con «(N de M)». El % no se calcula sin conversaciones («—»). Si
+  no se pudo leer: «Reintentar», sin cifras.
+- **Lo avanzado, cada cosa en su ruta** (`FormularioPagina`, migas, salir con cambios pregunta):
+    - `/administracion/asistente/conexion`: proveedor, clave, modelo, probar conexión, fuentes, uso
+      y tope (lo de la fase 2);
+    - `/administracion/asistente/limites`: prioridad máxima del ticket, días adelante para visitas,
+      mensajes antes de pasar a una persona y «Apagado por cola» (una casilla por acción: «No
+      agendar visitas»). Los perfiles por horario que existan se listan y se conservan al guardar;
+    - `/administracion/asistente/categorias`: lista con cola, tiempo de primera respuesta, manuales
+      base y modo; «Agregar categoría» y «Editar» en su propia ruta (nombre, descripción, color del
+      chip con vista previa, cola, tiempo, modo, condición, manuales base y activa). «Otro» no se
+      desactiva.
+  Guardar en una de estas pantallas no pisa lo de las otras: cada una manda solo lo suyo.
+- **Chip de categoría** (`componentes/asistente/chip-categoria.tsx`): icono `Tag` + nombre + color.
+  Los tonos del servidor van a los colores de Horus: `info` azul, `error` rojo, `ok` verde, `aviso`
+  naranja, `neutro` gris. Un tono que el panel no conoce se ve gris.
+- **Bandeja:**
+    - arriba de la lista, **filtros por categoría** con su cifra: «Todas» primero y la elegida en
+      teal con `CircleCheck` (`aria-pressed`). Es una tira que se desliza a lo ancho si no cabe. El
+      filtro va en la URL (`?categoria=2`) y «Quitar filtros» del popover no lo borra. La tira solo
+      aparece cuando alguna conversación ya tiene categoría (sin asistente no hay categorías);
+    - cada fila suma una tercera línea con el **chip** y la **actividad del asistente** (`Sparkles`
+      en teal + el texto corto que escribe el servidor);
+    - bajo la cabecera de la conversación, la categoría con **«Cambiar»** (menú corto; con
+      `conversaciones.categorizar`) y aviso emergente al cambiarla. Si otra persona cambió la
+      conversación (409), se relee y dice «Alguien la cambió; inténtalo de nuevo» (igual en «Tomar»). Sin categoría y con el asistente
+      activo dice «Sin categoría · Poner categoría»; con el asistente apagado no aparece nada;
+    - **«El asistente está atendiendo»**: franja discreta en teal con `Sparkles` y el botón
+      «Tomar» (la acción de tomar de siempre: al tomarla una persona, el asistente se detiene);
+    - los mensajes del asistente llevan la etiqueta **«Asistente»** con `Sparkles` en teal y borde
+      de marca (distintos de los de una persona y de «Bot · mensaje automático»); su nota al pasar
+      a una persona es una nota interna que dice «Nota interna del asistente».
+- **Boletas en la ficha del cliente** (sección «Boletas de pago», arriba de «Creado desde aquí»):
+  monto, referencia, estado con `InsigniaEstado` (icono + texto + color), quién la decidió y, si no
+  se le pudo avisar al cliente, lo dice. Pendiente de revisar y con permiso: «Aprobar y registrar
+  pago» (diálogo que confirma el monto, con nota opcional) y «Rechazar» (diálogo con el motivo y la
+  causa). Cada error dice qué hacer:
+    - sin vínculo: «Vincula tu usuario de Argos para aprobar pagos» con el botón «Vincular mi
+      usuario de Argos» y, después, «Reintentar» (misma clave);
+    - sin permiso, sin empresa o usuario inactivo en Argos: se explican, sin «Reintentar»;
+    - ya la decidió otra persona: se relee y la tarjeta dice quién;
+    - Argos no respondió: «Puede haberse aplicado en Argos: vuelve a intentar para confirmarlo» (nunca
+      «no quedó nada a medias»); Argos viejo: «Actualiza Argos a 1.15.0 o posterior»;
+    - **todo 409 relee la boleta** antes de decir nada. Si no se pudo leer, la tarjeta no muestra un
+      estado: dice «Cambió en Argos y no se pudo leer cómo quedó», con «Reintentar», y los botones
+      de decidir quedan deshabilitados hasta leerla;
+    - al aprobar viaja el monto que se ve en el diálogo (`montoEsperado`). Si cambió, el servidor no
+      aprueba: el diálogo sigue abierto con el monto nuevo y pide confirmar otra vez. El aviso de
+      éxito usa el monto que devolvió el servidor;
+    - el diálogo de rechazar lleva la nota «Al cliente le llega un texto fijo según la causa. Tu
+      motivo se agrega solo si no lleva números, puntos ni enlaces.»;
+    - si Argos avisó y todavía se confirma: «Confirmando con Argos…» (discreto). Si no se pudo:
+      «No se pudo confirmar con Argos», con icono de aviso;
+    - cerrar el diálogo después de un error vuelve a leer las boletas. Un refresco que falla no tapa
+      lo leído: se marca «No se pudieron actualizar» con «Reintentar».
+- **«Abrir en Argos»** (con `integraciones.abrir_argos`) reemplaza a «Ver en Argos» en la ficha del
+  cliente de tickets y órdenes: entra a Argos ya con la sesión. La pestaña se abre en el mismo clic
+  (en blanco, sin `opener`) y se manda al enlace cuando llega; así el navegador no la bloquea. El
+  enlace lleva un ticket de sesión: **solo se abre por `https` y en el origen del panel de Argos del
+  conector** (`urlPublica`); si no, la pestaña se cierra y lo dice. Con las ventanas emergentes
+  bloqueadas no se pide el ticket: «Permite las ventanas emergentes para abrir Argos». En una sesión
+  abierta desde Argos pide antes la contraseña de Iris (el diálogo «Confirma tu contraseña» de
+  siempre) y después abre Argos solo. Si falla, lo dice y deja el enlace simple de respaldo. **«Vincular mi usuario de Argos»** está en el
+  menú de la cuenta y en «Mi perfil» (`/cuenta#argos`).
+- Pruebas: `e2e/asistente-3.spec.ts` y `e2e/boletas.spec.ts` (4 proyectos),
+  `lib/asistente/fase3.test.ts` y `lib/conversaciones/boletas.test.ts`.
 
 ## Navegación del panel (fase 1, hecha)
 

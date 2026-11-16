@@ -82,9 +82,10 @@ func validarFueraDeHorario(ctx context.Context, t *auditoria.Tx, empresa int64, 
 }
 
 // alRecibirFueraDeHorario corre después de guardar un mensaje del cliente. cerrado: el horario
-// estaba cerrado (el bot de horario no corre).
+// estaba cerrado (el bot de horario no corre). calla: no se responde (lo atiende el asistente); la
+// guardia se avisa igual.
 func (m *Modulo) alRecibirFueraDeHorario(ctx context.Context, t *auditoria.Tx, c *mensajeriabd.MensajeriaConversacion, canal mensajeriabd.MensajeriaCanal,
-	_ mensajeriabd.MensajeriaConversacionMensaje, bot BotNumero) (bool, error) {
+	_ mensajeriabd.MensajeriaConversacionMensaje, bot BotNumero, calla bool) (bool, error) {
 	q := mensajeriabd.New(t)
 	var colaHorario *int64
 	if c.ColaID != nil {
@@ -109,7 +110,8 @@ func (m *Modulo) alRecibirFueraDeHorario(ctx context.Context, t *auditoria.Tx, c
 		hasta = ahora.Add(24 * time.Hour)
 	}
 	f := fueraDeHorarioDe(canal.FueraHorario)
-	if f.Responder && f.Mensaje != "" && (c.FueraHorarioHasta == nil || !ahora.Before(*c.FueraHorarioHasta)) {
+	// calla: el asistente atiende esta conversación (§17.8); no sale la respuesta de fuera de horario.
+	if !calla && f.Responder && f.Mensaje != "" && (c.FueraHorarioHasta == nil || !ahora.Before(*c.FueraHorarioHasta)) {
 		if err := m.responderFueraDeHorario(ctx, t, c, f, hasta, bot); err != nil {
 			return true, err
 		}

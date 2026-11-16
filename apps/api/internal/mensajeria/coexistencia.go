@@ -95,6 +95,12 @@ func (m *Modulo) ecoTelefono(ctx context.Context, t *auditoria.Tx, canal mensaje
 			return err
 		}
 	}
+	// Alguien del negocio respondió desde el teléfono: el asistente de IA se detiene (§17.8).
+	if c.AsistenteEstado != nil && *c.AsistenteEstado != AsistenteDetenido {
+		if err := q.DetenerAsistente(ctx, c.ID); err != nil {
+			return err
+		}
+	}
 	if err := m.emitirEventoConv(ctx, t, c, EventoConvActualizada, nil, nil); err != nil {
 		return err
 	}

@@ -2,6 +2,9 @@ import type { Schema } from "@iris/contratos";
 import type { Route } from "@playwright/test";
 import { agentesBandeja11, bandeja11, canalesBandeja11, colasBandeja11, PERMISOS_BANDEJA11, type ColaBase, type NumeroBase, type OpcionesBandeja11 } from "./api-bandeja11";
 import { apiAsistente, PERMISO_SUGERENCIAS, type OpcionesAsistente } from "./api-asistente";
+import { apiFase3 } from "./api-asistente3";
+import { PERMISO_CATEGORIZAR } from "../lib/asistente/permisos";
+import type { Contadores, Conversacion, Mensaje } from "../lib/conversaciones/tipos";
 import { ANDREA, CANAL_AVISOS, CANAL_COBROS, CANAL_SOPORTE, CANAL_VENTAS, CONVERSACIONES, detalle, mensajesDe } from "./datos-conversaciones";
 
 /*
@@ -13,8 +16,6 @@ import { ANDREA, CANAL_AVISOS, CANAL_COBROS, CANAL_SOPORTE, CANAL_VENTAS, CONVER
 
 type Problema = Schema<"Problema">;
 type Permiso = Schema<"Permiso">;
-type Conversacion = Schema<"ConversacionCliente">;
-type Mensaje = Schema<"MensajeConversacion">;
 type Evento = Schema<"EventoConversacion">;
 
 const json = (route: Route, cuerpo: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(cuerpo) });
@@ -40,6 +41,7 @@ export const PERMISOS_CONVERSACIONES: Permiso[] = [
     "manuales.revocar_enlace",
     ...PERMISOS_BANDEJA11,
     PERMISO_SUGERENCIAS,
+    PERMISO_CATEGORIZAR,
 ];
 
 export type OpcionesConversaciones = OpcionesBandeja11 & {
@@ -171,6 +173,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         eventos.push({ id: String(cursor), tipo: "conversacion_actualizada", ...base, conversacion: structuredClone(c) });
     }
 
+    const fase3 = apiFase3({ conversaciones, mensajes, enviados }, opciones.asistente?.fase3);
     const asistente = apiAsistente(
         {
             conversaciones,
@@ -182,6 +185,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             },
         },
         opciones.asistente,
+        fase3,
     );
     const b11 = bandeja11({ actorId, conversaciones, mensajes, agentes, colas, canales, emitir, enviados }, opciones);
 
@@ -196,12 +200,13 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             .filter((c) => !q.get("canalId") || c.canal.id === Number(q.get("canalId")))
             .filter((c) => !q.get("colaId") || c.cola?.id === Number(q.get("colaId")))
             .filter((c) => !q.get("etiquetaId") || (c.etiquetas ?? []).some((e) => e.id === Number(q.get("etiquetaId"))))
+            .filter((c) => !q.get("categoriaId") || c.categoria?.id === Number(q.get("categoriaId")))
             .filter((c) => !q.get("sla") || c.sla.estado === q.get("sla"))
             .filter((c) => !texto || c.titulo.toLowerCase().includes(texto) || c.numero.includes(texto.replace(/\D/g, "") || "x"))
             .sort((a, b) => Date.parse(b.ultimaActividad) - Date.parse(a.ultimaActividad));
     }
 
-    function contadores(): Schema<"ContadoresConversaciones"> {
+    function contadores(): Contadores {
         const yo = actorId();
         const activas = conversaciones.filter((c) => c.estado !== "resuelta");
         const grupo = (clave: (c: Conversacion) => number[]) => {
@@ -220,6 +225,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             porCanal: grupo((c) => [c.canal.id]),
             porCola: grupo((c) => (c.cola ? [c.cola.id] : [])),
             porEtiqueta: grupo((c) => (c.etiquetas ?? []).map((e) => e.id)),
+            porCategoria: fase3.porCategoria(activas),
         };
     }
 
@@ -243,6 +249,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             entregadoEn: null,
             leidoEn: null,
             automatico: null,
+            autorTipo: "cliente",
         };
         mensajes.get(id)?.push(m);
         c.version += 1;
@@ -370,6 +377,8 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                 return responder(() => {
                     const a = agentes.find((v) => v.id === yo);
                     c.asignado = { id: yo, nombre: a?.nombre ?? "Yo" };
+                    // Fase 3: al tomarla una persona, el asistente se detiene.
+                    if (c.asistente) c.asistente = { ...c.asistente, estado: "detenido" };
                 });
             case "asignar": {
                 if (!puede("conversaciones.asignar")) return (await prohibido(), true);
@@ -387,6 +396,16 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                     else delete c.cola;
                     if (!cuerpo.conservarAsignacion) delete c.asignado;
                 });
+            }
+            case "categorizar": {
+                if (!puede(PERMISO_CATEGORIZAR)) return (await prohibido(), true);
+                if (version !== undefined && version !== c.version) return (await conflicto(), true);
+                const p = fase3.categorizar(c, cuerpo);
+                if (p) return (await problema(route, p), true);
+                c.version += 1;
+                emitir("conversacion_actualizada", c);
+                // Como el servidor (§17.3): devuelve el detalle.
+                return (await json(route, detalle(c)), true);
             }
             case "etiquetar":
                 return responder(() => (c.etiquetas = etiquetas.filter((e) => (cuerpo.etiquetaIds as number[]).includes(e.id)).map(({ id, nombre, color }) => ({ id, nombre, color }))));
@@ -449,6 +468,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                     entregadoEn: null,
                     leidoEn: null,
                     automatico: null,
+                    autorTipo: "persona",
                     ...(cuerpo.plantilla ? { plantilla: cuerpo.plantilla as Schema<"PlantillaMensaje"> } : {}),
                 };
                 mensajes.get(c.id)?.push(nuevo);
@@ -558,7 +578,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         return false;
     }
 
-    return { manejar, conversaciones, mensajes, enviados, mensajeDelCliente, horarios, manuales, canales, configurados, respuestas, enlaces, consentimientos, colas, agentes, bandeja11: b11, asistente };
+    return { manejar, conversaciones, mensajes, enviados, mensajeDelCliente, horarios, manuales, canales, configurados, respuestas, enlaces, consentimientos, colas, agentes, bandeja11: b11, asistente, fase3 };
 }
 
 export type ApiConversaciones = ReturnType<typeof apiConversaciones>;

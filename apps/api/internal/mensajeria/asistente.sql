@@ -121,7 +121,7 @@ ORDER BY seq DESC LIMIT 1;
 
 -- name: HistorialAsistente :many
 -- Los últimos mensajes del cliente y de agentes: nunca notas internas ni mensajes de sistema.
-SELECT id, direccion, tipo, texto, autor_id, automatico, creado_en FROM mensajeria.conversacion_mensajes
+SELECT id, direccion, tipo, texto, autor_id, automatico, creado_en, con_saldo FROM mensajeria.conversacion_mensajes
 WHERE conversacion_id = @conversacion_id AND direccion IN ('entrante', 'saliente')
 ORDER BY seq DESC LIMIT @limite;
 
@@ -171,14 +171,15 @@ WHERE coalesce(empresa_id, 0) = @empresa::bigint AND mes = @mes
 RETURNING tokens_reservados;
 
 -- name: InsertarReserva :exec
-INSERT INTO mensajeria.asistente_reservas (id, empresa_id, mes, tokens, creada_en)
-VALUES (@id, sqlc.narg('empresa_id'), @mes, @tokens, @creada_en);
+INSERT INTO mensajeria.asistente_reservas (id, empresa_id, mes, tokens, creada_en, autonomo)
+VALUES (@id, sqlc.narg('empresa_id'), @mes, @tokens, @creada_en, @autonomo);
 
 -- name: LiberarReserva :one
 DELETE FROM mensajeria.asistente_reservas WHERE id = @id RETURNING *;
 
 -- name: DescontarReservados :exec
-UPDATE mensajeria.asistente_uso SET tokens_reservados = GREATEST(0, tokens_reservados - @tokens::bigint), updated_at = now()
+UPDATE mensajeria.asistente_uso SET tokens_reservados = GREATEST(0, tokens_reservados - @tokens::bigint),
+    tokens_autonomo_reservados = GREATEST(0, tokens_autonomo_reservados - CASE WHEN @autonomo::boolean THEN @tokens::bigint ELSE 0 END), updated_at = now()
 WHERE coalesce(empresa_id, 0) = @empresa::bigint AND mes = @mes;
 
 -- name: ReservasHuerfanas :many

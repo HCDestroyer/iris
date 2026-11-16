@@ -1349,7 +1349,7 @@ export interface paths {
         };
         /**
          * Orígenes de Argos y Horus para los enlaces «Ver en …»
-         * @description Permiso: `clientes.ver`. También vale con `integraciones.abrir_argos` (uno u otro): el panel compara con `argosisp.urlPublica` el origen del enlace de `POST /integraciones/argosisp/abrir`. No exige empresa activa. Sin secretos: solo la URL pública de cada sistema con conector activo (ausente si no hay).
+         * @description Permiso: `clientes.ver`. También vale con `integraciones.abrir_argos` (uno u otro; con solo ese permiso responde solo `argosisp`, sin `horus`): el panel compara con `argosisp.urlPublica` el origen del enlace de `POST /integraciones/argosisp/abrir`. No exige empresa activa. Sin secretos: solo la URL pública de cada sistema con conector activo (ausente si no hay).
          */
         get: operations["obtenerEnlacesExternos"];
         put?: never;
@@ -7403,7 +7403,7 @@ export interface components {
         };
         AjustesAsistente: {
             activo: boolean;
-            /** @description false: el servidor todavía no actúa solo (3a) y modoAutonomo solo admite nunca */
+            /** @description true: el servidor actúa solo (3b) y modoAutonomo admite los tres valores */
             autonomoDisponible?: boolean;
             /**
              * Format: date-time
@@ -7437,12 +7437,22 @@ export interface components {
             precioEntradaMillon: string | null;
             /** @description Precio por millón de tokens de salida (decimal como texto) */
             precioSalidaMillon: string | null;
+            /**
+             * Format: int32
+             * @description Porcentaje del tope del mes para atender solo (1 a 100; 70 por defecto): así las sugerencias a los agentes no se apagan
+             */
+            presupuestoAutonomoPct?: number;
             /** @enum {string} */
             proveedor: "ollama" | "openai_compatible" | "anthropic";
             /** Format: int64 */
             topeTokensMes: number;
             /** @description URL base del servidor (vacía en anthropic = https://api.anthropic.com) */
             url: string;
+            /**
+             * Format: int32
+             * @description Minutos que vale la verificación fuerte de identidad dentro de un periodo de la conversación (5 a 1440; 60 por defecto). Después vuelve a numero y el asistente pide verificar otra vez
+             */
+            verificacionFuerteMin?: number;
             /**
              * Format: int32
              * @description 0 si nunca se guardaron
@@ -8593,6 +8603,11 @@ export interface components {
             servicioId: number | null;
             /** @enum {string} */
             tipo: "cliente" | "contacto_iris" | "prospecto" | "desconocido";
+            /**
+             * @description Nivel de la verificación (§17.8): numero = el número coincide; fuerte = lo confirmó una persona o pasó el desafío de identidad de Argos. null: sin verificar
+             * @enum {string|null}
+             */
+            verificacion?: "numero" | "fuerte" | null;
             /** @description El número coincide con un teléfono del cliente en Argos (o lo confirmó un supervisor). Sin verificar: ni plantillas fuera de ventana, ni boletas, ni promesas */
             verificado: boolean;
         };
@@ -8793,7 +8808,7 @@ export interface components {
             actividadAsistente?: components["schemas"]["ActividadAsistente"];
             /** @description Ausente: sin asignar */
             asignado?: components["schemas"]["UsuarioRef"];
-            /** @description 3b: el asistente atiende solo esta conversación. Ausente en 3a */
+            /** @description El asistente atiende (o atendió) solo esta conversación (§17.8). Ausente: nunca la atendió en este periodo */
             asistente?: components["schemas"]["AsistenteConv"];
             canal: components["schemas"]["CanalRef"];
             /** @description Categoría de mensajes (§17); ausente: sin categoría */
@@ -8847,7 +8862,7 @@ export interface components {
             actividadAsistente?: components["schemas"]["ActividadAsistente"];
             /** @description Ausente: sin asignar */
             asignado?: components["schemas"]["UsuarioRef"];
-            /** @description 3b: el asistente atiende solo esta conversación. Ausente en 3a */
+            /** @description El asistente atiende (o atendió) solo esta conversación (§17.8). Ausente: nunca la atendió en este periodo */
             asistente?: components["schemas"]["AsistenteConv"];
             canal: components["schemas"]["CanalRef"];
             /** @description Categoría de mensajes (§17); ausente: sin categoría */
@@ -9585,7 +9600,7 @@ export interface components {
             /** @enum {string} */
             modo: "automatico" | "boton";
             /**
-             * @description Con autonomoDisponible false solo nunca (422 autonomo_no_disponible)
+             * @description Cuándo atiende solo (§17.8)
              * @enum {string}
              */
             modoAutonomo?: "nunca" | "sin_nadie" | "siempre_primero";
@@ -9595,11 +9610,21 @@ export interface components {
             porCola?: components["schemas"]["AccionesCola"][] | null;
             precioEntradaMillon: string | null;
             precioSalidaMillon: string | null;
+            /**
+             * Format: int32
+             * @description Ausente = se deja como está
+             */
+            presupuestoAutonomoPct?: number;
             /** @enum {string} */
             proveedor: "ollama" | "openai_compatible" | "anthropic";
             /** Format: int64 */
             topeTokensMes: number;
             url: string;
+            /**
+             * Format: int32
+             * @description Ausente = se deja como está
+             */
+            verificacionFuerteMin?: number;
             /** Format: int32 */
             version: number;
         };
@@ -11785,7 +11810,7 @@ export interface components {
         };
         EstadoAsistente: {
             activo: boolean;
-            /** @description false: el servidor todavía no actúa solo */
+            /** @description true: el servidor actúa solo (3b) */
             autonomoDisponible?: boolean;
             /** @enum {string} */
             modo: "automatico" | "boton";
@@ -12401,7 +12426,7 @@ export interface components {
             fin: string;
             /** @description HH:MM local */
             inicio: string;
-            /** @description Fase 2: conjunto de permisos de un asistente en esta franja (se guarda; hoy nada lo usa) */
+            /** @description Perfil del asistente de IA en esta franja (§17.1): un código de perfil o solo_sugerir */
             perfil?: string | null;
         };
         FuenteSugerencia: {
@@ -14216,6 +14241,8 @@ export interface components {
             acciones: components["schemas"]["AccionesAsistente"];
             /** @description «defecto» el primero; se usa en horarios.franjas[].perfil */
             codigo: string;
+            /** @description Ausente = true en todo */
+            exigeVerificacionFuerte?: components["schemas"]["VerificacionFuerteAcciones"];
             limites: components["schemas"]["LimitesAsistente"];
             nombre: string;
         };
@@ -14252,7 +14279,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.ver" | "integraciones.ver_pendientes" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.ver" | "integraciones.ver_pendientes" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -16267,6 +16294,10 @@ export interface components {
              * @description 24 h después del último mensaje del cliente
              */
             cierraEn: string | null;
+        };
+        VerificacionFuerteAcciones: {
+            /** @description true (por defecto): el saldo solo a quien pasó la verificación fuerte; false: basta que el número coincida */
+            dar_saldo: boolean;
         };
         VersionPlantilla: {
             /** Format: date-time */

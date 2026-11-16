@@ -4,7 +4,7 @@ import type { Schema } from "@iris/contratos";
 import { Aviso, Boton, Esqueleto, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { Archive, Clock, ExternalLink, History, IdCard, Mail, Map as IconoMapa, MapPin, Network, Phone, PlugZap, RefreshCw, Router, UserRound, Wifi } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { BotonVerEn } from "@/componentes/enlaces-externos";
+import { BotonAbrirArgos } from "@/componentes/integraciones/abrir-argos";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { useAhora } from "@/componentes/tickets/insignias";
 import { api, resolver } from "@/lib/api/cliente";
@@ -107,7 +107,7 @@ export function DatosClienteServicio({ clienteId, servicioId, copia, contacto, o
     const encabezado = (
         <TarjetaEncabezado className="flex flex-row flex-wrap items-center justify-between gap-2">
             <TarjetaTitulo>Cliente</TarjetaTitulo>
-            {verArgos ? <BotonVerEn enlace={verArgos} /> : null}
+            {verArgos ? <BotonAbrirArgos destino={{ tipo: "cliente", idExterno: String(clienteId) }} respaldo={verArgos} /> : null}
         </TarjetaEncabezado>
     );
 

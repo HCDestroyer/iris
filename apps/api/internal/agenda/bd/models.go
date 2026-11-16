@@ -1002,32 +1002,47 @@ type MensajeriaAjustesBandeja struct {
 	UpdatedAt          time.Time
 }
 
+type MensajeriaAsistenteAccione struct {
+	ID             int64
+	TurnoID        uuid.UUID
+	EmpresaID      *int64
+	ConversacionID int64
+	Paso           int32
+	Accion         string
+	Resultado      string
+	Entidad        *string
+	EntidadID      *string
+	CreadaEn       time.Time
+}
+
 type MensajeriaAsistenteAjuste struct {
-	ID                  int64
-	EmpresaID           *int64
-	Activo              bool
-	Proveedor           string
-	Url                 string
-	ClaveCifrada        []byte
-	ClaveGuardadaEn     *time.Time
-	Modelo              string
-	Modo                string
-	FuenteManuales      bool
-	FuenteArgos         bool
-	FuenteHorus         bool
-	FuenteHistorial     bool
-	TopeTokensMes       int64
-	PrecioEntradaMillon pgtype.Numeric
-	PrecioSalidaMillon  pgtype.Numeric
-	Version             int32
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
-	ModoAutonomo        string
-	EsperaMin           int32
-	MaxTurnos           int32
-	Perfiles            []byte
-	PorCola             []byte
-	ActivadoEn          *time.Time
+	ID                     int64
+	EmpresaID              *int64
+	Activo                 bool
+	Proveedor              string
+	Url                    string
+	ClaveCifrada           []byte
+	ClaveGuardadaEn        *time.Time
+	Modelo                 string
+	Modo                   string
+	FuenteManuales         bool
+	FuenteArgos            bool
+	FuenteHorus            bool
+	FuenteHistorial        bool
+	TopeTokensMes          int64
+	PrecioEntradaMillon    pgtype.Numeric
+	PrecioSalidaMillon     pgtype.Numeric
+	Version                int32
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	ModoAutonomo           string
+	EsperaMin              int32
+	MaxTurnos              int32
+	Perfiles               []byte
+	PorCola                []byte
+	ActivadoEn             *time.Time
+	PresupuestoAutonomoPct int32
+	VerificacionFuerteMin  int32
 }
 
 type MensajeriaAsistenteCategoria struct {
@@ -1071,19 +1086,47 @@ type MensajeriaAsistenteReserva struct {
 	Mes       time.Time
 	Tokens    int64
 	CreadaEn  time.Time
+	Autonomo  bool
+}
+
+type MensajeriaAsistenteTurno struct {
+	ID             uuid.UUID
+	EmpresaID      *int64
+	ConversacionID int64
+	MensajeID      uuid.UUID
+	Numero         int32
+	Estado         string
+	Motivo         *string
+	Herramientas   int32
+	TokensEntrada  int64
+	TokensSalida   int64
+	TomadoEn       time.Time
+	CreadoEn       time.Time
+	TerminadoEn    *time.Time
 }
 
 type MensajeriaAsistenteUso struct {
-	EmpresaID        *int64
-	Mes              time.Time
-	TokensEntrada    int64
-	TokensSalida     int64
-	Sugerencias      int32
-	Resumenes        int32
-	TokensReservados int64
-	Avisado80        bool
-	Avisado100       bool
-	UpdatedAt        time.Time
+	EmpresaID                *int64
+	Mes                      time.Time
+	TokensEntrada            int64
+	TokensSalida             int64
+	Sugerencias              int32
+	Resumenes                int32
+	TokensReservados         int64
+	Avisado80                bool
+	Avisado100               bool
+	UpdatedAt                time.Time
+	TokensAutonomo           int64
+	TokensAutonomoReservados int64
+}
+
+type MensajeriaAsistenteVerificacione struct {
+	ID             int64
+	EmpresaID      *int64
+	ConversacionID int64
+	ClienteID      int64
+	Resultado      string
+	CreadaEn       time.Time
 }
 
 type MensajeriaAviso struct {
@@ -1155,6 +1198,7 @@ type MensajeriaBoleta struct {
 	ResolucionIntentos  int32
 	ResolucionError     *string
 	ResolucionAgotadaEn *time.Time
+	PorAsistente        bool
 }
 
 type MensajeriaCanalPrestamo struct {
@@ -1447,6 +1491,7 @@ type MensajeriaConversacionMensaje struct {
 	UpdatedAt         time.Time
 	Automatico        *string
 	Origen            *string
+	ConSaldo          bool
 }
 
 type MensajeriaConversacionParticipante struct {
@@ -1511,6 +1556,12 @@ type MensajeriaConversacione struct {
 	AsistenteActividadEn    *time.Time
 	ColaOrigen              string
 	AsistenteTransfirioEn   *time.Time
+	AsistenteEstado         *string
+	AsistenteTurnos         int32
+	AsistentePresentoEn     *time.Time
+	IdentidadVerificadaEn   *time.Time
+	IdentidadVenceEn        *time.Time
+	BotDiferidoMensajeID    *uuid.UUID
 }
 
 type MensajeriaDisponibilidad struct {
@@ -1607,6 +1658,26 @@ type MensajeriaPromesa struct {
 	IdempotencyKey *string
 	HashPeticion   []byte
 	SolicitadaPor  *int64
+	CreatedAt      time.Time
+}
+
+type MensajeriaReconexione struct {
+	ID             uuid.UUID
+	EmpresaID      *int64
+	ConversacionID int64
+	BoletaID       uuid.UUID
+	ComprobanteID  int64
+	ClienteID      int64
+	ServicioID     *int64
+	Motivo         string
+	Estado         string
+	Intentos       int32
+	ResueltaEn     *time.Time
+	PromesaArgosID *int64
+	Hasta          *time.Time
+	Detalle        *string
+	SolicitadaPor  *int64
+	PorAsistente   bool
 	CreatedAt      time.Time
 }
 

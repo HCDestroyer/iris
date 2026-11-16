@@ -182,7 +182,9 @@ var (
 		`|\b(?:un|` + numeroLetras + `)\s+(?:de\s+)?(?:` + monedaCorta + `|` + monedaLarga + `)\b` +
 		`|(?:\b` + monedaCorta + `|\$)\s*` + numeroLetras + `\b`)
 	// reDeuda: palabras de deuda.
+	// También «en total» y «son / serían» seguidos de una cifra («son Q 350», «serían 350»).
 	reDeuda = regexp.MustCompile(`\b(?:saldos?|deb[eo]s?|deben|debía[ns]?|deudas?|adeud[a-zñáéíóú]*|pendientes?\s+de\s+pago|pagos?\s+pendientes?|` +
+		`en\s+total|(?:son|ser[ií]an?)\s+(?:de\s+)?(?:q\.?\s*|gtq\s*|\$\s*)?\d[\d.,]*|` +
 		`facturas?\s+vencidas?|total\s+a\s+pagar|monto\s+(?:vencido|pendiente|adeudado)|en\s+mora|moros[oa]s?)\b`)
 	// reNumeroSuelto: un número de 2 dígitos o más (con separadores) o con decimales, con lo que sigue
 	// (para descartar los que cuentan otra cosa).
@@ -220,7 +222,8 @@ func ContieneMonto(texto string) bool {
 			continue
 		}
 		for _, p := range deuda {
-			if (p[0] >= n[1] && p[0]-n[1] <= CercaniaMonto) || (n[0] >= p[1] && n[0]-p[1] <= CercaniaMonto) {
+			// Cerca de la palabra de deuda, o dentro de ella («son 350»).
+			if (p[0] >= n[1] && p[0]-n[1] <= CercaniaMonto) || (n[0] >= p[1] && n[0]-p[1] <= CercaniaMonto) || (n[0] >= p[0] && n[1] <= p[1]) {
 				return true
 			}
 		}

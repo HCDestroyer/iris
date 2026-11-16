@@ -845,7 +845,7 @@ func TestPrestamoVisibilidad(t *testing.T) {
 		t.Fatal("la conversación no fue a la empresa 2")
 	}
 	ids := func(per persona, ruta string) map[int64]bool {
-		r := p.api(per, http.MethodGet, ruta, nil)
+		r := todasLasPaginas(func(ruta string) respuesta { return p.api(per, http.MethodGet, ruta, nil) }, ruta)
 		p.exigir(r, http.StatusOK)
 		out := map[int64]bool{}
 		for _, x := range r.cuerpo["data"].([]any) {

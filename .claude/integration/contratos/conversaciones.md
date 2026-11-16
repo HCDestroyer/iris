@@ -527,10 +527,14 @@ de Iris o caja en Argos:
 | `falta_dato` | `boleta_falta_dato` | «revisa que se vean la referencia, el monto y la fecha» (la plantilla agrega «Envíala de nuevo, por favor.») |
 
 El motivo libre se agrega al final («. Detalle: …», todo en 200 caracteres) **solo si pasa el
-filtro**: no pasa si trae `://`, `www.`, un dominio (`algo.tld`) o 6 o más dígitos seguidos, con o
-sin separadores (espacios, guiones, puntos, barras). Si no pasa, el cliente recibe solo el texto
-fijo; el motivo completo igual queda en la boleta (`motivoRechazo`), va a Argos y se ve en el panel.
-Así el número oficial de la empresa no sirve para mandar enlaces, cuentas ni teléfonos.
+filtro**, que es una **lista blanca**. Primero se normaliza (Unicode NFKC, sin caracteres de formato
+`Cf` como el espacio de ancho cero, y con los espacios colapsados). Después solo se aceptan letras
+del español (`a`–`z`, `A`–`Z`, `áéíóúüñ` y sus mayúsculas), espacios y `,;:¿?¡!()`. **Cualquier
+dígito** (en cualquier escritura) **o punto** lo deja fuera, igual que una barra, un guion, una
+arroba o una letra de otro alfabeto; solo se perdona el punto final de la frase. Si no pasa, el
+cliente recibe solo el texto fijo; el motivo completo igual queda en la boleta (`motivoRechazo`), va
+a Argos y se ve en el panel. Así el número oficial de la empresa no sirve para mandar enlaces,
+dominios, cuentas ni teléfonos, tampoco disfrazados con Unicode.
 
 **Mensajes de sistema:** `boleta_aprobada` y `boleta_rechazada`, con `actorNombre` (la persona de
 Iris si decidió desde la conversación; si no, el usuario de Argos), `referencia`, `entidadId` (la
@@ -557,7 +561,8 @@ usuario de Argos». 409 `conector_apagado` / `iris_apagado`, 422 `argos_sin_apro
   conector no tiene ninguna, la de su API (`base_url`). Nunca un host libre (502 `argos_rechazo`). Es
   el mismo origen que el panel lee en `argosisp.urlPublica` de `GET /api/v1/integraciones/enlaces`,
   que acepta `clientes.ver` **o** `integraciones.abrir_argos` (así quien puede abrir Argos puede
-  validar el enlace aunque no vea clientes).
+  validar el enlace aunque no vea clientes). Con solo `integraciones.abrir_argos` responde solo
+  `argosisp`: el origen de Horus sigue siendo de `clientes.ver`.
 - **Nota para Argos** (la pasa el líder): la pantalla de Argos que confirma el vínculo debe mostrar
   claro **qué usuario de Iris** se está vinculando (nombre y correo del ticket), para que nadie
   vincule su usuario de Argos con el de otra persona al abrir un enlace ajeno.
@@ -1983,13 +1988,11 @@ Lo implementa I1 en `apps/api/internal/mensajeria/asistente3*.go`. Lo usa el pan
 filtros y la línea del asistente en la bandeja. Mismas reglas del inicio (sesión del panel, empresa
 activa, RFC 9457, `Idempotency-Key`, `version` con 409). Todo va bajo `/api/v1/mensajeria`.
 
-> **Entregas.** **3a** (esta): ajustes ampliados, categorías, clasificación, `categorizar`,
+> **Entregas.** **3a** (#159): ajustes ampliados, categorías, clasificación, `categorizar`,
 > transferencia de cola, SLA por categoría, filtro/conteos/`actividadAsistente`, `probar-mensaje` y
-> `efecto`. **3b** (siguiente PR): el asistente **actúa solo** (§17.8). En 3a los perfiles y las
-> acciones **se guardan y se devuelven, pero el servidor todavía no envía ni ejecuta nada solo**: el
-> principio de §16 («el asistente nunca envía») sigue vigente hasta 3b, `autonomoDisponible` vale
-> `false` y `modoAutonomo` solo admite `nunca`. Las formas de 3b ya están aquí para que el panel no
-> espere; lo marcado **(3b)** aún no llega con datos.
+> `efecto`. **3b** (esta): el asistente **actúa solo** (§17.8): `autonomoDisponible` vale `true`,
+> `modoAutonomo` admite los tres valores y lo marcado **(3b)** ya llega con datos. Queda para después
+> `agendar_visita` (la acción se guarda, pero el asistente aún no tiene esa herramienta).
 
 ### 17.1 Ajustes ampliados (`mensajeria.asistente_configurar`)
 
@@ -2006,8 +2009,8 @@ activa, RFC 9457, `Idempotency-Key`, `version` con 409). Todo va bajo `/api/v1/m
   "porCola": [ { "colaId": 4, "accionesApagadas": ["promesa_pago", "agendar_visita"] } ] }
 ```
 
-- `autonomoDisponible` (solo lectura; también en `GET /asistente/estado`): `false` en 3a, `true`
-  desde 3b. Con `false` el panel muestra «Cuando no hay nadie» y «Siempre primero» como
+- `autonomoDisponible` (solo lectura; también en `GET /asistente/estado`): `true` desde 3b (el
+  ejemplo de arriba es de 3a). Con `false` el panel muestra «Cuando no hay nadie» y «Siempre primero» como
   «Próximamente», y guardar `modoAutonomo` ≠ `nunca` responde **422 `autonomo_no_disponible`**
   (campo `modoAutonomo`). Los perfiles, las acciones y `porCola` sí se guardan, para dejarlos listos.
 - `modoAutonomo` (pregunta 1): `nunca` (por defecto: solo sugiere, como en la fase 2) | `sin_nadie`
@@ -2230,7 +2233,7 @@ empresa_id, accion, resultado `ok|rechazada|fallo`, entidad, entidad_id, turno) 
 `asistente.paso_a_persona` (conversacion_id, empresa_id, motivo `cliente_lo_pidio|enojo|sin_respuesta|
 herramienta_fallo|max_turnos|persona_presente|tope`, cola_id, turnos).
 
-### 17.8 Cómo actúa solo (3b; diseño cerrado, sin implementar en 3a)
+### 17.8 Cómo actúa solo (3b)
 
 - **Bucle de herramientas en el servidor.** El modelo solo puede pedir herramientas de una lista
   cerrada, armada con las acciones encendidas (perfil − cola, categoría en `responde_solo` con su
@@ -2263,3 +2266,208 @@ herramienta_fallo|max_turnos|persona_presente|tope`, cola_id, turnos).
   pausa, categoría en `sugiere`) el bot funciona como hoy: las instalaciones con bot y sin asistente
   no cambian. `bot.atiende: "agente_autonomo"` sigue en 422 `no_disponible_aun` (el modo se elige en
   los ajustes del asistente, no por número).
+
+#### 17.8.1 Lo que quedó implementado en 3b (detalle para el panel y para Argos)
+
+Lo implementa I1 en `asistente_auto.go` y `asistente_herramientas.go`. Ninguna forma de §17.1–§17.7
+cambió; esto precisa lo que el diseño dejaba abierto.
+
+- **Cuándo corre.** En el job de la conversación (el mismo de las sugerencias), después de los ~20 s
+  que juntan mensajes y de clasificar el último mensaje. Si le toca al asistente, no hay sugerencia.
+  En `sin_nadie` con agentes disponibles en la cola se espera `esperaMin` desde que el cliente quedó
+  esperando; mientras tanto la sugerencia para el agente sale como siempre.
+- **Estado.** `asistente.estado`: `atendiendo` (desde su primer turno), `espera_persona` (pasó a una
+  persona) y `detenido` (una persona la tomó o respondió). `turnos` cuenta los mensajes que envió.
+  Ausente = no la atendió en este periodo. Al **resolverse** la conversación (o al pasar a otra
+  empresa) el estado vuelve a cero: si el cliente la reabre sin asignar, el asistente puede volver a
+  atender y se presenta otra vez. Una nota interna de un agente **no** detiene al asistente; un
+  mensaje al cliente o tomarla/asignarla, sí.
+- **Mensajes.** Saliente sin autor, `automatico: "asistente"`, `autorTipo: "asistente_ia"`. La nota
+  interna de «pasar a persona» también es `autorTipo: "asistente_ia"` (`direccion: "nota"`, sin autor).
+  La presentación («Hola, soy el asistente virtual de <empresa>. ») la antepone el servidor al primer
+  mensaje del periodo; si el cliente pregunta si habla con una persona y el modelo no lo dice, el
+  servidor antepone «Soy un asistente virtual, no una persona.». Al pasar a una persona el cliente
+  recibe un texto fijo («Te paso con una persona de nuestro equipo…») si la ventana de 24 h y su
+  permiso de contacto lo permiten.
+- **Herramientas** (lista cerrada por turno; máximo 4 llamadas por turno y 6 pasos del modelo):
+  `buscar_manual` (`responder_dudas`), `estado_del_servicio` (`avisar_fallas`), `consultar_saldo`
+  (`dar_saldo`), `crear_ticket`, `simular_promesa` / `pedir_promesa` (`promesa_pago`),
+  `cuentas_para_boleta` / `registrar_boleta` (`recibir_boleta`), `pedir_reconexion`
+  (`reconexion_temporal`) y `pasar_a_persona`. Los argumentos no admiten propiedades de más: el modelo
+  nunca nombra cliente, empresa ni conversación. `pedir_promesa` siempre simula antes en el servidor.
+  `pedir_reconexion` solo existe si el cliente de Argos del proceso implementa la reconexión temporal
+  (§7.3 del contrato con Argos; pendiente en `internal/integracion/argos`). `proponer_visita` /
+  `agendar_visita` **no están en 3b**.
+- **Saldo.** El monto no se le da al modelo: escribe la marca `{{saldo}}` y el servidor la reemplaza
+  por el monto leído de Argos en ese turno, solo con cliente verificado. Un monto de deuda escrito
+  por el modelo invalida el mensaje.
+- **Reglas del texto.** Si el mensaje trae un enlace que no venía en un manual «Para el cliente», un
+  precio (`Q …`) o un plazo (`N horas/días/…`) que no estaba en los datos del turno, un monto de deuda,
+  texto copiado de un manual del equipo o marcas internas, **no se envía** y pasa a una persona
+  (`sin_respuesta`).
+- **Pasar a persona.** Motivos del servidor: el cliente lo pide con palabras claras
+  (`cliente_lo_pidio`, sin llamar al modelo), `max_turnos`, `herramienta_fallo` (también demasiadas
+  herramientas o un reintento después de una caída con acciones ya hechas), `sin_respuesta` (proveedor
+  caído, salida inválida, la categoría dejó de ser «responde solo» o su condición ya no se cumple) y
+  `tope` (tope del mes o límite por empresa). Límites: 20 turnos por conversación y hora, 600 por
+  empresa y hora.
+- **Bot y fuera de horario (decisión del PM, 16 nov 2026).** Con el modo autónomo encendido, el bot
+  y la respuesta de fuera de horario **esperan a la clasificación** (~20 s, el mismo job): si el
+  asistente atiende ese mensaje (la misma decisión del turno: categoría, condición, franja, colas,
+  límites y tope), no salen; si no lo atiende, salen después tal cual. No hay doble saludo. Mientras
+  el asistente está `atendiendo`, el bot calla (también su menú y sus temporizadores). La guardia se
+  avisa en el mismo paso, es decir, hasta ~20 s más tarde. Sin modo autónomo nada cambia.
+- **Actor.** `asistente_ia` en `auditoria.acciones` (`actor_tipo`, canal `ia`, sin `actor_id`).
+  Hacia Argos, `X-Iris-Actor: asistente_ia` en saldo, simulación, promesa, cuentas y boleta. Los
+  tickets que crea quedan con origen `panel` (soporte no tiene un origen propio para el asistente).
+
+#### 17.8.2 Revisión de seguridad de 3b (16 nov 2026): lo que cambió
+
+**Formas nuevas para el panel**
+
+| Dónde | Campo | Forma |
+| --- | --- | --- |
+| Conversación (detalle y lista), `contacto` | `verificacion` | `"numero"` \| `"fuerte"` \| `null`. `numero`: el número coincide con un solo cliente (asociación automática). `fuerte`: lo confirmó una persona con permiso (`confirmar-cliente`) o pasó la verificación de identidad de Argos (§7.5), **en este periodo abierto**. Las dos se pierden al resolver (al reabrir vuelve a `numero` y una persona puede confirmarla otra vez), al cambiar de cliente o de empresa. `confirmar-cliente` ya no es un no-op sobre un cliente asociado por su número: lo sube a `fuerte`. |
+| Ajustes del asistente, `perfiles[]` | `exigeVerificacionFuerte` | `{ "dar_saldo": boolean }`, opcional. Ausente = `true`. Solo `dar_saldo` se puede bajar a `numero`; `promesa_pago` y `reconexion_temporal` exigen `fuerte` siempre y `recibir_boleta` acepta `numero`. |
+| Ajustes del asistente (GET y POST) | `verificacionFuerteMin` | entero 5–1440, 60 por defecto. Minutos que vale la verificación `fuerte` desde que se obtuvo, dentro del periodo; después `contacto.verificacion` vuelve a `numero` y hay que verificar otra vez. Un cambio vale para las verificaciones nuevas. |
+| Ajustes del asistente (GET y POST) | `presupuestoAutonomoPct` | entero 1–100, 70 por defecto. Parte del tope del mes que puede gastar el asistente atendiendo solo; al llegar, deja de atender solo y las sugerencias siguen. |
+| Mensajes de la conversación | `tipo: "reconexion_pedida"` | mensaje de sistema cuando se pide la reconexión temporal. |
+| Horarios (POST y PUT) | `franjas[].perfil`, `feriados[].franjas[].perfil` | 422 (`rule: perfil`) si no es `solo_sugerir` ni el código de un perfil de la empresa. Una franja guardada con un perfil que ya no existe se trata como `solo_sugerir`. |
+| Actividad del asistente (`accion`) | valor nuevo | `verificar_identidad`. |
+
+**Verificación de identidad (`verificar_identidad`).** El asistente pide el DPI o NIT completo; el
+servidor toma el dato del último mensaje del cliente (el modelo no lo pasa como argumento), lo manda
+a Argos (§7.5, método `documento`) y **no lo guarda**: el texto del mensaje queda con el dato como
+`***` y así lo ve también el modelo, que solo recibe la marca «(el cliente envió un documento: ***)».
+Se tapan **todas** las coincidencias del mensaje, también en el payload crudo de Meta
+(`mensajeria.entrantes`), y también si la herramienta no llega a correr en ese turno. Máximo 3
+intentos por conversación y día; al fallar el tercero pasa a una persona. Si Argos responde `429
+demasiados_intentos`, `422 metodo_no_disponible` o `503`, pasa a una persona sin reintentar. La
+verificación vale para el cliente con el que se hizo: si la conversación cambió de cliente mientras
+Argos respondía, no cuenta. Cada intento queda en `mensajeria.asistente_verificaciones` (sin el dato), en la
+auditoría (`conversaciones.verificar_identidad`) y emite `conversacion.identidad_verificada`.
+
+**Vigencia de `fuerte`.** Vale solo en el periodo abierto en que se obtuvo y, dentro de él,
+`verificacionFuerteMin` minutos (60 por defecto). Se pierde al resolver **y al reabrir** (el trigger
+la borra en los dos sentidos). `confirmar-cliente` sobre una conversación resuelta confirma el
+cliente pero no da `fuerte`. La vigencia efectiva es el **mínimo** entre lo fijado al verificar y
+`identidad_verificada_en` + el `verificacionFuerteMin` **actual**: si la empresa acorta el ajuste,
+las verificaciones ya dadas también se acortan; alargarlo no alarga ni revive ninguna. El nivel se
+recalcula en cada herramienta: si vence a mitad de un turno, las acciones de dinero que siguen se
+rechazan.
+
+**Decisión del líder (16 nov 2026): qué nivel exige cada acción.** `registrar_boleta` se queda en
+nivel `numero`: solo registra el comprobante que mandó el cliente; no mueve dinero ni cambia el
+servicio, y la aprueba o rechaza una persona de caja. `dar_saldo` exige `fuerte` por defecto y cada
+empresa puede bajarlo a `numero` con `exigeVerificacionFuerte.dar_saldo: false` (hay empresas que
+ya dan el saldo por teléfono con solo el número). `promesa_pago` y `reconexion_temporal` exigen
+`fuerte` siempre, sin opción.
+
+**Qué documento se manda a Argos.** `verificar_identidad` elige un DPI válido (13 dígitos, con su
+dígito verificador), o lo que el cliente nombró como «nit», «dpi», «cui» o «documento», o un NIT
+válido. Lo que el cliente nombró como documento se manda aunque parezca un teléfono, salvo que sea
+el número del chat; un número suelto que parece teléfono, nunca. Si no hay un candidato claro, le
+pide el dato otra vez **sin gastar un intento** ni llamar a Argos. Un DPI nombrado con dígito
+verificador inválido tampoco gasta intento: se le pide otra vez y, a la segunda, pasa a una persona.
+
+**Boleta.** El adjunto debe haber llegado en este periodo de la conversación y después de la última
+boleta; cada adjunto vale para una sola boleta; máximo 3 boletas por conversación y día. La boleta
+queda con `registrada_por` nulo y `por_asistente = true`.
+
+**Reconexión temporal.** Es un caso de uso propio (`conversaciones.pedir_reconexion`, con
+transacción, auditoría, registro local en `mensajeria.reconexiones` y evento `reconexion.solicitada`).
+Exige verificación `fuerte`, una boleta registrada en Argos en la conversación, y que sea **fuera de
+horario** (`fuera_de_horario`, el único motivo que acepta Argos); en horario hábil, aunque no haya
+nadie disponible, responde 422 `reconexion_no_corresponde` y sigue una persona. Hoy el permiso solo
+lo tiene el asistente. El intento se registra **antes** de llamar a Argos (`estado: pendiente`,
+auditado); después queda `aceptada` o `rechazada`. Si la respuesta de Argos se pierde, el
+mantenimiento repite la llamada con la misma clave (`iris:reconexion:<comprobante>`) cada minuto,
+hasta 10 intentos; después queda `rechazada` (`sin_respuesta`) para que la revise una persona.
+`reconexion.solicitada` se emite cuando se sabe qué decidió Argos.
+
+**Reglas del texto, además de las de §17.8.1.**
+- Los precios, plazos y enlaces válidos salen solo de los datos de la empresa, de los manuales «Para
+  el cliente» y de los resultados de las herramientas; **nunca** de lo que escribió el cliente. En el
+  historial que ve el modelo, cada mensaje va en una línea y sin prefijos que imiten otro papel.
+- **Identidad.** No se envía un mensaje donde el asistente se atribuya un nombre propio («soy
+  Carlos», «te saluda María») o un rol humano (persona, humano, asesor, agente, operador, técnico,
+  «real»), ni donde niegue ser un asistente o un bot. No es una lista de frases: se mira lo que dice
+  de sí mismo después de «soy», «te atiende», «estás hablando con»…
+- **Resultados.** Las palabras de resultado (aprobado, aceptado, aplicado, acreditado, procesado,
+  confirmado, registrado, recibido, reconectado, restaurado, habilitado, activado, activo, «ya tienes
+  internet», «te reconectaremos») solo pasan si en ese turno una herramienta devolvió ese resultado: un ticket o una
+  boleta permiten «registrado»; una promesa activa, «registrada», «aceptada», «aprobada» y
+  «confirmada»; una reconexión aceptada, «reconectado», «restaurado», «activo», «aceptada» y «confirmada»; una
+  boleta registrada, además, «recibida»; `estado_del_servicio`, «activo» solo si algún servicio vino
+  activo en su resultado. Un pago aprobado o
+  aplicado no lo devuelve ninguna herramienta: nunca pasa. Si no, el mensaje no se envía y pasa a una
+  persona (`sin_respuesta`).
+- Si el cliente pregunta si habla con una persona («alguien real», «humano», «persona de verdad»,
+  «¿eres real?», «¿sos de verdad?», «¿hay alguien?»), el servidor antepone siempre «Soy un asistente
+  virtual, no una persona.».
+- Un enlace solo pasa si es **igual** (URL normalizada) a uno de un manual «Para el cliente» o de una
+  herramienta; uno que solo empieza igual no pasa. «1 quetzal» y las cifras en letras junto a la
+  moneda cuentan como precio.
+- El mensaje que llevó el saldo queda marcado; al armar el historial para cualquier modelo el monto
+  va enmascarado.
+
+**Quién detiene al asistente.** Cualquier mensaje saliente no automático: un agente desde el panel o
+alguien desde el teléfono del negocio (eco de WhatsApp).
+
+**Acciones y perfil.** Se restan las acciones apagadas de la cola actual **y** de la cola de la
+categoría; entre perfiles y franjas se aplica lo más restrictivo. Las acciones de dinero
+(`dar_saldo`, `recibir_boleta`, `promesa_pago`, `reconexion_temporal`) solo existen si la categoría
+**actual** del mensaje está en `responde_solo`.
+
+**Valores por defecto (decisión del líder, 16 nov 2026).** El perfil por defecto trae encendidas solo
+`responder_dudas`, `avisar_fallas`, `crear_ticket` y `pasar_a_persona`. `dar_saldo`,
+`recibir_boleta`, `promesa_pago`, `reconexion_temporal` y `agendar_visita` vienen **apagadas**: cada
+empresa las enciende. Los perfiles ya guardados no cambian.
+
+**Respaldo JSON** (modelos sin herramientas): solo herramientas de lectura (`buscar_manual`,
+`estado_del_servicio`, `consultar_saldo`, `simular_promesa` y `cuentas_para_boleta`, cada una con sus
+validaciones: verificación, acción encendida, categoría al día) y `pasar_a_persona`. Nada que cree o
+cambie algo: ni ticket, ni boleta, ni promesa, ni reconexión, ni verificación de identidad.
+
+**Límites.** Además de los de §17.8.1: número sin cliente asociado, 10 turnos y **1 ticket** por día;
+3 tickets, 3 boletas y 3 verificaciones por conversación y día. Una promesa cuya respuesta de Argos
+se pierde (o `409 idempotencia_en_curso`) se repite en el mismo turno con la misma clave: Argos
+devuelve la que ya guardó. El código de regla del simulador de Argos nunca viaja al modelo: se
+traduce a un texto fijo. Si el cierre de un turno falla, su arriendo se suelta para que el reintento
+lo tome enseguida; las reservas de tokens se liberan con el plazo del arriendo. El mensaje que
+reabre una conversación cuenta dentro del periodo nuevo.
+
+**Presupuesto autónomo.** Se comprueba y se reserva en la misma sentencia que el tope del mes
+(`tokens_autonomo_reservados`): turnos simultáneos no pueden pasarse del porcentaje.
+
+**Perfiles guardados en 3a.** La migración apaga `dar_saldo` y `recibir_boleta` en los perfiles que ya
+estaban guardados (venían encendidas por defecto); cada empresa las vuelve a encender si las quiere.
+
+**Bot diferido.** Si el job de la conversación falla, el bot y fuera de horario corren igual; y si
+nunca corre, el mantenimiento dispara los que llevan más de 60 s esperando. La reserva del tope es proporcional a los pasos
+del turno; los tokens se cuentan aunque el turno se descarte, y un turno descartado cuenta para
+`maxTurnos`. Un turno `en_curso` de una conversación que ya tomó una persona o se resolvió se cierra
+como descartado.
+
+**Nota de paso a persona.** El resumen va rotulado «Según el cliente: …»: es lo que dijo el cliente,
+no un hecho comprobado.
+
+### 17.9 Datos personales que viajan al proveedor de IA
+
+- **Viajan:** el texto de los mensajes de la conversación (ya redactado), el nombre de pila del
+  cliente, su plan y estado del servicio, si tiene saldo pendiente (sí/no, **nunca el monto**), las
+  fallas de Horus que lo afectan, y los manuales «Para el cliente».
+- **No viajan:** montos de deuda (el modelo escribe `{{saldo}}`), documentos de identidad (`***`: lo
+  que siga a «nit», «dpi», «cui», «documento», y cualquier número con forma de NIT o DPI, de 7 a 13
+  dígitos, con o sin guion y con K; un número que sigue a «referencia», «boleta», «ticket» u «orden»
+  sí viaja), números de tarjeta, teléfonos, correos, contraseñas, direcciones IP, el cuerpo de los manuales «Del equipo» en modo
+  autónomo (ni en el contexto ni en `buscar_manual`: solo se le dice que existe uno), ni los códigos
+  de regla de Argos en crudo (se traducen a texto fijo).
+- Los identificadores internos (cliente, servicio, empresa, conversación) nunca van en los argumentos
+  de las herramientas: los pone el servidor.
+- **Lo que queda guardado en Iris.** El payload crudo de cada webhook de Meta se guarda en
+  `mensajeria.entrantes` (deduplicación y reproceso), con el texto del cliente tal como llegó. Cuando
+  el asistente detecta un documento de identidad en un turno en el que puede verificarla, el dato
+  queda como `***` en el mensaje guardado **y** en ese payload crudo, solo en el texto de ese mensaje
+  (`text.body` o el pie de un adjunto): el resto del payload no se toca. Fuera de ese caso (una
+  conversación que atiende una persona) el texto del cliente se guarda completo, como hasta ahora.

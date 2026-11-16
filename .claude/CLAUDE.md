@@ -204,7 +204,7 @@ Una tarea está terminada solo si:
 | `argos.servicio_retirado` | integracion (núcleo, webhook de Argos) | servicio_id, cliente_id (o null), de, a, entrante_id |
 | `argos.datos_cambiados` | integracion (argos) | entidad (servicio \| cliente), cliente_id, servicio_id (o null), empresa_id (o null), campos[], entrante_id |
 | `argos.traslado_cambiado` | integracion (argos) | traslado_id, estado (enviado, recibido, cancelado), empresa_id, usuario_id (o null), entrante_id |
-| `argos.comprobante_resuelto` | integracion (argos, webhook de Argos) | comprobante_id, estado (aprobado, rechazado), empresa_id, cliente_id, servicio_id (o null), canal, monto, pago_id (o null), motivo (o null), causa (o null), servicio_estado (o null), entrante_id |
+| `argos.comprobante_resuelto` | integracion (argos, webhook de Argos) | comprobante_id, estado (aprobado, rechazado), empresa_id, cliente_id, servicio_id (o null), canal, pago_id (o null), servicio_estado (o null), entrante_id; es solo un aviso (sin monto, motivo ni causa) |
 | `orden.datos_argos_cambiados` | campo (I1) | orden_id, numero, entidad, campos[], entrante_id |
 | `argos.servicio_eliminado` / `argos.router_eliminado` | integracion (núcleo, webhook de Argos) | servicio_id, cliente_id, empresa_id, router_id (o null), entrante_id (servicio); router_id, empresa_id (o null = compartido), entrante_id (router) |
 | `argos.servicio_restaurado` / `argos.router_restaurado` | integracion (núcleo, lectura de Argos) | servicio_id, cliente_id, empresa_id (o null), eliminado_entrante_id (servicio); router_id, empresa_id (o null), eliminado_entrante_id (router) |
@@ -261,6 +261,10 @@ Una tarea está terminada solo si:
 | `conversacion.categorizada` | mensajeria (asistente de IA, fase 3) | conversacion_id, empresa_id, categoria_id (o null), anterior_id (o null), origen (asistente, agente), confianza (o null), actor_id (o null) |
 | `categoria.creada` / `categoria.actualizada` | mensajeria (asistente de IA, fase 3) | categoria_id, empresa_id; nombre (creada); campos[], activa (actualizada) |
 | `asistente.mensaje_probado` | mensajeria (asistente de IA, fase 3) | empresa_id, haria (responde_solo, sugiere, pasa_a_persona), categoria_id (o null), tokens_entrada, tokens_salida; nunca el texto |
+| `asistente.accion_ejecutada` | mensajeria (asistente de IA, fase 3b) | conversacion_id, empresa_id, accion, resultado (ok, rechazada, fallo), entidad (o null), entidad_id (o null), turno; nunca argumentos, texto ni montos |
+| `conversacion.identidad_verificada` | mensajeria (asistente de IA, fase 3b) | conversacion_id, empresa_id, cliente_id, resultado (coincide, no_coincide, no_disponible, error), origen (asistente); nunca el dato |
+| `reconexion.solicitada` | mensajeria (bandeja, fase 3b) | reconexion_id, conversacion_id, empresa_id, cliente_id, servicio_id, comprobante_id, motivo (fuera_de_horario), estado (aceptada, rechazada), promesa_argos_id (o null) |
+| `asistente.paso_a_persona` | mensajeria (asistente de IA, fase 3b) | conversacion_id, empresa_id, motivo (cliente_lo_pidio, enojo, sin_respuesta, herramienta_fallo, max_turnos, persona_presente, tope), cola_id (o null), turnos |
 | `notificaciones.avisos_creados` | notificaciones (avisos del panel) | tipo (asistente_tope), clave, empresa_id (o null), usuarios[], correo (enviar, omitido) |
 | `notificaciones.correo_enviado` / `notificaciones.correo_fallido` | notificaciones (correo del sistema) | correo_id, usuario_id, tipo, clave, motivo (o null) |
 | `dispositivo.registrado` / `dispositivo.quitado` | notificaciones | dispositivo_id, usuario_id, empresa_id, token_fin; plataforma, app_version, nuevo (registrado); motivo (usuario, sesion_cerrada, token_invalido, otro_usuario, sin_acceso) (quitado); nunca el token |

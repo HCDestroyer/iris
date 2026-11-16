@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
 
@@ -112,4 +113,52 @@ func ValidarURLIA(u string, loopback, conClave bool) error {
 
 func IPPermitidaIA(ip string, loopback bool) bool {
 	return ipPermitidaIA(netip.MustParseAddr(ip), loopback)
+}
+
+// CtxAsistenteIA: el contexto del actor asistente_ia de una empresa (pruebas de permisos por actor).
+func CtxAsistenteIA(ctx context.Context, empresa int64) context.Context {
+	return ctxAsistente(ctx, empresa)
+}
+
+// Reglas del texto del asistente autónomo (pruebas de tabla).
+
+// TextoAutonomoValido: el texto pasaría las reglas de envío con esos enlaces y datos vistos, y con
+// esas familias de resultado devueltas por herramientas en el turno.
+func TextoAutonomoValido(texto string, enlaces, vistos, resultados []string) bool {
+	t := &turnoIA{enlaces: enlaces, vistos: vistos, hechas: map[string]bool{}}
+	t.permitir(resultados...)
+	_, ok := validarMensajeAutonomo(t, texto)
+	return ok
+}
+
+func AfirmaSerPersona(texto string) bool { return afirmaSerPersona(texto) }
+func PidePersona(texto string) bool      { return pidePersona(texto) }
+func PreguntaSiEsPersona(texto string) bool {
+	return rePreguntaPersona.MatchString(texto)
+}
+func TextoReglaPromesa(codigo string) string { return textoReglaPromesa(codigo) }
+func PerfilPorDefecto() PerfilAsistente      { return perfilPorDefecto() }
+func AccionesDeDinero() []string             { return accionesDeDinero }
+
+// InicioEntrantes: desde cuándo cuentan los mensajes del cliente de un periodo reabierto.
+func InicioEntrantes(resuelta, reabierta *time.Time) time.Time {
+	return inicioEntrantes(mensajeriabd.MensajeriaConversacion{ResueltaEn: resuelta, ReabiertaEn: reabierta})
+}
+
+func (m *Modulo) ArriendoTurno() time.Duration { return m.arriendoTurno() }
+
+// DocumentoCandidato: el dato que verificar_identidad mandaría a Argos ("" = no hay uno claro).
+func DocumentoCandidato(texto, telefono string) string {
+	v, _ := documentoCandidato(texto, telefono)
+	return v
+}
+
+func DocumentoNombradoInvalido(texto, telefono string) bool {
+	_, inv := documentoCandidato(texto, telefono)
+	return inv
+}
+
+func PayloadTapado(payload []byte, wamid string) []byte {
+	b, _, _ := payloadTapado(payload, wamid)
+	return b
 }

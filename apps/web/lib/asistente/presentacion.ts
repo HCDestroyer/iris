@@ -31,7 +31,7 @@ export function aplicarSugerencia(actual: Sugerencia | null, nueva: Sugerencia):
 }
 
 /** De qué se habla: la sugerencia en la conversación o el resumen en la ficha. */
-export type Sujeto = "sugerencia" | "resumen";
+export type Sujeto = "sugerencia" | "resumen" | "prueba";
 
 export type ExplicacionError = {
     titulo: string;
@@ -41,7 +41,7 @@ export type ExplicacionError = {
     esperarHasta?: number;
 };
 
-const NO_SE_PUDO: Record<Sujeto, string> = { sugerencia: "No se pudo preparar la sugerencia", resumen: "No se pudo resumir" };
+const NO_SE_PUDO: Record<Sujeto, string> = { sugerencia: "No se pudo preparar la sugerencia", resumen: "No se pudo resumir", prueba: "No se pudo probar" };
 
 /**
  * Error de la sugerencia o del resumen (o de pedirlos) en palabras del agente. `tope_alcanzado` y

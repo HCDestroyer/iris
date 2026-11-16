@@ -47,6 +47,8 @@ export function conversacion(datos: Partial<Conversacion> & Pick<Conversacion, "
         contacto: { tipo: "desconocido", clienteId: null, servicioId: null, contactoIrisId: null, prospectoId: null, asociacion: null, verificado: false },
         estado: "abierta",
         reabiertaEn: null,
+        categoriaConfianza: null,
+        categoriaOrigen: null,
         etiquetas: [],
         ventana: { abierta: true, cierraEn: en(21 * 60) },
         sla: { estado: "en_tiempo", venceEn: en(30), esperaDesde: hace(4) },
@@ -180,6 +182,8 @@ export function mensaje(conversacionId: number, datos: Partial<Mensaje> & Pick<M
         entregadoEn: null,
         leidoEn: null,
         automatico: null,
+        // §17.4: quién lo escribió, por la dirección (el bot y los eventos son del sistema).
+        autorTipo: datos.direccion === "entrante" ? "cliente" : datos.direccion === "sistema" || datos.automatico ? "sistema" : "persona",
         ...datos,
     };
 }

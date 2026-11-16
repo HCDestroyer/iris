@@ -858,7 +858,7 @@
             "type": "boolean"
           },
           "autonomoDisponible": {
-            "description": "false: el servidor todavía no actúa solo (3a) y modoAutonomo solo admite nunca",
+            "description": "true: el servidor actúa solo (3b) y modoAutonomo admite los tres valores",
             "type": "boolean"
           },
           "claveGuardadaEn": {
@@ -935,6 +935,11 @@
               "null"
             ]
           },
+          "presupuestoAutonomoPct": {
+            "description": "Porcentaje del tope del mes para atender solo (1 a 100; 70 por defecto): así las sugerencias a los agentes no se apagan",
+            "format": "int32",
+            "type": "integer"
+          },
           "proveedor": {
             "enum": [
               "ollama",
@@ -950,6 +955,11 @@
           "url": {
             "description": "URL base del servidor (vacía en anthropic = https://api.anthropic.com)",
             "type": "string"
+          },
+          "verificacionFuerteMin": {
+            "description": "Minutos que vale la verificación fuerte de identidad dentro de un periodo de la conversación (5 a 1440; 60 por defecto). Después vuelve a numero y el asistente pide verificar otra vez",
+            "format": "int32",
+            "type": "integer"
           },
           "version": {
             "description": "0 si nunca se guardaron",
@@ -4402,6 +4412,17 @@
             ],
             "type": "string"
           },
+          "verificacion": {
+            "description": "Nivel de la verificación (§17.8): numero = el número coincide; fuerte = lo confirmó una persona o pasó el desafío de identidad de Argos. null: sin verificar",
+            "enum": [
+              "numero",
+              "fuerte"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "verificado": {
             "description": "El número coincide con un teléfono del cliente en Argos (o lo confirmó un supervisor). Sin verificar: ni plantillas fuera de ventana, ni boletas, ni promesas",
             "type": "boolean"
@@ -4963,7 +4984,7 @@
           },
           "asistente": {
             "$ref": "#/components/schemas/AsistenteConv",
-            "description": "3b: el asistente atiende solo esta conversación. Ausente en 3a"
+            "description": "El asistente atiende (o atendió) solo esta conversación (§17.8). Ausente: nunca la atendió en este periodo"
           },
           "canal": {
             "$ref": "#/components/schemas/CanalRef"
@@ -5112,7 +5133,7 @@
           },
           "asistente": {
             "$ref": "#/components/schemas/AsistenteConv",
-            "description": "3b: el asistente atiende solo esta conversación. Ausente en 3a"
+            "description": "El asistente atiende (o atendió) solo esta conversación (§17.8). Ausente: nunca la atendió en este periodo"
           },
           "canal": {
             "$ref": "#/components/schemas/CanalRef"
@@ -7241,7 +7262,7 @@
             "type": "string"
           },
           "modoAutonomo": {
-            "description": "Con autonomoDisponible false solo nunca (422 autonomo_no_disponible)",
+            "description": "Cuándo atiende solo (§17.8)",
             "enum": [
               "nunca",
               "sin_nadie",
@@ -7285,6 +7306,13 @@
               "null"
             ]
           },
+          "presupuestoAutonomoPct": {
+            "description": "Ausente = se deja como está",
+            "format": "int32",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
           "proveedor": {
             "enum": [
               "ollama",
@@ -7302,6 +7330,13 @@
           "url": {
             "maxLength": 500,
             "type": "string"
+          },
+          "verificacionFuerteMin": {
+            "description": "Ausente = se deja como está",
+            "format": "int32",
+            "maximum": 1440,
+            "minimum": 5,
+            "type": "integer"
           },
           "version": {
             "format": "int32",
@@ -12950,7 +12985,7 @@
             "type": "boolean"
           },
           "autonomoDisponible": {
-            "description": "false: el servidor todavía no actúa solo",
+            "description": "true: el servidor actúa solo (3b)",
             "type": "boolean"
           },
           "modo": {
@@ -14480,7 +14515,7 @@
             "type": "string"
           },
           "perfil": {
-            "description": "Fase 2: conjunto de permisos de un asistente en esta franja (se guarda; hoy nada lo usa)",
+            "description": "Perfil del asistente de IA en esta franja (§17.1): un código de perfil o solo_sugerir",
             "maxLength": 60,
             "type": [
               "string",
@@ -20365,6 +20400,10 @@
             "pattern": "^[a-z][a-z0-9_]{1,29}$",
             "type": "string"
           },
+          "exigeVerificacionFuerte": {
+            "$ref": "#/components/schemas/VerificacionFuerteAcciones",
+            "description": "Ausente = true en todo"
+          },
           "limites": {
             "$ref": "#/components/schemas/LimitesAsistente"
           },
@@ -20494,6 +20533,7 @@
           "conversaciones.etiquetar",
           "conversaciones.iniciar",
           "conversaciones.pasar",
+          "conversaciones.pedir_reconexion",
           "conversaciones.registrar_boleta",
           "conversaciones.registrar_promesa",
           "conversaciones.resolver",
@@ -26488,6 +26528,19 @@
         "required": [
           "abierta",
           "cierraEn"
+        ],
+        "type": "object"
+      },
+      "VerificacionFuerteAcciones": {
+        "additionalProperties": false,
+        "properties": {
+          "dar_saldo": {
+            "description": "true (por defecto): el saldo solo a quien pasó la verificación fuerte; false: basta que el número coincida",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "dar_saldo"
         ],
         "type": "object"
       },
@@ -35047,7 +35100,7 @@
     },
     "/api/v1/integraciones/enlaces": {
       "get": {
-        "description": "Permiso: `clientes.ver`. También vale con `integraciones.abrir_argos` (uno u otro): el panel compara con `argosisp.urlPublica` el origen del enlace de `POST /integraciones/argosisp/abrir`. No exige empresa activa. Sin secretos: solo la URL pública de cada sistema con conector activo (ausente si no hay).",
+        "description": "Permiso: `clientes.ver`. También vale con `integraciones.abrir_argos` (uno u otro; con solo ese permiso responde solo `argosisp`, sin `horus`): el panel compara con `argosisp.urlPublica` el origen del enlace de `POST /integraciones/argosisp/abrir`. No exige empresa activa. Sin secretos: solo la URL pública de cada sistema con conector activo (ausente si no hay).",
         "operationId": "obtenerEnlacesExternos",
         "responses": {
           "200": {

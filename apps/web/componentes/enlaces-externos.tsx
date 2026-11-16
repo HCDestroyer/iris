@@ -8,12 +8,13 @@ import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
 
 /**
- * Orígenes de Argos y Horus (`GET /integraciones/enlaces`, permiso `clientes.ver`). Sin el permiso
+ * Orígenes de Argos y Horus (`GET /integraciones/enlaces`, con `clientes.ver` o `integraciones.abrir_argos`). Sin permiso
  * no se pide; si la lectura falla, `null`: los botones «Ver en …» simplemente no aparecen.
  */
 export function useEnlacesExternos(): EnlacesExternos | null {
     const { puede } = useSesion();
-    const permitido = puede(["clientes.ver"]);
+    // También con `integraciones.abrir_argos`: «Vincular» necesita el origen del panel de Argos.
+    const permitido = puede(["clientes.ver", "integraciones.abrir_argos"]);
     const lectura = useLectura<EnlacesExternos | null>(async (signal) => {
         if (!permitido) {
             return null;
