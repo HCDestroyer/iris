@@ -6,7 +6,7 @@ import { useState } from "react";
 import { ChipCategoria } from "@/componentes/asistente/chip-categoria";
 import { mensajeDeError } from "@/lib/api/errores";
 import { categorizarConversacion } from "@/lib/asistente/api-fase3";
-import { tonoDe, type CategoriaRef } from "@/lib/asistente/fase3";
+import { asistenteAtiende, COLOR_DE_TONO, tonoDe, type Categoria } from "@/lib/asistente/fase3";
 import { PERMISO_CATEGORIZAR } from "@/lib/asistente/permisos";
 import type { Filtros } from "@/lib/conversaciones/estado";
 import { CLASE_ETIQUETA } from "@/lib/conversaciones/presentacion";
@@ -26,6 +26,8 @@ import { useCatalogos } from "./catalogos";
 export function FiltroCategorias({ filtros, contadores, alCambiar }: { filtros: Filtros; contadores: Contadores | null; alCambiar: (f: Filtros) => void }) {
     const { categorias } = useCatalogos();
     if (categorias.estado !== "listo" || categorias.datos.length === 0) return null;
+    // Sin asistente no hay categoría (§17.3): la tira aparece cuando alguna conversación ya tiene una.
+    if (filtros.categoriaId === null && !(contadores?.porCategoria ?? []).some((x) => x.total > 0)) return null;
     const total = (id: number) => contadores?.porCategoria?.find((x) => x.id === id)?.total;
     return (
         <div role="group" aria-label="Filtrar por categoría" data-slot="filtro-categorias" data-desborde-permitido className="-mx-3.5 flex gap-1.5 overflow-x-auto px-3.5 pb-0.5 [scrollbar-width:none]">
@@ -36,7 +38,7 @@ export function FiltroCategorias({ filtros, contadores, alCambiar }: { filtros: 
                     activo={filtros.categoriaId === c.id}
                     nombre={c.nombre}
                     total={total(c.id)}
-                    clase={CLASE_ETIQUETA[tonoDe(c.tono)] ?? ""}
+                    clase={CLASE_ETIQUETA[COLOR_DE_TONO[tonoDe(c.tono)]] ?? ""}
                     alPresionar={() => alCambiar({ ...filtros, categoriaId: filtros.categoriaId === c.id ? null : c.id })}
                 />
             ))}
@@ -82,18 +84,19 @@ export function LineaCategoria({ conv }: { conv: Pick<Conversacion, "categoria" 
  * asistente está atendiendo solo, la franja con «Tomar» (la acción de tomar de siempre: al tomarla
  * una persona, el asistente se detiene).
  */
-export function BarraCategoria({ conv, alActualizar, bloqueada }: { conv: Conversacion; alActualizar: (c: Conversacion) => void; bloqueada: boolean }) {
+export function BarraCategoria({ conv, alActualizar, bloqueada, asistenteActivo }: { conv: Conversacion; alActualizar: (c: Conversacion) => void; bloqueada: boolean; asistenteActivo: boolean }) {
     const { puede } = useSesion();
     const { categorias } = useCatalogos();
     const clave = useClaveIdempotencia();
     const [ocupado, setOcupado] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const lista = categorias.estado === "listo" ? categorias.datos : [];
-    const puedeCambiar = puede([PERMISO_CATEGORIZAR]) && !bloqueada && !conv.soloLectura && lista.length > 0;
-    const atiende = conv.asistenteAtiende === true && conv.estado !== "resuelta";
+    // Corregir la que puso el asistente, o poner una a mano mientras el asistente está activo.
+    const puedeCambiar = puede([PERMISO_CATEGORIZAR]) && !bloqueada && !conv.soloLectura && lista.length > 0 && (Boolean(conv.categoria) || asistenteActivo);
+    const atiende = asistenteAtiende(conv);
     if (!conv.categoria && !puedeCambiar && !atiende) return null;
 
-    async function cambiar(categoria: CategoriaRef | null) {
+    async function cambiar(categoria: Pick<Categoria, "id" | "nombre"> | null) {
         if ((conv.categoria?.id ?? null) === (categoria?.id ?? null)) return;
         setOcupado(true);
         setError(null);

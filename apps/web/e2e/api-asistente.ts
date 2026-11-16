@@ -1,6 +1,5 @@
 import type { Schema } from "@iris/contratos";
 import type { Route } from "@playwright/test";
-import type { AjustesFase3 } from "../lib/asistente/fase3";
 import type { AjustesAsistente, EstadoAsistente, Sugerencia, UsoAsistente } from "../lib/asistente/tipos";
 import { extrasDe, type ApiFase3, type OpcionesFase3 } from "./api-asistente3";
 
@@ -108,8 +107,8 @@ const ahora = () => new Date().toISOString();
 /** Sin `opciones` el asistente está apagado y sin sugerencias (las demás pruebas de la bandeja no lo ven). */
 export function apiAsistente(e: Contexto, opcionesDadas: OpcionesAsistente | undefined, fase3: ApiFase3) {
     const opciones: OpcionesAsistente = opcionesDadas ?? { estado: { activo: false }, inicial: null };
-    const estado: EstadoAsistente = { activo: true, modo: "automatico", pausado: false, ...opciones.estado };
-    let ajustes: AjustesFase3 = {
+    const estado: EstadoAsistente = { activo: true, modo: "automatico", pausado: false, modoAutonomo: "nunca", autonomoDisponible: opciones.fase3?.autonomoDisponible ?? false, ...opciones.estado };
+    let ajustes: AjustesAsistente = {
         ...extrasDe(opciones.fase3),
         activo: estado.activo,
         proveedor: "ollama",
@@ -226,6 +225,11 @@ export function apiAsistente(e: Contexto, opcionesDadas: OpcionesAsistente | und
             if (!puede(PERMISO_SUGERENCIAS)) return prohibido();
             return (await json(route, estado), true);
         }
+        // §17.2: la lista de categorías la lee quien ve la bandeja (los filtros y «Cambiar»).
+        if (ruta === `${BASE}/asistente/categorias` && metodo === "GET") {
+            if (!puede("conversaciones.ver")) return prohibido();
+            return (await json(route, { data: fase3.listar(x.query), nextCursor: null }), true);
+        }
         if (ruta.startsWith(`${BASE}/asistente/`)) {
             if (!puede(PERMISO_CONFIGURAR)) return prohibido();
             if (ruta === `${BASE}/asistente/ajustes` && metodo === "GET") return (await json(route, ajustes), true);
@@ -239,6 +243,10 @@ export function apiAsistente(e: Contexto, opcionesDadas: OpcionesAsistente | und
                 if (cuerpo.version !== ajustes.version) return (await problema(route, P("conflicto_version", 409, "Cambió")), true);
                 const motivo = urlNoPermitida(String(cuerpo.url ?? ""));
                 if (motivo) return (await problema(route, P("url_no_permitida", 422, "Dirección no permitida", { detail: motivo, errors: [{ field: "body.url", message: motivo }] })), true);
+                // §17.1 (entrega 3a): el servidor guarda todo, pero todavía no actúa solo.
+                if (!ajustes.autonomoDisponible && cuerpo.modoAutonomo !== undefined && cuerpo.modoAutonomo !== "nunca") {
+                    return (await problema(route, P("autonomo_no_disponible", 422, "El asistente todavía no atiende solo", { errors: [{ field: "body.modoAutonomo", message: "Todavía no disponible" }] })), true);
+                }
                 const { clave, ...resto } = cuerpo as Record<string, unknown> & { clave?: string };
                 const otroDestino = cuerpo.proveedor !== ajustes.proveedor || normalizada(String(cuerpo.proveedor), String(cuerpo.url ?? "")) !== normalizada(ajustes.proveedor, ajustes.url);
                 if (ajustes.claveGuardadaEn && (otroDestino || claveRequerida) && clave === undefined) {
@@ -253,6 +261,7 @@ export function apiAsistente(e: Contexto, opcionesDadas: OpcionesAsistente | und
                 };
                 estado.activo = ajustes.activo;
                 estado.modo = ajustes.modo;
+                estado.modoAutonomo = ajustes.modoAutonomo;
                 return (await json(route, ajustes), true);
             }
             if (ruta === `${BASE}/asistente/probar` && metodo === "POST") {

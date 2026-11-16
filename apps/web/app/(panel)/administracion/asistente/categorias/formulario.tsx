@@ -56,7 +56,8 @@ export function FormularioCategoria({ categoria, apoyo }: { categoria?: Categori
             router.replace(LISTA);
         } catch (e) {
             (paso === "datos" ? clave : claveActiva).trasError(e);
-            if (paso === "activa" || !erroresACampos(e, CAMPOS, form.setError)) setError(e);
+            if (paso === "datos" && e instanceof ErrorApi && e.codigo === "categoria_duplicada") form.setError("nombre", { message: "Ya hay una categoría con ese nombre" }, { shouldFocus: true });
+            else if (paso === "activa" || !erroresACampos(e, CAMPOS, form.setError)) setError(e);
         }
     }
 
@@ -76,17 +77,23 @@ export function FormularioCategoria({ categoria, apoyo }: { categoria?: Categori
             error={
                 error ? (
                     <Aviso tono="error" titulo={conflicto ? "Alguien más cambió esta categoría" : guardada ? "Se guardó la categoría, pero no su estado" : "No se pudo guardar"}>
-                        {conflicto ? "Vuelve a abrirla desde la lista para ver el cambio." : guardada ? `${mensajeDeError(error).titulo}. Vuelve a tocar «Guardar»: sigue desde ahí.` : mensajeDeError(error).titulo}
+                        {conflicto
+                            ? "Vuelve a abrirla desde la lista para ver el cambio."
+                            : error instanceof ErrorApi && error.codigo === "demasiadas_categorias"
+                              ? "Ya hay 30 categorías activas: desactiva otra primero."
+                              : guardada
+                                ? `${mensajeDeError(error).titulo}. Vuelve a tocar «Guardar»: sigue desde ahí.`
+                                : mensajeDeError(error).titulo}
                     </Aviso>
                 ) : null
             }
         >
             <SeccionFormulario titulo="Categoría">
-                <Campo etiqueta="Nombre" maxLength={60} placeholder="Sin internet" error={errores.nombre?.message} {...form.register("nombre")} />
+                <Campo etiqueta="Nombre" maxLength={40} placeholder="Sin internet" error={errores.nombre?.message} {...form.register("nombre")} />
                 <CampoArea
                     etiqueta="Descripción"
                     rows={3}
-                    maxLength={500}
+                    maxLength={300}
                     placeholder="El cliente dice que no tiene servicio, que está lento o que se le cae."
                     ayuda="Con tus palabras: el asistente la usa para reconocer estos mensajes."
                     error={errores.descripcion?.message}
@@ -105,7 +112,7 @@ export function FormularioCategoria({ categoria, apoyo }: { categoria?: Categori
                         <ChipCategoria categoria={{ nombre: nombre.trim() || "Nombre", tono }} />
                     </p>
                 </div>
-                {categoria ? <Interruptor etiqueta="Categoría activa" ayuda="Inactiva: el asistente deja de usarla para clasificar." {...form.register("activa")} /> : null}
+                {categoria && !categoria.esOtro ? <Interruptor etiqueta="Categoría activa" ayuda="Inactiva: el asistente deja de usarla para clasificar." {...form.register("activa")} /> : null}
             </SeccionFormulario>
 
             <SeccionFormulario titulo="Cola y tiempo de respuesta">

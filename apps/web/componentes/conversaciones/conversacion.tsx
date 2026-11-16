@@ -285,7 +285,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                         <PanelRight />
                     </Boton>
                 </header>
-                <BarraCategoria conv={conv} alActualizar={aplicarConversacion} bloqueada={detenido !== null} />
+                <BarraCategoria conv={conv} alActualizar={aplicarConversacion} bloqueada={detenido !== null} asistenteActivo={asistente.estado?.activo === true} />
                 {pideAtencion(conv) && !detenido ? (
                     <div className="shrink-0 px-3 pt-3 @min-[700px]/conv:px-4">
                         <AvisoAtencion conv={conv} ahora={ahora} alHecho={aplicarConversacion} />

@@ -1,67 +1,69 @@
+import type { Schema } from "@iris/contratos";
 import { z } from "zod";
-import type { AjustesAsistente, EntradaAjustesAsistente, FuenteSugerencia } from "./tipos";
+import type { AjustesAsistente, EntradaAjustesAsistente } from "./tipos";
 
 /*
  * Fase 3 del asistente: atiende solo, categorías de mensajes, «Pruébalo» y efecto en el SLA
- * (contratos/conversaciones.md §17, en curso en `agente/i1-asistente-3`).
+ * (contratos/conversaciones.md §17). Los tipos son alias de `packages/contratos`; los esquemas zod
+ * son el espejo del validador del servidor.
  *
- * FORMAS PROVISIONALES: hasta que el OpenAPI de §17 llegue a `packages/contratos`, las formas de
- * este archivo son las que el líder acordó con I1. Al mergear su rama, cada tipo de aquí pasa a ser
- * un alias de `Schema<"…">` (como `lib/asistente/tipos.ts`) y las llamadas de `api-fase3.ts` usan
- * el cliente generado. Los esquemas zod son el espejo del validador del servidor.
+ * Entregas del servidor: en 3a guarda todo pero **todavía no actúa solo** (`autonomoDisponible:
+ * false`, `modoAutonomo` solo admite `nunca`); en 3b actúa (mensajes con `autorTipo:
+ * "asistente_ia"` y `asistente.estado` en la conversación).
  */
 
-// --- Ajustes -----------------------------------------------------------------------------------
+// --- Ajustes (§17.1) ---------------------------------------------------------------------------
 
-export type ModoAutonomo = "nunca" | "sin_nadie" | "siempre_primero";
+export type ModoAutonomo = AjustesAsistente["modoAutonomo"];
+export type PerfilAsistente = Schema<"PerfilAsistente">;
+export type AccionesAsistente = Schema<"AccionesAsistente">;
+export type LimitesPerfil = Schema<"LimitesAsistente">;
+export type AccionesCola = Schema<"AccionesCola">;
 
+/** Las ocho acciones que se prenden y se apagan (`pasar_a_persona` es siempre `true`). */
 export const CLAVES_ACCION = ["responder_dudas", "avisar_fallas", "crear_ticket", "agendar_visita", "recibir_boleta", "dar_saldo", "promesa_pago", "reconexion_temporal"] as const;
 export type ClaveAccion = (typeof CLAVES_ACCION)[number];
-export type AccionesAsistente = Record<ClaveAccion, boolean>;
+export const NOMBRE_ACCION: Record<ClaveAccion, string> = {
+    responder_dudas: "Responder dudas",
+    avisar_fallas: "Avisar de fallas en la zona",
+    crear_ticket: "Crear tickets",
+    agendar_visita: "Agendar visitas",
+    recibir_boleta: "Recibir boletas de pago",
+    dar_saldo: "Dar el saldo",
+    promesa_pago: "Promesas de pago",
+    reconexion_temporal: "Reconexión temporal",
+};
 
 export const PRIORIDADES = ["baja", "media", "alta", "critica"] as const;
 export type PrioridadTicket = (typeof PRIORIDADES)[number];
 export const NOMBRE_PRIORIDAD: Record<PrioridadTicket, string> = { baja: "Baja", media: "Media", alta: "Alta", critica: "Crítica" };
 
-export type LimitesAsistente = { prioridadMaxima: PrioridadTicket; diasAdelanteMax: number; maxTurnos: number };
-
-/** Lo que §17 suma a `AjustesAsistente`. */
-export type ExtrasAjustes = {
-    modoAutonomo: ModoAutonomo;
-    esperaMin: number;
-    acciones: AccionesAsistente;
-    limites: LimitesAsistente;
-    /** `false` mientras el servidor guarda el modo pero todavía no actúa solo (entrega 3a). */
-    autonomoDisponible: boolean;
+export const PERFIL_POR_DEFECTO: PerfilAsistente = {
+    codigo: "defecto",
+    nombre: "General",
+    acciones: {
+        responder_dudas: true,
+        avisar_fallas: true,
+        dar_saldo: true,
+        crear_ticket: true,
+        agendar_visita: true,
+        recibir_boleta: true,
+        promesa_pago: false,
+        reconexion_temporal: false,
+        pasar_a_persona: true,
+    },
+    limites: { prioridadMaxima: "alta", diasAdelanteMax: 2 },
 };
 
-/** Los ajustes como llegan: un servidor anterior a §17 no trae los campos nuevos. */
-export type AjustesFase3 = AjustesAsistente & Partial<ExtrasAjustes>;
-export type AjustesCompletos = AjustesAsistente & ExtrasAjustes;
-export type EntradaAjustesFase3 = EntradaAjustesAsistente & Partial<Omit<ExtrasAjustes, "autonomoDisponible">>;
+/** El perfil «defecto» (el primero): el que edita la pantalla simple. */
+export function perfilDefecto(a: Pick<AjustesAsistente, "perfiles">): PerfilAsistente {
+    return a.perfiles?.[0] ?? PERFIL_POR_DEFECTO;
+}
 
-export const ACCIONES_POR_DEFECTO: AccionesAsistente = {
-    responder_dudas: true,
-    avisar_fallas: true,
-    crear_ticket: true,
-    agendar_visita: true,
-    recibir_boleta: true,
-    dar_saldo: true,
-    promesa_pago: false,
-    reconexion_temporal: false,
-};
-export const LIMITES_POR_DEFECTO: LimitesAsistente = { prioridadMaxima: "alta", diasAdelanteMax: 2, maxTurnos: 8 };
-
-/** Completa los ajustes con los valores por defecto de §17 (servidor anterior: «Nunca», sin actuar solo). */
-export function completar(a: AjustesFase3): AjustesCompletos {
-    return {
-        ...a,
-        modoAutonomo: a.modoAutonomo ?? "nunca",
-        esperaMin: a.esperaMin ?? 3,
-        acciones: { ...ACCIONES_POR_DEFECTO, ...a.acciones },
-        limites: { ...LIMITES_POR_DEFECTO, ...a.limites },
-        autonomoDisponible: a.autonomoDisponible ?? false,
-    };
+/** Los perfiles con el «defecto» cambiado; los demás (por horario) viajan igual. */
+export function conPerfilDefecto(a: Pick<AjustesAsistente, "perfiles">, cambio: Partial<Pick<PerfilAsistente, "acciones" | "limites">>): PerfilAsistente[] {
+    const [, ...resto] = a.perfiles ?? [];
+    return [{ ...perfilDefecto(a), ...cambio }, ...resto];
 }
 
 /** ¿Hay un proveedor de IA conectado? (lo mismo que el servidor exige para activar, §16.1) */
@@ -70,8 +72,11 @@ export function proveedorConectado(a: Pick<AjustesAsistente, "proveedor" | "url"
     return a.url.trim() !== "" && a.modelo.trim() !== "";
 }
 
-/** Cuerpo de `POST /asistente/ajustes/actualizar` con lo guardado, para cambiar solo una parte. */
-export function entradaGuardada(a: AjustesCompletos): EntradaAjustesFase3 {
+/**
+ * Cuerpo de `POST /asistente/ajustes/actualizar` con lo guardado, para cambiar solo una parte. Lo
+ * de §17 es opcional (ausente = se deja como está): aquí no va, lo pone quien lo cambia.
+ */
+export function entradaGuardada(a: AjustesAsistente): EntradaAjustesAsistente {
     return {
         activo: a.activo,
         proveedor: a.proveedor,
@@ -83,87 +88,122 @@ export function entradaGuardada(a: AjustesCompletos): EntradaAjustesFase3 {
         precioEntradaMillon: a.precioEntradaMillon,
         precioSalidaMillon: a.precioSalidaMillon,
         version: a.version,
-        modoAutonomo: a.modoAutonomo,
-        esperaMin: a.esperaMin,
-        acciones: { ...a.acciones },
-        limites: { ...a.limites },
     };
 }
 
 export const ESPERAS_MIN = [1, 2, 3, 5, 10, 15] as const;
+
+const acciones = z.object({
+    responder_dudas: z.boolean(),
+    avisar_fallas: z.boolean(),
+    crear_ticket: z.boolean(),
+    agendar_visita: z.boolean(),
+    recibir_boleta: z.boolean(),
+    dar_saldo: z.boolean(),
+    promesa_pago: z.boolean(),
+    reconexion_temporal: z.boolean(),
+});
 
 /** Las tres preguntas de la pantalla principal. */
 export const esquemaPrincipal = z.object({
     activo: z.boolean(),
     modoAutonomo: z.enum(["nunca", "sin_nadie", "siempre_primero"]),
     esperaMin: z.number().int().min(1, "Entre 1 y 60 minutos").max(60, "Entre 1 y 60 minutos"),
-    acciones: z.object({
-        responder_dudas: z.boolean(),
-        avisar_fallas: z.boolean(),
-        crear_ticket: z.boolean(),
-        agendar_visita: z.boolean(),
-        recibir_boleta: z.boolean(),
-        dar_saldo: z.boolean(),
-        promesa_pago: z.boolean(),
-        reconexion_temporal: z.boolean(),
-    }),
+    acciones,
     /** Modo por categoría (`id` como texto → modo). */
     modos: z.record(z.string(), z.enum(["responde_solo", "sugiere"])),
 });
 export type ValoresPrincipal = z.infer<typeof esquemaPrincipal>;
 
-export function valoresPrincipal(a: AjustesCompletos, categorias: readonly Categoria[]): ValoresPrincipal {
+const soloAcciones = (a: AccionesAsistente): ValoresPrincipal["acciones"] => Object.fromEntries(CLAVES_ACCION.map((c) => [c, a[c]])) as ValoresPrincipal["acciones"];
+
+export function valoresPrincipal(a: AjustesAsistente, categorias: readonly Categoria[]): ValoresPrincipal {
     return {
         activo: a.activo,
         modoAutonomo: a.modoAutonomo,
         esperaMin: a.esperaMin,
-        acciones: { ...a.acciones },
+        acciones: soloAcciones(perfilDefecto(a).acciones),
         modos: Object.fromEntries(categorias.map((c) => [String(c.id), c.modo])),
     };
 }
 
-/** Límites por acción (`/administracion/asistente/limites`). */
+/** ¿Cambió algo de los ajustes (no de las categorías) en la pantalla principal? */
+export function cambianAjustes(a: AjustesAsistente, d: ValoresPrincipal): boolean {
+    const guardadas = perfilDefecto(a).acciones;
+    return a.activo !== d.activo || a.modoAutonomo !== d.modoAutonomo || a.esperaMin !== d.esperaMin || CLAVES_ACCION.some((c) => guardadas[c] !== d.acciones[c]);
+}
+
+/** Lo que la pantalla principal manda al guardar: lo de la conexión igual y lo suyo cambiado. */
+export function entradaPrincipal(a: AjustesAsistente, d: ValoresPrincipal): EntradaAjustesAsistente {
+    return {
+        ...entradaGuardada(a),
+        activo: d.activo,
+        modoAutonomo: d.modoAutonomo,
+        esperaMin: d.esperaMin,
+        perfiles: conPerfilDefecto(a, { acciones: { ...d.acciones, pasar_a_persona: true } }),
+    };
+}
+
+const entero = (min: number, max: number, mensaje: string) =>
+    z
+        .string()
+        .trim()
+        .refine((v) => /^\d+$/.test(v) && Number(v) >= min && Number(v) <= max, mensaje);
+
+/** Límites (`/administracion/asistente/limites`): los del perfil «defecto», `maxTurnos` y lo apagado por cola. */
 export const esquemaLimites = z.object({
     prioridadMaxima: z.enum(PRIORIDADES),
-    diasAdelanteMax: z
-        .string()
-        .trim()
-        .refine((v) => /^\d+$/.test(v) && Number(v) >= 1 && Number(v) <= 30, "Entre 1 y 30 días"),
-    maxTurnos: z
-        .string()
-        .trim()
-        .refine((v) => /^\d+$/.test(v) && Number(v) >= 1 && Number(v) <= 30, "Entre 1 y 30 mensajes"),
+    diasAdelanteMax: entero(1, 14, "Entre 1 y 14 días"),
+    maxTurnos: entero(2, 20, "Entre 2 y 20 mensajes"),
+    /** Acciones apagadas por cola (`colaId` como texto → claves). */
+    porCola: z.record(z.string(), z.array(z.enum(CLAVES_ACCION))),
 });
 export type ValoresLimites = z.infer<typeof esquemaLimites>;
 
-// --- Categorías --------------------------------------------------------------------------------
+const esAccion = (c: string): c is ClaveAccion => (CLAVES_ACCION as readonly string[]).includes(c);
 
-export type ModoCategoria = "responde_solo" | "sugiere";
-export type CondicionCategoria = "si_hay_falla" | "solo_verificados";
-/** Colores de Horus para el chip (los mismos de las etiquetas). */
-export const TONOS_CATEGORIA = ["info", "peligro", "exito", "alerta", "marca", "neutro"] as const;
-export type TonoCategoria = (typeof TONOS_CATEGORIA)[number];
-export const NOMBRE_TONO: Record<TonoCategoria, string> = { info: "Azul", peligro: "Rojo", exito: "Verde", alerta: "Naranja", marca: "Teal", neutro: "Gris" };
+export function valoresLimites(a: AjustesAsistente): ValoresLimites {
+    const p = perfilDefecto(a);
+    return {
+        prioridadMaxima: p.limites.prioridadMaxima,
+        diasAdelanteMax: String(p.limites.diasAdelanteMax),
+        maxTurnos: String(a.maxTurnos),
+        porCola: Object.fromEntries((a.porCola ?? []).map((c) => [String(c.colaId), (c.accionesApagadas ?? []).filter(esAccion)])),
+    };
+}
 
-export type Categoria = {
-    id: number;
-    nombre: string;
-    descripcion: string;
-    tono: string;
-    colaId: number | null;
-    slaPrimeraRespuestaMin: number | null;
-    modo: ModoCategoria;
-    condicion: CondicionCategoria | null;
-    manualIds: number[];
-    activa: boolean;
-    version: number;
-};
-export type EntradaCategoria = Omit<Categoria, "id" | "activa" | "version"> & { version?: number };
+export function entradaLimites(a: AjustesAsistente, d: ValoresLimites): EntradaAjustesAsistente {
+    return {
+        ...entradaGuardada(a),
+        maxTurnos: Number(d.maxTurnos),
+        perfiles: conPerfilDefecto(a, { limites: { prioridadMaxima: d.prioridadMaxima, diasAdelanteMax: Number(d.diasAdelanteMax) } }),
+        // Solo las colas con algo apagado; la lista reemplaza a la guardada.
+        porCola: Object.entries(d.porCola)
+            .filter(([, apagadas]) => apagadas.length > 0)
+            .map(([colaId, accionesApagadas]) => ({ colaId: Number(colaId), accionesApagadas: [...accionesApagadas] })),
+    };
+}
 
+// --- Categorías (§17.2) ------------------------------------------------------------------------
+
+export type Categoria = Schema<"CategoriaMensajes">;
+export type EntradaCategoria = Schema<"CamposCategoriaMensajes">;
 /** La categoría como viaja en la conversación y en «Pruébalo». */
-export type CategoriaRef = Pick<Categoria, "id" | "nombre" | "tono">;
+export type CategoriaRef = Pick<Schema<"CategoriaMensajesRef">, "nombre" | "tono"> & { id: number | null };
+export type ModoCategoria = Categoria["modo"];
+export type CondicionCategoria = NonNullable<Categoria["condicion"]>;
+export type TonoCategoria = Categoria["tono"];
 /** Qué hizo (o espera) el asistente en la conversación: una línea corta que escribe el servidor. */
-export type ActividadAsistente = { tipo: string; texto: string };
+export type ActividadAsistente = Schema<"ActividadAsistente">;
+
+export const TONOS_CATEGORIA = ["info", "error", "ok", "aviso", "neutro"] as const satisfies readonly TonoCategoria[];
+export const NOMBRE_TONO: Record<TonoCategoria, string> = { info: "Azul", error: "Rojo", ok: "Verde", aviso: "Naranja", neutro: "Gris" };
+/** El tono de la categoría en los colores de Horus (los de las etiquetas: `CLASE_ETIQUETA`). */
+export const COLOR_DE_TONO: Record<TonoCategoria, string> = { info: "info", error: "peligro", ok: "exito", aviso: "alerta", neutro: "neutro" };
+
+const esTono = (t: string): t is TonoCategoria => (TONOS_CATEGORIA as readonly string[]).includes(t);
+/** El tono del chip; uno que el panel no conoce se ve neutro. */
+export const tonoDe = (tono: string): TonoCategoria => (esTono(tono) ? tono : "neutro");
 
 export const NOMBRE_MODO: Record<ModoCategoria, string> = { responde_solo: "Responde solo", sugiere: "Sugiere al agente" };
 export const NOMBRE_CONDICION: Record<CondicionCategoria | "siempre", string> = {
@@ -189,8 +229,8 @@ export function resumenModo(c: Pick<Categoria, "modo" | "condicion">): string {
 }
 
 export const esquemaCategoria = z.object({
-    nombre: z.string().trim().min(1, "Escribe el nombre de la categoría").max(60, "Hasta 60 caracteres"),
-    descripcion: z.string().trim().max(500, "Hasta 500 caracteres"),
+    nombre: z.string().trim().min(1, "Escribe el nombre de la categoría").max(40, "Hasta 40 caracteres"),
+    descripcion: z.string().trim().max(300, "Hasta 300 caracteres"),
     tono: z.enum(TONOS_CATEGORIA),
     /** `""` = sin cola propia (la del número). */
     colaId: z.string(),
@@ -204,10 +244,6 @@ export const esquemaCategoria = z.object({
     activa: z.boolean(),
 });
 export type ValoresCategoria = z.infer<typeof esquemaCategoria>;
-
-const esTono = (t: string): t is TonoCategoria => (TONOS_CATEGORIA as readonly string[]).includes(t);
-/** El tono del chip; uno que el panel no conoce se ve neutro. */
-export const tonoDe = (tono: string): TonoCategoria => (esTono(tono) ? tono : "neutro");
 
 export function valoresCategoria(c?: Categoria): ValoresCategoria {
     return {
@@ -233,11 +269,11 @@ export function entradaDeCategoria(c: Categoria): EntradaCategoria {
         slaPrimeraRespuestaMin: c.slaPrimeraRespuestaMin,
         modo: c.modo,
         condicion: c.condicion,
-        manualIds: [...c.manualIds],
+        manualIds: [...(c.manualIds ?? [])],
     };
 }
 
-export function entradaCategoria(d: ValoresCategoria, version?: number): EntradaCategoria {
+export function entradaCategoria(d: ValoresCategoria): EntradaCategoria {
     return {
         nombre: d.nombre.trim(),
         descripcion: d.descripcion.trim(),
@@ -248,59 +284,67 @@ export function entradaCategoria(d: ValoresCategoria, version?: number): Entrada
         // La condición solo aplica cuando responde solo.
         condicion: d.modo === "responde_solo" && d.condicion !== "siempre" ? d.condicion : null,
         manualIds: [...d.manualIds],
-        ...(version !== undefined ? { version } : {}),
     };
 }
 
-// --- «Pruébalo antes de guardar» ---------------------------------------------------------------
+// --- «Pruébalo antes de guardar» (§17.5) -------------------------------------------------------
 
-export type HariaAsistente = "responder_solo" | "sugerir" | "pasar_a_persona";
-export type PruebaMensaje = {
-    categoria: CategoriaRef | null;
-    haria: HariaAsistente;
-    respuesta: string | null;
-    fuentes: FuenteSugerencia[];
-    acciones: { tipo: string; descripcion: string }[];
-};
+export type PruebaMensaje = Schema<"MensajeProbado">;
+export type HariaAsistente = PruebaMensaje["haria"];
 /** Los ajustes del formulario **sin guardar** con los que se prueba. */
-export type AjustesDePrueba = Pick<ExtrasAjustes, "modoAutonomo" | "esperaMin" | "acciones"> & { categorias: { id: number; modo: ModoCategoria }[] };
+export type AjustesDePrueba = Schema<"AjustesPrueba">;
 
 export const TEXTO_PRUEBA_MAX = 1000;
 
 export const TEXTO_HARIA: Record<HariaAsistente, string> = {
-    responder_solo: "Respondería solo",
-    sugerir: "Le sugeriría al agente",
-    pasar_a_persona: "Pasaría a una persona",
+    responde_solo: "Respondería solo",
+    sugiere: "Le sugeriría al agente",
+    pasa_a_persona: "Pasaría a una persona",
 };
+
+const TEXTO_MOTIVO: Record<NonNullable<PruebaMensaje["motivo"]>, string> = {
+    modo_nunca: "Porque en la pregunta 1 está en «Nunca».",
+    categoria_sugiere: "Porque este tipo de mensaje está en «Sugiere al agente».",
+    sin_falla: "En la prueba no hay un cliente: no se sabe si hay una falla en su zona.",
+    sin_verificar: "En la prueba no hay un cliente verificado.",
+    pide_persona: "Porque el cliente pide hablar con una persona.",
+    enojo: "Porque el cliente está molesto.",
+    sin_respuesta: "Porque no encontró con qué responder.",
+};
+
+/** Por qué haría eso, en palabras; `null` si el servidor no da un motivo. */
+export const textoMotivo = (p: Pick<PruebaMensaje, "motivo">): string | null => (p.motivo ? (TEXTO_MOTIVO[p.motivo] ?? null) : null);
 
 /** «Respondería solo, con Manual «Planes FTTH y WISP»:» (las fuentes como las nombra el servidor). */
 export function textoHaria(p: Pick<PruebaMensaje, "haria" | "fuentes" | "respuesta">): string {
-    const base = TEXTO_HARIA[p.haria] ?? TEXTO_HARIA.pasar_a_persona;
-    const fuentes = p.fuentes.map((f) => f.etiqueta).filter(Boolean);
+    const base = TEXTO_HARIA[p.haria] ?? TEXTO_HARIA.pasa_a_persona;
+    const fuentes = (p.fuentes ?? []).map((f) => f.etiqueta).filter(Boolean);
     const con = fuentes.length ? `, con ${fuentes.join(" y ")}` : "";
     return `${base}${con}${p.respuesta ? ":" : "."}`;
 }
 
-export function ajustesDePrueba(d: ValoresPrincipal): AjustesDePrueba {
+/** Lo que hay en el formulario (sin guardar) como `ajustes` de `probar-mensaje`. */
+export function ajustesDePrueba(d: ValoresPrincipal, a: AjustesAsistente, categorias: readonly Categoria[]): AjustesDePrueba {
     return {
         modoAutonomo: d.modoAutonomo,
-        esperaMin: d.esperaMin,
-        acciones: { ...d.acciones },
-        categorias: Object.entries(d.modos).map(([id, modo]) => ({ id: Number(id), modo })),
+        perfil: { acciones: { ...d.acciones, pasar_a_persona: true }, limites: { ...perfilDefecto(a).limites } },
+        categorias: categorias
+            .filter((c) => c.activa)
+            .map((c) => {
+                const modo = d.modos[String(c.id)] ?? c.modo;
+                return { id: c.id, nombre: c.nombre, descripcion: c.descripcion, tono: c.tono, modo, condicion: modo === "responde_solo" ? c.condicion : null, manualIds: [...(c.manualIds ?? [])] };
+            }),
     };
 }
 
-// --- Efecto en el SLA --------------------------------------------------------------------------
+// --- Efecto en el SLA (§17.6) ------------------------------------------------------------------
 
-export type EfectoAsistente = {
-    mes: string;
-    /** Primera respuesta promedio del mes, en segundos; `null` sin conversaciones. */
-    primeraRespuestaSeg: number | null;
-    /** La de antes de activar el asistente, si el servidor la conoce. */
-    primeraRespuestaAntesSeg: number | null;
-    /** % de conversaciones resueltas por el asistente sin pasar a una persona; `null` sin datos. */
-    resueltasSinPersonaPct: number | null;
-};
+export type EfectoAsistente = Schema<"EfectoAsistente">;
+
+/** % de las atendidas que el asistente resolvió sin pasar a una persona; `null` sin conversaciones. */
+export function porcentajeSinPersona(e: Pick<EfectoAsistente, "resueltasSinPersona" | "totalAtendidas">): number | null {
+    return e.totalAtendidas > 0 ? Math.round((e.resueltasSinPersona / e.totalAtendidas) * 100) : null;
+}
 
 /** «1 min 40 s», «14 min», «45 s», «2 h 5 min». */
 export function duracionLegible(seg: number): string {
@@ -314,9 +358,14 @@ export function duracionLegible(seg: number): string {
     return minutosLegibles(min);
 }
 
-// --- Bandeja -----------------------------------------------------------------------------------
+// --- Bandeja (§17.4) ---------------------------------------------------------------------------
 
-/** ¿El mensaje lo escribió el asistente (y no una persona ni el bot de menú)? */
+/** ¿El mensaje lo escribió el asistente (y no una persona ni el bot de menú)? (3b) */
 export function esDelAsistente(m: { autorTipo?: string | null | undefined; automatico?: string | null | undefined }): boolean {
-    return m.autorTipo === "asistente_ia" || m.automatico === "asistente_ia";
+    return m.autorTipo === "asistente_ia" || m.automatico === "asistente";
+}
+
+/** ¿El asistente está atendiendo solo la conversación? (3b: `asistente.estado`) */
+export function asistenteAtiende(c: { asistente?: { estado: string } | undefined; estado: string }): boolean {
+    return c.asistente?.estado === "atendiendo" && c.estado !== "resuelta";
 }

@@ -23,7 +23,7 @@ function EditarCategoria() {
     const id = idDeParametro(useParams<{ id: string }>().id);
     const lectura = useLectura(async (signal) => {
         if (id === null) return null;
-        const [categorias, apoyo] = await Promise.all([leerCategorias(signal), leerApoyo(signal)]);
+        const [categorias, apoyo] = await Promise.all([leerCategorias(true, signal), leerApoyo(signal)]);
         const categoria = categorias.find((c) => c.id === id);
         return categoria ? { categoria, apoyo } : null;
     });

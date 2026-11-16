@@ -225,7 +225,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             porCanal: grupo((c) => [c.canal.id]),
             porCola: grupo((c) => (c.cola ? [c.cola.id] : [])),
             porEtiqueta: grupo((c) => (c.etiquetas ?? []).map((e) => e.id)),
-            ...(fase3.bandeja ? { porCategoria: fase3.porCategoria(activas) } : {}),
+            porCategoria: fase3.porCategoria(activas),
         };
     }
 
@@ -249,6 +249,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             entregadoEn: null,
             leidoEn: null,
             automatico: null,
+            autorTipo: "cliente",
         };
         mensajes.get(id)?.push(m);
         c.version += 1;
@@ -278,7 +279,6 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             if (ruta === `${BASE}/conversaciones/bancos`) return (await json(route, { data: [{ id: 1, nombre: "Banrural" }], nextCursor: null }), true);
             if (ruta === `${BASE}/conversaciones`) return (await json(route, { data: filtrar(query), nextCursor: null }), true);
             if (ruta === `${BASE}/conversaciones/contadores`) return (await json(route, contadores()), true);
-            if (ruta === `${BASE}/conversaciones/categorias`) return (await json(route, { data: fase3.catalogo(), nextCursor: null }), true);
             if (ruta === `${BASE}/conversaciones/canales`) return (await json(route, { data: canales, nextCursor: null }), true);
             if (ruta === `${BASE}/conversaciones/agentes`) return (await json(route, { data: agentes, nextCursor: null }), true);
             if (ruta === `${BASE}/conversaciones/cambios`) {
@@ -378,7 +378,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                     const a = agentes.find((v) => v.id === yo);
                     c.asignado = { id: yo, nombre: a?.nombre ?? "Yo" };
                     // Fase 3: al tomarla una persona, el asistente se detiene.
-                    if (c.asistenteAtiende) c.asistenteAtiende = false;
+                    if (c.asistente) c.asistente = { ...c.asistente, estado: "detenido" };
                 });
             case "asignar": {
                 if (!puede("conversaciones.asignar")) return (await prohibido(), true);
@@ -399,9 +399,13 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             }
             case "categorizar": {
                 if (!puede(PERMISO_CATEGORIZAR)) return (await prohibido(), true);
+                if (version !== undefined && version !== c.version) return (await conflicto(), true);
                 const p = fase3.categorizar(c, cuerpo);
                 if (p) return (await problema(route, p), true);
-                return responder(() => undefined);
+                c.version += 1;
+                emitir("conversacion_actualizada", c);
+                // Como el servidor (§17.3): devuelve el detalle.
+                return (await json(route, detalle(c)), true);
             }
             case "etiquetar":
                 return responder(() => (c.etiquetas = etiquetas.filter((e) => (cuerpo.etiquetaIds as number[]).includes(e.id)).map(({ id, nombre, color }) => ({ id, nombre, color }))));
@@ -464,6 +468,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                     entregadoEn: null,
                     leidoEn: null,
                     automatico: null,
+                    autorTipo: "persona",
                     ...(cuerpo.plantilla ? { plantilla: cuerpo.plantilla as Schema<"PlantillaMensaje"> } : {}),
                 };
                 mensajes.get(c.id)?.push(nuevo);

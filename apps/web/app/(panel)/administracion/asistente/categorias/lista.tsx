@@ -7,7 +7,7 @@ import { useState, type ReactNode } from "react";
 import { ChipCategoria } from "@/componentes/asistente/chip-categoria";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ErrorLectura } from "@/componentes/error-lectura";
-import { mensajeDeError } from "@/lib/api/errores";
+import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { activarCategoria, leerCategorias } from "@/lib/asistente/api-fase3";
 import { minutosLegibles, resumenModo, type Categoria } from "@/lib/asistente/fase3";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
@@ -23,7 +23,7 @@ const BASE = "/administracion/asistente/categorias";
  */
 export function ListaCategorias() {
     const lectura = useLectura(async (signal) => {
-        const [categorias, apoyo] = await Promise.all([leerCategorias(signal), leerApoyo(signal)]);
+        const [categorias, apoyo] = await Promise.all([leerCategorias(true, signal), leerApoyo(signal)]);
         return { categorias, apoyo };
     });
     let contenido: ReactNode;
@@ -79,7 +79,7 @@ function FilaCategoria({ categoria: c, apoyo, alCambiar }: { categoria: Categori
     const [confirmar, setConfirmar] = useState(false);
     const [error, setError] = useState<unknown>(null);
     const cola = apoyo.colas.find((x) => x.id === c.colaId)?.nombre;
-    const manuales = c.manualIds.map((id) => apoyo.manuales.find((m) => m.id === id)?.titulo).filter((t): t is string => Boolean(t));
+    const manuales = (c.manualIds ?? []).map((id) => apoyo.manuales.find((m) => m.id === id)?.titulo).filter((t): t is string => Boolean(t));
 
     async function cambiar(activa: boolean) {
         setError(null);
@@ -94,6 +94,7 @@ function FilaCategoria({ categoria: c, apoyo, alCambiar }: { categoria: Categori
             setError(e);
         }
     }
+    const motivo = (e: unknown) => (e instanceof ErrorApi && e.codigo === "demasiadas_categorias" ? "Ya hay 30 categorías activas: desactiva otra primero." : mensajeDeError(e).titulo);
 
     return (
         <li data-categoria={c.id} className="surface-card grid min-w-0 gap-2 p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
@@ -101,6 +102,7 @@ function FilaCategoria({ categoria: c, apoyo, alCambiar }: { categoria: Categori
                 <span className="flex min-w-0 flex-wrap items-center gap-2">
                     <ChipCategoria categoria={c} />
                     {c.activa ? null : <InsigniaEstado tono="neutral" texto="Inactiva" />}
+                    {c.esOtro ? <span className="text-xs text-muted-foreground">Aquí cae lo que no se pudo clasificar</span> : null}
                 </span>
                 <p className="text-sm [overflow-wrap:anywhere]">
                     {cola ? (
@@ -123,15 +125,18 @@ function FilaCategoria({ categoria: c, apoyo, alCambiar }: { categoria: Categori
                 <p className="text-sm font-medium [overflow-wrap:anywhere]">{resumenModo(c)}</p>
                 {error && !confirmar ? (
                     <Aviso tono="error" titulo="No se pudo cambiar">
-                        {mensajeDeError(error).titulo}
+                        {motivo(error)}
                     </Aviso>
                 ) : null}
             </div>
             <div className="flex flex-wrap gap-2 md:justify-end">
-                <Boton variante="fantasma" tamano="sm" onClick={() => (c.activa ? setConfirmar(true) : void cambiar(true))} aria-label={`${c.activa ? "Desactivar" : "Activar"} ${c.nombre}`}>
-                    <Power />
-                    {c.activa ? "Desactivar" : "Activar"}
-                </Boton>
+                {/* «Otro» recibe lo que no se pudo clasificar: no se desactiva (422 `categoria_otro`). */}
+                {c.esOtro ? null : (
+                    <Boton variante="fantasma" tamano="sm" onClick={() => (c.activa ? setConfirmar(true) : void cambiar(true))} aria-label={`${c.activa ? "Desactivar" : "Activar"} ${c.nombre}`}>
+                        <Power />
+                        {c.activa ? "Desactivar" : "Activar"}
+                    </Boton>
+                )}
                 <Boton asChild variante="contorno" tamano="sm">
                     <Link href={`${BASE}/${c.id}/editar`} aria-label={`Editar ${c.nombre}`}>
                         <Pencil />

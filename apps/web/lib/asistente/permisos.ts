@@ -7,11 +7,8 @@ export const PERMISO_SUGERENCIAS: Permiso = "conversaciones.sugerencias";
 export const PERMISO_CONFIGURAR_ASISTENTE: Permiso = "mensajeria.asistente_configurar";
 
 // Fase 3.
-/**
- * Cambiar la categoría de una conversación (§17). Provisional: aún no está en el enum `Permiso`
- * del OpenAPI; al mergear el contrato de `agente/i1-asistente-3` se quita el `as`.
- */
-export const PERMISO_CATEGORIZAR = "conversaciones.categorizar" as Permiso;
+/** Corregir la categoría de una conversación (§17.3). */
+export const PERMISO_CATEGORIZAR: Permiso = "conversaciones.categorizar";
 /** Aprobar o rechazar la boleta de la conversación (§6.4, B3). */
 export const PERMISO_APROBAR_BOLETA: Permiso = "boletas.aprobar";
 export const PERMISO_RECHAZAR_BOLETA: Permiso = "boletas.rechazar";

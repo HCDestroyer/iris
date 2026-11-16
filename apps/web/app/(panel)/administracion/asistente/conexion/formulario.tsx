@@ -25,9 +25,7 @@ import { ErrorLectura } from "@/componentes/error-lectura";
 import { SecretoCambiable } from "@/componentes/numeros/secreto-guardado";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { cambiaDestino, ejemploUrl, entradaDe, esNube, esquemaAjustesAsistente, FUENTES, NUNCA, PROVEEDORES, TEXTO_CLAVE_REQUERIDA, urlValida, valoresDe, type ValoresAjustes } from "@/lib/asistente/ajustes";
-import { consultarModelos, leerAjustesAsistente, leerModelosGuardados, leerUso, probarAsistente } from "@/lib/asistente/api";
-import { guardarAjustesFase3 } from "@/lib/asistente/api-fase3";
-import { completar, entradaGuardada } from "@/lib/asistente/fase3";
+import { consultarModelos, guardarAjustesAsistente, leerAjustesAsistente, leerModelosGuardados, leerUso, probarAsistente } from "@/lib/asistente/api";
 import { formatearTokens, nombreMes, porcentajeUsadas, textoPausado, textoPrueba } from "@/lib/asistente/presentacion";
 import type { AjustesAsistente as Ajustes, ModeloIA, PruebaAsistente, UsoAsistente } from "@/lib/asistente/tipos";
 import { erroresACampos } from "@/lib/formularios";
@@ -82,8 +80,8 @@ function Formulario({ ajustes }: { ajustes: Ajustes }) {
             alEnviar={form.handleSubmit(async (d) => {
                 setError(null);
                 try {
-                    // Lo de la pantalla principal (cuándo atiende solo, qué puede hacer) se conserva.
-                    await guardarAjustesFase3({ ...entradaGuardada(completar(ajustes)), ...entradaDe(d, ajustes.version) }, clave.actual());
+                    // Lo de la pantalla principal (§17: cuándo atiende solo, qué puede hacer) no va: ausente = se deja como está.
+                    await guardarAjustesAsistente(entradaDe(d, ajustes.version), clave.actual());
                     clave.renovar();
                     avisar({ titulo: "Conexión con la IA guardada" });
                     await liberarProteccion();

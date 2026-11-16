@@ -30,22 +30,24 @@ import { CargaRegistro } from "@/componentes/carga-registro";
 import { ErrorAsistente } from "@/componentes/conversaciones/error-asistente";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
-import { leerUso } from "@/lib/asistente/api";
-import { actualizarCategoria, guardarAjustesFase3, leerAjustesFase3, leerCategorias, leerEfecto, probarMensaje } from "@/lib/asistente/api-fase3";
+import { guardarAjustesAsistente, leerAjustesAsistente, leerUso } from "@/lib/asistente/api";
+import { actualizarCategoria, leerCategorias, leerEfecto, probarMensaje } from "@/lib/asistente/api-fase3";
 import {
     ajustesDePrueba,
-    completar,
+    cambianAjustes,
     duracionLegible,
     entradaDeCategoria,
-    entradaGuardada,
+    entradaPrincipal,
     ESPERAS_MIN,
     esquemaPrincipal,
+    NOMBRE_ACCION,
     NOMBRE_MODO,
+    porcentajeSinPersona,
     proveedorConectado,
     TEXTO_PRUEBA_MAX,
     textoHaria,
+    textoMotivo,
     valoresPrincipal,
-    type AjustesCompletos,
     type Categoria,
     type ClaveAccion,
     type ModoAutonomo,
@@ -53,6 +55,7 @@ import {
     type PruebaMensaje,
     type ValoresPrincipal,
 } from "@/lib/asistente/fase3";
+import type { AjustesAsistente } from "@/lib/asistente/tipos";
 import { explicarErrorDeApi, nombreMes, textoPausado, type ExplicacionError } from "@/lib/asistente/presentacion";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
@@ -65,18 +68,18 @@ const MODOS: readonly { valor: ModoAutonomo; titulo: string; detalle: string; ic
     { valor: "siempre_primero", titulo: "Siempre primero", detalle: "Responde al instante y pasa a una persona cuando hace falta.", icono: Zap },
 ];
 
-const ACCIONES: readonly { clave: ClaveAccion; titulo: string; nota?: string; icono: LucideIcon }[] = [
-    { clave: "responder_dudas", titulo: "Responder dudas", nota: "Con tus manuales", icono: BookOpen },
-    { clave: "avisar_fallas", titulo: "Avisar de fallas en la zona", icono: WifiOff },
-    { clave: "crear_ticket", titulo: "Crear tickets", icono: Ticket },
-    { clave: "agendar_visita", titulo: "Agendar visitas", icono: CalendarDays },
-    { clave: "recibir_boleta", titulo: "Recibir boletas de pago", nota: "Caja las aprueba en Argos", icono: Receipt },
-    { clave: "dar_saldo", titulo: "Dar el saldo", nota: "Solo a clientes verificados", icono: CircleDollarSign },
-    { clave: "promesa_pago", titulo: "Promesas de pago", nota: "Con las reglas de Argos", icono: Handshake },
-    { clave: "reconexion_temporal", titulo: "Reconexión temporal", nota: "Con las reglas de Argos", icono: Plug },
+const ACCIONES: readonly { clave: ClaveAccion; nota?: string; icono: LucideIcon }[] = [
+    { clave: "responder_dudas", nota: "Con tus manuales", icono: BookOpen },
+    { clave: "avisar_fallas", icono: WifiOff },
+    { clave: "crear_ticket", icono: Ticket },
+    { clave: "agendar_visita", icono: CalendarDays },
+    { clave: "recibir_boleta", nota: "Caja las aprueba en Argos", icono: Receipt },
+    { clave: "dar_saldo", nota: "Solo a clientes verificados", icono: CircleDollarSign },
+    { clave: "promesa_pago", nota: "Con las reglas de Argos", icono: Handshake },
+    { clave: "reconexion_temporal", nota: "Con las reglas de Argos", icono: Plug },
 ];
 
-type Datos = { ajustes: AjustesCompletos; categorias: Categoria[] };
+type Datos = { ajustes: AjustesAsistente; categorias: Categoria[] };
 
 /**
  * `/administracion/asistente` (`mensajeria.asistente_configurar`): el asistente en tres preguntas
@@ -86,8 +89,8 @@ type Datos = { ajustes: AjustesCompletos; categorias: Categoria[] };
  */
 export function AsistentePrincipal() {
     const lectura = useLectura<Datos>(async (signal) => {
-        const [ajustes, categorias] = await Promise.all([leerAjustesFase3(signal), leerCategorias(signal)]);
-        return { ajustes: completar(ajustes), categorias };
+        const [ajustes, categorias] = await Promise.all([leerAjustesAsistente(signal), leerCategorias(false, signal)]);
+        return { ajustes, categorias };
     });
     return (
         <CargaRegistro lectura={lectura} que="el asistente" noEncontrado="Sin ajustes">
@@ -105,7 +108,7 @@ function Formulario({ datos, alGuardar }: { datos: Datos; alGuardar: (d: Datos) 
     // Las categorías se guardan de una en una y se para en la primera que falla: una clave basta.
     const claveCategoria = useClaveIdempotencia();
     const { ajustes } = datos;
-    const categorias = datos.categorias.filter((c) => c.activa);
+    const { categorias } = datos;
     const form = useForm<ValoresPrincipal>({ resolver: zodResolver(esquemaPrincipal), defaultValues: valoresPrincipal(ajustes, datos.categorias) });
     const [activo, modoAutonomo, esperaMin] = useWatch({ control: form.control, name: ["activo", "modoAutonomo", "esperaMin"] });
     const conectado = proveedorConectado(ajustes);
@@ -116,12 +119,10 @@ function Formulario({ datos, alGuardar }: { datos: Datos; alGuardar: (d: Datos) 
         let paso: "ajustes" | "categoria" = "ajustes";
         let actual = guardado;
         try {
-            const a = actual.ajustes;
-            const cambio = a.activo !== d.activo || a.modoAutonomo !== d.modoAutonomo || a.esperaMin !== d.esperaMin || ACCIONES.some((x) => a.acciones[x.clave] !== d.acciones[x.clave]);
-            if (cambio) {
-                const r = await guardarAjustesFase3({ ...entradaGuardada(a), activo: d.activo, modoAutonomo: d.modoAutonomo, esperaMin: d.esperaMin, acciones: { ...d.acciones } }, claveAjustes.actual());
+            if (cambianAjustes(actual.ajustes, d)) {
+                const r = await guardarAjustesAsistente(entradaPrincipal(actual.ajustes, d), claveAjustes.actual());
                 claveAjustes.renovar();
-                actual = { ...actual, ajustes: completar(r) };
+                actual = { ...actual, ajustes: r };
                 setGuardado(actual);
             }
             paso = "categoria";
@@ -193,7 +194,11 @@ function Formulario({ datos, alGuardar }: { datos: Datos; alGuardar: (d: Datos) 
                     <AvisoPausa />
                     {error ? (
                         <Aviso tono="error" titulo={conflicto ? "Alguien más cambió los ajustes" : "No se pudo guardar"}>
-                            {conflicto ? "Recarga la página para ver el cambio." : `${mensajeDeError(error).titulo}${error instanceof ErrorApi && error.detalle ? `: ${error.detalle}` : ""}. Vuelve a tocar «Guardar».`}
+                            {conflicto
+                                ? "Recarga la página para ver el cambio."
+                                : error instanceof ErrorApi && error.codigo === "autonomo_no_disponible"
+                                  ? "El asistente todavía no puede atender solo: deja la pregunta 1 en «Nunca»."
+                                  : `${mensajeDeError(error).titulo}${error instanceof ErrorApi && error.detalle ? `: ${error.detalle}` : ""}. Vuelve a tocar «Guardar».`}
                         </Aviso>
                     ) : null}
                 </>
@@ -271,7 +276,7 @@ function Formulario({ datos, alGuardar }: { datos: Datos; alGuardar: (d: Datos) 
                                 disabled={bloqueado}
                                 etiqueta={
                                     <span className="grid min-w-0">
-                                        <span className="[overflow-wrap:anywhere]">{a.titulo}</span>
+                                        <span className="[overflow-wrap:anywhere]">{NOMBRE_ACCION[a.clave]}</span>
                                         {a.nota ? <span className="text-xs font-normal text-muted-foreground">{a.nota}</span> : null}
                                     </span>
                                 }
@@ -305,7 +310,7 @@ function Formulario({ datos, alGuardar }: { datos: Datos; alGuardar: (d: Datos) 
                 </p>
             </SeccionFormulario>
 
-            <Pruebalo form={form} deshabilitado={bloqueado} />
+            <Pruebalo form={form} ajustes={ajustes} categorias={categorias} deshabilitado={bloqueado} />
             <Efecto />
 
             <nav aria-label="Ajustes avanzados" className="flex flex-wrap gap-x-5 gap-y-2 px-1 text-sm">
@@ -356,7 +361,7 @@ type EstadoPrueba = { tipo: "nada" } | { tipo: "probando" } | { tipo: "hecho"; p
  * **sin guardar**. Muestra la categoría, qué haría, la respuesta y las acciones que tomaría. No
  * envía nada a nadie.
  */
-function Pruebalo({ form, deshabilitado }: { form: UseFormReturn<ValoresPrincipal>; deshabilitado: boolean }) {
+function Pruebalo({ form, ajustes, categorias, deshabilitado }: { form: UseFormReturn<ValoresPrincipal>; ajustes: AjustesAsistente; categorias: readonly Categoria[]; deshabilitado: boolean }) {
     const [texto, setTexto] = useState("");
     const [estado, setEstado] = useState<EstadoPrueba>({ tipo: "nada" });
     const limpio = texto.trim();
@@ -365,7 +370,7 @@ function Pruebalo({ form, deshabilitado }: { form: UseFormReturn<ValoresPrincipa
         if (!limpio || estado.tipo === "probando") return;
         setEstado({ tipo: "probando" });
         try {
-            setEstado({ tipo: "hecho", prueba: await probarMensaje(limpio, ajustesDePrueba(form.getValues())) });
+            setEstado({ tipo: "hecho", prueba: await probarMensaje(limpio, ajustesDePrueba(form.getValues(), ajustes, categorias)) });
         } catch (e) {
             const api = e instanceof ErrorApi ? e : new ErrorApi({ estado: 0, codigo: "sin_conexion", titulo: "Sin conexión" });
             setEstado({ tipo: "error", explicacion: explicarErrorDeApi(api, "prueba", Date.now()) });
@@ -416,20 +421,27 @@ function Pruebalo({ form, deshabilitado }: { form: UseFormReturn<ValoresPrincipa
 }
 
 function ResultadoPrueba({ prueba }: { prueba: PruebaMensaje }) {
+    const motivo = textoMotivo(prueba);
+    const acciones = prueba.acciones ?? [];
     return (
         <div role="status" aria-label="Resultado de la prueba" data-haria={prueba.haria} className="grid min-w-0 gap-2.5">
             <p className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 text-sm">
-                {prueba.categoria ? <ChipCategoria categoria={prueba.categoria} /> : <span className="text-muted-foreground">Sin categoría</span>}
+                <ChipCategoria categoria={prueba.categoria} />
                 <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{textoHaria(prueba)}</span>
             </p>
+            {motivo ? (
+                <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]" data-motivo={prueba.motivo}>
+                    {motivo}
+                </p>
+            ) : null}
             {prueba.respuesta ? (
                 <p data-slot="respuesta-prueba" className="rounded-[0.875rem] rounded-bl-sm border border-border bg-card px-3 py-2 text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
                     {prueba.respuesta}
                 </p>
             ) : null}
-            {prueba.acciones.length > 0 ? (
+            {acciones.length > 0 ? (
                 <ul aria-label="Lo que haría" className="grid gap-1 text-sm">
-                    {prueba.acciones.map((a, i) => (
+                    {acciones.map((a, i) => (
                         <li key={`${a.tipo}-${i}`} className="flex items-start gap-1.5" data-accion-prueba={a.tipo}>
                             <ChevronRight aria-hidden className="mt-0.5 size-4 shrink-0 text-primary" />
                             <span className="min-w-0 [overflow-wrap:anywhere]">{a.descripcion}</span>
@@ -464,28 +476,32 @@ function AvisoPausa() {
 /** «Efecto en el SLA (este mes)» (`GET /asistente/efecto`). Si no se pudo leer: «Reintentar», sin cifras. */
 function Efecto() {
     const lectura = useLectura((signal) => leerEfecto(undefined, signal));
+    const e = lectura.estado === "listo" ? lectura.datos : null;
+    const sinPersona = e ? porcentajeSinPersona(e) : null;
     return (
         <SeccionFormulario titulo="Efecto en el SLA (este mes)">
             {lectura.estado === "cargando" ? (
                 <p className="text-sm text-muted-foreground">Leyendo el efecto del mes…</p>
             ) : lectura.estado === "error" ? (
                 <ErrorLectura error={lectura.error} reintentar={lectura.reintentar} que="el efecto del mes" />
-            ) : (
+            ) : e ? (
                 <div className="grid gap-4 sm:grid-cols-2" data-slot="efecto-asistente">
                     <div>
-                        <p className="text-2xl font-semibold tabular-nums">{lectura.datos.primeraRespuestaSeg === null ? "—" : duracionLegible(lectura.datos.primeraRespuestaSeg)}</p>
+                        <p className="text-2xl font-semibold tabular-nums">{e.primeraRespuestaPromedioSeg === null ? "—" : duracionLegible(e.primeraRespuestaPromedioSeg)}</p>
                         <p className="text-sm text-muted-foreground">
-                            {lectura.datos.primeraRespuestaSeg === null
-                                ? `Todavía no hay conversaciones en ${nombreMes(lectura.datos.mes)}`
-                                : `primera respuesta promedio${lectura.datos.primeraRespuestaAntesSeg !== null ? ` (antes ${duracionLegible(lectura.datos.primeraRespuestaAntesSeg)})` : ""}`}
+                            {e.primeraRespuestaPromedioSeg === null
+                                ? `Todavía no hay conversaciones clasificadas en ${nombreMes(e.mes)}`
+                                : `primera respuesta promedio${e.primeraRespuestaPromedioAntesSeg !== null ? ` (antes ${duracionLegible(e.primeraRespuestaPromedioAntesSeg)})` : ""}`}
                         </p>
                     </div>
                     <div>
-                        <p className="text-2xl font-semibold tabular-nums">{lectura.datos.resueltasSinPersonaPct === null ? "—" : `${Math.round(lectura.datos.resueltasSinPersonaPct)} %`}</p>
-                        <p className="text-sm text-muted-foreground">resueltas por el asistente sin pasar a una persona</p>
+                        <p className="text-2xl font-semibold tabular-nums">{sinPersona === null ? "—" : `${sinPersona} %`}</p>
+                        <p className="text-sm text-muted-foreground">
+                            {sinPersona === null ? "resueltas por el asistente sin pasar a una persona" : `resueltas por el asistente sin pasar a una persona (${e.resueltasSinPersona} de ${e.totalAtendidas})`}
+                        </p>
                     </div>
                 </div>
-            )}
+            ) : null}
         </SeccionFormulario>
     );
 }

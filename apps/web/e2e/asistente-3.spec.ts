@@ -18,9 +18,10 @@ import { esperarSinDesbordes } from "./desbordes";
 const carpeta = process.env.IRIS_CAPTURAS ?? path.join("test-results", "capturas-asistente-3");
 const BASE = "/administracion/asistente";
 
-async function abrir(page: Page, ruta: string, fase3: OpcionesFase3 = {}, asistente: OpcionesAsistente = {}, correo = ADMIN.correo) {
+/** `fase3: null` = un servidor sin categorías (como las demás pruebas de la bandeja). */
+async function abrir(page: Page, ruta: string, fase3: OpcionesFase3 | null = {}, asistente: OpcionesAsistente = {}, correo = ADMIN.correo) {
     await page.clock.setFixedTime(new Date(AHORA_CONV));
-    const api = await simularApi(page, { conversaciones: { asistente: { ...asistente, fase3 } } });
+    const api = await simularApi(page, { conversaciones: { asistente: { ...asistente, ...(fase3 ? { fase3 } : {}) } } });
     await conSesion(page.context(), test.info().project.use.baseURL ?? "", correo);
     await page.goto(ruta);
     return api;
@@ -61,8 +62,13 @@ test.describe("Administración › Asistente de IA: las tres preguntas", () => {
         const cuerpo = api.conversaciones.asistente.guardados[0] as Record<string, unknown>;
         // Lo de la conexión viaja igual que estaba; cambia solo lo de esta pantalla.
         expect(cuerpo).toMatchObject({ activo: true, proveedor: "ollama", url: "http://10.0.0.20:11434", modelo: "qwen3:32b", modoAutonomo: "nunca", esperaMin: 3, version: 2 });
-        expect((cuerpo.acciones as Record<string, boolean>).promesa_pago).toBe(true);
-        expect(cuerpo).not.toHaveProperty("clave");
+        // La pantalla simple edita el perfil «defecto»; los perfiles por horario viajan igual.
+        const perfiles = cuerpo.perfiles as { codigo: string; acciones: Record<string, boolean>; limites: unknown }[];
+        expect(perfiles.map((x) => x.codigo)).toEqual(["defecto", "noche"]);
+        expect(perfiles[0]?.acciones).toMatchObject({ promesa_pago: true, responder_dudas: true, reconexion_temporal: false, pasar_a_persona: true });
+        expect(perfiles[0]?.limites).toEqual({ prioridadMaxima: "alta", diasAdelanteMax: 2 });
+        // Lo que esta pantalla no toca no viaja (ausente = se deja como está).
+        for (const campo of ["clave", "maxTurnos", "porCola"]) expect(cuerpo).not.toHaveProperty(campo);
         expect(rutas(api, "/ajustes/actualizar")[0]?.idempotencia).toBeTruthy();
         // Se queda en la pantalla, ya sin cambios pendientes.
         await expect(page).toHaveURL(/\/administracion\/asistente$/);
@@ -82,7 +88,7 @@ test.describe("Administración › Asistente de IA: las tres preguntas", () => {
         const tipos = f.getByRole("list", { name: "Tipos de mensaje" });
         await expect(tipos.getByRole("listitem")).toHaveCount(6);
         await expect(tipos.locator('[data-categoria="2"] [data-slot="chip-categoria"]')).toHaveText("Sin internet");
-        await expect(tipos.locator('[data-categoria="2"] [data-slot="chip-categoria"]')).toHaveAttribute("data-tono", "peligro");
+        await expect(tipos.locator('[data-categoria="2"] [data-slot="chip-categoria"]')).toHaveAttribute("data-tono", "error");
         await esperarOpcion(f.getByRole("button", { name: /Qué hace con «Planes y precios»/ }), "responde_solo");
         await esperarOpcion(f.getByRole("button", { name: /Qué hace con «Cambio de plan»/ }), "sugiere");
         await esperarSinDesbordes(page);
@@ -98,7 +104,7 @@ test.describe("Administración › Asistente de IA: las tres preguntas", () => {
         await page.getByRole("button", { name: "Guardar" }).click();
         await expect(page.getByText("Asistente guardado y encendido")).toBeVisible();
 
-        expect(api.conversaciones.asistente.guardados[0]).toMatchObject({ modoAutonomo: "sin_nadie", esperaMin: 5, acciones: { reconexion_temporal: true, responder_dudas: true } });
+        expect(api.conversaciones.asistente.guardados[0]).toMatchObject({ modoAutonomo: "sin_nadie", esperaMin: 5, perfiles: [{ codigo: "defecto", acciones: { reconexion_temporal: true, responder_dudas: true } }, { codigo: "noche" }] });
         const cambios = rutas(api, "/actualizar").filter((e) => e.ruta.includes("/categorias/"));
         expect(cambios.map((e) => e.ruta.replace(/^.*categorias\//, ""))).toEqual(["2/actualizar", "4/actualizar"]);
         // «Sugiere» quita la condición; lo demás de la categoría viaja igual.
@@ -116,10 +122,11 @@ test.describe("Administración › Asistente de IA: las tres preguntas", () => {
         await caja.fill("¿Cuánto cuesta el plan de 100 megas?");
         await probar.click();
         const r = f.getByRole("status", { name: "Resultado de la prueba" });
-        await expect(r).toHaveAttribute("data-haria", "responder_solo");
+        await expect(r).toHaveAttribute("data-haria", "responde_solo");
         await expect(r.locator('[data-slot="chip-categoria"]')).toHaveText("Planes y precios");
         await expect(r).toContainText("Respondería solo, con Manual «Planes FTTH y WISP»:");
         await expect(r.locator('[data-slot="respuesta-prueba"]')).toHaveText(RESPUESTA_PRUEBA);
+        await expect(r.getByRole("list", { name: "Lo que haría" })).toContainText("Propondría hasta 3 espacios para agendar la visita");
         await r.scrollIntoViewIfNeeded();
         await esperarSinDesbordes(page);
         await captura(page, "pruebalo");
@@ -127,23 +134,31 @@ test.describe("Administración › Asistente de IA: las tres preguntas", () => {
         // Cambio sin guardar: la prueba ya lo usa. Enter prueba (no guarda el formulario).
         await elegirOpcion(f.getByRole("button", { name: /Qué hace con «Planes y precios»/ }), "sugiere");
         await caja.press("Enter");
-        await expect(r).toHaveAttribute("data-haria", "sugerir");
+        await expect(r).toHaveAttribute("data-haria", "sugiere");
         await expect(r).toContainText("Le sugeriría al agente, con Manual «Planes FTTH y WISP»:");
-        const enviadas = api.conversaciones.fase3.pruebas as { texto: string; ajustes: { modoAutonomo: string; categorias: { id: number; modo: string }[] } }[];
+        await expect(r).toContainText("Porque este tipo de mensaje está en «Sugiere al agente».");
+        const enviadas = api.conversaciones.fase3.pruebas;
         expect(enviadas).toHaveLength(2);
         expect(enviadas[1]?.texto).toBe("¿Cuánto cuesta el plan de 100 megas?");
-        expect(enviadas[1]?.ajustes.modoAutonomo).toBe("sin_nadie");
-        expect(enviadas[1]?.ajustes.categorias.find((c) => c.id === 1)?.modo).toBe("sugiere");
+        expect(enviadas[1]?.ajustes?.modoAutonomo).toBe("sin_nadie");
+        expect(enviadas[1]?.ajustes?.categorias?.find((c) => c.id === 1)).toMatchObject({ nombre: "Planes y precios", modo: "sugiere", tono: "info", manualIds: [2] });
+        expect(enviadas[1]?.ajustes?.perfil).toMatchObject({ acciones: { agendar_visita: true, pasar_a_persona: true }, limites: { prioridadMaxima: "alta", diasAdelanteMax: 2 } });
         expect(api.conversaciones.asistente.guardados).toHaveLength(0);
 
+        // Una acción apagada (sin guardar) ya no sale entre lo que haría.
+        await f.getByRole("switch", { name: /Agendar visitas/ }).click();
+        await probar.click();
+        await expect(r.getByRole("list", { name: "Lo que haría" })).toHaveCount(0);
+        // Sin cliente en la prueba, lo que pide verificación pasa a una persona, y dice por qué.
         await caja.fill("Ya pagué, les mando la boleta");
         await probar.click();
         await expect(r.locator('[data-slot="chip-categoria"]')).toHaveText("Pagos y saldo");
-        await expect(r.getByRole("list", { name: "Lo que haría" })).toContainText("Recibiría la boleta y la mandaría a Argos para que caja la apruebe");
+        await expect(r).toHaveAttribute("data-haria", "pasa_a_persona");
+        await expect(r).toContainText("En la prueba no hay un cliente verificado.");
         await caja.fill("Quiero hablar con una persona");
         await probar.click();
-        await expect(r).toHaveAttribute("data-haria", "pasar_a_persona");
         await expect(r).toContainText("Pasaría a una persona.");
+        await expect(r).toContainText("Porque el cliente pide hablar con una persona.");
         await expect(r.locator('[data-slot="respuesta-prueba"]')).toHaveCount(0);
     });
 
@@ -202,7 +217,7 @@ test.describe("Administración › Asistente de IA: las tres preguntas", () => {
         await expect(efecto.locator('[data-slot="efecto-asistente"]')).toContainText("1 min 40 s");
         await expect(efecto).toContainText("primera respuesta promedio (antes 14 min)");
         await expect(efecto).toContainText("41 %");
-        await expect(efecto).toContainText("resueltas por el asistente sin pasar a una persona");
+        await expect(efecto).toContainText("resueltas por el asistente sin pasar a una persona (41 de 100)");
     });
 
     test("efecto sin el «antes» y 409 al guardar; salir con cambios pregunta", async ({ page }) => {
@@ -229,21 +244,38 @@ test.describe("Asistente de IA: lo avanzado en su ruta", () => {
         if (!esTelefono(page)) await expect(page.getByRole("list", { name: "Migas" })).toContainText("Límites");
         await expect(f.getByText("Se aplicarán cuando el asistente atienda solo")).toBeVisible();
         await esperarOpcion(f.getByLabel("Prioridad máxima"), "alta");
-        const dias = f.getByRole("textbox", { name: /Días hábiles adelante/ });
+        const dias = f.getByRole("textbox", { name: /Días adelante/ });
         await expect(dias).toHaveValue("2");
         await dias.fill("");
         await page.getByRole("button", { name: "Guardar" }).click();
-        await expect(f.getByText("Entre 1 y 30 días")).toBeVisible();
+        await expect(f.getByText("Entre 1 y 14 días")).toBeVisible();
         expect(api.conversaciones.asistente.guardados).toHaveLength(0);
         await dias.fill("3");
         await elegirOpcion(f.getByLabel("Prioridad máxima"), "media");
         await f.getByRole("textbox", { name: /Mensajes del asistente/ }).fill("6");
+        // Apagado por cola: Ventas ya traía las promesas apagadas; se apagan las visitas en Soporte.
+        const ventas = f.getByRole("group", { name: /^Ventas/ });
+        await expect(ventas.getByRole("checkbox", { name: "No promesas de pago" })).toBeChecked();
+        await expect(ventas).toContainText("1 apagada");
+        await f.getByRole("group", { name: /^Soporte/ }).getByRole("checkbox", { name: "No agendar visitas" }).click();
+        await expect(f.getByRole("list", { name: "Perfiles por horario" })).toContainText("Noche");
         await esperarSinDesbordes(page);
         await captura(page, "limites");
         await page.getByRole("button", { name: "Guardar" }).click();
         await expect(page.getByText("Límites del asistente guardados")).toBeVisible();
         await expect(page).toHaveURL(/\/administracion\/asistente$/);
-        expect(api.conversaciones.asistente.guardados[0]).toMatchObject({ limites: { prioridadMaxima: "media", diasAdelanteMax: 3, maxTurnos: 6 }, modoAutonomo: "nunca", proveedor: "ollama" });
+        const cuerpo = api.conversaciones.asistente.guardados[0] as Record<string, unknown>;
+        expect(cuerpo).toMatchObject({
+            maxTurnos: 6,
+            proveedor: "ollama",
+            perfiles: [{ codigo: "defecto", limites: { prioridadMaxima: "media", diasAdelanteMax: 3 }, acciones: { promesa_pago: false, pasar_a_persona: true } }, { codigo: "noche" }],
+        });
+        expect(cuerpo.porCola).toEqual([
+            { colaId: 2, accionesApagadas: ["agendar_visita"] },
+            { colaId: 4, accionesApagadas: ["promesa_pago"] },
+        ]);
+        // La pregunta 1 no es de esta pantalla: no viaja.
+        expect(cuerpo).not.toHaveProperty("modoAutonomo");
     });
 
     test("categorías: lista con cola, tiempo, manuales y modo; desactivar con confirmación", async ({ page }) => {
@@ -257,20 +289,25 @@ test.describe("Asistente de IA: lo avanzado en su ruta", () => {
         await expect(sinInternet).toContainText("Responde solo si hay falla; si no, a la cola");
         await expect(lista.locator('[data-categoria="4"]')).toContainText("Primera respuesta en 2 h");
         await expect(lista.locator('[data-categoria="3"]')).toContainText("Responde solo a verificados");
+        // «Otro» recibe lo que no se pudo clasificar: no se desactiva.
+        const otro = lista.locator('[data-categoria="6"]');
+        await expect(otro).toContainText("La cola del número · Sin tiempo de primera respuesta");
+        await expect(otro.getByRole("button", { name: /Desactivar/ })).toHaveCount(0);
         await esperarSinDesbordes(page);
         await captura(page, "categorias");
 
-        await lista.getByRole("button", { name: "Desactivar Otro" }).click();
-        const dialogo = page.getByRole("alertdialog").filter({ hasText: "¿Desactivar «Otro»?" });
+        await lista.getByRole("button", { name: "Desactivar Mudanza o traslado" }).click();
+        const dialogo = page.getByRole("alertdialog").filter({ hasText: "¿Desactivar «Mudanza o traslado»?" });
         await dialogo.getByRole("button", { name: "Desactivar" }).click();
-        await expect(page.getByText("Categoría «Otro» desactivada")).toBeVisible();
-        await expect(lista.locator('[data-categoria="6"]')).toContainText("Inactiva");
-        expect(rutas(api, "/categorias/6/desactivar")[0]?.cuerpo).toEqual({ version: 1 });
-        await lista.getByRole("button", { name: "Activar Otro" }).click();
-        await expect(page.getByText("Categoría «Otro» activada")).toBeVisible();
+        await expect(page.getByText("Categoría «Mudanza o traslado» desactivada")).toBeVisible();
+        // Las inactivas siguen en la lista (`incluirInactivas`), marcadas.
+        await expect(lista.locator('[data-categoria="5"]')).toContainText("Inactiva");
+        expect(rutas(api, "/categorias/5/desactivar")[0]?.cuerpo).toEqual({ version: 1 });
+        await lista.getByRole("button", { name: "Activar Mudanza o traslado" }).click();
+        await expect(page.getByText("Categoría «Mudanza o traslado» activada")).toBeVisible();
     });
 
-    test("nueva categoría: pantalla propia, validación, 422 junto al campo y crear", async ({ page }) => {
+    test("nueva categoría: pantalla propia, validación, nombre repetido (409) junto al campo y crear", async ({ page }) => {
         const api = await abrir(page, BASE);
         await page.getByRole("link", { name: "Agregar tipo" }).click();
         await expect(page).toHaveURL(/\/asistente\/categorias\/nueva$/);
@@ -280,8 +317,8 @@ test.describe("Asistente de IA: lo avanzado en su ruta", () => {
         await expect(f.getByText("Escribe el nombre de la categoría")).toBeVisible();
         await f.getByLabel("Nombre").fill("Otro");
         await f.getByLabel("Descripción").fill("Quiere que le lleguen las facturas por correo.");
-        await elegirOpcion(f.getByLabel("Color del chip"), "alerta");
-        await expect(f.locator('[data-slot="vista-chip"] [data-slot="chip-categoria"]')).toHaveAttribute("data-tono", "alerta");
+        await elegirOpcion(f.getByLabel("Color del chip"), "aviso");
+        await expect(f.locator('[data-slot="vista-chip"] [data-slot="chip-categoria"]')).toHaveAttribute("data-tono", "aviso");
         await elegirOpcion(f.getByLabel("Cola"), { label: "Caja" });
         await f.getByRole("textbox", { name: /Primera respuesta en/ }).fill("45");
         await f.locator('[data-opcion="responde_solo"]').click();
@@ -298,7 +335,7 @@ test.describe("Asistente de IA: lo avanzado en su ruta", () => {
         expect(rutas(api, "/asistente/categorias").at(-1)?.cuerpo).toEqual({
             nombre: "Facturas",
             descripcion: "Quiere que le lleguen las facturas por correo.",
-            tono: "alerta",
+            tono: "aviso",
             colaId: 3,
             slaPrimeraRespuestaMin: 45,
             modo: "responde_solo",
@@ -355,8 +392,8 @@ test.describe("Bandeja con categorías y asistente", () => {
         await expect(f.getByRole("button", { name: /Planes y precios/ })).toHaveText(/Planes y precios\s*1/);
         const carlos = lista(page).locator('[data-conversacion="41"]');
         await expect(carlos.locator('[data-slot="chip-categoria"]')).toHaveText("Sin internet");
-        await expect(carlos.locator("[data-actividad]")).toContainText("Asistente respondió: falla en Zona 4");
-        await expect(lista(page).locator('[data-conversacion="46"] [data-actividad]')).toContainText("Espera a una persona · vence en 3 h 50 min");
+        await expect(carlos.locator('[data-actividad="sugirio"]')).toContainText("Sugerencia lista para el agente");
+        await expect(lista(page).locator('[data-conversacion="46"] [data-actividad="espera_persona"]')).toContainText("Espera a una persona");
         // Sin categoría: la fila queda como siempre.
         await expect(lista(page).locator('[data-conversacion="44"] [data-slot="linea-categoria"]')).toHaveCount(0);
         await esperarSinDesbordes(page);
@@ -377,11 +414,26 @@ test.describe("Bandeja con categorías y asistente", () => {
     });
 
     test("servidor sin categorías: la bandeja queda como antes (sin filtros ni chips)", async ({ page }) => {
-        await abrir(page, "/conversaciones?c=41");
+        await abrir(page, "/conversaciones", null);
         await expect(lista(page).locator('[data-conversacion="41"]')).toBeVisible();
         await expect(filtros(page)).toHaveCount(0);
         await expect(page.locator('[data-slot="chip-categoria"]')).toHaveCount(0);
+        await lista(page).locator('[data-conversacion="41"]').click();
+        await expect(page.getByRole("log", { name: "Mensajes" })).toBeVisible();
         await expect(page.locator('[data-slot="barra-categoria"]')).toHaveCount(0);
+    });
+
+    test("con categorías pero ninguna conversación clasificada no hay filtros; con el asistente activo se puede poner una a mano", async ({ page }) => {
+        const api = await abrir(page, "/conversaciones", {});
+        await expect(lista(page).locator('[data-conversacion="41"]')).toBeVisible();
+        await expect(filtros(page)).toHaveCount(0);
+        await lista(page).locator('[data-conversacion="41"]').click();
+        const barra = page.locator('[data-slot="barra-categoria"]');
+        await expect(barra).toContainText("Sin categoría");
+        await barra.getByRole("button", { name: "Poner una categoría" }).click();
+        await page.getByRole("menuitem", { name: "Sin internet" }).click();
+        await expect(barra.locator('[data-slot="chip-categoria"]')).toHaveText("Sin internet");
+        expect(rutas(api, "/41/categorizar")[0]?.cuerpo).toEqual({ categoriaId: 2, version: 7 });
     });
 
     test("conversación: la categoría con «Cambiar» llama a categorizar y avisa", async ({ page }) => {
@@ -434,7 +486,7 @@ test.describe("Bandeja con categorías y asistente", () => {
         await expect(page.getByText("Atiendes a +50255440018")).toBeVisible();
         await expect(franja).toHaveCount(0);
         expect(rutas(api, "/43/tomar")[0]?.cuerpo).toEqual({ version: 1 });
-        expect(api.conversaciones.conversaciones.find((c) => c.id === 43)?.asistenteAtiende).toBe(false);
+        expect(api.conversaciones.conversaciones.find((c) => c.id === 43)?.asistente?.estado).toBe("detenido");
     });
 
     test("la nota de handoff del asistente se ve como nota interna, marcada como suya", async ({ page }) => {

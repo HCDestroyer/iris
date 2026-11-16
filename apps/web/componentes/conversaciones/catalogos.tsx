@@ -4,8 +4,8 @@ import type { Schema } from "@iris/contratos";
 import { createContext, use, useEffect, useMemo, type ReactNode } from "react";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi } from "@/lib/api/errores";
-import { leerProvisional } from "@/lib/api/provisional";
-import type { CategoriaRef } from "@/lib/asistente/fase3";
+import { leerCategorias } from "@/lib/asistente/api-fase3";
+import type { Categoria } from "@/lib/asistente/fase3";
 import { leerAgentes, leerColas } from "@/lib/conversaciones/api-equipo";
 import type { Agente, Cola } from "@/lib/conversaciones/tipos";
 import type { Etiqueta, RespuestaRapida } from "@/lib/conversaciones/tipos";
@@ -27,8 +27,8 @@ type Catalogos = {
     colas: Lectura<Cola[]>;
     etiquetas: Lectura<Etiqueta[]>;
     respuestas: Lectura<RespuestaRapida[] | null>;
-    /** Fase 3 del asistente (§17): categorías activas. Vacío si el servidor aún no las ofrece. */
-    categorias: Lectura<CategoriaRef[]>;
+    /** Fase 3 del asistente (§17.2): categorías activas de la empresa, por `orden`. */
+    categorias: Lectura<Categoria[]>;
 };
 
 const Contexto = createContext<Catalogos | null>(null);
@@ -51,10 +51,10 @@ export function ProveedorCatalogos({ children }: { children: ReactNode }) {
     const respuestas = useLectura<RespuestaRapida[] | null>(async (signal) =>
         responde ? ((await resolver(api().GET(`${M}/respuestas-rapidas`, { signal }))).data ?? []).filter((r) => r.activa) : null,
     );
-    // Provisional (§17): catálogo para quien ve la bandeja. Si el servidor no lo tiene, sin categorías.
-    const categorias = useLectura<CategoriaRef[]>(async (signal) => {
+    // Un servidor anterior a §17 no las tiene: la bandeja queda como antes, sin categorías.
+    const categorias = useLectura<Categoria[]>(async (signal) => {
         try {
-            return (await leerProvisional<{ data: CategoriaRef[] | null }>(`${M}/conversaciones/categorias`, { signal })).data ?? [];
+            return await leerCategorias(false, signal);
         } catch (e) {
             if (e instanceof ErrorApi && (e.estado === 404 || e.estado === 403)) return [];
             throw e;
