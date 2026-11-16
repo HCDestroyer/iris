@@ -1,12 +1,13 @@
 "use client";
 
 import { Boton, Cargando, cn } from "@iris/ui";
-import { AlertTriangle, ArrowLeftRight, Bot, FileText, History, MapPin, MessageCircle, Paperclip, PencilLine, Plug, RotateCw, Smartphone, Sparkles, Timer, UserRound } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, Bot, FileText, History, MapPin, MessageCircle, Paperclip, PencilLine, Plug, RotateCw, ShieldCheck, ShieldX, Smartphone, Sparkles, Timer, UserRound } from "lucide-react";
 import { Fragment, useEffect, useLayoutEffect, useRef } from "react";
 import type { Pendiente } from "@/lib/conversaciones/estado";
 import { hora, separadorDia, tamanoLegible, textoEntrega, textoEvento } from "@/lib/conversaciones/presentacion";
 import type { Mensaje } from "@/lib/conversaciones/tipos";
 import { esDelAsistente } from "@/lib/asistente/fase3";
+import { identidadQuedoVerificada, resultadoIdentidad } from "@/lib/asistente/fase3b";
 import { esEventoBot } from "@/lib/conversaciones/atencion";
 import { rutaDescargaAdjunto } from "@/lib/ordenes/adjuntos";
 import { diaLocal } from "@/lib/conversaciones/presentacion";
@@ -149,7 +150,11 @@ function Burbuja({ m }: { m: Mensaje }) {
                     ? ArrowLeftRight
                     : tipo === "reconexion_pedida"
                       ? Plug
-                      : MessageCircle;
+                      : tipo === "identidad_verificada" && identidadQuedoVerificada(m.evento?.detalle)
+                        ? ShieldCheck
+                        : tipo === "identidad_verificada" && resultadoIdentidad(m.evento?.detalle)
+                          ? ShieldX
+                          : MessageCircle;
         return (
             <p
                 className={cn(
@@ -158,6 +163,7 @@ function Burbuja({ m }: { m: Mensaje }) {
                 )}
                 data-mensaje={m.id}
                 data-evento={tipo || undefined}
+                data-detalle={tipo === "identidad_verificada" ? (m.evento?.detalle ?? undefined) : undefined}
                 data-bot={bot || undefined}
             >
                 <Icono aria-hidden className="size-3.5 shrink-0" />

@@ -1,5 +1,5 @@
 import { ZONA } from "../fechas";
-import { textoReconexion } from "../asistente/fase3b";
+import { textoIdentidad, textoReconexion } from "../asistente/fase3b";
 import { textoEventoBot } from "./atencion";
 import type { CanalRef, Conversacion, EventoSistema, Mensaje } from "./tipos";
 
@@ -186,8 +186,11 @@ export function textoEvento(e: EventoSistema): string {
         case "promesa_creada":
             return `${actor} registró una promesa de pago`;
         case "reconexion_pedida":
-            // 3b (§17.8.2): `detalle` = pendiente | aceptada | rechazada. Argos decide.
+            // 3b (§17.8.2): llega cuando Argos ya decidió (`detalle` = aceptada | rechazada).
             return textoReconexion(actor, e.detalle);
+        case "identidad_verificada":
+            // Un intento de verificar la identidad; texto fijo por resultado, nunca el documento.
+            return textoIdentidad(actor, e.detalle);
         case "respondio_aviso":
             return `Respondió al aviso «${e.plantilla ?? "aviso"}»`;
         case "fuera_de_horario":

@@ -622,11 +622,16 @@ Contrato: `.claude/integration/contratos/conversaciones.md` §17.8, §17.8.1 y �
   la pasó a una persona · hora», y la franja de la conversación dice «El asistente la pasó a una
   persona: espera en la cola» con «Tomar» mientras nadie la tenga.
 - **Mensajes de sistema nuevos:** `reconexion_pedida` («Reconexión temporal: Argos la aceptó (la
-  pidió …)», con lo que decidió Argos primero porque la línea se corta por el final). Un evento
-  que el servidor todavía no define (p. ej. la verificación de identidad) se pinta neutro: el panel
-  no afirma nada que no venga en el dato.
-- **Vigencia de la identidad:** mientras el nivel sea `fuerte`, la conversación abierta relee su
-  detalle cada 30 s, para que el indicador baje solo al vencer.
+  pidió …)», con lo que decidió Argos primero porque la línea se corta por el final) e
+  `identidad_verificada`, con texto fijo por `detalle` (`textoIdentidad`). El escudo con la marca
+  (`ShieldCheck`) solo sale con `coincide` y `supervisor`; un resultado o un tipo que el panel no
+  conoce se pinta neutro: el panel no afirma nada que no venga en el dato.
+- **Motivo del relevo:** con `asistente.motivoPaso` la franja dice «…la pasó a una persona porque
+  <motivo en llano>» (`textoMotivoPaso`); un motivo desconocido o ausente deja el texto sin motivo.
+- **Vigencia de la identidad:** con `contacto.verificacionVenceEn` el indicador baja a esa hora en
+  el acto (bajar es lo seguro) y se relee el detalle; además, mientras el nivel sea `fuerte`, la
+  conversación abierta relee cada 30 s (de fondo: si falla conserva lo que hay; no pide nada con la
+  pestaña oculta).
 
 ## Navegación del panel (fase 1, hecha)
 

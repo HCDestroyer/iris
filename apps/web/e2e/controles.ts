@@ -23,31 +23,24 @@ function lista(disparador: Locator): Locator {
     return disparador.page().locator('[role="listbox"]').filter({ visible: true }).last();
 }
 
-function opcionDe(caja: Locator, opcion: Opcion): Locator {
-    if (typeof opcion === "string") return caja.locator(`[role="option"][data-valor="${opcion.replace(/"/g, '\\"')}"]`).or(caja.getByRole("option", { name: opcion, exact: true }));
-    if (opcion instanceof RegExp) return caja.getByRole("option", { name: opcion });
-    if ("value" in opcion) return caja.locator(`[role="option"][data-valor="${opcion.value.replace(/"/g, '\\"')}"]`);
-    return caja.getByRole("option", { name: opcion.label, exact: typeof opcion.label === "string" });
-}
-
-/**
- * Elige una opción del `Select`, como `selectOption`: un texto busca primero por valor y luego por el texto exacto.
- *
- * La lista de React Aria se cierra sola si la página se desplaza mientras está abierta. Con el
- * selector cerca del borde (teléfono), el clic en la opción podía desplazar la página, la lista se
- * cerraba y el clic se quedaba esperando una opción que ya no existía. Por eso el selector se
- * centra antes de abrirlo y, si aun así la lista se cierra antes de elegir, se abre de nuevo.
- */
+/** Elige una opción del `Select`, como `selectOption`: un texto busca primero por valor y luego por el texto exacto. */
 export async function elegirOpcion(control: Locator, opcion: Opcion): Promise<void> {
     const disparador = boton(control);
-    await disparador.evaluate((el) => el.scrollIntoView({ block: "center", behavior: "instant" }));
-    await expect(async () => {
-        if ((await disparador.getAttribute("aria-expanded")) !== "true") await disparador.click({ timeout: 5_000 });
-        const caja = lista(disparador);
-        await expect(caja).toBeVisible({ timeout: 5_000 });
-        await opcionDe(caja, opcion).first().click({ timeout: 5_000 });
-    }).toPass({ timeout: 25_000 });
-    await expect(disparador).not.toHaveAttribute("aria-expanded", "true");
+    await disparador.click();
+    const caja = lista(disparador);
+    await expect(caja).toBeVisible();
+    let elegida: Locator;
+    if (typeof opcion === "string") {
+        elegida = caja.locator(`[role="option"][data-valor="${opcion.replace(/"/g, '\\"')}"]`).or(caja.getByRole("option", { name: opcion, exact: true }));
+    } else if (opcion instanceof RegExp) {
+        elegida = caja.getByRole("option", { name: opcion });
+    } else if ("value" in opcion) {
+        elegida = caja.locator(`[role="option"][data-valor="${opcion.value.replace(/"/g, '\\"')}"]`);
+    } else {
+        elegida = caja.getByRole("option", { name: opcion.label, exact: typeof opcion.label === "string" });
+    }
+    await elegida.first().click();
+    await expect(caja).toBeHidden();
 }
 
 /** El valor elegido en un `Select` (antes `toHaveValue` del `<select>`). */

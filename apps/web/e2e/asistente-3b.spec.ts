@@ -1,5 +1,5 @@
 import path from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { ADMIN, conSesion, simularApi } from "./api-falsa";
 import { PERFIL_GENERAL, type OpcionesFase3 } from "./api-asistente3";
 import { elegirOpcion, esperarOpcion } from "./controles";
@@ -103,6 +103,24 @@ test.describe("Asistente 3b › qué puede hacer solo", () => {
     });
 });
 
+/**
+ * Elige la prioridad del perfil. En el teléfono, con la máquina cargada, la lista de este selector
+ * se cerró una vez entre abrirse y el clic en la opción, y `elegirOpcion` se quedó esperando una
+ * opción que ya no existía hasta agotar la prueba. Aquí cada paso tiene su tiempo corto y, si la
+ * lista se cerró antes de elegir, se abre de nuevo. Solo se usa en este paso: `elegirOpcion` queda
+ * como estaba para las demás suites.
+ */
+async function elegirPrioridad(control: Locator, valor: string) {
+    const disparador = control.and(control.page().locator('[data-slot="select-trigger"]'));
+    await expect(async () => {
+        if ((await disparador.getAttribute("data-valor")) === valor) return;
+        if ((await disparador.getAttribute("aria-expanded")) !== "true") await disparador.click({ timeout: 5_000 });
+        const opcion = control.page().locator('[role="listbox"]').filter({ visible: true }).last().locator(`[role="option"][data-valor="${valor}"]`);
+        await opcion.click({ timeout: 5_000 });
+    }).toPass({ timeout: 20_000 });
+    await esperarOpcion(control, valor);
+}
+
 test.describe("Asistente 3b › perfiles por horario", () => {
     test("lista, perfil nuevo en su pantalla (nombre repetido junto al campo) y queda al final", async ({ page }) => {
         const api = await abrir(page, BASE);
@@ -133,7 +151,7 @@ test.describe("Asistente 3b › perfiles por horario", () => {
         await expect(f.getByRole("switch", { name: /Responder dudas/ })).toBeChecked();
         await f.getByRole("switch", { name: /Promesas de pago/ }).click();
         await f.getByRole("switch", { name: /Crear tickets/ }).click();
-        await elegirOpcion(f.getByLabel("Prioridad máxima de sus tickets"), "media");
+        await elegirPrioridad(f.getByLabel("Prioridad máxima de sus tickets"), "media");
         await esperarSinDesbordes(page);
         await captura(page, "3b-perfil-nuevo");
         await page.getByRole("button", { name: "Crear perfil" }).click();
@@ -273,8 +291,40 @@ test.describe("Asistente 3b › bandeja", () => {
         await expect(indicador(page)).toContainText("Identidad verificada");
         const evento = page.getByRole("log", { name: "Mensajes" }).locator('[data-evento="reconexion_pedida"]');
         await expect(evento).toContainText("Reconexión temporal: Argos la aceptó (la pidió Asistente de IA)");
+        // Cada intento de verificar la identidad, con texto fijo por resultado; el escudo con la marca solo si quedó verificada.
+        const intento = (detalle: string) => page.getByRole("log", { name: "Mensajes" }).locator(`[data-evento="identidad_verificada"][data-detalle="${detalle}"]`);
+        await expect(intento("coincide")).toContainText("Asistente de IA verificó la identidad del cliente");
+        await expect(intento("coincide").locator("svg.lucide-shield-check")).toHaveCount(1);
+        await expect(intento("no_coincide")).toContainText("Identidad sin verificar: el documento no coincide");
+        await expect(intento("no_disponible")).toContainText("Identidad sin verificar: Argos no pudo comprobarla");
+        await expect(intento("demasiados_intentos")).toContainText("Identidad sin verificar: demasiados intentos");
+        for (const d of ["no_coincide", "no_disponible", "demasiados_intentos", "resultado_nuevo"]) await expect(intento(d).locator("svg.lucide-shield-check")).toHaveCount(0);
+        // Un resultado que el panel no conoce: neutro, sin afirmar nada.
+        await expect(intento("resultado_nuevo")).toContainText("Intento de verificar la identidad");
+        await expect(intento("resultado_nuevo")).not.toContainText("verificó");
         await esperarSinDesbordes(page);
         await captura(page, "3b-conversacion-verificada", false);
+    });
+
+    test("con `verificacionVenceEn`, el indicador baja a esa hora sin esperar la relectura", async ({ page }) => {
+        await page.clock.install({ time: new Date(AHORA_CONV) });
+        const venceEn = new Date(new Date(AHORA_CONV).getTime() + 10 * 60_000).toISOString();
+        const api = await simularApi(page, { conversaciones: { asistente: { fase3: { ...BANDEJA, verificacionVenceEn: venceEn } } } });
+        await conSesion(page.context(), test.info().project.use.baseURL ?? "", ADMIN.correo);
+        await page.goto("/conversaciones?c=42");
+        await expect(indicador(page)).toHaveAttribute("data-verificacion", "fuerte");
+        // Falta un minuto: sigue verificada (las relecturas de respaldo no cambian nada).
+        await page.clock.fastForward(9 * 60_000);
+        await expect(indicador(page)).toHaveAttribute("data-verificacion", "fuerte");
+        // A la hora baja, aunque el servidor (su reloj va un poco atrás) todavía diga «fuerte».
+        const detalles = () => api.peticiones.filter((p) => p.metodo === "GET" && p.ruta === "/api/v1/mensajeria/conversaciones/42").length;
+        const antes = detalles();
+        await page.clock.fastForward(61_000);
+        await expect(indicador(page)).toHaveAttribute("data-verificacion", "numero");
+        await expect(indicador(page)).toContainText("Su número coincide");
+        // Y se relee para traer lo que diga el servidor.
+        await expect.poll(detalles).toBeGreaterThan(antes);
+        await expect(indicador(page)).toHaveAttribute("data-verificacion", "numero");
     });
 
     test("la identidad verificada vence sola: el indicador baja a «su número coincide» sin recargar", async ({ page }) => {
@@ -338,11 +388,26 @@ test.describe("Asistente 3b › bandeja", () => {
         await expect(hilo.locator('[data-direccion="nota"][data-autor="asistente_ia"]')).toContainText("Nota interna del asistente");
         const franja = page.locator('[data-slot="franja-asistente"]');
         await expect(franja).toHaveAttribute("data-estado", "espera_persona");
-        await expect(franja).toContainText("El asistente la pasó a una persona: espera en la cola");
+        // El motivo del relevo, en llano (`asistente.motivoPaso`).
+        await expect(franja).toHaveAttribute("data-motivo", "sin_respuesta");
+        await expect(franja).toContainText("El asistente la pasó a una persona porque no tenía con qué responder");
         await esperarSinDesbordes(page);
         await captura(page, "3b-conversacion-relevo", false);
         await franja.getByRole("button", { name: /Tomar la conversación/ }).click();
         await expect.poll(() => api.conversaciones.enviados.some((e) => e.ruta.endsWith("/46/tomar"))).toBe(true);
         await expect(franja).toHaveCount(0);
+    });
+
+    test("relevo porque apagaron el asistente; un motivo desconocido o ausente se muestra sin motivo", async ({ page }) => {
+        await abrir(page, "/conversaciones?c=46", { ...BANDEJA, motivoPaso: "asistente_apagado" });
+        const franja = page.locator('[data-slot="franja-asistente"]');
+        await expect(franja).toContainText("El asistente la pasó a una persona porque se apagó el modo de atender solo");
+        await esperarSinDesbordes(page);
+        for (const motivoPaso of ["motivo_nuevo", null] as const) {
+            await abrir(page, "/conversaciones?c=46", { ...BANDEJA, motivoPaso });
+            await expect(franja).toContainText("El asistente la pasó a una persona: espera en la cola");
+            await expect(franja).not.toHaveAttribute("data-motivo");
+            await expect(franja).not.toContainText("porque");
+        }
     });
 });

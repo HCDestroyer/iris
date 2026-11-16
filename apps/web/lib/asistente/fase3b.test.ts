@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { cambianAjustes, completar, conAvanzado, entradaLimites, exigenciaDeSaldo, entradaPrincipal, esquemaLimites, PERFIL_POR_DEFECTO, saldoExigeIdentidad, valoresLimites, valoresPrincipal, type PerfilAsistente } from "./fase3";
+import { ajustesDePrueba, cambianAjustes, completar, conAvanzado, entradaLimites, exigenciaDeSaldo, entradaPrincipal, esquemaLimites, PERFIL_POR_DEFECTO, saldoExigeIdentidad, valoresLimites, valoresPrincipal, type PerfilAsistente } from "./fase3";
 import {
     ACCIONES_COMUNES,
     ACCIONES_DINERO,
     codigoDePerfil,
     entradaPerfiles,
     esquemaPerfil,
+    faltaParaVencer,
+    identidadQuedoVerificada,
     nivelVerificacion,
     opcionesDePerfil,
     perfilDeValores,
@@ -13,7 +15,9 @@ import {
     perfilesDe,
     perfilesSin,
     requisitoDe,
+    resultadoIdentidad,
     resumenPerfil,
+    textoMotivoPaso,
     textoReconexion,
     trasFallarRelectura,
     valorDePerfil,
@@ -186,11 +190,51 @@ describe("bandeja (§17.8.2)", () => {
     it("mensajes de sistema de 3b", () => {
         expect(textoReconexion("Asistente de IA", "aceptada")).toBe("Reconexión temporal: Argos la aceptó (la pidió Asistente de IA)");
         expect(textoEvento({ tipo: "reconexion_pedida", actorNombre: "Asistente de IA", detalle: "rechazada" })).toBe("Reconexión temporal: Argos no la aceptó (la pidió Asistente de IA)");
-        expect(textoEvento({ tipo: "reconexion_pedida", detalle: "pendiente" })).toBe("Reconexión temporal: esperando a Argos (la pidió Iris)");
-        // Un evento que el servidor todavía no define se pinta neutro: el panel no afirma que se verificó nada.
-        for (const tipo of ["verificar_identidad", "identidad_verificada"]) {
-            expect(textoEvento({ tipo, actorNombre: "Asistente de IA" })).toBe(tipo.replace(/_/g, " "));
-            expect(textoEvento({ tipo, actorNombre: "Asistente de IA", detalle: "no_coincide" })).not.toMatch(/verificó/);
+        // Solo llega con lo que decidió Argos; otro valor no se interpreta.
+        expect(textoEvento({ tipo: "reconexion_pedida", detalle: "pendiente" })).toBe("Reconexión temporal pedida por Iris");
+        // Un evento que el servidor no define se pinta neutro: el panel no afirma que se verificó nada.
+        expect(textoEvento({ tipo: "verificar_identidad", actorNombre: "Asistente de IA" })).toBe("verificar identidad");
+    });
+
+    it("`identidad_verificada`: texto fijo por resultado; solo «coincide» y «supervisor» dicen que quedó verificada", () => {
+        const texto = (detalle?: string) => textoEvento({ tipo: "identidad_verificada", actorNombre: "Asistente de IA", ...(detalle ? { detalle } : {}) });
+        expect(texto("coincide")).toBe("Asistente de IA verificó la identidad del cliente");
+        expect(textoEvento({ tipo: "identidad_verificada", actorNombre: "Ana López", detalle: "supervisor" })).toBe("Ana López confirmó la identidad del cliente");
+        expect(texto("no_coincide")).toBe("Identidad sin verificar: el documento no coincide");
+        expect(texto("no_disponible")).toBe("Identidad sin verificar: Argos no pudo comprobarla");
+        expect(texto("demasiados_intentos")).toBe("Identidad sin verificar: demasiados intentos");
+        // Un resultado desconocido, o ninguno: neutro, sin afirmar nada.
+        for (const d of [undefined, "resultado_nuevo", "COINCIDE"]) {
+            expect(texto(d)).toBe("Intento de verificar la identidad");
+            expect(identidadQuedoVerificada(d)).toBe(false);
+            expect(resultadoIdentidad(d)).toBeNull();
         }
+        expect(["coincide", "supervisor", "no_coincide", "no_disponible", "demasiados_intentos"].filter(identidadQuedoVerificada)).toEqual(["coincide", "supervisor"]);
+    });
+
+    it("motivo del relevo: texto llano por motivo; desconocido o ausente, sin motivo", () => {
+        for (const m of ["cliente_lo_pidio", "enojo", "sin_respuesta", "herramienta_fallo", "max_turnos", "tope", "asistente_apagado"]) expect(textoMotivoPaso(m)).toMatch(/^[a-zé]/);
+        expect(textoMotivoPaso("asistente_apagado")).toBe("se apagó el modo de atender solo");
+        expect(textoMotivoPaso("cliente_lo_pidio")).toBe("el cliente pidió hablar con una persona");
+        for (const m of [null, undefined, "", "motivo_nuevo", "toString"]) expect(textoMotivoPaso(m)).toBeNull();
+    });
+
+    it("vencimiento de la identidad: lo que falta según `verificacionVenceEn`", () => {
+        const ahora = Date.parse("2026-11-16T12:00:00Z");
+        expect(faltaParaVencer({ verificacion: "fuerte", verificacionVenceEn: "2026-11-16T12:10:00Z" }, ahora)).toBe(600_000);
+        // Ya vencida: cero (se baja en el acto), nunca negativo.
+        expect(faltaParaVencer({ verificacion: "fuerte", verificacionVenceEn: "2026-11-16T11:00:00Z" }, ahora)).toBe(0);
+        // Sin fecha, con otra cosa que una fecha o con otro nivel: no hay temporizador (queda la relectura).
+        expect(faltaParaVencer({ verificacion: "fuerte" }, ahora)).toBeNull();
+        expect(faltaParaVencer({ verificacion: "fuerte", verificacionVenceEn: null }, ahora)).toBeNull();
+        expect(faltaParaVencer({ verificacion: "fuerte", verificacionVenceEn: "mañana" }, ahora)).toBeNull();
+        expect(faltaParaVencer({ verificacion: "numero", verificacionVenceEn: "2026-11-16T12:10:00Z" }, ahora)).toBeNull();
+    });
+
+    it("«Pruébalo» manda `exigeVerificacionFuerte` del formulario sin guardar", () => {
+        const v = valoresPrincipal(BASE, []);
+        expect(ajustesDePrueba(v, BASE, []).perfil?.exigeVerificacionFuerte).toEqual({ dar_saldo: true });
+        const conNumero = { ...v, acciones: { ...v.acciones, dar_saldo: true }, saldoConNumero: true };
+        expect(ajustesDePrueba(conNumero, BASE, []).perfil).toMatchObject({ acciones: { dar_saldo: true }, exigeVerificacionFuerte: { dar_saldo: false } });
     });
 });

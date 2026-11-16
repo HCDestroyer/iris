@@ -40,6 +40,10 @@ export type OpcionesFase3 = {
     conflictoCategoria?: boolean;
     /** `…/categorizar` responde 409 la primera vez. */
     conflictoCategorizar?: boolean;
+    /** 3b: `contacto.verificacionVenceEn` de la conversación 42 (por defecto no se manda: queda la relectura de 30 s). */
+    verificacionVenceEn?: string;
+    /** 3b: `asistente.motivoPaso` de la conversación 46 (por defecto `sin_respuesta`; `null` = el servidor no lo manda). */
+    motivoPaso?: NonNullable<Conversacion["asistente"]>["motivoPaso"] | "motivo_nuevo";
 };
 
 /** El perfil general de la empresa de prueba: el de fábrica y, además, ya encendió las visitas. */
@@ -154,8 +158,26 @@ export function apiFase3(e: Contexto, opciones: OpcionesFase3 | undefined) {
     if (bandeja && opciones?.autonomoDisponible) {
         for (const c of e.conversaciones) {
             if (c.contacto.tipo === "cliente") c.contacto = { ...c.contacto, verificacion: c.id === 42 ? "fuerte" : c.contacto.verificado ? "numero" : null };
-            if (c.id === 46) c.asistente = { estado: "espera_persona", turnos: 3 };
+            if (c.id === 42 && opciones.verificacionVenceEn) c.contacto = { ...c.contacto, verificacionVenceEn: opciones.verificacionVenceEn };
+            // Un motivo que el panel no conoce viaja tal cual (un servidor más nuevo).
+            const motivoPaso = (opciones.motivoPaso === undefined ? "sin_respuesta" : opciones.motivoPaso) as NonNullable<Conversacion["asistente"]>["motivoPaso"];
+            if (c.id === 46) c.asistente = { estado: "espera_persona", turnos: 3, ...(motivoPaso === null ? {} : { motivoPaso }) };
         }
+        // Un intento de verificar la identidad por cada resultado (§17.8.2) y uno que el panel no conoce.
+        const intentos = ["no_coincide", "no_disponible", "demasiados_intentos", "coincide", "resultado_nuevo"];
+        intentos.forEach((detalle, i) => {
+            e.mensajes.get(42)?.push({
+                ...delAsistente(42, 9010 + i, "saliente", "", `2026-10-28T16:2${i}:00Z`),
+                id: `0193a100-0000-7000-8000-00000000901${i}`,
+                direccion: "sistema",
+                tipo: "sistema",
+                texto: null,
+                estadoEntrega: null,
+                automatico: null,
+                autorTipo: "sistema",
+                evento: { tipo: "identidad_verificada", actorNombre: "Asistente de IA", detalle },
+            });
+        });
         e.mensajes.get(42)?.push({
             ...delAsistente(42, 9003, "saliente", "", "2026-10-28T16:30:00Z"),
             id: "0193a100-0000-7000-8000-000000009003",

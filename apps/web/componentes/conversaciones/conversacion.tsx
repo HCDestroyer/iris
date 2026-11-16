@@ -25,10 +25,12 @@ import { Hilo } from "./hilo";
 import { useAhora, useAncho } from "./reloj";
 import { BotonSugerir, PausaAsistente, TarjetaSugerencia, useAsistente } from "./sugerencia";
 import { IndicadorVerificacion } from "./verificacion";
-import { nivelVerificacion, trasFallarRelectura } from "@/lib/asistente/fase3b";
+import { faltaParaVencer, nivelVerificacion, trasFallarRelectura } from "@/lib/asistente/fase3b";
 
 /** Cada cuánto se relee una conversación con la identidad verificada, por si ya venció. */
 const RELEER_IDENTIDAD_MS = 30_000;
+/** Margen tras `verificacionVenceEn`, por si el reloj del navegador va unos milisegundos adelantado. */
+const MARGEN_VENCIMIENTO_MS = 500;
 
 type Props = {
     id: number;
@@ -149,23 +151,27 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
     // indicador baje a «su número coincide» cuando toca. (Con `verificacionVenceEn` bastará un temporizador.)
     // La relectura es de fondo: si falla (red, 5xx) lo que hay en pantalla se queda y se prueba en el
     // siguiente tic; solo se detiene sin sesión o sin permiso. Con la pestaña oculta no se pide nada.
+    // Con `contacto.verificacionVenceEn`, además, a esa hora el indicador baja en el acto (bajar es
+    // lo seguro) y se relee; el reloj de 30 s queda de respaldo.
     const identidadVigente = detalle.estado === "listo" && nivelVerificacion(detalle.datos.contacto) === "fuerte";
-    const versionVista = useRef(0);
+    const venceEn = detalle.estado === "listo" && identidadVigente ? (detalle.datos.contacto.verificacionVenceEn ?? null) : null;
+    const vista = useRef<ConversacionDetalle | null>(null);
     useEffect(() => {
-        if (detalle.estado === "listo") versionVista.current = detalle.datos.version;
+        vista.current = detalle.estado === "listo" ? detalle.datos : null;
     });
     useEffect(() => {
         if (!identidadVigente) return;
         const control = new AbortController();
         let ocupado = false;
-        const reloj = setInterval(() => {
+        let reloj: ReturnType<typeof setInterval> | undefined = undefined;
+        const releer = () => {
             if (ocupado || document.visibilityState === "hidden") return;
             ocupado = true;
             leerDetalle(id, control.signal)
                 .then(
                     (datos) => {
                         // Una respuesta más vieja que lo que ya trajo una acción o el feed no pisa nada.
-                        if (!control.signal.aborted && datos.version >= versionVista.current) reemplazarDetalle(datos);
+                        if (!control.signal.aborted && datos.version >= (vista.current?.version ?? 0)) reemplazarDetalle(datos);
                     },
                     (error: unknown) => {
                         if (!control.signal.aborted && trasFallarRelectura(error) === "detener") clearInterval(reloj);
@@ -174,12 +180,34 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                 .finally(() => {
                     ocupado = false;
                 });
-        }, RELEER_IDENTIDAD_MS);
+        };
+        reloj = setInterval(releer, RELEER_IDENTIDAD_MS);
+        const falta = faltaParaVencer({ verificacion: "fuerte", verificacionVenceEn: venceEn }, Date.now());
+        const vencimiento =
+            falta === null
+                ? undefined
+                : setTimeout(() => {
+                      const actual = vista.current;
+                      // Solo si sigue siendo la misma verificación (otra más nueva trae otra fecha).
+                      if (!actual || actual.contacto.verificacion !== "fuerte" || actual.contacto.verificacionVenceEn !== venceEn) return;
+                      reemplazarDetalle({ ...actual, contacto: { ...actual.contacto, verificacion: "numero", verificacionVenceEn: null } });
+                      // Y se pide lo que diga el servidor (este efecto ya terminó: la petición va por su cuenta).
+                      // Si su reloj va atrás y aún dice «fuerte» con la misma fecha, se queda lo de aquí.
+                      leerDetalle(id).then(
+                          (datos) => {
+                              const ahora = vista.current;
+                              const mismaVerificacion = datos.contacto.verificacion === "fuerte" && datos.contacto.verificacionVenceEn === venceEn;
+                              if (ahora && ahora.id === datos.id && datos.version >= ahora.version && !mismaVerificacion) reemplazarDetalle(datos);
+                          },
+                          () => undefined,
+                      );
+                  }, falta + MARGEN_VENCIMIENTO_MS);
         return () => {
             clearInterval(reloj);
+            clearTimeout(vencimiento);
             control.abort();
         };
-    }, [identidadVigente, id, reemplazarDetalle]);
+    }, [identidadVigente, venceEn, id, reemplazarDetalle]);
 
     useEffect(
         () =>

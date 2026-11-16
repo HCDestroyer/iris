@@ -202,9 +202,70 @@ export function trasFallarRelectura(error: unknown): "detener" | "reintentar" {
     return estado === 401 || estado === 403 ? "detener" : "reintentar";
 }
 
-/** Texto del mensaje de sistema `reconexion_pedida` (`detalle`: pendiente, aceptada o rechazada). */
+/**
+ * Texto del mensaje de sistema `reconexion_pedida`: llega cuando Argos ya decidió (`detalle`:
+ * aceptada o rechazada). Otro valor no se interpreta.
+ */
 export function textoReconexion(actor: string, estado: string | undefined): string {
     // Lo que decidió Argos va primero: en el teléfono la línea se corta por el final.
-    const decision = estado === "aceptada" ? "Argos la aceptó" : estado === "rechazada" ? "Argos no la aceptó" : "esperando a Argos";
-    return `Reconexión temporal: ${decision} (la pidió ${actor})`;
+    if (estado === "aceptada") return `Reconexión temporal: Argos la aceptó (la pidió ${actor})`;
+    if (estado === "rechazada") return `Reconexión temporal: Argos no la aceptó (la pidió ${actor})`;
+    return `Reconexión temporal pedida por ${actor}`;
+}
+
+/** Resultados de un intento de verificar la identidad (`evento.detalle`, lista cerrada, §17.8.2). */
+export type ResultadoIdentidad = "coincide" | "no_coincide" | "no_disponible" | "demasiados_intentos" | "supervisor";
+const RESULTADOS_IDENTIDAD: readonly string[] = ["coincide", "no_coincide", "no_disponible", "demasiados_intentos", "supervisor"];
+
+/** El resultado si es uno de los que el panel conoce; cualquier otro, `null` (se pinta neutro). */
+export const resultadoIdentidad = (detalle: string | undefined): ResultadoIdentidad | null => (detalle && RESULTADOS_IDENTIDAD.includes(detalle) ? (detalle as ResultadoIdentidad) : null);
+
+/** ¿El intento dejó la identidad verificada? Solo entonces el mensaje lleva el escudo con la marca. */
+export const identidadQuedoVerificada = (detalle: string | undefined): boolean => detalle === "coincide" || detalle === "supervisor";
+
+/**
+ * Texto fijo del mensaje de sistema `identidad_verificada`, por resultado. Nunca el documento. Un
+ * resultado que el panel no conoce no afirma nada.
+ */
+export function textoIdentidad(actor: string, detalle: string | undefined): string {
+    switch (resultadoIdentidad(detalle)) {
+        case "coincide":
+            return `${actor} verificó la identidad del cliente`;
+        case "supervisor":
+            return `${actor} confirmó la identidad del cliente`;
+        case "no_coincide":
+            return "Identidad sin verificar: el documento no coincide";
+        case "no_disponible":
+            return "Identidad sin verificar: Argos no pudo comprobarla";
+        case "demasiados_intentos":
+            return "Identidad sin verificar: demasiados intentos";
+        default:
+            return "Intento de verificar la identidad";
+    }
+}
+
+const MOTIVO_PASO: Record<string, string> = {
+    cliente_lo_pidio: "el cliente pidió hablar con una persona",
+    enojo: "el cliente está molesto",
+    sin_respuesta: "no tenía con qué responder",
+    herramienta_fallo: "una acción no se pudo completar",
+    max_turnos: "llegó al máximo de mensajes sin resolver",
+    tope: "se llegó al tope de uso del mes",
+    asistente_apagado: "se apagó el modo de atender solo",
+};
+
+/**
+ * Por qué el asistente pasó la conversación a una persona (`asistente.motivoPaso`, lista cerrada),
+ * en llano y listo para ir después de «porque». Un motivo que el panel no conoce, o ninguno: `null`.
+ */
+export const textoMotivoPaso = (motivo: string | null | undefined): string | null => (motivo && Object.hasOwn(MOTIVO_PASO, motivo) ? (MOTIVO_PASO[motivo] ?? null) : null);
+
+/**
+ * Milisegundos que faltan para que venza la identidad verificada (`contacto.verificacionVenceEn`);
+ * `null` si el nivel no es `fuerte` o el servidor no manda la fecha (queda la relectura de 30 s).
+ */
+export function faltaParaVencer(contacto: { verificacion?: string | null | undefined; verificacionVenceEn?: string | null | undefined }, ahora: number): number | null {
+    if (contacto.verificacion !== "fuerte" || !contacto.verificacionVenceEn) return null;
+    const vence = Date.parse(contacto.verificacionVenceEn);
+    return Number.isFinite(vence) ? Math.max(0, vence - ahora) : null;
 }

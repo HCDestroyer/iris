@@ -234,7 +234,7 @@ describe("«Pruébalo», efecto y bandeja", () => {
         const v = valoresPrincipal(BASE, [CATEGORIA]);
         const a = ajustesDePrueba({ ...v, modoAutonomo: "siempre_primero", modos: { "2": "sugiere" }, acciones: { ...v.acciones, crear_ticket: false } }, BASE, [CATEGORIA, { ...CATEGORIA, id: 9, nombre: "Vieja", activa: false }]);
         expect(a.modoAutonomo).toBe("siempre_primero");
-        expect(a.perfil).toEqual({ acciones: { ...PERFIL_POR_DEFECTO.acciones, crear_ticket: false }, limites: PERFIL_POR_DEFECTO.limites });
+        expect(a.perfil).toEqual({ acciones: { ...PERFIL_POR_DEFECTO.acciones, crear_ticket: false }, limites: PERFIL_POR_DEFECTO.limites, exigeVerificacionFuerte: { dar_saldo: true } });
         // Solo las activas; con «Sugiere», sin condición.
         expect(a.categorias).toEqual([{ id: 2, nombre: "Sin internet", descripcion: "No tiene servicio", tono: "error", modo: "sugiere", condicion: null, manualIds: [1] }]);
     });

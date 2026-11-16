@@ -409,7 +409,7 @@ export function textoHaria(p: Pick<PruebaMensaje, "haria" | "fuentes" | "respues
 export function ajustesDePrueba(d: ValoresPrincipal, a: AjustesAsistente, categorias: readonly Categoria[]): AjustesDePrueba {
     return {
         modoAutonomo: d.modoAutonomo,
-        perfil: { acciones: { ...d.acciones, pasar_a_persona: true }, limites: { ...perfilDefecto(a).limites } },
+        perfil: { acciones: { ...d.acciones, pasar_a_persona: true }, limites: { ...perfilDefecto(a).limites }, exigeVerificacionFuerte: exigenciaDeSaldo(d) },
         categorias: categorias
             .filter((c) => c.activa)
             .map((c) => {

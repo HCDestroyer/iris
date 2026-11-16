@@ -7,6 +7,7 @@ import { ChipCategoria } from "@/componentes/asistente/chip-categoria";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { categorizarConversacion } from "@/lib/asistente/api-fase3";
 import { asistenteAtiende, asistenteEspera, COLOR_DE_TONO, tonoDe, type Categoria } from "@/lib/asistente/fase3";
+import { textoMotivoPaso } from "@/lib/asistente/fase3b";
 import { PERMISO_CATEGORIZAR } from "@/lib/asistente/permisos";
 import type { Filtros } from "@/lib/conversaciones/estado";
 import { CLASE_ETIQUETA } from "@/lib/conversaciones/presentacion";
@@ -177,10 +178,12 @@ export function BarraCategoria({ conv, alActualizar, recargar, bloqueada, asiste
  */
 function FranjaAsistente({ conv, espera, alHecho, recargar, puedeTomar }: { conv: Conversacion; espera: boolean; alHecho: (c: Conversacion) => void; recargar: () => Promise<void>; puedeTomar: boolean }) {
     const { atender, atendiendo, error } = useAtender(conv, alHecho, () => void recargar());
+    // El motivo del relevo, si el servidor manda uno que el panel conoce (`asistente.motivoPaso`).
+    const motivo = espera ? textoMotivoPaso(conv.asistente?.motivoPaso) : null;
     return (
-        <div role="status" data-slot="franja-asistente" data-estado={espera ? "espera_persona" : "atendiendo"} className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-primary/20 bg-primary/[0.06] px-3 py-1.5 @min-[700px]/conv:px-3.5">
+        <div role="status" data-slot="franja-asistente" data-estado={espera ? "espera_persona" : "atendiendo"} data-motivo={motivo ? (conv.asistente?.motivoPaso ?? undefined) : undefined} className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-primary/20 bg-primary/[0.06] px-3 py-1.5 @min-[700px]/conv:px-3.5">
             {espera ? <UserRound aria-hidden className="size-4 shrink-0 text-primary" /> : <Sparkles aria-hidden className="size-4 shrink-0 text-primary" />}
-            <span className="min-w-0 flex-1 text-[0.8125rem] font-medium text-primary">{espera ? "El asistente la pasó a una persona: espera en la cola" : "El asistente está atendiendo"}</span>
+            <span className="min-w-0 flex-1 text-[0.8125rem] font-medium text-primary">{espera ? (motivo ? `El asistente la pasó a una persona porque ${motivo}` : "El asistente la pasó a una persona: espera en la cola") : "El asistente está atendiendo"}</span>
             {puedeTomar ? (
                 <Boton variante="contorno" tamano="sm" className="h-7 shrink-0" onClick={() => void atender()} disabled={atendiendo} aria-label={`Tomar la conversación con ${conv.titulo}`}>
                     {atendiendo ? <Cargando texto="Tomando…" /> : <UserCheck />}

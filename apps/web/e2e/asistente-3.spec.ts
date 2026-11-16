@@ -153,7 +153,7 @@ test.describe("Administración › Asistente de IA: las tres preguntas", () => {
         expect(enviadas[1]?.texto).toBe("¿Cuánto cuesta el plan de 100 megas?");
         expect(enviadas[1]?.ajustes?.modoAutonomo).toBe("sin_nadie");
         expect(enviadas[1]?.ajustes?.categorias?.find((c) => c.id === 1)).toMatchObject({ nombre: "Planes y precios", modo: "sugiere", tono: "info", manualIds: [2] });
-        expect(enviadas[1]?.ajustes?.perfil).toMatchObject({ acciones: { agendar_visita: true, pasar_a_persona: true }, limites: { prioridadMaxima: "alta", diasAdelanteMax: 2 } });
+        expect(enviadas[1]?.ajustes?.perfil).toMatchObject({ acciones: { agendar_visita: true, pasar_a_persona: true }, limites: { prioridadMaxima: "alta", diasAdelanteMax: 2 }, exigeVerificacionFuerte: { dar_saldo: true } });
         expect(api.conversaciones.asistente.guardados).toHaveLength(0);
 
         // Una acción apagada (sin guardar) ya no sale entre lo que haría.
