@@ -147,7 +147,8 @@ export const CONVERSACIONES: Conversacion[] = [
 export function detalle(c: Conversacion, extra: Partial<Detalle> = {}): Detalle {
     return {
         ...c,
-        vinculos: c.id === 41 ? [{ tipo: "ticket", id: "4812", referencia: "TK-004812", creadoEn: hace(200) }] : [],
+        // Un escenario puede dejar vínculos propios en la conversación (p. ej. la orden que agendó el asistente).
+        vinculos: (c as Partial<Detalle>).vinculos ?? (c.id === 41 ? [{ tipo: "ticket", id: "4812", referencia: "TK-004812", creadoEn: hace(200) }] : []),
         participantes: [],
         supervisores: c.cola?.id === 2 ? [LAURA, ANDREA] : [],
         equipo: c.cola?.id === 2 ? EQUIPO_SOPORTE : [],

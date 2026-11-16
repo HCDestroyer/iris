@@ -116,14 +116,25 @@ export function valoresPerfil(p?: PerfilAsistente): ValoresPerfil {
     };
 }
 
-export function perfilDeValores(d: ValoresPerfil, codigo: string): PerfilAsistente {
+export function perfilDeValores(d: ValoresPerfil, codigo: string, guardado?: Pick<PerfilAsistente, "exigeVerificacionFuerte">): PerfilAsistente {
     return {
         codigo,
         nombre: d.nombre.trim(),
         acciones: { ...d.acciones, pasar_a_persona: true },
-        exigeVerificacionFuerte: exigenciaDeSaldo(d),
+        // Lo que este formulario no edita (`agendar_visita`, §17.10) se conserva del perfil guardado.
+        exigeVerificacionFuerte: { ...guardado?.exigeVerificacionFuerte, ...exigenciaDeSaldo(d) },
         limites: { prioridadMaxima: d.prioridadMaxima, diasAdelanteMax: Number(d.diasAdelanteMax) },
     };
+}
+
+/**
+ * Lo que un perfil nuevo hereda del general: si antes de agendar una visita se pide documento
+ * (§17.10). Es una regla de la empresa («Cómo agenda»), así que un perfil por horario creado después
+ * no puede nacer sin ella.
+ */
+export function herenciaDelGeneral(a: Pick<AjustesAsistente, "perfiles">): Pick<PerfilAsistente, "exigeVerificacionFuerte"> {
+    const general = perfilesDe(a)[0]?.exigeVerificacionFuerte;
+    return general?.agendar_visita === undefined ? {} : { exigeVerificacionFuerte: { dar_saldo: true, agendar_visita: general.agendar_visita } };
 }
 
 /** La lista con el perfil cambiado (mismo código) o agregado al final. */

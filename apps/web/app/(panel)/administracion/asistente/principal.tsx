@@ -49,6 +49,7 @@ import {
     type ValoresPrincipal,
 } from "@/lib/asistente/fase3";
 import type { AjustesAsistente } from "@/lib/asistente/tipos";
+import { conVisitas, resumenVisitas, type Visitas } from "@/lib/asistente/visitas";
 import { explicarErrorDeApi, nombreMes, textoPausado, type ExplicacionError } from "@/lib/asistente/presentacion";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
@@ -92,7 +93,7 @@ function Formulario({ datos, alGuardar }: { datos: Datos; alGuardar: (d: Datos) 
     const ajustes = completar(datos.ajustes);
     const { categorias } = datos;
     const form = useForm<ValoresPrincipal>({ resolver: zodResolver(esquemaPrincipal), defaultValues: valoresPrincipal(ajustes, datos.categorias) });
-    const [activo, modoAutonomo, esperaMin, saldoConNumero, daSaldo] = useWatch({ control: form.control, name: ["activo", "modoAutonomo", "esperaMin", "saldoConNumero", "acciones.dar_saldo"] });
+    const [activo, modoAutonomo, esperaMin, saldoConNumero, daSaldo, agenda] = useWatch({ control: form.control, name: ["activo", "modoAutonomo", "esperaMin", "saldoConNumero", "acciones.dar_saldo", "acciones.agendar_visita"] });
     const conectado = proveedorConectado(ajustes);
     const conflicto = error instanceof ErrorApi && error.estado === 409;
 
@@ -263,6 +264,7 @@ function Formulario({ datos, alGuardar }: { datos: Datos; alGuardar: (d: Datos) 
                     saldoConNumero={saldoConNumero}
                     daSaldo={daSaldo}
                     deshabilitado={bloqueado}
+                    bajoVisitas={agenda && conVisitas(ajustes) ? <ComoAgenda ajustes={ajustes} visitas={ajustes.visitas} /> : null}
                 />
                 <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                     <EnlaceSeguir href={`${BASE}/limites`}>Ajustar límites</EnlaceSeguir>
@@ -299,6 +301,7 @@ function Formulario({ datos, alGuardar }: { datos: Datos; alGuardar: (d: Datos) 
                 <EnlaceSeguir href={`${BASE}/conexion`}>Conexión con la IA, fuentes y uso</EnlaceSeguir>
                 <EnlaceSeguir href={`${BASE}/limites`}>Límites</EnlaceSeguir>
                 <EnlaceSeguir href={`${BASE}/perfiles`}>Perfiles por horario</EnlaceSeguir>
+                {conVisitas(ajustes) ? <EnlaceSeguir href={`${BASE}/visitas`}>Cómo agenda visitas</EnlaceSeguir> : null}
                 <EnlaceSeguir href={`${BASE}/categorias`}>Categorías</EnlaceSeguir>
             </nav>
         </FormularioPagina>
@@ -315,6 +318,26 @@ function EnlaceSeguir({ href, children }: { href: string; children: string }) {
             {children}
             <ChevronRight aria-hidden className="size-4" />
         </Link>
+    );
+}
+
+/**
+ * «Cómo agenda» (§17.10): con «Agendar visitas» encendido, lo guardado en llano y el enlace a su
+ * pantalla. Si el servidor no manda el bloque `visitas`, no se muestra nada (no se inventa).
+ */
+function ComoAgenda({ ajustes, visitas }: { ajustes: AjustesAsistente; visitas: Visitas }) {
+    return (
+        <div data-slot="como-agenda" className="ml-[1.875rem] grid min-w-0 gap-1.5 rounded-lg bg-primary/5 px-3 py-2.5">
+            <h3 className="text-sm font-semibold">Cómo agenda</h3>
+            <ul className="grid gap-0.5 text-sm text-muted-foreground">
+                {resumenVisitas(ajustes, visitas).map((linea) => (
+                    <li key={linea} className="[overflow-wrap:anywhere]">
+                        {linea}
+                    </li>
+                ))}
+            </ul>
+            <EnlaceSeguir href={`${BASE}/visitas`}>Cambiar cómo agenda</EnlaceSeguir>
+        </div>
     );
 }
 

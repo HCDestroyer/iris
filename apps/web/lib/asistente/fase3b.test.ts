@@ -130,7 +130,7 @@ describe("perfiles por horario (§17.1)", () => {
 
     it("un perfil nuevo empieza como el de fábrica y viaja con las nueve acciones", () => {
         const v = valoresPerfil();
-        expect(v).toMatchObject({ nombre: "", saldoConNumero: false, prioridadMaxima: "alta", diasAdelanteMax: "2" });
+        expect(v).toMatchObject({ nombre: "", saldoConNumero: false, prioridadMaxima: "alta", diasAdelanteMax: "7" });
         expect(esquemaPerfil.safeParse(v).success).toBe(false);
         expect(esquemaPerfil.safeParse({ ...v, nombre: "x".repeat(41) }).success).toBe(false);
         expect(esquemaPerfil.safeParse({ ...v, nombre: "Fin de semana", diasAdelanteMax: "15" }).success).toBe(false);
@@ -140,7 +140,7 @@ describe("perfiles por horario (§17.1)", () => {
             nombre: "Fin de semana",
             acciones: { ...PERFIL_POR_DEFECTO.acciones, dar_saldo: true },
             exigeVerificacionFuerte: { dar_saldo: false },
-            limites: { prioridadMaxima: "alta", diasAdelanteMax: 2 },
+            limites: { prioridadMaxima: "alta", diasAdelanteMax: 7 },
         });
     });
 

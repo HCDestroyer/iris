@@ -633,6 +633,30 @@ Contrato: `.claude/integration/contratos/conversaciones.md` §17.8, §17.8.1 y �
   conversación abierta relee cada 30 s (de fondo: si falla conserva lo que hay; no pide nada con la
   pestaña oculta).
 
+### El asistente agenda visitas (nov. 2026)
+
+Contrato: `.claude/integration/contratos/conversaciones.md` §17.10. Lógica pura en
+`apps/web/lib/asistente/visitas.ts`.
+
+- **Pantalla simple:** «Agendar visitas» ya no dice «Próximamente» y viene apagado de fábrica. Al
+  encenderlo aparece debajo el bloque «Cómo agenda» (`resumenVisitas`): tres líneas en llano con lo
+  guardado (qué agenda y en qué horarios, con cuánta anticipación y hasta cuántos días, y las
+  reglas) y el enlace «Cambiar cómo agenda». El resumen cuenta los días que ofrece **de verdad**
+  (los acorta «Días adelante» de Límites).
+- **Cómo agenda** (`/administracion/asistente/visitas`, pantalla propia): «Qué visitas agenda»
+  (casillas), «Horarios que ofrece» (de 1 a 6, con anticipación y días adelante), «Reglas» (tres
+  interruptores con su consecuencia debajo: «Apagado: …») y «Avanzado» plegado con los cuatro topes,
+  cada uno con ayuda corta y su valor de fábrica. El 422 del servidor va junto al campo que nombra
+  (`campoDeErrorVisitas`) y abre lo avanzado si es de ahí.
+- **El bloque `visitas` se guarda completo** y solo desde esa pantalla. Si el servidor no lo manda,
+  ni el bloque ni el formulario aparecen: el panel no inventa valores. Las demás pantallas (simple,
+  perfiles) conservan `exigeVerificacionFuerte.agendar_visita`. «Pedir DPI o NIT antes de agendar»
+  es una regla de la empresa: se guarda en **todos** los perfiles y un perfil nuevo la hereda.
+- **Orden creada por el asistente:** en la ficha de la orden, la insignia neutra «Agendada por el
+  asistente» (`InsigniaOrigenOrden`); los demás orígenes no llevan marca. En la conversación, el
+  mensaje de sistema «Asistente de IA creó OT-…» y el vínculo a la orden en la ficha; en la lista,
+  la actividad «Agendó la visita OT-…» (texto del servidor: nunca el técnico).
+
 ## Navegación del panel (fase 1, hecha)
 
 - **Barra lateral por grupos:**
