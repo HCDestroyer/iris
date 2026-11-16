@@ -370,7 +370,8 @@ el principio de la fase 2 («nunca envía») sigue vigente. El bucle de herramie
   cola). Todos opcionales al guardar: el panel de la fase 2 no los pisa. Los perfiles extra se
   usarán por franja con `horarios.franjas[].perfil` (3b).
 - **Categorías** (`mensajeria.asistente_categorias`, por empresa): seis iniciales sembradas al
-  guardar los ajustes o al listar (`sembrarCategorias`, con candado). `nombre`, `descripcion` (dato
+  guardar los ajustes (`sembrarCategorias`, con candado; el GET no escribe, y sin
+  `mensajeria.asistente_configurar` solo devuelve id, nombre, tono, activa y esOtro). `nombre`, `descripcion` (dato
   para clasificar), `tono`, cola, SLA de primera respuesta, `modo`, `condicion` y manuales base.
   «Otro» no se desactiva. No se borran.
 - **Clasificación:** con el asistente activo, cada mensaje del cliente encola
@@ -385,6 +386,14 @@ el principio de la fase 2 («nunca envía») sigue vigente. El bucle de herramie
   gana sobre el de la cola (`venceSLA`), también sin cola. La corrección del agente
   (`POST …/categorizar`, `conversaciones.categorizar`) no la pisa el asistente hasta que la
   conversación se reabra.
+- **Transferir con cuidado:** el asistente solo mueve la cola si la categoría cambió, con confianza
+  ≥ 0.75, una vez por periodo abierto (`asistente_transfirio_en`), si la cola actual es la inicial o
+  la puso él (`conversaciones.cola_origen`, que un trigger pasa a `otro` en cualquier otro cambio de
+  cola) y si el bot no está atendiendo. Un agente sin `conversaciones.transferir` cambia la categoría
+  sin mover la cola. Pasar la conversación a otra empresa borra la categoría; un trigger impide una
+  categoría de otra empresa.
+- **Costo:** clasificar aparte se detiene al 80 % del tope del mes y tiene un máximo de 300 por
+  empresa y hora (además de 6 por conversación y hora).
 - **Lista:** filtro `categoriaId`, `categoria`, `actividadAsistente` (una línea armada por el
   servidor: `clasifico`, `transfirio`, `sugirio`) y `porCategoria` en los contadores. Los mensajes
   llevan `autorTipo` (`cliente`, `persona`, `asistente_ia`, `sistema`).

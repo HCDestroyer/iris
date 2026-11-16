@@ -2794,6 +2794,7 @@
             ]
           },
           "modo": {
+            "description": "Ausente sin mensajeria.asistente_configurar",
             "enum": [
               "responde_solo",
               "sugiere"
@@ -2837,7 +2838,6 @@
           "tono",
           "colaId",
           "slaPrimeraRespuestaMin",
-          "modo",
           "condicion",
           "manualIds",
           "esOtro",

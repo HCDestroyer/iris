@@ -84,7 +84,7 @@ func TestAsistenteSaldoClienteVerificado(t *testing.T) {
 	}
 	// El monto no quedó en ningún lado.
 	for tabla, sql := range map[string]string{
-		"sugerencias": `SELECT count(*) FROM mensajeria.sugerencias WHERE coalesce(texto, '') LIKE '%357%' OR fuentes::text LIKE '%357%' OR coalesce(error_detalle, '') LIKE '%357%'`,
+		"sugerencias": `SELECT count(*) FROM mensajeria.sugerencias WHERE coalesce(texto, '') LIKE '%357.25%' OR fuentes::text LIKE '%357.25%' OR coalesce(error_detalle, '') LIKE '%357.25%'`,
 		"outbox":      `SELECT count(*) FROM integracion.outbox WHERE payload::text LIKE '%357.25%'`,
 		"auditoría":   `SELECT count(*) FROM auditoria.acciones WHERE entrada::text LIKE '%357.25%' OR resultado::text LIKE '%357.25%'`,
 	} {

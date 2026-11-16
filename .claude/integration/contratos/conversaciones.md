@@ -1850,7 +1850,8 @@ fase 2 sigue funcionando). `perfiles` y `porCola`, si vienen, reemplazan la list
 
 ### 17.2 Categorías de mensajes (pregunta 3)
 
-Por empresa. Al guardar los ajustes o listar por primera vez se **siembran**: «Planes y precios»
+Por empresa. Al guardar los ajustes del asistente por primera vez se **siembran** (el `GET` nunca
+escribe; una empresa que nunca guardó ajustes recibe `data: []`): «Planes y precios»
 (`info`, `responde_solo`), «Sin internet» (`error`, `responde_solo`, `si_hay_falla`), «Pagos y saldo»
 (`ok`, `responde_solo`, `solo_verificados`), «Cambio de plan» (`info`, `sugiere`), «Mudanza o
 traslado» (`aviso`, `sugiere`) y «Otro» (`neutro`, `sugiere`, `esOtro: true`). Sin cola ni SLA.
@@ -1874,7 +1875,7 @@ traslado» (`aviso`, `sugiere`) y «Otro» (`neutro`, `sugiere`, `esOtro: true`)
 
 | Método y ruta | Permiso | Qué hace |
 | --- | --- | --- |
-| `GET /asistente/categorias?incluirInactivas=` | `conversaciones.ver` | `{ data: [Categoria], nextCursor: null }` por `orden` |
+| `GET /asistente/categorias?incluirInactivas=` | `conversaciones.ver` | `{ data: [Categoria], nextCursor: null }` por `orden`. **Sin `mensajeria.asistente_configurar` solo la ficha:** `id`, `nombre`, `tono`, `activa` y `esOtro`; el resto va vacío (`descripcion: ""`, `colaId`, `slaPrimeraRespuestaMin` y `condicion` en `null`, `manualIds: []`, `orden` y `version` en 0) y `modo` **ausente** (por eso `modo` es opcional en el tipo) |
 | `POST /asistente/categorias` | `mensajeria.asistente_configurar` | Crea (201). Cuerpo: los campos editables. Hasta 30 activas (422 `demasiadas_categorias`). Evento `categoria.creada` |
 | `POST /asistente/categorias/{id}/actualizar` | ídem | Los campos editables + `version`. Evento `categoria.actualizada` (`campos[]`) |
 | `POST /asistente/categorias/{id}/desactivar` · `/activar` | ídem | `{ version }`. No se borran: las conversaciones ya clasificadas la conservan. Evento `categoria.actualizada` con `activa` |
@@ -1887,8 +1888,15 @@ traslado» (`aviso`, `sugiere`) y «Otro» (`neutro`, `sugiere`, `esOtro: true`)
   automática (§16.2), la categoría sale de **la misma llamada** (el JSON del modelo suma
   `"categoria"` y `"confianza"`); si no, es una llamada corta aparte (cuenta para el tope; como mucho
   6 por conversación y hora). Las sugerencias pedidas con el botón también clasifican.
-- El modelo solo puede elegir el **nombre exacto** de una categoría activa. Otro nombre, o confianza
-  menor a 0.5, → «Otro». Los mensajes del cliente son texto no confiable (§16).
+- **Costo de clasificar** (decisión del PM: se acepta y queda documentado). La llamada aparte es
+  corta (hasta 5 mensajes del cliente y 256 tokens de salida) pero ocurre aunque el modo sea `boton`.
+  Límites: 6 por conversación y hora, **300 por empresa y hora** (`ClasificacionesPorHoraEmpresa`) y
+  **se deja de clasificar aparte cuando el uso del mes llega al 80 % del tope**; las sugerencias
+  siguen hasta el 100 %. Lo que no se clasifica queda sin categoría (o con la que tenía).
+- El modelo solo puede elegir el **nombre exacto** de una categoría activa. Otro nombre, confianza
+  menor a 0.5, **sin confianza o fuera de 0 a 1** → «Otro» (con `categoriaConfianza: null`). Los
+  mensajes del cliente son texto no confiable (§16); los nombres y descripciones de las categorías
+  van al modelo declarados como datos, no como instrucciones.
 - La conversación guarda `categoriaId`, `categoriaConfianza` (0 … 1) y `categoriaOrigen`
   (`asistente` | `agente`).
 - **Corrección:** `POST /conversaciones/{id}/categorizar` `{ categoriaId, version }`
@@ -1896,9 +1904,19 @@ traslado» (`aviso`, `sugiere`) y «Otro» (`neutro`, `sugiere`, `esOtro: true`)
   `categoria_inactiva`). Queda `categoriaOrigen: "agente"`, confianza `null`, y **el asistente no la
   vuelve a cambiar** hasta que la conversación se resuelva y se reabra. `categoriaId: null` la quita.
 - **Efecto (al clasificar o corregir):**
-  - Si la categoría tiene cola activa y la conversación está **sin asignar** y en otra cola (o sin
-    cola), se transfiere: mensaje de sistema `transferida` y `conversacion.transferida` con
-    `origen: "asistente"` (o `"categoria"` si la corrigió un agente; `actor_id` = el agente).
+  - Si la categoría **cambió**, tiene cola activa y la conversación está **sin asignar** y en otra
+    cola (o sin cola), se transfiere: mensaje de sistema `transferida` y `conversacion.transferida`
+    con `origen: "asistente"` (o `"categoria"` si la corrigió un agente; `actor_id` = el agente).
+  - **El asistente transfiere con cuidado** (sin ping-pong de colas): solo con confianza ≥ 0.75; como
+    mucho **una vez por periodo abierto** de la conversación (hasta que se resuelva y se reabra);
+    nunca si la cola actual la puso una persona, el menú del bot o un préstamo de número (la
+    conversación guarda quién la puso en su cola: `inicial`, `asistente` u `otro`); y nunca mientras
+    el bot atiende (menú pendiente o ya contestó): ahí clasifica, pero no transfiere ni toca el menú
+    ni los temporizadores del bot. La categoría sí cambia en todos esos casos.
+  - **Un agente que corrige sin `conversaciones.transferir`** cambia la categoría, pero la
+    conversación no se mueve de cola.
+  - **Al pasar la conversación a otra empresa** (préstamo, §15.3) pierde la categoría, la confianza,
+    el origen y `actividadAsistente`: una categoría es de una sola empresa (la base lo impide).
   - **El SLA de primera respuesta de la categoría gana sobre el de la cola** (`sla.venceEn` se
     recalcula; el «por vencer» usa el 25 % del SLA de la categoría). Respeta el horario (§10.3).
 - Evento `conversacion.categorizada` y `conversacion_actualizada` por el feed (§9). No hay tipo
@@ -1958,7 +1976,8 @@ traslado» (`aviso`, `sugiere`) y «Otro» (`neutro`, `sugiere`, `esOtro: true`)
 - `texto` 1 … 1000. `ajustes` y cada parte suya son opcionales: lo que falta sale de lo guardado
   (`perfil` = el `defecto`). Aquí `modoAutonomo` admite los tres valores aunque `autonomoDisponible`
   sea `false` (es una simulación). `categorias` del formulario pueden venir sin `id` (aún no
-  guardadas; entonces `categoria.id` es `null`).
+  guardadas; entonces `categoria.id` es `null`). Un `id` que no es de una categoría de la empresa se
+  trata igual: sale como `null` en la respuesta y en el evento.
 - **No ejecuta nada**: no toca conversaciones, no escribe en Argos, no crea tickets ni órdenes. No
   hay cliente: no lee Argos ni Horus (por eso `si_hay_falla` y `solo_verificados` dan
   `pasa_a_persona` con `sin_falla` / `sin_verificar`). Contexto: los manuales de la categoría y los

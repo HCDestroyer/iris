@@ -7986,8 +7986,11 @@ export interface components {
             id: number;
             /** @description Manuales base de la categoría */
             manualIds: number[] | null;
-            /** @enum {string} */
-            modo: "responde_solo" | "sugiere";
+            /**
+             * @description Ausente sin mensajeria.asistente_configurar
+             * @enum {string}
+             */
+            modo?: "responde_solo" | "sugiere";
             nombre: string;
             /** Format: int32 */
             orden: number;
