@@ -113,6 +113,8 @@ type Modulo struct {
 	RevisarVersion *auditoria.Caso[EntradaRevisarVersion, Conector]
 	// Selector de técnicos de Argos para el vínculo de agenda.
 	ListarTecnicosArgos *ListarTecnicosArgos
+	// AbrirArgos: autologin Iris → Argos (contrato 0.7.0 §1.3).
+	AbrirArgos *AbrirArgos
 }
 
 // Alias de los tipos comunes de conexión (el OpenAPI los publica con estos nombres).
@@ -183,6 +185,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.InformarContrato = nuevoInformarContrato(m)
 	m.RevisarVersion = nuevoRevisarVersion(m)
 	m.ListarTecnicosArgos = nuevoListarTecnicosArgos(m)
+	m.AbrirArgos = nuevoAbrirArgos(m)
 	return m
 }
 

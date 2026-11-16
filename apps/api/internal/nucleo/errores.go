@@ -36,6 +36,9 @@ type Problema struct {
 	// TomadaPor (extensión de RFC 9457): en orden_ya_tomada, quién tomó la orden primero, para
 	// que la app de campo lo diga («ya la tomó Andrea López»).
 	TomadaPor *PersonaProblema `json:"tomadaPor,omitempty" doc:"orden_ya_tomada: quién tomó la orden primero"`
+	// MontoActual (extensión): en monto_cambio, el monto que tiene ahora la boleta o su comprobante
+	// en Argos, para que el panel lo muestre y pida confirmar de nuevo.
+	MontoActual *string `json:"montoActual,omitempty" doc:"monto_cambio: el monto actual (decimal con dos decimales)"`
 
 	cabeceras http.Header
 }

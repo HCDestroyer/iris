@@ -32,8 +32,14 @@ func IdempotenciaPropia(r *http.Request) bool {
 		return false
 	}
 	return r.URL.Path == Prefijo+"/avisos" || r.URL.Path == Prefijo+"/consentimientos" || rutaChatPropia.MatchString(r.URL.Path) ||
-		rutaConvPropia.MatchString(r.URL.Path) || rutaAsistentePropia.MatchString(r.URL.Path)
+		rutaConvPropia.MatchString(r.URL.Path) || rutaAsistentePropia.MatchString(r.URL.Path) || rutaBoletaPropia.MatchString(r.URL.Path)
 }
+
+// rutaBoletaPropia: aprobar y rechazar una boleta son idempotentes por naturaleza: la clave hacia
+// Argos sale del comprobante (iris:aprobar:<id>), no de la Idempotency-Key del panel, y repetir la
+// misma decisión devuelve la boleta como quedó. Así un 409 (p. ej. argos_sin_vinculo) no queda
+// guardado: después de vincular, «Reintentar» con la misma clave vuelve a preguntar a Argos.
+var rutaBoletaPropia = regexp.MustCompile(`^` + regexp.QuoteMeta(Prefijo) + `/boletas/[0-9a-fA-F-]{36}/(aprobar|rechazar)$`)
 
 // rutaAsistentePropia: el resumen y las acciones sobre una sugerencia responden con texto del
 // modelo, que no se guarda fuera de mensajeria.sugerencias; son idempotentes por naturaleza
@@ -254,5 +260,6 @@ func (m *Modulo) Registrar(api huma.API) {
 	m.registrarHorariosManuales(api)
 	m.registrarMeta(api)
 	m.registrarAsistente(api)
+	m.registrarBoletas(api)
 	listasNoNulas(api)
 }
