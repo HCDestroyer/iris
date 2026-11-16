@@ -232,6 +232,11 @@ export function FormularioHorario({ horario }: { horario?: Horario }) {
                                 </div>
                                 <div className="flex flex-wrap items-end gap-3">
                                     <Interruptor etiqueta="Cerrado todo el día" {...form.register(`feriados.${i}.cerrado`)} />
+                                    {cerrado && (campo.resto?.length ?? 0) > 0 ? (
+                                        <p role="status" className="basis-full text-sm font-medium text-warning" data-slot="aviso-cerrar-feriado">
+                                            Al guardar se quitan sus {campo.resto.length + 1} franjas de ese día.
+                                        </p>
+                                    ) : null}
                                     {cerrado ? null : (
                                         <>
                                             <CampoHora etiqueta="Desde" className="w-32" {...form.register(`feriados.${i}.inicio`)} />

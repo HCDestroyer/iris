@@ -192,6 +192,16 @@ export const TEXTO_VERIFICACION: Record<NivelVerificacion | "ninguna", { corto: 
     ninguna: { corto: "Sin verificar", largo: "Todavía no se sabe si es quien dice ser." },
 };
 
+/**
+ * Qué hacer cuando falla la relectura periódica de una conversación con la identidad verificada:
+ * sin sesión o sin permiso (401, 403) no tiene caso insistir; cualquier otra falla (red, 5xx) se
+ * deja pasar y se prueba en el siguiente tic, con los datos que ya están en pantalla.
+ */
+export function trasFallarRelectura(error: unknown): "detener" | "reintentar" {
+    const estado = typeof error === "object" && error !== null && "estado" in error ? (error as { estado: unknown }).estado : undefined;
+    return estado === 401 || estado === 403 ? "detener" : "reintentar";
+}
+
 /** Texto del mensaje de sistema `reconexion_pedida` (`detalle`: pendiente, aceptada o rechazada). */
 export function textoReconexion(actor: string, estado: string | undefined): string {
     // Lo que decidió Argos va primero: en el teléfono la línea se corta por el final.

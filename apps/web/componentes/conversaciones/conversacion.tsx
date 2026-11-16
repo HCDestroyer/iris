@@ -25,7 +25,7 @@ import { Hilo } from "./hilo";
 import { useAhora, useAncho } from "./reloj";
 import { BotonSugerir, PausaAsistente, TarjetaSugerencia, useAsistente } from "./sugerencia";
 import { IndicadorVerificacion } from "./verificacion";
-import { nivelVerificacion } from "@/lib/asistente/fase3b";
+import { nivelVerificacion, trasFallarRelectura } from "@/lib/asistente/fase3b";
 
 /** Cada cuánto se relee una conversación con la identidad verificada, por si ya venció. */
 const RELEER_IDENTIDAD_MS = 30_000;
@@ -147,12 +147,39 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
     // §17.8.2: «identidad verificada» vence sola (`verificacionFuerteMin`) y el servidor no avisa:
     // mientras el nivel sea `fuerte` se relee el detalle con el reloj de 30 s, para que el
     // indicador baje a «su número coincide» cuando toca. (Con `verificacionVenceEn` bastará un temporizador.)
+    // La relectura es de fondo: si falla (red, 5xx) lo que hay en pantalla se queda y se prueba en el
+    // siguiente tic; solo se detiene sin sesión o sin permiso. Con la pestaña oculta no se pide nada.
     const identidadVigente = detalle.estado === "listo" && nivelVerificacion(detalle.datos.contacto) === "fuerte";
+    const versionVista = useRef(0);
+    useEffect(() => {
+        if (detalle.estado === "listo") versionVista.current = detalle.datos.version;
+    });
     useEffect(() => {
         if (!identidadVigente) return;
-        const reloj = setInterval(() => void refrescarDetalle(), RELEER_IDENTIDAD_MS);
-        return () => clearInterval(reloj);
-    }, [identidadVigente, refrescarDetalle]);
+        const control = new AbortController();
+        let ocupado = false;
+        const reloj = setInterval(() => {
+            if (ocupado || document.visibilityState === "hidden") return;
+            ocupado = true;
+            leerDetalle(id, control.signal)
+                .then(
+                    (datos) => {
+                        // Una respuesta más vieja que lo que ya trajo una acción o el feed no pisa nada.
+                        if (!control.signal.aborted && datos.version >= versionVista.current) reemplazarDetalle(datos);
+                    },
+                    (error: unknown) => {
+                        if (!control.signal.aborted && trasFallarRelectura(error) === "detener") clearInterval(reloj);
+                    },
+                )
+                .finally(() => {
+                    ocupado = false;
+                });
+        }, RELEER_IDENTIDAD_MS);
+        return () => {
+            clearInterval(reloj);
+            control.abort();
+        };
+    }, [identidadVigente, id, reemplazarDetalle]);
 
     useEffect(
         () =>

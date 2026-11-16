@@ -223,6 +223,14 @@ test.describe("Asistente 3b › perfiles por horario", () => {
         await page.goto("/administracion/horarios/1/editar");
         const f = page.getByRole("form", { name: /Editar «Soporte · extendido»/ });
         await expect(f.locator('[data-slot="franjas-de-mas"]')).toContainText("14:00–18:00");
+        // Cerrarlo quitaría las dos franjas: se avisa junto al control antes de guardar.
+        const cerrado = f.locator('[data-feriado="1"]').getByRole("switch", { name: "Cerrado todo el día" });
+        await expect(f.locator('[data-slot="aviso-cerrar-feriado"]')).toHaveCount(0);
+        await cerrado.click();
+        await expect(f.locator('[data-slot="aviso-cerrar-feriado"]')).toHaveText("Al guardar se quitan sus 2 franjas de ese día.");
+        await esperarSinDesbordes(page);
+        await cerrado.click();
+        await expect(f.locator('[data-slot="aviso-cerrar-feriado"]')).toHaveCount(0);
         await esperarOpcion(f.getByLabel("Feriado 1: qué hace el asistente"), "noche");
         await f.locator('input[name="nombre"]').fill("Soporte · feriados");
         await page.getByRole("button", { name: "Guardar cambios" }).click();
@@ -270,13 +278,23 @@ test.describe("Asistente 3b › bandeja", () => {
     });
 
     test("la identidad verificada vence sola: el indicador baja a «su número coincide» sin recargar", async ({ page }) => {
-        test.setTimeout(90_000);
+        test.setTimeout(150_000);
         const api = await abrir(page, "/conversaciones?c=42", BANDEJA);
         await expect(indicador(page)).toHaveAttribute("data-verificacion", "fuerte");
+        await expect(page.getByRole("log", { name: "Mensajes" })).toContainText("Hola, ¿me ayudan?");
         // El servidor la baja al vencer (`verificacionFuerteMin`) y no avisa: el panel relee cada 30 s.
         const conv = api.conversaciones.conversaciones.find((c) => c.id === 42);
         if (!conv) throw new Error("falta la conversación 42");
         conv.contacto = { ...conv.contacto, verificacion: "numero" };
+        // La primera relectura falla: lo que hay en pantalla se queda (sin error ni «Reintentar»)…
+        const detalles = () => api.peticiones.filter((p) => p.metodo === "GET" && p.ruta === "/api/v1/mensajeria/conversaciones/42").length;
+        const antes = detalles();
+        api.responderProblema("/api/v1/mensajeria/conversaciones/42", { type: "urn:iris:problema:error_interno", title: "Error del servidor", status: 503 }, 1);
+        await expect.poll(detalles, { timeout: 45_000 }).toBeGreaterThan(antes);
+        await expect(page.getByRole("log", { name: "Mensajes" })).toContainText("Hola, ¿me ayudan?");
+        await expect(indicador(page)).toHaveAttribute("data-verificacion", "fuerte");
+        await expect(page.getByRole("button", { name: "Reintentar" })).toHaveCount(0);
+        // …y el siguiente tic lo consigue.
         await expect(indicador(page)).toHaveAttribute("data-verificacion", "numero", { timeout: 45_000 });
         await expect(indicador(page)).toContainText("Su número coincide");
     });

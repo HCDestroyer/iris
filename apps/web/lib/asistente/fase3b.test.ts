@@ -15,6 +15,7 @@ import {
     requisitoDe,
     resumenPerfil,
     textoReconexion,
+    trasFallarRelectura,
     valorDePerfil,
     valoresPerfil,
 } from "./fase3b";
@@ -173,6 +174,13 @@ describe("bandeja (§17.8.2)", () => {
         // Un servidor que no manda el campo: no se muestra nada (ni «verificado» ni «sin verificar»).
         expect(nivelVerificacion({})).toBeUndefined();
         expect(nivelVerificacion({ verificacion: "otra_cosa" })).toBeNull();
+    });
+
+    it("la relectura de fondo solo se detiene sin sesión o sin permiso", () => {
+        expect(trasFallarRelectura({ estado: 401 })).toBe("detener");
+        expect(trasFallarRelectura({ estado: 403 })).toBe("detener");
+        // Red caída, 5xx o cualquier otra cosa: se conserva lo que hay y se prueba en el siguiente tic.
+        for (const e of [new TypeError("Failed to fetch"), { estado: 0 }, { estado: 503 }, { estado: 404 }, null, "x"]) expect(trasFallarRelectura(e)).toBe("reintentar");
     });
 
     it("mensajes de sistema de 3b", () => {
