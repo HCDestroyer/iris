@@ -548,3 +548,10 @@ LIMIT @limite;
 -- El cliente está en la instantánea de Argos de la empresa (propio o compartido).
 SELECT EXISTS (SELECT 1 FROM integracion.argos_clientes
                WHERE id = @id AND (empresa_id = @empresa_id::bigint OR @empresa_id::bigint = ANY(empresas)));
+
+-- name: TareasDeTecnicosEnRango :many
+-- Tareas pendientes de esos técnicos (usuarios) que tocan [desde, hasta): ocupan su tiempo al
+-- ofrecer huecos (HuecosOfrecibles).
+SELECT tecnico_id, inicio, fin FROM agenda.tareas
+WHERE tecnico_id = ANY(@tecnicos::bigint[]) AND estado = 'pendiente' AND inicio < @hasta AND fin > @desde
+ORDER BY tecnico_id, inicio;

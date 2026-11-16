@@ -79,7 +79,7 @@ type Orden struct {
 	Version          int32         `json:"version"`
 	CreadoEn         time.Time     `json:"creadoEn"`
 	ActualizadoEn    time.Time     `json:"actualizadoEn"`
-	Origen           string        `json:"origen,omitempty" enum:"panel,api,argos,sistema" doc:"De dónde vino: panel, api, argos (retiro automático por servicio retirado) o sistema"`
+	Origen           string        `json:"origen,omitempty" enum:"panel,api,argos,sistema,asistente" doc:"De dónde vino: panel, api, asistente (la agendó el asistente de IA de mensajería), argos (retiro automático por servicio retirado) o sistema"`
 	PausadaDesde     *string       `json:"pausadaDesde,omitempty" enum:"en_camino,en_sitio" doc:"Solo pausada: el estado al que vuelve al reanudar"`
 	PausadaEn        *time.Time    `json:"pausadaEn,omitempty" doc:"Solo pausada: inicio de la pausa en curso"`
 	TiempoPausadoSeg int64         `json:"tiempoPausadoSeg" required:"false" doc:"Segundos pausados en las pausas ya terminadas (la en curso se cuenta desde pausadaEn)"`

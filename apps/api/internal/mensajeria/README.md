@@ -517,3 +517,14 @@ Emite `conversacion.categorizada`, `categoria.creada`, `categoria.actualizada` y
   por día a números sin cliente, 3 tickets por conversación y día, tokens contados aunque el turno se descarte.
 - **Respaldo JSON:** solo herramientas de lectura y `pasar_a_persona`.
 - **Eventos nuevos:** `conversacion.identidad_verificada`, `reconexion.solicitada`.
+
+### El asistente agenda visitas (§17.10, `asistente_visitas.go`)
+
+- Herramientas `ofrecer_visita` y `agendar_visita` (acción `agendar_visita`, apagada de fábrica). Las
+  ventanas salen de `agenda.HuecosOfrecibles`; la orden, de `campo.CrearOrden` y `campo.ProgramarOrden`
+  con el actor `asistente_ia` y un contexto que solo esas herramientas arman (`ctxVisitas`).
+- Ajustes por empresa en `asistente_ajustes.visitas` (`VisitasAsistente`); ofertas en
+  `mensajeria.asistente_ofertas_visita`.
+- Eventos: `orden.creada` (origen `asistente`), `orden.programada`, `conversacion.vinculo_creado` y
+  `asistente.accion_ejecutada` (`ofrecer_visita`, `agendar_visita`).
+

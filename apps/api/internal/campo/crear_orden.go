@@ -54,12 +54,17 @@ type EntradaCrearOrden struct {
 	sinCuadrillaDelTicket bool
 }
 
-// origenDe: de dónde viene la orden (panel, api o sistema).
+// OrigenAsistente: la orden la creó el asistente de IA al agendar una visita (§17.10 de conversaciones.md).
+const OrigenAsistente = "asistente"
+
+// origenDe: de dónde viene la orden (panel, api, sistema o el asistente de IA de mensajería).
 func origenDe(ctx context.Context, fijo string) string {
 	if fijo != "" {
 		return fijo
 	}
 	switch {
+	case contexto.ActorDe(ctx).Tipo == contexto.ActorAsistenteIA:
+		return OrigenAsistente
 	case contexto.ActorDe(ctx).Tipo == contexto.ActorSistema:
 		return "sistema"
 	case contexto.CanalDe(ctx) == contexto.CanalPanel:

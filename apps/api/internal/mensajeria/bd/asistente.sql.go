@@ -20,7 +20,7 @@ SET activo = $1, proveedor = $2, url = $3, modelo = $4, modo = $5,
     tope_tokens_mes = $10, precio_entrada_millon = $11::numeric,
     precio_salida_millon = $12::numeric, version = version + 1, updated_at = now()
 WHERE id = $13
-RETURNING id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en, presupuesto_autonomo_pct, verificacion_fuerte_min
+RETURNING id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en, presupuesto_autonomo_pct, verificacion_fuerte_min, visitas
 `
 
 type ActualizarAsistenteAjustesParams struct {
@@ -84,6 +84,7 @@ func (q *Queries) ActualizarAsistenteAjustes(ctx context.Context, arg Actualizar
 		&i.ActivadoEn,
 		&i.PresupuestoAutonomoPct,
 		&i.VerificacionFuerteMin,
+		&i.Visitas,
 	)
 	return i, err
 }
@@ -108,7 +109,7 @@ func (q *Queries) AsegurarUsoAsistente(ctx context.Context, arg AsegurarUsoAsist
 const asistenteAjustes = `-- name: AsistenteAjustes :one
 
 
-SELECT id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en, presupuesto_autonomo_pct, verificacion_fuerte_min FROM mensajeria.asistente_ajustes WHERE coalesce(empresa_id, 0) = $1::bigint
+SELECT id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en, presupuesto_autonomo_pct, verificacion_fuerte_min, visitas FROM mensajeria.asistente_ajustes WHERE coalesce(empresa_id, 0) = $1::bigint
 `
 
 // Asistente de IA que sugiere respuestas (contratos/conversaciones.md §16).
@@ -144,12 +145,13 @@ func (q *Queries) AsistenteAjustes(ctx context.Context, empresa int64) (Mensajer
 		&i.ActivadoEn,
 		&i.PresupuestoAutonomoPct,
 		&i.VerificacionFuerteMin,
+		&i.Visitas,
 	)
 	return i, err
 }
 
 const asistenteAjustesParaActualizar = `-- name: AsistenteAjustesParaActualizar :one
-SELECT id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en, presupuesto_autonomo_pct, verificacion_fuerte_min FROM mensajeria.asistente_ajustes WHERE coalesce(empresa_id, 0) = $1::bigint FOR UPDATE
+SELECT id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en, presupuesto_autonomo_pct, verificacion_fuerte_min, visitas FROM mensajeria.asistente_ajustes WHERE coalesce(empresa_id, 0) = $1::bigint FOR UPDATE
 `
 
 func (q *Queries) AsistenteAjustesParaActualizar(ctx context.Context, empresa int64) (MensajeriaAsistenteAjuste, error) {
@@ -183,6 +185,7 @@ func (q *Queries) AsistenteAjustesParaActualizar(ctx context.Context, empresa in
 		&i.ActivadoEn,
 		&i.PresupuestoAutonomoPct,
 		&i.VerificacionFuerteMin,
+		&i.Visitas,
 	)
 	return i, err
 }
@@ -382,7 +385,7 @@ func (q *Queries) FallasHorusCliente(ctx context.Context, arg FallasHorusCliente
 const fijarClaveAsistente = `-- name: FijarClaveAsistente :one
 UPDATE mensajeria.asistente_ajustes SET clave_cifrada = $1, clave_guardada_en = $2, updated_at = now()
 WHERE id = $3
-RETURNING id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en, presupuesto_autonomo_pct, verificacion_fuerte_min
+RETURNING id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en, presupuesto_autonomo_pct, verificacion_fuerte_min, visitas
 `
 
 type FijarClaveAsistenteParams struct {
@@ -422,6 +425,7 @@ func (q *Queries) FijarClaveAsistente(ctx context.Context, arg FijarClaveAsisten
 		&i.ActivadoEn,
 		&i.PresupuestoAutonomoPct,
 		&i.VerificacionFuerteMin,
+		&i.Visitas,
 	)
 	return i, err
 }
@@ -596,7 +600,7 @@ VALUES ($1, $2, $3, $4, NULL, NULL, $5, $6,
     $7, $8, $9, $10, $11,
     $12::numeric, $13::numeric)
 ON CONFLICT DO NOTHING
-RETURNING id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en, presupuesto_autonomo_pct, verificacion_fuerte_min
+RETURNING id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en, presupuesto_autonomo_pct, verificacion_fuerte_min, visitas
 `
 
 type InsertarAsistenteAjustesParams struct {
@@ -660,6 +664,7 @@ func (q *Queries) InsertarAsistenteAjustes(ctx context.Context, arg InsertarAsis
 		&i.ActivadoEn,
 		&i.PresupuestoAutonomoPct,
 		&i.VerificacionFuerteMin,
+		&i.Visitas,
 	)
 	return i, err
 }

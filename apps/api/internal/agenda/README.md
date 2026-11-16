@@ -161,3 +161,17 @@ ficha expone `argos { idExterno, correo, nombre, vinculadoEn }`. No usa el vínc
   transacción; si no, 422 `bodega_invalida` o el error del conector).
 - Las rutas llaman a `CrearTecnicoVerificado` y `EditarTecnicoVerificado`. Si se llama al caso de
   uso sin esa verificación, también responde 422.
+
+## Huecos ofrecibles para el asistente (`huecos.go`)
+
+Lo usa mensajería para `agendar_visita` (`contratos/conversaciones.md` §17.10). Sin HTTP, sin eventos
+(solo lectura):
+
+- `HuecosOfrecibles(ctx, db, EntradaHuecos)`: ventanas `{ inicio, fin }` (un bloque de atención de un
+  día) en las que algún técnico activo que atiende la zona tiene un tramo libre del tamaño del tipo de
+  orden: turno menos ausencias, citas vivas (de cualquier empresa) y tareas pendientes, y sin la
+  capacidad del día agotada (la suya o la de su cuadrilla). Nunca devuelve técnicos, cuadrillas ni
+  cuántos hay libres. `SinCobertura`: nadie atiende esa zona (o la orden no tiene zona).
+- `ElegirTecnicoEnVentana(ctx, db, EntradaHuecos, Hueco)`: el técnico menos cargado que todavía cabe
+  y la hora de inicio de su cita; si nadie cabe, 422 `ventana_no_disponible`. No reserva: la reserva,
+  con sus candados y reglas, sigue siendo de `ReservarCita` al programar.

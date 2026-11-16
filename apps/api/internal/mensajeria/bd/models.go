@@ -1043,6 +1043,7 @@ type MensajeriaAsistenteAjuste struct {
 	ActivadoEn             *time.Time
 	PresupuestoAutonomoPct int32
 	VerificacionFuerteMin  int32
+	Visitas                []byte
 }
 
 type MensajeriaAsistenteClasificacione struct {
@@ -1050,6 +1051,22 @@ type MensajeriaAsistenteClasificacione struct {
 	EmpresaID      *int64
 	ConversacionID int64
 	CreadaEn       time.Time
+}
+
+type MensajeriaAsistenteOfertasVisitum struct {
+	ID             int64
+	EmpresaID      *int64
+	ConversacionID int64
+	ClienteID      int64
+	ServicioID     int64
+	ZonaID         int64
+	Tipo           string
+	Clave          string
+	Inicio         time.Time
+	Fin            time.Time
+	Motivo         string
+	OfrecidaEn     time.Time
+	VenceEn        time.Time
 }
 
 type MensajeriaAsistentePedido struct {

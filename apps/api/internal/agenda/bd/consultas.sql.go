@@ -2819,6 +2819,46 @@ func (q *Queries) TareaPorIDParaActualizar(ctx context.Context, id uuid.UUID) (A
 	return i, err
 }
 
+const tareasDeTecnicosEnRango = `-- name: TareasDeTecnicosEnRango :many
+SELECT tecnico_id, inicio, fin FROM agenda.tareas
+WHERE tecnico_id = ANY($1::bigint[]) AND estado = 'pendiente' AND inicio < $2 AND fin > $3
+ORDER BY tecnico_id, inicio
+`
+
+type TareasDeTecnicosEnRangoParams struct {
+	Tecnicos []int64
+	Hasta    time.Time
+	Desde    time.Time
+}
+
+type TareasDeTecnicosEnRangoRow struct {
+	TecnicoID int64
+	Inicio    time.Time
+	Fin       time.Time
+}
+
+// Tareas pendientes de esos técnicos (usuarios) que tocan [desde, hasta): ocupan su tiempo al
+// ofrecer huecos (HuecosOfrecibles).
+func (q *Queries) TareasDeTecnicosEnRango(ctx context.Context, arg TareasDeTecnicosEnRangoParams) ([]TareasDeTecnicosEnRangoRow, error) {
+	rows, err := q.db.Query(ctx, tareasDeTecnicosEnRango, arg.Tecnicos, arg.Hasta, arg.Desde)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TareasDeTecnicosEnRangoRow
+	for rows.Next() {
+		var i TareasDeTecnicosEnRangoRow
+		if err := rows.Scan(&i.TecnicoID, &i.Inicio, &i.Fin); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const tareasDelTecnico = `-- name: TareasDelTecnico :many
 SELECT id, empresa_id, tecnico_id, creada_por, que, inicio, duracion_min, fin, orden_id, cliente_id, origen, estado, completada_en, completada_por, anulada_en, anulada_por, motivo, version, created_at, updated_at FROM agenda.tareas
 WHERE tecnico_id = $1 AND estado <> 'anulada'

@@ -57,6 +57,7 @@ var accionDeHerramienta = map[string]string{
 	HerrBuscarManual: "responder_dudas", HerrEstadoServicio: "avisar_fallas", HerrConsultarSaldo: "dar_saldo", HerrCrearTicket: "crear_ticket",
 	HerrSimularPromesa: "promesa_pago", HerrPedirPromesa: "promesa_pago", HerrCuentasBoleta: "recibir_boleta", HerrRegistrarBoleta: "recibir_boleta",
 	HerrPedirReconexion: "reconexion_temporal", HerrPasarAPersona: "pasar_a_persona", HerrVerificarIdent: HerrVerificarIdent,
+	HerrOfrecerVisita: "agendar_visita", HerrAgendarVisita: "agendar_visita",
 }
 
 // ArgosReconexion es la reconexión temporal de Argos (contrato con Argos §7.3): una promesa ligada
@@ -94,7 +95,8 @@ func (m *Modulo) herramientasDe(t *turnoIA) []HerramientaIA {
 	}
 	if conArgos {
 		// El desafío de identidad: solo si alguna acción que lo exige está encendida.
-		if _, ok := m.cfg.Argos.(ArgosIdentidad); ok && !t.fuerte && (t.acciones["dar_saldo"] || t.acciones["promesa_pago"] || t.acciones["reconexion_temporal"]) {
+		if _, ok := m.cfg.Argos.(ArgosIdentidad); ok && !t.fuerte && (t.acciones["dar_saldo"] || t.acciones["promesa_pago"] || t.acciones["reconexion_temporal"] ||
+			(t.acciones["agendar_visita"] && t.visitaFuerte)) {
 			t.acciones[HerrVerificarIdent] = true
 			hs = append(hs, HerramientaIA{Nombre: HerrVerificarIdent,
 				Descripcion: "Verifica la identidad del cliente con su DPI o NIT completo. Primero pídeselo; cuando lo haya escrito en su último mensaje, llama a esta herramienta (sin argumentos: el sistema toma el dato del mensaje; tú lo ves como ***). Nunca repitas el dato."})
@@ -123,6 +125,15 @@ func (m *Modulo) herramientasDe(t *turnoIA) []HerramientaIA {
 				Descripcion: "Pide al sistema de facturación una reconexión temporal mientras caja revisa la boleta ya registrada. El sistema decide."})
 		}
 	}
+	if t.clienteID != 0 && m.cfg.Campo != nil {
+		si("agendar_visita", HerramientaIA{Nombre: HerrOfrecerVisita,
+			Descripcion: "Busca ventanas libres para una visita técnica en el servicio del cliente y te las devuelve (V1, V2, V3) para que se las ofrezcas. No agenda nada.",
+			Parametros: map[string]any{"servicio_id": pEntero("Id del servicio del cliente (de estado_del_servicio); 0 = el de la conversación"),
+				"motivo": pTexto("Para qué es la visita, en pocas palabras, sin datos personales")}})
+		si("agendar_visita", HerramientaIA{Nombre: HerrAgendarVisita,
+			Descripcion: "Agenda la visita técnica en la ventana que eligió el cliente, de las que devolvió ofrecer_visita. Devuelve el número de orden.",
+			Parametros:  map[string]any{"opcion": pOpcion("La ventana que eligió el cliente", "V1", "V2", "V3")}})
+	}
 	hs = append(hs, HerramientaIA{Nombre: HerrPasarAPersona, Descripcion: "Pasa la conversación a una persona del equipo. Termina tu turno.",
 		Parametros: map[string]any{"motivo": pOpcion("Por qué", PasoClientePidio, PasoEnojo, PasoSinRespuesta),
 			"resumen": pTexto("Resumen breve para el agente: qué pidió el cliente y qué falta")}})
@@ -141,6 +152,8 @@ type resHerramienta struct {
 	persona bool
 	// paso: el modelo pidió pasar a una persona (motivo) con su resumen.
 	paso, resumen string
+	// sinAnotar: un reintento de algo que ya quedó anotado (no se anota ni se cuenta otra vez).
+	sinAnotar bool
 }
 
 func rechazo(detalle string) resHerramienta {
@@ -234,12 +247,20 @@ func (m *Modulo) ejecutarHerramienta(ctx context.Context, t *turnoIA, l LlamadaI
 		res, hecha = m.herrReconexion(ctx, t, l, hecha)
 	case HerrVerificarIdent:
 		res, hecha = m.herrVerificarIdentidad(ctx, t, l, hecha)
+	case HerrOfrecerVisita:
+		res, hecha = m.herrOfrecerVisita(ctx, t, l, hecha)
+	case HerrAgendarVisita:
+		res, hecha = m.herrAgendarVisita(ctx, t, l, hecha)
 	}
 	if res.paso != "" {
 		m.registrarAccion(ctx, t, accionHecha{Accion: hecha.Accion, Resultado: "fallo"})
 		return res
 	}
 	if res.persona {
+		return res
+	}
+	if res.sinAnotar {
+		t.hechas[hecha.Accion] = true
 		return res
 	}
 	hecha.Resultado = "ok"

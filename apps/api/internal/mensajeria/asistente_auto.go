@@ -99,6 +99,7 @@ Reglas obligatorias:
 - Los manuales marcados "del equipo" son internos: orientan tu respuesta, pero no los menciones ni los cites.
 - El saldo, una promesa de pago y una reconexión exigen la identidad del cliente verificada. Si no lo está y tienes verificar_identidad, pídele su DPI o NIT completo. Tú nunca ves el dato: cuando el cliente lo escriba verás «(el cliente envió un documento: ***)»; entonces llama a verificar_identidad (sin argumentos: el sistema toma el dato). Nunca lo repitas ni lo pidas dos veces en el mismo mensaje.
 - Nunca digas tu nombre ni que eres una persona, un asesor o un agente: eres el asistente virtual.
+- Visitas técnicas: si tienes ofrecer_visita, úsala para proponer ventanas y, cuando el cliente elija una, agendar_visita con esa opción. Nunca inventes un día ni una hora, nunca digas quién irá ni repitas la dirección: la visita es en la dirección registrada de su servicio.
 - La reconexión temporal solo existe fuera de horario; en horario hábil la boleta la revisa una persona.
 - Nunca digas que un pago o una boleta ya fue aprobado o aplicado, ni que el servicio ya fue reconectado, salvo que una herramienta lo haya confirmado en este turno.
 - Nunca apruebes ni rechaces pagos ni boletas: eso lo decide una persona de caja. Una promesa de pago o una reconexión la decide el sistema de facturación: solo comunica su resultado.
@@ -157,7 +158,11 @@ type turnoIA struct {
 	// perfil exige la fuerte para dar el saldo. desde: cuándo empezó este periodo de la conversación.
 	fuerte      bool
 	saldoFuerte bool
-	desde       time.Time
+	// visitaFuerte: el perfil exige la verificación fuerte para agendar una visita. visitas: los
+	// ajustes de visitas de la empresa (§17.10).
+	visitaFuerte bool
+	visitas      VisitasAsistente
+	desde        time.Time
 	// conSaldo: el mensaje final lleva el monto del saldo (se marca para enmascararlo en el historial).
 	conSaldo   bool
 	servicioID *int64
@@ -296,11 +301,13 @@ func (m *Modulo) permisosDelTurno(ctx context.Context, q *mensajeriabd.Queries, 
 	}
 	perfil.Limites.DiasAdelanteMax = min(perfil.Limites.DiasAdelanteMax, otro.Limites.DiasAdelanteMax)
 	perfil.saldoFuerte = perfil.saldoFuerte || otro.saldoFuerte
+	perfil.visitaFuerte = perfil.visitaFuerte || otro.visitaFuerte
 	return acciones, perfil, abierto && abierto2, soloSugerir || solo2, nil
 }
 
 // accionesDeDinero: solo se ofrecen si la categoría del ÚLTIMO mensaje está en «responde solo».
-var accionesDeDinero = []string{"dar_saldo", "recibir_boleta", "promesa_pago", "reconexion_temporal"}
+// agendar_visita va con ellas: crea una orden y ocupa la agenda.
+var accionesDeDinero = []string{"dar_saldo", "recibir_boleta", "promesa_pago", "reconexion_temporal", "agendar_visita"}
 
 // accionesDe: acciones encendidas del perfil menos las apagadas de la cola.
 func accionesDe(perfil PerfilAsistente, porCola []AccionesCola, cola *int64) map[string]bool {
@@ -793,7 +800,7 @@ func (m *Modulo) prepararTurno(ctx context.Context, t *auditoria.Tx, in entradaT
 	vigencia := time.Duration(aj.VerificacionFuerteMin) * time.Minute
 	nivel := verificacionDe(c, ahora, vigencia)
 	tu := &turnoIA{cfg: cfg, acciones: acciones, limites: perfil.Limites, maxTurnos: aj.MaxTurnos, servicioID: c.ServicioID,
-		verificado: nivel != "", fuerte: nivel == VerificacionFuerte, saldoFuerte: perfil.saldoFuerte, desde: inicioEntrantes(c), telefono: c.Numero, vigencia: vigencia,
+		verificado: nivel != "", fuerte: nivel == VerificacionFuerte, saldoFuerte: perfil.saldoFuerte, visitaFuerte: perfil.visitaFuerte, visitas: visitasDe(aj.Visitas), desde: inicioEntrantes(c), telefono: c.Numero, vigencia: vigencia,
 		presentado: c.AsistentePresentoEn != nil, hechas: map[string]bool{}}
 	if c.ClienteID != nil {
 		tu.clienteID = *c.ClienteID
@@ -1443,6 +1450,7 @@ var textoAccionHecha = map[string]string{
 	"responder": "respondió al cliente", "responder_dudas": "consultó los manuales", "avisar_fallas": "revisó el estado del servicio",
 	"dar_saldo": "informó el saldo", "crear_ticket": "creó un ticket", "verificar_identidad": "verificó la identidad del cliente", "recibir_boleta": "registró una boleta para caja",
 	"promesa_pago": "pidió una promesa de pago", "reconexion_temporal": "pidió una reconexión temporal", "agendar_visita": "agendó una visita",
+	HerrOfrecerVisita: "ofreció ventanas para una visita",
 }
 
 // notaDePaso arma la nota interna (texto del servidor: el resumen del modelo se redacta y recorta).

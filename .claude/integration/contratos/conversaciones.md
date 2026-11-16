@@ -2481,3 +2481,97 @@ no un hecho comprobado.
   queda como `***` en el mensaje guardado **y** en ese payload crudo, solo en el texto de ese mensaje
   (`text.body` o el pie de un adjunto): el resto del payload no se toca. Fuera de ese caso (una
   conversación que atiende una persona) el texto del cliente se guarda completo, como hasta ahora.
+
+### 17.10 El asistente agenda una visita técnica
+
+El asistente **ofrece** ventanas y **agenda** una visita con los casos de uso de campo y agenda; no
+duplica su lógica ni ve la agenda. Todo es configurable por empresa y viene apagado de fábrica.
+
+**Lectura de huecos (agenda, sin HTTP).** `agenda.HuecosOfrecibles(empresa, zona, tipo, desde, hasta,
+noAntesDe, bloques, max)` devuelve hasta `max` ventanas (3) en las que **algún** técnico que atiende
+la zona tiene un tramo libre del tamaño del tipo de orden. Respeta turnos, ausencias, citas vivas (de
+cualquier empresa), tareas pendientes y capacidad diaria, como `ReservarCita`. La salida es solo
+`{ inicio, fin }` de cada ventana: sin técnico, cuadrilla ni cuántos hay libres; `sinCobertura` si
+nadie de la agenda atiende esa zona. `agenda.ElegirTecnicoEnVentana` elige al técnico menos cargado
+que todavía cabe y la hora de su cita; la reserva (con sus candados) la hace `ReservarCita` al
+programar. La agenda no conoce feriados: mandan los turnos y las ausencias de los técnicos.
+
+**Herramientas** (acción `agendar_visita` del perfil; apagada de fábrica).
+
+| Herramienta | Argumentos | Qué hace |
+| --- | --- | --- |
+| `ofrecer_visita` | `servicio_id` (0 = el de la conversación), `motivo` (3–200 caracteres, redactado) | Valida las reglas y devuelve hasta 3 ventanas con su clave (`V1`…`V3`) y la fecha escrita en hora de Guatemala («viernes 6 de noviembre, entre las 08:00 y las 12:00»). Las guarda en `mensajeria.asistente_ofertas_visita` (vencen a los 30 min): el cliente contesta en otro turno. No crea nada. |
+| `agendar_visita` | `opcion` (`V1`…`V3`) | Solo una ventana ofrecida a **esta** conversación y vigente. Vuelve a validar las reglas, crea la orden (`conversaciones.crear_orden` → `campo.CrearOrden`, con su ticket) y la programa (`campo.ProgramarOrden` con el técnico que elige agenda y la ventana acordada). Liga la orden a la conversación (`conversacion.vinculo_creado`, mensaje de sistema `orden_creada`). Idempotente por turno (`iris:asistente:<turno>:visita`). |
+
+**Si la ventana ya no tiene espacio.** La orden **no se anula**: queda creada en `pendiente` (sin
+programar, a la vista de despacho, `origen: asistente`) con una descripción que lo explica. La
+herramienta responde con ventanas nuevas y el siguiente `agendar_visita` programa **esa misma** orden.
+Si ya no hay ventanas, pasa a una persona y la nota interna dice que la orden quedó SIN PROGRAMAR.
+
+El modelo nunca recibe ni nombra al técnico ni la dirección: al cliente se le dice el día, la ventana
+y el número de orden. Reprogramar o cancelar una visita: pasa a una persona.
+
+**Reglas.**
+- Cliente asociado y verificado por **número**, y servicio identificado: el de la conversación, el único que tenga o el `servicio_id` que
+  diga, que debe ser suyo y de la empresa. `exigeVerificacionFuerte.agendar_visita` (por defecto
+  `false`) permite exigir `fuerte`. Decisión del líder: basta `numero` porque agendar no mueve dinero
+  y lo único que revela es dato del propio cliente: con una visita abierta, el asistente le dice el
+  número de orden y la fecha de **su** visita, nunca el técnico ni la dirección. Aceptado.
+- Solo con la categoría actual en `responde_solo` (va con las acciones de dinero).
+- Servicio `activo`. `cortado` (mora): pasa a una persona, salvo `visitas.permitirConMora`. Otro
+  estado, sin zona, zona sin cobertura, sin huecos o tope de visitas abiertas: pasa a una persona.
+- `visitas.exigeTicket` (true): la visita nace del último ticket creado desde la conversación en este
+  periodo **solo si** es del mismo cliente, del mismo servicio de la oferta y sigue abierto (`nuevo`,
+  `abierto`, `en_espera`). Si no (otro servicio, sin servicio, resuelto, cerrado, otro cliente), el
+  asistente crea uno con ese cliente y ese servicio.
+- **La orden es la de la oferta.** El asistente manda siempre a campo el cliente de la conversación y
+  el servicio ofrecido, también con ticket (campo rechaza la orden si el ticket no coincide: nunca
+  hereda en silencio). Antes de programar comprueba que la orden tiene el cliente, el servicio, la
+  zona y el tipo de la oferta; si no, no programa y pasa a una persona. Si la conversación se
+  reasoció a otro cliente después de la oferta, la ventana ya no vale.
+- **Cliente con una visita abierta** (tope `maxAbiertasPorCliente`): el asistente se lo dice con el
+  número de orden y su fecha (la ventana acordada, sin técnico) y no agenda otra. Solo si el cliente
+  pide moverla o cancelarla pasa a una persona.
+- **Topes atómicos.** El máximo de visitas abiertas por cliente y el tope por día de la empresa se
+  vuelven a comprobar dentro de la transacción que crea la orden, con un candado por cliente y otro
+  por empresa: dos conversaciones del mismo cliente a la vez no crean dos. Las ofertas y el tope por
+  conversación no necesitan candado: una conversación corre un solo turno a la vez.
+- **Reintentos.** Si el mismo turno se repite después de programar, reconoce su orden (por su clave
+  de idempotencia) ya programada en esa ventana y responde éxito sin crear ni programar otra vez, y
+  sin anotar ni contar la visita de nuevo (`visitasPorDia`, `asistente.accion_ejecutada`). La
+  orden se programa con su versión real; un 409 de versión se resuelve releyendo y solo un 422 de la
+  agenda cuenta como «ventana sin espacio».
+- **Motivo.** Lo redacta el modelo con lo que dijo el cliente: pasa por la misma redacción que el
+  resto (`RedactarParaIA`) y en la descripción de la orden y en el ticket va rotulado «Dicho por el
+  cliente, sin verificar: …».
+
+**Ajustes por empresa** (`visitas` en `GET/POST /asistente/ajustes`; el POST reemplaza el bloque
+completo; los topes los valida el servidor, 422):
+
+| Campo | Fábrica | Rango |
+| --- | --- | --- |
+| `tiposPermitidos` | `["visita"]` | `visita`, `mantenimiento` (usa el primero) |
+| `maxAbiertasPorCliente` | 1 | 1–5 |
+| `exigeTicket` | true | |
+| `permitirConMora` | false | |
+| `bloques[{ inicio, fin }]` | 08:00–12:00 y 13:00–17:00 | 1–6 bloques, en orden y sin cruzarse |
+| `anticipacionHoras` | 12 | 0–168 |
+| `diasAdelante` | 7 | 1–30 (lo acorta `limites.diasAdelanteMax` del perfil, que de fábrica pasa de 2 a 7) |
+| `ofertasPorDia` (por conversación) | 3 | 1–10 |
+| `visitasPorDia` (por conversación) | 1 | 1–5 |
+| `visitasPorDiaEmpresa` | 20 | 1–500 |
+
+**Actor, permisos, auditoría y eventos.** El rol interno `asistente_ia` suma `ordenes.crear`,
+`ordenes.programar`, `ordenes.ver` y `tickets.ver` (campo lee la orden y el ticket), pero **no van en
+el contexto de cada turno**: solo los lleva el contexto que arman las herramientas de visita, con la
+acción encendida en el perfil vigente. Fuera de ahí el ACL le niega crear y programar órdenes (403).
+La lista cerrada de casos del asistente suma `conversaciones.crear_orden`. Auditoría con actor
+`asistente_ia` (canal `ia`) en `conversaciones.crear_orden`, `ordenes.crear` y `ordenes.programar`.
+Eventos: `orden.creada` con `origen: "asistente"` (valor nuevo), `orden.programada` con
+`origen: "programar"`, `asistente.accion_ejecutada` con `accion` = `ofrecer_visita` o `agendar_visita`
+(`entidad: "orden"`). `actividadAsistente.tipo = visita_agendada`.
+
+**Para el panel.** Sin endpoints nuevos: el bloque `visitas` de arriba y
+`perfiles[].exigeVerificacionFuerte.agendar_visita`. El interruptor `agendar_visita` deja de decir
+«Próximamente». En el hilo sale el mensaje de sistema `orden_creada`; la orden trae `origen:
+"asistente"` en campo.
