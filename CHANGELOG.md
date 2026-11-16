@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.24.0](https://github.com/HCDestroyer/iris/compare/v0.23.0...v0.24.0) (2026-11-16)
+
+
+### Funcionalidades
+
+* **mensajeria:** el asistente agenda una visita técnica (agendar_visita) ([#174](https://github.com/HCDestroyer/iris/issues/174)) ([f04811d](https://github.com/HCDestroyer/iris/commit/f04811d7f0afcc4c753f5b1e0cd8d7a98fd4c838))
+* **panel:** el asistente agenda visitas ([#176](https://github.com/HCDestroyer/iris/issues/176)) ([8532a0f](https://github.com/HCDestroyer/iris/commit/8532a0f7d6566c8ccc050a1c67a7c116f811ebe5))
+
+
+### Correcciones
+
+* **panel:** la relectura de identidad no deja «verificada» fija ni se queda colgada ([#173](https://github.com/HCDestroyer/iris/issues/173)) ([564d40a](https://github.com/HCDestroyer/iris/commit/564d40ae1d3f2784e4d2943b13305dc34b89ddda))
+
 ## [0.23.0](https://github.com/HCDestroyer/iris/compare/v0.22.0...v0.23.0) (2026-11-16)
 
 
