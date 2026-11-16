@@ -2,12 +2,12 @@ package mensajeria
 
 import (
 	"context"
-	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"net/netip"
 	"time"
 
 	"github.com/google/uuid"
 
+	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
 

@@ -548,7 +548,6 @@ func (m *Modulo) herrCuentasBoleta(ctx context.Context, t *turnoIA, l LlamadaIA,
 
 var (
 	reMontoBoleta = regexp.MustCompile(`^[0-9]{1,10}\.[0-9]{2}$`)
-	reCodigoRegla = regexp.MustCompile(`^[a-z0-9_]{1,40}$`)
 )
 
 // herrRegistrarBoleta registra el comprobante con la última foto o PDF del cliente. Nunca aprueba ni
