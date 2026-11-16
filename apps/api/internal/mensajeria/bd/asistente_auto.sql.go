@@ -13,6 +13,26 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const accionYaAnotada = `-- name: AccionYaAnotada :one
+SELECT EXISTS (SELECT 1 FROM mensajeria.asistente_acciones
+    WHERE conversacion_id = $1 AND accion = $2 AND resultado = 'ok' AND entidad_id = $3::text)::boolean
+`
+
+type AccionYaAnotadaParams struct {
+	ConversacionID int64
+	Accion         string
+	EntidadID      string
+}
+
+// El asistente ya anotó esa acción (con éxito) sobre esa entidad en la conversación: un reintento no
+// la anota ni la cuenta otra vez.
+func (q *Queries) AccionYaAnotada(ctx context.Context, arg AccionYaAnotadaParams) (bool, error) {
+	row := q.db.QueryRow(ctx, accionYaAnotada, arg.ConversacionID, arg.Accion, arg.EntidadID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const accionesAsistenteConv = `-- name: AccionesAsistenteConv :many
 SELECT a.accion, a.resultado, a.entidad, a.entidad_id, a.creada_en
 FROM mensajeria.asistente_acciones a

@@ -422,7 +422,14 @@ func (m *Modulo) herrAgendarVisita(ctx context.Context, t *turnoIA, l LlamadaIA,
 		if o.Origen == campo.OrigenAsistente && strings.HasSuffix(o.Idempotencia, "|"+clave) && o.ServicioID != nil && *o.ServicioID == of.ServicioID &&
 			of.ClienteID == t.clienteID && programadaEn(&o, of.Inicio, of.Fin) {
 			h.Entidad, h.EntidadID = "orden", strconv.FormatInt(o.ID, 10)
-			return exito(o.Numero)
+			res, h := exito(o.Numero)
+			// Si la visita ya quedó anotada, el reintento no la anota ni la cuenta otra vez (visitasPorDia).
+			ya, err := q.AccionYaAnotada(ctx, mensajeriabd.AccionYaAnotadaParams{ConversacionID: t.conv, Accion: HerrAgendarVisita, EntidadID: h.EntidadID})
+			if err != nil {
+				return resHerramienta{fallo: true}, h
+			}
+			res.sinAnotar = ya && !res.fallo
+			return res, h
 		}
 	}
 	// Las reglas otra vez (el cliente, el servicio o los ajustes pudieron cambiar desde la oferta).

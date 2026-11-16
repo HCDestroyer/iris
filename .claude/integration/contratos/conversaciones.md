@@ -2512,10 +2512,11 @@ El modelo nunca recibe ni nombra al técnico ni la dirección: al cliente se le 
 y el número de orden. Reprogramar o cancelar una visita: pasa a una persona.
 
 **Reglas.**
-- Cliente asociado y verificado por **número** (decisión del líder: agendar no revela datos ni mueve
-  dinero), y servicio identificado: el de la conversación, el único que tenga o el `servicio_id` que
+- Cliente asociado y verificado por **número**, y servicio identificado: el de la conversación, el único que tenga o el `servicio_id` que
   diga, que debe ser suyo y de la empresa. `exigeVerificacionFuerte.agendar_visita` (por defecto
-  `false`) permite exigir `fuerte`.
+  `false`) permite exigir `fuerte`. Decisión del líder: basta `numero` porque agendar no mueve dinero
+  y lo único que revela es dato del propio cliente: con una visita abierta, el asistente le dice el
+  número de orden y la fecha de **su** visita, nunca el técnico ni la dirección. Aceptado.
 - Solo con la categoría actual en `responde_solo` (va con las acciones de dinero).
 - Servicio `activo`. `cortado` (mora): pasa a una persona, salvo `visitas.permitirConMora`. Otro
   estado, sin zona, zona sin cobertura, sin huecos o tope de visitas abiertas: pasa a una persona.
@@ -2536,7 +2537,8 @@ y el número de orden. Reprogramar o cancelar una visita: pasa a una persona.
   por empresa: dos conversaciones del mismo cliente a la vez no crean dos. Las ofertas y el tope por
   conversación no necesitan candado: una conversación corre un solo turno a la vez.
 - **Reintentos.** Si el mismo turno se repite después de programar, reconoce su orden (por su clave
-  de idempotencia) ya programada en esa ventana y responde éxito sin crear ni programar otra vez. La
+  de idempotencia) ya programada en esa ventana y responde éxito sin crear ni programar otra vez, y
+  sin anotar ni contar la visita de nuevo (`visitasPorDia`, `asistente.accion_ejecutada`). La
   orden se programa con su versión real; un 409 de versión se resuelve releyendo y solo un 422 de la
   agenda cuenta como «ventana sin espacio».
 - **Motivo.** Lo redacta el modelo con lo que dijo el cliente: pasa por la misma redacción que el

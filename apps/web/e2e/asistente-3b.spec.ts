@@ -16,6 +16,7 @@ import { buscarDesbordes, esperarSinDesbordes } from "./desbordes";
 
 const carpeta = process.env.IRIS_CAPTURAS ?? path.join("test-results", "capturas-asistente-3b");
 const BASE = "/administracion/asistente";
+const RUTA_42 = "/api/v1/mensajeria/conversaciones/42";
 const TRES_B: OpcionesFase3 = { autonomoDisponible: true, ajustes: { modoAutonomo: "sin_nadie" } };
 
 async function abrir(page: Page, ruta: string, fase3: OpcionesFase3 = TRES_B) {
@@ -351,6 +352,84 @@ test.describe("Asistente 3b › bandeja", () => {
         await page.clock.fastForward(31_000);
         await expect(indicador(page)).toHaveAttribute("data-verificacion", "numero");
         await expect(indicador(page)).toContainText("Su número coincide");
+    });
+
+    /** La 42 abierta con la identidad verificada y el reloj de Playwright (nada espera de verdad). */
+    async function abrirVerificada(page: Page) {
+        await page.clock.install({ time: new Date(AHORA_CONV) });
+        const api = await simularApi(page, { conversaciones: { asistente: { fase3: BANDEJA } } });
+        await conSesion(page.context(), test.info().project.use.baseURL ?? "", ADMIN.correo);
+        await page.goto("/conversaciones?c=42");
+        await expect(indicador(page)).toHaveAttribute("data-verificacion", "fuerte");
+        await expect(page.getByRole("log", { name: "Mensajes" })).toContainText("Hola, ¿me ayudan?");
+        const detalles = () => api.peticiones.filter((p) => p.metodo === "GET" && p.ruta === RUTA_42).length;
+        return { api, detalles };
+    }
+
+    test("sin permiso al releer (403): la relectura se detiene y el indicador no se queda en «verificada»", async ({ page }) => {
+        await abrirVerificada(page);
+        // Desde ahora el detalle (esa ruta exacta, no sus mensajes ni sus boletas) responde 403.
+        let pedidas = 0;
+        await page.route(`**${RUTA_42}`, (route) => {
+            if (route.request().method() !== "GET") return route.fallback();
+            pedidas++;
+            return route.fulfill({ status: 403, contentType: "application/problem+json", body: JSON.stringify({ type: "urn:iris:problema:permiso_denegado", title: "Sin permiso", status: 403 }) });
+        });
+        await page.clock.fastForward(31_000);
+        await expect.poll(() => pedidas).toBe(1);
+        await expect(indicador(page)).toHaveAttribute("data-verificacion", "numero");
+        await expect(indicador(page)).toContainText("Su número coincide");
+        // Lo demás de la conversación sigue en pantalla, y ya no se relee.
+        await expect(page.getByRole("log", { name: "Mensajes" })).toContainText("Hola, ¿me ayudan?");
+        await page.clock.fastForward(61_000);
+        expect(pedidas).toBe(1);
+    });
+
+    test("pestaña oculta: no se relee; al volver a verse se relee en el acto, sin esperar al tic", async ({ page }) => {
+        const { api, detalles } = await abrirVerificada(page);
+        const visibilidad = (estado: "hidden" | "visible") =>
+            page.evaluate((v) => {
+                Object.defineProperty(document, "visibilityState", { configurable: true, get: () => v });
+                document.dispatchEvent(new Event("visibilitychange"));
+            }, estado);
+        const antes = detalles();
+        await visibilidad("hidden");
+        await page.clock.fastForward(61_000);
+        expect(detalles()).toBe(antes);
+        // Mientras estuvo oculta, el servidor bajó el nivel.
+        const conv = api.conversaciones.conversaciones.find((x) => x.id === 42);
+        if (!conv) throw new Error("falta la conversación 42");
+        conv.contacto = { ...conv.contacto, verificacion: "numero" };
+        await visibilidad("visible");
+        await expect.poll(detalles).toBe(antes + 1);
+        await expect(indicador(page)).toHaveAttribute("data-verificacion", "numero");
+    });
+
+    test("una relectura colgada se corta a los 10 s y la siguiente sí pasa", async ({ page }) => {
+        const { api } = await abrirVerificada(page);
+        // La próxima lectura del detalle no responde nunca.
+        let colgadas = 0;
+        let pedidas = 0;
+        await page.route(`**${RUTA_42}`, async (route) => {
+            if (route.request().method() !== "GET") return route.fallback();
+            pedidas++;
+            if (colgadas === 0) {
+                colgadas++;
+                return;
+            }
+            return route.fallback();
+        });
+        const conv = api.conversaciones.conversaciones.find((x) => x.id === 42);
+        if (!conv) throw new Error("falta la conversación 42");
+        conv.contacto = { ...conv.contacto, verificacion: "numero" };
+        await page.clock.fastForward(31_000);
+        await expect.poll(() => pedidas).toBe(1);
+        await expect(indicador(page)).toHaveAttribute("data-verificacion", "fuerte");
+        // Pasa el tiempo límite y llega el siguiente tic: la relectura no quedó frenada.
+        await page.clock.fastForward(11_000);
+        await page.clock.fastForward(20_000);
+        await expect.poll(() => pedidas).toBe(2);
+        await expect(indicador(page)).toHaveAttribute("data-verificacion", "numero");
     });
 
     test("«su número coincide»: quien supervisa confirma la identidad y el indicador sale de la respuesta del servidor", async ({ page }) => {

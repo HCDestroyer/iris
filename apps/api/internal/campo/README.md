@@ -316,4 +316,9 @@ del día programadas para él en los primeros huecos libres, por los casos de us
   vivas de un cliente (con su programación y su ventana) y las que el asistente creó en 24 h, para sus
   topes. La migración del `origen` va sin transacción (`NOT VALID`, `VALIDATE` y luego quita la
   restricción vieja); su Down no toca las filas `asistente`: deja la restricción anterior sin validar.
+- **Después de un Down de `20261116180516`:** una restricción `NOT VALID` no revisa las filas viejas,
+  pero sí cada `INSERT` y cada `UPDATE`. Las órdenes con `origen = 'asistente'` siguen ahí y se pueden
+  leer, pero **no se pueden editar** (asignar, programar, cerrar, cancelar: cualquier `UPDATE` de la fila
+  falla con `ordenes_origen_check`) hasta volver a subir la migración. Si hay que quedarse abajo, hay
+  que decidir a mano qué origen llevan esas órdenes (p. ej. `sistema`) antes de tocarlas.
 
