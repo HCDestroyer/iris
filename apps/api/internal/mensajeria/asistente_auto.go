@@ -182,6 +182,8 @@ type turnoIA struct {
 	hechas                        map[string]bool
 	// puedeDecir: familias de resultado que una herramienta devolvió en este turno (afirmaSinResultado).
 	puedeDecir map[string]bool
+	// telefono: el número de WhatsApp del cliente (nunca se manda como documento).
+	telefono string
 }
 
 // resultadoTurno es cómo terminó el bucle (lo auditado: ids, motivo y tokens; nunca el texto).
@@ -399,6 +401,10 @@ const (
 	ResConfirmar  = "confirmar"
 	ResRegistrar  = "registrar"
 	ResReconectar = "reconectar"
+	// ResRecibir: «tu pago fue recibido» (solo con una boleta registrada en el turno).
+	ResRecibir = "recibir"
+	// ResActivo: «tu servicio está activo» (lo dijo estado_del_servicio o una reconexión aceptada).
+	ResActivo = "activo"
 )
 
 func reResultado(alternativas string) *regexp.Regexp {
@@ -414,8 +420,10 @@ var familiasResultado = []struct {
 	{ResAplicar, reResultado(`aplicad[oa]s?|apliqu[ée]|aplicamos|aplic[oó]|acreditad[oa]s?|acredit[ée]|acreditamos|abonad[oa]s?|procesad[oa]s?|proces[ée]|procesamos|proces[oó]|validad[oa]s?|valid[ée]|validamos`)},
 	{ResConfirmar, reResultado(`confirmad[oa]s?|confirm[ée]|confirmamos`)},
 	{ResRegistrar, reResultado(`registrad[oa]s?|registr[ée]|registramos`)},
+	{ResRecibir, reResultado(`recibid[oa]s?|recibimos`)},
+	{ResActivo, reResultado(`activ[oa]s?`)},
 	{ResReconectar, reResultado(`reconectad[oa]s?|reconect[ée]|reconectamos|reconectaremos|reconectar[ée]|reconectar[aá]n?|habilitad[oa]s?|habilit[ée]|habilitamos|habilitaremos|habilitar[ée]|` +
-		`activad[oa]s?|activ[ée]|activamos|activaremos|activar[ée]|reactivad[oa]s?|reactiv[ée]|reactivamos|reactivaremos|restablecid[oa]s?|restablec[ií]|restablecimos|` +
+		`activad[oa]s?|activ[ée]|activamos|activaremos|activar[ée]|reactivad[oa]s?|reactiv[ée]|reactivamos|reactivaremos|restablecid[oa]s?|restablec[ií]|restablecimos|restaurad[oa]s?|restaur[ée]|restauramos|restauraremos|` +
 		`ya\s+(?:tienes?|cuentas?\s+con)\s+(?:de\s+nuevo\s+)?(?:internet|servicio|conexi[oó]n)|reconexi[oó]n\s+(?:ya\s+)?(?:est[aá]\s+)?(?:lista|hecha|activa)`)},
 }
 
@@ -669,7 +677,7 @@ func (m *Modulo) prepararTurno(ctx context.Context, t *auditoria.Tx, in entradaT
 	if k.Condicion != nil {
 		switch *k.Condicion {
 		case CondicionSoloVerificados:
-			if verificacionDe(c) == "" {
+			if verificacionDe(c, m.ahora()) == "" {
 				return noAplica(PasoSinRespuesta)
 			}
 		case CondicionSiHayFalla:
@@ -780,9 +788,9 @@ func (m *Modulo) prepararTurno(ctx context.Context, t *auditoria.Tx, in entradaT
 	if err != nil {
 		return nada, err
 	}
-	nivel := verificacionDe(c)
+	nivel := verificacionDe(c, ahora)
 	tu := &turnoIA{cfg: cfg, acciones: acciones, limites: perfil.Limites, maxTurnos: aj.MaxTurnos, servicioID: c.ServicioID,
-		verificado: nivel != "", fuerte: nivel == VerificacionFuerte, saldoFuerte: perfil.saldoFuerte, desde: inicioEntrantes(c),
+		verificado: nivel != "", fuerte: nivel == VerificacionFuerte, saldoFuerte: perfil.saldoFuerte, desde: inicioEntrantes(c), telefono: c.Numero,
 		presentado: c.AsistentePresentoEn != nil, hechas: map[string]bool{}}
 	if c.ClienteID != nil {
 		tu.clienteID = *c.ClienteID
@@ -813,19 +821,13 @@ func (m *Modulo) prepararTurno(ctx context.Context, t *auditoria.Tx, in entradaT
 	// Presupuesto propio del modo autónomo (un porcentaje del tope del mes): atender solo no apaga las
 	// sugerencias a los agentes. Y la reserva atómica de lo estimado para todo el turno (una llamada
 	// por paso): si no cabe, no se llama al modelo y la conversación sigue su curso hacia la cola.
+	// Las dos condiciones (tope del mes y presupuesto autónomo) se comprueban y se reservan en una
+	// sola sentencia: dos turnos a la vez no pueden pasarse del presupuesto.
 	estimado := int64(MaxPasosTurno) * estimarTokens(tu.pedido) / 2
-	mes, _, _ := m.mesDe(ahora)
-	uso, err := m.usoDelMes(ctx, q, empresa, mes)
-	if err != nil {
-		return nada, err
-	}
-	if (uso.TokensAutonomo+estimado)*100 > aj.TopeTokensMes*int64(aj.PresupuestoAutonomoPct) {
-		return noAplica(PasoTope)
-	}
 	if tu.reserva, err = uuid.NewV7(); err != nil {
 		return nada, err
 	}
-	if err := m.reservarTokens(ctx, q, tu.reserva, empresa, aj.TopeTokensMes, estimado); err != nil {
+	if err := m.reservarTokensAutonomo(ctx, q, tu.reserva, empresa, aj.TopeTokensMes, aj.PresupuestoAutonomoPct, estimado); err != nil {
 		if codigoIA(err) == ErrIATope {
 			return noAplica(PasoTope)
 		}

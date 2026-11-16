@@ -114,7 +114,29 @@ SELECT EXISTS (
 -- Revisión de seguridad de la #163 ---------------------------------------------------------------------
 
 -- name: FijarIdentidadVerificada :exec
-UPDATE mensajeria.conversaciones SET identidad_verificada_en = @ahora, updated_at = now() WHERE id = @id;
+UPDATE mensajeria.conversaciones SET identidad_verificada_en = @ahora, identidad_vence_en = @vence, updated_at = now() WHERE id = @id;
+
+-- name: FijarVerificacionFuerteMin :exec
+UPDATE mensajeria.asistente_ajustes SET verificacion_fuerte_min = @minutos, updated_at = now() WHERE id = @id;
+
+-- name: ReservarTokensAutonomo :one
+-- Atómica, como ReservarTokens, y además contra el presupuesto del modo autónomo: lo gastado más lo
+-- reservado por turnos autónomos más esta reserva cabe en el porcentaje del tope.
+UPDATE mensajeria.asistente_uso
+SET tokens_reservados = tokens_reservados + @tokens::bigint, tokens_autonomo_reservados = tokens_autonomo_reservados + @tokens::bigint, updated_at = now()
+WHERE coalesce(empresa_id, 0) = @empresa::bigint AND mes = @mes
+  AND tokens_entrada + tokens_salida + tokens_reservados + @tokens::bigint <= @tope::bigint
+  AND tokens_autonomo + tokens_autonomo_reservados + @tokens::bigint <= @presupuesto::bigint
+RETURNING tokens_reservados;
+
+-- name: EntrantesDeMensaje :many
+-- Los payloads crudos de Meta que traen ese mensaje (por su wamid).
+SELECT e.id, e.payload FROM mensajeria.entrantes e
+WHERE e.canal_id = @canal_id AND e.created_at >= now() - interval '3 days' AND strpos(e.payload::text, @proveedor_id::text) > 0
+FOR UPDATE;
+
+-- name: FijarPayloadEntrante :exec
+UPDATE mensajeria.entrantes SET payload = @payload WHERE id = @id;
 
 -- name: InsertarVerificacion :exec
 INSERT INTO mensajeria.asistente_verificaciones (empresa_id, conversacion_id, cliente_id, resultado, creada_en)
@@ -133,15 +155,6 @@ ORDER BY seq DESC LIMIT 3;
 -- name: EnmascararTextoMensaje :exec
 -- El dato de identidad que escribió el cliente no se guarda (contrato con Argos §7.5): queda ***.
 UPDATE mensajeria.conversacion_mensajes SET texto = @texto WHERE id = @id AND direccion = 'entrante';
-
--- name: EnmascararEntranteMeta :exec
--- El payload crudo de Meta del mensaje que traía un documento de identidad: el dato queda ***
--- (el payload ya se procesó; hash_cuerpo, que deduplica, no cambia).
-UPDATE mensajeria.entrantes e
-SET payload = replace(e.payload::text, @valor::text, '***')::jsonb
-WHERE e.canal_id = @canal_id AND e.created_at >= now() - interval '3 days'
-  AND strpos(e.payload::text, @proveedor_id::text) > 0 AND strpos(e.payload::text, @valor::text) > 0
-  AND pg_input_is_valid(replace(e.payload::text, @valor::text, '***'), 'jsonb');
 
 -- name: LiberarArriendoTurno :exec
 -- El cierre del turno falló: el arriendo se suelta para que el reintento lo tome enseguida.

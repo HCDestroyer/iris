@@ -2324,6 +2324,7 @@ cambió; esto precisa lo que el diseño dejaba abierto.
 | --- | --- | --- |
 | Conversación (detalle y lista), `contacto` | `verificacion` | `"numero"` \| `"fuerte"` \| `null`. `numero`: el número coincide con un solo cliente (asociación automática). `fuerte`: lo confirmó una persona con permiso (`confirmar-cliente`) o pasó la verificación de identidad de Argos (§7.5), **en este periodo abierto**. Las dos se pierden al resolver (al reabrir vuelve a `numero` y una persona puede confirmarla otra vez), al cambiar de cliente o de empresa. `confirmar-cliente` ya no es un no-op sobre un cliente asociado por su número: lo sube a `fuerte`. |
 | Ajustes del asistente, `perfiles[]` | `exigeVerificacionFuerte` | `{ "dar_saldo": boolean }`, opcional. Ausente = `true`. Solo `dar_saldo` se puede bajar a `numero`; `promesa_pago` y `reconexion_temporal` exigen `fuerte` siempre y `recibir_boleta` acepta `numero`. |
+| Ajustes del asistente (GET y POST) | `verificacionFuerteMin` | entero 5–1440, 60 por defecto. Minutos que vale la verificación `fuerte` desde que se obtuvo, dentro del periodo; después `contacto.verificacion` vuelve a `numero` y hay que verificar otra vez. Un cambio vale para las verificaciones nuevas. |
 | Ajustes del asistente (GET y POST) | `presupuestoAutonomoPct` | entero 1–100, 70 por defecto. Parte del tope del mes que puede gastar el asistente atendiendo solo; al llegar, deja de atender solo y las sugerencias siguen. |
 | Mensajes de la conversación | `tipo: "reconexion_pedida"` | mensaje de sistema cuando se pide la reconexión temporal. |
 | Horarios (POST y PUT) | `franjas[].perfil`, `feriados[].franjas[].perfil` | 422 (`rule: perfil`) si no es `solo_sugerir` ni el código de un perfil de la empresa. Una franja guardada con un perfil que ya no existe se trata como `solo_sugerir`. |
@@ -2340,6 +2341,23 @@ demasiados_intentos`, `422 metodo_no_disponible` o `503`, pasa a una persona sin
 verificación vale para el cliente con el que se hizo: si la conversación cambió de cliente mientras
 Argos respondía, no cuenta. Cada intento queda en `mensajeria.asistente_verificaciones` (sin el dato), en la
 auditoría (`conversaciones.verificar_identidad`) y emite `conversacion.identidad_verificada`.
+
+**Vigencia de `fuerte`.** Vale solo en el periodo abierto en que se obtuvo y, dentro de él,
+`verificacionFuerteMin` minutos (60 por defecto). Se pierde al resolver **y al reabrir** (el trigger
+la borra en los dos sentidos). `confirmar-cliente` sobre una conversación resuelta confirma el
+cliente pero no da `fuerte`.
+
+**Decisión del líder (16 nov 2026): qué nivel exige cada acción.** `registrar_boleta` se queda en
+nivel `numero`: solo registra el comprobante que mandó el cliente; no mueve dinero ni cambia el
+servicio, y la aprueba o rechaza una persona de caja. `dar_saldo` exige `fuerte` por defecto y cada
+empresa puede bajarlo a `numero` con `exigeVerificacionFuerte.dar_saldo: false` (hay empresas que
+ya dan el saldo por teléfono con solo el número). `promesa_pago` y `reconexion_temporal` exigen
+`fuerte` siempre, sin opción.
+
+**Qué documento se manda a Argos.** `verificar_identidad` elige un DPI válido (13 dígitos, con su
+dígito verificador), o lo que el cliente nombró como «nit», «dpi», «cui» o «documento», o un NIT
+válido; nunca un teléfono. Si no hay un candidato claro, le pide el dato otra vez **sin gastar un
+intento** ni llamar a Argos.
 
 **Boleta.** El adjunto debe haber llegado en este periodo de la conversación y después de la última
 boleta; cada adjunto vale para una sola boleta; máximo 3 boletas por conversación y día. La boleta
@@ -2365,10 +2383,11 @@ hasta 10 intentos; después queda `rechazada` (`sin_respuesta`) para que la revi
   «real»), ni donde niegue ser un asistente o un bot. No es una lista de frases: se mira lo que dice
   de sí mismo después de «soy», «te atiende», «estás hablando con»…
 - **Resultados.** Las palabras de resultado (aprobado, aceptado, aplicado, acreditado, procesado,
-  confirmado, registrado, reconectado, habilitado, activado, «ya tienes internet», «te
-  reconectaremos») solo pasan si en ese turno una herramienta devolvió ese resultado: un ticket o una
+  confirmado, registrado, recibido, reconectado, restaurado, habilitado, activado, activo, «ya tienes
+  internet», «te reconectaremos») solo pasan si en ese turno una herramienta devolvió ese resultado: un ticket o una
   boleta permiten «registrado»; una promesa activa, «registrada», «aceptada», «aprobada» y
-  «confirmada»; una reconexión aceptada, «reconectado», «aceptada» y «confirmada». Un pago aprobado o
+  «confirmada»; una reconexión aceptada, «reconectado», «restaurado», «activo», «aceptada» y «confirmada»; una
+  boleta registrada, además, «recibida»; `estado_del_servicio`, «activo». Un pago aprobado o
   aplicado no lo devuelve ninguna herramienta: nunca pasa. Si no, el mensaje no se envía y pasa a una
   persona (`sin_respuesta`).
 - Si el cliente pregunta si habla con una persona («alguien real», «humano», «persona de verdad»,
@@ -2406,6 +2425,12 @@ traduce a un texto fijo. Si el cierre de un turno falla, su arriendo se suelta p
 lo tome enseguida; las reservas de tokens se liberan con el plazo del arriendo. El mensaje que
 reabre una conversación cuenta dentro del periodo nuevo.
 
+**Presupuesto autónomo.** Se comprueba y se reserva en la misma sentencia que el tope del mes
+(`tokens_autonomo_reservados`): turnos simultáneos no pueden pasarse del porcentaje.
+
+**Perfiles guardados en 3a.** La migración apaga `dar_saldo` y `recibir_boleta` en los perfiles que ya
+estaban guardados (venían encendidas por defecto); cada empresa las vuelve a encender si las quiere.
+
 **Bot diferido.** Si el job de la conversación falla, el bot y fuera de horario corren igual; y si
 nunca corre, el mantenimiento dispara los que llevan más de 60 s esperando. La reserva del tope es proporcional a los pasos
 del turno; los tokens se cuentan aunque el turno se descarte, y un turno descartado cuenta para
@@ -2431,5 +2456,6 @@ no un hecho comprobado.
 - **Lo que queda guardado en Iris.** El payload crudo de cada webhook de Meta se guarda en
   `mensajeria.entrantes` (deduplicación y reproceso), con el texto del cliente tal como llegó. Cuando
   el asistente detecta un documento de identidad en un turno en el que puede verificarla, el dato
-  queda como `***` en el mensaje guardado **y** en ese payload crudo. Fuera de ese caso (una
+  queda como `***` en el mensaje guardado **y** en ese payload crudo, solo en el texto de ese mensaje
+  (`text.body` o el pie de un adjunto): el resto del payload no se toca. Fuera de ese caso (una
   conversación que atiende una persona) el texto del cliente se guarda completo, como hasta ahora.

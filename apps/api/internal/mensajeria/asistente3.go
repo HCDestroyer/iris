@@ -316,6 +316,15 @@ func (m *Modulo) aplicarAutonomo(ctx context.Context, q *mensajeriabd.Queries, e
 		}
 		g.PresupuestoAutonomoPct = *in.PresupuestoAutonomoPct
 	}
+	if in.VerificacionFuerteMin != nil {
+		if *in.VerificacionFuerteMin < 5 || *in.VerificacionFuerteMin > 1440 {
+			return f, campoConv("verificacionFuerteMin", "Entre 5 y 1440 minutos", "rango")
+		}
+		if err := q.FijarVerificacionFuerteMin(ctx, mensajeriabd.FijarVerificacionFuerteMinParams{ID: g.ID, Minutos: *in.VerificacionFuerteMin}); err != nil {
+			return f, err
+		}
+		g.VerificacionFuerteMin = *in.VerificacionFuerteMin
+	}
 	return g, m.sembrarCategorias(ctx, q, empresa)
 }
 

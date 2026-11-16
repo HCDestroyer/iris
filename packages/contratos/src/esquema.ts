@@ -7450,6 +7450,11 @@ export interface components {
             url: string;
             /**
              * Format: int32
+             * @description Minutos que vale la verificación fuerte de identidad dentro de un periodo de la conversación (5 a 1440; 60 por defecto). Después vuelve a numero y el asistente pide verificar otra vez
+             */
+            verificacionFuerteMin?: number;
+            /**
+             * Format: int32
              * @description 0 si nunca se guardaron
              */
             version: number;
@@ -9615,6 +9620,11 @@ export interface components {
             /** Format: int64 */
             topeTokensMes: number;
             url: string;
+            /**
+             * Format: int32
+             * @description Ausente = se deja como está
+             */
+            verificacionFuerteMin?: number;
             /** Format: int32 */
             version: number;
         };

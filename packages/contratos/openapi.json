@@ -956,6 +956,11 @@
             "description": "URL base del servidor (vacía en anthropic = https://api.anthropic.com)",
             "type": "string"
           },
+          "verificacionFuerteMin": {
+            "description": "Minutos que vale la verificación fuerte de identidad dentro de un periodo de la conversación (5 a 1440; 60 por defecto). Después vuelve a numero y el asistente pide verificar otra vez",
+            "format": "int32",
+            "type": "integer"
+          },
           "version": {
             "description": "0 si nunca se guardaron",
             "format": "int32",
@@ -7325,6 +7330,13 @@
           "url": {
             "maxLength": 500,
             "type": "string"
+          },
+          "verificacionFuerteMin": {
+            "description": "Ausente = se deja como está",
+            "format": "int32",
+            "maximum": 1440,
+            "minimum": 5,
+            "type": "integer"
           },
           "version": {
             "format": "int32",

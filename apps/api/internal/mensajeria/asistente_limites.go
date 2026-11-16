@@ -57,6 +57,27 @@ func (m *Modulo) reservarTokens(ctx context.Context, q *mensajeriabd.Queries, id
 	return q.InsertarReserva(ctx, mensajeriabd.InsertarReservaParams{ID: id, EmpresaID: empresaPtrDe(empresa), Mes: mes, Tokens: tokens, CreadaEn: m.ahora()})
 }
 
+// reservarTokensAutonomo: como reservarTokens, y en la misma sentencia contra el presupuesto del modo
+// autónomo (pct del tope del mes): lo gastado más lo reservado por turnos autónomos más esta reserva.
+func (m *Modulo) reservarTokensAutonomo(ctx context.Context, q *mensajeriabd.Queries, id uuid.UUID, empresa, tope int64, pct int32, tokens int64) error {
+	if err := m.liberarReserva(ctx, q, id); err != nil {
+		return err
+	}
+	mes, _, _ := m.mesDe(m.ahora())
+	if err := q.AsegurarUsoAsistente(ctx, mensajeriabd.AsegurarUsoAsistenteParams{EmpresaID: empresaPtrDe(empresa), Mes: mes}); err != nil {
+		return err
+	}
+	if _, err := q.ReservarTokensAutonomo(ctx, mensajeriabd.ReservarTokensAutonomoParams{Tokens: tokens, Empresa: empresa, Mes: mes, Tope: tope,
+		Presupuesto: tope * int64(pct) / 100}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return &ErrorIA{Codigo: ErrIATope, Detalle: "No queda presupuesto de tokens este mes para atender solo"}
+		}
+		return err
+	}
+	return q.InsertarReserva(ctx, mensajeriabd.InsertarReservaParams{ID: id, EmpresaID: empresaPtrDe(empresa), Mes: mes, Tokens: tokens, CreadaEn: m.ahora(),
+		Autonomo: true})
+}
+
 // liberarReserva devuelve los tokens reservados (no hace nada si no hay reserva).
 func (m *Modulo) liberarReserva(ctx context.Context, q *mensajeriabd.Queries, id uuid.UUID) error {
 	r, err := q.LiberarReserva(ctx, id)
@@ -66,7 +87,7 @@ func (m *Modulo) liberarReserva(ctx context.Context, q *mensajeriabd.Queries, id
 	if err != nil {
 		return err
 	}
-	return q.DescontarReservados(ctx, mensajeriabd.DescontarReservadosParams{Tokens: r.Tokens, Empresa: derefEmpresa(r.EmpresaID), Mes: r.Mes})
+	return q.DescontarReservados(ctx, mensajeriabd.DescontarReservadosParams{Tokens: r.Tokens, Empresa: derefEmpresa(r.EmpresaID), Mes: r.Mes, Autonomo: r.Autonomo})
 }
 
 // limitePedidos: 10 por minuto por persona (429 con Retry-After). Toma el candado de la persona

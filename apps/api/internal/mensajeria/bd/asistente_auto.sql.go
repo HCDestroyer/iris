@@ -209,27 +209,6 @@ func (q *Queries) DetenerAsistente(ctx context.Context, id int64) error {
 	return err
 }
 
-const enmascararEntranteMeta = `-- name: EnmascararEntranteMeta :exec
-UPDATE mensajeria.entrantes e
-SET payload = replace(e.payload::text, $1::text, '***')::jsonb
-WHERE e.canal_id = $2 AND e.created_at >= now() - interval '3 days'
-  AND strpos(e.payload::text, $3::text) > 0 AND strpos(e.payload::text, $1::text) > 0
-  AND pg_input_is_valid(replace(e.payload::text, $1::text, '***'), 'jsonb')
-`
-
-type EnmascararEntranteMetaParams struct {
-	Valor       string
-	CanalID     int64
-	ProveedorID string
-}
-
-// El payload crudo de Meta del mensaje que traía un documento de identidad: el dato queda ***
-// (el payload ya se procesó; hash_cuerpo, que deduplica, no cambia).
-func (q *Queries) EnmascararEntranteMeta(ctx context.Context, arg EnmascararEntranteMetaParams) error {
-	_, err := q.db.Exec(ctx, enmascararEntranteMeta, arg.Valor, arg.CanalID, arg.ProveedorID)
-	return err
-}
-
 const enmascararTextoMensaje = `-- name: EnmascararTextoMensaje :exec
 UPDATE mensajeria.conversacion_mensajes SET texto = $1 WHERE id = $2 AND direccion = 'entrante'
 `
@@ -245,11 +224,48 @@ func (q *Queries) EnmascararTextoMensaje(ctx context.Context, arg EnmascararText
 	return err
 }
 
+const entrantesDeMensaje = `-- name: EntrantesDeMensaje :many
+SELECT e.id, e.payload FROM mensajeria.entrantes e
+WHERE e.canal_id = $1 AND e.created_at >= now() - interval '3 days' AND strpos(e.payload::text, $2::text) > 0
+FOR UPDATE
+`
+
+type EntrantesDeMensajeParams struct {
+	CanalID     int64
+	ProveedorID string
+}
+
+type EntrantesDeMensajeRow struct {
+	ID      int64
+	Payload []byte
+}
+
+// Los payloads crudos de Meta que traen ese mensaje (por su wamid).
+func (q *Queries) EntrantesDeMensaje(ctx context.Context, arg EntrantesDeMensajeParams) ([]EntrantesDeMensajeRow, error) {
+	rows, err := q.db.Query(ctx, entrantesDeMensaje, arg.CanalID, arg.ProveedorID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EntrantesDeMensajeRow
+	for rows.Next() {
+		var i EntrantesDeMensajeRow
+		if err := rows.Scan(&i.ID, &i.Payload); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const fijarAsistenteConv = `-- name: FijarAsistenteConv :one
 UPDATE mensajeria.conversaciones
 SET asistente_estado = $1, asistente_turnos = $2, asistente_presento_en = $3, updated_at = now()
 WHERE id = $4
-RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en, identidad_verificada_en, bot_diferido_mensaje_id
+RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en, identidad_verificada_en, identidad_vence_en, bot_diferido_mensaje_id
 `
 
 type FijarAsistenteConvParams struct {
@@ -317,6 +333,7 @@ func (q *Queries) FijarAsistenteConv(ctx context.Context, arg FijarAsistenteConv
 		&i.AsistenteTurnos,
 		&i.AsistentePresentoEn,
 		&i.IdentidadVerificadaEn,
+		&i.IdentidadVenceEn,
 		&i.BotDiferidoMensajeID,
 	)
 	return i, err
@@ -338,17 +355,32 @@ func (q *Queries) FijarBotDiferido(ctx context.Context, arg FijarBotDiferidoPara
 
 const fijarIdentidadVerificada = `-- name: FijarIdentidadVerificada :exec
 
-UPDATE mensajeria.conversaciones SET identidad_verificada_en = $1, updated_at = now() WHERE id = $2
+UPDATE mensajeria.conversaciones SET identidad_verificada_en = $1, identidad_vence_en = $2, updated_at = now() WHERE id = $3
 `
 
 type FijarIdentidadVerificadaParams struct {
 	Ahora *time.Time
+	Vence *time.Time
 	ID    int64
 }
 
 // Revisión de seguridad de la #163 ---------------------------------------------------------------------
 func (q *Queries) FijarIdentidadVerificada(ctx context.Context, arg FijarIdentidadVerificadaParams) error {
-	_, err := q.db.Exec(ctx, fijarIdentidadVerificada, arg.Ahora, arg.ID)
+	_, err := q.db.Exec(ctx, fijarIdentidadVerificada, arg.Ahora, arg.Vence, arg.ID)
+	return err
+}
+
+const fijarPayloadEntrante = `-- name: FijarPayloadEntrante :exec
+UPDATE mensajeria.entrantes SET payload = $1 WHERE id = $2
+`
+
+type FijarPayloadEntranteParams struct {
+	Payload []byte
+	ID      int64
+}
+
+func (q *Queries) FijarPayloadEntrante(ctx context.Context, arg FijarPayloadEntranteParams) error {
+	_, err := q.db.Exec(ctx, fijarPayloadEntrante, arg.Payload, arg.ID)
 	return err
 }
 
@@ -363,6 +395,20 @@ type FijarPresupuestoAutonomoParams struct {
 
 func (q *Queries) FijarPresupuestoAutonomo(ctx context.Context, arg FijarPresupuestoAutonomoParams) error {
 	_, err := q.db.Exec(ctx, fijarPresupuestoAutonomo, arg.Pct, arg.ID)
+	return err
+}
+
+const fijarVerificacionFuerteMin = `-- name: FijarVerificacionFuerteMin :exec
+UPDATE mensajeria.asistente_ajustes SET verificacion_fuerte_min = $1, updated_at = now() WHERE id = $2
+`
+
+type FijarVerificacionFuerteMinParams struct {
+	Minutos int32
+	ID      int64
+}
+
+func (q *Queries) FijarVerificacionFuerteMin(ctx context.Context, arg FijarVerificacionFuerteMinParams) error {
+	_, err := q.db.Exec(ctx, fijarVerificacionFuerteMin, arg.Minutos, arg.ID)
 	return err
 }
 
@@ -715,6 +761,38 @@ func (q *Queries) ReconexionesPendientes(ctx context.Context, antes time.Time) (
 		return nil, err
 	}
 	return items, nil
+}
+
+const reservarTokensAutonomo = `-- name: ReservarTokensAutonomo :one
+UPDATE mensajeria.asistente_uso
+SET tokens_reservados = tokens_reservados + $1::bigint, tokens_autonomo_reservados = tokens_autonomo_reservados + $1::bigint, updated_at = now()
+WHERE coalesce(empresa_id, 0) = $2::bigint AND mes = $3
+  AND tokens_entrada + tokens_salida + tokens_reservados + $1::bigint <= $4::bigint
+  AND tokens_autonomo + tokens_autonomo_reservados + $1::bigint <= $5::bigint
+RETURNING tokens_reservados
+`
+
+type ReservarTokensAutonomoParams struct {
+	Tokens      int64
+	Empresa     int64
+	Mes         pgtype.Date
+	Tope        int64
+	Presupuesto int64
+}
+
+// Atómica, como ReservarTokens, y además contra el presupuesto del modo autónomo: lo gastado más lo
+// reservado por turnos autónomos más esta reserva cabe en el porcentaje del tope.
+func (q *Queries) ReservarTokensAutonomo(ctx context.Context, arg ReservarTokensAutonomoParams) (int64, error) {
+	row := q.db.QueryRow(ctx, reservarTokensAutonomo,
+		arg.Tokens,
+		arg.Empresa,
+		arg.Mes,
+		arg.Tope,
+		arg.Presupuesto,
+	)
+	var tokens_reservados int64
+	err := row.Scan(&tokens_reservados)
+	return tokens_reservados, err
 }
 
 const resolverReconexion = `-- name: ResolverReconexion :one

@@ -302,14 +302,19 @@ func nuevoConfirmarCliente(m *Modulo) *auditoria.Caso[EntradaAccionConv, Convers
 				}
 				// La confirmación de una persona da la verificación fuerte de este periodo (se pierde al
 				// resolver): confirmar otra vez después de reabrir la vuelve a dar.
-				if c.ClienteVerificado && c.IdentidadVerificadaEn != nil {
+				if c.ClienteVerificado && verificacionDe(*c, m.ahora()) == VerificacionFuerte {
 					return nil
 				}
-				ahora := m.ahora()
-				if err := q.FijarIdentidadVerificada(ctx, mensajeriabd.FijarIdentidadVerificadaParams{ID: c.ID, Ahora: &ahora}); err != nil {
-					return err
+				// Con la conversación resuelta se confirma el cliente, pero no hay periodo abierto: la
+				// verificación fuerte no se da (y el trigger la borra al reabrir).
+				if c.Estado != EstadoConvResuelta {
+					if err := m.fijarVerificacionFuerte(ctx, q, c); err != nil {
+						return err
+					}
+				} else if c.ClienteVerificado {
+					return nil
 				}
-				c.ClienteVerificado, c.VerificadoPor, c.IdentidadVerificadaEn = true, &a.usuario, &ahora
+				c.ClienteVerificado, c.VerificadoPor = true, &a.usuario
 				if err := m.sistema(ctx, t, c, EventoSistema{Tipo: "cliente_confirmado", ActorNombre: actorNombre(ctx, q, a.usuario),
 					EntidadID: nombrePtr(strconv.FormatInt(*c.ClienteID, 10))}); err != nil {
 					return err

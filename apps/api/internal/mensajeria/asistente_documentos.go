@@ -2,6 +2,7 @@ package mensajeria
 
 import (
 	"context"
+	"encoding/json"
 	"regexp"
 	"slices"
 	"strings"
@@ -97,11 +98,141 @@ func (m *Modulo) taparDocumentos(ctx context.Context, q *mensajeriabd.Queries, c
 		if f.ProveedorID == nil || *f.ProveedorID == "" {
 			continue
 		}
-		for _, crudo := range crudos {
-			if err := q.EnmascararEntranteMeta(ctx, mensajeriabd.EnmascararEntranteMetaParams{CanalID: c.CanalID, ProveedorID: *f.ProveedorID, Valor: crudo}); err != nil {
-				return err
-			}
+		if err := taparEntranteMeta(ctx, q, c.CanalID, *f.ProveedorID); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// taparEntranteMeta tapa los documentos en el payload crudo de Meta de ese mensaje, y solo en el
+// texto del mensaje (text.body y el pie de una imagen, un video o un documento): el resto del payload
+// (ids, teléfonos, marcas de tiempo, otros mensajes del mismo lote) no se toca.
+func taparEntranteMeta(ctx context.Context, q *mensajeriabd.Queries, canal int64, wamid string) error {
+	filas, err := q.EntrantesDeMensaje(ctx, mensajeriabd.EntrantesDeMensajeParams{CanalID: canal, ProveedorID: wamid})
+	if err != nil {
+		return err
+	}
+	for _, f := range filas {
+		var v any
+		if json.Unmarshal(f.Payload, &v) != nil || !taparTextoDeMensaje(v, wamid) {
+			continue
+		}
+		nuevo, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		if err := q.FijarPayloadEntrante(ctx, mensajeriabd.FijarPayloadEntranteParams{ID: f.ID, Payload: nuevo}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// taparTextoDeMensaje recorre el payload y tapa el texto del mensaje con ese id. Dice si cambió algo.
+func taparTextoDeMensaje(v any, wamid string) bool {
+	cambio := false
+	switch x := v.(type) {
+	case []any:
+		for _, h := range x {
+			cambio = taparTextoDeMensaje(h, wamid) || cambio
+		}
+	case map[string]any:
+		if id, _ := x["id"].(string); id == wamid {
+			tapar := func(m map[string]any, campo string) {
+				if s, ok := m[campo].(string); ok {
+					if t, crudos := taparDocumentosTexto(s); len(crudos) > 0 {
+						m[campo], cambio = t, true
+					}
+				}
+			}
+			if t, ok := x["text"].(map[string]any); ok {
+				tapar(t, "body")
+			}
+			for _, k := range []string{"image", "video", "document"} {
+				if t, ok := x[k].(map[string]any); ok {
+					tapar(t, "caption")
+				}
+			}
+			return cambio
+		}
+		for _, h := range x {
+			cambio = taparTextoDeMensaje(h, wamid) || cambio
+		}
+	}
+	return cambio
+}
+
+// cuiValido: un DPI/CUI de Guatemala (13 dígitos: 8 del número, 1 verificador módulo 11, 2 del
+// departamento y 2 del municipio).
+func cuiValido(d string) bool {
+	if len(d) != 13 {
+		return false
+	}
+	suma := 0
+	for i := 0; i < 13; i++ {
+		if d[i] < '0' || d[i] > '9' {
+			return false
+		}
+		if i < 8 {
+			suma += int(d[i]-'0') * (i + 2)
+		}
+	}
+	depto := int(d[9]-'0')*10 + int(d[10]-'0')
+	muni := int(d[11]-'0')*10 + int(d[12]-'0')
+	return suma%11 == int(d[8]-'0') && depto >= 1 && depto <= 22 && muni >= 1
+}
+
+// nitValido: un NIT de Guatemala (dígito verificador módulo 11; K = 10).
+func nitValido(d string) bool {
+	if len(d) < 7 || len(d) > 12 {
+		return false
+	}
+	suma := 0
+	for i := 0; i < len(d)-1; i++ {
+		if d[i] < '0' || d[i] > '9' {
+			return false
+		}
+		suma += int(d[i]-'0') * (len(d) - i)
+	}
+	ver := (11 - suma%11) % 11
+	ult := d[len(d)-1]
+	if ult == 'K' {
+		return ver == 10
+	}
+	return ult >= '0' && ult <= '9' && int(ult-'0') == ver
+}
+
+// documentoCandidato elige, del texto del cliente, el dato que se manda a Argos para verificar la
+// identidad: un DPI válido; si no, lo que el cliente nombró como «nit», «dpi», «cui» o «documento»;
+// si no, un NIT válido que no sea un teléfono. Sin un candidato claro devuelve "" (se le pide el dato
+// otra vez, sin gastar un intento): un teléfono o un número cualquiera nunca se manda.
+func documentoCandidato(texto, telefono string) string {
+	esTelefono := func(d string) bool {
+		return (len(d) == 8 && d[0] >= '2' && d[0] <= '7') || (len(d) >= 8 && telefono != "" && strings.HasSuffix(telefono, d)) ||
+			(len(d) == 11 && strings.HasPrefix(d, "502"))
+	}
+	var nombrados, sueltos []string
+	for _, g := range reDocClave.FindAllStringSubmatchIndex(texto, -1) {
+		nombrados = append(nombrados, documentoNormalizado(texto[g[2]:g[3]]))
+	}
+	for _, t := range documentosEn(texto) {
+		sueltos = append(sueltos, documentoNormalizado(texto[t[0]:t[1]]))
+	}
+	for _, d := range append(append([]string{}, nombrados...), sueltos...) {
+		if cuiValido(d) {
+			return d
+		}
+	}
+	for _, d := range nombrados {
+		if len(d) >= 7 && len(d) <= 13 && !esTelefono(d) {
+			return d
+		}
+	}
+	for _, d := range sueltos {
+		if nitValido(d) && !esTelefono(d) {
+			return d
+		}
+	}
+	return ""
 }

@@ -196,7 +196,7 @@ func (m *Modulo) ejecutarHerramienta(ctx context.Context, t *turnoIA, l LlamadaI
 	if c.ClienteID != nil {
 		clienteAhora = *c.ClienteID
 	}
-	if clienteAhora != t.clienteID || (verificacionDe(c) != "") != t.verificado {
+	if clienteAhora != t.clienteID || (verificacionDe(c, m.ahora()) != "") != t.verificado {
 		return resHerramienta{fallo: true}
 	}
 	var res resHerramienta
@@ -263,7 +263,8 @@ func deError(err error) resHerramienta {
 	if errors.As(err, &p) {
 		slog.Warn("asistente: una herramienta falló", "tipo", p.Type, "status", p.Status)
 	} else {
-		slog.Warn("asistente: una herramienta falló", "err", err)
+		// Nunca el error crudo (puede traer datos del cliente o de la consulta): solo su tipo.
+		slog.Warn("asistente: una herramienta falló", "tipo_error", fmt.Sprintf("%T", err))
 	}
 	return resHerramienta{fallo: true}
 }
@@ -340,6 +341,8 @@ func (m *Modulo) herrEstadoServicio(ctx context.Context, t *turnoIA, l LlamadaIA
 		}
 		h.actividadTipo, h.actividadTexto = "respondio_falla", "Respondió: falla en "+zona
 	}
+	// El modelo puede decir el estado que leyó («tu servicio está activo»).
+	t.permitir(ResActivo)
 	return resHerramienta{contenido: b.String()}, h
 }
 
@@ -618,7 +621,7 @@ func (m *Modulo) herrRegistrarBoleta(ctx context.Context, t *turnoIA, l LlamadaI
 	}
 	h.Entidad, h.EntidadID = "boleta", b.ID.String()
 	h.actividadTipo, h.actividadTexto = "boleta_enviada", "Boleta enviada a Argos"
-	t.permitir(ResRegistrar)
+	t.permitir(ResRegistrar, ResRecibir)
 	return resHerramienta{contenido: "Boleta registrada: caja la revisa y confirma el pago. No digas que el pago ya está aplicado."}, h
 }
 
@@ -641,7 +644,7 @@ func (m *Modulo) herrReconexion(ctx context.Context, t *turnoIA, l LlamadaIA, h 
 		return rechazo("el sistema de facturación no permite la reconexión temporal para este servicio. No la prometas; pasa a una persona si el cliente insiste."), h
 	}
 	h.actividadTipo, h.actividadTexto = "reconexion_pedida", "Pidió una reconexión temporal"
-	t.permitir(ResReconectar, ResAceptar, ResConfirmar)
+	t.permitir(ResReconectar, ResActivo, ResAceptar, ResConfirmar)
 	return resHerramienta{contenido: "Reconexión temporal aceptada hasta " + r.Hasta.In(m.cfg.Zona).Format("2006-01-02 15:04") +
 		" mientras caja revisa la boleta. Explícaselo al cliente."}, h
 }
@@ -681,13 +684,14 @@ func (m *Modulo) herrVerificarIdentidad(ctx context.Context, t *turnoIA, l Llama
 		if f.Texto == nil {
 			continue
 		}
-		if _, crudos := taparDocumentosTexto(*f.Texto); len(crudos) > 0 {
-			valor = documentoNormalizado(crudos[0])
+		// Un DPI válido, o lo que el cliente nombró como su documento; nunca un teléfono.
+		if valor = documentoCandidato(*f.Texto, t.telefono); valor != "" {
 			break
 		}
 	}
 	if valor == "" {
-		return rechazo("el cliente todavía no escribió su DPI o NIT completo. Pídeselo."), h
+		// Sin un candidato claro no se gasta un intento: se le pide el dato otra vez.
+		return rechazo("no encuentro un DPI o NIT completo en lo que escribió el cliente. Pídele que lo escriba completo, solo el número."), h
 	}
 	// Argos: 429 demasiados_intentos, 422 metodo_no_disponible o 503 → pasa a una persona, sin reintentar.
 	coincide, errArgos := ver.VerificarIdentidad(ctx, m.atencionTurno(t), t.clienteID, "documento", valor)

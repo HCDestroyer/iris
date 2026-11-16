@@ -338,7 +338,7 @@ func (x *bandejaIA) cerrarHorario() {
 // fuerte deja la conversación con la verificación fuerte (como si ya hubiera pasado el desafío).
 func (x *bandejaIA) fuerte(conv string) {
 	x.t.Helper()
-	if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.conversaciones SET identidad_verificada_en = now() WHERE id = $1`, conv); err != nil {
+	if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.conversaciones SET identidad_verificada_en = $2, identidad_vence_en = $3 WHERE id = $1`, conv, *x.reloj, x.reloj.Add(24*time.Hour)); err != nil {
 		x.t.Fatal(err)
 	}
 }
@@ -438,7 +438,7 @@ func TestAutonomoSaldo(t *testing.T) {
 	x.ia.decir(`{"categoria": "Pagos y saldo", "confianza": 0.95}`)
 	x.guion(dice("Para darte tu saldo, escríbeme tu DPI completo."))
 	x.correr(conv3)
-	for i, malo := range []string{"1111111111111", "2222222222222", "3333333333333"} {
+	for i, malo := range []string{"1111111100101", "2222222200101", "3333333300101"} {
 		x.turno(n3, fmt.Sprintf("wamid.sal3%d", i), "Es "+malo, "Pagos y saldo", llama("verificar_identidad", `{}`), llama("consultar_saldo", `{}`),
 			dice("Ese dato no coincide. ¿Puedes revisarlo y escribirlo completo?"))
 	}

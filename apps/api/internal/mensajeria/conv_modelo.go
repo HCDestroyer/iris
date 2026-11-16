@@ -349,15 +349,40 @@ const (
 	VerificacionFuerte = "fuerte"
 )
 
-// verificacionDe: "" (sin verificar), numero o fuerte.
-func verificacionDe(c mensajeriabd.MensajeriaConversacion) string {
+// verificacionDe: "" (sin verificar), numero o fuerte. La fuerte vale en el periodo abierto en que se
+// obtuvo y solo hasta identidad_vence_en (verificacionFuerteMin de la empresa, 60 min por defecto):
+// después vuelve a «numero» y hay que verificar otra vez.
+func verificacionDe(c mensajeriabd.MensajeriaConversacion, ahora time.Time) string {
 	switch {
 	case c.ClienteID == nil || !c.ClienteVerificado:
 		return ""
-	case c.IdentidadVerificadaEn != nil:
+	case c.Estado != EstadoConvResuelta && c.IdentidadVerificadaEn != nil && c.IdentidadVenceEn != nil && ahora.Before(*c.IdentidadVenceEn):
 		return VerificacionFuerte
 	}
 	return VerificacionNumero
+}
+
+// VerificacionFuerteMinDefecto: minutos que vale la verificación fuerte si la empresa no fijó otro valor.
+const VerificacionFuerteMinDefecto = 60
+
+// fijarVerificacionFuerte deja la conversación con la verificación fuerte desde ahora, por los minutos
+// que fijó la empresa.
+func (m *Modulo) fijarVerificacionFuerte(ctx context.Context, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
+	minutos := int32(VerificacionFuerteMinDefecto)
+	aj, err := leerAjustesAsistente(ctx, q, empresaDeConv(*c))
+	if err != nil {
+		return err
+	}
+	if aj != nil {
+		minutos = aj.VerificacionFuerteMin
+	}
+	ahora := m.ahora()
+	vence := ahora.Add(time.Duration(minutos) * time.Minute)
+	if err := q.FijarIdentidadVerificada(ctx, mensajeriabd.FijarIdentidadVerificadaParams{ID: c.ID, Ahora: &ahora, Vence: &vence}); err != nil {
+		return err
+	}
+	c.IdentidadVerificadaEn, c.IdentidadVenceEn = &ahora, &vence
+	return nil
 }
 
 // usuarioPtr: quién queda como autor (nil = el asistente de IA).
@@ -565,10 +590,10 @@ func ventanaDe(ultimoEntrante *time.Time, ahora time.Time) VentanaConversacion {
 	return VentanaConversacion{Abierta: ahora.Before(cierra), CierraEn: &cierra}
 }
 
-func contactoDeConv(c mensajeriabd.MensajeriaConversacion) ContactoConversacion {
+func contactoDeConv(c mensajeriabd.MensajeriaConversacion, ahora time.Time) ContactoConversacion {
 	k := ContactoConversacion{Tipo: "desconocido", ClienteID: c.ClienteID, ServicioID: c.ServicioID, ContactoIrisID: c.ContactoIrisID,
 		ProspectoID: c.ProspectoID, Asociacion: c.Asociacion, Verificado: c.ClienteID != nil && c.ClienteVerificado}
-	if v := verificacionDe(c); v != "" {
+	if v := verificacionDe(c, ahora); v != "" {
 		k.Verificacion = &v
 	}
 	switch {
@@ -605,10 +630,10 @@ func (m *Modulo) resumirConvs(ctx context.Context, q *mensajeriabd.Queries, usua
 	for _, f := range filas {
 		c := mensajeriabd.MensajeriaConversacion{ID: f.ID, ClienteID: f.ClienteID, ServicioID: f.ServicioID, ContactoIrisID: f.ContactoIrisID,
 			ProspectoID: f.ProspectoID, Asociacion: f.Asociacion, ClienteVerificado: f.ClienteVerificado, VerificadoPor: f.VerificadoPor,
-			IdentidadVerificadaEn: f.IdentidadVerificadaEn}
+			IdentidadVerificadaEn: f.IdentidadVerificadaEn, IdentidadVenceEn: f.IdentidadVenceEn, Estado: f.Estado}
 		v := ConversacionCliente{ID: f.ID, EmpresaID: f.EmpresaID, Version: f.Version,
 			Canal:  CanalRef{ID: f.CanalID, Nombre: f.CanalNombre, Numero: f.CanalNumero, Usos: f.CanalUsos},
-			Numero: f.Numero, PerfilNombre: f.PerfilNombre, Contacto: contactoDeConv(c), Estado: f.Estado, ReabiertaEn: f.ReabiertaEn,
+			Numero: f.Numero, PerfilNombre: f.PerfilNombre, Contacto: contactoDeConv(c, ahora), Estado: f.Estado, ReabiertaEn: f.ReabiertaEn,
 			Etiquetas: etiquetas[f.ID], Ventana: ventanaDe(f.UltimoEntranteEn, ahora),
 			SLA:      estadoSLA(f.SlaVenceEn, f.EsperaDesde, f.SlaRespuestaMin, f.SlaPorVencerMin, ahora),
 			NoLeidos: f.NoLeidos, SoloLectura: f.SoloLectura, UltimaActividad: f.UltimaActividad, CreadaEn: f.CreatedAt,

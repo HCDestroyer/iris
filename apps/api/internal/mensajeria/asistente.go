@@ -63,6 +63,8 @@ type AjustesAsistente struct {
 	PorCola            []AccionesCola    `json:"porCola" required:"false" doc:"Acciones apagadas por cola"`
 	// PresupuestoAutonomoPct: qué parte del tope del mes puede gastar el asistente atendiendo solo.
 	PresupuestoAutonomoPct int32 `json:"presupuestoAutonomoPct" required:"false" doc:"Porcentaje del tope del mes para atender solo (1 a 100; 70 por defecto): así las sugerencias a los agentes no se apagan"`
+	// VerificacionFuerteMin: cuánto vale la verificación fuerte de una conversación desde que se obtuvo.
+	VerificacionFuerteMin int32 `json:"verificacionFuerteMin" required:"false" doc:"Minutos que vale la verificación fuerte de identidad dentro de un periodo de la conversación (5 a 1440; 60 por defecto). Después vuelve a numero y el asistente pide verificar otra vez"`
 }
 
 // EntradaAjustesAsistente es POST /asistente/ajustes/actualizar.
@@ -85,6 +87,7 @@ type EntradaAjustesAsistente struct {
 	Perfiles               []PerfilAsistente `json:"perfiles,omitempty" maxItems:"10" doc:"Reemplaza la lista; el primero es «defecto»"`
 	PorCola                []AccionesCola    `json:"porCola,omitempty" maxItems:"50" doc:"Reemplaza la lista ([] la vacía)"`
 	PresupuestoAutonomoPct *int32            `json:"presupuestoAutonomoPct,omitempty" minimum:"1" maximum:"100" doc:"Ausente = se deja como está"`
+	VerificacionFuerteMin  *int32            `json:"verificacionFuerteMin,omitempty" minimum:"5" maximum:"1440" doc:"Ausente = se deja como está"`
 }
 
 // EstadoAsistente es GET /asistente/estado (para decidir si el panel muestra «Sugerir»).
@@ -233,7 +236,7 @@ func ajustesPorDefecto() AjustesAsistente {
 	return AjustesAsistente{Proveedor: ProveedorOllama, Modo: ModoAsistenteAutomatico,
 		Fuentes: FuentesAsistente{Manuales: true, Argos: true, Horus: true, Historial: true}, TopeTokensMes: TopeTokensPorDefecto,
 		AutonomoDisponible: AutonomoDisponible, ModoAutonomo: AutonomoNunca, EsperaMin: 3, MaxTurnos: 8,
-		Perfiles: []PerfilAsistente{perfilPorDefecto()}, PorCola: []AccionesCola{}, PresupuestoAutonomoPct: 70}
+		Perfiles: []PerfilAsistente{perfilPorDefecto()}, PorCola: []AccionesCola{}, PresupuestoAutonomoPct: 70, VerificacionFuerteMin: VerificacionFuerteMinDefecto}
 }
 
 func aAjustes(f mensajeriabd.MensajeriaAsistenteAjuste) AjustesAsistente {
@@ -241,7 +244,8 @@ func aAjustes(f mensajeriabd.MensajeriaAsistenteAjuste) AjustesAsistente {
 		Fuentes:       FuentesAsistente{Manuales: f.FuenteManuales, Argos: f.FuenteArgos, Horus: f.FuenteHorus, Historial: f.FuenteHistorial},
 		TopeTokensMes: f.TopeTokensMes, PrecioEntradaMillon: textoNumerico(f.PrecioEntradaMillon), PrecioSalidaMillon: textoNumerico(f.PrecioSalidaMillon),
 		Version: f.Version, AutonomoDisponible: AutonomoDisponible, ModoAutonomo: f.ModoAutonomo, EsperaMin: f.EsperaMin, MaxTurnos: f.MaxTurnos,
-		Perfiles: perfilesDe(f.Perfiles), PorCola: porColaDe(f.PorCola), PresupuestoAutonomoPct: f.PresupuestoAutonomoPct}
+		Perfiles: perfilesDe(f.Perfiles), PorCola: porColaDe(f.PorCola), PresupuestoAutonomoPct: f.PresupuestoAutonomoPct,
+		VerificacionFuerteMin: f.VerificacionFuerteMin}
 }
 
 // leerAjustesAsistente: la fila de la empresa o nil.
@@ -550,7 +554,7 @@ func nuevoFijarAjustesAsistente(m *Modulo) *auditoria.Caso[EntradaAjustesAsisten
 					"fuentes": x.Fuentes, "tope_tokens_mes": x.TopeTokensMes, "precio_entrada_millon": x.PrecioEntradaMillon,
 					"precio_salida_millon": x.PrecioSalidaMillon, "clave_guardada": x.ClaveGuardadaEn != nil,
 					"modo_autonomo": x.ModoAutonomo, "espera_min": x.EsperaMin, "max_turnos": x.MaxTurnos, "perfiles": x.Perfiles, "por_cola": x.PorCola,
-					"presupuesto_autonomo_pct": x.PresupuestoAutonomoPct}
+					"presupuesto_autonomo_pct": x.PresupuestoAutonomoPct, "verificacion_fuerte_min": x.VerificacionFuerteMin}
 			}
 			var previo map[string]any
 			if !nuevo {

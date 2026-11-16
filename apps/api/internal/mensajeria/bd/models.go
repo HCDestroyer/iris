@@ -1042,6 +1042,7 @@ type MensajeriaAsistenteAjuste struct {
 	PorCola                []byte
 	ActivadoEn             *time.Time
 	PresupuestoAutonomoPct int32
+	VerificacionFuerteMin  int32
 }
 
 type MensajeriaAsistenteClasificacione struct {
@@ -1066,6 +1067,7 @@ type MensajeriaAsistenteReserva struct {
 	Mes       pgtype.Date
 	Tokens    int64
 	CreadaEn  time.Time
+	Autonomo  bool
 }
 
 type MensajeriaAsistenteTurno struct {
@@ -1085,17 +1087,18 @@ type MensajeriaAsistenteTurno struct {
 }
 
 type MensajeriaAsistenteUso struct {
-	EmpresaID        *int64
-	Mes              pgtype.Date
-	TokensEntrada    int64
-	TokensSalida     int64
-	Sugerencias      int32
-	Resumenes        int32
-	TokensReservados int64
-	Avisado80        bool
-	Avisado100       bool
-	UpdatedAt        time.Time
-	TokensAutonomo   int64
+	EmpresaID                *int64
+	Mes                      pgtype.Date
+	TokensEntrada            int64
+	TokensSalida             int64
+	Sugerencias              int32
+	Resumenes                int32
+	TokensReservados         int64
+	Avisado80                bool
+	Avisado100               bool
+	UpdatedAt                time.Time
+	TokensAutonomo           int64
+	TokensAutonomoReservados int64
 }
 
 type MensajeriaAsistenteVerificacione struct {
@@ -1492,6 +1495,7 @@ type MensajeriaConversacion struct {
 	AsistenteTurnos         int32
 	AsistentePresentoEn     *time.Time
 	IdentidadVerificadaEn   *time.Time
+	IdentidadVenceEn        *time.Time
 	BotDiferidoMensajeID    pgtype.UUID
 }
 
