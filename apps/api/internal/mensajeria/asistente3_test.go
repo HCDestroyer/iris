@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
 )
 
 // Asistente de IA, fase 3a (contratos/conversaciones.md §17): ajustes ampliados, categorías,
@@ -379,6 +381,34 @@ func TestAsistente3ProbarMensajeNoEjecutaNada(t *testing.T) {
 	if len(acc) != 1 || acc[0].(map[string]any)["tipo"] != "agendar_visita" || !strings.Contains(acc[0].(map[string]any)["descripcion"].(string), "2 días") {
 		t.Fatalf("acciones descritas: %v", acc)
 	}
+	// «Pruébalo» refleja exigeVerificacionFuerte.dar_saldo sin guardar: con solo el número o con la
+	// identidad verificada (por defecto).
+	saldo := func(fuerte any) string {
+		t.Helper()
+		acciones := perfilCon(nil, "alta")["acciones"]
+		perfil := map[string]any{"acciones": acciones, "limites": map[string]any{"prioridadMaxima": "alta", "diasAdelanteMax": 2}}
+		if fuerte != nil {
+			perfil["exigeVerificacionFuerte"] = map[string]any{"dar_saldo": fuerte}
+		}
+		modelo("Planes y precios", respuestaIA, []string{"dar_saldo"}, nil)
+		rs := probar(pregunta, map[string]any{"modoAutonomo": "sin_nadie", "perfil": perfil})
+		x.exigir(rs, http.StatusOK, "haria", "responde_solo")
+		as := rs.cuerpo["acciones"].([]any)
+		if len(as) != 1 || as[0].(map[string]any)["tipo"] != "dar_saldo" {
+			t.Fatalf("acciones descritas: %v", as)
+		}
+		return as[0].(map[string]any)["descripcion"].(string)
+	}
+	if d := saldo(false); d != mensajeria.DescripcionSaldoConNumero {
+		t.Fatalf("dar_saldo con solo el número: %q", d)
+	}
+	if d := saldo(true); d != mensajeria.DescripcionSaldoFuerte {
+		t.Fatalf("dar_saldo con verificación fuerte: %q", d)
+	}
+	if d := saldo(nil); d != mensajeria.DescripcionSaldoFuerte {
+		t.Fatalf("dar_saldo sin exigeVerificacionFuerte (por defecto, fuerte): %q", d)
+	}
+	modelo("Planes y precios", respuestaIA, []string{"agendar_visita", "promesa_pago", "borrar_todo"}, nil)
 	f := r.cuerpo["fuentes"].([]any)
 	if len(f) != 1 || f[0].(map[string]any)["etiqueta"] != "Manual «Planes FTTH y WISP»" {
 		t.Fatalf("fuentes: %v", f)

@@ -391,6 +391,19 @@ func TestAutonomoRevision2RespuestasPerdidas(t *testing.T) {
 	if n := x.contar(`SELECT count(*) FROM mensajeria.reconexiones WHERE conversacion_id = $1 AND estado = 'pendiente' AND comprobante_id = 4321 AND intentos = 1`, conv); n != 1 {
 		t.Fatal("el intento no quedó registrado como pendiente")
 	}
+	// Mientras está pendiente no hay mensaje de sistema en el hilo: sale uno solo, con el resultado.
+	enHilo := func(detalle string) int {
+		return x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND evento->>'tipo' = 'reconexion_pedida'
+			AND ($2 = '' OR evento->>'detalle' = $2)`, conv, detalle)
+	}
+	if enHilo("") != 0 {
+		t.Fatal("salió reconexion_pedida con la reconexión todavía pendiente")
+	}
+	defer func() {
+		if !t.Failed() && (enHilo("") != 1 || enHilo("aceptada") != 1) {
+			t.Errorf("reconexion_pedida en el hilo: %d (aceptada %d)", enHilo(""), enHilo("aceptada"))
+		}
+	}()
 	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'conversaciones.pedir_reconexion' AND actor_tipo = 'asistente_ia' AND entidad_id = $1`, conv); n != 1 {
 		t.Fatalf("auditoría del intento: %d", n)
 	}

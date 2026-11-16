@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -114,6 +115,8 @@ type ContactoConversacion struct {
 	Asociacion     *string `json:"asociacion" nullable:"true" enum:"automatica,manual" doc:"automatica: una sola coincidencia del número en la instantánea de Argos"`
 	Verificado     bool    `json:"verificado" doc:"El número coincide con un teléfono del cliente en Argos (o lo confirmó un supervisor). Sin verificar: ni plantillas fuera de ventana, ni boletas, ni promesas"`
 	Verificacion   *string `json:"verificacion" nullable:"true" required:"false" enum:"numero,fuerte" doc:"Nivel de la verificación (§17.8): numero = el número coincide; fuerte = lo confirmó una persona o pasó el desafío de identidad de Argos. null: sin verificar"`
+	// VerificacionVenceEn: hasta cuándo vale la verificación fuerte (la vigencia efectiva, §17.8.2).
+	VerificacionVenceEn *time.Time `json:"verificacionVenceEn" nullable:"true" required:"false" doc:"Solo con verificacion = fuerte: cuándo vence (después vuelve a numero). null en cualquier otro caso"`
 }
 
 // VentanaConversacion es la ventana de 24 h de WhatsApp.
@@ -172,7 +175,7 @@ type ConversacionCliente struct {
 
 // ActividadAsistente es la línea del asistente en la lista (§17.4).
 type ActividadAsistente struct {
-	Tipo  string    `json:"tipo" enum:"clasifico,sugirio,transfirio,respondio_manual,respondio_falla,respondio,ticket_creado,visita_agendada,boleta_enviada,saldo_informado,promesa_pedida,reconexion_pedida,espera_persona"`
+	Tipo  string    `json:"tipo" enum:"clasifico,sugirio,transfirio,respondio_manual,respondio_falla,respondio,ticket_creado,visita_agendada,boleta_enviada,saldo_informado,promesa_pedida,reconexion_pedida,identidad_verificada,espera_persona"`
 	Texto string    `json:"texto" doc:"Texto corto en español ya armado (nunca texto del cliente ni montos)"`
 	En    time.Time `json:"en"`
 }
@@ -181,6 +184,8 @@ type ActividadAsistente struct {
 type AsistenteConv struct {
 	Estado string `json:"estado" enum:"atendiendo,espera_persona,detenido"`
 	Turnos int32  `json:"turnos"`
+	// MotivoPaso: por qué pasó la conversación a una persona (solo con estado espera_persona).
+	MotivoPaso *string `json:"motivoPaso" nullable:"true" required:"false" enum:"cliente_lo_pidio,enojo,sin_respuesta,herramienta_fallo,max_turnos,tope,asistente_apagado" doc:"Solo con estado = espera_persona: el motivo del relevo, de lista cerrada (asistente_apagado: apagaron el modo autónomo o se llegó al tope mientras atendía). null en cualquier otro caso"`
 }
 
 // EsperaConversacion es lo que el panel muestra de una conversación sin asignar (fase 1.1).
@@ -260,7 +265,7 @@ type PlantillaMensaje struct {
 
 // EventoSistema es un mensaje de sistema («Andrea creó TK-004812»): el panel arma el texto.
 type EventoSistema struct {
-	Tipo           string  `json:"tipo" doc:"conversacion_creada, asignada, tomada, transferida, resuelta, reabierta, etiquetada, cliente_asociado, contacto_iris_creado, ticket_creado, orden_creada, prospecto_creado, boleta_registrada, boleta_fallida, promesa_creada, respondio_aviso, fuera_de_horario, guardia_avisada, manual_enviado; 1.1: aviso_sin_atender, bot_atendio, menu_elegido, pasada, iniciada"`
+	Tipo           string  `json:"tipo" doc:"conversacion_creada, asignada, tomada, transferida, resuelta, reabierta, etiquetada, cliente_asociado, contacto_iris_creado, ticket_creado, orden_creada, prospecto_creado, boleta_registrada, boleta_fallida, promesa_creada, respondio_aviso, fuera_de_horario, guardia_avisada, manual_enviado; 1.1: aviso_sin_atender, bot_atendio, menu_elegido, pasada, iniciada; 3b: reconexion_pedida (detalle: aceptada | rechazada), identidad_verificada (detalle: coincide | no_coincide | no_disponible | demasiados_intentos | supervisor)"`
 	ActorNombre    *string `json:"actorNombre,omitempty"`
 	AsignadoNombre *string `json:"asignadoNombre,omitempty"`
 	ColaNombre     *string `json:"colaNombre,omitempty"`
@@ -360,11 +365,24 @@ func verificacionDe(c mensajeriabd.MensajeriaConversacion, ahora time.Time, vige
 	switch {
 	case c.ClienteID == nil || !c.ClienteVerificado:
 		return ""
-	case c.Estado != EstadoConvResuelta && c.IdentidadVerificadaEn != nil && c.IdentidadVenceEn != nil && ahora.Before(*c.IdentidadVenceEn) &&
-		ahora.Before(c.IdentidadVerificadaEn.Add(vigencia)):
+	case c.Estado != EstadoConvResuelta && ahora.Before(venceFuerte(c, vigencia)):
 		return VerificacionFuerte
 	}
 	return VerificacionNumero
+}
+
+// venceFuerte: hasta cuándo vale la verificación fuerte de la conversación (la vigencia efectiva: el
+// mínimo entre identidad_vence_en e identidad_verificada_en + vigencia). Sin verificación fuerte, la
+// hora cero (ya vencida).
+func venceFuerte(c mensajeriabd.MensajeriaConversacion, vigencia time.Duration) time.Time {
+	if c.IdentidadVerificadaEn == nil || c.IdentidadVenceEn == nil {
+		return time.Time{}
+	}
+	vence := *c.IdentidadVenceEn
+	if otro := c.IdentidadVerificadaEn.Add(vigencia); otro.Before(vence) {
+		vence = otro
+	}
+	return vence
 }
 
 // vigenciaFuerte: el verificacionFuerteMin actual de la empresa.
@@ -378,6 +396,34 @@ func vigenciaFuerte(ctx context.Context, q *mensajeriabd.Queries, empresa int64)
 	}
 	return time.Duration(aj.VerificacionFuerteMin) * time.Minute, nil
 }
+
+// motivosDePaso: los motivos de relevo que el panel puede pintar (lista cerrada).
+var motivosDePaso = []string{PasoClientePidio, PasoEnojo, PasoSinRespuesta, PasoHerramientaFallo, PasoMaxTurnos, PasoTope, PasoAsistenteApagado}
+
+// PasoAsistenteApagado: apagaron el modo autónomo (o se llegó al tope) mientras el asistente atendía;
+// la conversación vuelve al camino normal sin un turno que lo registre.
+const PasoAsistenteApagado = "asistente_apagado"
+
+// fijarMotivoPaso deja en la conversación por qué el asistente la pasó a una persona.
+func fijarMotivoPaso(ctx context.Context, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion, motivo string) error {
+	if !slices.Contains(motivosDePaso, motivo) {
+		return nil
+	}
+	if err := q.FijarMotivoPaso(ctx, mensajeriabd.FijarMotivoPasoParams{ID: c.ID, Motivo: &motivo}); err != nil {
+		return err
+	}
+	c.AsistenteMotivoPaso = &motivo
+	return nil
+}
+
+// Detalles del mensaje de sistema identidad_verificada (lista cerrada; nunca el documento).
+const (
+	IdentidadCoincide           = "coincide"
+	IdentidadNoCoincide         = "no_coincide"
+	IdentidadNoDisponible       = "no_disponible"
+	IdentidadDemasiadosIntentos = "demasiados_intentos"
+	IdentidadSupervisor         = "supervisor"
+)
 
 // VerificacionFuerteMinDefecto: minutos que vale la verificación fuerte si la empresa no fijó otro valor.
 const VerificacionFuerteMinDefecto = 60
@@ -612,6 +658,10 @@ func contactoDeConv(c mensajeriabd.MensajeriaConversacion, ahora time.Time, vige
 		ProspectoID: c.ProspectoID, Asociacion: c.Asociacion, Verificado: c.ClienteID != nil && c.ClienteVerificado}
 	if v := verificacionDe(c, ahora, vigencia); v != "" {
 		k.Verificacion = &v
+		if v == VerificacionFuerte {
+			vence := venceFuerte(c, vigencia)
+			k.VerificacionVenceEn = &vence
+		}
 	}
 	switch {
 	case c.ClienteID != nil:
@@ -675,6 +725,9 @@ func (m *Modulo) resumirConvs(ctx context.Context, q *mensajeriabd.Queries, usua
 		}
 		if f.AsistenteEstado != nil {
 			v.Asistente = &AsistenteConv{Estado: *f.AsistenteEstado, Turnos: f.AsistenteTurnos}
+			if *f.AsistenteEstado == AsistenteEsperaPersona && f.AsistenteMotivoPaso != nil && slices.Contains(motivosDePaso, *f.AsistenteMotivoPaso) {
+				v.Asistente.MotivoPaso = f.AsistenteMotivoPaso
+			}
 		}
 		if v.Etiquetas == nil {
 			v.Etiquetas = []EtiquetaRef{}

@@ -1409,6 +1409,9 @@ func (m *Modulo) pasarAPersona(ctx context.Context, t *auditoria.Tx, c *mensajer
 		return err
 	}
 	*c = g
+	if err := fijarMotivoPaso(ctx, q, c, in.Paso); err != nil {
+		return err
+	}
 	if err := m.actividad(ctx, q, c, "espera_persona", "Espera a una persona"); err != nil {
 		return err
 	}

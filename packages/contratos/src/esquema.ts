@@ -7240,7 +7240,7 @@ export interface components {
             /** @description Texto corto en español ya armado (nunca texto del cliente ni montos) */
             texto: string;
             /** @enum {string} */
-            tipo: "clasifico" | "sugirio" | "transfirio" | "respondio_manual" | "respondio_falla" | "respondio" | "ticket_creado" | "visita_agendada" | "boleta_enviada" | "saldo_informado" | "promesa_pedida" | "reconexion_pedida" | "espera_persona";
+            tipo: "clasifico" | "sugirio" | "transfirio" | "respondio_manual" | "respondio_falla" | "respondio" | "ticket_creado" | "visita_agendada" | "boleta_enviada" | "saldo_informado" | "promesa_pedida" | "reconexion_pedida" | "identidad_verificada" | "espera_persona";
         };
         ActividadCampo: {
             /**
@@ -7574,6 +7574,11 @@ export interface components {
         AsistenteConv: {
             /** @enum {string} */
             estado: "atendiendo" | "espera_persona" | "detenido";
+            /**
+             * @description Solo con estado = espera_persona: el motivo del relevo, de lista cerrada (asistente_apagado: apagaron el modo autónomo o se llegó al tope mientras atendía). null en cualquier otro caso
+             * @enum {string|null}
+             */
+            motivoPaso?: "cliente_lo_pidio" | "enojo" | "sin_respuesta" | "herramienta_fallo" | "max_turnos" | "tope" | "asistente_apagado" | null;
             /** Format: int32 */
             turnos: number;
         };
@@ -8608,6 +8613,11 @@ export interface components {
              * @enum {string|null}
              */
             verificacion?: "numero" | "fuerte" | null;
+            /**
+             * Format: date-time
+             * @description Solo con verificacion = fuerte: cuándo vence (después vuelve a numero). null en cualquier otro caso
+             */
+            verificacionVenceEn?: string | null;
             /** @description El número coincide con un teléfono del cliente en Argos (o lo confirmó un supervisor). Sin verificar: ni plantillas fuera de ventana, ni boletas, ni promesas */
             verificado: boolean;
         };
@@ -12005,7 +12015,7 @@ export interface components {
             plantilla?: string;
             /** @description TK-…, OT-…, PR-… */
             referencia?: string;
-            /** @description conversacion_creada, asignada, tomada, transferida, resuelta, reabierta, etiquetada, cliente_asociado, contacto_iris_creado, ticket_creado, orden_creada, prospecto_creado, boleta_registrada, boleta_fallida, promesa_creada, respondio_aviso, fuera_de_horario, guardia_avisada, manual_enviado; 1.1: aviso_sin_atender, bot_atendio, menu_elegido, pasada, iniciada */
+            /** @description conversacion_creada, asignada, tomada, transferida, resuelta, reabierta, etiquetada, cliente_asociado, contacto_iris_creado, ticket_creado, orden_creada, prospecto_creado, boleta_registrada, boleta_fallida, promesa_creada, respondio_aviso, fuera_de_horario, guardia_avisada, manual_enviado; 1.1: aviso_sin_atender, bot_atendio, menu_elegido, pasada, iniciada; 3b: reconexion_pedida (detalle: aceptada | rechazada), identidad_verificada (detalle: coincide | no_coincide | no_disponible | demasiados_intentos | supervisor) */
             tipo: string;
         };
         EventoTicket: {
@@ -14248,6 +14258,8 @@ export interface components {
         };
         PerfilPrueba: {
             acciones: components["schemas"]["AccionesAsistente"];
+            /** @description Ausente = true en todo. dar_saldo: false = «Pruébalo» describe dar el saldo con solo el número */
+            exigeVerificacionFuerte?: components["schemas"]["VerificacionFuerteAcciones"];
             limites: components["schemas"]["LimitesAsistente"];
         };
         Periodo: {
