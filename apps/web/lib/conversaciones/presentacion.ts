@@ -171,8 +171,10 @@ export function textoEvento(e: EventoSistema): string {
         case "boleta_registrada":
             return `${actor} mandó la boleta a Argos`;
         case "boleta_aprobada":
-            return "Caja aprobó la boleta";
+            // B3: con `actorNombre` la decidió una persona desde la conversación; sin él, caja en Argos.
+            return `${e.actorNombre ? actor : "Caja"} aprobó la boleta${ref ? ` ${ref}` : ""}`;
         case "boleta_rechazada":
+            return `${e.actorNombre ? actor : "Caja"} rechazó la boleta${ref ? ` ${ref}` : ""}${e.detalle ? `: ${e.detalle}` : ""}`;
         case "boleta_fallida":
             return `Argos no aceptó la boleta${e.detalle ? `: ${e.detalle}` : ""}`;
         case "promesa_creada":

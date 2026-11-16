@@ -39,6 +39,7 @@ import { useSesion } from "@/lib/sesion";
 import { AvatarDisponible, EstadoDisponible } from "./disponibilidad";
 import { SelectorCliente } from "@/componentes/clientes/selector-cliente";
 import { AyudaManuales } from "./ayuda";
+import { BoletasConversacion } from "./boletas";
 import { ResumenAsistente } from "./resumen-asistente";
 import type { EstadoAsistente } from "@/lib/asistente/tipos";
 import { useAhora } from "./reloj";
@@ -310,6 +311,7 @@ function Resumen({ conv }: { conv: ConversacionDetalle; recargar: () => Promise<
     const abiertos = (conv.vinculos ?? []).filter((v) => v.tipo === "ticket" || v.tipo === "orden").slice(-3);
     return (
         <div>
+            <BoletasConversacion conv={conv} />
             <Seccion titulo="Creado desde aquí">
                 {abiertos.length === 0 ? <p className="text-[0.8125rem] text-muted-foreground">Todavía no hay tickets ni órdenes de esta conversación.</p> : null}
                 <ul className="grid gap-1.5">
