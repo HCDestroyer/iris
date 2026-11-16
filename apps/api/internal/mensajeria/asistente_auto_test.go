@@ -1030,3 +1030,72 @@ func TestAutonomoPromesa(t *testing.T) {
 		t.Fatalf("actividad: %v", a)
 	}
 }
+
+// Boleta y reconexión temporal: el asistente registra el comprobante (nunca lo aprueba) y pide la
+// reconexión a Argos como asistente_ia; Argos decide.
+func TestAutonomoBoletaYReconexion(t *testing.T) {
+	x := nuevaBandejaIA(t)
+	x.autonomo("siempre_primero", map[string]any{"perfiles": []any{perfilCon(map[string]any{"reconexion_temporal": true}, "alta")}})
+	conv, _ := x.conClienteArgos()
+	num := x.numeroDe(conv)
+	*x.reloj = x.reloj.Add(21 * time.Second)
+	x.ia.decir(`{"categoria": "Pagos y saldo", "confianza": 0.95}`)
+	// Sin foto todavía: registrar la boleta se rechaza; sin boleta, la reconexión también.
+	x.guion(llama("registrar_boleta", `{"metodo": "deposito", "cuenta_bancaria_id": 3, "banco_origen_id": 0, "referencia": "998877", "monto": "250.00", "fecha_deposito": "2026-11-04"}`),
+		llama("pedir_reconexion", `{}`), dice("Por favor mándame la foto de tu boleta."))
+	x.correr(conv)
+	if a := strings.Join(x.acciones(conv), ","); a != "recibir_boleta:rechazada,reconexion_temporal:rechazada,responder:ok" {
+		t.Fatalf("sin foto: %s", a)
+	}
+	// El cliente manda la foto.
+	x.webhook(x.mensajeCliente(num, "wamid.bo1", `"type":"image","image":{"id":"boleta1","mime_type":"image/jpeg"}`))
+	ms := x.mensajes(x.supervisor, conv)
+	if err := x.m.DescargarMedio(x.ctx, uuid.MustParse(ms[len(ms)-1]["id"].(string)), false); err != nil {
+		t.Fatal(err)
+	}
+	*x.reloj = x.reloj.Add(21 * time.Second)
+	x.guion(llama("cuentas_para_boleta", `{}`),
+		pasoFalso{llamadas: []llamadaFalsa{
+			// Una cuenta que no es de la empresa y una fecha futura: rechazadas.
+			{"registrar_boleta", `{"metodo": "deposito", "cuenta_bancaria_id": 77, "banco_origen_id": 0, "referencia": "998877", "monto": "250.00", "fecha_deposito": "2026-11-04"}`},
+			{"registrar_boleta", `{"metodo": "deposito", "cuenta_bancaria_id": 3, "banco_origen_id": 0, "referencia": "998877", "monto": "250.00", "fecha_deposito": "2026-11-04"}`},
+		}}, dice("Recibí tu boleta. Caja la revisa y te confirmamos."))
+	x.correr(conv)
+	if a := strings.Join(x.acciones(conv)[3:], ","); a != "cuentas_para_boleta:ok,recibir_boleta:rechazada,recibir_boleta:ok,responder:ok" {
+		t.Fatalf("boleta: %s", a)
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.boletas WHERE conversacion_id = $1 AND registrada_por IS NULL AND estado = 'por_enviar'`, conv); n != 1 {
+		t.Fatalf("boleta del asistente: %d", n)
+	}
+	// Va a Argos como asistente_ia; queda pendiente para caja (el asistente no aprueba).
+	if err := x.m.DespacharBoletas(x.ctx, x.bd); err != nil {
+		t.Fatal(err)
+	}
+	x.argos.mu.Lock()
+	actor := x.argos.actores[len(x.argos.actores)-1].Actor
+	x.argos.mu.Unlock()
+	if actor != "asistente_ia" {
+		t.Fatalf("X-Iris-Actor del comprobante: %s", actor)
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.boletas WHERE conversacion_id = $1 AND estado = 'registrada' AND comprobante_id IS NOT NULL`, conv); n != 1 {
+		t.Fatal("la boleta no quedó registrada en Argos")
+	}
+	// Ya con comprobante, pide la reconexión temporal: Argos decide.
+	c := x.turno(num, "wamid.bo2", "¿Me pueden reconectar mientras tanto?", "Pagos y saldo", llama("pedir_reconexion", `{}`),
+		dice("Listo: tienes una reconexión temporal mientras caja revisa tu boleta."))
+	x.argos.mu.Lock()
+	rec := append([]int64{}, x.argos.reconexiones...)
+	x.argos.mu.Unlock()
+	if len(rec) != 1 || c["actividadAsistente"].(map[string]any)["tipo"] != "reconexion_pedida" {
+		t.Fatalf("reconexión: %v %v (acciones %v)", rec, c["actividadAsistente"], x.acciones(conv))
+	}
+	// Con la acción apagada (perfil por defecto) la herramienta no existe.
+	x.autonomo("siempre_primero", map[string]any{"perfiles": []any{perfilCon(nil, "alta")}})
+	x.turno(num, "wamid.bo3", "Reconéctenme otra vez", "Pagos y saldo", llama("pedir_reconexion", `{}`), dice("No puedo hacer eso por aquí."))
+	x.argos.mu.Lock()
+	n := len(x.argos.reconexiones)
+	x.argos.mu.Unlock()
+	if n != 1 {
+		t.Fatal("pidió una reconexión con la acción apagada")
+	}
+}

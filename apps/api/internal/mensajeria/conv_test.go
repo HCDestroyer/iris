@@ -52,6 +52,22 @@ type argosFalso struct {
 	cuentas int
 	// alLeerCuenta corre mientras «Argos» atiende el estado de cuenta.
 	alLeerCuenta func()
+	// reconexiones: los comprobantes para los que se pidió una reconexión temporal (§7.3).
+	reconexiones []int64
+	errReconex   error
+}
+
+// PedirReconexionTemporal: la reconexión temporal ligada a un comprobante (mensajeria.ArgosReconexion).
+func (f *argosFalso) PedirReconexionTemporal(_ context.Context, a argos.AtencionIris, comprobante int64, _ *int64, _, clave string) (int64, time.Time, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.actores = append(f.actores, a)
+	if f.errReconex != nil {
+		return 0, time.Time{}, f.errReconex
+	}
+	f.reconexiones = append(f.reconexiones, comprobante)
+	f.claves = append(f.claves, clave)
+	return 900 + comprobante, time.Date(2026, 11, 6, 16, 0, 0, 0, time.UTC), nil
 }
 
 func (f *argosFalso) BuscarPorTelefono(_ context.Context, a argos.AtencionIris, _ string) ([]argos.ClienteTelefono, error) {
