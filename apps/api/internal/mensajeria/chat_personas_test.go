@@ -19,15 +19,25 @@ func TestChatTecnicoEscribeASoporteYDespacho(t *testing.T) {
 	despacho := e.persona(uno, rolBase("despacho"))
 	otraEmpresa := e.persona([]int64{2}, rolBase("soporte"))
 
-	ids := func(r respuesta) map[int64]bool {
-		e.exigir(r, http.StatusOK)
+	// Todas las páginas: la base de pruebas del paquete acumula personas de otras pruebas.
+	ids := func(quien persona) map[int64]bool {
 		vistos := map[int64]bool{}
-		for _, p := range lista(r) {
-			vistos[numero(p["id"])] = true
+		cursor := ""
+		for range 50 {
+			r := e.chat(quien, http.MethodGet, "/personas?limit=200"+cursor, "", nil)
+			e.exigir(r, http.StatusOK)
+			for _, p := range lista(r) {
+				vistos[numero(p["id"])] = true
+			}
+			siguiente, _ := r.cuerpo["nextCursor"].(string)
+			if siguiente == "" {
+				break
+			}
+			cursor = "&cursor=" + siguiente
 		}
 		return vistos
 	}
-	vistos := ids(e.personasChat(tecnico))
+	vistos := ids(tecnico)
 	if !vistos[soporte.id] || !vistos[despacho.id] {
 		t.Fatalf("faltan soporte o despacho (sin cuadrilla) en personas: %v", vistos)
 	}
@@ -38,7 +48,7 @@ func TestChatTecnicoEscribeASoporteYDespacho(t *testing.T) {
 		e.exigir(e.chat(tecnico, http.MethodPost, "/directas", "", map[string]any{"usuario_id": p.id}), http.StatusCreated, "tipo", "directa")
 	}
 	// Y al revés: soporte también encuentra al técnico.
-	if !ids(e.personasChat(soporte))[tecnico.id] {
+	if !ids(soporte)[tecnico.id] {
 		t.Fatal("soporte no ve al técnico en personas")
 	}
 	// Alguien de otra empresa no se abre.

@@ -733,6 +733,12 @@ type ComercialUmbralesFactibilidad struct {
 	UpdatedAt time.Time
 }
 
+type IntegracionAbrirArgosCuota struct {
+	UsuarioID int64
+	Inicio    time.Time
+	Pedidos   int32
+}
+
 type IntegracionArgosCliente struct {
 	ID                  int64
 	EmpresaID           int64
@@ -1154,28 +1160,42 @@ type MensajeriaAviso struct {
 }
 
 type MensajeriaBoleta struct {
-	ID               uuid.UUID
-	EmpresaID        *int64
-	ConversacionID   int64
-	ClienteID        int64
-	ServicioID       *int64
-	AdjuntoID        uuid.UUID
-	Metodo           string
-	CuentaBancariaID int64
-	BancoOrigenID    *int64
-	Referencia       string
-	Monto            pgtype.Numeric
-	FechaDeposito    pgtype.Date
-	Nota             *string
-	Estado           string
-	ComprobanteID    *int64
-	Detalle          *string
-	Intentos         int32
-	ProximoIntento   time.Time
-	RegistradaPor    *int64
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	PorAsistente     bool
+	ID                  uuid.UUID
+	EmpresaID           *int64
+	ConversacionID      int64
+	ClienteID           int64
+	ServicioID          *int64
+	AdjuntoID           uuid.UUID
+	Metodo              string
+	CuentaBancariaID    int64
+	BancoOrigenID       *int64
+	Referencia          string
+	Monto               pgtype.Numeric
+	FechaDeposito       pgtype.Date
+	Nota                *string
+	Estado              string
+	ComprobanteID       *int64
+	Detalle             *string
+	Intentos            int32
+	ProximoIntento      time.Time
+	RegistradaPor       *int64
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	DecididaEn          *time.Time
+	DecididaPor         *int64
+	PagoID              *int64
+	MotivoRechazo       *string
+	CausaRechazo        *string
+	VerificadoPorNombre *string
+	AvisoCliente        *string
+	AvisoMensajeID      *uuid.UUID
+	Resolucion          []byte
+	ResolucionEn        *time.Time
+	ResolucionProximo   *time.Time
+	ResolucionIntentos  int32
+	ResolucionError     *string
+	ResolucionAgotadaEn *time.Time
+	PorAsistente        bool
 }
 
 type MensajeriaCanalPrestamo struct {

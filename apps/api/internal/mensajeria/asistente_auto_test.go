@@ -891,7 +891,7 @@ func TestAutonomoTopeYLimites(t *testing.T) {
 		t.Fatal(err)
 	}
 	antes = x.autonomos()
-	c = x.turno(n6, "wamid.t8", "¿Y ahora?", "Planes y precios", dice("No debería salir"))
+	_ = x.turno(n6, "wamid.t8", "¿Y ahora?", "Planes y precios", dice("No debería salir"))
 	if x.autonomos() != antes {
 		t.Fatal("un número sin cliente pasó de 10 turnos en el día")
 	}
@@ -1335,7 +1335,7 @@ func TestAutonomoBoletaYReconexion(t *testing.T) {
 		t.Fatal("reconexión desde otra empresa")
 	}
 	// Una frase que da la reconexión por hecha sin que la herramienta la haya obtenido no se envía (M6).
-	c = x.turno(num, "wamid.bo5", "¿Entonces ya quedó?", "Pagos y saldo", dice("Sí, tu servicio ya fue reconectado y tu pago fue aprobado."))
+	_ = x.turno(num, "wamid.bo5", "¿Entonces ya quedó?", "Pagos y saldo", dice("Sí, tu servicio ya fue reconectado y tu pago fue aprobado."))
 	for _, m := range x.delAsistente(conv) {
 		if strings.Contains(textoDe(m), "ya fue reconectado") {
 			t.Fatal("afirmó una reconexión y un pago aprobado sin respaldo")

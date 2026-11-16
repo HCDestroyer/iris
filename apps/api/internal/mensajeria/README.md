@@ -190,7 +190,53 @@ Contrato completo: `.claude/integration/contratos/conversaciones.md`. Código en
 
 Emite (detalle en `contratos/eventos.md`, «Conversaciones con clientes»): `conversacion.*`,
 `contacto_iris.*` (también `contacto_iris.consentimiento`), `cola.*`, `etiqueta.*`, `respuesta_rapida.*`, `boleta.*`, `promesa.solicitada`.
-No consume eventos (los webhooks `comprobante.*` / `promesa.*` de Argos quedan para la fase 1.1).
+Consume `argos.comprobante_resuelto` (webhooks `comprobante.*` de Argos; ver «Aprobar y rechazar boletas»). Los
+webhooks `promesa.*` quedan para la fase 1.1.
+
+### Aprobar y rechazar boletas (`boletas_decidir.go`, `boletas_rutas.go`, `boletas.sql`)
+
+Contrato con Argos 0.7.0 §7.7 (pedido B3); la API está en `contratos/conversaciones.md` §6.4.1.
+
+- **Acciones:** `POST /boletas/{id}/aprobar` (`boletas.aprobar`) y `POST /boletas/{id}/rechazar`
+  (`boletas.rechazar`); `GET /boletas/{id}` y `GET /conversaciones/{id}/boletas` con `puedeDecidir`.
+  Solo una persona con sesión del panel que vea la conversación (token, integración o el sistema —así
+  actúa el asistente de IA—: 403 `solo_personas`).
+- **Llamadas sincrónicas contra Argos fuera de transacción** (como las promesas, y nunca por
+  `integracion.pendientes`): un caso previo revisa permiso, visibilidad, estado y contrato ≥ 0.7.0;
+  se llama a Argos (`X-Iris-Actor: usuario:<id>`, `X-Iris-Conversacion`, `iris:aprobar:<comprobante>` /
+  `iris:rechazar:<comprobante>`) y un caso final guarda lo que Argos decidió. Los errores de Argos se
+  traducen en `alFallar` (nunca su `detail`). Argos caído: 502 `argos_no_disponible`.
+- **Idempotencia propia** (`rutaBoletaPropia`): el middleware no guarda la respuesta; la clave hacia
+  Argos sale del comprobante y repetir la misma decisión devuelve la boleta como quedó.
+- **Solo Argos cambia el estado** (`aplicarResolucion`, con la boleta en `FOR UPDATE`): la respuesta
+  200 de Argos, o lo que diga `GET /comprobantes/:id` al confirmar un webhook o en una relectura
+  (`comprobante_revisado`, `otra_persona_decidio`). De `registrada` a resuelta, una vez: mensaje de
+  sistema, aviso al cliente, auditoría y `boleta.aprobada` / `boleta.rechazada`. Mismo estado: solo
+  completa quién decidió. Otro estado: gana Argos (`boleta.corregida`, sin otro aviso). Orden de
+  candados: boleta y después conversación (igual que el despacho de boletas).
+- **Aviso al cliente** (`avisarBoleta`, `motivoParaCliente`): texto con la ventana abierta; plantilla
+  aprobada y permiso con la ventana cerrada; si no, `sin_aviso`. En un rechazo va un texto fijo
+  según la causa (`textosCausa`); el motivo libre (de Iris o de la caja de Argos) solo se agrega si
+  pasa `motivoSeguro` (sin enlaces, dominios ni 6 o más dígitos).
+- **Auditoría:** el intento queda auditado antes de llamar a Argos (`fase: intento`). Si el guardado
+  falla después del 200 (la persona ya no puede), lo aplica el sistema (`respuesta_sin_sesion`).
+- **Quién decidió:** la persona de la sesión en la respuesta directa; en webhook y relectura, el
+  `verificado_iris_actor` del comprobante (0.7.1, opcional) si es un usuario persona de esta
+  instalación. Nunca `iris_actor` (es quien registró la boleta).
+- **`montoEsperado`** (`exigirMonto`): se compara con la boleta y con el comprobante releído antes de
+  aprobar; si no coincide, 409 `monto_cambio` con `montoActual`.
+- **Webhook:** es solo un aviso. El worker (`SuscribirComprobantes`) exige `empresa_id` y marca la
+  boleta de ese comprobante en esa empresa (`boletas.resolucion`). El despacho de este proceso
+  (`despacharResoluciones`, cada 10 s) la confirma pasada `GraciaResolucion` (20 s): relee
+  `GET /comprobantes/:id`, valida comprobante, canal `iris` y empresa, y aplica lo que diga Argos. Si
+  no se confirma, cuenta el intento y espera (`EsperasConfirmacion`); agotados, queda marcada
+  (`confirmacionArgos: agotada`, `boleta.confirmacion_agotada`). Un error en una boleta, o en otro
+  despacho del mismo job, no corta la corrida. El worker no encola envíos de WhatsApp: por eso
+  aplica este proceso.
+- **Un comprobante es de una sola boleta por empresa** (índice único parcial).
+
+Emite `boleta.aprobada`, `boleta.rechazada`, `boleta.corregida` y `boleta.confirmacion_agotada`;
+consume `argos.comprobante_resuelto`.
 
 ### Horarios, fuera de horario y manuales (`horarios.go`, `fuera_horario.go`, `manuales.go`, `horarios.sql`)
 

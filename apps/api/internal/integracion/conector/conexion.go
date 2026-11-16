@@ -838,9 +838,14 @@ func nuevoObtenerEnlaces(n *Nucleo) *auditoria.Caso[struct{}, EnlacesExternos] {
 	return auditoria.Nuevo(auditoria.Caso[struct{}, EnlacesExternos]{
 		// Mismo permiso que ver los datos de Argos (los enlaces llevan a sus fichas): un token o
 		// usuario sin clientes.ver no conoce los orígenes de Argos ni de Horus. No es operativa.
-		Accion: "integraciones.enlaces", Permiso: nucleo.PermClientesVer, SinEmpresa: true,
+		// Con clientes.ver («Ver en …») o con integraciones.abrir_argos (el panel valida contra este
+		// origen la URL del autologin Iris → Argos): uno u otro.
+		Accion: "integraciones.enlaces", Acceso: auditoria.Autenticado, SinEmpresa: true,
 		AuditarExito: soloLecturas[EnlacesExternos],
 		Logica: func(ctx context.Context, t *auditoria.Tx, _ struct{}) (EnlacesExternos, error) {
+			if p := contexto.PermisosDe(ctx); !p.Tiene(string(nucleo.PermClientesVer)) && !p.Tiene(string(nucleo.PermIntegracionesAbrirArgos)) {
+				return EnlacesExternos{}, nucleo.Prohibido("Falta el permiso " + string(nucleo.PermClientesVer) + " o " + string(nucleo.PermIntegracionesAbrirArgos))
+			}
 			filas, err := conectorbd.New(t).ConectoresActivos(ctx)
 			if err != nil {
 				return EnlacesExternos{}, err

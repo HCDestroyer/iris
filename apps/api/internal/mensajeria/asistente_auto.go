@@ -697,13 +697,6 @@ func (m *Modulo) arriendoTurno() time.Duration {
 	return (MaxPasosTurno+2)*m.cfg.PlazoIA + 2*time.Minute
 }
 
-func siNo(b bool) string {
-	if b {
-		return "sí"
-	}
-	return "no"
-}
-
 // reURL: un enlace con esquema (los únicos que el asistente puede repetir, si vienen de un manual
 // «Para el cliente»).
 var reURL = regexp.MustCompile(`(?i)\bhttps?://[^\s<>"'‹›)\]]+`)
