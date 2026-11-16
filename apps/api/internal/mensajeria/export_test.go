@@ -148,4 +148,17 @@ func InicioEntrantes(resuelta, reabierta *time.Time) time.Time {
 func (m *Modulo) ArriendoTurno() time.Duration { return m.arriendoTurno() }
 
 // DocumentoCandidato: el dato que verificar_identidad mandaría a Argos ("" = no hay uno claro).
-func DocumentoCandidato(texto, telefono string) string { return documentoCandidato(texto, telefono) }
+func DocumentoCandidato(texto, telefono string) string {
+	v, _ := documentoCandidato(texto, telefono)
+	return v
+}
+
+func DocumentoNombradoInvalido(texto, telefono string) bool {
+	_, inv := documentoCandidato(texto, telefono)
+	return inv
+}
+
+func PayloadTapado(payload []byte, wamid string) []byte {
+	b, _, _ := payloadTapado(payload, wamid)
+	return b
+}

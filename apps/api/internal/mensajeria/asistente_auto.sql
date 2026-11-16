@@ -116,6 +116,11 @@ SELECT EXISTS (
 -- name: FijarIdentidadVerificada :exec
 UPDATE mensajeria.conversaciones SET identidad_verificada_en = @ahora, identidad_vence_en = @vence, updated_at = now() WHERE id = @id;
 
+-- name: RechazosVerificacionConv :one
+-- Veces que verificar_identidad se rechazó en la conversación (dato inválido o que no coincide).
+SELECT count(*)::bigint FROM mensajeria.asistente_acciones
+WHERE conversacion_id = @conversacion_id AND accion = 'verificar_identidad' AND resultado = 'rechazada' AND creada_en >= @desde;
+
 -- name: FijarVerificacionFuerteMin :exec
 UPDATE mensajeria.asistente_ajustes SET verificacion_fuerte_min = @minutos, updated_at = now() WHERE id = @id;
 

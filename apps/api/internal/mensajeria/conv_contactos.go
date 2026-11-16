@@ -302,7 +302,11 @@ func nuevoConfirmarCliente(m *Modulo) *auditoria.Caso[EntradaAccionConv, Convers
 				}
 				// La confirmación de una persona da la verificación fuerte de este periodo (se pierde al
 				// resolver): confirmar otra vez después de reabrir la vuelve a dar.
-				if c.ClienteVerificado && verificacionDe(*c, m.ahora()) == VerificacionFuerte {
+				vig, err := vigenciaFuerte(ctx, q, empresaDeConv(*c))
+				if err != nil {
+					return err
+				}
+				if c.ClienteVerificado && verificacionDe(*c, m.ahora(), vig) == VerificacionFuerte {
 					return nil
 				}
 				// Con la conversación resuelta se confirma el cliente, pero no hay periodo abierto: la

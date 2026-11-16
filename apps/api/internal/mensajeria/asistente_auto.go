@@ -184,6 +184,8 @@ type turnoIA struct {
 	puedeDecir map[string]bool
 	// telefono: el número de WhatsApp del cliente (nunca se manda como documento).
 	telefono string
+	// vigencia: el verificacionFuerteMin de la empresa (el nivel se recalcula en cada herramienta).
+	vigencia time.Duration
 }
 
 // resultadoTurno es cómo terminó el bucle (lo auditado: ids, motivo y tokens; nunca el texto).
@@ -677,7 +679,7 @@ func (m *Modulo) prepararTurno(ctx context.Context, t *auditoria.Tx, in entradaT
 	if k.Condicion != nil {
 		switch *k.Condicion {
 		case CondicionSoloVerificados:
-			if verificacionDe(c, m.ahora()) == "" {
+			if verificacionDe(c, m.ahora(), 0) == "" {
 				return noAplica(PasoSinRespuesta)
 			}
 		case CondicionSiHayFalla:
@@ -788,9 +790,10 @@ func (m *Modulo) prepararTurno(ctx context.Context, t *auditoria.Tx, in entradaT
 	if err != nil {
 		return nada, err
 	}
-	nivel := verificacionDe(c, ahora)
+	vigencia := time.Duration(aj.VerificacionFuerteMin) * time.Minute
+	nivel := verificacionDe(c, ahora, vigencia)
 	tu := &turnoIA{cfg: cfg, acciones: acciones, limites: perfil.Limites, maxTurnos: aj.MaxTurnos, servicioID: c.ServicioID,
-		verificado: nivel != "", fuerte: nivel == VerificacionFuerte, saldoFuerte: perfil.saldoFuerte, desde: inicioEntrantes(c), telefono: c.Numero,
+		verificado: nivel != "", fuerte: nivel == VerificacionFuerte, saldoFuerte: perfil.saldoFuerte, desde: inicioEntrantes(c), telefono: c.Numero, vigencia: vigencia,
 		presentado: c.AsistentePresentoEn != nil, hechas: map[string]bool{}}
 	if c.ClienteID != nil {
 		tu.clienteID = *c.ClienteID

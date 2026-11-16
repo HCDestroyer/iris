@@ -1,6 +1,7 @@
 package mensajeria
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"regexp"
@@ -114,19 +115,31 @@ func taparEntranteMeta(ctx context.Context, q *mensajeriabd.Queries, canal int64
 		return err
 	}
 	for _, f := range filas {
-		var v any
-		if json.Unmarshal(f.Payload, &v) != nil || !taparTextoDeMensaje(v, wamid) {
-			continue
-		}
-		nuevo, err := json.Marshal(v)
+		nuevo, cambio, err := payloadTapado(f.Payload, wamid)
 		if err != nil {
 			return err
+		}
+		if !cambio {
+			continue
 		}
 		if err := q.FijarPayloadEntrante(ctx, mensajeriabd.FijarPayloadEntranteParams{ID: f.ID, Payload: nuevo}); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// payloadTapado devuelve el payload con el texto de ese mensaje tapado. UseNumber: los números del
+// payload (ids, marcas de tiempo) se reescriben tal como llegaron, sin pasar por float64.
+func payloadTapado(payload []byte, wamid string) ([]byte, bool, error) {
+	var v any
+	dec := json.NewDecoder(bytes.NewReader(payload))
+	dec.UseNumber()
+	if dec.Decode(&v) != nil || !taparTextoDeMensaje(v, wamid) {
+		return nil, false, nil
+	}
+	nuevo, err := json.Marshal(v)
+	return nuevo, err == nil, err
 }
 
 // taparTextoDeMensaje recorre el payload y tapa el texto del mensaje con ese id. Dice si cambió algo.
@@ -204,13 +217,14 @@ func nitValido(d string) bool {
 }
 
 // documentoCandidato elige, del texto del cliente, el dato que se manda a Argos para verificar la
-// identidad: un DPI válido; si no, lo que el cliente nombró como «nit», «dpi», «cui» o «documento»;
-// si no, un NIT válido que no sea un teléfono. Sin un candidato claro devuelve "" (se le pide el dato
-// otra vez, sin gastar un intento): un teléfono o un número cualquiera nunca se manda.
-func documentoCandidato(texto, telefono string) string {
-	esTelefono := func(d string) bool {
-		return (len(d) == 8 && d[0] >= '2' && d[0] <= '7') || (len(d) >= 8 && telefono != "" && strings.HasSuffix(telefono, d)) ||
-			(len(d) == 11 && strings.HasPrefix(d, "502"))
+// identidad: un DPI válido; si no, lo que el cliente nombró como «nit», «dpi», «cui» o «documento»
+// (aunque parezca un teléfono: lo nombró como documento), salvo que sea el número del chat; si no, un
+// NIT válido que no parezca un teléfono. Sin un candidato claro devuelve "" (se le pide el dato otra
+// vez, sin gastar un intento). invalido: nombró un documento de 13 dígitos que no es un DPI válido.
+func documentoCandidato(texto, telefono string) (valor string, invalido bool) {
+	esDelChat := func(d string) bool { return len(d) >= 8 && telefono != "" && strings.HasSuffix(telefono, d) }
+	pareceTelefono := func(d string) bool {
+		return (len(d) == 8 && d[0] >= '2' && d[0] <= '7') || esDelChat(d) || (len(d) == 11 && strings.HasPrefix(d, "502"))
 	}
 	var nombrados, sueltos []string
 	for _, g := range reDocClave.FindAllStringSubmatchIndex(texto, -1) {
@@ -221,18 +235,22 @@ func documentoCandidato(texto, telefono string) string {
 	}
 	for _, d := range append(append([]string{}, nombrados...), sueltos...) {
 		if cuiValido(d) {
-			return d
+			return d, false
 		}
 	}
 	for _, d := range nombrados {
-		if len(d) >= 7 && len(d) <= 13 && !esTelefono(d) {
-			return d
+		switch {
+		case esDelChat(d):
+		case len(d) == 13:
+			invalido = true
+		case len(d) >= 7 && len(d) <= 12:
+			return d, false
 		}
 	}
 	for _, d := range sueltos {
-		if nitValido(d) && !esTelefono(d) {
-			return d
+		if nitValido(d) && !pareceTelefono(d) {
+			return d, false
 		}
 	}
-	return ""
+	return "", invalido
 }

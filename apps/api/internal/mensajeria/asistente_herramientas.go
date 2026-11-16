@@ -196,9 +196,13 @@ func (m *Modulo) ejecutarHerramienta(ctx context.Context, t *turnoIA, l LlamadaI
 	if c.ClienteID != nil {
 		clienteAhora = *c.ClienteID
 	}
-	if clienteAhora != t.clienteID || (verificacionDe(c, m.ahora()) != "") != t.verificado {
+	nivel := verificacionDe(c, m.ahora(), t.vigencia)
+	if clienteAhora != t.clienteID || (nivel != "") != t.verificado {
 		return resHerramienta{fallo: true}
 	}
+	// El nivel se recalcula en cada herramienta: si la verificación fuerte venció a mitad del turno,
+	// las acciones de dinero que siguen ya no la tienen.
+	t.fuerte = nivel == VerificacionFuerte
 	var res resHerramienta
 	hecha := accionHecha{Accion: accion}
 	switch l.Nombre {
@@ -341,8 +345,12 @@ func (m *Modulo) herrEstadoServicio(ctx context.Context, t *turnoIA, l LlamadaIA
 		}
 		h.actividadTipo, h.actividadTexto = "respondio_falla", "Respondió: falla en "+zona
 	}
-	// El modelo puede decir el estado que leyó («tu servicio está activo»).
-	t.permitir(ResActivo)
+	// El modelo puede decir «tu servicio está activo» solo si algún servicio vino activo.
+	if slices.ContainsFunc(svs, func(s mensajeriabd.ServiciosClienteAsistenteRow) bool {
+		return strings.EqualFold(strings.TrimSpace(s.Estado), "activo")
+	}) {
+		t.permitir(ResActivo)
+	}
 	return resHerramienta{contenido: b.String()}, h
 }
 
@@ -679,15 +687,29 @@ func (m *Modulo) herrVerificarIdentidad(ctx context.Context, t *turnoIA, l Llama
 	if err != nil {
 		return resHerramienta{fallo: true}, h
 	}
-	valor := ""
+	valor, invalido := "", false
 	for _, f := range ms {
 		if f.Texto == nil {
 			continue
 		}
-		// Un DPI válido, o lo que el cliente nombró como su documento; nunca un teléfono.
-		if valor = documentoCandidato(*f.Texto, t.telefono); valor != "" {
+		// Un DPI válido, o lo que el cliente nombró como su documento; nunca el número del chat.
+		var inv bool
+		if valor, inv = documentoCandidato(*f.Texto, t.telefono); valor != "" {
 			break
 		}
+		invalido = invalido || inv
+	}
+	if valor == "" && invalido {
+		// Nombró un DPI que no puede ser un DPI (dígito verificador): no se manda a Argos ni gasta un
+		// intento; se le pide otra vez y, si vuelve a pasar, sigue una persona.
+		previos, err := q.RechazosVerificacionConv(ctx, mensajeriabd.RechazosVerificacionConvParams{ConversacionID: t.conv, Desde: m.ahora().Add(-24 * time.Hour)})
+		if err != nil {
+			return resHerramienta{fallo: true}, h
+		}
+		if previos >= 1 {
+			return resHerramienta{paso: PasoHerramientaFallo, resumen: "El cliente escribió dos veces un DPI que no es válido."}, h
+		}
+		return rechazo("el DPI que escribió el cliente no es válido (le falta o le sobra un dígito). Pídele que lo revise y lo escriba completo."), h
 	}
 	if valor == "" {
 		// Sin un candidato claro no se gasta un intento: se le pide el dato otra vez.

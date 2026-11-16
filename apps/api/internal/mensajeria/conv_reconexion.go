@@ -121,7 +121,11 @@ func nuevoPedirReconexion(m *Modulo) *PedirReconexion {
 				return previaReconexion{}, reglaConv("sin_cliente", "Asocia la conversación a un cliente de Argos antes de pedir una reconexión")
 			}
 			// Mueve el estado de un servicio: exige la verificación fuerte.
-			if verificacionDe(c, m.ahora()) != VerificacionFuerte {
+			vig, err := vigenciaFuerte(ctx, q, empresaDeConv(c))
+			if err != nil {
+				return previaReconexion{}, err
+			}
+			if verificacionDe(c, m.ahora(), vig) != VerificacionFuerte {
 				return previaReconexion{}, reglaConv("verificacion_requerida", "La reconexión temporal exige verificar la identidad del cliente")
 			}
 			b, err := q.UltimaBoletaConv(ctx, mensajeriabd.UltimaBoletaConvParams{ConversacionID: c.ID, ClienteID: *c.ClienteID, Empresa: empresaDeConv(c)})

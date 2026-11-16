@@ -663,6 +663,24 @@ func (q *Queries) PurgarTurnosAsistente(ctx context.Context, antes time.Time) er
 	return err
 }
 
+const rechazosVerificacionConv = `-- name: RechazosVerificacionConv :one
+SELECT count(*)::bigint FROM mensajeria.asistente_acciones
+WHERE conversacion_id = $1 AND accion = 'verificar_identidad' AND resultado = 'rechazada' AND creada_en >= $2
+`
+
+type RechazosVerificacionConvParams struct {
+	ConversacionID int64
+	Desde          time.Time
+}
+
+// Veces que verificar_identidad se rechazó en la conversación (dato inválido o que no coincide).
+func (q *Queries) RechazosVerificacionConv(ctx context.Context, arg RechazosVerificacionConvParams) (int64, error) {
+	row := q.db.QueryRow(ctx, rechazosVerificacionConv, arg.ConversacionID, arg.Desde)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const reconexionParaActualizar = `-- name: ReconexionParaActualizar :one
 SELECT id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, intentos, resuelta_en, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at FROM mensajeria.reconexiones WHERE id = $1 FOR UPDATE
 `

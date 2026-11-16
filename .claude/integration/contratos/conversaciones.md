@@ -2350,7 +2350,11 @@ auditoría (`conversaciones.verificar_identidad`) y emite `conversacion.identida
 **Vigencia de `fuerte`.** Vale solo en el periodo abierto en que se obtuvo y, dentro de él,
 `verificacionFuerteMin` minutos (60 por defecto). Se pierde al resolver **y al reabrir** (el trigger
 la borra en los dos sentidos). `confirmar-cliente` sobre una conversación resuelta confirma el
-cliente pero no da `fuerte`.
+cliente pero no da `fuerte`. La vigencia efectiva es el **mínimo** entre lo fijado al verificar y
+`identidad_verificada_en` + el `verificacionFuerteMin` **actual**: si la empresa acorta el ajuste,
+las verificaciones ya dadas también se acortan; alargarlo no alarga ni revive ninguna. El nivel se
+recalcula en cada herramienta: si vence a mitad de un turno, las acciones de dinero que siguen se
+rechazan.
 
 **Decisión del líder (16 nov 2026): qué nivel exige cada acción.** `registrar_boleta` se queda en
 nivel `numero`: solo registra el comprobante que mandó el cliente; no mueve dinero ni cambia el
@@ -2361,8 +2365,10 @@ ya dan el saldo por teléfono con solo el número). `promesa_pago` y `reconexion
 
 **Qué documento se manda a Argos.** `verificar_identidad` elige un DPI válido (13 dígitos, con su
 dígito verificador), o lo que el cliente nombró como «nit», «dpi», «cui» o «documento», o un NIT
-válido; nunca un teléfono. Si no hay un candidato claro, le pide el dato otra vez **sin gastar un
-intento** ni llamar a Argos.
+válido. Lo que el cliente nombró como documento se manda aunque parezca un teléfono, salvo que sea
+el número del chat; un número suelto que parece teléfono, nunca. Si no hay un candidato claro, le
+pide el dato otra vez **sin gastar un intento** ni llamar a Argos. Un DPI nombrado con dígito
+verificador inválido tampoco gasta intento: se le pide otra vez y, a la segunda, pasa a una persona.
 
 **Boleta.** El adjunto debe haber llegado en este periodo de la conversación y después de la última
 boleta; cada adjunto vale para una sola boleta; máximo 3 boletas por conversación y día. La boleta
@@ -2392,7 +2398,8 @@ hasta 10 intentos; después queda `rechazada` (`sin_respuesta`) para que la revi
   internet», «te reconectaremos») solo pasan si en ese turno una herramienta devolvió ese resultado: un ticket o una
   boleta permiten «registrado»; una promesa activa, «registrada», «aceptada», «aprobada» y
   «confirmada»; una reconexión aceptada, «reconectado», «restaurado», «activo», «aceptada» y «confirmada»; una
-  boleta registrada, además, «recibida»; `estado_del_servicio`, «activo». Un pago aprobado o
+  boleta registrada, además, «recibida»; `estado_del_servicio`, «activo» solo si algún servicio vino
+  activo en su resultado. Un pago aprobado o
   aplicado no lo devuelve ninguna herramienta: nunca pasa. Si no, el mensaje no se envía y pasa a una
   persona (`sin_respuesta`).
 - Si el cliente pregunta si habla con una persona («alguien real», «humano», «persona de verdad»,

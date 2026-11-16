@@ -352,14 +352,31 @@ const (
 // verificacionDe: "" (sin verificar), numero o fuerte. La fuerte vale en el periodo abierto en que se
 // obtuvo y solo hasta identidad_vence_en (verificacionFuerteMin de la empresa, 60 min por defecto):
 // después vuelve a «numero» y hay que verificar otra vez.
-func verificacionDe(c mensajeriabd.MensajeriaConversacion, ahora time.Time) string {
+//
+// vigencia es el verificacionFuerteMin ACTUAL de la empresa: la vigencia efectiva es el mínimo entre
+// identidad_vence_en (lo fijado al verificar) e identidad_verificada_en + vigencia. Así, si la empresa
+// acorta el ajuste, las verificaciones ya dadas también se acortan (nunca se alargan).
+func verificacionDe(c mensajeriabd.MensajeriaConversacion, ahora time.Time, vigencia time.Duration) string {
 	switch {
 	case c.ClienteID == nil || !c.ClienteVerificado:
 		return ""
-	case c.Estado != EstadoConvResuelta && c.IdentidadVerificadaEn != nil && c.IdentidadVenceEn != nil && ahora.Before(*c.IdentidadVenceEn):
+	case c.Estado != EstadoConvResuelta && c.IdentidadVerificadaEn != nil && c.IdentidadVenceEn != nil && ahora.Before(*c.IdentidadVenceEn) &&
+		ahora.Before(c.IdentidadVerificadaEn.Add(vigencia)):
 		return VerificacionFuerte
 	}
 	return VerificacionNumero
+}
+
+// vigenciaFuerte: el verificacionFuerteMin actual de la empresa.
+func vigenciaFuerte(ctx context.Context, q *mensajeriabd.Queries, empresa int64) (time.Duration, error) {
+	aj, err := leerAjustesAsistente(ctx, q, empresa)
+	if err != nil {
+		return 0, err
+	}
+	if aj == nil {
+		return VerificacionFuerteMinDefecto * time.Minute, nil
+	}
+	return time.Duration(aj.VerificacionFuerteMin) * time.Minute, nil
 }
 
 // VerificacionFuerteMinDefecto: minutos que vale la verificación fuerte si la empresa no fijó otro valor.
@@ -590,10 +607,10 @@ func ventanaDe(ultimoEntrante *time.Time, ahora time.Time) VentanaConversacion {
 	return VentanaConversacion{Abierta: ahora.Before(cierra), CierraEn: &cierra}
 }
 
-func contactoDeConv(c mensajeriabd.MensajeriaConversacion, ahora time.Time) ContactoConversacion {
+func contactoDeConv(c mensajeriabd.MensajeriaConversacion, ahora time.Time, vigencia time.Duration) ContactoConversacion {
 	k := ContactoConversacion{Tipo: "desconocido", ClienteID: c.ClienteID, ServicioID: c.ServicioID, ContactoIrisID: c.ContactoIrisID,
 		ProspectoID: c.ProspectoID, Asociacion: c.Asociacion, Verificado: c.ClienteID != nil && c.ClienteVerificado}
-	if v := verificacionDe(c, ahora); v != "" {
+	if v := verificacionDe(c, ahora, vigencia); v != "" {
 		k.Verificacion = &v
 	}
 	switch {
@@ -626,14 +643,22 @@ func (m *Modulo) resumirConvs(ctx context.Context, q *mensajeriabd.Queries, usua
 	}
 	ahora := m.ahora()
 	disp := map[[2]int64][]UsuarioRef{}
+	vigencias := map[int64]time.Duration{}
 	porID := make(map[int64]ConversacionCliente, len(filas))
 	for _, f := range filas {
 		c := mensajeriabd.MensajeriaConversacion{ID: f.ID, ClienteID: f.ClienteID, ServicioID: f.ServicioID, ContactoIrisID: f.ContactoIrisID,
 			ProspectoID: f.ProspectoID, Asociacion: f.Asociacion, ClienteVerificado: f.ClienteVerificado, VerificadoPor: f.VerificadoPor,
 			IdentidadVerificadaEn: f.IdentidadVerificadaEn, IdentidadVenceEn: f.IdentidadVenceEn, Estado: f.Estado}
+		if _, ok := vigencias[derefEmpresa(f.EmpresaID)]; !ok {
+			v, err := vigenciaFuerte(ctx, q, derefEmpresa(f.EmpresaID))
+			if err != nil {
+				return nil, err
+			}
+			vigencias[derefEmpresa(f.EmpresaID)] = v
+		}
 		v := ConversacionCliente{ID: f.ID, EmpresaID: f.EmpresaID, Version: f.Version,
 			Canal:  CanalRef{ID: f.CanalID, Nombre: f.CanalNombre, Numero: f.CanalNumero, Usos: f.CanalUsos},
-			Numero: f.Numero, PerfilNombre: f.PerfilNombre, Contacto: contactoDeConv(c, ahora), Estado: f.Estado, ReabiertaEn: f.ReabiertaEn,
+			Numero: f.Numero, PerfilNombre: f.PerfilNombre, Contacto: contactoDeConv(c, ahora, vigencias[derefEmpresa(f.EmpresaID)]), Estado: f.Estado, ReabiertaEn: f.ReabiertaEn,
 			Etiquetas: etiquetas[f.ID], Ventana: ventanaDe(f.UltimoEntranteEn, ahora),
 			SLA:      estadoSLA(f.SlaVenceEn, f.EsperaDesde, f.SlaRespuestaMin, f.SlaPorVencerMin, ahora),
 			NoLeidos: f.NoLeidos, SoloLectura: f.SoloLectura, UltimaActividad: f.UltimaActividad, CreadaEn: f.CreatedAt,
