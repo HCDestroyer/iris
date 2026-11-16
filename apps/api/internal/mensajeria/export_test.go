@@ -58,6 +58,9 @@ func (m *Modulo) DespacharResoluciones(ctx context.Context, bd nucleo.BD) error 
 	return m.despacharResoluciones(ctxSistema(ctx, bd), bd)
 }
 
+// MotivoParaCliente es lo que el cliente lee del rechazo: texto fijo por causa y, si pasa el filtro, el motivo libre.
+func MotivoParaCliente(causa string, libre *string) string { return motivoParaCliente(&causa, libre) }
+
 // DecidirBoletas da los casos de aprobar y rechazar (para probar actores que no entran por HTTP).
 func (m *Modulo) DecidirBoletas() *DecidirBoleta { return m.boletas }
 

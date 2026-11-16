@@ -9,6 +9,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
@@ -216,13 +217,15 @@ func TestAbrirArgosPermisosYErrores(t *testing.T) {
 	_, id := e.conectado070()
 	ruta := "/api/v1/integraciones/argosisp/abrir"
 	// Los roles que ven la bandeja o los clientes lo tienen; lectura (solo consulta) no.
-	for _, rol := range []string{"supervisor", "despacho", "soporte", "ventas", "tecnico", "caja"} {
+	for _, rol := range []string{"supervisor", "despacho", "soporte", "ventas", "caja"} {
 		if r := e.usuario(rol).pedir(http.MethodPost, ruta, map[string]any{}); r.status != 200 {
 			t.Fatalf("%s: %d %s", rol, r.status, r.crudo)
 		}
 	}
-	if r := e.usuario("lectura").pedir(http.MethodPost, ruta, map[string]any{}); r.status != 403 {
-		t.Fatalf("lectura: %d %s", r.status, r.crudo)
+	for _, rol := range []string{"lectura", "tecnico"} {
+		if r := e.usuario(rol).pedir(http.MethodPost, ruta, map[string]any{}); r.status != 403 {
+			t.Fatalf("%s: %d %s", rol, r.status, r.crudo)
+		}
 	}
 	if r := e.anonimo().pedir(http.MethodPost, ruta, map[string]any{}); r.status != 401 {
 		t.Fatalf("anónimo: %d %s", r.status, r.crudo)
@@ -255,8 +258,30 @@ func TestAbrirArgosPermisosYErrores(t *testing.T) {
 		soporte.pedir(http.MethodPost, ruta, map[string]any{}).problema(t, 502, "argos_rechazo")
 	}
 	e.argos.con(func() { e.argos.sso.url = "" })
-	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'usuario.argos_abierto' AND (payload->>'usuario_id')::bigint = $1`, e.idDe(soporte)); n != 0 {
-		t.Fatalf("un enlace que no se entregó no emite el evento: %d", n)
+	// Un conector sin panel_url guardado: el enlace solo vale en el host de su API (base_url), nunca
+	// en un host libre.
+	e.exec(`UPDATE integracion.conectores SET panel_url = NULL WHERE id = $1`, id)
+	soporte.pedir(http.MethodPost, ruta, map[string]any{}).problema(t, 502, "argos_rechazo")
+	e.argos.con(func() { e.argos.sso.url = e.argos.srv.URL + "/sso/entrar#" + ticketSSO + "base" })
+	if r := soporte.pedir(http.MethodPost, ruta, map[string]any{}); r.status != 200 || r.cuerpo["url"] != e.argos.srv.URL+"/sso/entrar#"+ticketSSO+"base" {
+		t.Fatalf("sin panel_url, en el host de la API: %d %s", r.status, r.crudo)
+	}
+	e.exec(`UPDATE integracion.conectores SET panel_url = $2 WHERE id = $1`, id, panelArgos)
+	e.argos.con(func() { e.argos.sso.url = "" })
+	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'usuario.argos_abierto' AND (payload->>'usuario_id')::bigint = $1`, e.idDe(soporte)); n != 1 {
+		t.Fatalf("solo el enlace entregado emite el evento: %d", n)
+	}
+
+	// En una sesión abierta por el autologin desde Argos hay que re-autenticarse antes de pedir el
+	// enlace hacia Argos (como con los permisos sensibles).
+	uid := e.idDe(soporte)
+	sso := contexto.ConSesion(pruebas.ContextoUsuario(e.pool, uid, nucleo.PermIntegracionesAbrirArgos), contexto.Sesion{ID: 1, UsuarioID: uid, Origen: contexto.OrigenSesionSSO})
+	if _, err := e.mod.AbrirArgos.Ejecutar(sso, argos.EntradaAbrirArgos{}); !esProblema(err, "reautenticacion_requerida") {
+		t.Fatalf("sesión sso sin re-autenticar: %v", err)
+	}
+	reaut := contexto.ConSesion(sso, contexto.Sesion{ID: 1, UsuarioID: uid, Origen: contexto.OrigenSesionSSO, Reautenticada: true})
+	if _, err := e.mod.AbrirArgos.Ejecutar(reaut, argos.EntradaAbrirArgos{}); err != nil {
+		t.Fatalf("sesión sso re-autenticada: %v", err)
 	}
 
 	// Argos informa un contrato anterior a 0.7.0.

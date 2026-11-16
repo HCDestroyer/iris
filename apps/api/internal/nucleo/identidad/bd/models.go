@@ -733,6 +733,12 @@ type ComercialUmbralesFactibilidad struct {
 	UpdatedAt time.Time
 }
 
+type IntegracionAbrirArgosCuota struct {
+	UsuarioID int64
+	Inicio    time.Time
+	Pedidos   int32
+}
+
 type IntegracionArgosCliente struct {
 	ID                  int64
 	EmpresaID           int64
@@ -1113,6 +1119,10 @@ type MensajeriaBoleta struct {
 	AvisoMensajeID      pgtype.UUID
 	Resolucion          []byte
 	ResolucionEn        *time.Time
+	ResolucionProximo   *time.Time
+	ResolucionIntentos  int32
+	ResolucionError     *string
+	ResolucionAgotadaEn *time.Time
 }
 
 type MensajeriaCanalPrestamo struct {

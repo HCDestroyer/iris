@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -29,7 +28,7 @@ import (
 //
 // La URL lleva el ticket: nunca se guarda (auditoría «***», evento sin URL, respuesta no repetible).
 
-// TopeAbrirArgos es cuántos enlaces puede pedir una persona por minuto.
+// TopeAbrirArgos es cuántos enlaces puede pedir una persona por minuto (contado en Postgres).
 const TopeAbrirArgos = 10
 
 const rutaTicketsArgos = "/integraciones/iris/sso/tickets"
@@ -56,9 +55,6 @@ type AbrirArgos struct {
 	m      *Modulo
 	previo *auditoria.Caso[EntradaAbrirArgos, previoAbrir]
 	final  *auditoria.Caso[abrirAuditado, struct{}]
-
-	mu     sync.Mutex
-	cuotas map[int64]ventanaCuota
 }
 
 type previoAbrir struct {
@@ -89,7 +85,7 @@ func soloPersonas(que string) *nucleo.Problema {
 }
 
 func nuevoAbrirArgos(m *Modulo) *AbrirArgos {
-	k := &AbrirArgos{m: m, cuotas: map[int64]ventanaCuota{}}
+	k := &AbrirArgos{m: m}
 	k.previo = auditoria.Nuevo(auditoria.Caso[EntradaAbrirArgos, previoAbrir]{
 		Accion: "integraciones.abrir_argos", Permiso: nucleo.PermIntegracionesAbrirArgos, SinEmpresa: true,
 		AuditarExito: func(previoAbrir) bool { return false },
@@ -113,7 +109,11 @@ func nuevoAbrirArgos(m *Modulo) *AbrirArgos {
 			if !SoportaAprobarComprobantes(c.ContratoRemoto) {
 				return previoAbrir{}, SinAprobacion()
 			}
-			if espera := k.tomar(actor.ID, time.Now()); espera > 0 {
+			espera, err := tomarCuotaAbrir(ctx, t, actor.ID)
+			if err != nil {
+				return previoAbrir{}, err
+			}
+			if espera > 0 {
 				return previoAbrir{}, nucleo.DemasiadosIntentos("demasiados_intentos",
 					"Pediste demasiados enlaces a Argos en el último minuto; espera un momento", espera)
 			}
@@ -138,27 +138,25 @@ func nuevoAbrirArgos(m *Modulo) *AbrirArgos {
 	return k
 }
 
-// tomar descuenta un pedido de la cuota del usuario; si ya no tiene, devuelve cuánto falta para
-// que se abra otra ventana (0 = puede seguir). La cuota vive en el proceso, como las de lecturas.
-func (k *AbrirArgos) tomar(usuario int64, ahora time.Time) time.Duration {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	v := k.cuotas[usuario]
-	if ahora.Sub(v.inicio) >= time.Minute {
-		v = ventanaCuota{inicio: ahora}
-		// Limpieza perezosa: las ventanas vencidas de otros usuarios no se acumulan.
-		for u, o := range k.cuotas {
-			if ahora.Sub(o.inicio) >= time.Minute {
-				delete(k.cuotas, u)
-			}
-		}
+// tomarCuotaAbrir cuenta un pedido en la ventana de un minuto del usuario
+// (integracion.abrir_argos_cuotas: en la base, vale con varias réplicas de la API; la fila serializa
+// los pedidos simultáneos). Pasado el tope devuelve cuánto falta para la siguiente ventana (0 = puede
+// seguir); el pedido rechazado no cuenta (la transacción del caso se revierte).
+func tomarCuotaAbrir(ctx context.Context, q conector.DBTX, usuario int64) (time.Duration, error) {
+	var pedidos int
+	var restante float64
+	err := q.QueryRow(ctx, `INSERT INTO integracion.abrir_argos_cuotas AS c (usuario_id, inicio, pedidos) VALUES ($1, clock_timestamp(), 1)
+		ON CONFLICT (usuario_id) DO UPDATE SET
+			inicio = CASE WHEN c.inicio <= clock_timestamp() - interval '1 minute' THEN clock_timestamp() ELSE c.inicio END,
+			pedidos = CASE WHEN c.inicio <= clock_timestamp() - interval '1 minute' THEN 1 ELSE c.pedidos + 1 END
+		RETURNING pedidos, extract(epoch FROM (inicio + interval '1 minute' - clock_timestamp()))::float8`, usuario).Scan(&pedidos, &restante)
+	if err != nil {
+		return 0, err
 	}
-	if v.n >= TopeAbrirArgos {
-		return time.Minute - ahora.Sub(v.inicio)
+	if pedidos <= TopeAbrirArgos {
+		return 0, nil
 	}
-	v.n++
-	k.cuotas[usuario] = v
-	return 0
+	return max(time.Duration(restante*float64(time.Second)), time.Second), nil
 }
 
 type ticketArgos struct {
@@ -197,7 +195,8 @@ func (k *AbrirArgos) Ejecutar(ctx context.Context, in EntradaAbrirArgos) (Enlace
 }
 
 // validar revisa lo que respondió Argos: una URL http(s) a /sso/entrar con el ticket en el
-// fragmento y, si Iris conoce el panel de Argos, en ese mismo host. Lo que no cumple no se le
+// fragmento y en el host del panel de Argos que Iris guardó en el canje (panel_url) o, si el
+// conector no lo tiene, en el de su API (base_url). Nunca un host libre: lo que no cumple no se le
 // entrega al navegador.
 func (k *AbrirArgos) validar(c conector.Leido, r ticketArgos) (EnlaceArgos, error) {
 	inesperada := conector.Rechazo(Remoto, "Argos respondió un enlace de autologin que Iris no reconoce")
@@ -208,10 +207,12 @@ func (k *AbrirArgos) validar(c conector.Leido, r ticketArgos) (EnlaceArgos, erro
 	if u.Scheme != "https" && (u.Scheme != "http" || !k.m.cfg.PermitirHTTP) {
 		return EnlaceArgos{}, inesperada
 	}
-	if c.PanelUrl != nil && *c.PanelUrl != "" {
-		if panel, err := url.Parse(*c.PanelUrl); err == nil && panel.Host != "" && !strings.EqualFold(panel.Host, u.Host) {
-			return EnlaceArgos{}, inesperada
-		}
+	conocido := c.BaseUrl
+	if c.PanelUrl != nil && strings.TrimSpace(*c.PanelUrl) != "" {
+		conocido = *c.PanelUrl
+	}
+	if panel, err := url.Parse(strings.TrimSpace(conocido)); err != nil || panel.Host == "" || !strings.EqualFold(panel.Host, u.Host) {
+		return EnlaceArgos{}, inesperada
 	}
 	expira, err := time.Parse(time.RFC3339, r.ExpiraEn)
 	if err != nil {

@@ -36,10 +36,13 @@ type Comprobante struct {
 	CausaRechazo  *string `json:"causa_rechazo"`
 	// VerificadoPorNombre: el usuario de Argos que decidió (el vinculado, o caja en el panel).
 	VerificadoPorNombre *string `json:"verificado_por_nombre"`
-	// IrisActor e IrisConversacion: las cabeceras de §7.1 con que se decidió desde Iris (null si
-	// decidió caja en el panel de Argos).
+	// IrisActor e IrisConversacion: las cabeceras de §7.1 con que Iris REGISTRÓ el comprobante (quien
+	// mandó la boleta). No dicen quién lo aprobó o rechazó.
 	IrisActor        *string `json:"iris_actor"`
 	IrisConversacion *string `json:"iris_conversacion"`
+	// VerificadoIrisActor (contrato 0.7.1, opcional): el X-Iris-Actor de quien lo aprobó o rechazó
+	// desde Iris; null si se decidió en el panel de Argos. Argos 1.15.0 no lo manda.
+	VerificadoIrisActor *string `json:"verificado_iris_actor"`
 }
 
 // Estados de un comprobante en Argos.
