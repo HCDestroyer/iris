@@ -1,6 +1,7 @@
 import type { Schema } from "@iris/contratos";
 import type { Route } from "@playwright/test";
 import type { AjustesAsistente, EstadoAsistente, Sugerencia, UsoAsistente } from "../lib/asistente/tipos";
+import { extrasDe, type ApiFase3, type OpcionesFase3 } from "./api-asistente3";
 
 /*
  * Asistente de IA en la API falsa (contratos/conversaciones.md §16): estado, ajustes (con
@@ -57,6 +58,8 @@ export type OpcionesAsistente = {
     /** La fuente de Argos de la sugerencia inicial: al día (por defecto) o con saldo vencido. */
     saldo?: "al_dia" | "vencido";
     uso?: Partial<Pick<UsoAsistente, "porcentaje" | "pausado" | "mes">>;
+    /** Fase 3 (§17, e2e/api-asistente3.ts): atiende solo, categorías, «Pruébalo» y efecto. */
+    fase3?: OpcionesFase3;
 };
 
 /** El `detail` único de §16.1 cuando el proveedor falla (no sirve para escanear puertos). */
@@ -102,10 +105,11 @@ const demasiados = (route: Route, codigo: "demasiados_pedidos" | "demasiadas_sug
 const ahora = () => new Date().toISOString();
 
 /** Sin `opciones` el asistente está apagado y sin sugerencias (las demás pruebas de la bandeja no lo ven). */
-export function apiAsistente(e: Contexto, opcionesDadas?: OpcionesAsistente) {
+export function apiAsistente(e: Contexto, opcionesDadas: OpcionesAsistente | undefined, fase3: ApiFase3) {
     const opciones: OpcionesAsistente = opcionesDadas ?? { estado: { activo: false }, inicial: null };
-    const estado: EstadoAsistente = { activo: true, modo: "automatico", pausado: false, ...opciones.estado };
+    const estado: EstadoAsistente = { activo: true, modo: "automatico", pausado: false, modoAutonomo: "nunca", autonomoDisponible: opciones.fase3?.autonomoDisponible ?? false, ...opciones.estado };
     let ajustes: AjustesAsistente = {
+        ...extrasDe(opciones.fase3),
         activo: estado.activo,
         proveedor: "ollama",
         url: "http://10.0.0.20:11434",
@@ -221,6 +225,11 @@ export function apiAsistente(e: Contexto, opcionesDadas?: OpcionesAsistente) {
             if (!puede(PERMISO_SUGERENCIAS)) return prohibido();
             return (await json(route, estado), true);
         }
+        // §17.2: la lista de categorías la lee quien ve la bandeja (los filtros y «Cambiar»).
+        if (ruta === `${BASE}/asistente/categorias` && metodo === "GET") {
+            if (!puede("conversaciones.ver")) return prohibido();
+            return (await json(route, { data: fase3.listar(x.query, puede(PERMISO_CONFIGURAR)), nextCursor: null }), true);
+        }
         if (ruta.startsWith(`${BASE}/asistente/`)) {
             if (!puede(PERMISO_CONFIGURAR)) return prohibido();
             if (ruta === `${BASE}/asistente/ajustes` && metodo === "GET") return (await json(route, ajustes), true);
@@ -234,6 +243,10 @@ export function apiAsistente(e: Contexto, opcionesDadas?: OpcionesAsistente) {
                 if (cuerpo.version !== ajustes.version) return (await problema(route, P("conflicto_version", 409, "Cambió")), true);
                 const motivo = urlNoPermitida(String(cuerpo.url ?? ""));
                 if (motivo) return (await problema(route, P("url_no_permitida", 422, "Dirección no permitida", { detail: motivo, errors: [{ field: "body.url", message: motivo }] })), true);
+                // §17.1 (entrega 3a): el servidor guarda todo, pero todavía no actúa solo.
+                if (!ajustes.autonomoDisponible && cuerpo.modoAutonomo !== undefined && cuerpo.modoAutonomo !== "nunca") {
+                    return (await problema(route, P("autonomo_no_disponible", 422, "El asistente todavía no atiende solo", { errors: [{ field: "body.modoAutonomo", message: "Todavía no disponible" }] })), true);
+                }
                 const { clave, ...resto } = cuerpo as Record<string, unknown> & { clave?: string };
                 const otroDestino = cuerpo.proveedor !== ajustes.proveedor || normalizada(String(cuerpo.proveedor), String(cuerpo.url ?? "")) !== normalizada(ajustes.proveedor, ajustes.url);
                 if (ajustes.claveGuardadaEn && (otroDestino || claveRequerida) && clave === undefined) {
@@ -246,8 +259,10 @@ export function apiAsistente(e: Contexto, opcionesDadas?: OpcionesAsistente) {
                     claveGuardadaEn: clave === "" ? null : clave ? "2026-10-28T16:45:00Z" : ajustes.claveGuardadaEn,
                     version: ajustes.version + 1,
                 };
+                fase3.sembrar();
                 estado.activo = ajustes.activo;
                 estado.modo = ajustes.modo;
+                estado.modoAutonomo = ajustes.modoAutonomo;
                 return (await json(route, ajustes), true);
             }
             if (ruta === `${BASE}/asistente/probar` && metodo === "POST") {
@@ -265,7 +280,7 @@ export function apiAsistente(e: Contexto, opcionesDadas?: OpcionesAsistente) {
                 return (await json(route, { data: [{ id: "qwen3:32b", nombre: "qwen3:32b" }, { id: "llama3.1:8b", nombre: "llama3.1:8b" }, { id: "gemma3:27b", nombre: "gemma3:27b" }] }), true);
             }
             if (ruta === `${BASE}/asistente/uso` && metodo === "GET") return (await json(route, uso()), true);
-            return false;
+            return fase3.manejar({ route, metodo, ruta, cuerpo, idempotencia });
         }
 
         const accion = /^\/api\/v1\/mensajeria\/sugerencias\/([^/]+)\/(usar|descartar|calificar)$/.exec(ruta);

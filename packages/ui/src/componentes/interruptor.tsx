@@ -10,6 +10,8 @@ export type PropsInterruptor = Omit<ComponentProps<"input">, "type"> & {
     etiqueta: ReactNode;
     ayuda?: ReactNode;
     error?: string | undefined;
+    /** El control a la derecha y la etiqueta a la izquierda, a todo el ancho (filas de una lista de ajustes). */
+    alFinal?: boolean;
 };
 
 /**
@@ -21,7 +23,7 @@ export type PropsInterruptor = Omit<ComponentProps<"input">, "type"> & {
  * Sirve igual con `register` de react-hook-form que controlado (`checked` + `onChange`), como
  * `Casilla` (`useMarcaNativa`).
  */
-export function Interruptor({ etiqueta, ayuda, error, id, className, ref, checked, defaultChecked, onChange, onBlur, onFocus, name, value, disabled, required, autoFocus }: PropsInterruptor) {
+export function Interruptor({ etiqueta, ayuda, error, alFinal = false, id, className, ref, checked, defaultChecked, onChange, onBlur, onFocus, name, value, disabled, required, autoFocus }: PropsInterruptor) {
     const ids = useIdsCampo(id, error, ayuda);
     const { marcada, conectar, cambiar } = useMarcaNativa({ ref, defaultChecked, onChange });
     return (
@@ -41,14 +43,19 @@ export function Interruptor({ etiqueta, ayuda, error, id, className, ref, checke
                 {...(onFocus ? { onFocus: onFocus as unknown as ComponentProps<typeof Switch>["onFocus"] } : {})}
                 className="block"
             >
-                <Switch.Content className="iris-entrada-cubierta inline-flex min-h-6 cursor-pointer items-center gap-2.5 text-sm font-medium">
+                <Switch.Content
+                    className={cn(
+                        "iris-entrada-cubierta min-h-6 cursor-pointer items-center text-sm font-medium",
+                        alFinal ? "flex w-full min-w-0 flex-row-reverse justify-between gap-3" : "inline-flex gap-2.5",
+                    )}
+                >
                     <Switch.Control className={cn("shrink-0", error && "outline outline-error")}>
                         <Switch.Thumb />
                     </Switch.Control>
                     {etiqueta}
                 </Switch.Content>
             </Switch>
-            <div className="grid gap-1 pl-12">
+            <div className={cn("grid gap-1", !alFinal && "pl-12")}>
                 <PieCampo idAyuda={ids.idAyuda} idError={ids.idError} ayuda={ayuda} error={error} />
             </div>
         </div>

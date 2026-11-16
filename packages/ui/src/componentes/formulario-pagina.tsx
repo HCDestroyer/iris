@@ -316,6 +316,8 @@ export function SeccionFormulario({ titulo, descripcion, children, className }: 
 export type PropsFormularioPagina = {
     titulo: ReactNode;
     descripcion?: ReactNode;
+    /** A la derecha del título (p. ej. el interruptor que enciende lo que la pantalla configura). */
+    accionTitulo?: ReactNode;
     /** Migas propias; sin ellas, las pone el layout (p. ej. las del panel, que salen de la ruta). */
     migas?: readonly Miga[];
     /** `onSubmit` del `<form>` (p. ej. `form.handleSubmit(guardar)`). */
@@ -345,6 +347,7 @@ export type PropsFormularioPagina = {
 export function FormularioPagina({
     titulo,
     descripcion,
+    accionTitulo,
     migas,
     alEnviar,
     barra,
@@ -370,15 +373,18 @@ export function FormularioPagina({
             <div data-slot="formulario-pagina" data-testid={testId} className={cn("mx-auto grid w-full max-w-3xl min-w-0 gap-4 [&>*]:min-w-0", className)}>
                 <header className="grid gap-2">
                     {migas ? <Migas migas={migas} /> : null}
-                    <div className="grid gap-1">
-                        <h1 id={idTitulo} className="text-xl font-semibold tracking-[-0.015em] sm:text-2xl">
-                            {titulo}
-                        </h1>
-                        {descripcion ? (
-                            <p id={idDescripcion} className="text-sm text-muted-foreground">
-                                {descripcion}
-                            </p>
-                        ) : null}
+                    <div className="flex min-w-0 items-center gap-3">
+                        <div className="grid min-w-0 flex-1 gap-1">
+                            <h1 id={idTitulo} className="text-xl font-semibold tracking-[-0.015em] sm:text-2xl">
+                                {titulo}
+                            </h1>
+                            {descripcion ? (
+                                <p id={idDescripcion} className="text-sm text-muted-foreground">
+                                    {descripcion}
+                                </p>
+                            ) : null}
+                        </div>
+                        {accionTitulo ? <div className="shrink-0">{accionTitulo}</div> : null}
                     </div>
                 </header>
                 {/* El formulario se nombra con el título: `getByRole("form", { name: "Nueva orden" })`. */}

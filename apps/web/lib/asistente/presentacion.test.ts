@@ -109,6 +109,12 @@ const ajustes: AjustesAsistente = {
     topeTokensMes: 2_000_000,
     precioEntradaMillon: null,
     precioSalidaMillon: null,
+    autonomoDisponible: false,
+    modoAutonomo: "nunca",
+    esperaMin: 3,
+    maxTurnos: 8,
+    perfiles: null,
+    porCola: null,
     version: 0,
 };
 
