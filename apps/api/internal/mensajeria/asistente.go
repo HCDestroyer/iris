@@ -61,6 +61,8 @@ type AjustesAsistente struct {
 	MaxTurnos          int32             `json:"maxTurnos" required:"false" doc:"Turnos autónomos sin resolver antes de pasar a una persona"`
 	Perfiles           []PerfilAsistente `json:"perfiles" required:"false" doc:"El primero es «defecto»"`
 	PorCola            []AccionesCola    `json:"porCola" required:"false" doc:"Acciones apagadas por cola"`
+	// PresupuestoAutonomoPct: qué parte del tope del mes puede gastar el asistente atendiendo solo.
+	PresupuestoAutonomoPct int32 `json:"presupuestoAutonomoPct" required:"false" doc:"Porcentaje del tope del mes para atender solo (1 a 100; 70 por defecto): así las sugerencias a los agentes no se apagan"`
 }
 
 // EntradaAjustesAsistente es POST /asistente/ajustes/actualizar.
@@ -77,11 +79,12 @@ type EntradaAjustesAsistente struct {
 	PrecioEntradaMillon *string          `json:"precioEntradaMillon" nullable:"true" maxLength:"20"`
 	PrecioSalidaMillon  *string          `json:"precioSalidaMillon" nullable:"true" maxLength:"20"`
 	// Fase 3 (§17.1): todos opcionales; ausente = se deja como está.
-	ModoAutonomo *string           `json:"modoAutonomo,omitempty" enum:"nunca,sin_nadie,siempre_primero" doc:"Cuándo atiende solo (§17.8)"`
-	EsperaMin    *int32            `json:"esperaMin,omitempty" minimum:"1" maximum:"60"`
-	MaxTurnos    *int32            `json:"maxTurnos,omitempty" minimum:"2" maximum:"20"`
-	Perfiles     []PerfilAsistente `json:"perfiles,omitempty" maxItems:"10" doc:"Reemplaza la lista; el primero es «defecto»"`
-	PorCola      []AccionesCola    `json:"porCola,omitempty" maxItems:"50" doc:"Reemplaza la lista ([] la vacía)"`
+	ModoAutonomo           *string           `json:"modoAutonomo,omitempty" enum:"nunca,sin_nadie,siempre_primero" doc:"Cuándo atiende solo (§17.8)"`
+	EsperaMin              *int32            `json:"esperaMin,omitempty" minimum:"1" maximum:"60"`
+	MaxTurnos              *int32            `json:"maxTurnos,omitempty" minimum:"2" maximum:"20"`
+	Perfiles               []PerfilAsistente `json:"perfiles,omitempty" maxItems:"10" doc:"Reemplaza la lista; el primero es «defecto»"`
+	PorCola                []AccionesCola    `json:"porCola,omitempty" maxItems:"50" doc:"Reemplaza la lista ([] la vacía)"`
+	PresupuestoAutonomoPct *int32            `json:"presupuestoAutonomoPct,omitempty" minimum:"1" maximum:"100" doc:"Ausente = se deja como está"`
 }
 
 // EstadoAsistente es GET /asistente/estado (para decidir si el panel muestra «Sugerir»).
@@ -172,10 +175,11 @@ type casosAsistente struct {
 	guardarClasif       *auditoria.Caso[clasificacionModelo, struct{}]
 
 	// Fase 3b (§17.8): el asistente atiende solo.
-	prepararTurno   *auditoria.Caso[entradaTurno, turnoPreparado]
-	terminarTurno   *auditoria.Caso[resultadoTurno, struct{}]
-	registrarAccion *auditoria.Caso[accionHecha, struct{}]
-	leerConv        *auditoria.Caso[EntradaConversacion, convLeida]
+	prepararTurno         *auditoria.Caso[entradaTurno, turnoPreparado]
+	terminarTurno         *auditoria.Caso[resultadoTurno, struct{}]
+	registrarAccion       *auditoria.Caso[accionHecha, struct{}]
+	leerConv              *auditoria.Caso[EntradaConversacion, convLeida]
+	registrarVerificacion *auditoria.Caso[verificacionHecha, struct{}]
 
 	prepararGen    *auditoria.Caso[uuidSugerencia, generacion]
 	guardarGen     *auditoria.Caso[resultadoGeneracion, struct{}]
@@ -194,7 +198,8 @@ func nuevosCasosAsistente(m *Modulo) casosAsistente {
 		DesactivarCategoria: nuevoCambioCategoria("mensajeria.asistente_desactivar_categoria", false),
 		Categorizar:         nuevoCategorizarConv(m), Efecto: nuevoEfectoAsistente(m), ProbarMensaje: nuevoProbarMensaje(m),
 		prepararClasif: nuevoPrepararClasificacion(m), guardarClasif: nuevoGuardarClasificacion(m),
-		prepararTurno: nuevoPrepararTurno(m), terminarTurno: nuevoTerminarTurno(m), registrarAccion: nuevoRegistrarAccion(m),
+		registrarVerificacion: nuevoRegistrarVerificacion(m),
+		prepararTurno:         nuevoPrepararTurno(m), terminarTurno: nuevoTerminarTurno(m), registrarAccion: nuevoRegistrarAccion(m),
 		leerConv:    nuevoLeerConvPara("mensajeria.asistente_consultar", nucleo.PermConversacionesResponder),
 		prepararGen: nuevoPrepararGeneracion(m), guardarGen: nuevoGuardarGeneracion(m), crearAuto: nuevoCrearAuto(m), vencerAtascada: nuevoVencerAtascada(m),
 	}
@@ -228,7 +233,7 @@ func ajustesPorDefecto() AjustesAsistente {
 	return AjustesAsistente{Proveedor: ProveedorOllama, Modo: ModoAsistenteAutomatico,
 		Fuentes: FuentesAsistente{Manuales: true, Argos: true, Horus: true, Historial: true}, TopeTokensMes: TopeTokensPorDefecto,
 		AutonomoDisponible: AutonomoDisponible, ModoAutonomo: AutonomoNunca, EsperaMin: 3, MaxTurnos: 8,
-		Perfiles: []PerfilAsistente{perfilPorDefecto()}, PorCola: []AccionesCola{}}
+		Perfiles: []PerfilAsistente{perfilPorDefecto()}, PorCola: []AccionesCola{}, PresupuestoAutonomoPct: 70}
 }
 
 func aAjustes(f mensajeriabd.MensajeriaAsistenteAjuste) AjustesAsistente {
@@ -236,7 +241,7 @@ func aAjustes(f mensajeriabd.MensajeriaAsistenteAjuste) AjustesAsistente {
 		Fuentes:       FuentesAsistente{Manuales: f.FuenteManuales, Argos: f.FuenteArgos, Horus: f.FuenteHorus, Historial: f.FuenteHistorial},
 		TopeTokensMes: f.TopeTokensMes, PrecioEntradaMillon: textoNumerico(f.PrecioEntradaMillon), PrecioSalidaMillon: textoNumerico(f.PrecioSalidaMillon),
 		Version: f.Version, AutonomoDisponible: AutonomoDisponible, ModoAutonomo: f.ModoAutonomo, EsperaMin: f.EsperaMin, MaxTurnos: f.MaxTurnos,
-		Perfiles: perfilesDe(f.Perfiles), PorCola: porColaDe(f.PorCola)}
+		Perfiles: perfilesDe(f.Perfiles), PorCola: porColaDe(f.PorCola), PresupuestoAutonomoPct: f.PresupuestoAutonomoPct}
 }
 
 // leerAjustesAsistente: la fila de la empresa o nil.
@@ -544,7 +549,8 @@ func nuevoFijarAjustesAsistente(m *Modulo) *auditoria.Caso[EntradaAjustesAsisten
 				return map[string]any{"activo": x.Activo, "proveedor": x.Proveedor, "url": x.URL, "modelo": x.Modelo, "modo": x.Modo,
 					"fuentes": x.Fuentes, "tope_tokens_mes": x.TopeTokensMes, "precio_entrada_millon": x.PrecioEntradaMillon,
 					"precio_salida_millon": x.PrecioSalidaMillon, "clave_guardada": x.ClaveGuardadaEn != nil,
-					"modo_autonomo": x.ModoAutonomo, "espera_min": x.EsperaMin, "max_turnos": x.MaxTurnos, "perfiles": x.Perfiles, "por_cola": x.PorCola}
+					"modo_autonomo": x.ModoAutonomo, "espera_min": x.EsperaMin, "max_turnos": x.MaxTurnos, "perfiles": x.Perfiles, "por_cola": x.PorCola,
+					"presupuesto_autonomo_pct": x.PresupuestoAutonomoPct}
 			}
 			var previo map[string]any
 			if !nuevo {

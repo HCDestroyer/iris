@@ -108,7 +108,7 @@ func nuevoCrearTicketConv(m *Modulo) *CrearTicketConv {
 		Accion: "conversaciones.crear_ticket", Permiso: nucleo.PermTicketsCrear,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaTicketConv) (VinculoCreado, error) {
 			var v VinculoConversacion
-			d, err := m.accionConv(ctx, t, in.ID, 0, func(a alcanceConv, _ *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
+			d, err := m.accionConvDe(ctx, t, "conversaciones.crear_ticket", in.ID, 0, func(a alcanceConv, _ *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
 				if m.cfg.Soporte == nil {
 					return noDisponible("Crear tickets")
 				}
@@ -322,7 +322,7 @@ func nuevoRegistrarBoleta(m *Modulo) *auditoria.Caso[EntradaBoleta, Boleta] {
 				return Boleta{}, campoConv("monto", "Monto inválido", "monto")
 			}
 			var b Boleta
-			_, err = m.accionConv(ctx, t, in.ID, 0, func(a alcanceConv, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
+			_, err = m.accionConvDe(ctx, t, "conversaciones.registrar_boleta", in.ID, 0, func(a alcanceConv, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
 				if c.ClienteID == nil {
 					return reglaConv("sin_cliente", "Asocia la conversación a un cliente de Argos antes de registrar su boleta")
 				}
@@ -347,7 +347,7 @@ func nuevoRegistrarBoleta(m *Modulo) *auditoria.Caso[EntradaBoleta, Boleta] {
 				f, err := q.InsertarBoleta(ctx, mensajeriabd.InsertarBoletaParams{ID: id, EmpresaID: c.EmpresaID, ConversacionID: c.ID, ClienteID: *c.ClienteID,
 					ServicioID: servicio, AdjuntoID: in.AdjuntoID, Metodo: in.Metodo, CuentaBancariaID: in.CuentaBancariaID, BancoOrigenID: in.BancoOrigenID,
 					Referencia: in.Referencia, Monto: monto, FechaDeposito: pgtype.Date{Time: fecha, Valid: true}, Nota: in.Nota,
-					RegistradaPor: a.usuarioPtr(), ProximoIntento: m.ahora()})
+					RegistradaPor: a.usuarioPtr(), ProximoIntento: m.ahora(), PorAsistente: a.asistente})
 				if err != nil {
 					return err
 				}
@@ -421,9 +421,9 @@ func nuevoPrepararBoleta(m *Modulo) *auditoria.Caso[uuid.UUID, boletaPorEnviar] 
 			if f.EmpresaID != nil {
 				empresa = *f.EmpresaID
 			}
-			// Sin persona que la registró: la recibió el asistente de IA (X-Iris-Actor asistente_ia).
+			// La recibió el asistente de IA (por_asistente): X-Iris-Actor asistente_ia.
 			quien := alcanceConv{asistente: true, empresa: empresa}
-			if f.RegistradaPor != nil {
+			if !f.PorAsistente && f.RegistradaPor != nil {
 				quien = alcanceConv{usuario: *f.RegistradaPor, empresa: empresa}
 			}
 			return boletaPorEnviar{ID: id, f: f, datos: datos, mime: adj.Mime, a: atencionDe(quien, f.ConversacionID)}, nil
@@ -649,7 +649,7 @@ func nuevasPromesas(m *Modulo) *Promesas {
 	k.previo = auditoria.Nuevo(auditoria.Caso[entradaPreviaPromesa, previaPromesa]{
 		Accion: "conversaciones.registrar_promesa", Permiso: nucleo.PermConversacionesRegistrarPromesa, AuditarExito: sinAuditar[previaPromesa],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaPreviaPromesa) (previaPromesa, error) {
-			a, err := alcanceAccionDe(ctx)
+			a, err := alcanceAccionDe(ctx, "conversaciones.registrar_promesa")
 			if err != nil {
 				return previaPromesa{}, err
 			}
@@ -697,7 +697,7 @@ func nuevasPromesas(m *Modulo) *Promesas {
 		Accion: "conversaciones.registrar_promesa", Permiso: nucleo.PermConversacionesRegistrarPromesa,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaFinalPromesa) (PromesaConv, error) {
 			var p PromesaConv
-			_, err := m.accionConv(ctx, t, in.ID, 0, func(a alcanceConv, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
+			_, err := m.accionConvDe(ctx, t, "conversaciones.registrar_promesa", in.ID, 0, func(a alcanceConv, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
 				// Mientras Argos respondía la conversación pudo cambiar de cliente o perder la verificación.
 				if c.ClienteID == nil || *c.ClienteID != in.cliente || !c.ClienteVerificado {
 					return nucleo.Conflicto("cliente_cambiado", "El cliente de la conversación cambió mientras se pedía la promesa; revisa en Argos y vuelve a intentarlo")

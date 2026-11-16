@@ -54,14 +54,33 @@ type argosFalso struct {
 	alLeerCuenta func()
 	// reconexiones: los comprobantes para los que se pidió una reconexión temporal (§7.3).
 	reconexiones []int64
+	motivos      []string
 	errReconex   error
+	// documento: el DPI/NIT que «Argos» tiene del cliente; verificados: lo que recibió el desafío.
+	documento    string
+	verificados  []string
+	errVerificar error
 }
 
-// PedirReconexionTemporal: la reconexión temporal ligada a un comprobante (mensajeria.ArgosReconexion).
-func (f *argosFalso) PedirReconexionTemporal(_ context.Context, a argos.AtencionIris, comprobante int64, _ *int64, _, clave string) (int64, time.Time, error) {
+// VerificarIdentidad: el desafío de identidad (mensajeria.ArgosIdentidad). Coincide si el valor es el
+// documento configurado; guarda los valores recibidos para comprobar que no quedan en ningún otro lado.
+func (f *argosFalso) VerificarIdentidad(_ context.Context, a argos.AtencionIris, _ int64, metodo, valor string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.actores = append(f.actores, a)
+	f.verificados = append(f.verificados, metodo+":"+valor)
+	if f.errVerificar != nil {
+		return false, f.errVerificar
+	}
+	return f.documento != "" && valor == f.documento, nil
+}
+
+// PedirReconexionTemporal: la reconexión temporal ligada a un comprobante (mensajeria.ArgosReconexion).
+func (f *argosFalso) PedirReconexionTemporal(_ context.Context, a argos.AtencionIris, comprobante int64, _ *int64, motivo, clave string) (int64, time.Time, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.actores = append(f.actores, a)
+	f.motivos = append(f.motivos, motivo)
 	if f.errReconex != nil {
 		return 0, time.Time{}, f.errReconex
 	}

@@ -544,9 +544,15 @@ type EntradaResolverConv struct {
 // y al final guardar, feed y detalle.
 func (m *Modulo) accionConv(ctx context.Context, t *auditoria.Tx, id int64, version int32,
 	cambio func(a alcanceConv, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error) (ConversacionClienteDetalle, error) {
-	// También el asistente de IA: el permiso de cada caso de uso decide qué acciones tiene (su rol no
-	// tiene tomar, asignar, transferir, etiquetar, resolver ni asociar).
-	a, err := alcanceAccionDe(ctx)
+	// Solo personas con sesión. El asistente de IA entra por accionConvDe, caso por caso.
+	return m.accionConvDe(ctx, t, "", id, version, cambio)
+}
+
+// accionConvDe es accionConv para un caso de uso con nombre: si está en casosDelAsistente, también lo
+// puede correr el asistente de IA.
+func (m *Modulo) accionConvDe(ctx context.Context, t *auditoria.Tx, caso string, id int64, version int32,
+	cambio func(a alcanceConv, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error) (ConversacionClienteDetalle, error) {
+	a, err := alcanceAccionDe(ctx, caso)
 	if err != nil {
 		return ConversacionClienteDetalle{}, err
 	}

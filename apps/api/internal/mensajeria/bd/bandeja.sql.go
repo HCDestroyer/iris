@@ -455,7 +455,7 @@ func (q *Queries) ContactoIrisDeEmpresa(ctx context.Context, arg ContactoIrisDeE
 }
 
 const conversacionDeContacto = `-- name: ConversacionDeContacto :one
-SELECT id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en FROM mensajeria.conversaciones
+SELECT id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en, identidad_verificada_en, bot_diferido_mensaje_id FROM mensajeria.conversaciones
 WHERE coalesce(empresa_id, 0) = $1::bigint AND canal_id = $2 AND numero = $3
 `
 
@@ -517,6 +517,8 @@ func (q *Queries) ConversacionDeContacto(ctx context.Context, arg ConversacionDe
 		&i.AsistenteEstado,
 		&i.AsistenteTurnos,
 		&i.AsistentePresentoEn,
+		&i.IdentidadVerificadaEn,
+		&i.BotDiferidoMensajeID,
 	)
 	return i, err
 }

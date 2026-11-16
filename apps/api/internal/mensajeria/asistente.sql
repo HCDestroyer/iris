@@ -121,7 +121,7 @@ ORDER BY seq DESC LIMIT 1;
 
 -- name: HistorialAsistente :many
 -- Los últimos mensajes del cliente y de agentes: nunca notas internas ni mensajes de sistema.
-SELECT id, direccion, tipo, texto, autor_id, automatico, creado_en FROM mensajeria.conversacion_mensajes
+SELECT id, direccion, tipo, texto, autor_id, automatico, creado_en, con_saldo FROM mensajeria.conversacion_mensajes
 WHERE conversacion_id = @conversacion_id AND direccion IN ('entrante', 'saliente')
 ORDER BY seq DESC LIMIT @limite;
 

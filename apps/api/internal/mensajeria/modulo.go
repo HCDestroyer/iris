@@ -189,6 +189,7 @@ type Modulo struct {
 	vencerDisp       *auditoria.Caso[int64, bool]
 	auditarBot       *auditoria.Caso[botAuditado, struct{}]
 	dispararBot      *auditoria.Caso[int64, bool]
+	botDiferido      *auditoria.Caso[int64, bool]
 	permisoBoleta    *auditoria.Caso[struct{}, alcanceConv]
 	// difusor despierta los flujos SSE con el NOTIFY iris_chat (EscucharChat).
 	difusor *difusor
@@ -324,6 +325,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.vencerSLA = nuevoVencerSLA(m)
 	m.vencerDisp = nuevoVencerDisponibilidad(m)
 	m.dispararBot = nuevoDispararBot(m)
+	m.botDiferido = nuevoBotDiferido(m)
 	m.auditarBot = nuevoAuditarBot()
 	m.permisoBoleta = nuevoPermisoBoleta()
 	m.alRecibir = m.alRecibirBandeja

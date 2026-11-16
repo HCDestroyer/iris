@@ -64,6 +64,7 @@ type casosConv struct {
 	CrearProspec *auditoria.Caso[EntradaProspectoConv, VinculoCreado]
 	Boleta       *auditoria.Caso[EntradaBoleta, Boleta]
 	Promesas     *Promesas
+	Reconexion   *PedirReconexion
 	Cambios      *auditoria.Caso[EntradaCambiosConv, CambiosConversaciones]
 
 	// Fase 1.1 (§14).
@@ -97,7 +98,7 @@ func nuevosCasosConv(m *Modulo) casosConv {
 		Coincidencia: nuevoBuscarCoincidencias(m), Asociar: nuevoAsociarCliente(m), Desasociar: nuevoDesasociar(m),
 		ContactoIris: nuevoContactoIrisConv(m), Confirmar: nuevoConfirmarCliente(m), ConsentNum: nuevoConsentimientoNumero(m), EditarContac: nuevoActualizarContactoIris(m), UnirContacto: nuevoUnirContacto(m),
 		Contactos: nuevoBuscarContactos(m), CrearTicket: nuevoCrearTicketConv(m), CrearOrden: nuevoCrearOrdenConv(m),
-		CrearProspec: nuevoCrearProspectoConv(m), Boleta: nuevoRegistrarBoleta(m), Promesas: nuevasPromesas(m), Cambios: nuevoCambiosConv(m),
+		CrearProspec: nuevoCrearProspectoConv(m), Boleta: nuevoRegistrarBoleta(m), Promesas: nuevasPromesas(m), Reconexion: nuevoPedirReconexion(m), Cambios: nuevoCambiosConv(m),
 		Supervisores: nuevoSupervisoresCola(m), Pasar: nuevoPasarConv(m), Iniciar: nuevoIniciarConv(m), Destinatarios: nuevoBuscarDestinatarios(m),
 		Destinatario: nuevoVerDestinatario(m), PlantillasCanal: nuevoPlantillasCanal(m), VerDisp: nuevoVerDisponibilidad(m),
 		FijarDisp: nuevoFijarDisponibilidad(m), Latido: nuevoLatido(m), VerAjustes: nuevoVerAjustes(m), FijarAjustes: nuevoFijarAjustes(m),

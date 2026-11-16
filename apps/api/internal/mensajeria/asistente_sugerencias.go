@@ -596,7 +596,7 @@ func nuevoPrepararGeneracion(m *Modulo) *auditoria.Caso[uuidSugerencia, generaci
 			if err != nil {
 				return fallar(codigoIA(err), detalleIA(err))
 			}
-			ctxIA, err := m.contextoAsistente(ctx, q, c, *aj, in.cuenta)
+			ctxIA, err := m.contextoAsistente(ctx, q, c, *aj, in.cuenta, false)
 			if err != nil {
 				return generacion{}, err
 			}
@@ -822,9 +822,19 @@ func nuevoCrearAuto(m *Modulo) *auditoria.Caso[int64, autoCreada] {
 func (m *Modulo) SugerirAutomatico(ctx context.Context, conversacion int64) (time.Duration, error) {
 	// §17.8: si al asistente le toca atender solo este mensaje, lo hace y no hay sugerencia. Si falta
 	// esperar a un agente en línea (sin_nadie), mientras tanto se sugiere como siempre.
-	espera, atendio, err := m.AtenderSolo(ctx, conversacion)
-	if err != nil || atendio {
+	espera, atendio, juntando, err := m.AtenderSolo(ctx, conversacion)
+	if err != nil {
 		return espera, err
+	}
+	// El bot y fuera de horario esperaban a esta decisión: si el asistente no tomó la conversación,
+	// corren ahora (camino normal). Mientras se juntan mensajes todavía no.
+	if !juntando {
+		if _, err := m.botDiferido.Ejecutar(ctx, conversacion); err != nil {
+			return 0, err
+		}
+	}
+	if atendio {
+		return espera, nil
 	}
 	d, err := m.sugerirOClasificar(ctx, conversacion)
 	if err != nil || d > 0 {
@@ -889,8 +899,10 @@ type trabajadorAsistenteSugerir struct {
 	bd nucleo.BD
 }
 
+// Timeout: lo mismo que el arriendo de un turno autónomo (clasificar, los pasos del turno y sus
+// herramientas): un job que sigue vivo conserva su turno.
 func (w *trabajadorAsistenteSugerir) Timeout(*river.Job[ArgsAsistenteSugerir]) time.Duration {
-	return 4*w.m.cfg.PlazoIA + time.Minute
+	return w.m.arriendoTurno()
 }
 
 func (w *trabajadorAsistenteSugerir) Work(ctx context.Context, j *river.Job[ArgsAsistenteSugerir]) error {
@@ -959,10 +971,15 @@ type contextoIA struct {
 	clienteID int64
 	// internos: el texto de los manuales «del equipo» que vio (no se copian al cliente).
 	internos []string
+	// datos: solo el bloque <datos> (lo que el servidor le dio; nunca lo que escribió el cliente). Con
+	// esto se validan los precios y plazos de un mensaje autónomo.
+	datos string
+	// enlaces: los que venían en un manual «Para el cliente», guardados al armar cada dato.
+	enlaces []string
 }
 
 func (m *Modulo) contextoAsistente(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaConversacion, aj mensajeriabd.MensajeriaAsistenteAjuste,
-	cuenta *cuentaIA) (contextoIA, error) {
+	cuenta *cuentaIA, autonomo bool) (contextoIA, error) {
 	out := contextoIA{catalogo: map[string]FuenteSugerencia{}, verificado: c.ClienteID != nil && c.ClienteVerificado}
 	if c.ClienteID != nil {
 		out.clienteID = *c.ClienteID
@@ -1053,9 +1070,11 @@ func (m *Modulo) contextoAsistente(ctx context.Context, q *mensajeriabd.Queries,
 				titulo := limpiarDato(mn.Titulo, 120)
 				cuerpo := neutralizar(recortarIA(mn.Resumen+"\n"+mn.Cuerpo, 1500))
 				if mn.Visibilidad == "cliente" {
+					out.enlaces = append(out.enlaces, reURL.FindAllString(cuerpo, -1)...)
 					sumar(FuenteSugerencia{Tipo: "manual", Etiqueta: "Manual «" + titulo + "»", EntidadID: &id},
 						"(manual, se puede compartir con el cliente) «"+titulo+"»: "+cuerpo)
-				} else {
+				} else if !autonomo {
+					// En modo autónomo los manuales del equipo no viajan al proveedor: no se pueden citar.
 					out.internos = append(out.internos, mn.Resumen+"\n"+mn.Cuerpo)
 					sumar(FuenteSugerencia{Tipo: "manual", Etiqueta: "Manual del equipo «" + titulo + "»", EntidadID: &id},
 						"(manual del equipo: interno, NO lo menciones al cliente) «"+titulo+"»: "+cuerpo)
@@ -1096,6 +1115,7 @@ func (m *Modulo) contextoAsistente(ctx context.Context, q *mensajeriabd.Queries,
 	for _, d := range datos {
 		b.WriteString(d + "\n")
 	}
+	out.datos = strings.Join(datos, "\n")
 	b.WriteString("</datos>\n<etiquetas>\n" + strings.Join(nombres, "; ") + "\n</etiquetas>\n")
 	cats, err := q.CategoriasEmpresa(ctx, mensajeriabd.CategoriasEmpresaParams{Empresa: empresa})
 	if err != nil {
@@ -1118,12 +1138,32 @@ func lineaHistorial(h mensajeriabd.HistorialAsistenteRow) string {
 	}
 	texto := "[" + h.Tipo + "]"
 	if h.Texto != nil && strings.TrimSpace(*h.Texto) != "" {
-		texto = neutralizar(recortarIA(RedactarParaIA(*h.Texto), 1000))
+		crudo := *h.Texto
+		// El mensaje que llevó el saldo del cliente vuelve al modelo sin el monto.
+		if h.ConSaldo {
+			crudo = reMontoQ.ReplaceAllString(crudo, "Q ***")
+		}
+		texto = neutralizarLinea(recortarIA(RedactarParaIA(crudo), 1000))
 		if h.Tipo != "texto" {
 			texto = "[" + h.Tipo + "] " + texto
 		}
 	}
 	return quien + ": " + texto
+}
+
+// reMontoQ: una cifra en quetzales.
+var reMontoQ = regexp.MustCompile(`(?i)\bq\.?\s*\d[\d.,]*`)
+
+// reRolFalso: algo que parece una línea de otro hablante o una marca de dato dentro de un mensaje.
+var reRolFalso = regexp.MustCompile(`(?i)\b(agente|cliente|asistente|sistema|mensaje\s+autom[aá]tico)\s*:`)
+
+// neutralizarLinea: un mensaje es UNA línea del historial. Sin saltos de línea (no puede abrir otra
+// línea), sin prefijos de rol («agente:», «mensaje automático:») y sin marcas de dato ([F1]).
+func neutralizarLinea(s string) string {
+	s = reEspacios.ReplaceAllString(s, " ")
+	s = reRolFalso.ReplaceAllString(s, "$1 —")
+	s = strings.ReplaceAll(s, "[F", "(F")
+	return neutralizar(strings.TrimSpace(s))
 }
 
 // recortarIA recorta con «…» al final.
@@ -1181,6 +1221,10 @@ var (
 	reTarjeta = regexp.MustCompile(`\b\d(?:[ .-]?\d){12,18}\b`)
 	reNIT     = regexp.MustCompile(`(?i)\b(nit)(\s*:?\s*)([0-9][0-9-]*k?)\b`)
 	reDPI     = regexp.MustCompile(`(?i)\b(dpi|cui|documento|pasaporte)(\s*(?:es|:|#|no\.?)?\s*)([0-9A-Z][0-9A-Z -]{4,})`)
+	// Correos y teléfonos (con 502 delante o escritos 5512-3344): datos personales que el proveedor de
+	// IA no necesita. Ocho dígitos seguidos no se tapan: pueden ser la referencia de una boleta.
+	reCorreo   = regexp.MustCompile(`(?i)\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b`)
+	reTelefono = regexp.MustCompile(`\+?\b502[ -]?\d{4}[ -]?\d{4}\b|\b[2-7]\d{3}[ -]\d{4}\b`)
 )
 
 // CercaniaSecreto: un número de 4 a 8 dígitos a esta distancia (bytes) de «código», «pin» o
@@ -1191,6 +1235,8 @@ const CercaniaSecreto = 40
 // texto que se le manda al modelo.
 func RedactarParaIA(s string) string {
 	s = reTarjeta.ReplaceAllString(s, auditoria.Mascara)
+	s = reCorreo.ReplaceAllString(s, auditoria.Mascara)
+	s = reTelefono.ReplaceAllString(s, auditoria.Mascara)
 	s = reNIT.ReplaceAllString(s, "${1}${2}"+auditoria.Mascara)
 	s = reDPI.ReplaceAllString(s, "${1}${2}"+auditoria.Mascara)
 	// Números cortos cerca de una palabra de secreto (antes o después).
@@ -1435,7 +1481,7 @@ func nuevoResumirConversacion(m *Modulo) *ResumirConversacion {
 				sinManuales := *aj
 				sinManuales.FuenteManuales, sinManuales.FuenteHorus, sinManuales.FuenteHistorial = false, false, true
 				// El resumen es para el agente y no lee el estado de cuenta.
-				ctxIA, err := m.contextoAsistente(ctx, q, c, sinManuales, nil)
+				ctxIA, err := m.contextoAsistente(ctx, q, c, sinManuales, nil, false)
 				if err != nil {
 					return resumenPreparado{}, err
 				}

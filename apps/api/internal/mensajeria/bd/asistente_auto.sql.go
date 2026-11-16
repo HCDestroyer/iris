@@ -64,7 +64,7 @@ func (q *Queries) AccionesAsistenteConv(ctx context.Context, arg AccionesAsisten
 }
 
 const boletaPorReferenciaConv = `-- name: BoletaPorReferenciaConv :one
-SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at FROM mensajeria.boletas
+SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, por_asistente FROM mensajeria.boletas
 WHERE conversacion_id = $1 AND referencia = $2 AND coalesce(empresa_id, 0) = $3::bigint
 ORDER BY created_at DESC LIMIT 1
 `
@@ -100,8 +100,25 @@ func (q *Queries) BoletaPorReferenciaConv(ctx context.Context, arg BoletaPorRefe
 		&i.RegistradaPor,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PorAsistente,
 	)
 	return i, err
+}
+
+const boletasRecientesConv = `-- name: BoletasRecientesConv :one
+SELECT count(*)::bigint FROM mensajeria.boletas WHERE conversacion_id = $1 AND created_at >= $2
+`
+
+type BoletasRecientesConvParams struct {
+	ConversacionID int64
+	Desde          time.Time
+}
+
+func (q *Queries) BoletasRecientesConv(ctx context.Context, arg BoletasRecientesConvParams) (int64, error) {
+	row := q.db.QueryRow(ctx, boletasRecientesConv, arg.ConversacionID, arg.Desde)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const contarAccionesTurno = `-- name: ContarAccionesTurno :one
@@ -115,6 +132,21 @@ func (q *Queries) ContarAccionesTurno(ctx context.Context, turnoID uuid.UUID) (i
 	return column_1, err
 }
 
+const descartarTurnosEnCurso = `-- name: DescartarTurnosEnCurso :exec
+UPDATE mensajeria.asistente_turnos SET estado = 'descartado', motivo = 'persona_presente', terminado_en = $1
+WHERE conversacion_id = $2 AND estado = 'en_curso'
+`
+
+type DescartarTurnosEnCursoParams struct {
+	Ahora          *time.Time
+	ConversacionID int64
+}
+
+func (q *Queries) DescartarTurnosEnCurso(ctx context.Context, arg DescartarTurnosEnCursoParams) error {
+	_, err := q.db.Exec(ctx, descartarTurnosEnCurso, arg.Ahora, arg.ConversacionID)
+	return err
+}
+
 const detenerAsistente = `-- name: DetenerAsistente :exec
 UPDATE mensajeria.conversaciones SET asistente_estado = 'detenido', updated_at = now()
 WHERE id = $1 AND asistente_estado IN ('atendiendo', 'espera_persona')
@@ -126,11 +158,26 @@ func (q *Queries) DetenerAsistente(ctx context.Context, id int64) error {
 	return err
 }
 
+const enmascararTextoMensaje = `-- name: EnmascararTextoMensaje :exec
+UPDATE mensajeria.conversacion_mensajes SET texto = $1 WHERE id = $2 AND direccion = 'entrante'
+`
+
+type EnmascararTextoMensajeParams struct {
+	Texto *string
+	ID    uuid.UUID
+}
+
+// El dato de identidad que escribió el cliente no se guarda (contrato con Argos §7.5): queda ***.
+func (q *Queries) EnmascararTextoMensaje(ctx context.Context, arg EnmascararTextoMensajeParams) error {
+	_, err := q.db.Exec(ctx, enmascararTextoMensaje, arg.Texto, arg.ID)
+	return err
+}
+
 const fijarAsistenteConv = `-- name: FijarAsistenteConv :one
 UPDATE mensajeria.conversaciones
 SET asistente_estado = $1, asistente_turnos = $2, asistente_presento_en = $3, updated_at = now()
 WHERE id = $4
-RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en
+RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en, identidad_verificada_en, bot_diferido_mensaje_id
 `
 
 type FijarAsistenteConvParams struct {
@@ -197,8 +244,54 @@ func (q *Queries) FijarAsistenteConv(ctx context.Context, arg FijarAsistenteConv
 		&i.AsistenteEstado,
 		&i.AsistenteTurnos,
 		&i.AsistentePresentoEn,
+		&i.IdentidadVerificadaEn,
+		&i.BotDiferidoMensajeID,
 	)
 	return i, err
+}
+
+const fijarBotDiferido = `-- name: FijarBotDiferido :exec
+UPDATE mensajeria.conversaciones SET bot_diferido_mensaje_id = $1 WHERE id = $2
+`
+
+type FijarBotDiferidoParams struct {
+	MensajeID pgtype.UUID
+	ID        int64
+}
+
+func (q *Queries) FijarBotDiferido(ctx context.Context, arg FijarBotDiferidoParams) error {
+	_, err := q.db.Exec(ctx, fijarBotDiferido, arg.MensajeID, arg.ID)
+	return err
+}
+
+const fijarIdentidadVerificada = `-- name: FijarIdentidadVerificada :exec
+
+UPDATE mensajeria.conversaciones SET identidad_verificada_en = $1, updated_at = now() WHERE id = $2
+`
+
+type FijarIdentidadVerificadaParams struct {
+	Ahora *time.Time
+	ID    int64
+}
+
+// Revisión de seguridad de la #163 ---------------------------------------------------------------------
+func (q *Queries) FijarIdentidadVerificada(ctx context.Context, arg FijarIdentidadVerificadaParams) error {
+	_, err := q.db.Exec(ctx, fijarIdentidadVerificada, arg.Ahora, arg.ID)
+	return err
+}
+
+const fijarPresupuestoAutonomo = `-- name: FijarPresupuestoAutonomo :exec
+UPDATE mensajeria.asistente_ajustes SET presupuesto_autonomo_pct = $1, updated_at = now() WHERE id = $2
+`
+
+type FijarPresupuestoAutonomoParams struct {
+	Pct int32
+	ID  int64
+}
+
+func (q *Queries) FijarPresupuestoAutonomo(ctx context.Context, arg FijarPresupuestoAutonomoParams) error {
+	_, err := q.db.Exec(ctx, fijarPresupuestoAutonomo, arg.Pct, arg.ID)
+	return err
 }
 
 const insertarAccionAsistente = `-- name: InsertarAccionAsistente :one
@@ -235,6 +328,70 @@ func (q *Queries) InsertarAccionAsistente(ctx context.Context, arg InsertarAccio
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const insertarReconexion = `-- name: InsertarReconexion :one
+INSERT INTO mensajeria.reconexiones (id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado,
+    promesa_argos_id, hasta, detalle, solicitada_por, por_asistente)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+    $10, $11, $12, $13, $14)
+ON CONFLICT (comprobante_id) DO NOTHING
+RETURNING id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at
+`
+
+type InsertarReconexionParams struct {
+	ID             uuid.UUID
+	EmpresaID      *int64
+	ConversacionID int64
+	BoletaID       uuid.UUID
+	ComprobanteID  int64
+	ClienteID      int64
+	ServicioID     *int64
+	Motivo         string
+	Estado         string
+	PromesaArgosID *int64
+	Hasta          *time.Time
+	Detalle        *string
+	SolicitadaPor  *int64
+	PorAsistente   bool
+}
+
+func (q *Queries) InsertarReconexion(ctx context.Context, arg InsertarReconexionParams) (MensajeriaReconexione, error) {
+	row := q.db.QueryRow(ctx, insertarReconexion,
+		arg.ID,
+		arg.EmpresaID,
+		arg.ConversacionID,
+		arg.BoletaID,
+		arg.ComprobanteID,
+		arg.ClienteID,
+		arg.ServicioID,
+		arg.Motivo,
+		arg.Estado,
+		arg.PromesaArgosID,
+		arg.Hasta,
+		arg.Detalle,
+		arg.SolicitadaPor,
+		arg.PorAsistente,
+	)
+	var i MensajeriaReconexione
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.ConversacionID,
+		&i.BoletaID,
+		&i.ComprobanteID,
+		&i.ClienteID,
+		&i.ServicioID,
+		&i.Motivo,
+		&i.Estado,
+		&i.PromesaArgosID,
+		&i.Hasta,
+		&i.Detalle,
+		&i.SolicitadaPor,
+		&i.PorAsistente,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const insertarTurno = `-- name: InsertarTurno :one
@@ -281,10 +438,43 @@ func (q *Queries) InsertarTurno(ctx context.Context, arg InsertarTurnoParams) (M
 	return i, err
 }
 
+const insertarVerificacion = `-- name: InsertarVerificacion :exec
+INSERT INTO mensajeria.asistente_verificaciones (empresa_id, conversacion_id, cliente_id, resultado, creada_en)
+VALUES ($1, $2, $3, $4, $5)
+`
+
+type InsertarVerificacionParams struct {
+	EmpresaID      *int64
+	ConversacionID int64
+	ClienteID      int64
+	Resultado      string
+	CreadaEn       time.Time
+}
+
+func (q *Queries) InsertarVerificacion(ctx context.Context, arg InsertarVerificacionParams) error {
+	_, err := q.db.Exec(ctx, insertarVerificacion,
+		arg.EmpresaID,
+		arg.ConversacionID,
+		arg.ClienteID,
+		arg.Resultado,
+		arg.CreadaEn,
+	)
+	return err
+}
+
+const marcarMensajeConSaldo = `-- name: MarcarMensajeConSaldo :exec
+UPDATE mensajeria.conversacion_mensajes SET con_saldo = true WHERE id = $1
+`
+
+func (q *Queries) MarcarMensajeConSaldo(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, marcarMensajeConSaldo, id)
+	return err
+}
+
 const personaEscribioDesde = `-- name: PersonaEscribioDesde :one
 SELECT EXISTS (
     SELECT 1 FROM mensajeria.conversacion_mensajes m
-    WHERE m.conversacion_id = $1 AND m.direccion = 'saliente' AND m.autor_id IS NOT NULL AND m.creado_en >= $2
+    WHERE m.conversacion_id = $1 AND m.direccion = 'saliente' AND m.automatico IS NULL AND m.creado_en >= $2
 )::boolean
 `
 
@@ -293,6 +483,8 @@ type PersonaEscribioDesdeParams struct {
 	Desde          time.Time
 }
 
+// Todo saliente que no sea automático cuenta como «una persona escribió»: un agente desde Iris o
+// desde el teléfono del negocio (eco de coexistencia, sin autor).
 func (q *Queries) PersonaEscribioDesde(ctx context.Context, arg PersonaEscribioDesdeParams) (bool, error) {
 	row := q.db.QueryRow(ctx, personaEscribioDesde, arg.ConversacionID, arg.Desde)
 	var column_1 bool
@@ -341,6 +533,33 @@ func (q *Queries) PurgarTurnosAsistente(ctx context.Context, antes time.Time) er
 	return err
 }
 
+const reconexionPorComprobante = `-- name: ReconexionPorComprobante :one
+SELECT id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at FROM mensajeria.reconexiones WHERE comprobante_id = $1
+`
+
+func (q *Queries) ReconexionPorComprobante(ctx context.Context, comprobanteID int64) (MensajeriaReconexione, error) {
+	row := q.db.QueryRow(ctx, reconexionPorComprobante, comprobanteID)
+	var i MensajeriaReconexione
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.ConversacionID,
+		&i.BoletaID,
+		&i.ComprobanteID,
+		&i.ClienteID,
+		&i.ServicioID,
+		&i.Motivo,
+		&i.Estado,
+		&i.PromesaArgosID,
+		&i.Hasta,
+		&i.Detalle,
+		&i.SolicitadaPor,
+		&i.PorAsistente,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const servicioDeClienteEmpresa = `-- name: ServicioDeClienteEmpresa :one
 SELECT EXISTS (
     SELECT 1 FROM integracion.argos_servicios s
@@ -360,6 +579,22 @@ func (q *Queries) ServicioDeClienteEmpresa(ctx context.Context, arg ServicioDeCl
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const sumarUsoAutonomo = `-- name: SumarUsoAutonomo :exec
+UPDATE mensajeria.asistente_uso SET tokens_autonomo = tokens_autonomo + $1::bigint, updated_at = now()
+WHERE coalesce(empresa_id, 0) = $2::bigint AND mes = $3
+`
+
+type SumarUsoAutonomoParams struct {
+	Tokens  int64
+	Empresa int64
+	Mes     pgtype.Date
+}
+
+func (q *Queries) SumarUsoAutonomo(ctx context.Context, arg SumarUsoAutonomoParams) error {
+	_, err := q.db.Exec(ctx, sumarUsoAutonomo, arg.Tokens, arg.Empresa, arg.Mes)
+	return err
 }
 
 const terminarTurno = `-- name: TerminarTurno :one
@@ -407,6 +642,23 @@ func (q *Queries) TerminarTurno(ctx context.Context, arg TerminarTurnoParams) (M
 		&i.TerminadoEn,
 	)
 	return i, err
+}
+
+const ticketsAsistenteRecientes = `-- name: TicketsAsistenteRecientes :one
+SELECT count(*)::bigint FROM mensajeria.asistente_acciones
+WHERE conversacion_id = $1 AND accion = 'crear_ticket' AND resultado = 'ok' AND creada_en >= $2
+`
+
+type TicketsAsistenteRecientesParams struct {
+	ConversacionID int64
+	Desde          time.Time
+}
+
+func (q *Queries) TicketsAsistenteRecientes(ctx context.Context, arg TicketsAsistenteRecientesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, ticketsAsistenteRecientes, arg.ConversacionID, arg.Desde)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const tomarTurno = `-- name: TomarTurno :exec
@@ -531,6 +783,24 @@ func (q *Queries) TurnosAtascados(ctx context.Context, antes time.Time) ([]int64
 	return items, nil
 }
 
+const turnosDelPeriodo = `-- name: TurnosDelPeriodo :one
+SELECT count(*)::bigint FROM mensajeria.asistente_turnos
+WHERE conversacion_id = $1 AND creado_en >= $2 AND estado IN ('respondio', 'descartado')
+`
+
+type TurnosDelPeriodoParams struct {
+	ConversacionID int64
+	Desde          time.Time
+}
+
+// Turnos del asistente en este periodo de la conversación: también los descartados cuentan para maxTurnos.
+func (q *Queries) TurnosDelPeriodo(ctx context.Context, arg TurnosDelPeriodoParams) (int64, error) {
+	row := q.db.QueryRow(ctx, turnosDelPeriodo, arg.ConversacionID, arg.Desde)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const turnosRecientesConv = `-- name: TurnosRecientesConv :one
 SELECT count(*)::bigint FROM mensajeria.asistente_turnos WHERE conversacion_id = $1 AND creado_en >= $2
 `
@@ -564,7 +834,7 @@ func (q *Queries) TurnosRecientesEmpresa(ctx context.Context, arg TurnosReciente
 }
 
 const ultimaBoletaConv = `-- name: UltimaBoletaConv :one
-SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at FROM mensajeria.boletas
+SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, por_asistente FROM mensajeria.boletas
 WHERE conversacion_id = $1 AND cliente_id = $2 AND coalesce(empresa_id, 0) = $3::bigint
 ORDER BY created_at DESC LIMIT 1
 `
@@ -601,15 +871,24 @@ func (q *Queries) UltimaBoletaConv(ctx context.Context, arg UltimaBoletaConvPara
 		&i.RegistradaPor,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PorAsistente,
 	)
 	return i, err
 }
 
 const ultimoAdjuntoEntrante = `-- name: UltimoAdjuntoEntrante :one
-SELECT id, adjunto_id, tipo, creado_en FROM mensajeria.conversacion_mensajes
-WHERE conversacion_id = $1 AND direccion = 'entrante' AND adjunto_id IS NOT NULL AND tipo IN ('imagen', 'documento')
-ORDER BY seq DESC LIMIT 1
+SELECT m.id, m.adjunto_id, m.tipo, m.creado_en FROM mensajeria.conversacion_mensajes m
+WHERE m.conversacion_id = $1 AND m.direccion = 'entrante' AND m.adjunto_id IS NOT NULL AND m.tipo IN ('imagen', 'documento')
+  AND m.creado_en >= $2
+  AND NOT EXISTS (SELECT 1 FROM mensajeria.boletas b WHERE b.adjunto_id = m.adjunto_id)
+  AND m.creado_en > coalesce((SELECT max(b.created_at) FROM mensajeria.boletas b WHERE b.conversacion_id = m.conversacion_id), '-infinity')
+ORDER BY m.seq DESC LIMIT 1
 `
+
+type UltimoAdjuntoEntranteParams struct {
+	ConversacionID int64
+	Desde          time.Time
+}
 
 type UltimoAdjuntoEntranteRow struct {
 	ID        uuid.UUID
@@ -618,9 +897,10 @@ type UltimoAdjuntoEntranteRow struct {
 	CreadoEn  time.Time
 }
 
-// La última imagen o documento que mandó el cliente (la boleta).
-func (q *Queries) UltimoAdjuntoEntrante(ctx context.Context, conversacionID int64) (UltimoAdjuntoEntranteRow, error) {
-	row := q.db.QueryRow(ctx, ultimoAdjuntoEntrante, conversacionID)
+// La última imagen o documento que mandó el cliente en este periodo de la conversación y que
+// todavía no es de ninguna boleta (cada adjunto vale para una sola).
+func (q *Queries) UltimoAdjuntoEntrante(ctx context.Context, arg UltimoAdjuntoEntranteParams) (UltimoAdjuntoEntranteRow, error) {
+	row := q.db.QueryRow(ctx, ultimoAdjuntoEntrante, arg.ConversacionID, arg.Desde)
 	var i UltimoAdjuntoEntranteRow
 	err := row.Scan(
 		&i.ID,
@@ -629,4 +909,58 @@ func (q *Queries) UltimoAdjuntoEntrante(ctx context.Context, conversacionID int6
 		&i.CreadoEn,
 	)
 	return i, err
+}
+
+const ultimosEntrantesTexto = `-- name: UltimosEntrantesTexto :many
+SELECT id, texto FROM mensajeria.conversacion_mensajes
+WHERE conversacion_id = $1 AND direccion = 'entrante' AND texto IS NOT NULL AND creado_en >= $2
+ORDER BY seq DESC LIMIT 3
+`
+
+type UltimosEntrantesTextoParams struct {
+	ConversacionID int64
+	Desde          time.Time
+}
+
+type UltimosEntrantesTextoRow struct {
+	ID    uuid.UUID
+	Texto *string
+}
+
+func (q *Queries) UltimosEntrantesTexto(ctx context.Context, arg UltimosEntrantesTextoParams) ([]UltimosEntrantesTextoRow, error) {
+	rows, err := q.db.Query(ctx, ultimosEntrantesTexto, arg.ConversacionID, arg.Desde)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UltimosEntrantesTextoRow
+	for rows.Next() {
+		var i UltimosEntrantesTextoRow
+		if err := rows.Scan(&i.ID, &i.Texto); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const verificacionesRecientes = `-- name: VerificacionesRecientes :one
+SELECT count(*)::bigint FROM mensajeria.asistente_verificaciones
+WHERE conversacion_id = $1 AND creada_en >= $2 AND resultado IN ('coincide', 'no_coincide')
+`
+
+type VerificacionesRecientesParams struct {
+	ConversacionID int64
+	Desde          time.Time
+}
+
+// Intentos del desafío que cuentan para el máximo (los que Argos evaluó).
+func (q *Queries) VerificacionesRecientes(ctx context.Context, arg VerificacionesRecientesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, verificacionesRecientes, arg.ConversacionID, arg.Desde)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }

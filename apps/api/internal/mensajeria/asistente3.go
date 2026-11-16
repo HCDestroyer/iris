@@ -125,6 +125,16 @@ type PerfilAsistente struct {
 	Nombre   string            `json:"nombre" minLength:"1" maxLength:"40"`
 	Acciones AccionesAsistente `json:"acciones"`
 	Limites  LimitesAsistente  `json:"limites"`
+	// ExigeVerificacionFuerte: qué acciones exigen la verificación fuerte del cliente (§17.8). Ausente
+	// = todas las que pueden (true). promesa_pago y reconexion_temporal la exigen siempre.
+	ExigeVerificacionFuerte *VerificacionFuerteAcciones `json:"exigeVerificacionFuerte,omitempty" doc:"Ausente = true en todo"`
+	// saldoFuerte: lo que vale para dar_saldo (true si falta).
+	saldoFuerte bool
+}
+
+// VerificacionFuerteAcciones: las acciones en que la empresa puede bajar la exigencia a «numero».
+type VerificacionFuerteAcciones struct {
+	DarSaldo bool `json:"dar_saldo" doc:"true (por defecto): el saldo solo a quien pasó la verificación fuerte; false: basta que el número coincida"`
 }
 
 // AccionesCola: acciones apagadas en una cola.
@@ -137,17 +147,18 @@ func perfilPorDefecto() PerfilAsistente {
 	return PerfilAsistente{Codigo: PerfilDefecto, Nombre: "General",
 		Acciones: AccionesAsistente{ResponderDudas: true, AvisarFallas: true, DarSaldo: true, CrearTicket: true, AgendarVisita: true,
 			RecibirBoleta: true, PasarAPersona: true},
-		Limites: LimitesAsistente{PrioridadMaxima: "alta", DiasAdelanteMax: 2}}
+		Limites: LimitesAsistente{PrioridadMaxima: "alta", DiasAdelanteMax: 2}, saldoFuerte: true}
 }
 
 func perfilesDe(crudo []byte) []PerfilAsistente {
 	var ps []PerfilAsistente
 	_ = json.Unmarshal(crudo, &ps)
 	if len(ps) == 0 {
-		return []PerfilAsistente{perfilPorDefecto()}
+		ps = []PerfilAsistente{perfilPorDefecto()}
 	}
 	for i := range ps {
 		ps[i].Acciones.PasarAPersona = true
+		ps[i].saldoFuerte = ps[i].ExigeVerificacionFuerte == nil || ps[i].ExigeVerificacionFuerte.DarSaldo
 	}
 	return ps
 }
@@ -294,6 +305,15 @@ func (m *Modulo) aplicarAutonomo(ctx context.Context, q *mensajeriabd.Queries, e
 	g, err := q.FijarAutonomoAsistente(ctx, p)
 	if err != nil {
 		return f, err
+	}
+	if in.PresupuestoAutonomoPct != nil {
+		if *in.PresupuestoAutonomoPct < 1 || *in.PresupuestoAutonomoPct > 100 {
+			return f, campoConv("presupuestoAutonomoPct", "Entre 1 y 100", "rango")
+		}
+		if err := q.FijarPresupuestoAutonomo(ctx, mensajeriabd.FijarPresupuestoAutonomoParams{ID: g.ID, Pct: *in.PresupuestoAutonomoPct}); err != nil {
+			return f, err
+		}
+		g.PresupuestoAutonomoPct = *in.PresupuestoAutonomoPct
 	}
 	return g, m.sembrarCategorias(ctx, q, empresa)
 }

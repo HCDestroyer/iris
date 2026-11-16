@@ -113,6 +113,7 @@ type ContactoConversacion struct {
 	ProspectoID    *int64  `json:"prospectoId" nullable:"true"`
 	Asociacion     *string `json:"asociacion" nullable:"true" enum:"automatica,manual" doc:"automatica: una sola coincidencia del número en la instantánea de Argos"`
 	Verificado     bool    `json:"verificado" doc:"El número coincide con un teléfono del cliente en Argos (o lo confirmó un supervisor). Sin verificar: ni plantillas fuera de ventana, ni boletas, ni promesas"`
+	Verificacion   *string `json:"verificacion" nullable:"true" required:"false" enum:"numero,fuerte" doc:"Nivel de la verificación (§17.8): numero = el número coincide; fuerte = lo confirmó una persona o pasó el desafío de identidad de Argos. null: sin verificar"`
 }
 
 // VentanaConversacion es la ventana de 24 h de WhatsApp.
@@ -313,21 +314,49 @@ type alcanceConv struct {
 // NombreAsistenteIA: cómo se muestra el asistente en los mensajes de sistema.
 const NombreAsistenteIA = "Asistente de IA"
 
-// alcanceAccionDe es alcanceConvDe y, además, acepta al asistente de IA (actor asistente_ia). La
-// usan solo las acciones que el asistente puede hacer solo (responder, crear ticket u orden,
-// registrar la boleta, pedir la promesa); el permiso de cada caso de uso sigue mandando: su rol
-// interno no tiene ningún otro. Todo lo demás (ver, listar, tomar, asignar, resolver, configurar,
-// aprobar boletas) sigue exigiendo una persona con sesión.
-func alcanceAccionDe(ctx context.Context) (alcanceConv, error) {
+// casosDelAsistente son los únicos casos de uso de la bandeja que aceptan al actor asistente_ia
+// (§17.8). Cualquier otro lo rechaza aunque algún día su rol tuviera el permiso: se deniega por
+// defecto. Aprobar o rechazar boletas, tomar, asignar, resolver, asociar y configurar no están.
+var casosDelAsistente = map[string]bool{
+	"conversaciones.responder": true, "conversaciones.crear_ticket": true, "conversaciones.registrar_boleta": true,
+	"conversaciones.registrar_promesa": true, "conversaciones.simular_promesa": true, "conversaciones.pedir_reconexion": true,
+	"mensajeria.asistente_consultar": true,
+}
+
+// alcanceAccionDe es alcanceConvDe y, además, acepta al asistente de IA (actor asistente_ia) solo en
+// los casos de casosDelAsistente. El permiso de cada caso de uso sigue mandando.
+func alcanceAccionDe(ctx context.Context, caso string) (alcanceConv, error) {
 	actor := contexto.ActorDe(ctx)
 	if actor.Tipo != contexto.ActorAsistenteIA {
 		return alcanceConvDe(ctx)
+	}
+	if !casosDelAsistente[caso] {
+		return alcanceConv{}, nucleo.Prohibido("El asistente de IA no puede usar esta acción")
 	}
 	// La empresa es la que fijó el servidor al armar el contexto del turno; nunca sale del modelo.
 	if actor.EmpresaID != contexto.EmpresaDe(ctx) {
 		return alcanceConv{}, conversacionClienteNoEncontrada()
 	}
 	return alcanceConv{asistente: true, empresa: actor.EmpresaID}, nil
+}
+
+// Niveles de verificación del cliente de una conversación.
+const (
+	// VerificacionNumero: el número de WhatsApp coincide con un teléfono del cliente en Argos.
+	VerificacionNumero = "numero"
+	// VerificacionFuerte: lo confirmó una persona con permiso, o pasó el desafío de identidad de Argos.
+	VerificacionFuerte = "fuerte"
+)
+
+// verificacionDe: "" (sin verificar), numero o fuerte.
+func verificacionDe(c mensajeriabd.MensajeriaConversacion) string {
+	switch {
+	case c.ClienteID == nil || !c.ClienteVerificado:
+		return ""
+	case c.VerificadoPor != nil || c.IdentidadVerificadaEn != nil:
+		return VerificacionFuerte
+	}
+	return VerificacionNumero
 }
 
 // usuarioPtr: quién queda como autor (nil = el asistente de IA).
@@ -538,6 +567,9 @@ func ventanaDe(ultimoEntrante *time.Time, ahora time.Time) VentanaConversacion {
 func contactoDeConv(c mensajeriabd.MensajeriaConversacion) ContactoConversacion {
 	k := ContactoConversacion{Tipo: "desconocido", ClienteID: c.ClienteID, ServicioID: c.ServicioID, ContactoIrisID: c.ContactoIrisID,
 		ProspectoID: c.ProspectoID, Asociacion: c.Asociacion, Verificado: c.ClienteID != nil && c.ClienteVerificado}
+	if v := verificacionDe(c); v != "" {
+		k.Verificacion = &v
+	}
 	switch {
 	case c.ClienteID != nil:
 		k.Tipo = "cliente"

@@ -189,7 +189,7 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaResponder) (MensajeConvEnviado, error) {
 			// También el asistente de IA cuando atiende solo (§17.8): solo texto, dentro de la ventana y
 			// con el permiso de contacto vigente.
-			a, err := alcanceAccionDe(ctx)
+			a, err := alcanceAccionDe(ctx, "conversaciones.responder")
 			if err != nil {
 				return MensajeConvEnviado{}, err
 			}

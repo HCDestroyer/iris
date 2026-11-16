@@ -110,7 +110,7 @@ func nuevoLeerConvPara(accion string, permiso nucleo.Permiso) *auditoria.Caso[En
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaConversacion) (convLeida, error) {
 			// También el asistente de IA (el permiso del caso decide: su rol solo tiene crear ticket,
 			// crear orden, boleta y promesa).
-			a, err := alcanceAccionDe(ctx)
+			a, err := alcanceAccionDe(ctx, accion)
 			if err != nil {
 				return convLeida{}, err
 			}

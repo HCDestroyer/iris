@@ -287,6 +287,9 @@ const (
 	PermConversacionesRegistrarBoleta Permiso = "conversaciones.registrar_boleta"
 	// PermConversacionesRegistrarPromesa: simular y pedir a Argos una promesa de pago (§7.4).
 	PermConversacionesRegistrarPromesa Permiso = "conversaciones.registrar_promesa"
+	// PermConversacionesPedirReconexion: pedir a Argos una reconexión temporal mientras caja revisa la
+	// boleta (§7.3). Por ahora solo lo usa el asistente de IA (fuera de horario o sin nadie disponible).
+	PermConversacionesPedirReconexion Permiso = "conversaciones.pedir_reconexion"
 	// PermConversacionesConfigurar: etiquetas y respuestas rápidas de la empresa.
 	PermConversacionesConfigurar Permiso = "conversaciones.configurar"
 	// PermCanalesConfigurar: colas, uso, cola y horario de cada número de WhatsApp, horarios y
@@ -326,6 +329,7 @@ var PermisosSensibles = map[Permiso]bool{
 	PermFactibilidadConfigurar: true, PermPortalEmitir: true, PermSSOEmitir: true,
 	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true, PermMensajeriaConfigurar: true, PermMensajeriaConexionMeta: true, PermMensajeriaAsistenteConfigurar: true, PermCanalesConfigurar: true, PermConversacionesConfigurar: true,
 	PermConversacionesRegistrarPromesa: true, PermConversacionesRegistrarBoleta: true, PermConversacionesSupervisar: true,
+	PermConversacionesPedirReconexion: true,
 	PermConversacionesIniciar: true, PermCampoConfigurar: true,
 }
 
@@ -393,6 +397,7 @@ var Catalogo = []DefPermiso{
 	{PermConversacionesIniciar, "Escribir primero por WhatsApp, con una plantilla aprobada, a un cliente o contacto con permiso de contacto desde un número de tus colas"},
 	{PermConversacionesPasar, "Pasar la conversación que tienes a un compañero de la misma cola, con una nota interna"},
 	{PermConversacionesRegistrarBoleta, "Mandar a Argos la boleta de pago que envió el cliente por WhatsApp (caja la aprueba en Argos)"},
+	{PermConversacionesPedirReconexion, "Pedir a Argos una reconexión temporal mientras caja revisa la boleta del cliente (Argos decide)"},
 	{PermConversacionesRegistrarPromesa, "Simular y pedir a Argos una promesa de pago desde una conversación (Argos decide)"},
 	{PermConversacionesResolver, "Resolver y reabrir conversaciones"},
 	{PermConversacionesResponder, "Responder a los clientes por WhatsApp (texto, adjuntos y plantillas aprobadas) y escribir notas internas con menciones"},
@@ -705,10 +710,10 @@ func ModuloDe(p Permiso) (codigo, nombre string) {
 const RolAsistenteIA = "asistente_ia"
 
 // PermisosAsistenteIA son los permisos del rol interno asistente_ia: responder, crear tickets,
-// crear y programar órdenes, registrar la boleta y pedir la promesa. Nada de configuración, de
-// aprobar o rechazar boletas, de supervisar ni de ver otras empresas. Cada herramienta exige además
-// su acción encendida en el perfil vigente.
+// registrar la boleta, pedir la promesa y pedir la reconexión temporal. Nada de configuración, de
+// aprobar o rechazar boletas, de supervisar ni de ver otras empresas; crear y programar órdenes
+// llegará con agendar_visita. Cada herramienta exige además su acción encendida en el perfil vigente.
 func PermisosAsistenteIA() []Permiso {
-	return []Permiso{PermConversacionesResponder, PermTicketsCrear, PermOrdenesCrear, PermOrdenesProgramar,
-		PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa}
+	return []Permiso{PermConversacionesResponder, PermTicketsCrear, PermConversacionesRegistrarBoleta,
+		PermConversacionesRegistrarPromesa, PermConversacionesPedirReconexion}
 }

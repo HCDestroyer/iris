@@ -186,7 +186,7 @@ func (m *Modulo) mantenerAsistente(ctx context.Context, bd nucleo.BD, log *slog.
 	}
 	// §17.8: un turno autónomo cuyo job murió se vuelve a encolar (el turno decide si lo repite o lo
 	// pasa a una persona); los turnos viejos se purgan.
-	convs, err := q.TurnosAtascados(ctx, m.ahora().Add(-(MaxPasosTurno*m.cfg.PlazoIA + MargenAtascadaIA)))
+	convs, err := q.TurnosAtascados(ctx, m.ahora().Add(-(m.arriendoTurno() + MargenAtascadaIA)))
 	if err != nil {
 		return err
 	}

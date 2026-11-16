@@ -69,16 +69,25 @@ UPDATE mensajeria.conversaciones SET asistente_estado = 'detenido', updated_at =
 WHERE id = @id AND asistente_estado IN ('atendiendo', 'espera_persona');
 
 -- name: PersonaEscribioDesde :one
+-- Todo saliente que no sea automático cuenta como «una persona escribió»: un agente desde Iris o
+-- desde el teléfono del negocio (eco de coexistencia, sin autor).
 SELECT EXISTS (
     SELECT 1 FROM mensajeria.conversacion_mensajes m
-    WHERE m.conversacion_id = @conversacion_id AND m.direccion = 'saliente' AND m.autor_id IS NOT NULL AND m.creado_en >= @desde
+    WHERE m.conversacion_id = @conversacion_id AND m.direccion = 'saliente' AND m.automatico IS NULL AND m.creado_en >= @desde
 )::boolean;
 
 -- name: UltimoAdjuntoEntrante :one
--- La última imagen o documento que mandó el cliente (la boleta).
-SELECT id, adjunto_id, tipo, creado_en FROM mensajeria.conversacion_mensajes
-WHERE conversacion_id = @conversacion_id AND direccion = 'entrante' AND adjunto_id IS NOT NULL AND tipo IN ('imagen', 'documento')
-ORDER BY seq DESC LIMIT 1;
+-- La última imagen o documento que mandó el cliente en este periodo de la conversación y que
+-- todavía no es de ninguna boleta (cada adjunto vale para una sola).
+SELECT m.id, m.adjunto_id, m.tipo, m.creado_en FROM mensajeria.conversacion_mensajes m
+WHERE m.conversacion_id = @conversacion_id AND m.direccion = 'entrante' AND m.adjunto_id IS NOT NULL AND m.tipo IN ('imagen', 'documento')
+  AND m.creado_en >= @desde
+  AND NOT EXISTS (SELECT 1 FROM mensajeria.boletas b WHERE b.adjunto_id = m.adjunto_id)
+  AND m.creado_en > coalesce((SELECT max(b.created_at) FROM mensajeria.boletas b WHERE b.conversacion_id = m.conversacion_id), '-infinity')
+ORDER BY m.seq DESC LIMIT 1;
+
+-- name: BoletasRecientesConv :one
+SELECT count(*)::bigint FROM mensajeria.boletas WHERE conversacion_id = @conversacion_id AND created_at >= @desde;
 
 -- name: UltimaBoletaConv :one
 -- La última boleta de la conversación para ese cliente (la reconexión temporal se liga a su comprobante).
@@ -100,3 +109,63 @@ SELECT EXISTS (
     SELECT 1 FROM integracion.argos_servicios s
     WHERE s.id = @servicio_id AND s.cliente_id = @cliente_id AND s.empresa_id = @empresa::bigint
 )::boolean;
+
+-- Revisión de seguridad de la #163 ---------------------------------------------------------------------
+
+-- name: FijarIdentidadVerificada :exec
+UPDATE mensajeria.conversaciones SET identidad_verificada_en = @ahora, updated_at = now() WHERE id = @id;
+
+-- name: InsertarVerificacion :exec
+INSERT INTO mensajeria.asistente_verificaciones (empresa_id, conversacion_id, cliente_id, resultado, creada_en)
+VALUES (sqlc.narg('empresa_id'), @conversacion_id, @cliente_id, @resultado, @creada_en);
+
+-- name: VerificacionesRecientes :one
+-- Intentos del desafío que cuentan para el máximo (los que Argos evaluó).
+SELECT count(*)::bigint FROM mensajeria.asistente_verificaciones
+WHERE conversacion_id = @conversacion_id AND creada_en >= @desde AND resultado IN ('coincide', 'no_coincide');
+
+-- name: UltimosEntrantesTexto :many
+SELECT id, texto FROM mensajeria.conversacion_mensajes
+WHERE conversacion_id = @conversacion_id AND direccion = 'entrante' AND texto IS NOT NULL AND creado_en >= @desde
+ORDER BY seq DESC LIMIT 3;
+
+-- name: EnmascararTextoMensaje :exec
+-- El dato de identidad que escribió el cliente no se guarda (contrato con Argos §7.5): queda ***.
+UPDATE mensajeria.conversacion_mensajes SET texto = @texto WHERE id = @id AND direccion = 'entrante';
+
+-- name: MarcarMensajeConSaldo :exec
+UPDATE mensajeria.conversacion_mensajes SET con_saldo = true WHERE id = @id;
+
+-- name: FijarBotDiferido :exec
+UPDATE mensajeria.conversaciones SET bot_diferido_mensaje_id = sqlc.narg('mensaje_id') WHERE id = @id;
+
+-- name: InsertarReconexion :one
+INSERT INTO mensajeria.reconexiones (id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado,
+    promesa_argos_id, hasta, detalle, solicitada_por, por_asistente)
+VALUES (@id, sqlc.narg('empresa_id'), @conversacion_id, @boleta_id, @comprobante_id, @cliente_id, sqlc.narg('servicio_id'), @motivo, @estado,
+    sqlc.narg('promesa_argos_id'), sqlc.narg('hasta'), sqlc.narg('detalle'), sqlc.narg('solicitada_por'), @por_asistente)
+ON CONFLICT (comprobante_id) DO NOTHING
+RETURNING *;
+
+-- name: ReconexionPorComprobante :one
+SELECT * FROM mensajeria.reconexiones WHERE comprobante_id = @comprobante_id;
+
+-- name: SumarUsoAutonomo :exec
+UPDATE mensajeria.asistente_uso SET tokens_autonomo = tokens_autonomo + @tokens::bigint, updated_at = now()
+WHERE coalesce(empresa_id, 0) = @empresa::bigint AND mes = @mes;
+
+-- name: TurnosDelPeriodo :one
+-- Turnos del asistente en este periodo de la conversación: también los descartados cuentan para maxTurnos.
+SELECT count(*)::bigint FROM mensajeria.asistente_turnos
+WHERE conversacion_id = @conversacion_id AND creado_en >= @desde AND estado IN ('respondio', 'descartado');
+
+-- name: DescartarTurnosEnCurso :exec
+UPDATE mensajeria.asistente_turnos SET estado = 'descartado', motivo = 'persona_presente', terminado_en = @ahora
+WHERE conversacion_id = @conversacion_id AND estado = 'en_curso';
+
+-- name: TicketsAsistenteRecientes :one
+SELECT count(*)::bigint FROM mensajeria.asistente_acciones
+WHERE conversacion_id = @conversacion_id AND accion = 'crear_ticket' AND resultado = 'ok' AND creada_en >= @desde;
+
+-- name: FijarPresupuestoAutonomo :exec
+UPDATE mensajeria.asistente_ajustes SET presupuesto_autonomo_pct = @pct, updated_at = now() WHERE id = @id;

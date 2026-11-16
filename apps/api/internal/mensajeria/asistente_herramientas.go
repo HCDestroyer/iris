@@ -29,24 +29,34 @@ import (
 
 // Nombres de las herramientas.
 const (
-	HerrBuscarManual     = "buscar_manual"
-	HerrEstadoServicio   = "estado_del_servicio"
-	HerrConsultarSaldo   = "consultar_saldo"
-	HerrCrearTicket      = "crear_ticket"
-	HerrSimularPromesa   = "simular_promesa"
-	HerrPedirPromesa     = "pedir_promesa"
-	HerrCuentasBoleta    = "cuentas_para_boleta"
-	HerrRegistrarBoleta  = "registrar_boleta"
-	HerrPedirReconexion  = "pedir_reconexion"
-	HerrPasarAPersona    = "pasar_a_persona"
-	motivoFueraDeHorario = "fuera_de_horario"
+	HerrBuscarManual    = "buscar_manual"
+	HerrEstadoServicio  = "estado_del_servicio"
+	HerrConsultarSaldo  = "consultar_saldo"
+	HerrCrearTicket     = "crear_ticket"
+	HerrSimularPromesa  = "simular_promesa"
+	HerrPedirPromesa    = "pedir_promesa"
+	HerrCuentasBoleta   = "cuentas_para_boleta"
+	HerrRegistrarBoleta = "registrar_boleta"
+	HerrPedirReconexion = "pedir_reconexion"
+	HerrPasarAPersona   = "pasar_a_persona"
+	HerrVerificarIdent  = "verificar_identidad"
 )
+
+// herramientasDeLectura: las que no cambian nada (las únicas, con pasar_a_persona, del respaldo en JSON).
+var herramientasDeLectura = map[string]bool{HerrBuscarManual: true, HerrEstadoServicio: true, HerrConsultarSaldo: true, HerrSimularPromesa: true,
+	HerrCuentasBoleta: true, HerrPasarAPersona: true}
+
+// ArgosIdentidad es el desafío de identidad de Argos (contrato con Argos §7.5): Argos compara el dato
+// y solo dice si coincide. Opcional: sin él no hay herramienta verificar_identidad.
+type ArgosIdentidad interface {
+	VerificarIdentidad(ctx context.Context, a argos.AtencionIris, clienteID int64, metodo, valor string) (bool, error)
+}
 
 // accionDeHerramienta: la acción del perfil (§17.1) que enciende cada herramienta.
 var accionDeHerramienta = map[string]string{
 	HerrBuscarManual: "responder_dudas", HerrEstadoServicio: "avisar_fallas", HerrConsultarSaldo: "dar_saldo", HerrCrearTicket: "crear_ticket",
 	HerrSimularPromesa: "promesa_pago", HerrPedirPromesa: "promesa_pago", HerrCuentasBoleta: "recibir_boleta", HerrRegistrarBoleta: "recibir_boleta",
-	HerrPedirReconexion: "reconexion_temporal", HerrPasarAPersona: "pasar_a_persona",
+	HerrPedirReconexion: "reconexion_temporal", HerrPasarAPersona: "pasar_a_persona", HerrVerificarIdent: HerrVerificarIdent,
 }
 
 // ArgosReconexion es la reconexión temporal de Argos (contrato con Argos §7.3): una promesa ligada
@@ -83,8 +93,14 @@ func (m *Modulo) herramientasDe(t *turnoIA) []HerramientaIA {
 		si("avisar_fallas", HerramientaIA{Nombre: HerrEstadoServicio, Descripcion: "Devuelve los servicios del cliente y si hay una falla de red abierta que lo afecte."})
 	}
 	if conArgos {
+		// El desafío de identidad: solo si alguna acción que lo exige está encendida.
+		if _, ok := m.cfg.Argos.(ArgosIdentidad); ok && !t.fuerte && (t.acciones["dar_saldo"] || t.acciones["promesa_pago"] || t.acciones["reconexion_temporal"]) {
+			t.acciones[HerrVerificarIdent] = true
+			hs = append(hs, HerramientaIA{Nombre: HerrVerificarIdent,
+				Descripcion: "Verifica la identidad del cliente con su DPI o NIT completo. Primero pídeselo; cuando lo haya escrito en su último mensaje, llama a esta herramienta (sin argumentos: el sistema toma el dato del mensaje; tú lo ves como ***). Nunca repitas el dato."})
+		}
 		si("dar_saldo", HerramientaIA{Nombre: HerrConsultarSaldo,
-			Descripcion: "Consulta el estado de cuenta del cliente. Solo funciona con un cliente verificado. No devuelve el monto: escribe {{saldo}} donde va y el sistema lo reemplaza."})
+			Descripcion: "Consulta el estado de cuenta del cliente. Exige la identidad verificada. No devuelve el monto: escribe {{saldo}} donde va y el sistema lo reemplaza."})
 	}
 	si("crear_ticket", HerramientaIA{Nombre: HerrCrearTicket, Descripcion: "Crea un ticket de soporte para el cliente de esta conversación. Dile el número de ticket que devuelve.",
 		Parametros: map[string]any{"asunto": pTexto("Asunto corto del problema (3 a 120 caracteres)"), "descripcion": pTexto("Qué reporta el cliente, sin contraseñas ni documentos"),
@@ -180,7 +196,7 @@ func (m *Modulo) ejecutarHerramienta(ctx context.Context, t *turnoIA, l LlamadaI
 	if c.ClienteID != nil {
 		clienteAhora = *c.ClienteID
 	}
-	if clienteAhora != t.clienteID || (c.ClienteVerificado && c.ClienteID != nil) != t.verificado {
+	if clienteAhora != t.clienteID || (verificacionDe(c) != "") != t.verificado {
 		return resHerramienta{fallo: true}
 	}
 	var res resHerramienta
@@ -211,7 +227,13 @@ func (m *Modulo) ejecutarHerramienta(ctx context.Context, t *turnoIA, l LlamadaI
 	case HerrRegistrarBoleta:
 		res, hecha = m.herrRegistrarBoleta(ctx, t, l, hecha)
 	case HerrPedirReconexion:
-		res, hecha = m.herrReconexion(ctx, t, c, l, hecha)
+		res, hecha = m.herrReconexion(ctx, t, l, hecha)
+	case HerrVerificarIdent:
+		res, hecha = m.herrVerificarIdentidad(ctx, t, l, hecha)
+	}
+	if res.paso != "" {
+		m.registrarAccion(ctx, t, accionHecha{Accion: hecha.Accion, Resultado: "fallo"})
+		return res
 	}
 	if res.persona {
 		return res
@@ -326,8 +348,10 @@ func (m *Modulo) herrConsultarSaldo(ctx context.Context, t *turnoIA, l LlamadaIA
 	if args(l.Argumentos, &a) != nil {
 		return rechazo("esta herramienta no lleva argumentos."), h
 	}
-	if !t.verificado || t.clienteID == 0 {
-		return rechazo("el cliente no está verificado. No hables de su saldo ni de deudas; ofrece pasarlo con una persona para verificar su identidad."), h
+	// El saldo exige la verificación fuerte (una persona la confirmó o pasó el desafío de Argos), salvo
+	// que la empresa la haya bajado a «el número coincide» en el perfil.
+	if !t.verificado || t.clienteID == 0 || (t.saldoFuerte && !t.fuerte) {
+		return rechazo("la identidad del cliente no está verificada. No hables de su saldo ni de deudas; verifica su identidad (si tienes verificar_identidad) o pásalo con una persona."), h
 	}
 	cctx, cancelar := context.WithTimeout(ctx, PlazoCuentaIA)
 	defer cancelar()
@@ -377,6 +401,12 @@ func (m *Modulo) herrCrearTicket(ctx context.Context, t *turnoIA, l LlamadaIA, h
 	if t.hechas["crear_ticket"] {
 		return rechazo("ya creaste un ticket en este turno."), h
 	}
+	if n, err := mensajeriabd.New(nucleo.BDDe(ctx)).TicketsAsistenteRecientes(ctx, mensajeriabd.TicketsAsistenteRecientesParams{ConversacionID: t.conv,
+		Desde: m.ahora().Add(-24 * time.Hour)}); err != nil {
+		return resHerramienta{fallo: true}, h
+	} else if n >= TicketsPorDiaConv {
+		return rechazo("ya se crearon varios tickets hoy en esta conversación. Pasa a una persona si hace falta otro."), h
+	}
 	asunto := strings.TrimSpace(reEspacios.ReplaceAllString(RedactarParaIA(a.Asunto), " "))
 	if len([]rune(asunto)) < 3 || len([]rune(asunto)) > 120 {
 		return rechazo("el asunto debe tener entre 3 y 120 caracteres."), h
@@ -418,8 +448,8 @@ func (m *Modulo) herrPromesa(ctx context.Context, t *turnoIA, l LlamadaIA, h acc
 	if args(l.Argumentos, &a) != nil || !reFechaISO.MatchString(a.Fecha) {
 		return rechazo("argumentos no válidos (servicio_id y fecha AAAA-MM-DD)."), h
 	}
-	if !t.verificado {
-		return rechazo("el cliente no está verificado: una promesa de pago solo se pide para un cliente verificado."), h
+	if !t.fuerte {
+		return rechazo("la identidad del cliente no está verificada: una promesa de pago exige verificarla (verificar_identidad) o una persona."), h
 	}
 	if !m.servicioDelCliente(ctx, t, a.ServicioID) {
 		return rechazo("ese servicio no es del cliente de esta conversación."), h
@@ -433,14 +463,19 @@ func (m *Modulo) herrPromesa(ctx context.Context, t *turnoIA, l LlamadaIA, h acc
 	if err != nil {
 		return deError(err), h
 	}
+	// Del simulador solo sale el resultado y el código de la regla (nunca su texto libre ni un monto).
 	motivo := ""
-	if sim.Motivo != nil {
-		motivo = " Motivo: " + limpiarDato(*sim.Motivo, 200) + "."
+	if sim.Regla != nil && reCodigoRegla.MatchString(*sim.Regla) {
+		motivo = " No cumple la regla «" + *sim.Regla + "» de la política de promesas."
 	}
 	if l.Nombre == HerrSimularPromesa {
 		h.Accion = "simular_promesa"
 		// Del simulador solo sale el resultado y el motivo: nunca el monto de la deuda.
-		return resHerramienta{contenido: "Resultado de la simulación: " + limpiarDato(sim.Resultado, 40) + "." + motivo +
+		resultado := sim.Resultado
+		if !slices.Contains([]string{"aprobada", "rechazada", "pendiente_aprobacion"}, resultado) {
+			resultado = "pendiente_aprobacion"
+		}
+		return resHerramienta{contenido: "Resultado de la simulación: " + resultado + "." + motivo +
 			" Si el cliente confirma el día, usa pedir_promesa."}, h
 	}
 	if sim.Resultado == "rechazada" {
@@ -501,7 +536,10 @@ func (m *Modulo) herrCuentasBoleta(ctx context.Context, t *turnoIA, l LlamadaIA,
 	return resHerramienta{contenido: b.String()}, h
 }
 
-var reMontoBoleta = regexp.MustCompile(`^[0-9]{1,10}\.[0-9]{2}$`)
+var (
+	reMontoBoleta = regexp.MustCompile(`^[0-9]{1,10}\.[0-9]{2}$`)
+	reCodigoRegla = regexp.MustCompile(`^[a-z0-9_]{1,40}$`)
+)
 
 // herrRegistrarBoleta registra el comprobante con la última foto o PDF del cliente. Nunca aprueba ni
 // rechaza: eso es de caja (y el rol del asistente no tiene ese permiso).
@@ -539,9 +577,16 @@ func (m *Modulo) herrRegistrarBoleta(ctx context.Context, t *turnoIA, l LlamadaI
 	}) {
 		return rechazo("esa cuenta no es de la empresa. Usa una de cuentas_para_boleta."), h
 	}
-	adj, err := q.UltimoAdjuntoEntrante(ctx, t.conv)
+	// Tope por conversación y día, y la foto debe ser de este periodo y posterior a la última boleta
+	// (cada adjunto vale para una sola boleta).
+	if n, err := q.BoletasRecientesConv(ctx, mensajeriabd.BoletasRecientesConvParams{ConversacionID: t.conv, Desde: m.ahora().Add(-24 * time.Hour)}); err != nil {
+		return resHerramienta{fallo: true}, h
+	} else if n >= BoletasPorDiaConv {
+		return rechazo("ya se registraron varias boletas hoy en esta conversación. Pasa a una persona."), h
+	}
+	adj, err := q.UltimoAdjuntoEntrante(ctx, mensajeriabd.UltimoAdjuntoEntranteParams{ConversacionID: t.conv, Desde: t.desde})
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && uuidDe(adj.AdjuntoID) == nil) {
-		return rechazo("el cliente todavía no mandó la foto o el PDF de la boleta. Pídesela."), h
+		return rechazo("el cliente todavía no mandó una foto o un PDF nuevo de la boleta. Pídesela."), h
 	}
 	if err != nil {
 		return resHerramienta{fallo: true}, h
@@ -567,44 +612,105 @@ func (m *Modulo) herrRegistrarBoleta(ctx context.Context, t *turnoIA, l LlamadaI
 	return resHerramienta{contenido: "Boleta registrada: caja la revisa y confirma el pago. No digas que el pago ya está aplicado."}, h
 }
 
-// herrReconexion pide la reconexión temporal ligada a la boleta ya registrada (§7.3). Argos decide.
-func (m *Modulo) herrReconexion(ctx context.Context, t *turnoIA, c mensajeriabd.MensajeriaConversacion, l LlamadaIA, h accionHecha) (resHerramienta, accionHecha) {
+// herrReconexion pide la reconexión temporal ligada a la boleta ya registrada (§7.3) con el caso de
+// uso PedirReconexion (permiso propio, auditoría, evento y registro local). Argos decide.
+func (m *Modulo) herrReconexion(ctx context.Context, t *turnoIA, l LlamadaIA, h accionHecha) (resHerramienta, accionHecha) {
 	var a struct{}
 	if args(l.Argumentos, &a) != nil {
 		return rechazo("esta herramienta no lleva argumentos."), h
 	}
-	rec, ok := m.cfg.Argos.(ArgosReconexion)
-	if !ok {
-		return rechazo("la reconexión temporal no está disponible."), h
-	}
-	if !t.verificado {
-		return rechazo("el cliente no está verificado."), h
-	}
 	if t.hechas["reconexion_temporal"] {
 		return rechazo("ya pediste una reconexión en este turno."), h
 	}
-	b, err := mensajeriabd.New(nucleo.BDDe(ctx)).UltimaBoletaConv(ctx, mensajeriabd.UltimaBoletaConvParams{ConversacionID: t.conv, ClienteID: t.clienteID, Empresa: t.empresa})
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && b.ComprobanteID == nil) {
-		return rechazo("primero hay que registrar la boleta del cliente y esperar a que llegue a caja; todavía no hay un comprobante."), h
+	r, err := m.Conv.Reconexion.Ejecutar(ctx, EntradaReconexion{ID: t.conv})
+	if err != nil {
+		return deError(err), h
 	}
+	h.Entidad, h.EntidadID = "reconexion", r.ID.String()
+	if r.Estado != "aceptada" || r.Hasta == nil {
+		return rechazo("el sistema de facturación no permite la reconexión temporal para este servicio. No la prometas; pasa a una persona si el cliente insiste."), h
+	}
+	h.actividadTipo, h.actividadTexto = "reconexion_pedida", "Pidió una reconexión temporal"
+	return resHerramienta{contenido: "Reconexión temporal aceptada hasta " + r.Hasta.In(m.cfg.Zona).Format("2006-01-02 15:04") +
+		" mientras caja revisa la boleta. Explícaselo al cliente."}, h
+}
+
+// reDocumento: un DPI/CUI (13 dígitos) o un NIT (hasta 12, puede terminar en K), con espacios o guiones.
+var reDocumento = regexp.MustCompile(`(?i)\b\d(?:[ -]?\d){6,12}(?:[ -]?k)?\b`)
+
+// herrVerificarIdentidad hace el desafío de identidad de Argos (§7.5) con el documento que el cliente
+// escribió. El dato no pasa por el modelo (lo ve como ***), no se guarda (el mensaje queda con ***) y
+// no va a logs, auditoría ni eventos. Máximo 3 intentos por conversación y día; al agotarlos o si
+// Argos no puede verificar, pasa a una persona.
+func (m *Modulo) herrVerificarIdentidad(ctx context.Context, t *turnoIA, l LlamadaIA, h accionHecha) (resHerramienta, accionHecha) {
+	var a struct{}
+	if args(l.Argumentos, &a) != nil {
+		return rechazo("esta herramienta no lleva argumentos: el sistema toma el dato del mensaje del cliente."), h
+	}
+	ver, ok := m.cfg.Argos.(ArgosIdentidad)
+	if !ok || t.clienteID == 0 {
+		return rechazo("la verificación de identidad no está disponible. Pasa a una persona."), h
+	}
+	if t.fuerte {
+		return resHerramienta{contenido: "La identidad del cliente ya está verificada."}, h
+	}
+	q := mensajeriabd.New(nucleo.BDDe(ctx))
+	desde := m.ahora().Add(-24 * time.Hour)
+	n, err := q.VerificacionesRecientes(ctx, mensajeriabd.VerificacionesRecientesParams{ConversacionID: t.conv, Desde: desde})
 	if err != nil {
 		return resHerramienta{fallo: true}, h
 	}
-	servicio := b.ServicioID
-	if servicio == nil {
-		servicio = c.ServicioID
+	if n >= VerificacionesPorDiaConv {
+		return resHerramienta{paso: PasoHerramientaFallo, resumen: "No pasó la verificación de identidad (intentos agotados)."}, h
 	}
-	_, hasta, err := rec.PedirReconexionTemporal(ctx, m.atencionTurno(t), *b.ComprobanteID, servicio, motivoFueraDeHorario,
-		"iris:reconexion:"+strconv.FormatInt(*b.ComprobanteID, 10))
+	// El dato sale del último mensaje del cliente, tal como lo escribió (el modelo solo vio ***).
+	ms, err := q.UltimosEntrantesTexto(ctx, mensajeriabd.UltimosEntrantesTextoParams{ConversacionID: t.conv, Desde: t.desde})
 	if err != nil {
+		return resHerramienta{fallo: true}, h
+	}
+	valor := ""
+	var mensaje mensajeriabd.UltimosEntrantesTextoRow
+	for _, f := range ms {
+		if f.Texto == nil {
+			continue
+		}
+		if d := reDocumento.FindString(*f.Texto); d != "" {
+			valor, mensaje = strings.ToUpper(strings.NewReplacer(" ", "", "-", "").Replace(d)), f
+			break
+		}
+	}
+	if valor == "" {
+		return rechazo("el cliente todavía no escribió su DPI o NIT completo. Pídeselo."), h
+	}
+	coincide, errArgos := ver.VerificarIdentidad(ctx, m.atencionTurno(t), t.clienteID, "documento", valor)
+	reg := verificacionHecha{ConversacionID: t.conv, Resultado: "no_coincide", mensajeID: mensaje.ID,
+		textoEnmascarado: strings.ReplaceAll(*mensaje.Texto, reDocumento.FindString(*mensaje.Texto), "***")}
+	switch {
+	case errArgos != nil:
+		reg.Resultado = "error"
 		var er *conector.ErrorRemoto
-		if errors.As(err, &er) && (er.Status == http.StatusUnprocessableEntity || er.Status == http.StatusConflict) {
-			return rechazo("el sistema de facturación no permite la reconexión temporal para este servicio. No la prometas; pasa a una persona si el cliente insiste."), h
+		if errors.As(errArgos, &er) && er.Status == http.StatusUnprocessableEntity {
+			reg.Resultado = "no_disponible"
+		}
+	case coincide:
+		reg.Resultado = "coincide"
+	}
+	if _, err := m.Asistente.registrarVerificacion.Ejecutar(context.WithoutCancel(ctx), reg); err != nil {
+		if esNoEncontrado(err) {
+			return resHerramienta{persona: true}, h
 		}
 		return resHerramienta{fallo: true}, h
 	}
-	h.Entidad, h.EntidadID = "comprobante", strconv.FormatInt(*b.ComprobanteID, 10)
-	h.actividadTipo, h.actividadTexto = "reconexion_pedida", "Pidió una reconexión temporal"
-	return resHerramienta{contenido: "Reconexión temporal aceptada hasta " + hasta.In(m.cfg.Zona).Format("2006-01-02 15:04") +
-		" mientras caja revisa la boleta. Explícaselo al cliente."}, h
+	switch reg.Resultado {
+	case "coincide":
+		t.fuerte = true
+		return resHerramienta{contenido: "Identidad verificada. Ya puedes usar las herramientas que la exigen."}, h
+	case "no_coincide":
+		if quedan := VerificacionesPorDiaConv - n - 1; quedan > 0 {
+			return rechazo(fmt.Sprintf("el dato no coincide. Pídele que lo revise y lo escriba completo (quedan %d intentos).", quedan)), h
+		}
+		return resHerramienta{paso: PasoHerramientaFallo, resumen: "No pasó la verificación de identidad (el dato no coincidió)."}, h
+	}
+	// Argos no pudo verificar (cliente sin documento, demasiados intentos o caído): sigue una persona.
+	return resHerramienta{paso: PasoHerramientaFallo, resumen: "No se pudo verificar la identidad del cliente en Argos."}, h
 }
