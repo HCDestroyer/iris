@@ -278,24 +278,28 @@ test.describe("Asistente 3b › bandeja", () => {
     });
 
     test("la identidad verificada vence sola: el indicador baja a «su número coincide» sin recargar", async ({ page }) => {
-        test.setTimeout(150_000);
-        const api = await abrir(page, "/conversaciones?c=42", BANDEJA);
+        // Reloj de Playwright: los 30 s de cada relectura se adelantan, no se esperan.
+        await page.clock.install({ time: new Date(AHORA_CONV) });
+        const api = await simularApi(page, { conversaciones: { asistente: { fase3: BANDEJA } } });
+        await conSesion(page.context(), test.info().project.use.baseURL ?? "", ADMIN.correo);
+        await page.goto("/conversaciones?c=42");
         await expect(indicador(page)).toHaveAttribute("data-verificacion", "fuerte");
         await expect(page.getByRole("log", { name: "Mensajes" })).toContainText("Hola, ¿me ayudan?");
-        // El servidor la baja al vencer (`verificacionFuerteMin`) y no avisa: el panel relee cada 30 s.
-        const conv = api.conversaciones.conversaciones.find((c) => c.id === 42);
-        if (!conv) throw new Error("falta la conversación 42");
-        conv.contacto = { ...conv.contacto, verificacion: "numero" };
         // La primera relectura falla: lo que hay en pantalla se queda (sin error ni «Reintentar»)…
         const detalles = () => api.peticiones.filter((p) => p.metodo === "GET" && p.ruta === "/api/v1/mensajeria/conversaciones/42").length;
         const antes = detalles();
         api.responderProblema("/api/v1/mensajeria/conversaciones/42", { type: "urn:iris:problema:error_interno", title: "Error del servidor", status: 503 }, 1);
-        await expect.poll(detalles, { timeout: 45_000 }).toBeGreaterThan(antes);
+        await page.clock.fastForward(31_000);
+        await expect.poll(detalles).toBe(antes + 1);
         await expect(page.getByRole("log", { name: "Mensajes" })).toContainText("Hola, ¿me ayudan?");
         await expect(indicador(page)).toHaveAttribute("data-verificacion", "fuerte");
         await expect(page.getByRole("button", { name: "Reintentar" })).toHaveCount(0);
-        // …y el siguiente tic lo consigue.
-        await expect(indicador(page)).toHaveAttribute("data-verificacion", "numero", { timeout: 45_000 });
+        // El servidor la baja al vencer (`verificacionFuerteMin`) y no avisa: el siguiente tic lo trae.
+        const conv = api.conversaciones.conversaciones.find((x) => x.id === 42);
+        if (!conv) throw new Error("falta la conversación 42");
+        conv.contacto = { ...conv.contacto, verificacion: "numero" };
+        await page.clock.fastForward(31_000);
+        await expect(indicador(page)).toHaveAttribute("data-verificacion", "numero");
         await expect(indicador(page)).toContainText("Su número coincide");
     });
 
