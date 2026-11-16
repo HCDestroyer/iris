@@ -28,7 +28,7 @@ export type OpcionesFase3 = {
     ajustes?: Partial<Omit<ExtrasAjustes, "autonomoDisponible">>;
     /** La bandeja trae categorías, actividad del asistente y (como en 3b) mensajes del asistente. */
     bandeja?: boolean;
-    /** Sin categorías (un servidor recién instalado las siembra; aquí, ninguna). */
+    /** La empresa nunca guardó los ajustes: sin categorías hasta el primer guardado, que las siembra (§17.2). */
     sinCategorias?: boolean;
     /** `POST /asistente/probar-mensaje`: el primer pedido falla (502) o responde 429 con `Retry-After: 5`. */
     probar?: "ok" | "error" | "429";
@@ -204,8 +204,21 @@ export function apiFase3(e: Contexto, opciones: OpcionesFase3 | undefined) {
         };
     }
 
-    /** `GET /asistente/categorias` (`conversaciones.ver`): las activas por `orden`, o todas con `incluirInactivas`. */
-    const listar = (query: URLSearchParams): Categoria[] => categorias.filter((c) => c.activa || query.get("incluirInactivas") === "true").sort((a, b) => a.orden - b.orden);
+    /**
+     * `GET /asistente/categorias` (`conversaciones.ver`): las activas por `orden`, o todas con
+     * `incluirInactivas`. Sin `mensajeria.asistente_configurar` solo la ficha (`id`, `nombre`, `tono`,
+     * `activa`, `esOtro`): el resto va vacío y `modo` ausente.
+     */
+    function listar(query: URLSearchParams, completa: boolean): Categoria[] {
+        const lista = categorias.filter((c) => c.activa || query.get("incluirInactivas") === "true").sort((a, b) => a.orden - b.orden);
+        if (completa) return lista;
+        return lista.map((c) => ({ id: c.id, nombre: c.nombre, tono: c.tono, activa: c.activa, esOtro: c.esOtro, descripcion: "", colaId: null, slaPrimeraRespuestaMin: null, condicion: null, manualIds: [], orden: 0, version: 0 }));
+    }
+
+    /** Al guardar los ajustes por primera vez se siembran las categorías de fábrica. */
+    function sembrar() {
+        if (opciones !== undefined && categorias.length === 0) categorias.push(...CATEGORIAS.map((c) => structuredClone(c)));
+    }
 
     /** Escrituras, `probar-mensaje` y `efecto` (ya con `mensajeria.asistente_configurar` comprobado). */
     async function manejar(x: { route: Route; metodo: string; ruta: string; cuerpo: Record<string, unknown>; idempotencia: string | undefined }): Promise<boolean> {
@@ -261,7 +274,7 @@ export function apiFase3(e: Contexto, opciones: OpcionesFase3 | undefined) {
         return false;
     }
 
-    return { manejar, listar, categorias, porCategoria, categorizar, pruebas, bandeja };
+    return { manejar, listar, sembrar, categorias, porCategoria, categorizar, pruebas, bandeja };
 }
 
 export type ApiFase3 = ReturnType<typeof apiFase3>;

@@ -9,7 +9,7 @@ import { useForm, useWatch } from "react-hook-form";
 import { CargaRegistro } from "@/componentes/carga-registro";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { guardarAjustesAsistente, leerAjustesAsistente } from "@/lib/asistente/api";
-import { CLAVES_ACCION, entradaLimites, esquemaLimites, NOMBRE_ACCION, NOMBRE_PRIORIDAD, PRIORIDADES, valoresLimites, type ClaveAccion, type ValoresLimites } from "@/lib/asistente/fase3";
+import { CLAVES_ACCION, completar, entradaLimites, esquemaLimites, NOMBRE_ACCION, NOMBRE_PRIORIDAD, PRIORIDADES, valoresLimites, type ClaveAccion, type ValoresLimites } from "@/lib/asistente/fase3";
 import type { AjustesAsistente } from "@/lib/asistente/tipos";
 import { leerColas } from "@/lib/conversaciones/api-equipo";
 import type { Cola } from "@/lib/conversaciones/tipos";
@@ -90,7 +90,7 @@ function Formulario({ ajustes, colas }: { ajustes: AjustesAsistente; colas: Cola
             }}
             error={
                 <>
-                    {ajustes.autonomoDisponible ? null : (
+                    {completar(ajustes).autonomoDisponible ? null : (
                         <Aviso tono="info" titulo="Se aplicarán cuando el asistente atienda solo">
                             Por ahora el asistente solo sugiere. Puedes dejar los límites listos.
                         </Aviso>

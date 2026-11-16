@@ -35,12 +35,14 @@ import { actualizarCategoria, leerCategorias, leerEfecto, probarMensaje } from "
 import {
     ajustesDePrueba,
     cambianAjustes,
+    completar,
     duracionLegible,
     entradaDeCategoria,
     entradaPrincipal,
     ESPERAS_MIN,
     esquemaPrincipal,
     NOMBRE_ACCION,
+    modoDe,
     NOMBRE_MODO,
     porcentajeSinPersona,
     proveedorConectado,
@@ -107,7 +109,7 @@ function Formulario({ datos, alGuardar }: { datos: Datos; alGuardar: (d: Datos) 
     const claveAjustes = useClaveIdempotencia();
     // Las categorías se guardan de una en una y se para en la primera que falla: una clave basta.
     const claveCategoria = useClaveIdempotencia();
-    const { ajustes } = datos;
+    const ajustes = completar(datos.ajustes);
     const { categorias } = datos;
     const form = useForm<ValoresPrincipal>({ resolver: zodResolver(esquemaPrincipal), defaultValues: valoresPrincipal(ajustes, datos.categorias) });
     const [activo, modoAutonomo, esperaMin] = useWatch({ control: form.control, name: ["activo", "modoAutonomo", "esperaMin"] });
@@ -128,11 +130,19 @@ function Formulario({ datos, alGuardar }: { datos: Datos; alGuardar: (d: Datos) 
             paso = "categoria";
             for (const c of actual.categorias) {
                 const modo = d.modos[String(c.id)];
-                if (!modo || modo === c.modo) continue;
+                if (!modo || modo === modoDe(c)) continue;
                 const r = await actualizarCategoria(c.id, { ...entradaDeCategoria(c), modo, condicion: modo === "responde_solo" ? c.condicion : null, version: c.version }, claveCategoria.actual());
                 claveCategoria.renovar();
                 actual = { ...actual, categorias: actual.categorias.map((x) => (x.id === r.id ? r : x)) };
                 setGuardado(actual);
+            }
+            // El primer guardado siembra los tipos de mensaje de fábrica (§17.2): se leen para mostrarlos.
+            if (actual.categorias.length === 0) {
+                try {
+                    actual = { ...actual, categorias: await leerCategorias(false) };
+                } catch {
+                    // Se verán al volver a abrir la pantalla.
+                }
             }
             avisar({ titulo: actual.ajustes.activo ? "Asistente guardado y encendido" : "Asistente guardado (apagado)" });
             await liberarProteccion();
@@ -293,7 +303,7 @@ function Formulario({ datos, alGuardar }: { datos: Datos; alGuardar: (d: Datos) 
             </SeccionFormulario>
 
             <SeccionFormulario titulo="3 · ¿Qué hace con cada tipo de mensaje?">
-                {categorias.length === 0 ? <p className="text-sm text-muted-foreground">Todavía no hay tipos de mensaje. Agrega el primero para que el asistente los clasifique.</p> : null}
+                {categorias.length === 0 ? <p className="text-sm text-muted-foreground">Todavía no hay tipos de mensaje. Al guardar por primera vez se crean los de fábrica (planes y precios, sin internet, pagos…); después puedes cambiarlos.</p> : null}
                 <ul aria-label="Tipos de mensaje" className="grid gap-2.5">
                     {categorias.map((c) => (
                         <FilaCategoria key={c.id} categoria={c} form={form} deshabilitado={bloqueado} />
@@ -336,7 +346,7 @@ function EnlaceSeguir({ href, children }: { href: string; children: string }) {
 }
 
 function FilaCategoria({ categoria, form, deshabilitado }: { categoria: Categoria; form: UseFormReturn<ValoresPrincipal>; deshabilitado: boolean }) {
-    const modo = useWatch({ control: form.control, name: `modos.${categoria.id}` }) ?? categoria.modo;
+    const modo = useWatch({ control: form.control, name: `modos.${categoria.id}` }) ?? modoDe(categoria);
     return (
         <li className="flex min-w-0 items-center justify-between gap-3" data-categoria={categoria.id}>
             <ChipCategoria categoria={categoria} />

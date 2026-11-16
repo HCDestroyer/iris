@@ -56,7 +56,7 @@ test.describe("boletas en la conversación", () => {
         const vieja = f.locator('[data-estado="aprobada"]');
         await expect(vieja).toContainText("La aprobó Marta Caal.");
         await expect(vieja.getByRole("button")).toHaveCount(0);
-        await esperarSinDesbordes(page);
+        await sinDesbordesAlAsentarse(page);
         await captura(page, "boleta-pendiente");
 
         await b.getByRole("button", { name: "Aprobar y registrar pago" }).click();

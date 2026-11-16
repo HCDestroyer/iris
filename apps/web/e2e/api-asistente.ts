@@ -228,7 +228,7 @@ export function apiAsistente(e: Contexto, opcionesDadas: OpcionesAsistente | und
         // §17.2: la lista de categorías la lee quien ve la bandeja (los filtros y «Cambiar»).
         if (ruta === `${BASE}/asistente/categorias` && metodo === "GET") {
             if (!puede("conversaciones.ver")) return prohibido();
-            return (await json(route, { data: fase3.listar(x.query), nextCursor: null }), true);
+            return (await json(route, { data: fase3.listar(x.query, puede(PERMISO_CONFIGURAR)), nextCursor: null }), true);
         }
         if (ruta.startsWith(`${BASE}/asistente/`)) {
             if (!puede(PERMISO_CONFIGURAR)) return prohibido();
@@ -259,6 +259,7 @@ export function apiAsistente(e: Contexto, opcionesDadas: OpcionesAsistente | und
                     claveGuardadaEn: clave === "" ? null : clave ? "2026-10-28T16:45:00Z" : ajustes.claveGuardadaEn,
                     version: ajustes.version + 1,
                 };
+                fase3.sembrar();
                 estado.activo = ajustes.activo;
                 estado.modo = ajustes.modo;
                 estado.modoAutonomo = ajustes.modoAutonomo;

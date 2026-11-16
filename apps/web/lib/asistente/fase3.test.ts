@@ -4,6 +4,7 @@ import {
     asistenteAtiende,
     cambianAjustes,
     COLOR_DE_TONO,
+    completar,
     conPerfilDefecto,
     duracionLegible,
     entradaCategoria,
@@ -16,6 +17,7 @@ import {
     esquemaLimites,
     esquemaPrincipal,
     minutosLegibles,
+    modoDe,
     PERFIL_POR_DEFECTO,
     perfilDefecto,
     porcentajeSinPersona,
@@ -151,6 +153,33 @@ describe("categorías (§17.2)", () => {
         expect(entradaCategoria({ ...v, modo: "sugiere" }).condicion).toBeNull();
         expect(entradaCategoria({ ...v, condicion: "siempre", colaId: "", slaPrimeraRespuestaMin: "" })).toMatchObject({ condicion: null, colaId: null, slaPrimeraRespuestaMin: null });
         expect(entradaDeCategoria({ ...CATEGORIA, manualIds: null })).toEqual({ ...entradaCategoria(v), manualIds: [] });
+    });
+
+    it("sin permiso de configurar llega solo la ficha (sin `modo`): se lee como «Sugiere»", () => {
+        const ficha: Categoria = { id: 2, nombre: "Sin internet", tono: "error", activa: true, esOtro: false, descripcion: "", colaId: null, slaPrimeraRespuestaMin: null, condicion: null, manualIds: [], orden: 0, version: 0 };
+        expect(modoDe(ficha)).toBe("sugiere");
+        expect(modoDe(CATEGORIA)).toBe("responde_solo");
+        expect(resumenModo({ condicion: null })).toBe("Sugiere al agente");
+        expect(valoresPrincipal(BASE, [ficha]).modos).toEqual({ "2": "sugiere" });
+    });
+
+    it("un servidor anterior a §17 queda en «Nunca», sin actuar solo y con los límites de fábrica", () => {
+        const viejo: AjustesAsistente = {
+            activo: true,
+            proveedor: "ollama",
+            url: "http://10.0.0.20:11434",
+            claveGuardadaEn: null,
+            modelo: "qwen3:32b",
+            modo: "automatico",
+            fuentes: { manuales: true, argos: true, horus: true, historial: true },
+            topeTokensMes: 5_000_000,
+            precioEntradaMillon: null,
+            precioSalidaMillon: null,
+            version: 4,
+        };
+        expect(completar(viejo)).toMatchObject({ autonomoDisponible: false, modoAutonomo: "nunca", esperaMin: 3, maxTurnos: 8 });
+        expect(valoresPrincipal(viejo, [])).toMatchObject({ modoAutonomo: "nunca", esperaMin: 3, acciones: { promesa_pago: false, responder_dudas: true } });
+        expect(valoresLimites(viejo)).toEqual({ prioridadMaxima: "alta", diasAdelanteMax: "2", maxTurnos: "8", porCola: {} });
     });
 
     it("nueva: sugiere, activa y con el primer color", () => {

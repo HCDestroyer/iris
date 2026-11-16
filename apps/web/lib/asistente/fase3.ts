@@ -14,7 +14,7 @@ import type { AjustesAsistente, EntradaAjustesAsistente } from "./tipos";
 
 // --- Ajustes (§17.1) ---------------------------------------------------------------------------
 
-export type ModoAutonomo = AjustesAsistente["modoAutonomo"];
+export type ModoAutonomo = NonNullable<AjustesAsistente["modoAutonomo"]>;
 export type PerfilAsistente = Schema<"PerfilAsistente">;
 export type AccionesAsistente = Schema<"AccionesAsistente">;
 export type LimitesPerfil = Schema<"LimitesAsistente">;
@@ -54,6 +54,13 @@ export const PERFIL_POR_DEFECTO: PerfilAsistente = {
     },
     limites: { prioridadMaxima: "alta", diasAdelanteMax: 2 },
 };
+
+/** Los ajustes con lo de §17 completo: un servidor anterior no lo manda (queda en «Nunca», sin actuar solo). */
+export type AjustesCompletos = AjustesAsistente & { autonomoDisponible: boolean; modoAutonomo: ModoAutonomo; esperaMin: number; maxTurnos: number };
+
+export function completar(a: AjustesAsistente): AjustesCompletos {
+    return { ...a, autonomoDisponible: a.autonomoDisponible ?? false, modoAutonomo: a.modoAutonomo ?? "nunca", esperaMin: a.esperaMin ?? 3, maxTurnos: a.maxTurnos ?? 8 };
+}
 
 /** El perfil «defecto» (el primero): el que edita la pantalla simple. */
 export function perfilDefecto(a: Pick<AjustesAsistente, "perfiles">): PerfilAsistente {
@@ -118,19 +125,21 @@ export type ValoresPrincipal = z.infer<typeof esquemaPrincipal>;
 const soloAcciones = (a: AccionesAsistente): ValoresPrincipal["acciones"] => Object.fromEntries(CLAVES_ACCION.map((c) => [c, a[c]])) as ValoresPrincipal["acciones"];
 
 export function valoresPrincipal(a: AjustesAsistente, categorias: readonly Categoria[]): ValoresPrincipal {
+    const c = completar(a);
     return {
         activo: a.activo,
-        modoAutonomo: a.modoAutonomo,
-        esperaMin: a.esperaMin,
+        modoAutonomo: c.modoAutonomo,
+        esperaMin: c.esperaMin,
         acciones: soloAcciones(perfilDefecto(a).acciones),
-        modos: Object.fromEntries(categorias.map((c) => [String(c.id), c.modo])),
+        modos: Object.fromEntries(categorias.map((x) => [String(x.id), modoDe(x)])),
     };
 }
 
 /** ¿Cambió algo de los ajustes (no de las categorías) en la pantalla principal? */
 export function cambianAjustes(a: AjustesAsistente, d: ValoresPrincipal): boolean {
     const guardadas = perfilDefecto(a).acciones;
-    return a.activo !== d.activo || a.modoAutonomo !== d.modoAutonomo || a.esperaMin !== d.esperaMin || CLAVES_ACCION.some((c) => guardadas[c] !== d.acciones[c]);
+    const c = completar(a);
+    return a.activo !== d.activo || c.modoAutonomo !== d.modoAutonomo || c.esperaMin !== d.esperaMin || CLAVES_ACCION.some((x) => guardadas[x] !== d.acciones[x]);
 }
 
 /** Lo que la pantalla principal manda al guardar: lo de la conexión igual y lo suyo cambiado. */
@@ -167,7 +176,7 @@ export function valoresLimites(a: AjustesAsistente): ValoresLimites {
     return {
         prioridadMaxima: p.limites.prioridadMaxima,
         diasAdelanteMax: String(p.limites.diasAdelanteMax),
-        maxTurnos: String(a.maxTurnos),
+        maxTurnos: String(completar(a).maxTurnos),
         porCola: Object.fromEntries((a.porCola ?? []).map((c) => [String(c.colaId), (c.accionesApagadas ?? []).filter(esAccion)])),
     };
 }
@@ -190,7 +199,12 @@ export type Categoria = Schema<"CategoriaMensajes">;
 export type EntradaCategoria = Schema<"CamposCategoriaMensajes">;
 /** La categoría como viaja en la conversación y en «Pruébalo». */
 export type CategoriaRef = Pick<Schema<"CategoriaMensajesRef">, "nombre" | "tono"> & { id: number | null };
-export type ModoCategoria = Categoria["modo"];
+export type ModoCategoria = NonNullable<Categoria["modo"]>;
+/**
+ * El modo de la categoría. Sin `mensajeria.asistente_configurar` el servidor manda solo la ficha
+ * (`id`, `nombre`, `tono`, `activa`, `esOtro`) y `modo` llega ausente: se lee como «Sugiere».
+ */
+export const modoDe = (c: Pick<Categoria, "modo">): ModoCategoria => c.modo ?? "sugiere";
 export type CondicionCategoria = NonNullable<Categoria["condicion"]>;
 export type TonoCategoria = Categoria["tono"];
 /** Qué hizo (o espera) el asistente en la conversación: una línea corta que escribe el servidor. */
@@ -222,7 +236,7 @@ export function minutosLegibles(min: number): string {
 
 /** «Responde solo si hay falla; si no, a la cola», «Responde solo a verificados», «Sugiere al agente». */
 export function resumenModo(c: Pick<Categoria, "modo" | "condicion">): string {
-    if (c.modo === "sugiere") return NOMBRE_MODO.sugiere;
+    if (modoDe(c) === "sugiere") return NOMBRE_MODO.sugiere;
     if (c.condicion === "si_hay_falla") return "Responde solo si hay falla; si no, a la cola";
     if (c.condicion === "solo_verificados") return "Responde solo a verificados";
     return NOMBRE_MODO.responde_solo;
@@ -252,7 +266,7 @@ export function valoresCategoria(c?: Categoria): ValoresCategoria {
         tono: tonoDe(c?.tono ?? "info"),
         colaId: c?.colaId ? String(c.colaId) : "",
         slaPrimeraRespuestaMin: c?.slaPrimeraRespuestaMin ? String(c.slaPrimeraRespuestaMin) : "",
-        modo: c?.modo ?? "sugiere",
+        modo: c ? modoDe(c) : "sugiere",
         condicion: c?.condicion ?? "siempre",
         manualIds: [...(c?.manualIds ?? [])],
         activa: c?.activa ?? true,
@@ -267,7 +281,7 @@ export function entradaDeCategoria(c: Categoria): EntradaCategoria {
         tono: c.tono,
         colaId: c.colaId,
         slaPrimeraRespuestaMin: c.slaPrimeraRespuestaMin,
-        modo: c.modo,
+        modo: modoDe(c),
         condicion: c.condicion,
         manualIds: [...(c.manualIds ?? [])],
     };
@@ -331,7 +345,7 @@ export function ajustesDePrueba(d: ValoresPrincipal, a: AjustesAsistente, catego
         categorias: categorias
             .filter((c) => c.activa)
             .map((c) => {
-                const modo = d.modos[String(c.id)] ?? c.modo;
+                const modo = d.modos[String(c.id)] ?? modoDe(c);
                 return { id: c.id, nombre: c.nombre, descripcion: c.descripcion, tono: c.tono, modo, condicion: modo === "responde_solo" ? c.condicion : null, manualIds: [...(c.manualIds ?? [])] };
             }),
     };

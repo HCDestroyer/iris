@@ -113,6 +113,17 @@ test.describe("Administración › Asistente de IA: las tres preguntas", () => {
         await esperarOpcion(principal(page).getByRole("button", { name: /Qué hace con «Sin internet»/ }), "sugiere");
     });
 
+    test("una empresa que nunca guardó: sin tipos de mensaje hasta el primer guardado, que crea los de fábrica", async ({ page }) => {
+        await abrir(page, BASE, { sinCategorias: true });
+        const f = principal(page);
+        await expect(f.getByText("Todavía no hay tipos de mensaje.")).toBeVisible();
+        await expect(f.getByRole("list", { name: "Tipos de mensaje" }).getByRole("listitem")).toHaveCount(0);
+        await f.getByRole("switch", { name: /Promesas de pago/ }).click();
+        await page.getByRole("button", { name: "Guardar" }).click();
+        await expect(page.getByText("Asistente guardado y encendido")).toBeVisible();
+        await expect(principal(page).getByRole("list", { name: "Tipos de mensaje" }).getByRole("listitem")).toHaveCount(6);
+    });
+
     test("«Pruébalo antes de guardar» usa los ajustes sin guardar y muestra categoría, qué haría, respuesta y acciones", async ({ page }) => {
         const api = await abrir(page, BASE, { autonomoDisponible: true, ajustes: { modoAutonomo: "sin_nadie" } });
         const f = principal(page);
@@ -411,6 +422,19 @@ test.describe("Bandeja con categorías y asistente", () => {
         await expect(page).not.toHaveURL(/categoria=/);
         await expect(lista(page).locator("[data-conversacion]")).toHaveCount(6);
         expect(api.conversaciones.fase3.bandeja).toBe(true);
+    });
+
+    test("quien atiende sin permiso de configurar recibe solo la ficha de cada categoría, y la bandeja funciona igual", async ({ page }) => {
+        const api = await abrir(page, "/conversaciones", { bandeja: true }, {}, AGENTE_CONV.correo);
+        await expect(filtros(page).getByRole("button", { name: /Sin internet/ })).toHaveText(/Sin internet\s*2/);
+        await expect(lista(page).locator('[data-conversacion="41"] [data-slot="chip-categoria"]')).toHaveAttribute("data-tono", "error");
+        await lista(page).locator('[data-conversacion="41"]').click();
+        const barra = page.locator('[data-slot="barra-categoria"]');
+        await barra.getByRole("button", { name: "Cambiar la categoría" }).click();
+        await page.getByRole("menuitem", { name: "Cambio de plan" }).click();
+        // El aviso no promete moverla de cola: sin `conversaciones.transferir` solo cambia la categoría.
+        await expect(page.getByText("Categoría «Cambio de plan» puesta en Carlos Ruiz")).toBeVisible();
+        expect(rutas(api, "/41/categorizar")[0]?.cuerpo).toEqual({ categoriaId: 4, version: 7 });
     });
 
     test("servidor sin categorías: la bandeja queda como antes (sin filtros ni chips)", async ({ page }) => {
