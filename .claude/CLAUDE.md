@@ -6,6 +6,10 @@ Este archivo lo leen todos los agentes y es la ley del repositorio. Si una tarea
 
 **Al PM se le responde siempre en español, sin excepción**, también después de que se comprima el contexto y aunque las herramientas, los agentes o los resúmenes vengan en inglés. Es la única regla que el PM pidió recordar siempre. Los mensajes al PM van breves y con el resultado primero: el PM no es técnico y lee en el teléfono.
 
+## Memoria del líder
+
+El líder lee `.claude/lider.md` al empezar cada sesión y después de cada compresión del contexto: tiene las reglas del PM, la forma de trabajar y el estado actual. Lo actualiza cuando algo de eso cambia. **Regla de trabajo del PM:** si ya dijo cómo lo quiere, se avanza y se le muestra el resultado; no se espera un segundo visto bueno.
+
 ## Qué es Iris
 
 Iris es el sistema de operación de campo y atención de un ISP. Forma parte de la familia Horus, junto con ArgosISP (gestión, facturación y RADIUS) y Horus Flow (tráfico y seguridad). Cubre:
