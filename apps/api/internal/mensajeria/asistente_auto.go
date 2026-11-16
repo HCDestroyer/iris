@@ -311,7 +311,7 @@ func accionesDe(perfil PerfilAsistente, porCola []AccionesCola, cola *int64) map
 
 // rePidePersona: el cliente pide, sin vueltas, hablar con una persona (el servidor lo detecta aunque
 // el modelo no).
-var rePidePersona = regexp.MustCompile(`(?i)\b(?:hablar|comunicar(?:me)?|p[aá]s[ae]me|pasar|atienda|atender|quiero|necesito|con)\b[^.?!\n]{0,40}\b(?:una?\s+)?(?:persona|humano|agente|asesora?|operadora?|ejecutiv[oa]|representante|supervisora?)\b`)
+var rePidePersona = regexp.MustCompile(`(?i)\b(?:hablar|hablarle|comunicar(?:me)?|contactar|p[aá]s[ae]me|pasar|atienda|atender)\b[^.?!\n]{0,40}\b(?:una?\s+)?(?:persona|humano|agente|asesora?|operadora?|ejecutiv[oa]|representante|supervisora?)\b|\b(?:quiero|necesito|deseo|prefiero)\s+(?:a\s+)?(?:una?\s+)?(?:persona|humano|agente|asesora?|operadora?|ejecutiv[oa]|representante|supervisora?)\b`)
 
 // reNoPide: una negación antes del pedido («no quiero hablar con una persona», «no hace falta…»).
 var reNoPide = regexp.MustCompile(`(?i)\b(?:no|ni|tampoco|sin)\s+(?:me\s+|es\s+|hace\s+falta\s+|necesito\s+|quiero\s+|deseo\s+)*$|\b(?:no|ni|tampoco)\s+(?:me\s+)?(?:quiero|necesito|deseo|hace\s+falta|pases?|p[aá]s[ae]me)\b`)
@@ -335,9 +335,9 @@ var (
 	reDiceSerPersona = regexp.MustCompile(`(?i)\b(no\s+)?(?:soy|hablas\s+con|habla\s+con|te\s+atiende|le\s+atiende|te\s+escribe)\s+(?:una?\s+)?(?:persona|humano|humana|agente\s+humano|asesora?\s+human[oa]|alguien\s+real|ser\s+humano)\b`)
 	reNiegaSerBot    = regexp.MustCompile(`(?i)\bno\s+(?:soy|es|hablas\s+con)\s+(?:un\s+|una\s+|ning[uú]n\s+)?(?:bot|robot|asistente|m[aá]quina|ia|inteligencia\s+artificial|programa)\b`)
 	// rePagoDado: da un pago o una boleta por aprobados o aplicados (eso solo lo decide caja).
-	rePagoDado = regexp.MustCompile(`(?i)\b(?:pago|boleta|dep[oó]sito|comprobante|transferencia)\b[^.!?\n]{0,40}\b(?:aprobad[oa]|aplicad[oa]|acreditad[oa]|confirmad[oa]|validad[oa]|registrad[oa]\s+como\s+pag)|\b(?:aprob[ée]|aprobamos|apliqu[ée]|aplicamos|acredit[ée]|acreditamos)\b[^.!?\n]{0,30}\b(?:pago|boleta|dep[oó]sito)\b`)
+	rePagoDado = regexp.MustCompile(`(?i)\b(?:pago|boleta|dep[oó]sito|comprobante|transferencia)\b[^.!?\n]{0,40}\b(?:aprobad[oa]|aplicad[oa]|acreditad[oa]|confirmad[oa]|validad[oa]|registrad[oa]\s+como\s+pag)|\b(?:aprob[ée]|aprobamos|apliqu[ée]|aplicamos|acredit[ée]|acreditamos)[^.!?\n\p{L}][^.!?\n]{0,30}\b(?:pago|boleta|dep[oó]sito)\b`)
 	// reReconexionDada: da una reconexión por hecha.
-	reReconexionDada = regexp.MustCompile(`(?i)\breconect(?:ad[oa]s?|amos|[ée])\b|\breconexi[oó]n\b[^.!?\n]{0,30}\b(?:lista|hecha|activ[oa]|activada|aceptada|aprobada)\b|\bservicio\b[^.!?\n]{0,30}\b(?:reactivado|restablecido|reconectado|ya\s+est[aá]\s+activo)\b|\btienes\s+una\s+reconexi[oó]n\b`)
+	reReconexionDada = regexp.MustCompile(`(?i)\breconect(?:ad[oa]s?\b|amos\b|[ée](?:[^\p{L}]|$))|\breconexi[oó]n\b[^.!?\n]{0,30}\b(?:lista|hecha|activ[oa]|activada|aceptada|aprobada)\b|\bservicio\b[^.!?\n]{0,30}\b(?:reactivado|restablecido|reconectado|ya\s+est[aá]\s+activo)\b|\btienes\s+una\s+reconexi[oó]n\b`)
 )
 
 // afirmaSerPersona: el texto dice que quien escribe es una persona, o niega ser un asistente.

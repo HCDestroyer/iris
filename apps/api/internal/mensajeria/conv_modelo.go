@@ -603,7 +603,8 @@ func (m *Modulo) resumirConvs(ctx context.Context, q *mensajeriabd.Queries, usua
 	porID := make(map[int64]ConversacionCliente, len(filas))
 	for _, f := range filas {
 		c := mensajeriabd.MensajeriaConversacion{ID: f.ID, ClienteID: f.ClienteID, ServicioID: f.ServicioID, ContactoIrisID: f.ContactoIrisID,
-			ProspectoID: f.ProspectoID, Asociacion: f.Asociacion, ClienteVerificado: f.ClienteVerificado}
+			ProspectoID: f.ProspectoID, Asociacion: f.Asociacion, ClienteVerificado: f.ClienteVerificado, VerificadoPor: f.VerificadoPor,
+			IdentidadVerificadaEn: f.IdentidadVerificadaEn}
 		v := ConversacionCliente{ID: f.ID, EmpresaID: f.EmpresaID, Version: f.Version,
 			Canal:  CanalRef{ID: f.CanalID, Nombre: f.CanalNombre, Numero: f.CanalNumero, Usos: f.CanalUsos},
 			Numero: f.Numero, PerfilNombre: f.PerfilNombre, Contacto: contactoDeConv(c), Estado: f.Estado, ReabiertaEn: f.ReabiertaEn,

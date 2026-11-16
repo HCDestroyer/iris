@@ -27,7 +27,7 @@ func TestChatTecnicoEscribeASoporteYDespacho(t *testing.T) {
 		}
 		return vistos
 	}
-	vistos := ids(e.chat(tecnico, http.MethodGet, "/personas?limit=200", "", nil))
+	vistos := ids(e.personasChat(tecnico))
 	if !vistos[soporte.id] || !vistos[despacho.id] {
 		t.Fatalf("faltan soporte o despacho (sin cuadrilla) en personas: %v", vistos)
 	}
@@ -38,7 +38,7 @@ func TestChatTecnicoEscribeASoporteYDespacho(t *testing.T) {
 		e.exigir(e.chat(tecnico, http.MethodPost, "/directas", "", map[string]any{"usuario_id": p.id}), http.StatusCreated, "tipo", "directa")
 	}
 	// Y al revés: soporte también encuentra al técnico.
-	if !ids(e.chat(soporte, http.MethodGet, "/personas?limit=200", "", nil))[tecnico.id] {
+	if !ids(e.personasChat(soporte))[tecnico.id] {
 		t.Fatal("soporte no ve al técnico en personas")
 	}
 	// Alguien de otra empresa no se abre.

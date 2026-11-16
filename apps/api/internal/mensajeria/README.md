@@ -441,3 +441,23 @@ Emite `conversacion.categorizada`, `categoria.creada`, `categoria.actualizada` y
 - **Pendiente:** `agendar_visita` (necesita los espacios libres de agenda) y la llamada de reconexión
   temporal en `internal/integracion/argos` (`ArgosReconexion`).
 
+### Revisión de seguridad de 3b (§17.8.2 y §17.9)
+
+- **Verificación en dos niveles** (`contacto.verificacion`): `numero` (asociación automática) y `fuerte`
+  (confirmada por una persona o por `verificar_identidad` contra Argos, §7.5; el dato nunca se guarda: el
+  mensaje queda con `***`; 3 intentos por conversación y día). Saldo, promesa y reconexión exigen `fuerte`
+  (`perfiles[].exigeVerificacionFuerte.dar_saldo` puede bajar solo el saldo a `numero`).
+- **Reconexión temporal:** caso de uso `PedirReconexion` (`conv_reconexion.go`, permiso
+  `conversaciones.pedir_reconexion`), tabla `mensajeria.reconexiones`, evento `reconexion.solicitada`. Solo
+  fuera de horario o sin nadie disponible, con una boleta registrada en Argos.
+- **Boletas del asistente:** adjunto nuevo de este periodo, uno por boleta, 3 por conversación y día;
+  `por_asistente = true`.
+- **Texto:** precios, plazos y enlaces válidos salen de los datos, manuales «Para el cliente» y resultados de
+  herramientas, nunca del cliente; el historial va en una línea por mensaje y sin prefijos de otro papel; no se
+  envía nada que diga ser una persona, dé un pago por aplicado o una reconexión por hecha sin herramienta.
+- **Bot y fuera de horario:** con modo autónomo esperan a la clasificación (`bot_diferido_mensaje_id`, caso
+  `mensajeria.bot_diferido`), sin doble saludo.
+- **Costo:** `presupuestoAutonomoPct` (70 % del tope por defecto, `asistente_uso.tokens_autonomo`), 10 turnos
+  por día a números sin cliente, 3 tickets por conversación y día, tokens contados aunque el turno se descarte.
+- **Respaldo JSON:** solo herramientas de lectura y `pasar_a_persona`.
+- **Eventos nuevos:** `conversacion.identidad_verificada`, `reconexion.solicitada`.

@@ -23,6 +23,36 @@ func lista(r respuesta) []map[string]any {
 	return out
 }
 
+// todasLasPaginas sigue nextCursor hasta el final y devuelve la respuesta con todos los datos. Las
+// pruebas del paquete comparten base: una lista de «todo lo de la empresa» no cabe en una página, y
+// buscar algo solo en la primera hace que la prueba dependa de cuántas corrieron antes.
+func todasLasPaginas(pedir func(ruta string) respuesta, ruta string) respuesta {
+	r := pedir(ruta)
+	sep := "?"
+	if strings.Contains(ruta, "?") {
+		sep = "&"
+	}
+	todo, _ := r.cuerpo["data"].([]any)
+	sig := r
+	for i := 0; i < 200 && sig.status == http.StatusOK; i++ {
+		c, _ := sig.cuerpo["nextCursor"].(string)
+		if c == "" {
+			break
+		}
+		sig = pedir(ruta + sep + "cursor=" + url.QueryEscape(c))
+		d, _ := sig.cuerpo["data"].([]any)
+		todo = append(todo, d...)
+	}
+	if r.cuerpo != nil {
+		r.cuerpo["data"] = todo
+	}
+	return r
+}
+
+func (e *entorno) personasChat(p persona) respuesta {
+	return todasLasPaginas(func(ruta string) respuesta { return e.chat(p, http.MethodGet, ruta, "", nil) }, "/personas?limit=200")
+}
+
 func numero(v any) int64 {
 	f, _ := v.(float64)
 	return int64(f)
@@ -232,7 +262,7 @@ func TestChatBuscarYNuevoMensaje(t *testing.T) {
 	}
 
 	// Personas: activas, de la empresa, con chat.ver, sin uno mismo; con la directa si existe.
-	r = e.chat(ana, http.MethodGet, "/personas?limit=200", "", nil)
+	r = e.personasChat(ana)
 	e.exigir(r, http.StatusOK)
 	vistos := map[int64]map[string]any{}
 	for _, p := range lista(r) {
@@ -452,7 +482,7 @@ func TestChatPanelAislamientoEmpresa(t *testing.T) {
 	if res := e.resumenChat(sup1); numero(res["menciones"]) != 1 {
 		t.Fatalf("resumen de la empresa 1: %v", res)
 	}
-	r = e.chat(sup2, http.MethodGet, "/personas?limit=200", "", nil)
+	r = e.personasChat(sup2)
 	e.exigir(r, http.StatusOK)
 	for _, p := range lista(r) {
 		if id := numero(p["id"]); id == tec1.id || id == sup1.id {

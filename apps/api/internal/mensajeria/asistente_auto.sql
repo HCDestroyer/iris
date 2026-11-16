@@ -83,7 +83,8 @@ SELECT m.id, m.adjunto_id, m.tipo, m.creado_en FROM mensajeria.conversacion_mens
 WHERE m.conversacion_id = @conversacion_id AND m.direccion = 'entrante' AND m.adjunto_id IS NOT NULL AND m.tipo IN ('imagen', 'documento')
   AND m.creado_en >= @desde
   AND NOT EXISTS (SELECT 1 FROM mensajeria.boletas b WHERE b.adjunto_id = m.adjunto_id)
-  AND m.creado_en > coalesce((SELECT max(b.created_at) FROM mensajeria.boletas b WHERE b.conversacion_id = m.conversacion_id), '-infinity')
+  AND m.seq > coalesce((SELECT max(m2.seq) FROM mensajeria.conversacion_mensajes m2 JOIN mensajeria.boletas b ON b.adjunto_id = m2.adjunto_id
+                        WHERE m2.conversacion_id = m.conversacion_id), 0)
 ORDER BY m.seq DESC LIMIT 1;
 
 -- name: BoletasRecientesConv :one

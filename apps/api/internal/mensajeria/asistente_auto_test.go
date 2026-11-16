@@ -314,47 +314,93 @@ func TestAutonomoInyeccionNoEnciendeAcciones(t *testing.T) {
 	}
 }
 
-// Saldo: sin verificar no se da (ni se lee de Argos); verificado, el monto va solo en el mensaje.
+// fuerte deja la conversación con la verificación fuerte (como si ya hubiera pasado el desafío).
+func (x *bandejaIA) fuerte(conv string) {
+	x.t.Helper()
+	if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.conversaciones SET identidad_verificada_en = now() WHERE id = $1`, conv); err != nil {
+		x.t.Fatal(err)
+	}
+}
+
+func (x *bandejaIA) verificacion(conv string) any {
+	return x.api(x.supervisor, http.MethodGet, "/conversaciones/"+conv, nil).cuerpo["contacto"].(map[string]any)["verificacion"]
+}
+
+// A1. Saldo y verificación en dos niveles: que el número coincida no basta para el saldo; el
+// asistente hace el desafío de identidad de Argos (el dato nunca pasa por el modelo ni se guarda),
+// con 3 intentos por conversación y día; el monto va solo en el mensaje (M2: y no vuelve al modelo).
 func TestAutonomoSaldo(t *testing.T) {
 	x := nuevaBandejaIA(t)
 	x.autonomo("siempre_primero", nil)
 	x.cuenta(&argos.EstadoCuenta{Saldo: texto("350.75"), Moneda: "GTQ", FacturasVencidas: vencidas(2), MontoVencido: texto("350.75")})
-	// Cliente verificado (su número coincide con el de Argos).
+	x.argos.mu.Lock()
+	x.argos.documento = "1234567890101"
+	x.argos.mu.Unlock()
+	// Cliente verificado solo por su número: el saldo se rechaza sin leer Argos.
 	conv, _ := x.conClienteArgos()
+	num := x.numeroDe(conv)
+	if v := x.verificacion(conv); v != "numero" {
+		t.Fatalf("verificación por número: %v", v)
+	}
 	*x.reloj = x.reloj.Add(21 * time.Second)
 	x.ia.decir(`{"categoria": "Pagos y saldo", "confianza": 0.95}`)
-	x.guion(llama("consultar_saldo", `{}`), dice("Tienes 2 facturas vencidas. Tu saldo pendiente es de {{saldo}}."))
+	x.guion(llama("consultar_saldo", `{}`), dice("Para darte tu saldo necesito verificar tu identidad. Escríbeme tu DPI completo."))
 	x.correr(conv)
-	ms := x.delAsistente(conv)
-	if len(ms) != 1 || !strings.Contains(textoDe(ms[0]), "Tu saldo pendiente es de Q 350.75.") {
-		t.Fatalf("saldo al cliente verificado: %v (acciones %v)", ms, x.acciones(conv))
+	x.argos.mu.Lock()
+	lecturas := x.argos.cuentas
+	x.argos.mu.Unlock()
+	if a := x.acciones(conv); lecturas != 0 || len(a) == 0 || a[0] != "dar_saldo:rechazada" {
+		t.Fatalf("saldo con solo el número: %d lecturas, %v", lecturas, a)
 	}
-	c := x.api(x.supervisor, http.MethodGet, "/conversaciones/"+conv, nil)
-	if a := c.cuerpo["actividadAsistente"].(map[string]any); a["tipo"] != "saldo_informado" || strings.Contains(fmt.Sprint(a), "350") {
+	// El cliente escribe su DPI: el asistente hace el desafío y, ya con verificación fuerte, da el saldo.
+	c := x.turno(num, "wamid.sal1", "Claro, mi DPI es 1234 56789 0101", "Pagos y saldo", llama("verificar_identidad", `{}`), llama("consultar_saldo", `{}`),
+		dice("Tienes 2 facturas vencidas. Tu saldo pendiente es de {{saldo}}."))
+	ms := x.delAsistente(conv)
+	if len(ms) != 2 || !strings.Contains(textoDe(ms[1]), "Tu saldo pendiente es de Q 350.75.") {
+		t.Fatalf("saldo con verificación fuerte: %v (acciones %v)", ms, x.acciones(conv))
+	}
+	if v := c["contacto"].(map[string]any)["verificacion"]; v != "fuerte" {
+		t.Fatalf("tras el desafío: %v", v)
+	}
+	if a := c["actividadAsistente"].(map[string]any); a["tipo"] != "saldo_informado" || strings.Contains(fmt.Sprint(a), "350") {
 		t.Fatalf("actividad: %v", a)
 	}
-	// El monto no está en auditoría, eventos, acciones ni en lo que vio el modelo.
-	for _, sql := range []string{`SELECT count(*) FROM auditoria.acciones WHERE entrada::text LIKE '%350.75%'`,
-		`SELECT count(*) FROM auditoria.cambios WHERE (antes::text LIKE '%350.75%' OR despues::text LIKE '%350.75%')`,
-		`SELECT count(*) FROM integracion.outbox WHERE payload::text LIKE '%350.75%'`} {
-		if n := x.contar(sql); n != 0 {
-			t.Fatalf("el monto quedó guardado: %s", sql)
-		}
-	}
-	for _, cuerpo := range x.ia.cuerposAutonomos() {
-		if strings.Contains(cuerpo, "350.75") {
-			t.Fatal("el monto llegó al modelo")
-		}
-	}
 	x.argos.mu.Lock()
-	actor := x.argos.actores[len(x.argos.actores)-1].Actor
+	verificados, actor := fmt.Sprint(x.argos.verificados), x.argos.actores[len(x.argos.actores)-1].Actor
 	x.argos.mu.Unlock()
-	if actor != "asistente_ia" {
-		t.Fatalf("X-Iris-Actor: %s", actor)
+	if verificados != "[documento:1234567890101]" || actor != "asistente_ia" {
+		t.Fatalf("desafío en Argos: %s por %s", verificados, actor)
+	}
+	// El dato de identidad no se guarda (el mensaje queda con ***) ni está en auditoría o eventos; el
+	// monto tampoco. Y nada de eso llegó al modelo.
+	for _, dato := range []string{"350.75", "1234567890101", "56789"} {
+		for _, sql := range []string{`SELECT count(*) FROM auditoria.acciones WHERE entrada::text LIKE '%' || $1 || '%'`,
+			`SELECT count(*) FROM auditoria.cambios WHERE (antes::text LIKE '%' || $1 || '%' OR despues::text LIKE '%' || $1 || '%')`,
+			`SELECT count(*) FROM integracion.outbox WHERE payload::text LIKE '%' || $1 || '%'`} {
+			if n := x.contar(sql, dato); n != 0 {
+				t.Fatalf("%s quedó guardado: %s", dato, sql)
+			}
+		}
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND texto LIKE '%56789%'`, conv); n != 0 {
+		t.Fatal("el DPI quedó guardado en la conversación")
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND direccion = 'entrante' AND texto = 'Claro, mi DPI es ***'`, conv); n != 1 {
+		t.Fatal("el mensaje del cliente no quedó con ***")
+	}
+	// M2: en el turno siguiente el historial que ve el modelo lleva el monto enmascarado.
+	x.turno(num, "wamid.sal1b", "Gracias, ¿algo más que deba saber?", "Pagos y saldo", dice("Por ahora eso es todo."))
+	for _, cuerpo := range x.ia.cuerposAutonomos() {
+		if strings.Contains(cuerpo, "350.75") || strings.Contains(cuerpo, "1234567890101") || strings.Contains(cuerpo, "56789") {
+			t.Fatal("el monto o el documento llegaron al modelo")
+		}
+	}
+	if cuerpo, _, _ := x.ia.ultimo(); !strings.Contains(cuerpo, "Q ***") {
+		t.Fatalf("el mensaje del saldo debía volver enmascarado: %s", cuerpo)
 	}
 	// El modelo escribe una cifra de deuda por su cuenta: no se envía y sigue una persona.
 	x.guion(dice("Debes Q 999.00 de tu saldo."))
-	x.texto(x.numeroDe(conv), "wamid.sal2", "¿Y cuánto es?")
+	x.texto(num, "wamid.sal2", "¿Y cuánto es?")
 	*x.reloj = x.reloj.Add(21 * time.Second)
 	x.correr(conv)
 	for _, m := range x.delAsistente(conv) {
@@ -364,30 +410,67 @@ func TestAutonomoSaldo(t *testing.T) {
 	}
 	x.exigirPaso(x.api(x.supervisor, http.MethodGet, "/conversaciones/"+conv, nil).cuerpo, "sin_respuesta")
 
-	// Cliente asociado pero SIN verificar que pide el saldo: la herramienta se rechaza sin leer Argos.
-	num := numeroCliente()
-	conv2 := x.llega(num, "wamid.sal3", "Dame mi saldo", "Planes y precios")
+	// Tres intentos fallidos del desafío: pasa a una persona y la verificación sigue en «numero».
+	conv3, _ := x.conClienteArgos()
+	n3 := x.numeroDe(conv3)
+	*x.reloj = x.reloj.Add(21 * time.Second)
+	x.ia.decir(`{"categoria": "Pagos y saldo", "confianza": 0.95}`)
+	x.guion(dice("Para darte tu saldo, escríbeme tu DPI completo."))
+	x.correr(conv3)
+	for i, malo := range []string{"1111111111111", "2222222222222", "3333333333333"} {
+		x.turno(n3, fmt.Sprintf("wamid.sal3%d", i), "Es "+malo, "Pagos y saldo", llama("verificar_identidad", `{}`), llama("consultar_saldo", `{}`),
+			dice("Ese dato no coincide. ¿Puedes revisarlo y escribirlo completo?"))
+	}
+	c3 := x.conv(n3)
+	x.exigirPaso(c3, "herramienta_fallo")
+	if v := c3["contacto"].(map[string]any)["verificacion"]; v != "numero" {
+		t.Fatalf("tras fallar el desafío: %v", v)
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.asistente_verificaciones WHERE conversacion_id = $1 AND resultado = 'no_coincide'`, conv3); n != 3 {
+		t.Fatalf("intentos del desafío: %d", n)
+	}
+	x.argos.mu.Lock()
+	lecturas3 := x.argos.cuentas
+	x.argos.mu.Unlock()
+	if lecturas3 != 1 {
+		t.Fatalf("se leyó el saldo sin verificación fuerte: %d lecturas", lecturas3)
+	}
+
+	// La empresa puede bajar la exigencia a «el número coincide», solo para el saldo.
+	x.autonomo("siempre_primero", map[string]any{"perfiles": []any{perfilCon(nil, "alta", map[string]any{"dar_saldo": false})}})
+	conv4, _ := x.conClienteArgos()
+	*x.reloj = x.reloj.Add(21 * time.Second)
+	x.guion(llama("consultar_saldo", `{}`), dice("Tu saldo pendiente es de {{saldo}}."))
+	x.correr(conv4)
+	if ms := x.delAsistente(conv4); len(ms) != 1 || !strings.Contains(textoDe(ms[0]), "Q 350.75") {
+		t.Fatalf("saldo con el número (configurado): %v", ms)
+	}
+	r := x.api(x.admin, http.MethodGet, "/asistente/ajustes", nil)
+	if p := r.cuerpo["perfiles"].([]any)[0].(map[string]any)["exigeVerificacionFuerte"]; fmt.Sprint(p) != "map[dar_saldo:false]" {
+		t.Fatalf("exigeVerificacionFuerte en los ajustes: %v", p)
+	}
+
+	// Cliente asociado pero SIN verificar: ni con la exigencia baja se le da el saldo.
+	num5 := numeroCliente()
+	conv5 := x.llega(num5, "wamid.sal5", "Dame mi saldo", "Planes y precios")
 	otro := x.otroCliente()
-	x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv2+"/asociar-cliente", map[string]any{"version": ver(x.conv(num)), "clienteId": otro,
+	x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv5+"/asociar-cliente", map[string]any{"version": ver(x.conv(num5)), "clienteId": otro,
 		"servicioId": otro * 10}), http.StatusOK)
 	x.argos.mu.Lock()
-	lecturas := x.argos.cuentas
+	lecturas = x.argos.cuentas
 	x.argos.mu.Unlock()
 	x.guion(llama("consultar_saldo", `{}`), dice("Tu saldo es {{saldo}}."))
-	x.correr(conv2)
+	x.correr(conv5)
 	x.argos.mu.Lock()
 	leyo := x.argos.cuentas != lecturas
 	x.argos.mu.Unlock()
-	if leyo {
+	if leyo || x.verificacion(conv5) != nil {
 		t.Fatal("leyó el estado de cuenta de un cliente sin verificar")
 	}
-	for _, m := range x.delAsistente(conv2) {
+	for _, m := range x.delAsistente(conv5) {
 		if strings.Contains(textoDe(m), "350") || strings.Contains(textoDe(m), "{{") {
 			t.Fatalf("saldo a un cliente sin verificar: %v", m)
 		}
-	}
-	if a := x.acciones(conv2); len(a) == 0 || a[0] != "dar_saldo:rechazada" {
-		t.Fatalf("acciones: %v", a)
 	}
 }
 
@@ -411,7 +494,8 @@ func TestAutonomoPasaAPersona(t *testing.T) {
 			aviso = textoDe(m)
 		}
 	}
-	if !strings.Contains(nota, "el cliente está molesto") || !strings.Contains(nota, "Resumen:") || strings.Contains(nota, "4455") {
+	// B1: el resumen del modelo va rotulado como dicho por el cliente (no es un dato comprobado).
+	if !strings.Contains(nota, "el cliente está molesto") || !strings.Contains(nota, "Según el cliente:") || strings.Contains(nota, "4455") {
 		t.Fatalf("nota interna: %q", nota)
 	}
 	if !strings.Contains(aviso, "Te paso con una persona") || !strings.HasPrefix(aviso, "Hola, soy el asistente virtual") {
@@ -443,6 +527,7 @@ func TestAutonomoPasaAPersona(t *testing.T) {
 	}
 	// Una herramienta falla (Argos caído al leer el saldo): pasa a una persona.
 	conv4, _ := x.conClienteArgos()
+	x.fuerte(conv4)
 	*x.reloj = x.reloj.Add(21 * time.Second)
 	x.ia.decir(`{"categoria": "Pagos y saldo", "confianza": 0.95}`)
 	x.guion(llama("consultar_saldo", `{}`), dice("No debería salir"))
@@ -671,6 +756,7 @@ func TestAutonomoEmpresaYArgumentos(t *testing.T) {
 	// Argumentos manipulados.
 	x.autonomo("siempre_primero", map[string]any{"perfiles": []any{perfilCon(map[string]any{"promesa_pago": true}, "media")}})
 	conv2, cliente := x.conClienteArgos()
+	x.fuerte(conv2)
 	ajeno := x.otroCliente()
 	*x.reloj = x.reloj.Add(21 * time.Second)
 	x.ia.decir(`{"categoria": "Planes y precios", "confianza": 0.95}`)
@@ -700,13 +786,17 @@ func TestAutonomoEmpresaYArgumentos(t *testing.T) {
 }
 
 // perfilCon: el perfil «defecto» con algunas acciones cambiadas y la prioridad máxima dada.
-func perfilCon(acciones map[string]any, prioridad string) map[string]any {
+func perfilCon(acciones map[string]any, prioridad string, fuerte ...map[string]any) map[string]any {
 	acc := map[string]any{"responder_dudas": true, "avisar_fallas": true, "dar_saldo": true, "crear_ticket": true, "agendar_visita": true,
 		"recibir_boleta": true, "promesa_pago": false, "reconexion_temporal": false, "pasar_a_persona": true}
 	for k, v := range acciones {
 		acc[k] = v
 	}
-	return map[string]any{"codigo": "defecto", "nombre": "General", "acciones": acc, "limites": map[string]any{"prioridadMaxima": prioridad, "diasAdelanteMax": 2}}
+	p := map[string]any{"codigo": "defecto", "nombre": "General", "acciones": acc, "limites": map[string]any{"prioridadMaxima": prioridad, "diasAdelanteMax": 2}}
+	if len(fuerte) > 0 {
+		p["exigeVerificacionFuerte"] = fuerte[0]
+	}
+	return p
 }
 
 func (x *bandejaIA) delAsistente2(p persona, conv string) []map[string]any {
@@ -723,32 +813,48 @@ func (x *bandejaIA) numeroDe(conv string) string {
 	return strings.TrimPrefix(n, "+")
 }
 
-// Tope de tokens con reserva y límites de pedidos: al llegar deja de actuar y la conversación sigue
-// su curso hacia la cola.
+// M8. Tope de tokens con reserva, presupuesto propio del modo autónomo y límites de pedidos: al
+// llegar deja de actuar y la conversación sigue su curso hacia la cola.
 func TestAutonomoTopeYLimites(t *testing.T) {
 	x := nuevaBandejaIA(t)
-	x.autonomo("siempre_primero", map[string]any{"topeTokensMes": 6000})
+	x.autonomo("siempre_primero", map[string]any{"topeTokensMes": 60000})
+	x.exigir(x.api(x.admin, http.MethodGet, "/asistente/ajustes", nil), http.StatusOK, "presupuestoAutonomoPct", "70")
 	num := numeroCliente()
 	c := x.turno(num, "wamid.t1", "¿Tienen fibra?", "Planes y precios", dice("Sí, tenemos fibra."))
 	conv := cid(c)
 	if len(x.delAsistente(conv)) != 1 {
 		t.Fatalf("antes del tope atiende: %v", c["asistente"])
 	}
-	// Se llega al 100 % del tope del mes.
-	if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.asistente_uso SET tokens_entrada = 6000 WHERE empresa_id = 1`); err != nil {
+	// El uso del turno cuenta para el tope y para el presupuesto del modo autónomo.
+	if n := x.contar(`SELECT count(*) FROM mensajeria.asistente_uso WHERE empresa_id = 1 AND tokens_autonomo = 150 AND tokens_reservados = 0`); n != 1 {
+		t.Fatal("el uso del turno no se sumó al presupuesto autónomo")
+	}
+	// Presupuesto autónomo (70 % del tope) gastado: deja de atender solo, pero las sugerencias siguen.
+	if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.asistente_uso SET tokens_autonomo = 42000, tokens_entrada = 42000 WHERE empresa_id = 1`); err != nil {
 		t.Fatal(err)
 	}
 	antes := x.autonomos()
-	// La que ya atendía pasa a una persona (motivo tope), sin llamar al modelo.
+	c = x.turno(numeroCliente(), "wamid.t1b", "¿Tienen fibra?", "Planes y precios", dice("No debería salir"))
+	if x.autonomos() != antes || c["asistente"] != nil {
+		t.Fatal("con el presupuesto autónomo gastado no debe atender solo")
+	}
+	x.exigir(x.api(x.agente, http.MethodGet, "/asistente/estado", nil), http.StatusOK, "pausado", "false")
+	// Se llega al 100 % del tope del mes.
+	if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.asistente_uso SET tokens_entrada = 60000, tokens_autonomo = 0 WHERE empresa_id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	// La que ya atendía sale del modo autónomo sin llamar al modelo y sigue el camino normal.
 	c = x.turno(num, "wamid.t2", "¿Y cuánto cuesta?", "Planes y precios", dice("No debería salir"))
-	x.exigirPaso(c, "tope")
-	// Una nueva ni empieza: sigue su curso hacia la cola (y el bot vuelve a ser el de siempre).
+	if x.autonomos() != antes || estadoAsistente(c) == "atendiendo/1" || len(x.delAsistente(conv)) != 1 {
+		t.Fatalf("al 100 %% del tope la conversación sigue su curso: %v", c["asistente"])
+	}
+	// Una nueva ni empieza.
 	c = x.turno(numeroCliente(), "wamid.t3", "¿Tienen fibra?", "Planes y precios", dice("No debería salir"))
 	if x.autonomos() != antes || c["asistente"] != nil || len(x.delAsistente(cid(c))) != 0 {
 		t.Fatalf("al 100 %% del tope no actúa: %v", c["asistente"])
 	}
-	// La reserva: con poco margen, lo estimado del turno no cabe y no se llama al modelo.
-	if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.asistente_uso SET tokens_entrada = 5900 WHERE empresa_id = 1`); err != nil {
+	// La reserva (proporcional a los pasos del turno): con poco margen no cabe y no se llama al modelo.
+	if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.asistente_uso SET tokens_entrada = 58000 WHERE empresa_id = 1`); err != nil {
 		t.Fatal(err)
 	}
 	c = x.turno(numeroCliente(), "wamid.t4", "¿Tienen fibra?", "Planes y precios", dice("No debería salir"))
@@ -760,11 +866,14 @@ func TestAutonomoTopeYLimites(t *testing.T) {
 	}
 	// Límite de turnos por conversación y hora.
 	x.autonomo("siempre_primero", map[string]any{"topeTokensMes": 2000000, "maxTurnos": 20})
+	if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.asistente_uso SET tokens_entrada = 0 WHERE empresa_id = 1`); err != nil {
+		t.Fatal(err)
+	}
 	n5 := numeroCliente()
 	c = x.turno(n5, "wamid.t5", "¿Tienen fibra?", "Planes y precios", dice("Sí."))
 	conv5 := cid(c)
 	if _, err := x.bd.Exec(x.ctx, `INSERT INTO mensajeria.asistente_turnos (id, empresa_id, conversacion_id, mensaje_id, numero, estado, tomado_en, creado_en)
-		SELECT gen_random_uuid(), 1, $1, gen_random_uuid(), 1, 'respondio', $2, $2 FROM generate_series(1, $3)`, conv5, *x.reloj, mensajeria.TurnosPorHoraConv); err != nil {
+		SELECT gen_random_uuid(), 1, $1, gen_random_uuid(), 1, 'paso_a_persona', $2, $2 FROM generate_series(1, $3)`, conv5, *x.reloj, mensajeria.TurnosPorHoraConv); err != nil {
 		t.Fatal(err)
 	}
 	antes = x.autonomos()
@@ -773,49 +882,106 @@ func TestAutonomoTopeYLimites(t *testing.T) {
 		t.Fatal("pasó el límite de turnos por hora")
 	}
 	x.exigirPaso(c, "max_turnos")
+	// Un número que no es de ningún cliente: 10 turnos por día.
+	n6 := numeroCliente()
+	c = x.turno(n6, "wamid.t7", "¿Tienen fibra?", "Planes y precios", dice("Sí."))
+	if _, err := x.bd.Exec(x.ctx, `INSERT INTO mensajeria.asistente_turnos (id, empresa_id, conversacion_id, mensaje_id, numero, estado, tomado_en, creado_en)
+		SELECT gen_random_uuid(), 1, $1, gen_random_uuid(), 1, 'paso_a_persona', $2, $2 FROM generate_series(1, $3)`, cid(c), x.reloj.Add(-5*time.Hour),
+		mensajeria.TurnosPorDiaSinCliente); err != nil {
+		t.Fatal(err)
+	}
+	antes = x.autonomos()
+	c = x.turno(n6, "wamid.t8", "¿Y ahora?", "Planes y precios", dice("No debería salir"))
+	if x.autonomos() != antes {
+		t.Fatal("un número sin cliente pasó de 10 turnos en el día")
+	}
+	// Los turnos descartados también cuentan para maxTurnos.
+	x.autonomo("siempre_primero", map[string]any{"maxTurnos": 2})
+	n7 := numeroCliente()
+	c = x.turno(n7, "wamid.t9", "¿Tienen fibra?", "Planes y precios", dice("Sí."))
+	if _, err := x.bd.Exec(x.ctx, `INSERT INTO mensajeria.asistente_turnos (id, empresa_id, conversacion_id, mensaje_id, numero, estado, tomado_en, creado_en)
+		VALUES (gen_random_uuid(), 1, $1, gen_random_uuid(), 2, 'descartado', $2, $2)`, cid(c), x.reloj.Add(-2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	c = x.turno(n7, "wamid.t10", "¿Y en mi zona?", "Planes y precios", dice("No debería salir"))
+	x.exigirPaso(c, "max_turnos")
+	// Tope de tickets por conversación y día.
+	x.autonomo("siempre_primero", map[string]any{"maxTurnos": 20})
+	n8 := numeroCliente()
+	for i := range mensajeria.TicketsPorDiaConv + 1 {
+		c = x.turno(n8, fmt.Sprintf("wamid.t11%d", i), "Abran otro caso", "Planes y precios",
+			llama("crear_ticket", fmt.Sprintf(`{"asunto": "Caso %d", "descripcion": "x", "prioridad": "baja"}`, i)), dice("Listo."))
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_vinculos WHERE conversacion_id = $1 AND tipo = 'ticket'`, cid(c)); n != mensajeria.TicketsPorDiaConv {
+		t.Fatalf("tickets en el día: %d", n)
+	}
 }
 
-// El bot calla donde atiende el asistente y sigue donde no.
-func TestAutonomoBotCalla(t *testing.T) {
+// M7 y decisión del PM. Con el modo autónomo encendido, el bot y fuera de horario esperan a la
+// clasificación (sin doble saludo): si el asistente atiende, callan; si no atiende (categoría en
+// «sugiere», condición, franja, proveedor caído), siguen el camino normal.
+func TestAutonomoBotEspera(t *testing.T) {
 	x := nuevaBandejaIA(t)
 	x.botActivo(map[string]any{"activo": true, "atiende": "bot", "minutosSinConfirmacion": 30, "minutosSinDisponibles": 3, "saludo": "Hola, soy el bot",
 		"menu": []any{map[string]any{"texto": "Soporte", "colaId": x.cola, "etiquetaIds": []any{}}}})
 	x.autonomo("siempre_primero", nil)
-	// Categoría en «sugiere»: el bot funciona como siempre (saludo y, al vencer, el menú).
-	nA := numeroCliente()
-	cA := x.turno(nA, "wamid.b1", "Quiero cambiar de plan", "Cambio de plan", dice("No debería salir"))
-	if len(automaticos(x.mensajes(x.supervisor, cid(cA)), "bot")) != 1 {
-		t.Fatal("con la categoría en sugiere el bot saluda como siempre")
-	}
-	*x.reloj = x.reloj.Add(4 * time.Minute)
-	if n := x.m.DispararBots(x.ctx, x.bd); n != 1 {
-		t.Fatalf("el bot de la conversación en sugiere: %d", n)
-	}
-	if n := len(automaticos(x.mensajes(x.supervisor, cid(cA)), "bot")); n != 2 || len(x.delAsistente(cid(cA))) != 0 {
-		t.Fatalf("bot en sugiere: %d", n)
-	}
-	// Categoría en «responde solo»: atiende el asistente, y desde entonces el bot calla.
+	bots := func(conv string) int { return len(automaticos(x.mensajes(x.supervisor, conv), "bot")) }
+	// Categoría en «responde solo»: atiende el asistente y el bot nunca saluda (ni antes ni después).
 	nB := numeroCliente()
-	cB := x.turno(nB, "wamid.b2", "¿Qué planes tienen?", "Planes y precios", dice("Tenemos varios planes."))
-	convB := cid(cB)
-	bots := len(automaticos(x.mensajes(x.supervisor, convB), "bot"))
-	if len(x.delAsistente(convB)) != 1 {
-		t.Fatal("el asistente atiende")
+	convB := x.llega(nB, "wamid.b1", "¿Qué planes tienen?", "Planes y precios")
+	if bots(convB) != 0 {
+		t.Fatal("el bot saludó antes de la clasificación")
 	}
-	if n := x.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND bot_vence_en IS NULL AND bot_espera_en IS NULL AND bot_menu IS NULL`, convB); n != 1 {
-		t.Fatal("quedó un temporizador del bot en una conversación del asistente")
+	x.guion(dice("Tenemos varios planes."))
+	x.correr(convB)
+	if len(x.delAsistente(convB)) != 1 || bots(convB) != 0 {
+		t.Fatalf("doble saludo: %d del bot", bots(convB))
 	}
-	x.turno(nB, "wamid.b3", "1", "Planes y precios", dice("¿Te refieres al plan básico?"))
+	x.turno(nB, "wamid.b2", "1", "Planes y precios", dice("¿Te refieres al plan básico?"))
 	*x.reloj = x.reloj.Add(10 * time.Minute)
 	x.m.DispararBots(x.ctx, x.bd)
-	if n := len(automaticos(x.mensajes(x.supervisor, convB), "bot")); n != bots {
-		t.Fatalf("el bot respondió en una conversación del asistente: %d → %d", bots, n)
+	if bots(convB) != 0 || len(x.delAsistente(convB)) != 2 {
+		t.Fatalf("el bot respondió en una conversación del asistente: %d", bots(convB))
 	}
-	if len(x.delAsistente(convB)) != 2 {
-		t.Fatal("el asistente contestó el segundo mensaje")
+	// Categoría en «sugiere»: el asistente no atiende y el bot sigue como siempre, después de clasificar.
+	nA := numeroCliente()
+	convA := x.llega(nA, "wamid.b3", "Quiero cambiar de plan", "Cambio de plan")
+	if bots(convA) != 0 {
+		t.Fatal("el bot no esperó a la clasificación")
+	}
+	x.guion(dice("No debería salir"))
+	x.correr(convA)
+	if bots(convA) != 1 || len(x.delAsistente(convA)) != 0 {
+		t.Fatalf("categoría en sugiere: el bot saluda como siempre (%d)", bots(convA))
+	}
+	*x.reloj = x.reloj.Add(4 * time.Minute)
+	if n := x.m.DispararBots(x.ctx, x.bd); n != 1 || bots(convA) != 2 {
+		t.Fatalf("el bot de la conversación en sugiere: %d", n)
+	}
+	// Condición sin cumplir (solo verificados, cliente sin verificar): tampoco hay silencio.
+	nC := numeroCliente()
+	convC := x.llega(nC, "wamid.b4", "¿Cuánto debo?", "Pagos y saldo")
+	x.correr(convC)
+	if bots(convC) != 1 || len(x.delAsistente(convC)) != 0 {
+		t.Fatalf("condición sin cumplir: el bot sigue el camino normal (%d)", bots(convC))
+	}
+	// Proveedor caído (no se puede clasificar ni atender): camino normal.
+	nD := numeroCliente()
+	x.texto(nD, "wamid.b5", "¿Qué planes tienen?")
+	*x.reloj = x.reloj.Add(21 * time.Second)
+	x.ia.mu.Lock()
+	x.ia.status = http.StatusInternalServerError
+	x.ia.mu.Unlock()
+	convD := cid(x.conv(nD))
+	x.correr(convD)
+	x.ia.mu.Lock()
+	x.ia.status = http.StatusOK
+	x.ia.mu.Unlock()
+	if bots(convD) != 1 || len(x.delAsistente(convD)) != 0 {
+		t.Fatalf("proveedor caído: el bot sigue el camino normal (%d)", bots(convD))
 	}
 	// Fuera de horario: en la conversación del asistente no sale la respuesta de fuera de horario; en
-	// la otra, sí.
+	// una que el asistente no atiende, sí (después de clasificar).
 	h := x.horario(todosLosDias("12:00", "13:00"), nil)
 	l := x.api(x.supervisor, http.MethodGet, "/conversaciones/canales", nil)
 	var version any
@@ -826,20 +992,26 @@ func TestAutonomoBotCalla(t *testing.T) {
 	}
 	x.exigir(x.api(x.supervisor, http.MethodPost, fmt.Sprintf("/canales/%d/configurar", x.canal.ID), map[string]any{"version": version, "usos": []string{"soporte"},
 		"avisosEmpresa": false, "colaId": x.cola, "horarioId": h["id"], "fueraDeHorario": map[string]any{"responder": true, "mensaje": "Atendemos de 12 a 13."}}), http.StatusOK)
-	x.turno(nB, "wamid.b4", "¿Y el plan grande?", "Planes y precios", dice("El plan grande es para empresas."))
-	if n := len(automaticos(x.mensajes(x.supervisor, convB), "fuera_de_horario")); n != 0 {
+	fuera := func(conv string) int { return len(automaticos(x.mensajes(x.supervisor, conv), "fuera_de_horario")) }
+	x.turno(nB, "wamid.b6", "¿Y el plan grande?", "Planes y precios", dice("El plan grande es para empresas."))
+	if fuera(convB) != 0 {
 		t.Fatal("salió la respuesta de fuera de horario en una conversación del asistente")
 	}
-	nC := numeroCliente()
-	x.texto(nC, "wamid.b5", "¿Hola?")
-	if n := len(automaticos(x.mensajes(x.supervisor, cid(x.conv(nC))), "fuera_de_horario")); n != 1 {
-		t.Fatalf("fuera de horario donde no atiende el asistente: %d", n)
+	nE := numeroCliente()
+	convE := x.llega(nE, "wamid.b7", "Quiero mudarme", "Mudanza o traslado")
+	if fuera(convE) != 0 {
+		t.Fatal("fuera de horario no esperó a la clasificación")
 	}
-	// Con el asistente en «nunca», la conversación en «responde solo» vuelve a ser del bot.
+	x.correr(convE)
+	if fuera(convE) != 1 || len(x.delAsistente(convE)) != 0 {
+		t.Fatalf("fuera de horario donde no atiende el asistente: %d", fuera(convE))
+	}
+	// Con el modo en «nunca» nada espera: el bot y fuera de horario responden al instante, también en
+	// la conversación que el asistente atendía.
 	x.autonomo("nunca", nil)
-	x.texto(nB, "wamid.b6", "¿Siguen ahí?")
-	if n := len(automaticos(x.mensajes(x.supervisor, convB), "fuera_de_horario")); n != 1 {
-		t.Fatalf("con el modo en nunca el bot y fuera de horario siguen como siempre: %d", n)
+	x.texto(nB, "wamid.b8", "¿Siguen ahí?")
+	if fuera(convB) != 1 {
+		t.Fatalf("con el modo en nunca, fuera de horario responde al instante: %d", fuera(convB))
 	}
 }
 
@@ -972,53 +1144,77 @@ func TestAutonomoProveedores(t *testing.T) {
 	if strings.Contains(ultimo, `"tool_choice":{"type":"any"`) || strings.Contains(ultimo, `"temperature"`) {
 		t.Fatal("tool_choice forzado o temperature en el pedido")
 	}
-	// Respaldo en JSON: un modelo que rechaza las herramientas. Un solo paso por turno.
+	// M5. Respaldo en JSON (un modelo que rechaza las herramientas): un solo paso por turno y solo
+	// herramientas de lectura más pasar a una persona. Las de escritura no se ofrecen ni se ejecutan.
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/manuales", map[string]any{"titulo": "Planes de fibra",
+		"cuerpo": "El plan de fibra de 100 megas cuesta Q 299 al mes.", "visibilidad": "cliente"}), http.StatusCreated)
 	x.autonomo("siempre_primero", map[string]any{"clave": ""})
 	x.ia.mu.Lock()
 	x.ia.sinHerramientas = true
 	x.ia.mu.Unlock()
 	n2 := numeroCliente()
-	c = x.turno(n2, "wamid.v2", "No tengo internet, abran un caso", "Planes y precios",
-		dice(`{"texto": "Abrí un ticket para tu caso.", "herramienta": {"nombre": "crear_ticket", "argumentos": {"asunto": "Sin internet", "descripcion": "No navega", "prioridad": "media"}}}`))
+	c = x.turno(n2, "wamid.v2", "¿Cuánto cuesta la fibra?", "Planes y precios",
+		dice(`{"texto": "El plan de fibra de 100 megas cuesta Q 299 al mes.", "herramienta": {"nombre": "buscar_manual", "argumentos": {"consulta": "plan fibra"}}}`))
 	conv = cid(c)
-	if a := strings.Join(x.acciones(conv), ","); a != "crear_ticket:ok,responder:ok" {
+	if a := strings.Join(x.acciones(conv), ","); a != "responder_dudas:ok,responder:ok" {
 		t.Fatalf("respaldo JSON: %s", a)
 	}
-	if ms := x.delAsistente(conv); len(ms) != 1 || !strings.HasSuffix(textoDe(ms[0]), "Abrí un ticket para tu caso.") {
+	if ms := x.delAsistente(conv); len(ms) != 1 || !strings.HasSuffix(textoDe(ms[0]), "cuesta Q 299 al mes.") {
 		t.Fatalf("respaldo JSON: %v", ms)
 	}
-	// En el respaldo también vale la lista cerrada: una herramienta apagada no se ejecuta.
-	n3 := numeroCliente()
-	c = x.turno(n3, "wamid.v3", "Hazme una promesa de pago", "Planes y precios",
-		dice(`{"texto": "Listo.", "herramienta": {"nombre": "pedir_promesa", "argumentos": {"servicio_id": 1, "fecha": "2026-11-20"}}}`))
-	x.exigirPaso(c, "herramienta_fallo")
+	cuerpo, _, _ := x.ia.ultimo()
+	if strings.Contains(cuerpo, "crear_ticket") || strings.Contains(cuerpo, "registrar_boleta") || !strings.Contains(cuerpo, "buscar_manual") {
+		t.Fatalf("el respaldo JSON ofrece herramientas de escritura: %s", cuerpo)
+	}
+	// Una herramienta de escritura pedida igual no se ejecuta: sigue una persona.
+	for i, pedida := range []string{`{"nombre": "crear_ticket", "argumentos": {"asunto": "Sin internet", "descripcion": "No navega", "prioridad": "media"}}`,
+		`{"nombre": "pedir_promesa", "argumentos": {"servicio_id": 1, "fecha": "2026-11-20"}}`} {
+		c = x.turno(numeroCliente(), fmt.Sprintf("wamid.v3%d", i), "Hagan algo", "Planes y precios", dice(`{"texto": "Listo.", "herramienta": `+pedida+`}`))
+		x.exigirPaso(c, "herramienta_fallo")
+		if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_vinculos WHERE conversacion_id = $1`, cid(c)); n != 0 {
+			t.Fatal("el respaldo JSON ejecutó una herramienta de escritura")
+		}
+	}
 	if n := x.contar(`SELECT count(*) FROM mensajeria.promesas`); n != 0 {
-		t.Fatal("el respaldo JSON creó una promesa con la acción apagada")
+		t.Fatal("el respaldo JSON creó una promesa")
 	}
 }
 
-// Promesa de pago: se pide a Argos como asistente_ia, simulando antes; Argos decide.
+// Promesa de pago: exige la verificación fuerte; se pide a Argos como asistente_ia, simulando antes;
+// Argos decide.
 func TestAutonomoPromesa(t *testing.T) {
 	x := nuevaBandejaIA(t)
 	x.autonomo("siempre_primero", map[string]any{"perfiles": []any{perfilCon(map[string]any{"promesa_pago": true}, "alta")}})
 	conv, cliente := x.conClienteArgos()
+	num := x.numeroDe(conv)
 	*x.reloj = x.reloj.Add(21 * time.Second)
 	x.ia.decir(`{"categoria": "Pagos y saldo", "confianza": 0.95}`)
 	servicio := cliente * 10
+	// Con solo el número: ni simular ni pedir.
 	x.guion(llama("simular_promesa", fmt.Sprintf(`{"servicio_id": %d, "fecha": "2026-11-20"}`, servicio)),
-		llama("pedir_promesa", fmt.Sprintf(`{"servicio_id": %d, "fecha": "2026-11-20"}`, servicio)), dice("Tu promesa de pago quedó registrada para el 20 de noviembre."))
+		llama("pedir_promesa", fmt.Sprintf(`{"servicio_id": %d, "fecha": "2026-11-20"}`, servicio)), dice("Para una promesa de pago necesito verificar tu identidad."))
 	x.correr(conv)
-	if a := strings.Join(x.acciones(conv), ","); a != "simular_promesa:ok,promesa_pago:ok,responder:ok" {
+	x.argos.mu.Lock()
+	claves := len(x.argos.claves)
+	x.argos.mu.Unlock()
+	if a := strings.Join(x.acciones(conv), ","); a != "promesa_pago:rechazada,promesa_pago:rechazada,responder:ok" || claves != 0 {
+		t.Fatalf("promesa sin verificación fuerte: %s", a)
+	}
+	// Con verificación fuerte.
+	x.fuerte(conv)
+	x.turno(num, "wamid.pr1", "Listo, quiero pagar el 20", "Pagos y saldo", llama("simular_promesa", fmt.Sprintf(`{"servicio_id": %d, "fecha": "2026-11-20"}`, servicio)),
+		llama("pedir_promesa", fmt.Sprintf(`{"servicio_id": %d, "fecha": "2026-11-20"}`, servicio)), dice("Tu promesa de pago quedó registrada para el 20 de noviembre."))
+	if a := strings.Join(x.acciones(conv)[3:], ","); a != "simular_promesa:ok,promesa_pago:ok,responder:ok" {
 		t.Fatalf("acciones: %s", a)
 	}
 	if n := x.contar(`SELECT count(*) FROM mensajeria.promesas WHERE conversacion_id = $1 AND solicitada_por IS NULL AND estado = 'activa'`, conv); n != 1 {
 		t.Fatalf("promesa del asistente: %d", n)
 	}
 	x.argos.mu.Lock()
-	claves := append([]string{}, x.argos.claves...)
+	cs := append([]string{}, x.argos.claves...)
 	x.argos.mu.Unlock()
-	if len(claves) != 1 || !strings.HasPrefix(claves[0], "iris:promesa:") {
-		t.Fatalf("clave hacia Argos: %v", claves)
+	if len(cs) != 1 || !strings.HasPrefix(cs[0], "iris:promesa:") {
+		t.Fatalf("clave hacia Argos: %v", cs)
 	}
 	// El monto de la promesa (250.00 en el Argos falso) nunca va al modelo ni al cliente.
 	for _, cuerpo := range x.ia.cuerposAutonomos() {
@@ -1031,41 +1227,57 @@ func TestAutonomoPromesa(t *testing.T) {
 	}
 }
 
-// Boleta y reconexión temporal: el asistente registra el comprobante (nunca lo aprueba) y pide la
-// reconexión a Argos como asistente_ia; Argos decide.
+// A2. Boleta y reconexión temporal. La boleta exige una foto nueva de este periodo (cada adjunto vale
+// para una sola) y tiene tope por día. La reconexión es un caso de uso con su permiso, auditoría,
+// evento y registro local: exige verificación fuerte y solo se pide fuera de horario o sin nadie
+// disponible, con el motivo real. El asistente nunca aprueba.
 func TestAutonomoBoletaYReconexion(t *testing.T) {
 	x := nuevaBandejaIA(t)
-	x.autonomo("siempre_primero", map[string]any{"perfiles": []any{perfilCon(map[string]any{"reconexion_temporal": true}, "alta")}})
+	x.autonomo("siempre_primero", map[string]any{"perfiles": []any{perfilCon(map[string]any{"reconexion_temporal": true}, "alta")}, "maxTurnos": 20})
 	conv, _ := x.conClienteArgos()
 	num := x.numeroDe(conv)
 	*x.reloj = x.reloj.Add(21 * time.Second)
 	x.ia.decir(`{"categoria": "Pagos y saldo", "confianza": 0.95}`)
+	boleta := func(ref string) pasoFalso {
+		return llama("registrar_boleta", `{"metodo": "deposito", "cuenta_bancaria_id": 3, "banco_origen_id": 0, "referencia": "`+ref+`", "monto": "250.00", "fecha_deposito": "2026-11-04"}`)
+	}
+	foto := func(wamid string) {
+		x.t.Helper()
+		x.webhook(x.mensajeCliente(num, wamid, `"type":"image","image":{"id":"boleta1","mime_type":"image/jpeg"}`))
+		ms := x.mensajes(x.supervisor, conv)
+		if err := x.m.DescargarMedio(x.ctx, uuid.MustParse(ms[len(ms)-1]["id"].(string)), false); err != nil {
+			t.Fatal(err)
+		}
+		*x.reloj = x.reloj.Add(21 * time.Second)
+	}
+	boletas := func() int {
+		return x.contar(`SELECT count(*) FROM mensajeria.boletas WHERE conversacion_id = $1`, conv)
+	}
 	// Sin foto todavía: registrar la boleta se rechaza; sin boleta, la reconexión también.
-	x.guion(llama("registrar_boleta", `{"metodo": "deposito", "cuenta_bancaria_id": 3, "banco_origen_id": 0, "referencia": "998877", "monto": "250.00", "fecha_deposito": "2026-11-04"}`),
-		llama("pedir_reconexion", `{}`), dice("Por favor mándame la foto de tu boleta."))
+	x.guion(boleta("998877"), llama("pedir_reconexion", `{}`), dice("Por favor mándame la foto de tu boleta."))
 	x.correr(conv)
 	if a := strings.Join(x.acciones(conv), ","); a != "recibir_boleta:rechazada,reconexion_temporal:rechazada,responder:ok" {
 		t.Fatalf("sin foto: %s", a)
 	}
-	// El cliente manda la foto.
-	x.webhook(x.mensajeCliente(num, "wamid.bo1", `"type":"image","image":{"id":"boleta1","mime_type":"image/jpeg"}`))
-	ms := x.mensajes(x.supervisor, conv)
-	if err := x.m.DescargarMedio(x.ctx, uuid.MustParse(ms[len(ms)-1]["id"].(string)), false); err != nil {
-		t.Fatal(err)
-	}
-	*x.reloj = x.reloj.Add(21 * time.Second)
+	// El cliente manda la foto: basta con que su número coincida para recibir la boleta.
+	foto("wamid.bo1")
 	x.guion(llama("cuentas_para_boleta", `{}`),
 		pasoFalso{llamadas: []llamadaFalsa{
-			// Una cuenta que no es de la empresa y una fecha futura: rechazadas.
+			// Una cuenta que no es de la empresa: rechazada.
 			{"registrar_boleta", `{"metodo": "deposito", "cuenta_bancaria_id": 77, "banco_origen_id": 0, "referencia": "998877", "monto": "250.00", "fecha_deposito": "2026-11-04"}`},
 			{"registrar_boleta", `{"metodo": "deposito", "cuenta_bancaria_id": 3, "banco_origen_id": 0, "referencia": "998877", "monto": "250.00", "fecha_deposito": "2026-11-04"}`},
-		}}, dice("Recibí tu boleta. Caja la revisa y te confirmamos."))
+		}}, dice("Recibí tu boleta. Caja la revisa y te avisamos."))
 	x.correr(conv)
 	if a := strings.Join(x.acciones(conv)[3:], ","); a != "cuentas_para_boleta:ok,recibir_boleta:rechazada,recibir_boleta:ok,responder:ok" {
 		t.Fatalf("boleta: %s", a)
 	}
-	if n := x.contar(`SELECT count(*) FROM mensajeria.boletas WHERE conversacion_id = $1 AND registrada_por IS NULL AND estado = 'por_enviar'`, conv); n != 1 {
+	if n := x.contar(`SELECT count(*) FROM mensajeria.boletas WHERE conversacion_id = $1 AND registrada_por IS NULL AND por_asistente AND estado = 'por_enviar'`, conv); n != 1 {
 		t.Fatalf("boleta del asistente: %d", n)
+	}
+	// La misma foto no vale para otra boleta (otra referencia): hace falta una foto nueva.
+	x.turno(num, "wamid.bo1b", "Registra otra con la referencia 111222", "Pagos y saldo", boleta("111222"), dice("Necesito una foto nueva de esa boleta."))
+	if boletas() != 1 {
+		t.Fatal("la misma foto sirvió para dos boletas")
 	}
 	// Va a Argos como asistente_ia; queda pendiente para caja (el asistente no aprueba).
 	if err := x.m.DespacharBoletas(x.ctx, x.bd); err != nil {
@@ -1077,23 +1289,75 @@ func TestAutonomoBoletaYReconexion(t *testing.T) {
 	if actor != "asistente_ia" {
 		t.Fatalf("X-Iris-Actor del comprobante: %s", actor)
 	}
-	if n := x.contar(`SELECT count(*) FROM mensajeria.boletas WHERE conversacion_id = $1 AND estado = 'registrada' AND comprobante_id IS NOT NULL`, conv); n != 1 {
-		t.Fatal("la boleta no quedó registrada en Argos")
+	// Reconexión con solo el número: rechazada (exige la verificación fuerte), sin llamar a Argos.
+	x.turno(num, "wamid.bo2", "¿Me pueden reconectar mientras tanto?", "Pagos y saldo", llama("pedir_reconexion", `{}`), dice("Para eso necesito verificar tu identidad."))
+	x.argos.mu.Lock()
+	n := len(x.argos.reconexiones)
+	x.argos.mu.Unlock()
+	if n != 0 {
+		t.Fatal("pidió la reconexión sin verificación fuerte")
 	}
-	// Ya con comprobante, pide la reconexión temporal: Argos decide.
-	c := x.turno(num, "wamid.bo2", "¿Me pueden reconectar mientras tanto?", "Pagos y saldo", llama("pedir_reconexion", `{}`),
+	x.fuerte(conv)
+	// Con alguien disponible en la cola y en horario: no corresponde (caja puede revisar la boleta).
+	x.disponible(x.agente, "disponible")
+	x.turno(num, "wamid.bo3", "¿Y ahora?", "Pagos y saldo", llama("pedir_reconexion", `{}`), dice("Un compañero revisa tu boleta en un momento."))
+	x.argos.mu.Lock()
+	n = len(x.argos.reconexiones)
+	x.argos.mu.Unlock()
+	if n != 0 {
+		t.Fatal("pidió la reconexión con personal disponible en horario")
+	}
+	// Sin nadie disponible: se pide, con el motivo real, y Argos decide.
+	x.disponible(x.agente, "no_disponible")
+	c := x.turno(num, "wamid.bo4", "Por favor, lo necesito", "Pagos y saldo", llama("pedir_reconexion", `{}`),
 		dice("Listo: tienes una reconexión temporal mientras caja revisa tu boleta."))
 	x.argos.mu.Lock()
-	rec := append([]int64{}, x.argos.reconexiones...)
+	rec, motivos := append([]int64{}, x.argos.reconexiones...), fmt.Sprint(x.argos.motivos)
 	x.argos.mu.Unlock()
-	if len(rec) != 1 || c["actividadAsistente"].(map[string]any)["tipo"] != "reconexion_pedida" {
-		t.Fatalf("reconexión: %v %v (acciones %v)", rec, c["actividadAsistente"], x.acciones(conv))
+	if len(rec) != 1 || motivos != "[sin_personal]" || c["actividadAsistente"].(map[string]any)["tipo"] != "reconexion_pedida" || len(x.delAsistente(conv)) < 5 {
+		t.Fatalf("reconexión: %v %s %v (acciones %v)", rec, motivos, c["actividadAsistente"], x.acciones(conv))
+	}
+	// Caso de uso con permiso propio, auditoría, evento y registro local.
+	if n := x.contar(`SELECT count(*) FROM mensajeria.reconexiones WHERE conversacion_id = $1 AND estado = 'aceptada' AND motivo = 'sin_personal' AND por_asistente
+		AND comprobante_id = $2`, conv, rec[0]); n != 1 {
+		t.Fatal("no quedó el registro local de la reconexión")
+	}
+	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'conversaciones.pedir_reconexion' AND actor_tipo = 'asistente_ia' AND resultado = 'ok'
+		AND entidad_id = $1`, conv); n != 1 {
+		t.Fatalf("auditoría de la reconexión: %d", n)
+	}
+	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'reconexion.solicitada' AND payload->>'conversacion_id' = $1 AND payload->>'motivo' = 'sin_personal'`, conv); n != 1 {
+		t.Fatal("reconexion.solicitada")
+	}
+	// Sin el permiso (una persona de soporte no lo tiene): 403. Y el asistente desde otra empresa: 404.
+	id, _ := strconv.ParseInt(conv, 10, 64)
+	if _, err := x.m.Conv.Reconexion.Ejecutar(mensajeria.CtxAsistenteIA(x.ctx, 2), mensajeria.EntradaReconexion{ID: id}); err == nil {
+		t.Fatal("reconexión desde otra empresa")
+	}
+	// Una frase que da la reconexión por hecha sin que la herramienta la haya obtenido no se envía (M6).
+	c = x.turno(num, "wamid.bo5", "¿Entonces ya quedó?", "Pagos y saldo", dice("Sí, tu servicio ya fue reconectado y tu pago fue aprobado."))
+	for _, m := range x.delAsistente(conv) {
+		if strings.Contains(textoDe(m), "ya fue reconectado") {
+			t.Fatal("afirmó una reconexión y un pago aprobado sin respaldo")
+		}
+	}
+	// Tope de boletas por conversación y día.
+	if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.conversaciones SET asistente_estado = 'atendiendo' WHERE id = $1`, conv); err != nil {
+		t.Fatal(err)
+	}
+	for i := range mensajeria.BoletasPorDiaConv + 1 {
+		foto(fmt.Sprintf("wamid.bo6%d", i))
+		x.guion(boleta(fmt.Sprintf("77700%d", i)), dice("Recibida."))
+		x.correr(conv)
+	}
+	if boletas() != mensajeria.BoletasPorDiaConv {
+		t.Fatalf("boletas en el día: %d", boletas())
 	}
 	// Con la acción apagada (perfil por defecto) la herramienta no existe.
 	x.autonomo("siempre_primero", map[string]any{"perfiles": []any{perfilCon(nil, "alta")}})
-	x.turno(num, "wamid.bo3", "Reconéctenme otra vez", "Pagos y saldo", llama("pedir_reconexion", `{}`), dice("No puedo hacer eso por aquí."))
+	x.turno(num, "wamid.bo7", "Reconéctenme otra vez", "Pagos y saldo", llama("pedir_reconexion", `{}`), dice("No puedo hacer eso por aquí."))
 	x.argos.mu.Lock()
-	n := len(x.argos.reconexiones)
+	n = len(x.argos.reconexiones)
 	x.argos.mu.Unlock()
 	if n != 1 {
 		t.Fatal("pidió una reconexión con la acción apagada")

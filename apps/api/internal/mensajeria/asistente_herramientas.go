@@ -296,7 +296,9 @@ func (m *Modulo) herrBuscarManual(ctx context.Context, t *turnoIA, l LlamadaIA, 
 			b.WriteString(linea + "\n")
 		} else {
 			t.internos = append(t.internos, mn.Resumen+"\n"+mn.Cuerpo)
-			b.WriteString("(manual del equipo: interno, NO lo menciones al cliente) «" + titulo + "»: " + cuerpo + "\n")
+			// El cuerpo de un manual «Del equipo» no viaja al proveedor cuando el asistente atiende
+			// solo (§17.9): solo se le dice que existe, para que pase la conversación a una persona.
+			b.WriteString("(hay un manual interno del equipo sobre esto, «" + titulo + "»: no puedes leerlo ni mencionarlo; si hace falta, pasa a una persona)\n")
 		}
 	}
 	h.actividadTipo, h.actividadTexto = "respondio_manual", "Respondió con el manual"
