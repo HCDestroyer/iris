@@ -345,7 +345,7 @@ export type ApiFalsa = {
     /** Reportes: hacer que el próximo CSV responda 422 `exportacion_excedida`. */
     reportes: Pick<ApiReportes, "exportacionExcedida">;
     /** Bandeja de conversaciones: conversaciones, mensajes, lo enviado y mensajes del cliente. */
-    conversaciones: Pick<ApiConversaciones, "conversaciones" | "mensajes" | "enviados" | "mensajeDelCliente" | "horarios" | "manuales" | "canales" | "configurados" | "respuestas" | "colas" | "agentes" | "bandeja11" | "asistente">;
+    conversaciones: Pick<ApiConversaciones, "conversaciones" | "mensajes" | "enviados" | "mensajeDelCliente" | "horarios" | "manuales" | "canales" | "configurados" | "respuestas" | "colas" | "agentes" | "bandeja11" | "asistente" | "fase3">;
     /** Chat del equipo (solo con `chat: true`). */
     chat: ApiChatPanel | null;
     /** Números de WhatsApp: resultados de Meta, cuerpos recibidos y credenciales guardadas. */

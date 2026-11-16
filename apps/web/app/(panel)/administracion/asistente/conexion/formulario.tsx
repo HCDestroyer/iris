@@ -12,7 +12,6 @@ import {
     Casilla,
     cn,
     FormularioPagina,
-    Interruptor,
     liberarProteccion,
     ListaEleccion,
     SeccionFormulario,
@@ -26,7 +25,9 @@ import { ErrorLectura } from "@/componentes/error-lectura";
 import { SecretoCambiable } from "@/componentes/numeros/secreto-guardado";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { cambiaDestino, ejemploUrl, entradaDe, esNube, esquemaAjustesAsistente, FUENTES, NUNCA, PROVEEDORES, TEXTO_CLAVE_REQUERIDA, urlValida, valoresDe, type ValoresAjustes } from "@/lib/asistente/ajustes";
-import { consultarModelos, guardarAjustesAsistente, leerAjustesAsistente, leerModelosGuardados, leerUso, probarAsistente } from "@/lib/asistente/api";
+import { consultarModelos, leerAjustesAsistente, leerModelosGuardados, leerUso, probarAsistente } from "@/lib/asistente/api";
+import { guardarAjustesFase3 } from "@/lib/asistente/api-fase3";
+import { completar, entradaGuardada } from "@/lib/asistente/fase3";
 import { formatearTokens, nombreMes, porcentajeUsadas, textoPausado, textoPrueba } from "@/lib/asistente/presentacion";
 import type { AjustesAsistente as Ajustes, ModeloIA, PruebaAsistente, UsoAsistente } from "@/lib/asistente/tipos";
 import { erroresACampos } from "@/lib/formularios";
@@ -36,12 +37,13 @@ import { useLectura } from "@/lib/lectura";
 const CAMPOS_SERVIDOR = ["url", "clave", "modelo", "topeTokensMes", "precioEntradaMillon", "precioSalidaMillon"] as const;
 
 /**
- * `/administracion/asistente` (`mensajeria.asistente_configurar`): el asistente de IA que sugiere
- * respuestas en la bandeja (contratos/conversaciones.md §16.1). Proveedor, dirección, clave (solo
+ * `/administracion/asistente/conexion` (`mensajeria.asistente_configurar`): lo avanzado del
+ * asistente de IA (contratos/conversaciones.md §16.1). Proveedor, dirección, clave (solo
  * escritura: «•••• guardada el …»), modelo, cuándo sugiere, qué puede consultar, lo que nunca hace
- * y el uso del mes con su tope.
+ * y el uso del mes con su tope. Encender el asistente y decidir cuándo atiende solo va en la
+ * pantalla principal (`/administracion/asistente`).
  */
-export function AjustesAsistente() {
+export function ConexionAsistente() {
     const lectura = useLectura((signal) => leerAjustesAsistente(signal));
     return (
         <CargaRegistro lectura={lectura} que="los ajustes del asistente" noEncontrado="Sin ajustes">
@@ -56,7 +58,7 @@ function Formulario({ ajustes }: { ajustes: Ajustes }) {
     const [error, setError] = useState<unknown>(null);
     const form = useForm<ValoresAjustes>({ resolver: zodResolver(esquemaAjustesAsistente), defaultValues: valoresDe(ajustes) });
     const conflicto = error instanceof ErrorApi && error.estado === 409;
-    const [proveedor, url, cambiarClave, quitarClave, modo, activo] = useWatch({ control: form.control, name: ["proveedor", "url", "cambiarClave", "quitarClave", "modo", "activo"] });
+    const [proveedor, url, cambiarClave, quitarClave, modo] = useWatch({ control: form.control, name: ["proveedor", "url", "cambiarClave", "quitarClave", "modo"] });
     const errores = form.formState.errors;
     const guardada = ajustes.claveGuardadaEn !== null;
     // La clave guardada no viaja a otro servidor (§16.1): con otro proveedor o dirección hay que escribirla.
@@ -75,16 +77,17 @@ function Formulario({ ajustes }: { ajustes: Ajustes }) {
 
     return (
         <FormularioPagina
-            titulo="Asistente de IA"
-            descripcion="Sugiere respuestas en la bandeja. Nunca envía nada por su cuenta."
+            titulo="Conexión con la IA"
+            descripcion="El proveedor que usa el asistente, qué puede consultar y cuánto puede gastar al mes."
             alEnviar={form.handleSubmit(async (d) => {
                 setError(null);
                 try {
-                    const r = await guardarAjustesAsistente(entradaDe(d, ajustes.version), clave.actual());
+                    // Lo de la pantalla principal (cuándo atiende solo, qué puede hacer) se conserva.
+                    await guardarAjustesFase3({ ...entradaGuardada(completar(ajustes)), ...entradaDe(d, ajustes.version) }, clave.actual());
                     clave.renovar();
-                    avisar({ titulo: r.activo ? "Asistente de IA guardado y activo" : "Asistente de IA guardado (apagado)" });
+                    avisar({ titulo: "Conexión con la IA guardada" });
                     await liberarProteccion();
-                    router.replace("/administracion");
+                    router.replace("/administracion/asistente");
                 } catch (e) {
                     clave.trasError(e);
                     if (e instanceof ErrorApi && e.codigo === "clave_requerida") {
@@ -98,7 +101,7 @@ function Formulario({ ajustes }: { ajustes: Ajustes }) {
                 }
             })}
             navegar={router.push}
-            volverA="/administracion"
+            volverA="/administracion/asistente"
             sucio={form.formState.isDirty}
             barra={{
                 enviando: form.formState.isSubmitting,
@@ -112,15 +115,6 @@ function Formulario({ ajustes }: { ajustes: Ajustes }) {
                 ) : null
             }
         >
-            <SeccionFormulario titulo="Estado">
-                <Interruptor
-                    etiqueta="Asistente activo"
-                    ayuda={activo ? "Sugiere respuestas a quienes atienden la bandeja." : "Apagado: no sugiere ni resume."}
-                    error={errores.activo?.message}
-                    {...form.register("activo")}
-                />
-            </SeccionFormulario>
-
             <SeccionFormulario titulo="Proveedor de IA">
                 <ListaEleccion
                     leyenda="Proveedor de IA"
@@ -473,7 +467,7 @@ function CifrasUso({ uso }: { uso: UsoAsistente }) {
     const usadas = porcentajeUsadas(uso);
     const barra = Math.min(100, Math.max(0, Math.round(uso.porcentaje)));
     return (
-        <div className="grid gap-3" data-slot="uso-asistente">
+        <div className="grid gap-3" id="uso" data-slot="uso-asistente">
             <p className="text-sm text-muted-foreground first-letter:uppercase">{nombreMes(uso.mes)}</p>
             <div className="grid gap-3 sm:grid-cols-2">
                 <div>

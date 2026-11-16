@@ -1,11 +1,12 @@
 "use client";
 
 import { Boton, Cargando, cn } from "@iris/ui";
-import { AlertTriangle, ArrowLeftRight, Bot, FileText, History, MapPin, MessageCircle, Paperclip, PencilLine, RotateCw, Smartphone, Timer } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, Bot, FileText, History, MapPin, MessageCircle, Paperclip, PencilLine, RotateCw, Smartphone, Sparkles, Timer } from "lucide-react";
 import { Fragment, useEffect, useLayoutEffect, useRef } from "react";
 import type { Pendiente } from "@/lib/conversaciones/estado";
 import { hora, separadorDia, tamanoLegible, textoEntrega, textoEvento } from "@/lib/conversaciones/presentacion";
 import type { Mensaje } from "@/lib/conversaciones/tipos";
+import { esDelAsistente } from "@/lib/asistente/fase3";
 import { esEventoBot } from "@/lib/conversaciones/atencion";
 import { rutaDescargaAdjunto } from "@/lib/ordenes/adjuntos";
 import { diaLocal } from "@/lib/conversaciones/presentacion";
@@ -116,11 +117,21 @@ export function Hilo({ mensajes, pendientes, ahora, hayAnteriores, cargandoAnter
     );
 }
 
-function EtiquetaNota() {
+function EtiquetaNota({ delAsistente = false }: { delAsistente?: boolean }) {
     return (
         <span className="flex items-center gap-1 text-[0.6875rem] font-semibold text-warning">
             <PencilLine aria-hidden className="size-3.5" />
-            Nota interna
+            {delAsistente ? "Nota interna del asistente" : "Nota interna"}
+        </span>
+    );
+}
+
+/** Fase 3: lo que escribió el asistente de IA (no una persona), en teal con `Sparkles`. */
+function EtiquetaAsistente() {
+    return (
+        <span className="flex items-center gap-1 text-[0.6875rem] font-semibold text-primary" data-slot="etiqueta-asistente">
+            <Sparkles aria-hidden className="size-3.5" />
+            Asistente
         </span>
     );
 }
@@ -151,11 +162,13 @@ function Burbuja({ m }: { m: Mensaje }) {
     // Fase 1.1: mensajes del bot (`automatico: "bot"`) con su etiqueta y borde punteado de información.
     const automatico = m.automatico ?? null;
     const delBot = propia && automatico === "bot";
+    // Fase 3 (§17): el asistente de IA respondió solo, o dejó una nota al pasar a una persona.
+    const delAsistente = (propia || nota) && esDelAsistente(m);
     // §15.2: lo mandado desde la app WhatsApp Business del teléfono (sin autor) y lo traído del historial.
     const desdeTelefono = m.origen === "telefono";
     const delHistorial = m.origen === "historial";
     const pie = [
-        nota || (propia && !delBot && !m.origen) ? (m.autor?.nombre ?? (propia ? "Respuesta automática" : null)) : null,
+        delAsistente ? null : nota || (propia && !delBot && !m.origen) ? (m.autor?.nombre ?? (propia ? "Respuesta automática" : null)) : null,
         hora(m.creadoEn),
         propia ? textoEntrega(m) : null,
     ]
@@ -165,16 +178,19 @@ function Burbuja({ m }: { m: Mensaje }) {
         <div
             data-mensaje={m.id}
             data-direccion={m.direccion}
+            data-autor={delAsistente ? "asistente_ia" : undefined}
             className={cn(
                 "flex max-w-[min(72%,35rem)] min-w-0 flex-col gap-0.5 rounded-[0.875rem] px-3 py-2",
                 m.direccion === "entrante" && "self-start rounded-bl-sm border border-border bg-card",
-                propia && !delBot && "self-end rounded-br-sm bg-primary/10",
+                propia && !delBot && !delAsistente && "self-end rounded-br-sm bg-primary/10",
+                propia && delAsistente && "self-end rounded-br-sm border border-primary/30 bg-primary/[0.06]",
                 delBot && "self-end rounded-br-sm border border-dashed border-info/40 bg-card",
                 nota && "self-end rounded-br-sm border border-dashed border-warning/50 bg-warning/10",
                 propia && m.estadoEntrega === "fallido" && "ring-1 ring-error/40",
             )}
         >
-            {nota ? <EtiquetaNota /> : null}
+            {nota ? <EtiquetaNota delAsistente={delAsistente} /> : null}
+            {propia && delAsistente ? <EtiquetaAsistente /> : null}
             {desdeTelefono ? (
                 <span className="flex items-center gap-1 text-[0.6875rem] font-semibold text-muted-foreground" data-slot="etiqueta-telefono">
                     <Smartphone aria-hidden className="size-3.5" />
