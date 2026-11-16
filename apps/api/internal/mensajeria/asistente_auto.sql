@@ -63,6 +63,11 @@ SET asistente_estado = sqlc.narg('estado'), asistente_turnos = @turnos, asistent
 WHERE id = @id
 RETURNING *;
 
+-- name: FijarMotivoPaso :exec
+-- Por qué el asistente pasó la conversación a una persona (lista cerrada). El trigger lo borra cuando
+-- el estado deja de ser espera_persona.
+UPDATE mensajeria.conversaciones SET asistente_motivo_paso = @motivo, updated_at = now() WHERE id = @id AND asistente_estado = 'espera_persona';
+
 -- name: DetenerAsistente :exec
 -- Una persona escribió: el asistente queda detenido hasta que la conversación se resuelva.
 UPDATE mensajeria.conversaciones SET asistente_estado = 'detenido', updated_at = now()

@@ -185,7 +185,7 @@ type AsistenteConv struct {
 	Estado string `json:"estado" enum:"atendiendo,espera_persona,detenido"`
 	Turnos int32  `json:"turnos"`
 	// MotivoPaso: por qué pasó la conversación a una persona (solo con estado espera_persona).
-	MotivoPaso *string `json:"motivoPaso" nullable:"true" required:"false" enum:"cliente_lo_pidio,enojo,sin_respuesta,herramienta_fallo,max_turnos,tope" doc:"Solo con estado = espera_persona: el motivo del relevo, de lista cerrada. null en cualquier otro caso"`
+	MotivoPaso *string `json:"motivoPaso" nullable:"true" required:"false" enum:"cliente_lo_pidio,enojo,sin_respuesta,herramienta_fallo,max_turnos,tope,asistente_apagado" doc:"Solo con estado = espera_persona: el motivo del relevo, de lista cerrada (asistente_apagado: apagaron el modo autónomo o se llegó al tope mientras atendía). null en cualquier otro caso"`
 }
 
 // EsperaConversacion es lo que el panel muestra de una conversación sin asignar (fase 1.1).
@@ -365,11 +365,24 @@ func verificacionDe(c mensajeriabd.MensajeriaConversacion, ahora time.Time, vige
 	switch {
 	case c.ClienteID == nil || !c.ClienteVerificado:
 		return ""
-	case c.Estado != EstadoConvResuelta && c.IdentidadVerificadaEn != nil && c.IdentidadVenceEn != nil && ahora.Before(*c.IdentidadVenceEn) &&
-		ahora.Before(c.IdentidadVerificadaEn.Add(vigencia)):
+	case c.Estado != EstadoConvResuelta && ahora.Before(venceFuerte(c, vigencia)):
 		return VerificacionFuerte
 	}
 	return VerificacionNumero
+}
+
+// venceFuerte: hasta cuándo vale la verificación fuerte de la conversación (la vigencia efectiva: el
+// mínimo entre identidad_vence_en e identidad_verificada_en + vigencia). Sin verificación fuerte, la
+// hora cero (ya vencida).
+func venceFuerte(c mensajeriabd.MensajeriaConversacion, vigencia time.Duration) time.Time {
+	if c.IdentidadVerificadaEn == nil || c.IdentidadVenceEn == nil {
+		return time.Time{}
+	}
+	vence := *c.IdentidadVenceEn
+	if otro := c.IdentidadVerificadaEn.Add(vigencia); otro.Before(vence) {
+		vence = otro
+	}
+	return vence
 }
 
 // vigenciaFuerte: el verificacionFuerteMin actual de la empresa.
@@ -385,7 +398,23 @@ func vigenciaFuerte(ctx context.Context, q *mensajeriabd.Queries, empresa int64)
 }
 
 // motivosDePaso: los motivos de relevo que el panel puede pintar (lista cerrada).
-var motivosDePaso = []string{PasoClientePidio, PasoEnojo, PasoSinRespuesta, PasoHerramientaFallo, PasoMaxTurnos, PasoTope}
+var motivosDePaso = []string{PasoClientePidio, PasoEnojo, PasoSinRespuesta, PasoHerramientaFallo, PasoMaxTurnos, PasoTope, PasoAsistenteApagado}
+
+// PasoAsistenteApagado: apagaron el modo autónomo (o se llegó al tope) mientras el asistente atendía;
+// la conversación vuelve al camino normal sin un turno que lo registre.
+const PasoAsistenteApagado = "asistente_apagado"
+
+// fijarMotivoPaso deja en la conversación por qué el asistente la pasó a una persona.
+func fijarMotivoPaso(ctx context.Context, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion, motivo string) error {
+	if !slices.Contains(motivosDePaso, motivo) {
+		return nil
+	}
+	if err := q.FijarMotivoPaso(ctx, mensajeriabd.FijarMotivoPasoParams{ID: c.ID, Motivo: &motivo}); err != nil {
+		return err
+	}
+	c.AsistenteMotivoPaso = &motivo
+	return nil
+}
 
 // Detalles del mensaje de sistema identidad_verificada (lista cerrada; nunca el documento).
 const (
@@ -630,11 +659,7 @@ func contactoDeConv(c mensajeriabd.MensajeriaConversacion, ahora time.Time, vige
 	if v := verificacionDe(c, ahora, vigencia); v != "" {
 		k.Verificacion = &v
 		if v == VerificacionFuerte {
-			// La vigencia efectiva: el mínimo entre lo fijado al verificar y verificada + el ajuste actual.
-			vence := *c.IdentidadVenceEn
-			if otro := c.IdentidadVerificadaEn.Add(vigencia); otro.Before(vence) {
-				vence = otro
-			}
+			vence := venceFuerte(c, vigencia)
 			k.VerificacionVenceEn = &vence
 		}
 	}
@@ -700,8 +725,8 @@ func (m *Modulo) resumirConvs(ctx context.Context, q *mensajeriabd.Queries, usua
 		}
 		if f.AsistenteEstado != nil {
 			v.Asistente = &AsistenteConv{Estado: *f.AsistenteEstado, Turnos: f.AsistenteTurnos}
-			if *f.AsistenteEstado == AsistenteEsperaPersona && f.AsistenteMotivoPaso != "" && slices.Contains(motivosDePaso, f.AsistenteMotivoPaso) {
-				v.Asistente.MotivoPaso = &f.AsistenteMotivoPaso
+			if *f.AsistenteEstado == AsistenteEsperaPersona && f.AsistenteMotivoPaso != nil && slices.Contains(motivosDePaso, *f.AsistenteMotivoPaso) {
+				v.Asistente.MotivoPaso = f.AsistenteMotivoPaso
 			}
 		}
 		if v.Etiquetas == nil {

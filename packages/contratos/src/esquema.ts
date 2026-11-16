@@ -7575,10 +7575,10 @@ export interface components {
             /** @enum {string} */
             estado: "atendiendo" | "espera_persona" | "detenido";
             /**
-             * @description Solo con estado = espera_persona: el motivo del relevo, de lista cerrada. null en cualquier otro caso
+             * @description Solo con estado = espera_persona: el motivo del relevo, de lista cerrada (asistente_apagado: apagaron el modo autónomo o se llegó al tope mientras atendía). null en cualquier otro caso
              * @enum {string|null}
              */
-            motivoPaso?: "cliente_lo_pidio" | "enojo" | "sin_respuesta" | "herramienta_fallo" | "max_turnos" | "tope" | null;
+            motivoPaso?: "cliente_lo_pidio" | "enojo" | "sin_respuesta" | "herramienta_fallo" | "max_turnos" | "tope" | "asistente_apagado" | null;
             /** Format: int32 */
             turnos: number;
         };

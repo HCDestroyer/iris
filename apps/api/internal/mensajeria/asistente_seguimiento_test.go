@@ -164,3 +164,67 @@ func TestSeguimientoMotivoDelRelevo(t *testing.T) {
 		t.Fatalf("tomada por una persona: %v", a)
 	}
 }
+
+// El motivo del relevo nunca sale de un periodo anterior ni de otra empresa, y el relevo sin turno
+// (apagaron el modo autónomo mientras atendía) deja su propio motivo.
+func TestSeguimientoMotivoDelRelevoNoQuedaObsoleto(t *testing.T) {
+	x := nuevaBandejaIA(t)
+	x.autonomo("siempre_primero", nil)
+	motivo := func(conv string) string {
+		var m *string
+		if err := x.bd.QueryRow(x.ctx, `SELECT asistente_motivo_paso FROM mensajeria.conversaciones WHERE id = $1`, conv).Scan(&m); err != nil {
+			t.Fatal(err)
+		}
+		if m == nil {
+			return ""
+		}
+		return *m
+	}
+	// Relevo, resolver y reabrir: en el periodo nuevo no queda el motivo del anterior.
+	num := numeroCliente()
+	x.turno(num, "wamid.so1", "¿Tienen fibra?", "Planes y precios", dice("Sí tenemos."))
+	c := x.turno(num, "wamid.so2", "Quiero hablar con una persona", "Planes y precios", dice("No debería salir"))
+	conv := cid(c)
+	if motivo(conv) != "cliente_lo_pidio" {
+		t.Fatalf("motivo guardado: %q", motivo(conv))
+	}
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/conversaciones/"+conv+"/resolver", map[string]any{"version": ver(x.conv(num))}), http.StatusOK)
+	if motivo(conv) != "" || x.conv(num)["asistente"] != nil {
+		t.Fatalf("resuelta: motivo %q, asistente %v", motivo(conv), x.conv(num)["asistente"])
+	}
+	*x.reloj = x.reloj.Add(time.Hour)
+	c = x.turno(num, "wamid.so3", "Hola otra vez, ¿tienen fibra?", "Planes y precios", dice("Sí tenemos."))
+	if a := c["asistente"].(map[string]any); a["estado"] != "atendiendo" || a["motivoPaso"] != nil || motivo(conv) != "" {
+		t.Fatalf("reabierta: %v (motivo %q)", a, motivo(conv))
+	}
+	// En el periodo nuevo, el motivo es el del relevo nuevo.
+	c = x.turno(num, "wamid.so4", "¿Y con quién hablo?", "Planes y precios", dice("Soy Carlos, asesor del equipo de soporte"))
+	if a := c["asistente"].(map[string]any); a["motivoPaso"] != "sin_respuesta" {
+		t.Fatalf("relevo del periodo nuevo: %v", a)
+	}
+	// La conversación pasa a otra empresa (número prestado): el motivo de la anterior no viaja.
+	if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.conversaciones SET empresa_id = 2, categoria_id = NULL WHERE id = $1`, conv); err != nil {
+		t.Fatal(err)
+	}
+	if motivo(conv) != "" || x.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND asistente_estado IS NULL`, conv) != 1 {
+		t.Fatalf("al pasar a otra empresa quedó el motivo %q", motivo(conv))
+	}
+	// Una persona la toma: el motivo se borra.
+	n2 := numeroCliente()
+	x.turno(n2, "wamid.so5", "¿Tienen fibra?", "Planes y precios", dice("Sí tenemos."))
+	c2 := x.turno(n2, "wamid.so6", "Quiero hablar con una persona", "Planes y precios", dice("No debería salir"))
+	x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+cid(c2)+"/tomar", map[string]any{"version": ver(x.conv(n2))}), http.StatusOK)
+	if motivo(cid(c2)) != "" {
+		t.Fatalf("tomada por una persona: %q", motivo(cid(c2)))
+	}
+	// Apagan el modo autónomo mientras el asistente atendía: al siguiente mensaje la conversación
+	// vuelve al camino normal, con su motivo de lista cerrada (no hay turno que lo registre).
+	n3 := numeroCliente()
+	c3 := x.turno(n3, "wamid.so7", "¿Tienen fibra?", "Planes y precios", dice("Sí tenemos."))
+	x.autonomo("nunca", nil)
+	x.texto(n3, "wamid.so8", "¿Y cuánto cuesta?")
+	if a := x.conv(n3)["asistente"].(map[string]any); a["estado"] != "espera_persona" || a["motivoPaso"] != "asistente_apagado" {
+		t.Fatalf("modo autónomo apagado mientras atendía: %v", a)
+	}
+	_ = c3
+}
