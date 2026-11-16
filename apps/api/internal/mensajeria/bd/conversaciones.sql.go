@@ -3616,6 +3616,10 @@ SELECT c.id, c.empresa_id, c.canal_id, c.numero, c.perfil_nombre, c.cola_id, c.a
     k.nombre AS categoria_nombre, k.tono AS categoria_tono, k.sla_primera_respuesta_min AS categoria_sla_min,
     u.nombre AS asignado_nombre,
     ac.nombre AS cliente_nombre, ci.nombre AS contacto_iris_nombre,
+    -- §17.8: por qué el asistente pasó la conversación a una persona (su último relevo).
+    coalesce((SELECT t.motivo FROM mensajeria.asistente_turnos t
+     WHERE t.conversacion_id = c.id AND t.estado = 'paso_a_persona' AND t.motivo IS NOT NULL
+     ORDER BY t.terminado_en DESC NULLS LAST, t.creado_en DESC LIMIT 1), '')::text AS asistente_motivo_paso,
     um.direccion AS ultimo_direccion, um.tipo AS ultimo_tipo, um.texto AS ultimo_texto, um.creado_en AS ultimo_creado_en,
     um.evento AS ultimo_evento, um.automatico AS ultimo_automatico,
     -- §15.3: la conversación es de una empresa que ya no usa el número (préstamo revocado).
@@ -3705,6 +3709,7 @@ type ResumenConversacionesClienteRow struct {
 	AsignadoNombre          *string
 	ClienteNombre           *string
 	ContactoIrisNombre      *string
+	AsistenteMotivoPaso     string
 	UltimoDireccion         *string
 	UltimoTipo              *string
 	UltimoTexto             *string
@@ -3788,6 +3793,7 @@ func (q *Queries) ResumenConversacionesCliente(ctx context.Context, arg ResumenC
 			&i.AsignadoNombre,
 			&i.ClienteNombre,
 			&i.ContactoIrisNombre,
+			&i.AsistenteMotivoPaso,
 			&i.UltimoDireccion,
 			&i.UltimoTipo,
 			&i.UltimoTexto,

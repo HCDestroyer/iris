@@ -726,16 +726,19 @@ func (m *Modulo) herrVerificarIdentidad(ctx context.Context, t *turnoIA, l Llama
 	}
 	// Argos: 429 demasiados_intentos, 422 metodo_no_disponible o 503 → pasa a una persona, sin reintentar.
 	coincide, errArgos := ver.VerificarIdentidad(ctx, m.atencionTurno(t), t.clienteID, "documento", valor)
-	reg := verificacionHecha{ConversacionID: t.conv, ClienteID: t.clienteID, Resultado: "no_coincide", desde: t.desde}
+	reg := verificacionHecha{ConversacionID: t.conv, ClienteID: t.clienteID, Resultado: "no_coincide", Detalle: IdentidadNoCoincide, desde: t.desde}
 	switch {
 	case errArgos != nil:
-		reg.Resultado = "error"
+		reg.Resultado, reg.Detalle = "error", IdentidadNoDisponible
 		var er *conector.ErrorRemoto
 		if errors.As(errArgos, &er) && (er.Status == http.StatusUnprocessableEntity || er.Status == http.StatusTooManyRequests) {
 			reg.Resultado = "no_disponible"
+			if er.Status == http.StatusTooManyRequests {
+				reg.Detalle = IdentidadDemasiadosIntentos
+			}
 		}
 	case coincide:
-		reg.Resultado = "coincide"
+		reg.Resultado, reg.Detalle = "coincide", IdentidadCoincide
 	}
 	vale, err := m.Asistente.registrarVerificacion.Ejecutar(context.WithoutCancel(ctx), reg)
 	if err != nil {
@@ -751,6 +754,7 @@ func (m *Modulo) herrVerificarIdentidad(ctx context.Context, t *turnoIA, l Llama
 	switch reg.Resultado {
 	case "coincide":
 		t.fuerte = true
+		h.actividadTipo, h.actividadTexto = "identidad_verificada", "Verificó la identidad del cliente"
 		return resHerramienta{contenido: "Identidad verificada. Ya puedes usar las herramientas que la exigen."}, h
 	case "no_coincide":
 		if quedan := VerificacionesPorDiaConv - n - 1; quedan > 0 {
