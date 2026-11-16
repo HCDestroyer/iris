@@ -14,6 +14,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
@@ -34,6 +35,12 @@ type ArgosAtencion interface {
 	CuentasBancarias(ctx context.Context, a argos.AtencionIris) ([]argos.CuentaBancariaArgos, error)
 	Bancos(ctx context.Context, a argos.AtencionIris) ([]argos.BancoArgos, error)
 	EquiposEnComodato(ctx context.Context, empresaID, servicioID int64) ([]argos.EquipoComodatoArgos, error)
+	// Aprobar y rechazar comprobantes desde la conversación (contrato 0.7.0 §7.7). ApruebaComprobantes:
+	// el conector activo informa contrato ≥ 0.7.0 (false sin conector).
+	ApruebaComprobantes(ctx context.Context, q conector.DBTX) (bool, error)
+	AprobarComprobante(ctx context.Context, a argos.AtencionIris, id int64, facturas []int64, nota string) (argos.Comprobante, error)
+	RechazarComprobante(ctx context.Context, a argos.AtencionIris, id int64, motivo, causa string) (argos.Comprobante, error)
+	ObtenerComprobante(ctx context.Context, a argos.AtencionIris, id int64) (argos.Comprobante, error)
 	// EstadoCuentaCliente: el estado de cuenta en vivo (asistente de IA, §16.10). Nunca se guarda.
 	EstadoCuentaCliente(ctx context.Context, a argos.AtencionIris, clienteID int64) (argos.EstadoCuenta, error)
 }

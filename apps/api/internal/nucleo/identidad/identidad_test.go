@@ -67,7 +67,7 @@ func TestSemillaIdempotenteYRolesBase(t *testing.T) {
 	for _, r := range roles.Data {
 		porCodigo[r.Codigo] = r
 	}
-	for _, base := range []string{"admin", "supervisor", "despacho", "tecnico", "soporte", "ventas", "lectura", "integracion_argos", "integracion_horus"} {
+	for _, base := range []string{"admin", "supervisor", "despacho", "tecnico", "soporte", "ventas", "lectura", "caja", "integracion_argos", "integracion_horus"} {
 		r, ok := porCodigo[base]
 		if !ok || !r.Sistema {
 			t.Fatalf("falta el rol base %s", base)

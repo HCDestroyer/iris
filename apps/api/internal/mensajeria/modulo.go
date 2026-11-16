@@ -190,6 +190,10 @@ type Modulo struct {
 	auditarBot       *auditoria.Caso[botAuditado, struct{}]
 	dispararBot      *auditoria.Caso[int64, bool]
 	permisoBoleta    *auditoria.Caso[struct{}, alcanceConv]
+	// Aprobar y rechazar boletas (contrato con Argos 0.7.0 §7.7).
+	boletas       *DecidirBoleta
+	verBoleta     *auditoria.Caso[EntradaBoletaID, Boleta]
+	listarBoletas *auditoria.Caso[EntradaConversacion, ListaBoletas]
 	// difusor despierta los flujos SSE con el NOTIFY iris_chat (EscucharChat).
 	difusor *difusor
 	// lecturas: semáforo de las lecturas del feed de los flujos SSE (ChatLecturas).
@@ -326,6 +330,9 @@ func Nuevo(cfg Config) *Modulo {
 	m.dispararBot = nuevoDispararBot(m)
 	m.auditarBot = nuevoAuditarBot()
 	m.permisoBoleta = nuevoPermisoBoleta()
+	m.boletas = nuevoDecidirBoleta(m)
+	m.verBoleta = nuevoVerBoleta(m)
+	m.listarBoletas = nuevoListarBoletas(m)
 	m.alRecibir = m.alRecibirBandeja
 	m.Horarios = nuevosCasosHorarios(m)
 	m.Meta = nuevosCasosMeta(m)

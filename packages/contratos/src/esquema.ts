@@ -1040,6 +1040,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integraciones/argosisp/abrir": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Abrir Argos con tu usuario («Abrir en Argos» y «Vincular mi usuario de Argos»)
+         * @description Permiso: `integraciones.abrir_argos`. Autologin Iris → Argos (contrato con Argos 0.7.0 §1.3). Solo una persona con su sesión del panel (un token o una integración: 403 `solo_personas`). Devuelve un enlace de **un solo uso** que dura 60 s: el panel lo abre en otra pestaña enseguida. Con `destino` llega a ese cliente o servicio; sin `destino` llega al inicio de Argos: es «Vincular mi usuario de Argos» (la primera vez Argos pide el correo y la contraseña de Argos y crea el vínculo que autoriza aprobar y rechazar boletas). Iris no sabe si el vínculo existe: el panel lo descubre con el 409 `argos_sin_vinculo` al aprobar o rechazar. Acepta `Idempotency-Key`, pero la respuesta no se guarda: repetir la clave responde 409 `idempotencia_no_repetible` (pide otro enlace con otra clave). 409 `conector_apagado` (sin conector con Argos activo) e `iris_apagado` (Argos tiene apagado su conector con Iris); 422 `argos_sin_aprobacion` (Argos no informa contrato ≥ 0.7.0); 429 `demasiados_intentos` con `Retry-After` (10 por minuto por persona); 502 `argos_no_disponible` (Argos no respondió: «Reintentar»).
+         */
+        post: operations["abrirArgos"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integraciones/argosisp/autorizaciones": {
         parameters: {
             query?: never;
@@ -1675,6 +1695,66 @@ export interface paths {
         get: operations["verAviso"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/boletas/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ver una boleta y si se puede aprobar o rechazar
+         * @description Permiso: `conversaciones.ver`. Exige ver su conversación (si no, 404). `puedeDecidir`: está `registrada` en Argos y el Argos conectado informa contrato ≥ 0.7.0. Decidida: `estado` (`aprobada` o `rechazada`), `verificadoPorNombre`, `decididaPor` (si fue desde Iris), `pagoId` o `motivoRechazo` y `causaRechazo`.
+         */
+        get: operations["verBoleta"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/boletas/{id}/aprobar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Aprobar la boleta y registrar el pago en Argos
+         * @description Permiso: `boletas.aprobar`. Se aprueba por el monto del comprobante (sin monto ni fecha): si el depósito es por otro monto, se rechaza con causa `monto_distinto`. Solo una persona con su sesión del panel (token, integración o asistente de IA: 403 `solo_personas`) que vea la conversación, en su empresa activa (si no, 404). La boleta debe estar `registrada` (con `comprobanteId`): si no, 422 `boleta_no_registrada`; ya decidida, 409 `boleta_ya_decidida` (repetir la misma decisión la misma persona responde 200 con la boleta). Iris llama a Argos en el momento (`X-Iris-Actor: usuario:<id>`, `X-Iris-Conversacion: iris:conversacion:<id>`) y **Argos decide** con el usuario de Argos vinculado. Acepta `Idempotency-Key`, pero la respuesta no se guarda con ella: la idempotencia la da el comprobante (repetir es seguro, también después de un error). Errores: 409 `argos_sin_vinculo` («Vincula tu usuario de Argos»: `POST /integraciones/argosisp/abrir` sin destino y reintentar); 403 `argos_usuario_inactivo`, `argos_sin_permiso` («Tu usuario de Argos no tiene permiso de caja») y `argos_sin_empresa`; 409 `comprobante_revisado` (ya lo resolvió caja u otra persona: la boleta local queda sincronizada, vuelve a leerla), `otra_persona_decidio`, `comprobante_no_es_de_iris`, `iris_apagado`, `idempotencia_en_curso` y `comprobante_no_existe`; 422 `argos_sin_aprobacion` (Argos no informa contrato ≥ 0.7.0), `decision_no_permitida` y `conversacion_solo_lectura`; 502 `argos_no_disponible` (Argos no respondió: «Reintentar», nada quedó a medias) y `argos_rechazo`; 503 `conector_apagado`. Con el 200 la boleta queda resuelta, la conversación recibe un mensaje de sistema (`boleta_aprobada` / `boleta_rechazada`) y al cliente se le avisa una sola vez (`avisoCliente`).
+         */
+        post: operations["aprobarBoleta"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/boletas/{id}/rechazar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rechazar la boleta en Argos, con motivo y causa
+         * @description Permiso: `boletas.rechazar`. El `motivo` se le dice al cliente. Con causa `falta_dato` el cliente recibe «le falta un dato» y puede mandar la boleta de nuevo. Solo una persona con su sesión del panel (token, integración o asistente de IA: 403 `solo_personas`) que vea la conversación, en su empresa activa (si no, 404). La boleta debe estar `registrada` (con `comprobanteId`): si no, 422 `boleta_no_registrada`; ya decidida, 409 `boleta_ya_decidida` (repetir la misma decisión la misma persona responde 200 con la boleta). Iris llama a Argos en el momento (`X-Iris-Actor: usuario:<id>`, `X-Iris-Conversacion: iris:conversacion:<id>`) y **Argos decide** con el usuario de Argos vinculado. Acepta `Idempotency-Key`, pero la respuesta no se guarda con ella: la idempotencia la da el comprobante (repetir es seguro, también después de un error). Errores: 409 `argos_sin_vinculo` («Vincula tu usuario de Argos»: `POST /integraciones/argosisp/abrir` sin destino y reintentar); 403 `argos_usuario_inactivo`, `argos_sin_permiso` («Tu usuario de Argos no tiene permiso de caja») y `argos_sin_empresa`; 409 `comprobante_revisado` (ya lo resolvió caja u otra persona: la boleta local queda sincronizada, vuelve a leerla), `otra_persona_decidio`, `comprobante_no_es_de_iris`, `iris_apagado`, `idempotencia_en_curso` y `comprobante_no_existe`; 422 `argos_sin_aprobacion` (Argos no informa contrato ≥ 0.7.0), `decision_no_permitida` y `conversacion_solo_lectura`; 502 `argos_no_disponible` (Argos no respondió: «Reintentar», nada quedó a medias) y `argos_rechazo`; 503 `conector_apagado`. Con el 200 la boleta queda resuelta, la conversación recibe un mensaje de sistema (`boleta_aprobada` / `boleta_rechazada`) y al cliente se le avisa una sola vez (`avisoCliente`).
+         */
+        post: operations["rechazarBoleta"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2960,7 +3040,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Boletas de una conversación
+         * @description Permiso: `conversaciones.ver`. En orden de registro, con `puedeDecidir` y la decisión de cada una. El panel la vuelve a leer cuando llega un mensaje de sistema `boleta_registrada`, `boleta_fallida`, `boleta_aprobada` o `boleta_rechazada`.
+         */
+        get: operations["listarBoletasConversacion"];
         put?: never;
         /**
          * Mandar a Argos la boleta del cliente
@@ -7419,18 +7503,41 @@ export interface components {
         };
         Boleta: {
             /**
+             * @description Si se le avisó al cliente en la conversación al resolverla. sin_aviso: ventana de 24 h cerrada sin plantilla aprobada ni permiso de contacto, baja o número apagado
+             * @enum {string|null}
+             */
+            avisoCliente: "enviado" | "sin_aviso" | null;
+            /** @enum {string|null} */
+            causaRechazo: "no_aparece" | "monto_distinto" | "ilegible" | "falta_dato" | "duplicado" | "otro" | null;
+            /**
              * Format: int64
              * @description Id del comprobante en Argos
              */
             comprobanteId: number | null;
+            /** Format: int64 */
+            conversacionId: number;
             /** Format: date-time */
             creadaEn: string;
+            /** Format: date-time */
+            decididaEn: string | null;
+            /** @description El usuario de Iris que decidió desde la conversación; ausente si decidió caja en el panel de Argos */
+            decididaPor?: components["schemas"]["UsuarioRef"];
             detalle: string | null;
             /** @enum {string} */
             estado: "por_enviar" | "registrada" | "fallida" | "aprobada" | "rechazada";
             id: string;
             monto: string;
+            motivoRechazo: string | null;
+            /**
+             * Format: int64
+             * @description El pago que registró Argos al aprobarla
+             */
+            pagoId: number | null;
+            /** @description La boleta está registrada en Argos (pendiente de revisar) y el Argos conectado informa contrato ≥ 0.7.0: el panel muestra «Aprobar y registrar pago» y «Rechazar» a quien tenga boletas.aprobar o boletas.rechazar. En la respuesta de registrar siempre es false (aún no llega a Argos) */
+            puedeDecidir: boolean;
             referencia: string;
+            /** @description El usuario de Argos que la aprobó o rechazó (el vinculado a quien decidió en Iris, o caja en Argos). null mientras no se decide o si Argos no lo informó */
+            verificadoPorNombre: string | null;
         };
         BotNumero: {
             /** @description Aviso «¿Alguien la atiende?» y bot en horario (fuera de horario manda fueraDeHorario) */
@@ -8028,7 +8135,7 @@ export interface components {
             apiUrl: string;
             /** @description Origen de la API del otro sistema (igual a apiUrl; se mantiene por compatibilidad) */
             baseUrl: string;
-            /** @description Lo que el otro sistema permite según su versión. inventario_por_tecnico: Argos ≥ 1.6.0 (contrato 0.5.0 §3.3: tecnico en consumos y comodatos, mi-bodega, traslados). Sin ella, el panel muestra «Argos < 1.6.0: inventario por técnico no disponible» y Iris sigue con bodega_id */
+            /** @description Lo que el otro sistema permite según su versión. inventario_por_tecnico: Argos ≥ 1.6.0 (contrato 0.5.0 §3.3: tecnico en consumos y comodatos, mi-bodega, traslados). Sin ella, el panel muestra «Argos < 1.6.0: inventario por técnico no disponible» y Iris sigue con bodega_id. aprobar_comprobantes: Argos informa contrato ≥ 0.7.0 (§7.7: una persona aprueba o rechaza boletas desde la conversación, y «Vincular mi usuario de Argos»). Sin ella, esas acciones responden 422 argos_sin_aprobacion */
             capacidades?: string[] | null;
             /** @description Contrato que Iris le informó y aceptó (en el canje o con PUT /integraciones/iris/contrato); null = todavía no (el worker lo reintenta) */
             contratoInformado?: string | null;
@@ -8712,6 +8819,12 @@ export interface components {
             /** @enum {string} */
             tipo: "cliente" | "contacto_iris";
         };
+        DestinoArgos: {
+            /** @description Id de Argos del cliente o del servicio */
+            idExterno: string;
+            /** @enum {string} */
+            tipo: "cliente" | "servicio";
+        };
         DestinoSSO: {
             /** @description Id de Iris del ticket, la orden o el prospecto */
             id_externo: string;
@@ -8910,6 +9023,15 @@ export interface components {
             /** @description Número del ticket o de la orden */
             numero: string;
         };
+        EnlaceArgos: {
+            /**
+             * Format: date-time
+             * @description El ticket dura 60 s
+             */
+            expiraEn: string;
+            /** @description https://<panel de Argos>/sso/entrar#<ticket>: se abre en otra pestaña. De un solo uso; no se guarda ni se repite */
+            url: string;
+        };
         EnlaceEncuesta: {
             /** @description <IRIS_BASE_URL>/encuesta#<token> */
             enlace: string;
@@ -8955,6 +9077,10 @@ export interface components {
             argosisp?: components["schemas"]["EnlaceExterno"];
             /** @description Horus Flow; ausente sin conector activo */
             horus?: components["schemas"]["EnlaceExterno"];
+        };
+        EntradaAbrirArgos: {
+            /** @description Sin destino, la persona llega al inicio del panel de Argos: es «Vincular mi usuario de Argos» */
+            destino?: components["schemas"]["DestinoArgos"];
         };
         EntradaAbrirDirecta: {
             /**
@@ -9119,6 +9245,12 @@ export interface components {
              * @description Versión leída; si cambió, 409
              */
             version: number;
+        };
+        EntradaAprobarBoleta: {
+            /** @description Ids de Argos de las facturas a las que se aplica el pago; sin ellas, Argos lo aplica en su orden */
+            facturas?: number[] | null;
+            /** @description Nota para caja (queda en Argos) */
+            nota?: string;
         };
         EntradaAsignarConv: {
             /**
@@ -10824,6 +10956,15 @@ export interface components {
         EntradaReautenticar: {
             contrasena: string;
         };
+        EntradaRechazarBoleta: {
+            /**
+             * @description Sin causa, Argos usa otro. Con falta_dato el cliente recibe «le falta un dato» y puede mandarla de nuevo
+             * @enum {string}
+             */
+            causa?: "no_aparece" | "monto_distinto" | "ilegible" | "falta_dato" | "duplicado" | "otro";
+            /** @description Por qué se rechaza: se le dice al cliente */
+            motivo: string;
+        };
         EntradaRecibirTraslado: {
             /**
              * Format: uuid
@@ -12054,6 +12195,9 @@ export interface components {
         ListaBancos: {
             data: components["schemas"]["BancoOrigen"][];
             nextCursor: string | null;
+        };
+        ListaBoletas: {
+            data: components["schemas"]["Boleta"][] | null;
         };
         ListaCanales: {
             data: components["schemas"]["Canal"][];
@@ -13650,7 +13794,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.ver" | "integraciones.ver_pendientes" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.ver" | "integraciones.ver_pendientes" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -20152,6 +20296,96 @@ export interface operations {
             };
         };
     };
+    abrirArgos: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAbrirArgos"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnlaceArgos"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     autorizarConexionArgos: {
         parameters: {
             query?: never;
@@ -22426,6 +22660,275 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verBoleta: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Boleta"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    aprobarBoleta: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAprobarBoleta"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Boleta"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    rechazarBoleta: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaRechazarBoleta"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Boleta"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -27468,6 +27971,73 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarBoletasConversacion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaBoletas"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -169,7 +169,12 @@ func correr() error {
 	com.SuscribirAltas(bus, pool, log)
 	// Mensajería (contrato 0.6.0 §6.6): aviso.entregado, aviso.fallido y contacto.baja → webhooks hacia
 	// Argos (mensajeria.webhooks_salida); los entrega el proceso de mensajería.
-	mensajeria.Nuevo(mensajeria.Config{}).SuscribirWebhooks(bus, pool)
+	msj := mensajeria.Nuevo(mensajeria.Config{})
+	msj.SuscribirWebhooks(bus, pool)
+	// Boletas (contrato 0.7.0 §7.7): comprobante.aprobado / comprobante.rechazado de Argos →
+	// argos.comprobante_resuelto → la resolución queda en la boleta; el proceso de mensajería la
+	// aplica (mensaje de sistema y aviso al cliente, una sola vez).
+	msj.SuscribirComprobantes(bus, pool)
 	// Notificaciones push por FCM (contratos/push.md): suscriptor de chat, menciones, bandeja y
 	// órdenes; un job por envío y la purga de cada hora. Sin IRIS_FCM_* no manda nada.
 	fcm, estPush := notificaciones.ConfigDesdeEntorno()

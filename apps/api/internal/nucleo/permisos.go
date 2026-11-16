@@ -218,6 +218,20 @@ const (
 	// (ya corregido en Argos); sus dependientes (el cargo que esperaba al consumo) salen.
 	PermIntegracionesResolverPendiente Permiso = "integraciones.resolver_pendiente"
 	PermIntegracionesVerPendientes     Permiso = "integraciones.ver_pendientes"
+	// PermIntegracionesAbrirArgos: pedir para uno mismo el enlace de autologin Iris → Argos («Abrir
+	// en Argos» y «Vincular mi usuario de Argos»; contrato argosisp.md 0.7.0 §1.3). Solo personas
+	// con sesión del panel. No es de administración: el enlace abre Argos con el usuario de Argos
+	// vinculado a quien lo pide (la primera vez, Argos le exige su contraseña de Argos).
+	PermIntegracionesAbrirArgos Permiso = "integraciones.abrir_argos"
+)
+
+// Boletas de pago (contrato argosisp.md 0.7.0 §7.7, pedido B3).
+const (
+	// PermBoletasAprobar: aprobar desde la conversación la boleta que mandó el cliente (Argos
+	// registra el pago). El permiso real lo decide Argos con el usuario de Argos vinculado.
+	PermBoletasAprobar Permiso = "boletas.aprobar"
+	// PermBoletasRechazar: rechazar la boleta desde la conversación, con motivo y causa.
+	PermBoletasRechazar Permiso = "boletas.rechazar"
 )
 
 // Mensajería (contrato Iris ↔ ArgosISP 0.6.0 §6; servicio cmd/mensajeria).
@@ -325,6 +339,9 @@ var PermisosSensibles = map[Permiso]bool{
 	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true, PermMensajeriaConfigurar: true, PermMensajeriaConexionMeta: true, PermMensajeriaAsistenteConfigurar: true, PermCanalesConfigurar: true, PermConversacionesConfigurar: true,
 	PermConversacionesRegistrarPromesa: true, PermConversacionesRegistrarBoleta: true, PermConversacionesSupervisar: true,
 	PermConversacionesIniciar: true, PermCampoConfigurar: true,
+	// Aprobar una boleta registra un pago en Argos: de administración (MFA y re-autenticación en una
+	// sesión abierta por el autologin).
+	PermBoletasAprobar: true, PermBoletasRechazar: true,
 }
 
 // EsSensible indica si el permiso es de administración (PermisosSensibles).
@@ -363,6 +380,8 @@ var Catalogo = []DefPermiso{
 	{PermAgendaRegistrarAusencia, "Registrar ausencias de un técnico (vacaciones, enfermedad…)"},
 	{PermAgendaVer, "Ver la agenda: zonas, cuadrillas, técnicos, citas y disponibilidad (según el alcance)"},
 	{PermAgendaVincularArgos, "Vincular la ficha de un técnico con su usuario de Argos (inventario por técnico, Argos ≥ 1.6.0) y ver los técnicos de Argos"},
+	{PermBoletasAprobar, "Aprobar desde la conversación la boleta de pago del cliente: Argos registra el pago a nombre de tu usuario de Argos vinculado (que debe tener el permiso de caja)"},
+	{PermBoletasRechazar, "Rechazar desde la conversación la boleta de pago del cliente, con motivo y causa (lo decide tu usuario de Argos vinculado)"},
 	{PermBuzonesActivar, "Activar un buzón de correo (empieza a leer y abrir tickets)"},
 	{PermBuzonesCrear, "Registrar buzones de correo (IMAP y SMTP) para la entrada de tickets"},
 	{PermBuzonesDesactivar, "Desactivar un buzón de correo (deja de leerse)"},
@@ -410,6 +429,7 @@ var Catalogo = []DefPermiso{
 	{PermFactibilidadConfigurar, "Configurar los umbrales de distancia de la factibilidad de la empresa"},
 	{PermFactibilidadEvaluar, "Evaluar la factibilidad técnica de un prospecto (distancia al router o planta externa)"},
 	{PermFactibilidadRegistrarManual, "Registrar la factibilidad de una visita técnica (manual; puede anular una automática con motivo)"},
+	{PermIntegracionesAbrirArgos, "Abrir Argos con tu usuario desde Iris («Abrir en Argos») y vincular tu usuario de Argos (enlace de un solo uso, 60 s)"},
 	{PermIntegracionesActivar, "Activar un conector con ArgosISP u Horus"},
 	{PermIntegracionesConectar, "Conectar Iris con ArgosISP u Horus (enlace de conexión)"},
 	{PermIntegracionesDesactivar, "Desactivar un conector con ArgosISP u Horus"},
@@ -545,7 +565,7 @@ var permisosRutas = []Permiso{PermRutasVer, PermRutasProponer, PermRutasPublicar
 // permisosAtencion son los de atender conversaciones con clientes (despacho, ventas, soporte y
 // supervisor); cada rol suma los suyos (contratos/conversaciones.md §4).
 var permisosAtencion = []Permiso{PermConversacionesVer, PermConversacionesResponder, PermConversacionesTomar, PermConversacionesPasar,
-	PermConversacionesEtiquetar, PermConversacionesResolver, PermManualesVer, PermConversacionesSugerencias}
+	PermConversacionesEtiquetar, PermConversacionesResolver, PermManualesVer, PermConversacionesSugerencias, PermIntegracionesAbrirArgos}
 
 // permisosComercial son todos los del seguimiento comercial (ventas, supervisor) salvo
 // factibilidad.configurar (umbrales de la empresa: supervisor y admin).
@@ -567,7 +587,7 @@ var RolesBase = []DefRol{
 			PermChatVer, PermChatEnviar, PermChatSupervisar,
 			PermConversacionesSupervisar, PermConversacionesAsignar, PermConversacionesTransferir, PermConversacionesAsociar,
 			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesConfigurar, PermCanalesConfigurar, PermManualesEditar, PermManualesRevocarEnlace,
-			PermConversacionesIniciar},
+			PermConversacionesIniciar, PermBoletasAprobar, PermBoletasRechazar},
 			slices.Concat(permisosAtencion, permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas, permisosPlantillas, permisosComercial,
 				[]Permiso{PermFactibilidadConfigurar, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer, PermEncuestasCompartir})...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
@@ -584,7 +604,7 @@ var RolesBase = []DefRol{
 			PermOrdenesCerrar, PermOrdenesFallar, PermCampoSincronizar, PermCampoRegistrarPosiciones,
 			PermOrdenesPausar, PermOrdenesReanudar, PermPlantillasVer, PermFactibilidadRegistrarManual,
 			PermCampoVerBodega, PermCampoRecibirTraslado, PermChatVer, PermChatEnviar,
-			PermAgendaCrearTarea, PermAgendaCompletarTarea, PermAgendaAnularTarea, PermOrdenesTomar}},
+			PermAgendaCrearTarea, PermAgendaCompletarTarea, PermAgendaAnularTarea, PermOrdenesTomar, PermIntegracionesAbrirArgos}},
 	{Codigo: "soporte", Nombre: "Soporte", Descripcion: "Atiende tickets",
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosSubir, PermAdjuntosVer, PermEncuestasVer, PermEncuestasCompartir,
@@ -597,6 +617,12 @@ var RolesBase = []DefRol{
 		Permisos: []Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer,
 			PermClientesVer, PermTicketsVer, PermOrdenesVer, PermAgendaVer, PermRutasVer, PermProspectosVer,
 			PermReportesVer, PermChatVer, PermConversacionesVer, PermManualesVer}},
+	// Caja (contrato argosisp.md 0.7.0 §7.7, pedido B3): aprueba y rechaza las boletas de las
+	// conversaciones que ve (las de sus colas o donde la mencionan). El permiso real lo decide Argos
+	// con su usuario de Argos vinculado.
+	{Codigo: "caja", Nombre: "Caja", Descripcion: "Aprueba y rechaza boletas de pago desde las conversaciones",
+		Permisos: []Permiso{PermUsuariosVer, PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosVer, PermConversacionesVer,
+			PermManualesVer, PermBoletasAprobar, PermBoletasRechazar, PermIntegracionesAbrirArgos}},
 	// Roles de los usuarios de tipo integración (decisión del líder): el token que Iris entrega
 	// a cada sistema (iris integracion crear) lleva solo lo de su contrato.
 	//  - Argos: tickets.ver, tickets.crear, ordenes.ver y sso.emitir (contratos/argosisp.md §1.2).

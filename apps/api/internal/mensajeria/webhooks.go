@@ -272,5 +272,9 @@ func (w *trabajadorDespacho) Work(ctx context.Context, _ *river.Job[ArgsDespacha
 	if err := w.m.despacharWebhooks(ctx, w.bd); err != nil {
 		return err
 	}
-	return w.m.despacharBoletas(ctx, w.bd)
+	if err := w.m.despacharBoletas(ctx, w.bd); err != nil {
+		return err
+	}
+	// Resoluciones que trajo el webhook de Argos (comprobante.aprobado / comprobante.rechazado).
+	return w.m.despacharResoluciones(ctx, w.bd)
 }

@@ -14,7 +14,9 @@ func TestPermisosSensiblesCubrenLaAdministracion(t *testing.T) {
 	operativos := []string{"tickets.", "ordenes.", "prospectos.", "campo.", "agenda.", "rutas.", "cotizaciones.",
 		"contratos.", "encuestas.", "clientes.", "adjuntos.", "mensajeria.", "chat.", "conversaciones.", "manuales."}
 	operativosSueltos := map[nucleo.Permiso]bool{nucleo.PermFactibilidadEvaluar: true, nucleo.PermFactibilidadRegistrarManual: true,
-		nucleo.PermEmpresasTodas: true} // empresas.todas es un alcance: esPrivilegiado lo cuenta aparte
+		nucleo.PermEmpresasTodas: true, // empresas.todas es un alcance: esPrivilegiado lo cuenta aparte
+		// Pedir para uno mismo el enlace a Argos no administra nada: lo tienen los roles de atención.
+		nucleo.PermIntegracionesAbrirArgos: true}
 	for _, d := range nucleo.Catalogo {
 		c := string(d.Codigo)
 		_, accion, _ := strings.Cut(c, ".")
