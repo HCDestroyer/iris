@@ -46,6 +46,7 @@ export function FormularioPerfil({ ajustes, perfil }: { ajustes: AjustesAsistent
                     d.nombre,
                     otros.map((p) => p.codigo),
                 ),
+            perfil,
         );
         try {
             await guardarAjustesAsistente(entradaPerfiles(ajustes, perfilesCon(ajustes, nuevo)), clave.actual());

@@ -116,12 +116,13 @@ export function valoresPerfil(p?: PerfilAsistente): ValoresPerfil {
     };
 }
 
-export function perfilDeValores(d: ValoresPerfil, codigo: string): PerfilAsistente {
+export function perfilDeValores(d: ValoresPerfil, codigo: string, guardado?: Pick<PerfilAsistente, "exigeVerificacionFuerte">): PerfilAsistente {
     return {
         codigo,
         nombre: d.nombre.trim(),
         acciones: { ...d.acciones, pasar_a_persona: true },
-        exigeVerificacionFuerte: exigenciaDeSaldo(d),
+        // Lo que este formulario no edita (`agendar_visita`, §17.10) se conserva del perfil guardado.
+        exigeVerificacionFuerte: { ...guardado?.exigeVerificacionFuerte, ...exigenciaDeSaldo(d) },
         limites: { prioridadMaxima: d.prioridadMaxima, diasAdelanteMax: Number(d.diasAdelanteMax) },
     };
 }

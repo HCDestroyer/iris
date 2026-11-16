@@ -60,6 +60,8 @@ export type OpcionesAsistente = {
     uso?: Partial<Pick<UsoAsistente, "porcentaje" | "pausado" | "mes">>;
     /** Fase 3 (§17, e2e/api-asistente3.ts): atiende solo, categorías, «Pruébalo» y efecto. */
     fase3?: OpcionesFase3;
+    /** §17.10: tope del servidor para `visitas.visitasPorDiaEmpresa` (más bajo que el del esquema): responde 422 junto al campo. */
+    topeVisitasEmpresa?: number;
 };
 
 /** El `detail` único de §16.1 cuando el proveedor falla (no sirve para escanear puertos). */
@@ -246,6 +248,12 @@ export function apiAsistente(e: Contexto, opcionesDadas: OpcionesAsistente | und
                 // §17.1 (entrega 3a): el servidor guarda todo, pero todavía no actúa solo.
                 if (!ajustes.autonomoDisponible && cuerpo.modoAutonomo !== undefined && cuerpo.modoAutonomo !== "nunca") {
                     return (await problema(route, P("autonomo_no_disponible", 422, "El asistente todavía no atiende solo", { errors: [{ field: "body.modoAutonomo", message: "Todavía no disponible" }] })), true);
+                }
+                // §17.10: los topes de `visitas` los valida el servidor (aquí, uno propio de la prueba).
+                const visitas = cuerpo.visitas as { visitasPorDiaEmpresa?: number } | undefined;
+                if (opciones.topeVisitasEmpresa !== undefined && (visitas?.visitasPorDiaEmpresa ?? 0) > opciones.topeVisitasEmpresa) {
+                    const mensaje = `Entre 1 y ${opciones.topeVisitasEmpresa}`;
+                    return (await problema(route, P("validacion", 422, "Datos inválidos", { errors: [{ field: "visitas.visitasPorDiaEmpresa", message: mensaje }] })), true);
                 }
                 const { clave, ...resto } = cuerpo as Record<string, unknown> & { clave?: string };
                 const otroDestino = cuerpo.proveedor !== ajustes.proveedor || normalizada(String(cuerpo.proveedor), String(cuerpo.url ?? "")) !== normalizada(ajustes.proveedor, ajustes.url);

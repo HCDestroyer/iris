@@ -11,7 +11,7 @@ import { TarjetaEncuesta } from "@/componentes/encuestas/tarjeta-encuesta";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { IgualarAsignacion } from "@/componentes/ordenes/asignacion-ticket-orden";
 import { AvisoDatosArgos, MarcaDatosArgos } from "@/componentes/ordenes/datos-argos";
-import { InsigniaEstadoOrden, InsigniaTipoOrden, MarcaPendienteArgos } from "@/componentes/ordenes/insignias";
+import { InsigniaEstadoOrden, InsigniaOrigenOrden, InsigniaTipoOrden, MarcaPendienteArgos } from "@/componentes/ordenes/insignias";
 import { PieLista } from "@/componentes/pie-lista";
 import { nombreUsuario, useUsuarios, type Usuario } from "@/componentes/tickets/catalogos";
 import { InsigniaEstadoTicket, useAhora } from "@/componentes/tickets/insignias";
@@ -145,6 +145,7 @@ function Detalle({ id }: { id: number }) {
                 <div className="flex flex-wrap items-center gap-1.5">
                     <InsigniaEstadoOrden estado={o.estado} />
                     <InsigniaTipoOrden tipo={o.tipo} />
+                    <InsigniaOrigenOrden origen={o.origen} />
                     {resumen ? <MarcaPendienteArgos resumen={resumen} /> : null}
                     {datosArgos ? <MarcaDatosArgos cambios={datosArgos} /> : null}
                 </div>

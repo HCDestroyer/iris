@@ -56,7 +56,8 @@ export const PERFIL_POR_DEFECTO: PerfilAsistente = {
         reconexion_temporal: false,
         pasar_a_persona: true,
     },
-    limites: { prioridadMaxima: "alta", diasAdelanteMax: 2 },
+    // §17.10: de fábrica pasa de 2 a 7 días (acorta `visitas.diasAdelante`).
+    limites: { prioridadMaxima: "alta", diasAdelanteMax: 7 },
 };
 
 /** Los ajustes con lo de §17 completo: un servidor anterior no lo manda (queda en «Nunca», sin actuar solo). */
@@ -193,7 +194,8 @@ export function entradaPrincipal(a: AjustesAsistente, d: ValoresPrincipal): Entr
         activo: d.activo,
         modoAutonomo: d.modoAutonomo,
         esperaMin: d.esperaMin,
-        perfiles: conPerfilDefecto(a, { acciones: { ...d.acciones, pasar_a_persona: true }, exigeVerificacionFuerte: exigenciaDeSaldo(d) }),
+        // Lo demás de `exigeVerificacionFuerte` (p. ej. `agendar_visita`, §17.10) queda como estaba.
+        perfiles: conPerfilDefecto(a, { acciones: { ...d.acciones, pasar_a_persona: true }, exigeVerificacionFuerte: { ...perfilDefecto(a).exigeVerificacionFuerte, ...exigenciaDeSaldo(d) } }),
     };
 }
 
@@ -409,7 +411,7 @@ export function textoHaria(p: Pick<PruebaMensaje, "haria" | "fuentes" | "respues
 export function ajustesDePrueba(d: ValoresPrincipal, a: AjustesAsistente, categorias: readonly Categoria[]): AjustesDePrueba {
     return {
         modoAutonomo: d.modoAutonomo,
-        perfil: { acciones: { ...d.acciones, pasar_a_persona: true }, limites: { ...perfilDefecto(a).limites }, exigeVerificacionFuerte: exigenciaDeSaldo(d) },
+        perfil: { acciones: { ...d.acciones, pasar_a_persona: true }, limites: { ...perfilDefecto(a).limites }, exigeVerificacionFuerte: { ...perfilDefecto(a).exigeVerificacionFuerte, ...exigenciaDeSaldo(d) } },
         categorias: categorias
             .filter((c) => c.activa)
             .map((c) => {

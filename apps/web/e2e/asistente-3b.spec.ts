@@ -47,8 +47,8 @@ test.describe("Asistente 3b › qué puede hacer solo", () => {
         await expect(aviso).toContainText("le pide su DPI o NIT");
         await expect(dinero.locator('[data-accion="promesa_pago"]')).toContainText("Antes le pide su DPI o NIT, siempre");
         await expect(dinero.locator('[data-accion="recibir_boleta"]')).toContainText("Basta con que escriba desde su número");
-        // Las visitas todavía no las agenda solo.
-        await expect(f.locator('[data-accion="agendar_visita"]')).toContainText("Próximamente");
+        // Las visitas ya las agenda (§17.10): sin «Próximamente».
+        await expect(f.locator('[data-accion="agendar_visita"]')).not.toContainText("Próximamente");
 
         const saldo = dinero.locator('[data-accion="dar_saldo"]');
         await expect(saldo.getByRole("checkbox")).toHaveCount(0);

@@ -51,6 +51,7 @@ const ETIQUETAS: Readonly<Record<string, string>> = {
     "/administracion/asistente/limites": "Límites",
     "/administracion/asistente/categorias": "Categorías",
     "/administracion/asistente/perfiles": "Perfiles por horario",
+    "/administracion/asistente/visitas": "Cómo agenda visitas",
     "/administracion/asistente/perfiles/nuevo": "Nuevo perfil",
     "/administracion/asistente/categorias/nueva": "Nueva categoría",
     "/administracion/horarios": "Horarios",

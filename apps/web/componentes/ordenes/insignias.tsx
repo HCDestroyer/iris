@@ -1,6 +1,7 @@
 "use client";
 
 import { InsigniaEstado } from "@iris/ui";
+import { Sparkles } from "lucide-react";
 import {
     ESTADOS_ORDEN,
     ESTADOS_PENDIENTE,
@@ -22,6 +23,16 @@ export function InsigniaEstadoOrden({ estado }: { estado: EstadoOrden }) {
 export function InsigniaTipoOrden({ tipo }: { tipo: TipoOrden }) {
     const p = TIPOS_ORDEN[tipo];
     return <InsigniaEstado tono="neutral" icono={p.icono} texto={p.texto} data-tipo-orden={tipo} />;
+}
+
+/**
+ * De dónde salió la orden, solo cuando hace falta decirlo: la que creó el asistente de IA al agendar
+ * una visita con el cliente (`origen: "asistente"`, contratos/conversaciones.md §17.10). Las demás
+ * (panel, API, Argos, sistema) no llevan marca.
+ */
+export function InsigniaOrigenOrden({ origen }: { origen?: string | undefined }) {
+    if (origen !== "asistente") return null;
+    return <InsigniaEstado tono="neutral" icono={Sparkles} texto="Agendada por el asistente" data-origen-orden={origen} />;
 }
 
 export function InsigniaPendiente({ estado }: { estado: EstadoPendiente }) {

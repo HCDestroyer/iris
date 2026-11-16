@@ -11,8 +11,7 @@ const ACCIONES: Record<ClaveAccion, { nota?: string; icono: LucideIcon }> = {
     responder_dudas: { nota: "Con tus manuales", icono: BookOpen },
     avisar_fallas: { icono: WifiOff },
     crear_ticket: { icono: Ticket },
-    // 3b todavía no agenda (§17.8.1): se puede dejar listo.
-    agendar_visita: { nota: "Próximamente: todavía no agenda solo", icono: CalendarDays },
+    agendar_visita: { nota: "Le ofrece horarios al cliente y crea la orden", icono: CalendarDays },
     recibir_boleta: { icono: Receipt },
     dar_saldo: { icono: CircleDollarSign },
     promesa_pago: { icono: Handshake },
@@ -30,6 +29,8 @@ type Props = {
     saldoConNumero: boolean;
     daSaldo: boolean;
     deshabilitado?: boolean;
+    /** Debajo de «Agendar visitas» (p. ej. el bloque «Cómo agenda» cuando está encendido). */
+    bajoVisitas?: ReactNode;
 };
 
 /**
@@ -38,7 +39,7 @@ type Props = {
  * al cliente antes de hacerlo. La usan la pantalla de las tres preguntas (perfil general) y el
  * editor de perfiles por horario.
  */
-export function AccionesAsistente({ registrar, registrarSaldoConNumero, alApagarSaldo, saldoConNumero, daSaldo, deshabilitado = false }: Props) {
+export function AccionesAsistente({ registrar, registrarSaldoConNumero, alApagarSaldo, saldoConNumero, daSaldo, deshabilitado = false, bajoVisitas }: Props) {
     // «Con solo su número» no sobrevive a apagar el saldo: al encenderlo otra vez pide identidad.
     const registrarAccion = (clave: ClaveAccion): UseFormRegisterReturn => {
         const r = registrar(clave);
@@ -55,7 +56,9 @@ export function AccionesAsistente({ registrar, registrarSaldoConNumero, alApagar
         <>
             <ul aria-label="Lo que el asistente puede hacer solo" className="grid">
                 {ACCIONES_COMUNES.map((clave) => (
-                    <FilaAccion key={clave} clave={clave} registro={registrarAccion(clave)} deshabilitado={deshabilitado} nota={ACCIONES[clave].nota} />
+                    <FilaAccion key={clave} clave={clave} registro={registrarAccion(clave)} deshabilitado={deshabilitado} nota={ACCIONES[clave].nota}>
+                        {clave === "agendar_visita" ? bajoVisitas : null}
+                    </FilaAccion>
                 ))}
             </ul>
             <div className="grid min-w-0 gap-2.5" data-slot="acciones-dinero">
