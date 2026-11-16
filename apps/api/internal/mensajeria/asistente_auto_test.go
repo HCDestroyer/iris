@@ -406,10 +406,11 @@ func TestAutonomoSaldo(t *testing.T) {
 	if verificados != "[documento:"+dpi+"]" || actor != "asistente_ia" {
 		t.Fatalf("desafío en Argos: %s por %s", verificados, actor)
 	}
+	// En auditoria.acciones se busca en la entrada, el resultado y el detalle del error.
 	// El dato de identidad no se guarda (el mensaje queda con ***) ni está en auditoría o eventos; el
 	// monto tampoco. Y nada de eso llegó al modelo.
 	for _, dato := range []string{"350.75", dpi, dpiEscrito, dpiTramo} {
-		for _, sql := range []string{`SELECT count(*) FROM auditoria.acciones WHERE entrada::text LIKE '%' || $1 || '%'`,
+		for _, sql := range []string{`SELECT count(*) FROM auditoria.acciones WHERE (entrada::text || ' ' || resultado || ' ' || coalesce(error::text, '')) LIKE '%' || $1 || '%'`,
 			`SELECT count(*) FROM auditoria.cambios WHERE (antes::text LIKE '%' || $1 || '%' OR despues::text LIKE '%' || $1 || '%')`,
 			`SELECT count(*) FROM integracion.outbox WHERE payload::text LIKE '%' || $1 || '%'`} {
 			if n := x.contar(sql, dato); n != 0 {
@@ -419,7 +420,7 @@ func TestAutonomoSaldo(t *testing.T) {
 	}
 	// En las filas de esta conversación sí vale buscar el tramo corto (no hay números de otras pruebas).
 	// Global, con el DPI normalizado: escrito con espacios o guiones (8391-72648-0101) también cuenta.
-	for _, sql := range []string{`SELECT count(*) FROM auditoria.acciones WHERE regexp_replace(entrada::text, '[\s-]', '', 'g') LIKE '%' || $1 || '%'`,
+	for _, sql := range []string{`SELECT count(*) FROM auditoria.acciones WHERE regexp_replace((entrada::text || ' ' || resultado || ' ' || coalesce(error::text, '')), '[\s-]', '', 'g') LIKE '%' || $1 || '%'`,
 		`SELECT count(*) FROM auditoria.cambios WHERE regexp_replace(coalesce(antes::text, '') || '|' || coalesce(despues::text, ''), '[\s-]', '', 'g') LIKE '%' || $1 || '%'`,
 		`SELECT count(*) FROM integracion.outbox WHERE regexp_replace(payload::text, '[\s-]', '', 'g') LIKE '%' || $1 || '%'`} {
 		if n := x.contar(sql, dpi); n != 0 {
@@ -429,7 +430,7 @@ func TestAutonomoSaldo(t *testing.T) {
 	// En las filas de esta prueba, cualquier tramo: una fuga parcial (8391 72648 ****, *****726480101)
 	// también falla. «0101» solo junto al tramo anterior (suelto coincide con cualquier id).
 	const tramos = `(72648|8391[ -]?7|48[ -]?0101)`
-	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE id > $1 AND entrada::text ~ $2`, marcaAcciones, tramos); n != 0 {
+	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE id > $1 AND (entrada::text || ' ' || resultado || ' ' || coalesce(error::text, '')) ~ $2`, marcaAcciones, tramos); n != 0 {
 		t.Fatal("un tramo del DPI quedó en la auditoría de esta prueba")
 	}
 	if n := x.contar(`SELECT count(*) FROM auditoria.cambios WHERE id > $1 AND (antes::text ~ $2 OR despues::text ~ $2)`, marcaCambios, tramos); n != 0 {
