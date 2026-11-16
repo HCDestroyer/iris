@@ -52,6 +52,8 @@ type argosFalso struct {
 	cuentas int
 	// alLeerCuenta corre mientras «Argos» atiende el estado de cuenta.
 	alLeerCuenta func()
+	// caja: el Argos falso (httptest) que aprueba y rechaza comprobantes (boletas_decidir_test.go).
+	caja *cajaFalsa
 }
 
 func (f *argosFalso) BuscarPorTelefono(_ context.Context, a argos.AtencionIris, _ string) ([]argos.ClienteTelefono, error) {
@@ -100,7 +102,8 @@ func (f *argosFalso) RegistrarComprobante(_ context.Context, a argos.AtencionIri
 		return argos.ComprobanteArgos{}, f.errComprob
 	}
 	f.comprobante++
-	return argos.ComprobanteArgos{ID: 7000 + f.comprobante, Estado: "pendiente"}, nil
+	// Único en toda la corrida: un comprobante es de una sola boleta por empresa (índice único).
+	return argos.ComprobanteArgos{ID: 7_000_000 + siguienteCliente.Add(1), Estado: "pendiente"}, nil
 }
 
 func (f *argosFalso) CuentasBancarias(context.Context, argos.AtencionIris) ([]argos.CuentaBancariaArgos, error) {

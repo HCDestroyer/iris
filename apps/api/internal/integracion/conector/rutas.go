@@ -109,7 +109,7 @@ func (n *Nucleo) Registrar(api huma.API) {
 
 	enlaces := Operacion(EtiquetaIntegraciones, "obtenerEnlacesExternos", http.MethodGet, "/api/v1/integraciones/enlaces",
 		"Orígenes de Argos y Horus para los enlaces «Ver en …»", nucleo.PermClientesVer, http.StatusOK)
-	enlaces.Description += " No exige empresa activa. Sin secretos: solo la URL pública de cada sistema con conector activo (ausente si no hay)."
+	enlaces.Description += " También vale con `integraciones.abrir_argos` (uno u otro): el panel compara con `argosisp.urlPublica` el origen del enlace de `POST /integraciones/argosisp/abrir`. No exige empresa activa. Sin secretos: solo la URL pública de cada sistema con conector activo (ausente si no hay)."
 	huma.Register(api, enlaces, func(ctx context.Context, _ *vacio) (*Cuerpo[EnlacesExternos], error) {
 		return Responder(n.ObtenerEnlaces.Ejecutar(ctx, struct{}{}))
 	})

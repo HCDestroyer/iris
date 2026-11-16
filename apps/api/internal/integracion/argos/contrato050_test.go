@@ -37,7 +37,7 @@ func TestContratoEnCanjeYVersionArgos16(t *testing.T) {
 	}
 	l := admin.pedir(http.MethodGet, "/api/v1/integraciones/conectores", nil)
 	con := conectorDe(t, l, id)
-	if con["versionRemota"] != "1.6.0" || con["contratoInformado"] != argos.ContratoIris || fmt.Sprint(con["capacidades"]) != "[inventario_por_tecnico]" {
+	if con["versionRemota"] != "1.6.0" || con["contratoInformado"] != argos.ContratoIris || fmt.Sprint(con["capacidades"]) != "[inventario_por_tecnico aprobar_comprobantes]" {
 		t.Fatalf("conector en la API: %v", con)
 	}
 	// El job: PUT …/contrato (idempotente) y GET …/estado. Sin cambios: no audita ni emite.

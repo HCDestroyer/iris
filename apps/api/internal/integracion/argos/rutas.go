@@ -24,6 +24,7 @@ func (m *Modulo) Registrar(api huma.API) {
 	m.nucleo.Registrar(api)
 	m.conexion.Registrar(api)
 	m.registrarRevisarVersion(api)
+	m.registrarAbrirArgos(api)
 
 	// Técnicos de Argos con bodega (contrato 0.5.0 §3.3): selector del vínculo de agenda.
 	tecnicos := conector.Operacion(conector.EtiquetaIntegraciones, "listarTecnicosArgos", http.MethodGet, "/api/v1/integraciones/argosisp/tecnicos",

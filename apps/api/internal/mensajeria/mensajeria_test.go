@@ -261,6 +261,7 @@ func nuevoEntorno(t *testing.T, ajustar func(*mensajeria.Config)) *entorno {
 	e.otro = r2.Token.Valor
 	bus := integracion.NuevoBus()
 	e.m.SuscribirWebhooks(bus, pool)
+	e.m.SuscribirComprobantes(bus, pool)
 	e.relay = &integracion.Relay{BD: pool, Bus: bus, Log: log}
 	return e
 }

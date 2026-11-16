@@ -39,7 +39,7 @@ type Conector struct {
 	VersionConsultadaEn *time.Time `json:"versionConsultadaEn" nullable:"true" required:"false" doc:"Cuándo se intentó leer la versión por última vez (con éxito o no: ver versionEstado)"`
 	VersionEstado       *string    `json:"versionEstado" nullable:"true" required:"false" enum:"ok,ruta_no_existe,sin_permiso,no_responde,error" doc:"Resultado de la última lectura de la versión (PUT …/contrato y GET …/estado). ok: Argos respondió; ruta_no_existe: la dirección no responde como la API de Argos (p. ej. es la del panel) o Argos es anterior a 1.6.0; sin_permiso: Argos rechazó el token (401/403); no_responde: sin respuesta, 429 o 5xx; error: otra respuesta. null = nunca se consultó"`
 	VersionDetalle      *string    `json:"versionDetalle" nullable:"true" required:"false" doc:"Explicación en español del último resultado, con la URL base usada y el status HTTP (sin secretos). null = nunca se consultó"`
-	Capacidades         []string   `json:"capacidades" required:"false" doc:"Lo que el otro sistema permite según su versión. inventario_por_tecnico: Argos ≥ 1.6.0 (contrato 0.5.0 §3.3: tecnico en consumos y comodatos, mi-bodega, traslados). Sin ella, el panel muestra «Argos < 1.6.0: inventario por técnico no disponible» y Iris sigue con bodega_id"`
+	Capacidades         []string   `json:"capacidades" required:"false" doc:"Lo que el otro sistema permite según su versión. inventario_por_tecnico: Argos ≥ 1.6.0 (contrato 0.5.0 §3.3: tecnico en consumos y comodatos, mi-bodega, traslados). Sin ella, el panel muestra «Argos < 1.6.0: inventario por técnico no disponible» y Iris sigue con bodega_id. aprobar_comprobantes: Argos informa contrato ≥ 0.7.0 (§7.7: una persona aprueba o rechaza boletas desde la conversación, y «Vincular mi usuario de Argos»). Sin ella, esas acciones responden 422 argos_sin_aprobacion"`
 	Version             int32      `json:"version"`
 	CreadoEn            time.Time  `json:"creadoEn"`
 	ActualizadoEn       time.Time  `json:"actualizadoEn"`
@@ -72,7 +72,11 @@ func (n *Nucleo) capacidadesDe(f conectorbd.IntegracionConectore) []string {
 
 // urlPublica es el origen del panel del otro sistema para «Ver en …»: la configurada a mano, la
 // que informó el canje (panel_url, 0.4.0) o, para conectores anteriores, la de la API.
-func urlPublica(f conectorbd.IntegracionConectore) string {
+func urlPublica(f conectorbd.IntegracionConectore) string { return URLPublicaDe(f) }
+
+// URLPublicaDe es el origen del panel del otro sistema (lo que entrega GET /integraciones/enlaces):
+// la configurada a mano, la del canje (panel_url) o la de la API.
+func URLPublicaDe(f conectorbd.IntegracionConectore) string {
 	if f.UrlPublica != nil && *f.UrlPublica != "" {
 		return *f.UrlPublica
 	}

@@ -107,6 +107,8 @@ type entradaAplicar struct {
 	catalogo      *cambioCatalogo
 	traslado      *argosbd.GuardarTrasladoParams
 	datosServicio *int64
+	// comprobante: comprobante.aprobado o comprobante.rechazado (§7.2): se emite el evento interno.
+	comprobante *comprobanteResuelto
 }
 
 // ProcesarEntrante aplica un webhook guardado: lee de Argos lo que haga falta (fuera de
@@ -169,6 +171,12 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 		}
 		// La lápida va antes que el refresco de la ficha: así la ficha no lo recrea.
 		if err := aplicarEliminacion(ctx, t, q, e, *in.eliminado); err != nil {
+			return r, err
+		}
+		r.Resultado = "aplicado"
+	}
+	if in.comprobante != nil {
+		if err := emitirComprobante(t, e, *in.comprobante); err != nil {
 			return r, err
 		}
 		r.Resultado = "aplicado"
@@ -274,6 +282,10 @@ func (p *ProcesarEntrante) Ejecutar(ctx context.Context, entranteID int64) (Resu
 			return ResultadoEntrante{}, err
 		}
 		in.traslado, in.omitido = trasladoDe(e, con)
+		return p.aplicar.Ejecutar(ctx, in)
+	case EventoComprobanteAprobado, EventoComprobanteRechazado:
+		// El payload firmado trae todo (no se relee de Argos).
+		in.comprobante, in.omitido = comprobanteDe(e)
 		return p.aplicar.Ejecutar(ctx, in)
 	case EventoServicioDatosCambiados:
 		in.datosServicio = datos.servicio()
