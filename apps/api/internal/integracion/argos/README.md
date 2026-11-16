@@ -351,4 +351,7 @@ partes (ficha, ticket, orden, comercial y app de campo).
   Errores: 409 `conector_apagado` e `iris_apagado`, 422 `argos_sin_aprobacion`, 502
   `argos_no_disponible`. Iris no guarda si el vínculo existe: solo Argos lo sabe.
 - **Webhooks** (`webhook_070.go`): `comprobante.aprobado` y `comprobante.rechazado` (§7.2) emiten
-  `argos.comprobante_resuelto` con el payload firmado (no se relee Argos). Lo consume mensajería.
+  `argos.comprobante_resuelto` como **aviso**, con lo mínimo (comprobante, empresa, estado, canal,
+  pago y entrante; sin monto, motivo ni causa). Mensajería marca la boleta y relee
+  `GET /comprobantes/:id` antes de aplicar nada: lo que cambia el estado y lo que se le dice al cliente
+  sale de esa lectura, nunca del payload.

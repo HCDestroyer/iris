@@ -10,9 +10,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
@@ -270,20 +272,38 @@ var textosCausa = map[string]string{
 	"otro":           "no pudimos confirmarla con el banco. Escríbenos por aquí para revisarla",
 }
 
-var (
-	reDominio      = regexp.MustCompile(`(?i)[a-z0-9-]+\.[a-z]{2,}`)
-	reMuchosDigito = regexp.MustCompile(`(\d[\s\-./()_]*){6,}`)
-)
+// motivoLimpio normaliza el motivo libre antes de filtrarlo: NFKC (los dígitos y letras de ancho
+// completo, los superíndices y las ligaduras pasan a su forma común), sin caracteres de formato
+// (categoría Cf: espacios de ancho cero, marcas de dirección…) y con los espacios colapsados.
+func motivoLimpio(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, norm.NFKC.String(s))
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// letrasMotivo: lo único que puede llevar un motivo libre que se le manda al cliente.
+const letrasMotivo = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZáéíóúüñÁÉÍÓÚÜÑ ,;:¿?¡!()"
 
 // motivoSeguro: el motivo libre (lo escribe quien rechaza, en Iris o en la caja de Argos) solo se le
-// manda al cliente si no puede llevarlo a otro lado: sin enlaces, dominios ni números largos
-// (teléfonos, cuentas), con o sin separadores. Sale por el número oficial de la empresa.
-func motivoSeguro(s string) bool {
-	bajo := strings.ToLower(s)
-	if strings.Contains(bajo, "://") || strings.Contains(bajo, "www.") {
+// manda al cliente si no puede llevarlo a otro lado. Es una lista blanca sobre el texto ya
+// normalizado (motivoLimpio): letras del español, espacios y `,;:¿?¡!()`. Cualquier otra cosa —un
+// dígito (en cualquier escritura), un punto, una barra, un guion, una arroba, una letra de otro
+// alfabeto— lo deja fuera: sin puntos ni dígitos no hay enlaces, dominios, teléfonos ni cuentas. Sale
+// por el número oficial de la empresa.
+func motivoSeguro(limpio string) bool {
+	if limpio == "" {
 		return false
 	}
-	return !reDominio.MatchString(s) && !reMuchosDigito.MatchString(s)
+	for _, r := range limpio {
+		if !strings.ContainsRune(letrasMotivo, r) {
+			return false
+		}
+	}
+	return true
 }
 
 // motivoParaCliente arma la variable `motivo` del aviso: el texto fijo de la causa y, si pasa el
@@ -299,8 +319,10 @@ func motivoParaCliente(causa *string, libre *string) string {
 	if libre == nil {
 		return texto
 	}
-	l := strings.TrimRight(strings.Join(strings.Fields(*libre), " "), ". ")
-	if l == "" || !motivoSeguro(l) {
+	// El punto final de una frase se quita (es lo único que se le perdona); cualquier otro punto la
+	// deja fuera.
+	l := strings.TrimRight(motivoLimpio(*libre), ". ")
+	if !motivoSeguro(l) {
 		return texto
 	}
 	if resto := 200 - len([]rune(texto)) - len([]rune(". Detalle: ")); resto >= 10 {
