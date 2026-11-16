@@ -257,13 +257,26 @@ func (m *Modulo) alRecibirBandeja(ctx context.Context, t *auditoria.Tx, c *mensa
 	f mensajeriabd.MensajeriaConversacionMensaje) error {
 	q := mensajeriabd.New(t)
 	bot := botDe(canal.Bot)
+	// §17.8: donde atiende el asistente (categoría en «responde solo» y modo autónomo encendido) el
+	// bot calla: ni menú, ni saludo, ni la respuesta de fuera de horario. La guardia sigue igual. Sin
+	// asistente, o con la categoría en «sugiere», todo sigue como siempre.
+	calla, err := m.asistenteAtiende(ctx, q, *c)
+	if err != nil {
+		return err
+	}
+	if calla {
+		bot.Activo = false
+		if err := limpiarEspera(ctx, q, c); err != nil {
+			return err
+		}
+	}
 	if bot.Activo && c.BotMenu != nil && c.AsignadoA == nil {
 		if err := m.respuestaMenu(ctx, t, c, bot, f); err != nil {
 			return err
 		}
 		return nil
 	}
-	cerrado, err := m.alRecibirFueraDeHorario(ctx, t, c, canal, f, bot)
+	cerrado, err := m.alRecibirFueraDeHorario(ctx, t, c, canal, f, bot, calla)
 	if err != nil || cerrado {
 		return err
 	}
@@ -514,6 +527,13 @@ func nuevoDispararBot(m *Modulo) *auditoria.Caso[int64, bool] {
 			bot := botDe(canal.Bot)
 			if c.AsignadoA != nil || c.Estado == EstadoConvResuelta || !bot.Activo || !canal.Activo {
 				return false, guardarBot(ctx, q, c)
+			}
+			// §17.8: la conversación quedó en una categoría que atiende el asistente: el bot no contesta.
+			if calla, err := m.asistenteAtiende(ctx, q, c); err != nil || calla {
+				if err != nil {
+					return false, err
+				}
+				return false, limpiarEspera(ctx, q, &c)
 			}
 			cola, err := m.colaDeConv(ctx, q, c)
 			if err != nil {

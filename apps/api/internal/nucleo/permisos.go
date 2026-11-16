@@ -697,3 +697,18 @@ func ModuloDe(p Permiso) (codigo, nombre string) {
 	}
 	return "otros", "Otros"
 }
+
+// RolAsistenteIA es el rol interno del asistente de IA cuando atiende solo (mensajería,
+// contratos/conversaciones.md §17.7). No está en RolesBase ni en nucleo.roles: no se puede asignar a
+// una persona, a un token ni a una integración, y su código no se puede usar en un rol propio. Solo
+// lo lleva el actor asistente_ia (contexto.ComoAsistenteIA).
+const RolAsistenteIA = "asistente_ia"
+
+// PermisosAsistenteIA son los permisos del rol interno asistente_ia: responder, crear tickets,
+// crear y programar órdenes, registrar la boleta y pedir la promesa. Nada de configuración, de
+// aprobar o rechazar boletas, de supervisar ni de ver otras empresas. Cada herramienta exige además
+// su acción encendida en el perfil vigente.
+func PermisosAsistenteIA() []Permiso {
+	return []Permiso{PermConversacionesResponder, PermTicketsCrear, PermOrdenesCrear, PermOrdenesProgramar,
+		PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa}
+}

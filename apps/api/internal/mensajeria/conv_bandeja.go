@@ -544,7 +544,9 @@ type EntradaResolverConv struct {
 // y al final guardar, feed y detalle.
 func (m *Modulo) accionConv(ctx context.Context, t *auditoria.Tx, id int64, version int32,
 	cambio func(a alcanceConv, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error) (ConversacionClienteDetalle, error) {
-	a, err := alcanceConvDe(ctx)
+	// También el asistente de IA: el permiso de cada caso de uso decide qué acciones tiene (su rol no
+	// tiene tomar, asignar, transferir, etiquetar, resolver ni asociar).
+	a, err := alcanceAccionDe(ctx)
 	if err != nil {
 		return ConversacionClienteDetalle{}, err
 	}
@@ -582,8 +584,10 @@ func (m *Modulo) accionConv(ctx context.Context, t *auditoria.Tx, id int64, vers
 			return ConversacionClienteDetalle{}, err
 		}
 	}
-	if err := m.tocarActividad(ctx, q, a); err != nil {
-		return ConversacionClienteDetalle{}, err
+	if !a.asistente {
+		if err := m.tocarActividad(ctx, q, a); err != nil {
+			return ConversacionClienteDetalle{}, err
+		}
 	}
 	t.RegistrarCambios("conversacion", c.ID, auditableConv(antes), auditableConv(c))
 	if err := m.emitirEventoConv(ctx, t, c, EventoConvActualizada, nil, nil); err != nil {

@@ -25,9 +25,9 @@ import (
 // (se guarda; actuar solo llega en 3b), categorías de mensajes por empresa y la clasificación de
 // cada conversación, con su cola y su SLA de primera respuesta.
 
-// AutonomoDisponible: el servidor ya actúa solo (3b). En 3a es false: guardar un modoAutonomo
-// distinto de «nunca» responde 422 autonomo_no_disponible.
-const AutonomoDisponible = false
+// AutonomoDisponible: el servidor ya actúa solo (3b, §17.8) y se pueden guardar los tres modos. Con
+// false (3a) guardar un modoAutonomo distinto de «nunca» responde 422 autonomo_no_disponible.
+const AutonomoDisponible = true
 
 // Cuándo atiende solo.
 const (

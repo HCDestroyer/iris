@@ -996,6 +996,19 @@ type MensajeriaAjustesBandeja struct {
 	UpdatedAt          time.Time
 }
 
+type MensajeriaAsistenteAccione struct {
+	ID             int64
+	TurnoID        uuid.UUID
+	EmpresaID      *int64
+	ConversacionID int64
+	Paso           int32
+	Accion         string
+	Resultado      string
+	Entidad        *string
+	EntidadID      *string
+	CreadaEn       time.Time
+}
+
 type MensajeriaAsistenteAjuste struct {
 	ID                  int64
 	EmpresaID           *int64
@@ -1065,6 +1078,22 @@ type MensajeriaAsistenteReserva struct {
 	Mes       pgtype.Date
 	Tokens    int64
 	CreadaEn  time.Time
+}
+
+type MensajeriaAsistenteTurno struct {
+	ID             uuid.UUID
+	EmpresaID      *int64
+	ConversacionID int64
+	MensajeID      uuid.UUID
+	Numero         int32
+	Estado         string
+	Motivo         *string
+	Herramientas   int32
+	TokensEntrada  int64
+	TokensSalida   int64
+	TomadoEn       time.Time
+	CreadoEn       time.Time
+	TerminadoEn    *time.Time
 }
 
 type MensajeriaAsistenteUso struct {
@@ -1491,6 +1520,9 @@ type MensajeriaConversacione struct {
 	AsistenteActividadEn    *time.Time
 	ColaOrigen              string
 	AsistenteTransfirioEn   *time.Time
+	AsistenteEstado         *string
+	AsistenteTurnos         int32
+	AsistentePresentoEn     *time.Time
 }
 
 type MensajeriaDisponibilidad struct {

@@ -217,6 +217,10 @@ func nuevoCrearRol() *auditoria.Caso[EntradaCrearRol, Rol] {
 			if !reCodigoRol.MatchString(codigo) {
 				errores = append(errores, nucleo.ErrorCampo{Field: "codigo", Message: "Solo minúsculas, números y guion bajo; empieza con letra", Rule: "formato"})
 			}
+			// El rol interno del asistente de IA no existe en la tabla: su código queda reservado.
+			if codigo == nucleo.RolAsistenteIA {
+				errores = append(errores, nucleo.ErrorCampo{Field: "codigo", Message: "Ese código está reservado para el asistente de IA", Rule: "reservado"})
+			}
 			if nombre == "" {
 				errores = append(errores, nucleo.ErrorCampo{Field: "nombre", Message: "Escribe un nombre", Rule: "requerido"})
 			}

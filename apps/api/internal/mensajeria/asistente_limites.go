@@ -184,6 +184,20 @@ func (m *Modulo) mantenerAsistente(ctx context.Context, bd nucleo.BD, log *slog.
 	if err := q.PurgarClasificaciones(ctx, m.ahora().Add(-24*time.Hour)); err != nil {
 		return err
 	}
+	// §17.8: un turno autónomo cuyo job murió se vuelve a encolar (el turno decide si lo repite o lo
+	// pasa a una persona); los turnos viejos se purgan.
+	convs, err := q.TurnosAtascados(ctx, m.ahora().Add(-(MaxPasosTurno*m.cfg.PlazoIA + MargenAtascadaIA)))
+	if err != nil {
+		return err
+	}
+	for _, conv := range convs {
+		if err := nucleo.EnTx(ctx, func(ctx context.Context, tx pgx.Tx) error { return m.encolar(ctx, tx, ArgsAsistenteSugerir{ConversacionID: conv}) }); err != nil {
+			log.WarnContext(ctx, "mensajeria: reencolar turno del asistente", "conversacion_id", conv, "err", err)
+		}
+	}
+	if err := q.PurgarTurnosAsistente(ctx, m.ahora().Add(-90*24*time.Hour)); err != nil {
+		return err
+	}
 	return q.PurgarPedidosAsistente(ctx, m.ahora().Add(-24*time.Hour))
 }
 

@@ -758,6 +758,10 @@ func nuevoCrearAuto(m *Modulo) *auditoria.Caso[int64, autoCreada] {
 			if err != nil || aj == nil || !aj.Activo || aj.Modo != ModoAsistenteAutomatico || c.Estado == EstadoConvResuelta || botAtendiendo(c) {
 				return autoCreada{}, err
 			}
+			// El asistente la atiende solo (§17.8): no hay sugerencia para un agente.
+			if c.AsistenteEstado != nil && *c.AsistenteEstado == AsistenteAtendiendo {
+				return autoCreada{}, nil
+			}
 			if pausado, err := m.pausadoPorTope(ctx, q, empresaDeConv(c), aj.TopeTokensMes); err != nil || pausado {
 				return autoCreada{}, err
 			}
@@ -816,6 +820,20 @@ func nuevoCrearAuto(m *Modulo) *auditoria.Caso[int64, autoCreada] {
 // SugerirAutomatico: el paso del job automático. Devuelve cuánto falta esperar (0 = nada que
 // hacer o ya generó).
 func (m *Modulo) SugerirAutomatico(ctx context.Context, conversacion int64) (time.Duration, error) {
+	// §17.8: si al asistente le toca atender solo este mensaje, lo hace y no hay sugerencia. Si falta
+	// esperar a un agente en línea (sin_nadie), mientras tanto se sugiere como siempre.
+	espera, atendio, err := m.AtenderSolo(ctx, conversacion)
+	if err != nil || atendio {
+		return espera, err
+	}
+	d, err := m.sugerirOClasificar(ctx, conversacion)
+	if err != nil || d > 0 {
+		return d, err
+	}
+	return espera, nil
+}
+
+func (m *Modulo) sugerirOClasificar(ctx context.Context, conversacion int64) (time.Duration, error) {
 	genero := false
 	for range 3 {
 		r, err := m.Asistente.crearAuto.Ejecutar(ctx, conversacion)

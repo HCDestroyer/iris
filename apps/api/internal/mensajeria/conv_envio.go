@@ -88,18 +88,24 @@ func hashContenidoConv(conv int64, texto *string, p *PlantillaMensaje, adjunto *
 
 // repetidoConv: el mismo id ya está (misma conversación y contenido → el mensaje; si no, 409); la
 // misma Idempotency-Key con otro id → 422.
-func repetidoConv(ctx context.Context, q *mensajeriabd.Queries, conv int64, id uuid.UUID, autor int64, clave string, hash []byte) (*mensajeriabd.MensajeriaConversacionMensaje, error) {
+func repetidoConv(ctx context.Context, q *mensajeriabd.Queries, conv int64, id uuid.UUID, a alcanceConv, clave string, hash []byte) (*mensajeriabd.MensajeriaConversacionMensaje, error) {
+	autor := a.usuario
 	f, err := q.MensajeConversacionPorID(ctx, id)
 	switch {
 	case err == nil:
-		if f.ConversacionID != conv || f.AutorID == nil || *f.AutorID != autor || !bytes.Equal(f.HashContenido, hash) {
+		// El mismo id solo vale para quien lo mandó: una persona, o el asistente (saliente sin autor).
+		mismo := f.AutorID != nil && *f.AutorID == autor
+		if a.asistente {
+			mismo = f.AutorID == nil && f.Automatico != nil && *f.Automatico == AutomaticoAsistente
+		}
+		if f.ConversacionID != conv || !mismo || !bytes.Equal(f.HashContenido, hash) {
 			return nil, nucleo.Conflicto("mensaje_id_reutilizado", "Ese id de mensaje ya se usó con otro contenido")
 		}
 		return &f, nil
 	case !errors.Is(err, pgx.ErrNoRows):
 		return nil, err
 	}
-	if clave != "" {
+	if clave != "" && !a.asistente {
 		previo, err := q.MensajeConversacionPorClave(ctx, mensajeriabd.MensajeConversacionPorClaveParams{AutorID: &autor, IdempotencyKey: &clave})
 		if err == nil && previo.ID != id {
 			return nil, idempotenciaReutilizada()
@@ -181,9 +187,14 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 		Accion: "conversaciones.responder", Permiso: nucleo.PermConversacionesResponder,
 		AuditarExito: func(r MensajeConvEnviado) bool { return !r.Repetido },
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaResponder) (MensajeConvEnviado, error) {
-			a, err := alcanceConvDe(ctx)
+			// También el asistente de IA cuando atiende solo (§17.8): solo texto, dentro de la ventana y
+			// con el permiso de contacto vigente.
+			a, err := alcanceAccionDe(ctx)
 			if err != nil {
 				return MensajeConvEnviado{}, err
+			}
+			if a.asistente && (in.Texto == nil || in.Plantilla != nil || in.AdjuntoID != nil || in.RespuestaRapidaID != nil || in.SugerenciaID != nil) {
+				return MensajeConvEnviado{}, nucleo.Prohibido("El asistente de IA solo envía texto")
 			}
 			if in.ID == uuid.Nil {
 				return MensajeConvEnviado{}, campoConv("id", "Falta el id del mensaje", "required")
@@ -210,7 +221,7 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 			t.FijarEmpresa(empresaDeConv(c))
 			t.FijarEntidad("conversacion", c.ID)
 			hash := hashContenidoConv(c.ID, in.Texto, in.Plantilla, in.AdjuntoID)
-			if previo, err := repetidoConv(ctx, q, c.ID, in.ID, a.usuario, in.IdempotencyKey, hash); err != nil || previo != nil {
+			if previo, err := repetidoConv(ctx, q, c.ID, in.ID, a, in.IdempotencyKey, hash); err != nil || previo != nil {
 				if err != nil {
 					return MensajeConvEnviado{}, err
 				}
@@ -246,10 +257,22 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 			}
 			ahora := m.ahora()
 			ventana := ventanaDe(c.UltimoEntranteEn, ahora)
-			n := nuevoMensaje{id: in.ID, direccion: DirSaliente, tipo: "texto", texto: in.Texto, autor: &a.usuario, hash: hash,
+			n := nuevoMensaje{id: in.ID, direccion: DirSaliente, tipo: "texto", texto: in.Texto, autor: a.usuarioPtr(), hash: hash,
 				estadoEntrega: nombrePtr(EntregaEnCola), respuesta: in.RespuestaRapidaID}
-			if in.IdempotencyKey != "" {
+			if in.IdempotencyKey != "" && !a.asistente {
 				n.clave = &in.IdempotencyKey
+			}
+			if a.asistente {
+				// Saliente sin autor: «asistente» (autorTipo asistente_ia, §17.4). Nunca a quien pidió no
+				// recibir mensajes (BAJA del número o del cliente).
+				n.automatico = nombrePtr(AutomaticoAsistente)
+				puede, err := m.puedeContestarBot(ctx, q, c)
+				if err != nil {
+					return MensajeConvEnviado{}, err
+				}
+				if !puede && ventana.Abierta {
+					return MensajeConvEnviado{}, reglaConv("sin_permiso_de_contacto", "El cliente pidió no recibir mensajes")
+				}
 			}
 			if in.Plantilla != nil {
 				p, ok := PlantillaPorCodigo(in.Plantilla.Codigo)
@@ -309,7 +332,7 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 				c.Estado = EstadoConvEsperando
 			}
 			asignada := false
-			if c.AsignadoA == nil {
+			if c.AsignadoA == nil && !a.asistente {
 				// Decisión del líder (pendiente del PM): si nadie la tiene, queda con quien responde.
 				if _, err := puedeAtender(ctx, t, c, a.usuario); err == nil {
 					c.AsignadoA, c.AsignadoEn, asignada = &a.usuario, &ahora, true
@@ -326,8 +349,18 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 					return MensajeConvEnviado{}, err
 				}
 			}
-			if err := m.tocarActividad(ctx, q, a); err != nil {
-				return MensajeConvEnviado{}, err
+			if !a.asistente {
+				if err := m.tocarActividad(ctx, q, a); err != nil {
+					return MensajeConvEnviado{}, err
+				}
+				// Una persona escribió: el asistente se detiene en esta conversación hasta que se resuelva
+				// (§17.8). Si además quedó asignada, la base ya lo dejó detenido.
+				if c.AsistenteEstado != nil && *c.AsistenteEstado != AsistenteDetenido {
+					if err := q.DetenerAsistente(ctx, c.ID); err != nil {
+						return MensajeConvEnviado{}, err
+					}
+					c.AsistenteEstado = nombrePtr(AsistenteDetenido)
+				}
 			}
 			if asignada {
 				if err := t.Emitir("conversacion.asignada", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID, "usuario_id": a.usuario,
@@ -342,8 +375,12 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 				return MensajeConvEnviado{}, err
 			}
 			t.Anotar(map[string]any{"mensaje_id": f.ID, "tipo": f.Tipo})
-			if err := t.Emitir("conversacion.mensaje_enviado", map[string]any{"conversacion_id": c.ID, "mensaje_id": f.ID, "empresa_id": c.EmpresaID,
-				"autor_id": a.usuario, "tipo": f.Tipo, "plantilla": f.Plantilla, "respuesta_rapida_id": f.RespuestaRapidaID}); err != nil {
+			ev := map[string]any{"conversacion_id": c.ID, "mensaje_id": f.ID, "empresa_id": c.EmpresaID,
+				"autor_id": a.usuarioPtr(), "tipo": f.Tipo, "plantilla": f.Plantilla, "respuesta_rapida_id": f.RespuestaRapidaID}
+			if a.asistente {
+				ev["automatico"] = AutomaticoAsistente
+			}
+			if err := t.Emitir("conversacion.mensaje_enviado", ev); err != nil {
 				return MensajeConvEnviado{}, err
 			}
 			ms, err := mensajesConv(ctx, q, []mensajeriabd.MensajeriaConversacionMensaje{f})
@@ -376,7 +413,7 @@ func nuevoAnotar(m *Modulo) *auditoria.Caso[EntradaNota, MensajeConvEnviado] {
 			t.FijarEmpresa(empresaDeConv(c))
 			t.FijarEntidad("conversacion", c.ID)
 			hash := hashContenidoConv(c.ID, &texto, nil, nil)
-			if previo, err := repetidoConv(ctx, q, c.ID, in.ID, a.usuario, in.IdempotencyKey, hash); err != nil || previo != nil {
+			if previo, err := repetidoConv(ctx, q, c.ID, in.ID, a, in.IdempotencyKey, hash); err != nil || previo != nil {
 				if err != nil {
 					return MensajeConvEnviado{}, err
 				}

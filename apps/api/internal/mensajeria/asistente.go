@@ -171,6 +171,12 @@ type casosAsistente struct {
 	prepararClasif      *auditoria.Caso[int64, clasifPreparada]
 	guardarClasif       *auditoria.Caso[clasificacionModelo, struct{}]
 
+	// Fase 3b (§17.8): el asistente atiende solo.
+	prepararTurno   *auditoria.Caso[entradaTurno, turnoPreparado]
+	terminarTurno   *auditoria.Caso[resultadoTurno, struct{}]
+	registrarAccion *auditoria.Caso[accionHecha, struct{}]
+	leerConv        *auditoria.Caso[EntradaConversacion, convLeida]
+
 	prepararGen    *auditoria.Caso[uuidSugerencia, generacion]
 	guardarGen     *auditoria.Caso[resultadoGeneracion, struct{}]
 	crearAuto      *auditoria.Caso[int64, autoCreada]
@@ -188,6 +194,8 @@ func nuevosCasosAsistente(m *Modulo) casosAsistente {
 		DesactivarCategoria: nuevoCambioCategoria("mensajeria.asistente_desactivar_categoria", false),
 		Categorizar:         nuevoCategorizarConv(m), Efecto: nuevoEfectoAsistente(m), ProbarMensaje: nuevoProbarMensaje(m),
 		prepararClasif: nuevoPrepararClasificacion(m), guardarClasif: nuevoGuardarClasificacion(m),
+		prepararTurno: nuevoPrepararTurno(m), terminarTurno: nuevoTerminarTurno(m), registrarAccion: nuevoRegistrarAccion(m),
+		leerConv: nuevoLeerConvPara("mensajeria.asistente_consultar", nucleo.PermConversacionesResponder),
 		prepararGen: nuevoPrepararGeneracion(m), guardarGen: nuevoGuardarGeneracion(m), crearAuto: nuevoCrearAuto(m), vencerAtascada: nuevoVencerAtascada(m),
 	}
 }

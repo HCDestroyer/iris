@@ -163,7 +163,7 @@ type ConversacionCliente struct {
 	CategoriaConfianza *float32              `json:"categoriaConfianza" nullable:"true" required:"false" doc:"0 a 1; null si la puso un agente"`
 	CategoriaOrigen    *string               `json:"categoriaOrigen" nullable:"true" required:"false" enum:"asistente,agente"`
 	ActividadAsistente *ActividadAsistente   `json:"actividadAsistente,omitempty" doc:"Lo último que hizo el asistente en la conversación"`
-	Asistente          *AsistenteConv        `json:"asistente,omitempty" doc:"3b: el asistente atiende solo esta conversación. Ausente en 3a"`
+	Asistente          *AsistenteConv        `json:"asistente,omitempty" doc:"El asistente atiende (o atendió) solo esta conversación (§17.8). Ausente: nunca la atendió en este periodo"`
 	SoloLectura        bool                  `json:"soloLectura,omitempty" doc:"true: el número ya no está compartido con tu empresa (préstamo revocado, §15.3) y solo se puede leer. Ausente = false"`
 	UltimaActividad    time.Time             `json:"ultimaActividad"`
 	CreadaEn           time.Time             `json:"creadaEn"`
@@ -305,6 +305,38 @@ type alcanceConv struct {
 	supervisa bool
 	// sugerencias: recibe las sugerencias del asistente (conversaciones.sugerencias, §16).
 	sugerencias bool
+	// asistente: quien actúa es el asistente de IA que atiende solo (actor asistente_ia, §17.8). No
+	// hay usuario (0): solo ve las conversaciones de su empresa que él atiende y que nadie tiene.
+	asistente bool
+}
+
+// NombreAsistenteIA: cómo se muestra el asistente en los mensajes de sistema.
+const NombreAsistenteIA = "Asistente de IA"
+
+// alcanceAccionDe es alcanceConvDe y, además, acepta al asistente de IA (actor asistente_ia). La
+// usan solo las acciones que el asistente puede hacer solo (responder, crear ticket u orden,
+// registrar la boleta, pedir la promesa); el permiso de cada caso de uso sigue mandando: su rol
+// interno no tiene ningún otro. Todo lo demás (ver, listar, tomar, asignar, resolver, configurar,
+// aprobar boletas) sigue exigiendo una persona con sesión.
+func alcanceAccionDe(ctx context.Context) (alcanceConv, error) {
+	actor := contexto.ActorDe(ctx)
+	if actor.Tipo != contexto.ActorAsistenteIA {
+		return alcanceConvDe(ctx)
+	}
+	// La empresa es la que fijó el servidor al armar el contexto del turno; nunca sale del modelo.
+	if actor.EmpresaID != contexto.EmpresaDe(ctx) {
+		return alcanceConv{}, conversacionClienteNoEncontrada()
+	}
+	return alcanceConv{asistente: true, empresa: actor.EmpresaID}, nil
+}
+
+// usuarioPtr: quién queda como autor (nil = el asistente de IA).
+func (a alcanceConv) usuarioPtr() *int64 {
+	if a.asistente || a.usuario == 0 {
+		return nil
+	}
+	u := a.usuario
+	return &u
 }
 
 // alcanceConvDe exige una persona con sesión (no un token de API ni una integración) y
@@ -339,6 +371,9 @@ func conversacionClienteNoEncontrada() *nucleo.Problema {
 
 // convVisible lee la conversación (con FOR UPDATE si bloquear) o 404 si el actor no la ve.
 func convVisible(ctx context.Context, q *mensajeriabd.Queries, a alcanceConv, id int64, bloquear bool) (mensajeriabd.MensajeriaConversacion, error) {
+	if a.asistente {
+		return convDelAsistente(ctx, q, a, id, bloquear)
+	}
 	ok, err := q.ConversacionVisible(ctx, mensajeriabd.ConversacionVisibleParams{ID: id, Empresa: a.empresa, Usuario: a.usuario, Supervisa: a.supervisa})
 	if err != nil {
 		return mensajeriabd.MensajeriaConversacion{}, err
@@ -361,6 +396,34 @@ func convVisible(ctx context.Context, q *mensajeriabd.Queries, a alcanceConv, id
 		return c, nil
 	}
 	return q.ConversacionClientePorID(ctx, id)
+}
+
+// convDelAsistente: lo que el asistente de IA puede tocar. La conversación es de su empresa, nadie
+// la tiene, no está resuelta ni es de solo lectura, y él la está atendiendo. Si una persona la tomó
+// o escribió a mitad del turno (estado detenido), ya no la ve: el turno en curso no envía nada más.
+func convDelAsistente(ctx context.Context, q *mensajeriabd.Queries, a alcanceConv, id int64, bloquear bool) (mensajeriabd.MensajeriaConversacion, error) {
+	leer := q.ConversacionClientePorID
+	if bloquear {
+		leer = q.ConversacionClienteParaActualizar
+	}
+	c, err := leer(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return c, conversacionClienteNoEncontrada()
+	}
+	if err != nil {
+		return c, err
+	}
+	if empresaDeConv(c) != a.empresa || c.AsignadoA != nil || c.Estado == EstadoConvResuelta ||
+		c.AsistenteEstado == nil || *c.AsistenteEstado != AsistenteAtendiendo {
+		return mensajeriabd.MensajeriaConversacion{}, conversacionClienteNoEncontrada()
+	}
+	if lectura, err := soloLecturaConv(ctx, q, c); err != nil || lectura {
+		if err == nil {
+			err = conversacionClienteNoEncontrada()
+		}
+		return mensajeriabd.MensajeriaConversacion{}, err
+	}
+	return c, nil
 }
 
 // exigirVersion: 409 si la versión leída ya cambió.
@@ -525,6 +588,9 @@ func (m *Modulo) resumirConvs(ctx context.Context, q *mensajeriabd.Queries, usua
 		}
 		if f.AsistenteActividadTipo != nil && f.AsistenteActividadTexto != nil && f.AsistenteActividadEn != nil {
 			v.ActividadAsistente = &ActividadAsistente{Tipo: *f.AsistenteActividadTipo, Texto: *f.AsistenteActividadTexto, En: *f.AsistenteActividadEn}
+		}
+		if f.AsistenteEstado != nil {
+			v.Asistente = &AsistenteConv{Estado: *f.AsistenteEstado, Turnos: f.AsistenteTurnos}
 		}
 		if v.Etiquetas == nil {
 			v.Etiquetas = []EtiquetaRef{}

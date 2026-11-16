@@ -39,6 +39,10 @@ type ArgosAtencion interface {
 }
 
 func atencionDe(a alcanceConv, conv int64) argos.AtencionIris {
+	if a.asistente {
+		// §7.1 del contrato con Argos: el asistente va como asistente_ia (canal ia de Argos, con sus reglas).
+		return argos.AtencionIris{Actor: ActorAsistenteIA, Conversacion: "iris:conversacion:" + strconv.FormatInt(conv, 10), EmpresaID: a.empresa}
+	}
 	return argos.AtencionIris{Actor: "usuario:" + strconv.FormatInt(a.usuario, 10), Conversacion: "iris:conversacion:" + strconv.FormatInt(conv, 10), EmpresaID: a.empresa}
 }
 
@@ -104,7 +108,9 @@ func nuevoLeerConvPara(accion string, permiso nucleo.Permiso) *auditoria.Caso[En
 	return auditoria.Nuevo(auditoria.Caso[EntradaConversacion, convLeida]{
 		Accion: accion, Permiso: permiso, AuditarExito: sinAuditar[convLeida],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaConversacion) (convLeida, error) {
-			a, err := alcanceConvDe(ctx)
+			// También el asistente de IA (el permiso del caso decide: su rol solo tiene crear ticket,
+			// crear orden, boleta y promesa).
+			a, err := alcanceAccionDe(ctx)
 			if err != nil {
 				return convLeida{}, err
 			}
