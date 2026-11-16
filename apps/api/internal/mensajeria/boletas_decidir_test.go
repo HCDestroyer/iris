@@ -961,6 +961,17 @@ func TestBoletaPermisosYActores(t *testing.T) {
 	if !errors.As(err, &p) || p.Status != http.StatusForbidden || p.Codigo() != "solo_personas" {
 		t.Fatalf("el asistente (sistema) rechazando: %v", err)
 	}
+	// El actor asistente_ia (fase 3b, §17.8), con sus propios permisos: 403 en las dos, y nada llega a Argos.
+	ia := mensajeria.CtxAsistenteIA(b.ctx, 1)
+	_, err = b.m.DecidirBoletas().Aprobar(ia, mensajeria.EntradaAprobarBoleta{ID: uuid.MustParse(x.id)})
+	if !errors.As(err, &p) || p.Status != http.StatusForbidden {
+		t.Fatalf("el actor asistente_ia aprobando: %v", err)
+	}
+	_, err = b.m.DecidirBoletas().Rechazar(ia, mensajeria.EntradaRechazarBoleta{ID: uuid.MustParse(x.id), Motivo: "no aparece"})
+	if !errors.As(err, &p) || p.Status != http.StatusForbidden {
+		t.Fatalf("el actor asistente_ia rechazando: %v", err)
+	}
+	nada("asistente_ia")
 	// Soporte y lectura ven la boleta pero no deciden; un técnico ni la ve.
 	b.exigir(b.api(b.agente, http.MethodPost, x.ruta("aprobar"), map[string]any{}), http.StatusForbidden)
 	b.exigir(b.api(b.lectura, http.MethodPost, x.ruta("aprobar"), map[string]any{}), http.StatusForbidden)

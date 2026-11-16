@@ -39,6 +39,36 @@ type iaFalsa struct {
 	// bloquear: espera hasta que el pedido se cancele (o 5 s) y anota si se canceló.
 	bloquear  bool
 	cancelado bool
+	// guion: lo que «responde» el modelo en los pedidos del asistente autónomo, en orden (3b). Los
+	// demás pedidos (clasificar, sugerir) siguen usando contenido.
+	guion []pasoFalso
+	// sinHerramientas: el modelo rechaza los pedidos con herramientas (400), como un modelo local viejo.
+	sinHerramientas bool
+	// alAutonomo corre al llegar un pedido autónomo (fuera del candado), con cuántos van.
+	alAutonomo func(n int)
+	autonomos  int
+}
+
+// pasoFalso es una respuesta del modelo en un turno autónomo: texto, o llamadas a herramientas.
+type pasoFalso struct {
+	texto    string
+	llamadas []llamadaFalsa
+}
+
+type llamadaFalsa struct {
+	nombre string
+	args   string
+}
+
+func llama(nombre, args string) pasoFalso {
+	return pasoFalso{llamadas: []llamadaFalsa{{nombre: nombre, args: args}}}
+}
+
+func dice(texto string) pasoFalso { return pasoFalso{texto: texto} }
+
+// esAutonomo: el pedido es de un turno autónomo (por sus instrucciones).
+func esAutonomo(cuerpo string) bool {
+	return strings.Contains(cuerpo, "atiendes por WhatsApp a sus clientes")
 }
 
 func nuevaIA(t *testing.T) *iaFalsa {
@@ -47,9 +77,19 @@ func nuevaIA(t *testing.T) *iaFalsa {
 		b, _ := io.ReadAll(r.Body)
 		f.mu.Lock()
 		alPedir, bloquear := f.alPedir, f.bloquear
+		autonomo := esAutonomo(string(b))
+		var alAutonomo func(int)
+		if autonomo {
+			f.autonomos++
+			alAutonomo = f.alAutonomo
+		}
+		nAutonomo := f.autonomos
 		f.mu.Unlock()
 		if alPedir != nil {
 			alPedir()
+		}
+		if alAutonomo != nil {
+			alAutonomo(nAutonomo)
 		}
 		if bloquear {
 			select {
@@ -71,6 +111,53 @@ func nuevaIA(t *testing.T) *iaFalsa {
 		if f.status != http.StatusOK {
 			w.WriteHeader(f.status)
 			_, _ = w.Write([]byte(`{"error":{"message":"falla"}}`))
+			return
+		}
+		// Turno autónomo: el siguiente paso del guion (sin guion, el contenido como texto).
+		var paso *pasoFalso
+		if autonomo {
+			if f.sinHerramientas && strings.Contains(string(b), `"tools"`) {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":{"message":"this model does not support tools"}}`))
+				return
+			}
+			pf := pasoFalso{texto: f.contenido}
+			if len(f.guion) > 0 {
+				pf, f.guion = f.guion[0], f.guion[1:]
+			}
+			paso = &pf
+		}
+		if paso != nil && r.URL.Path == "/v1/chat/completions" {
+			msg := map[string]any{"role": "assistant", "content": paso.texto}
+			fin := "stop"
+			if len(paso.llamadas) > 0 {
+				var tc []any
+				for i, l := range paso.llamadas {
+					tc = append(tc, map[string]any{"id": fmt.Sprintf("call_%d_%d", len(f.cuerpos), i), "type": "function",
+						"function": map[string]any{"name": l.nombre, "arguments": l.args}})
+				}
+				msg["tool_calls"], fin = tc, "tool_calls"
+			}
+			crudo, _ := json.Marshal(map[string]any{"id": "x", "object": "chat.completion", "choices": []any{map[string]any{"index": 0, "message": msg, "finish_reason": fin}},
+				"usage": map[string]any{"prompt_tokens": f.entrada, "completion_tokens": f.salida}})
+			_, _ = w.Write(crudo)
+			return
+		}
+		if paso != nil && r.URL.Path == "/v1/messages" {
+			contenido := []any{}
+			if paso.texto != "" {
+				contenido = append(contenido, map[string]any{"type": "text", "text": paso.texto})
+			}
+			stop := "end_turn"
+			for i, l := range paso.llamadas {
+				contenido = append(contenido, map[string]any{"type": "tool_use", "id": fmt.Sprintf("toolu_%d_%d", len(f.cuerpos), i), "name": l.nombre,
+					"input": json.RawMessage(l.args)})
+				stop = "tool_use"
+			}
+			crudo, _ := json.Marshal(map[string]any{"id": "msg_1", "type": "message", "role": "assistant", "model": "claude-opus-5-5",
+				"content": contenido, "stop_reason": stop,
+				"usage": map[string]any{"input_tokens": f.entrada, "output_tokens": f.salida, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}})
+			_, _ = w.Write(crudo)
 			return
 		}
 		switch r.URL.Path {
@@ -141,6 +228,7 @@ func nuevaBandejaIA(t *testing.T) *bandejaIA {
 	admin.empresa = 1
 	x := &bandejaIA{bandeja: b, admin: admin, ia: nuevaIA(t)}
 	if _, err := b.bd.Exec(b.ctx, `DELETE FROM mensajeria.asistente_uso; DELETE FROM mensajeria.asistente_reservas; DELETE FROM mensajeria.asistente_pedidos; DELETE FROM mensajeria.asistente_ajustes; DELETE FROM mensajeria.sugerencias;
+		DELETE FROM mensajeria.asistente_turnos;
 		UPDATE mensajeria.conversaciones SET categoria_id = NULL WHERE categoria_id IS NOT NULL; DELETE FROM mensajeria.asistente_clasificaciones;
 		DELETE FROM mensajeria.asistente_categorias; DELETE FROM integracion.outbox WHERE evento = 'asistente.tope_alcanzado'`); err != nil {
 		t.Fatal(err)
@@ -255,7 +343,7 @@ func TestAsistenteAjustesClaveYURL(t *testing.T) {
 	// Estado (para el panel): sin proveedor ni clave.
 	e := x.api(x.agente, http.MethodGet, "/asistente/estado", nil)
 	x.exigir(e, http.StatusOK, "activo", "true", "modo", "boton", "pausado", "false")
-	x.exigir(e, http.StatusOK, "modoAutonomo", "nunca", "autonomoDisponible", "false")
+	x.exigir(e, http.StatusOK, "modoAutonomo", "nunca", "autonomoDisponible", "true")
 	if len(e.cuerpo) != 5 {
 		t.Fatalf("estado con datos de más: %v", e.cuerpo)
 	}

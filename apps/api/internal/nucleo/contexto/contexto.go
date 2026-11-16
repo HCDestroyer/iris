@@ -28,6 +28,10 @@ const (
 	// usuario de Iris; entra con una sesión de portal (cookie iris_portal) con su cliente y su
 	// empresa de Argos fijos. Solo lo aceptan los casos de uso con Acceso auditoria.Cliente.
 	ActorCliente TipoActor = "cliente"
+	// ActorAsistenteIA es el asistente de IA cuando atiende solo una conversación (mensajería,
+	// contratos/conversaciones.md §17.8). No es un usuario (ID 0) ni el sistema: lleva solo los
+	// permisos de su rol interno (nucleo.PermisosAsistenteIA) y la empresa de la conversación.
+	ActorAsistenteIA TipoActor = "asistente_ia"
 )
 
 // Actor es quien ejecuta. ID es nucleo.usuarios.id (también para tokens e integraciones);
@@ -65,6 +69,8 @@ const (
 	CanalWorker      Canal = "worker"
 	CanalCron        Canal = "cron"
 	CanalConsola     Canal = "consola"
+	// CanalIA: lo hizo el asistente de IA por su cuenta (actor asistente_ia).
+	CanalIA Canal = "ia"
 )
 
 // Alcance limita un permiso a una zona o a una cuadrilla. El valor cero es alcance global.
@@ -345,4 +351,19 @@ func ComoCliente(ctx context.Context, a Actor) context.Context {
 	ctx = ConActor(ctx, a, Permisos{})
 	ctx = ConCanal(ctx, CanalPortal)
 	return ConEmpresas(ctx, Empresas{Estado: EmpresaActiva, Activa: a.EmpresaID, Disponibles: []int64{a.EmpresaID}})
+}
+
+// ComoAsistenteIA prepara el contexto del asistente de IA que atiende solo: el actor asistente_ia
+// con los permisos dados (los de su rol interno, nunca todos), el canal ia y la empresa de la
+// conversación como empresa activa (fija: no ve otras).
+func ComoAsistenteIA(ctx context.Context, empresaID int64, permisos Permisos) context.Context {
+	ctx = ConActor(ctx, Actor{Tipo: ActorAsistenteIA, Nombre: string(ActorAsistenteIA), EmpresaID: empresaID}, permisos)
+	ctx = ConCanal(ctx, CanalIA)
+	if RequestIDDe(ctx) == "" {
+		ctx = ConRequestID(ctx, NuevoRequestID())
+	}
+	if empresaID == 0 {
+		return ConEmpresas(ctx, Empresas{Estado: EmpresaSinConector})
+	}
+	return ConEmpresas(ctx, Empresas{Estado: EmpresaActiva, Activa: empresaID, Disponibles: []int64{empresaID}})
 }
