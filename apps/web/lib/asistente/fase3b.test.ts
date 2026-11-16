@@ -1,0 +1,168 @@
+import { describe, expect, it } from "vitest";
+import { cambianAjustes, completar, entradaLimites, entradaPrincipal, esquemaLimites, PERFIL_POR_DEFECTO, saldoExigeIdentidad, valoresLimites, valoresPrincipal, type PerfilAsistente } from "./fase3";
+import {
+    ACCIONES_COMUNES,
+    ACCIONES_DINERO,
+    codigoDePerfil,
+    entradaPerfiles,
+    esquemaPerfil,
+    nivelVerificacion,
+    opcionesDePerfil,
+    perfilDeValores,
+    perfilesCon,
+    perfilesDe,
+    perfilesSin,
+    requisitoDe,
+    resumenPerfil,
+    textoReconexion,
+    valorDePerfil,
+    valoresPerfil,
+} from "./fase3b";
+import { textoEvento } from "../conversaciones/presentacion";
+import type { AjustesAsistente } from "./tipos";
+
+const NOCHE: PerfilAsistente = {
+    codigo: "noche",
+    nombre: "Noche",
+    acciones: { ...PERFIL_POR_DEFECTO.acciones, dar_saldo: true, promesa_pago: true },
+    exigeVerificacionFuerte: { dar_saldo: false },
+    limites: { prioridadMaxima: "media", diasAdelanteMax: 1 },
+};
+
+const BASE: AjustesAsistente = {
+    activo: true,
+    proveedor: "ollama",
+    url: "http://10.0.0.20:11434",
+    claveGuardadaEn: null,
+    modelo: "qwen3:32b",
+    modo: "automatico",
+    fuentes: { manuales: true, argos: true, horus: true, historial: true },
+    topeTokensMes: 5_000_000,
+    precioEntradaMillon: null,
+    precioSalidaMillon: null,
+    autonomoDisponible: true,
+    modoAutonomo: "sin_nadie",
+    esperaMin: 3,
+    maxTurnos: 8,
+    perfiles: [PERFIL_POR_DEFECTO, NOCHE],
+    porCola: [],
+    presupuestoAutonomoPct: 70,
+    verificacionFuerteMin: 60,
+    version: 4,
+};
+
+describe("acciones de dinero y verificación (§17.8.2)", () => {
+    it("de fábrica lo de dinero y las visitas vienen apagadas", () => {
+        for (const c of ACCIONES_DINERO) expect(PERFIL_POR_DEFECTO.acciones[c]).toBe(false);
+        expect(PERFIL_POR_DEFECTO.acciones).toMatchObject({ responder_dudas: true, avisar_fallas: true, crear_ticket: true, agendar_visita: false, pasar_a_persona: true });
+        expect([...ACCIONES_COMUNES, ...ACCIONES_DINERO]).toHaveLength(8);
+    });
+
+    it("dar el saldo pide identidad salvo que la empresa lo baje; ausente = sí", () => {
+        expect(saldoExigeIdentidad(PERFIL_POR_DEFECTO)).toBe(true);
+        expect(saldoExigeIdentidad({ exigeVerificacionFuerte: { dar_saldo: false } })).toBe(false);
+        expect(requisitoDe("dar_saldo", false)).toContain("DPI o NIT");
+        expect(requisitoDe("dar_saldo", true)).toContain("su número");
+        // Promesa y reconexión, siempre; la boleta acepta el número.
+        expect(requisitoDe("promesa_pago", true)).toContain("siempre");
+        expect(requisitoDe("reconexion_temporal", true)).toContain("fuera de horario");
+        expect(requisitoDe("recibir_boleta", false)).toContain("su número");
+    });
+
+    it("la pantalla simple manda `exigeVerificacionFuerte` del perfil general y conserva los demás", () => {
+        const v = valoresPrincipal(BASE, []);
+        expect(v.saldoConNumero).toBe(false);
+        expect(cambianAjustes(BASE, v)).toBe(false);
+        const d = { ...v, acciones: { ...v.acciones, dar_saldo: true }, saldoConNumero: true };
+        expect(cambianAjustes(BASE, { ...v, saldoConNumero: true })).toBe(true);
+        const e = entradaPrincipal(BASE, d);
+        expect(e.perfiles?.[0]).toMatchObject({ codigo: "defecto", acciones: { dar_saldo: true, recibir_boleta: false }, exigeVerificacionFuerte: { dar_saldo: false } });
+        expect(e.perfiles?.[1]).toEqual(NOCHE);
+    });
+
+    it("avanzado: presupuesto 1–100 y vigencia 5–1440, con los de fábrica si el servidor no los manda", () => {
+        const { presupuestoAutonomoPct: _p, verificacionFuerteMin: _v, ...viejo } = BASE;
+        void _p;
+        void _v;
+        expect(completar(viejo)).toMatchObject({ presupuestoAutonomoPct: 70, verificacionFuerteMin: 60 });
+        const v = valoresLimites(BASE);
+        expect(esquemaLimites.safeParse(v).success).toBe(true);
+        for (const malo of [{ presupuestoAutonomoPct: "0" }, { presupuestoAutonomoPct: "101" }, { verificacionFuerteMin: "4" }, { verificacionFuerteMin: "1441" }, { verificacionFuerteMin: "" }]) {
+            expect(esquemaLimites.safeParse({ ...v, ...malo }).success).toBe(false);
+        }
+        expect(entradaLimites(BASE, { ...v, presupuestoAutonomoPct: "50", verificacionFuerteMin: "1440" })).toMatchObject({ presupuestoAutonomoPct: 50, verificacionFuerteMin: 1440 });
+    });
+});
+
+describe("perfiles por horario (§17.1)", () => {
+    it("el código sale del nombre: válido, único y nunca uno reservado", () => {
+        expect(codigoDePerfil("Noche y feriados", [])).toBe("noche_y_feriados");
+        expect(codigoDePerfil("Sábado", [])).toBe("sabado");
+        expect(codigoDePerfil("Noche", ["noche"])).toBe("noche_2");
+        expect(codigoDePerfil("Solo sugerir", [])).toBe("solo_sugerir_2");
+        expect(codigoDePerfil("Defecto", [])).toBe("defecto_2");
+        expect(codigoDePerfil("24/7", [])).toBe("perfil");
+        expect(codigoDePerfil("x", [])).toBe("x_perfil");
+        for (const n of ["Noche y feriados", "24/7", "x", "Un nombre de perfil larguísimo de cuarenta", "ÑANDÚ"]) expect(codigoDePerfil(n, [])).toMatch(/^[a-z][a-z0-9_]{1,29}$/);
+    });
+
+    it("un perfil nuevo empieza como el de fábrica y viaja con las nueve acciones", () => {
+        const v = valoresPerfil();
+        expect(v).toMatchObject({ nombre: "", saldoConNumero: false, prioridadMaxima: "alta", diasAdelanteMax: "2" });
+        expect(esquemaPerfil.safeParse(v).success).toBe(false);
+        expect(esquemaPerfil.safeParse({ ...v, nombre: "x".repeat(41) }).success).toBe(false);
+        expect(esquemaPerfil.safeParse({ ...v, nombre: "Fin de semana", diasAdelanteMax: "15" }).success).toBe(false);
+        const p = perfilDeValores({ ...v, nombre: " Fin de semana ", acciones: { ...v.acciones, dar_saldo: true }, saldoConNumero: true }, "fin_de_semana");
+        expect(p).toEqual({
+            codigo: "fin_de_semana",
+            nombre: "Fin de semana",
+            acciones: { ...PERFIL_POR_DEFECTO.acciones, dar_saldo: true },
+            exigeVerificacionFuerte: { dar_saldo: false },
+            limites: { prioridadMaxima: "alta", diasAdelanteMax: 2 },
+        });
+    });
+
+    it("editar trae lo guardado, agregar va al final y el general no se quita", () => {
+        expect(valoresPerfil(NOCHE)).toMatchObject({ nombre: "Noche", saldoConNumero: true, prioridadMaxima: "media", diasAdelanteMax: "1" });
+        const nuevo = { ...NOCHE, codigo: "sabado", nombre: "Sábado" };
+        expect(perfilesCon(BASE, nuevo).map((p) => p.codigo)).toEqual(["defecto", "noche", "sabado"]);
+        expect(perfilesCon(BASE, { ...NOCHE, nombre: "Madrugada" })).toEqual([PERFIL_POR_DEFECTO, { ...NOCHE, nombre: "Madrugada" }]);
+        expect(perfilesSin(BASE, "noche")).toEqual([PERFIL_POR_DEFECTO]);
+        expect(perfilesSin(BASE, "defecto")).toHaveLength(2);
+        // Un servidor que no manda perfiles: el general de fábrica.
+        expect(perfilesDe({ perfiles: null })).toEqual([PERFIL_POR_DEFECTO]);
+        const e = entradaPerfiles(BASE, perfilesSin(BASE, "noche"));
+        expect(e).toMatchObject({ version: 4, proveedor: "ollama", perfiles: [{ codigo: "defecto" }] });
+        expect(e).not.toHaveProperty("modoAutonomo");
+    });
+
+    it("resumen y opciones de la franja", () => {
+        expect(resumenPerfil(PERFIL_POR_DEFECTO)).toBe("3 acciones encendidas · nada de dinero");
+        expect(resumenPerfil(NOCHE)).toBe("5 acciones encendidas · 2 de dinero");
+        expect(opcionesDePerfil(BASE.perfiles ?? [], null).map((o) => o.valor)).toEqual(["", "solo_sugerir", "noche"]);
+        // Un código guardado que ya no existe se ve como tal (el servidor usa el general).
+        expect(opcionesDePerfil(BASE.perfiles ?? [], "viejo").at(-1)).toEqual({ valor: "viejo", texto: "Un perfil que ya no existe (se usa lo de siempre)" });
+        expect(valorDePerfil(null)).toBe("");
+        expect(valorDePerfil("defecto")).toBe("");
+        expect(valorDePerfil("noche")).toBe("noche");
+    });
+});
+
+describe("bandeja (§17.8.2)", () => {
+    it("la verificación se lee solo del servidor", () => {
+        expect(nivelVerificacion({ verificacion: "fuerte" })).toBe("fuerte");
+        expect(nivelVerificacion({ verificacion: "numero" })).toBe("numero");
+        expect(nivelVerificacion({ verificacion: null })).toBeNull();
+        // Un servidor que no manda el campo: no se muestra nada (ni «verificado» ni «sin verificar»).
+        expect(nivelVerificacion({})).toBeUndefined();
+        expect(nivelVerificacion({ verificacion: "otra_cosa" })).toBeNull();
+    });
+
+    it("mensajes de sistema de 3b", () => {
+        expect(textoReconexion("Asistente de IA", "aceptada")).toBe("Reconexión temporal: Argos la aceptó (la pidió Asistente de IA)");
+        expect(textoEvento({ tipo: "reconexion_pedida", actorNombre: "Asistente de IA", detalle: "rechazada" })).toBe("Reconexión temporal: Argos no la aceptó (la pidió Asistente de IA)");
+        expect(textoEvento({ tipo: "reconexion_pedida", detalle: "pendiente" })).toBe("Reconexión temporal: esperando a Argos (la pidió Iris)");
+        expect(textoEvento({ tipo: "verificar_identidad", actorNombre: "Asistente de IA", detalle: "coincide" })).toBe("Asistente de IA verificó la identidad del cliente");
+        expect(textoEvento({ tipo: "verificar_identidad", actorNombre: "Asistente de IA", detalle: "no_coincide" })).toBe("Asistente de IA pidió verificar la identidad del cliente: no se pudo");
+    });
+});

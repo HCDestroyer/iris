@@ -1,4 +1,5 @@
 import { ZONA } from "../fechas";
+import { textoReconexion } from "../asistente/fase3b";
 import { textoEventoBot } from "./atencion";
 import type { CanalRef, Conversacion, EventoSistema, Mensaje } from "./tipos";
 
@@ -184,6 +185,15 @@ export function textoEvento(e: EventoSistema): string {
             return `Argos no aceptó la boleta${e.detalle ? `: ${e.detalle}` : ""}`;
         case "promesa_creada":
             return `${actor} registró una promesa de pago`;
+        case "reconexion_pedida":
+            // 3b (§17.8.2): `detalle` = pendiente | aceptada | rechazada. Argos decide.
+            return textoReconexion(actor, e.detalle);
+        case "identidad_verificada":
+        case "verificar_identidad":
+            // Nunca el dato: solo si coincidió (`detalle`: coincide | no_coincide | no_disponible | error).
+            return e.detalle && e.detalle !== "coincide" ? `${actor} pidió verificar la identidad del cliente: no se pudo` : `${actor} verificó la identidad del cliente`;
+        case "paso_a_persona":
+            return `${actor} pasó la conversación a una persona`;
         case "respondio_aviso":
             return `Respondió al aviso «${e.plantilla ?? "aviso"}»`;
         case "fuera_de_horario":

@@ -41,6 +41,8 @@ import { SelectorCliente } from "@/componentes/clientes/selector-cliente";
 import { AyudaManuales } from "./ayuda";
 import { BoletasConversacion } from "./boletas";
 import { ResumenAsistente } from "./resumen-asistente";
+import { IndicadorVerificacion } from "./verificacion";
+import { nivelVerificacion } from "@/lib/asistente/fase3b";
 import type { EstadoAsistente } from "@/lib/asistente/tipos";
 import { useAhora } from "./reloj";
 
@@ -168,6 +170,15 @@ function CabeceraCliente({ conv, alActualizar }: { conv: ConversacionDetalle; al
                     )}
                     <dt className="text-muted-foreground">Teléfono</dt>
                     <dd className="truncate text-right tabular-nums">{formatearNumero(conv.numero)}</dd>
+                    {nivelVerificacion(conv.contacto) !== undefined ? (
+                        <>
+                            <dt className="text-muted-foreground">Verificación</dt>
+                            <dd className="flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-0.5">
+                                <IndicadorVerificacion contacto={conv.contacto} detalle className="text-[0.8125rem]" />
+                                <ConfirmarIdentidad conv={conv} alActualizar={alActualizar} />
+                            </dd>
+                        </>
+                    ) : null}
                 </dl>
             ) : (
                 <Aviso tono="warning" titulo="Sin datos de Argos">
@@ -255,7 +266,7 @@ function ClienteSinConfirmar({ conv, alActualizar }: { conv: ConversacionDetalle
                                 body: { version: conv.version },
                             }),
                         );
-                        avisar({ titulo: `Cliente de ${c.titulo} confirmado` });
+                        avisar(avisoDeConfirmado(c));
                         alActualizar(c);
                         setConfirmar(false);
                     } catch (e) {
@@ -265,6 +276,68 @@ function ClienteSinConfirmar({ conv, alActualizar }: { conv: ConversacionDetalle
                 }}
             />
         </Aviso>
+    );
+}
+
+/**
+ * Lo que se dice después de `confirmar-cliente`, según lo que **responde el servidor**: confirmar
+ * el cliente de una conversación resuelta responde 200 pero no verifica su identidad (§17.8.2).
+ */
+function avisoDeConfirmado(c: Conversacion): { titulo: string; descripcion?: string } {
+    const nivel = nivelVerificacion(c.contacto);
+    if (nivel === "fuerte") return { titulo: `Identidad de ${c.titulo} verificada`, descripcion: "Vale por un tiempo en esta conversación." };
+    if (nivel === undefined) return { titulo: `Cliente de ${c.titulo} confirmado` };
+    return { titulo: `Cliente de ${c.titulo} confirmado`, descripcion: "Su identidad no quedó verificada: solo se verifica en una conversación abierta." };
+}
+
+/**
+ * Cliente reconocido por su número (`verificacion: "numero"`): quien supervisa puede dar fe de su
+ * identidad (`POST …/confirmar-cliente` lo sube a `fuerte`, §17.8.2) cuando ya la comprobó por su
+ * cuenta. El resultado se lee de la respuesta; aquí no se marca nada como verificado.
+ */
+function ConfirmarIdentidad({ conv, alActualizar }: { conv: ConversacionDetalle; alActualizar: (c: Conversacion) => void }) {
+    const { puede } = useSesion();
+    const [abierto, setAbierto] = useState(false);
+    const [error, setError] = useState<unknown>(null);
+    if (nivelVerificacion(conv.contacto) !== "numero" || conv.estado === "resuelta" || conv.soloLectura || !puede(["conversaciones.supervisar"])) return null;
+    return (
+        <>
+            <Boton variante="enlace" className="h-auto p-0 text-[0.8125rem]" onClick={() => setAbierto(true)}>
+                Confirmar identidad
+            </Boton>
+            <DialogoConfirmar
+                open={abierto}
+                onOpenChange={(v) => {
+                    setAbierto(v);
+                    if (!v) setError(null);
+                }}
+                titulo={`¿Confirmar que hablas con ${conv.titulo}?`}
+                descripcion="Hazlo solo si ya comprobaste quién es (por ejemplo, con su DPI o NIT). Vale por un tiempo en esta conversación; después vuelve a «Su número coincide»."
+                textoConfirmar="Confirmar identidad"
+                alConfirmar={async () => {
+                    setError(null);
+                    try {
+                        const c = await resolver(
+                            api().POST(`${BASE}/confirmar-cliente`, {
+                                params: { path: { id: conv.id }, header: cabeceraIdem(nuevaClaveIdempotencia()) },
+                                body: { version: conv.version },
+                            }),
+                        );
+                        avisar(avisoDeConfirmado(c));
+                        alActualizar(c);
+                        setAbierto(false);
+                    } catch (e) {
+                        setError(e);
+                    }
+                }}
+            >
+                {error ? (
+                    <Aviso tono="error" titulo="No se pudo confirmar">
+                        {error instanceof ErrorApi && error.estado === 409 ? "Alguien más cambió la conversación: ciérralo y vuelve a intentar." : mensajeDeError(error).titulo}
+                    </Aviso>
+                ) : null}
+            </DialogoConfirmar>
+        </>
     );
 }
 

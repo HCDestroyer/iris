@@ -1,15 +1,17 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { avisar, Aviso, CampoNumero, CampoSelector, Casilla, FormularioPagina, liberarProteccion, SeccionFormulario } from "@iris/ui";
-import { CircleCheck } from "lucide-react";
+import { avisar, Aviso, Boton, CampoNumero, CampoSelector, Casilla, FormularioPagina, liberarProteccion, SeccionFormulario } from "@iris/ui";
+import { ChevronDown, ChevronRight, CircleCheck } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { CargaRegistro } from "@/componentes/carga-registro";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { guardarAjustesAsistente, leerAjustesAsistente } from "@/lib/asistente/api";
-import { CLAVES_ACCION, completar, entradaLimites, esquemaLimites, NOMBRE_ACCION, NOMBRE_PRIORIDAD, PRIORIDADES, valoresLimites, type ClaveAccion, type ValoresLimites } from "@/lib/asistente/fase3";
+import { CLAVES_ACCION, completar, entradaLimites, esquemaLimites, minutosLegibles, NOMBRE_ACCION, NOMBRE_PRIORIDAD, PRIORIDADES, valoresLimites, type ClaveAccion, type ValoresLimites } from "@/lib/asistente/fase3";
+import { perfilesDe, resumenPerfil } from "@/lib/asistente/fase3b";
 import type { AjustesAsistente } from "@/lib/asistente/tipos";
 import { leerColas } from "@/lib/conversaciones/api-equipo";
 import type { Cola } from "@/lib/conversaciones/tipos";
@@ -23,7 +25,8 @@ const SIEMPRE: readonly string[] = [
     "Al llegar una persona, ella toma el control",
 ];
 
-const CAMPOS = ["prioridadMaxima", "diasAdelanteMax", "maxTurnos"] as const;
+const CAMPOS = ["prioridadMaxima", "diasAdelanteMax", "maxTurnos", "presupuestoAutonomoPct", "verificacionFuerteMin"] as const;
+const AVANZADOS: readonly (typeof CAMPOS)[number][] = ["presupuestoAutonomoPct", "verificacionFuerteMin"];
 
 /**
  * `/administracion/asistente/limites` (`mensajeria.asistente_configurar`): hasta dónde llega el
@@ -49,11 +52,15 @@ function Formulario({ ajustes, colas }: { ajustes: AjustesAsistente; colas: Cola
     const [error, setError] = useState<unknown>(null);
     const form = useForm<ValoresLimites>({ resolver: zodResolver(esquemaLimites), defaultValues: valoresLimites(ajustes) });
     const porCola = useWatch({ control: form.control, name: "porCola" });
+    const [presupuesto, vigencia] = useWatch({ control: form.control, name: ["presupuestoAutonomoPct", "verificacionFuerteMin"] });
     const errores = form.formState.errors;
+    // Lo avanzado va plegado; se abre solo si tiene un error que corregir.
+    const [abierto, setAbierto] = useState(false);
+    const avanzado = abierto || AVANZADOS.some((c) => errores[c]);
     const conflicto = error instanceof ErrorApi && error.estado === 409;
     // Las colas activas y, además, las que ya tienen algo apagado.
     const visibles = colas.filter((c) => c.activa || (porCola[String(c.id)]?.length ?? 0) > 0);
-    const otros = (ajustes.perfiles ?? []).slice(1);
+    const otros = perfilesDe(ajustes).slice(1);
 
     function alternar(colaId: number, accion: ClaveAccion, apagada: boolean) {
         const actual = form.getValues("porCola")[String(colaId)] ?? [];
@@ -144,20 +151,57 @@ function Formulario({ ajustes, colas }: { ajustes: AjustesAsistente; colas: Cola
                     );
                 })}
             </SeccionFormulario>
-            {otros.length > 0 ? (
-                <SeccionFormulario titulo="Perfiles por horario" descripcion="Otros perfiles de esta empresa, que se usan en las franjas de los horarios. Aquí se ajusta el general; los demás se conservan como están.">
+            <SeccionFormulario titulo="Perfiles por horario" descripcion="Para que de noche o en fin de semana haga otra cosa. Aquí se ajusta el general; los demás se conservan como están.">
+                {otros.length > 0 ? (
                     <ul aria-label="Perfiles por horario" className="grid gap-1.5 text-sm">
                         {otros.map((p) => (
                             <li key={p.codigo} className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-                                <span className="font-semibold">{p.nombre}</span>
-                                <span className="text-muted-foreground">
-                                    {CLAVES_ACCION.filter((a) => p.acciones[a]).length} de {CLAVES_ACCION.length} acciones · prioridad hasta {NOMBRE_PRIORIDAD[p.limites.prioridadMaxima].toLowerCase()}
-                                </span>
+                                <span className="font-semibold [overflow-wrap:anywhere]">{p.nombre}</span>
+                                <span className="text-muted-foreground">{resumenPerfil(p)}</span>
                             </li>
                         ))}
                     </ul>
-                </SeccionFormulario>
-            ) : null}
+                ) : (
+                    <p className="text-sm text-muted-foreground">Todavía no hay otros perfiles.</p>
+                )}
+                <Link href="/administracion/asistente/perfiles" className="inline-flex items-center gap-0.5 justify-self-start text-sm font-medium text-primary underline-offset-2 hover:underline">
+                    Ver y editar los perfiles
+                    <ChevronRight aria-hidden className="size-4" />
+                </Link>
+            </SeccionFormulario>
+            <section aria-labelledby="titulo-avanzado" data-slot="avanzado" className="surface-card grid min-w-0 gap-4 p-4 sm:p-5">
+                <h2 id="titulo-avanzado" className="min-w-0">
+                    <Boton variante="fantasma" className="h-auto w-full justify-between gap-3 px-0 py-0 text-left hover:bg-transparent" aria-expanded={avanzado} aria-controls="campos-avanzados" onClick={() => setAbierto(!avanzado)}>
+                        <span className="grid min-w-0 gap-0.5">
+                            <span className="text-base font-semibold tracking-[-0.015em]">Avanzado</span>
+                            <span className="text-sm font-normal text-muted-foreground [overflow-wrap:anywhere] whitespace-normal">
+                                Gasta hasta el {presupuesto || "—"} % del tope atendiendo solo · la identidad vale {/^\d+$/.test(vigencia) ? minutosLegibles(Number(vigencia)) : "—"}
+                            </span>
+                        </span>
+                        <ChevronDown aria-hidden className={avanzado ? "size-5 shrink-0 rotate-180 transition-transform" : "size-5 shrink-0 transition-transform"} />
+                    </Boton>
+                </h2>
+                {avanzado ? (
+                    <div id="campos-avanzados" className="grid gap-4 sm:grid-cols-2">
+                        <CampoNumero
+                            etiqueta="Parte del tope del mes para atender solo (%)"
+                            minimo={1}
+                            maximo={100}
+                            ayuda="Al llegar a esta parte del tope, el asistente deja de atender solo y las conversaciones siguen a la cola. Las sugerencias a tus agentes siguen con el resto. De fábrica: 70."
+                            error={errores.presupuestoAutonomoPct?.message}
+                            {...form.register("presupuestoAutonomoPct")}
+                        />
+                        <CampoNumero
+                            etiqueta="Minutos que vale la verificación de identidad"
+                            minimo={5}
+                            maximo={1440}
+                            ayuda="Después de verificar su DPI o NIT, el cliente puede pedir promesas o reconexión durante este tiempo; luego se le pide otra vez. Si lo acortas, también se acortan las ya dadas. De fábrica: 60."
+                            error={errores.verificacionFuerteMin?.message}
+                            {...form.register("verificacionFuerteMin")}
+                        />
+                    </div>
+                ) : null}
+            </section>
             <SeccionFormulario titulo="Siempre">
                 <ul className="grid gap-1.5" aria-label="Lo que el asistente hace siempre">
                     {SIEMPRE.map((t) => (

@@ -1,7 +1,7 @@
 "use client";
 
 import { Boton, Cargando, cn } from "@iris/ui";
-import { AlertTriangle, ArrowLeftRight, Bot, FileText, History, MapPin, MessageCircle, Paperclip, PencilLine, RotateCw, Smartphone, Sparkles, Timer } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, Bot, FileText, History, MapPin, MessageCircle, Paperclip, PencilLine, Plug, RotateCw, ShieldCheck, Smartphone, Sparkles, Timer, UserRound } from "lucide-react";
 import { Fragment, useEffect, useLayoutEffect, useRef } from "react";
 import type { Pendiente } from "@/lib/conversaciones/estado";
 import { hora, separadorDia, tamanoLegible, textoEntrega, textoEvento } from "@/lib/conversaciones/presentacion";
@@ -140,7 +140,18 @@ function Burbuja({ m }: { m: Mensaje }) {
     if (m.direccion === "sistema") {
         const tipo = m.evento?.tipo ?? "";
         const bot = esEventoBot(tipo);
-        const Icono = tipo === "bot_atendio" || tipo === "menu_elegido" ? Bot : tipo === "aviso_sin_atender" ? Timer : tipo === "pasada" ? ArrowLeftRight : MessageCircle;
+        const Icono =
+            tipo === "bot_atendio" || tipo === "menu_elegido"
+                ? Bot
+                : tipo === "aviso_sin_atender"
+                  ? Timer
+                  : tipo === "pasada"
+                    ? ArrowLeftRight
+                    : tipo === "reconexion_pedida"
+                      ? Plug
+                      : tipo === "identidad_verificada" || tipo === "verificar_identidad"
+                        ? ShieldCheck
+                        : MessageCircle;
         return (
             <p
                 className={cn(
@@ -175,58 +186,68 @@ function Burbuja({ m }: { m: Mensaje }) {
         .filter(Boolean)
         .join(" · ");
     return (
-        <div
-            data-mensaje={m.id}
-            data-direccion={m.direccion}
-            data-autor={delAsistente ? "asistente_ia" : undefined}
-            className={cn(
-                "flex max-w-[min(72%,35rem)] min-w-0 flex-col gap-0.5 rounded-[0.875rem] px-3 py-2",
-                m.direccion === "entrante" && "self-start rounded-bl-sm border border-border bg-card",
-                propia && !delBot && !delAsistente && "self-end rounded-br-sm bg-primary/10",
-                propia && delAsistente && "self-end rounded-br-sm border border-primary/30 bg-primary/[0.06]",
-                delBot && "self-end rounded-br-sm border border-dashed border-info/40 bg-card",
-                nota && "self-end rounded-br-sm border border-dashed border-warning/50 bg-warning/10",
-                propia && m.estadoEntrega === "fallido" && "ring-1 ring-error/40",
-            )}
-        >
-            {nota ? <EtiquetaNota delAsistente={delAsistente} /> : null}
-            {propia && delAsistente ? <EtiquetaAsistente /> : null}
-            {desdeTelefono ? (
-                <span className="flex items-center gap-1 text-[0.6875rem] font-semibold text-muted-foreground" data-slot="etiqueta-telefono">
-                    <Smartphone aria-hidden className="size-3.5" />
-                    Desde el teléfono
-                </span>
-            ) : delHistorial ? (
-                <span className="flex items-center gap-1 text-[0.6875rem] font-semibold text-muted-foreground" data-slot="etiqueta-historial">
-                    <History aria-hidden className="size-3.5" />
-                    Del historial del teléfono
-                </span>
+        <>
+            {nota && delAsistente ? (
+                // 3b: la nota del asistente es su relevo: desde aquí sigue una persona.
+                <p data-slot="relevo-asistente" className="flex max-w-full min-w-0 items-center gap-1.5 self-center rounded-full border border-primary/30 bg-primary/[0.06] px-2.5 py-0.5 text-xs font-medium text-primary">
+                    <UserRound aria-hidden className="size-3.5 shrink-0" />
+                    <span className="truncate">El asistente la pasó a una persona</span>
+                    <span className="shrink-0 tabular-nums">· {hora(m.creadoEn)}</span>
+                </p>
             ) : null}
-            {delBot ? (
-                <span className="flex items-center gap-1 text-[0.6875rem] font-semibold text-info" data-slot="etiqueta-bot">
-                    <Bot aria-hidden className="size-3.5" />
-                    Bot · mensaje automático
-                </span>
-            ) : null}
-            {m.adjunto ? <Adjunto m={m} /> : null}
-            {m.ubicacion ? (
-                <a
-                    className="flex items-center gap-1.5 text-sm text-primary underline-offset-2 hover:underline"
-                    href={`https://www.openstreetmap.org/?mlat=${m.ubicacion.lat}&mlon=${m.ubicacion.lon}#map=17/${m.ubicacion.lat}/${m.ubicacion.lon}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                >
-                    <MapPin aria-hidden className="size-4" />
-                    Ver ubicación
-                </a>
-            ) : null}
-            {m.plantilla ? <span className="text-[0.6875rem] font-semibold text-muted-foreground">Plantilla «{m.plantilla.codigo}»</span> : null}
-            {m.texto ? <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">{m.texto}</p> : null}
-            {nota && (m.menciones?.length ?? 0) > 0 ? (
-                <span className="text-xs text-muted-foreground [overflow-wrap:anywhere]">Para {(m.menciones ?? []).map((u) => `@${u.nombre}`).join(", ")}</span>
-            ) : null}
-            <span className={cn("self-end text-[0.71875rem] text-muted-foreground", m.estadoEntrega === "fallido" && "text-error")}>{pie}</span>
-        </div>
+            <div
+                data-mensaje={m.id}
+                data-direccion={m.direccion}
+                data-autor={delAsistente ? "asistente_ia" : undefined}
+                className={cn(
+                    "flex max-w-[min(72%,35rem)] min-w-0 flex-col gap-0.5 rounded-[0.875rem] px-3 py-2",
+                    m.direccion === "entrante" && "self-start rounded-bl-sm border border-border bg-card",
+                    propia && !delBot && !delAsistente && "self-end rounded-br-sm bg-primary/10",
+                    propia && delAsistente && "self-end rounded-br-sm border border-primary/30 bg-primary/[0.06]",
+                    delBot && "self-end rounded-br-sm border border-dashed border-info/40 bg-card",
+                    nota && "self-end rounded-br-sm border border-dashed border-warning/50 bg-warning/10",
+                    propia && m.estadoEntrega === "fallido" && "ring-1 ring-error/40",
+                )}
+            >
+                {nota ? <EtiquetaNota delAsistente={delAsistente} /> : null}
+                {propia && delAsistente ? <EtiquetaAsistente /> : null}
+                {desdeTelefono ? (
+                    <span className="flex items-center gap-1 text-[0.6875rem] font-semibold text-muted-foreground" data-slot="etiqueta-telefono">
+                        <Smartphone aria-hidden className="size-3.5" />
+                        Desde el teléfono
+                    </span>
+                ) : delHistorial ? (
+                    <span className="flex items-center gap-1 text-[0.6875rem] font-semibold text-muted-foreground" data-slot="etiqueta-historial">
+                        <History aria-hidden className="size-3.5" />
+                        Del historial del teléfono
+                    </span>
+                ) : null}
+                {delBot ? (
+                    <span className="flex items-center gap-1 text-[0.6875rem] font-semibold text-info" data-slot="etiqueta-bot">
+                        <Bot aria-hidden className="size-3.5" />
+                        Bot · mensaje automático
+                    </span>
+                ) : null}
+                {m.adjunto ? <Adjunto m={m} /> : null}
+                {m.ubicacion ? (
+                    <a
+                        className="flex items-center gap-1.5 text-sm text-primary underline-offset-2 hover:underline"
+                        href={`https://www.openstreetmap.org/?mlat=${m.ubicacion.lat}&mlon=${m.ubicacion.lon}#map=17/${m.ubicacion.lat}/${m.ubicacion.lon}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >
+                        <MapPin aria-hidden className="size-4" />
+                        Ver ubicación
+                    </a>
+                ) : null}
+                {m.plantilla ? <span className="text-[0.6875rem] font-semibold text-muted-foreground">Plantilla «{m.plantilla.codigo}»</span> : null}
+                {m.texto ? <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">{m.texto}</p> : null}
+                {nota && (m.menciones?.length ?? 0) > 0 ? (
+                    <span className="text-xs text-muted-foreground [overflow-wrap:anywhere]">Para {(m.menciones ?? []).map((u) => `@${u.nombre}`).join(", ")}</span>
+                ) : null}
+                <span className={cn("self-end text-[0.71875rem] text-muted-foreground", m.estadoEntrega === "fallido" && "text-error")}>{pie}</span>
+            </div>
+        </>
     );
 }
 

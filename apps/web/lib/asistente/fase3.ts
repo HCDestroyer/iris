@@ -38,16 +38,20 @@ export const PRIORIDADES = ["baja", "media", "alta", "critica"] as const;
 export type PrioridadTicket = (typeof PRIORIDADES)[number];
 export const NOMBRE_PRIORIDAD: Record<PrioridadTicket, string> = { baja: "Baja", media: "Media", alta: "Alta", critica: "Crítica" };
 
+/**
+ * El perfil de fábrica (§17.8.2): solo dudas, fallas y tickets. Lo que toca dinero o el servicio
+ * (saldo, boletas, promesas, reconexión) y las visitas vienen apagadas: cada empresa las enciende.
+ */
 export const PERFIL_POR_DEFECTO: PerfilAsistente = {
     codigo: "defecto",
     nombre: "General",
     acciones: {
         responder_dudas: true,
         avisar_fallas: true,
-        dar_saldo: true,
+        dar_saldo: false,
         crear_ticket: true,
-        agendar_visita: true,
-        recibir_boleta: true,
+        agendar_visita: false,
+        recibir_boleta: false,
         promesa_pago: false,
         reconexion_temporal: false,
         pasar_a_persona: true,
@@ -56,11 +60,32 @@ export const PERFIL_POR_DEFECTO: PerfilAsistente = {
 };
 
 /** Los ajustes con lo de §17 completo: un servidor anterior no lo manda (queda en «Nunca», sin actuar solo). */
-export type AjustesCompletos = AjustesAsistente & { autonomoDisponible: boolean; modoAutonomo: ModoAutonomo; esperaMin: number; maxTurnos: number };
+export type AjustesCompletos = AjustesAsistente & {
+    autonomoDisponible: boolean;
+    modoAutonomo: ModoAutonomo;
+    esperaMin: number;
+    maxTurnos: number;
+    presupuestoAutonomoPct: number;
+    verificacionFuerteMin: number;
+};
 
 export function completar(a: AjustesAsistente): AjustesCompletos {
-    return { ...a, autonomoDisponible: a.autonomoDisponible ?? false, modoAutonomo: a.modoAutonomo ?? "nunca", esperaMin: a.esperaMin ?? 3, maxTurnos: a.maxTurnos ?? 8 };
+    return {
+        ...a,
+        autonomoDisponible: a.autonomoDisponible ?? false,
+        modoAutonomo: a.modoAutonomo ?? "nunca",
+        esperaMin: a.esperaMin ?? 3,
+        maxTurnos: a.maxTurnos ?? 8,
+        presupuestoAutonomoPct: a.presupuestoAutonomoPct ?? 70,
+        verificacionFuerteMin: a.verificacionFuerteMin ?? 60,
+    };
 }
+
+/**
+ * ¿Para dar el saldo hay que verificar la identidad (DPI o NIT)? Ausente = sí (§17.8.2). Es lo único
+ * que una empresa puede bajar a «basta con su número».
+ */
+export const saldoExigeIdentidad = (p: Pick<PerfilAsistente, "exigeVerificacionFuerte">): boolean => p.exigeVerificacionFuerte?.dar_saldo ?? true;
 
 /** El perfil «defecto» (el primero): el que edita la pantalla simple. */
 export function perfilDefecto(a: Pick<AjustesAsistente, "perfiles">): PerfilAsistente {
@@ -68,7 +93,7 @@ export function perfilDefecto(a: Pick<AjustesAsistente, "perfiles">): PerfilAsis
 }
 
 /** Los perfiles con el «defecto» cambiado; los demás (por horario) viajan igual. */
-export function conPerfilDefecto(a: Pick<AjustesAsistente, "perfiles">, cambio: Partial<Pick<PerfilAsistente, "acciones" | "limites">>): PerfilAsistente[] {
+export function conPerfilDefecto(a: Pick<AjustesAsistente, "perfiles">, cambio: Partial<Pick<PerfilAsistente, "acciones" | "limites" | "exigeVerificacionFuerte">>): PerfilAsistente[] {
     const [, ...resto] = a.perfiles ?? [];
     return [{ ...perfilDefecto(a), ...cambio }, ...resto];
 }
@@ -117,6 +142,8 @@ export const esquemaPrincipal = z.object({
     modoAutonomo: z.enum(["nunca", "sin_nadie", "siempre_primero"]),
     esperaMin: z.number().int().min(1, "Entre 1 y 60 minutos").max(60, "Entre 1 y 60 minutos"),
     acciones,
+    /** Dar el saldo con solo el número del cliente (`exigeVerificacionFuerte.dar_saldo: false`). */
+    saldoConNumero: z.boolean(),
     /** Modo por categoría (`id` como texto → modo). */
     modos: z.record(z.string(), z.enum(["responde_solo", "sugiere"])),
 });
@@ -131,15 +158,23 @@ export function valoresPrincipal(a: AjustesAsistente, categorias: readonly Categ
         modoAutonomo: c.modoAutonomo,
         esperaMin: c.esperaMin,
         acciones: soloAcciones(perfilDefecto(a).acciones),
+        saldoConNumero: !saldoExigeIdentidad(perfilDefecto(a)),
         modos: Object.fromEntries(categorias.map((x) => [String(x.id), modoDe(x)])),
     };
 }
 
 /** ¿Cambió algo de los ajustes (no de las categorías) en la pantalla principal? */
 export function cambianAjustes(a: AjustesAsistente, d: ValoresPrincipal): boolean {
-    const guardadas = perfilDefecto(a).acciones;
+    const perfil = perfilDefecto(a);
+    const guardadas = perfil.acciones;
     const c = completar(a);
-    return a.activo !== d.activo || c.modoAutonomo !== d.modoAutonomo || c.esperaMin !== d.esperaMin || CLAVES_ACCION.some((x) => guardadas[x] !== d.acciones[x]);
+    return (
+        a.activo !== d.activo ||
+        c.modoAutonomo !== d.modoAutonomo ||
+        c.esperaMin !== d.esperaMin ||
+        saldoExigeIdentidad(perfil) === d.saldoConNumero ||
+        CLAVES_ACCION.some((x) => guardadas[x] !== d.acciones[x])
+    );
 }
 
 /** Lo que la pantalla principal manda al guardar: lo de la conexión igual y lo suyo cambiado. */
@@ -149,11 +184,11 @@ export function entradaPrincipal(a: AjustesAsistente, d: ValoresPrincipal): Entr
         activo: d.activo,
         modoAutonomo: d.modoAutonomo,
         esperaMin: d.esperaMin,
-        perfiles: conPerfilDefecto(a, { acciones: { ...d.acciones, pasar_a_persona: true } }),
+        perfiles: conPerfilDefecto(a, { acciones: { ...d.acciones, pasar_a_persona: true }, exigeVerificacionFuerte: { dar_saldo: !d.saldoConNumero } }),
     };
 }
 
-const entero = (min: number, max: number, mensaje: string) =>
+export const entero = (min: number, max: number, mensaje: string) =>
     z
         .string()
         .trim()
@@ -164,6 +199,10 @@ export const esquemaLimites = z.object({
     prioridadMaxima: z.enum(PRIORIDADES),
     diasAdelanteMax: entero(1, 14, "Entre 1 y 14 días"),
     maxTurnos: entero(2, 20, "Entre 2 y 20 mensajes"),
+    /** Avanzado (§17.8.2): parte del tope del mes que puede gastar atendiendo solo. */
+    presupuestoAutonomoPct: entero(1, 100, "Entre 1 y 100 %"),
+    /** Avanzado (§17.8.2): minutos que vale la verificación de identidad. */
+    verificacionFuerteMin: entero(5, 1440, "Entre 5 y 1,440 minutos (un día)"),
     /** Acciones apagadas por cola (`colaId` como texto → claves). */
     porCola: z.record(z.string(), z.array(z.enum(CLAVES_ACCION))),
 });
@@ -177,6 +216,8 @@ export function valoresLimites(a: AjustesAsistente): ValoresLimites {
         prioridadMaxima: p.limites.prioridadMaxima,
         diasAdelanteMax: String(p.limites.diasAdelanteMax),
         maxTurnos: String(completar(a).maxTurnos),
+        presupuestoAutonomoPct: String(completar(a).presupuestoAutonomoPct),
+        verificacionFuerteMin: String(completar(a).verificacionFuerteMin),
         porCola: Object.fromEntries((a.porCola ?? []).map((c) => [String(c.colaId), (c.accionesApagadas ?? []).filter(esAccion)])),
     };
 }
@@ -203,6 +244,8 @@ export function entradaLimites(a: AjustesAsistente, d: ValoresLimites): EntradaA
     return {
         ...entradaGuardada(a),
         maxTurnos: Number(d.maxTurnos),
+        presupuestoAutonomoPct: Number(d.presupuestoAutonomoPct),
+        verificacionFuerteMin: Number(d.verificacionFuerteMin),
         perfiles: conPerfilDefecto(a, { limites: { prioridadMaxima: d.prioridadMaxima, diasAdelanteMax: Number(d.diasAdelanteMax) } }),
         porCola: porColaDe(a, d.porCola),
     };
@@ -392,6 +435,11 @@ export function duracionLegible(seg: number): string {
 /** ¿El mensaje lo escribió el asistente (y no una persona ni el bot de menú)? (3b) */
 export function esDelAsistente(m: { autorTipo?: string | null | undefined; automatico?: string | null | undefined }): boolean {
     return m.autorTipo === "asistente_ia" || m.automatico === "asistente";
+}
+
+/** ¿El asistente dejó la conversación en la cola, esperando a una persona? (3b) */
+export function asistenteEspera(c: { asistente?: { estado: string } | undefined; estado: string }): boolean {
+    return c.asistente?.estado === "espera_persona" && c.estado !== "resuelta";
 }
 
 /** ¿El asistente está atendiendo solo la conversación? (3b: `asistente.estado`) */

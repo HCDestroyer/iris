@@ -24,6 +24,8 @@ import { FichaCliente, type PestanaFicha } from "./ficha";
 import { Hilo } from "./hilo";
 import { useAhora, useAncho } from "./reloj";
 import { BotonSugerir, PausaAsistente, TarjetaSugerencia, useAsistente } from "./sugerencia";
+import { IndicadorVerificacion } from "./verificacion";
+import { nivelVerificacion } from "@/lib/asistente/fase3b";
 
 type Props = {
     id: number;
@@ -240,6 +242,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
     }
 
     const tono = tonoDeCanal(conv.canal);
+    const conVerificacion = conv.contacto.tipo === "cliente" && nivelVerificacion(conv.contacto) !== undefined;
     const ficha = (
         <FichaCliente
             conv={conv}
@@ -273,7 +276,9 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                         <h2 className="truncate text-[0.9375rem] font-semibold">{tituloVisible(conv)}</h2>
                         <span className="flex min-w-0 items-center gap-1.5 text-[0.78125rem] text-muted-foreground">
                             <PildoraCanal canal={conv.canal} className="shrink-0" />
-                            <span className="truncate tabular-nums">{formatearNumero(conv.numero)}</span>
+                            {/* En el teléfono no caben los dos: con el nivel de verificación a la vista, el número queda en la ficha. */}
+                            <span className={cn("truncate tabular-nums", conVerificacion && "hidden @min-[700px]/conv:inline")}>{formatearNumero(conv.numero)}</span>
+                            <IndicadorVerificacion contacto={conv.contacto} />
                         </span>
                     </div>
                     <AccionesConversacion conv={conv} estrecho={anchoSeccion > 0 && anchoSeccion < 480} alActualizar={aplicarConversacion} recargar={refrescarDetalle} abrirAyuda={abrirAyuda} />

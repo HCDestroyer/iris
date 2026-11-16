@@ -588,6 +588,43 @@ Diseño «más amigable y práctico» del PM (contrato `conversaciones.md` §17 
 - Pruebas: `e2e/asistente-3.spec.ts` y `e2e/boletas.spec.ts` (4 proyectos),
   `lib/asistente/fase3.test.ts` y `lib/conversaciones/boletas.test.ts`.
 
+### Fase 3b: el asistente atiende solo (nov. 2026)
+
+Contrato: `.claude/integration/contratos/conversaciones.md` §17.8, §17.8.1 y §17.8.2. Lógica pura en
+`apps/web/lib/asistente/fase3b.ts`.
+
+- **Pregunta 2 en dos bloques** (`componentes/asistente/acciones.tsx`, la usan la pantalla simple y
+  el editor de perfiles): primero lo de todos los días y, aparte, «Con dinero o con el servicio»
+  (recibir boletas, dar el saldo, promesas, reconexión). Lo de dinero viene **apagado** y lleva un
+  `Aviso` de información que dice en llano que antes se verifica la identidad (DPI o NIT con
+  Argos). Debajo de cada acción va lo que se le pide al cliente (`requisitoDe`). Solo «Dar el saldo»
+  se puede bajar a «con solo su número» (una `Casilla` que aparece al encenderlo:
+  `exigeVerificacionFuerte.dar_saldo: false`).
+- **Lo avanzado va plegado.** En «Límites», la sección «Avanzado» es un botón con `aria-expanded`
+  que resume los valores («Gasta hasta el 70 % del tope… · la identidad vale 1 h») y se abre sola si
+  un campo suyo tiene un error. Cada campo trae su ayuda y su valor de fábrica.
+- **Perfiles por horario** (`/administracion/asistente/perfiles`, `/nuevo`, `/[codigo]/editar`):
+  lista con «El de siempre», resumen («4 acciones encendidas · 1 de dinero») y dónde se usa; el
+  formulario va en su pantalla. El código lo arma el panel con el nombre (`codigoDePerfil`): la
+  persona no lo ve ni lo escribe, y no cambia al editar. El general no se quita. Quitar un perfil
+  pide confirmación y dice qué horarios lo usan.
+- **Horarios:** cada franja (y cada feriado abierto) elige «qué hace el asistente»: lo de siempre,
+  solo sugerir u otro perfil. El selector solo aparece si el asistente atiende solo, hay más de un
+  perfil o la franja ya tiene uno; sin permiso para leer los ajustes, `perfil` se conserva tal cual.
+- **Verificación del cliente** (`componentes/conversaciones/verificacion.tsx`): punto + icono +
+  texto, en la cabecera de la conversación y en la ficha. `fuerte` = «Identidad verificada» (verde),
+  `numero` = «Su número coincide» (gris), `null` = «Sin verificar» (ámbar). **Sale solo de
+  `contacto.verificacion`**: el panel nunca lo deduce de una acción propia (baja sola de `fuerte` a
+  `numero`, y confirmar el cliente de una conversación resuelta no lo sube). Si el servidor no manda
+  el campo no se muestra nada. En el teléfono el indicador ocupa el lugar del número (queda en la
+  ficha).
+- **Relevo a una persona:** la nota interna del asistente lleva antes una píldora teal «El asistente
+  la pasó a una persona · hora», y la franja de la conversación dice «El asistente la pasó a una
+  persona: espera en la cola» con «Tomar» mientras nadie la tenga.
+- **Mensajes de sistema nuevos:** `reconexion_pedida` («Reconexión temporal: Argos la aceptó (la
+  pidió …)», con lo que decidió Argos primero porque la línea se corta por el final) y, si el
+  servidor los manda, `verificar_identidad` / `identidad_verificada` (nunca el dato).
+
 ## Navegación del panel (fase 1, hecha)
 
 - **Barra lateral por grupos:**

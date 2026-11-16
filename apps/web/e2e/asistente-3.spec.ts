@@ -46,7 +46,7 @@ test.describe("Administración › Asistente de IA: las tres preguntas", () => {
         await expect(f.getByRole("radio", { name: "Nunca" })).toBeChecked();
         await expect(f.getByRole("radio", { name: "Cuando no hay nadie (próximamente)" })).toBeDisabled();
         await expect(f.getByRole("radio", { name: "Siempre primero (próximamente)" })).toBeDisabled();
-        await expect(f.getByText("Próximamente")).toHaveCount(2);
+        await expect(f.getByText("Próximamente", { exact: true })).toHaveCount(2);
         await expect(f.getByText("Recomendado")).toHaveCount(0);
         // 2 · Los interruptores se guardan, con la nota.
         await expect(f.locator('[data-slot="nota-autonomo"]')).toHaveText("Se aplicará cuando el asistente atienda solo.");
@@ -80,7 +80,7 @@ test.describe("Administración › Asistente de IA: las tres preguntas", () => {
         const f = principal(page);
         await expect(f.getByRole("radio", { name: "Cuando no hay nadie" })).toBeChecked();
         await expect(f.getByText("Recomendado")).toBeVisible();
-        await expect(f.getByText("Próximamente")).toHaveCount(0);
+        await expect(f.getByText("Próximamente", { exact: true })).toHaveCount(0);
         await expect(f.locator('[data-slot="nota-autonomo"]')).toHaveCount(0);
         const espera = f.getByRole("button", { name: /Esperar a un agente/ });
         await esperarOpcion(espera, "3");

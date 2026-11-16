@@ -427,7 +427,15 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                 });
             case "confirmar-cliente":
                 if (!puede("conversaciones.supervisar")) return (await prohibido(), true);
-                return responder(() => (c.contacto = { ...c.contacto, verificado: true }));
+                // §17.8.2: sube a `fuerte` solo en una conversación abierta (resuelta: 200, sin `fuerte`).
+                return responder(
+                    () =>
+                        (c.contacto = {
+                            ...c.contacto,
+                            verificado: true,
+                            ...("verificacion" in c.contacto ? { verificacion: c.estado === "resuelta" ? (c.contacto.verificacion ?? "numero") : ("fuerte" as const) } : {}),
+                        }),
+                );
             case "leer":
                 c.noLeidos = 0;
                 return (await json(route, { conversacionId: c.id, noLeidos: 0 }), true);
