@@ -3,21 +3,13 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { avisar, Aviso, AreaTexto, Boton, Cargando, cn, FormularioPagina, Interruptor, liberarProteccion, ListaEleccion, SeccionFormulario, Selector } from "@iris/ui";
 import {
-    BookOpen,
-    CalendarDays,
     ChevronRight,
-    CircleDollarSign,
     Hand,
-    Handshake,
     Info,
     Moon,
     PlugZap,
-    Plug,
-    Receipt,
     Sparkles,
-    Ticket,
     UserRound,
-    WifiOff,
     Zap,
     type LucideIcon,
 } from "lucide-react";
@@ -25,6 +17,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm, useWatch, type UseFormReturn } from "react-hook-form";
+import { AccionesAsistente } from "@/componentes/asistente/acciones";
 import { ChipCategoria } from "@/componentes/asistente/chip-categoria";
 import { CargaRegistro } from "@/componentes/carga-registro";
 import { ErrorAsistente } from "@/componentes/conversaciones/error-asistente";
@@ -41,7 +34,6 @@ import {
     entradaPrincipal,
     ESPERAS_MIN,
     esquemaPrincipal,
-    NOMBRE_ACCION,
     modoDe,
     NOMBRE_MODO,
     porcentajeSinPersona,
@@ -51,7 +43,6 @@ import {
     textoMotivo,
     valoresPrincipal,
     type Categoria,
-    type ClaveAccion,
     type ModoAutonomo,
     type ModoCategoria,
     type PruebaMensaje,
@@ -68,17 +59,6 @@ const MODOS: readonly { valor: ModoAutonomo; titulo: string; detalle: string; ic
     { valor: "nunca", titulo: "Nunca", detalle: "Solo le sugiere respuestas a tus agentes.", icono: Hand },
     { valor: "sin_nadie", titulo: "Cuando no hay nadie", detalle: "Fuera de horario, o si ningún agente responde a tiempo.", icono: Moon, recomendado: true },
     { valor: "siempre_primero", titulo: "Siempre primero", detalle: "Responde al instante y pasa a una persona cuando hace falta.", icono: Zap },
-];
-
-const ACCIONES: readonly { clave: ClaveAccion; nota?: string; icono: LucideIcon }[] = [
-    { clave: "responder_dudas", nota: "Con tus manuales", icono: BookOpen },
-    { clave: "avisar_fallas", icono: WifiOff },
-    { clave: "crear_ticket", icono: Ticket },
-    { clave: "agendar_visita", icono: CalendarDays },
-    { clave: "recibir_boleta", nota: "Caja las aprueba en Argos", icono: Receipt },
-    { clave: "dar_saldo", nota: "Solo a clientes verificados", icono: CircleDollarSign },
-    { clave: "promesa_pago", nota: "Con las reglas de Argos", icono: Handshake },
-    { clave: "reconexion_temporal", nota: "Con las reglas de Argos", icono: Plug },
 ];
 
 type Datos = { ajustes: AjustesAsistente; categorias: Categoria[] };
@@ -112,7 +92,7 @@ function Formulario({ datos, alGuardar }: { datos: Datos; alGuardar: (d: Datos) 
     const ajustes = completar(datos.ajustes);
     const { categorias } = datos;
     const form = useForm<ValoresPrincipal>({ resolver: zodResolver(esquemaPrincipal), defaultValues: valoresPrincipal(ajustes, datos.categorias) });
-    const [activo, modoAutonomo, esperaMin] = useWatch({ control: form.control, name: ["activo", "modoAutonomo", "esperaMin"] });
+    const [activo, modoAutonomo, esperaMin, saldoConNumero, daSaldo] = useWatch({ control: form.control, name: ["activo", "modoAutonomo", "esperaMin", "saldoConNumero", "acciones.dar_saldo"] });
     const conectado = proveedorConectado(ajustes);
     const conflicto = error instanceof ErrorApi && error.estado === 409;
 
@@ -276,26 +256,18 @@ function Formulario({ datos, alGuardar }: { datos: Datos; alGuardar: (d: Datos) 
                         Se aplicará cuando el asistente atienda solo.
                     </p>
                 )}
-                <ul aria-label="Lo que el asistente puede hacer solo" className="grid">
-                    {ACCIONES.map((a) => (
-                        <li key={a.clave} className="flex min-w-0 items-center gap-3 border-b border-border py-2.5 first:pt-0" data-accion={a.clave}>
-                            <a.icono aria-hidden className="size-[1.125rem] shrink-0 text-muted-foreground" />
-                            <Interruptor
-                                alFinal
-                                className="min-w-0 flex-1"
-                                disabled={bloqueado}
-                                etiqueta={
-                                    <span className="grid min-w-0">
-                                        <span className="[overflow-wrap:anywhere]">{NOMBRE_ACCION[a.clave]}</span>
-                                        {a.nota ? <span className="text-xs font-normal text-muted-foreground">{a.nota}</span> : null}
-                                    </span>
-                                }
-                                {...form.register(`acciones.${a.clave}`)}
-                            />
-                        </li>
-                    ))}
-                </ul>
-                <EnlaceSeguir href={`${BASE}/limites`}>Ajustar límites</EnlaceSeguir>
+                <AccionesAsistente
+                    registrar={(clave) => form.register(`acciones.${clave}`)}
+                    registrarSaldoConNumero={() => form.register("saldoConNumero")}
+                    alApagarSaldo={() => form.setValue("saldoConNumero", false, { shouldDirty: true })}
+                    saldoConNumero={saldoConNumero}
+                    daSaldo={daSaldo}
+                    deshabilitado={bloqueado}
+                />
+                <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                    <EnlaceSeguir href={`${BASE}/limites`}>Ajustar límites</EnlaceSeguir>
+                    <EnlaceSeguir href={`${BASE}/perfiles`}>Distinto según el horario</EnlaceSeguir>
+                </p>
                 <p className="flex items-start gap-1.5 text-sm text-muted-foreground">
                     <UserRound aria-hidden className="mt-0.5 size-4 shrink-0" />
                     Siempre pasa a una persona si el cliente lo pide, se enoja o no sabe la respuesta.
@@ -326,6 +298,7 @@ function Formulario({ datos, alGuardar }: { datos: Datos; alGuardar: (d: Datos) 
             <nav aria-label="Ajustes avanzados" className="flex flex-wrap gap-x-5 gap-y-2 px-1 text-sm">
                 <EnlaceSeguir href={`${BASE}/conexion`}>Conexión con la IA, fuentes y uso</EnlaceSeguir>
                 <EnlaceSeguir href={`${BASE}/limites`}>Límites</EnlaceSeguir>
+                <EnlaceSeguir href={`${BASE}/perfiles`}>Perfiles por horario</EnlaceSeguir>
                 <EnlaceSeguir href={`${BASE}/categorias`}>Categorías</EnlaceSeguir>
             </nav>
         </FormularioPagina>

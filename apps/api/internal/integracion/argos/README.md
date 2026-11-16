@@ -355,3 +355,16 @@ partes (ficha, ticket, orden, comercial y app de campo).
   pago y entrante; sin monto, motivo ni causa). Mensajería marca la boleta y relee
   `GET /comprobantes/:id` antes de aplicar nada: lo que cambia el estado y lo que se le dice al cliente
   sale de esa lectura, nunca del payload.
+
+## Contrato 0.7.1 (A24)
+
+- `ContratoIris = "0.7.1"`. Es aditivo: con un Argos 1.15.x (que solo conoce 0.7.0) todo sigue igual. Iris informa
+  0.7.1, Argos responde 0.7.0, el conector queda en `versionEstado: ok` con sus capacidades y el panel solo
+  muestra las dos versiones (`contratoInformado` y `contratoRemoto`). Ninguna capacidad depende de 0.7.1.
+- `Comprobante.VerificadoIrisActor` (`verificado_iris_actor`): quién aprobó o rechazó desde Iris. `IrisActor` es
+  quien registró. Con Argos 1.15.x no viene: queda vacío y la decisión no se atribuye a nadie de Iris.
+- §7.1: `X-Iris-Actor` y `X-Iris-Conversacion` se validan con las expresiones del contrato antes de llamar
+  (`ErrCabecerasIris`); lo que Iris arma (`usuario:<id>`, `asistente_ia`, `iris:conversacion:<id>`) cumple.
+- §1.3: `vinculacion.instalacion` es del canje del ticket en el panel de Argos; Iris no manda ni recibe nada
+  nuevo. Sigue mandando `usuario.correo` y `usuario.nombre` en el ticket para la pantalla de confirmación.
+
