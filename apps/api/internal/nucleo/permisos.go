@@ -277,6 +277,8 @@ const (
 	PermConversacionesTransferir Permiso = "conversaciones.transferir"
 	// PermConversacionesEtiquetar: poner y quitar etiquetas.
 	PermConversacionesEtiquetar Permiso = "conversaciones.etiquetar"
+	// PermConversacionesCategorizar: corregir la categoría que el asistente le puso a una conversación.
+	PermConversacionesCategorizar Permiso = "conversaciones.categorizar"
 	// PermConversacionesResolver: resolver y reabrir.
 	PermConversacionesResolver Permiso = "conversaciones.resolver"
 	// PermConversacionesAsociar: asociar a un cliente de Argos y administrar contactos de Iris.
@@ -387,6 +389,7 @@ var Catalogo = []DefPermiso{
 	{PermConversacionesAsociar, "Asociar una conversación a un cliente de Argos y administrar los contactos propios de Iris"},
 	{PermConversacionesConfigurar, "Administrar las etiquetas y las respuestas rápidas de las conversaciones de la empresa"},
 	{PermConversacionesEtiquetar, "Poner y quitar etiquetas a una conversación"},
+	{PermConversacionesCategorizar, "Corregir la categoría de mensajes de una conversación (la que puso el asistente de IA)"},
 	{PermConversacionesIniciar, "Escribir primero por WhatsApp, con una plantilla aprobada, a un cliente o contacto con permiso de contacto desde un número de tus colas"},
 	{PermConversacionesPasar, "Pasar la conversación que tienes a un compañero de la misma cola, con una nota interna"},
 	{PermConversacionesRegistrarBoleta, "Mandar a Argos la boleta de pago que envió el cliente por WhatsApp (caja la aprueba en Argos)"},
@@ -545,7 +548,7 @@ var permisosRutas = []Permiso{PermRutasVer, PermRutasProponer, PermRutasPublicar
 // permisosAtencion son los de atender conversaciones con clientes (despacho, ventas, soporte y
 // supervisor); cada rol suma los suyos (contratos/conversaciones.md §4).
 var permisosAtencion = []Permiso{PermConversacionesVer, PermConversacionesResponder, PermConversacionesTomar, PermConversacionesPasar,
-	PermConversacionesEtiquetar, PermConversacionesResolver, PermManualesVer, PermConversacionesSugerencias}
+	PermConversacionesEtiquetar, PermConversacionesCategorizar, PermConversacionesResolver, PermManualesVer, PermConversacionesSugerencias}
 
 // permisosComercial son todos los del seguimiento comercial (ventas, supervisor) salvo
 // factibilidad.configurar (umbrales de la empresa: supervisor y admin).

@@ -25,13 +25,14 @@ import (
 // EntradaListarConvs es GET /conversaciones.
 type EntradaListarConvs struct {
 	nucleo.ParamsPagina
-	Vista      string `query:"vista" enum:"mias,sin_asignar,todas" default:"todas"`
-	CanalID    int64  `query:"canalId" minimum:"0"`
-	ColaID     int64  `query:"colaId" minimum:"0"`
-	EtiquetaID int64  `query:"etiquetaId" minimum:"0"`
-	Estado     string `query:"estado" enum:"abierta,esperando_cliente,resuelta,activas,todas" default:"activas"`
-	SLA        string `query:"sla" enum:"por_vencer,vencido"`
-	Q          string `query:"q" maxLength:"80" doc:"Nombre, número o referencia (TK-004812)"`
+	Vista       string `query:"vista" enum:"mias,sin_asignar,todas" default:"todas"`
+	CanalID     int64  `query:"canalId" minimum:"0"`
+	ColaID      int64  `query:"colaId" minimum:"0"`
+	EtiquetaID  int64  `query:"etiquetaId" minimum:"0"`
+	CategoriaID int64  `query:"categoriaId" minimum:"0" doc:"Categoría de mensajes (§17); 0 = todas"`
+	Estado      string `query:"estado" enum:"abierta,esperando_cliente,resuelta,activas,todas" default:"activas"`
+	SLA         string `query:"sla" enum:"por_vencer,vencido"`
+	Q           string `query:"q" maxLength:"80" doc:"Nombre, número o referencia (TK-004812)"`
 }
 
 func ptrSiPositivo(n int64) *int64 {
@@ -76,7 +77,7 @@ func nuevoListarConvs(m *Modulo) *auditoria.Caso[EntradaListarConvs, nucleo.Pagi
 			bd := mensajeriabd.New(t)
 			filas, err := bd.ListarConversacionesCliente(ctx, mensajeriabd.ListarConversacionesClienteParams{Empresa: a.empresa, Usuario: a.usuario,
 				Supervisa: a.supervisa, Vista: in.Vista, Estado: in.Estado, CanalID: ptrSiPositivo(in.CanalID), ColaID: ptrSiPositivo(in.ColaID),
-				EtiquetaID: ptrSiPositivo(in.EtiquetaID), Sla: in.SLA, Ahora: m.ahora(), Q: escaparLike(q), QDigitos: digitos, ConCursor: con,
+				EtiquetaID: ptrSiPositivo(in.EtiquetaID), CategoriaID: ptrSiPositivo(in.CategoriaID), Sla: in.SLA, Ahora: m.ahora(), Q: escaparLike(q), QDigitos: digitos, ConCursor: con,
 				CursorActividad: cursorAct, CursorID: ultimo, Limite: int32(limite + 1)}) //nolint:gosec // limite ≤ 200
 			if err != nil {
 				return nucleo.Pagina[ConversacionCliente]{}, err
@@ -126,6 +127,7 @@ type ContadoresConversaciones struct {
 	PorCanal     []ConteoGrupo    `json:"porCanal"`
 	PorCola      []ConteoGrupo    `json:"porCola"`
 	PorEtiqueta  []ConteoGrupo    `json:"porEtiqueta"`
+	PorCategoria []ConteoGrupo    `json:"porCategoria" doc:"Por categoría de mensajes (§17); las sin categoría no cuentan"`
 }
 
 func nuevoContadores(m *Modulo) *auditoria.Caso[struct{}, ContadoresConversaciones] {
@@ -143,7 +145,7 @@ func nuevoContadores(m *Modulo) *auditoria.Caso[struct{}, ContadoresConversacion
 			}
 			out := ContadoresConversaciones{Mias: f.Mias, SinAsignar: f.SinAsignar, Todas: f.Todas, NoLeidosMias: f.NoLeidosMias, PorVencer: f.PorVencer,
 				Vencidas: f.Vencidas, PorEstado: map[string]int64{EstadoConvAbierta: f.Abiertas, EstadoConvEsperando: f.Esperando},
-				PorCanal: []ConteoGrupo{}, PorCola: []ConteoGrupo{}, PorEtiqueta: []ConteoGrupo{}}
+				PorCanal: []ConteoGrupo{}, PorCola: []ConteoGrupo{}, PorEtiqueta: []ConteoGrupo{}, PorCategoria: []ConteoGrupo{}}
 			gs, err := q.ContadoresPorGrupo(ctx, mensajeriabd.ContadoresPorGrupoParams{Empresa: a.empresa, Usuario: a.usuario, Supervisa: a.supervisa})
 			if err != nil {
 				return ContadoresConversaciones{}, err
@@ -157,6 +159,8 @@ func nuevoContadores(m *Modulo) *auditoria.Caso[struct{}, ContadoresConversacion
 					out.PorCola = append(out.PorCola, c)
 				case "etiqueta":
 					out.PorEtiqueta = append(out.PorEtiqueta, c)
+				case "categoria":
+					out.PorCategoria = append(out.PorCategoria, c)
 				}
 			}
 			return out, nil

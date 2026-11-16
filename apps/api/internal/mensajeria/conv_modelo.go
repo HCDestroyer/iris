@@ -67,7 +67,7 @@ const MaxTextoWhatsApp = 4096
 const VentanaWhatsApp = 24 * time.Hour
 
 func init() {
-	for _, t := range []string{"mensajeria.colas", "mensajeria.etiquetas", "mensajeria.respuestas_rapidas", "mensajeria.contactos_iris",
+	for _, t := range []string{"mensajeria.asistente_categorias", "mensajeria.asistente_clasificaciones", "mensajeria.colas", "mensajeria.etiquetas", "mensajeria.respuestas_rapidas", "mensajeria.contactos_iris",
 		"mensajeria.conversaciones", "mensajeria.conversacion_mensajes", "mensajeria.conv_eventos", "mensajeria.boletas", "mensajeria.promesas",
 		"mensajeria.disponibilidad", "mensajeria.ajustes_bandeja"} {
 		nucleo.RegistrarTablaConEmpresa(t)
@@ -135,33 +135,51 @@ type UltimoMensajeResumen struct {
 	Texto     *string `json:"texto" nullable:"true" doc:"Primeros 140 caracteres (texto plano)"`
 	Evento    *string `json:"evento" nullable:"true" doc:"Mensaje de sistema: su tipo"`
 	// Automatico: el mismo valor que en MensajeConversacion (la lista muestra «Bot: …»).
-	Automatico *string   `json:"automatico" nullable:"true" enum:"bot,fuera_de_horario" doc:"Saliente sin autor: el bot o la respuesta de fuera de horario"`
+	Automatico *string   `json:"automatico" nullable:"true" enum:"bot,fuera_de_horario,asistente" doc:"Saliente sin autor: el bot, la respuesta de fuera de horario o (3b) el asistente de IA"`
 	CreadoEn   time.Time `json:"creadoEn"`
 }
 
 // ConversacionCliente es una conversación con un cliente tal como la ve un usuario.
 type ConversacionCliente struct {
-	ID              int64                 `json:"id"`
-	EmpresaID       *int64                `json:"empresaId" nullable:"true"`
-	Version         int32                 `json:"version"`
-	Canal           CanalRef              `json:"canal"`
-	Cola            *ColaRef              `json:"cola,omitempty" doc:"Ausente: sin cola"`
-	Numero          string                `json:"numero" doc:"Teléfono del contacto en E.164"`
-	PerfilNombre    *string               `json:"perfilNombre" nullable:"true" doc:"Nombre del perfil de WhatsApp"`
-	Titulo          string                `json:"titulo" doc:"Cliente de Argos > contacto de Iris > perfil de WhatsApp > número"`
-	Contacto        ContactoConversacion  `json:"contacto"`
-	Estado          string                `json:"estado" enum:"abierta,esperando_cliente,resuelta"`
-	ReabiertaEn     *time.Time            `json:"reabiertaEn" nullable:"true"`
-	Asignado        *UsuarioRef           `json:"asignado,omitempty" doc:"Ausente: sin asignar"`
-	Etiquetas       []EtiquetaRef         `json:"etiquetas"`
-	Ventana         VentanaConversacion   `json:"ventana"`
-	SLA             SLAConversacion       `json:"sla"`
-	UltimoMensaje   *UltimoMensajeResumen `json:"ultimoMensaje,omitempty"`
-	Espera          *EsperaConversacion   `json:"espera,omitempty" doc:"Ausente si está asignada o resuelta: quién está disponible en la cola y cuándo contesta el bot"`
-	NoLeidos        int64                 `json:"noLeidos" doc:"Mensajes del cliente después de tu lectura"`
-	SoloLectura     bool                  `json:"soloLectura,omitempty" doc:"true: el número ya no está compartido con tu empresa (préstamo revocado, §15.3) y solo se puede leer. Ausente = false"`
-	UltimaActividad time.Time             `json:"ultimaActividad"`
-	CreadaEn        time.Time             `json:"creadaEn"`
+	ID                 int64                 `json:"id"`
+	EmpresaID          *int64                `json:"empresaId" nullable:"true"`
+	Version            int32                 `json:"version"`
+	Canal              CanalRef              `json:"canal"`
+	Cola               *ColaRef              `json:"cola,omitempty" doc:"Ausente: sin cola"`
+	Numero             string                `json:"numero" doc:"Teléfono del contacto en E.164"`
+	PerfilNombre       *string               `json:"perfilNombre" nullable:"true" doc:"Nombre del perfil de WhatsApp"`
+	Titulo             string                `json:"titulo" doc:"Cliente de Argos > contacto de Iris > perfil de WhatsApp > número"`
+	Contacto           ContactoConversacion  `json:"contacto"`
+	Estado             string                `json:"estado" enum:"abierta,esperando_cliente,resuelta"`
+	ReabiertaEn        *time.Time            `json:"reabiertaEn" nullable:"true"`
+	Asignado           *UsuarioRef           `json:"asignado,omitempty" doc:"Ausente: sin asignar"`
+	Etiquetas          []EtiquetaRef         `json:"etiquetas"`
+	Ventana            VentanaConversacion   `json:"ventana"`
+	SLA                SLAConversacion       `json:"sla"`
+	UltimoMensaje      *UltimoMensajeResumen `json:"ultimoMensaje,omitempty"`
+	Espera             *EsperaConversacion   `json:"espera,omitempty" doc:"Ausente si está asignada o resuelta: quién está disponible en la cola y cuándo contesta el bot"`
+	NoLeidos           int64                 `json:"noLeidos" doc:"Mensajes del cliente después de tu lectura"`
+	CategoriaMensajes  *CategoriaMensajesRef `json:"categoria,omitempty" doc:"Categoría de mensajes (§17); ausente: sin categoría"`
+	CategoriaConfianza *float32              `json:"categoriaConfianza" nullable:"true" doc:"0 a 1; null si la puso un agente"`
+	CategoriaOrigen    *string               `json:"categoriaOrigen" nullable:"true" enum:"asistente,agente"`
+	ActividadAsistente *ActividadAsistente   `json:"actividadAsistente,omitempty" doc:"Lo último que hizo el asistente en la conversación"`
+	Asistente          *AsistenteConv        `json:"asistente,omitempty" doc:"3b: el asistente atiende solo esta conversación. Ausente en 3a"`
+	SoloLectura        bool                  `json:"soloLectura,omitempty" doc:"true: el número ya no está compartido con tu empresa (préstamo revocado, §15.3) y solo se puede leer. Ausente = false"`
+	UltimaActividad    time.Time             `json:"ultimaActividad"`
+	CreadaEn           time.Time             `json:"creadaEn"`
+}
+
+// ActividadAsistente es la línea del asistente en la lista (§17.4).
+type ActividadAsistente struct {
+	Tipo  string    `json:"tipo" enum:"clasifico,sugirio,transfirio,respondio_manual,respondio_falla,respondio,ticket_creado,visita_agendada,boleta_enviada,saldo_informado,promesa_pedida,reconexion_pedida,espera_persona"`
+	Texto string    `json:"texto" doc:"Texto corto en español ya armado (nunca texto del cliente ni montos)"`
+	En    time.Time `json:"en"`
+}
+
+// AsistenteConv es el estado del asistente autónomo en la conversación (3b).
+type AsistenteConv struct {
+	Estado string `json:"estado" enum:"atendiendo,espera_persona,detenido"`
+	Turnos int32  `json:"turnos"`
 }
 
 // EsperaConversacion es lo que el panel muestra de una conversación sin asignar (fase 1.1).
@@ -273,7 +291,8 @@ type MensajeConversacion struct {
 	EnviadoEn      *time.Time        `json:"enviadoEn" nullable:"true"`
 	EntregadoEn    *time.Time        `json:"entregadoEn" nullable:"true"`
 	LeidoEn        *time.Time        `json:"leidoEn" nullable:"true"`
-	Automatico     *string           `json:"automatico" nullable:"true" enum:"bot,fuera_de_horario" doc:"Saliente sin autor: el bot o la respuesta de fuera de horario"`
+	Automatico     *string           `json:"automatico" nullable:"true" enum:"bot,fuera_de_horario,asistente" doc:"Saliente sin autor: el bot, la respuesta de fuera de horario o (3b) el asistente de IA"`
+	AutorTipo      string            `json:"autorTipo" enum:"cliente,persona,asistente_ia,sistema" doc:"Quién lo escribió (§17.4)"`
 	Origen         *string           `json:"origen,omitempty" enum:"telefono,historial" doc:"No salió de Iris: telefono (mandado desde la app WhatsApp Business, «Desde el teléfono») o historial (traído de la app). Ausente = Iris (§15.2)"`
 }
 
@@ -378,15 +397,17 @@ func guardarConv(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.Me
 
 // slaDe calcula el vencimiento del SLA desde la espera con el SLA de la cola (nil = sin SLA).
 func (m *Modulo) slaDe(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaConversacion) (*time.Time, error) {
-	if c.EsperaDesde == nil || c.ColaID == nil {
+	if c.EsperaDesde == nil {
 		return nil, nil
 	}
-	cola, err := q.ColaPorID(ctx, mensajeriabd.ColaPorIDParams{ID: *c.ColaID, Empresa: empresaDeConv(c)})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil || cola.SlaRespuestaMin == nil {
-		return nil, err
+	// Sin cola puede haber SLA igual: el de la categoría (§17.3).
+	var cola mensajeriabd.MensajeriaCola
+	if c.ColaID != nil {
+		var err error
+		cola, err = q.ColaPorID(ctx, mensajeriabd.ColaPorIDParams{ID: *c.ColaID, Empresa: empresaDeConv(c)})
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
 	}
 	return m.venceSLA(ctx, q, c, cola, *c.EsperaDesde)
 }
@@ -394,7 +415,18 @@ func (m *Modulo) slaDe(ctx context.Context, q *mensajeriabd.Queries, c mensajeri
 // venceSLA: desde + SLA de la cola; si el mensaje llegó con el horario (de la cola o del número)
 // cerrado, el SLA empieza a contar al abrir.
 func (m *Modulo) venceSLA(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaConversacion, cola mensajeriabd.MensajeriaCola, desde time.Time) (*time.Time, error) {
-	if cola.SlaRespuestaMin == nil {
+	minutos := cola.SlaRespuestaMin
+	// El SLA de primera respuesta de la categoría gana sobre el de la cola (§17.3).
+	if c.CategoriaID != nil {
+		k, err := q.CategoriaPorID(ctx, mensajeriabd.CategoriaPorIDParams{ID: *c.CategoriaID, Empresa: empresaDeConv(c)})
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+		if err == nil && k.SlaPrimeraRespuestaMin != nil {
+			minutos = k.SlaPrimeraRespuestaMin
+		}
+	}
+	if minutos == nil {
 		return nil, nil
 	}
 	cal, err := calendarioEfectivo(ctx, q, cola.HorarioID, c.CanalID)
@@ -405,7 +437,7 @@ func (m *Modulo) venceSLA(ctx context.Context, q *mensajeriabd.Queries, c mensaj
 	if !ok {
 		return nil, nil
 	}
-	v := inicio.Add(time.Duration(*cola.SlaRespuestaMin) * time.Minute)
+	v := inicio.Add(time.Duration(*minutos) * time.Minute)
 	return &v, nil
 }
 
@@ -482,7 +514,18 @@ func (m *Modulo) resumirConvs(ctx context.Context, q *mensajeriabd.Queries, usua
 			Numero: f.Numero, PerfilNombre: f.PerfilNombre, Contacto: contactoDeConv(c), Estado: f.Estado, ReabiertaEn: f.ReabiertaEn,
 			Etiquetas: etiquetas[f.ID], Ventana: ventanaDe(f.UltimoEntranteEn, ahora),
 			SLA:      estadoSLA(f.SlaVenceEn, f.EsperaDesde, f.SlaRespuestaMin, f.SlaPorVencerMin, ahora),
-			NoLeidos: f.NoLeidos, SoloLectura: f.SoloLectura, UltimaActividad: f.UltimaActividad, CreadaEn: f.CreatedAt}
+			NoLeidos: f.NoLeidos, SoloLectura: f.SoloLectura, UltimaActividad: f.UltimaActividad, CreadaEn: f.CreatedAt,
+			CategoriaConfianza: f.CategoriaConfianza, CategoriaOrigen: f.CategoriaOrigen}
+		if f.CategoriaID != nil && f.CategoriaNombre != nil && f.CategoriaTono != nil {
+			v.CategoriaMensajes = &CategoriaMensajesRef{ID: *f.CategoriaID, Nombre: *f.CategoriaNombre, Tono: *f.CategoriaTono}
+			// El SLA de la categoría gana: el «por vencer» es su 25 %.
+			if f.CategoriaSlaMin != nil {
+				v.SLA = estadoSLA(f.SlaVenceEn, f.EsperaDesde, f.CategoriaSlaMin, nil, ahora)
+			}
+		}
+		if f.AsistenteActividadTipo != nil && f.AsistenteActividadTexto != nil && f.AsistenteActividadEn != nil {
+			v.ActividadAsistente = &ActividadAsistente{Tipo: *f.AsistenteActividadTipo, Texto: *f.AsistenteActividadTexto, En: *f.AsistenteActividadEn}
+		}
 		if v.Etiquetas == nil {
 			v.Etiquetas = []EtiquetaRef{}
 		}
@@ -669,6 +712,15 @@ func aMensajeConv(f mensajeriabd.MensajeriaConversacionMensaje, nombres map[int6
 	m := MensajeConversacion{ID: f.ID, ConversacionID: f.ConversacionID, Seq: f.Seq, Direccion: f.Direccion, Tipo: f.Tipo, Texto: f.Texto,
 		EstadoEntrega: f.EstadoEntrega, MotivoFalla: f.MotivoFalla, Menciones: []UsuarioRef{}, CreadoEn: f.CreadoEn, EnviadoEn: f.EnviadoEn,
 		EntregadoEn: f.EntregadoEn, LeidoEn: f.LeidoEn, Automatico: f.Automatico, Origen: f.Origen}
+	m.AutorTipo = "sistema"
+	switch {
+	case f.Direccion == DirEntrante:
+		m.AutorTipo = "cliente"
+	case f.AutorID != nil:
+		m.AutorTipo = "persona"
+	case f.Automatico != nil && *f.Automatico == AutomaticoAsistente:
+		m.AutorTipo = "asistente_ia"
+	}
 	if f.AutorID != nil {
 		m.Autor = &UsuarioRef{ID: *f.AutorID, Nombre: nombres[*f.AutorID]}
 	}

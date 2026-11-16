@@ -39,7 +39,7 @@ func IdempotenciaPropia(r *http.Request) bool {
 // modelo, que no se guarda fuera de mensajeria.sugerencias; son idempotentes por naturaleza
 // (usar, descartar y calificar repetidos responden 200 sin cambios) (§16).
 var rutaAsistentePropia = regexp.MustCompile(`^` + regexp.QuoteMeta(Prefijo) +
-	`/(conversaciones/[0-9]+/resumen|sugerencias/[0-9a-fA-F-]{36}/(usar|descartar|calificar))$`)
+	`/(asistente/probar-mensaje|conversaciones/[0-9]+/resumen|sugerencias/[0-9a-fA-F-]{36}/(usar|descartar|calificar))$`)
 
 // rutaConvPropia: responder y anotar en una conversación con un cliente (la clave queda en el
 // mensaje; la respuesta trae el texto) y pedir una promesa (la aplica el caso).

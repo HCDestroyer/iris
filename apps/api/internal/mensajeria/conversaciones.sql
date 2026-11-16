@@ -223,12 +223,15 @@ WHERE coalesce(c.empresa_id, 0) = @empresa::bigint
   AND (CASE @estado::text WHEN 'activas' THEN c.estado <> 'resuelta' WHEN 'todas' THEN true ELSE c.estado = @estado::text END)
   AND (sqlc.narg('canal_id')::bigint IS NULL OR c.canal_id = sqlc.narg('canal_id')::bigint)
   AND (sqlc.narg('cola_id')::bigint IS NULL OR c.cola_id = sqlc.narg('cola_id')::bigint)
+  AND (sqlc.narg('categoria_id')::bigint IS NULL OR c.categoria_id = sqlc.narg('categoria_id')::bigint)
   AND (sqlc.narg('etiqueta_id')::bigint IS NULL OR EXISTS (
         SELECT 1 FROM mensajeria.conversacion_etiquetas ce WHERE ce.conversacion_id = c.id AND ce.etiqueta_id = sqlc.narg('etiqueta_id')::bigint))
   AND (CASE @sla::text
         WHEN 'vencido' THEN c.sla_vence_en IS NOT NULL AND c.sla_vence_en <= @ahora::timestamptz
         WHEN 'por_vencer' THEN c.sla_vence_en IS NOT NULL AND c.sla_vence_en > @ahora::timestamptz
-            AND c.sla_vence_en - make_interval(mins => coalesce((SELECT co.sla_por_vencer_min FROM mensajeria.colas co WHERE co.id = c.cola_id),
+            AND c.sla_vence_en - make_interval(mins => coalesce(
+                (SELECT GREATEST(1, k.sla_primera_respuesta_min / 4) FROM mensajeria.asistente_categorias k WHERE k.id = c.categoria_id),
+                (SELECT co.sla_por_vencer_min FROM mensajeria.colas co WHERE co.id = c.cola_id),
                 GREATEST(1, coalesce((SELECT co.sla_respuesta_min FROM mensajeria.colas co WHERE co.id = c.cola_id), 0) / 4))) <= @ahora::timestamptz
         ELSE true END)
   AND (@q::text = ''
@@ -245,6 +248,7 @@ LIMIT @limite;
 SELECT c.*,
     ca.nombre AS canal_nombre, ca.numero AS canal_numero, ca.usos AS canal_usos,
     co.nombre AS cola_nombre, co.sla_respuesta_min, co.sla_por_vencer_min,
+    k.nombre AS categoria_nombre, k.tono AS categoria_tono, k.sla_primera_respuesta_min AS categoria_sla_min,
     u.nombre AS asignado_nombre,
     ac.nombre AS cliente_nombre, ci.nombre AS contacto_iris_nombre,
     um.direccion AS ultimo_direccion, um.tipo AS ultimo_tipo, um.texto AS ultimo_texto, um.creado_en AS ultimo_creado_en,
@@ -259,6 +263,7 @@ SELECT c.*,
 FROM mensajeria.conversaciones c
 JOIN mensajeria.canales ca ON ca.id = c.canal_id
 LEFT JOIN mensajeria.colas co ON co.id = c.cola_id
+LEFT JOIN mensajeria.asistente_categorias k ON k.id = c.categoria_id
 LEFT JOIN nucleo.usuarios u ON u.id = c.asignado_a
 LEFT JOIN integracion.argos_clientes ac ON ac.id = c.cliente_id
 LEFT JOIN mensajeria.contactos_iris ci ON ci.id = c.contacto_iris_id
@@ -274,7 +279,9 @@ SELECT
     count(*) FILTER (WHERE c.estado = 'esperando_cliente')::bigint AS esperando,
     count(*) FILTER (WHERE c.sla_vence_en IS NOT NULL AND c.sla_vence_en <= @ahora::timestamptz)::bigint AS vencidas,
     count(*) FILTER (WHERE c.sla_vence_en IS NOT NULL AND c.sla_vence_en > @ahora::timestamptz
-        AND c.sla_vence_en - make_interval(mins => coalesce(co.sla_por_vencer_min, GREATEST(1, coalesce(co.sla_respuesta_min, 0) / 4))) <= @ahora::timestamptz)::bigint AS por_vencer,
+        AND c.sla_vence_en - make_interval(mins => coalesce(
+            (SELECT GREATEST(1, k.sla_primera_respuesta_min / 4) FROM mensajeria.asistente_categorias k WHERE k.id = c.categoria_id),
+            co.sla_por_vencer_min, GREATEST(1, coalesce(co.sla_respuesta_min, 0) / 4))) <= @ahora::timestamptz)::bigint AS por_vencer,
     coalesce(sum((SELECT count(*) FROM mensajeria.conversacion_mensajes m
         WHERE m.conversacion_id = c.id AND m.direccion = 'entrante'
           AND m.seq > coalesce((SELECT l.hasta_seq FROM mensajeria.conversacion_lecturas l WHERE l.conversacion_id = c.id AND l.usuario_id = @usuario::bigint), 0)))
@@ -302,7 +309,13 @@ SELECT 'etiqueta'::text, ce.etiqueta_id, count(*)::bigint
 FROM mensajeria.conversaciones c JOIN mensajeria.conversacion_etiquetas ce ON ce.conversacion_id = c.id
 WHERE coalesce(c.empresa_id, 0) = @empresa::bigint AND c.estado <> 'resuelta'
   AND mensajeria.conv_visible(@usuario::bigint, @supervisa::boolean, c.id, c.cola_id, c.asignado_a)
-GROUP BY ce.etiqueta_id;
+GROUP BY ce.etiqueta_id
+UNION ALL
+SELECT 'categoria'::text, c.categoria_id, count(*)::bigint
+FROM mensajeria.conversaciones c
+WHERE coalesce(c.empresa_id, 0) = @empresa::bigint AND c.estado <> 'resuelta' AND c.categoria_id IS NOT NULL
+  AND mensajeria.conv_visible(@usuario::bigint, @supervisa::boolean, c.id, c.cola_id, c.asignado_a)
+GROUP BY c.categoria_id;
 
 -- name: SLAVencidosSinAvisar :many
 SELECT id FROM mensajeria.conversaciones

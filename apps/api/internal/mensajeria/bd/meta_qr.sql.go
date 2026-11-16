@@ -666,7 +666,7 @@ func (q *Queries) ConversacionesNoResueltasDeNumero(ctx context.Context, arg Con
 }
 
 const conversacionesNoResueltasDePrestamo = `-- name: ConversacionesNoResueltasDePrestamo :many
-SELECT id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu FROM mensajeria.conversaciones
+SELECT id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en FROM mensajeria.conversaciones
 WHERE canal_id = $1 AND empresa_id = $2 AND estado <> 'resuelta'
 ORDER BY id
 FOR UPDATE
@@ -722,6 +722,14 @@ func (q *Queries) ConversacionesNoResueltasDePrestamo(ctx context.Context, arg C
 			&i.BotMotivo,
 			&i.BotAtendioEn,
 			&i.BotMenu,
+			&i.CategoriaID,
+			&i.CategoriaConfianza,
+			&i.CategoriaOrigen,
+			&i.CategoriaEn,
+			&i.ClasificadoMensajeID,
+			&i.AsistenteActividadTipo,
+			&i.AsistenteActividadTexto,
+			&i.AsistenteActividadEn,
 		); err != nil {
 			return nil, err
 		}
@@ -1237,7 +1245,7 @@ INSERT INTO mensajeria.conversaciones (empresa_id, canal_id, numero, perfil_nomb
 VALUES ($1, $2, $3, $4, $5, $6,
     $7, $8, $9, 'resuelta', $10)
 ON CONFLICT DO NOTHING
-RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu
+RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en
 `
 
 type InsertarConversacionHistorialParams struct {
@@ -1305,6 +1313,14 @@ func (q *Queries) InsertarConversacionHistorial(ctx context.Context, arg Inserta
 		&i.BotMotivo,
 		&i.BotAtendioEn,
 		&i.BotMenu,
+		&i.CategoriaID,
+		&i.CategoriaConfianza,
+		&i.CategoriaOrigen,
+		&i.CategoriaEn,
+		&i.ClasificadoMensajeID,
+		&i.AsistenteActividadTipo,
+		&i.AsistenteActividadTexto,
+		&i.AsistenteActividadEn,
 	)
 	return i, err
 }
@@ -1393,7 +1409,7 @@ SET empresa_id = $1, cola_id = $2, asignado_a = NULL, asignado_en = NULL,
     bot_espera_en = NULL, bot_vence_en = NULL, bot_motivo = NULL, bot_atendio_en = NULL, bot_menu = NULL,
     version = version + 1, updated_at = now()
 WHERE id = $3
-RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu
+RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en
 `
 
 type MoverConversacionAEmpresaParams struct {
@@ -1441,6 +1457,14 @@ func (q *Queries) MoverConversacionAEmpresa(ctx context.Context, arg MoverConver
 		&i.BotMotivo,
 		&i.BotAtendioEn,
 		&i.BotMenu,
+		&i.CategoriaID,
+		&i.CategoriaConfianza,
+		&i.CategoriaOrigen,
+		&i.CategoriaEn,
+		&i.ClasificadoMensajeID,
+		&i.AsistenteActividadTipo,
+		&i.AsistenteActividadTexto,
+		&i.AsistenteActividadEn,
 	)
 	return i, err
 }
