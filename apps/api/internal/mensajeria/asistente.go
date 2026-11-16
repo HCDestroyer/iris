@@ -55,7 +55,7 @@ type AjustesAsistente struct {
 	PrecioSalidaMillon  *string          `json:"precioSalidaMillon" nullable:"true" doc:"Precio por millón de tokens de salida (decimal como texto)"`
 	Version             int32            `json:"version" doc:"0 si nunca se guardaron"`
 	// Fase 3 (§17.1).
-	AutonomoDisponible bool              `json:"autonomoDisponible" required:"false" doc:"false: el servidor todavía no actúa solo (3a) y modoAutonomo solo admite nunca"`
+	AutonomoDisponible bool              `json:"autonomoDisponible" required:"false" doc:"true: el servidor actúa solo (3b) y modoAutonomo admite los tres valores"`
 	ModoAutonomo       string            `json:"modoAutonomo" required:"false" enum:"nunca,sin_nadie,siempre_primero" doc:"Cuándo atiende solo"`
 	EsperaMin          int32             `json:"esperaMin" required:"false" doc:"sin_nadie: minutos que espera a un agente en línea"`
 	MaxTurnos          int32             `json:"maxTurnos" required:"false" doc:"Turnos autónomos sin resolver antes de pasar a una persona"`
@@ -77,7 +77,7 @@ type EntradaAjustesAsistente struct {
 	PrecioEntradaMillon *string          `json:"precioEntradaMillon" nullable:"true" maxLength:"20"`
 	PrecioSalidaMillon  *string          `json:"precioSalidaMillon" nullable:"true" maxLength:"20"`
 	// Fase 3 (§17.1): todos opcionales; ausente = se deja como está.
-	ModoAutonomo *string           `json:"modoAutonomo,omitempty" enum:"nunca,sin_nadie,siempre_primero" doc:"Con autonomoDisponible false solo nunca (422 autonomo_no_disponible)"`
+	ModoAutonomo *string           `json:"modoAutonomo,omitempty" enum:"nunca,sin_nadie,siempre_primero" doc:"Cuándo atiende solo (§17.8)"`
 	EsperaMin    *int32            `json:"esperaMin,omitempty" minimum:"1" maximum:"60"`
 	MaxTurnos    *int32            `json:"maxTurnos,omitempty" minimum:"2" maximum:"20"`
 	Perfiles     []PerfilAsistente `json:"perfiles,omitempty" maxItems:"10" doc:"Reemplaza la lista; el primero es «defecto»"`
@@ -91,7 +91,7 @@ type EstadoAsistente struct {
 	Pausado bool   `json:"pausado" doc:"Se llegó al tope de tokens del mes"`
 	// Fase 3 (§17.1).
 	ModoAutonomo       string `json:"modoAutonomo" required:"false" enum:"nunca,sin_nadie,siempre_primero"`
-	AutonomoDisponible bool   `json:"autonomoDisponible" required:"false" doc:"false: el servidor todavía no actúa solo"`
+	AutonomoDisponible bool   `json:"autonomoDisponible" required:"false" doc:"true: el servidor actúa solo (3b)"`
 }
 
 // EntradaProbarAsistente es POST /asistente/probar.
@@ -195,7 +195,7 @@ func nuevosCasosAsistente(m *Modulo) casosAsistente {
 		Categorizar:         nuevoCategorizarConv(m), Efecto: nuevoEfectoAsistente(m), ProbarMensaje: nuevoProbarMensaje(m),
 		prepararClasif: nuevoPrepararClasificacion(m), guardarClasif: nuevoGuardarClasificacion(m),
 		prepararTurno: nuevoPrepararTurno(m), terminarTurno: nuevoTerminarTurno(m), registrarAccion: nuevoRegistrarAccion(m),
-		leerConv: nuevoLeerConvPara("mensajeria.asistente_consultar", nucleo.PermConversacionesResponder),
+		leerConv:    nuevoLeerConvPara("mensajeria.asistente_consultar", nucleo.PermConversacionesResponder),
 		prepararGen: nuevoPrepararGeneracion(m), guardarGen: nuevoGuardarGeneracion(m), crearAuto: nuevoCrearAuto(m), vencerAtascada: nuevoVencerAtascada(m),
 	}
 }

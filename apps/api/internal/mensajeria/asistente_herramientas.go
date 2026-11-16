@@ -100,7 +100,7 @@ func (m *Modulo) herramientasDe(t *turnoIA) []HerramientaIA {
 			Parametros: map[string]any{"metodo": pOpcion("Cómo pagó", "deposito", "transferencia", "ach", "remesa"),
 				"cuenta_bancaria_id": pEntero("Id de la cuenta de la empresa (de cuentas_para_boleta)"),
 				"banco_origen_id":    pEntero("Id del banco de origen (de cuentas_para_boleta); 0 si es depósito o remesa"),
-				"referencia":         pTexto("Número de boleta o de transacción"), "monto": pTexto("Monto que dice el cliente, con 2 decimales (ej. 250.00)"),
+				"referencia":         pTexto("Número de boleta o de transacción"), "monto": pTexto("Monto que dice el cliente, con 2 decimales (ej. 125.50)"),
 				"fecha_deposito": pTexto("Fecha del depósito, AAAA-MM-DD")}})
 		if _, ok := m.cfg.Argos.(ArgosReconexion); ok {
 			si("reconexion_temporal", HerramientaIA{Nombre: HerrPedirReconexion,
@@ -235,6 +235,13 @@ func deError(err error) resHerramienta {
 	}
 	if d, ok := esDeNegocio(err); ok {
 		return rechazo(d)
+	}
+	// Solo el tipo del problema (los detalles pueden nombrar datos del cliente).
+	var p *nucleo.Problema
+	if errors.As(err, &p) {
+		slog.Warn("asistente: una herramienta falló", "tipo", p.Type, "status", p.Status)
+	} else {
+		slog.Warn("asistente: una herramienta falló", "err", err)
 	}
 	return resHerramienta{fallo: true}
 }

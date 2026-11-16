@@ -409,3 +409,35 @@ el principio de la fase 2 («nunca envía») sigue vigente. El bucle de herramie
 
 Emite `conversacion.categorizada`, `categoria.creada`, `categoria.actualizada` y
 `asistente.mensaje_probado`; `conversacion.transferida` suma `origen`. No consume eventos.
+
+## El asistente atiende solo (fase 3b, `contratos/conversaciones.md` §17.8)
+
+`asistente_auto.go` (turno, decisión, validación del mensaje, pasar a persona), `asistente_herramientas.go`
+(herramientas), `asistente_auto.sql`, y las herramientas en los dos adaptadores de `asistente_proveedor.go`.
+
+- **Actor.** `contexto.ActorAsistenteIA` con canal `ia` y solo los permisos de `nucleo.PermisosAsistenteIA()`
+  (rol interno `asistente_ia`: no está en `nucleo.roles`, no se asigna y su código está reservado). Los casos
+  de uso de la bandeja que puede usar (`Responder`, `CrearTicket`, `CrearOrden`, `Boleta`, `Promesas`) pasan
+  por `alcanceAccionDe`; el resto sigue con `alcanceConvDe` (solo personas). `convDelAsistente` solo le deja
+  tocar una conversación de su empresa, sin asignar, sin resolver y que él atiende.
+- **Turno.** `SugerirAutomatico` llama primero a `AtenderSolo`: `prepararTurno` (actor sistema) decide
+  (modo, horario, agentes, categoría y condición, perfil de la franja menos `accionesApagadas` de la cola,
+  límites, tope con reserva), toma el turno (`mensajeria.asistente_turnos`, único por conversación y
+  mensaje) y arma la lista cerrada de herramientas. `correrTurno` es el bucle (máximo 4 herramientas y 6
+  pasos; respaldo en JSON de un paso si el modelo no acepta herramientas). `terminarTurno` (actor
+  asistente_ia, una transacción) cuenta el uso, valida el texto y lo envía con `Responder`, o pasa a una
+  persona. Si una persona tomó la conversación o escribió, no envía nada.
+- **Proveedores.** OpenAI compatible: `tools` estrictas y `tool_choice: "auto"`. Anthropic: SDK oficial,
+  herramientas `strict`, `tool_choice` auto y la respuesta anterior devuelta tal cual en cada paso.
+- **Estado en la conversación.** `asistente_estado` (`atendiendo`, `espera_persona`, `detenido`),
+  `asistente_turnos`, `asistente_presento_en`. Un disparador de la base lo deja `detenido` al asignarse
+  una persona y lo pone en cero al resolverse o al pasar de empresa.
+- **Bot.** `asistenteAtiende` en `alRecibirBandeja`, `dispararBot` y `alRecibirFueraDeHorario`.
+- **Mantenimiento.** Un turno cuyo job murió se vuelve a encolar; los turnos de más de 90 días se purgan.
+- **Eventos que emite:** `asistente.accion_ejecutada` y `asistente.paso_a_persona`; además los de los casos
+  de uso que corre (`conversacion.mensaje_enviado` con `automatico: "asistente"`, `conversacion.vinculo_creado`,
+  `promesa.solicitada`, `boleta.registrada`, `conversacion.transferida` con `origen: "asistente"`).
+  **No consume** eventos nuevos.
+- **Pendiente:** `agendar_visita` (necesita los espacios libres de agenda) y la llamada de reconexión
+  temporal en `internal/integracion/argos` (`ArgosReconexion`).
+

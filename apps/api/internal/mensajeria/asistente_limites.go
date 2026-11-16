@@ -191,7 +191,9 @@ func (m *Modulo) mantenerAsistente(ctx context.Context, bd nucleo.BD, log *slog.
 		return err
 	}
 	for _, conv := range convs {
-		if err := nucleo.EnTx(ctx, func(ctx context.Context, tx pgx.Tx) error { return m.encolar(ctx, tx, ArgsAsistenteSugerir{ConversacionID: conv}) }); err != nil {
+		if err := nucleo.EnTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+			return m.encolar(ctx, tx, ArgsAsistenteSugerir{ConversacionID: conv})
+		}); err != nil {
 			log.WarnContext(ctx, "mensajeria: reencolar turno del asistente", "conversacion_id", conv, "err", err)
 		}
 	}

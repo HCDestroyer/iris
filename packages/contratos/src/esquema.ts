@@ -7319,7 +7319,7 @@ export interface components {
         };
         AjustesAsistente: {
             activo: boolean;
-            /** @description false: el servidor todavía no actúa solo (3a) y modoAutonomo solo admite nunca */
+            /** @description true: el servidor actúa solo (3b) y modoAutonomo admite los tres valores */
             autonomoDisponible?: boolean;
             /**
              * Format: date-time
@@ -8681,7 +8681,7 @@ export interface components {
             actividadAsistente?: components["schemas"]["ActividadAsistente"];
             /** @description Ausente: sin asignar */
             asignado?: components["schemas"]["UsuarioRef"];
-            /** @description 3b: el asistente atiende solo esta conversación. Ausente en 3a */
+            /** @description El asistente atiende (o atendió) solo esta conversación (§17.8). Ausente: nunca la atendió en este periodo */
             asistente?: components["schemas"]["AsistenteConv"];
             canal: components["schemas"]["CanalRef"];
             /** @description Categoría de mensajes (§17); ausente: sin categoría */
@@ -8735,7 +8735,7 @@ export interface components {
             actividadAsistente?: components["schemas"]["ActividadAsistente"];
             /** @description Ausente: sin asignar */
             asignado?: components["schemas"]["UsuarioRef"];
-            /** @description 3b: el asistente atiende solo esta conversación. Ausente en 3a */
+            /** @description El asistente atiende (o atendió) solo esta conversación (§17.8). Ausente: nunca la atendió en este periodo */
             asistente?: components["schemas"]["AsistenteConv"];
             canal: components["schemas"]["CanalRef"];
             /** @description Categoría de mensajes (§17); ausente: sin categoría */
@@ -9454,7 +9454,7 @@ export interface components {
             /** @enum {string} */
             modo: "automatico" | "boton";
             /**
-             * @description Con autonomoDisponible false solo nunca (422 autonomo_no_disponible)
+             * @description Cuándo atiende solo (§17.8)
              * @enum {string}
              */
             modoAutonomo?: "nunca" | "sin_nadie" | "siempre_primero";
@@ -11637,7 +11637,7 @@ export interface components {
         };
         EstadoAsistente: {
             activo: boolean;
-            /** @description false: el servidor todavía no actúa solo */
+            /** @description true: el servidor actúa solo (3b) */
             autonomoDisponible?: boolean;
             /** @enum {string} */
             modo: "automatico" | "boton";
@@ -12253,7 +12253,7 @@ export interface components {
             fin: string;
             /** @description HH:MM local */
             inicio: string;
-            /** @description Fase 2: conjunto de permisos de un asistente en esta franja (se guarda; hoy nada lo usa) */
+            /** @description Perfil del asistente de IA en esta franja (§17.1): un código de perfil o solo_sugerir */
             perfil?: string | null;
         };
         FuenteSugerencia: {

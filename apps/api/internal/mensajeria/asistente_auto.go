@@ -39,13 +39,13 @@ const (
 
 // Motivos de asistente.paso_a_persona.
 const (
-	PasoClientePidio    = "cliente_lo_pidio"
-	PasoEnojo           = "enojo"
-	PasoSinRespuesta    = "sin_respuesta"
+	PasoClientePidio     = "cliente_lo_pidio"
+	PasoEnojo            = "enojo"
+	PasoSinRespuesta     = "sin_respuesta"
 	PasoHerramientaFallo = "herramienta_fallo"
-	PasoMaxTurnos       = "max_turnos"
-	PasoPersonaPresente = "persona_presente"
-	PasoTope            = "tope"
+	PasoMaxTurnos        = "max_turnos"
+	PasoPersonaPresente  = "persona_presente"
+	PasoTope             = "tope"
 )
 
 // Límites de un turno y de los turnos.
@@ -186,7 +186,7 @@ func soloAsistente(ctx context.Context) (int64, error) {
 func ctxAsistente(ctx context.Context, empresa int64) context.Context {
 	mapa := map[string][]contexto.Alcance{}
 	for _, p := range nucleo.PermisosAsistenteIA() {
-		mapa[string(p)] = nil
+		mapa[string(p)] = []contexto.Alcance{{}} // sin límite de zona: su límite es la empresa y la conversación
 	}
 	return contexto.ComoAsistenteIA(ctx, empresa, contexto.NuevosPermisos(mapa))
 }
@@ -603,8 +603,13 @@ var reURL = regexp.MustCompile(`(?i)\bhttps?://[^\s<>"'‹›)\]]+`)
 // enlacesDeDatos: los enlaces de los manuales que se pueden compartir con el cliente.
 func enlacesDeDatos(contenido string) []string {
 	var out []string
+	compartible := false
 	for _, linea := range strings.Split(contenido, "\n") {
-		if strings.Contains(linea, "(manual, se puede compartir con el cliente)") {
+		// Un dato empieza con su marca [F#] y puede seguir en las líneas de abajo (el cuerpo del manual).
+		if strings.HasPrefix(linea, "[F") || strings.HasPrefix(linea, "<") {
+			compartible = strings.Contains(linea, "(manual, se puede compartir con el cliente)")
+		}
+		if compartible {
 			out = append(out, reURL.FindAllString(linea, -1)...)
 		}
 	}
@@ -984,12 +989,13 @@ func (m *Modulo) terminarTurno(ctx context.Context, t *auditoria.Tx, empresa int
 	if err != nil {
 		return err
 	}
-	enviar := func(texto string) (*uuid.UUID, error) {
+	enviar := func(texto, clase string) (*uuid.UUID, error) {
 		if !puede {
 			return nil, nil
 		}
-		// Idempotente por turno: el id del mensaje sale del turno.
-		id := uuid.NewSHA1(uuid.NameSpaceOID, []byte("iris:asistente:turno:"+turno.ID.String()))
+		// Idempotente por turno: el id del mensaje sale del turno (uno para la respuesta y otro para el
+		// aviso de que pasa con una persona).
+		id := uuid.NewSHA1(uuid.NameSpaceOID, []byte("iris:asistente:turno:"+turno.ID.String()+clase))
 		tx := presentar(in.t, texto)
 		if _, err := m.Conv.Responder.Ejecutar(ctx, EntradaResponder{ConversacionID: c.ID, ID: id, Texto: &tx}); err != nil {
 			return nil, err
@@ -997,7 +1003,7 @@ func (m *Modulo) terminarTurno(ctx context.Context, t *auditoria.Tx, empresa int
 		return &id, nil
 	}
 	if in.Paso != "" {
-		msg, err := enviar(MensajePasoAPersona)
+		msg, err := enviar(MensajePasoAPersona, ":paso")
 		if err != nil {
 			return err
 		}
@@ -1017,7 +1023,7 @@ func (m *Modulo) terminarTurno(ctx context.Context, t *auditoria.Tx, empresa int
 		}
 		return cerrar(TurnoPaso, in.Paso)
 	}
-	msg, err := enviar(texto)
+	msg, err := enviar(texto, "")
 	if err != nil {
 		return err
 	}
@@ -1136,12 +1142,12 @@ func (m *Modulo) pasarAPersona(ctx context.Context, t *auditoria.Tx, c *mensajer
 }
 
 var textoMotivoPaso = map[string]string{
-	PasoClientePidio:    "el cliente pidió hablar con una persona",
-	PasoEnojo:           "el cliente está molesto",
-	PasoSinRespuesta:    "no tenía con qué responder",
+	PasoClientePidio:     "el cliente pidió hablar con una persona",
+	PasoEnojo:            "el cliente está molesto",
+	PasoSinRespuesta:     "no tenía con qué responder",
 	PasoHerramientaFallo: "una acción falló o no se pudo completar",
-	PasoMaxTurnos:       "llegó al máximo de turnos sin resolver",
-	PasoTope:            "se llegó al tope de uso del asistente",
+	PasoMaxTurnos:        "llegó al máximo de turnos sin resolver",
+	PasoTope:             "se llegó al tope de uso del asistente",
 }
 
 var textoAccionHecha = map[string]string{

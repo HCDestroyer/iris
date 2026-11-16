@@ -102,3 +102,8 @@ func ValidarURLIA(u string, loopback, conClave bool) error {
 func IPPermitidaIA(ip string, loopback bool) bool {
 	return ipPermitidaIA(netip.MustParseAddr(ip), loopback)
 }
+
+// CtxAsistenteIA: el contexto del actor asistente_ia de una empresa (pruebas de permisos por actor).
+func CtxAsistenteIA(ctx context.Context, empresa int64) context.Context {
+	return ctxAsistente(ctx, empresa)
+}

@@ -45,17 +45,20 @@ func idDe(m map[string]any) int64 { return int64(m["id"].(float64)) }
 func TestAsistente3AjustesAutonomoYPerfiles(t *testing.T) {
 	x := nuevaBandejaIA(t)
 	r := x.api(x.admin, http.MethodGet, "/asistente/ajustes", nil)
-	x.exigir(r, http.StatusOK, "autonomoDisponible", "false", "modoAutonomo", "nunca", "esperaMin", "3", "maxTurnos", "8")
+	x.exigir(r, http.StatusOK, "autonomoDisponible", "true", "modoAutonomo", "nunca", "esperaMin", "3", "maxTurnos", "8")
 	perfil := r.cuerpo["perfiles"].([]any)[0].(map[string]any)
 	acc := perfil["acciones"].(map[string]any)
 	if perfil["codigo"] != "defecto" || acc["responder_dudas"] != true || acc["promesa_pago"] != false || acc["pasar_a_persona"] != true {
 		t.Fatalf("perfil por defecto: %v", perfil)
 	}
-	// 3a: el servidor todavía no actúa solo; guardar otro modo es un 422 claro.
-	for _, modo := range []string{"sin_nadie", "siempre_primero"} {
-		rr := x.ajustes(map[string]any{"modoAutonomo": modo})
-		x.exigir(rr, http.StatusUnprocessableEntity, "type", "urn:iris:problema:autonomo_no_disponible")
+	// 3b: el servidor ya actúa solo; se guardan los tres modos (y uno desconocido es 422).
+	for _, modo := range []string{"sin_nadie", "siempre_primero", "nunca"} {
+		x.exigir(x.ajustes(map[string]any{"modoAutonomo": modo}), http.StatusOK, "modoAutonomo", modo, "autonomoDisponible", "true")
 	}
+	x.exigir(x.ajustes(map[string]any{"modoAutonomo": "a_veces"}), http.StatusUnprocessableEntity)
+	r = x.api(x.admin, http.MethodGet, "/asistente/ajustes", nil)
+	perfil = r.cuerpo["perfiles"].([]any)[0].(map[string]any)
+	acc = perfil["acciones"].(map[string]any)
 	// Las acciones, los límites y las colas sí se guardan.
 	acc["promesa_pago"], acc["agendar_visita"] = true, false
 	perfil["limites"] = map[string]any{"prioridadMaxima": "media", "diasAdelanteMax": 5}

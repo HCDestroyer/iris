@@ -858,7 +858,7 @@
             "type": "boolean"
           },
           "autonomoDisponible": {
-            "description": "false: el servidor todavía no actúa solo (3a) y modoAutonomo solo admite nunca",
+            "description": "true: el servidor actúa solo (3b) y modoAutonomo admite los tres valores",
             "type": "boolean"
           },
           "claveGuardadaEn": {
@@ -4878,7 +4878,7 @@
           },
           "asistente": {
             "$ref": "#/components/schemas/AsistenteConv",
-            "description": "3b: el asistente atiende solo esta conversación. Ausente en 3a"
+            "description": "El asistente atiende (o atendió) solo esta conversación (§17.8). Ausente: nunca la atendió en este periodo"
           },
           "canal": {
             "$ref": "#/components/schemas/CanalRef"
@@ -5027,7 +5027,7 @@
           },
           "asistente": {
             "$ref": "#/components/schemas/AsistenteConv",
-            "description": "3b: el asistente atiende solo esta conversación. Ausente en 3a"
+            "description": "El asistente atiende (o atendió) solo esta conversación (§17.8). Ausente: nunca la atendió en este periodo"
           },
           "canal": {
             "$ref": "#/components/schemas/CanalRef"
@@ -7105,7 +7105,7 @@
             "type": "string"
           },
           "modoAutonomo": {
-            "description": "Con autonomoDisponible false solo nunca (422 autonomo_no_disponible)",
+            "description": "Cuándo atiende solo (§17.8)",
             "enum": [
               "nunca",
               "sin_nadie",
@@ -12759,7 +12759,7 @@
             "type": "boolean"
           },
           "autonomoDisponible": {
-            "description": "false: el servidor todavía no actúa solo",
+            "description": "true: el servidor actúa solo (3b)",
             "type": "boolean"
           },
           "modo": {
@@ -14289,7 +14289,7 @@
             "type": "string"
           },
           "perfil": {
-            "description": "Fase 2: conjunto de permisos de un asistente en esta franja (se guarda; hoy nada lo usa)",
+            "description": "Perfil del asistente de IA en esta franja (§17.1): un código de perfil o solo_sugerir",
             "maxLength": 60,
             "type": [
               "string",

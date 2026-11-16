@@ -1792,13 +1792,11 @@ Lo implementa I1 en `apps/api/internal/mensajeria/asistente3*.go`. Lo usa el pan
 filtros y la línea del asistente en la bandeja. Mismas reglas del inicio (sesión del panel, empresa
 activa, RFC 9457, `Idempotency-Key`, `version` con 409). Todo va bajo `/api/v1/mensajeria`.
 
-> **Entregas.** **3a** (esta): ajustes ampliados, categorías, clasificación, `categorizar`,
+> **Entregas.** **3a** (#159): ajustes ampliados, categorías, clasificación, `categorizar`,
 > transferencia de cola, SLA por categoría, filtro/conteos/`actividadAsistente`, `probar-mensaje` y
-> `efecto`. **3b** (siguiente PR): el asistente **actúa solo** (§17.8). En 3a los perfiles y las
-> acciones **se guardan y se devuelven, pero el servidor todavía no envía ni ejecuta nada solo**: el
-> principio de §16 («el asistente nunca envía») sigue vigente hasta 3b, `autonomoDisponible` vale
-> `false` y `modoAutonomo` solo admite `nunca`. Las formas de 3b ya están aquí para que el panel no
-> espere; lo marcado **(3b)** aún no llega con datos.
+> `efecto`. **3b** (esta): el asistente **actúa solo** (§17.8): `autonomoDisponible` vale `true`,
+> `modoAutonomo` admite los tres valores y lo marcado **(3b)** ya llega con datos. Queda para después
+> `agendar_visita` (la acción se guarda, pero el asistente aún no tiene esa herramienta).
 
 ### 17.1 Ajustes ampliados (`mensajeria.asistente_configurar`)
 
@@ -1815,8 +1813,8 @@ activa, RFC 9457, `Idempotency-Key`, `version` con 409). Todo va bajo `/api/v1/m
   "porCola": [ { "colaId": 4, "accionesApagadas": ["promesa_pago", "agendar_visita"] } ] }
 ```
 
-- `autonomoDisponible` (solo lectura; también en `GET /asistente/estado`): `false` en 3a, `true`
-  desde 3b. Con `false` el panel muestra «Cuando no hay nadie» y «Siempre primero» como
+- `autonomoDisponible` (solo lectura; también en `GET /asistente/estado`): `true` desde 3b (el
+  ejemplo de arriba es de 3a). Con `false` el panel muestra «Cuando no hay nadie» y «Siempre primero» como
   «Próximamente», y guardar `modoAutonomo` ≠ `nunca` responde **422 `autonomo_no_disponible`**
   (campo `modoAutonomo`). Los perfiles, las acciones y `porCola` sí se guardan, para dejarlos listos.
 - `modoAutonomo` (pregunta 1): `nunca` (por defecto: solo sugiere, como en la fase 2) | `sin_nadie`
@@ -2039,7 +2037,7 @@ empresa_id, accion, resultado `ok|rechazada|fallo`, entidad, entidad_id, turno) 
 `asistente.paso_a_persona` (conversacion_id, empresa_id, motivo `cliente_lo_pidio|enojo|sin_respuesta|
 herramienta_fallo|max_turnos|persona_presente|tope`, cola_id, turnos).
 
-### 17.8 Cómo actúa solo (3b; diseño cerrado, sin implementar en 3a)
+### 17.8 Cómo actúa solo (3b)
 
 - **Bucle de herramientas en el servidor.** El modelo solo puede pedir herramientas de una lista
   cerrada, armada con las acciones encendidas (perfil − cola, categoría en `responde_solo` con su
@@ -2072,3 +2070,55 @@ herramienta_fallo|max_turnos|persona_presente|tope`, cola_id, turnos).
   pausa, categoría en `sugiere`) el bot funciona como hoy: las instalaciones con bot y sin asistente
   no cambian. `bot.atiende: "agente_autonomo"` sigue en 422 `no_disponible_aun` (el modo se elige en
   los ajustes del asistente, no por número).
+
+#### 17.8.1 Lo que quedó implementado en 3b (detalle para el panel y para Argos)
+
+Lo implementa I1 en `asistente_auto.go` y `asistente_herramientas.go`. Ninguna forma de §17.1–§17.7
+cambió; esto precisa lo que el diseño dejaba abierto.
+
+- **Cuándo corre.** En el job de la conversación (el mismo de las sugerencias), después de los ~20 s
+  que juntan mensajes y de clasificar el último mensaje. Si le toca al asistente, no hay sugerencia.
+  En `sin_nadie` con agentes disponibles en la cola se espera `esperaMin` desde que el cliente quedó
+  esperando; mientras tanto la sugerencia para el agente sale como siempre.
+- **Estado.** `asistente.estado`: `atendiendo` (desde su primer turno), `espera_persona` (pasó a una
+  persona) y `detenido` (una persona la tomó o respondió). `turnos` cuenta los mensajes que envió.
+  Ausente = no la atendió en este periodo. Al **resolverse** la conversación (o al pasar a otra
+  empresa) el estado vuelve a cero: si el cliente la reabre sin asignar, el asistente puede volver a
+  atender y se presenta otra vez. Una nota interna de un agente **no** detiene al asistente; un
+  mensaje al cliente o tomarla/asignarla, sí.
+- **Mensajes.** Saliente sin autor, `automatico: "asistente"`, `autorTipo: "asistente_ia"`. La nota
+  interna de «pasar a persona» también es `autorTipo: "asistente_ia"` (`direccion: "nota"`, sin autor).
+  La presentación («Hola, soy el asistente virtual de <empresa>. ») la antepone el servidor al primer
+  mensaje del periodo; si el cliente pregunta si habla con una persona y el modelo no lo dice, el
+  servidor antepone «Soy un asistente virtual, no una persona.». Al pasar a una persona el cliente
+  recibe un texto fijo («Te paso con una persona de nuestro equipo…») si la ventana de 24 h y su
+  permiso de contacto lo permiten.
+- **Herramientas** (lista cerrada por turno; máximo 4 llamadas por turno y 6 pasos del modelo):
+  `buscar_manual` (`responder_dudas`), `estado_del_servicio` (`avisar_fallas`), `consultar_saldo`
+  (`dar_saldo`), `crear_ticket`, `simular_promesa` / `pedir_promesa` (`promesa_pago`),
+  `cuentas_para_boleta` / `registrar_boleta` (`recibir_boleta`), `pedir_reconexion`
+  (`reconexion_temporal`) y `pasar_a_persona`. Los argumentos no admiten propiedades de más: el modelo
+  nunca nombra cliente, empresa ni conversación. `pedir_promesa` siempre simula antes en el servidor.
+  `pedir_reconexion` solo existe si el cliente de Argos del proceso implementa la reconexión temporal
+  (§7.3 del contrato con Argos; pendiente en `internal/integracion/argos`). `proponer_visita` /
+  `agendar_visita` **no están en 3b**.
+- **Saldo.** El monto no se le da al modelo: escribe la marca `{{saldo}}` y el servidor la reemplaza
+  por el monto leído de Argos en ese turno, solo con cliente verificado. Un monto de deuda escrito
+  por el modelo invalida el mensaje.
+- **Reglas del texto.** Si el mensaje trae un enlace que no venía en un manual «Para el cliente», un
+  precio (`Q …`) o un plazo (`N horas/días/…`) que no estaba en los datos del turno, un monto de deuda,
+  texto copiado de un manual del equipo o marcas internas, **no se envía** y pasa a una persona
+  (`sin_respuesta`).
+- **Pasar a persona.** Motivos del servidor: el cliente lo pide con palabras claras
+  (`cliente_lo_pidio`, sin llamar al modelo), `max_turnos`, `herramienta_fallo` (también demasiadas
+  herramientas o un reintento después de una caída con acciones ya hechas), `sin_respuesta` (proveedor
+  caído, salida inválida, la categoría dejó de ser «responde solo» o su condición ya no se cumple) y
+  `tope` (tope del mes o límite por empresa). Límites: 20 turnos por conversación y hora, 600 por
+  empresa y hora.
+- **Bot.** El bot calla (también su menú pendiente y sus temporizadores) desde que la conversación
+  tiene una categoría en «responde solo» con el modo autónomo encendido. El **primer** mensaje de una
+  conversación nueva todavía no tiene categoría: ahí el bot y la respuesta de fuera de horario salen
+  como siempre (decisión pendiente del PM: retrasarlos ~20 s hasta clasificar).
+- **Actor.** `asistente_ia` en `auditoria.acciones` (`actor_tipo`, canal `ia`, sin `actor_id`).
+  Hacia Argos, `X-Iris-Actor: asistente_ia` en saldo, simulación, promesa, cuentas y boleta. Los
+  tickets que crea quedan con origen `panel` (soporte no tiene un origen propio para el asistente).

@@ -26,7 +26,7 @@ type FranjaHorario struct {
 	Dias   []int   `json:"dias,omitempty" maxItems:"7" uniqueItems:"true" doc:"1 = lunes … 7 = domingo (en un feriado no va)"`
 	Inicio string  `json:"inicio" pattern:"^([01][0-9]|2[0-3]):[0-5][0-9]$" doc:"HH:MM local"`
 	Fin    string  `json:"fin" pattern:"^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$" doc:"HH:MM local (mayor que inicio; 24:00 = fin del día)"`
-	Perfil *string `json:"perfil,omitempty" maxLength:"60" nullable:"true" doc:"Fase 2: conjunto de permisos de un asistente en esta franja (se guarda; hoy nada lo usa)"`
+	Perfil *string `json:"perfil,omitempty" maxLength:"60" nullable:"true" doc:"Perfil del asistente de IA en esta franja (§17.1): un código de perfil o solo_sugerir"`
 }
 
 // FeriadoHorario cierra un día o reemplaza sus franjas.
