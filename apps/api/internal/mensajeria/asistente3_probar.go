@@ -19,10 +19,18 @@ import (
 // mensaje, con los ajustes del formulario sin guardar. No ejecuta nada: no toca conversaciones ni
 // Argos, y las acciones solo se describen. Cuenta para el tope y para el límite de pedidos.
 
+// Lo que «Pruébalo» dice de dar_saldo según exigeVerificacionFuerte.dar_saldo.
+const (
+	DescripcionSaldoFuerte    = "Leería el estado de cuenta en Argos y le diría el saldo, solo después de verificar la identidad del cliente (su DPI o NIT, o la confirmación de una persona)"
+	DescripcionSaldoConNumero = "Leería el estado de cuenta en Argos y le diría el saldo con solo que el número de WhatsApp coincida con el cliente"
+)
+
 // PerfilPrueba: las acciones y los límites del formulario.
 type PerfilPrueba struct {
 	Acciones AccionesAsistente `json:"acciones"`
 	Limites  LimitesAsistente  `json:"limites"`
+	// ExigeVerificacionFuerte: igual que en un perfil guardado (ausente = true en todo).
+	ExigeVerificacionFuerte *VerificacionFuerteAcciones `json:"exigeVerificacionFuerte,omitempty" doc:"Ausente = true en todo. dar_saldo: false = «Pruébalo» describe dar el saldo con solo el número"`
 }
 
 // CategoriaPrueba: una categoría del formulario (puede no estar guardada: sin id).
@@ -196,7 +204,7 @@ func (m *Modulo) prepararPrueba(ctx context.Context, t *auditoria.Tx, in Entrada
 	}
 	out := pruebaPreparada{cfg: cfg, empresa: empresa, modo: aj.ModoAutonomo}
 	def := perfilesDe(aj.Perfiles)[0]
-	out.perfil = PerfilPrueba{Acciones: def.Acciones, Limites: def.Limites}
+	out.perfil = PerfilPrueba{Acciones: def.Acciones, Limites: def.Limites, ExigeVerificacionFuerte: def.ExigeVerificacionFuerte}
 	if a := in.Ajustes; a != nil {
 		switch a.ModoAutonomo {
 		case "":
@@ -211,7 +219,7 @@ func (m *Modulo) prepararPrueba(ctx context.Context, t *auditoria.Tx, in Entrada
 			if err := validarPerfil(&p, "ajustes.perfil"); err != nil {
 				return pruebaPreparada{}, err
 			}
-			out.perfil = PerfilPrueba{Acciones: p.Acciones, Limites: p.Limites}
+			out.perfil = PerfilPrueba{Acciones: p.Acciones, Limites: p.Limites, ExigeVerificacionFuerte: a.Perfil.ExigeVerificacionFuerte}
 		}
 		out.categorias = a.Categorias
 	}
@@ -412,6 +420,13 @@ func decidirPrueba(p pruebaPreparada, r RespuestaIA) (MensajeProbado, error) {
 			d = fmt.Sprintf(d, p.perfil.Limites.PrioridadMaxima)
 		case "agendar_visita":
 			d = fmt.Sprintf(d, p.perfil.Limites.DiasAdelanteMax)
+		case "dar_saldo":
+			// Según el perfil: con la identidad verificada (por defecto) o con solo el número.
+			if f := p.perfil.ExigeVerificacionFuerte; f != nil && !f.DarSaldo {
+				d = DescripcionSaldoConNumero
+			} else {
+				d = DescripcionSaldoFuerte
+			}
 		}
 		out.Acciones = append(out.Acciones, AccionDescrita{Tipo: a, Descripcion: d})
 	}

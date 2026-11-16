@@ -2329,6 +2329,11 @@ cambió; esto precisa lo que el diseño dejaba abierto.
 | --- | --- | --- |
 | Conversación (detalle y lista), `contacto` | `verificacion` | `"numero"` \| `"fuerte"` \| `null`. `numero`: el número coincide con un solo cliente (asociación automática). `fuerte`: lo confirmó una persona con permiso (`confirmar-cliente`) o pasó la verificación de identidad de Argos (§7.5), **en este periodo abierto**. Las dos se pierden al resolver (al reabrir vuelve a `numero` y una persona puede confirmarla otra vez), al cambiar de cliente o de empresa. `confirmar-cliente` ya no es un no-op sobre un cliente asociado por su número: lo sube a `fuerte`. |
 | Ajustes del asistente, `perfiles[]` | `exigeVerificacionFuerte` | `{ "dar_saldo": boolean }`, opcional. Ausente = `true`. Solo `dar_saldo` se puede bajar a `numero`; `promesa_pago` y `reconexion_temporal` exigen `fuerte` siempre y `recibir_boleta` acepta `numero`. |
+| Conversación (detalle y lista), `contacto` | `verificacionVenceEn` | fecha o `null`. Solo con `verificacion: "fuerte"`: cuándo vence (la vigencia efectiva, el mínimo de abajo). Al llegar esa hora el nivel vuelve a `numero`: al panel le basta un temporizador. |
+| Conversación (detalle y lista), `asistente` | `motivoPaso` | `cliente_lo_pidio` \| `enojo` \| `sin_respuesta` \| `herramienta_fallo` \| `max_turnos` \| `tope` \| `asistente_apagado` \| `null`. Solo con `estado: "espera_persona"`: por qué el asistente pasó la conversación a una persona. `asistente_apagado`: apagaron el modo autónomo (o se llegó al tope) mientras atendía. Vive en la conversación y se borra al resolver, al reabrir, al cambiar de empresa o cuando una persona la toma: nunca es el de un periodo anterior ni el de otra empresa. La nota interna sigue trayendo el texto. |
+| Mensajes de la conversación | `tipo: "identidad_verificada"` | mensaje de sistema por cada intento de verificar la identidad. `evento.detalle`, de lista cerrada: `coincide` \| `no_coincide` \| `no_disponible` (Argos no pudo verificar o el cliente no tiene documento) \| `demasiados_intentos` (límite de Argos) \| `supervisor` (la confirmó una persona con `confirmar-cliente`; `actorNombre` = quién). Con el asistente, `actorNombre` = «Asistente de IA». Nunca el documento ni texto libre. Un dato que no llegó a Argos (sin candidato claro, DPI inválido, intentos del día agotados) no deja mensaje. |
+| Actividad del asistente (`actividadAsistente.tipo`) | valor nuevo | `identidad_verificada` (cuando el desafío coincidió). |
+| `POST /asistente/probar-mensaje`, `ajustes.perfil` | `exigeVerificacionFuerte` | `{ "dar_saldo": boolean }`, opcional (ausente = `true`), igual que en un perfil guardado. Cambia la `descripcion` de la acción `dar_saldo`: con la identidad verificada o con solo el número. Sin `ajustes.perfil` se usa el del perfil guardado. |
 | Ajustes del asistente (GET y POST) | `verificacionFuerteMin` | entero 5–1440, 60 por defecto. Minutos que vale la verificación `fuerte` desde que se obtuvo, dentro del periodo; después `contacto.verificacion` vuelve a `numero` y hay que verificar otra vez. Un cambio vale para las verificaciones nuevas. |
 | Ajustes del asistente (GET y POST) | `presupuestoAutonomoPct` | entero 1–100, 70 por defecto. Parte del tope del mes que puede gastar el asistente atendiendo solo; al llegar, deja de atender solo y las sugerencias siguen. |
 | Mensajes de la conversación | `tipo: "reconexion_pedida"` | mensaje de sistema cuando se pide la reconexión temporal. |
@@ -2384,6 +2389,11 @@ auditado); después queda `aceptada` o `rechazada`. Si la respuesta de Argos se 
 mantenimiento repite la llamada con la misma clave (`iris:reconexion:<comprobante>`) cada minuto,
 hasta 10 intentos; después queda `rechazada` (`sin_respuesta`) para que la revise una persona.
 `reconexion.solicitada` se emite cuando se sabe qué decidió Argos.
+
+**`reconexion_pedida` en el hilo.** Es **un solo** mensaje de sistema y sale cuando Argos decide, con
+`evento.detalle` = `aceptada` o `rechazada`. Mientras la reconexión está `pendiente` (la respuesta de
+Argos se perdió y el mantenimiento la repite) **no hay mensaje**; no se emite uno «pendiente» que
+luego se actualice, ni un segundo mensaje. Si se agotan los reintentos sale con `rechazada`.
 
 **Reglas del texto, además de las de §17.8.1.**
 - Los precios, plazos y enlaces válidos salen solo de los datos de la empresa, de los manuales «Para

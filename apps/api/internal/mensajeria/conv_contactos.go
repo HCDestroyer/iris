@@ -315,6 +315,11 @@ func nuevoConfirmarCliente(m *Modulo) *auditoria.Caso[EntradaAccionConv, Convers
 					if err := m.fijarVerificacionFuerte(ctx, q, c); err != nil {
 						return err
 					}
+					// En el hilo: quién dio la verificación fuerte (nunca un dato del cliente).
+					if err := m.sistema(ctx, t, c, EventoSistema{Tipo: "identidad_verificada", ActorNombre: actorNombre(ctx, q, a.usuario),
+						Detalle: nombrePtr(IdentidadSupervisor)}); err != nil {
+						return err
+					}
 				} else if c.ClienteVerificado {
 					return nil
 				}
