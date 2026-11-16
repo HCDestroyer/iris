@@ -97,7 +97,7 @@ Cada agente es dueño de las carpetas que indica su brief y no toca las de otro.
 ### 8. Permisos (ACL)
 
 - Permiso = nombre de la acción (`tickets.crear`). Los roles agrupan permisos, con alcance opcional por zona o cuadrilla.
-- Roles base: `admin`, `supervisor`, `despacho`, `tecnico`, `soporte`, `ventas`, `lectura`, y para los usuarios de tipo integración `integracion_argos` e `integracion_horus` (permisos del §1.2 de cada contrato).
+- Roles base: `admin`, `supervisor`, `despacho`, `tecnico`, `soporte`, `ventas`, `lectura`, `caja`, y para los usuarios de tipo integración `integracion_argos` e `integracion_horus` (permisos del §1.2 de cada contrato).
 - Un token de API o de integración es un usuario con alcances acotados y pasa por el mismo ACL.
 
 ### 9. Auditoría
@@ -192,6 +192,7 @@ Una tarea está terminada solo si:
 | `usuario.mfa_reiniciado` | identidad (núcleo) | usuario_id, motivo, sesiones_cerradas, tokens_revocados |
 | `usuario.sso_vinculado` / `usuario.sso_desvinculado` | identidad (núcleo, autologin) | usuario_id, vinculo_id, conector_id, usuario_externo; sistema, origen (usuario, admin) (vinculado); motivo (desvinculado) |
 | `usuario.sesiones_cerradas` | identidad (núcleo) | usuario_id, sesiones[], todas, motivo (o null) |
+| `usuario.argos_abierto` | integracion (núcleo, autologin Iris → Argos) | usuario_id, conector_id, con_destino; nunca la URL ni el ticket |
 | `usuario.rol_asignado` / `usuario.rol_quitado` | identidad (núcleo) | usuario_id, rol, zona_id (o null), cuadrilla_id (o null) |
 | `rol.creado` / `rol.actualizado` / `rol.activado` / `rol.desactivado` | identidad (núcleo) | rol_id; codigo, permisos[] (creado); campos[], permisos_agregados[], permisos_quitados[] (actualizado); codigo, usuarios, motivo (activado, desactivado) |
 | `token.creado` / `token.revocado` | identidad (núcleo) | token_id, usuario_id, motivo (revocado) |
@@ -199,6 +200,7 @@ Una tarea está terminada solo si:
 | `argos.servicio_retirado` | integracion (núcleo, webhook de Argos) | servicio_id, cliente_id (o null), de, a, entrante_id |
 | `argos.datos_cambiados` | integracion (argos) | entidad (servicio \| cliente), cliente_id, servicio_id (o null), empresa_id (o null), campos[], entrante_id |
 | `argos.traslado_cambiado` | integracion (argos) | traslado_id, estado (enviado, recibido, cancelado), empresa_id, usuario_id (o null), entrante_id |
+| `argos.comprobante_resuelto` | integracion (argos, webhook de Argos) | comprobante_id, estado (aprobado, rechazado), empresa_id, cliente_id, servicio_id (o null), canal, monto, pago_id (o null), motivo (o null), causa (o null), servicio_estado (o null), entrante_id |
 | `orden.datos_argos_cambiados` | campo (I1) | orden_id, numero, entidad, campos[], entrante_id |
 | `argos.servicio_eliminado` / `argos.router_eliminado` | integracion (núcleo, webhook de Argos) | servicio_id, cliente_id, empresa_id, router_id (o null), entrante_id (servicio); router_id, empresa_id (o null = compartido), entrante_id (router) |
 | `argos.servicio_restaurado` / `argos.router_restaurado` | integracion (núcleo, lectura de Argos) | servicio_id, cliente_id, empresa_id (o null), eliminado_entrante_id (servicio); router_id, empresa_id (o null), eliminado_entrante_id (router) |
@@ -237,6 +239,7 @@ Una tarea está terminada solo si:
 | `contacto_iris.creado` / `contacto_iris.unido` / `contacto_iris.consentimiento` | mensajeria (bandeja) | contacto_iris_id, empresa_id; tipo, conversacion_id (o null), origen (agente, telefono) (creado); cliente_id, conversaciones[] (unido); estado (acepta, baja), origen (consentimiento) |
 | `cola.creada` / `cola.actualizada` / `etiqueta.creada` / `etiqueta.actualizada` / `respuesta_rapida.creada` / `respuesta_rapida.actualizada` | mensajeria (bandeja) | cola_id / etiqueta_id / respuesta_id, empresa_id; nombre o atajo (creada); campos[], activa (actualizada) |
 | `boleta.registrada` / `boleta.registrada_en_argos` / `boleta.fallida` | mensajeria (bandeja) | boleta_id, conversacion_id, empresa_id; cliente_id, servicio_id (registrada); comprobante_id (en Argos); detalle (fallida) |
+| `boleta.aprobada` / `boleta.rechazada` | mensajeria (bandeja) | boleta_id, conversacion_id, empresa_id, comprobante_id, pago_id (o null), actor_id (o null si decidió caja en Argos), origen (iris, argos), aviso_cliente (enviado, sin_aviso); causa (rechazada). Una vez por boleta |
 | `promesa.solicitada` | mensajeria (bandeja) | promesa_id, conversacion_id, empresa_id, cliente_id, servicio_id, estado (activa, rechazada, pendiente_aprobacion), promesa_argos_id |
 | `horario.creado` / `horario.actualizado` | mensajeria (bandeja) | horario_id, empresa_id; nombre (creado); campos[], activo (actualizado) |
 | `conversacion.fuera_de_horario` / `conversacion.guardia_avisada` | mensajeria (bandeja) | conversacion_id, empresa_id; mensaje_id, hasta (fuera de horario); usuario_id, motivo (etiqueta, falla_masiva) (guardia) |

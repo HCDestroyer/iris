@@ -190,7 +190,36 @@ Contrato completo: `.claude/integration/contratos/conversaciones.md`. Código en
 
 Emite (detalle en `contratos/eventos.md`, «Conversaciones con clientes»): `conversacion.*`,
 `contacto_iris.*` (también `contacto_iris.consentimiento`), `cola.*`, `etiqueta.*`, `respuesta_rapida.*`, `boleta.*`, `promesa.solicitada`.
-No consume eventos (los webhooks `comprobante.*` / `promesa.*` de Argos quedan para la fase 1.1).
+Consume `argos.comprobante_resuelto` (webhooks `comprobante.*` de Argos; ver «Aprobar y rechazar boletas»). Los
+webhooks `promesa.*` quedan para la fase 1.1.
+
+### Aprobar y rechazar boletas (`boletas_decidir.go`, `boletas_rutas.go`, `boletas.sql`)
+
+Contrato con Argos 0.7.0 §7.7 (pedido B3); la API está en `contratos/conversaciones.md` §6.4.1.
+
+- **Acciones:** `POST /boletas/{id}/aprobar` (`boletas.aprobar`) y `POST /boletas/{id}/rechazar`
+  (`boletas.rechazar`); `GET /boletas/{id}` y `GET /conversaciones/{id}/boletas` con `puedeDecidir`.
+  Solo una persona con sesión del panel que vea la conversación (token, integración o el sistema —así
+  actúa el asistente de IA—: 403 `solo_personas`).
+- **Llamadas sincrónicas contra Argos fuera de transacción** (como las promesas, y nunca por
+  `integracion.pendientes`): un caso previo revisa permiso, visibilidad, estado y contrato ≥ 0.7.0;
+  se llama a Argos (`X-Iris-Actor: usuario:<id>`, `X-Iris-Conversacion`, `iris:aprobar:<comprobante>` /
+  `iris:rechazar:<comprobante>`) y un caso final guarda lo que Argos decidió. Los errores de Argos se
+  traducen en `alFallar` (nunca su `detail`). Argos caído: 502 `argos_no_disponible`.
+- **Idempotencia propia** (`rutaBoletaPropia`): el middleware no guarda la respuesta; la clave hacia
+  Argos sale del comprobante y repetir la misma decisión devuelve la boleta como quedó.
+- **Una sola resolución** (`aplicarResolucion`, con la boleta en `FOR UPDATE` y solo desde
+  `registrada`): la respuesta de Argos, el webhook o la relectura (`GET /comprobantes/:id` tras
+  `comprobante_revisado` u `otra_persona_decidio`). Ahí salen el mensaje de sistema, el aviso al
+  cliente (`avisarBoleta`: texto con la ventana abierta; plantilla aprobada y permiso con la ventana
+  cerrada; si no, `sin_aviso`), la auditoría y `boleta.aprobada` / `boleta.rechazada`. Orden de
+  candados: boleta y después conversación (igual que el despacho de boletas).
+- **Webhook:** el worker (`SuscribirComprobantes`) deja lo que dice `argos.comprobante_resuelto` en
+  `boletas.resolucion`; el despacho de este proceso (`despacharResoluciones`, cada 10 s) lo aplica
+  pasada `GraciaResolucion` (20 s), para que la respuesta a quien decidió en Iris llegue primero y la
+  boleta quede a su nombre. El worker no encola envíos de WhatsApp: por eso aplica este proceso.
+
+Emite `boleta.aprobada` y `boleta.rechazada`; consume `argos.comprobante_resuelto`.
 
 ### Horarios, fuera de horario y manuales (`horarios.go`, `fuera_horario.go`, `manuales.go`, `horarios.sql`)
 

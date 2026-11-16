@@ -382,7 +382,18 @@ func (m *Modulo) avisarBoleta(ctx context.Context, t *auditoria.Tx, q *mensajeri
 	}
 	texto := recortar(p.Render(vars), MaxTextoWhatsApp)
 	n := nuevoMensaje{direccion: DirSaliente, tipo: "texto", texto: &texto, estadoEntrega: nombrePtr(EntregaEnCola), automatico: nombrePtr("bot")}
-	if ventanaDe(c.UltimoEntranteEn, m.ahora()).Abierta {
+	abierta := ventanaDe(c.UltimoEntranteEn, m.ahora()).Abierta
+	var pr *nucleo.Problema
+	if c.Estado == EstadoConvResuelta || !abierta {
+		// Escribir en una resuelta o fuera de la ventana abre la conversación al cliente: en un número
+		// compartido, no si otra empresa tiene una abierta con ese teléfono (§15.3).
+		if err := otraEmpresaConversa(ctx, q, canal.ID, empresaDeConv(*c), c.Numero); errors.As(err, &pr) {
+			return AvisoBoletaSinAvis, nil, nil
+		} else if err != nil {
+			return "", nil, err
+		}
+	}
+	if abierta {
 		puede, err := m.puedeContestarBot(ctx, q, *c)
 		if err != nil {
 			return "", nil, err
@@ -398,13 +409,7 @@ func (m *Modulo) avisarBoleta(ctx context.Context, t *auditoria.Tx, q *mensajeri
 		if p.validarVariables(vars) != nil {
 			return AvisoBoletaSinAvis, nil, nil
 		}
-		var pr *nucleo.Problema
 		if err := permisoPlantilla(ctx, q, *c, true); errors.As(err, &pr) {
-			return AvisoBoletaSinAvis, nil, nil
-		} else if err != nil {
-			return "", nil, err
-		}
-		if err := otraEmpresaConversa(ctx, q, canal.ID, empresaDeConv(*c), c.Numero); errors.As(err, &pr) {
 			return AvisoBoletaSinAvis, nil, nil
 		} else if err != nil {
 			return "", nil, err
@@ -692,6 +697,9 @@ func (k *DecidirBoleta) alFallar(ctx context.Context, d decision, pre previaDeci
 				"Tu usuario de Argos no tiene acceso a la empresa de este pago")
 		case "actor_ia_no_permitido":
 			return Boleta{}, soloPersonasBoleta()
+		case "empresa_no_permitida":
+			// El alcance del usuario técnico Iris en Argos (el token), no el de la persona.
+			return Boleta{}, conector.Rechazo(argos.Remoto, "El conector de Iris no tiene acceso a la empresa de este pago en Argos: revisa en Argos el alcance del usuario técnico Iris")
 		}
 		return Boleta{}, conector.Rechazo(argos.Remoto, "Argos rechazó el token del conector: revisa en Argos los permisos del usuario técnico Iris (comprobantes.aprobar y comprobantes.rechazar)")
 	case http.StatusUnauthorized:
