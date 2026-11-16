@@ -24,12 +24,13 @@ Este archivo es la memoria del líder entre sesiones. La conversación se compri
 
 ## Estado (16 nov 2026)
 
-- **Publicado:** 0.21.0. Asistente de IA que sugiere (fase 2), aviso del tope por campana y correo, saldo en sugerencias sin monto, diagnóstico del conector de Argos.
-- **Contrato con Argos:** 0.7.0 en los dos repos (A23). Argos 1.15.0 ya permite aprobar y rechazar comprobantes con el token de Iris y un usuario vinculado.
-- **En curso, fase 3 (diseño simple de tres preguntas aprobado):**
-  - 3a: categorías de mensajes (cola y SLA por categoría), clasificación, filtros en la bandeja, pantalla simple, «Pruébalo antes de guardar», efecto en el SLA.
-  - 3b: el asistente atiende solo (responder, ticket, visita, boleta, saldo a verificados, promesa, reconexión, pasar a persona), con su propia revisión de seguridad.
-  - B3: aprobar y rechazar boletas por una persona y «Vincular mi usuario de Argos».
+- **Publicado:** 0.22.0. Fase 3 sin autonomía: categorías de mensajes (cola y SLA por categoría), clasificación, pantalla simple con «Pruébalo antes de guardar», efecto en el SLA; aprobar y rechazar boletas por una persona (rol `caja`) y «Vincular mi usuario de Argos». Antes, 0.21.0: asistente que sugiere, aviso del tope, saldo sin monto, diagnóstico del conector de Argos.
+- **Contrato con Argos:** 0.7.0 en los dos repos (A23). La 0.7.1 (`verificado_iris_actor`, PR #164) espera a que Argos mergee su espejo argos-isp#245 con el mismo sha256.
+- **En curso, fase 3b (el asistente atiende solo):**
+  - Servidor: PR #163, cinco rondas de revisión de seguridad, la última apta. Dinero apagado de fábrica; saldo, promesa y reconexión piden verificación fuerte con vigencia (60 min por defecto).
+  - Decisión del líder (el PM puede cambiarla): recibir una boleta basta con reconocer el número, porque la aprueba una persona de caja; dar el saldo pide verificación fuerte de fábrica y cada empresa lo configura.
+  - Panel: rama `agente/i3-asistente-3b`, sobre la del servidor.
+  - Falta: `agendar_visita` necesita la lectura de huecos libres de la agenda (I2), sin empezar.
 - **Pendiente del PM:** captura de «Revisar ahora» del conector de Argos (bodegas: Iris muestra «Argos < 1.6.0»); qué correo usar para `IRIS_SMTP_*`; si Ollama corre en el mismo servidor (`IRIS_ASISTENTE_PERMITIR_LOOPBACK`).
 - **Después:** fase 4 (voz: Issabel o WhatsApp), Iris Cloud en `cloud.iris.kns.gt` (falta servidor), cambios de Wi-Fi por Argos ↔ SmartOLT.
 
