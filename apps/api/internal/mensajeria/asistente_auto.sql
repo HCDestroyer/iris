@@ -126,13 +126,48 @@ SELECT count(*)::bigint FROM mensajeria.asistente_verificaciones
 WHERE conversacion_id = @conversacion_id AND creada_en >= @desde AND resultado IN ('coincide', 'no_coincide');
 
 -- name: UltimosEntrantesTexto :many
-SELECT id, texto FROM mensajeria.conversacion_mensajes
+SELECT id, texto, proveedor_id FROM mensajeria.conversacion_mensajes
 WHERE conversacion_id = @conversacion_id AND direccion = 'entrante' AND texto IS NOT NULL AND creado_en >= @desde
 ORDER BY seq DESC LIMIT 3;
 
 -- name: EnmascararTextoMensaje :exec
 -- El dato de identidad que escribió el cliente no se guarda (contrato con Argos §7.5): queda ***.
 UPDATE mensajeria.conversacion_mensajes SET texto = @texto WHERE id = @id AND direccion = 'entrante';
+
+-- name: EnmascararEntranteMeta :exec
+-- El payload crudo de Meta del mensaje que traía un documento de identidad: el dato queda ***
+-- (el payload ya se procesó; hash_cuerpo, que deduplica, no cambia).
+UPDATE mensajeria.entrantes e
+SET payload = replace(e.payload::text, @valor::text, '***')::jsonb
+WHERE e.canal_id = @canal_id AND e.created_at >= now() - interval '3 days'
+  AND strpos(e.payload::text, @proveedor_id::text) > 0 AND strpos(e.payload::text, @valor::text) > 0
+  AND pg_input_is_valid(replace(e.payload::text, @valor::text, '***'), 'jsonb');
+
+-- name: LiberarArriendoTurno :exec
+-- El cierre del turno falló: el arriendo se suelta para que el reintento lo tome enseguida.
+UPDATE mensajeria.asistente_turnos SET tomado_en = 'epoch' WHERE id = @id AND estado = 'en_curso';
+
+-- name: BotsDiferidosViejos :many
+-- Conversaciones cuyo paso del bot y de fuera de horario sigue esperando a la clasificación.
+SELECT c.id FROM mensajeria.conversaciones c
+JOIN mensajeria.conversacion_mensajes m ON m.id = c.bot_diferido_mensaje_id
+WHERE c.bot_diferido_mensaje_id IS NOT NULL AND m.creado_en < @antes
+ORDER BY m.creado_en LIMIT 200;
+
+-- name: ResolverReconexion :one
+UPDATE mensajeria.reconexiones
+SET estado = @estado, promesa_argos_id = sqlc.narg('promesa_argos_id'), hasta = sqlc.narg('hasta'), detalle = sqlc.narg('detalle'), resuelta_en = now()
+WHERE id = @id AND estado = 'pendiente'
+RETURNING *;
+
+-- name: ContarIntentoReconexion :exec
+UPDATE mensajeria.reconexiones SET intentos = intentos + 1 WHERE id = @id;
+
+-- name: ReconexionesPendientes :many
+SELECT * FROM mensajeria.reconexiones WHERE estado = 'pendiente' AND created_at < @antes ORDER BY created_at LIMIT 100;
+
+-- name: ReconexionParaActualizar :one
+SELECT * FROM mensajeria.reconexiones WHERE id = @id FOR UPDATE;
 
 -- name: MarcarMensajeConSaldo :exec
 UPDATE mensajeria.conversacion_mensajes SET con_saldo = true WHERE id = @id;

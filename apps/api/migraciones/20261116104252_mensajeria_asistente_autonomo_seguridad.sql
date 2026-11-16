@@ -2,8 +2,9 @@
 -- Asistente de IA, fase 3b: correcciones de la revisión de seguridad de la #163.
 
 -- 1. Verificación en dos niveles. «numero»: el número coincide con un teléfono del cliente (lo que
--- ya había). «fuerte»: lo confirmó una persona (verificado_por) o pasó el desafío de identidad de
--- Argos (identidad_verificada_en). El desafío vale para ese cliente y ese periodo de la conversación.
+-- ya había). «fuerte»: identidad_verificada_en, que se pone cuando lo confirma una persona con permiso
+-- o cuando pasa el desafío de identidad de Argos. Vale para ese cliente y solo en el periodo abierto
+-- en que se obtuvo: al resolverse la conversación se pierde (el trigger de abajo).
 ALTER TABLE mensajeria.conversaciones
     ADD COLUMN identidad_verificada_en timestamptz,
     -- El bot y fuera de horario esperan a la clasificación cuando el modo autónomo está encendido:
@@ -31,8 +32,13 @@ CREATE TABLE mensajeria.reconexiones (
     comprobante_id   bigint      NOT NULL,
     cliente_id       bigint      NOT NULL,
     servicio_id      bigint,
-    motivo           text        NOT NULL CHECK (motivo IN ('fuera_de_horario', 'sin_personal')),
-    estado           text        NOT NULL CHECK (estado IN ('aceptada', 'rechazada')),
+    -- Argos solo acepta fuera_de_horario (§7.3).
+    motivo           text        NOT NULL CHECK (motivo IN ('fuera_de_horario')),
+    -- pendiente: se registró el intento y todavía no se sabe qué dijo Argos (se reintenta con la
+    -- misma clave, iris:reconexion:<comprobante>).
+    estado           text        NOT NULL CHECK (estado IN ('pendiente', 'aceptada', 'rechazada')),
+    intentos         integer     NOT NULL DEFAULT 0,
+    resuelta_en      timestamptz,
     promesa_argos_id bigint,
     hasta            timestamptz,
     detalle          text,
@@ -42,6 +48,7 @@ CREATE TABLE mensajeria.reconexiones (
     UNIQUE (comprobante_id)
 );
 CREATE INDEX reconexiones_conv_idx ON mensajeria.reconexiones (conversacion_id);
+CREATE INDEX reconexiones_pendientes_idx ON mensajeria.reconexiones (created_at) WHERE estado = 'pendiente';
 
 -- 3. Quién registró una boleta cuando no fue una persona.
 ALTER TABLE mensajeria.boletas ADD COLUMN por_asistente boolean NOT NULL DEFAULT false;
@@ -81,15 +88,10 @@ DROP TRIGGER conv_asistente_estado ON mensajeria.conversaciones;
 CREATE TRIGGER conv_asistente_estado BEFORE UPDATE OF estado, asignado_a, empresa_id, cliente_id, asistente_estado ON mensajeria.conversaciones
     FOR EACH ROW EXECUTE FUNCTION mensajeria.conv_asistente_estado();
 
--- 7. Revisión de la migración anterior: la restricción del actor se agrega sin bloquear la tabla
--- (NOT VALID y luego VALIDATE), las claves foráneas que faltaban y el índice de los turnos en curso.
-ALTER TABLE auditoria.acciones DROP CONSTRAINT acciones_actor_tipo_check;
-ALTER TABLE auditoria.acciones ADD CONSTRAINT acciones_actor_tipo_check
-    CHECK (actor_tipo IN ('usuario', 'token', 'integracion', 'sistema', 'anonimo', 'cliente', 'asistente_ia')) NOT VALID;
-ALTER TABLE auditoria.acciones VALIDATE CONSTRAINT acciones_actor_tipo_check;
+-- 7. Revisión de la migración anterior: la clave foránea que faltaba (sin validar: la valida la
+-- migración …_asistente_autonomo_validar, fuera de una transacción) y el índice de los turnos en curso.
 ALTER TABLE mensajeria.asistente_acciones
     ADD CONSTRAINT asistente_acciones_conversacion_fk FOREIGN KEY (conversacion_id) REFERENCES mensajeria.conversaciones (id) NOT VALID;
-ALTER TABLE mensajeria.asistente_acciones VALIDATE CONSTRAINT asistente_acciones_conversacion_fk;
 CREATE INDEX asistente_turnos_en_curso_idx ON mensajeria.asistente_turnos (tomado_en) WHERE estado = 'en_curso';
 
 -- +goose Down

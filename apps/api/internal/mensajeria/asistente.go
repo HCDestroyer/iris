@@ -179,7 +179,7 @@ type casosAsistente struct {
 	terminarTurno         *auditoria.Caso[resultadoTurno, struct{}]
 	registrarAccion       *auditoria.Caso[accionHecha, struct{}]
 	leerConv              *auditoria.Caso[EntradaConversacion, convLeida]
-	registrarVerificacion *auditoria.Caso[verificacionHecha, struct{}]
+	registrarVerificacion *auditoria.Caso[verificacionHecha, bool]
 
 	prepararGen    *auditoria.Caso[uuidSugerencia, generacion]
 	guardarGen     *auditoria.Caso[resultadoGeneracion, struct{}]

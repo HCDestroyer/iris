@@ -2,15 +2,16 @@
 -- Asistente de IA, fase 3b (contratos/conversaciones.md §17.8): el asistente atiende solo.
 
 -- 1. Actor propio en la auditoría: las acciones del asistente quedan como asistente_ia (canal ia),
--- nunca como una persona ni como el sistema.
+-- nunca como una persona ni como el sistema. La restricción entra sin validar (no escanea ni bloquea
+-- la tabla); la valida, fuera de una transacción, la migración …_asistente_autonomo_validar.
 ALTER TABLE auditoria.acciones DROP CONSTRAINT acciones_actor_tipo_check;
 ALTER TABLE auditoria.acciones ADD CONSTRAINT acciones_actor_tipo_check
-    CHECK (actor_tipo IN ('usuario', 'token', 'integracion', 'sistema', 'anonimo', 'cliente', 'asistente_ia'));
+    CHECK (actor_tipo IN ('usuario', 'token', 'integracion', 'sistema', 'anonimo', 'cliente', 'asistente_ia')) NOT VALID;
 
 -- 2. Mensajes del asistente: saliente sin autor con automatico = 'asistente'.
 ALTER TABLE mensajeria.conversacion_mensajes DROP CONSTRAINT conversacion_mensajes_automatico_check;
 ALTER TABLE mensajeria.conversacion_mensajes ADD CONSTRAINT conversacion_mensajes_automatico_check
-    CHECK (automatico IS NULL OR automatico IN ('bot', 'fuera_de_horario', 'asistente'));
+    CHECK (automatico IS NULL OR automatico IN ('bot', 'fuera_de_horario', 'asistente')) NOT VALID;
 
 -- 3. Estado del asistente en la conversación. NULL = no la atiende. «detenido»: una persona la tomó o
 -- escribió (hasta que se resuelva o se reabra sin asignar).

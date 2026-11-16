@@ -824,6 +824,11 @@ func (m *Modulo) SugerirAutomatico(ctx context.Context, conversacion int64) (tim
 	// esperar a un agente en línea (sin_nadie), mientras tanto se sugiere como siempre.
 	espera, atendio, juntando, err := m.AtenderSolo(ctx, conversacion)
 	if err != nil {
+		// El asistente no pudo: el bot y fuera de horario no se quedan esperando (si el job agota sus
+		// intentos nadie más los dispararía antes del barrido del mantenimiento).
+		if _, errBot := m.botDiferido.Ejecutar(context.WithoutCancel(ctx), conversacion); errBot != nil {
+			return espera, errors.Join(err, errBot)
+		}
 		return espera, err
 	}
 	// El bot y fuera de horario esperaban a esta decisión: si el asistente no tomó la conversación,
@@ -1144,12 +1149,20 @@ func lineaHistorial(h mensajeriabd.HistorialAsistenteRow) string {
 			crudo = reMontoQ.ReplaceAllString(crudo, "Q ***")
 		}
 		texto = neutralizarLinea(recortarIA(RedactarParaIA(crudo), 1000))
+		// El modelo no ve el documento: solo que el cliente lo envió (verificar_identidad lo toma del
+		// mensaje original, del lado del servidor).
+		if h.Direccion == DirEntrante && len(documentosEn(crudo)) > 0 {
+			texto += " " + MarcaDocumento
+		}
 		if h.Tipo != "texto" {
 			texto = "[" + h.Tipo + "] " + texto
 		}
 	}
 	return quien + ": " + texto
 }
+
+// MarcaDocumento: lo que ve el modelo cuando el mensaje del cliente traía un documento de identidad.
+const MarcaDocumento = "(el cliente envió un documento: ***)"
 
 // reMontoQ: una cifra en quetzales.
 var reMontoQ = regexp.MustCompile(`(?i)\bq\.?\s*\d[\d.,]*`)
@@ -1222,7 +1235,8 @@ var (
 	reNIT     = regexp.MustCompile(`(?i)\b(nit)(\s*:?\s*)([0-9][0-9-]*k?)\b`)
 	reDPI     = regexp.MustCompile(`(?i)\b(dpi|cui|documento|pasaporte)(\s*(?:es|:|#|no\.?)?\s*)([0-9A-Z][0-9A-Z -]{4,})`)
 	// Correos y teléfonos (con 502 delante o escritos 5512-3344): datos personales que el proveedor de
-	// IA no necesita. Ocho dígitos seguidos no se tapan: pueden ser la referencia de una boleta.
+	// IA no necesita. Los documentos (NIT, DPI) los tapa taparDocumentosTexto; un número que sigue a
+	// «referencia», «boleta», «ticket»… no se tapa.
 	reCorreo   = regexp.MustCompile(`(?i)\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b`)
 	reTelefono = regexp.MustCompile(`\+?\b502[ -]?\d{4}[ -]?\d{4}\b|\b[2-7]\d{3}[ -]\d{4}\b`)
 )
@@ -1239,6 +1253,8 @@ func RedactarParaIA(s string) string {
 	s = reTelefono.ReplaceAllString(s, auditoria.Mascara)
 	s = reNIT.ReplaceAllString(s, "${1}${2}"+auditoria.Mascara)
 	s = reDPI.ReplaceAllString(s, "${1}${2}"+auditoria.Mascara)
+	// Documentos de identidad: lo que sigue a nit/dpi/cui/documento y los números con forma de NIT o DPI.
+	s, _ = taparDocumentosTexto(s)
 	// Números cortos cerca de una palabra de secreto (antes o después).
 	claves := reSecreto.FindAllStringIndex(s, -1)
 	if len(claves) > 0 {

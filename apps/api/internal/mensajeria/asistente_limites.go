@@ -172,7 +172,8 @@ func (m *Modulo) mantenerAsistente(ctx context.Context, bd nucleo.BD, log *slog.
 			log.WarnContext(ctx, "mensajeria: sugerencia atascada", "sugerencia_id", id, "err", err)
 		}
 	}
-	reservas, err := q.ReservasHuerfanas(ctx, antes)
+	// Una reserva vive lo que el arriendo de un turno autónomo (el pedido más largo que la usa).
+	reservas, err := q.ReservasHuerfanas(ctx, m.ahora().Add(-(m.arriendoTurno() + MargenAtascadaIA)))
 	if err != nil {
 		return err
 	}
@@ -200,7 +201,35 @@ func (m *Modulo) mantenerAsistente(ctx context.Context, bd nucleo.BD, log *slog.
 	if err := q.PurgarTurnosAsistente(ctx, m.ahora().Add(-90*24*time.Hour)); err != nil {
 		return err
 	}
+	// El bot y fuera de horario que esperaban a la clasificación y nadie disparó (el job agotó sus
+	// intentos o nunca corrió): salen ahora.
+	if err := m.barrerBotsDiferidos(ctx, bd, log); err != nil {
+		return err
+	}
+	// Reconexiones cuya respuesta de Argos se perdió: se repiten con la misma clave. created_at es
+	// la hora de la base, no la del módulo.
+	if m.Conv.Reconexion != nil {
+		if err := m.Conv.Reconexion.Reintentar(ctx, bd, time.Now().Add(-EsperaReintentoReconexion), log); err != nil {
+			return err
+		}
+	}
 	return q.PurgarPedidosAsistente(ctx, m.ahora().Add(-24*time.Hour))
+}
+
+// EsperaBotDiferido: lo máximo que el bot y fuera de horario esperan a la clasificación.
+const EsperaBotDiferido = 60 * time.Second
+
+func (m *Modulo) barrerBotsDiferidos(ctx context.Context, bd nucleo.BD, log *slog.Logger) error {
+	convs, err := mensajeriabd.New(bd).BotsDiferidosViejos(ctx, m.ahora().Add(-EsperaBotDiferido))
+	if err != nil {
+		return err
+	}
+	for _, conv := range convs {
+		if _, err := m.botDiferido.Ejecutar(ctx, conv); err != nil {
+			log.WarnContext(ctx, "mensajeria: bot diferido", "conversacion_id", conv, "err", err)
+		}
+	}
+	return nil
 }
 
 // VencerAtascadas corre el barrido (pruebas).

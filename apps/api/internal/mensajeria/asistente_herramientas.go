@@ -406,7 +406,7 @@ func (m *Modulo) herrCrearTicket(ctx context.Context, t *turnoIA, l LlamadaIA, h
 	if n, err := mensajeriabd.New(nucleo.BDDe(ctx)).TicketsAsistenteRecientes(ctx, mensajeriabd.TicketsAsistenteRecientesParams{ConversacionID: t.conv,
 		Desde: m.ahora().Add(-24 * time.Hour)}); err != nil {
 		return resHerramienta{fallo: true}, h
-	} else if n >= TicketsPorDiaConv {
+	} else if n >= TicketsPorDiaConv || (t.clienteID == 0 && n >= TicketsPorDiaSinCliente) {
 		return rechazo("ya se crearon varios tickets hoy en esta conversación. Pasa a una persona si hace falta otro."), h
 	}
 	asunto := strings.TrimSpace(reEspacios.ReplaceAllString(RedactarParaIA(a.Asunto), " "))
@@ -428,6 +428,7 @@ func (m *Modulo) herrCrearTicket(ctx context.Context, t *turnoIA, l LlamadaIA, h
 	}
 	h.Entidad, h.EntidadID = "ticket", v.Vinculo.ID
 	h.actividadTipo, h.actividadTexto = "ticket_creado", "Creó el ticket "+v.Vinculo.Referencia
+	t.permitir(ResRegistrar)
 	return resHerramienta{contenido: "Ticket creado: " + v.Vinculo.Referencia + ". Dale ese número al cliente."}, h
 }
 
@@ -467,8 +468,8 @@ func (m *Modulo) herrPromesa(ctx context.Context, t *turnoIA, l LlamadaIA, h acc
 	}
 	// Del simulador solo sale el resultado y el código de la regla (nunca su texto libre ni un monto).
 	motivo := ""
-	if sim.Regla != nil && reCodigoRegla.MatchString(*sim.Regla) {
-		motivo = " No cumple la regla «" + *sim.Regla + "» de la política de promesas."
+	if sim.Regla != nil {
+		motivo = " " + textoReglaPromesa(*sim.Regla)
 	}
 	if l.Nombre == HerrSimularPromesa {
 		h.Accion = "simular_promesa"
@@ -486,7 +487,13 @@ func (m *Modulo) herrPromesa(ctx context.Context, t *turnoIA, l LlamadaIA, h acc
 	if t.hechas["promesa_pago"] {
 		return rechazo("ya pediste una promesa en este turno."), h
 	}
-	p, err := m.Conv.Promesas.Crear(ctx, EntradaPromesa{ID: t.conv, ServicioID: a.ServicioID, VenceEl: a.Fecha, Clave: "iris:asistente:" + t.id.String() + ":promesa"})
+	// Misma clave en cada intento (sale del turno): si la respuesta de Argos se pierde o responde
+	// 409 idempotencia_en_curso, se repite y Argos devuelve la promesa que ya guardó (B4).
+	pedido := EntradaPromesa{ID: t.conv, ServicioID: a.ServicioID, VenceEl: a.Fecha, Clave: "iris:asistente:" + t.id.String() + ":promesa"}
+	p, err := m.Conv.Promesas.Crear(ctx, pedido)
+	for intento := 0; err != nil && intento < 2 && esTransitorioArgos(err) && ctx.Err() == nil; intento++ {
+		p, err = m.Conv.Promesas.Crear(ctx, pedido)
+	}
 	if err != nil {
 		return deError(err), h
 	}
@@ -494,6 +501,7 @@ func (m *Modulo) herrPromesa(ctx context.Context, t *turnoIA, l LlamadaIA, h acc
 	h.actividadTipo, h.actividadTexto = "promesa_pedida", "Pidió una promesa de pago"
 	switch p.Estado {
 	case "activa":
+		t.permitir(ResRegistrar, ResAceptar, ResAprobar, ResConfirmar)
 		return resHerramienta{contenido: "Promesa aceptada para el " + a.Fecha + ". Confírmaselo al cliente sin decir montos."}, h
 	case "rechazada":
 		return resHerramienta{contenido: "El sistema de facturación rechazó la promesa. Díselo al cliente y pasa a una persona si pide más."}, h
@@ -611,6 +619,7 @@ func (m *Modulo) herrRegistrarBoleta(ctx context.Context, t *turnoIA, l LlamadaI
 	}
 	h.Entidad, h.EntidadID = "boleta", b.ID.String()
 	h.actividadTipo, h.actividadTexto = "boleta_enviada", "Boleta enviada a Argos"
+	t.permitir(ResRegistrar)
 	return resHerramienta{contenido: "Boleta registrada: caja la revisa y confirma el pago. No digas que el pago ya está aplicado."}, h
 }
 
@@ -633,12 +642,10 @@ func (m *Modulo) herrReconexion(ctx context.Context, t *turnoIA, l LlamadaIA, h 
 		return rechazo("el sistema de facturación no permite la reconexión temporal para este servicio. No la prometas; pasa a una persona si el cliente insiste."), h
 	}
 	h.actividadTipo, h.actividadTexto = "reconexion_pedida", "Pidió una reconexión temporal"
+	t.permitir(ResReconectar, ResAceptar, ResConfirmar)
 	return resHerramienta{contenido: "Reconexión temporal aceptada hasta " + r.Hasta.In(m.cfg.Zona).Format("2006-01-02 15:04") +
 		" mientras caja revisa la boleta. Explícaselo al cliente."}, h
 }
-
-// reDocumento: un DPI/CUI (13 dígitos) o un NIT (hasta 12, puede terminar en K), con espacios o guiones.
-var reDocumento = regexp.MustCompile(`(?i)\b\d(?:[ -]?\d){6,12}(?:[ -]?k)?\b`)
 
 // herrVerificarIdentidad hace el desafío de identidad de Argos (§7.5) con el documento que el cliente
 // escribió. El dato no pasa por el modelo (lo ve como ***), no se guarda (el mensaje queda con ***) y
@@ -671,37 +678,41 @@ func (m *Modulo) herrVerificarIdentidad(ctx context.Context, t *turnoIA, l Llama
 		return resHerramienta{fallo: true}, h
 	}
 	valor := ""
-	var mensaje mensajeriabd.UltimosEntrantesTextoRow
 	for _, f := range ms {
 		if f.Texto == nil {
 			continue
 		}
-		if d := reDocumento.FindString(*f.Texto); d != "" {
-			valor, mensaje = strings.ToUpper(strings.NewReplacer(" ", "", "-", "").Replace(d)), f
+		if _, crudos := taparDocumentosTexto(*f.Texto); len(crudos) > 0 {
+			valor = documentoNormalizado(crudos[0])
 			break
 		}
 	}
 	if valor == "" {
 		return rechazo("el cliente todavía no escribió su DPI o NIT completo. Pídeselo."), h
 	}
+	// Argos: 429 demasiados_intentos, 422 metodo_no_disponible o 503 → pasa a una persona, sin reintentar.
 	coincide, errArgos := ver.VerificarIdentidad(ctx, m.atencionTurno(t), t.clienteID, "documento", valor)
-	reg := verificacionHecha{ConversacionID: t.conv, Resultado: "no_coincide", mensajeID: mensaje.ID,
-		textoEnmascarado: strings.ReplaceAll(*mensaje.Texto, reDocumento.FindString(*mensaje.Texto), "***")}
+	reg := verificacionHecha{ConversacionID: t.conv, ClienteID: t.clienteID, Resultado: "no_coincide", desde: t.desde}
 	switch {
 	case errArgos != nil:
 		reg.Resultado = "error"
 		var er *conector.ErrorRemoto
-		if errors.As(errArgos, &er) && er.Status == http.StatusUnprocessableEntity {
+		if errors.As(errArgos, &er) && (er.Status == http.StatusUnprocessableEntity || er.Status == http.StatusTooManyRequests) {
 			reg.Resultado = "no_disponible"
 		}
 	case coincide:
 		reg.Resultado = "coincide"
 	}
-	if _, err := m.Asistente.registrarVerificacion.Ejecutar(context.WithoutCancel(ctx), reg); err != nil {
+	vale, err := m.Asistente.registrarVerificacion.Ejecutar(context.WithoutCancel(ctx), reg)
+	if err != nil {
 		if esNoEncontrado(err) {
 			return resHerramienta{persona: true}, h
 		}
 		return resHerramienta{fallo: true}, h
+	}
+	if reg.Resultado == "coincide" && !vale {
+		// La conversación cambió de cliente mientras Argos respondía: la verificación no cuenta.
+		return resHerramienta{persona: true}, h
 	}
 	switch reg.Resultado {
 	case "coincide":
@@ -715,4 +726,36 @@ func (m *Modulo) herrVerificarIdentidad(ctx context.Context, t *turnoIA, l Llama
 	}
 	// Argos no pudo verificar (cliente sin documento, demasiados intentos o caído): sigue una persona.
 	return resHerramienta{paso: PasoHerramientaFallo, resumen: "No se pudo verificar la identidad del cliente en Argos."}, h
+}
+
+// reglasPromesa: el código de regla del simulador de Argos, en un texto fijo. El código crudo nunca
+// viaja al modelo (un código desconocido cae en el texto genérico).
+var reglasPromesa = map[string]string{
+	"no_habilitada":      "La empresa no tiene habilitadas las promesas de pago para este servicio.",
+	"cupo_agotado":       "El cliente ya usó las promesas que permite la política.",
+	"promesa_abierta":    "El servicio ya tiene una promesa activa o pendiente.",
+	"promesa_incumplida": "El cliente tiene una promesa anterior sin cumplir.",
+	"fecha_fuera_de_rango": "La fecha está más lejos de lo que permite la política: prueba con un día más cercano.",
+	"dias_maximos":       "La fecha está más lejos de lo que permite la política: prueba con un día más cercano.",
+	"monto_maximo":       "La deuda supera lo que la política permite prometer.",
+	"servicio_no_cortado": "El servicio no está cortado: no hace falta una promesa.",
+	"suspension_manual":  "El servicio lo suspendió un operador: solo una persona puede revisarlo.",
+	"requiere_aprobacion": "La promesa necesita la aprobación de un supervisor.",
+}
+
+func textoReglaPromesa(codigo string) string {
+	if t, ok := reglasPromesa[strings.ToLower(strings.TrimSpace(codigo))]; ok {
+		return t
+	}
+	return "No cumple la política de promesas de la empresa."
+}
+
+// esTransitorioArgos: no se sabe si Argos aplicó el pedido (caído, sin respuesta, o 409
+// idempotencia_en_curso): repetir con la misma clave es seguro.
+func esTransitorioArgos(err error) bool {
+	var p *nucleo.Problema
+	if !errors.As(err, &p) {
+		return true
+	}
+	return p.Status >= http.StatusInternalServerError || p.Codigo() == "idempotencia_en_curso"
 }

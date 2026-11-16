@@ -135,6 +135,34 @@ func (q *Queries) BoletasRecientesConv(ctx context.Context, arg BoletasRecientes
 	return column_1, err
 }
 
+const botsDiferidosViejos = `-- name: BotsDiferidosViejos :many
+SELECT c.id FROM mensajeria.conversaciones c
+JOIN mensajeria.conversacion_mensajes m ON m.id = c.bot_diferido_mensaje_id
+WHERE c.bot_diferido_mensaje_id IS NOT NULL AND m.creado_en < $1
+ORDER BY m.creado_en LIMIT 200
+`
+
+// Conversaciones cuyo paso del bot y de fuera de horario sigue esperando a la clasificación.
+func (q *Queries) BotsDiferidosViejos(ctx context.Context, antes time.Time) ([]int64, error) {
+	rows, err := q.db.Query(ctx, botsDiferidosViejos, antes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const contarAccionesTurno = `-- name: ContarAccionesTurno :one
 SELECT count(*)::bigint FROM mensajeria.asistente_acciones WHERE turno_id = $1
 `
@@ -144,6 +172,15 @@ func (q *Queries) ContarAccionesTurno(ctx context.Context, turnoID uuid.UUID) (i
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const contarIntentoReconexion = `-- name: ContarIntentoReconexion :exec
+UPDATE mensajeria.reconexiones SET intentos = intentos + 1 WHERE id = $1
+`
+
+func (q *Queries) ContarIntentoReconexion(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, contarIntentoReconexion, id)
+	return err
 }
 
 const descartarTurnosEnCurso = `-- name: DescartarTurnosEnCurso :exec
@@ -169,6 +206,27 @@ WHERE id = $1 AND asistente_estado IN ('atendiendo', 'espera_persona')
 // Una persona escribió: el asistente queda detenido hasta que la conversación se resuelva.
 func (q *Queries) DetenerAsistente(ctx context.Context, id int64) error {
 	_, err := q.db.Exec(ctx, detenerAsistente, id)
+	return err
+}
+
+const enmascararEntranteMeta = `-- name: EnmascararEntranteMeta :exec
+UPDATE mensajeria.entrantes e
+SET payload = replace(e.payload::text, $1::text, '***')::jsonb
+WHERE e.canal_id = $2 AND e.created_at >= now() - interval '3 days'
+  AND strpos(e.payload::text, $3::text) > 0 AND strpos(e.payload::text, $1::text) > 0
+  AND pg_input_is_valid(replace(e.payload::text, $1::text, '***'), 'jsonb')
+`
+
+type EnmascararEntranteMetaParams struct {
+	Valor       string
+	CanalID     int64
+	ProveedorID string
+}
+
+// El payload crudo de Meta del mensaje que traía un documento de identidad: el dato queda ***
+// (el payload ya se procesó; hash_cuerpo, que deduplica, no cambia).
+func (q *Queries) EnmascararEntranteMeta(ctx context.Context, arg EnmascararEntranteMetaParams) error {
+	_, err := q.db.Exec(ctx, enmascararEntranteMeta, arg.Valor, arg.CanalID, arg.ProveedorID)
 	return err
 }
 
@@ -350,7 +408,7 @@ INSERT INTO mensajeria.reconexiones (id, empresa_id, conversacion_id, boleta_id,
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
     $10, $11, $12, $13, $14)
 ON CONFLICT (comprobante_id) DO NOTHING
-RETURNING id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at
+RETURNING id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, intentos, resuelta_en, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at
 `
 
 type InsertarReconexionParams struct {
@@ -398,6 +456,8 @@ func (q *Queries) InsertarReconexion(ctx context.Context, arg InsertarReconexion
 		&i.ServicioID,
 		&i.Motivo,
 		&i.Estado,
+		&i.Intentos,
+		&i.ResueltaEn,
 		&i.PromesaArgosID,
 		&i.Hasta,
 		&i.Detalle,
@@ -476,6 +536,16 @@ func (q *Queries) InsertarVerificacion(ctx context.Context, arg InsertarVerifica
 	return err
 }
 
+const liberarArriendoTurno = `-- name: LiberarArriendoTurno :exec
+UPDATE mensajeria.asistente_turnos SET tomado_en = 'epoch' WHERE id = $1 AND estado = 'en_curso'
+`
+
+// El cierre del turno falló: el arriendo se suelta para que el reintento lo tome enseguida.
+func (q *Queries) LiberarArriendoTurno(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, liberarArriendoTurno, id)
+	return err
+}
+
 const marcarMensajeConSaldo = `-- name: MarcarMensajeConSaldo :exec
 UPDATE mensajeria.conversacion_mensajes SET con_saldo = true WHERE id = $1
 `
@@ -547,8 +617,37 @@ func (q *Queries) PurgarTurnosAsistente(ctx context.Context, antes time.Time) er
 	return err
 }
 
+const reconexionParaActualizar = `-- name: ReconexionParaActualizar :one
+SELECT id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, intentos, resuelta_en, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at FROM mensajeria.reconexiones WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) ReconexionParaActualizar(ctx context.Context, id uuid.UUID) (MensajeriaReconexione, error) {
+	row := q.db.QueryRow(ctx, reconexionParaActualizar, id)
+	var i MensajeriaReconexione
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.ConversacionID,
+		&i.BoletaID,
+		&i.ComprobanteID,
+		&i.ClienteID,
+		&i.ServicioID,
+		&i.Motivo,
+		&i.Estado,
+		&i.Intentos,
+		&i.ResueltaEn,
+		&i.PromesaArgosID,
+		&i.Hasta,
+		&i.Detalle,
+		&i.SolicitadaPor,
+		&i.PorAsistente,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const reconexionPorComprobante = `-- name: ReconexionPorComprobante :one
-SELECT id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at FROM mensajeria.reconexiones WHERE comprobante_id = $1
+SELECT id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, intentos, resuelta_en, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at FROM mensajeria.reconexiones WHERE comprobante_id = $1
 `
 
 func (q *Queries) ReconexionPorComprobante(ctx context.Context, comprobanteID int64) (MensajeriaReconexione, error) {
@@ -564,6 +663,96 @@ func (q *Queries) ReconexionPorComprobante(ctx context.Context, comprobanteID in
 		&i.ServicioID,
 		&i.Motivo,
 		&i.Estado,
+		&i.Intentos,
+		&i.ResueltaEn,
+		&i.PromesaArgosID,
+		&i.Hasta,
+		&i.Detalle,
+		&i.SolicitadaPor,
+		&i.PorAsistente,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const reconexionesPendientes = `-- name: ReconexionesPendientes :many
+SELECT id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, intentos, resuelta_en, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at FROM mensajeria.reconexiones WHERE estado = 'pendiente' AND created_at < $1 ORDER BY created_at LIMIT 100
+`
+
+func (q *Queries) ReconexionesPendientes(ctx context.Context, antes time.Time) ([]MensajeriaReconexione, error) {
+	rows, err := q.db.Query(ctx, reconexionesPendientes, antes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MensajeriaReconexione
+	for rows.Next() {
+		var i MensajeriaReconexione
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.ConversacionID,
+			&i.BoletaID,
+			&i.ComprobanteID,
+			&i.ClienteID,
+			&i.ServicioID,
+			&i.Motivo,
+			&i.Estado,
+			&i.Intentos,
+			&i.ResueltaEn,
+			&i.PromesaArgosID,
+			&i.Hasta,
+			&i.Detalle,
+			&i.SolicitadaPor,
+			&i.PorAsistente,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const resolverReconexion = `-- name: ResolverReconexion :one
+UPDATE mensajeria.reconexiones
+SET estado = $1, promesa_argos_id = $2, hasta = $3, detalle = $4, resuelta_en = now()
+WHERE id = $5 AND estado = 'pendiente'
+RETURNING id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, intentos, resuelta_en, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at
+`
+
+type ResolverReconexionParams struct {
+	Estado         string
+	PromesaArgosID *int64
+	Hasta          *time.Time
+	Detalle        *string
+	ID             uuid.UUID
+}
+
+func (q *Queries) ResolverReconexion(ctx context.Context, arg ResolverReconexionParams) (MensajeriaReconexione, error) {
+	row := q.db.QueryRow(ctx, resolverReconexion,
+		arg.Estado,
+		arg.PromesaArgosID,
+		arg.Hasta,
+		arg.Detalle,
+		arg.ID,
+	)
+	var i MensajeriaReconexione
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.ConversacionID,
+		&i.BoletaID,
+		&i.ComprobanteID,
+		&i.ClienteID,
+		&i.ServicioID,
+		&i.Motivo,
+		&i.Estado,
+		&i.Intentos,
+		&i.ResueltaEn,
 		&i.PromesaArgosID,
 		&i.Hasta,
 		&i.Detalle,
@@ -941,7 +1130,7 @@ func (q *Queries) UltimoAdjuntoEntrante(ctx context.Context, arg UltimoAdjuntoEn
 }
 
 const ultimosEntrantesTexto = `-- name: UltimosEntrantesTexto :many
-SELECT id, texto FROM mensajeria.conversacion_mensajes
+SELECT id, texto, proveedor_id FROM mensajeria.conversacion_mensajes
 WHERE conversacion_id = $1 AND direccion = 'entrante' AND texto IS NOT NULL AND creado_en >= $2
 ORDER BY seq DESC LIMIT 3
 `
@@ -952,8 +1141,9 @@ type UltimosEntrantesTextoParams struct {
 }
 
 type UltimosEntrantesTextoRow struct {
-	ID    uuid.UUID
-	Texto *string
+	ID          uuid.UUID
+	Texto       *string
+	ProveedorID *string
 }
 
 func (q *Queries) UltimosEntrantesTexto(ctx context.Context, arg UltimosEntrantesTextoParams) ([]UltimosEntrantesTextoRow, error) {
@@ -965,7 +1155,7 @@ func (q *Queries) UltimosEntrantesTexto(ctx context.Context, arg UltimosEntrante
 	var items []UltimosEntrantesTextoRow
 	for rows.Next() {
 		var i UltimosEntrantesTextoRow
-		if err := rows.Scan(&i.ID, &i.Texto); err != nil {
+		if err := rows.Scan(&i.ID, &i.Texto, &i.ProveedorID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

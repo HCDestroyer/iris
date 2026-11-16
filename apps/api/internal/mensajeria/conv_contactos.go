@@ -300,10 +300,16 @@ func nuevoConfirmarCliente(m *Modulo) *auditoria.Caso[EntradaAccionConv, Convers
 				if c.ClienteID == nil {
 					return reglaConv("sin_cliente", "La conversación no tiene cliente asociado")
 				}
-				if c.ClienteVerificado {
+				// La confirmación de una persona da la verificación fuerte de este periodo (se pierde al
+				// resolver): confirmar otra vez después de reabrir la vuelve a dar.
+				if c.ClienteVerificado && c.IdentidadVerificadaEn != nil {
 					return nil
 				}
-				c.ClienteVerificado, c.VerificadoPor = true, &a.usuario
+				ahora := m.ahora()
+				if err := q.FijarIdentidadVerificada(ctx, mensajeriabd.FijarIdentidadVerificadaParams{ID: c.ID, Ahora: &ahora}); err != nil {
+					return err
+				}
+				c.ClienteVerificado, c.VerificadoPor, c.IdentidadVerificadaEn = true, &a.usuario, &ahora
 				if err := m.sistema(ctx, t, c, EventoSistema{Tipo: "cliente_confirmado", ActorNombre: actorNombre(ctx, q, a.usuario),
 					EntidadID: nombrePtr(strconv.FormatInt(*c.ClienteID, 10))}); err != nil {
 					return err

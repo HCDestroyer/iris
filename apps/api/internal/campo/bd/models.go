@@ -1667,6 +1667,8 @@ type MensajeriaReconexione struct {
 	ServicioID     *int64
 	Motivo         string
 	Estado         string
+	Intentos       int32
+	ResueltaEn     *time.Time
 	PromesaArgosID *int64
 	Hasta          *time.Time
 	Detalle        *string

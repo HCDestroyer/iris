@@ -24,7 +24,9 @@ import (
 // autonomo activa el asistente con un modo autónomo.
 func (x *bandejaIA) autonomo(modo string, cambios map[string]any) {
 	x.t.Helper()
-	c := map[string]any{"modoAutonomo": modo, "modo": "boton"}
+	// Las acciones de dinero vienen apagadas por defecto (cada empresa las enciende): las pruebas
+	// trabajan con un perfil que enciende saldo, boleta y visita, salvo que traigan el suyo.
+	c := map[string]any{"modoAutonomo": modo, "modo": "boton", "perfiles": []any{perfilCon(nil, "alta")}}
 	for k, v := range cambios {
 		c[k] = v
 	}
@@ -312,6 +314,25 @@ func TestAutonomoInyeccionNoEnciendeAcciones(t *testing.T) {
 			t.Fatal("la herramienta apagada estaba en la lista")
 		}
 	}
+}
+
+// clienteDeNumero: el número es de un cliente de Argos (la conversación se asocia sola al llegar su
+// primer mensaje).
+func (x *bandejaIA) clienteDeNumero(num string) int64 {
+	x.t.Helper()
+	cliente := siguienteCliente.Add(1)
+	if _, err := x.bd.Exec(x.ctx, `INSERT INTO integracion.argos_clientes (id, empresa_id, nombre, movil, codigo, sincronizado_en, empresas)
+		VALUES ($1, 1, 'Ana López', $2, 'C-2', now(), '{1}')`, cliente, "+502 "+num[3:7]+"-"+num[7:]); err != nil {
+		x.t.Fatal(err)
+	}
+	return cliente
+}
+
+// cerrarHorario deja el número de la prueba fuera de horario (atiende de 12 a 13; la prueba corre a las 10).
+func (x *bandejaIA) cerrarHorario() {
+	x.t.Helper()
+	h := x.horario(todosLosDias("12:00", "13:00"), nil)
+	x.exigir(x.configurarNumero(h["id"], map[string]any{"responder": false, "mensaje": "Atendemos de 12 a 13."}), http.StatusOK)
 }
 
 // fuerte deja la conversación con la verificación fuerte (como si ya hubiera pasado el desafío).
@@ -635,6 +656,7 @@ func TestAutonomoIdempotencia(t *testing.T) {
 	x := nuevaBandejaIA(t)
 	x.autonomo("siempre_primero", nil)
 	num := numeroCliente()
+	x.clienteDeNumero(num)
 	conv := x.llega(num, "wamid.i1", "No me funciona el internet, abran un caso", "Planes y precios")
 	x.guion(llama("crear_ticket", `{"asunto": "Sin internet", "descripcion": "El cliente reporta que no navega", "prioridad": "media"}`),
 		dice("Abrí un ticket para tu caso."), dice("DUPLICADO"), dice("DUPLICADO"))
@@ -908,12 +930,22 @@ func TestAutonomoTopeYLimites(t *testing.T) {
 	// Tope de tickets por conversación y día.
 	x.autonomo("siempre_primero", map[string]any{"maxTurnos": 20})
 	n8 := numeroCliente()
+	x.clienteDeNumero(n8)
 	for i := range mensajeria.TicketsPorDiaConv + 1 {
 		c = x.turno(n8, fmt.Sprintf("wamid.t11%d", i), "Abran otro caso", "Planes y precios",
 			llama("crear_ticket", fmt.Sprintf(`{"asunto": "Caso %d", "descripcion": "x", "prioridad": "baja"}`, i)), dice("Listo."))
 	}
 	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_vinculos WHERE conversacion_id = $1 AND tipo = 'ticket'`, cid(c)); n != mensajeria.TicketsPorDiaConv {
 		t.Fatalf("tickets en el día: %d", n)
+	}
+	// N8. Un número sin cliente asociado: un ticket por día.
+	n9 := numeroCliente()
+	for i := range 2 {
+		c = x.turno(n9, fmt.Sprintf("wamid.t12%d", i), "Abran otro caso", "Planes y precios",
+			llama("crear_ticket", fmt.Sprintf(`{"asunto": "Sin cliente %d", "descripcion": "x", "prioridad": "baja"}`, i)), dice("Listo."))
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_vinculos WHERE conversacion_id = $1 AND tipo = 'ticket'`, cid(c)); n != mensajeria.TicketsPorDiaSinCliente {
+		t.Fatalf("tickets de un número sin cliente: %d", n)
 	}
 }
 
@@ -1298,35 +1330,37 @@ func TestAutonomoBoletaYReconexion(t *testing.T) {
 		t.Fatal("pidió la reconexión sin verificación fuerte")
 	}
 	x.fuerte(conv)
-	// Con alguien disponible en la cola y en horario: no corresponde (caja puede revisar la boleta).
-	x.disponible(x.agente, "disponible")
+	// En horario hábil no corresponde, aunque no haya nadie disponible (Argos solo acepta
+	// fuera_de_horario): sigue una persona.
+	x.disponible(x.agente, "no_disponible")
 	x.turno(num, "wamid.bo3", "¿Y ahora?", "Pagos y saldo", llama("pedir_reconexion", `{}`), dice("Un compañero revisa tu boleta en un momento."))
 	x.argos.mu.Lock()
 	n = len(x.argos.reconexiones)
 	x.argos.mu.Unlock()
-	if n != 0 {
-		t.Fatal("pidió la reconexión con personal disponible en horario")
+	if n != 0 || x.contar(`SELECT count(*) FROM mensajeria.reconexiones WHERE conversacion_id = $1`, conv) != 0 {
+		t.Fatal("pidió la reconexión en horario hábil")
 	}
-	// Sin nadie disponible: se pide, con el motivo real, y Argos decide.
-	x.disponible(x.agente, "no_disponible")
+	// Fuera de horario: se pide y Argos decide.
+	x.cerrarHorario()
+	x.fuerte(conv)
 	c := x.turno(num, "wamid.bo4", "Por favor, lo necesito", "Pagos y saldo", llama("pedir_reconexion", `{}`),
 		dice("Listo: tienes una reconexión temporal mientras caja revisa tu boleta."))
 	x.argos.mu.Lock()
 	rec, motivos := append([]int64{}, x.argos.reconexiones...), fmt.Sprint(x.argos.motivos)
 	x.argos.mu.Unlock()
-	if len(rec) != 1 || motivos != "[sin_personal]" || c["actividadAsistente"].(map[string]any)["tipo"] != "reconexion_pedida" || len(x.delAsistente(conv)) < 5 {
+	if len(rec) != 1 || motivos != "[fuera_de_horario]" || c["actividadAsistente"].(map[string]any)["tipo"] != "reconexion_pedida" || len(x.delAsistente(conv)) < 5 {
 		t.Fatalf("reconexión: %v %s %v (acciones %v)", rec, motivos, c["actividadAsistente"], x.acciones(conv))
 	}
 	// Caso de uso con permiso propio, auditoría, evento y registro local.
-	if n := x.contar(`SELECT count(*) FROM mensajeria.reconexiones WHERE conversacion_id = $1 AND estado = 'aceptada' AND motivo = 'sin_personal' AND por_asistente
+	if n := x.contar(`SELECT count(*) FROM mensajeria.reconexiones WHERE conversacion_id = $1 AND estado = 'aceptada' AND motivo = 'fuera_de_horario' AND por_asistente AND intentos = 1
 		AND comprobante_id = $2`, conv, rec[0]); n != 1 {
 		t.Fatal("no quedó el registro local de la reconexión")
 	}
 	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'conversaciones.pedir_reconexion' AND actor_tipo = 'asistente_ia' AND resultado = 'ok'
-		AND entidad_id = $1`, conv); n != 1 {
-		t.Fatalf("auditoría de la reconexión: %d", n)
+		AND entidad_id = $1`, conv); n != 2 {
+		t.Fatalf("auditoría de la reconexión (el intento y el resultado): %d", n)
 	}
-	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'reconexion.solicitada' AND payload->>'conversacion_id' = $1 AND payload->>'motivo' = 'sin_personal'`, conv); n != 1 {
+	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'reconexion.solicitada' AND payload->>'conversacion_id' = $1 AND payload->>'motivo' = 'fuera_de_horario'`, conv); n != 1 {
 		t.Fatal("reconexion.solicitada")
 	}
 	// Sin el permiso (una persona de soporte no lo tiene): 403. Y el asistente desde otra empresa: 404.

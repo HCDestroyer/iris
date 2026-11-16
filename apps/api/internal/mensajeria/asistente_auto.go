@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -61,6 +62,8 @@ const (
 	TurnosPorDiaSinCliente = 10
 	// TicketsPorDiaConv, BoletasPorDiaConv y VerificacionesPorDiaConv: topes por conversación y día.
 	TicketsPorDiaConv        = 3
+	// TicketsPorDiaSinCliente: un número sin cliente asociado crea como mucho uno al día.
+	TicketsPorDiaSinCliente = 1
 	BoletasPorDiaConv        = 3
 	VerificacionesPorDiaConv = 3
 	// MaxTextoAutonomo: caracteres de un mensaje del asistente al cliente.
@@ -175,6 +178,8 @@ type turnoIA struct {
 	// actividad: la línea de la lista según la última acción que salió bien.
 	actividadTipo, actividadTexto string
 	hechas                        map[string]bool
+	// puedeDecir: familias de resultado que una herramienta devolvió en este turno (afirmaSinResultado).
+	puedeDecir map[string]bool
 }
 
 // resultadoTurno es cómo terminó el bucle (lo auditado: ids, motivo y tokens; nunca el texto).
@@ -289,7 +294,7 @@ func (m *Modulo) permisosDelTurno(ctx context.Context, q *mensajeriabd.Queries, 
 }
 
 // accionesDeDinero: solo se ofrecen si la categoría del ÚLTIMO mensaje está en «responde solo».
-var accionesDeDinero = []string{"dar_saldo", "promesa_pago", "reconexion_temporal"}
+var accionesDeDinero = []string{"dar_saldo", "recibir_boleta", "promesa_pago", "reconexion_temporal"}
 
 // accionesDe: acciones encendidas del perfil menos las apagadas de la cola.
 func accionesDe(perfil PerfilAsistente, porCola []AccionesCola, cola *int64) map[string]bool {
@@ -316,39 +321,185 @@ var rePidePersona = regexp.MustCompile(`(?i)\b(?:hablar|hablarle|comunicar(?:me)
 // reNoPide: una negación antes del pedido («no quiero hablar con una persona», «no hace falta…»).
 var reNoPide = regexp.MustCompile(`(?i)\b(?:no|ni|tampoco|sin)\s+(?:me\s+|es\s+|hace\s+falta\s+|necesito\s+|quiero\s+|deseo\s+)*$|\b(?:no|ni|tampoco)\s+(?:me\s+)?(?:quiero|necesito|deseo|hace\s+falta|pases?|p[aá]s[ae]me)\b`)
 
-// pidePersona: lo pide y no lo está negando.
+// reClausula: donde termina una idea («ya no quiero hablar con el bot, pásame con una persona»).
+var reClausula = regexp.MustCompile(`(?i)[,;.!?\n]+|\s+(?:pero|mejor|sino)\s+`)
+
+// pidePersona: alguna parte del mensaje lo pide y no lo está negando.
 func pidePersona(texto string) bool {
-	loc := rePidePersona.FindStringIndex(texto)
-	if loc == nil {
-		return false
-	}
-	desde := max(0, loc[0]-25)
-	return !reNoPide.MatchString(texto[desde:loc[0]]) && !reNoPide.MatchString(texto[loc[0]:loc[1]])
-}
-
-// rePreguntaPersona: el cliente pregunta si habla con una persona, con alguien real o con un robot.
-var rePreguntaPersona = regexp.MustCompile(`(?i)\b(?:eres|sos|es\s+usted|usted\s+es|hablo\s+con|estoy\s+hablando\s+con|me\s+atiende|me\s+responde|hay|habla)\b[^.?!\n]{0,30}\b(?:persona|humano|alguien|robot|bot|m[aá]quina|inteligencia\s+artificial|ia)\b|\b(?:alguien\s+real|persona\s+(?:real|de\s+verdad)|un\s+humano|ser\s+humano)\b`)
-
-// reDiceSerPersona: el texto afirma ser una persona (grupo 1 = la negación, si la hay) o niega ser un
-// asistente o un bot.
-var (
-	reDiceSerPersona = regexp.MustCompile(`(?i)\b(no\s+)?(?:soy|hablas\s+con|habla\s+con|te\s+atiende|le\s+atiende|te\s+escribe)\s+(?:una?\s+)?(?:persona|humano|humana|agente\s+humano|asesora?\s+human[oa]|alguien\s+real|ser\s+humano)\b`)
-	reNiegaSerBot    = regexp.MustCompile(`(?i)\bno\s+(?:soy|es|hablas\s+con)\s+(?:un\s+|una\s+|ning[uú]n\s+)?(?:bot|robot|asistente|m[aá]quina|ia|inteligencia\s+artificial|programa)\b`)
-	// rePagoDado: da un pago o una boleta por aprobados o aplicados (eso solo lo decide caja).
-	rePagoDado = regexp.MustCompile(`(?i)\b(?:pago|boleta|dep[oó]sito|comprobante|transferencia)\b[^.!?\n]{0,40}\b(?:aprobad[oa]|aplicad[oa]|acreditad[oa]|confirmad[oa]|validad[oa]|registrad[oa]\s+como\s+pag)|\b(?:aprob[ée]|aprobamos|apliqu[ée]|aplicamos|acredit[ée]|acreditamos)[^.!?\n\p{L}][^.!?\n]{0,30}\b(?:pago|boleta|dep[oó]sito)\b`)
-	// reReconexionDada: da una reconexión por hecha.
-	reReconexionDada = regexp.MustCompile(`(?i)\breconect(?:ad[oa]s?\b|amos\b|[ée](?:[^\p{L}]|$))|\breconexi[oó]n\b[^.!?\n]{0,30}\b(?:lista|hecha|activ[oa]|activada|aceptada|aprobada)\b|\bservicio\b[^.!?\n]{0,30}\b(?:reactivado|restablecido|reconectado|ya\s+est[aá]\s+activo)\b|\btienes\s+una\s+reconexi[oó]n\b`)
-)
-
-// afirmaSerPersona: el texto dice que quien escribe es una persona, o niega ser un asistente.
-func afirmaSerPersona(texto string) bool {
-	for _, g := range reDiceSerPersona.FindAllStringSubmatch(texto, -1) {
-		if g[1] == "" {
+	for _, parte := range reClausula.Split(texto, -1) {
+		loc := rePidePersona.FindStringIndex(parte)
+		if loc == nil {
+			continue
+		}
+		desde := max(0, loc[0]-25)
+		if !reNoPide.MatchString(parte[desde:loc[0]]) && !reNoPide.MatchString(parte[loc[0]:loc[1]]) {
 			return true
 		}
 	}
-	return reNiegaSerBot.MatchString(texto)
+	return false
 }
+
+// rePreguntaPersona: el cliente pregunta si habla con una persona, con alguien real o con un robot
+// («¿eres real?», «¿sos de verdad?», «¿hay alguien?»).
+var rePreguntaPersona = regexp.MustCompile(`(?i)\b(?:eres|sos|es\s+usted|usted\s+es|hablo\s+con|estoy\s+hablando\s+con|me\s+atiende|me\s+responde|me\s+lee|hay|habla)\b[^.?!\n]{0,30}\b(?:persona|humano|humana|alguien|real|de\s+verdad|verdader[oa]|robot|bot|m[aá]quina|inteligencia\s+artificial|ia)\b|\b(?:alguien\s+real|persona\s+(?:real|de\s+verdad)|un\s+humano|ser\s+humano)\b`)
+
+// Identidad: el asistente nunca se atribuye un nombre propio ni un rol humano, ni niega ser un
+// asistente. No es una lista de frases: se mira qué dice de sí mismo después de «soy», «te atiende»,
+// «estás hablando con»…
+var (
+	reQuienSoy = regexp.MustCompile(`(?i)(?:^|[^\p{L}])(?:soy|me\s+llamo|mi\s+nombre\s+es|(?:te|le|les)\s+(?:habla|saluda|escribe|atiende|atender[aá])|est[aá]s?\s+hablando\s+con|est[aá]n\s+hablando\s+con|hablas?\s+con|te\s+escribo\s+como|como)\s+`)
+	// reNombrePropio: un nombre propio (con o sin «el/la» delante).
+	reNombrePropio = regexp.MustCompile(`^(?:(?:[Ee]l|[Ll]a)\s+)?([A-ZÁÉÍÓÚÑ][\p{Ll}]+)`)
+	// reFinIdea: hasta dónde llega lo que dice de sí mismo.
+	reFinIdea = regexp.MustCompile(`(?i)[.,;:!?\n]|\s+(?:y|pero|que|para)\s+`)
+	// reRolHumano: un rol de persona.
+	reRolHumano = regexp.MustCompile(`(?i)(?:^|[^\p{L}])(?:personas?|human[oa]s?|asesor(?:a|es)?|agentes?|operador(?:a|es)?|ejecutiv[oa]s?|representantes?|t[eé]cnic[oa]s?|supervisor(?:a|es)?|encargad[oa]|real|de\s+verdad|de\s+carne)(?:[^\p{L}]|$)`)
+	// reNiegaSerBot: niega ser un asistente o un bot («no estás hablando con un bot»).
+	reNiegaSerBot = regexp.MustCompile(`(?i)(?:^|[^\p{L}])no\s[^.,;:!?\n]{0,30}(?:^|[^\p{L}])(?:bot|robot|asistente|m[aá]quina|ia|inteligencia\s+artificial|programa|autom[aá]tic[oa])(?:[^\p{L}]|$)`)
+	reNoAntes     = regexp.MustCompile(`(?i)(?:^|[^\p{L}])(?:no|ni|nunca)\s+(?:\p{L}+\s+){0,2}$`)
+	// rePagoDado: da un pago o una boleta por aprobados o aplicados (eso solo lo decide caja: ninguna
+	// herramienta lo devuelve).
+	rePagoDado = regexp.MustCompile(`(?i)\b(?:pago|boleta|dep[oó]sito|comprobante|transferencia)\b[^.!?\n]{0,40}\b(?:aprobad[oa]|aplicad[oa]|acreditad[oa]|confirmad[oa]|validad[oa]|procesad[oa]|registrad[oa]\s+como\s+pag)|\b(?:aprob[ée]|aprobamos|apliqu[ée]|aplicamos|acredit[ée]|acreditamos)[^.!?\n\p{L}][^.!?\n]{0,30}\b(?:pago|boleta|dep[oó]sito)\b`)
+)
+
+// afirmaSerPersona: el texto se atribuye un nombre propio o un rol humano, o niega ser un asistente.
+func afirmaSerPersona(texto string) bool {
+	if reNiegaSerBot.MatchString(texto) {
+		return true
+	}
+	for _, loc := range reQuienSoy.FindAllStringIndex(texto, -1) {
+		resto := texto[loc[1]:]
+		if fin := reFinIdea.FindStringIndex(resto); fin != nil {
+			resto = resto[:fin[0]]
+		}
+		// «soy <Nombre>».
+		if g := reNombrePropio.FindStringSubmatch(resto); g != nil && !strings.EqualFold(g[1], "asistente") {
+			return true
+		}
+		// Un rol humano, salvo que lo esté negando («no soy una persona»).
+		antes := texto[max(0, loc[0]-12):loc[1]]
+		for _, r := range reRolHumano.FindAllStringIndex(resto, -1) {
+			if !reNoAntes.MatchString(antes) && !reNoAntes.MatchString(resto[:r[0]]+" ") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Resultados que solo puede dar una herramienta. Las palabras de resultado (aprobado, aplicado,
+// procesado, confirmado, registrado, reconectado, habilitado, activado, «ya tienes internet», «te
+// reconectaremos») solo se permiten si en este turno una herramienta devolvió ese resultado.
+const (
+	ResAprobar    = "aprobar"
+	ResAceptar    = "aceptar"
+	ResAplicar    = "aplicar"
+	ResConfirmar  = "confirmar"
+	ResRegistrar  = "registrar"
+	ResReconectar = "reconectar"
+)
+
+func reResultado(alternativas string) *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(?:^|[^\p{L}])(?:` + alternativas + `)(?:[^\p{L}]|$)`)
+}
+
+var familiasResultado = []struct {
+	familia string
+	re      *regexp.Regexp
+}{
+	{ResAprobar, reResultado(`aprobad[oa]s?|aprob[ée]|aprobamos|aprobaron|aprob[oó]|autorizad[oa]s?|autoric[ée]|autorizamos`)},
+	{ResAceptar, reResultado(`aceptad[oa]s?|acept[ée]|aceptamos`)},
+	{ResAplicar, reResultado(`aplicad[oa]s?|apliqu[ée]|aplicamos|aplic[oó]|acreditad[oa]s?|acredit[ée]|acreditamos|abonad[oa]s?|procesad[oa]s?|proces[ée]|procesamos|proces[oó]|validad[oa]s?|valid[ée]|validamos`)},
+	{ResConfirmar, reResultado(`confirmad[oa]s?|confirm[ée]|confirmamos`)},
+	{ResRegistrar, reResultado(`registrad[oa]s?|registr[ée]|registramos`)},
+	{ResReconectar, reResultado(`reconectad[oa]s?|reconect[ée]|reconectamos|reconectaremos|reconectar[ée]|reconectar[aá]n?|habilitad[oa]s?|habilit[ée]|habilitamos|habilitaremos|habilitar[ée]|` +
+		`activad[oa]s?|activ[ée]|activamos|activaremos|activar[ée]|reactivad[oa]s?|reactiv[ée]|reactivamos|reactivaremos|restablecid[oa]s?|restablec[ií]|restablecimos|` +
+		`ya\s+(?:tienes?|cuentas?\s+con)\s+(?:de\s+nuevo\s+)?(?:internet|servicio|conexi[oó]n)|reconexi[oó]n\s+(?:ya\s+)?(?:est[aá]\s+)?(?:lista|hecha|activa)`)},
+}
+
+// resultadosAfirmados: las familias de resultado que el texto afirma.
+func resultadosAfirmados(texto string) []string {
+	var out []string
+	for _, f := range familiasResultado {
+		if f.re.MatchString(texto) {
+			out = append(out, f.familia)
+		}
+	}
+	return out
+}
+
+// permitir: una herramienta devolvió ese resultado en este turno.
+func (t *turnoIA) permitir(familias ...string) {
+	if t.puedeDecir == nil {
+		t.puedeDecir = map[string]bool{}
+	}
+	for _, f := range familias {
+		t.puedeDecir[f] = true
+	}
+}
+
+// afirmaSinResultado: el texto da por hecho algo que ninguna herramienta devolvió en este turno.
+func afirmaSinResultado(t *turnoIA, texto string) bool {
+	if rePagoDado.MatchString(texto) {
+		return true
+	}
+	for _, f := range resultadosAfirmados(texto) {
+		if !t.puedeDecir[f] {
+			return true
+		}
+	}
+	return false
+}
+
+// inicioPeriodo: desde cuándo cuenta este periodo de la conversación (desde que existe o desde que se
+// reabrió), para lo que hizo el asistente o una persona.
+func inicioPeriodo(c mensajeriabd.MensajeriaConversacion) time.Time {
+	if c.ReabiertaEn == nil {
+		return time.Unix(0, 0)
+	}
+	return *c.ReabiertaEn
+}
+
+// inicioEntrantes: desde cuándo cuentan los mensajes del CLIENTE de este periodo. El mensaje que
+// reabre la conversación entra: su hora (la de WhatsApp) puede ser anterior a reabierta_en, nunca a
+// la resolución.
+func inicioEntrantes(c mensajeriabd.MensajeriaConversacion) time.Time {
+	if c.ReabiertaEn == nil {
+		return time.Unix(0, 0)
+	}
+	desde := c.ReabiertaEn.Add(-MargenReapertura)
+	if c.ResueltaEn != nil && c.ResueltaEn.After(desde) && !c.ResueltaEn.After(*c.ReabiertaEn) {
+		desde = *c.ResueltaEn
+	}
+	return desde
+}
+
+// MargenReapertura: lo que puede adelantarse la hora del mensaje que reabre a la de la reapertura.
+const MargenReapertura = 10 * time.Minute
+
+// urlNormal: una URL para comparar por igualdad (esquema y host en minúsculas, sin la barra ni la
+// puntuación del final).
+func urlNormal(u string) string {
+	u = strings.TrimRight(strings.TrimSpace(u), ".,;:!?)»\"'")
+	if p, err := url.Parse(u); err == nil && p.Host != "" {
+		p.Scheme, p.Host = strings.ToLower(p.Scheme), strings.ToLower(p.Host)
+		p.Path = strings.TrimRight(p.Path, "/")
+		return p.String()
+	}
+	return strings.TrimRight(u, "/")
+}
+
+// reLetrasMoneda: una cifra en letras junto a la moneda («trescientos quetzales»).
+var reLetrasMoneda = regexp.MustCompile(`(?i)(?:^|[^\p{L}])((?:(?:un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|veinte|veinti\p{L}+|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa|cien|ciento|doscient[oa]s|trescient[oa]s|cuatrocient[oa]s|quinient[oa]s|seiscient[oa]s|setecient[oa]s|ochocient[oa]s|novecient[oa]s|mil|medio|y)\s+)+quetzal(?:es)?)(?:[^\p{L}]|$)`)
+
+func preciosEnLetras(s string) []string {
+	var out []string
+	for _, g := range reLetrasMoneda.FindAllStringSubmatch(normalizarMonto(s), -1) {
+		out = append(out, strings.ToLower(reEspacios.ReplaceAllString(g[1], " ")))
+	}
+	return out
+}
+
 
 func nuevoPrepararTurno(m *Modulo) *auditoria.Caso[entradaTurno, turnoPreparado] {
 	return auditoria.Nuevo(auditoria.Caso[entradaTurno, turnoPreparado]{
@@ -548,10 +699,7 @@ func (m *Modulo) prepararTurno(ctx context.Context, t *auditoria.Tx, in entradaT
 			acciones[a] = false
 		}
 	}
-	desde := time.Unix(0, 0) // desde que existe la conversación (o desde que se reabrió)
-	if c.ReabiertaEn != nil {
-		desde = *c.ReabiertaEn
-	}
+	desde := inicioPeriodo(c)
 	if !atendia {
 		// Una persona ya escribió en este periodo (desde Iris o desde el teléfono): no se mete.
 		if escribio, err := q.PersonaEscribioDesde(ctx, mensajeriabd.PersonaEscribioDesdeParams{ConversacionID: c.ID, Desde: desde}); err != nil || escribio {
@@ -633,7 +781,7 @@ func (m *Modulo) prepararTurno(ctx context.Context, t *auditoria.Tx, in entradaT
 	}
 	nivel := verificacionDe(c)
 	tu := &turnoIA{cfg: cfg, acciones: acciones, limites: perfil.Limites, maxTurnos: aj.MaxTurnos, servicioID: c.ServicioID,
-		verificado: nivel != "", fuerte: nivel == VerificacionFuerte, saldoFuerte: perfil.saldoFuerte, desde: desde,
+		verificado: nivel != "", fuerte: nivel == VerificacionFuerte, saldoFuerte: perfil.saldoFuerte, desde: inicioEntrantes(c),
 		presentado: c.AsistentePresentoEn != nil, hechas: map[string]bool{}}
 	if c.ClienteID != nil {
 		tu.clienteID = *c.ClienteID
@@ -760,6 +908,9 @@ func (m *Modulo) AtenderSolo(ctx context.Context, conversacion int64) (espera ti
 		}
 		// Se termina aunque el pedido original se haya cancelado: el uso se cuenta y el turno se cierra.
 		if _, err = m.Asistente.terminarTurno.Ejecutar(context.WithoutCancel(ctxIA), r); err != nil {
+			// El cierre falló: se suelta el arriendo para que el reintento del job tome el turno
+			// enseguida (no después de que venza).
+			_ = mensajeriabd.New(nucleo.BDDe(ctx)).LiberarArriendoTurno(context.WithoutCancel(ctx), p.t.id)
 			return 0, atendio, false, err
 		}
 	}
@@ -892,7 +1043,7 @@ func (m *Modulo) correrTurnoJSON(ctx context.Context, t *turnoIA, r resultadoTur
 
 var (
 	// rePrecio2: una cifra de dinero (con moneda antes o después).
-	rePrecio2 = regexp.MustCompile(`(?i)(?:\bq\.?|\bgtq|\$)\s*(\d[\d.,]*)|(\d[\d.,]*)\s*(?:quetzales|gtq)\b`)
+	rePrecio2 = regexp.MustCompile(`(?i)(?:\bq\.?|\bgtq|\$)\s*(\d[\d.,]*)|(\d[\d.,]*)\s*(?:quetzal(?:es)?|gtq)\b`)
 	// rePlazo: un plazo (número y unidad de tiempo).
 	rePlazo = regexp.MustCompile(`(?i)\b(\d+)\s*(min|hora|hrs?\b|d[ií]a|semana|mes)`)
 	// reMarcaSaldo: la marca que el servidor reemplaza por el monto leído de Argos.
@@ -943,19 +1094,26 @@ func validarMensajeAutonomo(t *turnoIA, crudo string) (string, bool) {
 	if strings.Contains(texto, "<datos>") || strings.Contains(texto, "<conversacion>") || strings.Contains(texto, "[F") || strings.Contains(texto, "<herramientas>") {
 		return "", false
 	}
-	sinEnlaces := texto
+	// Enlaces: cada URL del texto debe ser IGUAL (normalizada) a una que vino de un manual «Para el
+	// cliente» o de una herramienta; una que solo empieza igual no pasa.
+	permitidos := map[string]bool{}
 	for _, e := range t.enlaces {
-		sinEnlaces = strings.ReplaceAll(sinEnlaces, e, " ")
+		permitidos[urlNormal(e)] = true
 	}
-	if reEnlace.MatchString(sinEnlaces) {
+	for _, u := range reURL.FindAllString(texto, -1) {
+		if !permitidos[urlNormal(u)] {
+			return "", false
+		}
+	}
+	if reEnlace.MatchString(reURL.ReplaceAllString(texto, " ")) {
 		return "", false
 	}
 	if copiaDelEquipo(texto, t.internos) || ContieneMonto(texto) {
 		return "", false
 	}
-	// Nunca afirma ser una persona ni niega ser un asistente; nunca da un pago por aprobado o aplicado
-	// (eso lo decide caja), ni una reconexión por hecha si este turno no la obtuvo de Argos.
-	if afirmaSerPersona(texto) || rePagoDado.MatchString(texto) || (reReconexionDada.MatchString(texto) && !t.hechas["reconexion_temporal"]) {
+	// Nunca se atribuye un nombre o un rol humano ni niega ser un asistente; nunca da un resultado
+	// (aprobado, aplicado, registrado, reconectado…) que una herramienta no haya devuelto en este turno.
+	if afirmaSerPersona(texto) || afirmaSinResultado(t, texto) {
 		return "", false
 	}
 	vistos := strings.Join(t.vistos, "\n")
@@ -966,6 +1124,12 @@ func validarMensajeAutonomo(t *turnoIA, crudo string) (string, bool) {
 	}
 	for _, p := range plazosDe(texto) {
 		if !slices.Contains(plazosDe(vistos), p) {
+			return "", false
+		}
+	}
+	// Una cifra en letras junto a la moneda solo si venía así en los datos.
+	for _, p := range preciosEnLetras(texto) {
+		if !slices.Contains(preciosEnLetras(vistos), p) {
 			return "", false
 		}
 	}
@@ -1045,6 +1209,12 @@ func (m *Modulo) terminarTurno(ctx context.Context, t *auditoria.Tx, empresa int
 		}
 		mes, _, _ := m.mesDe(m.ahora())
 		return q.SumarUsoAutonomo(ctx, mensajeriabd.SumarUsoAutonomoParams{Tokens: in.TokensEntrada + in.TokensSalida, Empresa: empresa, Mes: mes})
+	}
+	// El documento que el cliente escribió no se queda guardado, haya corrido o no verificar_identidad.
+	if in.t != nil && in.t.acciones[HerrVerificarIdent] && derefEmpresa(turno.EmpresaID) == empresaDeConv(c) && empresaDeConv(c) == empresa {
+		if err := m.taparDocumentos(ctx, q, c, inicioEntrantes(c)); err != nil {
+			return err
+		}
 	}
 	if turno.Estado != TurnoEnCurso {
 		return contar()
@@ -1201,10 +1371,7 @@ func (m *Modulo) pasarAPersona(ctx context.Context, t *auditoria.Tx, c *mensajer
 		}
 	}
 	// La nota interna: qué hizo y por qué la pasa (nunca texto del cliente ni montos).
-	desde := time.Unix(0, 0) // desde que existe la conversación (o desde que se reabrió)
-	if c.ReabiertaEn != nil {
-		desde = *c.ReabiertaEn
-	}
+	desde := inicioPeriodo(*c)
 	hechas, err := q.AccionesAsistenteConv(ctx, mensajeriabd.AccionesAsistenteConvParams{ConversacionID: c.ID, Empresa: empresa, Desde: desde})
 	if err != nil {
 		return err

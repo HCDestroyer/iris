@@ -344,7 +344,8 @@ func alcanceAccionDe(ctx context.Context, caso string) (alcanceConv, error) {
 const (
 	// VerificacionNumero: el número de WhatsApp coincide con un teléfono del cliente en Argos.
 	VerificacionNumero = "numero"
-	// VerificacionFuerte: lo confirmó una persona con permiso, o pasó el desafío de identidad de Argos.
+	// VerificacionFuerte: lo confirmó una persona con permiso, o pasó el desafío de identidad de Argos,
+	// en este periodo abierto de la conversación (identidad_verificada_en; al resolverse se pierde).
 	VerificacionFuerte = "fuerte"
 )
 
@@ -353,7 +354,7 @@ func verificacionDe(c mensajeriabd.MensajeriaConversacion) string {
 	switch {
 	case c.ClienteID == nil || !c.ClienteVerificado:
 		return ""
-	case c.VerificadoPor != nil || c.IdentidadVerificadaEn != nil:
+	case c.IdentidadVerificadaEn != nil:
 		return VerificacionFuerte
 	}
 	return VerificacionNumero

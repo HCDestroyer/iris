@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,10 +24,15 @@ import (
 // Los dos los pide a Argos el asistente de IA cuando atiende solo (contratos/conversaciones.md §17.8);
 // Argos decide. Iris guarda lo pedido y lo decidido, nunca el dato de identidad.
 
-// Motivos de una reconexión temporal: solo se pide cuando nadie de la empresa puede revisar la boleta.
+// ReconexionFueraDeHorario: el único motivo que acepta Argos (§7.3). La reconexión temporal solo se
+// pide fuera de horario; en horario hábil, aunque no haya nadie disponible, sigue una persona.
 const (
 	ReconexionFueraDeHorario = "fuera_de_horario"
-	ReconexionSinPersonal    = "sin_personal"
+	ReconexionPendiente      = "pendiente"
+	// MaxIntentosReconexion: llamadas a Argos por una reconexión que no responde, antes de darla por rechazada.
+	MaxIntentosReconexion = 10
+	// EsperaReintentoReconexion: lo que espera el mantenimiento antes de repetir una pendiente.
+	EsperaReintentoReconexion = 2 * time.Minute
 )
 
 // EntradaReconexion identifica la conversación.
@@ -36,8 +43,8 @@ type EntradaReconexion struct {
 // ReconexionConv es la reconexión pedida y lo que decidió Argos.
 type ReconexionConv struct {
 	ID             uuid.UUID  `json:"id"`
-	Estado         string     `json:"estado" enum:"aceptada,rechazada"`
-	Motivo         string     `json:"motivo" enum:"fuera_de_horario,sin_personal"`
+	Estado         string     `json:"estado" enum:"pendiente,aceptada,rechazada"`
+	Motivo         string     `json:"motivo" enum:"fuera_de_horario"`
 	ComprobanteID  int64      `json:"comprobanteId"`
 	PromesaArgosID *int64     `json:"promesaArgosId" nullable:"true"`
 	Hasta          *time.Time `json:"hasta" nullable:"true"`
@@ -49,25 +56,33 @@ func aReconexion(f mensajeriabd.MensajeriaReconexione) ReconexionConv {
 }
 
 // PedirReconexion pide a Argos la reconexión temporal de la última boleta registrada de la
-// conversación: valida en una transacción, llama a Argos fuera de ella y guarda el resultado en otra.
+// conversación. Valida y deja el intento registrado (fila «pendiente», auditado) en una transacción,
+// llama a Argos fuera de ella y guarda lo que decidió en otra. Si la respuesta se pierde, la fila
+// queda pendiente y el mantenimiento repite la llamada con la misma clave.
 type PedirReconexion struct {
-	m      *Modulo
-	previo *auditoria.Caso[EntradaReconexion, previaReconexion]
-	final  *auditoria.Caso[finalReconexion, ReconexionConv]
+	m         *Modulo
+	previo    *auditoria.Caso[EntradaReconexion, previaReconexion]
+	final     *auditoria.Caso[finalReconexion, ReconexionConv]
+	reintento *auditoria.Caso[finalReconexion, ReconexionConv]
 }
 
 type previaReconexion struct {
 	repetida *ReconexionConv
 	a        alcanceConv
-	boleta   mensajeriabd.MensajeriaBoleta
-	servicio *int64
-	cliente  int64
-	motivo   string
+	fila     mensajeriabd.MensajeriaReconexione
+}
+
+// MarshalJSON: lo auditado del intento.
+func (p previaReconexion) MarshalJSON() ([]byte, error) {
+	if p.repetida != nil {
+		return json.Marshal(map[string]any{"reconexion_id": p.repetida.ID, "repetida": true})
+	}
+	return json.Marshal(map[string]any{"reconexion_id": p.fila.ID, "comprobante_id": p.fila.ComprobanteID, "estado": p.fila.Estado})
 }
 
 type finalReconexion struct {
-	EntradaReconexion
-	pre     previaReconexion
+	ID      int64
+	fila    mensajeriabd.MensajeriaReconexione
 	estado  string
 	promesa int64
 	hasta   time.Time
@@ -76,15 +91,16 @@ type finalReconexion struct {
 
 // MarshalJSON: lo auditado.
 func (e finalReconexion) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]any{"conversacion_id": e.ID, "boleta_id": e.pre.boleta.ID, "comprobante_id": e.pre.boleta.ComprobanteID,
-		"motivo": e.pre.motivo, "estado": e.estado})
+	return json.Marshal(map[string]any{"conversacion_id": e.ID, "reconexion_id": e.fila.ID, "boleta_id": e.fila.BoletaID,
+		"comprobante_id": e.fila.ComprobanteID, "motivo": e.fila.Motivo, "estado": e.estado})
 }
 
 func nuevoPedirReconexion(m *Modulo) *PedirReconexion {
 	const caso = "conversaciones.pedir_reconexion"
 	k := &PedirReconexion{m: m}
+	// El intento queda auditado aquí, antes de llamar a Argos.
 	k.previo = auditoria.Nuevo(auditoria.Caso[EntradaReconexion, previaReconexion]{
-		Accion: caso, Permiso: nucleo.PermConversacionesPedirReconexion, AuditarExito: sinAuditar[previaReconexion],
+		Accion: caso, Permiso: nucleo.PermConversacionesPedirReconexion,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaReconexion) (previaReconexion, error) {
 			a, err := alcanceAccionDe(ctx, caso)
 			if err != nil {
@@ -115,106 +131,154 @@ func nuevoPedirReconexion(m *Modulo) *PedirReconexion {
 			if err != nil {
 				return previaReconexion{}, err
 			}
-			if previa, err := q.ReconexionPorComprobante(ctx, *b.ComprobanteID); err == nil {
+			previa, err := q.ReconexionPorComprobante(ctx, *b.ComprobanteID)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return previaReconexion{}, err
+			}
+			if err == nil && previa.Estado != ReconexionPendiente {
 				r := aReconexion(previa)
 				r.Repetida = true
 				return previaReconexion{repetida: &r}, nil
-			} else if !errors.Is(err, pgx.ErrNoRows) {
-				return previaReconexion{}, err
 			}
-			// Solo cuando nadie puede revisar la boleta pronto: fuera de horario, o sin nadie disponible
-			// en la cola de la conversación. El motivo que va a Argos es el real.
-			motivo, err := m.motivoReconexion(ctx, q, c)
+			if err == nil {
+				// Un intento anterior quedó sin respuesta de Argos: se repite con la misma clave.
+				return previaReconexion{a: a, fila: previa}, nil
+			}
+			// Solo fuera de horario: en horario hábil la boleta la revisa una persona.
+			fuera, err := m.fueraDeHorarioConv(ctx, q, c)
 			if err != nil {
 				return previaReconexion{}, err
 			}
-			if motivo == "" {
-				return previaReconexion{}, reglaConv("reconexion_no_corresponde", "Hay personas disponibles para revisar la boleta: la reconexión temporal solo se pide fuera de horario o sin nadie disponible")
+			if !fuera {
+				return previaReconexion{}, reglaConv("reconexion_no_corresponde", "La reconexión temporal solo se pide fuera de horario: en horario hábil la boleta la revisa una persona")
 			}
 			servicio := b.ServicioID
 			if servicio == nil {
 				servicio = c.ServicioID
 			}
-			return previaReconexion{a: a, boleta: b, servicio: servicio, cliente: *c.ClienteID, motivo: motivo}, nil
+			id, err := uuid.NewV7()
+			if err != nil {
+				return previaReconexion{}, err
+			}
+			t.FijarEmpresa(empresaDeConv(c))
+			t.FijarEntidad("conversacion", c.ID)
+			f, err := q.InsertarReconexion(ctx, mensajeriabd.InsertarReconexionParams{ID: id, EmpresaID: c.EmpresaID, ConversacionID: c.ID, BoletaID: b.ID,
+				ComprobanteID: *b.ComprobanteID, ClienteID: *c.ClienteID, ServicioID: servicio, Motivo: ReconexionFueraDeHorario,
+				Estado: ReconexionPendiente, SolicitadaPor: a.usuarioPtr(), PorAsistente: a.asistente})
+			if errors.Is(err, pgx.ErrNoRows) {
+				// Otra petición la registró primero: la misma reconexión (y la misma clave hacia Argos).
+				f, err = q.ReconexionPorComprobante(ctx, *b.ComprobanteID)
+			}
+			if err != nil {
+				return previaReconexion{}, err
+			}
+			return previaReconexion{a: a, fila: f}, nil
 		},
 	})
 	k.final = auditoria.Nuevo(auditoria.Caso[finalReconexion, ReconexionConv]{
 		Accion: caso, Permiso: nucleo.PermConversacionesPedirReconexion,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in finalReconexion) (ReconexionConv, error) {
 			var r ReconexionConv
-			_, err := m.accionConvDe(ctx, t, caso, in.ID, 0, func(a alcanceConv, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
-				id, err := uuid.NewV7()
-				if err != nil {
-					return err
-				}
-				p := mensajeriabd.InsertarReconexionParams{ID: id, EmpresaID: c.EmpresaID, ConversacionID: c.ID, BoletaID: in.pre.boleta.ID,
-					ComprobanteID: *in.pre.boleta.ComprobanteID, ClienteID: in.pre.cliente, ServicioID: in.pre.servicio, Motivo: in.pre.motivo,
-					Estado: in.estado, SolicitadaPor: a.usuarioPtr(), PorAsistente: a.asistente}
-				if in.estado == "aceptada" {
-					p.PromesaArgosID, p.Hasta = &in.promesa, &in.hasta
-				}
-				if in.detalle != "" {
-					p.Detalle = &in.detalle
-				}
-				f, err := q.InsertarReconexion(ctx, p)
-				if errors.Is(err, pgx.ErrNoRows) {
-					// Otra petición la guardó primero (misma clave hacia Argos): la misma reconexión.
-					if f, err = q.ReconexionPorComprobante(ctx, p.ComprobanteID); err != nil {
-						return err
-					}
-					r = aReconexion(f)
-					return nil
-				}
-				if err != nil {
-					return err
-				}
-				r = aReconexion(f)
-				t.RegistrarCambios("reconexion", f.ID, nil, map[string]any{"comprobante_id": f.ComprobanteID, "servicio_id": f.ServicioID, "motivo": f.Motivo,
-					"estado": f.Estado, "promesa_argos_id": f.PromesaArgosID})
-				nombre := nombrePtr(NombreAsistenteIA)
-				if u := a.usuarioPtr(); u != nil {
-					nombre = actorNombre(ctx, q, *u)
-				}
-				if err := m.sistema(ctx, t, c, EventoSistema{Tipo: "reconexion_pedida", ActorNombre: nombre, Detalle: &f.Estado}); err != nil {
-					return err
-				}
-				return t.Emitir("reconexion.solicitada", map[string]any{"reconexion_id": f.ID, "conversacion_id": c.ID, "empresa_id": c.EmpresaID,
-					"cliente_id": f.ClienteID, "servicio_id": f.ServicioID, "comprobante_id": f.ComprobanteID, "motivo": f.Motivo, "estado": f.Estado,
-					"promesa_argos_id": f.PromesaArgosID})
+			_, err := m.accionConvDe(ctx, t, caso, in.ID, 0, func(_ alcanceConv, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
+				var err error
+				r, err = m.aplicarReconexion(ctx, t, q, c, in)
+				return err
 			})
 			return r, err
+		},
+	})
+	// reintento: el mantenimiento guarda lo que dijo Argos de una reconexión que había quedado pendiente.
+	k.reintento = auditoria.Nuevo(auditoria.Caso[finalReconexion, ReconexionConv]{
+		Accion: "conversaciones.reconexion_reintento", Acceso: auditoria.Autenticado,
+		Logica: func(ctx context.Context, t *auditoria.Tx, in finalReconexion) (ReconexionConv, error) {
+			if err := soloSistema(ctx); err != nil {
+				return ReconexionConv{}, err
+			}
+			q := mensajeriabd.New(t)
+			c, err := q.ConversacionClienteParaActualizar(ctx, in.ID)
+			if err != nil {
+				return ReconexionConv{}, err
+			}
+			t.FijarEmpresa(empresaDeConv(c))
+			t.FijarEntidad("conversacion", c.ID)
+			return m.aplicarReconexion(ctx, t, q, &c, in)
 		},
 	})
 	return k
 }
 
-// motivoReconexion: fuera_de_horario, sin_personal o "" (hay quien revise la boleta).
-func (m *Modulo) motivoReconexion(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaConversacion) (string, error) {
+// aplicarReconexion guarda lo que decidió Argos sobre una reconexión pendiente (una sola vez), deja el
+// mensaje de sistema en la conversación y emite reconexion.solicitada.
+func (m *Modulo) aplicarReconexion(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion,
+	in finalReconexion) (ReconexionConv, error) {
+	p := mensajeriabd.ResolverReconexionParams{ID: in.fila.ID, Estado: in.estado}
+	if in.estado == "aceptada" {
+		p.PromesaArgosID, p.Hasta = &in.promesa, &in.hasta
+	}
+	if in.detalle != "" {
+		p.Detalle = &in.detalle
+	}
+	f, err := q.ResolverReconexion(ctx, p)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Ya la resolvió otra petición (o el mantenimiento): la misma reconexión, sin repetir nada.
+		f, err = q.ReconexionPorComprobante(ctx, in.fila.ComprobanteID)
+		if err != nil {
+			return ReconexionConv{}, err
+		}
+		return aReconexion(f), nil
+	}
+	if err != nil {
+		return ReconexionConv{}, err
+	}
+	t.RegistrarCambios("reconexion", f.ID, map[string]any{"estado": ReconexionPendiente}, map[string]any{"comprobante_id": f.ComprobanteID,
+		"servicio_id": f.ServicioID, "motivo": f.Motivo, "estado": f.Estado, "promesa_argos_id": f.PromesaArgosID})
+	nombre := nombrePtr(NombreAsistenteIA)
+	if !f.PorAsistente && f.SolicitadaPor != nil {
+		nombre = actorNombre(ctx, q, *f.SolicitadaPor)
+	}
+	if err := m.sistema(ctx, t, c, EventoSistema{Tipo: "reconexion_pedida", ActorNombre: nombre, Detalle: &f.Estado}); err != nil {
+		return ReconexionConv{}, err
+	}
+	return aReconexion(f), t.Emitir("reconexion.solicitada", map[string]any{"reconexion_id": f.ID, "conversacion_id": c.ID, "empresa_id": c.EmpresaID,
+		"cliente_id": f.ClienteID, "servicio_id": f.ServicioID, "comprobante_id": f.ComprobanteID, "motivo": f.Motivo, "estado": f.Estado,
+		"promesa_argos_id": f.PromesaArgosID})
+}
+
+// fueraDeHorarioConv: la conversación está fuera del horario de su cola (o de su número).
+func (m *Modulo) fueraDeHorarioConv(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaConversacion) (bool, error) {
 	cola, err := m.colaDeConv(ctx, q, c)
 	if err != nil {
-		return "", err
+		return false, err
 	}
 	var horario *int64
 	if cola != nil {
 		horario = cola.HorarioID
 	}
 	cal, err := calendarioEfectivo(ctx, q, horario, c.CanalID)
-	if err != nil {
-		return "", err
+	if err != nil || cal == nil {
+		return false, err
 	}
-	if cal != nil {
-		if abierto, _, _ := cal.estado(m.ahora()); !abierto {
-			return ReconexionFueraDeHorario, nil
+	abierto, _, _ := cal.estado(m.ahora())
+	return !abierto, nil
+}
+
+// pedirAArgos llama a Argos por una reconexión registrada y traduce la respuesta: aceptada, rechazada
+// (422 o 409: de negocio, no se reintenta) o un error (no se sabe: la fila sigue pendiente).
+func (k *PedirReconexion) pedirAArgos(ctx context.Context, rec ArgosReconexion, a alcanceConv, f mensajeriabd.MensajeriaReconexione) (finalReconexion, error) {
+	fin := finalReconexion{ID: f.ConversacionID, fila: f, estado: "aceptada"}
+	_ = mensajeriabd.New(nucleo.BDDe(ctx)).ContarIntentoReconexion(ctx, f.ID)
+	var err error
+	fin.promesa, fin.hasta, err = rec.PedirReconexionTemporal(ctx, atencionDe(a, f.ConversacionID), f.ComprobanteID, f.ServicioID, f.Motivo,
+		"iris:reconexion:"+strconv.FormatInt(f.ComprobanteID, 10))
+	if err != nil {
+		var er *conector.ErrorRemoto
+		if !errors.As(err, &er) || (er.Status != http.StatusUnprocessableEntity && er.Status != http.StatusConflict) ||
+			strings.HasSuffix(er.Tipo, "idempotencia_en_curso") {
+			return fin, err
 		}
+		fin.estado, fin.detalle = "rechazada", recortar(er.Tipo, 200)
 	}
-	disp, err := disponiblesDe(ctx, q, empresaDeConv(c), c.ColaID)
-	if err != nil {
-		return "", err
-	}
-	if len(disp) == 0 {
-		return ReconexionSinPersonal, nil
-	}
-	return "", nil
+	return fin, nil
 }
 
 // Ejecutar pide la reconexión temporal.
@@ -230,19 +294,45 @@ func (k *PedirReconexion) Ejecutar(ctx context.Context, in EntradaReconexion) (R
 	if pre.repetida != nil {
 		return *pre.repetida, nil
 	}
-	fin := finalReconexion{EntradaReconexion: in, pre: pre, estado: "aceptada"}
-	comprobante := *pre.boleta.ComprobanteID
-	fin.promesa, fin.hasta, err = rec.PedirReconexionTemporal(ctx, atencionDe(pre.a, in.ID), comprobante, pre.servicio, pre.motivo,
-		"iris:reconexion:"+strconv.FormatInt(comprobante, 10))
+	fin, err := k.pedirAArgos(ctx, rec, pre.a, pre.fila)
 	if err != nil {
-		// 422 (reconexion_no_permitida) o 409: Argos dijo que no. Es de negocio: se guarda y no se reintenta.
-		var er *conector.ErrorRemoto
-		if !errors.As(err, &er) || (er.Status != http.StatusUnprocessableEntity && er.Status != http.StatusConflict) {
-			return ReconexionConv{}, argos.Problema(err)
-		}
-		fin.estado, fin.detalle = "rechazada", recortar(er.Tipo, 200)
+		// No se sabe qué hizo Argos: la fila queda pendiente y el mantenimiento repite con la misma clave.
+		return ReconexionConv{}, argos.Problema(err)
 	}
 	return k.final.Ejecutar(context.WithoutCancel(ctx), fin)
+}
+
+// Reintentar repite, con la misma clave, las reconexiones que quedaron pendientes (la respuesta de
+// Argos se perdió). Después de MaxIntentosReconexion se da por rechazada (sin_respuesta) para que
+// una persona la revise. Corre con el actor sistema (mantenimiento).
+func (k *PedirReconexion) Reintentar(ctx context.Context, bd nucleo.BD, antes time.Time, log *slog.Logger) error {
+	rec, ok := k.m.cfg.Argos.(ArgosReconexion)
+	if !ok {
+		return nil
+	}
+	fs, err := mensajeriabd.New(bd).ReconexionesPendientes(ctx, antes)
+	if err != nil {
+		return err
+	}
+	for _, f := range fs {
+		var fin finalReconexion
+		if f.Intentos >= MaxIntentosReconexion {
+			fin = finalReconexion{ID: f.ConversacionID, fila: f, estado: "rechazada", detalle: "sin_respuesta"}
+		} else {
+			a := alcanceConv{asistente: f.PorAsistente, empresa: derefEmpresa(f.EmpresaID)}
+			if f.SolicitadaPor != nil {
+				a.usuario = *f.SolicitadaPor
+			}
+			if fin, err = k.pedirAArgos(nucleo.ConBD(ctx, bd), rec, a, f); err != nil {
+				log.WarnContext(ctx, "mensajeria: reintentar reconexión", "reconexion_id", f.ID, "err", err)
+				continue
+			}
+		}
+		if _, err := k.reintento.Ejecutar(ctx, fin); err != nil {
+			log.WarnContext(ctx, "mensajeria: guardar reconexión reintentada", "reconexion_id", f.ID, "err", err)
+		}
+	}
+	return nil
 }
 
 // Desafío de identidad ------------------------------------------------------------------------------
@@ -251,52 +341,54 @@ func (k *PedirReconexion) Ejecutar(ctx context.Context, in EntradaReconexion) (R
 type verificacionHecha struct {
 	ConversacionID int64  `json:"conversacion_id"`
 	Resultado      string `json:"resultado"`
-	// mensajeID y textoEnmascarado: el mensaje del cliente que traía el dato, ya con ***.
-	mensajeID        uuid.UUID
-	textoEnmascarado string
+	// ClienteID: el cliente con el que Argos hizo el desafío (la conversación debe seguir siendo suya).
+	ClienteID int64 `json:"-"`
+	// desde: inicio del periodo de la conversación (los mensajes del cliente a enmascarar).
+	desde time.Time
 }
 
 // nuevoRegistrarVerificacion guarda el intento, deja el dato del cliente como *** en su mensaje y, si
 // coincidió, sube la verificación de la conversación a «fuerte».
-func nuevoRegistrarVerificacion(m *Modulo) *auditoria.Caso[verificacionHecha, struct{}] {
-	return auditoria.Nuevo(auditoria.Caso[verificacionHecha, struct{}]{
+func nuevoRegistrarVerificacion(m *Modulo) *auditoria.Caso[verificacionHecha, bool] {
+	return auditoria.Nuevo(auditoria.Caso[verificacionHecha, bool]{
 		Accion: "conversaciones.verificar_identidad", Acceso: auditoria.Autenticado,
-		Logica: func(ctx context.Context, t *auditoria.Tx, in verificacionHecha) (struct{}, error) {
+		Logica: func(ctx context.Context, t *auditoria.Tx, in verificacionHecha) (bool, error) {
 			empresa, err := soloAsistente(ctx)
 			if err != nil {
-				return struct{}{}, err
+				return false, err
 			}
 			q := mensajeriabd.New(t)
 			c, err := convDelAsistente(ctx, q, alcanceConv{asistente: true, empresa: empresa}, in.ConversacionID, true)
 			if err != nil {
-				return struct{}{}, err
+				return false, err
 			}
 			t.FijarEmpresa(empresa)
 			t.FijarEntidad("conversacion", c.ID)
-			if c.ClienteID == nil {
-				return struct{}{}, conversacionClienteNoEncontrada()
+			// El dato no se guarda: los mensajes del cliente quedan con *** (contrato con Argos §7.5),
+			// también si la conversación cambió de cliente mientras Argos respondía.
+			if err := m.taparDocumentos(ctx, q, c, in.desde); err != nil {
+				return false, err
+			}
+			// El desafío vale para el cliente con el que se hizo: si la conversación ya es de otro
+			// (la reasociaron mientras Argos respondía), no cuenta.
+			if c.ClienteID == nil || *c.ClienteID != in.ClienteID {
+				return false, nil
 			}
 			ahora := m.ahora()
 			if err := q.InsertarVerificacion(ctx, mensajeriabd.InsertarVerificacionParams{EmpresaID: c.EmpresaID, ConversacionID: c.ID, ClienteID: *c.ClienteID,
 				Resultado: in.Resultado, CreadaEn: ahora}); err != nil {
-				return struct{}{}, err
-			}
-			// El dato no se guarda: el mensaje del cliente queda con *** (contrato con Argos §7.5).
-			if in.mensajeID != uuid.Nil {
-				if err := q.EnmascararTextoMensaje(ctx, mensajeriabd.EnmascararTextoMensajeParams{ID: in.mensajeID, Texto: &in.textoEnmascarado}); err != nil {
-					return struct{}{}, err
-				}
+				return false, err
 			}
 			if in.Resultado == "coincide" {
 				if err := q.FijarIdentidadVerificada(ctx, mensajeriabd.FijarIdentidadVerificadaParams{ID: c.ID, Ahora: &ahora}); err != nil {
-					return struct{}{}, err
+					return false, err
 				}
 				c.IdentidadVerificadaEn = &ahora
 			}
 			if err := m.emitirEventoConv(ctx, t, c, EventoConvActualizada, nil, nil); err != nil {
-				return struct{}{}, err
+				return false, err
 			}
-			return struct{}{}, t.Emitir("conversacion.identidad_verificada", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID,
+			return in.Resultado == "coincide", t.Emitir("conversacion.identidad_verificada", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID,
 				"cliente_id": c.ClienteID, "resultado": in.Resultado, "origen": "asistente"})
 		},
 	})
