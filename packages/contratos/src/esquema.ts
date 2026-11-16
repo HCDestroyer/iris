@@ -1051,7 +1051,7 @@ export interface paths {
         put?: never;
         /**
          * Abrir Argos con tu usuario («Abrir en Argos» y «Vincular mi usuario de Argos»)
-         * @description Permiso: `integraciones.abrir_argos`. Autologin Iris → Argos (contrato con Argos 0.7.0 §1.3). Solo una persona con su sesión del panel (un token o una integración: 403 `solo_personas`). Devuelve un enlace de **un solo uso** que dura 60 s: el panel lo abre en otra pestaña enseguida. Con `destino` llega a ese cliente o servicio; sin `destino` llega al inicio de Argos: es «Vincular mi usuario de Argos» (la primera vez Argos pide el correo y la contraseña de Argos y crea el vínculo que autoriza aprobar y rechazar boletas). Iris no sabe si el vínculo existe: el panel lo descubre con el 409 `argos_sin_vinculo` al aprobar o rechazar. Acepta `Idempotency-Key`, pero la respuesta no se guarda: repetir la clave responde 409 `idempotencia_no_repetible` (pide otro enlace con otra clave). 409 `conector_apagado` (sin conector con Argos activo) e `iris_apagado` (Argos tiene apagado su conector con Iris); 422 `argos_sin_aprobacion` (Argos no informa contrato ≥ 0.7.0); 429 `demasiados_intentos` con `Retry-After` (10 por minuto por persona); 502 `argos_no_disponible` (Argos no respondió: «Reintentar»).
+         * @description Permiso: `integraciones.abrir_argos`. Autologin Iris → Argos (contrato con Argos 0.7.0 §1.3). Solo una persona con su sesión del panel (un token o una integración: 403 `solo_personas`). Devuelve un enlace de **un solo uso** que dura 60 s: el panel lo abre en otra pestaña enseguida. Con `destino` llega a ese cliente o servicio; sin `destino` llega al inicio de Argos: es «Vincular mi usuario de Argos» (la primera vez Argos pide el correo y la contraseña de Argos y crea el vínculo que autoriza aprobar y rechazar boletas). Iris no sabe si el vínculo existe: el panel lo descubre con el 409 `argos_sin_vinculo` al aprobar o rechazar. Acepta `Idempotency-Key`, pero la respuesta no se guarda: repetir la clave responde 409 `idempotencia_no_repetible` (pide otro enlace con otra clave). 409 `conector_apagado` (sin conector con Argos activo) e `iris_apagado` (Argos tiene apagado su conector con Iris); 422 `argos_sin_aprobacion` (Argos no informa contrato ≥ 0.7.0); 429 `demasiados_intentos` con `Retry-After` (10 por minuto por persona); 403 `reautenticacion_requerida` en una sesión abierta por autologin sin re-autenticar; 502 `argos_no_disponible` (Argos no respondió: «Reintentar»).
          */
         post: operations["abrirArgos"];
         delete?: never;
@@ -1577,6 +1577,110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/asistente/categorias": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Categorías de mensajes de la empresa
+         * @description Permiso: `conversaciones.ver`. Por `orden` («Otro» al final). La primera vez se siembran las iniciales. `nextCursor` siempre null.
+         */
+        get: operations["listarCategoriasAsistente"];
+        put?: never;
+        /**
+         * Crear una categoría de mensajes
+         * @description Permiso: `mensajeria.asistente_configurar`. 409 `categoria_duplicada`; 422 `demasiadas_categorias` (30 activas). Evento `categoria.creada`.
+         */
+        post: operations["crearCategoriaAsistente"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/asistente/categorias/{id}/activar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Activar una categoría de mensajes
+         * @description Permiso: `mensajeria.asistente_configurar`.
+         */
+        post: operations["activarCategoriaAsistente"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/asistente/categorias/{id}/actualizar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Editar una categoría de mensajes
+         * @description Permiso: `mensajeria.asistente_configurar`. Con `version` (409 `conflicto_version`); 409 `categoria_duplicada`. Evento `categoria.actualizada`.
+         */
+        post: operations["actualizarCategoriaAsistente"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/asistente/categorias/{id}/desactivar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Desactivar una categoría de mensajes
+         * @description Permiso: `mensajeria.asistente_configurar`. No se borran: las conversaciones ya clasificadas la conservan. «Otro» no se desactiva (422 `categoria_otro`).
+         */
+        post: operations["desactivarCategoriaAsistente"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/asistente/efecto": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Efecto del asistente en un mes (primera respuesta y resueltas sin persona)
+         * @description Permiso: `mensajeria.asistente_configurar`. Sobre las conversaciones creadas en el mes que el asistente clasificó. `primeraRespuestaPromedioAntesSeg`: los 30 días antes de activarlo.
+         */
+        get: operations["efectoAsistente"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/asistente/estado": {
         parameters: {
             query?: never;
@@ -1635,6 +1739,26 @@ export interface paths {
          * @description Permiso: `mensajeria.asistente_configurar`. Manda un pedido corto real (no cuenta para el tope). Cualquier falla responde lo mismo (`estado: error`, `latenciaMs: 0`, `detalle` único) para no servir como escáner de puertos. Sin `clave` usa la guardada solo si proveedor y URL son los guardados. No guarda nada.
          */
         post: operations["probarAsistente"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/asistente/probar-mensaje": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * «Pruébalo antes de guardar»: qué haría el asistente con un mensaje
+         * @description Permiso: `mensajeria.asistente_configurar`. Con los ajustes del formulario sin guardar (lo que falta sale de lo guardado). **No ejecuta nada**: las acciones solo se describen; no toca conversaciones ni Argos. Cuenta para el tope (422 `tope_alcanzado`) y para los 10 pedidos por minuto (429 `demasiados_pedidos`). 422 `sin_configurar`; 502 `proveedor_no_responde`, `proveedor_error`, `clave_invalida`, `proveedor_redirige`, `rechazo_modelo`, `respuesta_invalida`.
+         */
+        post: operations["probarMensajeAsistente"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1732,7 +1856,7 @@ export interface paths {
         put?: never;
         /**
          * Aprobar la boleta y registrar el pago en Argos
-         * @description Permiso: `boletas.aprobar`. Se aprueba por el monto del comprobante (sin monto ni fecha): si el depósito es por otro monto, se rechaza con causa `monto_distinto`. Solo una persona con su sesión del panel (token, integración o asistente de IA: 403 `solo_personas`) que vea la conversación, en su empresa activa (si no, 404). La boleta debe estar `registrada` (con `comprobanteId`): si no, 422 `boleta_no_registrada`; ya decidida, 409 `boleta_ya_decidida` (repetir la misma decisión la misma persona responde 200 con la boleta). Iris llama a Argos en el momento (`X-Iris-Actor: usuario:<id>`, `X-Iris-Conversacion: iris:conversacion:<id>`) y **Argos decide** con el usuario de Argos vinculado. Acepta `Idempotency-Key`, pero la respuesta no se guarda con ella: la idempotencia la da el comprobante (repetir es seguro, también después de un error). Errores: 409 `argos_sin_vinculo` («Vincula tu usuario de Argos»: `POST /integraciones/argosisp/abrir` sin destino y reintentar); 403 `argos_usuario_inactivo`, `argos_sin_permiso` («Tu usuario de Argos no tiene permiso de caja») y `argos_sin_empresa`; 409 `comprobante_revisado` (ya lo resolvió caja u otra persona: la boleta local queda sincronizada, vuelve a leerla), `otra_persona_decidio`, `comprobante_no_es_de_iris`, `iris_apagado`, `idempotencia_en_curso` y `comprobante_no_existe`; 422 `argos_sin_aprobacion` (Argos no informa contrato ≥ 0.7.0), `decision_no_permitida` y `conversacion_solo_lectura`; 502 `argos_no_disponible` (Argos no respondió: «Reintentar», nada quedó a medias) y `argos_rechazo`; 503 `conector_apagado`. Con el 200 la boleta queda resuelta, la conversación recibe un mensaje de sistema (`boleta_aprobada` / `boleta_rechazada`) y al cliente se le avisa una sola vez (`avisoCliente`).
+         * @description Permiso: `boletas.aprobar`. Se aprueba por el monto del comprobante (sin monto ni fecha): si el depósito es por otro monto, se rechaza con causa `monto_distinto`. Con `montoEsperado` (el monto que la persona confirmó), Iris lo compara con la boleta y con el comprobante en Argos antes de aprobar: si no coincide, 409 `monto_cambio` con `montoActual` y no se aprueba. Permiso de `admin` y del rol `caja`. Solo una persona con su sesión del panel (token, integración o asistente de IA: 403 `solo_personas`) que vea la conversación, en su empresa activa (si no, 404). La boleta debe estar `registrada` (con `comprobanteId`): si no, 422 `boleta_no_registrada`; ya decidida, 409 `boleta_ya_decidida` (repetir la misma decisión la misma persona responde 200 con la boleta). Iris llama a Argos en el momento (`X-Iris-Actor: usuario:<id>`, `X-Iris-Conversacion: iris:conversacion:<id>`) y **Argos decide** con el usuario de Argos vinculado. Acepta `Idempotency-Key`, pero la respuesta no se guarda con ella: la idempotencia la da el comprobante (repetir es seguro, también después de un error). Errores: 409 `argos_sin_vinculo` («Vincula tu usuario de Argos»: `POST /integraciones/argosisp/abrir` sin destino y reintentar); 403 `argos_usuario_inactivo`, `argos_sin_permiso` («Tu usuario de Argos no tiene permiso de caja») y `argos_sin_empresa`; 409 `comprobante_revisado` (ya lo resolvió caja u otra persona: la boleta local queda sincronizada, vuelve a leerla), `otra_persona_decidio`, `comprobante_no_es_de_iris`, `iris_apagado`, `idempotencia_en_curso` y `comprobante_no_existe`; 422 `argos_sin_aprobacion` (Argos no informa contrato ≥ 0.7.0), `decision_no_permitida` y `conversacion_solo_lectura`; 502 `argos_no_disponible` (Argos no respondió y puede haberse aplicado: «Reintentar» lo confirma) y `argos_rechazo`; 503 `conector_apagado`. Con el 200 la boleta queda resuelta, la conversación recibe un mensaje de sistema (`boleta_aprobada` / `boleta_rechazada`) y al cliente se le avisa una sola vez (`avisoCliente`).
          */
         post: operations["aprobarBoleta"];
         delete?: never;
@@ -1752,7 +1876,7 @@ export interface paths {
         put?: never;
         /**
          * Rechazar la boleta en Argos, con motivo y causa
-         * @description Permiso: `boletas.rechazar`. El `motivo` se le dice al cliente. Con causa `falta_dato` el cliente recibe «le falta un dato» y puede mandar la boleta de nuevo. Solo una persona con su sesión del panel (token, integración o asistente de IA: 403 `solo_personas`) que vea la conversación, en su empresa activa (si no, 404). La boleta debe estar `registrada` (con `comprobanteId`): si no, 422 `boleta_no_registrada`; ya decidida, 409 `boleta_ya_decidida` (repetir la misma decisión la misma persona responde 200 con la boleta). Iris llama a Argos en el momento (`X-Iris-Actor: usuario:<id>`, `X-Iris-Conversacion: iris:conversacion:<id>`) y **Argos decide** con el usuario de Argos vinculado. Acepta `Idempotency-Key`, pero la respuesta no se guarda con ella: la idempotencia la da el comprobante (repetir es seguro, también después de un error). Errores: 409 `argos_sin_vinculo` («Vincula tu usuario de Argos»: `POST /integraciones/argosisp/abrir` sin destino y reintentar); 403 `argos_usuario_inactivo`, `argos_sin_permiso` («Tu usuario de Argos no tiene permiso de caja») y `argos_sin_empresa`; 409 `comprobante_revisado` (ya lo resolvió caja u otra persona: la boleta local queda sincronizada, vuelve a leerla), `otra_persona_decidio`, `comprobante_no_es_de_iris`, `iris_apagado`, `idempotencia_en_curso` y `comprobante_no_existe`; 422 `argos_sin_aprobacion` (Argos no informa contrato ≥ 0.7.0), `decision_no_permitida` y `conversacion_solo_lectura`; 502 `argos_no_disponible` (Argos no respondió: «Reintentar», nada quedó a medias) y `argos_rechazo`; 503 `conector_apagado`. Con el 200 la boleta queda resuelta, la conversación recibe un mensaje de sistema (`boleta_aprobada` / `boleta_rechazada`) y al cliente se le avisa una sola vez (`avisoCliente`).
+         * @description Permiso: `boletas.rechazar`. El cliente recibe un texto fijo según la `causa`; el `motivo` se agrega solo si no trae enlaces, dominios ni números largos (siempre queda en la boleta y en Argos). Permiso de `admin` y del rol `caja`. Solo una persona con su sesión del panel (token, integración o asistente de IA: 403 `solo_personas`) que vea la conversación, en su empresa activa (si no, 404). La boleta debe estar `registrada` (con `comprobanteId`): si no, 422 `boleta_no_registrada`; ya decidida, 409 `boleta_ya_decidida` (repetir la misma decisión la misma persona responde 200 con la boleta). Iris llama a Argos en el momento (`X-Iris-Actor: usuario:<id>`, `X-Iris-Conversacion: iris:conversacion:<id>`) y **Argos decide** con el usuario de Argos vinculado. Acepta `Idempotency-Key`, pero la respuesta no se guarda con ella: la idempotencia la da el comprobante (repetir es seguro, también después de un error). Errores: 409 `argos_sin_vinculo` («Vincula tu usuario de Argos»: `POST /integraciones/argosisp/abrir` sin destino y reintentar); 403 `argos_usuario_inactivo`, `argos_sin_permiso` («Tu usuario de Argos no tiene permiso de caja») y `argos_sin_empresa`; 409 `comprobante_revisado` (ya lo resolvió caja u otra persona: la boleta local queda sincronizada, vuelve a leerla), `otra_persona_decidio`, `comprobante_no_es_de_iris`, `iris_apagado`, `idempotencia_en_curso` y `comprobante_no_existe`; 422 `argos_sin_aprobacion` (Argos no informa contrato ≥ 0.7.0), `decision_no_permitida` y `conversacion_solo_lectura`; 502 `argos_no_disponible` (Argos no respondió y puede haberse aplicado: «Reintentar» lo confirma) y `argos_rechazo`; 503 `conector_apagado`. Con el 200 la boleta queda resuelta, la conversación recibe un mensaje de sistema (`boleta_aprobada` / `boleta_rechazada`) y al cliente se le avisa una sola vez (`avisoCliente`).
          */
         post: operations["rechazarBoleta"];
         delete?: never;
@@ -3051,6 +3175,26 @@ export interface paths {
          * @description Permiso: `conversaciones.registrar_boleta`. Queda `por_enviar` y sale a Argos (POST /comprobantes) con reintentos; caja la aprueba o rechaza en Argos. 422 `sin_cliente`, `adjunto_no_listo`.
          */
         post: operations["registrarBoletaConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/categorizar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Corregir la categoría de una conversación
+         * @description Permiso: `conversaciones.categorizar`. `categoriaId: null` la quita. Queda `categoriaOrigen: agente` y el asistente no la cambia hasta que se resuelva y se reabra. Sin asignar y con cola en la categoría: pasa a esa cola. El SLA de la categoría gana sobre el de la cola. 422 `categoria_inactiva`. Evento `conversacion.categorizada`.
+         */
+        post: operations["categorizarConversacion"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7021,12 +7165,42 @@ export interface components {
             /** @description <IRIS_BASE_URL>/soporte/entrar#<ticket>: válida 60 s y de un solo uso; se muestra una sola vez */
             url: string;
         };
+        AccionDescrita: {
+            /** @description En español; no se ejecutó nada */
+            descripcion: string;
+            /** @enum {string} */
+            tipo: "responder_dudas" | "avisar_fallas" | "dar_saldo" | "crear_ticket" | "agendar_visita" | "recibir_boleta" | "promesa_pago" | "reconexion_temporal";
+        };
         AccionSugerencia: {
             etiqueta: string;
             /** Format: int64 */
             etiquetaId: number;
             /** @enum {string} */
             tipo: "etiquetar";
+        };
+        AccionesAsistente: {
+            agendar_visita: boolean;
+            /** @description Fallas de Horus en la zona del cliente */
+            avisar_fallas: boolean;
+            crear_ticket: boolean;
+            /** @description Solo a un cliente verificado */
+            dar_saldo: boolean;
+            /** @description Siempre true: no se puede apagar */
+            pasar_a_persona: boolean;
+            /** @description Argos decide con sus reglas del canal ia */
+            promesa_pago: boolean;
+            /** @description La registra como comprobante en Argos; nunca aprueba */
+            recibir_boleta: boolean;
+            /** @description Argos decide con sus reglas del canal ia */
+            reconexion_temporal: boolean;
+            /** @description Con los manuales «Para el cliente» */
+            responder_dudas: boolean;
+        };
+        AccionesCola: {
+            /** @description De las ocho acciones (nunca pasar_a_persona) */
+            accionesApagadas: string[] | null;
+            /** Format: int64 */
+            colaId: number;
         };
         AccionesDisponible: {
             aceptar: boolean;
@@ -7059,6 +7233,14 @@ export interface components {
             resultado: string | null;
             /** @enum {string} */
             tipo: "llamada" | "visita" | "nota" | "mensaje";
+        };
+        ActividadAsistente: {
+            /** Format: date-time */
+            en: string;
+            /** @description Texto corto en español ya armado (nunca texto del cliente ni montos) */
+            texto: string;
+            /** @enum {string} */
+            tipo: "clasifico" | "sugirio" | "transfirio" | "respondio_manual" | "respondio_falla" | "respondio" | "ticket_creado" | "visita_agendada" | "boleta_enviada" | "saldo_informado" | "promesa_pedida" | "reconexion_pedida" | "espera_persona";
         };
         ActividadCampo: {
             /**
@@ -7221,15 +7403,36 @@ export interface components {
         };
         AjustesAsistente: {
             activo: boolean;
+            /** @description false: el servidor todavía no actúa solo (3a) y modoAutonomo solo admite nunca */
+            autonomoDisponible?: boolean;
             /**
              * Format: date-time
              * @description Cuándo se guardó la clave (nunca se devuelve)
              */
             claveGuardadaEn: string | null;
+            /**
+             * Format: int32
+             * @description sin_nadie: minutos que espera a un agente en línea
+             */
+            esperaMin?: number;
             fuentes: components["schemas"]["FuentesAsistente"];
+            /**
+             * Format: int32
+             * @description Turnos autónomos sin resolver antes de pasar a una persona
+             */
+            maxTurnos?: number;
             modelo: string;
             /** @enum {string} */
             modo: "automatico" | "boton";
+            /**
+             * @description Cuándo atiende solo
+             * @enum {string}
+             */
+            modoAutonomo?: "nunca" | "sin_nadie" | "siempre_primero";
+            /** @description El primero es «defecto» */
+            perfiles?: components["schemas"]["PerfilAsistente"][] | null;
+            /** @description Acciones apagadas por cola */
+            porCola?: components["schemas"]["AccionesCola"][] | null;
             /** @description Precio por millón de tokens de entrada (decimal como texto) */
             precioEntradaMillon: string | null;
             /** @description Precio por millón de tokens de salida (decimal como texto) */
@@ -7270,6 +7473,12 @@ export interface components {
              * @description Versión de los de la empresa (0 si son los por defecto)
              */
             version: number;
+        };
+        AjustesPrueba: {
+            categorias?: components["schemas"]["CategoriaPrueba"][] | null;
+            /** @enum {string} */
+            modoAutonomo?: "nunca" | "sin_nadie" | "siempre_primero";
+            perfil?: components["schemas"]["PerfilPrueba"];
         };
         Alta: {
             /** Format: int64 */
@@ -7351,6 +7560,12 @@ export interface components {
         AsignacionTicketOrden: {
             orden: components["schemas"]["Orden"];
             ticket: components["schemas"]["Ticket"];
+        };
+        AsistenteConv: {
+            /** @enum {string} */
+            estado: "atendiendo" | "espera_persona" | "detenido";
+            /** Format: int32 */
+            turnos: number;
         };
         AsistenteFueraDeHorario: {
             /** @description Fase 2: en la fase 1 solo false (422 disponible_en_fase_2) */
@@ -7514,6 +7729,11 @@ export interface components {
              * @description Id del comprobante en Argos
              */
             comprobanteId: number | null;
+            /**
+             * @description Argos avisó (webhook) que el comprobante se resolvió e Iris todavía lo está confirmando con Argos (pendiente), o no pudo confirmarlo después de varios intentos (agotada: revisarla en Argos; aprobar o rechazar desde aquí la sincroniza). null = nada por confirmar
+             * @enum {string|null}
+             */
+            confirmacionArgos: "pendiente" | "agotada" | null;
             /** Format: int64 */
             conversacionId: number;
             /** Format: date-time */
@@ -7648,6 +7868,21 @@ export interface components {
             hayMas: boolean;
             /** @description Siempre presente: el cursor de la siguiente consulta (o el id para Last-Event-ID) */
             nextCursor: string;
+        };
+        CamposCategoriaMensajes: {
+            /** Format: int64 */
+            colaId?: number | null;
+            /** @enum {string|null} */
+            condicion?: "si_hay_falla" | "solo_verificados" | null;
+            descripcion?: string;
+            manualIds?: number[] | null;
+            /** @enum {string} */
+            modo: "responde_solo" | "sugiere";
+            nombre: string;
+            /** Format: int32 */
+            slaPrimeraRespuestaMin?: number | null;
+            /** @enum {string} */
+            tono: "info" | "error" | "ok" | "aviso" | "neutro";
         };
         Canal: {
             activo: boolean;
@@ -7849,11 +8084,73 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        CategoriaMensajes: {
+            activa: boolean;
+            /** Format: int64 */
+            colaId: number | null;
+            /** @enum {string|null} */
+            condicion: "si_hay_falla" | "solo_verificados" | null;
+            /** @description Ayuda al asistente a clasificar */
+            descripcion: string;
+            /** @description «Otro»: no se desactiva; a donde cae lo que no se pudo clasificar */
+            esOtro: boolean;
+            /** Format: int64 */
+            id: number;
+            /** @description Manuales base de la categoría */
+            manualIds: number[] | null;
+            /**
+             * @description Ausente sin mensajeria.asistente_configurar
+             * @enum {string}
+             */
+            modo?: "responde_solo" | "sugiere";
+            nombre: string;
+            /** Format: int32 */
+            orden: number;
+            /**
+             * Format: int32
+             * @description Gana sobre el SLA de la cola
+             */
+            slaPrimeraRespuestaMin: number | null;
+            /** @enum {string} */
+            tono: "info" | "error" | "ok" | "aviso" | "neutro";
+            /** Format: int32 */
+            version: number;
+        };
+        CategoriaMensajesRef: {
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+            /** @enum {string} */
+            tono: "info" | "error" | "ok" | "aviso" | "neutro";
+        };
         CategoriaPortal: {
             codigo: string;
             /** Format: int64 */
             id: number;
             nombre: string;
+        };
+        CategoriaProbada: {
+            /**
+             * Format: int64
+             * @description null: una categoría del formulario aún sin guardar
+             */
+            id: number | null;
+            nombre: string;
+            /** @enum {string} */
+            tono: "info" | "error" | "ok" | "aviso" | "neutro";
+        };
+        CategoriaPrueba: {
+            /** @enum {string|null} */
+            condicion?: "si_hay_falla" | "solo_verificados" | null;
+            descripcion?: string;
+            /** Format: int64 */
+            id?: number | null;
+            manualIds?: number[] | null;
+            /** @enum {string} */
+            modo: "responde_solo" | "sugiere";
+            nombre: string;
+            /** @enum {string} */
+            tono?: "info" | "error" | "ok" | "aviso" | "neutro";
         };
         CitaAgenda: {
             /** Format: int64 */
@@ -8352,6 +8649,8 @@ export interface components {
              */
             noLeidosMias: number;
             porCanal: components["schemas"]["ConteoGrupo"][];
+            /** @description Por categoría de mensajes (§17); las sin categoría no cuentan */
+            porCategoria?: components["schemas"]["ConteoGrupo"][];
             porCola: components["schemas"]["ConteoGrupo"][];
             porEstado: {
                 [key: string]: number;
@@ -8490,9 +8789,22 @@ export interface components {
             ultimo_mensaje?: components["schemas"]["VistaPreviaChat"];
         };
         ConversacionCliente: {
+            /** @description Lo último que hizo el asistente en la conversación */
+            actividadAsistente?: components["schemas"]["ActividadAsistente"];
             /** @description Ausente: sin asignar */
             asignado?: components["schemas"]["UsuarioRef"];
+            /** @description 3b: el asistente atiende solo esta conversación. Ausente en 3a */
+            asistente?: components["schemas"]["AsistenteConv"];
             canal: components["schemas"]["CanalRef"];
+            /** @description Categoría de mensajes (§17); ausente: sin categoría */
+            categoria?: components["schemas"]["CategoriaMensajesRef"];
+            /**
+             * Format: float
+             * @description 0 a 1; null si la puso un agente
+             */
+            categoriaConfianza?: number | null;
+            /** @enum {string|null} */
+            categoriaOrigen?: "asistente" | "agente" | null;
             /** @description Ausente: sin cola */
             cola?: components["schemas"]["ColaRef"];
             contacto: components["schemas"]["ContactoConversacion"];
@@ -8531,9 +8843,22 @@ export interface components {
             version: number;
         };
         ConversacionClienteDetalle: {
+            /** @description Lo último que hizo el asistente en la conversación */
+            actividadAsistente?: components["schemas"]["ActividadAsistente"];
             /** @description Ausente: sin asignar */
             asignado?: components["schemas"]["UsuarioRef"];
+            /** @description 3b: el asistente atiende solo esta conversación. Ausente en 3a */
+            asistente?: components["schemas"]["AsistenteConv"];
             canal: components["schemas"]["CanalRef"];
+            /** @description Categoría de mensajes (§17); ausente: sin categoría */
+            categoria?: components["schemas"]["CategoriaMensajesRef"];
+            /**
+             * Format: float
+             * @description 0 a 1; null si la puso un agente
+             */
+            categoriaConfianza?: number | null;
+            /** @enum {string|null} */
+            categoriaOrigen?: "asistente" | "agente" | null;
             /** @description Ausente sin cliente o sin instantánea */
             clienteResumen?: components["schemas"]["ClienteResumenConversacion"];
             /** @description Ausente: sin cola */
@@ -8763,6 +9088,10 @@ export interface components {
             /** @description «Otra»: descarta la vigente y pide una nueva (origen otra) */
             otra?: boolean;
         };
+        CuerpoVersion: {
+            /** Format: int32 */
+            version: number;
+        };
         CuerpoWebhook: {
             /** @description Argos: cliente.actualizado, servicio.estado_cambiado…; Horus: horus.router_estado_cambiado, horus.hallazgo_abierto… */
             evento: string;
@@ -8918,6 +9247,40 @@ export interface components {
             sha256: string | null;
             /** @description GET (adjuntos.ver) */
             urlDescarga: string;
+        };
+        EfectoAsistente: {
+            mes: string;
+            porCategoria: components["schemas"]["EfectoCategoria"][] | null;
+            /**
+             * Format: int64
+             * @description Lo mismo en los 30 días antes de activar el asistente
+             */
+            primeraRespuestaPromedioAntesSeg: number | null;
+            /**
+             * Format: int64
+             * @description Del primer mensaje del cliente a la primera respuesta (persona o asistente)
+             */
+            primeraRespuestaPromedioSeg: number | null;
+            /** Format: int64 */
+            resueltasSinPersona: number;
+            /**
+             * Format: int64
+             * @description Conversaciones creadas en el mes que el asistente clasificó
+             */
+            totalAtendidas: number;
+        };
+        EfectoCategoria: {
+            /** Format: int64 */
+            categoriaId: number;
+            nombre: string;
+            /** Format: int64 */
+            primeraRespuestaPromedioSeg: number | null;
+            /** Format: int64 */
+            resueltasSinPersona: number;
+            /** @enum {string} */
+            tono: "info" | "error" | "ok" | "aviso" | "neutro";
+            /** Format: int64 */
+            total: number;
         };
         Empresa: {
             /** Format: date-time */
@@ -9152,6 +9515,23 @@ export interface components {
             version: number;
             wabaId?: string;
         };
+        EntradaActualizarCategoriaMensajes: {
+            /** Format: int64 */
+            colaId?: number | null;
+            /** @enum {string|null} */
+            condicion?: "si_hay_falla" | "solo_verificados" | null;
+            descripcion?: string;
+            manualIds?: number[] | null;
+            /** @enum {string} */
+            modo: "responde_solo" | "sugiere";
+            nombre: string;
+            /** Format: int32 */
+            slaPrimeraRespuestaMin?: number | null;
+            /** @enum {string} */
+            tono: "info" | "error" | "ok" | "aviso" | "neutro";
+            /** Format: int32 */
+            version: number;
+        };
         EntradaActualizarContactoIris: {
             nombre: string;
             nota?: string;
@@ -9196,10 +9576,23 @@ export interface components {
             activo: boolean;
             /** @description Solo escritura: ausente la deja, "" la borra */
             clave?: string;
+            /** Format: int32 */
+            esperaMin?: number;
             fuentes: components["schemas"]["FuentesAsistente"];
+            /** Format: int32 */
+            maxTurnos?: number;
             modelo: string;
             /** @enum {string} */
             modo: "automatico" | "boton";
+            /**
+             * @description Con autonomoDisponible false solo nunca (422 autonomo_no_disponible)
+             * @enum {string}
+             */
+            modoAutonomo?: "nunca" | "sin_nadie" | "siempre_primero";
+            /** @description Reemplaza la lista; el primero es «defecto» */
+            perfiles?: components["schemas"]["PerfilAsistente"][] | null;
+            /** @description Reemplaza la lista ([] la vacía) */
+            porCola?: components["schemas"]["AccionesCola"][] | null;
             precioEntradaMillon: string | null;
             precioSalidaMillon: string | null;
             /** @enum {string} */
@@ -9249,6 +9642,8 @@ export interface components {
         EntradaAprobarBoleta: {
             /** @description Ids de Argos de las facturas a las que se aplica el pago; sin ellas, Argos lo aplica en su orden */
             facturas?: number[] | null;
+            /** @description El monto que la persona vio y confirmó (decimal con dos decimales). Si viene, Iris lo compara con el de la boleta y con el del comprobante en Argos (lo relee) ANTES de aprobar; si alguno no coincide, 409 monto_cambio con montoActual y no se aprueba nada */
+            montoEsperado?: string;
             /** @description Nota para caja (queda en Argos) */
             nota?: string;
         };
@@ -9461,6 +9856,15 @@ export interface components {
              * @description Versión leída (opcional); si cambió, 409
              */
             version?: number;
+        };
+        EntradaCategorizar: {
+            /**
+             * Format: int64
+             * @description null la quita
+             */
+            categoriaId: number | null;
+            /** Format: int32 */
+            version: number;
         };
         EntradaCerrarOrden: {
             /** Format: double */
@@ -10805,6 +11209,10 @@ export interface components {
             proveedor: "ollama" | "openai_compatible" | "anthropic";
             url: string;
         };
+        EntradaProbarMensaje: {
+            ajustes?: components["schemas"]["AjustesPrueba"];
+            texto: string;
+        };
         EntradaProgramarOrden: {
             /**
              * Format: int64
@@ -10958,11 +11366,11 @@ export interface components {
         };
         EntradaRechazarBoleta: {
             /**
-             * @description Sin causa, Argos usa otro. Con falta_dato el cliente recibe «le falta un dato» y puede mandarla de nuevo
+             * @description Sin causa, Argos usa otro. Decide el texto que recibe el cliente
              * @enum {string}
              */
             causa?: "no_aparece" | "monto_distinto" | "ilegible" | "falta_dato" | "duplicado" | "otro";
-            /** @description Por qué se rechaza: se le dice al cliente */
+            /** @description Por qué se rechaza: queda en Argos y en la boleta. Al cliente se le dice un texto fijo según la causa; este motivo se agrega solo si no trae enlaces, dominios ni números largos */
             motivo: string;
         };
         EntradaRecibirTraslado: {
@@ -11377,8 +11785,12 @@ export interface components {
         };
         EstadoAsistente: {
             activo: boolean;
+            /** @description false: el servidor todavía no actúa solo */
+            autonomoDisponible?: boolean;
             /** @enum {string} */
             modo: "automatico" | "boton";
+            /** @enum {string} */
+            modoAutonomo?: "nunca" | "sin_nadie" | "siempre_primero";
             /** @description Se llegó al tope de tokens del mes */
             pausado: boolean;
         };
@@ -12149,6 +12561,18 @@ export interface components {
             /** Format: int64 */
             no_leidos: number;
         };
+        LimitesAsistente: {
+            /**
+             * Format: int32
+             * @description Hasta cuántos días adelante agenda una visita
+             */
+            diasAdelanteMax: number;
+            /**
+             * @description La mayor prioridad de un ticket que crea solo
+             * @enum {string}
+             */
+            prioridadMaxima: "baja" | "media" | "alta" | "critica";
+        };
         LineaCotizacion: {
             /** @description Decimal (2 cifras) */
             cantidad: string;
@@ -12201,6 +12625,10 @@ export interface components {
         };
         ListaCanales: {
             data: components["schemas"]["Canal"][];
+            nextCursor: string | null;
+        };
+        ListaCategoriasMensajes: {
+            data: components["schemas"]["CategoriaMensajes"][] | null;
             nextCursor: string | null;
         };
         ListaColas: {
@@ -12428,12 +12856,17 @@ export interface components {
         MensajeConversacion: {
             adjunto?: components["schemas"]["AdjuntoMensaje"];
             /**
-             * @description Saliente sin autor: el bot o la respuesta de fuera de horario
+             * @description Saliente sin autor: el bot, la respuesta de fuera de horario o (3b) el asistente de IA
              * @enum {string|null}
              */
-            automatico: "bot" | "fuera_de_horario" | null;
+            automatico: "bot" | "fuera_de_horario" | "asistente" | null;
             /** @description Saliente y nota; ausente en entrante, sistema y respuestas automáticas */
             autor?: components["schemas"]["UsuarioRef"];
+            /**
+             * @description Quién lo escribió (§17.4)
+             * @enum {string}
+             */
+            autorTipo?: "cliente" | "persona" | "asistente_ia" | "sistema";
             /** Format: int64 */
             conversacionId: number;
             /** Format: date-time */
@@ -12479,6 +12912,20 @@ export interface components {
             cuerpo: string;
             /** Format: int64 */
             id: number;
+        };
+        MensajeProbado: {
+            /** @description Solo descritas: no se ejecuta nada */
+            acciones: components["schemas"]["AccionDescrita"][] | null;
+            categoria: components["schemas"]["CategoriaProbada"];
+            /** Format: float */
+            confianza: number | null;
+            fuentes: components["schemas"]["FuenteSugerencia"][] | null;
+            /** @enum {string} */
+            haria: "responde_solo" | "sugiere" | "pasa_a_persona";
+            /** @enum {string|null} */
+            motivo: "modo_nunca" | "categoria_sugiere" | "sin_falla" | "sin_verificar" | "pide_persona" | "enojo" | "sin_respuesta" | null;
+            /** @description Lo que respondería o sugeriría; null si pasa a una persona */
+            respuesta: string | null;
         };
         MetaRecibido: {
             duplicado: boolean;
@@ -13765,6 +14212,17 @@ export interface components {
              */
             version: number;
         };
+        PerfilAsistente: {
+            acciones: components["schemas"]["AccionesAsistente"];
+            /** @description «defecto» el primero; se usa en horarios.franjas[].perfil */
+            codigo: string;
+            limites: components["schemas"]["LimitesAsistente"];
+            nombre: string;
+        };
+        PerfilPrueba: {
+            acciones: components["schemas"]["AccionesAsistente"];
+            limites: components["schemas"]["LimitesAsistente"];
+        };
         Periodo: {
             /**
              * Format: date
@@ -13794,7 +14252,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.ver" | "integraciones.ver_pendientes" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.ver" | "integraciones.ver_pendientes" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -14113,6 +14571,8 @@ export interface components {
             detail?: string;
             /** @description Errores por campo */
             errors?: components["schemas"]["ErrorCampo"][] | null;
+            /** @description monto_cambio: el monto actual (decimal con dos decimales) */
+            montoActual?: string;
             /**
              * Format: int64
              * @description Código HTTP
@@ -15654,10 +16114,10 @@ export interface components {
         };
         UltimoMensajeResumen: {
             /**
-             * @description Saliente sin autor: el bot o la respuesta de fuera de horario
+             * @description Saliente sin autor: el bot, la respuesta de fuera de horario o (3b) el asistente de IA
              * @enum {string|null}
              */
-            automatico: "bot" | "fuera_de_horario" | null;
+            automatico: "bot" | "fuera_de_horario" | "asistente" | null;
             /** Format: date-time */
             creadoEn: string;
             /** @enum {string} */
@@ -22204,6 +22664,444 @@ export interface operations {
             };
         };
     };
+    listarCategoriasAsistente: {
+        parameters: {
+            query?: {
+                incluirInactivas?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaCategoriasMensajes"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearCategoriaAsistente: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CamposCategoriaMensajes"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CategoriaMensajes"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    activarCategoriaAsistente: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CuerpoVersion"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CategoriaMensajes"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    actualizarCategoriaAsistente: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaActualizarCategoriaMensajes"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CategoriaMensajes"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    desactivarCategoriaAsistente: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CuerpoVersion"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CategoriaMensajes"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    efectoAsistente: {
+        parameters: {
+            query?: {
+                /** @description YYYY-MM (por defecto el mes actual, hora de Guatemala) */
+                mes?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EfectoAsistente"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     estadoAsistente: {
         parameters: {
             query?: never;
@@ -22451,6 +23349,87 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    probarMensajeAsistente: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaProbarMensaje"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MensajeProbado"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -26664,6 +27643,8 @@ export interface operations {
                 canalId?: number;
                 colaId?: number;
                 etiquetaId?: number;
+                /** @description Categoría de mensajes (§17); 0 = todas */
+                categoriaId?: number;
                 estado?: "abierta" | "esperando_cliente" | "resuelta" | "activas" | "todas";
                 sla?: "por_vencer" | "vencido";
                 /** @description Nombre, número o referencia (TK-004812) */
@@ -28112,6 +29093,89 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    categorizarConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCategorizar"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionClienteDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -54,6 +54,13 @@ type AjustesAsistente struct {
 	PrecioEntradaMillon *string          `json:"precioEntradaMillon" nullable:"true" doc:"Precio por millón de tokens de entrada (decimal como texto)"`
 	PrecioSalidaMillon  *string          `json:"precioSalidaMillon" nullable:"true" doc:"Precio por millón de tokens de salida (decimal como texto)"`
 	Version             int32            `json:"version" doc:"0 si nunca se guardaron"`
+	// Fase 3 (§17.1).
+	AutonomoDisponible bool              `json:"autonomoDisponible" required:"false" doc:"false: el servidor todavía no actúa solo (3a) y modoAutonomo solo admite nunca"`
+	ModoAutonomo       string            `json:"modoAutonomo" required:"false" enum:"nunca,sin_nadie,siempre_primero" doc:"Cuándo atiende solo"`
+	EsperaMin          int32             `json:"esperaMin" required:"false" doc:"sin_nadie: minutos que espera a un agente en línea"`
+	MaxTurnos          int32             `json:"maxTurnos" required:"false" doc:"Turnos autónomos sin resolver antes de pasar a una persona"`
+	Perfiles           []PerfilAsistente `json:"perfiles" required:"false" doc:"El primero es «defecto»"`
+	PorCola            []AccionesCola    `json:"porCola" required:"false" doc:"Acciones apagadas por cola"`
 }
 
 // EntradaAjustesAsistente es POST /asistente/ajustes/actualizar.
@@ -69,6 +76,12 @@ type EntradaAjustesAsistente struct {
 	TopeTokensMes       int64            `json:"topeTokensMes" minimum:"1000" maximum:"1000000000"`
 	PrecioEntradaMillon *string          `json:"precioEntradaMillon" nullable:"true" maxLength:"20"`
 	PrecioSalidaMillon  *string          `json:"precioSalidaMillon" nullable:"true" maxLength:"20"`
+	// Fase 3 (§17.1): todos opcionales; ausente = se deja como está.
+	ModoAutonomo *string           `json:"modoAutonomo,omitempty" enum:"nunca,sin_nadie,siempre_primero" doc:"Con autonomoDisponible false solo nunca (422 autonomo_no_disponible)"`
+	EsperaMin    *int32            `json:"esperaMin,omitempty" minimum:"1" maximum:"60"`
+	MaxTurnos    *int32            `json:"maxTurnos,omitempty" minimum:"2" maximum:"20"`
+	Perfiles     []PerfilAsistente `json:"perfiles,omitempty" maxItems:"10" doc:"Reemplaza la lista; el primero es «defecto»"`
+	PorCola      []AccionesCola    `json:"porCola,omitempty" maxItems:"50" doc:"Reemplaza la lista ([] la vacía)"`
 }
 
 // EstadoAsistente es GET /asistente/estado (para decidir si el panel muestra «Sugerir»).
@@ -76,6 +89,9 @@ type EstadoAsistente struct {
 	Activo  bool   `json:"activo"`
 	Modo    string `json:"modo" enum:"automatico,boton"`
 	Pausado bool   `json:"pausado" doc:"Se llegó al tope de tokens del mes"`
+	// Fase 3 (§17.1).
+	ModoAutonomo       string `json:"modoAutonomo" required:"false" enum:"nunca,sin_nadie,siempre_primero"`
+	AutonomoDisponible bool   `json:"autonomoDisponible" required:"false" doc:"false: el servidor todavía no actúa solo"`
 }
 
 // EntradaProbarAsistente es POST /asistente/probar.
@@ -143,6 +159,18 @@ type casosAsistente struct {
 	Calificar *auditoria.Caso[EntradaCalificar, Sugerencia]
 	Resumen   *ResumirConversacion
 
+	// Fase 3a (§17).
+	Categorias          *auditoria.Caso[EntradaListarCategoriasMensajes, ListaCategoriasMensajes]
+	CrearCategoria      *auditoria.Caso[CamposCategoriaMensajes, CategoriaMensajes]
+	ActualizarCategoria *auditoria.Caso[EntradaActualizarCategoriaMensajes, CategoriaMensajes]
+	ActivarCategoria    *auditoria.Caso[EntradaCambioCategoriaMensajes, CategoriaMensajes]
+	DesactivarCategoria *auditoria.Caso[EntradaCambioCategoriaMensajes, CategoriaMensajes]
+	Categorizar         *auditoria.Caso[EntradaCategorizar, ConversacionClienteDetalle]
+	Efecto              *auditoria.Caso[EntradaUsoAsistente, EfectoAsistente]
+	ProbarMensaje       *ProbarMensaje
+	prepararClasif      *auditoria.Caso[int64, clasifPreparada]
+	guardarClasif       *auditoria.Caso[clasificacionModelo, struct{}]
+
 	prepararGen    *auditoria.Caso[uuidSugerencia, generacion]
 	guardarGen     *auditoria.Caso[resultadoGeneracion, struct{}]
 	crearAuto      *auditoria.Caso[int64, autoCreada]
@@ -155,6 +183,11 @@ func nuevosCasosAsistente(m *Modulo) casosAsistente {
 		Probar: nuevoProbarAsistente(m), Modelos: nuevoModelosAsistente(m), Uso: nuevoUsoAsistente(m),
 		Pedir: nuevoPedirSugerencia(m), Actual: nuevoSugerenciaActual(m), Usar: nuevoUsarSugerencia(m),
 		Descartar: nuevoDescartarSugerencia(m), Calificar: nuevoCalificarSugerencia(m), Resumen: nuevoResumirConversacion(m),
+		Categorias: nuevoListarCategorias(m), CrearCategoria: nuevoCrearCategoria(m), ActualizarCategoria: nuevoActualizarCategoria(m),
+		ActivarCategoria:    nuevoCambioCategoria("mensajeria.asistente_activar_categoria", true),
+		DesactivarCategoria: nuevoCambioCategoria("mensajeria.asistente_desactivar_categoria", false),
+		Categorizar:         nuevoCategorizarConv(m), Efecto: nuevoEfectoAsistente(m), ProbarMensaje: nuevoProbarMensaje(m),
+		prepararClasif: nuevoPrepararClasificacion(m), guardarClasif: nuevoGuardarClasificacion(m),
 		prepararGen: nuevoPrepararGeneracion(m), guardarGen: nuevoGuardarGeneracion(m), crearAuto: nuevoCrearAuto(m), vencerAtascada: nuevoVencerAtascada(m),
 	}
 }
@@ -185,14 +218,17 @@ func DatosAsociadosAsistente(id int64) []byte {
 
 func ajustesPorDefecto() AjustesAsistente {
 	return AjustesAsistente{Proveedor: ProveedorOllama, Modo: ModoAsistenteAutomatico,
-		Fuentes: FuentesAsistente{Manuales: true, Argos: true, Horus: true, Historial: true}, TopeTokensMes: TopeTokensPorDefecto}
+		Fuentes: FuentesAsistente{Manuales: true, Argos: true, Horus: true, Historial: true}, TopeTokensMes: TopeTokensPorDefecto,
+		AutonomoDisponible: AutonomoDisponible, ModoAutonomo: AutonomoNunca, EsperaMin: 3, MaxTurnos: 8,
+		Perfiles: []PerfilAsistente{perfilPorDefecto()}, PorCola: []AccionesCola{}}
 }
 
 func aAjustes(f mensajeriabd.MensajeriaAsistenteAjuste) AjustesAsistente {
 	return AjustesAsistente{Activo: f.Activo, Proveedor: f.Proveedor, URL: f.Url, ClaveGuardadaEn: f.ClaveGuardadaEn, Modelo: f.Modelo, Modo: f.Modo,
 		Fuentes:       FuentesAsistente{Manuales: f.FuenteManuales, Argos: f.FuenteArgos, Horus: f.FuenteHorus, Historial: f.FuenteHistorial},
 		TopeTokensMes: f.TopeTokensMes, PrecioEntradaMillon: textoNumerico(f.PrecioEntradaMillon), PrecioSalidaMillon: textoNumerico(f.PrecioSalidaMillon),
-		Version: f.Version}
+		Version: f.Version, AutonomoDisponible: AutonomoDisponible, ModoAutonomo: f.ModoAutonomo, EsperaMin: f.EsperaMin, MaxTurnos: f.MaxTurnos,
+		Perfiles: perfilesDe(f.Perfiles), PorCola: porColaDe(f.PorCola)}
 }
 
 // leerAjustesAsistente: la fila de la empresa o nil.
@@ -352,10 +388,10 @@ func nuevoEstadoAsistente(m *Modulo) *auditoria.Caso[struct{}, EstadoAsistente] 
 			q := mensajeriabd.New(t)
 			f, err := leerAjustesAsistente(ctx, q, empresa)
 			if err != nil || f == nil {
-				return EstadoAsistente{Modo: ModoAsistenteAutomatico}, err
+				return EstadoAsistente{Modo: ModoAsistenteAutomatico, ModoAutonomo: AutonomoNunca, AutonomoDisponible: AutonomoDisponible}, err
 			}
 			pausado, err := m.pausadoPorTope(ctx, q, empresa, f.TopeTokensMes)
-			return EstadoAsistente{Activo: f.Activo, Modo: f.Modo, Pausado: pausado}, err
+			return EstadoAsistente{Activo: f.Activo, Modo: f.Modo, Pausado: pausado, ModoAutonomo: f.ModoAutonomo, AutonomoDisponible: AutonomoDisponible}, err
 		},
 	})
 }
@@ -478,6 +514,10 @@ func nuevoFijarAjustesAsistente(m *Modulo) *auditoria.Caso[EntradaAjustesAsisten
 					return AjustesAsistente{}, err
 				}
 			}
+			// Fase 3 (§17.1): modo autónomo, perfiles y acciones por cola (lo ausente se deja como está).
+			if f, err = m.aplicarAutonomo(ctx, q, empresa, f, in); err != nil {
+				return AjustesAsistente{}, err
+			}
 			// El tope cambió: los avisos del mes se recalculan con el tope nuevo (sin emitir).
 			if !nuevo && antes.TopeTokensMes != f.TopeTokensMes {
 				mes, _, _ := m.mesDe(m.ahora())
@@ -495,7 +535,8 @@ func nuevoFijarAjustesAsistente(m *Modulo) *auditoria.Caso[EntradaAjustesAsisten
 			vista := func(x AjustesAsistente) map[string]any {
 				return map[string]any{"activo": x.Activo, "proveedor": x.Proveedor, "url": x.URL, "modelo": x.Modelo, "modo": x.Modo,
 					"fuentes": x.Fuentes, "tope_tokens_mes": x.TopeTokensMes, "precio_entrada_millon": x.PrecioEntradaMillon,
-					"precio_salida_millon": x.PrecioSalidaMillon, "clave_guardada": x.ClaveGuardadaEn != nil}
+					"precio_salida_millon": x.PrecioSalidaMillon, "clave_guardada": x.ClaveGuardadaEn != nil,
+					"modo_autonomo": x.ModoAutonomo, "espera_min": x.EsperaMin, "max_turnos": x.MaxTurnos, "perfiles": x.Perfiles, "por_cola": x.PorCola}
 			}
 			var previo map[string]any
 			if !nuevo {

@@ -22,13 +22,13 @@ type boletaCuerpoHTTP[T any] struct {
 	Body T
 }
 
-const descErroresDecision = " Solo una persona con su sesión del panel (token, integración o asistente de IA: 403 `solo_personas`) que vea la conversación, en su empresa activa (si no, 404). " +
+const descErroresDecision = " Permiso de `admin` y del rol `caja`. Solo una persona con su sesión del panel (token, integración o asistente de IA: 403 `solo_personas`) que vea la conversación, en su empresa activa (si no, 404). " +
 	"La boleta debe estar `registrada` (con `comprobanteId`): si no, 422 `boleta_no_registrada`; ya decidida, 409 `boleta_ya_decidida` (repetir la misma decisión la misma persona responde 200 con la boleta). " +
 	"Iris llama a Argos en el momento (`X-Iris-Actor: usuario:<id>`, `X-Iris-Conversacion: iris:conversacion:<id>`) y **Argos decide** con el usuario de Argos vinculado. " +
 	"Acepta `Idempotency-Key`, pero la respuesta no se guarda con ella: la idempotencia la da el comprobante (repetir es seguro, también después de un error). " +
 	"Errores: 409 `argos_sin_vinculo` («Vincula tu usuario de Argos»: `POST /integraciones/argosisp/abrir` sin destino y reintentar); 403 `argos_usuario_inactivo`, `argos_sin_permiso` («Tu usuario de Argos no tiene permiso de caja») y `argos_sin_empresa`; " +
 	"409 `comprobante_revisado` (ya lo resolvió caja u otra persona: la boleta local queda sincronizada, vuelve a leerla), `otra_persona_decidio`, `comprobante_no_es_de_iris`, `iris_apagado`, `idempotencia_en_curso` y `comprobante_no_existe`; " +
-	"422 `argos_sin_aprobacion` (Argos no informa contrato ≥ 0.7.0), `decision_no_permitida` y `conversacion_solo_lectura`; 502 `argos_no_disponible` (Argos no respondió: «Reintentar», nada quedó a medias) y `argos_rechazo`; 503 `conector_apagado`. " +
+	"422 `argos_sin_aprobacion` (Argos no informa contrato ≥ 0.7.0), `decision_no_permitida` y `conversacion_solo_lectura`; 502 `argos_no_disponible` (Argos no respondió y puede haberse aplicado: «Reintentar» lo confirma) y `argos_rechazo`; 503 `conector_apagado`. " +
 	"Con el 200 la boleta queda resuelta, la conversación recibe un mensaje de sistema (`boleta_aprobada` / `boleta_rechazada`) y al cliente se le avisa una sola vez (`avisoCliente`)."
 
 func (m *Modulo) registrarBoletas(api huma.API) {
@@ -47,14 +47,14 @@ func (m *Modulo) registrarBoletas(api huma.API) {
 	})
 	aprobar := op("aprobarBoleta", http.MethodPost, "/boletas/{id}/aprobar", "Aprobar la boleta y registrar el pago en Argos", nucleo.PermBoletasAprobar, http.StatusOK,
 		http.StatusNotFound, http.StatusConflict, http.StatusBadGateway, http.StatusServiceUnavailable)
-	aprobar.Description += " Se aprueba por el monto del comprobante (sin monto ni fecha): si el depósito es por otro monto, se rechaza con causa `monto_distinto`." + descErroresDecision
+	aprobar.Description += " Se aprueba por el monto del comprobante (sin monto ni fecha): si el depósito es por otro monto, se rechaza con causa `monto_distinto`. Con `montoEsperado` (el monto que la persona confirmó), Iris lo compara con la boleta y con el comprobante en Argos antes de aprobar: si no coincide, 409 `monto_cambio` con `montoActual` y no se aprueba." + descErroresDecision
 	huma.Register(api, aprobar, func(ctx context.Context, in *boletaCuerpoHTTP[EntradaAprobarBoleta]) (*cuerpo[Boleta], error) {
 		in.Body.ID = in.ID
 		return responder(m.boletas.Aprobar(ctx, in.Body))
 	})
 	rechazar := op("rechazarBoleta", http.MethodPost, "/boletas/{id}/rechazar", "Rechazar la boleta en Argos, con motivo y causa", nucleo.PermBoletasRechazar, http.StatusOK,
 		http.StatusNotFound, http.StatusConflict, http.StatusBadGateway, http.StatusServiceUnavailable)
-	rechazar.Description += " El `motivo` se le dice al cliente. Con causa `falta_dato` el cliente recibe «le falta un dato» y puede mandar la boleta de nuevo." + descErroresDecision
+	rechazar.Description += " El cliente recibe un texto fijo según la `causa`; el `motivo` se agrega solo si no trae enlaces, dominios ni números largos (siempre queda en la boleta y en Argos)." + descErroresDecision
 	huma.Register(api, rechazar, func(ctx context.Context, in *boletaCuerpoHTTP[EntradaRechazarBoleta]) (*cuerpo[Boleta], error) {
 		in.Body.ID = in.ID
 		return responder(m.boletas.Rechazar(ctx, in.Body))

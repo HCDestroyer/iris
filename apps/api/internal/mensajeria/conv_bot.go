@@ -46,6 +46,8 @@ const (
 	// AutomaticoBot y AutomaticoFueraDeHorario marcan los salientes sin autor.
 	AutomaticoBot            = "bot"
 	AutomaticoFueraDeHorario = "fuera_de_horario"
+	// AutomaticoAsistente: lo envió el asistente de IA (3b, §17.4).
+	AutomaticoAsistente = "asistente"
 )
 
 // SaludoBotPorDefecto es el saludo de un número sin configurar.

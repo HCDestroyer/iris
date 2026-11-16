@@ -189,6 +189,7 @@ sql:
       - internal/mensajeria/meta_qr.sql
       - internal/mensajeria/asistente.sql
       - internal/mensajeria/boletas.sql
+      - internal/mensajeria/asistente3.sql
     gen:
       go:
         <<: *gen
@@ -201,6 +202,7 @@ sql:
           mensajeria_contactos_iri: MensajeriaContactoIris
           mensajeria_respuestas_rapida: MensajeriaRespuestaRapida
           mensajeria_cola: MensajeriaCola
+          mensajeria_asistente_categoria: MensajeriaCategoria
           mensajeria_cola_supervisore: MensajeriaColaSupervisor
           mensajeria_conexion_metum: MensajeriaConexionMeta
   - <<: *base

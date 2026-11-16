@@ -333,17 +333,20 @@ partes (ficha, ticket, orden, comercial y app de campo).
   Un 409 `idempotencia_en_curso` se reintenta con espera corta (`EsperasEnCurso`). Son sincrónicas:
   nunca van por `integracion.pendientes`. La acción, los permisos y la traducción de errores viven en
   `internal/mensajeria` (`boletas_decidir.go`). `ErrorRemoto.Codigo` trae el `code` del problem+json
-  de Argos (o el último segmento de su `type`).
+  de Argos (o el último segmento de su `type`). `Comprobante.VerificadoIrisActor` (contrato 0.7.1,
+  opcional) es quien lo decidió desde Iris; `IrisActor` es quien registró la boleta.
 - **Abrir Argos** (`abrir_argos.go`, §1.3): `POST /api/v1/integraciones/argosisp/abrir
   { destino?: { tipo, idExterno } }` (`integraciones.abrir_argos`; solo una persona con sesión del
   panel: 403 `solo_personas`). Pide el ticket a `POST /integraciones/iris/sso/tickets` con el token del
   conector y `usuario.id_externo` = el id del usuario de Iris en texto (el mismo de `X-Iris-Actor`);
   `correo` y `nombre` son informativos. Devuelve `{ url, expiraEn }` solo si la URL es
-  `http(s)://<panel>/sso/entrar#<ticket>` (y, si el conector conoce `panel_url`, de ese host); si no,
-  502 `argos_rechazo`. Sin `destino` es «Vincular mi usuario de Argos». La URL lleva el ticket: en la
+  `http(s)://<host>/sso/entrar#<ticket>` con el host de `panel_url` o, si el conector no lo tiene, el
+  de `base_url` (nunca un host libre); si no, 502 `argos_rechazo`. Sin `destino` es «Vincular mi usuario de Argos». La URL lleva el ticket: en la
   auditoría va `url: "***"`, el evento `usuario.argos_abierto` no la lleva y la respuesta se marca
   `NoRepetible` (no queda en `nucleo.idempotencia`). Tope: 10 por minuto por persona
-  (`TopeAbrirArgos`, en memoria por proceso, como las cuotas de lecturas): 429 `demasiados_intentos`.
+  (`TopeAbrirArgos`, contado en `integracion.abrir_argos_cuotas`: vale con varias réplicas): 429
+  `demasiados_intentos`. En una sesión abierta por autologin exige re-autenticación
+  (`auditoria.RequiereReautenticacion`).
   Errores: 409 `conector_apagado` e `iris_apagado`, 422 `argos_sin_aprobacion`, 502
   `argos_no_disponible`. Iris no guarda si el vínculo existe: solo Argos lo sabe.
 - **Webhooks** (`webhook_070.go`): `comprobante.aprobado` y `comprobante.rechazado` (§7.2) emiten

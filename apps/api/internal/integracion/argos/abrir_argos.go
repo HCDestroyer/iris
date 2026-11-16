@@ -258,7 +258,7 @@ func (m *Modulo) registrarAbrirArgos(api huma.API) {
 		"Iris no sabe si el vínculo existe: el panel lo descubre con el 409 `argos_sin_vinculo` al aprobar o rechazar. " +
 		"Acepta `Idempotency-Key`, pero la respuesta no se guarda: repetir la clave responde 409 `idempotencia_no_repetible` (pide otro enlace con otra clave). " +
 		"409 `conector_apagado` (sin conector con Argos activo) e `iris_apagado` (Argos tiene apagado su conector con Iris); 422 `argos_sin_aprobacion` (Argos no informa contrato ≥ 0.7.0); " +
-		"429 `demasiados_intentos` con `Retry-After` (10 por minuto por persona); 502 `argos_no_disponible` (Argos no respondió: «Reintentar»)."
+		"429 `demasiados_intentos` con `Retry-After` (10 por minuto por persona); 403 `reautenticacion_requerida` en una sesión abierta por autologin sin re-autenticar; 502 `argos_no_disponible` (Argos no respondió: «Reintentar»)."
 	huma.Register(api, op, func(ctx context.Context, in *struct {
 		nucleo.ConIdempotencia
 		Body EntradaAbrirArgos

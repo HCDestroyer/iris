@@ -393,7 +393,8 @@ Una **persona** aprueba o rechaza la boleta desde la conversación. Iris solo tr
 **Leer.** `GET /conversaciones/{id}/boletas` → `{ data: Boleta[] }` (en orden de registro) y
 `GET /boletas/{id}` → `Boleta`; exigen ver la conversación (si no, 404). `Boleta` =
 `{ id, conversacionId, estado, comprobanteId, detalle, referencia, monto, creadaEn, puedeDecidir,
-pagoId, motivoRechazo, causaRechazo, verificadoPorNombre, decididaPor?, decididaEn, avisoCliente }`:
+pagoId, motivoRechazo, causaRechazo, verificadoPorNombre, decididaPor?, decididaEn, avisoCliente,
+confirmacionArgos }`:
 
 - `estado`: `por_enviar` | `registrada` | `fallida` | `aprobada` | `rechazada`. La boleta pendiente
   de decidir es la `registrada` (Argos la tiene como comprobante `pendiente`).
@@ -403,23 +404,33 @@ pagoId, motivoRechazo, causaRechazo, verificadoPorNombre, decididaPor?, decidida
   `boletas.rechazar`.
 - `verificadoPorNombre`: el usuario de Argos que decidió (el vinculado, o caja). `decididaPor`
   (`{ id, nombre }`): el usuario de Iris que decidió desde la conversación; ausente si decidió caja
-  en el panel de Argos. `avisoCliente`: `enviado` | `sin_aviso` (ver «Aviso al cliente»).
+  en el panel de Argos, o si Argos no dice quién fue. `avisoCliente`: `enviado` | `sin_aviso` (ver
+  «Aviso al cliente»).
+- `confirmacionArgos`: `pendiente` (Argos avisó por webhook que el comprobante se resolvió e Iris lo
+  está confirmando), `agotada` (no pudo confirmarlo después de varios intentos: revisarla en Argos;
+  aprobar o rechazar desde aquí la sincroniza) o null.
 
 **Decidir.**
 
 | Ruta | Cuerpo | Permiso |
 | --- | --- | --- |
-| `POST /boletas/{id}/aprobar` | `{ nota?: string ≤ 400, facturas?: number[] }` | `boletas.aprobar` |
+| `POST /boletas/{id}/aprobar` | `{ nota?: string ≤ 400, facturas?: number[], montoEsperado?: "250.00" }` | `boletas.aprobar` |
 | `POST /boletas/{id}/rechazar` | `{ motivo: string 3–500, causa?: no_aparece \| monto_distinto \| ilegible \| falta_dato \| duplicado \| otro }` | `boletas.rechazar` |
 
 - Responden **200** con la `Boleta` ya resuelta. Aprobar va sin monto ni fecha: se aprueba por el
-  monto del comprobante; si el depósito es por otro monto, se rechaza con `monto_distinto`. El
-  `motivo` del rechazo se le dice al cliente.
+  monto del comprobante; si el depósito es por otro monto, se rechaza con `monto_distinto`.
+- **`montoEsperado`** (opcional, decimal con dos decimales): el monto que la persona vio y confirmó
+  en el diálogo. Si viene, Iris lo compara con el de la boleta y con el del comprobante en Argos
+  (lo relee con `GET /comprobantes/:id`) **antes** de aprobar. Si alguno no coincide: 409
+  `monto_cambio`, con `montoActual` en el problema, y no se llama a aprobar.
+- El `motivo` del rechazo queda en Argos y en la boleta. Lo que recibe el cliente está en «Aviso al
+  cliente».
 - **Quién.** Solo una persona con su sesión del panel: un token de API, una integración o el
   asistente de IA reciben 403 `solo_personas` (aunque tengan el permiso). Debe ver la conversación,
   en su empresa activa (si no, 404), y la conversación no puede ser de solo lectura (préstamo
   revocado: 422 `conversacion_solo_lectura`; esa boleta la resuelve caja en Argos). `boletas.aprobar`
-  y `boletas.rechazar` los tienen `admin`, `supervisor` y el rol base `caja`; son permisos sensibles
+  y `boletas.rechazar` los tienen solo `admin` y el rol base `caja` (`supervisor` no: un despliegue no
+  le da poder de caja a nadie; a quien lo necesite se le asigna el rol caja). Son permisos sensibles
   (MFA y re-autenticación en una sesión abierta por autologin). El permiso real lo decide Argos.
 - **La boleta** debe estar `registrada` con `comprobanteId`: si no, 422 `boleta_no_registrada`. Ya
   decidida: 409 `boleta_ya_decidida`, salvo que la misma persona repita la misma decisión, que
@@ -431,10 +442,14 @@ pagoId, motivoRechazo, causaRechazo, verificadoPorNombre, decididaPor?, decidida
 - **Idempotencia.** Las dos rutas aceptan `Idempotency-Key`, pero la respuesta no se guarda con ella:
   la clave hacia Argos sale del comprobante, así que repetir es seguro también después de un error
   (después de vincular, «Reintentar» con la misma clave vuelve a preguntar a Argos).
+- **Auditoría del intento.** Antes de llamar a Argos queda una fila `boletas.aprobar` /
+  `boletas.rechazar` con la boleta, el comprobante y el actor (`fase: intento`); el guardado deja otra
+  (`fase: resultado`). La nota no se guarda; el motivo sí.
 - **Con el 200 de Argos** (el `Comprobante` completo) la boleta se resuelve en una transacción:
-  estado, `pagoId`, `verificadoPorNombre`, `decididaPor`, auditoría (`boletas.aprobar` /
-  `boletas.rechazar`; la nota no se guarda, el motivo sí), mensaje de sistema, aviso al cliente y
-  evento `boleta.aprobada` / `boleta.rechazada`.
+  estado, `pagoId`, `verificadoPorNombre`, `decididaPor` (la persona de la sesión), mensaje de
+  sistema, aviso al cliente y evento `boleta.aprobada` / `boleta.rechazada`. Si ese guardado falla
+  (le quitaron el permiso, venció la re-autenticación o dejó de ver la conversación), la boleta
+  **igual** queda como dice Argos, a su nombre (lo guarda el sistema) y la persona recibe el error.
 
 **Errores** (problem+json en español; nunca el `detail` de Argos):
 
@@ -453,38 +468,75 @@ pagoId, motivoRechazo, causaRechazo, verificadoPorNombre, decididaPor?, decidida
 | 404 | 409 `comprobante_no_existe` | Revisar en Argos |
 | otro 422 | 422 `decision_no_permitida` | Revisar facturas, motivo o causa |
 | 401 u otro 403 (el token del conector) | 502 `argos_rechazo` | Avisar a un administrador |
-| sin respuesta, 429 o 5xx | 502 `argos_no_disponible` | «Reintentar» (nada quedó a medias; la misma clave sirve) |
+| sin respuesta, 429 o 5xx | 502 `argos_no_disponible` | «Puede haberse aplicado en Argos: vuelve a intentar para confirmarlo». Repetir es seguro (la clave sale del comprobante) y dice cómo quedó |
+| (`montoEsperado` no coincide) | 409 `monto_cambio` (con `montoActual`) | Mostrar el monto actual y pedir confirmar de nuevo |
 | (sin conector activo) | 503 `conector_apagado` | — |
 | (Argos informa contrato < 0.7.0) | 422 `argos_sin_aprobacion` | No mostrar los botones (`puedeDecidir = false`) |
 
-Si la relectura muestra que el comprobante lo decidió **esta misma persona** con el mismo resultado
-(se había perdido la respuesta), la acción responde 200 con la boleta.
+Si la relectura muestra que el comprobante lo decidió **esta misma persona** (según
+`verificado_iris_actor`) con el mismo resultado (se había perdido la respuesta), la acción responde
+200 con la boleta.
 
-**Una sola resolución, un solo aviso.** La boleta pasa de `registrada` a `aprobada` o `rechazada`
-una vez, por el camino que llegue primero, con la fila bloqueada:
+**Solo Argos cambia el estado.** La boleta queda como diga Argos de su comprobante, con la fila
+bloqueada, por tres caminos:
 
 1. la respuesta 200 de Argos a quien decidió en Iris (`origen: iris`, `actor_id` = esa persona);
 2. el webhook `comprobante.aprobado` / `comprobante.rechazado` de Argos (decidió caja en su panel, o
-   llegó antes que la respuesta): el worker emite `argos.comprobante_resuelto` y deja la resolución en
-   la boleta; el despacho del proceso de mensajería la aplica pasados 20 s (`origen: argos`,
-   `actor_id: null`). Esa gracia deja ganar a la respuesta de quien decidió. Si igual gana el webhook,
-   la respuesta solo completa `decididaPor` y `verificadoPorNombre`;
-3. la relectura de `GET /comprobantes/:id` (409 `comprobante_revisado` u `otra_persona_decidio`).
+   llegó antes que la respuesta). **Es solo un aviso:** debe traer `empresa_id` y solo marca la boleta
+   de ese comprobante en esa empresa (`confirmacionArgos: pendiente`). Pasados 20 s (la gracia deja
+   ganar a la respuesta de quien decidió), el despacho del proceso de mensajería relee
+   `GET /comprobantes/:id` y aplica lo que diga **Argos**, nunca el payload: estado, monto, motivo,
+   causa y quién decidió. Exige que el comprobante sea el de la boleta, de `canal = iris` y de la
+   misma empresa. Si Argos no lo confirma (no responde, sigue pendiente o no coincide), no se aplica
+   y se reintenta a 1 min, 5 min, 30 min, 2 h y 12 h; agotados, `confirmacionArgos: agotada`, mensaje
+   de sistema `boleta_sin_confirmar` y evento `boleta.confirmacion_agotada`. Otro webhook, o aprobar
+   o rechazar desde Iris, la vuelve a sincronizar;
+3. la relectura de `GET /comprobantes/:id` (409 `comprobante_revisado` u `otra_persona_decidio`), con
+   las mismas validaciones de comprobante y canal.
 
-Los otros caminos encuentran la boleta resuelta y no repiten ni el mensaje de sistema, ni el aviso,
-ni el evento.
+**Quién decidió** (`decididaPor`, `actor_id` de los eventos): en el camino 1, la persona de la
+sesión. En los caminos 2 y 3, el `verificado_iris_actor` del comprobante (contrato con Argos 0.7.1,
+opcional) cuando es `usuario:<id>` de una persona de esta instalación; si no viene (Argos 1.15.0) o
+es null (decidió caja), queda sin actor de Iris y solo se muestra `verificadoPorNombre`. El
+`iris_actor` del comprobante es quien **registró** la boleta: nunca se usa para esto.
+
+**Una resolución, un aviso.** La boleta pasa de `registrada` a `aprobada` o `rechazada` una vez: ahí
+salen el mensaje de sistema, el aviso al cliente y `boleta.aprobada` / `boleta.rechazada`. Si otro
+camino la encuentra resuelta con el mismo estado, solo completa quién decidió. Si Argos dice **otro**
+estado que el guardado, gana Argos: la boleta se corrige, con mensaje de sistema `boleta_corregida`
+y evento `boleta.corregida` (`de`, `a`), y **sin** otro aviso al cliente.
 
 **Aviso al cliente** (una vez, al resolver; contrato con Argos §6.3): `boleta_confirmada`,
-`boleta_rechazada` o `boleta_falta_dato` (causa `falta_dato`), con `monto`, `moneda` (GTQ) y `motivo`
-(el del rechazo). Con la ventana de 24 h abierta sale como texto en la conversación; cerrada, solo
-como plantilla si está aprobada en el número y el cliente tiene permiso de contacto. Nunca a una
-baja, ni por un número apagado o que la empresa ya no usa: entonces `avisoCliente = sin_aviso` (el
-mensaje de sistema queda igual y el agente puede escribirle). El mensaje sale sin autor
-(`automatico: "bot"`).
+`boleta_rechazada` o `boleta_falta_dato` (causa `falta_dato`), con `monto` (el del comprobante en
+Argos), `moneda` (GTQ) y `motivo`. Con la ventana de 24 h abierta sale como texto en la conversación;
+cerrada, solo como plantilla si está aprobada en el número y el cliente tiene permiso de contacto.
+Nunca a una baja, ni por un número apagado o que la empresa ya no usa: entonces
+`avisoCliente = sin_aviso` (el mensaje de sistema queda igual y el agente puede escribirle). El
+mensaje sale sin autor (`automatico: "bot"`) y nunca dice quién decidió.
 
-**Mensajes de sistema:** `boleta_aprobada` y `boleta_rechazada`, con `actorNombre` (quien decidió),
-`referencia`, `entidadId` (la boleta) y, al rechazar, `detalle` (el motivo). El panel vuelve a leer
-las boletas al recibirlos.
+En un rechazo, la variable `motivo` es un **texto fijo según la causa**, igual si rechazó una persona
+de Iris o caja en Argos:
+
+| Causa | Plantilla | Texto fijo (`motivo`) |
+| --- | --- | --- |
+| `no_aparece` | `boleta_rechazada` | «no encontramos el depósito. Revisa la referencia y la fecha, y envíala de nuevo» |
+| `monto_distinto` | `boleta_rechazada` | «el monto no coincide con el depósito. Envíanos la boleta con el monto correcto» |
+| `ilegible` | `boleta_rechazada` | «la foto no se lee bien. Envíanos una foto más clara» |
+| `duplicado` | `boleta_rechazada` | «esa boleta ya se había usado. Si hiciste otro pago, envíanos su boleta» |
+| `otro` (o sin causa) | `boleta_rechazada` | «no pudimos confirmarla con el banco. Escríbenos por aquí para revisarla» |
+| `falta_dato` | `boleta_falta_dato` | «revisa que se vean la referencia, el monto y la fecha» (la plantilla agrega «Envíala de nuevo, por favor.») |
+
+El motivo libre se agrega al final («. Detalle: …», todo en 200 caracteres) **solo si pasa el
+filtro**: no pasa si trae `://`, `www.`, un dominio (`algo.tld`) o 6 o más dígitos seguidos, con o
+sin separadores (espacios, guiones, puntos, barras). Si no pasa, el cliente recibe solo el texto
+fijo; el motivo completo igual queda en la boleta (`motivoRechazo`), va a Argos y se ve en el panel.
+Así el número oficial de la empresa no sirve para mandar enlaces, cuentas ni teléfonos.
+
+**Mensajes de sistema:** `boleta_aprobada` y `boleta_rechazada`, con `actorNombre` (la persona de
+Iris si decidió desde la conversación; si no, el usuario de Argos), `referencia`, `entidadId` (la
+boleta) y, al rechazar, `detalle` (el motivo completo: lo ve el equipo). Además `boleta_corregida`
+(`detalle`: «aprobada → rechazada») y `boleta_sin_confirmar`. El panel vuelve a leer las boletas al
+recibirlos.
 
 **Vínculo.** Iris no sabe si la persona tiene su usuario de Argos vinculado: lo descubre con el 409
 `argos_sin_vinculo`. El vínculo lo crea Argos cuando la persona abre el enlace de
@@ -492,8 +544,20 @@ las boletas al recibirlos.
 `integraciones.abrir_argos`): `{ destino?: { tipo: "cliente" | "servicio", idExterno } }` →
 `{ url, expiraEn }`, de un solo uso (60 s; se abre en otra pestaña). Sin `destino` es «Vincular mi
 usuario de Argos». 409 `conector_apagado` / `iris_apagado`, 422 `argos_sin_aprobacion`, 429
-`demasiados_intentos` (10 por minuto por persona), 502 `argos_no_disponible`, 403 `solo_personas`.
-La respuesta no se repite con la misma `Idempotency-Key` (409 `idempotencia_no_repetible`).
+`demasiados_intentos` (10 por minuto por persona, contado en Postgres), 502 `argos_no_disponible`,
+403 `solo_personas`. La respuesta no se repite con la misma `Idempotency-Key` (409
+`idempotencia_no_repetible`).
+
+- **Quién lo tiene:** `integraciones.abrir_argos` es de supervisor, despacho, soporte, ventas y caja
+  (no de `tecnico` ni de `lectura`).
+- **Sesión abierta por autologin desde Argos** (origen `sso`): exige re-autenticación reciente, como
+  los permisos sensibles (403 `reautenticacion_requerida`; `POST /api/v1/sesion/reautenticar`).
+- **El enlace** solo se entrega si es `http(s)://<host>/sso/entrar#<ticket>` y el host es el del panel
+  de Argos guardado en el canje (`panel_url`) o, si el conector no lo tiene, el de su API
+  (`base_url`). Nunca un host libre (502 `argos_rechazo`).
+- **Nota para Argos** (la pasa el líder): la pantalla de Argos que confirma el vínculo debe mostrar
+  claro **qué usuario de Iris** se está vinculando (nombre y correo del ticket), para que nadie
+  vincule su usuario de Argos con el de otra persona al abrir un enlace ajeno.
 
 ### 6.5 Promesa (contrato con Argos §7.4)
 
@@ -732,13 +796,14 @@ mensaje.
 `conversacion.vinculo_creado`, `conversacion.sla_vencido`, `conversacion.cliente_confirmado`,
 `contacto_iris.creado`, `contacto_iris.unido`, `contacto_iris.consentimiento`, `cola.creada` / `cola.actualizada`, `etiqueta.creada` / `.actualizada`,
 `respuesta_rapida.creada` / `.actualizada`, `boleta.registrada`, `boleta.registrada_en_argos`,
-`boleta.fallida`, `boleta.aprobada`, `boleta.rechazada` (§6.4.1), `promesa.solicitada`; PR B: `horario.creado` / `.actualizado`, `conversacion.fuera_de_horario`,
+`boleta.fallida`, `boleta.aprobada`, `boleta.rechazada`, `boleta.corregida`, `boleta.confirmacion_agotada`
+(§6.4.1), `promesa.solicitada`; PR B: `horario.creado` / `.actualizado`, `conversacion.fuera_de_horario`,
 `conversacion.guardia_avisada`, `manual.creado` / `.actualizado` / `.enviado` / `.enlace_revocado`.
 Números (§1.1): `canal_mensajeria.probado`.
 
-Consume `argos.comprobante_resuelto` (webhooks `comprobante.aprobado` / `.rechazado` de Argos): mueve
-la boleta en la conversación y avisa al cliente con `boleta_confirmada` / `boleta_rechazada` /
-`boleta_falta_dato` (§6.4.1).
+Consume `argos.comprobante_resuelto` (webhooks `comprobante.aprobado` / `.rechazado` de Argos): es el
+aviso para releer el comprobante en Argos, mover la boleta en la conversación y avisar al cliente con
+`boleta_confirmada` / `boleta_rechazada` / `boleta_falta_dato` (§6.4.1).
 
 **Pendiente (fase 1.1, decisión abierta):** consumir los webhooks de Argos `promesa.*` para mover la
 promesa en la conversación y explicarle al cliente; reconexión temporal (§7.3); verificación de
@@ -768,6 +833,7 @@ registrar pago» / «Rechazar» en la boleta y «Vincular mi usuario de Argos»;
 | `comprobante_revisado` / `otra_persona_decidio` | 409 | Ya lo resolvió caja u otra persona: la boleta local quedó sincronizada |
 | `comprobante_no_es_de_iris` / `comprobante_no_existe` / `iris_apagado` / `idempotencia_en_curso` | 409 | Argos no aplica la decisión (§6.4.1) |
 | `argos_sin_aprobacion` / `decision_no_permitida` | 422 | Argos informa contrato < 0.7.0, o no aceptó las facturas, el motivo o la causa |
+| `monto_cambio` | 409 | Aprobar con `montoEsperado` y el monto de la boleta o del comprobante en Argos ya es otro (`montoActual` en el problema) |
 | `argos_no_disponible` | 502 | Aprobar, rechazar o abrir Argos: Argos no respondió («Reintentar»). En las lecturas y promesas sigue siendo 503 |
 | `baja_del_cliente` | 422 | `acepta` sin `motivo` sobre una baja que pidió el propio cliente |
 | `cliente_cambiado` | 409 | La conversación cambió de cliente o perdió la verificación mientras Argos creaba la promesa (revisar en Argos) |
@@ -1906,3 +1972,291 @@ sugerencia, con cliente verificado o sin él.** El agente lo ve en la ficha del 
   sugerencia queda `vencida` (sin texto ni fuentes; sus tokens cuentan). Asociar otro cliente,
   desasociarlo, unir un contacto de Iris a un cliente o iniciar la conversación con otro cliente
   dejan `vencida` la sugerencia vigente en la misma transacción.
+
+## 17. Asistente autónomo y categorías (fase 3, aprobado por el PM)
+
+Lo implementa I1 en `apps/api/internal/mensajeria/asistente3*.go`. Lo usa el panel (I3): la pantalla
+«Administración / Asistente de IA» (tres preguntas y lo avanzado escondido), «Categorías», los
+filtros y la línea del asistente en la bandeja. Mismas reglas del inicio (sesión del panel, empresa
+activa, RFC 9457, `Idempotency-Key`, `version` con 409). Todo va bajo `/api/v1/mensajeria`.
+
+> **Entregas.** **3a** (esta): ajustes ampliados, categorías, clasificación, `categorizar`,
+> transferencia de cola, SLA por categoría, filtro/conteos/`actividadAsistente`, `probar-mensaje` y
+> `efecto`. **3b** (siguiente PR): el asistente **actúa solo** (§17.8). En 3a los perfiles y las
+> acciones **se guardan y se devuelven, pero el servidor todavía no envía ni ejecuta nada solo**: el
+> principio de §16 («el asistente nunca envía») sigue vigente hasta 3b, `autonomoDisponible` vale
+> `false` y `modoAutonomo` solo admite `nunca`. Las formas de 3b ya están aquí para que el panel no
+> espere; lo marcado **(3b)** aún no llega con datos.
+
+### 17.1 Ajustes ampliados (`mensajeria.asistente_configurar`)
+
+`GET /asistente/ajustes` suma a lo de §16.1:
+
+```json
+{ "autonomoDisponible": false, "modoAutonomo": "nunca", "esperaMin": 3, "maxTurnos": 8,
+  "perfiles": [
+    { "codigo": "defecto", "nombre": "General",
+      "acciones": { "responder_dudas": true, "avisar_fallas": true, "dar_saldo": true, "crear_ticket": true,
+                    "agendar_visita": true, "recibir_boleta": true, "promesa_pago": false,
+                    "reconexion_temporal": false, "pasar_a_persona": true },
+      "limites": { "prioridadMaxima": "alta", "diasAdelanteMax": 2 } } ],
+  "porCola": [ { "colaId": 4, "accionesApagadas": ["promesa_pago", "agendar_visita"] } ] }
+```
+
+- `autonomoDisponible` (solo lectura; también en `GET /asistente/estado`): `false` en 3a, `true`
+  desde 3b. Con `false` el panel muestra «Cuando no hay nadie» y «Siempre primero» como
+  «Próximamente», y guardar `modoAutonomo` ≠ `nunca` responde **422 `autonomo_no_disponible`**
+  (campo `modoAutonomo`). Los perfiles, las acciones y `porCola` sí se guardan, para dejarlos listos.
+- `modoAutonomo` (pregunta 1): `nunca` (por defecto: solo sugiere, como en la fase 2) | `sin_nadie`
+  (actúa fuera de horario, sin agentes disponibles en la cola, o si ningún agente responde en
+  `esperaMin`) | `siempre_primero` (responde al instante y pasa a una persona cuando hace falta).
+- `esperaMin` 1 … 60 (3): con agentes en línea, minutos que se espera a una persona en `sin_nadie`.
+  Sin agentes o fuera de horario actúa enseguida (con el retardo de ~20 s que junta mensajes seguidos).
+- `maxTurnos` 2 … 20 (8): turnos autónomos sin resolver antes de pasar a una persona.
+- `perfiles` (pregunta 2): 1 a 10. El primero es siempre `codigo: "defecto"` (no se quita; es lo que
+  edita la pantalla simple). `codigo`: `^[a-z][a-z0-9_]{1,29}$`, único (`solo_sugerir` está
+  reservado); `nombre` 1 … 40.
+  - `acciones`: las nueve claves, todas obligatorias. `pasar_a_persona` es siempre `true` (mandar
+    `false` es 422 `validacion`). Por defecto, las del ejemplo.
+  - `limites.prioridadMaxima`: `baja` | `media` | `alta` | `critica` (`alta`): la mayor prioridad de
+    un ticket que crea solo. `limites.diasAdelanteMax` 1 … 14 (2): hasta cuántos días adelante agenda.
+  - Un perfil se usa por franja con `horarios.franjas[].perfil = <codigo>` (§10.1) del horario de la
+    cola (o del número). `perfil: "solo_sugerir"` es un valor reservado: en esa franja no actúa solo.
+    Franja sin `perfil`, con un código que ya no existe o fuera de toda franja: `defecto`.
+- `porCola` (avanzado): hasta 50; `colaId` de una cola de la empresa, sin repetir;
+  `accionesApagadas[]` de las ocho acciones (nunca `pasar_a_persona`). Lo que el asistente puede hacer
+  en una conversación = acciones encendidas del perfil vigente − apagadas de su cola, y solo si la
+  categoría está en `responde_solo` y su `condicion` se cumple (§17.2).
+
+`POST /asistente/ajustes/actualizar` acepta además `modoAutonomo?`, `esperaMin?`, `maxTurnos?`,
+`perfiles?` y `porCola?`. **Los cinco son opcionales: ausente = se deja como está** (el panel de la
+fase 2 sigue funcionando). `perfiles` y `porCola`, si vienen, reemplazan la lista completa.
+`campos[]` de `asistente.ajustes_cambiados` los nombra (`modo_autonomo`, `espera_min`, `max_turnos`,
+`perfiles`, `por_cola`). Quitar un perfil no falla aunque una franja lo nombre (pasa a `defecto`).
+
+`GET /asistente/estado` suma `modoAutonomo` y `autonomoDisponible`.
+
+### 17.2 Categorías de mensajes (pregunta 3)
+
+Por empresa. Al guardar los ajustes del asistente por primera vez se **siembran** (el `GET` nunca
+escribe; una empresa que nunca guardó ajustes recibe `data: []`): «Planes y precios»
+(`info`, `responde_solo`), «Sin internet» (`error`, `responde_solo`, `si_hay_falla`), «Pagos y saldo»
+(`ok`, `responde_solo`, `solo_verificados`), «Cambio de plan» (`info`, `sugiere`), «Mudanza o
+traslado» (`aviso`, `sugiere`) y «Otro» (`neutro`, `sugiere`, `esOtro: true`). Sin cola ni SLA.
+
+```json
+{ "id": 3, "nombre": "Sin internet", "descripcion": "No navega, luz roja, lento, cortes",
+  "tono": "error", "colaId": 2, "slaPrimeraRespuestaMin": 10, "modo": "responde_solo",
+  "condicion": "si_hay_falla", "manualIds": [12], "esOtro": false, "activa": true, "orden": 2, "version": 4 }
+```
+
+- `nombre` 1 … 40, único por empresa sin distinguir mayúsculas (409 `categoria_duplicada`).
+  `descripcion` ≤ 300: ayuda al modelo a clasificar (es dato para el modelo, no instrucción).
+- `tono`: `info` | `error` | `ok` | `aviso` | `neutro` (el color de la ficha).
+- `colaId` (o `null`): cola activa de la empresa. `slaPrimeraRespuestaMin` (o `null`) 1 … 10080.
+- `modo`: `responde_solo` | `sugiere`. `condicion` (o `null`): `si_hay_falla` (solo responde solo si
+  Horus tiene una falla abierta en el servicio del cliente; si no, a la cola) | `solo_verificados`
+  (solo a clientes verificados, §16.10).
+- `manualIds[]` (hasta 10): manuales activos de la empresa que siempre entran al contexto de esa
+  categoría (además de los 3 de la búsqueda). Los «Del equipo» orientan y nunca se citan.
+- «Otro» (`esOtro`) no se desactiva (422 `categoria_otro`) y es a donde cae lo que no se pudo clasificar.
+
+| Método y ruta | Permiso | Qué hace |
+| --- | --- | --- |
+| `GET /asistente/categorias?incluirInactivas=` | `conversaciones.ver` | `{ data: [Categoria], nextCursor: null }` por `orden`. **Sin `mensajeria.asistente_configurar` solo la ficha:** `id`, `nombre`, `tono`, `activa` y `esOtro`; el resto va vacío (`descripcion: ""`, `colaId`, `slaPrimeraRespuestaMin` y `condicion` en `null`, `manualIds: []`, `orden` y `version` en 0) y `modo` **ausente** (por eso `modo` es opcional en el tipo) |
+| `POST /asistente/categorias` | `mensajeria.asistente_configurar` | Crea (201). Cuerpo: los campos editables. Hasta 30 activas (422 `demasiadas_categorias`). Evento `categoria.creada` |
+| `POST /asistente/categorias/{id}/actualizar` | ídem | Los campos editables + `version`. Evento `categoria.actualizada` (`campos[]`) |
+| `POST /asistente/categorias/{id}/desactivar` · `/activar` | ídem | `{ version }`. No se borran: las conversaciones ya clasificadas la conservan. Evento `categoria.actualizada` con `activa` |
+
+### 17.3 Clasificación
+
+- Con el asistente **activo** (aunque `modoAutonomo` sea `nunca` y el modo sea `boton`) y sin pausa
+  por tope, cada mensaje nuevo del cliente se clasifica (después de los ~20 s que juntan mensajes
+  seguidos). **Sin asistente no hay categoría.** Si en ese momento toca generar la sugerencia
+  automática (§16.2), la categoría sale de **la misma llamada** (el JSON del modelo suma
+  `"categoria"` y `"confianza"`); si no, es una llamada corta aparte (cuenta para el tope; como mucho
+  6 por conversación y hora). Las sugerencias pedidas con el botón también clasifican.
+- **Costo de clasificar** (decisión del PM: se acepta y queda documentado). La llamada aparte es
+  corta (hasta 5 mensajes del cliente y 256 tokens de salida) pero ocurre aunque el modo sea `boton`.
+  Límites: 6 por conversación y hora, **300 por empresa y hora** (`ClasificacionesPorHoraEmpresa`) y
+  **se deja de clasificar aparte cuando el uso del mes llega al 80 % del tope**; las sugerencias
+  siguen hasta el 100 %. Lo que no se clasifica queda sin categoría (o con la que tenía).
+- El modelo solo puede elegir el **nombre exacto** de una categoría activa. Otro nombre, confianza
+  menor a 0.5, **sin confianza o fuera de 0 a 1** → «Otro» (con `categoriaConfianza: null`). Los
+  mensajes del cliente son texto no confiable (§16); los nombres y descripciones de las categorías
+  van al modelo declarados como datos, no como instrucciones.
+- La conversación guarda `categoriaId`, `categoriaConfianza` (0 … 1) y `categoriaOrigen`
+  (`asistente` | `agente`).
+- **Corrección:** `POST /conversaciones/{id}/categorizar` `{ categoriaId, version }`
+  (`conversaciones.categorizar`) → `ConversacionClienteDetalle`. Categoría activa de la empresa (422
+  `categoria_inactiva`). Queda `categoriaOrigen: "agente"`, confianza `null`, y **el asistente no la
+  vuelve a cambiar** hasta que la conversación se resuelva y se reabra. `categoriaId: null` la quita.
+- **Efecto (al clasificar o corregir):**
+  - Si la categoría **cambió**, tiene cola activa y la conversación está **sin asignar** y en otra
+    cola (o sin cola), se transfiere: mensaje de sistema `transferida` y `conversacion.transferida`
+    con `origen: "asistente"` (o `"categoria"` si la corrigió un agente; `actor_id` = el agente).
+  - **El asistente transfiere con cuidado** (sin ping-pong de colas): solo con confianza ≥ 0.75; como
+    mucho **una vez por periodo abierto** de la conversación (hasta que se resuelva y se reabra);
+    nunca si la cola actual la puso una persona, el menú del bot o un préstamo de número (la
+    conversación guarda quién la puso en su cola: `inicial`, `asistente` u `otro`); y nunca mientras
+    el bot atiende (menú pendiente o ya contestó): ahí clasifica, pero no transfiere ni toca el menú
+    ni los temporizadores del bot. La categoría sí cambia en todos esos casos.
+  - **Un agente que corrige sin `conversaciones.transferir`** cambia la categoría, pero la
+    conversación no se mueve de cola.
+  - **Al pasar la conversación a otra empresa** (préstamo, §15.3) pierde la categoría, la confianza,
+    el origen y `actividadAsistente`: una categoría es de una sola empresa (la base lo impide).
+  - **El SLA de primera respuesta de la categoría gana sobre el de la cola** (`sla.venceEn` se
+    recalcula; el «por vencer» usa el 25 % del SLA de la categoría). Respeta el horario (§10.3).
+- Evento `conversacion.categorizada` y `conversacion_actualizada` por el feed (§9). No hay tipo
+  nuevo de SSE en 3a.
+
+### 17.4 Campos nuevos en la conversación, los mensajes y la lista
+
+`ConversacionCliente` (lista, detalle y feed) suma:
+
+```json
+{ "categoria": { "id": 3, "nombre": "Sin internet", "tono": "error" },   // ausente: sin categoría
+  "categoriaConfianza": 0.92,          // null si la puso un agente o no hay
+  "categoriaOrigen": "asistente",      // asistente | agente | null
+  "actividadAsistente": { "tipo": "sugirio", "texto": "Sugerencia lista para el agente", "en": "…" },  // ausente: nada
+  "asistente": { "estado": "atendiendo", "turnos": 2 } }                  // (3b) ausente en 3a
+```
+
+- `actividadAsistente`: lo último que hizo el asistente en la conversación, en una línea corta en
+  español ya armada (nunca texto del cliente ni montos). `tipo`: 3a `clasifico` («Clasificada como
+  «Sin internet»»), `sugirio` («Sugerencia lista para el agente»), `transfirio` («Pasó a la cola
+  Soporte»); **(3b)** `respondio_manual` («Respondió con el manual»), `respondio_falla` («Respondió:
+  falla en Zona 4»), `respondio`, `ticket_creado` («Creó el ticket TK-004812»), `visita_agendada`,
+  `boleta_enviada` («Boleta enviada a Argos»), `saldo_informado`, `promesa_pedida`,
+  `reconexion_pedida`, `espera_persona` («Espera a una persona»).
+- `asistente` **(3b)**: `estado` `atendiendo` | `espera_persona` | `detenido` (una persona tomó o
+  escribió) y `turnos`.
+- `MensajeConversacion` suma `autorTipo`: `cliente` (entrante) | `persona` | `asistente_ia` |
+  `sistema` (mensajes de sistema, bot, fuera de horario). **(3b)** los mensajes del asistente llevan
+  `autorTipo: "asistente_ia"`, `automatico: "asistente"` y `autor` ausente; `UltimoMensajeResumen`
+  repite `automatico`.
+- `GET /conversaciones` acepta `categoriaId` (`0` o ausente = todas).
+- `GET /conversaciones/contadores` suma `porCategoria: [{ id, total }]` (activas que ves; las sin
+  categoría no cuentan).
+
+### 17.5 «Pruébalo antes de guardar»
+
+`POST /asistente/probar-mensaje` (`mensajeria.asistente_configurar`):
+
+```json
+{ "texto": "¿Cuánto cuesta el plan de 100 megas?",
+  "ajustes": { "modoAutonomo": "sin_nadie", "perfil": { "acciones": { … }, "limites": { … } },
+               "categorias": [ { "id": 1, "nombre": "Planes y precios", "descripcion": "…", "tono": "info",
+                                 "modo": "responde_solo", "condicion": null, "manualIds": [12] } ] } }
+```
+
+→ 200
+
+```json
+{ "categoria": { "id": 1, "nombre": "Planes y precios", "tono": "info" }, "confianza": 0.94,
+  "haria": "responde_solo",            // responde_solo | sugiere | pasa_a_persona
+  "motivo": null,                      // modo_nunca | categoria_sugiere | sin_falla | sin_verificar | pide_persona | enojo | sin_respuesta | null
+  "respuesta": "¡Hola! Soy el asistente virtual de Red Sur. El plan de 100 Mb cuesta Q 299 al mes…",  // null si pasa a persona
+  "fuentes": [ { "tipo": "manual", "etiqueta": "Manual «Planes FTTH y WISP»", "entidadId": "12" } ],
+  "acciones": [ { "tipo": "agendar_visita", "descripcion": "Propondría hasta 3 espacios para agendar la visita" } ] }
+```
+
+- `texto` 1 … 1000. `ajustes` y cada parte suya son opcionales: lo que falta sale de lo guardado
+  (`perfil` = el `defecto`). Aquí `modoAutonomo` admite los tres valores aunque `autonomoDisponible`
+  sea `false` (es una simulación). `categorias` del formulario pueden venir sin `id` (aún no
+  guardadas; entonces `categoria.id` es `null`). Un `id` que no es de una categoría de la empresa se
+  trata igual: sale como `null` en la respuesta y en el evento.
+- **No ejecuta nada**: no toca conversaciones, no escribe en Argos, no crea tickets ni órdenes. No
+  hay cliente: no lee Argos ni Horus (por eso `si_hay_falla` y `solo_verificados` dan
+  `pasa_a_persona` con `sin_falla` / `sin_verificar`). Contexto: los manuales de la categoría y los
+  3 de la búsqueda. `acciones[]` solo **describe** lo que haría, y solo acciones encendidas en el
+  perfil dado. La respuesta pasa la validación de §16.3 (sin enlaces, sin montos de deuda, sin copiar
+  manuales del equipo); si no pasa: 502 `respuesta_invalida`.
+- `haria` lo decide el servidor: `modoAutonomo: nunca` → `sugiere` (`modo_nunca`); categoría en
+  `sugiere` → `sugiere` (`categoria_sugiere`); condición sin cumplir, o el modelo indica que el
+  cliente pide una persona, está enojado o no hay con qué responder → `pasa_a_persona`.
+- Usa el proveedor **guardado** (no hace falta que el asistente esté activo): 422 `sin_configurar`.
+  **Cuenta para el tope** (reserva, 422 `tope_alcanzado`) y para los 10 pedidos por minuto (429
+  `demasiados_pedidos`). 502 como el resumen (§16.4). Audita sin el texto; la respuesta no se guarda
+  en la tabla de idempotencia.
+
+### 17.6 Efecto
+
+`GET /asistente/efecto?mes=YYYY-MM` (`mensajeria.asistente_configurar`; por defecto el mes actual):
+
+```json
+{ "mes": "2026-11", "primeraRespuestaPromedioSeg": 100, "primeraRespuestaPromedioAntesSeg": 840,
+  "resueltasSinPersona": 41, "totalAtendidas": 100,
+  "porCategoria": [ { "categoriaId": 3, "nombre": "Sin internet", "tono": "error", "total": 40,
+                      "resueltasSinPersona": 22, "primeraRespuestaPromedioSeg": 80 } ] }
+```
+
+- Universo: conversaciones de la empresa **creadas en el mes** (hora de Guatemala) que el asistente
+  clasificó (`totalAtendidas`).
+- `primeraRespuestaPromedioSeg`: promedio de segundos entre el primer mensaje del cliente y la
+  primera respuesta (de una persona o del asistente; no cuentan el bot ni fuera de horario). `null`
+  sin datos.
+- `primeraRespuestaPromedioAntesSeg`: el mismo promedio en los 30 días anteriores a la primera vez
+  que la empresa activó el asistente (`null` si nunca lo activó o no hay conversaciones de antes).
+- `resueltasSinPersona`: resueltas sin que una persona la tomara ni escribiera (en 3a siempre 0).
+
+### 17.7 Permisos, errores y eventos
+
+- `conversaciones.categorizar` (nuevo): `despacho`, `soporte`, `ventas`, `supervisor`, `admin`.
+- `mensajeria.asistente_configurar`: categorías (escritura), `probar-mensaje` y `efecto`.
+- **(3b)** rol interno `asistente_ia` (no asignable a personas) con `conversaciones.responder`,
+  `tickets.crear`, `ordenes.crear`, `ordenes.programar`, `conversaciones.registrar_boleta` y
+  `conversaciones.registrar_promesa`; cada herramienta además exige su acción encendida.
+
+| Código | Status | Cuándo |
+| --- | --- | --- |
+| `autonomo_no_disponible` | 422 | 3a: guardar `modoAutonomo` ≠ `nunca` (campo `modoAutonomo`) |
+| `categoria_duplicada` | 409 | Ya hay una categoría con ese nombre |
+| `categoria_otro` | 422 | Desactivar «Otro» |
+| `categoria_inactiva` | 422 | Categorizar con una categoría inactiva o de otra empresa |
+| `demasiadas_categorias` | 422 | Más de 30 activas |
+| `respuesta_invalida` | 502 | `probar-mensaje`: la respuesta del modelo no pasó la validación |
+
+Eventos (outbox; nunca el texto): `conversacion.categorizada` (conversacion_id, empresa_id,
+categoria_id (o null), anterior_id (o null), origen `asistente|agente`, confianza (o null), actor_id
+(o null)), `categoria.creada` / `categoria.actualizada` (categoria_id, empresa_id; nombre (creada);
+campos[], activa (actualizada)), `asistente.mensaje_probado` (empresa_id, haria, categoria_id (o
+null), tokens_entrada, tokens_salida). `conversacion.transferida` suma `origen` (`asistente`,
+`categoria`; ausente = una persona). **(3b)** `asistente.accion_ejecutada` (conversacion_id,
+empresa_id, accion, resultado `ok|rechazada|fallo`, entidad, entidad_id, turno) y
+`asistente.paso_a_persona` (conversacion_id, empresa_id, motivo `cliente_lo_pidio|enojo|sin_respuesta|
+herramienta_fallo|max_turnos|persona_presente|tope`, cola_id, turnos).
+
+### 17.8 Cómo actúa solo (3b; diseño cerrado, sin implementar en 3a)
+
+- **Bucle de herramientas en el servidor.** El modelo solo puede pedir herramientas de una lista
+  cerrada, armada con las acciones encendidas (perfil − cola, categoría en `responde_solo` con su
+  condición cumplida): `buscar_manual`, `estado_del_servicio` (fallas de Horus), `consultar_saldo`,
+  `crear_ticket`, `proponer_visita` / `agendar_visita`, `registrar_boleta`, `simular_promesa` /
+  `pedir_promesa`, `pedir_reconexion`, `pasar_a_persona`. Cada una es un caso de uso existente con
+  actor `asistente_ia`, canal `ia`, permisos propios, auditoría y eventos. El servidor valida cada
+  llamada (argumentos, cliente y empresa de la conversación, límites, verificación); el modelo nunca
+  decide permisos. Proveedores compatibles con OpenAI: `tools`; Anthropic: tool use (`tool_choice`
+  auto, herramientas `strict`); modelos sin herramientas: JSON validado, un paso por turno.
+- **Texto no confiable:** una instrucción dentro de un mensaje nunca enciende una acción.
+- **Saldo:** en modo autónomo y con cliente verificado sí dice el monto (lo pide el propio cliente);
+  el monto vive solo en el mensaje enviado: redactado en logs, auditoría y eventos.
+- **Presentación:** el primer mensaje autónomo dice que es el asistente virtual de la empresa; si le
+  preguntan si es una persona, dice la verdad.
+- **Envío:** ventana de 24 h, consentimiento y BAJA, reglas contra spam, ningún enlace que no venga
+  de un manual, ningún precio o plazo que no esté en un manual o en Argos.
+- **Idempotencia:** clave por conversación y mensaje; un job duplicado no envía dos veces ni crea
+  dos tickets.
+- **Persona presente:** si un agente toma la conversación o escribe, el asistente se detiene ahí
+  hasta que se resuelva o se reabra sin asignar.
+- **Pasar a persona** (siempre activo): el cliente lo pide, muestra enojo, no hay con qué responder,
+  falla una herramienta o se llega a `maxTurnos`. Queda en la cola de su categoría con una nota
+  interna que resume lo hecho.
+- **Tope:** el de §16.2.1 con reserva; al 100 % deja de actuar y las conversaciones siguen a la cola.
+- **Convivencia con el bot (§14.6) y fuera de horario (§10.2):** si la empresa tiene el asistente
+  activo, `modoAutonomo` ≠ `nunca`, sin pausa por tope, y la categoría de la conversación está en
+  `responde_solo`, **el bot no responde en esa conversación** (ni saludo, ni menú, ni la respuesta de
+  fuera de horario); la guardia sigue igual. En cualquier otro caso (asistente inactivo, `nunca`, en
+  pausa, categoría en `sugiere`) el bot funciona como hoy: las instalaciones con bot y sin asistente
+  no cambian. `bot.atiende: "agente_autonomo"` sigue en 422 `no_disponible_aun` (el modo se elige en
+  los ajustes del asistente, no por número).
