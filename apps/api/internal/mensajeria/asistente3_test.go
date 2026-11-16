@@ -339,6 +339,11 @@ func TestAsistente3ClasificaAparteTopeEInactivo(t *testing.T) {
 
 func TestAsistente3ProbarMensajeNoEjecutaNada(t *testing.T) {
 	x := nuevaBandejaIA(t)
+	// Los eventos que salgan desde aquí son de esta prueba (uuid v7: ordenan por tiempo).
+	var marcaOutbox string
+	if err := x.bd.QueryRow(x.ctx, `SELECT coalesce((SELECT id::text FROM integracion.outbox ORDER BY id DESC LIMIT 1), '00000000-0000-0000-0000-000000000000')`).Scan(&marcaOutbox); err != nil {
+		t.Fatal(err)
+	}
 	m := x.api(x.supervisor, http.MethodPost, "/manuales", map[string]any{"titulo": "Planes FTTH y WISP",
 		"cuerpo": "El plan de 100 megas cuesta Q 299 al mes, con instalación gratis.", "visibilidad": "cliente"})
 	x.exigir(m, http.StatusCreated)
@@ -468,8 +473,17 @@ func TestAsistente3ProbarMensajeNoEjecutaNada(t *testing.T) {
 	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'mensajeria.asistente_probar_mensaje' AND (entrada::text ILIKE '%100 megas%' OR resultado::text ILIKE '%Q 299%')`); n != 0 {
 		t.Fatal("la auditoría lleva el texto")
 	}
-	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'asistente.mensaje_probado' AND payload::text ILIKE '%299%'`); n != 0 {
+	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'asistente.mensaje_probado' AND payload::text ~* '(Q ?299|299 al mes|100 megas)'`); n != 0 {
 		t.Fatal("el evento lleva el texto")
+	}
+	// Y el monto suelto, en los eventos de esta prueba: «299» en cualquier campo que no sea un id ni
+	// un contador (esos sí pueden valer 299 por azar).
+	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE id > $1::uuid AND evento = 'asistente.mensaje_probado'
+		AND (payload - 'categoria_id' - 'empresa_id' - 'tokens_entrada' - 'tokens_salida')::text LIKE '%299%'`, marcaOutbox); n != 0 {
+		t.Fatal("el evento lleva el monto")
+	}
+	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE id > $1::uuid AND evento = 'asistente.mensaje_probado'`, marcaOutbox); n == 0 {
+		t.Fatal("la prueba no encontró sus eventos asistente.mensaje_probado")
 	}
 	// Permiso y límite de 10 por minuto.
 	x.exigir(x.api(x.agente, http.MethodPost, "/asistente/probar-mensaje", map[string]any{"texto": "hola"}), http.StatusForbidden)

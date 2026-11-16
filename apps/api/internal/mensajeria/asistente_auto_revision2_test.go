@@ -78,7 +78,8 @@ func TestAutonomoRevision2DocumentoNoSeGuarda(t *testing.T) {
 		return x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND texto LIKE '%' || $2 || '%'`, conv, dato)
 	}
 	crudo := func(dato string) int {
-		return x.contar(`SELECT count(*) FROM mensajeria.entrantes WHERE payload::text LIKE '%' || $1 || '%'`, dato)
+		// Solo los entrantes del número de esta prueba: la tabla la comparte todo el paquete.
+		return x.contar(`SELECT count(*) FROM mensajeria.entrantes WHERE canal_id = $2 AND payload::text LIKE '%' || $1 || '%'`, dato, x.canal.ID)
 	}
 	// La herramienta no llega a correr: el modelo solo responde. El documento se tapa igual.
 	conv, _ := x.conClienteArgos()
