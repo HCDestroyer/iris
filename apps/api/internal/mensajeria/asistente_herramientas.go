@@ -152,6 +152,8 @@ type resHerramienta struct {
 	persona bool
 	// paso: el modelo pidió pasar a una persona (motivo) con su resumen.
 	paso, resumen string
+	// sinAnotar: un reintento de algo que ya quedó anotado (no se anota ni se cuenta otra vez).
+	sinAnotar bool
 }
 
 func rechazo(detalle string) resHerramienta {
@@ -255,6 +257,10 @@ func (m *Modulo) ejecutarHerramienta(ctx context.Context, t *turnoIA, l LlamadaI
 		return res
 	}
 	if res.persona {
+		return res
+	}
+	if res.sinAnotar {
+		t.hechas[hecha.Accion] = true
 		return res
 	}
 	hecha.Resultado = "ok"

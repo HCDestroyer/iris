@@ -275,3 +275,10 @@ ORDER BY v.created_at DESC LIMIT 1;
 
 -- name: FijarVisitasAsistente :exec
 UPDATE mensajeria.asistente_ajustes SET visitas = @visitas, updated_at = now() WHERE id = @id;
+
+-- name: AccionYaAnotada :one
+-- El asistente ya anotó esa acción (con éxito) sobre esa entidad en la conversación: un reintento no
+-- la anota ni la cuenta otra vez.
+SELECT EXISTS (SELECT 1 FROM mensajeria.asistente_acciones
+    WHERE conversacion_id = @conversacion_id AND accion = @accion AND resultado = 'ok' AND entidad_id = @entidad_id::text)::boolean;
+

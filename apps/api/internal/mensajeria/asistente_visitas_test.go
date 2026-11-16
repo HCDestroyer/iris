@@ -627,7 +627,10 @@ func TestVisitasReintentoYVersion(t *testing.T) {
 	if err := v.bd.QueryRow(v.ctx, `SELECT id::text FROM mensajeria.asistente_turnos WHERE conversacion_id = $1 ORDER BY numero DESC LIMIT 1`, conv).Scan(&turno); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := v.bd.Exec(v.ctx, `DELETE FROM mensajeria.asistente_acciones WHERE turno_id = $1::uuid`, turno); err != nil {
+	// Lo que el turno ya anotó (agendar_visita ok) se conserva, colgado del turno anterior, para que el
+	// turno vuelva a correr la herramienta: el reintento no debe anotar ni contar la visita otra vez.
+	if _, err := v.bd.Exec(v.ctx, `UPDATE mensajeria.asistente_acciones SET paso = paso + 100,
+		turno_id = (SELECT id FROM mensajeria.asistente_turnos WHERE conversacion_id = $2 ORDER BY numero LIMIT 1) WHERE turno_id = $1::uuid`, turno, conv); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := v.bd.Exec(v.ctx, `UPDATE mensajeria.asistente_turnos SET estado = 'en_curso', terminado_en = NULL, motivo = NULL, tomado_en = tomado_en - interval '1 day' WHERE id = $1::uuid`, turno); err != nil {
@@ -645,9 +648,20 @@ func TestVisitasReintentoYVersion(t *testing.T) {
 	v.guion(llama("agendar_visita", `{"opcion": "V1"}`), dice("Tu visita es el viernes 6 de noviembre, entre las 08:00 y las 12:00."))
 	v.correr(conv)
 	a := v.acciones(conv)
-	if len(v.ordenes(cliente)) != 1 || programadas() != antes || len(a) < 2 || a[len(a)-2] != "agendar_visita:ok" || len(v.delAsistente(conv)) != mensajes {
+	if len(v.ordenes(cliente)) != 1 || programadas() != antes || len(v.delAsistente(conv)) != mensajes {
 		t.Fatalf("el reintento debía devolver éxito sin repetir nada: %d órdenes, %d programaciones de más, %d mensajes de más, %v",
 			len(v.ordenes(cliente)), programadas()-antes, len(v.delAsistente(conv))-mensajes, a)
+	}
+	// Una sola anotación de la visita: el reintento no cuenta doble para visitasPorDia.
+	if n := v.contar(`SELECT count(*) FROM mensajeria.asistente_acciones WHERE conversacion_id = $1 AND accion = 'agendar_visita' AND resultado = 'ok'`, conv); n != 1 {
+		t.Fatalf("agendar_visita ok anotada %d veces (%v)", n, a)
+	}
+	if n := v.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'asistente.accion_ejecutada' AND payload->>'conversacion_id' = $1 AND payload->>'accion' = 'agendar_visita' AND payload->>'resultado' = 'ok'`, conv); n != 1 {
+		t.Fatalf("asistente.accion_ejecutada de agendar_visita: %d", n)
+	}
+	// El turno sí terminó respondiendo (el reintento fue un éxito).
+	if n := v.contar(`SELECT count(*) FROM mensajeria.asistente_turnos WHERE id = $1::uuid AND estado = 'respondio'`, turno); n != 1 {
+		t.Fatal("el turno reintentado no terminó respondiendo")
 	}
 	if n := v.contar(`SELECT count(*) FROM agenda.citas WHERE orden_id = $1`, os[0].id); n != 1 {
 		t.Fatalf("citas de la orden: %d", n)
