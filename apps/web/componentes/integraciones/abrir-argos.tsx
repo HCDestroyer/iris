@@ -3,24 +3,32 @@
 import { Boton, Cargando, cn, Tarjeta, TarjetaContenido, TarjetaDescripcion, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { CircleAlert, CircleCheck, ExternalLink, Link2 } from "lucide-react";
 import { useState } from "react";
-import { BotonVerEn } from "@/componentes/enlaces-externos";
+import { BotonVerEn, useEnlacesExternos } from "@/componentes/enlaces-externos";
 import { PERMISO_ABRIR_ARGOS } from "@/lib/asistente/permisos";
 import type { EnlaceVer } from "@/lib/enlaces";
-import { abrirEnArgos, explicarErrorAbrir, type DestinoArgos } from "@/lib/integraciones/abrir-argos";
+import { abrirEnArgos, explicarNoAbrio, origenDe, type DestinoArgos } from "@/lib/integraciones/abrir-argos";
 import { useSesion } from "@/lib/sesion";
 
 type Estado = { tipo: "nada" } | { tipo: "abriendo" } | { tipo: "abierto" } | { tipo: "error"; texto: string; reintentar: boolean };
 
-/** Pide el enlace de un solo uso y lo abre en otra pestaña; lleva el estado para decirlo en pantalla. */
-export function useAbrirArgos(destino?: DestinoArgos) {
+/**
+ * Pide el enlace de un solo uso y lo abre en otra pestaña; lleva el estado para decirlo en
+ * pantalla. `origen` es el del panel de Argos del conector: el enlace solo se abre si es de ahí.
+ */
+export function useAbrirArgos(destino: DestinoArgos | undefined, origen: string | null) {
     const [estado, setEstado] = useState<Estado>({ tipo: "nada" });
     async function abrir(): Promise<boolean> {
         setEstado({ tipo: "abriendo" });
-        const r = await abrirEnArgos(destino);
-        setEstado(r.abierto ? { tipo: "abierto" } : { tipo: "error", ...explicarErrorAbrir(r.error) });
+        const r = await abrirEnArgos(destino, origen);
+        setEstado(r.abierto ? { tipo: "abierto" } : { tipo: "error", ...explicarNoAbrio(r) });
         return r.abierto;
     }
     return { estado, abrir };
+}
+
+/** Origen del panel de Argos del conector activo (`GET /integraciones/enlaces`), o `null` si no se sabe. */
+export function useOrigenArgos(): string | null {
+    return origenDe(useEnlacesExternos()?.argosisp?.urlPublica);
 }
 
 /**
@@ -30,7 +38,8 @@ export function useAbrirArgos(destino?: DestinoArgos) {
  */
 export function BotonAbrirArgos({ destino, respaldo }: { destino: DestinoArgos; respaldo: EnlaceVer }) {
     const { puede } = useSesion();
-    const { estado, abrir } = useAbrirArgos(destino);
+    // El respaldo ya es el panel de Argos del conector: el enlace del ticket debe ser de ese origen.
+    const { estado, abrir } = useAbrirArgos(destino, origenDe(respaldo.href));
     if (!puede([PERMISO_ABRIR_ARGOS])) return <BotonVerEn enlace={respaldo} />;
     return (
         <div className="flex min-w-0 flex-wrap items-center justify-end gap-2" data-slot="abrir-argos">
@@ -60,7 +69,7 @@ export function BotonAbrirArgos({ destino, respaldo }: { destino: DestinoArgos; 
  * vínculo ya existe: por eso el botón está siempre.
  */
 export function BotonVincularArgos({ alAbrir, className, tamano = "sm" }: { alAbrir?: () => void; className?: string; tamano?: "sm" | "md" }) {
-    const { estado, abrir } = useAbrirArgos();
+    const { estado, abrir } = useAbrirArgos(undefined, useOrigenArgos());
     return (
         <div className={cn("grid min-w-0 gap-1.5", className)} data-slot="vincular-argos">
             <div>

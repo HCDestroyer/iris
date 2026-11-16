@@ -78,10 +78,19 @@ export type AccionBoleta = "aprobar" | "rechazar";
  * Qué hacer con un error de aprobar o rechazar:
  * - `vincular`: falta el vínculo con Argos; se ofrece «Vincular mi usuario de Argos» y luego reintentar con la misma clave;
  * - `releer`: ya la decidió otra persona (o caja): la boleta local quedó sincronizada, se vuelve a leer;
- * - `reintentar`: Argos no respondió o no hay red;
+ * - `reintentar`: Argos no respondió o no hay red: no se sabe cómo quedó, se reintenta para confirmarlo;
+ * - `confirmar`: la boleta cambió (el monto): se muestra como está ahora y se pide confirmar de nuevo;
  * - `explicar`: no se arregla reintentando.
+ *
+ * Además, **todo 409** hace que el panel relea la boleta antes de mostrar nada (`debeReleer`).
  */
-export type ErrorBoleta = { tipo: "vincular" | "releer" | "reintentar" | "explicar"; titulo: string; texto: string };
+export type ErrorBoleta = { tipo: "vincular" | "releer" | "reintentar" | "confirmar" | "explicar"; titulo: string; texto: string };
+
+/** Un 409 dice que la boleta (o quién puede decidirla) no está como el panel creía: se relee. */
+export const debeReleer = (e: { estado: number }): boolean => e.estado === 409;
+
+/** Lo que se dice cuando no se sabe si Argos llegó a registrar la decisión. */
+export const TEXTO_SIN_CONFIRMAR = "No sabemos si Argos la registró. Vuelve a intentar para confirmarlo.";
 
 type ErrorConCodigo = { estado: number; codigo: string; titulo: string; detalle: string | undefined };
 
@@ -119,10 +128,14 @@ export function explicarErrorBoleta(e: ErrorConCodigo, accion: AccionBoleta): Er
             return { tipo: "explicar", titulo: noSePudo, texto: "Argos no reconoce este comprobante como una boleta de Iris. Revísalo en Argos." };
         case "argos_no_disponible":
         case "idempotencia_en_curso":
-            return { tipo: "reintentar", titulo: "Argos no respondió", texto: "No quedó nada a medias. Vuelve a intentarlo." };
+            // Un corte a media llamada no dice si Argos registró el pago: repetir es seguro (la
+            // idempotencia la da el comprobante) y es la única forma de saberlo.
+            return { tipo: "reintentar", titulo: "Argos no respondió", texto: TEXTO_SIN_CONFIRMAR };
+        case "monto_cambio":
+            return { tipo: "confirmar", titulo: "El monto de la boleta cambió", texto: "Revisa el monto de arriba, que ya es el actual, y confírmalo otra vez." };
         case "sin_conexion":
         case "api_no_disponible":
-            return { tipo: "reintentar", titulo: noSePudo, texto: "No hay conexión con Iris. Revisa tu red e inténtalo de nuevo." };
+            return { tipo: "reintentar", titulo: noSePudo, texto: `No hay conexión con Iris. ${TEXTO_SIN_CONFIRMAR}` };
         default:
             return { tipo: e.estado >= 500 || e.estado === 0 ? "reintentar" : "explicar", titulo: noSePudo, texto: e.detalle ?? e.titulo };
     }

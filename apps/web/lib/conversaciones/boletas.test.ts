@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ErrorApi } from "../api/errores";
-import { explicarErrorAbrir, urlArgosSegura } from "../integraciones/abrir-argos";
-import { esquemaAprobar, esquemaRechazar, estadoBoleta, explicarErrorBoleta, montoLegible, quienDecidio } from "./boletas";
+import { abrirEnArgos, explicarErrorAbrir, explicarNoAbrio, origenDe, urlArgosSegura } from "../integraciones/abrir-argos";
+import { debeReleer, esquemaAprobar, esquemaRechazar, estadoBoleta, explicarErrorBoleta, montoLegible, quienDecidio, TEXTO_SIN_CONFIRMAR } from "./boletas";
 
 const error = (codigo: string, estado: number, detalle?: string) => ({ estado, codigo, titulo: "Título", detalle });
 
@@ -26,11 +26,22 @@ describe("boletas: aprobar y rechazar (B3)", () => {
         }
     });
 
-    it("Argos no respondió o no hay red: «Reintentar»", () => {
-        expect(explicarErrorBoleta(error("argos_no_disponible", 502), "aprobar")).toMatchObject({ tipo: "reintentar", titulo: "Argos no respondió" });
-        expect(explicarErrorBoleta(error("idempotencia_en_curso", 409), "aprobar").tipo).toBe("reintentar");
+    it("Argos no respondió o no hay red: no se afirma que no quedó nada; «Reintentar» para confirmarlo", () => {
+        expect(TEXTO_SIN_CONFIRMAR).toBe("No sabemos si Argos la registró. Vuelve a intentar para confirmarlo.");
+        expect(explicarErrorBoleta(error("argos_no_disponible", 502), "aprobar")).toEqual({ tipo: "reintentar", titulo: "Argos no respondió", texto: TEXTO_SIN_CONFIRMAR });
+        expect(explicarErrorBoleta(error("idempotencia_en_curso", 409), "aprobar")).toMatchObject({ tipo: "reintentar", texto: TEXTO_SIN_CONFIRMAR });
+        expect(explicarErrorBoleta(error("sin_conexion", 0), "aprobar").texto).toContain(TEXTO_SIN_CONFIRMAR);
         expect(explicarErrorBoleta(error("sin_conexion", 0), "rechazar")).toMatchObject({ tipo: "reintentar", titulo: "No se pudo rechazar la boleta" });
         expect(explicarErrorBoleta(error("algo_nuevo", 500), "aprobar").tipo).toBe("reintentar");
+    });
+
+    it("todo 409 relee la boleta, sea cual sea su código; lo demás no", () => {
+        for (const estado of [409]) expect(debeReleer({ estado })).toBe(true);
+        for (const estado of [0, 403, 404, 422, 500, 502]) expect(debeReleer({ estado })).toBe(false);
+    });
+
+    it("el monto cambió: se pide confirmar de nuevo, sin perder el diálogo", () => {
+        expect(explicarErrorBoleta(error("monto_cambio", 409), "aprobar")).toMatchObject({ tipo: "confirmar", titulo: "El monto de la boleta cambió" });
     });
 
     it("Argos sin el contrato 0.7.0: pide actualizar, sin reintentar", () => {
@@ -66,14 +77,86 @@ describe("boletas: aprobar y rechazar (B3)", () => {
 });
 
 describe("abrir Argos con autologin", () => {
-    it("solo abre enlaces http(s) sin usuario ni contraseña", () => {
-        expect(urlArgosSegura("https://argos.isp.gt/sso/entrar#abc")).toBe("https://argos.isp.gt/sso/entrar#abc");
-        expect(urlArgosSegura("http://10.0.0.5:8080/sso/entrar#abc")).toBe("http://10.0.0.5:8080/sso/entrar#abc");
-        expect(urlArgosSegura("javascript:alert(1)")).toBeNull();
-        expect(urlArgosSegura("data:text/html,hola")).toBeNull();
-        expect(urlArgosSegura("https://ana:clave@argos.isp.gt/")).toBeNull();
-        expect(urlArgosSegura("/sso/entrar")).toBeNull();
-        expect(urlArgosSegura("")).toBeNull();
+    const ARGOS = "https://argos.isp.gt";
+
+    it("el enlace del ticket solo se abre por https y en el origen del panel de Argos del conector", () => {
+        expect(urlArgosSegura("https://argos.isp.gt/sso/entrar#abc", ARGOS)).toBe("https://argos.isp.gt/sso/entrar#abc");
+        // Otro sitio, aunque se parezca; otro puerto; otro subdominio.
+        expect(urlArgosSegura("https://argos.isp.gt.otro.sitio/sso/entrar#abc", ARGOS)).toBeNull();
+        expect(urlArgosSegura("https://argos.isp.gt:8443/sso/entrar#abc", ARGOS)).toBeNull();
+        expect(urlArgosSegura("https://otro.isp.gt/sso/entrar#abc", ARGOS)).toBeNull();
+        // http por la red nunca, ni con el origen esperado en http.
+        expect(urlArgosSegura("http://argos.isp.gt/sso/entrar#abc", ARGOS)).toBeNull();
+        expect(urlArgosSegura("http://argos.isp.gt/sso/entrar#abc", "http://argos.isp.gt")).toBeNull();
+        expect(urlArgosSegura("http://10.0.0.5:8080/sso/entrar#abc", "http://10.0.0.5:8080")).toBeNull();
+        // http solo en este equipo (desarrollo).
+        expect(urlArgosSegura("http://localhost:3000/sso/entrar#abc", "http://localhost:3000")).toBe("http://localhost:3000/sso/entrar#abc");
+        expect(urlArgosSegura("http://127.0.0.1:3000/sso/entrar#abc", "http://127.0.0.1:3000")).toBe("http://127.0.0.1:3000/sso/entrar#abc");
+        expect(urlArgosSegura("http://localhost.otro.sitio/sso/entrar", "http://localhost.otro.sitio")).toBeNull();
+        // Sin origen conocido no se abre nada.
+        expect(urlArgosSegura("https://argos.isp.gt/sso/entrar#abc", null)).toBeNull();
+        expect(urlArgosSegura("javascript:alert(1)", ARGOS)).toBeNull();
+        expect(urlArgosSegura("data:text/html,hola", ARGOS)).toBeNull();
+        expect(urlArgosSegura("https://ana:clave@argos.isp.gt/", ARGOS)).toBeNull();
+        expect(urlArgosSegura("/sso/entrar", ARGOS)).toBeNull();
+        expect(urlArgosSegura("", ARGOS)).toBeNull();
+    });
+
+    it("el origen esperado sale de la dirección del conector", () => {
+        expect(origenDe("https://argos.isp.gt/")).toBe(ARGOS);
+        expect(origenDe("https://argos.isp.gt/panel")).toBe(ARGOS);
+        expect(origenDe("javascript:alert(1)")).toBeNull();
+        expect(origenDe("https://ana:clave@argos.isp.gt/")).toBeNull();
+        expect(origenDe(undefined)).toBeNull();
+        expect(origenDe("")).toBeNull();
+    });
+
+    function ventana() {
+        const v = { opener: {} as unknown, destino: null as string | null, cerrada: false, location: { replace: (u: string) => void (v.destino = u) }, close: () => void (v.cerrada = true) };
+        return v;
+    }
+
+    it("abre la pestaña en el clic, sin opener, y la manda al enlace", async () => {
+        const v = ventana();
+        const r = await abrirEnArgos(undefined, ARGOS, { abrirVentana: () => v, pedir: async () => ({ url: `${ARGOS}/sso/entrar#t1` }) });
+        expect(r).toEqual({ abierto: true });
+        expect(v.opener).toBeNull();
+        expect(v.destino).toBe(`${ARGOS}/sso/entrar#t1`);
+        expect(v.cerrada).toBe(false);
+    });
+
+    it("con las ventanas emergentes bloqueadas no pide el ticket", async () => {
+        let pedidos = 0;
+        const r = await abrirEnArgos(undefined, ARGOS, { abrirVentana: () => null, pedir: async () => ((pedidos += 1), { url: `${ARGOS}/sso/entrar#t1` }) });
+        expect(r).toEqual({ abierto: false, motivo: "emergentes_bloqueadas" });
+        expect(pedidos).toBe(0);
+        expect(explicarNoAbrio({ abierto: false, motivo: "emergentes_bloqueadas" })).toEqual({ texto: "Permite las ventanas emergentes para abrir Argos.", reintentar: true });
+    });
+
+    it("sin saber cuál es el panel de Argos no abre ni pide nada", async () => {
+        let abiertas = 0;
+        let pedidos = 0;
+        const r = await abrirEnArgos(undefined, null, { abrirVentana: () => ((abiertas += 1), ventana()), pedir: async () => ((pedidos += 1), { url: `${ARGOS}/x` }) });
+        expect(r).toEqual({ abierto: false, motivo: "origen_desconocido" });
+        expect([abiertas, pedidos]).toEqual([0, 0]);
+    });
+
+    it("un enlace de otro sitio no se abre: la pestaña se cierra y lo dice", async () => {
+        const v = ventana();
+        const r = await abrirEnArgos(undefined, ARGOS, { abrirVentana: () => v, pedir: async () => ({ url: "https://argos.isp.gt.otro.sitio/sso/entrar#t1" }) });
+        expect(r).toEqual({ abierto: false, motivo: "enlace_no_confiable" });
+        expect(v.destino).toBeNull();
+        expect(v.cerrada).toBe(true);
+        expect(explicarNoAbrio({ abierto: false, motivo: "enlace_no_confiable" }).reintentar).toBe(false);
+    });
+
+    it("si pedir el enlace falla, la pestaña se cierra y queda el error del servidor", async () => {
+        const v = ventana();
+        const fallo = new ErrorApi({ estado: 502, codigo: "argos_no_disponible", titulo: "Argos no respondió" });
+        const r = await abrirEnArgos({ tipo: "cliente", idExterno: "4101" }, ARGOS, { abrirVentana: () => v, pedir: () => Promise.reject(fallo) });
+        expect(r).toEqual({ abierto: false, error: fallo });
+        expect(v.cerrada).toBe(true);
+        expect(explicarNoAbrio({ abierto: false, error: fallo })).toEqual({ texto: "Argos no respondió. Vuelve a intentarlo.", reintentar: true });
     });
 
     it("explica por qué no abrió y si vale la pena reintentar", () => {

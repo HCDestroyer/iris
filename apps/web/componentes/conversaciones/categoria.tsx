@@ -4,7 +4,7 @@ import { avisar, Boton, Cargando, cn, MenuDesplegable, MenuDesplegableContenido,
 import { CircleCheck, Sparkles, Tag, UserCheck, X } from "lucide-react";
 import { useState } from "react";
 import { ChipCategoria } from "@/componentes/asistente/chip-categoria";
-import { mensajeDeError } from "@/lib/api/errores";
+import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { categorizarConversacion } from "@/lib/asistente/api-fase3";
 import { asistenteAtiende, COLOR_DE_TONO, tonoDe, type Categoria } from "@/lib/asistente/fase3";
 import { PERMISO_CATEGORIZAR } from "@/lib/asistente/permisos";
@@ -13,7 +13,7 @@ import { CLASE_ETIQUETA } from "@/lib/conversaciones/presentacion";
 import type { Contadores, Conversacion } from "@/lib/conversaciones/tipos";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useSesion } from "@/lib/sesion";
-import { useAtender } from "./atencion";
+import { TEXTO_CAMBIO, useAtender } from "./atencion";
 import { useCatalogos } from "./catalogos";
 
 /*
@@ -84,7 +84,16 @@ export function LineaCategoria({ conv }: { conv: Pick<Conversacion, "categoria" 
  * asistente está atendiendo solo, la franja con «Tomar» (la acción de tomar de siempre: al tomarla
  * una persona, el asistente se detiene).
  */
-export function BarraCategoria({ conv, alActualizar, bloqueada, asistenteActivo }: { conv: Conversacion; alActualizar: (c: Conversacion) => void; bloqueada: boolean; asistenteActivo: boolean }) {
+type PropsBarra = {
+    conv: Conversacion;
+    alActualizar: (c: Conversacion) => void;
+    /** Relee el detalle de la conversación (tras un 409 de `version`). */
+    recargar: () => Promise<void>;
+    bloqueada: boolean;
+    asistenteActivo: boolean;
+};
+
+export function BarraCategoria({ conv, alActualizar, recargar, bloqueada, asistenteActivo }: PropsBarra) {
     const { puede } = useSesion();
     const { categorias } = useCatalogos();
     const clave = useClaveIdempotencia();
@@ -107,7 +116,11 @@ export function BarraCategoria({ conv, alActualizar, bloqueada, asistenteActivo 
             avisar({ titulo: categoria ? `Categoría «${categoria.nombre}» puesta en ${conv.titulo}` : `${conv.titulo} quedó sin categoría` });
         } catch (e) {
             clave.trasError(e);
-            setError(mensajeDeError(e).titulo);
+            // Otra persona (o el asistente) la cambió: se relee y el siguiente intento lleva la versión nueva.
+            if (e instanceof ErrorApi && e.estado === 409) {
+                void recargar();
+                setError(TEXTO_CAMBIO);
+            } else setError(`No se pudo cambiar: ${mensajeDeError(e).titulo}`);
         } finally {
             setOcupado(false);
         }
@@ -144,19 +157,19 @@ export function BarraCategoria({ conv, alActualizar, bloqueada, asistenteActivo 
                     ) : null}
                     {error ? (
                         <span role="alert" className="min-w-0 text-xs font-medium text-error [overflow-wrap:anywhere]">
-                            No se pudo cambiar: {error}
+                            {error}
                         </span>
                     ) : null}
                 </div>
             ) : null}
-            {atiende ? <FranjaAsistente conv={conv} alHecho={alActualizar} puedeTomar={puede(["conversaciones.tomar"]) && !bloqueada && !conv.soloLectura} /> : null}
+            {atiende ? <FranjaAsistente conv={conv} alHecho={alActualizar} recargar={recargar} puedeTomar={puede(["conversaciones.tomar"]) && !bloqueada && !conv.soloLectura} /> : null}
         </div>
     );
 }
 
 /** «El asistente está atendiendo»: discreta, en teal, con «Tomar». */
-function FranjaAsistente({ conv, alHecho, puedeTomar }: { conv: Conversacion; alHecho: (c: Conversacion) => void; puedeTomar: boolean }) {
-    const { atender, atendiendo, error } = useAtender(conv, alHecho);
+function FranjaAsistente({ conv, alHecho, recargar, puedeTomar }: { conv: Conversacion; alHecho: (c: Conversacion) => void; recargar: () => Promise<void>; puedeTomar: boolean }) {
+    const { atender, atendiendo, error } = useAtender(conv, alHecho, () => void recargar());
     return (
         <div role="status" data-slot="franja-asistente" className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-primary/20 bg-primary/[0.06] px-3 py-1.5 @min-[700px]/conv:px-3.5">
             <Sparkles aria-hidden className="size-4 shrink-0 text-primary" />

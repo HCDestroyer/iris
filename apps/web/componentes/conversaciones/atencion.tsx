@@ -28,7 +28,14 @@ export function pideAtencion(conv: Conversacion): boolean {
  * «La atiendo»: es `POST …/tomar` (contrato §14.6). Si otra persona ya la tomó (409
  * `ya_asignada`) lo dice en el aviso, que sigue a la vista con lo que pasó.
  */
-export function useAtender(conv: Conversacion, alHecho: (c: Conversacion) => void) {
+/** Lo que se dice cuando la conversación cambió mientras se actuaba sobre ella (409 de `version`). */
+export const TEXTO_CAMBIO = "Alguien la cambió; inténtalo de nuevo";
+
+/**
+ * `alConflicto` (opcional): con un 409 de `version` relee la conversación (el siguiente intento ya
+ * lleva la versión nueva) y lo dice con `TEXTO_CAMBIO`.
+ */
+export function useAtender(conv: Conversacion, alHecho: (c: Conversacion) => void, alConflicto?: () => void) {
     const [atendiendo, setAtendiendo] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const clave = useClaveIdempotencia();
@@ -48,7 +55,9 @@ export function useAtender(conv: Conversacion, alHecho: (c: Conversacion) => voi
         } catch (e) {
             // Sin respuesta: la misma clave (no se toma dos veces); con respuesta, una nueva.
             clave.trasError(e);
-            setError(e instanceof ErrorApi && e.codigo === "ya_asignada" ? (e.detalle ?? "Ya la tomó otra persona") : mensajeDeError(e).titulo);
+            const conflicto = alConflicto !== undefined && e instanceof ErrorApi && e.estado === 409 && e.codigo !== "ya_asignada";
+            if (conflicto) alConflicto();
+            setError(e instanceof ErrorApi && e.codigo === "ya_asignada" ? (e.detalle ?? "Ya la tomó otra persona") : conflicto ? TEXTO_CAMBIO : mensajeDeError(e).titulo);
         } finally {
             setAtendiendo(false);
         }

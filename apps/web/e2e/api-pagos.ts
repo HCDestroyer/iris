@@ -18,7 +18,7 @@ const P = (codigo: string, status: number, title: string, extra: Partial<Problem
 
 export const PERMISOS_PAGOS: Permiso[] = ["boletas.aprobar", "boletas.rechazar", "integraciones.abrir_argos"];
 
-type CodigoDecidir = "argos_sin_permiso" | "argos_sin_empresa" | "argos_usuario_inactivo" | "otra_persona_decidio" | "argos_no_disponible" | "argos_sin_aprobacion";
+type CodigoDecidir = "argos_sin_permiso" | "argos_sin_empresa" | "argos_usuario_inactivo" | "otra_persona_decidio" | "argos_no_disponible" | "argos_sin_aprobacion" | "monto_cambio" | "comprobante_no_es_de_iris";
 type CodigoAbrir = "conector_apagado" | "argos_no_disponible" | "demasiados_intentos";
 
 export type OpcionesPagos = {
@@ -32,9 +32,22 @@ export type OpcionesPagos = {
     sinPermisos?: Permiso[];
     /** `GET …/boletas` falla la primera vez (500). */
     lecturaFalla?: boolean;
+    /** `GET /boletas/{id}` (la relectura tras un 409) falla esta cantidad de veces (500). */
+    relecturaFalla?: number;
+    /** El enlace que devuelve `abrir` no es del panel de Argos del conector (otro sitio, o `http` por la red). */
+    enlace?: "otro_sitio" | "http";
 };
 
-const ESTADO_DE: Record<CodigoDecidir, number> = { argos_sin_permiso: 403, argos_sin_empresa: 403, argos_usuario_inactivo: 403, otra_persona_decidio: 409, argos_no_disponible: 502, argos_sin_aprobacion: 422 };
+const ESTADO_DE: Record<CodigoDecidir, number> = {
+    argos_sin_permiso: 403,
+    argos_sin_empresa: 403,
+    argos_usuario_inactivo: 403,
+    otra_persona_decidio: 409,
+    argos_no_disponible: 502,
+    argos_sin_aprobacion: 422,
+    monto_cambio: 409,
+    comprobante_no_es_de_iris: 409,
+};
 
 export const BOLETA_PENDIENTE = "0193d000-0000-7000-8000-000000000001";
 export const URL_ARGOS = "https://argos.isp.gt";
@@ -79,6 +92,7 @@ export function apiPagos(actor: () => { id: number; nombre: string }, opciones: 
     let errorDecidir = opciones?.errorDecidir;
     let errorAbrir = opciones?.errorAbrir;
     let lecturaFalla = opciones?.lecturaFalla ?? false;
+    let relecturaFalla = opciones?.relecturaFalla ?? 0;
     const decisiones: { ruta: string; cuerpo: unknown; idempotencia: string | undefined }[] = [];
     const aperturas: { cuerpo: unknown; idempotencia: string | undefined }[] = [];
     const clavesAbrir = new Set<string>();
@@ -104,7 +118,8 @@ export function apiPagos(actor: () => { id: number; nombre: string }, opciones: 
             // Sin destino es «Vincular»: Argos pide el correo y la contraseña y crea el vínculo.
             if (!cuerpo.destino) vinculado = true;
             const destino = cuerpo.destino as { tipo: string; idExterno: string } | undefined;
-            return (await json(route, { url: `${URL_ARGOS}/sso/entrar#ticket-${aperturas.length}${destino ? `-${destino.tipo}-${destino.idExterno}` : ""}`, expiraEn: new Date(Date.now() + 60_000).toISOString() }), true);
+            const base = opciones?.enlace === "otro_sitio" ? "https://argos.isp.gt.otro.sitio" : opciones?.enlace === "http" ? URL_ARGOS.replace("https:", "http:") : URL_ARGOS;
+            return (await json(route, { url: `${base}/sso/entrar#ticket-${aperturas.length}${destino ? `-${destino.tipo}-${destino.idExterno}` : ""}`, expiraEn: new Date(Date.now() + 60_000).toISOString() }), true);
         }
 
         const lista = /^\/api\/v1\/mensajeria\/conversaciones\/(\d+)\/boletas$/.exec(ruta);
@@ -121,7 +136,14 @@ export function apiPagos(actor: () => { id: number; nombre: string }, opciones: 
         if (!m) return false;
         const b = boletas.find((v) => v.id === m[1]);
         if (!b) return (await problema(route, P("no_encontrado", 404, "No existe")), true);
-        if (!m[2]) return metodo === "GET" ? (await json(route, b), true) : false;
+        if (!m[2]) {
+            if (metodo !== "GET") return false;
+            if (relecturaFalla > 0) {
+                relecturaFalla -= 1;
+                return (await problema(route, P("error_interno", 500, "Error del servidor")), true);
+            }
+            return (await json(route, b), true);
+        }
         if (metodo !== "POST") return false;
         if (!puede(m[2] === "aprobar" ? "boletas.aprobar" : "boletas.rechazar")) return prohibido();
         decisiones.push({ ruta, cuerpo, idempotencia });
@@ -133,6 +155,8 @@ export function apiPagos(actor: () => { id: number; nombre: string }, opciones: 
                 // La boleta local queda sincronizada con lo que decidió caja.
                 Object.assign(b, { estado: "aprobada", puedeDecidir: false, pagoId: 55010, verificadoPorNombre: "Marta Caal", decididaEn: new Date().toISOString(), avisoCliente: "enviado" } satisfies Partial<Boleta>);
             }
+            // Caja corrigió el monto del comprobante en Argos mientras el diálogo estaba abierto.
+            if (codigo === "monto_cambio") b.monto = "275.00";
             return (await problema(route, P(codigo, ESTADO_DE[codigo], codigo === "argos_no_disponible" ? "Argos no respondió" : "No se pudo decidir")), true);
         }
         if (b.estado !== "registrada") return (await problema(route, P("boleta_ya_decidida", 409, "La boleta ya está decidida")), true);

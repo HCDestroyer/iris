@@ -181,15 +181,30 @@ export function valoresLimites(a: AjustesAsistente): ValoresLimites {
     };
 }
 
+/**
+ * `porCola` para guardar: lo marcado en el formulario más lo que el servidor ya tenía y el panel no
+ * conoce (una acción nueva del servidor, o una cola que la pantalla no muestra): la lista reemplaza
+ * a la guardada, así que lo desconocido se conserva tal cual. Solo viajan las colas con algo apagado.
+ */
+export function porColaDe(a: Pick<AjustesAsistente, "porCola">, marcadas: ValoresLimites["porCola"]): AccionesCola[] {
+    const guardadas = new Map((a.porCola ?? []).map((c) => [String(c.colaId), c.accionesApagadas ?? []]));
+    const colas = [...new Set([...guardadas.keys(), ...Object.keys(marcadas)])].sort((x, y) => Number(x) - Number(y));
+    return colas
+        .map((colaId) => {
+            const desconocidas = (guardadas.get(colaId) ?? []).filter((c) => !esAccion(c));
+            // Una cola que el formulario no trae queda como estaba.
+            const conocidas = marcadas[colaId] ?? (guardadas.get(colaId) ?? []).filter(esAccion);
+            return { colaId: Number(colaId), accionesApagadas: [...conocidas, ...desconocidas] };
+        })
+        .filter((c) => c.accionesApagadas.length > 0);
+}
+
 export function entradaLimites(a: AjustesAsistente, d: ValoresLimites): EntradaAjustesAsistente {
     return {
         ...entradaGuardada(a),
         maxTurnos: Number(d.maxTurnos),
         perfiles: conPerfilDefecto(a, { limites: { prioridadMaxima: d.prioridadMaxima, diasAdelanteMax: Number(d.diasAdelanteMax) } }),
-        // Solo las colas con algo apagado; la lista reemplaza a la guardada.
-        porCola: Object.entries(d.porCola)
-            .filter(([, apagadas]) => apagadas.length > 0)
-            .map(([colaId, accionesApagadas]) => ({ colaId: Number(colaId), accionesApagadas: [...accionesApagadas] })),
+        porCola: porColaDe(a, d.porCola),
     };
 }
 

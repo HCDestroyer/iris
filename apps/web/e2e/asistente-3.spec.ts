@@ -475,13 +475,36 @@ test.describe("Bandeja con categorías y asistente", () => {
         await captura(page, "conversacion-categoria", false);
     });
 
-    test("«Cambiar» con 409: lo dice junto a la categoría y no la cambia", async ({ page }) => {
-        await abrir(page, "/conversaciones?c=41", { bandeja: true, conflictoCategorizar: true });
+    test("«Cambiar» con 409: relee la conversación, lo dice y el segundo intento lleva la versión nueva", async ({ page }) => {
+        const api = await abrir(page, "/conversaciones?c=41", { bandeja: true, conflictoCategorizar: true });
         const barra = page.locator('[data-slot="barra-categoria"]');
+        await expect(barra.locator('[data-slot="chip-categoria"]')).toHaveText("Sin internet");
+        // Otra persona la cambió mientras tanto: en el servidor ya va por otra versión.
+        const c = api.conversaciones.conversaciones.find((x) => x.id === 41);
+        if (c) c.version = 9;
+        const lecturas = () => api.peticiones.filter((p) => p.metodo === "GET" && p.ruta === "/api/v1/mensajeria/conversaciones/41").length;
+        const antes = lecturas();
         await barra.getByRole("button", { name: "Cambiar la categoría" }).click();
         await page.getByRole("menuitem", { name: "Otro" }).click();
-        await expect(barra.getByRole("alert")).toContainText("No se pudo cambiar");
+        await expect(barra.getByRole("alert")).toHaveText("Alguien la cambió; inténtalo de nuevo");
         await expect(barra.locator('[data-slot="chip-categoria"]')).toHaveText("Sin internet");
+        await expect.poll(lecturas).toBeGreaterThan(antes);
+        await barra.getByRole("button", { name: "Cambiar la categoría" }).click();
+        await page.getByRole("menuitem", { name: "Otro" }).click();
+        await expect(barra.locator('[data-slot="chip-categoria"]')).toHaveText("Otro");
+        expect(rutas(api, "/41/categorizar").map((e) => (e.cuerpo as { version: number }).version)).toEqual([7, 9]);
+    });
+
+    test("«Tomar» con 409 de versión: relee, lo dice y al repetir la toma", async ({ page }) => {
+        const api = await abrir(page, "/conversaciones?c=43", { bandeja: true, autonomoDisponible: true });
+        const franja = page.locator('[data-slot="franja-asistente"]');
+        await expect(franja).toBeVisible();
+        api.responderProblema("/api/v1/mensajeria/conversaciones/43/tomar", { type: "urn:iris:problema:conflicto_version", title: "Alguien más cambió la conversación", status: 409 }, 1);
+        await franja.getByRole("button", { name: /Tomar la conversación/ }).click();
+        await expect(franja.getByRole("alert")).toHaveText("Alguien la cambió; inténtalo de nuevo");
+        await franja.getByRole("button", { name: /Tomar la conversación/ }).click();
+        await expect(page.getByText("Atiendes a +50255440018")).toBeVisible();
+        await expect(franja).toHaveCount(0);
     });
 
     test("sin permiso de categorizar se ve la categoría, pero no «Cambiar»", async ({ page }) => {

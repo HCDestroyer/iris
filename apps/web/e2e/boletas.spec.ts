@@ -1,6 +1,6 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { ADMIN, CONSULTA, conSesion, simularApi } from "./api-falsa";
+import { ADMIN, AGENTE_CONV, CONSULTA, conSesion, simularApi } from "./api-falsa";
 import { BOLETA_PENDIENTE, URL_ARGOS, type OpcionesPagos } from "./api-pagos";
 import { abrirCuenta, esTelefono } from "./ayudas";
 import { elegirOpcion } from "./controles";
@@ -162,15 +162,76 @@ test.describe("boletas en la conversación", () => {
         await esperarSinDesbordes(page);
     });
 
-    test("Argos no respondió (502): «Reintentar» y sale bien", async ({ page }) => {
+    test("Argos no respondió (502): no afirma que no pasó nada; «Reintentar» lo confirma", async ({ page }) => {
         const api = await abrir(page, { errorDecidir: "argos_no_disponible" });
         const b = pendiente(await ficha(page));
         await b.getByRole("button", { name: "Aprobar y registrar pago" }).click();
         const d = page.getByRole("dialog", { name: "Aprobar y registrar pago" });
         await d.getByRole("button", { name: "Aprobar y registrar pago" }).click();
         await expect(d.locator('[data-error-boleta="reintentar"]')).toContainText("Argos no respondió");
+        await expect(d.locator('[data-error-boleta="reintentar"]')).toContainText("No sabemos si Argos la registró. Vuelve a intentar para confirmarlo.");
         await d.getByRole("button", { name: "Reintentar" }).click();
         await expect(page.getByText("Boleta BI-778812 aprobada: pago de Q 250.00 registrado en Argos")).toBeVisible();
+        expect(api.pagos.decisiones).toHaveLength(2);
+    });
+
+    test("cerrar el diálogo tras un error vuelve a leer las boletas (no se sabe cómo quedó en Argos)", async ({ page }) => {
+        const api = await abrir(page, { errorDecidir: "argos_no_disponible" });
+        const b = pendiente(await ficha(page));
+        const lecturas = () => api.peticiones.filter((p) => p.metodo === "GET" && p.ruta === "/api/v1/mensajeria/conversaciones/42/boletas").length;
+        await expect(b).toContainText("Pendiente de revisar");
+        const antes = lecturas();
+        await b.getByRole("button", { name: "Aprobar y registrar pago" }).click();
+        const d = page.getByRole("dialog", { name: "Aprobar y registrar pago" });
+        await d.getByRole("button", { name: "Aprobar y registrar pago" }).click();
+        await expect(d.locator('[data-error-boleta="reintentar"]')).toBeVisible();
+        // Mientras tanto Argos sí la registró: al cerrar, la tarjeta lo muestra.
+        const boleta = api.pagos.boletas.find((x) => x.id === BOLETA_PENDIENTE);
+        if (boleta) Object.assign(boleta, { estado: "aprobada", puedeDecidir: false, verificadoPorNombre: "Ana López (Argos)" });
+        await d.getByRole("button", { name: "Cancelar" }).click();
+        await expect(d).toHaveCount(0);
+        await expect.poll(lecturas).toBeGreaterThan(antes);
+        await expect(b).toContainText("Aprobada");
+        await expect(b.getByRole("button")).toHaveCount(0);
+    });
+
+    test("un 409 cuya relectura falla: no muestra un estado sin confirmar, deshabilita decidir y ofrece «Reintentar»", async ({ page }) => {
+        await abrir(page, { errorDecidir: "comprobante_no_es_de_iris", relecturaFalla: 2 });
+        const b = pendiente(await ficha(page));
+        await b.getByRole("button", { name: "Aprobar y registrar pago" }).click();
+        const d = page.getByRole("dialog", { name: "Aprobar y registrar pago" });
+        await d.getByRole("button", { name: "Aprobar y registrar pago" }).click();
+        await expect(d).toHaveCount(0);
+        const duda = b.locator('[data-slot="boleta-sin-confirmar"]');
+        await expect(duda).toContainText("Cambió en Argos y no se pudo leer cómo quedó.");
+        await expect(b).not.toContainText("Pendiente de revisar");
+        await expect(b.getByRole("button", { name: "Aprobar y registrar pago" })).toBeDisabled();
+        await expect(b.getByRole("button", { name: "Rechazar" })).toBeDisabled();
+        await esperarSinDesbordes(page);
+        // La primera relectura a mano también falla: sigue igual.
+        await duda.getByRole("button", { name: "Reintentar" }).click();
+        await expect(duda.getByRole("button", { name: "Reintentar" })).toBeEnabled();
+        await expect(b.getByRole("button", { name: "Aprobar y registrar pago" })).toBeDisabled();
+        await duda.getByRole("button", { name: "Reintentar" }).click();
+        await expect(duda).toHaveCount(0);
+        await expect(b).toContainText("Pendiente de revisar");
+        await expect(b.getByRole("button", { name: "Aprobar y registrar pago" })).toBeEnabled();
+    });
+
+    test("el monto cambió mientras se confirmaba: muestra el nuevo, pide confirmar otra vez y el aviso usa el del servidor", async ({ page }) => {
+        const api = await abrir(page, { errorDecidir: "monto_cambio" });
+        const b = pendiente(await ficha(page));
+        await b.getByRole("button", { name: "Aprobar y registrar pago" }).click();
+        const d = page.getByRole("dialog", { name: "Aprobar y registrar pago" });
+        await expect(d.locator('[data-slot="monto-a-aprobar"]')).toHaveText("Q 250.00");
+        await d.getByRole("button", { name: "Aprobar y registrar pago" }).click();
+        await expect(d.locator('[data-error-boleta="confirmar"]')).toContainText("El monto de la boleta cambió");
+        // El diálogo sigue abierto, ya con el monto actual.
+        await expect(d.locator('[data-slot="monto-a-aprobar"]')).toHaveText("Q 275.00");
+        await sinDesbordesAlAsentarse(page);
+        await d.getByRole("button", { name: "Aprobar y registrar pago" }).click();
+        await expect(page.getByText("Boleta BI-778812 aprobada: pago de Q 275.00 registrado en Argos")).toBeVisible();
+        await expect(b).toContainText("Q 275.00");
         expect(api.pagos.decisiones).toHaveLength(2);
     });
 
@@ -237,6 +298,42 @@ test.describe("«Abrir en Argos» y «Vincular mi usuario de Argos»", () => {
         // No se arregla reintentando: el botón se va.
         await expect(zona.getByRole("button")).toHaveCount(0);
         await esperarSinDesbordes(page);
+    });
+
+    for (const [enlace, caso] of [
+        ["otro_sitio", "de otro sitio"],
+        ["http", "por http"],
+    ] as const) {
+        test(`un enlace ${caso} no se abre: la pestaña se cierra y lo dice`, async ({ page }) => {
+            const api = await abrir(page, { enlace }, "/cuenta");
+            const tarjeta = page.locator("#argos");
+            const abierta = page.waitForEvent("popup");
+            await tarjeta.getByRole("button", { name: /Vincular mi usuario de Argos/ }).click();
+            const pestana = await abierta;
+            await expect(tarjeta.getByRole("alert")).toContainText("El enlace no es del panel de Argos de tu conector, así que Iris no lo abrió.");
+            await expect.poll(() => pestana.isClosed()).toBe(true);
+            expect(api.pagos.aperturas).toHaveLength(1);
+            await esperarSinDesbordes(page);
+        });
+    }
+
+    test("ventanas emergentes bloqueadas: lo dice y no pide el ticket", async ({ page }) => {
+        await page.addInitScript(() => {
+            window.open = () => null;
+        });
+        const api = await abrir(page, {}, "/cuenta");
+        const tarjeta = page.locator("#argos");
+        await tarjeta.getByRole("button", { name: /Vincular mi usuario de Argos/ }).click();
+        await expect(tarjeta.getByRole("alert")).toHaveText("Permite las ventanas emergentes para abrir Argos.");
+        expect(api.pagos.aperturas).toHaveLength(0);
+    });
+
+    test("sin saber cuál es el panel de Argos (sin `clientes.ver`) no abre ni pide nada", async ({ page }) => {
+        const api = await abrir(page, {}, "/cuenta", AGENTE_CONV.correo);
+        const tarjeta = page.locator("#argos");
+        await tarjeta.getByRole("button", { name: /Vincular mi usuario de Argos/ }).click();
+        await expect(tarjeta.getByRole("alert")).toContainText("Iris no pudo comprobar la dirección del panel de Argos");
+        expect(api.pagos.aperturas).toHaveLength(0);
     });
 
     test("sin `integraciones.abrir_argos` queda el enlace simple de siempre", async ({ page }) => {

@@ -20,6 +20,7 @@ import {
     modoDe,
     PERFIL_POR_DEFECTO,
     perfilDefecto,
+    porColaDe,
     porcentajeSinPersona,
     proveedorConectado,
     resumenModo,
@@ -125,8 +126,17 @@ describe("ajustes de la fase 3 (§17.1)", () => {
 
     it("límites: enteros dentro del rango del servidor y lo apagado por cola", () => {
         const v = valoresLimites(BASE);
-        // Una acción que el panel no conoce no se muestra (ni se manda).
+        // Una acción que el panel no conoce no se muestra en el formulario…
         expect(v).toEqual({ prioridadMaxima: "alta", diasAdelanteMax: "2", maxTurnos: "8", porCola: { "4": ["promesa_pago"] } });
+        // …pero se conserva al guardar: la lista reemplaza a la guardada y no debe borrar lo que no entiende.
+        expect(entradaLimites(BASE, v).porCola).toEqual([{ colaId: 4, accionesApagadas: ["promesa_pago", "accion_que_no_existe"] }]);
+        // También si se desmarca todo lo conocido de esa cola, y en colas que el formulario no trae.
+        expect(porColaDe(BASE, { "4": [] })).toEqual([{ colaId: 4, accionesApagadas: ["accion_que_no_existe"] }]);
+        expect(porColaDe({ porCola: [{ colaId: 9, accionesApagadas: ["crear_ticket", "otra_nueva"] }] }, { "2": ["dar_saldo"] })).toEqual([
+            { colaId: 2, accionesApagadas: ["dar_saldo"] },
+            { colaId: 9, accionesApagadas: ["crear_ticket", "otra_nueva"] },
+        ]);
+        expect(porColaDe({ porCola: null }, { "2": [] })).toEqual([]);
         expect(esquemaLimites.safeParse(v).success).toBe(true);
         expect(esquemaLimites.safeParse({ ...v, diasAdelanteMax: "0" }).success).toBe(false);
         expect(esquemaLimites.safeParse({ ...v, diasAdelanteMax: "15" }).success).toBe(false);
@@ -139,8 +149,11 @@ describe("ajustes de la fase 3 (§17.1)", () => {
         expect(e.maxTurnos).toBe(6);
         expect(e.perfiles?.[0]?.limites).toEqual({ prioridadMaxima: "alta", diasAdelanteMax: 3 });
         expect(e.perfiles?.[1]).toEqual(NOCHE);
-        // Una cola sin nada apagado no viaja.
-        expect(e.porCola).toEqual([{ colaId: 2, accionesApagadas: ["agendar_visita"] }]);
+        // Una cola sin nada conocido apagado solo viaja si tenía algo que el panel no conoce.
+        expect(e.porCola).toEqual([
+            { colaId: 2, accionesApagadas: ["agendar_visita"] },
+            { colaId: 4, accionesApagadas: ["accion_que_no_existe"] },
+        ]);
         expect(e).not.toHaveProperty("modoAutonomo");
     });
 });
