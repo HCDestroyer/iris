@@ -9,7 +9,9 @@ import type { Conversacion, Mensaje } from "../lib/conversaciones/tipos";
  * packages/contratos: categorías (lista, crear, actualizar, activar y desactivar),
  * `probar-mensaje`, `efecto`, y en la bandeja: categoría y actividad del asistente en cada
  * conversación, filtro `categoriaId`, conteos, `categorizar` y, como en la entrega 3b, mensajes del
- * asistente (`autorTipo: "asistente_ia"`) y `asistente.estado: "atendiendo"`.
+ * asistente (`autorTipo: "asistente_ia"`) y `asistente.estado: "atendiendo"`. Con
+ * `autonomoDisponible` (3b, §17.8.2) la bandeja trae además `contacto.verificacion`, el mensaje de
+ * sistema `reconexion_pedida` y una conversación que el asistente pasó a una persona.
  */
 
 type Problema = Schema<"Problema">;
@@ -20,7 +22,7 @@ const json = (route: Route, cuerpo: unknown, status = 200) => route.fulfill({ st
 const problema = (route: Route, p: Problema) => route.fulfill({ status: p.status, contentType: "application/problem+json", body: JSON.stringify(p) });
 const P = (codigo: string, status: number, title: string, extra: Partial<Problema> = {}): Problema => ({ type: `urn:iris:problema:${codigo}`, title, status, ...extra });
 
-type ExtrasAjustes = Pick<AjustesAsistente, "autonomoDisponible" | "modoAutonomo" | "esperaMin" | "maxTurnos" | "perfiles" | "porCola">;
+type ExtrasAjustes = Pick<AjustesAsistente, "autonomoDisponible" | "modoAutonomo" | "esperaMin" | "maxTurnos" | "perfiles" | "porCola" | "presupuestoAutonomoPct" | "verificacionFuerteMin">;
 
 export type OpcionesFase3 = {
     /** El servidor ya actúa solo (entrega 3b). Por defecto `false`: guarda todo pero `modoAutonomo` solo admite `nunca`. */
@@ -38,7 +40,14 @@ export type OpcionesFase3 = {
     conflictoCategoria?: boolean;
     /** `…/categorizar` responde 409 la primera vez. */
     conflictoCategorizar?: boolean;
+    /** 3b: `contacto.verificacionVenceEn` de la conversación 42 (por defecto no se manda: queda la relectura de 30 s). */
+    verificacionVenceEn?: string;
+    /** 3b: `asistente.motivoPaso` de la conversación 46 (por defecto `sin_respuesta`; `null` = el servidor no lo manda). */
+    motivoPaso?: NonNullable<Conversacion["asistente"]>["motivoPaso"] | "motivo_nuevo";
 };
+
+/** El perfil general de la empresa de prueba: el de fábrica y, además, ya encendió las visitas. */
+export const PERFIL_GENERAL: PerfilAsistente = { ...PERFIL_POR_DEFECTO, acciones: { ...PERFIL_POR_DEFECTO.acciones, agendar_visita: true } };
 
 /** Un segundo perfil, por horario (lo edita la pantalla de horarios; la simple lo conserva). */
 export const PERFIL_NOCHE: PerfilAsistente = { codigo: "noche", nombre: "Noche", acciones: { ...PERFIL_POR_DEFECTO.acciones, promesa_pago: true }, limites: { prioridadMaxima: "media", diasAdelanteMax: 1 } };
@@ -47,8 +56,10 @@ export const extrasDe = (o: OpcionesFase3 | undefined): ExtrasAjustes => ({
     modoAutonomo: "nunca",
     esperaMin: 3,
     maxTurnos: 8,
-    perfiles: [structuredClone(PERFIL_POR_DEFECTO), structuredClone(PERFIL_NOCHE)],
+    perfiles: [structuredClone(PERFIL_GENERAL), structuredClone(PERFIL_NOCHE)],
     porCola: [{ colaId: 4, accionesApagadas: ["promesa_pago"] }],
+    presupuestoAutonomoPct: 70,
+    verificacionFuerteMin: 60,
     ...o?.ajustes,
     autonomoDisponible: o?.autonomoDisponible ?? false,
 });
@@ -142,6 +153,42 @@ export function apiFase3(e: Contexto, opciones: OpcionesFase3 | undefined) {
         // 43: el asistente contestó solo; 46: dejó una nota al pasar a una persona.
         e.mensajes.get(43)?.push(delAsistente(43, 9001, "saliente", "¡Hola! Soy el asistente virtual de Red Sur. Sí tenemos fibra en San Lucas. ¿Quiere que le cuente los planes?", "2026-10-28T16:21:00Z"));
         e.mensajes.get(46)?.push(delAsistente(46, 9002, "nota", "El cliente quiere mudarse a Mixco el otro mes. No sé si hay cobertura en esa dirección: la dejo en la cola de Soporte.", "2026-10-28T15:53:00Z"));
+    }
+    // 3b (§17.8.2): el nivel de verificación de cada cliente, la reconexión pedida y el relevo a una persona.
+    if (bandeja && opciones?.autonomoDisponible) {
+        for (const c of e.conversaciones) {
+            if (c.contacto.tipo === "cliente") c.contacto = { ...c.contacto, verificacion: c.id === 42 ? "fuerte" : c.contacto.verificado ? "numero" : null };
+            if (c.id === 42 && opciones.verificacionVenceEn) c.contacto = { ...c.contacto, verificacionVenceEn: opciones.verificacionVenceEn };
+            // Un motivo que el panel no conoce viaja tal cual (un servidor más nuevo).
+            const motivoPaso = (opciones.motivoPaso === undefined ? "sin_respuesta" : opciones.motivoPaso) as NonNullable<Conversacion["asistente"]>["motivoPaso"];
+            if (c.id === 46) c.asistente = { estado: "espera_persona", turnos: 3, ...(motivoPaso === null ? {} : { motivoPaso }) };
+        }
+        // Un intento de verificar la identidad por cada resultado (§17.8.2) y uno que el panel no conoce.
+        const intentos = ["no_coincide", "no_disponible", "demasiados_intentos", "coincide", "resultado_nuevo"];
+        intentos.forEach((detalle, i) => {
+            e.mensajes.get(42)?.push({
+                ...delAsistente(42, 9010 + i, "saliente", "", `2026-10-28T16:2${i}:00Z`),
+                id: `0193a100-0000-7000-8000-00000000901${i}`,
+                direccion: "sistema",
+                tipo: "sistema",
+                texto: null,
+                estadoEntrega: null,
+                automatico: null,
+                autorTipo: "sistema",
+                evento: { tipo: "identidad_verificada", actorNombre: "Asistente de IA", detalle },
+            });
+        });
+        e.mensajes.get(42)?.push({
+            ...delAsistente(42, 9003, "saliente", "", "2026-10-28T16:30:00Z"),
+            id: "0193a100-0000-7000-8000-000000009003",
+            direccion: "sistema",
+            tipo: "sistema",
+            texto: null,
+            estadoEntrega: null,
+            automatico: null,
+            autorTipo: "sistema",
+            evento: { tipo: "reconexion_pedida", actorNombre: "Asistente de IA", detalle: "aceptada" },
+        });
     }
 
     function porCategoria(activas: readonly Conversacion[]): { id: number; total: number }[] {

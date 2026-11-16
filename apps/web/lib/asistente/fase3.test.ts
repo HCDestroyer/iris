@@ -127,7 +127,7 @@ describe("ajustes de la fase 3 (§17.1)", () => {
     it("límites: enteros dentro del rango del servidor y lo apagado por cola", () => {
         const v = valoresLimites(BASE);
         // Una acción que el panel no conoce no se muestra en el formulario…
-        expect(v).toEqual({ prioridadMaxima: "alta", diasAdelanteMax: "2", maxTurnos: "8", porCola: { "4": ["promesa_pago"] } });
+        expect(v).toEqual({ prioridadMaxima: "alta", diasAdelanteMax: "2", maxTurnos: "8", presupuestoAutonomoPct: "70", verificacionFuerteMin: "60", porCola: { "4": ["promesa_pago"] } });
         // …pero se conserva al guardar: la lista reemplaza a la guardada y no debe borrar lo que no entiende.
         expect(entradaLimites(BASE, v).porCola).toEqual([{ colaId: 4, accionesApagadas: ["promesa_pago", "accion_que_no_existe"] }]);
         // También si se desmarca todo lo conocido de esa cola, y en colas que el formulario no trae.
@@ -192,7 +192,7 @@ describe("categorías (§17.2)", () => {
         };
         expect(completar(viejo)).toMatchObject({ autonomoDisponible: false, modoAutonomo: "nunca", esperaMin: 3, maxTurnos: 8 });
         expect(valoresPrincipal(viejo, [])).toMatchObject({ modoAutonomo: "nunca", esperaMin: 3, acciones: { promesa_pago: false, responder_dudas: true } });
-        expect(valoresLimites(viejo)).toEqual({ prioridadMaxima: "alta", diasAdelanteMax: "2", maxTurnos: "8", porCola: {} });
+        expect(valoresLimites(viejo)).toEqual({ prioridadMaxima: "alta", diasAdelanteMax: "2", maxTurnos: "8", presupuestoAutonomoPct: "70", verificacionFuerteMin: "60", porCola: {} });
     });
 
     it("nueva: sugiere, activa y con el primer color", () => {
@@ -234,7 +234,7 @@ describe("«Pruébalo», efecto y bandeja", () => {
         const v = valoresPrincipal(BASE, [CATEGORIA]);
         const a = ajustesDePrueba({ ...v, modoAutonomo: "siempre_primero", modos: { "2": "sugiere" }, acciones: { ...v.acciones, crear_ticket: false } }, BASE, [CATEGORIA, { ...CATEGORIA, id: 9, nombre: "Vieja", activa: false }]);
         expect(a.modoAutonomo).toBe("siempre_primero");
-        expect(a.perfil).toEqual({ acciones: { ...PERFIL_POR_DEFECTO.acciones, crear_ticket: false }, limites: PERFIL_POR_DEFECTO.limites });
+        expect(a.perfil).toEqual({ acciones: { ...PERFIL_POR_DEFECTO.acciones, crear_ticket: false }, limites: PERFIL_POR_DEFECTO.limites, exigeVerificacionFuerte: { dar_saldo: true } });
         // Solo las activas; con «Sugiere», sin condición.
         expect(a.categorias).toEqual([{ id: 2, nombre: "Sin internet", descripcion: "No tiene servicio", tono: "error", modo: "sugiere", condicion: null, manualIds: [1] }]);
     });

@@ -4,15 +4,22 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import type { Schema } from "@iris/contratos";
 import { avisar, Aviso, Boton, Campo, CampoFecha, CampoHora, CampoSelector, Casilla, cn, FormularioPagina, Interruptor, liberarProteccion, SeccionFormulario } from "@iris/ui";
 import { Plus, Trash2 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
+import { leerAjustesAsistente } from "@/lib/asistente/api";
+import { completar } from "@/lib/asistente/fase3";
+import { opcionesDePerfil, perfilesDe, valorDePerfil } from "@/lib/asistente/fase3b";
+import { PERMISO_CONFIGURAR_ASISTENTE } from "@/lib/asistente/permisos";
 import { erroresACampos } from "@/lib/formularios";
 import { DIAS_SEMANA, resumirFranjas, validarFranjas } from "@/lib/horarios/franjas";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
+import { useLectura } from "@/lib/lectura";
+import { useSesion } from "@/lib/sesion";
 
 type Horario = Schema<"Horario">;
 
@@ -27,7 +34,7 @@ export const esquemaHorario = z
         zona: z.string().min(1),
         franjas: z.array(franja).max(28, "Hasta 28 franjas"),
         feriados: z
-            .array(z.object({ fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Elige la fecha"), nombre: z.string().trim().min(1, "Escribe el nombre").max(80), cerrado: z.boolean(), inicio: z.string(), fin: z.string() }))
+            .array(z.object({ fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Elige la fecha"), nombre: z.string().trim().min(1, "Escribe el nombre").max(80), cerrado: z.boolean(), inicio: z.string(), fin: z.string(), perfil: z.string().nullable(), resto: z.array(franja) }))
             .max(60, "Hasta 60 feriados"),
     })
     .superRefine((v, ctx) => {
@@ -39,6 +46,14 @@ export const esquemaHorario = z
     });
 type Valores = z.infer<typeof esquemaHorario>;
 
+/**
+ * Un feriado puede traer varias franjas (API u otra pantalla) y aquí se edita la primera: las demás
+ * se conservan enteras, con su `perfil`, y vuelven a viajar al guardar.
+ */
+function franjasDeMas(franjas: Horario["feriados"][number]["franjas"] | null | undefined): Valores["feriados"][number]["resto"] {
+    return (franjas ?? []).slice(1).map((x) => ({ dias: [...(x.dias ?? [])], inicio: x.inicio, fin: x.fin, perfil: x.perfil ?? null }));
+}
+
 function valores(h?: Horario): Valores {
     return {
         nombre: h?.nombre ?? "",
@@ -48,13 +63,15 @@ function valores(h?: Horario): Valores {
             { dias: [6], inicio: "08:00", fin: "12:00", perfil: null },
         ],
         feriados:
-            h?.feriados?.map((f) => ({ fecha: f.fecha, nombre: f.nombre, cerrado: (f.franjas ?? []).length === 0, inicio: f.franjas?.[0]?.inicio ?? "08:00", fin: f.franjas?.[0]?.fin ?? "12:00" })) ?? [],
+            h?.feriados?.map((f) => ({ fecha: f.fecha, nombre: f.nombre, cerrado: (f.franjas ?? []).length === 0, inicio: f.franjas?.[0]?.inicio ?? "08:00", fin: f.franjas?.[0]?.fin ?? "12:00", perfil: f.franjas?.[0]?.perfil ?? null, resto: franjasDeMas(f.franjas) })) ?? [],
     };
 }
 
 /**
  * Nuevo o editar horario (pantalla propia): nombre, zona, franjas por día y feriados. Una franja
- * que cruza la medianoche se escribe como dos. `perfil` (fase 2) se conserva tal cual.
+ * que cruza la medianoche se escribe como dos. Con el asistente atendiendo solo (o con perfiles
+ * por horario), cada franja elige qué hace el asistente (`perfil`, §17.1): lo de siempre, otro
+ * perfil o solo sugerir. Sin eso, o sin permiso para leer los ajustes, `perfil` se conserva tal cual.
  */
 export function FormularioHorario({ horario }: { horario?: Horario }) {
     const router = useRouter();
@@ -65,6 +82,29 @@ export function FormularioHorario({ horario }: { horario?: Horario }) {
     const feriados = useFieldArray({ control: form.control, name: "feriados" });
     const v = useWatch({ control: form.control });
     const errores = form.formState.errors;
+    // Los perfiles del asistente son de otro permiso: sin él (o si no se pudieron leer) no se ofrece elegir.
+    const { puede } = useSesion();
+    const puedeAsistente = puede([PERMISO_CONFIGURAR_ASISTENTE]);
+    const asistente = useLectura(async (signal) => (puedeAsistente ? leerAjustesAsistente(signal) : null));
+    const ajustesIA = asistente.estado === "listo" ? asistente.datos : null;
+    const perfiles = ajustesIA ? perfilesDe(ajustesIA) : [];
+    const conPerfil =
+        ajustesIA !== null &&
+        (completar(ajustesIA).modoAutonomo !== "nunca" || perfiles.length > 1 || (v.franjas ?? []).some((f) => valorDePerfil(f?.perfil) !== "") || (v.feriados ?? []).some((f) => valorDePerfil(f?.perfil) !== ""));
+    const selectorPerfil = (nombre: `franjas.${number}.perfil` | `feriados.${number}.perfil`, guardado: string | null | undefined, etiqueta: string) => (
+        <CampoSelector
+            etiqueta={etiqueta}
+            className="min-w-0 basis-full sm:basis-72"
+            value={valorDePerfil(guardado)}
+            onChange={(ev) => form.setValue(nombre, ev.target.value || null, { shouldDirty: true })}
+        >
+            {opcionesDePerfil(perfiles, guardado).map((o) => (
+                <option key={o.valor} value={o.valor}>
+                    {o.texto}
+                </option>
+            ))}
+        </CampoSelector>
+    );
 
     async function guardar(d: Valores) {
         setError(null);
@@ -72,7 +112,7 @@ export function FormularioHorario({ horario }: { horario?: Horario }) {
             nombre: d.nombre.trim(),
             zona: d.zona,
             franjas: d.franjas.map((f) => ({ dias: [...f.dias].sort((a, b) => a - b), inicio: f.inicio, fin: f.fin, perfil: f.perfil })),
-            feriados: d.feriados.map((f) => ({ fecha: f.fecha, nombre: f.nombre.trim(), franjas: f.cerrado ? [] : [{ dias: [], inicio: f.inicio, fin: f.fin, perfil: null }] })),
+            feriados: d.feriados.map((f) => ({ fecha: f.fecha, nombre: f.nombre.trim(), franjas: f.cerrado ? [] : [{ dias: [], inicio: f.inicio, fin: f.fin, perfil: f.perfil }, ...f.resto] })),
         };
         try {
             const h = horario
@@ -89,7 +129,9 @@ export function FormularioHorario({ horario }: { horario?: Horario }) {
             router.replace("/administracion/horarios");
         } catch (e) {
             clave.trasError(e);
-            if (!erroresACampos(e, ["nombre", "zona"], form.setError)) setError(e);
+            // 422 `rule: perfil`: el perfil de una franja ya no existe (otra persona lo quitó).
+            if (e instanceof ErrorApi && e.estado === 422 && e.errores.some((x) => x.field.endsWith("perfil"))) setError(new ErrorApi({ estado: 422, codigo: "perfil", titulo: "Una franja usa un perfil del asistente que ya no existe: elige otro y guarda de nuevo" }));
+            else if (!erroresACampos(e, ["nombre", "zona"], form.setError)) setError(e);
         }
     }
 
@@ -124,6 +166,14 @@ export function FormularioHorario({ horario }: { horario?: Horario }) {
                 </div>
             </SeccionFormulario>
             <SeccionFormulario titulo="Franjas" descripcion="Si cruza la medianoche (22:00 a 06:00), escríbela como dos franjas.">
+                {conPerfil ? (
+                    <p className="text-sm text-muted-foreground" data-slot="nota-perfil">
+                        En cada franja eliges qué hace el asistente. Fuera de todas las franjas hace lo de siempre.{" "}
+                        <Link href="/administracion/asistente/perfiles" className="font-medium text-primary underline-offset-2 hover:underline">
+                            Ver los perfiles
+                        </Link>
+                    </p>
+                ) : null}
                 <ul className="grid gap-3" aria-label="Franjas">
                     {franjas.fields.map((campo, i) => {
                         const dias = v.franjas?.[i]?.dias ?? [];
@@ -153,6 +203,7 @@ export function FormularioHorario({ horario }: { horario?: Horario }) {
                                 <div className="flex flex-wrap items-end gap-3">
                                     <CampoHora etiqueta="Desde" className="w-32" error={e?.inicio?.message} {...form.register(`franjas.${i}.inicio`)} />
                                     <CampoHora etiqueta="Hasta" className="w-32" error={e?.fin?.message} {...form.register(`franjas.${i}.fin`)} />
+                                    {conPerfil ? selectorPerfil(`franjas.${i}.perfil`, v.franjas?.[i]?.perfil, `Franja ${i + 1}: qué hace el asistente`) : null}
                                     <Boton variante="fantasma" tamano="sm" className="ml-auto text-error" onClick={() => franjas.remove(i)} aria-label={`Quitar la franja ${i + 1}`}>
                                         <Trash2 />
                                         Quitar
@@ -181,10 +232,21 @@ export function FormularioHorario({ horario }: { horario?: Horario }) {
                                 </div>
                                 <div className="flex flex-wrap items-end gap-3">
                                     <Interruptor etiqueta="Cerrado todo el día" {...form.register(`feriados.${i}.cerrado`)} />
+                                    {cerrado && (campo.resto?.length ?? 0) > 0 ? (
+                                        <p role="status" className="basis-full text-sm font-medium text-warning" data-slot="aviso-cerrar-feriado">
+                                            Al guardar se quitan sus {campo.resto.length + 1} franjas de ese día.
+                                        </p>
+                                    ) : null}
                                     {cerrado ? null : (
                                         <>
                                             <CampoHora etiqueta="Desde" className="w-32" {...form.register(`feriados.${i}.inicio`)} />
                                             <CampoHora etiqueta="Hasta" className="w-32" error={e?.fin?.message} {...form.register(`feriados.${i}.fin`)} />
+                                            {conPerfil ? selectorPerfil(`feriados.${i}.perfil`, v.feriados?.[i]?.perfil, `Feriado ${i + 1}: qué hace el asistente`) : null}
+                                            {(campo.resto?.length ?? 0) > 0 ? (
+                                                <p className="basis-full text-sm text-muted-foreground" data-slot="franjas-de-mas">
+                                                    Además: {resumirFranjas(campo.resto).replace(/Ningún día /g, "")}. Se conservan como están.
+                                                </p>
+                                            ) : null}
                                         </>
                                     )}
                                     <Boton variante="fantasma" tamano="sm" className="ml-auto text-error" onClick={() => feriados.remove(i)} aria-label={`Quitar el feriado ${i + 1}`}>
@@ -196,7 +258,7 @@ export function FormularioHorario({ horario }: { horario?: Horario }) {
                         );
                     })}
                 </ul>
-                <Boton variante="secundario" tamano="sm" className="justify-self-start" onClick={() => feriados.append({ fecha: "", nombre: "", cerrado: true, inicio: "08:00", fin: "12:00" })}>
+                <Boton variante="secundario" tamano="sm" className="justify-self-start" onClick={() => feriados.append({ fecha: "", nombre: "", cerrado: true, inicio: "08:00", fin: "12:00", perfil: null, resto: [] })}>
                     <Plus />
                     Agregar feriado
                 </Boton>
