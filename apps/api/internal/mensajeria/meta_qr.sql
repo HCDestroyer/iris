@@ -254,6 +254,9 @@ SET empresa_id = @empresa_id, cola_id = sqlc.narg('cola_id'), asignado_a = NULL,
     cliente_verificado = false, verificado_por = NULL, sla_avisado = false,
     sla_vence_en = NULL, fuera_horario_hasta = NULL, guardia_hasta = NULL,
     bot_espera_en = NULL, bot_vence_en = NULL, bot_motivo = NULL, bot_atendio_en = NULL, bot_menu = NULL,
+    -- §17: la categoría y la actividad del asistente son de la empresa anterior.
+    categoria_id = NULL, categoria_confianza = NULL, categoria_origen = NULL, categoria_en = NULL, clasificado_mensaje_id = NULL,
+    asistente_actividad_tipo = NULL, asistente_actividad_texto = NULL, asistente_actividad_en = NULL, asistente_transfirio_en = NULL,
     version = version + 1, updated_at = now()
 WHERE id = @id
 RETURNING *;

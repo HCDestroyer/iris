@@ -140,7 +140,9 @@ func nuevaBandejaIA(t *testing.T) *bandejaIA {
 	admin := b.persona([]int64{1}, rolBase("admin"))
 	admin.empresa = 1
 	x := &bandejaIA{bandeja: b, admin: admin, ia: nuevaIA(t)}
-	if _, err := b.bd.Exec(b.ctx, `DELETE FROM mensajeria.asistente_uso; DELETE FROM mensajeria.asistente_reservas; DELETE FROM mensajeria.asistente_pedidos; DELETE FROM mensajeria.asistente_ajustes; DELETE FROM mensajeria.sugerencias`); err != nil {
+	if _, err := b.bd.Exec(b.ctx, `DELETE FROM mensajeria.asistente_uso; DELETE FROM mensajeria.asistente_reservas; DELETE FROM mensajeria.asistente_pedidos; DELETE FROM mensajeria.asistente_ajustes; DELETE FROM mensajeria.sugerencias;
+		UPDATE mensajeria.conversaciones SET categoria_id = NULL WHERE categoria_id IS NOT NULL; DELETE FROM mensajeria.asistente_clasificaciones;
+		DELETE FROM mensajeria.asistente_categorias; DELETE FROM integracion.outbox WHERE evento = 'asistente.tope_alcanzado'`); err != nil {
 		t.Fatal(err)
 	}
 	x.ajustes(map[string]any{"activo": false})
@@ -253,7 +255,8 @@ func TestAsistenteAjustesClaveYURL(t *testing.T) {
 	// Estado (para el panel): sin proveedor ni clave.
 	e := x.api(x.agente, http.MethodGet, "/asistente/estado", nil)
 	x.exigir(e, http.StatusOK, "activo", "true", "modo", "boton", "pausado", "false")
-	if len(e.cuerpo) != 3 {
+	x.exigir(e, http.StatusOK, "modoAutonomo", "nunca", "autonomoDisponible", "false")
+	if len(e.cuerpo) != 5 {
 		t.Fatalf("estado con datos de más: %v", e.cuerpo)
 	}
 	x.exigir(x.api(x.tecnico, http.MethodGet, "/asistente/estado", nil), http.StatusForbidden)
@@ -591,16 +594,20 @@ func TestAsistenteAutomaticoYVencimiento(t *testing.T) {
 	c := x.conv(num)
 	id := int64(c["id"].(float64))
 	conv := cid(c)
-	// Nadie la puede leer (sin asignar y nadie disponible en la cola): no se genera.
+	// Nadie la puede leer (sin asignar y nadie disponible en la cola): no se genera la sugerencia; el
+	// mensaje solo se clasifica con una llamada corta (§17.3).
 	*x.reloj = x.reloj.Add(21 * time.Second)
-	if espera, err := x.m.SugerirAutomatico(x.ctx, id); err != nil || espera != 0 || x.ia.pedidos() != 0 {
+	if espera, err := x.m.SugerirAutomatico(x.ctx, id); err != nil || espera != 0 || x.ia.pedidos() != 1 {
 		t.Fatalf("sin agentes: %v %v %d", espera, err, x.ia.pedidos())
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.sugerencias WHERE conversacion_id = $1`, id); n != 0 {
+		t.Fatalf("sin agentes se generó una sugerencia: %d", n)
 	}
 	x.disponible(x.agente, "disponible")
 	x.texto(num, "wamid.au1b", "¿Hola?")
 	// Espera ~20 s desde el último mensaje del cliente.
 	espera, err := x.m.SugerirAutomatico(x.ctx, id)
-	if err != nil || espera != 20*time.Second || x.ia.pedidos() != 0 {
+	if err != nil || espera != 20*time.Second || x.ia.pedidos() != 1 {
 		t.Fatalf("espera: %v %v", espera, err)
 	}
 	*x.reloj = x.reloj.Add(21 * time.Second)
@@ -610,7 +617,7 @@ func TestAsistenteAutomaticoYVencimiento(t *testing.T) {
 	s := x.api(x.agente, http.MethodGet, "/conversaciones/"+conv+"/sugerencias/actual", nil)
 	x.exigir(s, http.StatusOK, "estado", "lista", "origen", "automatico")
 	// Repetir el job no genera otra para el mismo mensaje.
-	if _, err := x.m.SugerirAutomatico(x.ctx, id); err != nil || x.ia.pedidos() != 1 {
+	if _, err := x.m.SugerirAutomatico(x.ctx, id); err != nil || x.ia.pedidos() != 2 {
 		t.Fatalf("repetido: %d %v", x.ia.pedidos(), err)
 	}
 	// Llega otro mensaje: la anterior queda vencida.
@@ -652,12 +659,20 @@ func TestAsistenteAutomaticoYVencimiento(t *testing.T) {
 		t.Fatalf("resuelta: %v", err)
 	}
 	x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv+"/sugerencias", nil), http.StatusUnprocessableEntity, "type", "urn:iris:problema:conversacion_resuelta")
-	// Modo botón: no se encola nada al recibir.
+	// Modo botón: el job se encola solo para clasificar el mensaje (§17.3); no genera una sugerencia.
 	x.activar(map[string]any{"modo": "boton"})
 	antes = len(x.jobsDe("mensajeria.asistente_sugerir"))
 	otro := numeroCliente()
 	x.texto(otro, "wamid.au4", "Hola")
-	if len(x.jobsDe("mensajeria.asistente_sugerir")) != antes {
+	if len(x.jobsDe("mensajeria.asistente_sugerir")) != antes+1 {
+		t.Fatal("en modo botón el mensaje se clasifica")
+	}
+	*x.reloj = x.reloj.Add(21 * time.Second)
+	idOtro := int64(x.conv(otro)["id"].(float64))
+	if _, err := x.m.SugerirAutomatico(x.ctx, idOtro); err != nil {
+		t.Fatal(err)
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.sugerencias WHERE conversacion_id = $1`, idOtro); n != 0 {
 		t.Fatal("en modo botón no se sugiere solo")
 	}
 	// Apagado: ni automático ni botón.

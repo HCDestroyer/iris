@@ -121,6 +121,33 @@
         ],
         "type": "object"
       },
+      "AccionDescrita": {
+        "additionalProperties": false,
+        "properties": {
+          "descripcion": {
+            "description": "En español; no se ejecutó nada",
+            "type": "string"
+          },
+          "tipo": {
+            "enum": [
+              "responder_dudas",
+              "avisar_fallas",
+              "dar_saldo",
+              "crear_ticket",
+              "agendar_visita",
+              "recibir_boleta",
+              "promesa_pago",
+              "reconexion_temporal"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tipo",
+          "descripcion"
+        ],
+        "type": "object"
+      },
       "AccionSugerencia": {
         "additionalProperties": false,
         "properties": {
@@ -142,6 +169,84 @@
           "tipo",
           "etiquetaId",
           "etiqueta"
+        ],
+        "type": "object"
+      },
+      "AccionesAsistente": {
+        "additionalProperties": false,
+        "properties": {
+          "agendar_visita": {
+            "type": "boolean"
+          },
+          "avisar_fallas": {
+            "description": "Fallas de Horus en la zona del cliente",
+            "type": "boolean"
+          },
+          "crear_ticket": {
+            "type": "boolean"
+          },
+          "dar_saldo": {
+            "description": "Solo a un cliente verificado",
+            "type": "boolean"
+          },
+          "pasar_a_persona": {
+            "description": "Siempre true: no se puede apagar",
+            "type": "boolean"
+          },
+          "promesa_pago": {
+            "description": "Argos decide con sus reglas del canal ia",
+            "type": "boolean"
+          },
+          "recibir_boleta": {
+            "description": "La registra como comprobante en Argos; nunca aprueba",
+            "type": "boolean"
+          },
+          "reconexion_temporal": {
+            "description": "Argos decide con sus reglas del canal ia",
+            "type": "boolean"
+          },
+          "responder_dudas": {
+            "description": "Con los manuales «Para el cliente»",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "responder_dudas",
+          "avisar_fallas",
+          "dar_saldo",
+          "crear_ticket",
+          "agendar_visita",
+          "recibir_boleta",
+          "promesa_pago",
+          "reconexion_temporal",
+          "pasar_a_persona"
+        ],
+        "type": "object"
+      },
+      "AccionesCola": {
+        "additionalProperties": false,
+        "properties": {
+          "accionesApagadas": {
+            "description": "De las ocho acciones (nunca pasar_a_persona)",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "type": [
+              "array",
+              "null"
+            ],
+            "uniqueItems": true
+          },
+          "colaId": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "colaId",
+          "accionesApagadas"
         ],
         "type": "object"
       },
@@ -263,6 +368,43 @@
           "proximaFecha",
           "autorId",
           "creadoEn"
+        ],
+        "type": "object"
+      },
+      "ActividadAsistente": {
+        "additionalProperties": false,
+        "properties": {
+          "en": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "texto": {
+            "description": "Texto corto en español ya armado (nunca texto del cliente ni montos)",
+            "type": "string"
+          },
+          "tipo": {
+            "enum": [
+              "clasifico",
+              "sugirio",
+              "transfirio",
+              "respondio_manual",
+              "respondio_falla",
+              "respondio",
+              "ticket_creado",
+              "visita_agendada",
+              "boleta_enviada",
+              "saldo_informado",
+              "promesa_pedida",
+              "reconexion_pedida",
+              "espera_persona"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tipo",
+          "texto",
+          "en"
         ],
         "type": "object"
       },
@@ -715,6 +857,10 @@
           "activo": {
             "type": "boolean"
           },
+          "autonomoDisponible": {
+            "description": "false: el servidor todavía no actúa solo (3a) y modoAutonomo solo admite nunca",
+            "type": "boolean"
+          },
           "claveGuardadaEn": {
             "description": "Cuándo se guardó la clave (nunca se devuelve)",
             "format": "date-time",
@@ -723,8 +869,18 @@
               "null"
             ]
           },
+          "esperaMin": {
+            "description": "sin_nadie: minutos que espera a un agente en línea",
+            "format": "int32",
+            "type": "integer"
+          },
           "fuentes": {
             "$ref": "#/components/schemas/FuentesAsistente"
+          },
+          "maxTurnos": {
+            "description": "Turnos autónomos sin resolver antes de pasar a una persona",
+            "format": "int32",
+            "type": "integer"
           },
           "modelo": {
             "type": "string"
@@ -735,6 +891,35 @@
               "boton"
             ],
             "type": "string"
+          },
+          "modoAutonomo": {
+            "description": "Cuándo atiende solo",
+            "enum": [
+              "nunca",
+              "sin_nadie",
+              "siempre_primero"
+            ],
+            "type": "string"
+          },
+          "perfiles": {
+            "description": "El primero es «defecto»",
+            "items": {
+              "$ref": "#/components/schemas/PerfilAsistente"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "porCola": {
+            "description": "Acciones apagadas por cola",
+            "items": {
+              "$ref": "#/components/schemas/AccionesCola"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "precioEntradaMillon": {
             "description": "Precio por millón de tokens de entrada (decimal como texto)",
@@ -837,6 +1022,33 @@
           "porDefecto",
           "version"
         ],
+        "type": "object"
+      },
+      "AjustesPrueba": {
+        "additionalProperties": false,
+        "properties": {
+          "categorias": {
+            "items": {
+              "$ref": "#/components/schemas/CategoriaPrueba"
+            },
+            "maxItems": 30,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "modoAutonomo": {
+            "enum": [
+              "nunca",
+              "sin_nadie",
+              "siempre_primero"
+            ],
+            "type": "string"
+          },
+          "perfil": {
+            "$ref": "#/components/schemas/PerfilPrueba"
+          }
+        },
         "type": "object"
       },
       "Alta": {
@@ -1089,6 +1301,28 @@
         "required": [
           "orden",
           "ticket"
+        ],
+        "type": "object"
+      },
+      "AsistenteConv": {
+        "additionalProperties": false,
+        "properties": {
+          "estado": {
+            "enum": [
+              "atendiendo",
+              "espera_persona",
+              "detenido"
+            ],
+            "type": "string"
+          },
+          "turnos": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "estado",
+          "turnos"
         ],
         "type": "object"
       },
@@ -1923,6 +2157,82 @@
         ],
         "type": "object"
       },
+      "CamposCategoriaMensajes": {
+        "additionalProperties": false,
+        "properties": {
+          "colaId": {
+            "format": "int64",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "condicion": {
+            "enum": [
+              "si_hay_falla",
+              "solo_verificados"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "descripcion": {
+            "maxLength": 300,
+            "type": "string"
+          },
+          "manualIds": {
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "maxItems": 10,
+            "type": [
+              "array",
+              "null"
+            ],
+            "uniqueItems": true
+          },
+          "modo": {
+            "enum": [
+              "responde_solo",
+              "sugiere"
+            ],
+            "type": "string"
+          },
+          "nombre": {
+            "maxLength": 40,
+            "minLength": 1,
+            "type": "string"
+          },
+          "slaPrimeraRespuestaMin": {
+            "format": "int32",
+            "maximum": 10080,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tono": {
+            "enum": [
+              "info",
+              "error",
+              "ok",
+              "aviso",
+              "neutro"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "nombre",
+          "tono",
+          "modo"
+        ],
+        "type": "object"
+      },
       "Canal": {
         "additionalProperties": false,
         "properties": {
@@ -2437,6 +2747,134 @@
         ],
         "type": "object"
       },
+      "CategoriaMensajes": {
+        "additionalProperties": false,
+        "properties": {
+          "activa": {
+            "type": "boolean"
+          },
+          "colaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "condicion": {
+            "enum": [
+              "si_hay_falla",
+              "solo_verificados"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "descripcion": {
+            "description": "Ayuda al asistente a clasificar",
+            "type": "string"
+          },
+          "esOtro": {
+            "description": "«Otro»: no se desactiva; a donde cae lo que no se pudo clasificar",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "manualIds": {
+            "description": "Manuales base de la categoría",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "modo": {
+            "description": "Ausente sin mensajeria.asistente_configurar",
+            "enum": [
+              "responde_solo",
+              "sugiere"
+            ],
+            "type": "string"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "orden": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "slaPrimeraRespuestaMin": {
+            "description": "Gana sobre el SLA de la cola",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tono": {
+            "enum": [
+              "info",
+              "error",
+              "ok",
+              "aviso",
+              "neutro"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "nombre",
+          "descripcion",
+          "tono",
+          "colaId",
+          "slaPrimeraRespuestaMin",
+          "condicion",
+          "manualIds",
+          "esOtro",
+          "activa",
+          "orden",
+          "version"
+        ],
+        "type": "object"
+      },
+      "CategoriaMensajesRef": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "tono": {
+            "enum": [
+              "info",
+              "error",
+              "ok",
+              "aviso",
+              "neutro"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nombre",
+          "tono"
+        ],
+        "type": "object"
+      },
       "CategoriaPortal": {
         "additionalProperties": false,
         "properties": {
@@ -2455,6 +2893,103 @@
           "id",
           "codigo",
           "nombre"
+        ],
+        "type": "object"
+      },
+      "CategoriaProbada": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "null: una categoría del formulario aún sin guardar",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "tono": {
+            "enum": [
+              "info",
+              "error",
+              "ok",
+              "aviso",
+              "neutro"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nombre",
+          "tono"
+        ],
+        "type": "object"
+      },
+      "CategoriaPrueba": {
+        "additionalProperties": false,
+        "properties": {
+          "condicion": {
+            "enum": [
+              "si_hay_falla",
+              "solo_verificados"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "descripcion": {
+            "maxLength": 300,
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "manualIds": {
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "maxItems": 10,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "modo": {
+            "enum": [
+              "responde_solo",
+              "sugiere"
+            ],
+            "type": "string"
+          },
+          "nombre": {
+            "maxLength": 40,
+            "minLength": 1,
+            "type": "string"
+          },
+          "tono": {
+            "enum": [
+              "info",
+              "error",
+              "ok",
+              "aviso",
+              "neutro"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "nombre",
+          "modo"
         ],
         "type": "object"
       },
@@ -3927,6 +4462,13 @@
             },
             "type": "array"
           },
+          "porCategoria": {
+            "description": "Por categoría de mensajes (§17); las sin categoría no cuentan",
+            "items": {
+              "$ref": "#/components/schemas/ConteoGrupo"
+            },
+            "type": "array"
+          },
           "porCola": {
             "items": {
               "$ref": "#/components/schemas/ConteoGrupo"
@@ -4326,12 +4868,42 @@
       "ConversacionCliente": {
         "additionalProperties": false,
         "properties": {
+          "actividadAsistente": {
+            "$ref": "#/components/schemas/ActividadAsistente",
+            "description": "Lo último que hizo el asistente en la conversación"
+          },
           "asignado": {
             "$ref": "#/components/schemas/UsuarioRef",
             "description": "Ausente: sin asignar"
           },
+          "asistente": {
+            "$ref": "#/components/schemas/AsistenteConv",
+            "description": "3b: el asistente atiende solo esta conversación. Ausente en 3a"
+          },
           "canal": {
             "$ref": "#/components/schemas/CanalRef"
+          },
+          "categoria": {
+            "$ref": "#/components/schemas/CategoriaMensajesRef",
+            "description": "Categoría de mensajes (§17); ausente: sin categoría"
+          },
+          "categoriaConfianza": {
+            "description": "0 a 1; null si la puso un agente",
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "categoriaOrigen": {
+            "enum": [
+              "asistente",
+              "agente"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "cola": {
             "$ref": "#/components/schemas/ColaRef",
@@ -4445,12 +5017,42 @@
       "ConversacionClienteDetalle": {
         "additionalProperties": false,
         "properties": {
+          "actividadAsistente": {
+            "$ref": "#/components/schemas/ActividadAsistente",
+            "description": "Lo último que hizo el asistente en la conversación"
+          },
           "asignado": {
             "$ref": "#/components/schemas/UsuarioRef",
             "description": "Ausente: sin asignar"
           },
+          "asistente": {
+            "$ref": "#/components/schemas/AsistenteConv",
+            "description": "3b: el asistente atiende solo esta conversación. Ausente en 3a"
+          },
           "canal": {
             "$ref": "#/components/schemas/CanalRef"
+          },
+          "categoria": {
+            "$ref": "#/components/schemas/CategoriaMensajesRef",
+            "description": "Categoría de mensajes (§17); ausente: sin categoría"
+          },
+          "categoriaConfianza": {
+            "description": "0 a 1; null si la puso un agente",
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "categoriaOrigen": {
+            "enum": [
+              "asistente",
+              "agente"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "clienteResumen": {
             "$ref": "#/components/schemas/ClienteResumenConversacion",
@@ -5148,6 +5750,20 @@
         },
         "type": "object"
       },
+      "CuerpoVersion": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
       "CuerpoWebhook": {
         "additionalProperties": false,
         "properties": {
@@ -5549,6 +6165,103 @@
           "estado",
           "sha256",
           "urlDescarga"
+        ],
+        "type": "object"
+      },
+      "EfectoAsistente": {
+        "additionalProperties": false,
+        "properties": {
+          "mes": {
+            "type": "string"
+          },
+          "porCategoria": {
+            "items": {
+              "$ref": "#/components/schemas/EfectoCategoria"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "primeraRespuestaPromedioAntesSeg": {
+            "description": "Lo mismo en los 30 días antes de activar el asistente",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "primeraRespuestaPromedioSeg": {
+            "description": "Del primer mensaje del cliente a la primera respuesta (persona o asistente)",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "resueltasSinPersona": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "totalAtendidas": {
+            "description": "Conversaciones creadas en el mes que el asistente clasificó",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mes",
+          "primeraRespuestaPromedioSeg",
+          "primeraRespuestaPromedioAntesSeg",
+          "resueltasSinPersona",
+          "totalAtendidas",
+          "porCategoria"
+        ],
+        "type": "object"
+      },
+      "EfectoCategoria": {
+        "additionalProperties": false,
+        "properties": {
+          "categoriaId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "primeraRespuestaPromedioSeg": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "resueltasSinPersona": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "tono": {
+            "enum": [
+              "info",
+              "error",
+              "ok",
+              "aviso",
+              "neutro"
+            ],
+            "type": "string"
+          },
+          "total": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "categoriaId",
+          "nombre",
+          "tono",
+          "total",
+          "resueltasSinPersona",
+          "primeraRespuestaPromedioSeg"
         ],
         "type": "object"
       },
@@ -6175,6 +6888,88 @@
         ],
         "type": "object"
       },
+      "EntradaActualizarCategoriaMensajes": {
+        "additionalProperties": false,
+        "properties": {
+          "colaId": {
+            "format": "int64",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "condicion": {
+            "enum": [
+              "si_hay_falla",
+              "solo_verificados"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "descripcion": {
+            "maxLength": 300,
+            "type": "string"
+          },
+          "manualIds": {
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "maxItems": 10,
+            "type": [
+              "array",
+              "null"
+            ],
+            "uniqueItems": true
+          },
+          "modo": {
+            "enum": [
+              "responde_solo",
+              "sugiere"
+            ],
+            "type": "string"
+          },
+          "nombre": {
+            "maxLength": 40,
+            "minLength": 1,
+            "type": "string"
+          },
+          "slaPrimeraRespuestaMin": {
+            "format": "int32",
+            "maximum": 10080,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tono": {
+            "enum": [
+              "info",
+              "error",
+              "ok",
+              "aviso",
+              "neutro"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "nombre",
+          "tono",
+          "modo"
+        ],
+        "type": "object"
+      },
       "EntradaActualizarContactoIris": {
         "additionalProperties": false,
         "properties": {
@@ -6283,8 +7078,20 @@
             "maxLength": 500,
             "type": "string"
           },
+          "esperaMin": {
+            "format": "int32",
+            "maximum": 60,
+            "minimum": 1,
+            "type": "integer"
+          },
           "fuentes": {
             "$ref": "#/components/schemas/FuentesAsistente"
+          },
+          "maxTurnos": {
+            "format": "int32",
+            "maximum": 20,
+            "minimum": 2,
+            "type": "integer"
           },
           "modelo": {
             "maxLength": 200,
@@ -6296,6 +7103,37 @@
               "boton"
             ],
             "type": "string"
+          },
+          "modoAutonomo": {
+            "description": "Con autonomoDisponible false solo nunca (422 autonomo_no_disponible)",
+            "enum": [
+              "nunca",
+              "sin_nadie",
+              "siempre_primero"
+            ],
+            "type": "string"
+          },
+          "perfiles": {
+            "description": "Reemplaza la lista; el primero es «defecto»",
+            "items": {
+              "$ref": "#/components/schemas/PerfilAsistente"
+            },
+            "maxItems": 10,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "porCola": {
+            "description": "Reemplaza la lista ([] la vacía)",
+            "items": {
+              "$ref": "#/components/schemas/AccionesCola"
+            },
+            "maxItems": 50,
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "precioEntradaMillon": {
             "maxLength": 20,
@@ -6970,6 +7808,30 @@
         "required": [
           "nombre",
           "svg"
+        ],
+        "type": "object"
+      },
+      "EntradaCategorizar": {
+        "additionalProperties": false,
+        "properties": {
+          "categoriaId": {
+            "description": "null la quita",
+            "format": "int64",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "categoriaId",
+          "version"
         ],
         "type": "object"
       },
@@ -10437,6 +11299,23 @@
         ],
         "type": "object"
       },
+      "EntradaProbarMensaje": {
+        "additionalProperties": false,
+        "properties": {
+          "ajustes": {
+            "$ref": "#/components/schemas/AjustesPrueba"
+          },
+          "texto": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "texto"
+        ],
+        "type": "object"
+      },
       "EntradaProgramarOrden": {
         "additionalProperties": false,
         "properties": {
@@ -11879,10 +12758,22 @@
           "activo": {
             "type": "boolean"
           },
+          "autonomoDisponible": {
+            "description": "false: el servidor todavía no actúa solo",
+            "type": "boolean"
+          },
           "modo": {
             "enum": [
               "automatico",
               "boton"
+            ],
+            "type": "string"
+          },
+          "modoAutonomo": {
+            "enum": [
+              "nunca",
+              "sin_nadie",
+              "siempre_primero"
             ],
             "type": "string"
           },
@@ -13929,6 +14820,33 @@
         ],
         "type": "object"
       },
+      "LimitesAsistente": {
+        "additionalProperties": false,
+        "properties": {
+          "diasAdelanteMax": {
+            "description": "Hasta cuántos días adelante agenda una visita",
+            "format": "int32",
+            "maximum": 14,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "prioridadMaxima": {
+            "description": "La mayor prioridad de un ticket que crea solo",
+            "enum": [
+              "baja",
+              "media",
+              "alta",
+              "critica"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "prioridadMaxima",
+          "diasAdelanteMax"
+        ],
+        "type": "object"
+      },
       "LineaCotizacion": {
         "additionalProperties": false,
         "properties": {
@@ -14110,6 +15028,31 @@
               "$ref": "#/components/schemas/Canal"
             },
             "type": "array"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
+      "ListaCategoriasMensajes": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/CategoriaMensajes"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "nextCursor": {
             "type": [
@@ -14950,10 +15893,11 @@
             "$ref": "#/components/schemas/AdjuntoMensaje"
           },
           "automatico": {
-            "description": "Saliente sin autor: el bot o la respuesta de fuera de horario",
+            "description": "Saliente sin autor: el bot, la respuesta de fuera de horario o (3b) el asistente de IA",
             "enum": [
               "bot",
-              "fuera_de_horario"
+              "fuera_de_horario",
+              "asistente"
             ],
             "type": [
               "string",
@@ -14963,6 +15907,16 @@
           "autor": {
             "$ref": "#/components/schemas/UsuarioRef",
             "description": "Saliente y nota; ausente en entrante, sistema y respuestas automáticas"
+          },
+          "autorTipo": {
+            "description": "Quién lo escribió (§17.4)",
+            "enum": [
+              "cliente",
+              "persona",
+              "asistente_ia",
+              "sistema"
+            ],
+            "type": "string"
           },
           "conversacionId": {
             "format": "int64",
@@ -15134,6 +16088,80 @@
           "cuerpo",
           "adjuntos",
           "creadoEn"
+        ],
+        "type": "object"
+      },
+      "MensajeProbado": {
+        "additionalProperties": false,
+        "properties": {
+          "acciones": {
+            "description": "Solo descritas: no se ejecuta nada",
+            "items": {
+              "$ref": "#/components/schemas/AccionDescrita"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "categoria": {
+            "$ref": "#/components/schemas/CategoriaProbada"
+          },
+          "confianza": {
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "fuentes": {
+            "items": {
+              "$ref": "#/components/schemas/FuenteSugerencia"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "haria": {
+            "enum": [
+              "responde_solo",
+              "sugiere",
+              "pasa_a_persona"
+            ],
+            "type": "string"
+          },
+          "motivo": {
+            "enum": [
+              "modo_nunca",
+              "categoria_sugiere",
+              "sin_falla",
+              "sin_verificar",
+              "pide_persona",
+              "enojo",
+              "sin_respuesta"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "respuesta": {
+            "description": "Lo que respondería o sugeriría; null si pasa a una persona",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "categoria",
+          "confianza",
+          "haria",
+          "motivo",
+          "respuesta",
+          "fuentes",
+          "acciones"
         ],
         "type": "object"
       },
@@ -19117,6 +20145,50 @@
         ],
         "type": "object"
       },
+      "PerfilAsistente": {
+        "additionalProperties": false,
+        "properties": {
+          "acciones": {
+            "$ref": "#/components/schemas/AccionesAsistente"
+          },
+          "codigo": {
+            "description": "«defecto» el primero; se usa en horarios.franjas[].perfil",
+            "pattern": "^[a-z][a-z0-9_]{1,29}$",
+            "type": "string"
+          },
+          "limites": {
+            "$ref": "#/components/schemas/LimitesAsistente"
+          },
+          "nombre": {
+            "maxLength": 40,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "codigo",
+          "nombre",
+          "acciones",
+          "limites"
+        ],
+        "type": "object"
+      },
+      "PerfilPrueba": {
+        "additionalProperties": false,
+        "properties": {
+          "acciones": {
+            "$ref": "#/components/schemas/AccionesAsistente"
+          },
+          "limites": {
+            "$ref": "#/components/schemas/LimitesAsistente"
+          }
+        },
+        "required": [
+          "acciones",
+          "limites"
+        ],
+        "type": "object"
+      },
       "Periodo": {
         "additionalProperties": false,
         "properties": {
@@ -19206,6 +20278,7 @@
           "contratos.firmar",
           "conversaciones.asignar",
           "conversaciones.asociar",
+          "conversaciones.categorizar",
           "conversaciones.configurar",
           "conversaciones.etiquetar",
           "conversaciones.iniciar",
@@ -24730,10 +25803,11 @@
         "additionalProperties": false,
         "properties": {
           "automatico": {
-            "description": "Saliente sin autor: el bot o la respuesta de fuera de horario",
+            "description": "Saliente sin autor: el bot, la respuesta de fuera de horario o (3b) el asistente de IA",
             "enum": [
               "bot",
-              "fuera_de_horario"
+              "fuera_de_horario",
+              "asistente"
             ],
             "type": [
               "string",
@@ -34802,6 +35876,641 @@
         "x-permiso": "mensajeria.asistente_configurar"
       }
     },
+    "/api/v1/mensajeria/asistente/categorias": {
+      "get": {
+        "description": "Permiso: `conversaciones.ver`. Por `orden` («Otro» al final). La primera vez se siembran las iniciales. `nextCursor` siempre null.",
+        "operationId": "listarCategoriasAsistente",
+        "parameters": [
+          {
+            "explode": false,
+            "in": "query",
+            "name": "incluirInactivas",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListaCategoriasMensajes"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Categorías de mensajes de la empresa",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "conversaciones.ver"
+      },
+      "post": {
+        "description": "Permiso: `mensajeria.asistente_configurar`. 409 `categoria_duplicada`; 422 `demasiadas_categorias` (30 activas). Evento `categoria.creada`.",
+        "operationId": "crearCategoriaAsistente",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CamposCategoriaMensajes"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoriaMensajes"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Crear una categoría de mensajes",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "mensajeria.asistente_configurar"
+      }
+    },
+    "/api/v1/mensajeria/asistente/categorias/{id}/activar": {
+      "post": {
+        "description": "Permiso: `mensajeria.asistente_configurar`.",
+        "operationId": "activarCategoriaAsistente",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoVersion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoriaMensajes"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Activar una categoría de mensajes",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "mensajeria.asistente_configurar"
+      }
+    },
+    "/api/v1/mensajeria/asistente/categorias/{id}/actualizar": {
+      "post": {
+        "description": "Permiso: `mensajeria.asistente_configurar`. Con `version` (409 `conflicto_version`); 409 `categoria_duplicada`. Evento `categoria.actualizada`.",
+        "operationId": "actualizarCategoriaAsistente",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaActualizarCategoriaMensajes"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoriaMensajes"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Editar una categoría de mensajes",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "mensajeria.asistente_configurar"
+      }
+    },
+    "/api/v1/mensajeria/asistente/categorias/{id}/desactivar": {
+      "post": {
+        "description": "Permiso: `mensajeria.asistente_configurar`. No se borran: las conversaciones ya clasificadas la conservan. «Otro» no se desactiva (422 `categoria_otro`).",
+        "operationId": "desactivarCategoriaAsistente",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoVersion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoriaMensajes"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Desactivar una categoría de mensajes",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "mensajeria.asistente_configurar"
+      }
+    },
+    "/api/v1/mensajeria/asistente/efecto": {
+      "get": {
+        "description": "Permiso: `mensajeria.asistente_configurar`. Sobre las conversaciones creadas en el mes que el asistente clasificó. `primeraRespuestaPromedioAntesSeg`: los 30 días antes de activarlo.",
+        "operationId": "efectoAsistente",
+        "parameters": [
+          {
+            "description": "YYYY-MM (por defecto el mes actual, hora de Guatemala)",
+            "explode": false,
+            "in": "query",
+            "name": "mes",
+            "schema": {
+              "description": "YYYY-MM (por defecto el mes actual, hora de Guatemala)",
+              "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EfectoAsistente"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Efecto del asistente en un mes (primera respuesta y resueltas sin persona)",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "mensajeria.asistente_configurar"
+      }
+    },
     "/api/v1/mensajeria/asistente/estado": {
       "get": {
         "description": "Permiso: `conversaciones.sugerencias`. Para decidir si el panel muestra «Sugerir». Sin proveedor, URL, clave ni uso.",
@@ -35142,6 +36851,119 @@
           }
         ],
         "summary": "Probar la conexión con el proveedor de IA",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "mensajeria.asistente_configurar"
+      }
+    },
+    "/api/v1/mensajeria/asistente/probar-mensaje": {
+      "post": {
+        "description": "Permiso: `mensajeria.asistente_configurar`. Con los ajustes del formulario sin guardar (lo que falta sale de lo guardado). **No ejecuta nada**: las acciones solo se describen; no toca conversaciones ni Argos. Cuenta para el tope (422 `tope_alcanzado`) y para los 10 pedidos por minuto (429 `demasiados_pedidos`). 422 `sin_configurar`; 502 `proveedor_no_responde`, `proveedor_error`, `clave_invalida`, `proveedor_redirige`, `rechazo_modelo`, `respuesta_invalida`.",
+        "operationId": "probarMensajeAsistente",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaProbarMensaje"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MensajeProbado"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "«Pruébalo antes de guardar»: qué haría el asistente con un mensaje",
         "tags": [
           "mensajeria"
         ],
@@ -40964,6 +42786,18 @@
             }
           },
           {
+            "description": "Categoría de mensajes (§17); 0 = todas",
+            "explode": false,
+            "in": "query",
+            "name": "categoriaId",
+            "schema": {
+              "description": "Categoría de mensajes (§17); 0 = todas",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
             "explode": false,
             "in": "query",
             "name": "estado",
@@ -42988,6 +44822,129 @@
           "mensajeria"
         ],
         "x-permiso": "conversaciones.registrar_boleta"
+      }
+    },
+    "/api/v1/mensajeria/conversaciones/{id}/categorizar": {
+      "post": {
+        "description": "Permiso: `conversaciones.categorizar`. `categoriaId: null` la quita. Queda `categoriaOrigen: agente` y el asistente no la cambia hasta que se resuelva y se reabra. Sin asignar y con cola en la categoría: pasa a esa cola. El SLA de la categoría gana sobre el de la cola. 422 `categoria_inactiva`. Evento `conversacion.categorizada`.",
+        "operationId": "categorizarConversacion",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCategorizar"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversacionClienteDetalle"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Corregir la categoría de una conversación",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "conversaciones.categorizar"
       }
     },
     "/api/v1/mensajeria/conversaciones/{id}/coincidencias": {
