@@ -17,9 +17,13 @@ const M = "/api/v1/mensajeria";
 export const leerBoletas = async (conversacionId: number, signal?: AbortSignal) =>
     (await resolver(api().GET(`${M}/conversaciones/{id}/boletas`, { params: { path: { id: conversacionId } }, signal }))).data ?? [];
 export const leerBoleta = (id: string, signal?: AbortSignal) => resolver(api().GET(`${M}/boletas/{id}`, { params: { path: { id } }, signal }));
-/** Repetir con la misma clave es seguro (la idempotencia la da el comprobante), también tras vincular. */
-export const aprobarBoleta = (id: string, nota: string, clave: string) =>
-    resolver(api().POST(`${M}/boletas/{id}/aprobar`, { params: { path: { id }, header: cabeceraIdem(clave) }, body: nota ? { nota } : {} }));
+/**
+ * `montoEsperado` es el monto que la persona vio y confirmó en el diálogo: si ya no es el de la
+ * boleta o el del comprobante en Argos, el servidor no aprueba nada y responde 409 `monto_cambio`.
+ * Repetir con la misma clave es seguro (la idempotencia la da el comprobante), también tras vincular.
+ */
+export const aprobarBoleta = (id: string, nota: string, montoEsperado: string, clave: string) =>
+    resolver(api().POST(`${M}/boletas/{id}/aprobar`, { params: { path: { id }, header: cabeceraIdem(clave) }, body: { montoEsperado, ...(nota ? { nota } : {}) } }));
 export const rechazarBoleta = (id: string, cuerpo: Schema<"EntradaRechazarBoleta">, clave: string) =>
     resolver(api().POST(`${M}/boletas/{id}/rechazar`, { params: { path: { id }, header: cabeceraIdem(clave) }, body: cuerpo }));
 
@@ -34,9 +38,9 @@ export const CAUSAS: readonly { valor: CausaRechazo; texto: string }[] = [
 
 /** Espejo de `EntradaAprobarBoleta` (la nota queda en Argos, ≤ 400). */
 export const esquemaAprobar = z.object({ nota: z.string().trim().max(400, "Hasta 400 caracteres") });
-/** Espejo de `EntradaRechazarBoleta`: el motivo se le dice al cliente (3 a 500). */
+/** Espejo de `EntradaRechazarBoleta`: motivo de 3 a 500 (lo ve el equipo; al cliente le llega un texto fijo según la causa). */
 export const esquemaRechazar = z.object({
-    motivo: z.string().trim().min(3, "Escribe el motivo (al menos 3 letras): se le dice al cliente").max(500, "Hasta 500 caracteres"),
+    motivo: z.string().trim().min(3, "Escribe el motivo (al menos 3 letras)").max(500, "Hasta 500 caracteres"),
     causa: z.enum(["no_aparece", "monto_distinto", "ilegible", "falta_dato", "duplicado", "otro"]),
 });
 
@@ -90,7 +94,20 @@ export type ErrorBoleta = { tipo: "vincular" | "releer" | "reintentar" | "confir
 export const debeReleer = (e: { estado: number }): boolean => e.estado === 409;
 
 /** Lo que se dice cuando no se sabe si Argos llegó a registrar la decisión. */
-export const TEXTO_SIN_CONFIRMAR = "No sabemos si Argos la registró. Vuelve a intentar para confirmarlo.";
+export const TEXTO_SIN_CONFIRMAR = "Puede haberse aplicado en Argos: vuelve a intentar para confirmarlo.";
+
+/** Nota fija del diálogo de rechazar: qué le llega al cliente. */
+export const NOTA_RECHAZO = "Al cliente le llega un texto fijo según la causa. Tu motivo se agrega solo si no lleva números, puntos ni enlaces.";
+
+/**
+ * Argos avisó que el comprobante se resolvió y Iris lo está confirmando (`pendiente`), o no pudo
+ * confirmarlo tras varios intentos (`agotada`: revisarla en Argos; decidir desde aquí la sincroniza).
+ */
+export function textoConfirmacion(b: Pick<Boleta, "confirmacionArgos">): { texto: string; aviso: boolean } | null {
+    if (b.confirmacionArgos === "agotada") return { texto: "No se pudo confirmar con Argos", aviso: true };
+    if (b.confirmacionArgos === "pendiente") return { texto: "Confirmando con Argos…", aviso: false };
+    return null;
+}
 
 type ErrorConCodigo = { estado: number; codigo: string; titulo: string; detalle: string | undefined };
 

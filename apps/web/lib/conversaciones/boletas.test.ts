@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { ErrorApi } from "../api/errores";
 import { abrirEnArgos, explicarErrorAbrir, explicarNoAbrio, origenDe, urlArgosSegura } from "../integraciones/abrir-argos";
-import { debeReleer, esquemaAprobar, esquemaRechazar, estadoBoleta, explicarErrorBoleta, montoLegible, quienDecidio, TEXTO_SIN_CONFIRMAR } from "./boletas";
+import { debeReleer, esquemaAprobar, esquemaRechazar, estadoBoleta, explicarErrorBoleta, montoLegible, NOTA_RECHAZO, quienDecidio, textoConfirmacion, TEXTO_SIN_CONFIRMAR } from "./boletas";
+import { textoEvento } from "./presentacion";
 
 const error = (codigo: string, estado: number, detalle?: string) => ({ estado, codigo, titulo: "Título", detalle });
 
@@ -27,7 +28,7 @@ describe("boletas: aprobar y rechazar (B3)", () => {
     });
 
     it("Argos no respondió o no hay red: no se afirma que no quedó nada; «Reintentar» para confirmarlo", () => {
-        expect(TEXTO_SIN_CONFIRMAR).toBe("No sabemos si Argos la registró. Vuelve a intentar para confirmarlo.");
+        expect(TEXTO_SIN_CONFIRMAR).toBe("Puede haberse aplicado en Argos: vuelve a intentar para confirmarlo.");
         expect(explicarErrorBoleta(error("argos_no_disponible", 502), "aprobar")).toEqual({ tipo: "reintentar", titulo: "Argos no respondió", texto: TEXTO_SIN_CONFIRMAR });
         expect(explicarErrorBoleta(error("idempotencia_en_curso", 409), "aprobar")).toMatchObject({ tipo: "reintentar", texto: TEXTO_SIN_CONFIRMAR });
         expect(explicarErrorBoleta(error("sin_conexion", 0), "aprobar").texto).toContain(TEXTO_SIN_CONFIRMAR);
@@ -60,6 +61,24 @@ describe("boletas: aprobar y rechazar (B3)", () => {
         expect(esquemaRechazar.safeParse({ motivo: "No aparece el depósito", causa: "no_aparece" }).success).toBe(true);
         expect(esquemaRechazar.safeParse({ motivo: "x".repeat(501), causa: "otro" }).success).toBe(false);
         expect(esquemaRechazar.safeParse({ motivo: "No aparece", causa: "porque_si" }).success).toBe(false);
+    });
+
+    it("confirmación con Argos: pendiente es discreto; agotada es un aviso", () => {
+        expect(textoConfirmacion({ confirmacionArgos: null })).toBeNull();
+        expect(textoConfirmacion({ confirmacionArgos: "pendiente" })).toEqual({ texto: "Confirmando con Argos…", aviso: false });
+        expect(textoConfirmacion({ confirmacionArgos: "agotada" })).toEqual({ texto: "No se pudo confirmar con Argos", aviso: true });
+    });
+
+    it("rechazar: la nota dice qué le llega al cliente", () => {
+        expect(NOTA_RECHAZO).toBe("Al cliente le llega un texto fijo según la causa. Tu motivo se agrega solo si no lleva números, puntos ni enlaces.");
+    });
+
+    it("mensajes de sistema de la boleta en el hilo", () => {
+        expect(textoEvento({ tipo: "boleta_aprobada", actorNombre: "Ana", referencia: "BI-778812" })).toBe("Ana aprobó la boleta BI-778812");
+        expect(textoEvento({ tipo: "boleta_aprobada" })).toBe("Caja aprobó la boleta");
+        expect(textoEvento({ tipo: "boleta_rechazada", actorNombre: "Ana", detalle: "No aparece el depósito" })).toBe("Ana rechazó la boleta: No aparece el depósito");
+        expect(textoEvento({ tipo: "boleta_corregida", referencia: "BI-778812", detalle: "aprobada → rechazada" })).toBe("Argos corrigió la boleta BI-778812: aprobada → rechazada");
+        expect(textoEvento({ tipo: "boleta_sin_confirmar", referencia: "BI-778812" })).toBe("No se pudo confirmar con Argos la boleta BI-778812: revísala en Argos");
     });
 
     it("monto, estado y quién decidió", () => {
@@ -148,6 +167,35 @@ describe("abrir Argos con autologin", () => {
         expect(v.destino).toBeNull();
         expect(v.cerrada).toBe(true);
         expect(explicarNoAbrio({ abierto: false, motivo: "enlace_no_confiable" }).reintentar).toBe(false);
+    });
+
+    const pideContrasena = new ErrorApi({ estado: 403, codigo: "reautenticacion_requerida", titulo: "Re-autenticación requerida" });
+
+    it("sesión abierta desde Argos: cierra la pestaña, pide la contraseña y reintenta una vez", async () => {
+        const ventanas: ReturnType<typeof ventana>[] = [];
+        let pedidos = 0;
+        let contrasenas = 0;
+        const r = await abrirEnArgos(undefined, ARGOS, {
+            abrirVentana: () => (ventanas.push(ventana()), ventanas.at(-1) ?? null),
+            pedir: () => ((pedidos += 1), pedidos === 1 ? Promise.reject(pideContrasena) : Promise.resolve({ url: `${ARGOS}/sso/entrar#t2` })),
+            reautenticar: async () => ((contrasenas += 1), true),
+        });
+        expect(r).toEqual({ abierto: true });
+        expect([pedidos, contrasenas, ventanas.length]).toEqual([2, 1, 2]);
+        expect(ventanas[0]?.cerrada).toBe(true);
+        expect(ventanas[1]?.destino).toBe(`${ARGOS}/sso/entrar#t2`);
+    });
+
+    it("si no confirma la contraseña, no abre; y si el servidor la vuelve a pedir, no entra en un ciclo", async () => {
+        const v = ventana();
+        const cancelada = await abrirEnArgos(undefined, ARGOS, { abrirVentana: () => v, pedir: () => Promise.reject(pideContrasena), reautenticar: async () => false });
+        expect(cancelada).toEqual({ abierto: false, motivo: "sin_reautenticar" });
+        expect(v.cerrada).toBe(true);
+        expect(explicarNoAbrio({ abierto: false, motivo: "sin_reautenticar" }).reintentar).toBe(true);
+        let pedidos = 0;
+        const otraVez = await abrirEnArgos(undefined, ARGOS, { abrirVentana: ventana, pedir: () => ((pedidos += 1), Promise.reject(pideContrasena)), reautenticar: async () => true });
+        expect(otraVez).toEqual({ abierto: false, error: pideContrasena });
+        expect(pedidos).toBe(2);
     });
 
     it("si pedir el enlace falla, la pestaña se cierra y queda el error del servidor", async () => {

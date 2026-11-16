@@ -175,6 +175,11 @@ export function textoEvento(e: EventoSistema): string {
             return `${e.actorNombre ? actor : "Caja"} aprobó la boleta${ref ? ` ${ref}` : ""}`;
         case "boleta_rechazada":
             return `${e.actorNombre ? actor : "Caja"} rechazó la boleta${ref ? ` ${ref}` : ""}${e.detalle ? `: ${e.detalle}` : ""}`;
+        case "boleta_corregida":
+            // Argos dijo otro estado que el guardado y gana Argos (`detalle`: «aprobada → rechazada»).
+            return `Argos corrigió la boleta${ref ? ` ${ref}` : ""}${e.detalle ? `: ${e.detalle}` : ""}`;
+        case "boleta_sin_confirmar":
+            return `No se pudo confirmar con Argos la boleta${ref ? ` ${ref}` : ""}: revísala en Argos`;
         case "boleta_fallida":
             return `Argos no aceptó la boleta${e.detalle ? `: ${e.detalle}` : ""}`;
         case "promesa_creada":

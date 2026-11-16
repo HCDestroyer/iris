@@ -20,7 +20,9 @@ import {
     leerBoletas,
     montoLegible,
     quienDecidio,
+    NOTA_RECHAZO,
     rechazarBoleta,
+    textoConfirmacion,
     type AccionBoleta,
     type Boleta,
     type CausaRechazo,
@@ -86,7 +88,7 @@ function useBoletas(conversacionId: number) {
  * quien tiene `boletas.aprobar` / `boletas.rechazar`. Argos decide con el usuario de Argos
  * vinculado a quien pulsa; el asistente de IA nunca.
  */
-export function BoletasConversacion({ conv }: { conv: ConversacionDetalle }) {
+export function BoletasConversacion({ conv, senal = 0 }: { conv: ConversacionDetalle; senal?: number }) {
     const { puede } = useSesion();
     const { lista, refrescar, reintentar, aplicar } = useBoletas(conv.id);
     const [dialogo, setDialogo] = useState<{ boleta: Boleta; accion: AccionBoleta } | null>(null);
@@ -95,13 +97,15 @@ export function BoletasConversacion({ conv }: { conv: ConversacionDetalle }) {
     /** Boletas cuyo estado no se pudo confirmar tras un 409: no se deciden hasta volver a leerlas. */
     const [sinConfirmar, setSinConfirmar] = useState<readonly string[]>([]);
     const [releyendo, setReleyendo] = useState<string | null>(null);
-    // Un mensaje de sistema (boleta registrada, aprobada, rechazada) sube la versión: se releen.
-    const version = useRef(conv.version);
+    // Se releen cuando cambia la versión de la conversación o llega por el feed un mensaje de sistema
+    // de una boleta (registrada, aprobada, rechazada, corregida, sin confirmar).
+    const visto = useRef(`${conv.version}:${senal}`);
     useEffect(() => {
-        if (version.current === conv.version) return;
-        version.current = conv.version;
+        const actual = `${conv.version}:${senal}`;
+        if (visto.current === actual) return;
+        visto.current = actual;
         void refrescar();
-    }, [conv.version, refrescar]);
+    }, [conv.version, senal, refrescar]);
 
     const confirmada = (b: Boleta) => {
         aplicar(b);
@@ -232,6 +236,7 @@ type PropsTarjeta = {
 function TarjetaBoleta({ boleta: b, porOtro, sinConfirmar, releyendo, alReleer, puedeAprobar, puedeRechazar, alDecidir }: PropsTarjeta) {
     const estado = estadoBoleta(b);
     const quien = quienDecidio(b);
+    const confirmacion = textoConfirmacion(b);
     return (
         <li data-boleta={b.id} data-estado={b.estado} className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3">
             <div className="flex min-w-0 items-start gap-2.5">
@@ -260,6 +265,12 @@ function TarjetaBoleta({ boleta: b, porOtro, sinConfirmar, releyendo, alReleer, 
                     <InsigniaEstado tono={estado.tono} icono={ICONO_ESTADO[b.estado]} texto={estado.texto} />
                 </div>
             )}
+            {confirmacion && !sinConfirmar ? (
+                <p className={cn("flex items-start gap-1.5 text-xs", confirmacion.aviso ? "font-medium text-warning" : "text-muted-foreground")} data-confirmacion={b.confirmacionArgos}>
+                    {confirmacion.aviso ? <TriangleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0" /> : <Clock aria-hidden className="mt-0.5 size-3.5 shrink-0" />}
+                    <span className="min-w-0 [overflow-wrap:anywhere]">{confirmacion.aviso ? `${confirmacion.texto}. Revísala en Argos, o decide aquí para sincronizarla.` : confirmacion.texto}</span>
+                </p>
+            ) : null}
             {porOtro ? (
                 <p role="status" className="flex items-start gap-1.5 text-xs font-medium text-foreground" data-slot="decidida-por-otro">
                     <Info aria-hidden className="mt-0.5 size-3.5 shrink-0 text-info" />
@@ -330,7 +341,8 @@ function DialogoDecidir({ boleta, accion, cliente, cerrar, alDecidida, alDecidid
     async function enviar(d: Valores) {
         setError(null);
         try {
-            const b = aprobar ? await aprobarBoleta(boleta.id, d.nota.trim(), clave.actual()) : await rechazarBoleta(boleta.id, { motivo: d.motivo.trim(), causa: d.causa }, clave.actual());
+            // Va el monto que se ve en este diálogo: si ya no es ese, el servidor no aprueba (409 `monto_cambio`).
+            const b = aprobar ? await aprobarBoleta(boleta.id, d.nota.trim(), boleta.monto, clave.actual()) : await rechazarBoleta(boleta.id, { motivo: d.motivo.trim(), causa: d.causa }, clave.actual());
             clave.renovar();
             // El monto del aviso es el que registró el servidor, no el que se veía aquí.
             exito(b);
@@ -387,7 +399,7 @@ function DialogoDecidir({ boleta, accion, cliente, cerrar, alDecidida, alDecidid
                         </>
                     ) : (
                         <>
-                            <CampoArea etiqueta="Motivo" rows={3} maxLength={500} ayuda="Se le dice al cliente." error={errores.motivo?.message} {...form.register("motivo")} />
+                            <CampoArea etiqueta="Motivo" rows={3} maxLength={500} ayuda="Lo ve tu equipo en la conversación." error={errores.motivo?.message} {...form.register("motivo")} />
                             <CampoSelector etiqueta="Causa" error={errores.causa?.message} {...form.register("causa")}>
                                 {CAUSAS.map((c) => (
                                     <option key={c.valor} value={c.valor}>
@@ -395,6 +407,9 @@ function DialogoDecidir({ boleta, accion, cliente, cerrar, alDecidida, alDecidid
                                     </option>
                                 ))}
                             </CampoSelector>
+                            <p className="text-xs text-muted-foreground" data-slot="nota-rechazo">
+                                {NOTA_RECHAZO}
+                            </p>
                         </>
                     )}
                     {error ? (

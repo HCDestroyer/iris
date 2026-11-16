@@ -80,6 +80,8 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
     const [errorAnteriores, setErrorAnteriores] = useState(false);
     const [pendientes, setPendientes] = useState<Pendiente[]>([]);
     const [intento, setIntento] = useState(0);
+    // Sube con cada mensaje de sistema de una boleta (registrada, aprobada, corregida…): la ficha las relee.
+    const [senalBoletas, setSenalBoletas] = useState(0);
 
     const estadoMensajes = lecturaMensajes.intento === intento ? lecturaMensajes.estado : "cargando";
     useEffect(() => {
@@ -153,6 +155,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                     setPendientes((p) => p.filter((x) => x.id !== m.id));
                     // Un evento de sistema puede traer un vínculo nuevo (ticket, orden…).
                     if (m.direccion === "sistema") void refrescarDetalle();
+                    if (m.direccion === "sistema" && (m.evento?.tipo ?? "").startsWith("boleta_")) setSenalBoletas((n) => n + 1);
                 }
                 if (e.conversacion && e.conversacion.id === id) aplicarRef.current(e.conversacion);
             }),
@@ -250,6 +253,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
             recargar={refrescarDetalle}
             alUsarTexto={(t) => usarTexto.current?.(t)}
             asistente={asistente.estado}
+            senalBoletas={senalBoletas}
         />
     );
     return (

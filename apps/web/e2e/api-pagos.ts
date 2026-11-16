@@ -16,7 +16,9 @@ const json = (route: Route, cuerpo: unknown, status = 200) => route.fulfill({ st
 const problema = (route: Route, p: Problema) => route.fulfill({ status: p.status, contentType: "application/problem+json", body: JSON.stringify(p) });
 const P = (codigo: string, status: number, title: string, extra: Partial<Problema> = {}): Problema => ({ type: `urn:iris:problema:${codigo}`, title, status, ...extra });
 
+/** `boletas.*` solo los tienen `admin` y `caja`; quien atiende la bandeja solo puede abrir Argos. */
 export const PERMISOS_PAGOS: Permiso[] = ["boletas.aprobar", "boletas.rechazar", "integraciones.abrir_argos"];
+export const PERMISOS_ABRIR_ARGOS: Permiso[] = ["integraciones.abrir_argos"];
 
 type CodigoDecidir = "argos_sin_permiso" | "argos_sin_empresa" | "argos_usuario_inactivo" | "otra_persona_decidio" | "argos_no_disponible" | "argos_sin_aprobacion" | "monto_cambio" | "comprobante_no_es_de_iris";
 type CodigoAbrir = "conector_apagado" | "argos_no_disponible" | "demasiados_intentos";
@@ -36,6 +38,10 @@ export type OpcionesPagos = {
     relecturaFalla?: number;
     /** El enlace que devuelve `abrir` no es del panel de Argos del conector (otro sitio, o `http` por la red). */
     enlace?: "otro_sitio" | "http";
+    /** Sesión abierta desde Argos: `abrir` responde 403 `reautenticacion_requerida` hasta confirmar la contraseña. */
+    sesionSso?: boolean;
+    /** La boleta pendiente trae este `confirmacionArgos`. */
+    confirmacionArgos?: "pendiente" | "agotada";
 };
 
 const ESTADO_DE: Record<CodigoDecidir, number> = {
@@ -65,14 +71,15 @@ const boleta = (datos: Partial<Boleta> & Pick<Boleta, "id" | "referencia" | "mon
     verificadoPorNombre: null,
     decididaEn: null,
     avisoCliente: null,
+    confirmacionArgos: null,
     ...datos,
 });
 
-export function apiPagos(actor: () => { id: number; nombre: string }, opciones: OpcionesPagos | undefined) {
+export function apiPagos(actor: () => { id: number; nombre: string }, opciones: OpcionesPagos | undefined, reautenticado: () => boolean = () => true) {
     const activo = opciones !== undefined;
     const boletas: Boleta[] = activo
         ? [
-              boleta({ id: BOLETA_PENDIENTE, referencia: "BI-778812", monto: "250.00" }),
+              boleta({ id: BOLETA_PENDIENTE, referencia: "BI-778812", monto: "250.00", confirmacionArgos: opciones.confirmacionArgos ?? null }),
               boleta({
                   id: "0193d000-0000-7000-8000-000000000002",
                   referencia: "BI-701144",
@@ -96,6 +103,7 @@ export function apiPagos(actor: () => { id: number; nombre: string }, opciones: 
     const decisiones: { ruta: string; cuerpo: unknown; idempotencia: string | undefined }[] = [];
     const aperturas: { cuerpo: unknown; idempotencia: string | undefined }[] = [];
     const clavesAbrir = new Set<string>();
+    let rechazadasPorSesion = 0;
 
     async function manejar(x: { route: Route; metodo: string; ruta: string; cuerpo: unknown; idempotencia: string | undefined; puede: (p: Permiso) => boolean }): Promise<boolean> {
         const { route, metodo, ruta, idempotencia, puede } = x;
@@ -104,6 +112,10 @@ export function apiPagos(actor: () => { id: number; nombre: string }, opciones: 
 
         if (ruta === "/api/v1/integraciones/argosisp/abrir" && metodo === "POST") {
             if (!puede("integraciones.abrir_argos")) return prohibido();
+            if (opciones?.sesionSso && !reautenticado()) {
+                rechazadasPorSesion += 1;
+                return (await problema(route, P("reautenticacion_requerida", 403, "Re-autenticación requerida", { detail: "Entraste desde Argos: confirma tu contraseña antes de esta acción" })), true);
+            }
             aperturas.push({ cuerpo, idempotencia });
             if (idempotencia && clavesAbrir.has(idempotencia)) return (await problema(route, P("idempotencia_no_repetible", 409, "Pide otro enlace con otra clave")), true);
             if (idempotencia) clavesAbrir.add(idempotencia);
@@ -160,6 +172,10 @@ export function apiPagos(actor: () => { id: number; nombre: string }, opciones: 
             return (await problema(route, P(codigo, ESTADO_DE[codigo], codigo === "argos_no_disponible" ? "Argos no respondió" : "No se pudo decidir")), true);
         }
         if (b.estado !== "registrada") return (await problema(route, P("boleta_ya_decidida", 409, "La boleta ya está decidida")), true);
+        // El monto que la persona confirmó ya no es el de la boleta: no se aprueba nada.
+        if (m[2] === "aprobar" && cuerpo.montoEsperado !== undefined && cuerpo.montoEsperado !== b.monto) {
+            return (await problema(route, { ...P("monto_cambio", 409, "El monto de la boleta cambió"), montoActual: b.monto } as Problema), true);
+        }
         if (m[2] === "rechazar" && String(cuerpo.motivo ?? "").trim().length < 3) {
             return (await problema(route, P("validacion", 422, "Datos inválidos", { errors: [{ field: "body.motivo", message: "Entre 3 y 500 caracteres" }] })), true);
         }
@@ -176,12 +192,13 @@ export function apiPagos(actor: () => { id: number; nombre: string }, opciones: 
                 decididaPor: { id: yo.id, nombre: yo.nombre },
                 decididaEn: new Date().toISOString(),
                 avisoCliente: "enviado",
+                confirmacionArgos: null,
             } satisfies Partial<Boleta>,
         );
         return (await json(route, b), true);
     }
 
-    return { manejar, boletas, decisiones, aperturas, activo, sinPermisos: opciones?.sinPermisos ?? [] };
+    return { manejar, boletas, decisiones, aperturas, activo, sinPermisos: opciones?.sinPermisos ?? [], rechazadasPorSesion: () => rechazadasPorSesion };
 }
 
 export type ApiPagos = ReturnType<typeof apiPagos>;

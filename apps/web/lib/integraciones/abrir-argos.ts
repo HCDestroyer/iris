@@ -1,6 +1,8 @@
 import type { Schema } from "@iris/contratos";
-import { api, nuevaClaveIdempotencia, resolver } from "../api/cliente";
+import type { ClienteIris } from "@iris/contratos";
+import { crearClienteIris, nuevaClaveIdempotencia, resolver } from "../api/cliente";
 import { ErrorApi } from "../api/errores";
+import { CODIGO_REAUTENTICACION, solicitarReautenticacion } from "../api/reautenticacion";
 
 /*
  * «Abrir en Argos» y «Vincular mi usuario de Argos»: autologin Iris → Argos (contrato con Argos
@@ -49,25 +51,43 @@ export function urlArgosSegura(url: string, origenEsperado: string | null): stri
     return u.toString();
 }
 
+/*
+ * Cliente propio, que **no** pide la contraseña por su cuenta ante un 403 `reautenticacion_requerida`
+ * (sesión abierta desde Argos): mientras el cliente normal espera el diálogo, la pestaña en blanco
+ * de Argos quedaría encima de Iris. Aquí el 403 vuelve a `abrirEnArgos`, que cierra esa pestaña,
+ * pide la contraseña y reintenta.
+ */
+let sinReautenticar: ClienteIris | undefined;
+const cliente = () => (sinReautenticar ??= crearClienteIris({ reautenticar: () => Promise.resolve(false) }));
+
 /** Cada clic lleva una `Idempotency-Key` nueva: la respuesta no se guarda (409 `idempotencia_no_repetible`). */
 export function pedirEnlaceArgos(destino?: DestinoArgos) {
-    return resolver(api().POST("/api/v1/integraciones/argosisp/abrir", { params: { header: { "Idempotency-Key": nuevaClaveIdempotencia() } }, body: destino ? { destino } : {} }));
+    return resolver(cliente().POST("/api/v1/integraciones/argosisp/abrir", { params: { header: { "Idempotency-Key": nuevaClaveIdempotencia() } }, body: destino ? { destino } : {} }));
 }
 
 /** Por qué no se abrió sin llegar a pedir (o a usar) el enlace. */
-export type MotivoNoAbrio = "emergentes_bloqueadas" | "origen_desconocido" | "enlace_no_confiable";
+export type MotivoNoAbrio = "emergentes_bloqueadas" | "origen_desconocido" | "enlace_no_confiable" | "sin_reautenticar";
 export type ResultadoAbrir = { abierto: true } | { abierto: false; motivo: MotivoNoAbrio } | { abierto: false; error: unknown };
 
 type Ventana = { opener: unknown; location: { replace: (url: string) => void }; close: () => void };
-type Dependencias = { abrirVentana?: () => Ventana | null; pedir?: (destino?: DestinoArgos) => Promise<{ url: string }> };
+type Dependencias = {
+    abrirVentana?: () => Ventana | null;
+    pedir?: (destino?: DestinoArgos) => Promise<{ url: string }>;
+    /** Pide la contraseña de Iris (sesión abierta desde Argos); `true` si se confirmó. */
+    reautenticar?: () => Promise<boolean>;
+};
 
 /**
  * Pide el enlace y lo abre en otra pestaña sin `opener`. La pestaña se abre **en el mismo clic**
  * (en blanco) y se manda al enlace cuando llega: si se abriera después de esperar al servidor, el
  * navegador la bloquearía. Si el navegador no deja abrirla, **no se pide el ticket** (quedaría un
  * ticket vivo sin usar). Si el enlace no es del panel de Argos del conector, la pestaña se cierra.
+ *
+ * En una sesión abierta desde Argos el servidor pide confirmar la contraseña (403
+ * `reautenticacion_requerida`): la pestaña se cierra, se pide con el diálogo del panel y, si se
+ * confirma, se reintenta **una vez** (el clic en «Confirmar» todavía cuenta como gesto para abrirla).
  */
-export async function abrirEnArgos(destino: DestinoArgos | undefined, origenEsperado: string | null, dep: Dependencias = {}): Promise<ResultadoAbrir> {
+export async function abrirEnArgos(destino: DestinoArgos | undefined, origenEsperado: string | null, dep: Dependencias = {}, reintento = false): Promise<ResultadoAbrir> {
     if (origenEsperado === null) return { abierto: false, motivo: "origen_desconocido" };
     const abrirVentana = dep.abrirVentana ?? (() => window.open("about:blank", "_blank") as Ventana | null);
     const pestana = abrirVentana();
@@ -84,13 +104,18 @@ export async function abrirEnArgos(destino: DestinoArgos | undefined, origenEspe
         return { abierto: true };
     } catch (error) {
         pestana.close();
+        if (!reintento && error instanceof ErrorApi && error.estado === 403 && error.codigo === CODIGO_REAUTENTICACION) {
+            if (await (dep.reautenticar ?? solicitarReautenticacion)()) return abrirEnArgos(destino, origenEsperado, dep, true);
+            return { abierto: false, motivo: "sin_reautenticar" };
+        }
         return { abierto: false, error };
     }
 }
 
 const TEXTO_MOTIVO: Record<MotivoNoAbrio, { texto: string; reintentar: boolean }> = {
     emergentes_bloqueadas: { texto: "Permite las ventanas emergentes para abrir Argos.", reintentar: true },
-    origen_desconocido: { texto: "Iris no pudo comprobar la dirección del panel de Argos, así que no lo abrió. Un administrador la revisa en Administración › Integraciones.", reintentar: false },
+    origen_desconocido: { texto: "No hay un conector con Argos activo con la dirección de su panel, así que Iris no lo abrió. Un administrador lo revisa en Administración › Integraciones.", reintentar: false },
+    sin_reautenticar: { texto: "Entraste desde Argos: para abrir Argos desde aquí confirma tu contraseña de Iris.", reintentar: true },
     enlace_no_confiable: { texto: "El enlace no es del panel de Argos de tu conector, así que Iris no lo abrió. Avisa a un administrador.", reintentar: false },
 };
 

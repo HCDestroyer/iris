@@ -1,6 +1,6 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { ADMIN, AGENTE_CONV, CONSULTA, conSesion, simularApi } from "./api-falsa";
+import { ADMIN, AGENTE_CONV, CONSULTA, CONTRASENA, conSesion, simularApi } from "./api-falsa";
 import { BOLETA_PENDIENTE, URL_ARGOS, type OpcionesPagos } from "./api-pagos";
 import { abrirCuenta, esTelefono } from "./ayudas";
 import { elegirOpcion } from "./controles";
@@ -16,11 +16,11 @@ import { buscarDesbordes, esperarSinDesbordes } from "./desbordes";
 const carpeta = process.env.IRIS_CAPTURAS ?? path.join("test-results", "capturas-boletas");
 const captura = (page: Page, nombre: string) => page.screenshot({ path: path.join(carpeta, `${nombre}-${test.info().project.name}.png`) });
 
-async function abrir(page: Page, pagos: OpcionesPagos = {}, ruta = "/conversaciones?c=42", correo = ADMIN.correo) {
+async function abrir(page: Page, pagos: OpcionesPagos = {}, ruta = "/conversaciones?c=42", correo = ADMIN.correo, conConector = true) {
     await page.clock.setFixedTime(new Date(AHORA_CONV));
     // Argos se abre en otra pestaña: aquí responde una página de prueba, sin salir a la red.
     await page.context().route(`${URL_ARGOS}/**`, (r) => r.fulfill({ contentType: "text/html", body: "<title>Argos</title>Argos" }));
-    const api = await simularApi(page, { pagos, enlaces: { argosisp: { conectorId: 1, urlPublica: `${URL_ARGOS}/` } } });
+    const api = await simularApi(page, { pagos, enlaces: conConector ? { argosisp: { conectorId: 1, urlPublica: `${URL_ARGOS}/` } } : {} });
     await conSesion(page.context(), test.info().project.use.baseURL ?? "", correo);
     await page.goto(ruta);
     return api;
@@ -73,7 +73,8 @@ test.describe("boletas en la conversación", () => {
         await expect(b).toContainText("La aprobó Ana López (Argos).");
         await expect(b.getByRole("button")).toHaveCount(0);
         expect(api.pagos.decisiones).toHaveLength(1);
-        expect(api.pagos.decisiones[0]).toMatchObject({ ruta: `/api/v1/mensajeria/boletas/${BOLETA_PENDIENTE}/aprobar`, cuerpo: { nota: "Depósito del lunes" } });
+        // Va el monto que la persona vio en el diálogo.
+        expect(api.pagos.decisiones[0]).toMatchObject({ ruta: `/api/v1/mensajeria/boletas/${BOLETA_PENDIENTE}/aprobar`, cuerpo: { nota: "Depósito del lunes", montoEsperado: "250.00" } });
         expect(api.pagos.decisiones[0]?.idempotencia).toBeTruthy();
     });
 
@@ -83,7 +84,8 @@ test.describe("boletas en la conversación", () => {
         await b.getByRole("button", { name: "Rechazar" }).click();
         const d = page.getByRole("dialog", { name: "Rechazar boleta" });
         await d.getByRole("button", { name: "Rechazar boleta" }).click();
-        await expect(d.getByText("Escribe el motivo (al menos 3 letras): se le dice al cliente")).toBeVisible();
+        await expect(d.getByText("Escribe el motivo (al menos 3 letras)")).toBeVisible();
+        await expect(d.locator('[data-slot="nota-rechazo"]')).toHaveText("Al cliente le llega un texto fijo según la causa. Tu motivo se agrega solo si no lleva números, puntos ni enlaces.");
         expect(api.pagos.decisiones).toHaveLength(0);
         await d.getByRole("textbox", { name: "Motivo" }).fill("El depósito es por Q 200, no por Q 250.");
         await elegirOpcion(d.getByLabel("Causa"), "monto_distinto");
@@ -169,7 +171,7 @@ test.describe("boletas en la conversación", () => {
         const d = page.getByRole("dialog", { name: "Aprobar y registrar pago" });
         await d.getByRole("button", { name: "Aprobar y registrar pago" }).click();
         await expect(d.locator('[data-error-boleta="reintentar"]')).toContainText("Argos no respondió");
-        await expect(d.locator('[data-error-boleta="reintentar"]')).toContainText("No sabemos si Argos la registró. Vuelve a intentar para confirmarlo.");
+        await expect(d.locator('[data-error-boleta="reintentar"]')).toContainText("Puede haberse aplicado en Argos: vuelve a intentar para confirmarlo.");
         await d.getByRole("button", { name: "Reintentar" }).click();
         await expect(page.getByText("Boleta BI-778812 aprobada: pago de Q 250.00 registrado en Argos")).toBeVisible();
         expect(api.pagos.decisiones).toHaveLength(2);
@@ -232,7 +234,36 @@ test.describe("boletas en la conversación", () => {
         await d.getByRole("button", { name: "Aprobar y registrar pago" }).click();
         await expect(page.getByText("Boleta BI-778812 aprobada: pago de Q 275.00 registrado en Argos")).toBeVisible();
         await expect(b).toContainText("Q 275.00");
-        expect(api.pagos.decisiones).toHaveLength(2);
+        expect(api.pagos.decisiones.map((x) => (x.cuerpo as { montoEsperado: string }).montoEsperado)).toEqual(["250.00", "275.00"]);
+    });
+
+    test("el monto que se confirmó ya no es el de la boleta: el servidor no aprueba y se pide confirmar el nuevo", async ({ page }) => {
+        const api = await abrir(page);
+        const b = pendiente(await ficha(page));
+        await b.getByRole("button", { name: "Aprobar y registrar pago" }).click();
+        const d = page.getByRole("dialog", { name: "Aprobar y registrar pago" });
+        await expect(d.locator('[data-slot="monto-a-aprobar"]')).toHaveText("Q 250.00");
+        // Caja corrige el comprobante en Argos con el diálogo abierto.
+        const boleta = api.pagos.boletas.find((x) => x.id === BOLETA_PENDIENTE);
+        if (boleta) boleta.monto = "300.00";
+        await d.getByRole("button", { name: "Aprobar y registrar pago" }).click();
+        await expect(d.locator('[data-error-boleta="confirmar"]')).toBeVisible();
+        await expect(d.locator('[data-slot="monto-a-aprobar"]')).toHaveText("Q 300.00");
+        expect(boleta?.estado).toBe("registrada");
+        await d.getByRole("button", { name: "Aprobar y registrar pago" }).click();
+        await expect(page.getByText("Boleta BI-778812 aprobada: pago de Q 300.00 registrado en Argos")).toBeVisible();
+    });
+
+    test("Argos no confirmó la boleta: «No se pudo confirmar con Argos», con icono de aviso", async ({ page }) => {
+        await abrir(page, { confirmacionArgos: "agotada" });
+        const b = pendiente(await ficha(page));
+        const aviso = b.locator('[data-confirmacion="agotada"]');
+        await expect(aviso).toContainText("No se pudo confirmar con Argos");
+        await expect(aviso.locator("svg")).toBeVisible();
+        // Decidir desde aquí la sincroniza: los botones siguen.
+        await expect(b.getByRole("button", { name: "Aprobar y registrar pago" })).toBeEnabled();
+        await sinDesbordesAlAsentarse(page);
+        await captura(page, "boleta-sin-confirmar-argos");
     });
 
     test("sin los permisos de boletas se ve el estado, pero no los botones", async ({ page }) => {
@@ -328,12 +359,53 @@ test.describe("«Abrir en Argos» y «Vincular mi usuario de Argos»", () => {
         expect(api.pagos.aperturas).toHaveLength(0);
     });
 
-    test("sin saber cuál es el panel de Argos (sin `clientes.ver`) no abre ni pide nada", async ({ page }) => {
+    test("quien atiende, sin `clientes.ver` ni `boletas.*`, también puede vincular (los enlaces valen con `integraciones.abrir_argos`)", async ({ page }) => {
         const api = await abrir(page, {}, "/cuenta", AGENTE_CONV.correo);
         const tarjeta = page.locator("#argos");
+        const [pestana] = await Promise.all([page.waitForEvent("popup"), tarjeta.getByRole("button", { name: /Vincular mi usuario de Argos/ }).click()]);
+        await cerrarPestana(pestana);
+        await expect(tarjeta.getByRole("status")).toContainText("Argos se abrió en otra pestaña");
+        expect(api.pagos.aperturas).toHaveLength(1);
+    });
+
+    test("quien atiende ve la boleta, pero no la decide: `boletas.*` son de admin y caja", async ({ page }) => {
+        await abrir(page, {}, "/conversaciones?c=42", AGENTE_CONV.correo);
+        const b = pendiente(await ficha(page));
+        await expect(b).toContainText("Pendiente de revisar");
+        await expect(b.getByRole("button")).toHaveCount(0);
+    });
+
+    test("sin un conector con Argos activo no abre ni pide nada", async ({ page }) => {
+        const api = await abrir(page, {}, "/cuenta", ADMIN.correo, false);
+        const tarjeta = page.locator("#argos");
         await tarjeta.getByRole("button", { name: /Vincular mi usuario de Argos/ }).click();
-        await expect(tarjeta.getByRole("alert")).toContainText("Iris no pudo comprobar la dirección del panel de Argos");
+        await expect(tarjeta.getByRole("alert")).toContainText("No hay un conector con Argos activo");
         expect(api.pagos.aperturas).toHaveLength(0);
+    });
+
+    test("sesión abierta desde Argos: pide confirmar la contraseña de Iris y después abre Argos", async ({ page }) => {
+        const api = await abrir(page, { sesionSso: true }, "/cuenta");
+        const tarjeta = page.locator("#argos");
+        const boton = tarjeta.getByRole("button", { name: /Vincular mi usuario de Argos/ });
+        const reaut = page.getByRole("dialog", { name: "Confirma tu contraseña" });
+        // Cancelar: no abre y lo explica.
+        const primera = page.waitForEvent("popup");
+        await boton.click();
+        await expect.poll(async () => (await primera).isClosed()).toBe(true);
+        await expect(reaut).toBeVisible();
+        await reaut.getByRole("button", { name: "Cancelar" }).click();
+        await expect(tarjeta.getByRole("alert")).toContainText("Entraste desde Argos: para abrir Argos desde aquí confirma tu contraseña de Iris.");
+        expect(api.pagos.aperturas).toHaveLength(0);
+        // Confirmar: reintenta solo y abre Argos.
+        await boton.click();
+        await expect(reaut).toBeVisible();
+        await reaut.getByLabel("Contraseña").fill(CONTRASENA);
+        const [pestana] = await Promise.all([page.waitForEvent("popup", { predicate: (p) => !p.isClosed() }), reaut.getByRole("button", { name: "Confirmar y seguir" }).click()]);
+        await cerrarPestana(pestana);
+        await expect(tarjeta.getByRole("status")).toContainText("Argos se abrió en otra pestaña");
+        expect(api.pagos.aperturas).toHaveLength(1);
+        expect(api.pagos.rechazadasPorSesion()).toBe(2);
+        expect(api.sso.reautenticaciones()).toBe(1);
     });
 
     test("sin `integraciones.abrir_argos` queda el enlace simple de siempre", async ({ page }) => {
