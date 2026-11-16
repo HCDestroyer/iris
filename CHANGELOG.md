@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.23.0](https://github.com/HCDestroyer/iris/compare/v0.22.0...v0.23.0) (2026-11-16)
+
+
+### Funcionalidades
+
+* **integracion:** contrato 0.7.1 con Argos (A24) ([#171](https://github.com/HCDestroyer/iris/issues/171)) ([3d9e1c9](https://github.com/HCDestroyer/iris/commit/3d9e1c9de5de5416b3dd668206f1f5017ea38da2))
+* **mensajeria:** el asistente atiende solo (fase 3b) ([#163](https://github.com/HCDestroyer/iris/issues/163)) ([963fc96](https://github.com/HCDestroyer/iris/commit/963fc96fa5499fe850eb42bb199c121ab4869ee5))
+* **mensajeria:** seguimiento de la fase 3b para el panel ([#170](https://github.com/HCDestroyer/iris/issues/170)) ([24e1fa0](https://github.com/HCDestroyer/iris/commit/24e1fa05005496ccdf009121f12799d719772969))
+* **panel:** el asistente atiende solo (fase 3b) ([#168](https://github.com/HCDestroyer/iris/issues/168)) ([6043190](https://github.com/HCDestroyer/iris/commit/6043190362a67139047383872d6377e7bf72c84b))
+
 ## [0.22.0](https://github.com/HCDestroyer/iris/compare/v0.21.0...v0.22.0) (2026-11-16)
 
 
