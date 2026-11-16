@@ -1,4 +1,4 @@
-Versión: 0.7.0 (10 nov 2026, borrador) · Iris ↔ ArgosISP
+Versión: 0.7.1 (16 nov 2026, borrador) · Iris ↔ ArgosISP
 
 # Contrato de integración Iris ↔ ArgosISP (copia de ArgosISP)
 
@@ -65,6 +65,12 @@ Igual que en el contrato Argos ↔ Horus, §1.3–§1.5:
         - **`destino` es opcional desde 0.7.0** (cambio de Argos dentro de A23): `{ tipo: "cliente" | "servicio", id_externo }`, con `id_externo` = id de Argos (`^[1-9]\d{0,17}$`). Con `destino` es «Abrir en Argos». Sin `destino`, el usuario cae en el inicio del panel: es lo que usa «Vincular mi usuario de Argos».
         - **Respuesta:** `201 { url: "https://<panel>/sso/entrar#<ticket>", expira_en }`. El ticket dura 60 s y es de un solo uso.
         - **Canje en el panel de Argos:** si el usuario de Iris ya está vinculado, abre la sesión. Si no, Argos le pide su correo y su contraseña de Argos y crea el vínculo (conector `iris`, `id_externo` = el del ticket). Nunca crea usuarios.
+        - **Pantalla de confirmación del vínculo (0.7.1, A24):** antes de crear el vínculo, el panel de Argos muestra a quién se le va a dar acceso:
+            - el sistema correcto (Iris);
+            - el nombre **y** el correo del usuario de Iris (los `usuario.nombre` y `usuario.correo` del ticket);
+            - la instalación: el host de la `url_base` del conector Iris en Argos;
+            - el aviso «Vas a dar acceso a tu cuenta de Argos a esta persona de Iris. Si no eres tú, no continúes».
+        - **`instalacion` en `vinculacion` (0.7.1, A24):** cuando el canje del ticket queda pendiente de vincular, su `vinculacion` trae además `instalacion` (string): el host de la `url_base` del conector, que es lo que muestra la pantalla. Es un cambio del panel de Argos: Iris no manda nada nuevo. `usuario.correo` y `usuario.nombre` siguen siendo informativos (Argos nunca vincula por correo); Iris los manda siempre que los tenga, para que la pantalla pueda mostrarlos.
         - **Este vínculo es el que autoriza aprobar y rechazar comprobantes desde Iris (§7.7), y nace solo aquí.** Por eso el `id_externo` del ticket debe ser exactamente el id que Iris manda en `X-Iris-Actor`.
 
 ### 1.4 Conectar con un botón (0.4.0)
@@ -246,8 +252,9 @@ Los mismos códigos valen en lecturas y escrituras: `GET /inventario/mi-bodega` 
 
 ## 4. Versionado
 
-Semver. Esta versión 0.7.0 es un borrador hasta que los dos lados lo aprueben; desde 1.0.0, solo cambios compatibles en versiones menores.
+Semver. Esta versión 0.7.1 es un borrador hasta que los dos lados lo aprueben; desde 1.0.0, solo cambios compatibles en versiones menores.
 
+- **0.7.1** (16 nov 2026): A24: quién decidió el comprobante y a qué instalación se le da acceso al vincular. §7.2 y §7.7: `verificado_iris_actor` en el `Comprobante` (`GET /comprobantes/:id`, la lista y la respuesta `200` de aprobar y rechazar) y en el payload de los webhooks `comprobante.aprobado` y `comprobante.rechazado`: el `X-Iris-Actor` (`usuario:<id>`) de quien aprobó o rechazó desde Iris, o `null` si se decidió en el panel de Argos. `iris_actor` sigue siendo el actor que **registró** el comprobante, no el que lo decidió. §1.3: `instalacion` en `vinculacion` del canje del autologin Iris → Argos, y la pantalla de confirmación del vínculo con el sistema, el nombre y el correo del usuario de Iris, la instalación y el aviso; Iris no manda nada nuevo. §6.3: en `boleta_rechazada` y `boleta_falta_dato`, `motivo` es un texto fijo de Iris según la `causa`, y el motivo libre solo se agrega si pasa el filtro. §7.7: antes de aplicar un webhook `comprobante.*`, Iris lee `GET /comprobantes/:id` y filtra por `canal = iris`. Es aditiva y compatible: solo agrega campos y aclara el comportamiento de Iris. Con Argos 1.15.0 (contrato 0.7.0) `verificado_iris_actor` no viene, y entonces Iris solo muestra `verificado_por_nombre`. Argos responde `contrato: "0.7.1"` desde la versión que la implemente.
 - **0.7.0** (10 nov 2026, pedido del PM): A23: aprobar y rechazar comprobantes desde la conversación de Iris. §7.7 (nueva): `POST /comprobantes/:id/aprobar` y `POST /comprobantes/:id/rechazar` aceptan el token de Iris, solo para comprobantes con `canal = iris`, con `X-Iris-Actor`, `X-Iris-Conversacion` e `Idempotency-Key` obligatorias (`iris:aprobar:<comprobante_id>` / `iris:rechazar:<comprobante_id>`; la huella incluye el actor) y responden `200` con el `Comprobante` completo. Con el conector apagado o desconectado: `409 iris_apagado`, igual que en §1.3. Decide el usuario de Argos vinculado a `usuario:<id>`: activo, con el permiso y con la empresa del comprobante en su alcance; errores `403` `actor_sin_vinculo`, `actor_inactivo`, `actor_sin_permiso`, `actor_sin_empresa` y `actor_ia_no_permitido` (el asistente de IA nunca puede). La auditoría y el pago quedan a nombre del usuario vinculado, con el token de Iris como «vía». §1.1: el token de Iris suma `comprobantes.aprobar` y `comprobantes.rechazar` (Argos migra los que existen). §1.3: forma del autologin Iris → Argos (`POST /integraciones/iris/sso/tickets`), que es lo único que crea ese vínculo; `destino` pasa a ser opcional. §0, §3, §3.1, §7, §7.1–§7.4 y §9.3: se corrige el texto que decía que Iris no puede aprobar ni rechazar; Argos sigue decidiendo. Los webhooks `comprobante.*` y las promesas no cambian de forma. Pedido B3 a Iris. Es compatible: solo agrega rutas al token de Iris y vuelve opcional un campo. Requiere la primera versión de Argos que implemente A23.
 - **0.6.4** (5 nov 2026): A22: `nombre` en `bodegas[]` de `GET /inventario/tecnicos` para elegir la bodega sin códigos; toda bodega `tecnico` tiene usuario (restricción en base). Es compatible: solo agrega el campo. Argos responde `contrato: "0.6.4"`.
 - **0.6.3** (5 nov 2026): §1.3: `POST /integraciones/iris/conexion/revocar`. Iris lo llama, con el `atk_` recibido, cuando no completa un canje que Argos respondió con `200`; Argos responde `204` (o `401` si el token ya estaba revocado) y deja el conector desconectado. El `atk_` de un canje que nadie usa en 24 h vence solo. Repetir un canje cuyo token ya se revocó responde `410`. Reconexión: un canje sobre un conector en uso queda pendiente; en la primera llamada del `atk_` nuevo se aplica y se revoca el anterior; si el nuevo se revoca o vence, el anterior sigue igual. `GET /integraciones/iris` agrega `estado_canje`, `canje_vence_en`, `desconectado_en`, `motivo_desconexion`, `reconexion_pendiente_desde` y `reconexion_vence_en`. Es compatible: un Iris que no llama a revocar sigue igual porque usa el token al activar su conector. Argos responde `contrato: "0.6.3"`.
@@ -287,6 +294,7 @@ Semver. Esta versión 0.7.0 es un borrador hasta que los dos lados lo aprueben; 
 | A21 | **Avisos de Argos por la mensajería de Iris** (0.6.0, §6): canal `whatsapp` de `notify` que llama a §6.2, envío de permisos de contacto desde el panel y el portal, y receptor de webhooks `/integraciones/iris/webhook`. | listo en Argos (1.x, PR #217): canal `whatsapp` de `notify`, consentimientos desde el panel y el portal, receptor `/integraciones/iris/webhook` y consulta `GET /mensajeria/avisos/:id` de los envíos `encolado` con más de 24 h |
 | A22 | **Nombre de la bodega del técnico** (0.6.4, §3.3): `nombre` en cada elemento de `bodegas[]` de `GET /inventario/tecnicos`, para que Iris elija la bodega de una lista sin teclear números. | listo en Argos |
 | A23 | **Aprobar y rechazar comprobantes desde Iris** (0.7.0, §7.7): `POST /comprobantes/:id/aprobar` y `POST /comprobantes/:id/rechazar` con el token de Iris, solo `canal = iris`, autorizadas por el usuario de Argos vinculado al `X-Iris-Actor` (los cinco `403 actor_*`), con el actor en la huella de idempotencia y la auditoría a nombre del usuario vinculado. Permisos `comprobantes.aprobar` y `comprobantes.rechazar` en el token de Iris, con migración de los que existen. `destino` opcional en `POST /integraciones/iris/sso/tickets` (§1.3). Pedido del PM. | en curso en Argos |
+| A24 | **Quién decidió el comprobante e instalación en el vínculo** (0.7.1): `verificado_iris_actor` en el `Comprobante` (`GET /comprobantes/:id`, la lista y la respuesta de aprobar y rechazar, §7.7) y en los webhooks `comprobante.aprobado` / `comprobante.rechazado` (§7.2), con `null` cuando decide caja en el panel. `instalacion` en `vinculacion` del canje del autologin Iris → Argos y la pantalla de confirmación del vínculo con el sistema, el nombre y el correo del usuario de Iris, la instalación y el aviso (§1.3). | en curso en Argos |
 
 ### 5.2 ArgosISP solicita a Iris
 
@@ -357,6 +365,8 @@ Iris mantiene el texto, las traducciones y la aprobación de Meta. Argos solo us
 | `boleta_recibida`, `boleta_confirmada`, `boleta_rechazada`, `boleta_falta_dato` | `monto`, `moneda`, `motivo` | Iris, con la respuesta de §7.2 y los webhooks `comprobante.aprobado` / `comprobante.rechazado` | Argos **no** avisa por su cuenta de un comprobante con `canal = iris` (§7.2) |
 | `reconexion_temporal` | `hasta` | Iris, al recibir el 201 de §7.3 | Argos no avisa por su cuenta (§7.3) |
 | `promesa_aceptada` | `vence_en`, `monto` | Iris, al recibir el 201 de §7.4 con `estado = activa` | Argos no avisa por su cuenta de una promesa creada por Iris (§7.4) |
+
+En `boleta_rechazada` y `boleta_falta_dato`, `motivo` es un texto fijo de Iris según la `causa` del rechazo. El motivo libre (el de `POST /comprobantes/:id/rechazar` o el `motivo_rechazo` que escribe caja) se agrega al final solo si no trae enlaces (`://`, `www.`), dominios ni 6 o más dígitos seguidos, con o sin separadores. Si no pasa ese filtro, Iris no lo envía al cliente; queda en el comprobante y en la boleta.
 
 `GET /api/v1/mensajeria/plantillas` lista las vigentes, con sus variables y en qué canales están aprobadas. Una plantilla que Argos pide y no está aprobada responde `bloqueado` con `canal_no_disponible`.
 
@@ -464,7 +474,7 @@ En Argos todo esto ya existe para el portal del cliente y el panel; Iris usa las
     - `422` por campo (`archivo` con `rule` `required`, `tipo` o `tamano`; `fecha_deposito` futura; `monto`).
     - `422 cuenta_de_otra_empresa` (campo `cuenta_bancaria_id`): la cuenta es de otra empresa que el servicio.
     - `422 empresa_no_coincide`.
-- `GET /api/v1/comprobantes/:id` (`comprobantes.ver`) devuelve su estado, por si Iris perdió un webhook.
+- `GET /api/v1/comprobantes/:id` (`comprobantes.ver`) devuelve su estado, por si Iris perdió un webhook. Iris lo lee también antes de aplicar un webhook `comprobante.*` (§7.7, «Lectura para confirmar»).
 
 **Resolución.** Aprueba o rechaza un usuario de Argos con `comprobantes.aprobar` o `comprobantes.rechazar`: caja en el panel o, desde 0.7.0, la persona que atiende la conversación en Iris, si es un usuario de Argos vinculado (§7.7). El asistente de IA nunca puede. Al aprobar, Argos registra el pago, su asiento y la reactivación en una sola transacción. Los webhooks son los mismos en los dos casos.
 
@@ -472,12 +482,13 @@ Webhooks Argos → Iris (§2.3), para comprobantes de cualquier canal dentro del
 
 | Evento | Payload |
 | --- | --- |
-| `comprobante.aprobado` | comprobante_id, empresa_id, cliente_id, servicio_id (o null), canal (`portal` \| `panel` \| `iris`), monto, pago_id, motivo: null, causa: null, servicio_estado (estado del servicio después de aplicar el pago, o null sin servicio) |
-| `comprobante.rechazado` | lo mismo, con pago_id: null, motivo (texto de caja) y causa (`no_aparece` \| `monto_distinto` \| `ilegible` \| `falta_dato` \| `duplicado` \| `otro`) |
+| `comprobante.aprobado` | comprobante_id, empresa_id, cliente_id, servicio_id (o null), canal (`portal` \| `panel` \| `iris`), monto, pago_id, motivo: null, causa: null, servicio_estado (estado del servicio después de aplicar el pago, o null sin servicio), verificado_iris_actor (0.7.1: `usuario:<id>` de quien aprobó desde Iris, o null si decidió caja en el panel) |
+| `comprobante.rechazado` | lo mismo, con pago_id: null, motivo (texto de caja) y causa (`no_aparece` \| `monto_distinto` \| `ilegible` \| `falta_dato` \| `duplicado` \| `otro`); verificado_iris_actor es quien rechazó desde Iris, o null |
 
 - `servicio_estado = "activo"` después de un corte es lo que la propuesta llamaba `reconectado`. El cambio de estado llega además, como siempre, en `servicio.estado_cambiado`.
 - `causa = falta_dato` es lo que la propuesta llamaba `falta_dato`: el comprobante queda rechazado, la referencia queda libre y el cliente lo vuelve a mandar completo (otro `POST /comprobantes` con otra `Idempotency-Key`). Iris usa `boleta_falta_dato` (§6.3).
 - Con `canal = iris`, Argos no avisa al cliente por su cuenta del comprobante ni del pago que nace de él: lo hace Iris en la conversación.
+- `verificado_iris_actor` (0.7.1, A24) es el `X-Iris-Actor` de quien decidió desde Iris (§7.7). Con Argos 1.15.0 (contrato 0.7.0) el campo no viene.
 
 ### 7.3 Reconexión temporal (A17)
 
@@ -576,7 +587,8 @@ Cuando la boleta la atiende una **persona** en Iris, esa persona puede aprobarla
     - `pago_id`: el pago creado al aprobar; `null` al rechazar;
     - `motivo_rechazo` y `causa_rechazo`: al rechazar;
     - `verificado_por` y `verificado_por_nombre`: el usuario de Argos vinculado que decidió;
-    - `iris_actor` e `iris_conversacion`.
+    - `verificado_iris_actor` (0.7.1, A24): el `X-Iris-Actor` (`usuario:<id>`) de quien aprobó o rechazó desde Iris, o `null` si se decidió en el panel de Argos. Viene en `GET /comprobantes/:id`, en la lista (`GET /comprobantes`) y en esta respuesta;
+    - `iris_actor` e `iris_conversacion`: el actor y la conversación que **registraron** el comprobante (§7.2). `iris_actor` no es quien lo decidió: ese es `verificado_iris_actor`.
 - **Solo comprobantes de Iris.** Con el token de Iris solo se resuelven comprobantes con `canal = iris`. Otro canal: `409 comprobante_no_es_de_iris`. Uno ya aprobado o rechazado: `409 comprobante_revisado`. Son de negocio y no se reintentan.
 - Conector apagado o desconectado: `409 iris_apagado`, igual que en §1.3.
 
@@ -601,7 +613,12 @@ Errores de autorización: todos `403` `application/problem+json` con `code`. Son
 
 - **Auditoría:** el actor es el usuario de Argos vinculado, con canal `api`. El token de Iris queda como «vía», y se guardan `iris_actor` e `iris_conversacion`.
 - **Pago:** `verificado_por` y `registrado_por` son el usuario vinculado. El pago, su asiento, la reactivación y el cumplimiento de la promesa (también la reconexión temporal de §7.3) van en la misma transacción.
-- **Webhooks:** `comprobante.aprobado` y `comprobante.rechazado` (§7.2) no cambian de forma y llegan igual que cuando resuelve caja. Iris avisa al cliente en la conversación como en §7.2.
+- **Quién decidió (0.7.1, A24):** `verificado_iris_actor` guarda el `X-Iris-Actor` de la decisión; queda `null` cuando decide caja en el panel. `iris_actor` no cambia: sigue siendo el de quien registró el comprobante.
+- **Webhooks:** `comprobante.aprobado` y `comprobante.rechazado` (§7.2) llegan igual que cuando resuelve caja. Desde 0.7.1 traen `verificado_iris_actor`, con `null` cuando decidió caja en el panel. Iris avisa al cliente en la conversación como en §7.2.
+
+**Lectura para confirmar (0.7.1).** Antes de aplicar un webhook `comprobante.*`, Iris lee `GET /api/v1/comprobantes/:id` y aplica el estado que diga Argos, no el del webhook. El token de Iris puede leer cualquier comprobante de sus empresas, así que Iris filtra por `canal = iris`: uno de otro canal no toca ninguna boleta.
+
+**Atribución en Iris (0.7.1).** Cuando Iris se entera de la decisión por webhook o por relectura, usa `verificado_iris_actor` para atribuirla a su usuario (`usuario:<id>`). Con `null`, decidió caja en el panel de Argos. Con Argos 1.15.0 (contrato 0.7.0) el campo no viene, y entonces Iris solo muestra `verificado_por_nombre`.
 
 **En Iris (pedido B3).** El botón «Vincular mi usuario de Argos» emite el ticket de §1.3 sin `destino`. La boleta de la conversación muestra «Aprobar y registrar pago» y «Rechazar» solo a una persona, nunca al asistente de IA. Los cinco `403` se le muestran a quien pulsó, con qué hacer (por ejemplo, vincular su usuario con `actor_sin_vinculo`).
 
