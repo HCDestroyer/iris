@@ -60,7 +60,7 @@ func (a *argosFalso) rutas070(mux *http.ServeMux) {
 // conectado070: conector activo con un Argos 1.15.0 que informa contrato 0.7.0 y su panel.
 func (e *entorno) conectado070() (*clienteHTTP, int64) {
 	e.t.Helper()
-	e.argos.con(func() { e.argos.version, e.argos.panelURL = "1.15.0", panelArgos })
+	e.argos.con(func() { e.argos.version, e.argos.panelURL, e.argos.contratoMax = "1.15.0", panelArgos, "0.7.0" })
 	admin, id, _ := e.conectado()
 	if _, err := e.mod.InformarContrato.Ejecutar(pruebas.ContextoSistema(e.pool), id); err != nil {
 		e.t.Fatal(err)
@@ -106,9 +106,6 @@ func (e *entorno) idDe(c *clienteHTTP) int64 {
 }
 
 func TestContratoIris070YCapacidad(t *testing.T) {
-	if argos.ContratoIris != "0.7.0" {
-		t.Fatalf("ContratoIris: %s", argos.ContratoIris)
-	}
 	e := nuevoEntorno(t)
 	admin, id := e.conectado070()
 	con := e.conectorPaginado(admin, id)

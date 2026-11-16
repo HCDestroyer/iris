@@ -67,11 +67,15 @@ type argosFalso struct {
 	// informa versión). contrato: el que registró para Iris (canje o PUT …/contrato).
 	version  string
 	contrato string
-	tecnicos []map[string]any
+	// contratoMax: el contrato más nuevo que conoce este Argos (1.15.0 = "0.7.0"): si Iris informa uno
+	// posterior, registra y responde el suyo. Vacío = registra lo que mande Iris.
+	contratoMax string
+	tecnicos    []map[string]any
 	// retrasoTecnicos: cuánto tarda cada página de GET /inventario/tecnicos (Argos lento).
 	retrasoTecnicos time.Duration
 	planes          []map[string]any
-	contratos       int // PUT /integraciones/iris/contrato recibidos
+	contratos       int      // PUT /integraciones/iris/contrato recibidos
+	informados      []string // el contrato de cada PUT, tal como lo mandó Iris
 	// webhookURL: el receptor que responde el canje (vacío = el de su propio host).
 	webhookURL string
 	// sinWebhook: el canje no devuelve el bloque webhook (Argos fuera de contrato, 0.6.2).
@@ -158,6 +162,10 @@ func (a *argosFalso) rutas050(mux *http.ServeMux) {
 			}
 		}
 		a.contrato, _ = p["contrato"].(string)
+		a.informados = append(a.informados, a.contrato)
+		if a.contratoMax != "" {
+			a.contrato = a.contratoMax
+		}
 		a.contratos++
 		a.receptores = append(a.receptores, p["receptor_argos"])
 		escribir(w, map[string]any{"contrato": a.contrato, "version_argos": a.version})
@@ -288,6 +296,9 @@ func (a *argosFalso) canjear(w http.ResponseWriter, r *http.Request) {
 	if a.version != "" {
 		// Argos 1.6.0: informa su versión y registra el contrato que mandó Iris.
 		a.contrato, _ = p["contrato"].(string)
+		if a.contratoMax != "" {
+			a.contrato = a.contratoMax
+		}
 		resp["version_argos"], resp["contrato"] = a.version, a.contrato
 	}
 	escribir(w, resp)
