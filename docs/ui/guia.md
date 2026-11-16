@@ -545,7 +545,8 @@ Diseño «más amigable y práctico» del PM (contrato `conversaciones.md` §17 
     - cada fila suma una tercera línea con el **chip** y la **actividad del asistente** (`Sparkles`
       en teal + el texto corto que escribe el servidor);
     - bajo la cabecera de la conversación, la categoría con **«Cambiar»** (menú corto; con
-      `conversaciones.categorizar`) y aviso emergente al cambiarla. Sin categoría y con el asistente
+      `conversaciones.categorizar`) y aviso emergente al cambiarla. Si otra persona cambió la
+      conversación (409), se relee y dice «Alguien la cambió; inténtalo de nuevo» (igual en «Tomar»). Sin categoría y con el asistente
       activo dice «Sin categoría · Poner categoría»; con el asistente apagado no aparece nada;
     - **«El asistente está atendiendo»**: franja discreta en teal con `Sparkles` y el botón
       «Tomar» (la acción de tomar de siempre: al tomarla una persona, el asistente se detiene);
@@ -561,11 +562,22 @@ Diseño «más amigable y práctico» del PM (contrato `conversaciones.md` §17 
       usuario de Argos» y, después, «Reintentar» (misma clave);
     - sin permiso, sin empresa o usuario inactivo en Argos: se explican, sin «Reintentar»;
     - ya la decidió otra persona: se relee y la tarjeta dice quién;
-    - Argos no respondió: «Reintentar»; Argos viejo: «Actualiza Argos a 1.15.0 o posterior».
+    - Argos no respondió: «No sabemos si Argos la registró. Vuelve a intentar para confirmarlo» (nunca
+      «no quedó nada a medias»); Argos viejo: «Actualiza Argos a 1.15.0 o posterior»;
+    - **todo 409 relee la boleta** antes de decir nada. Si no se pudo leer, la tarjeta no muestra un
+      estado: dice «Cambió en Argos y no se pudo leer cómo quedó», con «Reintentar», y los botones
+      de decidir quedan deshabilitados hasta leerla;
+    - si el monto cambió, el diálogo sigue abierto con el monto nuevo y pide confirmar otra vez. El
+      aviso de éxito usa el monto que devolvió el servidor;
+    - cerrar el diálogo después de un error vuelve a leer las boletas. Un refresco que falla no tapa
+      lo leído: se marca «No se pudieron actualizar» con «Reintentar».
 - **«Abrir en Argos»** (con `integraciones.abrir_argos`) reemplaza a «Ver en Argos» en la ficha del
   cliente de tickets y órdenes: entra a Argos ya con la sesión. La pestaña se abre en el mismo clic
-  (en blanco, sin `opener`) y se manda al enlace cuando llega; así el navegador no la bloquea. Si
-  falla, lo dice y deja el enlace simple de respaldo. **«Vincular mi usuario de Argos»** está en el
+  (en blanco, sin `opener`) y se manda al enlace cuando llega; así el navegador no la bloquea. El
+  enlace lleva un ticket de sesión: **solo se abre por `https` y en el origen del panel de Argos del
+  conector** (`urlPublica`); si no, la pestaña se cierra y lo dice. Con las ventanas emergentes
+  bloqueadas no se pide el ticket: «Permite las ventanas emergentes para abrir Argos». Si falla, lo
+  dice y deja el enlace simple de respaldo. **«Vincular mi usuario de Argos»** está en el
   menú de la cuenta y en «Mi perfil» (`/cuenta#argos`).
 - Pruebas: `e2e/asistente-3.spec.ts` y `e2e/boletas.spec.ts` (4 proyectos),
   `lib/asistente/fase3.test.ts` y `lib/conversaciones/boletas.test.ts`.

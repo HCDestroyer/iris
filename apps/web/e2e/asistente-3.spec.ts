@@ -476,7 +476,7 @@ test.describe("Bandeja con categorías y asistente", () => {
     });
 
     test("«Cambiar» con 409: relee la conversación, lo dice y el segundo intento lleva la versión nueva", async ({ page }) => {
-        const api = await abrir(page, "/conversaciones?c=41", { bandeja: true, conflictoCategorizar: true });
+        const api = await abrir(page, "/conversaciones?c=41", { bandeja: true });
         const barra = page.locator('[data-slot="barra-categoria"]');
         await expect(barra.locator('[data-slot="chip-categoria"]')).toHaveText("Sin internet");
         // Otra persona la cambió mientras tanto: en el servidor ya va por otra versión.
