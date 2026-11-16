@@ -24,7 +24,7 @@ Este archivo es la memoria del líder entre sesiones. La conversación se compri
 
 ## Estado (16 nov 2026)
 
-- **Publicado:** 0.22.0 (categorías de mensajes, «Pruébalo antes de guardar», aprobar y rechazar boletas con el rol `caja`, «Vincular mi usuario de Argos»). **En publicación:** 0.23.0, el asistente que atiende solo (fase 3b): servidor, panel y contrato 0.7.1.
+- **Publicado:** 0.23.0, el asistente que atiende solo (fase 3b): servidor, panel y contrato 0.7.1. Antes, 0.22.0: categorías de mensajes, «Pruébalo antes de guardar», aprobar y rechazar boletas con el rol `caja` y «Vincular mi usuario de Argos».
 - **Contrato con Argos:** 0.7.1 en los dos repos (A24); Argos 1.16.0 lo publica. Un Argos 1.15.x sigue siendo compatible (no manda `verificado_iris_actor`).
 - **Fase 3b, cómo quedó:** apagada de fábrica; acciones de dinero apagadas; saldo, promesa y reconexión piden verificación fuerte (DPI o NIT contra Argos) con vigencia de 60 min configurable; reconexión solo fuera de horario; perfiles por horario.
   - Decisión del líder (el PM puede cambiarla): recibir una boleta basta con reconocer el número, porque la aprueba una persona de caja; dar el saldo pide verificación fuerte de fábrica y cada empresa lo configura.
