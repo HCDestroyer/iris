@@ -351,11 +351,16 @@ func (x *bandejaIA) verificacion(conv string) any {
 // asistente hace el desafío de identidad de Argos (el dato nunca pasa por el modelo ni se guarda),
 // con 3 intentos por conversación y día; el monto va solo en el mensaje (M2: y no vuelve al modelo).
 func TestAutonomoSaldo(t *testing.T) {
+	// El DPI de esta prueba: un CUI válido que no usa ninguna otra, para buscarlo en tablas que comparte
+	// todo el paquete. Las búsquedas globales usan el número completo o el tramo «72648 0101» (como lo
+	// escribe el cliente): un tramo corto de solo dígitos coincide por azar con los números al azar de
+	// otras pruebas (nombres «Persona 986687577891», phone_number_id, UUID).
+	const dpi, dpiEscrito, dpiTramo = "8391726480101", "8391 72648 0101", "72648 0101"
 	x := nuevaBandejaIA(t)
 	x.autonomo("siempre_primero", nil)
 	x.cuenta(&argos.EstadoCuenta{Saldo: texto("350.75"), Moneda: "GTQ", FacturasVencidas: vencidas(2), MontoVencido: texto("350.75")})
 	x.argos.mu.Lock()
-	x.argos.documento = "1234567890101"
+	x.argos.documento = dpi
 	x.argos.mu.Unlock()
 	// Cliente verificado solo por su número: el saldo se rechaza sin leer Argos.
 	conv, _ := x.conClienteArgos()
@@ -374,7 +379,7 @@ func TestAutonomoSaldo(t *testing.T) {
 		t.Fatalf("saldo con solo el número: %d lecturas, %v", lecturas, a)
 	}
 	// El cliente escribe su DPI: el asistente hace el desafío y, ya con verificación fuerte, da el saldo.
-	c := x.turno(num, "wamid.sal1", "Claro, mi DPI es 1234 56789 0101", "Pagos y saldo", llama("verificar_identidad", `{}`), llama("consultar_saldo", `{}`),
+	c := x.turno(num, "wamid.sal1", "Claro, mi DPI es "+dpiEscrito, "Pagos y saldo", llama("verificar_identidad", `{}`), llama("consultar_saldo", `{}`),
 		dice("Tienes 2 facturas vencidas. Tu saldo pendiente es de {{saldo}}."))
 	ms := x.delAsistente(conv)
 	if len(ms) != 2 || !strings.Contains(textoDe(ms[1]), "Tu saldo pendiente es de Q 350.75.") {
@@ -389,12 +394,12 @@ func TestAutonomoSaldo(t *testing.T) {
 	x.argos.mu.Lock()
 	verificados, actor := fmt.Sprint(x.argos.verificados), x.argos.actores[len(x.argos.actores)-1].Actor
 	x.argos.mu.Unlock()
-	if verificados != "[documento:1234567890101]" || actor != "asistente_ia" {
+	if verificados != "[documento:"+dpi+"]" || actor != "asistente_ia" {
 		t.Fatalf("desafío en Argos: %s por %s", verificados, actor)
 	}
 	// El dato de identidad no se guarda (el mensaje queda con ***) ni está en auditoría o eventos; el
 	// monto tampoco. Y nada de eso llegó al modelo.
-	for _, dato := range []string{"350.75", "1234567890101", "56789"} {
+	for _, dato := range []string{"350.75", dpi, dpiEscrito, dpiTramo} {
 		for _, sql := range []string{`SELECT count(*) FROM auditoria.acciones WHERE entrada::text LIKE '%' || $1 || '%'`,
 			`SELECT count(*) FROM auditoria.cambios WHERE (antes::text LIKE '%' || $1 || '%' OR despues::text LIKE '%' || $1 || '%')`,
 			`SELECT count(*) FROM integracion.outbox WHERE payload::text LIKE '%' || $1 || '%'`} {
@@ -403,7 +408,8 @@ func TestAutonomoSaldo(t *testing.T) {
 			}
 		}
 	}
-	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND texto LIKE '%56789%'`, conv); n != 0 {
+	// En las filas de esta conversación sí vale buscar el tramo corto (no hay números de otras pruebas).
+	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND (texto LIKE '%72648%' OR texto LIKE '%8391%')`, conv); n != 0 {
 		t.Fatal("el DPI quedó guardado en la conversación")
 	}
 	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND direccion = 'entrante' AND texto = 'Claro, mi DPI es ***'`, conv); n != 1 {
@@ -412,7 +418,7 @@ func TestAutonomoSaldo(t *testing.T) {
 	// M2: en el turno siguiente el historial que ve el modelo lleva el monto enmascarado.
 	x.turno(num, "wamid.sal1b", "Gracias, ¿algo más que deba saber?", "Pagos y saldo", dice("Por ahora eso es todo."))
 	for _, cuerpo := range x.ia.cuerposAutonomos() {
-		if strings.Contains(cuerpo, "350.75") || strings.Contains(cuerpo, "1234567890101") || strings.Contains(cuerpo, "56789") {
+		if strings.Contains(cuerpo, "350.75") || strings.Contains(cuerpo, dpi) || strings.Contains(cuerpo, "72648") {
 			t.Fatal("el monto o el documento llegaron al modelo")
 		}
 	}

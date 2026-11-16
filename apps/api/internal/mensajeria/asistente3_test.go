@@ -468,7 +468,7 @@ func TestAsistente3ProbarMensajeNoEjecutaNada(t *testing.T) {
 	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'mensajeria.asistente_probar_mensaje' AND (entrada::text ILIKE '%100 megas%' OR resultado::text ILIKE '%Q 299%')`); n != 0 {
 		t.Fatal("la auditoría lleva el texto")
 	}
-	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'asistente.mensaje_probado' AND payload::text ILIKE '%299%'`); n != 0 {
+	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'asistente.mensaje_probado' AND payload::text ~* '(Q ?299|299 al mes|100 megas)'`); n != 0 {
 		t.Fatal("el evento lleva el texto")
 	}
 	// Permiso y límite de 10 por minuto.
