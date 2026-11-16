@@ -92,9 +92,19 @@ func Correr(m *testing.M) int {
 	defer func() { _, _ = admin.Exec(ctx, "SELECT pg_advisory_unlock($1)", candado) }()
 
 	ident := pgx.Identifier{nombre}.Sanitize()
-	if _, err := admin.Exec(ctx, "DROP DATABASE IF EXISTS "+ident+" WITH (FORCE)"); err != nil {
-		fmt.Fprintln(os.Stderr, "pruebas: borrar base:", err)
-		return 1
+	// WITH (FORCE) termina las conexiones abiertas, pero un rol que no es superusuario no puede
+	// terminar un proceso de autovacuum que justo esté en la base de la corrida anterior:
+	// «permission denied to terminate process». Ese proceso acaba solo: se reintenta un momento.
+	for intento := 0; ; intento++ {
+		_, err = admin.Exec(ctx, "DROP DATABASE IF EXISTS "+ident+" WITH (FORCE)")
+		if err == nil {
+			break
+		}
+		if intento >= 40 || !strings.Contains(err.Error(), "permission denied to terminate process") {
+			fmt.Fprintln(os.Stderr, "pruebas: borrar base:", err)
+			return 1
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
 	if _, err := admin.Exec(ctx, "CREATE DATABASE "+ident); err != nil {
 		fmt.Fprintln(os.Stderr, "pruebas: crear base:", err)
