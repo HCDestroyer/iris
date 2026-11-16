@@ -38,10 +38,10 @@ const pendiente = (zona: ReturnType<Page["locator"]>) => zona.locator(`[data-bol
 /** Con un diálogo recién abierto: espera a que termine de entrar (se agranda un poco al aparecer). */
 const sinDesbordesAlAsentarse = (page: Page) => expect.poll(() => buscarDesbordes(page), "nada se desborda ni queda fuera de pantalla").toEqual([]);
 
-/** Cierra la pestaña de Argos y vuelve a la de Iris (en el teléfono queda en segundo plano). */
-async function cerrarPestana(page: Page, pestana: Page) {
+/** Cierra la pestaña de Argos cuando ya llegó a su enlace (cerrarla a media navegación deja colgada a la de Iris). */
+async function cerrarPestana(pestana: Page) {
+    await pestana.waitForURL(`${URL_ARGOS}/sso/entrar**`);
     await pestana.close();
-    await page.bringToFront();
 }
 
 test.describe("boletas en la conversación", () => {
@@ -111,7 +111,7 @@ test.describe("boletas en la conversación", () => {
         await pestana.waitForURL(`${URL_ARGOS}/sso/entrar#ticket-1`);
         // Sin `opener`: Argos no puede tocar la pestaña de Iris.
         expect(await pestana.evaluate(() => window.opener)).toBeNull();
-        await cerrarPestana(page, pestana);
+        await cerrarPestana(pestana);
         await expect(aviso.getByRole("status")).toContainText("Argos se abrió en otra pestaña");
         // «Vincular» va sin destino y con su propia clave.
         expect(api.pagos.aperturas).toHaveLength(1);
@@ -214,13 +214,13 @@ test.describe("«Abrir en Argos» y «Vincular mi usuario de Argos»", () => {
         const [pestana] = await Promise.all([page.waitForEvent("popup"), boton.click()]);
         await pestana.waitForURL(/argos\.isp\.gt\/sso\/entrar#ticket-1-cliente-\d+$/);
         expect(await pestana.evaluate(() => window.opener)).toBeNull();
-        await cerrarPestana(page, pestana);
+        await cerrarPestana(pestana);
         const cuerpo = api.pagos.aperturas[0]?.cuerpo as { destino: { tipo: string; idExterno: string } };
         expect(cuerpo.destino.tipo).toBe("cliente");
         expect(cuerpo.destino.idExterno).toMatch(/^\d+$/);
         // Cada clic lleva una clave nueva (el enlace es de un solo uso).
         const [otra] = await Promise.all([page.waitForEvent("popup"), boton.click()]);
-        await cerrarPestana(page, otra);
+        await cerrarPestana(otra);
         expect(api.pagos.aperturas).toHaveLength(2);
         expect(api.pagos.aperturas[1]?.idempotencia).not.toBe(api.pagos.aperturas[0]?.idempotencia);
         await esperarSinDesbordes(page);
@@ -256,7 +256,7 @@ test.describe("«Abrir en Argos» y «Vincular mi usuario de Argos»", () => {
         await captura(page, "perfil-vincular-argos");
         const [pestana] = await Promise.all([page.waitForEvent("popup"), tarjeta.getByRole("button", { name: /Vincular mi usuario de Argos/ }).click()]);
         await pestana.waitForURL(`${URL_ARGOS}/sso/entrar#ticket-1`);
-        await cerrarPestana(page, pestana);
+        await cerrarPestana(pestana);
         await expect(tarjeta.getByRole("status")).toContainText("Argos se abrió en otra pestaña");
         expect(api.pagos.aperturas[0]?.cuerpo).toEqual({});
     });
