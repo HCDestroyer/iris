@@ -968,13 +968,7 @@
           "topeTokensMes",
           "precioEntradaMillon",
           "precioSalidaMillon",
-          "version",
-          "autonomoDisponible",
-          "modoAutonomo",
-          "esperaMin",
-          "maxTurnos",
-          "perfiles",
-          "porCola"
+          "version"
         ],
         "type": "object"
       },
@@ -4521,8 +4515,7 @@
           "porEstado",
           "porCanal",
           "porCola",
-          "porEtiqueta",
-          "porCategoria"
+          "porEtiqueta"
         ],
         "type": "object"
       },
@@ -5016,8 +5009,6 @@
           "ventana",
           "sla",
           "noLeidos",
-          "categoriaConfianza",
-          "categoriaOrigen",
           "ultimaActividad",
           "creadaEn"
         ],
@@ -5201,8 +5192,6 @@
           "ventana",
           "sla",
           "noLeidos",
-          "categoriaConfianza",
-          "categoriaOrigen",
           "ultimaActividad",
           "creadaEn"
         ],
@@ -12796,9 +12785,7 @@
         "required": [
           "activo",
           "modo",
-          "pausado",
-          "modoAutonomo",
-          "autonomoDisponible"
+          "pausado"
         ],
         "type": "object"
       },
@@ -16054,8 +16041,7 @@
           "enviadoEn",
           "entregadoEn",
           "leidoEn",
-          "automatico",
-          "autorTipo"
+          "automatico"
         ],
         "type": "object"
       },
@@ -20292,9 +20278,9 @@
           "contratos.firmar",
           "conversaciones.asignar",
           "conversaciones.asociar",
+          "conversaciones.categorizar",
           "conversaciones.configurar",
           "conversaciones.etiquetar",
-          "conversaciones.categorizar",
           "conversaciones.iniciar",
           "conversaciones.pasar",
           "conversaciones.registrar_boleta",

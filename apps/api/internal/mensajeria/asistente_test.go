@@ -142,7 +142,7 @@ func nuevaBandejaIA(t *testing.T) *bandejaIA {
 	x := &bandejaIA{bandeja: b, admin: admin, ia: nuevaIA(t)}
 	if _, err := b.bd.Exec(b.ctx, `DELETE FROM mensajeria.asistente_uso; DELETE FROM mensajeria.asistente_reservas; DELETE FROM mensajeria.asistente_pedidos; DELETE FROM mensajeria.asistente_ajustes; DELETE FROM mensajeria.sugerencias;
 		UPDATE mensajeria.conversaciones SET categoria_id = NULL WHERE categoria_id IS NOT NULL; DELETE FROM mensajeria.asistente_clasificaciones;
-		DELETE FROM mensajeria.asistente_categorias`); err != nil {
+		DELETE FROM mensajeria.asistente_categorias; DELETE FROM integracion.outbox WHERE evento = 'asistente.tope_alcanzado'`); err != nil {
 		t.Fatal(err)
 	}
 	x.ajustes(map[string]any{"activo": false})

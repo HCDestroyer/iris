@@ -160,8 +160,8 @@ type ConversacionCliente struct {
 	Espera             *EsperaConversacion   `json:"espera,omitempty" doc:"Ausente si está asignada o resuelta: quién está disponible en la cola y cuándo contesta el bot"`
 	NoLeidos           int64                 `json:"noLeidos" doc:"Mensajes del cliente después de tu lectura"`
 	CategoriaMensajes  *CategoriaMensajesRef `json:"categoria,omitempty" doc:"Categoría de mensajes (§17); ausente: sin categoría"`
-	CategoriaConfianza *float32              `json:"categoriaConfianza" nullable:"true" doc:"0 a 1; null si la puso un agente"`
-	CategoriaOrigen    *string               `json:"categoriaOrigen" nullable:"true" enum:"asistente,agente"`
+	CategoriaConfianza *float32              `json:"categoriaConfianza" nullable:"true" required:"false" doc:"0 a 1; null si la puso un agente"`
+	CategoriaOrigen    *string               `json:"categoriaOrigen" nullable:"true" required:"false" enum:"asistente,agente"`
 	ActividadAsistente *ActividadAsistente   `json:"actividadAsistente,omitempty" doc:"Lo último que hizo el asistente en la conversación"`
 	Asistente          *AsistenteConv        `json:"asistente,omitempty" doc:"3b: el asistente atiende solo esta conversación. Ausente en 3a"`
 	SoloLectura        bool                  `json:"soloLectura,omitempty" doc:"true: el número ya no está compartido con tu empresa (préstamo revocado, §15.3) y solo se puede leer. Ausente = false"`
@@ -292,7 +292,7 @@ type MensajeConversacion struct {
 	EntregadoEn    *time.Time        `json:"entregadoEn" nullable:"true"`
 	LeidoEn        *time.Time        `json:"leidoEn" nullable:"true"`
 	Automatico     *string           `json:"automatico" nullable:"true" enum:"bot,fuera_de_horario,asistente" doc:"Saliente sin autor: el bot, la respuesta de fuera de horario o (3b) el asistente de IA"`
-	AutorTipo      string            `json:"autorTipo" enum:"cliente,persona,asistente_ia,sistema" doc:"Quién lo escribió (§17.4)"`
+	AutorTipo      string            `json:"autorTipo" required:"false" enum:"cliente,persona,asistente_ia,sistema" doc:"Quién lo escribió (§17.4)"`
 	Origen         *string           `json:"origen,omitempty" enum:"telefono,historial" doc:"No salió de Iris: telefono (mandado desde la app WhatsApp Business, «Desde el teléfono») o historial (traído de la app). Ausente = Iris (§15.2)"`
 }
 

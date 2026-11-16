@@ -7320,7 +7320,7 @@ export interface components {
         AjustesAsistente: {
             activo: boolean;
             /** @description false: el servidor todavía no actúa solo (3a) y modoAutonomo solo admite nunca */
-            autonomoDisponible: boolean;
+            autonomoDisponible?: boolean;
             /**
              * Format: date-time
              * @description Cuándo se guardó la clave (nunca se devuelve)
@@ -7330,13 +7330,13 @@ export interface components {
              * Format: int32
              * @description sin_nadie: minutos que espera a un agente en línea
              */
-            esperaMin: number;
+            esperaMin?: number;
             fuentes: components["schemas"]["FuentesAsistente"];
             /**
              * Format: int32
              * @description Turnos autónomos sin resolver antes de pasar a una persona
              */
-            maxTurnos: number;
+            maxTurnos?: number;
             modelo: string;
             /** @enum {string} */
             modo: "automatico" | "boton";
@@ -7344,11 +7344,11 @@ export interface components {
              * @description Cuándo atiende solo
              * @enum {string}
              */
-            modoAutonomo: "nunca" | "sin_nadie" | "siempre_primero";
+            modoAutonomo?: "nunca" | "sin_nadie" | "siempre_primero";
             /** @description El primero es «defecto» */
-            perfiles: components["schemas"]["PerfilAsistente"][] | null;
+            perfiles?: components["schemas"]["PerfilAsistente"][] | null;
             /** @description Acciones apagadas por cola */
-            porCola: components["schemas"]["AccionesCola"][] | null;
+            porCola?: components["schemas"]["AccionesCola"][] | null;
             /** @description Precio por millón de tokens de entrada (decimal como texto) */
             precioEntradaMillon: string | null;
             /** @description Precio por millón de tokens de salida (decimal como texto) */
@@ -8535,7 +8535,7 @@ export interface components {
             noLeidosMias: number;
             porCanal: components["schemas"]["ConteoGrupo"][];
             /** @description Por categoría de mensajes (§17); las sin categoría no cuentan */
-            porCategoria: components["schemas"]["ConteoGrupo"][];
+            porCategoria?: components["schemas"]["ConteoGrupo"][];
             porCola: components["schemas"]["ConteoGrupo"][];
             porEstado: {
                 [key: string]: number;
@@ -8687,9 +8687,9 @@ export interface components {
              * Format: float
              * @description 0 a 1; null si la puso un agente
              */
-            categoriaConfianza: number | null;
+            categoriaConfianza?: number | null;
             /** @enum {string|null} */
-            categoriaOrigen: "asistente" | "agente" | null;
+            categoriaOrigen?: "asistente" | "agente" | null;
             /** @description Ausente: sin cola */
             cola?: components["schemas"]["ColaRef"];
             contacto: components["schemas"]["ContactoConversacion"];
@@ -8741,9 +8741,9 @@ export interface components {
              * Format: float
              * @description 0 a 1; null si la puso un agente
              */
-            categoriaConfianza: number | null;
+            categoriaConfianza?: number | null;
             /** @enum {string|null} */
-            categoriaOrigen: "asistente" | "agente" | null;
+            categoriaOrigen?: "asistente" | "agente" | null;
             /** @description Ausente sin cliente o sin instantánea */
             clienteResumen?: components["schemas"]["ClienteResumenConversacion"];
             /** @description Ausente: sin cola */
@@ -11635,11 +11635,11 @@ export interface components {
         EstadoAsistente: {
             activo: boolean;
             /** @description false: el servidor todavía no actúa solo */
-            autonomoDisponible: boolean;
+            autonomoDisponible?: boolean;
             /** @enum {string} */
             modo: "automatico" | "boton";
             /** @enum {string} */
-            modoAutonomo: "nunca" | "sin_nadie" | "siempre_primero";
+            modoAutonomo?: "nunca" | "sin_nadie" | "siempre_primero";
             /** @description Se llegó al tope de tokens del mes */
             pausado: boolean;
         };
@@ -12712,7 +12712,7 @@ export interface components {
              * @description Quién lo escribió (§17.4)
              * @enum {string}
              */
-            autorTipo: "cliente" | "persona" | "asistente_ia" | "sistema";
+            autorTipo?: "cliente" | "persona" | "asistente_ia" | "sistema";
             /** Format: int64 */
             conversacionId: number;
             /** Format: date-time */
@@ -14098,7 +14098,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.categorizar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.ver" | "integraciones.ver_pendientes" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.ver" | "integraciones.ver_pendientes" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
