@@ -33,12 +33,18 @@ func noDisponible(que string) *nucleo.Problema {
 }
 
 // vincular deja el vínculo, el mensaje de sistema y el evento de la conversación.
-func (m *Modulo) vincular(ctx context.Context, t *auditoria.Tx, c *mensajeriabd.MensajeriaConversacion, actor int64, tipo, id, referencia, evento string) error {
+func (m *Modulo) vincular(ctx context.Context, t *auditoria.Tx, c *mensajeriabd.MensajeriaConversacion, a alcanceConv, tipo, id, referencia, evento string) error {
 	q := mensajeriabd.New(t)
-	if err := q.InsertarVinculo(ctx, mensajeriabd.InsertarVinculoParams{ConversacionID: c.ID, Tipo: tipo, EntidadID: id, Referencia: referencia, CreadoPor: &actor}); err != nil {
+	// El asistente de IA no es un usuario: el vínculo queda sin creador y el mensaje de sistema lo nombra.
+	actor := a.usuarioPtr()
+	nombre := nombrePtr(NombreAsistenteIA)
+	if actor != nil {
+		nombre = actorNombre(ctx, q, *actor)
+	}
+	if err := q.InsertarVinculo(ctx, mensajeriabd.InsertarVinculoParams{ConversacionID: c.ID, Tipo: tipo, EntidadID: id, Referencia: referencia, CreadoPor: actor}); err != nil {
 		return err
 	}
-	if err := m.sistema(ctx, t, c, EventoSistema{Tipo: evento, ActorNombre: actorNombre(ctx, q, actor), Referencia: &referencia, EntidadID: &id}); err != nil {
+	if err := m.sistema(ctx, t, c, EventoSistema{Tipo: evento, ActorNombre: nombre, Referencia: &referencia, EntidadID: &id}); err != nil {
 		return err
 	}
 	return t.Emitir("conversacion.vinculo_creado", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID, "tipo": tipo,
@@ -102,7 +108,7 @@ func nuevoCrearTicketConv(m *Modulo) *CrearTicketConv {
 		Accion: "conversaciones.crear_ticket", Permiso: nucleo.PermTicketsCrear,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaTicketConv) (VinculoCreado, error) {
 			var v VinculoConversacion
-			d, err := m.accionConv(ctx, t, in.ID, 0, func(a alcanceConv, _ *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
+			d, err := m.accionConvDe(ctx, t, "conversaciones.crear_ticket", in.ID, 0, func(a alcanceConv, _ *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
 				if m.cfg.Soporte == nil {
 					return noDisponible("Crear tickets")
 				}
@@ -123,7 +129,7 @@ func nuevoCrearTicketConv(m *Modulo) *CrearTicketConv {
 					return err
 				}
 				v = VinculoConversacion{Tipo: "ticket", ID: strconv.FormatInt(tk.ID, 10), Referencia: tk.Numero, CreadoEn: m.ahora()}
-				return m.vincular(ctx, t, c, a.usuario, "ticket", v.ID, tk.Numero, "ticket_creado")
+				return m.vincular(ctx, t, c, a, "ticket", v.ID, tk.Numero, "ticket_creado")
 			})
 			return VinculoCreado{Vinculo: v, Conversacion: d}, err
 		},
@@ -189,7 +195,7 @@ func nuevoCrearOrdenConv(m *Modulo) *CrearOrdenConv {
 					return err
 				}
 				v = VinculoConversacion{Tipo: "orden", ID: strconv.FormatInt(o.ID, 10), Referencia: o.Numero, CreadoEn: m.ahora()}
-				return m.vincular(ctx, t, c, a.usuario, "orden", v.ID, o.Numero, "orden_creada")
+				return m.vincular(ctx, t, c, a, "orden", v.ID, o.Numero, "orden_creada")
 			})
 			return VinculoCreado{Vinculo: v, Conversacion: d}, err
 		},
@@ -241,7 +247,7 @@ func nuevoCrearProspectoConv(m *Modulo) *auditoria.Caso[EntradaProspectoConv, Vi
 					c.Asociacion = nombrePtr("manual")
 				}
 				v = VinculoConversacion{Tipo: "prospecto", ID: strconv.FormatInt(p.ID, 10), Referencia: p.Numero, CreadoEn: m.ahora()}
-				return m.vincular(ctx, t, c, a.usuario, "prospecto", v.ID, p.Numero, "prospecto_creado")
+				return m.vincular(ctx, t, c, a, "prospecto", v.ID, p.Numero, "prospecto_creado")
 			})
 			return VinculoCreado{Vinculo: v, Conversacion: d}, err
 		},
@@ -340,7 +346,7 @@ func nuevoRegistrarBoleta(m *Modulo) *auditoria.Caso[EntradaBoleta, Boleta] {
 				return Boleta{}, campoConv("monto", "Monto inválido", "monto")
 			}
 			var b Boleta
-			_, err = m.accionConv(ctx, t, in.ID, 0, func(a alcanceConv, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
+			_, err = m.accionConvDe(ctx, t, "conversaciones.registrar_boleta", in.ID, 0, func(a alcanceConv, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
 				if c.ClienteID == nil {
 					return reglaConv("sin_cliente", "Asocia la conversación a un cliente de Argos antes de registrar su boleta")
 				}
@@ -365,14 +371,14 @@ func nuevoRegistrarBoleta(m *Modulo) *auditoria.Caso[EntradaBoleta, Boleta] {
 				f, err := q.InsertarBoleta(ctx, mensajeriabd.InsertarBoletaParams{ID: id, EmpresaID: c.EmpresaID, ConversacionID: c.ID, ClienteID: *c.ClienteID,
 					ServicioID: servicio, AdjuntoID: in.AdjuntoID, Metodo: in.Metodo, CuentaBancariaID: in.CuentaBancariaID, BancoOrigenID: in.BancoOrigenID,
 					Referencia: in.Referencia, Monto: monto, FechaDeposito: pgtype.Date{Time: fecha, Valid: true}, Nota: in.Nota,
-					RegistradaPor: &a.usuario, ProximoIntento: m.ahora()})
+					RegistradaPor: a.usuarioPtr(), ProximoIntento: m.ahora(), PorAsistente: a.asistente})
 				if err != nil {
 					return err
 				}
 				b = aBoleta(f)
 				t.RegistrarCambios("boleta", f.ID, nil, map[string]any{"cliente_id": f.ClienteID, "servicio_id": f.ServicioID, "metodo": f.Metodo,
 					"referencia": f.Referencia, "monto": in.Monto, "adjunto_id": f.AdjuntoID})
-				if err := m.vincular(ctx, t, c, a.usuario, "boleta", f.ID.String(), "Boleta "+f.Referencia, "boleta_registrada"); err != nil {
+				if err := m.vincular(ctx, t, c, a, "boleta", f.ID.String(), "Boleta "+f.Referencia, "boleta_registrada"); err != nil {
 					return err
 				}
 				return t.Emitir("boleta.registrada", map[string]any{"boleta_id": f.ID, "conversacion_id": c.ID, "empresa_id": c.EmpresaID,
@@ -439,12 +445,12 @@ func nuevoPrepararBoleta(m *Modulo) *auditoria.Caso[uuid.UUID, boletaPorEnviar] 
 			if f.EmpresaID != nil {
 				empresa = *f.EmpresaID
 			}
-			usuario := int64(0)
-			if f.RegistradaPor != nil {
-				usuario = *f.RegistradaPor
+			// La recibió el asistente de IA (por_asistente): X-Iris-Actor asistente_ia.
+			quien := alcanceConv{asistente: true, empresa: empresa}
+			if !f.PorAsistente && f.RegistradaPor != nil {
+				quien = alcanceConv{usuario: *f.RegistradaPor, empresa: empresa}
 			}
-			return boletaPorEnviar{ID: id, f: f, datos: datos, mime: adj.Mime,
-				a: atencionDe(alcanceConv{usuario: usuario, empresa: empresa}, f.ConversacionID)}, nil
+			return boletaPorEnviar{ID: id, f: f, datos: datos, mime: adj.Mime, a: atencionDe(quien, f.ConversacionID)}, nil
 		},
 	})
 }
@@ -667,7 +673,7 @@ func nuevasPromesas(m *Modulo) *Promesas {
 	k.previo = auditoria.Nuevo(auditoria.Caso[entradaPreviaPromesa, previaPromesa]{
 		Accion: "conversaciones.registrar_promesa", Permiso: nucleo.PermConversacionesRegistrarPromesa, AuditarExito: sinAuditar[previaPromesa],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaPreviaPromesa) (previaPromesa, error) {
-			a, err := alcanceConvDe(ctx)
+			a, err := alcanceAccionDe(ctx, "conversaciones.registrar_promesa")
 			if err != nil {
 				return previaPromesa{}, err
 			}
@@ -689,7 +695,13 @@ func nuevasPromesas(m *Modulo) *Promesas {
 				return previaPromesa{}, clienteSinConfirmar()
 			}
 			if in.Clave != "" {
-				f, err := q.PromesaPorClave(ctx, mensajeriabd.PromesaPorClaveParams{SolicitadaPor: &a.usuario, IdempotencyKey: &in.Clave})
+				var f mensajeriabd.MensajeriaPromesa
+				if a.asistente {
+					// El asistente no es un usuario: su clave vale dentro de la conversación (el id sale de ella).
+					f, err = q.PromesaPorIDConv(ctx, mensajeriabd.PromesaPorIDConvParams{ID: idPromesaAsistente(in.ID, in.Clave), ConversacionID: in.ID})
+				} else {
+					f, err = q.PromesaPorClave(ctx, mensajeriabd.PromesaPorClaveParams{SolicitadaPor: &a.usuario, IdempotencyKey: &in.Clave})
+				}
 				switch {
 				case err == nil:
 					if string(f.HashPeticion) != string(in.hash) {
@@ -709,7 +721,7 @@ func nuevasPromesas(m *Modulo) *Promesas {
 		Accion: "conversaciones.registrar_promesa", Permiso: nucleo.PermConversacionesRegistrarPromesa,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaFinalPromesa) (PromesaConv, error) {
 			var p PromesaConv
-			_, err := m.accionConv(ctx, t, in.ID, 0, func(a alcanceConv, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
+			_, err := m.accionConvDe(ctx, t, "conversaciones.registrar_promesa", in.ID, 0, func(a alcanceConv, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
 				// Mientras Argos respondía la conversación pudo cambiar de cliente o perder la verificación.
 				if c.ClienteID == nil || *c.ClienteID != in.cliente || !c.ClienteVerificado {
 					return nucleo.Conflicto("cliente_cambiado", "El cliente de la conversación cambió mientras se pedía la promesa; revisa en Argos y vuelve a intentarlo")
@@ -719,7 +731,7 @@ func nuevasPromesas(m *Modulo) *Promesas {
 					estado = "pendiente_aprobacion"
 				}
 				params := mensajeriabd.InsertarPromesaParams{ID: in.id, EmpresaID: c.EmpresaID, ConversacionID: c.ID, ClienteID: *c.ClienteID,
-					ServicioID: in.ServicioID, VenceEl: pgtype.Date{Time: in.vence, Valid: true}, Estado: estado, SolicitadaPor: &a.usuario, HashPeticion: in.hash}
+					ServicioID: in.ServicioID, VenceEl: pgtype.Date{Time: in.vence, Valid: true}, Estado: estado, SolicitadaPor: a.usuarioPtr(), HashPeticion: in.hash}
 				if in.r.ID != 0 {
 					params.PromesaArgosID = &in.r.ID
 				}
@@ -746,7 +758,7 @@ func nuevasPromesas(m *Modulo) *Promesas {
 				t.RegistrarCambios("promesa", f.ID, nil, map[string]any{"servicio_id": f.ServicioID, "vence_el": p.VenceEl, "estado": f.Estado,
 					"promesa_argos_id": f.PromesaArgosID})
 				ref := "Promesa " + p.VenceEl
-				if err := m.vincular(ctx, t, c, a.usuario, "promesa", f.ID.String(), ref, "promesa_creada"); err != nil {
+				if err := m.vincular(ctx, t, c, a, "promesa", f.ID.String(), ref, "promesa_creada"); err != nil {
 					return err
 				}
 				return t.Emitir("promesa.solicitada", map[string]any{"promesa_id": f.ID, "conversacion_id": c.ID, "empresa_id": c.EmpresaID,
@@ -756,6 +768,12 @@ func nuevasPromesas(m *Modulo) *Promesas {
 		},
 	})
 	return k
+}
+
+// idPromesaAsistente: el id (y la clave hacia Argos) de una promesa que pide el asistente de IA: la
+// misma en cada reintento del turno.
+func idPromesaAsistente(conv int64, clave string) uuid.UUID {
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("iris:promesa:asistente:"+strconv.FormatInt(conv, 10)+":"+clave))
 }
 
 // finDelDia: el final del día local (23:59:59) en UTC.
@@ -834,6 +852,9 @@ func (k *Promesas) Crear(ctx context.Context, in EntradaPromesa) (PromesaConv, e
 	id := uuid.Must(uuid.NewV7())
 	if in.Clave != "" {
 		id = uuid.NewSHA1(uuid.NameSpaceOID, []byte("iris:promesa:"+strconv.FormatInt(pre.a.usuario, 10)+":"+in.Clave))
+		if pre.a.asistente {
+			id = idPromesaAsistente(in.ID, in.Clave)
+		}
 	}
 	r, err := k.m.cfg.Argos.CrearPromesa(ctx, atencionDe(pre.a, in.ID), in.ServicioID, vence, "iris:promesa:"+id.String())
 	if err != nil {

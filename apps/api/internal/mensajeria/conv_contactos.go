@@ -46,6 +46,10 @@ type ArgosAtencion interface {
 }
 
 func atencionDe(a alcanceConv, conv int64) argos.AtencionIris {
+	if a.asistente {
+		// §7.1 del contrato con Argos: el asistente va como asistente_ia (canal ia de Argos, con sus reglas).
+		return argos.AtencionIris{Actor: ActorAsistenteIA, Conversacion: "iris:conversacion:" + strconv.FormatInt(conv, 10), EmpresaID: a.empresa}
+	}
 	return argos.AtencionIris{Actor: "usuario:" + strconv.FormatInt(a.usuario, 10), Conversacion: "iris:conversacion:" + strconv.FormatInt(conv, 10), EmpresaID: a.empresa}
 }
 
@@ -111,7 +115,9 @@ func nuevoLeerConvPara(accion string, permiso nucleo.Permiso) *auditoria.Caso[En
 	return auditoria.Nuevo(auditoria.Caso[EntradaConversacion, convLeida]{
 		Accion: accion, Permiso: permiso, AuditarExito: sinAuditar[convLeida],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaConversacion) (convLeida, error) {
-			a, err := alcanceConvDe(ctx)
+			// También el asistente de IA (el permiso del caso decide: su rol solo tiene crear ticket,
+			// crear orden, boleta y promesa).
+			a, err := alcanceAccionDe(ctx, accion)
 			if err != nil {
 				return convLeida{}, err
 			}
@@ -294,7 +300,22 @@ func nuevoConfirmarCliente(m *Modulo) *auditoria.Caso[EntradaAccionConv, Convers
 				if c.ClienteID == nil {
 					return reglaConv("sin_cliente", "La conversación no tiene cliente asociado")
 				}
-				if c.ClienteVerificado {
+				// La confirmación de una persona da la verificación fuerte de este periodo (se pierde al
+				// resolver): confirmar otra vez después de reabrir la vuelve a dar.
+				vig, err := vigenciaFuerte(ctx, q, empresaDeConv(*c))
+				if err != nil {
+					return err
+				}
+				if c.ClienteVerificado && verificacionDe(*c, m.ahora(), vig) == VerificacionFuerte {
+					return nil
+				}
+				// Con la conversación resuelta se confirma el cliente, pero no hay periodo abierto: la
+				// verificación fuerte no se da (y el trigger la borra al reabrir).
+				if c.Estado != EstadoConvResuelta {
+					if err := m.fijarVerificacionFuerte(ctx, q, c); err != nil {
+						return err
+					}
+				} else if c.ClienteVerificado {
 					return nil
 				}
 				c.ClienteVerificado, c.VerificadoPor = true, &a.usuario

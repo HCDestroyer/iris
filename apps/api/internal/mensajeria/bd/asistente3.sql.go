@@ -333,7 +333,7 @@ UPDATE mensajeria.asistente_ajustes
 SET modo_autonomo = $1, espera_min = $2, max_turnos = $3, perfiles = $4, por_cola = $5,
     activado_en = coalesce(activado_en, $6), updated_at = now()
 WHERE id = $7
-RETURNING id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en
+RETURNING id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en, presupuesto_autonomo_pct, verificacion_fuerte_min
 `
 
 type FijarAutonomoAsistenteParams struct {
@@ -385,6 +385,8 @@ func (q *Queries) FijarAutonomoAsistente(ctx context.Context, arg FijarAutonomoA
 		&i.Perfiles,
 		&i.PorCola,
 		&i.ActivadoEn,
+		&i.PresupuestoAutonomoPct,
+		&i.VerificacionFuerteMin,
 	)
 	return i, err
 }
@@ -396,7 +398,7 @@ SET categoria_id = $1, categoria_confianza = $2, categoria_origen = $3,
     categoria_en = $4, clasificado_mensaje_id = coalesce($5, clasificado_mensaje_id),
     version = version + $6::integer, updated_at = now()
 WHERE id = $7
-RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en
+RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en, identidad_verificada_en, identidad_vence_en, bot_diferido_mensaje_id
 `
 
 type FijarCategoriaConversacionParams struct {
@@ -467,6 +469,12 @@ func (q *Queries) FijarCategoriaConversacion(ctx context.Context, arg FijarCateg
 		&i.AsistenteActividadEn,
 		&i.ColaOrigen,
 		&i.AsistenteTransfirioEn,
+		&i.AsistenteEstado,
+		&i.AsistenteTurnos,
+		&i.AsistentePresentoEn,
+		&i.IdentidadVerificadaEn,
+		&i.IdentidadVenceEn,
+		&i.BotDiferidoMensajeID,
 	)
 	return i, err
 }

@@ -253,17 +253,60 @@ func (m *Modulo) colaDeConv(ctx context.Context, q *mensajeriabd.Queries, c mens
 
 // alRecibirBandeja corre después de guardar un mensaje del cliente: respuesta al menú, fuera de
 // horario y, en horario, el aviso o el bot.
+//
+// Con el asistente de IA en modo autónomo (§17.8) este paso espera a que el mensaje se clasifique
+// (~20 s): si el asistente lo va a atender, el bot y fuera de horario callan; si no (categoría en
+// «sugiere», condición sin cumplir, franja, límite, proveedor caído), corre después tal cual
+// (correrBotDiferido). Así no hay doble saludo. Sin modo autónomo nada cambia.
 func (m *Modulo) alRecibirBandeja(ctx context.Context, t *auditoria.Tx, c *mensajeriabd.MensajeriaConversacion, canal mensajeriabd.MensajeriaCanal,
 	f mensajeriabd.MensajeriaConversacionMensaje) error {
 	q := mensajeriabd.New(t)
 	bot := botDe(canal.Bot)
+	if c.AsignadoA != nil || c.Estado == EstadoConvResuelta {
+		return m.alRecibirBandejaAhora(ctx, t, c, canal, f, bot, false)
+	}
+	_, autonomo, err := m.autonomoEncendido(ctx, q, empresaDeConv(*c))
+	if err != nil {
+		return err
+	}
+	atiende := c.AsistenteEstado != nil && *c.AsistenteEstado == AsistenteAtendiendo
+	switch {
+	case atiende && autonomo:
+		// El asistente ya atiende esta conversación: el bot calla (también su menú y sus
+		// temporizadores) y no sale la respuesta de fuera de horario. La guardia se avisa igual.
+		if err := limpiarEspera(ctx, q, c); err != nil {
+			return err
+		}
+		bot.Activo = false
+		_, err := m.alRecibirFueraDeHorario(ctx, t, c, canal, f, bot, true)
+		return err
+	case atiende:
+		// Apagaron el modo autónomo (o se llegó al tope) mientras atendía: vuelve el camino normal.
+		g, err := q.FijarAsistenteConv(ctx, mensajeriabd.FijarAsistenteConvParams{ID: c.ID, Estado: nombrePtr(AsistenteEsperaPersona),
+			Turnos: c.AsistenteTurnos, PresentoEn: c.AsistentePresentoEn})
+		if err != nil {
+			return err
+		}
+		c.AsistenteEstado = g.AsistenteEstado
+	case autonomo && !botAtendiendo(*c):
+		// Espera a la clasificación: lo decide el job de la conversación.
+		c.BotDiferidoMensajeID = pgUUID(&f.ID)
+		return q.FijarBotDiferido(ctx, mensajeriabd.FijarBotDiferidoParams{ID: c.ID, MensajeID: c.BotDiferidoMensajeID})
+	}
+	return m.alRecibirBandejaAhora(ctx, t, c, canal, f, bot, false)
+}
+
+// alRecibirBandejaAhora es el camino normal del bot y de fuera de horario.
+func (m *Modulo) alRecibirBandejaAhora(ctx context.Context, t *auditoria.Tx, c *mensajeriabd.MensajeriaConversacion, canal mensajeriabd.MensajeriaCanal,
+	f mensajeriabd.MensajeriaConversacionMensaje, bot BotNumero, calla bool) error {
+	q := mensajeriabd.New(t)
 	if bot.Activo && c.BotMenu != nil && c.AsignadoA == nil {
 		if err := m.respuestaMenu(ctx, t, c, bot, f); err != nil {
 			return err
 		}
 		return nil
 	}
-	cerrado, err := m.alRecibirFueraDeHorario(ctx, t, c, canal, f, bot)
+	cerrado, err := m.alRecibirFueraDeHorario(ctx, t, c, canal, f, bot, calla)
 	if err != nil || cerrado {
 		return err
 	}
@@ -271,6 +314,54 @@ func (m *Modulo) alRecibirBandeja(ctx context.Context, t *auditoria.Tx, c *mensa
 		return nil
 	}
 	return m.empezarEspera(ctx, t, q, c, bot)
+}
+
+// nuevoBotDiferido corre el paso del bot y de fuera de horario que quedó esperando a la clasificación,
+// si el asistente no tomó la conversación.
+func nuevoBotDiferido(m *Modulo) *auditoria.Caso[int64, bool] {
+	return auditoria.Nuevo(auditoria.Caso[int64, bool]{
+		Accion: "mensajeria.bot_diferido", Acceso: auditoria.Autenticado, AuditarExito: func(ok bool) bool { return ok },
+		Logica: func(ctx context.Context, t *auditoria.Tx, id int64) (bool, error) {
+			if err := soloSistema(ctx); err != nil {
+				return false, err
+			}
+			q := mensajeriabd.New(t)
+			c, err := q.ConversacionClienteParaActualizar(ctx, id)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return false, nil
+			}
+			if err != nil {
+				return false, err
+			}
+			pendiente := uuidDe(c.BotDiferidoMensajeID)
+			if pendiente == nil {
+				return false, nil
+			}
+			t.FijarEmpresa(empresaDeConv(c))
+			t.FijarEntidad("conversacion", c.ID)
+			c.BotDiferidoMensajeID = pgUUID(nil)
+			if err := q.FijarBotDiferido(ctx, mensajeriabd.FijarBotDiferidoParams{ID: c.ID, MensajeID: c.BotDiferidoMensajeID}); err != nil {
+				return false, err
+			}
+			// El asistente la tomó, o ya la tiene una persona, o se resolvió: nada que hacer.
+			if c.AsignadoA != nil || c.Estado == EstadoConvResuelta || (c.AsistenteEstado != nil && *c.AsistenteEstado == AsistenteAtendiendo) {
+				return false, nil
+			}
+			canal, err := q.CanalPorID(ctx, c.CanalID)
+			if err != nil {
+				return false, err
+			}
+			// Horario, bot y fuera de horario son de la dueña del número (§15.3).
+			if empresaDeConv(c) != derefEmpresa(canal.EmpresaID) {
+				return false, nil
+			}
+			f, err := q.MensajeConversacionPorID(ctx, *pendiente)
+			if err != nil {
+				return false, err
+			}
+			return true, m.alRecibirBandejaAhora(ctx, t, &c, canal, f, botDe(canal.Bot), false)
+		},
+	})
 }
 
 // empezarEspera: avisa a los disponibles (temporizador sin_confirmacion) o, si no hay nadie, saluda
@@ -514,6 +605,10 @@ func nuevoDispararBot(m *Modulo) *auditoria.Caso[int64, bool] {
 			bot := botDe(canal.Bot)
 			if c.AsignadoA != nil || c.Estado == EstadoConvResuelta || !bot.Activo || !canal.Activo {
 				return false, guardarBot(ctx, q, c)
+			}
+			// §17.8: el asistente ya atiende esta conversación: el bot no contesta.
+			if c.AsistenteEstado != nil && *c.AsistenteEstado == AsistenteAtendiendo {
+				return false, limpiarEspera(ctx, q, &c)
 			}
 			cola, err := m.colaDeConv(ctx, q, c)
 			if err != nil {

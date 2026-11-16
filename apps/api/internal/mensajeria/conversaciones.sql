@@ -485,9 +485,9 @@ SELECT * FROM integracion.argos_servicios WHERE cliente_id = @cliente_id ORDER B
 
 -- name: InsertarBoleta :one
 INSERT INTO mensajeria.boletas (id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id,
-    banco_origen_id, referencia, monto, fecha_deposito, nota, registrada_por, proximo_intento)
+    banco_origen_id, referencia, monto, fecha_deposito, nota, registrada_por, proximo_intento, por_asistente)
 VALUES (@id, sqlc.narg('empresa_id'), @conversacion_id, @cliente_id, sqlc.narg('servicio_id'), @adjunto_id, @metodo, @cuenta_bancaria_id,
-    sqlc.narg('banco_origen_id'), @referencia, @monto, @fecha_deposito, sqlc.narg('nota'), sqlc.narg('registrada_por'), @proximo_intento)
+    sqlc.narg('banco_origen_id'), @referencia, @monto, @fecha_deposito, sqlc.narg('nota'), sqlc.narg('registrada_por'), @proximo_intento, @por_asistente)
 RETURNING *;
 
 -- name: BoletaParaEnviar :one

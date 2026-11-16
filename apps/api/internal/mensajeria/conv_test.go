@@ -52,8 +52,50 @@ type argosFalso struct {
 	cuentas int
 	// alLeerCuenta corre mientras «Argos» atiende el estado de cuenta.
 	alLeerCuenta func()
+	// reconexiones: los comprobantes para los que se pidió una reconexión temporal (§7.3).
+	reconexiones []int64
+	motivos      []string
+	errReconex   error
+	// alVerificar corre mientras «Argos» atiende el desafío; fallasPromesa: cuántas veces falla
+	// CrearPromesa antes de responder (la respuesta que se pierde).
+	alVerificar   func()
+	fallasPromesa int
+	// documento: el DPI/NIT que «Argos» tiene del cliente; verificados: lo que recibió el desafío.
+	documento    string
+	verificados  []string
+	errVerificar error
 	// caja: el Argos falso (httptest) que aprueba y rechaza comprobantes (boletas_decidir_test.go).
 	caja *cajaFalsa
+}
+
+// VerificarIdentidad: el desafío de identidad (mensajeria.ArgosIdentidad). Coincide si el valor es el
+// documento configurado; guarda los valores recibidos para comprobar que no quedan en ningún otro lado.
+func (f *argosFalso) VerificarIdentidad(_ context.Context, a argos.AtencionIris, _ int64, metodo, valor string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.actores = append(f.actores, a)
+	f.verificados = append(f.verificados, metodo+":"+valor)
+	if f.alVerificar != nil {
+		f.alVerificar()
+	}
+	if f.errVerificar != nil {
+		return false, f.errVerificar
+	}
+	return f.documento != "" && valor == f.documento, nil
+}
+
+// PedirReconexionTemporal: la reconexión temporal ligada a un comprobante (mensajeria.ArgosReconexion).
+func (f *argosFalso) PedirReconexionTemporal(_ context.Context, a argos.AtencionIris, comprobante int64, _ *int64, motivo, clave string) (int64, time.Time, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.actores = append(f.actores, a)
+	f.motivos = append(f.motivos, motivo)
+	if f.errReconex != nil {
+		return 0, time.Time{}, f.errReconex
+	}
+	f.reconexiones = append(f.reconexiones, comprobante)
+	f.claves = append(f.claves, clave)
+	return 900 + comprobante, time.Date(2026, 11, 6, 16, 0, 0, 0, time.UTC), nil
 }
 
 func (f *argosFalso) BuscarPorTelefono(_ context.Context, a argos.AtencionIris, _ string) ([]argos.ClienteTelefono, error) {
@@ -125,6 +167,10 @@ func (f *argosFalso) CrearPromesa(_ context.Context, _ argos.AtencionIris, _ int
 	f.claves = append(f.claves, clave)
 	if f.alCrearPromesa != nil {
 		f.alCrearPromesa()
+	}
+	if f.fallasPromesa > 0 {
+		f.fallasPromesa--
+		return argos.PromesaArgos{}, fmt.Errorf("argos: sin respuesta")
 	}
 	return f.promesa, nil
 }

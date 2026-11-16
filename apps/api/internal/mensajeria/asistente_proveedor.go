@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -42,6 +43,56 @@ type PedidoIA struct {
 	Instrucciones string
 	Contenido     string
 	MaxTokens     int64
+	// Herramientas (3b, §17.8): la lista cerrada que el modelo puede pedir en este turno. Vacía = solo
+	// texto, como siempre.
+	Herramientas []HerramientaIA
+	// Pasos ya dados en este turno: lo que respondió el modelo y el resultado de cada herramienta.
+	Pasos []PasoIA
+}
+
+// HerramientaIA es una herramienta que el modelo puede pedir. Parametros son las propiedades del
+// esquema JSON (todas obligatorias y sin propiedades extra: herramientas estrictas).
+type HerramientaIA struct {
+	Nombre      string
+	Descripcion string
+	Parametros  map[string]any
+}
+
+// requeridos: todas las propiedades, en orden estable.
+func (h HerramientaIA) requeridos() []string {
+	out := make([]string, 0, len(h.Parametros))
+	for k := range h.Parametros {
+		out = append(out, k)
+	}
+	slices.Sort(out)
+	return out
+}
+
+func (h HerramientaIA) propiedades() map[string]any {
+	if h.Parametros == nil {
+		return map[string]any{}
+	}
+	return h.Parametros
+}
+
+// LlamadaIA es una herramienta que pidió el modelo (los argumentos son JSON sin validar).
+type LlamadaIA struct {
+	ID         string
+	Nombre     string
+	Argumentos json.RawMessage
+}
+
+// ResultadoIA es lo que el servidor le contesta al modelo por una llamada.
+type ResultadoIA struct {
+	LlamadaID string
+	Contenido string
+	Error     bool
+}
+
+// PasoIA es una vuelta del turno: la respuesta del modelo y los resultados de sus llamadas.
+type PasoIA struct {
+	Respuesta  RespuestaIA
+	Resultados []ResultadoIA
 }
 
 // RespuestaIA es el texto que devolvió el modelo.
@@ -51,6 +102,11 @@ type RespuestaIA struct {
 	Rechazo bool
 	// Truncada: se cortó por max_tokens.
 	Truncada bool
+	// Llamadas: las herramientas que pidió (solo con PedidoIA.Herramientas).
+	Llamadas []LlamadaIA
+	// crudo: la respuesta en la forma del proveedor, para devolverla tal cual en el paso siguiente
+	// (Anthropic exige los bloques de la respuesta sin cambios).
+	crudo any
 }
 
 // UsoIA son los tokens de una llamada (entrada incluye la caché).
@@ -75,6 +131,8 @@ type Proveedor interface {
 type ErrorIA struct {
 	Codigo  string
 	Detalle string
+	// Status HTTP del proveedor (0 = no hubo respuesta HTTP).
+	Status int
 }
 
 func (e *ErrorIA) Error() string { return e.Codigo + ": " + e.Detalle }
@@ -88,6 +146,8 @@ const (
 	ErrIASinConfig    = "sin_configurar"
 	ErrIARechazo      = "rechazo_modelo"
 	ErrIARespInvalida = "respuesta_invalida"
+	// ErrIASinHerramientas: el modelo o el servidor no aceptan herramientas (se usa el respaldo en JSON).
+	ErrIASinHerramientas = "sin_herramientas"
 )
 
 // ConfigProveedor es la conexión ya resuelta (la clave en claro solo vive en memoria).
@@ -311,6 +371,12 @@ func clasificarErrorRed(err error) error {
 }
 
 func errorPorStatus(status int) *ErrorIA {
+	e := errorDeStatus(status)
+	e.Status = status
+	return e
+}
+
+func errorDeStatus(status int) *ErrorIA {
 	switch {
 	case status >= 300 && status <= 399:
 		return &ErrorIA{Codigo: ErrIARedirige, Detalle: "El servidor respondió con una redirección; usa la URL final"}
@@ -335,8 +401,19 @@ type proveedorOpenAI struct {
 }
 
 type mensajeOpenAI struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string          `json:"role"`
+	Content    string          `json:"content"`
+	ToolCalls  []llamadaOpenAI `json:"tool_calls,omitempty"`
+	ToolCallID string          `json:"tool_call_id,omitempty"`
+}
+
+type llamadaOpenAI struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
 }
 
 func (p *proveedorOpenAI) pedir(ctx context.Context, metodo, ruta string, cuerpo any, destino any) error {
@@ -375,20 +452,43 @@ func (p *proveedorOpenAI) pedir(ctx context.Context, metodo, ruta string, cuerpo
 }
 
 func (p *proveedorOpenAI) Generar(ctx context.Context, in PedidoIA) (RespuestaIA, UsoIA, error) {
+	mensajes := []mensajeOpenAI{
+		{Role: "system", Content: in.Instrucciones},
+		{Role: "user", Content: in.Contenido},
+	}
+	for _, paso := range in.Pasos {
+		m := mensajeOpenAI{Role: "assistant", Content: paso.Respuesta.Texto}
+		for _, l := range paso.Respuesta.Llamadas {
+			c := llamadaOpenAI{ID: l.ID, Type: "function"}
+			c.Function.Name, c.Function.Arguments = l.Nombre, string(l.Argumentos)
+			m.ToolCalls = append(m.ToolCalls, c)
+		}
+		mensajes = append(mensajes, m)
+		for _, r := range paso.Resultados {
+			mensajes = append(mensajes, mensajeOpenAI{Role: "tool", ToolCallID: r.LlamadaID, Content: r.Contenido})
+		}
+	}
 	cuerpo := map[string]any{
-		"model": in.Modelo,
-		"messages": []mensajeOpenAI{
-			{Role: "system", Content: in.Instrucciones},
-			{Role: "user", Content: in.Contenido},
-		},
+		"model":      in.Modelo,
+		"messages":   mensajes,
 		"max_tokens": in.MaxTokens,
 		"stream":     false,
+	}
+	if len(in.Herramientas) > 0 {
+		// Function calling: la lista cerrada del turno, estricta, y el modelo decide si las usa.
+		hs := make([]map[string]any, 0, len(in.Herramientas))
+		for _, h := range in.Herramientas {
+			hs = append(hs, map[string]any{"type": "function", "function": map[string]any{"name": h.Nombre, "description": h.Descripcion, "strict": true,
+				"parameters": map[string]any{"type": "object", "properties": h.propiedades(), "required": h.requeridos(), "additionalProperties": false}}})
+		}
+		cuerpo["tools"], cuerpo["tool_choice"] = hs, "auto"
 	}
 	var r struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
-				Refusal string `json:"refusal"`
+				Content   string          `json:"content"`
+				Refusal   string          `json:"refusal"`
+				ToolCalls []llamadaOpenAI `json:"tool_calls"`
 			} `json:"message"`
 			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
@@ -398,6 +498,13 @@ func (p *proveedorOpenAI) Generar(ctx context.Context, in PedidoIA) (RespuestaIA
 		} `json:"usage"`
 	}
 	if err := p.pedir(ctx, http.MethodPost, "/v1/chat/completions", cuerpo, &r); err != nil {
+		// Un servidor o un modelo sin herramientas rechaza el pedido (400, 422 o 501 en algunos
+		// servidores locales): quien llama usa el respaldo en JSON.
+		var e *ErrorIA
+		if len(in.Herramientas) > 0 && errors.As(err, &e) && (e.Status == http.StatusBadRequest || e.Status == http.StatusUnprocessableEntity ||
+			e.Status == http.StatusNotImplemented) {
+			return RespuestaIA{}, UsoIA{}, &ErrorIA{Codigo: ErrIASinHerramientas, Detalle: "El modelo no acepta herramientas", Status: e.Status}
+		}
 		return RespuestaIA{}, UsoIA{}, err
 	}
 	uso := UsoIA{Entrada: r.Usage.PromptTokens, Salida: r.Usage.CompletionTokens}
@@ -405,8 +512,18 @@ func (p *proveedorOpenAI) Generar(ctx context.Context, in PedidoIA) (RespuestaIA
 		return RespuestaIA{}, uso, &ErrorIA{Codigo: ErrIAProveedor, Detalle: "El servidor de IA no devolvió ninguna respuesta"}
 	}
 	c := r.Choices[0]
-	return RespuestaIA{Texto: c.Message.Content, Rechazo: c.FinishReason == "content_filter" || c.Message.Refusal != "",
-		Truncada: c.FinishReason == "length"}, uso, nil
+	out := RespuestaIA{Texto: c.Message.Content, Rechazo: c.FinishReason == "content_filter" || c.Message.Refusal != "",
+		Truncada: c.FinishReason == "length"}
+	if len(in.Herramientas) > 0 {
+		for i, l := range c.Message.ToolCalls {
+			id := l.ID
+			if id == "" {
+				id = fmt.Sprintf("llamada_%d_%d", len(in.Pasos), i)
+			}
+			out.Llamadas = append(out.Llamadas, LlamadaIA{ID: id, Nombre: l.Function.Name, Argumentos: json.RawMessage(l.Function.Arguments)})
+		}
+	}
+	return out, uso, nil
 }
 
 func (p *proveedorOpenAI) Modelos(ctx context.Context) ([]ModeloIA, error) {
@@ -442,28 +559,71 @@ func (p *proveedorAnthropic) Generar(ctx context.Context, in PedidoIA) (Respuest
 	// system con un punto de caché: se repiten igual en cada pedido. Con el respaldo del lado del
 	// servidor (fallbacks: "default"): si el modelo declina, la API reintenta en el modelo de
 	// respaldo dentro de la misma llamada; si ese también declina, es rechazo_modelo.
-	r, err := p.cli.Beta.Messages.New(ctx, anthropic.BetaMessageNewParams{
+	params := anthropic.BetaMessageNewParams{
 		Model:     modelo,
 		MaxTokens: in.MaxTokens,
 		System:    []anthropic.BetaTextBlockParam{{Text: in.Instrucciones, CacheControl: anthropic.NewBetaCacheControlEphemeralParam()}},
 		Messages:  []anthropic.BetaMessageParam{anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(in.Contenido))},
 		Betas:     []anthropic.AnthropicBeta{anthropic.AnthropicBetaServerSideFallback2026_07_01},
 		Fallbacks: anthropic.BetaFallbacksParamOfDefault(),
-	})
+	}
+	if len(in.Herramientas) > 0 {
+		// Tool use (§17.8): herramientas estrictas (los argumentos cumplen el esquema) y tool_choice en
+		// auto (los modelos actuales no aceptan forzar una herramienta). La lista va en orden estable:
+		// es parte del prefijo que se cachea.
+		for _, h := range in.Herramientas {
+			params.Tools = append(params.Tools, anthropic.BetaToolUnionParam{OfTool: &anthropic.BetaToolParam{
+				Name: h.Nombre, Description: anthropic.String(h.Descripcion), Strict: anthropic.Bool(true),
+				InputSchema: anthropic.BetaToolInputSchemaParam{Properties: h.propiedades(), Required: h.requeridos(),
+					ExtraFields: map[string]any{"additionalProperties": false}}}})
+		}
+		params.ToolChoice = anthropic.BetaToolChoiceUnionParam{OfAuto: &anthropic.BetaToolChoiceAutoParam{}}
+	}
+	for _, paso := range in.Pasos {
+		// La respuesta anterior vuelve tal cual (con sus bloques de razonamiento) y todos los resultados
+		// van juntos en un solo mensaje de usuario.
+		previo, ok := paso.Respuesta.crudo.(anthropic.BetaMessageParam)
+		if !ok {
+			previo = anthropic.BetaMessageParam{Role: anthropic.BetaMessageParamRoleAssistant}
+			if paso.Respuesta.Texto != "" {
+				previo.Content = append(previo.Content, anthropic.NewBetaTextBlock(paso.Respuesta.Texto))
+			}
+			for _, l := range paso.Respuesta.Llamadas {
+				var args any = map[string]any{}
+				_ = json.Unmarshal(l.Argumentos, &args)
+				previo.Content = append(previo.Content, anthropic.BetaContentBlockParamUnion{OfToolUse: &anthropic.BetaToolUseBlockParam{ID: l.ID, Name: l.Nombre, Input: args}})
+			}
+		}
+		params.Messages = append(params.Messages, previo)
+		resultados := make([]anthropic.BetaContentBlockParamUnion, 0, len(paso.Resultados))
+		for _, r := range paso.Resultados {
+			resultados = append(resultados, anthropic.NewBetaToolResultBlock(r.LlamadaID, r.Contenido, r.Error))
+		}
+		params.Messages = append(params.Messages, anthropic.NewBetaUserMessage(resultados...))
+	}
+	r, err := p.cli.Beta.Messages.New(ctx, params)
 	if err != nil {
 		return RespuestaIA{}, UsoIA{}, errorAnthropic(err)
 	}
 	uso := UsoIA{Entrada: r.Usage.InputTokens + r.Usage.CacheCreationInputTokens + r.Usage.CacheReadInputTokens, Salida: r.Usage.OutputTokens}
+	// Siempre se mira stop_reason antes del contenido: un rechazo no trae nada que ejecutar.
 	if r.StopReason == anthropic.BetaStopReasonRefusal {
 		return RespuestaIA{Rechazo: true}, uso, nil
 	}
+	out := RespuestaIA{Truncada: r.StopReason == anthropic.BetaStopReasonMaxTokens, crudo: r.ToParam()}
 	var b strings.Builder
 	for _, bloque := range r.Content {
-		if t, ok := bloque.AsAny().(anthropic.BetaTextBlock); ok {
-			b.WriteString(t.Text)
+		switch v := bloque.AsAny().(type) {
+		case anthropic.BetaTextBlock:
+			b.WriteString(v.Text)
+		case anthropic.BetaToolUseBlock:
+			if len(in.Herramientas) > 0 {
+				out.Llamadas = append(out.Llamadas, LlamadaIA{ID: v.ID, Nombre: v.Name, Argumentos: json.RawMessage(v.JSON.Input.Raw())})
+			}
 		}
 	}
-	return RespuestaIA{Texto: b.String(), Truncada: r.StopReason == anthropic.BetaStopReasonMaxTokens}, uso, nil
+	out.Texto = b.String()
+	return out, uso, nil
 }
 
 func (p *proveedorAnthropic) Modelos(ctx context.Context) ([]ModeloIA, error) {

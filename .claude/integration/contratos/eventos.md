@@ -359,7 +359,7 @@ Ninguno lleva el texto de una sugerencia, de un mensaje ni de un resumen, ni la 
 ### Asistente autónomo y categorías (contratos/conversaciones.md §17, fase 3a)
 
 Ninguno lleva texto de mensajes, de respuestas del modelo ni montos. En 3a el asistente todavía no
-actúa solo: `asistente.accion_ejecutada` y `asistente.paso_a_persona` (§17.7) llegan con 3b.
+actúa solo; desde 3b sí (§17.8): `asistente.accion_ejecutada` y `asistente.paso_a_persona`. `conversacion.mensaje_enviado` de un mensaje del asistente lleva `autor_id: null` y `automatico: "asistente"`.
 
 | Evento | Payload | Cuándo |
 | --- | --- | --- |
@@ -367,6 +367,10 @@ actúa solo: `asistente.accion_ejecutada` y `asistente.paso_a_persona` (§17.7) 
 | `categoria.creada` | `categoria_id`, `empresa_id`, `nombre` | `POST /mensajeria/asistente/categorias` (`mensajeria.asistente_configurar`). Las seis iniciales se siembran sin evento. |
 | `categoria.actualizada` | `categoria_id`, `empresa_id`, `campos[]` (`nombre`, `descripcion`, `tono`, `cola_id`, `sla_primera_respuesta_min`, `modo`, `condicion`, `manual_ids`, `activa`), `activa` | Editar, activar o desactivar una categoría. |
 | `asistente.mensaje_probado` | `empresa_id`, `haria` (`responde_solo` \| `sugiere` \| `pasa_a_persona`), `categoria_id` (o null), `tokens_entrada`, `tokens_salida` | `POST /mensajeria/asistente/probar-mensaje` cuando el modelo respondió algo válido (no ejecuta nada; cuenta para el tope). |
+| `asistente.accion_ejecutada` | `conversacion_id`, `empresa_id`, `accion` (`responder`, `responder_dudas`, `avisar_fallas`, `dar_saldo`, `crear_ticket`, `simular_promesa`, `promesa_pago`, `cuentas_para_boleta`, `recibir_boleta`, `reconexion_temporal`, `pasar_a_persona`; rechazos del servidor: `herramienta_no_permitida`, `limite_herramientas`), `resultado` (`ok` \| `rechazada` \| `fallo`), `entidad` (o null: `mensaje`, `ticket`, `promesa`, `boleta`, `comprobante`), `entidad_id` (o null), `turno` | 3b (§17.8): cada herramienta que el asistente pidió en un turno autónomo y el mensaje que envió (actor `asistente_ia`, canal `ia`). Una vez por turno y paso (un reintento no lo repite). Nunca argumentos, texto ni montos. |
+| `conversacion.identidad_verificada` | `conversacion_id`, `empresa_id`, `cliente_id`, `resultado` (`coincide` \| `no_coincide` \| `no_disponible` \| `error`), `origen` (`asistente`) | 3b (§17.8.2): un intento de verificación de identidad contra Argos (§7.5). Nunca el dato. |
+| `reconexion.solicitada` | `reconexion_id`, `conversacion_id`, `empresa_id`, `cliente_id`, `servicio_id`, `comprobante_id`, `motivo` (`fuera_de_horario`), `estado` (`aceptada` \| `rechazada`), `promesa_argos_id` (o null) | 3b (§17.8.2): se pidió a Argos la reconexión temporal mientras caja revisa la boleta (`conversaciones.pedir_reconexion`). |
+| `asistente.paso_a_persona` | `conversacion_id`, `empresa_id`, `motivo` (`cliente_lo_pidio` \| `enojo` \| `sin_respuesta` \| `herramienta_fallo` \| `max_turnos` \| `persona_presente` \| `tope`), `cola_id` (o null), `turnos` | 3b: el asistente dejó la conversación a una persona. Con `persona_presente` una persona la tomó o escribió a mitad del turno (no se envió nada); en los demás queda `espera_persona`, en la cola de su categoría, con una nota interna. |
 
 `conversacion.transferida` suma `origen` cuando no la pasó una persona con «Transferir»: `asistente`
 (la clasificó el asistente y su categoría tiene otra cola; `actor_id` null) o `categoria` (un agente

@@ -301,6 +301,9 @@ const (
 	PermConversacionesRegistrarBoleta Permiso = "conversaciones.registrar_boleta"
 	// PermConversacionesRegistrarPromesa: simular y pedir a Argos una promesa de pago (§7.4).
 	PermConversacionesRegistrarPromesa Permiso = "conversaciones.registrar_promesa"
+	// PermConversacionesPedirReconexion: pedir a Argos una reconexión temporal mientras caja revisa la
+	// boleta (§7.3). Por ahora solo lo usa el asistente de IA (fuera de horario o sin nadie disponible).
+	PermConversacionesPedirReconexion Permiso = "conversaciones.pedir_reconexion"
 	// PermConversacionesConfigurar: etiquetas y respuestas rápidas de la empresa.
 	PermConversacionesConfigurar Permiso = "conversaciones.configurar"
 	// PermCanalesConfigurar: colas, uso, cola y horario de cada número de WhatsApp, horarios y
@@ -340,7 +343,8 @@ var PermisosSensibles = map[Permiso]bool{
 	PermFactibilidadConfigurar: true, PermPortalEmitir: true, PermSSOEmitir: true,
 	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true, PermMensajeriaConfigurar: true, PermMensajeriaConexionMeta: true, PermMensajeriaAsistenteConfigurar: true, PermCanalesConfigurar: true, PermConversacionesConfigurar: true,
 	PermConversacionesRegistrarPromesa: true, PermConversacionesRegistrarBoleta: true, PermConversacionesSupervisar: true,
-	PermConversacionesIniciar: true, PermCampoConfigurar: true,
+	PermConversacionesPedirReconexion: true,
+	PermConversacionesIniciar:         true, PermCampoConfigurar: true,
 	// Aprobar una boleta registra un pago en Argos: de administración (MFA y re-autenticación en una
 	// sesión abierta por el autologin).
 	PermBoletasAprobar: true, PermBoletasRechazar: true,
@@ -411,6 +415,7 @@ var Catalogo = []DefPermiso{
 	{PermConversacionesEtiquetar, "Poner y quitar etiquetas a una conversación"},
 	{PermConversacionesIniciar, "Escribir primero por WhatsApp, con una plantilla aprobada, a un cliente o contacto con permiso de contacto desde un número de tus colas"},
 	{PermConversacionesPasar, "Pasar la conversación que tienes a un compañero de la misma cola, con una nota interna"},
+	{PermConversacionesPedirReconexion, "Pedir a Argos una reconexión temporal mientras caja revisa la boleta del cliente (Argos decide)"},
 	{PermConversacionesRegistrarBoleta, "Mandar a Argos la boleta de pago que envió el cliente por WhatsApp (caja la aprueba en Argos)"},
 	{PermConversacionesRegistrarPromesa, "Simular y pedir a Argos una promesa de pago desde una conversación (Argos decide)"},
 	{PermConversacionesResolver, "Resolver y reabrir conversaciones"},
@@ -723,4 +728,19 @@ func ModuloDe(p Permiso) (codigo, nombre string) {
 		return m[0], m[1]
 	}
 	return "otros", "Otros"
+}
+
+// RolAsistenteIA es el rol interno del asistente de IA cuando atiende solo (mensajería,
+// contratos/conversaciones.md §17.7). No está en RolesBase ni en nucleo.roles: no se puede asignar a
+// una persona, a un token ni a una integración, y su código no se puede usar en un rol propio. Solo
+// lo lleva el actor asistente_ia (contexto.ComoAsistenteIA).
+const RolAsistenteIA = "asistente_ia"
+
+// PermisosAsistenteIA son los permisos del rol interno asistente_ia: responder, crear tickets,
+// registrar la boleta, pedir la promesa y pedir la reconexión temporal. Nada de configuración, de
+// aprobar o rechazar boletas, de supervisar ni de ver otras empresas; crear y programar órdenes
+// llegará con agendar_visita. Cada herramienta exige además su acción encendida en el perfil vigente.
+func PermisosAsistenteIA() []Permiso {
+	return []Permiso{PermConversacionesResponder, PermTicketsCrear, PermConversacionesRegistrarBoleta,
+		PermConversacionesRegistrarPromesa, PermConversacionesPedirReconexion}
 }

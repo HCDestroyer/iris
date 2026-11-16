@@ -20,7 +20,7 @@ SET activo = $1, proveedor = $2, url = $3, modelo = $4, modo = $5,
     tope_tokens_mes = $10, precio_entrada_millon = $11::numeric,
     precio_salida_millon = $12::numeric, version = version + 1, updated_at = now()
 WHERE id = $13
-RETURNING id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en
+RETURNING id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en, presupuesto_autonomo_pct, verificacion_fuerte_min
 `
 
 type ActualizarAsistenteAjustesParams struct {
@@ -82,6 +82,8 @@ func (q *Queries) ActualizarAsistenteAjustes(ctx context.Context, arg Actualizar
 		&i.Perfiles,
 		&i.PorCola,
 		&i.ActivadoEn,
+		&i.PresupuestoAutonomoPct,
+		&i.VerificacionFuerteMin,
 	)
 	return i, err
 }
@@ -106,7 +108,7 @@ func (q *Queries) AsegurarUsoAsistente(ctx context.Context, arg AsegurarUsoAsist
 const asistenteAjustes = `-- name: AsistenteAjustes :one
 
 
-SELECT id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en FROM mensajeria.asistente_ajustes WHERE coalesce(empresa_id, 0) = $1::bigint
+SELECT id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en, presupuesto_autonomo_pct, verificacion_fuerte_min FROM mensajeria.asistente_ajustes WHERE coalesce(empresa_id, 0) = $1::bigint
 `
 
 // Asistente de IA que sugiere respuestas (contratos/conversaciones.md §16).
@@ -140,12 +142,14 @@ func (q *Queries) AsistenteAjustes(ctx context.Context, empresa int64) (Mensajer
 		&i.Perfiles,
 		&i.PorCola,
 		&i.ActivadoEn,
+		&i.PresupuestoAutonomoPct,
+		&i.VerificacionFuerteMin,
 	)
 	return i, err
 }
 
 const asistenteAjustesParaActualizar = `-- name: AsistenteAjustesParaActualizar :one
-SELECT id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en FROM mensajeria.asistente_ajustes WHERE coalesce(empresa_id, 0) = $1::bigint FOR UPDATE
+SELECT id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en, presupuesto_autonomo_pct, verificacion_fuerte_min FROM mensajeria.asistente_ajustes WHERE coalesce(empresa_id, 0) = $1::bigint FOR UPDATE
 `
 
 func (q *Queries) AsistenteAjustesParaActualizar(ctx context.Context, empresa int64) (MensajeriaAsistenteAjuste, error) {
@@ -177,6 +181,8 @@ func (q *Queries) AsistenteAjustesParaActualizar(ctx context.Context, empresa in
 		&i.Perfiles,
 		&i.PorCola,
 		&i.ActivadoEn,
+		&i.PresupuestoAutonomoPct,
+		&i.VerificacionFuerteMin,
 	)
 	return i, err
 }
@@ -281,18 +287,25 @@ func (q *Queries) CerrarSugerenciasVigentes(ctx context.Context, arg CerrarSuger
 }
 
 const descontarReservados = `-- name: DescontarReservados :exec
-UPDATE mensajeria.asistente_uso SET tokens_reservados = GREATEST(0, tokens_reservados - $1::bigint), updated_at = now()
-WHERE coalesce(empresa_id, 0) = $2::bigint AND mes = $3
+UPDATE mensajeria.asistente_uso SET tokens_reservados = GREATEST(0, tokens_reservados - $1::bigint),
+    tokens_autonomo_reservados = GREATEST(0, tokens_autonomo_reservados - CASE WHEN $2::boolean THEN $1::bigint ELSE 0 END), updated_at = now()
+WHERE coalesce(empresa_id, 0) = $3::bigint AND mes = $4
 `
 
 type DescontarReservadosParams struct {
-	Tokens  int64
-	Empresa int64
-	Mes     pgtype.Date
+	Tokens   int64
+	Autonomo bool
+	Empresa  int64
+	Mes      pgtype.Date
 }
 
 func (q *Queries) DescontarReservados(ctx context.Context, arg DescontarReservadosParams) error {
-	_, err := q.db.Exec(ctx, descontarReservados, arg.Tokens, arg.Empresa, arg.Mes)
+	_, err := q.db.Exec(ctx, descontarReservados,
+		arg.Tokens,
+		arg.Autonomo,
+		arg.Empresa,
+		arg.Mes,
+	)
 	return err
 }
 
@@ -369,7 +382,7 @@ func (q *Queries) FallasHorusCliente(ctx context.Context, arg FallasHorusCliente
 const fijarClaveAsistente = `-- name: FijarClaveAsistente :one
 UPDATE mensajeria.asistente_ajustes SET clave_cifrada = $1, clave_guardada_en = $2, updated_at = now()
 WHERE id = $3
-RETURNING id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en
+RETURNING id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en, presupuesto_autonomo_pct, verificacion_fuerte_min
 `
 
 type FijarClaveAsistenteParams struct {
@@ -407,6 +420,8 @@ func (q *Queries) FijarClaveAsistente(ctx context.Context, arg FijarClaveAsisten
 		&i.Perfiles,
 		&i.PorCola,
 		&i.ActivadoEn,
+		&i.PresupuestoAutonomoPct,
+		&i.VerificacionFuerteMin,
 	)
 	return i, err
 }
@@ -523,7 +538,7 @@ func (q *Queries) GuardarResultadoSugerencia(ctx context.Context, arg GuardarRes
 }
 
 const historialAsistente = `-- name: HistorialAsistente :many
-SELECT id, direccion, tipo, texto, autor_id, automatico, creado_en FROM mensajeria.conversacion_mensajes
+SELECT id, direccion, tipo, texto, autor_id, automatico, creado_en, con_saldo FROM mensajeria.conversacion_mensajes
 WHERE conversacion_id = $1 AND direccion IN ('entrante', 'saliente')
 ORDER BY seq DESC LIMIT $2
 `
@@ -541,6 +556,7 @@ type HistorialAsistenteRow struct {
 	AutorID    *int64
 	Automatico *string
 	CreadoEn   time.Time
+	ConSaldo   bool
 }
 
 // Los últimos mensajes del cliente y de agentes: nunca notas internas ni mensajes de sistema.
@@ -561,6 +577,7 @@ func (q *Queries) HistorialAsistente(ctx context.Context, arg HistorialAsistente
 			&i.AutorID,
 			&i.Automatico,
 			&i.CreadoEn,
+			&i.ConSaldo,
 		); err != nil {
 			return nil, err
 		}
@@ -579,7 +596,7 @@ VALUES ($1, $2, $3, $4, NULL, NULL, $5, $6,
     $7, $8, $9, $10, $11,
     $12::numeric, $13::numeric)
 ON CONFLICT DO NOTHING
-RETURNING id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en
+RETURNING id, empresa_id, activo, proveedor, url, clave_cifrada, clave_guardada_en, modelo, modo, fuente_manuales, fuente_argos, fuente_horus, fuente_historial, tope_tokens_mes, precio_entrada_millon, precio_salida_millon, version, created_at, updated_at, modo_autonomo, espera_min, max_turnos, perfiles, por_cola, activado_en, presupuesto_autonomo_pct, verificacion_fuerte_min
 `
 
 type InsertarAsistenteAjustesParams struct {
@@ -641,6 +658,8 @@ func (q *Queries) InsertarAsistenteAjustes(ctx context.Context, arg InsertarAsis
 		&i.Perfiles,
 		&i.PorCola,
 		&i.ActivadoEn,
+		&i.PresupuestoAutonomoPct,
+		&i.VerificacionFuerteMin,
 	)
 	return i, err
 }
@@ -672,8 +691,8 @@ func (q *Queries) InsertarPedidoAsistente(ctx context.Context, arg InsertarPedid
 }
 
 const insertarReserva = `-- name: InsertarReserva :exec
-INSERT INTO mensajeria.asistente_reservas (id, empresa_id, mes, tokens, creada_en)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO mensajeria.asistente_reservas (id, empresa_id, mes, tokens, creada_en, autonomo)
+VALUES ($1, $2, $3, $4, $5, $6)
 `
 
 type InsertarReservaParams struct {
@@ -682,6 +701,7 @@ type InsertarReservaParams struct {
 	Mes       pgtype.Date
 	Tokens    int64
 	CreadaEn  time.Time
+	Autonomo  bool
 }
 
 func (q *Queries) InsertarReserva(ctx context.Context, arg InsertarReservaParams) error {
@@ -691,6 +711,7 @@ func (q *Queries) InsertarReserva(ctx context.Context, arg InsertarReservaParams
 		arg.Mes,
 		arg.Tokens,
 		arg.CreadaEn,
+		arg.Autonomo,
 	)
 	return err
 }
@@ -754,7 +775,7 @@ func (q *Queries) InsertarSugerencia(ctx context.Context, arg InsertarSugerencia
 }
 
 const liberarReserva = `-- name: LiberarReserva :one
-DELETE FROM mensajeria.asistente_reservas WHERE id = $1 RETURNING id, empresa_id, mes, tokens, creada_en
+DELETE FROM mensajeria.asistente_reservas WHERE id = $1 RETURNING id, empresa_id, mes, tokens, creada_en, autonomo
 `
 
 func (q *Queries) LiberarReserva(ctx context.Context, id uuid.UUID) (MensajeriaAsistenteReserva, error) {
@@ -766,6 +787,7 @@ func (q *Queries) LiberarReserva(ctx context.Context, id uuid.UUID) (MensajeriaA
 		&i.Mes,
 		&i.Tokens,
 		&i.CreadaEn,
+		&i.Autonomo,
 	)
 	return i, err
 }
@@ -1232,7 +1254,7 @@ VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (coalesce(empresa_id, 0), mes) DO UPDATE
 SET tokens_entrada = u.tokens_entrada + EXCLUDED.tokens_entrada, tokens_salida = u.tokens_salida + EXCLUDED.tokens_salida,
     sugerencias = u.sugerencias + EXCLUDED.sugerencias, resumenes = u.resumenes + EXCLUDED.resumenes, updated_at = now()
-RETURNING empresa_id, mes, tokens_entrada, tokens_salida, sugerencias, resumenes, tokens_reservados, avisado_80, avisado_100, updated_at
+RETURNING empresa_id, mes, tokens_entrada, tokens_salida, sugerencias, resumenes, tokens_reservados, avisado_80, avisado_100, updated_at, tokens_autonomo, tokens_autonomo_reservados
 `
 
 type SumarUsoAsistenteParams struct {
@@ -1266,6 +1288,8 @@ func (q *Queries) SumarUsoAsistente(ctx context.Context, arg SumarUsoAsistentePa
 		&i.Avisado80,
 		&i.Avisado100,
 		&i.UpdatedAt,
+		&i.TokensAutonomo,
+		&i.TokensAutonomoReservados,
 	)
 	return i, err
 }
@@ -1348,7 +1372,7 @@ func (q *Queries) UsarSugerencia(ctx context.Context, arg UsarSugerenciaParams) 
 
 const usoAsistente = `-- name: UsoAsistente :one
 
-SELECT empresa_id, mes, tokens_entrada, tokens_salida, sugerencias, resumenes, tokens_reservados, avisado_80, avisado_100, updated_at FROM mensajeria.asistente_uso WHERE coalesce(empresa_id, 0) = $1::bigint AND mes = $2
+SELECT empresa_id, mes, tokens_entrada, tokens_salida, sugerencias, resumenes, tokens_reservados, avisado_80, avisado_100, updated_at, tokens_autonomo, tokens_autonomo_reservados FROM mensajeria.asistente_uso WHERE coalesce(empresa_id, 0) = $1::bigint AND mes = $2
 `
 
 type UsoAsistenteParams struct {
@@ -1371,6 +1395,8 @@ func (q *Queries) UsoAsistente(ctx context.Context, arg UsoAsistenteParams) (Men
 		&i.Avisado80,
 		&i.Avisado100,
 		&i.UpdatedAt,
+		&i.TokensAutonomo,
+		&i.TokensAutonomoReservados,
 	)
 	return i, err
 }
