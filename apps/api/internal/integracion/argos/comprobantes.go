@@ -175,6 +175,9 @@ func (m *Modulo) clienteDecision(ctx context.Context) (*Cliente, error) {
 
 // AprobarComprobante aprueba el comprobante en Argos con el conector activo (§7.7).
 func (m *Modulo) AprobarComprobante(ctx context.Context, a AtencionIris, id int64, facturas []int64, nota string) (Comprobante, error) {
+	if err := a.validar(); err != nil {
+		return Comprobante{}, err
+	}
 	cli, err := m.clienteDecision(ctx)
 	if err != nil {
 		return Comprobante{}, err
@@ -184,6 +187,9 @@ func (m *Modulo) AprobarComprobante(ctx context.Context, a AtencionIris, id int6
 
 // RechazarComprobante rechaza el comprobante en Argos con el conector activo (§7.7).
 func (m *Modulo) RechazarComprobante(ctx context.Context, a AtencionIris, id int64, motivo, causa string) (Comprobante, error) {
+	if err := a.validar(); err != nil {
+		return Comprobante{}, err
+	}
 	cli, err := m.clienteDecision(ctx)
 	if err != nil {
 		return Comprobante{}, err
@@ -193,6 +199,9 @@ func (m *Modulo) RechazarComprobante(ctx context.Context, a AtencionIris, id int
 
 // ObtenerComprobante lee el comprobante de Argos con el conector activo (§7.2).
 func (m *Modulo) ObtenerComprobante(ctx context.Context, a AtencionIris, id int64) (Comprobante, error) {
+	if err := a.validar(); err != nil {
+		return Comprobante{}, err
+	}
 	bd := nucleo.BDDe(ctx)
 	if bd == nil {
 		return Comprobante{}, nucleo.ErrSinBD

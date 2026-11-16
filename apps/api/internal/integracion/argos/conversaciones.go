@@ -3,7 +3,9 @@ package argos
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/url"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -32,7 +34,28 @@ type AtencionIris struct {
 	EmpresaID int64
 }
 
+// Forma exacta de las cabeceras de §7.1 (contrato 0.7.1). Fuera de formato Argos responde 400
+// cabecera_iris_requerida: Iris no llega a mandarlas.
+var (
+	reCabeceraActor        = regexp.MustCompile(`^(asistente_ia|usuario:[A-Za-z0-9_-]{1,64})$`)
+	reCabeceraConversacion = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
+)
+
+// ErrCabecerasIris: el actor o la conversación no tienen la forma de §7.1 (un error de Iris, no de Argos).
+var ErrCabecerasIris = errors.New("argos: X-Iris-Actor o X-Iris-Conversacion fuera del formato del contrato (§7.1)")
+
+// validar: el actor y la conversación tienen la forma de §7.1.
+func (a AtencionIris) validar() error {
+	if !reCabeceraActor.MatchString(a.Actor) || !reCabeceraConversacion.MatchString(a.Conversacion) {
+		return ErrCabecerasIris
+	}
+	return nil
+}
+
 func (m *Modulo) clienteAtencion(ctx context.Context, a AtencionIris) (*Cliente, error) {
+	if err := a.validar(); err != nil {
+		return nil, err
+	}
 	bd := nucleo.BDDe(ctx)
 	if bd == nil {
 		return nil, nucleo.ErrSinBD
