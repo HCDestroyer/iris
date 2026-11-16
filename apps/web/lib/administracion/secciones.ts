@@ -1,6 +1,7 @@
-import { Cloud, ClipboardList, DatabaseZap, History, KeyRound, Mail, Map as IconoMapa, Plug, ShieldCheck, Smartphone, Users, Zap, Phone, CalendarClock, BookOpen, Inbox, Settings2, Sparkles, type LucideIcon } from "lucide-react";
+import { Cloud, ClipboardList, DatabaseZap, History, KeyRound, Mail, MailCheck, Map as IconoMapa, Plug, ShieldCheck, Smartphone, Users, Zap, Phone, CalendarClock, BookOpen, Inbox, Settings2, Sparkles, type LucideIcon } from "lucide-react";
 import { PERMISO_CONFIGURAR_ASISTENTE } from "@/lib/asistente/permisos";
 import { PERMISOS_CUADRILLAS, PERMISOS_ZONAS } from "@/lib/agenda/permisos";
+import { PERMISO_CONFIGURAR_CORREO, PERMISO_VER_CORREO } from "@/lib/correo/tipos";
 import { PERMISO_CONEXION_META } from "@/lib/meta/tipos";
 import type { Permiso } from "@/lib/menu";
 
@@ -14,6 +15,13 @@ export const SECCIONES: readonly Seccion[] = [
         descripcion: "Correos que abren tickets y servidor de salida de las respuestas.",
         icono: Mail,
         permisos: ["buzones.ver"],
+    },
+    {
+        href: "/administracion/correo",
+        titulo: "Correo",
+        descripcion: "El correo con que Iris manda avisos a tu equipo. Con correo de prueba antes de guardar.",
+        icono: MailCheck,
+        permisos: [PERMISO_VER_CORREO, PERMISO_CONFIGURAR_CORREO],
     },
     {
         href: "/administracion/numeros",
