@@ -263,7 +263,7 @@ Una tarea está terminada solo si:
 | `asistente.mensaje_probado` | mensajeria (asistente de IA, fase 3) | empresa_id, haria (responde_solo, sugiere, pasa_a_persona), categoria_id (o null), tokens_entrada, tokens_salida; nunca el texto |
 | `asistente.accion_ejecutada` | mensajeria (asistente de IA, fase 3b) | conversacion_id, empresa_id, accion, resultado (ok, rechazada, fallo), entidad (o null), entidad_id (o null), turno; nunca argumentos, texto ni montos |
 | `conversacion.identidad_verificada` | mensajeria (asistente de IA, fase 3b) | conversacion_id, empresa_id, cliente_id, resultado (coincide, no_coincide, no_disponible, error), origen (asistente); nunca el dato |
-| `reconexion.solicitada` | mensajeria (bandeja, fase 3b) | reconexion_id, conversacion_id, empresa_id, cliente_id, servicio_id, comprobante_id, motivo (fuera_de_horario, sin_personal), estado (aceptada, rechazada), promesa_argos_id (o null) |
+| `reconexion.solicitada` | mensajeria (bandeja, fase 3b) | reconexion_id, conversacion_id, empresa_id, cliente_id, servicio_id, comprobante_id, motivo (fuera_de_horario), estado (aceptada, rechazada), promesa_argos_id (o null) |
 | `asistente.paso_a_persona` | mensajeria (asistente de IA, fase 3b) | conversacion_id, empresa_id, motivo (cliente_lo_pidio, enojo, sin_respuesta, herramienta_fallo, max_turnos, persona_presente, tope), cola_id (o null), turnos |
 | `notificaciones.avisos_creados` | notificaciones (avisos del panel) | tipo (asistente_tope), clave, empresa_id (o null), usuarios[], correo (enviar, omitido) |
 | `notificaciones.correo_enviado` / `notificaciones.correo_fallido` | notificaciones (correo del sistema) | correo_id, usuario_id, tipo, clave, motivo (o null) |

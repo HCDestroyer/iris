@@ -23,7 +23,7 @@ var (
 	// o DPI), un NIT con guion y dígito verificador (puede ser K), o un DPI escrito 1234 56789 0101.
 	reDocSuelto = regexp.MustCompile(`(?i)\b\d{6,12}-?[\dk]\b|\b\d{4}[ -]\d{5}[ -]\d{4}\b`)
 	// reReferenciaAntes: el número es la referencia de una boleta, un ticket o una orden, no un documento.
-	reReferenciaAntes = regexp.MustCompile(`(?i)\b(?:referencia|ref|boleta|transacci[oó]n|autorizaci[oó]n|comprobante|dep[oó]sito|transferencia|ticket|tk|orden|ot|contrato)\b[^0-9\n.!?]{0,20}$`)
+	reReferenciaAntes = regexp.MustCompile(`(?i)\b(?:referencia|ref|boleta|transacci[oó]n|autorizaci[oó]n|comprobante|dep[oó]sito|transferencia|ticket|tk|orden|ot|contrato)\b[^0-9\n!?]{0,20}$`)
 )
 
 // documentosEn devuelve los tramos [inicio, fin) del texto que son un documento de identidad.

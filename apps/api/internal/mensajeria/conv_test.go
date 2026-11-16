@@ -56,6 +56,10 @@ type argosFalso struct {
 	reconexiones []int64
 	motivos      []string
 	errReconex   error
+	// alVerificar corre mientras «Argos» atiende el desafío; fallasPromesa: cuántas veces falla
+	// CrearPromesa antes de responder (la respuesta que se pierde).
+	alVerificar   func()
+	fallasPromesa int
 	// documento: el DPI/NIT que «Argos» tiene del cliente; verificados: lo que recibió el desafío.
 	documento    string
 	verificados  []string
@@ -71,6 +75,9 @@ func (f *argosFalso) VerificarIdentidad(_ context.Context, a argos.AtencionIris,
 	defer f.mu.Unlock()
 	f.actores = append(f.actores, a)
 	f.verificados = append(f.verificados, metodo+":"+valor)
+	if f.alVerificar != nil {
+		f.alVerificar()
+	}
 	if f.errVerificar != nil {
 		return false, f.errVerificar
 	}
@@ -160,6 +167,10 @@ func (f *argosFalso) CrearPromesa(_ context.Context, _ argos.AtencionIris, _ int
 	f.claves = append(f.claves, clave)
 	if f.alCrearPromesa != nil {
 		f.alCrearPromesa()
+	}
+	if f.fallasPromesa > 0 {
+		f.fallasPromesa--
+		return argos.PromesaArgos{}, fmt.Errorf("argos: sin respuesta")
 	}
 	return f.promesa, nil
 }

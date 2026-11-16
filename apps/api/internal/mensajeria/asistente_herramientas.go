@@ -731,16 +731,16 @@ func (m *Modulo) herrVerificarIdentidad(ctx context.Context, t *turnoIA, l Llama
 // reglasPromesa: el código de regla del simulador de Argos, en un texto fijo. El código crudo nunca
 // viaja al modelo (un código desconocido cae en el texto genérico).
 var reglasPromesa = map[string]string{
-	"no_habilitada":      "La empresa no tiene habilitadas las promesas de pago para este servicio.",
-	"cupo_agotado":       "El cliente ya usó las promesas que permite la política.",
-	"promesa_abierta":    "El servicio ya tiene una promesa activa o pendiente.",
-	"promesa_incumplida": "El cliente tiene una promesa anterior sin cumplir.",
+	"no_habilitada":        "La empresa no tiene habilitadas las promesas de pago para este servicio.",
+	"cupo_agotado":         "El cliente ya usó las promesas que permite la política.",
+	"promesa_abierta":      "El servicio ya tiene una promesa activa o pendiente.",
+	"promesa_incumplida":   "El cliente tiene una promesa anterior sin cumplir.",
 	"fecha_fuera_de_rango": "La fecha está más lejos de lo que permite la política: prueba con un día más cercano.",
-	"dias_maximos":       "La fecha está más lejos de lo que permite la política: prueba con un día más cercano.",
-	"monto_maximo":       "La deuda supera lo que la política permite prometer.",
-	"servicio_no_cortado": "El servicio no está cortado: no hace falta una promesa.",
-	"suspension_manual":  "El servicio lo suspendió un operador: solo una persona puede revisarlo.",
-	"requiere_aprobacion": "La promesa necesita la aprobación de un supervisor.",
+	"dias_maximos":         "La fecha está más lejos de lo que permite la política: prueba con un día más cercano.",
+	"monto_maximo":         "La deuda supera lo que la política permite prometer.",
+	"servicio_no_cortado":  "El servicio no está cortado: no hace falta una promesa.",
+	"suspension_manual":    "El servicio lo suspendió un operador: solo una persona puede revisarlo.",
+	"requiere_aprobacion":  "La promesa necesita la aprobación de un supervisor.",
 }
 
 func textoReglaPromesa(codigo string) string {

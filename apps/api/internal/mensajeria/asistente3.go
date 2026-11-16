@@ -148,7 +148,7 @@ func perfilPorDefecto() PerfilAsistente {
 		// Por defecto solo lo que no toca dinero ni la agenda: saldo, boleta, promesa, reconexión y
 		// visita vienen apagadas y cada empresa las enciende (los perfiles ya guardados no cambian).
 		Acciones: AccionesAsistente{ResponderDudas: true, AvisarFallas: true, CrearTicket: true, PasarAPersona: true},
-		Limites: LimitesAsistente{PrioridadMaxima: "alta", DiasAdelanteMax: 2}, saldoFuerte: true}
+		Limites:  LimitesAsistente{PrioridadMaxima: "alta", DiasAdelanteMax: 2}, saldoFuerte: true}
 }
 
 func perfilesDe(crudo []byte) []PerfilAsistente {

@@ -495,7 +495,8 @@ Emite `conversacion.categorizada`, `categoria.creada`, `categoria.actualizada` y
   (`perfiles[].exigeVerificacionFuerte.dar_saldo` puede bajar solo el saldo a `numero`).
 - **Reconexión temporal:** caso de uso `PedirReconexion` (`conv_reconexion.go`, permiso
   `conversaciones.pedir_reconexion`), tabla `mensajeria.reconexiones`, evento `reconexion.solicitada`. Solo
-  fuera de horario o sin nadie disponible, con una boleta registrada en Argos.
+  fuera de horario (el único motivo que acepta Argos), con una boleta registrada en Argos. El intento se
+  registra antes de llamar (`pendiente`) y el mantenimiento repite con la misma clave si la respuesta se pierde.
 - **Boletas del asistente:** adjunto nuevo de este periodo, uno por boleta, 3 por conversación y día;
   `por_asistente = true`.
 - **Texto:** precios, plazos y enlaces válidos salen de los datos, manuales «Para el cliente» y resultados de
