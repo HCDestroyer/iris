@@ -216,7 +216,10 @@ function Formulario({ ajustes, visitas }: { ajustes: AjustesAsistente; visitas: 
                     etiqueta={<Regla titulo="Pedir DPI o NIT antes de agendar" detalle="Apagado: basta con que el cliente escriba desde su número." />}
                     {...form.register("pedirDocumento")}
                 />
-                <p className="text-sm text-muted-foreground">Siempre pasa a una persona si no hay horarios, si la zona no tiene técnicos o si el cliente quiere cambiar o cancelar una visita.</p>
+                <p className="text-sm text-muted-foreground">
+                    Si el cliente ya tiene una visita abierta, le recuerda su número y su fecha en vez de agendar otra. Siempre pasa a una persona si no hay horarios, si la zona no tiene técnicos o si el cliente quiere
+                    cambiar o cancelar una visita.
+                </p>
             </SeccionFormulario>
 
             <section aria-labelledby="titulo-avanzado-visitas" data-slot="avanzado" className="surface-card grid min-w-0 gap-4 p-4 sm:p-5">
@@ -243,7 +246,7 @@ function Formulario({ ajustes, visitas }: { ajustes: AjustesAsistente; visitas: 
                             etiqueta="Visitas abiertas por cliente"
                             minimo={1}
                             maximo={5}
-                            ayuda="Si el cliente ya tiene estas visitas sin terminar, lo pasa a una persona. De fábrica: 1."
+                            ayuda="Si el cliente ya tiene estas visitas sin terminar, le dice el número y la fecha de la que tiene y no agenda otra. De fábrica: 1."
                             error={errores.maxAbiertasPorCliente?.message}
                             {...form.register("maxAbiertasPorCliente")}
                         />

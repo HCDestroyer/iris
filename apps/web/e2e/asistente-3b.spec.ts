@@ -168,7 +168,7 @@ test.describe("Asistente 3b › perfiles por horario", () => {
                     nombre: "Fin de semana",
                     acciones: { promesa_pago: true, crear_ticket: false, dar_saldo: false, pasar_a_persona: true },
                     exigeVerificacionFuerte: { dar_saldo: true },
-                    limites: { prioridadMaxima: "media", diasAdelanteMax: 2 },
+                    limites: { prioridadMaxima: "media", diasAdelanteMax: 7 },
                 },
             ],
         });

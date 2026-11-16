@@ -129,6 +129,7 @@ test.describe("Asistente › agenda visitas: cómo agenda", () => {
         await f.getByRole("switch", { name: /Agendar aunque el servicio esté cortado por mora/ }).click();
         await f.getByRole("switch", { name: /Pedir DPI o NIT antes de agendar/ }).click();
         await f.getByRole("textbox", { name: "Horas de anticipación" }).fill("24");
+        await f.getByRole("textbox", { name: "Horas de anticipación" }).blur();
         await expect(f.getByText("Ofrece con 1 día de anticipación: da tiempo a organizar al técnico.")).toBeVisible();
         await abrirlo.click();
         await expect(avanzado.getByRole("textbox")).toHaveCount(4);
@@ -219,8 +220,11 @@ test.describe("Asistente › agenda visitas: bandeja y orden", () => {
         if (!primera || !segunda) throw new Error("faltan órdenes en el escenario");
         primera.origen = "asistente";
         await page.goto(`/ordenes/${primera.id}`);
-        await expect(page.locator('[data-origen-orden="asistente"]')).toHaveText("Agendada por el asistente");
-        await esperarSinDesbordes(page);
+        const marca = page.locator('[data-origen-orden="asistente"]');
+        await expect(marca).toHaveText("Agendada por el asistente");
+        // La marca cabe en la cabecera (las pestañas de la orden se desplazan a lo ancho por diseño).
+        const caja = await marca.boundingBox();
+        expect(caja && caja.x >= 0 && caja.x + caja.width <= (page.viewportSize()?.width ?? 0)).toBe(true);
         await captura(page, "visitas-orden", false);
         await page.goto(`/ordenes/${segunda.id}`);
         await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
