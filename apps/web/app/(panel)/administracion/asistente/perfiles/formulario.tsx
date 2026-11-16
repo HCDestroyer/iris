@@ -9,7 +9,7 @@ import { AccionesAsistente } from "@/componentes/asistente/acciones";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { guardarAjustesAsistente } from "@/lib/asistente/api";
 import { NOMBRE_PRIORIDAD, PRIORIDADES, type PerfilAsistente } from "@/lib/asistente/fase3";
-import { codigoDePerfil, entradaPerfiles, esDefecto, esquemaPerfil, perfilDeValores, perfilesCon, perfilesDe, valoresPerfil, type ValoresPerfil } from "@/lib/asistente/fase3b";
+import { codigoDePerfil, entradaPerfiles, esDefecto, herenciaDelGeneral, esquemaPerfil, perfilDeValores, perfilesCon, perfilesDe, valoresPerfil, type ValoresPerfil } from "@/lib/asistente/fase3b";
 import type { AjustesAsistente } from "@/lib/asistente/tipos";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 
@@ -46,7 +46,8 @@ export function FormularioPerfil({ ajustes, perfil }: { ajustes: AjustesAsistent
                     d.nombre,
                     otros.map((p) => p.codigo),
                 ),
-            perfil,
+            // Editar conserva lo del perfil; uno nuevo hereda del general la regla de las visitas.
+            perfil ?? herenciaDelGeneral(ajustes),
         );
         try {
             await guardarAjustesAsistente(entradaPerfiles(ajustes, perfilesCon(ajustes, nuevo)), clave.actual());

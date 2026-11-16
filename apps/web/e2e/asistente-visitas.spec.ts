@@ -142,10 +142,35 @@ test.describe("Asistente › agenda visitas: cómo agenda", () => {
         const cuerpo = guardado(api);
         // El bloque viaja completo (el POST lo reemplaza), con lo que no se tocó tal como vino.
         expect(cuerpo.visitas).toEqual({ ...VISITAS_DE_FABRICA, tiposPermitidos: ["visita", "mantenimiento"], permitirConMora: true, anticipacionHoras: 24, maxAbiertasPorCliente: 2 });
-        expect(cuerpo).toMatchObject({ perfiles: [{ codigo: "defecto", exigeVerificacionFuerte: { dar_saldo: true, agendar_visita: true } }, { codigo: "noche" }] });
+        // «Pedir DPI o NIT» es de la empresa: viaja en todos los perfiles, no solo en el general.
+        expect(cuerpo).toMatchObject({
+            perfiles: [
+                { codigo: "defecto", exigeVerificacionFuerte: { dar_saldo: true, agendar_visita: true } },
+                { codigo: "noche", exigeVerificacionFuerte: { dar_saldo: true, agendar_visita: true } },
+            ],
+        });
         expect(cuerpo).not.toHaveProperty("modoAutonomo");
         // De vuelta en la pantalla simple, el resumen ya lo dice.
         await expect(principal(page).locator('[data-slot="como-agenda"]')).toContainText("Agenda aunque el servicio esté cortado por mora. Antes pide DPI o NIT.");
+    });
+
+    test("con la regla encendida, un perfil de horario nuevo con «Agendar visitas» también pide documento", async ({ page }) => {
+        const api = await abrir(page, `${BASE}/visitas`);
+        await formulario(page).getByRole("switch", { name: /Pedir DPI o NIT antes de agendar/ }).click();
+        await page.getByRole("button", { name: "Guardar" }).click();
+        await expect(page.getByText("Cómo agenda el asistente: guardado")).toBeVisible();
+        // Después se crea un perfil para otra franja, con las visitas encendidas.
+        await page.goto(`${BASE}/perfiles/nuevo`);
+        const f = page.getByRole("form", { name: "Nuevo perfil" });
+        await f.getByRole("textbox", { name: "Nombre" }).fill("Sábado");
+        await f.getByRole("switch", { name: /Agendar visitas/ }).click();
+        await page.getByRole("button", { name: "Crear perfil" }).click();
+        await expect(page.getByText("Perfil «Sábado» creado")).toBeVisible();
+        const perfiles = guardado(api, 1).perfiles as { codigo: string; acciones: Record<string, boolean>; exigeVerificacionFuerte?: Record<string, boolean> }[];
+        expect(perfiles.map((p) => p.codigo)).toEqual(["defecto", "noche", "sabado"]);
+        expect(perfiles[2]).toMatchObject({ acciones: { agendar_visita: true }, exigeVerificacionFuerte: { dar_saldo: true, agendar_visita: true } });
+        // Los que ya estaban la conservan.
+        for (const p of perfiles) expect(p.exigeVerificacionFuerte?.agendar_visita).toBe(true);
     });
 
     test("validación espejo: al menos un tipo, horarios en orden y rangos; nada se manda", async ({ page }) => {

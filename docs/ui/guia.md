@@ -650,7 +650,8 @@ Contrato: `.claude/integration/contratos/conversaciones.md` §17.10. Lógica pur
   (`campoDeErrorVisitas`) y abre lo avanzado si es de ahí.
 - **El bloque `visitas` se guarda completo** y solo desde esa pantalla. Si el servidor no lo manda,
   ni el bloque ni el formulario aparecen: el panel no inventa valores. Las demás pantallas (simple,
-  perfiles) conservan `exigeVerificacionFuerte.agendar_visita`.
+  perfiles) conservan `exigeVerificacionFuerte.agendar_visita`. «Pedir DPI o NIT antes de agendar»
+  es una regla de la empresa: se guarda en **todos** los perfiles y un perfil nuevo la hereda.
 - **Orden creada por el asistente:** en la ficha de la orden, la insignia neutra «Agendada por el
   asistente» (`InsigniaOrigenOrden`); los demás orígenes no llevan marca. En la conversación, el
   mensaje de sistema «Asistente de IA creó OT-…» y el vínculo a la orden en la ficha; en la lista,

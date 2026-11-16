@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ajustesDePrueba, entradaPrincipal, PERFIL_POR_DEFECTO, valoresPrincipal, type PerfilAsistente } from "./fase3";
-import { perfilDeValores, valoresPerfil } from "./fase3b";
+import { herenciaDelGeneral, perfilDeValores, valoresPerfil } from "./fase3b";
 import type { AjustesAsistente } from "./tipos";
 import {
     campoDeErrorVisitas,
@@ -95,8 +95,14 @@ describe("el asistente agenda visitas (§17.10)", () => {
         const d = { ...valoresVisitas(BASE, FABRICA), tipos: { visita: true, mantenimiento: true }, permitirConMora: true, pedirDocumento: true, diasAdelante: "14", visitasPorDiaEmpresa: "50" };
         const e = entradaVisitas(BASE, d);
         expect(e.visitas).toEqual({ ...FABRICA, tiposPermitidos: ["visita", "mantenimiento"], permitirConMora: true, diasAdelante: 14, visitasPorDiaEmpresa: 50 });
+        // La regla es de la empresa: va a todos los perfiles, y a cada uno le deja su `dar_saldo`.
         expect(e.perfiles?.[0]).toEqual({ ...GENERAL, exigeVerificacionFuerte: { dar_saldo: false, agendar_visita: true } });
         expect(e.perfiles?.[1]).toEqual(NOCHE);
+        const apagar = entradaVisitas(BASE, { ...d, pedirDocumento: false });
+        expect(apagar.perfiles?.map((p) => p.exigeVerificacionFuerte)).toEqual([{ dar_saldo: false, agendar_visita: false }, { dar_saldo: true, agendar_visita: false }]);
+        // Un perfil sin `exigeVerificacionFuerte` queda con el saldo como estaba de fábrica (pide identidad).
+        const sinExigencia = entradaVisitas({ ...BASE, perfiles: [GENERAL, { ...NOCHE, exigeVerificacionFuerte: undefined }] }, d);
+        expect(sinExigencia.perfiles?.[1]?.exigeVerificacionFuerte).toEqual({ dar_saldo: true, agendar_visita: true });
         expect(e).toMatchObject({ version: 4, proveedor: "ollama" });
         expect(e).not.toHaveProperty("modoAutonomo");
     });
@@ -120,6 +126,11 @@ describe("el asistente agenda visitas (§17.10)", () => {
         expect(falla({ bloques: [{ inicio: "08:00", fin: "12:00" }, { inicio: "11:00", fin: "15:00" }] })).toBe(true);
         expect(falla({ bloques: [{ inicio: "13:00", fin: "17:00" }, { inicio: "08:00", fin: "12:00" }] })).toBe(true);
         expect(falla({ bloques: [{ inicio: "", fin: "" }] })).toBe(true);
+        // El fin admite 24:00 (la medianoche), como el servidor; el inicio no, ni un fin después de eso.
+        expect(falla({ bloques: [{ inicio: "18:00", fin: "24:00" }] })).toBe(false);
+        expect(falla({ bloques: [{ inicio: "24:00", fin: "24:00" }] })).toBe(true);
+        expect(falla({ bloques: [{ inicio: "18:00", fin: "24:30" }] })).toBe(true);
+        expect(falla({ bloques: [{ inicio: "18:00", fin: "25:00" }] })).toBe(true);
         // Seguidos (el fin de uno es el inicio del otro) sí valen.
         expect(falla({ bloques: [{ inicio: "08:00", fin: "12:00" }, { inicio: "12:00", fin: "16:00" }] })).toBe(false);
         for (const [campo, malos, buenos] of [
@@ -178,5 +189,10 @@ describe("el asistente agenda visitas (§17.10)", () => {
         expect(ajustesDePrueba(v, conDocumento, []).perfil).toMatchObject({ acciones: { agendar_visita: true }, exigeVerificacionFuerte: { dar_saldo: false, agendar_visita: true } });
         // …y el editor de perfiles por horario también.
         expect(perfilDeValores(valoresPerfil(NOCHE), "noche", NOCHE).exigeVerificacionFuerte).toEqual({ dar_saldo: true, agendar_visita: true });
+        // Un perfil nuevo hereda la regla del general (y su propio «dar el saldo» sale del formulario).
+        expect(herenciaDelGeneral(conDocumento)).toEqual({ exigeVerificacionFuerte: { dar_saldo: true, agendar_visita: true } });
+        expect(perfilDeValores({ ...valoresPerfil(), nombre: "Sábado" }, "sabado", herenciaDelGeneral(conDocumento)).exigeVerificacionFuerte).toEqual({ dar_saldo: true, agendar_visita: true });
+        // Si el general no dice nada de las visitas, el nuevo tampoco inventa.
+        expect(herenciaDelGeneral(BASE)).toEqual({});
     });
 });

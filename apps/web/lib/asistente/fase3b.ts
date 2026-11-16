@@ -127,6 +127,16 @@ export function perfilDeValores(d: ValoresPerfil, codigo: string, guardado?: Pic
     };
 }
 
+/**
+ * Lo que un perfil nuevo hereda del general: si antes de agendar una visita se pide documento
+ * (§17.10). Es una regla de la empresa («Cómo agenda»), así que un perfil por horario creado después
+ * no puede nacer sin ella.
+ */
+export function herenciaDelGeneral(a: Pick<AjustesAsistente, "perfiles">): Pick<PerfilAsistente, "exigeVerificacionFuerte"> {
+    const general = perfilesDe(a)[0]?.exigeVerificacionFuerte;
+    return general?.agendar_visita === undefined ? {} : { exigeVerificacionFuerte: { dar_saldo: true, agendar_visita: general.agendar_visita } };
+}
+
 /** La lista con el perfil cambiado (mismo código) o agregado al final. */
 export function perfilesCon(a: Pick<AjustesAsistente, "perfiles">, perfil: PerfilAsistente): PerfilAsistente[] {
     const lista = perfilesDe(a);

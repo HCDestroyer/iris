@@ -24,6 +24,8 @@ const esTipo = (t: string): t is TipoVisita => (TIPOS_VISITA as readonly string[
 
 export const MAX_BLOQUES = 6;
 const HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** El fin de un horario admite además `24:00` (la medianoche), como el servidor. */
+const HORA_FIN = /^(([01]\d|2[0-3]):[0-5]\d|24:00)$/;
 
 /** ¿El servidor manda los ajustes de visitas? Uno anterior no: ni se muestran ni se guardan. */
 export const conVisitas = (a: Pick<AjustesAsistente, "visitas">): a is Pick<AjustesAsistente, "visitas"> & { visitas: Visitas } => a.visitas !== undefined && a.visitas !== null;
@@ -52,10 +54,10 @@ export const esquemaVisitas = z
         if (!v.tipos.visita && !v.tipos.mantenimiento) ctx.addIssue({ code: "custom", path: ["tipos"], message: "Elige al menos un tipo de visita" });
         v.bloques.forEach((b, i) => {
             if (!HORA.test(b.inicio)) ctx.addIssue({ code: "custom", path: ["bloques", i, "inicio"], message: "Hora inválida (HH:MM)" });
-            if (!HORA.test(b.fin)) ctx.addIssue({ code: "custom", path: ["bloques", i, "fin"], message: "Hora inválida (HH:MM)" });
+            if (!HORA_FIN.test(b.fin)) ctx.addIssue({ code: "custom", path: ["bloques", i, "fin"], message: "Hora inválida (HH:MM)" });
             else if (HORA.test(b.inicio) && b.inicio >= b.fin) ctx.addIssue({ code: "custom", path: ["bloques", i, "fin"], message: "Debe terminar después de empezar" });
             const anterior = v.bloques[i - 1];
-            if (anterior && HORA.test(anterior.fin) && HORA.test(b.inicio) && b.inicio < anterior.fin) {
+            if (anterior && HORA_FIN.test(anterior.fin) && HORA.test(b.inicio) && b.inicio < anterior.fin) {
                 ctx.addIssue({ code: "custom", path: ["bloques", i, "inicio"], message: "Va después del horario anterior, sin cruzarse" });
             }
         });
@@ -102,14 +104,16 @@ export function visitasDeValores(d: ValoresVisitas, guardado: Visitas): Visitas 
 }
 
 /**
- * Cuerpo de `…/ajustes/actualizar` que cambia cómo agenda: el bloque `visitas` completo y, en el
- * perfil general, si antes pide documento (lo demás de `exigeVerificacionFuerte` queda como estaba).
+ * Cuerpo de `…/ajustes/actualizar` que cambia cómo agenda: el bloque `visitas` completo y, en
+ * **todos** los perfiles, si antes pide documento: es una regla de la empresa, no de una franja (si
+ * solo se escribiera en el general, de noche o en fin de semana no se pediría). Lo demás de
+ * `exigeVerificacionFuerte` de cada perfil queda como estaba.
  */
 export function entradaVisitas(a: AjustesAsistente & { visitas: Visitas }, d: ValoresVisitas): EntradaAjustesAsistente {
     return {
         ...entradaGuardada(a),
         visitas: visitasDeValores(d, a.visitas),
-        perfiles: conPerfilDefecto(a, { exigeVerificacionFuerte: { dar_saldo: perfilDefecto(a).exigeVerificacionFuerte?.dar_saldo ?? true, agendar_visita: d.pedirDocumento } }),
+        perfiles: conPerfilDefecto(a, {}).map((p) => ({ ...p, exigeVerificacionFuerte: { dar_saldo: p.exigeVerificacionFuerte?.dar_saldo ?? true, agendar_visita: d.pedirDocumento } })),
     };
 }
 
