@@ -8,7 +8,7 @@ Este archivo lo leen todos los agentes y es la ley del repositorio. Si una tarea
 
 ## Memoria del líder
 
-El líder lee `.claude/lider.md` al empezar cada sesión y después de cada compresión del contexto: tiene las reglas del PM, la forma de trabajar y el estado actual. Lo actualiza cuando algo de eso cambia. **Regla de trabajo del PM:** si ya dijo cómo lo quiere, se avanza y se le muestra el resultado; no se espera un segundo visto bueno.
+El líder lee `.claude/lider.md` al empezar cada sesión y después de cada compresión del contexto: tiene las reglas del PM, la forma de trabajar y el estado actual. Lo actualiza cuando algo de eso cambia. **Regla de trabajo del PM:** si ya dijo cómo lo quiere, se avanza y se le muestra el resultado; no se espera un segundo visto bueno. Esto vale para decisiones de producto y de diseño: no sustituye el CI en verde, la revisión de seguridad de cada PR ni la confirmación de acciones irreversibles o que afecten a otros sistemas.
 
 ## Qué es Iris
 
