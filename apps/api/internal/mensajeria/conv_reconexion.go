@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -347,6 +348,9 @@ type verificacionHecha struct {
 	Resultado      string `json:"resultado"`
 	// ClienteID: el cliente con el que Argos hizo el desafío (la conversación debe seguir siendo suya).
 	ClienteID int64 `json:"-"`
+	// Detalle: lo que se muestra en el hilo (lista cerrada: coincide, no_coincide, no_disponible,
+	// demasiados_intentos).
+	Detalle string `json:"detalle"`
 	// desde: inicio del periodo de la conversación (los mensajes del cliente a enmascarar).
 	desde time.Time
 }
@@ -387,6 +391,14 @@ func nuevoRegistrarVerificacion(m *Modulo) *auditoria.Caso[verificacionHecha, bo
 				if err := m.fijarVerificacionFuerte(ctx, q, &c); err != nil {
 					return false, err
 				}
+			}
+			// En el hilo: el resultado del intento, de una lista cerrada (nunca el documento ni texto libre).
+			detalle := in.Detalle
+			if !slices.Contains([]string{IdentidadCoincide, IdentidadNoCoincide, IdentidadNoDisponible, IdentidadDemasiadosIntentos}, detalle) {
+				detalle = IdentidadNoDisponible
+			}
+			if err := m.sistema(ctx, t, &c, EventoSistema{Tipo: "identidad_verificada", ActorNombre: nombrePtr(NombreAsistenteIA), Detalle: &detalle}); err != nil {
+				return false, err
 			}
 			if err := m.emitirEventoConv(ctx, t, c, EventoConvActualizada, nil, nil); err != nil {
 				return false, err

@@ -396,6 +396,7 @@
               "saldo_informado",
               "promesa_pedida",
               "reconexion_pedida",
+              "identidad_verificada",
               "espera_persona"
             ],
             "type": "string"
@@ -1324,6 +1325,22 @@
               "detenido"
             ],
             "type": "string"
+          },
+          "motivoPaso": {
+            "description": "Solo con estado = espera_persona: el motivo del relevo, de lista cerrada (asistente_apagado: apagaron el modo autónomo o se llegó al tope mientras atendía). null en cualquier otro caso",
+            "enum": [
+              "cliente_lo_pidio",
+              "enojo",
+              "sin_respuesta",
+              "herramienta_fallo",
+              "max_turnos",
+              "tope",
+              "asistente_apagado"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "turnos": {
             "format": "int32",
@@ -4418,6 +4435,14 @@
               "numero",
               "fuerte"
             ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "verificacionVenceEn": {
+            "description": "Solo con verificacion = fuerte: cuándo vence (después vuelve a numero). null en cualquier otro caso",
+            "format": "date-time",
             "type": [
               "string",
               "null"
@@ -13554,7 +13579,7 @@
             "type": "string"
           },
           "tipo": {
-            "description": "conversacion_creada, asignada, tomada, transferida, resuelta, reabierta, etiquetada, cliente_asociado, contacto_iris_creado, ticket_creado, orden_creada, prospecto_creado, boleta_registrada, boleta_fallida, promesa_creada, respondio_aviso, fuera_de_horario, guardia_avisada, manual_enviado; 1.1: aviso_sin_atender, bot_atendio, menu_elegido, pasada, iniciada",
+            "description": "conversacion_creada, asignada, tomada, transferida, resuelta, reabierta, etiquetada, cliente_asociado, contacto_iris_creado, ticket_creado, orden_creada, prospecto_creado, boleta_registrada, boleta_fallida, promesa_creada, respondio_aviso, fuera_de_horario, guardia_avisada, manual_enviado; 1.1: aviso_sin_atender, bot_atendio, menu_elegido, pasada, iniciada; 3b: reconexion_pedida (detalle: aceptada | rechazada), identidad_verificada (detalle: coincide | no_coincide | no_disponible | demasiados_intentos | supervisor)",
             "type": "string"
           }
         },
@@ -20426,6 +20451,10 @@
         "properties": {
           "acciones": {
             "$ref": "#/components/schemas/AccionesAsistente"
+          },
+          "exigeVerificacionFuerte": {
+            "$ref": "#/components/schemas/VerificacionFuerteAcciones",
+            "description": "Ausente = true en todo. dar_saldo: false = «Pruébalo» describe dar el saldo con solo el número"
           },
           "limites": {
             "$ref": "#/components/schemas/LimitesAsistente"

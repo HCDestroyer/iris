@@ -288,6 +288,9 @@ func (m *Modulo) alRecibirBandeja(ctx context.Context, t *auditoria.Tx, c *mensa
 			return err
 		}
 		c.AsistenteEstado = g.AsistenteEstado
+		if err := fijarMotivoPaso(ctx, q, c, PasoAsistenteApagado); err != nil {
+			return err
+		}
 	case autonomo && !botAtendiendo(*c):
 		// Espera a la clasificación: lo decide el job de la conversación.
 		c.BotDiferidoMensajeID = pgUUID(&f.ID)
