@@ -378,6 +378,15 @@ func TestAutonomoSaldo(t *testing.T) {
 	if a := x.acciones(conv); lecturas != 0 || len(a) == 0 || a[0] != "dar_saldo:rechazada" {
 		t.Fatalf("saldo con solo el número: %d lecturas, %v", lecturas, a)
 	}
+	// Desde aquí, las filas nuevas de auditoría, cambios y outbox son de esta prueba (las pruebas del
+	// paquete corren una tras otra y la preparación, con sus números al azar, ya pasó): en ellas sí
+	// se buscan tramos cortos del DPI.
+	marcaAcciones := x.contar(`SELECT coalesce(max(id), 0) FROM auditoria.acciones`)
+	marcaCambios := x.contar(`SELECT coalesce(max(id), 0) FROM auditoria.cambios`)
+	var marcaOutbox string
+	if err := x.bd.QueryRow(x.ctx, `SELECT coalesce((SELECT id::text FROM integracion.outbox ORDER BY id DESC LIMIT 1), '00000000-0000-0000-0000-000000000000')`).Scan(&marcaOutbox); err != nil {
+		t.Fatal(err)
+	}
 	// El cliente escribe su DPI: el asistente hace el desafío y, ya con verificación fuerte, da el saldo.
 	c := x.turno(num, "wamid.sal1", "Claro, mi DPI es "+dpiEscrito, "Pagos y saldo", llama("verificar_identidad", `{}`), llama("consultar_saldo", `{}`),
 		dice("Tienes 2 facturas vencidas. Tu saldo pendiente es de {{saldo}}."))
@@ -409,6 +418,29 @@ func TestAutonomoSaldo(t *testing.T) {
 		}
 	}
 	// En las filas de esta conversación sí vale buscar el tramo corto (no hay números de otras pruebas).
+	// Global, con el DPI normalizado: escrito con espacios o guiones (8391-72648-0101) también cuenta.
+	for _, sql := range []string{`SELECT count(*) FROM auditoria.acciones WHERE regexp_replace(entrada::text, '[\s-]', '', 'g') LIKE '%' || $1 || '%'`,
+		`SELECT count(*) FROM auditoria.cambios WHERE regexp_replace(coalesce(antes::text, '') || '|' || coalesce(despues::text, ''), '[\s-]', '', 'g') LIKE '%' || $1 || '%'`,
+		`SELECT count(*) FROM integracion.outbox WHERE regexp_replace(payload::text, '[\s-]', '', 'g') LIKE '%' || $1 || '%'`} {
+		if n := x.contar(sql, dpi); n != 0 {
+			t.Fatalf("el DPI quedó guardado (normalizado): %s", sql)
+		}
+	}
+	// En las filas de esta prueba, cualquier tramo: una fuga parcial (8391 72648 ****, *****726480101)
+	// también falla. «0101» solo junto al tramo anterior (suelto coincide con cualquier id).
+	const tramos = `(72648|8391[ -]?7|48[ -]?0101)`
+	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE id > $1 AND entrada::text ~ $2`, marcaAcciones, tramos); n != 0 {
+		t.Fatal("un tramo del DPI quedó en la auditoría de esta prueba")
+	}
+	if n := x.contar(`SELECT count(*) FROM auditoria.cambios WHERE id > $1 AND (antes::text ~ $2 OR despues::text ~ $2)`, marcaCambios, tramos); n != 0 {
+		t.Fatal("un tramo del DPI quedó en los cambios de esta prueba")
+	}
+	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE id > $1::uuid AND payload::text ~ $2`, marcaOutbox, tramos); n != 0 {
+		t.Fatal("un tramo del DPI quedó en los eventos de esta prueba")
+	}
+	if x.contar(`SELECT count(*) FROM auditoria.acciones WHERE id > $1`, marcaAcciones) == 0 || x.contar(`SELECT count(*) FROM integracion.outbox WHERE id > $1::uuid`, marcaOutbox) == 0 {
+		t.Fatal("la prueba no encontró sus propias filas de auditoría y eventos")
+	}
 	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND (texto LIKE '%72648%' OR texto LIKE '%8391%')`, conv); n != 0 {
 		t.Fatal("el DPI quedó guardado en la conversación")
 	}
