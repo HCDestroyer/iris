@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.22.0](https://github.com/HCDestroyer/iris/compare/v0.21.0...v0.22.0) (2026-11-16)
+
+
+### Funcionalidades
+
+* **mensajeria:** aprobar y rechazar boletas desde Iris y vínculo con Argos (B3, contrato 0.7.0) ([#160](https://github.com/HCDestroyer/iris/issues/160)) ([9192a04](https://github.com/HCDestroyer/iris/commit/9192a04fb71f8663f867f8eef0c147a4bbd8ff8f))
+* **mensajeria:** asistente autónomo y categorías de mensajes (fase 3) ([#159](https://github.com/HCDestroyer/iris/issues/159)) ([6a9171c](https://github.com/HCDestroyer/iris/commit/6a9171cbcf9b22ceb075f514fb4fff9dfc94dd84))
+* **panel:** asistente autónomo, categorías y aprobación de boletas (fase 3) ([#161](https://github.com/HCDestroyer/iris/issues/161)) ([37f1d17](https://github.com/HCDestroyer/iris/commit/37f1d176ea154d53c0759243a116c461dd7daef0))
+
+
+### Correcciones
+
+* **mensajeria:** filtro del motivo de rechazo por lista blanca y limpieza de B3 ([#165](https://github.com/HCDestroyer/iris/issues/165)) ([6935c27](https://github.com/HCDestroyer/iris/commit/6935c275d5225971d2cba3f0d35615acefa36da0))
+
 ## [0.21.0](https://github.com/HCDestroyer/iris/compare/v0.20.0...v0.21.0) (2026-11-10)
 
 
