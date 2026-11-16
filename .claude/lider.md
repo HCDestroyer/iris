@@ -24,11 +24,12 @@ Este archivo es la memoria del líder entre sesiones. La conversación se compri
 
 ## Estado (16 nov 2026)
 
-- **Publicado:** 0.23.0, el asistente que atiende solo (fase 3b): servidor, panel y contrato 0.7.1. Antes, 0.22.0: categorías de mensajes, «Pruébalo antes de guardar», aprobar y rechazar boletas con el rol `caja` y «Vincular mi usuario de Argos».
+- **Publicado:** 0.24.0, el asistente agenda visitas técnicas (`ofrecer_visita`, `agendar_visita`; §17.10). Antes: 0.23.0, el asistente que atiende solo (fase 3b) y contrato 0.7.1; 0.22.0, categorías, «Pruébalo antes de guardar», boletas con el rol `caja` y «Vincular mi usuario de Argos».
+- **Regla de merge, recordatorio (16 nov 2026):** se lee el resultado del CI antes de mergear; nunca encadenar el merge en el mismo comando que espera el CI (así entró la #167 con una prueba inestable en rojo).
 - **Contrato con Argos:** 0.7.1 en los dos repos (A24); Argos 1.16.0 lo publica. Un Argos 1.15.x sigue siendo compatible (no manda `verificado_iris_actor`).
 - **Fase 3b, cómo quedó:** apagada de fábrica; acciones de dinero apagadas; saldo, promesa y reconexión piden verificación fuerte (DPI o NIT contra Argos) con vigencia de 60 min configurable; reconexión solo fuera de horario; perfiles por horario.
   - Decisión del líder (el PM puede cambiarla): recibir una boleta basta con reconocer el número, porque la aprueba una persona de caja; dar el saldo pide verificación fuerte de fábrica y cada empresa lo configura.
-  - Falta: `agendar_visita` (necesita la lectura de huecos libres de la agenda, I2; en el panel sale «Próximamente») y tres mejoras menores de la relectura de la conversación (bajar a `numero` tras 403, releer al volver a la pestaña, tiempo límite).
+  - Visitas: apagado de fábrica; hasta 3 ventanas (8–12 y 13–17), sin técnico; basta el número (DPI o NIT opcional por empresa, vale para todos los perfiles); ticket previo; con mora pasa a persona; con una visita abierta el asistente dice su número y fecha (decisión del líder). Falta: avisar en la conversación cuando una orden queda sin programar, origen de la orden en la app de campo, feriados en la agenda.
 - **Pendiente del PM:** captura de «Revisar ahora» del conector de Argos (bodegas: Iris muestra «Argos < 1.6.0»); qué correo usar para `IRIS_SMTP_*`; si Ollama corre en el mismo servidor (`IRIS_ASISTENTE_PERMITIR_LOOPBACK`).
 - **Después:** fase 4 (voz: Issabel o WhatsApp), Iris Cloud en `cloud.iris.kns.gt` (falta servidor), cambios de Wi-Fi por Argos ↔ SmartOLT.
 
