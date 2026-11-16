@@ -267,7 +267,7 @@ func (m *Modulo) topesDeVisita(ctx context.Context, t *auditoria.Tx, c *mensajer
 	if err != nil {
 		return err
 	}
-	if int32(len(abiertas)) >= in.visita.maxAbiertas {
+	if len(abiertas) >= int(in.visita.maxAbiertas) {
 		return reglaConv("visita_abierta", "El cliente ya tiene una visita abierta")
 	}
 	n, err := campo.OrdenesDelAsistenteRecientes(ctx, t, c.EmpresaID)
