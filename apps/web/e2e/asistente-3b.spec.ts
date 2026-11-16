@@ -56,6 +56,12 @@ test.describe("Asistente 3b › qué puede hacer solo", () => {
         await expect(saldo).toContainText("Antes le pide su DPI o NIT.");
         await saldo.getByRole("checkbox", { name: "Darlo con solo su número, sin pedirle documento" }).click();
         await expect(saldo).toContainText("Basta con que escriba desde su número.");
+        // Apagar el saldo quita «con solo su número»: al encenderlo otra vez pide identidad.
+        await saldo.getByRole("switch", { name: /Dar el saldo/ }).click();
+        await saldo.getByRole("switch", { name: /Dar el saldo/ }).click();
+        await expect(saldo.getByRole("checkbox", { name: "Darlo con solo su número, sin pedirle documento" })).not.toBeChecked();
+        await expect(saldo).toContainText("Antes le pide su DPI o NIT.");
+        await saldo.getByRole("checkbox", { name: "Darlo con solo su número, sin pedirle documento" }).click();
         await esperarSinDesbordes(page);
         await captura(page, "3b-principal");
 
@@ -169,7 +175,7 @@ test.describe("Asistente 3b › perfiles por horario", () => {
 
         await lista.getByRole("button", { name: "Quitar Madrugada" }).click();
         const dialogo = page.getByRole("alertdialog").filter({ hasText: "¿Quitar el perfil «Madrugada»?" });
-        await expect(dialogo).toBeVisible();
+        await expect(dialogo).toContainText("el asistente solo sugerirá hasta que elijas otro");
         await expect.poll(() => buscarDesbordes(page)).toEqual([]);
         await dialogo.getByRole("button", { name: "Quitar" }).click();
         await expect(page.getByText("Perfil «Madrugada» quitado")).toBeVisible();
@@ -198,6 +204,39 @@ test.describe("Asistente 3b › perfiles por horario", () => {
         // La lista de perfiles ya dice dónde se usa.
         await page.goto(`${BASE}/perfiles`);
         await expect(page.locator('[data-perfil="noche"]')).toContainText("En uso en: Soporte · extendido");
+    });
+
+    test("un feriado con varias franjas las conserva todas al guardar, con su perfil", async ({ page }) => {
+        const api = await abrir(page, `${BASE}/perfiles`);
+        const horario = api.conversaciones.horarios.find((h) => h.id === 1);
+        if (!horario) throw new Error("falta el horario 1");
+        horario.feriados = [
+            {
+                fecha: "2026-12-25",
+                nombre: "Navidad",
+                franjas: [
+                    { dias: [], inicio: "08:00", fin: "12:00", perfil: "noche" },
+                    { dias: [], inicio: "14:00", fin: "18:00", perfil: "solo_sugerir" },
+                ],
+            },
+        ];
+        await page.goto("/administracion/horarios/1/editar");
+        const f = page.getByRole("form", { name: /Editar «Soporte · extendido»/ });
+        await expect(f.locator('[data-slot="franjas-de-mas"]')).toContainText("14:00–18:00");
+        await esperarOpcion(f.getByLabel("Feriado 1: qué hace el asistente"), "noche");
+        await f.locator('input[name="nombre"]').fill("Soporte · feriados");
+        await page.getByRole("button", { name: "Guardar cambios" }).click();
+        await expect(page.getByText("Horario «Soporte · feriados» guardado")).toBeVisible();
+        expect(api.conversaciones.horarios.find((h) => h.id === 1)?.feriados).toEqual([
+            {
+                fecha: "2026-12-25",
+                nombre: "Navidad",
+                franjas: [
+                    { dias: [], inicio: "08:00", fin: "12:00", perfil: "noche" },
+                    { dias: [], inicio: "14:00", fin: "18:00", perfil: "solo_sugerir" },
+                ],
+            },
+        ]);
     });
 
     test("sin modo autónomo ni otros perfiles, el horario queda como siempre (sin el selector)", async ({ page }) => {
@@ -230,6 +269,18 @@ test.describe("Asistente 3b › bandeja", () => {
         await captura(page, "3b-conversacion-verificada", false);
     });
 
+    test("la identidad verificada vence sola: el indicador baja a «su número coincide» sin recargar", async ({ page }) => {
+        test.setTimeout(90_000);
+        const api = await abrir(page, "/conversaciones?c=42", BANDEJA);
+        await expect(indicador(page)).toHaveAttribute("data-verificacion", "fuerte");
+        // El servidor la baja al vencer (`verificacionFuerteMin`) y no avisa: el panel relee cada 30 s.
+        const conv = api.conversaciones.conversaciones.find((c) => c.id === 42);
+        if (!conv) throw new Error("falta la conversación 42");
+        conv.contacto = { ...conv.contacto, verificacion: "numero" };
+        await expect(indicador(page)).toHaveAttribute("data-verificacion", "numero", { timeout: 45_000 });
+        await expect(indicador(page)).toContainText("Su número coincide");
+    });
+
     test("«su número coincide»: quien supervisa confirma la identidad y el indicador sale de la respuesta del servidor", async ({ page }) => {
         const api = await abrir(page, "/conversaciones?c=41", BANDEJA);
         await expect(indicador(page)).toHaveAttribute("data-verificacion", "numero");
@@ -242,7 +293,7 @@ test.describe("Asistente 3b › bandeja", () => {
         await expect.poll(() => buscarDesbordes(page)).toEqual([]);
         await dialogo.getByRole("button", { name: "Confirmar identidad" }).click();
         await expect(page.getByText(/^Identidad de .* verificada$/)).toBeVisible();
-        expect(api.conversaciones.enviados.some((e) => e.ruta.endsWith("/41/confirmar-cliente"))).toBe(true);
+        expect(api.conversaciones.enviados.find((e) => e.ruta.endsWith("/41/confirmar-cliente"))?.idempotencia).toBeTruthy();
         await expect(page.locator('[data-slot="verificacion"][data-verificacion="fuerte"]').first()).toBeVisible();
         await expect(page.getByRole("button", { name: "Confirmar identidad" })).toHaveCount(0);
     });

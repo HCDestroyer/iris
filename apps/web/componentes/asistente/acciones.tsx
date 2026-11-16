@@ -24,6 +24,8 @@ type Props = {
     registrar: (clave: ClaveAccion) => UseFormRegisterReturn;
     /** `form.register("saldoConNumero")`. */
     registrarSaldoConNumero: () => UseFormRegisterReturn;
+    /** Al apagar «Dar el saldo»: el formulario vuelve `saldoConNumero` a `false`. */
+    alApagarSaldo: () => void;
     /** Valores vivos del formulario: deciden el texto de «Dar el saldo» y si se ofrece bajarlo. */
     saldoConNumero: boolean;
     daSaldo: boolean;
@@ -36,12 +38,24 @@ type Props = {
  * al cliente antes de hacerlo. La usan la pantalla de las tres preguntas (perfil general) y el
  * editor de perfiles por horario.
  */
-export function AccionesAsistente({ registrar, registrarSaldoConNumero, saldoConNumero, daSaldo, deshabilitado = false }: Props) {
+export function AccionesAsistente({ registrar, registrarSaldoConNumero, alApagarSaldo, saldoConNumero, daSaldo, deshabilitado = false }: Props) {
+    // «Con solo su número» no sobrevive a apagar el saldo: al encenderlo otra vez pide identidad.
+    const registrarAccion = (clave: ClaveAccion): UseFormRegisterReturn => {
+        const r = registrar(clave);
+        if (clave !== "dar_saldo") return r;
+        return {
+            ...r,
+            onChange: async (e) => {
+                if (!(e.target as HTMLInputElement).checked) alApagarSaldo();
+                return r.onChange(e);
+            },
+        };
+    };
     return (
         <>
             <ul aria-label="Lo que el asistente puede hacer solo" className="grid">
                 {ACCIONES_COMUNES.map((clave) => (
-                    <FilaAccion key={clave} clave={clave} registro={registrar(clave)} deshabilitado={deshabilitado} nota={ACCIONES[clave].nota} />
+                    <FilaAccion key={clave} clave={clave} registro={registrarAccion(clave)} deshabilitado={deshabilitado} nota={ACCIONES[clave].nota} />
                 ))}
             </ul>
             <div className="grid min-w-0 gap-2.5" data-slot="acciones-dinero">
@@ -52,7 +66,7 @@ export function AccionesAsistente({ registrar, registrarSaldoConNumero, saldoCon
                 </Aviso>
                 <ul aria-label="Lo que el asistente puede hacer solo con dinero o con el servicio" className="grid">
                     {ACCIONES_DINERO.map((clave) => (
-                        <FilaAccion key={clave} clave={clave} registro={registrar(clave)} deshabilitado={deshabilitado} nota={requisitoDe(clave, saldoConNumero)}>
+                        <FilaAccion key={clave} clave={clave} registro={registrarAccion(clave)} deshabilitado={deshabilitado} nota={requisitoDe(clave, saldoConNumero)}>
                             {clave === "dar_saldo" && daSaldo ? (
                                 <Casilla className="pl-[1.875rem]" etiqueta="Darlo con solo su número, sin pedirle documento" disabled={deshabilitado} {...registrarSaldoConNumero()} />
                             ) : null}

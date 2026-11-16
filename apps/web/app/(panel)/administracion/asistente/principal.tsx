@@ -259,6 +259,7 @@ function Formulario({ datos, alGuardar }: { datos: Datos; alGuardar: (d: Datos) 
                 <AccionesAsistente
                     registrar={(clave) => form.register(`acciones.${clave}`)}
                     registrarSaldoConNumero={() => form.register("saldoConNumero")}
+                    alApagarSaldo={() => form.setValue("saldoConNumero", false, { shouldDirty: true })}
                     saldoConNumero={saldoConNumero}
                     daSaldo={daSaldo}
                     deshabilitado={bloqueado}

@@ -65,8 +65,6 @@ export type AjustesCompletos = AjustesAsistente & {
     modoAutonomo: ModoAutonomo;
     esperaMin: number;
     maxTurnos: number;
-    presupuestoAutonomoPct: number;
-    verificacionFuerteMin: number;
 };
 
 export function completar(a: AjustesAsistente): AjustesCompletos {
@@ -76,8 +74,6 @@ export function completar(a: AjustesAsistente): AjustesCompletos {
         modoAutonomo: a.modoAutonomo ?? "nunca",
         esperaMin: a.esperaMin ?? 3,
         maxTurnos: a.maxTurnos ?? 8,
-        presupuestoAutonomoPct: a.presupuestoAutonomoPct ?? 70,
-        verificacionFuerteMin: a.verificacionFuerteMin ?? 60,
     };
 }
 
@@ -86,6 +82,19 @@ export function completar(a: AjustesAsistente): AjustesCompletos {
  * que una empresa puede bajar a «basta con su número».
  */
 export const saldoExigeIdentidad = (p: Pick<PerfilAsistente, "exigeVerificacionFuerte">): boolean => p.exigeVerificacionFuerte?.dar_saldo ?? true;
+
+/**
+ * `exigeVerificacionFuerte` para guardar: «con solo su número» vale únicamente con «Dar el saldo»
+ * encendido. Al apagarlo vuelve a exigir identidad, para que encenderlo más adelante no herede en
+ * silencio la opción menos cuidadosa.
+ */
+export function exigenciaDeSaldo(d: { acciones: { dar_saldo: boolean }; saldoConNumero: boolean }): NonNullable<PerfilAsistente["exigeVerificacionFuerte"]> {
+    return { dar_saldo: !(d.acciones.dar_saldo && d.saldoConNumero) };
+}
+
+/** ¿El servidor manda lo avanzado de 3b (§17.8.2)? Uno anterior no: ni se muestra ni se guarda. */
+export const conAvanzado = (a: Pick<AjustesAsistente, "presupuestoAutonomoPct" | "verificacionFuerteMin">): boolean =>
+    a.presupuestoAutonomoPct !== undefined && a.verificacionFuerteMin !== undefined;
 
 /** El perfil «defecto» (el primero): el que edita la pantalla simple. */
 export function perfilDefecto(a: Pick<AjustesAsistente, "perfiles">): PerfilAsistente {
@@ -158,7 +167,7 @@ export function valoresPrincipal(a: AjustesAsistente, categorias: readonly Categ
         modoAutonomo: c.modoAutonomo,
         esperaMin: c.esperaMin,
         acciones: soloAcciones(perfilDefecto(a).acciones),
-        saldoConNumero: !saldoExigeIdentidad(perfilDefecto(a)),
+        saldoConNumero: perfilDefecto(a).acciones.dar_saldo && !saldoExigeIdentidad(perfilDefecto(a)),
         modos: Object.fromEntries(categorias.map((x) => [String(x.id), modoDe(x)])),
     };
 }
@@ -172,7 +181,7 @@ export function cambianAjustes(a: AjustesAsistente, d: ValoresPrincipal): boolea
         a.activo !== d.activo ||
         c.modoAutonomo !== d.modoAutonomo ||
         c.esperaMin !== d.esperaMin ||
-        saldoExigeIdentidad(perfil) === d.saldoConNumero ||
+        saldoExigeIdentidad(perfil) !== exigenciaDeSaldo(d).dar_saldo ||
         CLAVES_ACCION.some((x) => guardadas[x] !== d.acciones[x])
     );
 }
@@ -184,7 +193,7 @@ export function entradaPrincipal(a: AjustesAsistente, d: ValoresPrincipal): Entr
         activo: d.activo,
         modoAutonomo: d.modoAutonomo,
         esperaMin: d.esperaMin,
-        perfiles: conPerfilDefecto(a, { acciones: { ...d.acciones, pasar_a_persona: true }, exigeVerificacionFuerte: { dar_saldo: !d.saldoConNumero } }),
+        perfiles: conPerfilDefecto(a, { acciones: { ...d.acciones, pasar_a_persona: true }, exigeVerificacionFuerte: exigenciaDeSaldo(d) }),
     };
 }
 
@@ -216,8 +225,9 @@ export function valoresLimites(a: AjustesAsistente): ValoresLimites {
         prioridadMaxima: p.limites.prioridadMaxima,
         diasAdelanteMax: String(p.limites.diasAdelanteMax),
         maxTurnos: String(completar(a).maxTurnos),
-        presupuestoAutonomoPct: String(completar(a).presupuestoAutonomoPct),
-        verificacionFuerteMin: String(completar(a).verificacionFuerteMin),
+        // Solo para que el formulario valide: si el servidor no los manda no se muestran ni viajan.
+        presupuestoAutonomoPct: String(a.presupuestoAutonomoPct ?? 70),
+        verificacionFuerteMin: String(a.verificacionFuerteMin ?? 60),
         porCola: Object.fromEntries((a.porCola ?? []).map((c) => [String(c.colaId), (c.accionesApagadas ?? []).filter(esAccion)])),
     };
 }
@@ -244,8 +254,8 @@ export function entradaLimites(a: AjustesAsistente, d: ValoresLimites): EntradaA
     return {
         ...entradaGuardada(a),
         maxTurnos: Number(d.maxTurnos),
-        presupuestoAutonomoPct: Number(d.presupuestoAutonomoPct),
-        verificacionFuerteMin: Number(d.verificacionFuerteMin),
+        // Un servidor que no manda lo avanzado no recibe valores inventados (ausente = se deja como está).
+        ...(conAvanzado(a) ? { presupuestoAutonomoPct: Number(d.presupuestoAutonomoPct), verificacionFuerteMin: Number(d.verificacionFuerteMin) } : {}),
         perfiles: conPerfilDefecto(a, { limites: { prioridadMaxima: d.prioridadMaxima, diasAdelanteMax: Number(d.diasAdelanteMax) } }),
         porCola: porColaDe(a, d.porCola),
     };

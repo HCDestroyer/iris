@@ -163,7 +163,11 @@ function FilaPerfil({ perfil: p, ajustes, usos, alCambiar }: { perfil: PerfilAsi
                 open={confirmar}
                 onOpenChange={setConfirmar}
                 titulo={`¿Quitar el perfil «${p.nombre}»?`}
-                descripcion={enHorarios.length > 0 ? `Lo usa ${enHorarios.join(", ")}: en esas franjas el asistente volverá a hacer lo de siempre.` : "En las franjas que lo usen, el asistente volverá a hacer lo de siempre."}
+                descripcion={
+                    enHorarios.length > 0
+                        ? `Lo usa ${enHorarios.join(", ")}: en esas franjas el asistente solo sugerirá hasta que elijas otro.`
+                        : "En las franjas que lo usen, el asistente solo sugerirá hasta que elijas otro."
+                }
                 textoConfirmar="Quitar"
                 peligro
                 alConfirmar={quitar}

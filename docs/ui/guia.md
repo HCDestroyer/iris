@@ -622,8 +622,11 @@ Contrato: `.claude/integration/contratos/conversaciones.md` §17.8, §17.8.1 y �
   la pasó a una persona · hora», y la franja de la conversación dice «El asistente la pasó a una
   persona: espera en la cola» con «Tomar» mientras nadie la tenga.
 - **Mensajes de sistema nuevos:** `reconexion_pedida` («Reconexión temporal: Argos la aceptó (la
-  pidió …)», con lo que decidió Argos primero porque la línea se corta por el final) y, si el
-  servidor los manda, `verificar_identidad` / `identidad_verificada` (nunca el dato).
+  pidió …)», con lo que decidió Argos primero porque la línea se corta por el final). Un evento
+  que el servidor todavía no define (p. ej. la verificación de identidad) se pinta neutro: el panel
+  no afirma nada que no venga en el dato.
+- **Vigencia de la identidad:** mientras el nivel sea `fuerte`, la conversación abierta relee su
+  detalle cada 30 s, para que el indicador baje solo al vencer.
 
 ## Navegación del panel (fase 1, hecha)
 

@@ -34,7 +34,7 @@ export const esquemaHorario = z
         zona: z.string().min(1),
         franjas: z.array(franja).max(28, "Hasta 28 franjas"),
         feriados: z
-            .array(z.object({ fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Elige la fecha"), nombre: z.string().trim().min(1, "Escribe el nombre").max(80), cerrado: z.boolean(), inicio: z.string(), fin: z.string(), perfil: z.string().nullable() }))
+            .array(z.object({ fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Elige la fecha"), nombre: z.string().trim().min(1, "Escribe el nombre").max(80), cerrado: z.boolean(), inicio: z.string(), fin: z.string(), perfil: z.string().nullable(), resto: z.array(franja) }))
             .max(60, "Hasta 60 feriados"),
     })
     .superRefine((v, ctx) => {
@@ -46,6 +46,14 @@ export const esquemaHorario = z
     });
 type Valores = z.infer<typeof esquemaHorario>;
 
+/**
+ * Un feriado puede traer varias franjas (API u otra pantalla) y aquí se edita la primera: las demás
+ * se conservan enteras, con su `perfil`, y vuelven a viajar al guardar.
+ */
+function franjasDeMas(franjas: Horario["feriados"][number]["franjas"] | null | undefined): Valores["feriados"][number]["resto"] {
+    return (franjas ?? []).slice(1).map((x) => ({ dias: [...(x.dias ?? [])], inicio: x.inicio, fin: x.fin, perfil: x.perfil ?? null }));
+}
+
 function valores(h?: Horario): Valores {
     return {
         nombre: h?.nombre ?? "",
@@ -55,7 +63,7 @@ function valores(h?: Horario): Valores {
             { dias: [6], inicio: "08:00", fin: "12:00", perfil: null },
         ],
         feriados:
-            h?.feriados?.map((f) => ({ fecha: f.fecha, nombre: f.nombre, cerrado: (f.franjas ?? []).length === 0, inicio: f.franjas?.[0]?.inicio ?? "08:00", fin: f.franjas?.[0]?.fin ?? "12:00", perfil: f.franjas?.[0]?.perfil ?? null })) ?? [],
+            h?.feriados?.map((f) => ({ fecha: f.fecha, nombre: f.nombre, cerrado: (f.franjas ?? []).length === 0, inicio: f.franjas?.[0]?.inicio ?? "08:00", fin: f.franjas?.[0]?.fin ?? "12:00", perfil: f.franjas?.[0]?.perfil ?? null, resto: franjasDeMas(f.franjas) })) ?? [],
     };
 }
 
@@ -104,7 +112,7 @@ export function FormularioHorario({ horario }: { horario?: Horario }) {
             nombre: d.nombre.trim(),
             zona: d.zona,
             franjas: d.franjas.map((f) => ({ dias: [...f.dias].sort((a, b) => a - b), inicio: f.inicio, fin: f.fin, perfil: f.perfil })),
-            feriados: d.feriados.map((f) => ({ fecha: f.fecha, nombre: f.nombre.trim(), franjas: f.cerrado ? [] : [{ dias: [], inicio: f.inicio, fin: f.fin, perfil: f.perfil }] })),
+            feriados: d.feriados.map((f) => ({ fecha: f.fecha, nombre: f.nombre.trim(), franjas: f.cerrado ? [] : [{ dias: [], inicio: f.inicio, fin: f.fin, perfil: f.perfil }, ...f.resto] })),
         };
         try {
             const h = horario
@@ -229,6 +237,11 @@ export function FormularioHorario({ horario }: { horario?: Horario }) {
                                             <CampoHora etiqueta="Desde" className="w-32" {...form.register(`feriados.${i}.inicio`)} />
                                             <CampoHora etiqueta="Hasta" className="w-32" error={e?.fin?.message} {...form.register(`feriados.${i}.fin`)} />
                                             {conPerfil ? selectorPerfil(`feriados.${i}.perfil`, v.feriados?.[i]?.perfil, `Feriado ${i + 1}: qué hace el asistente`) : null}
+                                            {(campo.resto?.length ?? 0) > 0 ? (
+                                                <p className="basis-full text-sm text-muted-foreground" data-slot="franjas-de-mas">
+                                                    Además: {resumirFranjas(campo.resto).replace(/Ningún día /g, "")}. Se conservan como están.
+                                                </p>
+                                            ) : null}
                                         </>
                                     )}
                                     <Boton variante="fantasma" tamano="sm" className="ml-auto text-error" onClick={() => feriados.remove(i)} aria-label={`Quitar el feriado ${i + 1}`}>
@@ -240,7 +253,7 @@ export function FormularioHorario({ horario }: { horario?: Horario }) {
                         );
                     })}
                 </ul>
-                <Boton variante="secundario" tamano="sm" className="justify-self-start" onClick={() => feriados.append({ fecha: "", nombre: "", cerrado: true, inicio: "08:00", fin: "12:00", perfil: null })}>
+                <Boton variante="secundario" tamano="sm" className="justify-self-start" onClick={() => feriados.append({ fecha: "", nombre: "", cerrado: true, inicio: "08:00", fin: "12:00", perfil: null, resto: [] })}>
                     <Plus />
                     Agregar feriado
                 </Boton>

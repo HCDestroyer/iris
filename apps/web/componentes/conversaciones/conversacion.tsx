@@ -27,6 +27,9 @@ import { BotonSugerir, PausaAsistente, TarjetaSugerencia, useAsistente } from ".
 import { IndicadorVerificacion } from "./verificacion";
 import { nivelVerificacion } from "@/lib/asistente/fase3b";
 
+/** Cada cuánto se relee una conversación con la identidad verificada, por si ya venció. */
+const RELEER_IDENTIDAD_MS = 30_000;
+
 type Props = {
     id: number;
     identidad: Identidad;
@@ -140,6 +143,16 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
     useEffect(() => {
         aplicarRef.current = aplicarConversacion;
     });
+
+    // §17.8.2: «identidad verificada» vence sola (`verificacionFuerteMin`) y el servidor no avisa:
+    // mientras el nivel sea `fuerte` se relee el detalle con el reloj de 30 s, para que el
+    // indicador baje a «su número coincide» cuando toca. (Con `verificacionVenceEn` bastará un temporizador.)
+    const identidadVigente = detalle.estado === "listo" && nivelVerificacion(detalle.datos.contacto) === "fuerte";
+    useEffect(() => {
+        if (!identidadVigente) return;
+        const reloj = setInterval(() => void refrescarDetalle(), RELEER_IDENTIDAD_MS);
+        return () => clearInterval(reloj);
+    }, [identidadVigente, refrescarDetalle]);
 
     useEffect(
         () =>

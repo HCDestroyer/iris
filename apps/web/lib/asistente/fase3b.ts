@@ -3,6 +3,7 @@ import {
     CLAVES_ACCION,
     entero,
     entradaGuardada,
+    exigenciaDeSaldo,
     PERFIL_POR_DEFECTO,
     PRIORIDADES,
     saldoExigeIdentidad,
@@ -109,7 +110,7 @@ export function valoresPerfil(p?: PerfilAsistente): ValoresPerfil {
     return {
         nombre: p?.nombre ?? "",
         acciones: Object.fromEntries(CLAVES_ACCION.map((c) => [c, base.acciones[c]])) as ValoresPerfil["acciones"],
-        saldoConNumero: !saldoExigeIdentidad(base),
+        saldoConNumero: base.acciones.dar_saldo && !saldoExigeIdentidad(base),
         prioridadMaxima: base.limites.prioridadMaxima,
         diasAdelanteMax: String(base.limites.diasAdelanteMax),
     };
@@ -120,7 +121,7 @@ export function perfilDeValores(d: ValoresPerfil, codigo: string): PerfilAsisten
         codigo,
         nombre: d.nombre.trim(),
         acciones: { ...d.acciones, pasar_a_persona: true },
-        exigeVerificacionFuerte: { dar_saldo: !d.saldoConNumero },
+        exigeVerificacionFuerte: exigenciaDeSaldo(d),
         limites: { prioridadMaxima: d.prioridadMaxima, diasAdelanteMax: Number(d.diasAdelanteMax) },
     };
 }
@@ -155,7 +156,7 @@ export type OpcionPerfil = { valor: string; texto: string };
 /**
  * Las opciones de «¿Qué hace el asistente en esta franja?» (horarios, §10.1): `""` = el perfil
  * general (sin `perfil`), `solo_sugerir` y los demás perfiles de la empresa. Un código guardado que
- * ya no existe se muestra como tal: el servidor lo trata como el general.
+ * ya no existe se muestra como tal: el servidor lo trata como `solo_sugerir` (§17.8.2).
  */
 export function opcionesDePerfil(perfiles: readonly Pick<PerfilAsistente, "codigo" | "nombre">[], guardado: string | null | undefined): OpcionPerfil[] {
     const general = perfiles.find(esDefecto)?.nombre ?? PERFIL_POR_DEFECTO.nombre;
@@ -164,7 +165,7 @@ export function opcionesDePerfil(perfiles: readonly Pick<PerfilAsistente, "codig
         { valor: SOLO_SUGERIR, texto: "Solo sugiere: no atiende solo" },
         ...perfiles.filter((p) => !esDefecto(p)).map((p) => ({ valor: p.codigo, texto: `Perfil «${p.nombre}»` })),
     ];
-    if (guardado && guardado !== PERFIL_POR_DEFECTO.codigo && !lista.some((o) => o.valor === guardado)) lista.push({ valor: guardado, texto: "Un perfil que ya no existe (se usa lo de siempre)" });
+    if (guardado && guardado !== PERFIL_POR_DEFECTO.codigo && !lista.some((o) => o.valor === guardado)) lista.push({ valor: guardado, texto: "Un perfil que ya no existe (solo sugiere)" });
     return lista;
 }
 

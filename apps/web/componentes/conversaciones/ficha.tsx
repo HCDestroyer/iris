@@ -234,6 +234,7 @@ function ClienteSinConfirmar({ conv, alActualizar }: { conv: ConversacionDetalle
     const { puede } = useSesion();
     const [confirmar, setConfirmar] = useState(false);
     const [error, setError] = useState<unknown>(null);
+    const clave = useClaveIdempotencia();
     const supervisa = puede(["conversaciones.supervisar"]);
     return (
         <Aviso
@@ -262,14 +263,16 @@ function ClienteSinConfirmar({ conv, alActualizar }: { conv: ConversacionDetalle
                     try {
                         const c = await resolver(
                             api().POST(`${BASE}/confirmar-cliente`, {
-                                params: { path: { id: conv.id }, header: cabeceraIdem(nuevaClaveIdempotencia()) },
+                                params: { path: { id: conv.id }, header: cabeceraIdem(clave.actual()) },
                                 body: { version: conv.version },
                             }),
                         );
+                        clave.renovar();
                         avisar(avisoDeConfirmado(c));
                         alActualizar(c);
                         setConfirmar(false);
                     } catch (e) {
+                        clave.trasError(e);
                         setError(e);
                         setConfirmar(false);
                     }
@@ -299,6 +302,7 @@ function ConfirmarIdentidad({ conv, alActualizar }: { conv: ConversacionDetalle;
     const { puede } = useSesion();
     const [abierto, setAbierto] = useState(false);
     const [error, setError] = useState<unknown>(null);
+    const clave = useClaveIdempotencia();
     if (nivelVerificacion(conv.contacto) !== "numero" || conv.estado === "resuelta" || conv.soloLectura || !puede(["conversaciones.supervisar"])) return null;
     return (
         <>
@@ -319,14 +323,16 @@ function ConfirmarIdentidad({ conv, alActualizar }: { conv: ConversacionDetalle;
                     try {
                         const c = await resolver(
                             api().POST(`${BASE}/confirmar-cliente`, {
-                                params: { path: { id: conv.id }, header: cabeceraIdem(nuevaClaveIdempotencia()) },
+                                params: { path: { id: conv.id }, header: cabeceraIdem(clave.actual()) },
                                 body: { version: conv.version },
                             }),
                         );
+                        clave.renovar();
                         avisar(avisoDeConfirmado(c));
                         alActualizar(c);
                         setAbierto(false);
                     } catch (e) {
+                        clave.trasError(e);
                         setError(e);
                     }
                 }}

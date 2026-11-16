@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cambianAjustes, completar, entradaLimites, entradaPrincipal, esquemaLimites, PERFIL_POR_DEFECTO, saldoExigeIdentidad, valoresLimites, valoresPrincipal, type PerfilAsistente } from "./fase3";
+import { cambianAjustes, completar, conAvanzado, entradaLimites, exigenciaDeSaldo, entradaPrincipal, esquemaLimites, PERFIL_POR_DEFECTO, saldoExigeIdentidad, valoresLimites, valoresPrincipal, type PerfilAsistente } from "./fase3";
 import {
     ACCIONES_COMUNES,
     ACCIONES_DINERO,
@@ -74,17 +74,34 @@ describe("acciones de dinero y verificación (§17.8.2)", () => {
         expect(v.saldoConNumero).toBe(false);
         expect(cambianAjustes(BASE, v)).toBe(false);
         const d = { ...v, acciones: { ...v.acciones, dar_saldo: true }, saldoConNumero: true };
-        expect(cambianAjustes(BASE, { ...v, saldoConNumero: true })).toBe(true);
+        // Con el saldo apagado, la casilla sola no es un cambio; con el saldo encendido, sí.
+        expect(cambianAjustes(BASE, { ...v, saldoConNumero: true })).toBe(false);
+        expect(cambianAjustes(BASE, d)).toBe(true);
         const e = entradaPrincipal(BASE, d);
         expect(e.perfiles?.[0]).toMatchObject({ codigo: "defecto", acciones: { dar_saldo: true, recibir_boleta: false }, exigeVerificacionFuerte: { dar_saldo: false } });
         expect(e.perfiles?.[1]).toEqual(NOCHE);
+        // Apagar «Dar el saldo» vuelve a exigir identidad, aunque la casilla hubiera quedado marcada.
+        expect(exigenciaDeSaldo({ acciones: { dar_saldo: false }, saldoConNumero: true })).toEqual({ dar_saldo: true });
+        expect(entradaPrincipal(BASE, { ...d, acciones: { ...d.acciones, dar_saldo: false } }).perfiles?.[0]?.exigeVerificacionFuerte).toEqual({ dar_saldo: true });
+        // Un perfil guardado con el saldo apagado y «solo número» no arrastra la opción al formulario.
+        const apagado = { ...NOCHE, acciones: { ...NOCHE.acciones, dar_saldo: false } };
+        expect(valoresPerfil(apagado).saldoConNumero).toBe(false);
+        expect(perfilDeValores({ ...valoresPerfil(NOCHE), acciones: { ...valoresPerfil(NOCHE).acciones, dar_saldo: false } }, "noche").exigeVerificacionFuerte).toEqual({ dar_saldo: true });
     });
 
     it("avanzado: presupuesto 1–100 y vigencia 5–1440, con los de fábrica si el servidor no los manda", () => {
-        const { presupuestoAutonomoPct: _p, verificacionFuerteMin: _v, ...viejo } = BASE;
+        const { presupuestoAutonomoPct: _p, verificacionFuerteMin: _v, ...resto } = BASE;
+        const viejo: AjustesAsistente = resto;
         void _p;
         void _v;
-        expect(completar(viejo)).toMatchObject({ presupuestoAutonomoPct: 70, verificacionFuerteMin: 60 });
+        // Un servidor que no los manda: ni se inventan al leer ni viajan al guardar.
+        expect(conAvanzado(viejo)).toBe(false);
+        expect(completar(viejo)).not.toHaveProperty("presupuestoAutonomoPct");
+        const sinAvanzado = entradaLimites(viejo, valoresLimites(viejo));
+        expect(sinAvanzado).not.toHaveProperty("presupuestoAutonomoPct");
+        expect(sinAvanzado).not.toHaveProperty("verificacionFuerteMin");
+        expect(sinAvanzado).toMatchObject({ maxTurnos: 8 });
+        expect(conAvanzado(BASE)).toBe(true);
         const v = valoresLimites(BASE);
         expect(esquemaLimites.safeParse(v).success).toBe(true);
         for (const malo of [{ presupuestoAutonomoPct: "0" }, { presupuestoAutonomoPct: "101" }, { verificacionFuerteMin: "4" }, { verificacionFuerteMin: "1441" }, { verificacionFuerteMin: "" }]) {
@@ -141,7 +158,7 @@ describe("perfiles por horario (§17.1)", () => {
         expect(resumenPerfil(NOCHE)).toBe("5 acciones encendidas · 2 de dinero");
         expect(opcionesDePerfil(BASE.perfiles ?? [], null).map((o) => o.valor)).toEqual(["", "solo_sugerir", "noche"]);
         // Un código guardado que ya no existe se ve como tal (el servidor usa el general).
-        expect(opcionesDePerfil(BASE.perfiles ?? [], "viejo").at(-1)).toEqual({ valor: "viejo", texto: "Un perfil que ya no existe (se usa lo de siempre)" });
+        expect(opcionesDePerfil(BASE.perfiles ?? [], "viejo").at(-1)).toEqual({ valor: "viejo", texto: "Un perfil que ya no existe (solo sugiere)" });
         expect(valorDePerfil(null)).toBe("");
         expect(valorDePerfil("defecto")).toBe("");
         expect(valorDePerfil("noche")).toBe("noche");
@@ -162,7 +179,10 @@ describe("bandeja (§17.8.2)", () => {
         expect(textoReconexion("Asistente de IA", "aceptada")).toBe("Reconexión temporal: Argos la aceptó (la pidió Asistente de IA)");
         expect(textoEvento({ tipo: "reconexion_pedida", actorNombre: "Asistente de IA", detalle: "rechazada" })).toBe("Reconexión temporal: Argos no la aceptó (la pidió Asistente de IA)");
         expect(textoEvento({ tipo: "reconexion_pedida", detalle: "pendiente" })).toBe("Reconexión temporal: esperando a Argos (la pidió Iris)");
-        expect(textoEvento({ tipo: "verificar_identidad", actorNombre: "Asistente de IA", detalle: "coincide" })).toBe("Asistente de IA verificó la identidad del cliente");
-        expect(textoEvento({ tipo: "verificar_identidad", actorNombre: "Asistente de IA", detalle: "no_coincide" })).toBe("Asistente de IA pidió verificar la identidad del cliente: no se pudo");
+        // Un evento que el servidor todavía no define se pinta neutro: el panel no afirma que se verificó nada.
+        for (const tipo of ["verificar_identidad", "identidad_verificada"]) {
+            expect(textoEvento({ tipo, actorNombre: "Asistente de IA" })).toBe(tipo.replace(/_/g, " "));
+            expect(textoEvento({ tipo, actorNombre: "Asistente de IA", detalle: "no_coincide" })).not.toMatch(/verificó/);
+        }
     });
 });

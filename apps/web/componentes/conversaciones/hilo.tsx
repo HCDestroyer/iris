@@ -1,7 +1,7 @@
 "use client";
 
 import { Boton, Cargando, cn } from "@iris/ui";
-import { AlertTriangle, ArrowLeftRight, Bot, FileText, History, MapPin, MessageCircle, Paperclip, PencilLine, Plug, RotateCw, ShieldCheck, Smartphone, Sparkles, Timer, UserRound } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, Bot, FileText, History, MapPin, MessageCircle, Paperclip, PencilLine, Plug, RotateCw, Smartphone, Sparkles, Timer, UserRound } from "lucide-react";
 import { Fragment, useEffect, useLayoutEffect, useRef } from "react";
 import type { Pendiente } from "@/lib/conversaciones/estado";
 import { hora, separadorDia, tamanoLegible, textoEntrega, textoEvento } from "@/lib/conversaciones/presentacion";
@@ -149,9 +149,7 @@ function Burbuja({ m }: { m: Mensaje }) {
                     ? ArrowLeftRight
                     : tipo === "reconexion_pedida"
                       ? Plug
-                      : tipo === "identidad_verificada" || tipo === "verificar_identidad"
-                        ? ShieldCheck
-                        : MessageCircle;
+                      : MessageCircle;
         return (
             <p
                 className={cn(

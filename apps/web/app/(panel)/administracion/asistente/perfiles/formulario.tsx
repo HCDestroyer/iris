@@ -87,7 +87,7 @@ export function FormularioPerfil({ ajustes, perfil }: { ajustes: AjustesAsistent
                 <Campo etiqueta="Nombre" maxLength={40} placeholder="Noche y fin de semana" autoComplete="off" error={errores.nombre?.message} {...form.register("nombre")} />
             </SeccionFormulario>
             <SeccionFormulario titulo="¿Qué puede hacer solo?">
-                <AccionesAsistente registrar={(c) => form.register(`acciones.${c}`)} registrarSaldoConNumero={() => form.register("saldoConNumero")} saldoConNumero={saldoConNumero} daSaldo={daSaldo} />
+                <AccionesAsistente registrar={(c) => form.register(`acciones.${c}`)} registrarSaldoConNumero={() => form.register("saldoConNumero")} alApagarSaldo={() => form.setValue("saldoConNumero", false, { shouldDirty: true })} saldoConNumero={saldoConNumero} daSaldo={daSaldo} />
             </SeccionFormulario>
             <SeccionFormulario titulo="Hasta dónde llega">
                 <div className="grid gap-4 sm:grid-cols-2">

@@ -10,7 +10,7 @@ import { useForm, useWatch } from "react-hook-form";
 import { CargaRegistro } from "@/componentes/carga-registro";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { guardarAjustesAsistente, leerAjustesAsistente } from "@/lib/asistente/api";
-import { CLAVES_ACCION, completar, entradaLimites, esquemaLimites, minutosLegibles, NOMBRE_ACCION, NOMBRE_PRIORIDAD, PRIORIDADES, valoresLimites, type ClaveAccion, type ValoresLimites } from "@/lib/asistente/fase3";
+import { CLAVES_ACCION, completar, conAvanzado, entradaLimites, esquemaLimites, minutosLegibles, NOMBRE_ACCION, NOMBRE_PRIORIDAD, PRIORIDADES, valoresLimites, type ClaveAccion, type ValoresLimites } from "@/lib/asistente/fase3";
 import { perfilesDe, resumenPerfil } from "@/lib/asistente/fase3b";
 import type { AjustesAsistente } from "@/lib/asistente/tipos";
 import { leerColas } from "@/lib/conversaciones/api-equipo";
@@ -169,6 +169,8 @@ function Formulario({ ajustes, colas }: { ajustes: AjustesAsistente; colas: Cola
                     <ChevronRight aria-hidden className="size-4" />
                 </Link>
             </SeccionFormulario>
+            {/* Un servidor anterior a 3b no manda lo avanzado: no se muestra ni se guarda. */}
+            {conAvanzado(ajustes) ? (
             <section aria-labelledby="titulo-avanzado" data-slot="avanzado" className="surface-card grid min-w-0 gap-4 p-4 sm:p-5">
                 <h2 id="titulo-avanzado" className="min-w-0">
                     <Boton variante="fantasma" className="h-auto w-full justify-between gap-3 px-0 py-0 text-left hover:bg-transparent" aria-expanded={avanzado} aria-controls="campos-avanzados" onClick={() => setAbierto(!avanzado)}>
@@ -202,6 +204,7 @@ function Formulario({ ajustes, colas }: { ajustes: AjustesAsistente; colas: Cola
                     </div>
                 ) : null}
             </section>
+            ) : null}
             <SeccionFormulario titulo="Siempre">
                 <ul className="grid gap-1.5" aria-label="Lo que el asistente hace siempre">
                     {SIEMPRE.map((t) => (
