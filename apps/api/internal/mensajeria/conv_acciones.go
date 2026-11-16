@@ -158,6 +158,8 @@ type EntradaOrdenConv struct {
 	ZonaID      *int64  `json:"zonaId,omitempty" minimum:"1"`
 	CuadrillaID *int64  `json:"cuadrillaId,omitempty" minimum:"1"`
 	Clave       string  `json:"-"`
+	// visita: los topes del asistente al agendar (§17.10), que se comprueban dentro de la transacción.
+	visita *topesVisita
 }
 
 // CrearOrdenConv crea una orden ligada a la conversación.
@@ -179,6 +181,18 @@ func nuevoCrearOrdenConv(m *Modulo) *CrearOrdenConv {
 				}
 				e := campo.EntradaCrearOrden{Tipo: in.Tipo, TicketID: in.TicketID, Descripcion: in.Descripcion, Direccion: in.Direccion,
 					ZonaID: in.ZonaID, CuadrillaID: in.CuadrillaID, ClaveIdempotencia: in.Clave}
+				if a.asistente {
+					// El asistente SIEMPRE manda el cliente de la conversación y el servicio pedido, también
+					// con ticket: campo rechaza la orden si el ticket es de otro cliente o de otro servicio
+					// (nunca hereda en silencio los del ticket).
+					if c.ClienteID == nil || in.ServicioID == nil {
+						return reglaConv("sin_cliente", "La visita exige el cliente de la conversación y su servicio")
+					}
+					e.ClienteID, e.ServicioID = c.ClienteID, in.ServicioID
+					if err := m.topesDeVisita(ctx, t, c, in); err != nil {
+						return err
+					}
+				}
 				if in.TicketID == nil {
 					e.ClienteID, e.ServicioID = c.ClienteID, c.ServicioID
 					if in.ServicioID != nil {

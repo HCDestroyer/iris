@@ -701,12 +701,19 @@ SELECT nombre FROM nucleo.usuarios WHERE id = @id;
 SELECT id, nombre FROM agenda.zonas WHERE id = ANY(@ids::bigint[]) ORDER BY nombre;
 
 -- name: OrdenesAbiertasDeCliente :many
--- Órdenes vivas (ni cerradas, ni fallidas, ni canceladas) de un cliente en la empresa, de esos tipos.
--- Para el tope de visitas abiertas por cliente del asistente de IA (conversaciones.md §17.10).
-SELECT o.id, o.numero, o.estado, o.version, o.origen, o.servicio_id, o.zona_id, t.codigo AS tipo
+-- Órdenes vivas (ni cerradas, ni fallidas, ni canceladas) de un cliente en la empresa, de esos tipos,
+-- con su programación y la ventana acordada. Para el asistente de IA (conversaciones.md §17.10).
+SELECT o.id, o.numero, o.estado, o.version, o.origen, o.cliente_id, o.servicio_id, o.zona_id, t.codigo AS tipo,
+    o.programada_inicio, c.ventana_inicio, c.ventana_fin, coalesce(o.idempotencia, '')::text AS idempotencia
 FROM campo.ordenes o
 JOIN campo.tipos_orden t ON t.id = o.tipo_id
+LEFT JOIN agenda.citas c ON c.orden_id = o.id
 WHERE o.cliente_id = @cliente_id AND o.empresa_id IS NOT DISTINCT FROM sqlc.narg('empresa_id')::bigint
   AND o.estado NOT IN ('cerrada', 'fallida', 'cancelada') AND t.codigo = ANY(@tipos::text[])
 ORDER BY o.id;
 
+-- name: OrdenesDelAsistenteRecientes :one
+-- Órdenes que creó el asistente de IA en la empresa en las últimas 24 h (tope por día, §17.10).
+SELECT count(*)::bigint FROM campo.ordenes o
+WHERE o.origen = 'asistente' AND o.empresa_id IS NOT DISTINCT FROM sqlc.narg('empresa_id')::bigint
+  AND o.created_at >= now() - interval '24 hours';

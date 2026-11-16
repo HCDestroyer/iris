@@ -312,6 +312,8 @@ del día programadas para él en los primeros huecos libres, por los casos de us
   el asistente de IA de mensajería al agendar una visita, con el actor `asistente_ia`. Si la ventana
   que eligió el cliente ya no tenía espacio, la orden queda `pendiente` (sin programar) con una
   descripción que lo dice: la programa despacho.
-- `OrdenesAbiertasDeCliente` (`visitas_asistente.go`): las órdenes vivas de un cliente, para el tope de
-  visitas abiertas del asistente.
+- `OrdenesAbiertasDeCliente` y `OrdenesDelAsistenteRecientes` (`visitas_asistente.go`): las órdenes
+  vivas de un cliente (con su programación y su ventana) y las que el asistente creó en 24 h, para sus
+  topes. La migración del `origen` va sin transacción (`NOT VALID`, `VALIDATE` y luego quita la
+  restricción vieja); su Down no toca las filas `asistente`: deja la restricción anterior sin validar.
 

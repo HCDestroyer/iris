@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"regexp"
 	"slices"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
+	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/campo"
 	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -211,9 +213,71 @@ func (m *Modulo) prepararVisita(ctx context.Context, t *turnoIA, servicioPedido 
 		vivas++
 	}
 	if vivas >= cfg.MaxAbiertasPorCliente {
-		return no(resHerramienta{paso: PasoSinRespuesta, resumen: fmt.Sprintf("Pide una visita técnica y ya tiene %d abierta(s): %s. Moverla o agregar otra lo decide una persona.", vivas, abiertas[0].Numero)})
+		// Ya tiene una visita abierta: el asistente se lo dice (con su fecha, sin técnico). Cambiarla o
+		// cancelarla lo decide una persona.
+		return no(rechazo(m.textoVisitasAbiertas(abiertas, p.pendiente)))
 	}
 	return p, nil
+}
+
+// textoVisitasAbiertas: lo que el asistente le puede decir al cliente de las visitas que ya tiene.
+func (m *Modulo) textoVisitasAbiertas(abiertas []campo.OrdenAbierta, pendiente *campo.OrdenAbierta) string {
+	var lista []string
+	for _, o := range abiertas {
+		if pendiente != nil && o.ID == pendiente.ID {
+			continue
+		}
+		cuando := "todavía sin fecha (el equipo la está programando)"
+		switch {
+		case o.VentanaInicio != nil && o.VentanaFin != nil:
+			cuando = "para el " + textoVentana(*o.VentanaInicio, *o.VentanaFin, m.cfg.Zona)
+		case o.ProgramadaInicio != nil:
+			i := o.ProgramadaInicio.In(m.cfg.Zona)
+			cuando = fmt.Sprintf("para el %s %d de %s, a las %s", diasLargos[i.Weekday()], i.Day(), mesesLargos[i.Month()-1], i.Format("15:04"))
+		}
+		lista = append(lista, "orden "+o.Numero+", "+cuando)
+	}
+	return "el cliente ya tiene una visita abierta (" + strings.Join(lista, "; ") + ", hora de Guatemala). Díselo con esa fecha, sin mencionar técnicos. " +
+		"No puedes agendar otra ni cambiarla: si el cliente quiere moverla o cancelarla, pasa a una persona."
+}
+
+// topesVisita: los topes que se comprueban dentro de la transacción que crea la orden.
+type topesVisita struct {
+	maxAbiertas   int32
+	porDiaEmpresa int32
+}
+
+// topesDeVisita serializa las visitas del cliente y de la empresa con candados consultivos (hasta el
+// COMMIT de la transacción que crea la orden) y vuelve a comprobar los topes: dos conversaciones del
+// mismo cliente a la vez no pueden pasarse del máximo de visitas abiertas, ni la empresa de su tope
+// del día.
+func (m *Modulo) topesDeVisita(ctx context.Context, t *auditoria.Tx, c *mensajeriabd.MensajeriaConversacion, in EntradaOrdenConv) error {
+	if in.visita == nil {
+		return nucleo.Prohibido("El asistente de IA solo crea órdenes al agendar una visita")
+	}
+	q := mensajeriabd.New(t)
+	empresa := empresaDeConv(*c)
+	if err := q.CandadoChat(ctx, "visita:empresa:"+strconv.FormatInt(empresa, 10)); err != nil {
+		return err
+	}
+	if err := q.CandadoChat(ctx, "visita:cliente:"+strconv.FormatInt(*c.ClienteID, 10)); err != nil {
+		return err
+	}
+	abiertas, err := campo.OrdenesAbiertasDeCliente(ctx, t, c.EmpresaID, *c.ClienteID, TiposVisitaAsistente)
+	if err != nil {
+		return err
+	}
+	if len(abiertas) >= int(in.visita.maxAbiertas) {
+		return reglaConv("visita_abierta", "El cliente ya tiene una visita abierta")
+	}
+	n, err := campo.OrdenesDelAsistenteRecientes(ctx, t, c.EmpresaID)
+	if err != nil {
+		return err
+	}
+	if n >= int64(in.visita.porDiaEmpresa) {
+		return reglaConv("tope_visitas_empresa", "Se llegó al tope de visitas que el asistente agenda por día en la empresa")
+	}
+	return nil
 }
 
 // ofrecerVentanas busca las ventanas, las guarda como ofertas de la conversación y arma el texto
@@ -294,6 +358,29 @@ func (m *Modulo) herrOfrecerVisita(ctx context.Context, t *turnoIA, l LlamadaIA,
 	return m.ofrecerVentanas(ctx, t, p, motivo), h
 }
 
+// PrefijoDichoPorCliente rotula el motivo de la visita: lo redactó el modelo con lo que dijo el
+// cliente, no es un dato comprobado (va en la descripción de la orden y en el ticket).
+const PrefijoDichoPorCliente = "Dicho por el cliente, sin verificar: "
+
+// ordenDeVisita lee la orden viva del cliente (su estado y versión reales).
+func (m *Modulo) ordenDeVisita(ctx context.Context, t *turnoIA, id int64) (*campo.OrdenAbierta, error) {
+	abiertas, err := campo.OrdenesAbiertasDeCliente(ctx, nucleo.BDDe(ctx), empresaPtrDe(t.empresa), t.clienteID, TiposVisitaAsistente)
+	if err != nil {
+		return nil, err
+	}
+	for _, o := range abiertas {
+		if o.ID == id {
+			return &o, nil
+		}
+	}
+	return nil, nil
+}
+
+// programadaEn: la orden ya está programada dentro de esa ventana.
+func programadaEn(o *campo.OrdenAbierta, ini, fin time.Time) bool {
+	return o != nil && o.Estado == campo.EstadoProgramada && o.ProgramadaInicio != nil && !o.ProgramadaInicio.Before(ini) && o.ProgramadaInicio.Before(fin)
+}
+
 // herrAgendarVisita crea la orden de visita y la programa en la ventana elegida.
 func (m *Modulo) herrAgendarVisita(ctx context.Context, t *turnoIA, l LlamadaIA, h accionHecha) (resHerramienta, accionHecha) {
 	var a struct {
@@ -314,12 +401,37 @@ func (m *Modulo) herrAgendarVisita(ctx context.Context, t *turnoIA, l LlamadaIA,
 	if err != nil {
 		return resHerramienta{fallo: true}, h
 	}
+	ctxV := ctxVisitas(ctx, t.empresa)
+	exito := func(numero string) (resHerramienta, accionHecha) {
+		if err := q.BorrarOfertasVisita(ctx, t.conv); err != nil {
+			return resHerramienta{fallo: true}, h
+		}
+		h.actividadTipo, h.actividadTexto = "visita_agendada", "Agendó la visita "+numero
+		t.permitir(ResRegistrar, ResConfirmar)
+		return resHerramienta{contenido: "Visita agendada: orden " + numero + ", " + textoVentana(of.Inicio, of.Fin, m.cfg.Zona) +
+			" (hora de Guatemala). Confírmaselo al cliente con el día, la ventana y el número de orden. No menciones técnicos ni la dirección."}, h
+	}
+	// Un reintento del MISMO turno después de programar (el job se repitió, o la respuesta se perdió):
+	// la orden que este turno creó (su clave de idempotencia) ya está programada en esa ventana.
+	clave := "iris:asistente:" + t.id.String() + ":visita"
+	abiertas, err := campo.OrdenesAbiertasDeCliente(ctx, nucleo.BDDe(ctx), empresaPtrDe(t.empresa), t.clienteID, TiposVisitaAsistente)
+	if err != nil {
+		return resHerramienta{fallo: true}, h
+	}
+	for _, o := range abiertas {
+		if o.Origen == campo.OrigenAsistente && strings.HasSuffix(o.Idempotencia, "|"+clave) && o.ServicioID != nil && *o.ServicioID == of.ServicioID &&
+			of.ClienteID == t.clienteID && programadaEn(&o, of.Inicio, of.Fin) {
+			h.Entidad, h.EntidadID = "orden", strconv.FormatInt(o.ID, 10)
+			return exito(o.Numero)
+		}
+	}
 	// Las reglas otra vez (el cliente, el servicio o los ajustes pudieron cambiar desde la oferta).
 	p, no := m.prepararVisita(ctx, t, of.ServicioID)
 	if no != nil {
 		return *no, h
 	}
-	if of.ClienteID != t.clienteID || derefEmpresa(of.EmpresaID) != t.empresa || p.zona != of.ZonaID || !slices.Contains(p.cfg.TiposPermitidos, of.Tipo) {
+	if of.ClienteID != t.clienteID || derefEmpresa(of.EmpresaID) != t.empresa || p.zona != of.ZonaID || p.servicio != of.ServicioID ||
+		!slices.Contains(p.cfg.TiposPermitidos, of.Tipo) {
 		return rechazo("esa ventana ya no vale para este cliente. Usa ofrecer_visita otra vez."), h
 	}
 	desde := ahora.Add(-24 * time.Hour)
@@ -333,14 +445,12 @@ func (m *Modulo) herrAgendarVisita(ctx context.Context, t *turnoIA, l LlamadaIA,
 	} else if n >= int64(p.cfg.VisitasPorDiaEmpresa) {
 		return resHerramienta{paso: PasoTope, resumen: "Se llegó al tope de visitas que el asistente agenda por día en la empresa."}, h
 	}
-	ctxV := ctxVisitas(ctx, t.empresa)
 	// La orden: la que ya creó y quedó sin programar, o una nueva (con su ticket si la empresa lo exige).
-	ordenID, numero, version := int64(0), "", int32(0)
-	if p.pendiente != nil {
-		ordenID, numero, version = p.pendiente.ID, p.pendiente.Numero, p.pendiente.Version
-	} else {
-		e := EntradaOrdenConv{ID: t.conv, Tipo: of.Tipo, ServicioID: &of.ServicioID, Clave: "iris:asistente:" + t.id.String() + ":visita",
-			Descripcion: "Visita agendada por el asistente de IA desde WhatsApp. Motivo: " + recortar(of.Motivo, 200) +
+	orden := p.pendiente
+	if orden == nil {
+		e := EntradaOrdenConv{ID: t.conv, Tipo: of.Tipo, ServicioID: &of.ServicioID, Clave: clave,
+			visita: &topesVisita{maxAbiertas: p.cfg.MaxAbiertasPorCliente, porDiaEmpresa: p.cfg.VisitasPorDiaEmpresa},
+			Descripcion: "Visita agendada por el asistente de IA desde WhatsApp. " + PrefijoDichoPorCliente + recortar(of.Motivo, 200) +
 				". Si aparece sin programar, la ventana que eligió el cliente ya no tenía espacio: prográmala desde despacho."}
 		if p.cfg.ExigeTicket {
 			ticket, res := m.ticketParaVisita(ctx, t, of)
@@ -351,60 +461,98 @@ func (m *Modulo) herrAgendarVisita(ctx context.Context, t *turnoIA, l LlamadaIA,
 		}
 		v, err := m.Conv.CrearOrden.Ejecutar(ctxV, e)
 		if err != nil {
+			var pr *nucleo.Problema
+			switch {
+			case errors.As(err, &pr) && pr.Codigo() == "tope_visitas_empresa":
+				return resHerramienta{paso: PasoTope, resumen: "Se llegó al tope de visitas que el asistente agenda por día en la empresa."}, h
+			case errors.As(err, &pr) && pr.Codigo() == "visita_abierta":
+				// Otra conversación del mismo cliente la agendó a la vez.
+				if abiertas, errA := campo.OrdenesAbiertasDeCliente(ctx, nucleo.BDDe(ctx), empresaPtrDe(t.empresa), t.clienteID, TiposVisitaAsistente); errA == nil {
+					return rechazo(m.textoVisitasAbiertas(abiertas, nil)), h
+				}
+				return resHerramienta{fallo: true}, h
+			}
 			return deError(err), h
 		}
-		ordenID, _ = strconv.ParseInt(v.Vinculo.ID, 10, 64)
-		numero, version = v.Vinculo.Referencia, 1
+		id, _ := strconv.ParseInt(v.Vinculo.ID, 10, 64)
+		if orden, err = m.ordenDeVisita(ctx, t, id); err != nil || orden == nil {
+			return resHerramienta{fallo: true}, h
+		}
 	}
-	h.Entidad, h.EntidadID = "orden", strconv.FormatInt(ordenID, 10)
-	// El técnico lo elige la agenda; el asistente (y el cliente) nunca lo ven.
-	entrada := agenda.EntradaHuecos{EmpresaID: t.empresa, ZonaID: of.ZonaID, Tipo: of.Tipo, ExcluirOrden: ordenID}
-	elegido, err := m.cfg.Campo.Agenda().ElegirTecnicoEnVentana(ctx, nucleo.BDDe(ctx), entrada, agenda.Hueco{Inicio: of.Inicio, Fin: of.Fin})
-	if err == nil {
-		_, err = m.cfg.Campo.ProgramarOrden.Ejecutar(ctxV, campo.EntradaProgramarOrden{ID: ordenID, Version: version, TecnicoID: &elegido.UsuarioID,
-			Inicio: elegido.Inicio, Fin: &elegido.Fin, VentanaInicio: &of.Inicio, VentanaFin: &of.Fin})
+	h.Entidad, h.EntidadID = "orden", strconv.FormatInt(orden.ID, 10)
+	// Antes de programar: la orden es la de la oferta (cliente, servicio, zona y tipo). Si no coincide
+	// (un ticket de otro servicio, una conversación reasociada), no se programa.
+	if orden.ClienteID == nil || *orden.ClienteID != of.ClienteID || orden.ServicioID == nil || *orden.ServicioID != of.ServicioID ||
+		orden.ZonaID == nil || *orden.ZonaID != of.ZonaID || orden.Tipo != of.Tipo {
+		slog.Warn("asistente: la orden de la visita no coincide con la oferta", "conversacion_id", t.conv, "orden_id", orden.ID)
+		return resHerramienta{paso: PasoHerramientaFallo, resumen: "La orden " + orden.Numero + " no coincide con la visita ofrecida (cliente, servicio o zona): revísala antes de programarla."}, h
 	}
-	if err != nil {
-		if _, negocio := esDeNegocio(err); !negocio {
+	if programadaEn(orden, of.Inicio, of.Fin) {
+		return exito(orden.Numero)
+	}
+	// El técnico lo elige la agenda; el asistente (y el cliente) nunca lo ven. Con la versión real de
+	// la orden: un 409 de versión se resuelve releyendo, no es «ventana sin espacio».
+	entrada := agenda.EntradaHuecos{EmpresaID: t.empresa, ZonaID: of.ZonaID, Tipo: of.Tipo, ExcluirOrden: orden.ID}
+	for intento := 0; ; intento++ {
+		if orden.Estado != campo.EstadoPendiente {
+			return resHerramienta{paso: PasoHerramientaFallo, resumen: "La orden " + orden.Numero + " ya no está pendiente de programar (" + orden.Estado + ")."}, h
+		}
+		elegido, err := m.cfg.Campo.Agenda().ElegirTecnicoEnVentana(ctx, nucleo.BDDe(ctx), entrada, agenda.Hueco{Inicio: of.Inicio, Fin: of.Fin})
+		if err == nil {
+			_, err = m.cfg.Campo.ProgramarOrden.Ejecutar(ctxV, campo.EntradaProgramarOrden{ID: orden.ID, Version: orden.Version, TecnicoID: &elegido.UsuarioID,
+				Inicio: elegido.Inicio, Fin: &elegido.Fin, VentanaInicio: &of.Inicio, VentanaFin: &of.Fin})
+		}
+		if err == nil {
+			return exito(orden.Numero)
+		}
+		var pr *nucleo.Problema
+		if errors.As(err, &pr) && pr.Status == http.StatusConflict && intento == 0 {
+			// Alguien tocó la orden (otra versión): se relee su estado real y se decide con eso.
+			releida, errR := m.ordenDeVisita(ctx, t, orden.ID)
+			if errR != nil || releida == nil {
+				return resHerramienta{fallo: true}, h
+			}
+			if programadaEn(releida, of.Inicio, of.Fin) {
+				return exito(releida.Numero)
+			}
+			orden = releida
+			continue
+		}
+		if !errors.As(err, &pr) || pr.Status != http.StatusUnprocessableEntity {
 			// Ni «no encontrada» es aquí «una persona presente»: la orden ya existe; es una falla.
 			slog.Warn("asistente: no se pudo programar la visita", "tipo_error", fmt.Sprintf("%T", err))
 			return resHerramienta{fallo: true}, h
 		}
-		// La ventana ya no tiene espacio: la orden queda creada (sin programar, a la vista de
-		// despacho) y se ofrecen ventanas nuevas; el próximo agendar_visita programa esa misma orden.
-		p.pendiente = &campo.OrdenAbierta{ID: ordenID, Numero: numero}
-		res := m.ofrecerVentanas(ctx, t, p, of.Motivo)
-		if res.paso != "" {
-			res.resumen += " La orden " + numero + " quedó creada SIN PROGRAMAR: prográmala desde despacho."
-			return res, h
-		}
-		res.contenido = "No se hizo: esa ventana ya no tiene espacio. " + res.contenido
-		res.rechazada = true
+		break
+	}
+	// La ventana ya no tiene espacio (422 de la agenda): la orden queda creada (sin programar, a la
+	// vista de despacho) y se ofrecen ventanas nuevas; el próximo agendar_visita programa esa misma orden.
+	p.pendiente = orden
+	res := m.ofrecerVentanas(ctx, t, p, of.Motivo)
+	if res.paso != "" {
+		res.resumen += " La orden " + orden.Numero + " quedó creada SIN PROGRAMAR: prográmala desde despacho."
 		return res, h
 	}
-	if err := q.BorrarOfertasVisita(ctx, t.conv); err != nil {
-		return resHerramienta{fallo: true}, h
-	}
-	h.actividadTipo, h.actividadTexto = "visita_agendada", "Agendó la visita "+numero
-	t.permitir(ResRegistrar, ResConfirmar)
-	return resHerramienta{contenido: "Visita agendada: orden " + numero + ", " + textoVentana(of.Inicio, of.Fin, m.cfg.Zona) +
-		" (hora de Guatemala). Confírmaselo al cliente con el día, la ventana y el número de orden. No menciones técnicos ni la dirección."}, h
+	res.contenido = "No se hizo: esa ventana ya no tiene espacio. " + res.contenido
+	res.rechazada = true
+	return res, h
 }
 
-// ticketParaVisita: el ticket del que nace la visita. El último que se creó desde esta conversación
-// en este periodo; si no hay, el asistente crea uno (con la clave del turno: un reintento da el mismo).
+// ticketParaVisita: el ticket del que nace la visita. El último abierto que se creó desde esta
+// conversación en este periodo y que es del mismo cliente y del mismo servicio; si no hay (otro
+// servicio, sin servicio, otro cliente, resuelto o cerrado), el asistente crea uno con los dos (con
+// la clave del turno: un reintento da el mismo).
 func (m *Modulo) ticketParaVisita(ctx context.Context, t *turnoIA, of mensajeriabd.MensajeriaAsistenteOfertasVisitum) (int64, *resHerramienta) {
 	q := mensajeriabd.New(nucleo.BDDe(ctx))
-	id, err := q.UltimoTicketDeConv(ctx, t.conv)
+	id, err := q.TicketParaVisita(ctx, mensajeriabd.TicketParaVisitaParams{ConversacionID: t.conv, ClienteID: &of.ClienteID, ServicioID: &of.ServicioID, Empresa: t.empresa})
 	if err == nil {
-		if n, errN := strconv.ParseInt(id, 10, 64); errN == nil && n > 0 {
-			return n, nil
-		}
-	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return id, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
 		return 0, &resHerramienta{fallo: true}
 	}
-	v, err := m.Conv.CrearTicket.Ejecutar(ctx, EntradaTicketConv{ID: t.conv, Asunto: recortar("Visita técnica: "+of.Motivo, 120),
-		Descripcion: "El cliente pidió una visita técnica por WhatsApp. Motivo: " + recortar(of.Motivo, 200), Prioridad: "media",
+	v, err := m.Conv.CrearTicket.Ejecutar(ctx, EntradaTicketConv{ID: t.conv, Asunto: recortar("Visita técnica. "+PrefijoDichoPorCliente+of.Motivo, 120),
+		Descripcion: "El cliente pidió una visita técnica por WhatsApp. " + PrefijoDichoPorCliente + recortar(of.Motivo, 200), Prioridad: "media",
 		ServicioID: &of.ServicioID, Clave: "iris:asistente:" + t.id.String() + ":ticket-visita"})
 	if err != nil {
 		r := deError(err)

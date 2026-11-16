@@ -262,11 +262,15 @@ WHERE conversacion_id = @conversacion_id AND accion = @accion AND resultado = 'o
 SELECT count(*)::bigint FROM mensajeria.asistente_acciones
 WHERE coalesce(empresa_id, 0) = @empresa::bigint AND accion = @accion AND resultado = 'ok' AND creada_en >= @desde;
 
--- name: UltimoTicketDeConv :one
--- El último ticket creado desde la conversación en su periodo abierto.
-SELECT v.entidad_id FROM mensajeria.conversacion_vinculos v
+-- name: TicketParaVisita :one
+-- El último ticket creado desde la conversación en su periodo abierto que sirve para una visita: del
+-- mismo cliente, del mismo servicio, de la empresa y todavía abierto (ni resuelto ni cerrado).
+SELECT tk.id FROM mensajeria.conversacion_vinculos v
 JOIN mensajeria.conversaciones c ON c.id = v.conversacion_id
+JOIN soporte.tickets tk ON tk.id = CASE WHEN v.entidad_id ~ '^[0-9]{1,18}$' THEN v.entidad_id::bigint END
 WHERE v.conversacion_id = @conversacion_id AND v.tipo = 'ticket' AND v.created_at >= coalesce(c.reabierta_en, 'epoch')
+  AND tk.cliente_id = @cliente_id AND tk.servicio_id = @servicio_id AND coalesce(tk.empresa_id, 0) = @empresa::bigint
+  AND tk.estado IN ('nuevo', 'abierto', 'en_espera')
 ORDER BY v.created_at DESC LIMIT 1;
 
 -- name: FijarVisitasAsistente :exec

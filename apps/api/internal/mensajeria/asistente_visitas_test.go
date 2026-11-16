@@ -178,12 +178,24 @@ func TestVisitasOfreceYAgenda(t *testing.T) {
 	if len(v.ordenes(cliente)) != 1 {
 		t.Fatal("agendó una segunda visita con una oferta ya usada")
 	}
-	// Con una visita abierta (el tope es 1), otra pasa a una persona.
-	c = v.turno(num, "wamid.vi3", "Quiero otra visita", "Planes y precios", llama("ofrecer_visita", ofrecer), dice("No debería salir"))
-	v.exigirPaso(c, "sin_respuesta")
-	if len(v.ordenes(cliente)) != 1 {
-		t.Fatal("pasó del tope de visitas abiertas")
+	// Con una visita abierta (el tope es 1), el asistente se lo dice con su fecha (sin técnico) y no
+	// agenda otra; solo si el cliente pide cambiarla pasa a una persona.
+	c = v.turno(num, "wamid.vi3", "Quiero otra visita", "Planes y precios", llama("ofrecer_visita", ofrecer),
+		dice("Ya tienes una visita para el viernes 6 de noviembre, entre las 08:00 y las 12:00."))
+	if estadoAsistente(c) == "" || strings.HasPrefix(estadoAsistente(c), "espera_persona") {
+		t.Fatalf("con una visita abierta debía decírselo, no pasar a una persona: %v", c["asistente"])
 	}
+	cuerpo, _, _ = v.ia.ultimo()
+	if !strings.Contains(cuerpo, "ya tiene una visita abierta (orden "+os[0].numero+", para el viernes 6 de noviembre, entre las 08:00 y las 12:00") || strings.Contains(cuerpo, nombre) {
+		t.Fatal("el asistente no recibió la fecha de la visita abierta (o recibió al técnico)")
+	}
+	ms = v.delAsistente(conv)
+	if !strings.Contains(textoDe(ms[len(ms)-1]), "Ya tienes una visita para el viernes 6 de noviembre") || len(v.ordenes(cliente)) != 1 {
+		t.Fatalf("respuesta con la visita abierta: %q", textoDe(ms[len(ms)-1]))
+	}
+	c = v.turno(num, "wamid.vi4", "Entonces cámbiamela al sábado", "Planes y precios",
+		llama("pasar_a_persona", `{"motivo": "sin_respuesta", "resumen": "Quiere mover su visita al sábado"}`))
+	v.exigirPaso(c, "sin_respuesta")
 }
 
 // ausente deja al técnico de la prueba sin agenda en ese rango.
@@ -395,7 +407,10 @@ func TestVisitasTopes(t *testing.T) {
 	v := nuevasVisitas(t, nil, nil)
 	r := v.api(v.admin, http.MethodGet, "/asistente/ajustes", nil)
 	vis := r.cuerpo["visitas"].(map[string]any)
-	vis["visitasPorDiaEmpresa"], vis["maxAbiertasPorCliente"] = 1, 2
+	// El tope de la empresa cuenta las órdenes del asistente de las últimas 24 h (hora de la base), y
+	// la base la comparte el paquete: el tope es «las que ya hay más una».
+	ya := v.contar(`SELECT count(*) FROM campo.ordenes WHERE origen = 'asistente' AND empresa_id = 1 AND created_at >= now() - interval '24 hours'`)
+	vis["visitasPorDiaEmpresa"], vis["maxAbiertasPorCliente"] = ya+1, 2
 	v.exigir(v.ajustes(map[string]any{"visitas": vis}), http.StatusOK)
 	agenda := func(wamid string) (string, string, int64) {
 		conv, num, cliente := v.cliente()
@@ -420,5 +435,242 @@ func TestVisitasTopes(t *testing.T) {
 	v.exigirPaso(v.conv(v.numeroDe(conv2)), "tope")
 	if len(v.ordenes(cliente2)) != 0 {
 		t.Fatal("pasó del tope de visitas por día de la empresa")
+	}
+}
+
+// dosServicios: el cliente tiene además un segundo servicio (id*10+1) en la misma zona.
+func (v *visitas) dosServicios(cliente int64) (a, b int64) {
+	v.t.Helper()
+	if _, err := v.bd.Exec(v.ctx, `INSERT INTO integracion.argos_servicios (id, empresa_id, cliente_id, codigo, plan_nombre, estado, zona_id, zona_nombre, direccion, sincronizado_en)
+		VALUES ($1, 1, $2, 'S-B', 'Fibra 50 Mbps', 'activo', $3, 'Zona 1', '9a avenida 4-56, zona 1', now())`, cliente*10+1, cliente, v.zona); err != nil {
+		v.t.Fatal(err)
+	}
+	return cliente * 10, cliente*10 + 1
+}
+
+func (v *visitas) ticketPrevio(conv, num string, servicio any) int64 {
+	v.t.Helper()
+	cuerpo := map[string]any{"asunto": "Lentitud por las noches", "prioridad": "media"}
+	if servicio != nil {
+		cuerpo["servicioId"] = servicio
+	}
+	r := v.api(v.supervisor, http.MethodPost, "/conversaciones/"+conv+"/crear-ticket", cuerpo)
+	v.exigir(r, http.StatusCreated)
+	id, _ := strconv.ParseInt(r.cuerpo["vinculo"].(map[string]any)["id"].(string), 10, 64)
+	_ = num
+	return id
+}
+
+func (v *visitas) servicioDeOrden(orden int64) (servicio int64, direccion string) {
+	v.t.Helper()
+	if err := v.bd.QueryRow(v.ctx, `SELECT coalesce(servicio_id, 0), direccion FROM campo.ordenes WHERE id = $1`, orden).Scan(&servicio, &direccion); err != nil {
+		v.t.Fatal(err)
+	}
+	return
+}
+
+// A1 de la revisión. El cliente, el servicio y la zona de la orden son los de la oferta, nunca los de
+// un ticket anterior: con un ticket de otro servicio, sin servicio, resuelto (M3) o de una
+// conversación reasociada, el ticket no se usa (se crea otro) o la visita no se agenda.
+func TestVisitasLaOrdenEsLaDeLaOferta(t *testing.T) {
+	v := nuevasVisitas(t, nil, nil)
+	agendarB := func(conv, num string, servicioB int64, wamid string) {
+		t.Helper()
+		v.guion(llama("ofrecer_visita", fmt.Sprintf(`{"servicio_id": %d, "motivo": "Sin internet"}`, servicioB)),
+			dice("Tengo el viernes 6 de noviembre, entre las 08:00 y las 12:00."))
+		v.correr(conv)
+		v.turno(num, wamid, "Esa", "Planes y precios", llama("agendar_visita", `{"opcion": "V1"}`), dice("Tu visita es el viernes 6 de noviembre, entre las 08:00 y las 12:00."))
+	}
+	// Ticket previo por el servicio A; la visita es para el B.
+	conv, num, cliente := v.cliente()
+	sa, sb := v.dosServicios(cliente)
+	previo := v.ticketPrevio(conv, num, sa)
+	agendarB(conv, num, sb, "wamid.va1")
+	os := v.ordenes(cliente)
+	if len(os) != 1 || os[0].estado != "programada" || os[0].ticket == nil || *os[0].ticket == previo {
+		t.Fatalf("con un ticket del otro servicio: %+v (acciones %v)", os, v.acciones(conv))
+	}
+	if s, dir := v.servicioDeOrden(os[0].id); s != sb || !strings.Contains(dir, "9a avenida") {
+		t.Fatalf("la orden nació con el servicio %d y la dirección %q (esperaba el servicio %d)", s, dir, sb)
+	}
+	if n := v.contar(`SELECT count(*) FROM soporte.tickets WHERE id = $1 AND cliente_id = $2 AND servicio_id = $3`, *os[0].ticket, cliente, sb); n != 1 {
+		t.Fatal("el ticket de la visita no es del cliente y del servicio de la oferta")
+	}
+	// Ticket previo sin servicio: tampoco se usa.
+	conv2, num2, cliente2 := v.cliente()
+	_, sb2 := v.dosServicios(cliente2)
+	previo2 := v.ticketPrevio(conv2, num2, nil)
+	if n := v.contar(`SELECT count(*) FROM soporte.tickets WHERE id = $1 AND servicio_id IS NULL`, previo2); n != 1 {
+		if _, err := v.bd.Exec(v.ctx, `UPDATE soporte.tickets SET servicio_id = NULL WHERE id = $1`, previo2); err != nil {
+			t.Fatal(err)
+		}
+	}
+	agendarB(conv2, num2, sb2, "wamid.va2")
+	os2 := v.ordenes(cliente2)
+	if len(os2) != 1 || os2[0].ticket == nil || *os2[0].ticket == previo2 {
+		t.Fatalf("con un ticket sin servicio: %+v (acciones %v)", os2, v.acciones(conv2))
+	}
+	if s, _ := v.servicioDeOrden(os2[0].id); s != sb2 {
+		t.Fatalf("servicio de la orden: %d (esperaba %d)", s, sb2)
+	}
+	// M3. Ticket previo del mismo servicio, pero ya resuelto: se crea otro.
+	conv3, num3, cliente3 := v.cliente()
+	previo3 := v.ticketPrevio(conv3, num3, cliente3*10)
+	if _, err := v.bd.Exec(v.ctx, `UPDATE soporte.tickets SET estado = 'resuelto', resuelto_en = now() WHERE id = $1`, previo3); err != nil {
+		t.Fatal(err)
+	}
+	agendarB(conv3, num3, cliente3*10, "wamid.va3")
+	os3 := v.ordenes(cliente3)
+	if len(os3) != 1 || os3[0].estado != "programada" || os3[0].ticket == nil || *os3[0].ticket == previo3 {
+		t.Fatalf("con el ticket resuelto: %+v (acciones %v)", os3, v.acciones(conv3))
+	}
+	// Y uno abierto del mismo cliente y servicio sí se usa.
+	conv4, num4, cliente4 := v.cliente()
+	previo4 := v.ticketPrevio(conv4, num4, cliente4*10)
+	agendarB(conv4, num4, cliente4*10, "wamid.va4")
+	if os4 := v.ordenes(cliente4); len(os4) != 1 || os4[0].ticket == nil || *os4[0].ticket != previo4 {
+		t.Fatalf("con un ticket abierto del mismo servicio: %+v (acciones %v)", os4, v.acciones(conv4))
+	}
+	// La conversación se reasocia a otro cliente después de la oferta: no se agenda para ninguno.
+	conv5, num5, cliente5 := v.cliente()
+	_, _, otro := v.cliente()
+	v.guion(llama("ofrecer_visita", ofrecer), dice("Tengo el viernes 6 de noviembre, entre las 08:00 y las 12:00."))
+	v.correr(conv5)
+	if _, err := v.bd.Exec(v.ctx, `UPDATE mensajeria.conversaciones SET cliente_id = $2, servicio_id = NULL WHERE id = $1`, conv5, otro); err != nil {
+		t.Fatal(err)
+	}
+	v.turno(num5, "wamid.va5", "Esa", "Planes y precios", llama("agendar_visita", `{"opcion": "V1"}`), dice("Necesito ofrecerte las ventanas otra vez."))
+	if len(v.ordenes(cliente5)) != 0 || len(v.ordenes(otro)) != 0 {
+		t.Fatalf("agendó con la conversación reasociada: %+v / %+v", v.ordenes(cliente5), v.ordenes(otro))
+	}
+	// El motivo que redactó el modelo va rotulado en la orden y en el ticket.
+	if n := v.contar(`SELECT count(*) FROM campo.ordenes WHERE id = $1 AND descripcion LIKE '%Dicho por el cliente, sin verificar: Sin internet%'`, os[0].id); n != 1 {
+		t.Fatal("la descripción de la orden no rotula el motivo")
+	}
+	if n := v.contar(`SELECT count(*) FROM soporte.tickets WHERE id = $1 AND asunto LIKE '%Dicho por el cliente, sin verificar:%'`, *os[0].ticket); n != 1 {
+		t.Fatal("el asunto del ticket no rotula el motivo")
+	}
+}
+
+// M1 de la revisión. Dos conversaciones del mismo cliente agendan a la vez: los topes se comprueban
+// con un candado dentro de la transacción que crea la orden, y solo una pasa.
+func TestVisitasTopesAtomicos(t *testing.T) {
+	v := nuevasVisitas(t, nil, nil)
+	conv, _, cliente := v.cliente()
+	otroNum := numeroCliente()
+	v.texto(otroNum, "wamid.vm1", "Hola, soy el mismo cliente desde otro número")
+	conv2 := cid(v.conv(otroNum))
+	if _, err := v.bd.Exec(v.ctx, `UPDATE mensajeria.conversaciones SET cliente_id = $2, cliente_verificado = true, asociacion = 'manual' WHERE id = $1`, conv2, cliente); err != nil {
+		t.Fatal(err)
+	}
+	// Las dos las atiende el asistente.
+	if _, err := v.bd.Exec(v.ctx, `UPDATE mensajeria.conversaciones SET asistente_estado = 'atendiendo' WHERE id IN ($1, $2)`, conv, conv2); err != nil {
+		t.Fatal(err)
+	}
+	ctx := nucleo.ConBD(v.ctx, v.bd)
+	errs := make(chan error, 2)
+	for i, c := range []string{conv, conv2} {
+		id, _ := strconv.ParseInt(c, 10, 64)
+		go func() {
+			errs <- v.m.CrearOrdenDeVisita(ctx, 1, id, cliente*10, fmt.Sprintf("prueba:visita:%d:%d", cliente, i), 1, 20)
+		}()
+	}
+	bien, topadas := 0, 0
+	for range 2 {
+		err := <-errs
+		var p *nucleo.Problema
+		switch {
+		case err == nil:
+			bien++
+		case errors.As(err, &p) && p.Codigo() == "visita_abierta":
+			topadas++
+		default:
+			t.Fatalf("error inesperado: %v", err)
+		}
+	}
+	if bien != 1 || topadas != 1 || len(v.ordenes(cliente)) != 1 {
+		t.Fatalf("a la vez: %d creadas, %d topadas, %d órdenes", bien, topadas, len(v.ordenes(cliente)))
+	}
+	// El tope por día de la empresa, también dentro de la transacción.
+	conv3, _, cliente3 := v.cliente()
+	id3, _ := strconv.ParseInt(conv3, 10, 64)
+	if _, err := v.bd.Exec(v.ctx, `UPDATE mensajeria.conversaciones SET asistente_estado = 'atendiendo' WHERE id = $1`, conv3); err != nil {
+		t.Fatal(err)
+	}
+	n := v.contar(`SELECT count(*) FROM campo.ordenes WHERE origen = 'asistente' AND empresa_id = 1 AND created_at >= now() - interval '24 hours'`)
+	err := v.m.CrearOrdenDeVisita(ctx, 1, id3, cliente3*10, fmt.Sprintf("prueba:visita:%d", cliente3), 1, int32(n))
+	var p *nucleo.Problema
+	if !errors.As(err, &p) || p.Codigo() != "tope_visitas_empresa" || len(v.ordenes(cliente3)) != 0 {
+		t.Fatalf("tope de la empresa en la transacción: %v", err)
+	}
+}
+
+// M2 de la revisión. Un reintento después de programar devuelve éxito sin crear ni programar otra vez,
+// y un cambio de versión de la orden no se confunde con «ventana sin espacio».
+func TestVisitasReintentoYVersion(t *testing.T) {
+	v := nuevasVisitas(t, nil, nil)
+	r := v.api(v.admin, http.MethodGet, "/asistente/ajustes", nil)
+	vis := r.cuerpo["visitas"].(map[string]any)
+	vis["visitasPorDia"] = 5
+	v.exigir(v.ajustes(map[string]any{"visitas": vis}), http.StatusOK)
+	conv, num, cliente := v.cliente()
+	v.guion(llama("ofrecer_visita", ofrecer), dice("Tengo el viernes 6 de noviembre, entre las 08:00 y las 12:00."))
+	v.correr(conv)
+	v.turno(num, "wamid.vx1", "Esa", "Planes y precios", llama("agendar_visita", `{"opcion": "V1"}`), dice("Tu visita es el viernes 6 de noviembre, entre las 08:00 y las 12:00."))
+	os := v.ordenes(cliente)
+	if len(os) != 1 || os[0].estado != "programada" {
+		t.Fatalf("primera vez: %+v", os)
+	}
+	// El job del turno se repite después de programar (murió antes de cerrar el turno): el mismo turno
+	// vuelve a correr la herramienta y reconoce su orden, sin crear ni programar otra vez.
+	var turno string
+	if err := v.bd.QueryRow(v.ctx, `SELECT id::text FROM mensajeria.asistente_turnos WHERE conversacion_id = $1 ORDER BY numero DESC LIMIT 1`, conv).Scan(&turno); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.bd.Exec(v.ctx, `DELETE FROM mensajeria.asistente_acciones WHERE turno_id = $1::uuid`, turno); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.bd.Exec(v.ctx, `UPDATE mensajeria.asistente_turnos SET estado = 'en_curso', terminado_en = NULL, motivo = NULL, tomado_en = tomado_en - interval '1 day' WHERE id = $1::uuid`, turno); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.bd.Exec(v.ctx, `INSERT INTO mensajeria.asistente_ofertas_visita (empresa_id, conversacion_id, cliente_id, servicio_id, zona_id, tipo, clave, inicio, fin, motivo, ofrecida_en, vence_en)
+		VALUES (1, $1, $2, $3, $4, 'visita', 'V1', $5, $6, 'Sin internet', $7, $8)`, conv, cliente, cliente*10, v.zona,
+		time.Date(2026, 11, 6, 14, 0, 0, 0, time.UTC), time.Date(2026, 11, 6, 18, 0, 0, 0, time.UTC), *v.reloj, v.reloj.Add(30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	programadas := func() int {
+		return v.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'ordenes.programar' AND entidad_id = $1`, fmt.Sprint(os[0].id))
+	}
+	antes, mensajes := programadas(), len(v.delAsistente(conv))
+	v.guion(llama("agendar_visita", `{"opcion": "V1"}`), dice("Tu visita es el viernes 6 de noviembre, entre las 08:00 y las 12:00."))
+	v.correr(conv)
+	a := v.acciones(conv)
+	if len(v.ordenes(cliente)) != 1 || programadas() != antes || len(a) < 2 || a[len(a)-2] != "agendar_visita:ok" || len(v.delAsistente(conv)) != mensajes {
+		t.Fatalf("el reintento debía devolver éxito sin repetir nada: %d órdenes, %d programaciones de más, %d mensajes de más, %v",
+			len(v.ordenes(cliente)), programadas()-antes, len(v.delAsistente(conv))-mensajes, a)
+	}
+	if n := v.contar(`SELECT count(*) FROM agenda.citas WHERE orden_id = $1`, os[0].id); n != 1 {
+		t.Fatalf("citas de la orden: %d", n)
+	}
+
+	// Otro cliente: la orden quedó sin programar y despacho la editó (otra versión). El siguiente
+	// agendar lee la versión real y la programa: no es «ventana sin espacio».
+	conv2, num2, cliente2 := v.cliente()
+	v.guion(llama("ofrecer_visita", ofrecer), dice("Tengo el viernes 6 de noviembre, entre las 13:00 y las 17:00."))
+	v.correr(conv2)
+	id2, _ := strconv.ParseInt(conv2, 10, 64)
+	if err := v.m.CrearOrdenDeVisita(nucleo.ConBD(v.ctx, v.bd), 1, id2, cliente2*10, "prueba:version:"+conv2, 1, 20); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.bd.Exec(v.ctx, `UPDATE campo.ordenes SET version = version + 3, descripcion = descripcion || ' (editada por despacho)' WHERE cliente_id = $1`, cliente2); err != nil {
+		t.Fatal(err)
+	}
+	v.turno(num2, "wamid.vx3", "Esa", "Planes y precios", llama("agendar_visita", `{"opcion": "V1"}`), dice("Tu visita es el viernes 6 de noviembre, entre las 13:00 y las 17:00."))
+	if os2 := v.ordenes(cliente2); len(os2) != 1 || os2[0].estado != "programada" {
+		t.Fatalf("con la orden en otra versión: %+v (acciones %v)", os2, v.acciones(conv2))
+	}
+	cuerpo, _, _ := v.ia.ultimo()
+	if strings.Contains(cuerpo, "esa ventana ya no tiene espacio") {
+		t.Fatal("un cambio de versión se trató como ventana sin espacio")
 	}
 }
