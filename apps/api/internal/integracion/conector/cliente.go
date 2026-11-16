@@ -114,6 +114,9 @@ type ErrorRemoto struct {
 	Tipo    string
 	Titulo  string
 	Detalle string
+	// Codigo: el `code` del problem+json o, si no vino, el último segmento de `type`
+	// (urn:argosisp:problema:actor_sin_vinculo → actor_sin_vinculo). Vacío si no es un código simple.
+	Codigo string
 	// ProblemJSON: la respuesta vino como application/problem+json (no el HTML de un proxy).
 	ProblemJSON bool
 	// HTML: la respuesta vino como text/html (la página de un panel web o de un proxy, no la API).
@@ -434,6 +437,7 @@ func (c *Cliente) errorDeRespuesta(resp *http.Response, crudo []byte) *ErrorRemo
 		Type   string `json:"type"`
 		Title  string `json:"title"`
 		Detail string `json:"detail"`
+		Code   string `json:"code"`
 		Errors []struct {
 			Field    string `json:"field"`
 			Location string `json:"location"`
@@ -442,6 +446,7 @@ func (c *Cliente) errorDeRespuesta(resp *http.Response, crudo []byte) *ErrorRemo
 	}
 	if json.Unmarshal(crudo, &p) == nil {
 		e.Tipo, e.Titulo, e.Detalle = p.Type, p.Title, p.Detail
+		e.Codigo = codigoDeProblema(p.Code, p.Type)
 		for i, f := range p.Errors {
 			if i >= 20 {
 				break
@@ -472,6 +477,24 @@ func (c *Cliente) errorDeRespuesta(resp *http.Response, crudo []byte) *ErrorRemo
 		}
 	}
 	return e
+}
+
+// codigoSimple: un código de error corto y sin texto libre (actor_sin_vinculo).
+var codigoSimple = regexp.MustCompile(`^[a-z0-9_]{1,60}$`)
+
+// codigoDeProblema: el `code` del problem+json o el último segmento de su `type`.
+func codigoDeProblema(code, tipo string) string {
+	if c := strings.TrimSpace(code); codigoSimple.MatchString(c) {
+		return c
+	}
+	t := strings.TrimSpace(tipo)
+	if i := strings.LastIndexAny(t, ":/#"); i >= 0 {
+		t = t[i+1:]
+	}
+	if codigoSimple.MatchString(t) {
+		return t
+	}
+	return ""
 }
 
 // Listas ----------------------------------------------------------------------------------

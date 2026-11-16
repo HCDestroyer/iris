@@ -284,6 +284,16 @@ type Boleta struct {
 	Referencia    string    `json:"referencia"`
 	Monto         string    `json:"monto"`
 	CreadaEn      time.Time `json:"creadaEn"`
+	// Decisión (contrato con Argos 0.7.0 §7.7).
+	ConversacionID      int64       `json:"conversacionId"`
+	PuedeDecidir        bool        `json:"puedeDecidir" doc:"La boleta está registrada en Argos (pendiente de revisar) y el Argos conectado informa contrato ≥ 0.7.0: el panel muestra «Aprobar y registrar pago» y «Rechazar» a quien tenga boletas.aprobar o boletas.rechazar. En la respuesta de registrar siempre es false (aún no llega a Argos)"`
+	PagoID              *int64      `json:"pagoId" nullable:"true" doc:"El pago que registró Argos al aprobarla"`
+	MotivoRechazo       *string     `json:"motivoRechazo" nullable:"true"`
+	CausaRechazo        *string     `json:"causaRechazo" nullable:"true" enum:"no_aparece,monto_distinto,ilegible,falta_dato,duplicado,otro"`
+	VerificadoPorNombre *string     `json:"verificadoPorNombre" nullable:"true" doc:"El usuario de Argos que la aprobó o rechazó (el vinculado a quien decidió en Iris, o caja en Argos). null mientras no se decide o si Argos no lo informó"`
+	DecididaPor         *UsuarioRef `json:"decididaPor,omitempty" doc:"El usuario de Iris que decidió desde la conversación; ausente si decidió caja en el panel de Argos"`
+	DecididaEn          *time.Time  `json:"decididaEn" nullable:"true"`
+	AvisoCliente        *string     `json:"avisoCliente" nullable:"true" enum:"enviado,sin_aviso" doc:"Si se le avisó al cliente en la conversación al resolverla. sin_aviso: ventana de 24 h cerrada sin plantilla aprobada ni permiso de contacto, baja o número apagado"`
 }
 
 func aBoleta(f mensajeriabd.MensajeriaBoleta) Boleta {
@@ -291,7 +301,9 @@ func aBoleta(f mensajeriabd.MensajeriaBoleta) Boleta {
 	if v, err := f.Monto.Value(); err == nil && v != nil {
 		monto, _ = v.(string)
 	}
-	return Boleta{ID: f.ID, Estado: f.Estado, ComprobanteID: f.ComprobanteID, Detalle: f.Detalle, Referencia: f.Referencia, Monto: monto, CreadaEn: f.CreatedAt}
+	return Boleta{ID: f.ID, Estado: f.Estado, ComprobanteID: f.ComprobanteID, Detalle: f.Detalle, Referencia: f.Referencia, Monto: monto, CreadaEn: f.CreatedAt,
+		ConversacionID: f.ConversacionID, PagoID: f.PagoID, MotivoRechazo: f.MotivoRechazo, CausaRechazo: f.CausaRechazo,
+		VerificadoPorNombre: f.VerificadoPorNombre, DecididaEn: f.DecididaEn, AvisoCliente: f.AvisoCliente}
 }
 
 func nuevoRegistrarBoleta(m *Modulo) *auditoria.Caso[EntradaBoleta, Boleta] {

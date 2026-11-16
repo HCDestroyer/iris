@@ -31,7 +31,7 @@ import (
 //     Argos; Iris solo lo usa con el conector nuevo ya activo (la activación encola este job).
 
 // ContratoIris es la versión del contrato Iris ↔ ArgosISP que habla esta versión de Iris.
-const ContratoIris = "0.6.4"
+const ContratoIris = "0.7.0"
 
 // VersionInventarioTecnico es la primera versión de Argos que entiende `tecnico` (§3.3). Argos
 // 1.5.x lo ignora y, sin bodega_id, responde 422 «bodega_id required».
@@ -40,12 +40,28 @@ const VersionInventarioTecnico = "1.6.0"
 // CapacidadInventarioTecnico es la capacidad del conector con Argos ≥ 1.6.0.
 const CapacidadInventarioTecnico = "inventario_por_tecnico"
 
-// capacidades del conector Argos según su versión.
-func capacidades(version, _ *string) []string {
+// ContratoAprobarComprobantes es el primer contrato con el que Argos acepta que una persona apruebe
+// o rechace comprobantes desde Iris (§7.7, pedido A23) y el autologin Iris → Argos sin destino (§1.3).
+const ContratoAprobarComprobantes = "0.7.0"
+
+// CapacidadAprobarComprobantes es la capacidad del conector con contrato ≥ 0.7.0.
+const CapacidadAprobarComprobantes = "aprobar_comprobantes"
+
+// capacidades del conector Argos según su versión y el contrato que informa.
+func capacidades(version, contrato *string) []string {
+	caps := []string{}
 	if conector.VersionAlMenos(version, VersionInventarioTecnico) {
-		return []string{CapacidadInventarioTecnico}
+		caps = append(caps, CapacidadInventarioTecnico)
 	}
-	return []string{}
+	if SoportaAprobarComprobantes(contrato) {
+		caps = append(caps, CapacidadAprobarComprobantes)
+	}
+	return caps
+}
+
+// SoportaAprobarComprobantes indica si Argos (por el contrato que informa) acepta §7.7.
+func SoportaAprobarComprobantes(contrato *string) bool {
+	return conector.VersionAlMenos(contrato, ContratoAprobarComprobantes)
 }
 
 // SoportaInventarioTecnico indica si Argos (por su version_argos) entiende `tecnico`.

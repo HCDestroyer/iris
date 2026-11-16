@@ -52,6 +52,8 @@ type argosFalso struct {
 	cuentas int
 	// alLeerCuenta corre mientras «Argos» atiende el estado de cuenta.
 	alLeerCuenta func()
+	// caja: el Argos falso (httptest) que aprueba y rechaza comprobantes (boletas_decidir_test.go).
+	caja *cajaFalsa
 }
 
 func (f *argosFalso) BuscarPorTelefono(_ context.Context, a argos.AtencionIris, _ string) ([]argos.ClienteTelefono, error) {
