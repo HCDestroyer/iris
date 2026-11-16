@@ -340,8 +340,9 @@ partes (ficha, ticket, orden, comercial y app de campo).
   panel: 403 `solo_personas`). Pide el ticket a `POST /integraciones/iris/sso/tickets` con el token del
   conector y `usuario.id_externo` = el id del usuario de Iris en texto (el mismo de `X-Iris-Actor`);
   `correo` y `nombre` son informativos. Devuelve `{ url, expiraEn }` solo si la URL es
-  `http(s)://<host>/sso/entrar#<ticket>` con el host de `panel_url` o, si el conector no lo tiene, el
-  de `base_url` (nunca un host libre); si no, 502 `argos_rechazo`. Sin `destino` es «Vincular mi usuario de Argos». La URL lleva el ticket: en la
+  `http(s)://<host>/sso/entrar#<ticket>` con el host de `conector.URLPublicaDe` (URL pública a mano,
+  `panel_url` o `base_url`: lo mismo que entrega `GET /integraciones/enlaces`, que acepta
+  `clientes.ver` o `integraciones.abrir_argos`); nunca un host libre. Si no, 502 `argos_rechazo`. Sin `destino` es «Vincular mi usuario de Argos». La URL lleva el ticket: en la
   auditoría va `url: "***"`, el evento `usuario.argos_abierto` no la lleva y la respuesta se marca
   `NoRepetible` (no queda en `nucleo.idempotencia`). Tope: 10 por minuto por persona
   (`TopeAbrirArgos`, contado en `integracion.abrir_argos_cuotas`: vale con varias réplicas): 429

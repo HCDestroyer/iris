@@ -72,7 +72,11 @@ func (n *Nucleo) capacidadesDe(f conectorbd.IntegracionConectore) []string {
 
 // urlPublica es el origen del panel del otro sistema para «Ver en …»: la configurada a mano, la
 // que informó el canje (panel_url, 0.4.0) o, para conectores anteriores, la de la API.
-func urlPublica(f conectorbd.IntegracionConectore) string {
+func urlPublica(f conectorbd.IntegracionConectore) string { return URLPublicaDe(f) }
+
+// URLPublicaDe es el origen del panel del otro sistema (lo que entrega GET /integraciones/enlaces):
+// la configurada a mano, la del canje (panel_url) o la de la API.
+func URLPublicaDe(f conectorbd.IntegracionConectore) string {
 	if f.UrlPublica != nil && *f.UrlPublica != "" {
 		return *f.UrlPublica
 	}

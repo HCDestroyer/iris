@@ -195,8 +195,8 @@ func (k *AbrirArgos) Ejecutar(ctx context.Context, in EntradaAbrirArgos) (Enlace
 }
 
 // validar revisa lo que respondió Argos: una URL http(s) a /sso/entrar con el ticket en el
-// fragmento y en el host del panel de Argos que Iris guardó en el canje (panel_url) o, si el
-// conector no lo tiene, en el de su API (base_url). Nunca un host libre: lo que no cumple no se le
+// fragmento y en el host del panel de Argos que Iris conoce: la URL pública configurada a mano, la
+// del canje (panel_url) o, si el conector no tiene ninguna, la de su API (base_url). Nunca un host libre: lo que no cumple no se le
 // entrega al navegador.
 func (k *AbrirArgos) validar(c conector.Leido, r ticketArgos) (EnlaceArgos, error) {
 	inesperada := conector.Rechazo(Remoto, "Argos respondió un enlace de autologin que Iris no reconoce")
@@ -207,10 +207,8 @@ func (k *AbrirArgos) validar(c conector.Leido, r ticketArgos) (EnlaceArgos, erro
 	if u.Scheme != "https" && (u.Scheme != "http" || !k.m.cfg.PermitirHTTP) {
 		return EnlaceArgos{}, inesperada
 	}
-	conocido := c.BaseUrl
-	if c.PanelUrl != nil && strings.TrimSpace(*c.PanelUrl) != "" {
-		conocido = *c.PanelUrl
-	}
+	// El mismo origen que el panel recibe en GET /integraciones/enlaces (argosisp.urlPublica).
+	conocido := conector.URLPublicaDe(c.IntegracionConectore)
 	if panel, err := url.Parse(strings.TrimSpace(conocido)); err != nil || panel.Host == "" || !strings.EqualFold(panel.Host, u.Host) {
 		return EnlaceArgos{}, inesperada
 	}

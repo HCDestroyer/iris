@@ -222,6 +222,24 @@ func TestAbrirArgosPermisosYErrores(t *testing.T) {
 			t.Fatalf("%s: %d %s", rol, r.status, r.crudo)
 		}
 	}
+	// GET /integraciones/enlaces (el origen con que el panel valida el enlace) vale con clientes.ver o
+	// con integraciones.abrir_argos; sin ninguno, 403. El rol caja tiene los dos.
+	if _, err := e.ident.CrearRol.Ejecutar(pruebas.ContextoSistema(e.pool), identidad.EntradaCrearRol{Codigo: "solo_abrir_argos", Nombre: "Solo abrir Argos",
+		Permisos: []nucleo.Permiso{nucleo.PermIntegracionesAbrirArgos}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, rol := range []string{"solo_abrir_argos", "caja", "soporte"} {
+		if r := e.usuario(rol).pedir(http.MethodGet, "/api/v1/integraciones/enlaces", nil); r.status != 200 || r.cuerpo["argosisp"].(map[string]any)["urlPublica"] != panelArgos {
+			t.Fatalf("enlaces con %s: %d %s", rol, r.status, r.crudo)
+		}
+	}
+	if _, err := e.ident.CrearRol.Ejecutar(pruebas.ContextoSistema(e.pool), identidad.EntradaCrearRol{Codigo: "solo_tickets", Nombre: "Solo tickets",
+		Permisos: []nucleo.Permiso{nucleo.PermTicketsVer}}); err != nil {
+		t.Fatal(err)
+	}
+	if r := e.usuario("solo_tickets").pedir(http.MethodGet, "/api/v1/integraciones/enlaces", nil); r.status != 403 {
+		t.Fatalf("enlaces sin clientes.ver ni abrir_argos: %d %s", r.status, r.crudo)
+	}
 	for _, rol := range []string{"lectura", "tecnico"} {
 		if r := e.usuario(rol).pedir(http.MethodPost, ruta, map[string]any{}); r.status != 403 {
 			t.Fatalf("%s: %d %s", rol, r.status, r.crudo)

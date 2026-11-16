@@ -553,8 +553,11 @@ usuario de Argos». 409 `conector_apagado` / `iris_apagado`, 422 `argos_sin_apro
 - **Sesión abierta por autologin desde Argos** (origen `sso`): exige re-autenticación reciente, como
   los permisos sensibles (403 `reautenticacion_requerida`; `POST /api/v1/sesion/reautenticar`).
 - **El enlace** solo se entrega si es `http(s)://<host>/sso/entrar#<ticket>` y el host es el del panel
-  de Argos guardado en el canje (`panel_url`) o, si el conector no lo tiene, el de su API
-  (`base_url`). Nunca un host libre (502 `argos_rechazo`).
+  de Argos que Iris conoce: la URL pública configurada a mano, la del canje (`panel_url`) o, si el
+  conector no tiene ninguna, la de su API (`base_url`). Nunca un host libre (502 `argos_rechazo`). Es
+  el mismo origen que el panel lee en `argosisp.urlPublica` de `GET /api/v1/integraciones/enlaces`,
+  que acepta `clientes.ver` **o** `integraciones.abrir_argos` (así quien puede abrir Argos puede
+  validar el enlace aunque no vea clientes).
 - **Nota para Argos** (la pasa el líder): la pantalla de Argos que confirma el vínculo debe mostrar
   claro **qué usuario de Iris** se está vinculando (nombre y correo del ticket), para que nadie
   vincule su usuario de Argos con el de otra persona al abrir un enlace ajeno.
