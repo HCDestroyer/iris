@@ -89,7 +89,7 @@ func TestAsistente3AjustesAutonomoYPerfiles(t *testing.T) {
 
 func TestAsistente3Categorias(t *testing.T) {
 	x := nuevaBandejaIA(t)
-	cats := x.categorias(x.agente)
+	cats := x.categorias(x.admin)
 	if len(cats) != 6 || cats["Otro"]["esOtro"] != true || cats["Sin internet"]["condicion"] != "si_hay_falla" || cats["Pagos y saldo"]["modo"] != "responde_solo" ||
 		cats["Mudanza o traslado"]["modo"] != "sugiere" {
 		t.Fatalf("categorías sembradas: %v", cats)
@@ -123,6 +123,7 @@ func TestAsistente3Categorias(t *testing.T) {
 	// Otra empresa: sus propias categorías; no toca las de esta.
 	admin2 := x.persona([]int64{2}, rolBase("admin"))
 	admin2.empresa = 2
+	x.ajustesDe(admin2)
 	cats2 := x.categorias(admin2)
 	if len(cats2) != 6 || idDe(cats2["Otro"]) == idDe(otro) {
 		t.Fatalf("categorías de la otra empresa: %v", cats2)
@@ -230,6 +231,7 @@ func TestAsistente3ClasificaTransfiereYSLA(t *testing.T) {
 	x.exigir(x.api(x.supervisor, http.MethodPost, "/conversaciones/"+conv+"/categorizar", map[string]any{"categoriaId": idDe(plan), "version": 9999}), http.StatusConflict)
 	admin2 := x.persona([]int64{2}, rolBase("admin"))
 	admin2.empresa = 2
+	x.ajustesDe(admin2)
 	x.exigir(x.api(x.supervisor, http.MethodPost, "/conversaciones/"+conv+"/categorizar",
 		map[string]any{"categoriaId": idDe(x.categorias(admin2)["Otro"]), "version": ver(c)}), http.StatusUnprocessableEntity, "type", "urn:iris:problema:categoria_inactiva")
 	r := x.api(x.supervisor, http.MethodPost, "/conversaciones/"+conv+"/categorizar", map[string]any{"categoriaId": idDe(plan), "version": ver(c)})

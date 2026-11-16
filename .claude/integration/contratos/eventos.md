@@ -350,6 +350,23 @@ Ninguno lleva el texto de una sugerencia, de un mensaje ni de un resumen, ni la 
 | `asistente.sugerencia_calificada` | `sugerencia_id`, `conversacion_id`, `empresa_id`, `util` (bool) | `POST /sugerencias/{id}/calificar` (solo si cambia). |
 | `asistente.tope_alcanzado` | `empresa_id`, `porcentaje` (`80` \| `100`), `mes` (`YYYY-MM`, Guatemala), `tokens` (entrada + salida del mes), `tope` | Al sumar el uso de una sugerencia o un resumen que cruza el 80 % o el 100 % del tope; una vez por mes y tope (subir el tope recalcula). Con 100 % el asistente queda en pausa hasta el mes siguiente o hasta subir el tope. Lo consume `internal/notificaciones` (2.1): aviso en la campana y correo a quienes tienen `mensajeria.asistente_configurar` (§16.9), una vez por umbral, mes, valor del tope y usuario. |
 
+### Asistente autónomo y categorías (contratos/conversaciones.md §17, fase 3a)
+
+Ninguno lleva texto de mensajes, de respuestas del modelo ni montos. En 3a el asistente todavía no
+actúa solo: `asistente.accion_ejecutada` y `asistente.paso_a_persona` (§17.7) llegan con 3b.
+
+| Evento | Payload | Cuándo |
+| --- | --- | --- |
+| `conversacion.categorizada` | `conversacion_id`, `empresa_id`, `categoria_id` (o null al quitarla), `anterior_id` (o null), `origen` (`asistente` \| `agente`), `confianza` (0 a 1, o null), `actor_id` (o null si fue el asistente) | El asistente clasificó el último mensaje del cliente (en la misma llamada de la sugerencia o en una aparte; actor sistema) o un agente la corrigió con `POST /conversaciones/{id}/categorizar`. Solo si la categoría cambia. |
+| `categoria.creada` | `categoria_id`, `empresa_id`, `nombre` | `POST /mensajeria/asistente/categorias` (`mensajeria.asistente_configurar`). Las seis iniciales se siembran sin evento. |
+| `categoria.actualizada` | `categoria_id`, `empresa_id`, `campos[]` (`nombre`, `descripcion`, `tono`, `cola_id`, `sla_primera_respuesta_min`, `modo`, `condicion`, `manual_ids`, `activa`), `activa` | Editar, activar o desactivar una categoría. |
+| `asistente.mensaje_probado` | `empresa_id`, `haria` (`responde_solo` \| `sugiere` \| `pasa_a_persona`), `categoria_id` (o null), `tokens_entrada`, `tokens_salida` | `POST /mensajeria/asistente/probar-mensaje` cuando el modelo respondió algo válido (no ejecuta nada; cuenta para el tope). |
+
+`conversacion.transferida` suma `origen` cuando no la pasó una persona con «Transferir»: `asistente`
+(la clasificó el asistente y su categoría tiene otra cola; `actor_id` null) o `categoria` (un agente
+corrigió la categoría; `actor_id` = el agente). `asistente.ajustes_cambiados` suma en `campos[]`:
+`modo_autonomo`, `espera_min`, `max_turnos`, `perfiles`, `por_cola`.
+
 ## Soporte (I2)
 
 Emite el módulo `soporte`, con `empresa_id` = la empresa del ticket (null sin conector). Las fechas van en UTC (RFC 3339).

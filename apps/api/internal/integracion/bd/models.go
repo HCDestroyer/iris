@@ -1499,6 +1499,8 @@ type MensajeriaConversacione struct {
 	AsistenteActividadTipo  *string
 	AsistenteActividadTexto *string
 	AsistenteActividadEn    *time.Time
+	ColaOrigen              string
+	AsistenteTransfirioEn   *time.Time
 }
 
 type MensajeriaDisponibilidad struct {

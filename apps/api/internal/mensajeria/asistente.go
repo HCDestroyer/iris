@@ -55,12 +55,12 @@ type AjustesAsistente struct {
 	PrecioSalidaMillon  *string          `json:"precioSalidaMillon" nullable:"true" doc:"Precio por millón de tokens de salida (decimal como texto)"`
 	Version             int32            `json:"version" doc:"0 si nunca se guardaron"`
 	// Fase 3 (§17.1).
-	AutonomoDisponible bool              `json:"autonomoDisponible" doc:"false: el servidor todavía no actúa solo (3a) y modoAutonomo solo admite nunca"`
-	ModoAutonomo       string            `json:"modoAutonomo" enum:"nunca,sin_nadie,siempre_primero" doc:"Cuándo atiende solo"`
-	EsperaMin          int32             `json:"esperaMin" doc:"sin_nadie: minutos que espera a un agente en línea"`
-	MaxTurnos          int32             `json:"maxTurnos" doc:"Turnos autónomos sin resolver antes de pasar a una persona"`
-	Perfiles           []PerfilAsistente `json:"perfiles" doc:"El primero es «defecto»"`
-	PorCola            []AccionesCola    `json:"porCola" doc:"Acciones apagadas por cola"`
+	AutonomoDisponible bool              `json:"autonomoDisponible" required:"false" doc:"false: el servidor todavía no actúa solo (3a) y modoAutonomo solo admite nunca"`
+	ModoAutonomo       string            `json:"modoAutonomo" required:"false" enum:"nunca,sin_nadie,siempre_primero" doc:"Cuándo atiende solo"`
+	EsperaMin          int32             `json:"esperaMin" required:"false" doc:"sin_nadie: minutos que espera a un agente en línea"`
+	MaxTurnos          int32             `json:"maxTurnos" required:"false" doc:"Turnos autónomos sin resolver antes de pasar a una persona"`
+	Perfiles           []PerfilAsistente `json:"perfiles" required:"false" doc:"El primero es «defecto»"`
+	PorCola            []AccionesCola    `json:"porCola" required:"false" doc:"Acciones apagadas por cola"`
 }
 
 // EntradaAjustesAsistente es POST /asistente/ajustes/actualizar.
@@ -90,8 +90,8 @@ type EstadoAsistente struct {
 	Modo    string `json:"modo" enum:"automatico,boton"`
 	Pausado bool   `json:"pausado" doc:"Se llegó al tope de tokens del mes"`
 	// Fase 3 (§17.1).
-	ModoAutonomo       string `json:"modoAutonomo" enum:"nunca,sin_nadie,siempre_primero"`
-	AutonomoDisponible bool   `json:"autonomoDisponible" doc:"false: el servidor todavía no actúa solo"`
+	ModoAutonomo       string `json:"modoAutonomo" required:"false" enum:"nunca,sin_nadie,siempre_primero"`
+	AutonomoDisponible bool   `json:"autonomoDisponible" required:"false" doc:"false: el servidor todavía no actúa solo"`
 }
 
 // EntradaProbarAsistente es POST /asistente/probar.

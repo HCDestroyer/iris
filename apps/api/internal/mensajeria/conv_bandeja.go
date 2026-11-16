@@ -127,7 +127,7 @@ type ContadoresConversaciones struct {
 	PorCanal     []ConteoGrupo    `json:"porCanal"`
 	PorCola      []ConteoGrupo    `json:"porCola"`
 	PorEtiqueta  []ConteoGrupo    `json:"porEtiqueta"`
-	PorCategoria []ConteoGrupo    `json:"porCategoria" doc:"Por categoría de mensajes (§17); las sin categoría no cuentan"`
+	PorCategoria []ConteoGrupo    `json:"porCategoria" required:"false" doc:"Por categoría de mensajes (§17); las sin categoría no cuentan"`
 }
 
 func nuevoContadores(m *Modulo) *auditoria.Caso[struct{}, ContadoresConversaciones] {

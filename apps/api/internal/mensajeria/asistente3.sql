@@ -66,6 +66,13 @@ VALUES (@id, sqlc.narg('empresa_id'), @conversacion_id, @creada_en);
 -- name: ClasificacionesRecientes :one
 SELECT count(*)::bigint FROM mensajeria.asistente_clasificaciones WHERE conversacion_id = @conversacion_id AND creada_en >= @desde;
 
+-- name: ClasificacionesRecientesEmpresa :one
+SELECT count(*)::bigint FROM mensajeria.asistente_clasificaciones WHERE coalesce(empresa_id, 0) = @empresa::bigint AND creada_en >= @desde;
+
+-- name: MarcarColaAsistente :exec
+-- La cola actual la puso el asistente (por la categoría): una vez por periodo abierto.
+UPDATE mensajeria.conversaciones SET cola_origen = 'asistente', asistente_transfirio_en = @ahora WHERE id = @id;
+
 -- name: PurgarClasificaciones :exec
 DELETE FROM mensajeria.asistente_clasificaciones WHERE creada_en < @antes;
 
@@ -80,7 +87,7 @@ SELECT k.id AS categoria_id, k.nombre, k.tono, count(*)::bigint AS total,
         SELECT 1 FROM mensajeria.conversacion_mensajes p WHERE p.conversacion_id = c.id AND p.direccion = 'saliente' AND p.autor_id IS NOT NULL))::bigint AS sin_persona,
     count(r.seg)::bigint AS con_respuesta, coalesce(sum(r.seg), 0)::double precision AS suma_seg
 FROM mensajeria.conversaciones c
-JOIN mensajeria.asistente_categorias k ON k.id = c.categoria_id
+JOIN mensajeria.asistente_categorias k ON k.id = c.categoria_id AND coalesce(k.empresa_id, 0) = coalesce(c.empresa_id, 0)
 LEFT JOIN LATERAL (
     SELECT extract(epoch FROM (s.creado_en - e.creado_en))::double precision AS seg
     FROM (SELECT min(m.creado_en) AS creado_en FROM mensajeria.conversacion_mensajes m WHERE m.conversacion_id = c.id AND m.direccion = 'entrante') e,

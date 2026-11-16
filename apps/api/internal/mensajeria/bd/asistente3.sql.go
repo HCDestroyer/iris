@@ -202,6 +202,22 @@ func (q *Queries) ClasificacionesRecientes(ctx context.Context, arg Clasificacio
 	return column_1, err
 }
 
+const clasificacionesRecientesEmpresa = `-- name: ClasificacionesRecientesEmpresa :one
+SELECT count(*)::bigint FROM mensajeria.asistente_clasificaciones WHERE coalesce(empresa_id, 0) = $1::bigint AND creada_en >= $2
+`
+
+type ClasificacionesRecientesEmpresaParams struct {
+	Empresa int64
+	Desde   time.Time
+}
+
+func (q *Queries) ClasificacionesRecientesEmpresa(ctx context.Context, arg ClasificacionesRecientesEmpresaParams) (int64, error) {
+	row := q.db.QueryRow(ctx, clasificacionesRecientesEmpresa, arg.Empresa, arg.Desde)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const contarCategorias = `-- name: ContarCategorias :one
 SELECT count(*)::bigint AS total, count(*) FILTER (WHERE activa)::bigint AS activas, coalesce(max(orden), 0)::integer AS orden
 FROM mensajeria.asistente_categorias WHERE coalesce(empresa_id, 0) = $1::bigint
@@ -227,7 +243,7 @@ SELECT k.id AS categoria_id, k.nombre, k.tono, count(*)::bigint AS total,
         SELECT 1 FROM mensajeria.conversacion_mensajes p WHERE p.conversacion_id = c.id AND p.direccion = 'saliente' AND p.autor_id IS NOT NULL))::bigint AS sin_persona,
     count(r.seg)::bigint AS con_respuesta, coalesce(sum(r.seg), 0)::double precision AS suma_seg
 FROM mensajeria.conversaciones c
-JOIN mensajeria.asistente_categorias k ON k.id = c.categoria_id
+JOIN mensajeria.asistente_categorias k ON k.id = c.categoria_id AND coalesce(k.empresa_id, 0) = coalesce(c.empresa_id, 0)
 LEFT JOIN LATERAL (
     SELECT extract(epoch FROM (s.creado_en - e.creado_en))::double precision AS seg
     FROM (SELECT min(m.creado_en) AS creado_en FROM mensajeria.conversacion_mensajes m WHERE m.conversacion_id = c.id AND m.direccion = 'entrante') e,
@@ -380,7 +396,7 @@ SET categoria_id = $1, categoria_confianza = $2, categoria_origen = $3,
     categoria_en = $4, clasificado_mensaje_id = coalesce($5, clasificado_mensaje_id),
     version = version + $6::integer, updated_at = now()
 WHERE id = $7
-RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en
+RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en
 `
 
 type FijarCategoriaConversacionParams struct {
@@ -449,6 +465,8 @@ func (q *Queries) FijarCategoriaConversacion(ctx context.Context, arg FijarCateg
 		&i.AsistenteActividadTipo,
 		&i.AsistenteActividadTexto,
 		&i.AsistenteActividadEn,
+		&i.ColaOrigen,
+		&i.AsistenteTransfirioEn,
 	)
 	return i, err
 }
@@ -576,6 +594,21 @@ func (q *Queries) ManualesActivosPorIDs(ctx context.Context, arg ManualesActivos
 		return nil, err
 	}
 	return items, nil
+}
+
+const marcarColaAsistente = `-- name: MarcarColaAsistente :exec
+UPDATE mensajeria.conversaciones SET cola_origen = 'asistente', asistente_transfirio_en = $1 WHERE id = $2
+`
+
+type MarcarColaAsistenteParams struct {
+	Ahora *time.Time
+	ID    int64
+}
+
+// La cola actual la puso el asistente (por la categoría): una vez por periodo abierto.
+func (q *Queries) MarcarColaAsistente(ctx context.Context, arg MarcarColaAsistenteParams) error {
+	_, err := q.db.Exec(ctx, marcarColaAsistente, arg.Ahora, arg.ID)
+	return err
 }
 
 const primeraRespuestaPromedio = `-- name: PrimeraRespuestaPromedio :one

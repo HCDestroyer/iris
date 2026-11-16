@@ -358,3 +358,54 @@ si se envió igual o editada). No registra pagos, promesas ni reconexiones.
 
 Emite `asistente.ajustes_cambiados`, `asistente.sugerencia_creada`, `asistente.sugerencia_usada`,
 `asistente.sugerencia_calificada` y `asistente.tope_alcanzado`. No consume eventos.
+
+## Asistente autónomo y categorías (fase 3a, `contratos/conversaciones.md` §17)
+
+Código en `asistente3*.go` y `asistente3.sql`. **En 3a el asistente todavía no actúa solo:**
+`AutonomoDisponible` es `false`, `modoAutonomo` solo admite `nunca` (422 `autonomo_no_disponible`) y
+el principio de la fase 2 («nunca envía») sigue vigente. El bucle de herramientas es de 3b (§17.8).
+
+- **Ajustes ampliados** (`asistente_ajustes`): `modo_autonomo`, `espera_min`, `max_turnos`, `perfiles`
+  (jsonb: acciones y límites con nombre; el primero es `defecto`) y `por_cola` (acciones apagadas por
+  cola). Todos opcionales al guardar: el panel de la fase 2 no los pisa. Los perfiles extra se
+  usarán por franja con `horarios.franjas[].perfil` (3b).
+- **Categorías** (`mensajeria.asistente_categorias`, por empresa): seis iniciales sembradas al
+  guardar los ajustes (`sembrarCategorias`, con candado; el GET no escribe, y sin
+  `mensajeria.asistente_configurar` solo devuelve id, nombre, tono, activa y esOtro). `nombre`, `descripcion` (dato
+  para clasificar), `tono`, cola, SLA de primera respuesta, `modo`, `condicion` y manuales base.
+  «Otro» no se desactiva. No se borran.
+- **Clasificación:** con el asistente activo, cada mensaje del cliente encola
+  `mensajeria.asistente_sugerir` (también en modo botón). Si toca sugerir, la categoría sale de la
+  **misma llamada** (`categoria` y `confianza` en el JSON; `clasificarTrasSugerencia`, en otra
+  transacción que bloquea solo la conversación). Si no (modo botón, nadie que la lea, límite), una
+  llamada corta aparte (`ClasificarAparte`: reserva de tokens, 6 por conversación y hora). Nombre que
+  no existe o confianza < 0.5 → «Otro». Un mensaje no se clasifica dos veces
+  (`conversaciones.clasificado_mensaje_id`). En pausa por tope o sin asistente no se clasifica.
+- **Efecto** (`aplicarCategoria`): guarda `categoria_id`, confianza y origen; sin asignar y con cola
+  activa en la categoría, transfiere (`conversacion.transferida` con `origen`); el SLA de la categoría
+  gana sobre el de la cola (`venceSLA`), también sin cola. La corrección del agente
+  (`POST …/categorizar`, `conversaciones.categorizar`) no la pisa el asistente hasta que la
+  conversación se reabra.
+- **Transferir con cuidado:** el asistente solo mueve la cola si la categoría cambió, con confianza
+  ≥ 0.75, una vez por periodo abierto (`asistente_transfirio_en`), si la cola actual es la inicial o
+  la puso él (`conversaciones.cola_origen`, que un trigger pasa a `otro` en cualquier otro cambio de
+  cola) y si el bot no está atendiendo. Un agente sin `conversaciones.transferir` cambia la categoría
+  sin mover la cola. Pasar la conversación a otra empresa borra la categoría; un trigger impide una
+  categoría de otra empresa.
+- **Costo:** clasificar aparte se detiene al 80 % del tope del mes y tiene un máximo de 300 por
+  empresa y hora (además de 6 por conversación y hora).
+- **Lista:** filtro `categoriaId`, `categoria`, `actividadAsistente` (una línea armada por el
+  servidor: `clasifico`, `transfirio`, `sugirio`) y `porCategoria` en los contadores. Los mensajes
+  llevan `autorTipo` (`cliente`, `persona`, `asistente_ia`, `sistema`).
+- **Probar mensaje** (`asistente3_probar.go`): con los ajustes del formulario sin guardar; contexto =
+  manuales base de las categorías y los 3 de la búsqueda (sin cliente: nada de Argos ni Horus). El
+  modelo devuelve categoría, texto, fuentes, acciones y si pasaría a una persona; **la decisión
+  (`haria`) y el filtro de acciones (lista cerrada y encendidas en el perfil) son del servidor** y
+  nada se ejecuta. La respuesta pasa `validarSalidaModelo`. Cuenta para el tope (reserva) y para los
+  10 pedidos por minuto; no pasa por la tabla de idempotencia.
+- **Efecto** (`GET /asistente/efecto`): primera respuesta promedio y resueltas sin persona de las
+  conversaciones del mes que el asistente clasificó; «antes» = los 30 días previos a
+  `asistente_ajustes.activado_en`.
+
+Emite `conversacion.categorizada`, `categoria.creada`, `categoria.actualizada` y
+`asistente.mensaje_probado`; `conversacion.transferida` suma `origen`. No consume eventos.

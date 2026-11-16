@@ -968,13 +968,7 @@
           "topeTokensMes",
           "precioEntradaMillon",
           "precioSalidaMillon",
-          "version",
-          "autonomoDisponible",
-          "modoAutonomo",
-          "esperaMin",
-          "maxTurnos",
-          "perfiles",
-          "porCola"
+          "version"
         ],
         "type": "object"
       },
@@ -2873,6 +2867,7 @@
             ]
           },
           "modo": {
+            "description": "Ausente sin mensajeria.asistente_configurar",
             "enum": [
               "responde_solo",
               "sugiere"
@@ -2916,7 +2911,6 @@
           "tono",
           "colaId",
           "slaPrimeraRespuestaMin",
-          "modo",
           "condicion",
           "manualIds",
           "esOtro",
@@ -4594,8 +4588,7 @@
           "porEstado",
           "porCanal",
           "porCola",
-          "porEtiqueta",
-          "porCategoria"
+          "porEtiqueta"
         ],
         "type": "object"
       },
@@ -5089,8 +5082,6 @@
           "ventana",
           "sla",
           "noLeidos",
-          "categoriaConfianza",
-          "categoriaOrigen",
           "ultimaActividad",
           "creadaEn"
         ],
@@ -5274,8 +5265,6 @@
           "ventana",
           "sla",
           "noLeidos",
-          "categoriaConfianza",
-          "categoriaOrigen",
           "ultimaActividad",
           "creadaEn"
         ],
@@ -12970,9 +12959,7 @@
         "required": [
           "activo",
           "modo",
-          "pausado",
-          "modoAutonomo",
-          "autonomoDisponible"
+          "pausado"
         ],
         "type": "object"
       },
@@ -16246,8 +16233,7 @@
           "enviadoEn",
           "entregadoEn",
           "leidoEn",
-          "automatico",
-          "autorTipo"
+          "automatico"
         ],
         "type": "object"
       },
@@ -20486,9 +20472,9 @@
           "contratos.firmar",
           "conversaciones.asignar",
           "conversaciones.asociar",
+          "conversaciones.categorizar",
           "conversaciones.configurar",
           "conversaciones.etiquetar",
-          "conversaciones.categorizar",
           "conversaciones.iniciar",
           "conversaciones.pasar",
           "conversaciones.registrar_boleta",
