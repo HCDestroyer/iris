@@ -34,23 +34,23 @@ export const NOMBRE_SEGURIDAD: Record<SeguridadCorreo, string> = {
 };
 
 /** Nada de saltos de línea ni caracteres de control: irían a las cabeceras del correo (§4). */
-const SIN_CONTROL = /^[^\u0000-\u001f\u007f]*$/;
+const sinControl = (v: string) => ![...v].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127);
 const CORREO = /^[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;"]+$/;
 /** Nombre DNS o IP, sin esquema, ruta ni puerto. */
 const HOST = /^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$|^\[[0-9A-Fa-f:.]+\]$|^[0-9A-Fa-f:]+$/;
 
-const correo = (mensaje: string) => z.string().trim().max(254, "Hasta 254 caracteres").regex(SIN_CONTROL, "Sin saltos de línea").regex(CORREO, mensaje);
+const correo = (mensaje: string) => z.string().trim().max(254, "Hasta 254 caracteres").refine(sinControl, "Sin saltos de línea").regex(CORREO, mensaje);
 
 export const esquemaCorreo = z.object({
     host: z.string().trim().min(1, "Escribe el servidor").max(253, "Hasta 253 caracteres").regex(HOST, "Solo el nombre del servidor: sin «https://», sin ruta y sin puerto"),
     puerto: z.string().refine((v) => (PUERTOS as readonly number[]).includes(Number(v)), "Elige 587, 465, 25 o 2525"),
     seguridad: z.enum(SEGURIDADES),
-    usuario: z.string().trim().max(254, "Hasta 254 caracteres").regex(SIN_CONTROL, "Sin saltos de línea"),
+    usuario: z.string().trim().max(254, "Hasta 254 caracteres").refine(sinControl, "Sin saltos de línea"),
     /** Vacío = no se toca la guardada. */
     contrasena: z.string().max(1024, "Hasta 1,024 caracteres"),
     /** Borrar la contraseña guardada (`contrasena: ""`). */
     quitarContrasena: z.boolean(),
-    remitenteNombre: z.string().trim().max(80, "Hasta 80 caracteres").regex(SIN_CONTROL, "Sin saltos de línea"),
+    remitenteNombre: z.string().trim().max(80, "Hasta 80 caracteres").refine(sinControl, "Sin saltos de línea"),
     remitenteCorreo: correo("Escribe un solo correo, como avisos@tuempresa.com"),
 });
 export type ValoresCorreo = z.infer<typeof esquemaCorreo>;

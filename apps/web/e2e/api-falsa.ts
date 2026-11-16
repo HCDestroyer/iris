@@ -16,6 +16,8 @@ import { apiEquipo, type ApiEquipo } from "./api-equipo";
 import { apiOrdenes } from "./api-ordenes";
 import { apiPlantillas, type ApiPlantillas } from "./api-plantillas";
 import { apiRutas, type ApiRutas } from "./api-rutas";
+import { apiCorreo, type ApiCorreo, type OpcionesCorreo } from "./api-correo";
+import { PERMISO_CONFIGURAR_CORREO, PERMISO_VER_CORREO } from "../lib/correo/tipos";
 import { buzonesIniciales, resultadoPrueba } from "./datos-buzones";
 import type { EscenarioOrdenes } from "./datos-ordenes";
 import { aplicarAccion, CATEGORIAS, CLIENTES, escenarioTickets, ficha, serviciosDe } from "./datos-tickets";
@@ -300,6 +302,11 @@ export type OpcionesApi = {
      * solo `integraciones.abrir_argos`. Sin esta opción nadie los tiene.
      */
     pagos?: OpcionesPagos;
+    /**
+     * Correo del sistema (e2e/api-correo.ts). Con la opción, ADMIN (sin límite de empresa) y
+     * SUPERVISOR_ZONA (solo su empresa) lo ven y lo configuran; CONSULTA solo lo ve.
+     */
+    correo?: OpcionesCorreo;
     /** Números de WhatsApp: alta, credenciales y conexión (e2e/api-numeros.ts). */
     numeros?: OpcionesNumeros;
     /** Conexión con Meta, QR y préstamos (e2e/api-meta.ts, contrato §15). */
@@ -320,6 +327,8 @@ export type ApiFalsa = {
     mutaciones: { metodo: string; ruta: string; csrf: string | undefined }[];
     /** Todas las peticiones a la API (con `X-Iris-Empresa` e `Idempotency-Key`). */
     peticiones: Peticion[];
+    /** Correo del sistema: lo guardado, las pruebas y los cambios de encendido. */
+    correo: ApiCorreo;
     /** «MÉTODO /api/v1/…» en el orden en que llegaron, incluido el chat del equipo (`/mensajeria/chat`). */
     orden: string[];
     /** Hace fallar `GET /yo` o `GET /usuarios` las próximas `n` veces con 500. */
@@ -468,6 +477,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     let busquedasFallidas = 0;
     const fallos = new Map<string, number>();
     const problemas: { prefijo: string; p: Problema; n: number }[] = [];
+    const correo = apiCorreo(opciones.correo);
     const mfaPendiente = new Map<string, number>();
     const empresas = opciones.sinEmpresa ? [] : (opciones.empresas ?? []);
     const hayRegistradas = opciones.sinEmpresa === true || empresas.length > 0;
@@ -644,6 +654,8 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             ...(opciones.chat && actual.correo === ADMIN.correo ? PERMISOS_CHAT : []),
             ...(opciones.pagos && actual.correo === ADMIN.correo ? PERMISOS_PAGOS.filter((p) => !pagos.sinPermisos.includes(p)) : []),
             ...(opciones.pagos && actual.correo === AGENTE_CONV.correo ? PERMISOS_ABRIR_ARGOS : []),
+            ...(opciones.correo && (actual.correo === ADMIN.correo || actual.correo === SUPERVISOR_ZONA.correo) ? [PERMISO_VER_CORREO, PERMISO_CONFIGURAR_CORREO] : []),
+            ...(opciones.correo && actual.correo === CONSULTA.correo ? [PERMISO_VER_CORREO] : []),
         ];
         if (await sso.manejar({ route, metodo, ruta, actual, puede: (p) => permisos.includes(p), cuerpo, cookies, idempotencia: cabeceras["idempotency-key"] })) {
             return;
@@ -763,6 +775,23 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         if (metodo === "GET" && ruta === "/api/v1/integraciones/enlaces") {
             if (!puede("clientes.ver") && !puede("integraciones.abrir_argos")) return prohibido();
             return route.fulfill({ json: opciones.enlaces ?? ({} satisfies Schema<"EnlacesExternos">) });
+        }
+
+        if (
+            ruta.startsWith("/api/v1/correo-sistema/") &&
+            (await correo.manejar({
+                route,
+                metodo,
+                ruta,
+                cuerpo: (cuerpo ?? {}) as Record<string, unknown>,
+                idempotencia: cabeceras["idempotency-key"],
+                puedeVer: puede(PERMISO_VER_CORREO),
+                puedeConfigurar: puede(PERMISO_CONFIGURAR_CORREO),
+                sinLimiteDeEmpresa: puede("empresas.todas"),
+                empresaActiva: empresaId,
+            }))
+        ) {
+            return;
         }
 
         if (ruta.startsWith("/api/v1/buzones")) {
@@ -1038,6 +1067,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         meta: { conexion: meta.conexion, cuerpos: meta.cuerpos, prestamos: meta.prestamos, resultadoQr: meta.resultadoQr },
         mutaciones,
         peticiones,
+        correo,
         avisosPanel,
         orden,
         tickets: esc.tickets,
