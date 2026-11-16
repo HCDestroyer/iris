@@ -29,6 +29,8 @@ import { faltaParaVencer, nivelVerificacion, trasFallarRelectura } from "@/lib/a
 
 /** Cada cuánto se relee una conversación con la identidad verificada, por si ya venció. */
 const RELEER_IDENTIDAD_MS = 30_000;
+/** Tiempo límite de cada relectura: pasada esa espera se corta y se prueba en el siguiente tic. */
+const LIMITE_RELECTURA_MS = 10_000;
 /** Margen tras `verificacionVenceEn`, por si el reloj del navegador va unos milisegundos adelantado. */
 const MARGEN_VENCIMIENTO_MS = 500;
 
@@ -150,7 +152,10 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
     // mientras el nivel sea `fuerte` se relee el detalle con el reloj de 30 s, para que el
     // indicador baje a «su número coincide» cuando toca. (Con `verificacionVenceEn` bastará un temporizador.)
     // La relectura es de fondo: si falla (red, 5xx) lo que hay en pantalla se queda y se prueba en el
-    // siguiente tic; solo se detiene sin sesión o sin permiso. Con la pestaña oculta no se pide nada.
+    // siguiente tic. Sin sesión o sin permiso (401, 403) se detiene y el indicador baja a «su número
+    // coincide»: sin poder leer, «verificada» no se queda fija. Con la pestaña oculta no se pide nada
+    // y al volver a verse se relee enseguida. Cada petición tiene su tiempo límite, para que una
+    // colgada no frene las siguientes.
     // Con `contacto.verificacionVenceEn`, además, a esa hora el indicador baja en el acto (bajar es
     // lo seguro) y se relee; el reloj de 30 s queda de respaldo.
     const identidadVigente = detalle.estado === "listo" && nivelVerificacion(detalle.datos.contacto) === "fuerte";
@@ -165,23 +170,37 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
         let ocupado = false;
         let reloj: ReturnType<typeof setInterval> | undefined = undefined;
         const releer = () => {
-            if (ocupado || document.visibilityState === "hidden") return;
+            if (ocupado || control.signal.aborted || document.visibilityState === "hidden") return;
             ocupado = true;
-            leerDetalle(id, control.signal)
+            // Tiempo límite propio de esta petición (con `setTimeout`, como `AbortSignal.timeout`).
+            const peticion = new AbortController();
+            const cortar = () => peticion.abort();
+            control.signal.addEventListener("abort", cortar);
+            const limite = setTimeout(cortar, LIMITE_RELECTURA_MS);
+            leerDetalle(id, peticion.signal)
                 .then(
                     (datos) => {
                         // Una respuesta más vieja que lo que ya trajo una acción o el feed no pisa nada.
                         if (!control.signal.aborted && datos.version >= (vista.current?.version ?? 0)) reemplazarDetalle(datos);
                     },
                     (error: unknown) => {
-                        if (!control.signal.aborted && trasFallarRelectura(error) === "detener") clearInterval(reloj);
+                        if (control.signal.aborted || trasFallarRelectura(error) !== "detener") return;
+                        clearInterval(reloj);
+                        const actual = vista.current;
+                        if (actual?.contacto.verificacion === "fuerte") reemplazarDetalle({ ...actual, contacto: { ...actual.contacto, verificacion: "numero", verificacionVenceEn: null } });
                     },
                 )
                 .finally(() => {
+                    clearTimeout(limite);
+                    control.signal.removeEventListener("abort", cortar);
                     ocupado = false;
                 });
         };
         reloj = setInterval(releer, RELEER_IDENTIDAD_MS);
+        const alVerse = () => {
+            if (document.visibilityState === "visible") releer();
+        };
+        document.addEventListener("visibilitychange", alVerse);
         const falta = faltaParaVencer({ verificacion: "fuerte", verificacionVenceEn: venceEn }, Date.now());
         const vencimiento =
             falta === null
@@ -205,6 +224,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
         return () => {
             clearInterval(reloj);
             clearTimeout(vencimiento);
+            document.removeEventListener("visibilitychange", alVerse);
             control.abort();
         };
     }, [identidadVigente, venceEn, id, reemplazarDetalle]);
