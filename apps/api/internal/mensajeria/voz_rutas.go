@@ -132,9 +132,8 @@ func (m *Modulo) registrarVoz(api huma.API) {
 		"Atómico: gana uno solo. Responde `{ llamada, sdpOferta, ice, venceEn }`: aplica `sdpOferta` a un `RTCPeerConnection` y manda `contestar` antes de "+
 			"`venceEn` (12 s). Solo un candidato de **esa** llamada puede reclamarla (si no, 404). 409 `llamada_ya_contestada` si otro se adelantó o ya no suena "+
 			"(`errors[0].rule = misma_persona` si fuiste tú en otra pestaña: solo cierra el aviso). 422 `no_recibe_llamadas` sin «Recibir llamadas» o sin el flujo de "+
-			"eventos abierto. La respuesta no se guarda por `Idempotency-Key` (lleva el SDP): repetir devuelve la misma, releída de la llamada."),
+			"eventos abierto. La respuesta no se guarda por `Idempotency-Key` (lleva el SDP): repetir, mientras dure la reserva, devuelve la misma, releída de la llamada."),
 		func(ctx context.Context, in *llamadaHTTP) (*cuerpo[LlamadaReclamada], error) {
-			nucleo.NoRepetible(ctx)
 			return responder(k.Reclamar.Ejecutar(ctx, EntradaLlamada{ID: in.ID}))
 		})
 	huma.Register(api, voz(op("contestarLlamada", http.MethodPost, "/llamadas/{id}/contestar", "Contestar: mandar la respuesta SDP", contestar,

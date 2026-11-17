@@ -129,7 +129,7 @@ func guardarLlamadasCanal(ctx context.Context, q *mensajeriabd.Queries, f mensaj
 
 func nuevoVerLlamadasCanal(*Modulo) *auditoria.Caso[EntradaIDConv, LlamadasCanal] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaIDConv, LlamadasCanal]{
-		Accion: "llamadas.ver_ajustes", Acceso: auditoria.Autenticado, AuditarExito: sinAuditar[LlamadasCanal],
+		Accion: "llamadas.ver_ajustes", Permiso: nucleo.PermLlamadasConfigurar, AuditarExito: sinAuditar[LlamadasCanal],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaIDConv) (LlamadasCanal, error) {
 			a, err := alcanceVoz(ctx, nucleo.PermLlamadasConfigurar)
 			if err != nil {
@@ -148,7 +148,7 @@ func nuevoVerLlamadasCanal(*Modulo) *auditoria.Caso[EntradaIDConv, LlamadasCanal
 
 func nuevoConfigurarLlamadasCanal(m *Modulo) *auditoria.Caso[EntradaLlamadasCanal, LlamadasCanal] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaLlamadasCanal, LlamadasCanal]{
-		Accion: "llamadas.configurar", Acceso: auditoria.Autenticado,
+		Accion: "llamadas.configurar", Permiso: nucleo.PermLlamadasConfigurar,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaLlamadasCanal) (LlamadasCanal, error) {
 			a, err := alcanceVoz(ctx, nucleo.PermLlamadasConfigurar)
 			if err != nil {
@@ -258,7 +258,7 @@ type entradaComprobado struct {
 
 func nuevoPrepararComprobacion(m *Modulo) *auditoria.Caso[EntradaIDConv, canalPorComprobar] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaIDConv, canalPorComprobar]{
-		Accion: "llamadas.comprobar", Acceso: auditoria.Autenticado, AuditarExito: sinAuditar[canalPorComprobar],
+		Accion: "llamadas.comprobar", Permiso: nucleo.PermLlamadasConfigurar, AuditarExito: sinAuditar[canalPorComprobar],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaIDConv) (canalPorComprobar, error) {
 			a, err := alcanceVoz(ctx, nucleo.PermLlamadasConfigurar)
 			if err != nil {
@@ -282,7 +282,7 @@ func nuevoPrepararComprobacion(m *Modulo) *auditoria.Caso[EntradaIDConv, canalPo
 
 func nuevoGuardarComprobacion(m *Modulo) *auditoria.Caso[entradaComprobado, LlamadasCanal] {
 	return auditoria.Nuevo(auditoria.Caso[entradaComprobado, LlamadasCanal]{
-		Accion: "llamadas.comprobar", Acceso: auditoria.Autenticado,
+		Accion: "llamadas.comprobar", Permiso: nucleo.PermLlamadasConfigurar,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaComprobado) (LlamadasCanal, error) {
 			a, err := alcanceVoz(ctx, nucleo.PermLlamadasConfigurar)
 			if err != nil {
@@ -385,7 +385,7 @@ func aAjustesVoz(f mensajeriabd.MensajeriaVozAjuste) AjustesVoz {
 
 func nuevoVerAjustesVoz(*Modulo) *auditoria.Caso[struct{}, AjustesVoz] {
 	return auditoria.Nuevo(auditoria.Caso[struct{}, AjustesVoz]{
-		Accion: "voz.ver_ajustes", Acceso: auditoria.Autenticado, AuditarExito: sinAuditar[AjustesVoz],
+		Accion: "voz.ver_ajustes", Permiso: nucleo.PermVozConfigurar, AuditarExito: sinAuditar[AjustesVoz],
 		Logica: func(ctx context.Context, t *auditoria.Tx, _ struct{}) (AjustesVoz, error) {
 			a, err := alcanceVoz(ctx, nucleo.PermVozConfigurar)
 			if err != nil {
@@ -399,7 +399,7 @@ func nuevoVerAjustesVoz(*Modulo) *auditoria.Caso[struct{}, AjustesVoz] {
 
 func nuevoFijarAjustesVoz(*Modulo) *auditoria.Caso[EntradaAjustesVoz, AjustesVoz] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaAjustesVoz, AjustesVoz]{
-		Accion: "voz.configurar", Acceso: auditoria.Autenticado,
+		Accion: "voz.configurar", Permiso: nucleo.PermVozConfigurar,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaAjustesVoz) (AjustesVoz, error) {
 			a, err := alcanceVoz(ctx, nucleo.PermVozConfigurar)
 			if err != nil {

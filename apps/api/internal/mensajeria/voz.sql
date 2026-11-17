@@ -39,6 +39,11 @@ RETURNING *;
 SELECT EXISTS (SELECT 1 FROM mensajeria.llamada_candidatos c JOIN mensajeria.llamadas l ON l.id = c.llamada_id
     WHERE c.llamada_id = @id AND c.usuario_id = @usuario_id AND c.retirado_en IS NULL AND coalesce(l.empresa_id, 0) = @empresa::bigint)::boolean;
 
+-- name: FueCandidato :one
+-- Se le ofreció la llamada alguna vez (aunque ya esté retirado).
+SELECT EXISTS (SELECT 1 FROM mensajeria.llamada_candidatos c JOIN mensajeria.llamadas l ON l.id = c.llamada_id
+    WHERE c.llamada_id = @id AND c.usuario_id = @usuario_id AND coalesce(l.empresa_id, 0) = @empresa::bigint)::boolean;
+
 -- name: GuardarLlamada :one
 -- Escribe el estado que calculó el caso de uso (la fila se leyó con FOR UPDATE).
 UPDATE mensajeria.llamadas

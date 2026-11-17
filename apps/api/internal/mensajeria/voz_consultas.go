@@ -137,7 +137,7 @@ func (m *Modulo) aLlamada(ctx context.Context, q *mensajeriabd.Queries, a alcanc
 
 func nuevoVerLlamada(m *Modulo) *auditoria.Caso[EntradaLlamada, Llamada] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaLlamada, Llamada]{
-		Accion: "llamadas.ver", Acceso: auditoria.Autenticado, AuditarExito: sinAuditar[Llamada],
+		Accion: "llamadas.ver", Permiso: nucleo.PermLlamadasVer, AuditarExito: sinAuditar[Llamada],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaLlamada) (Llamada, error) {
 			a, err := alcanceVoz(ctx, nucleo.PermLlamadasVer)
 			if err != nil {
@@ -155,7 +155,7 @@ func nuevoVerLlamada(m *Modulo) *auditoria.Caso[EntradaLlamada, Llamada] {
 
 func nuevoLlamadaActiva(m *Modulo) *auditoria.Caso[struct{}, *Llamada] {
 	return auditoria.Nuevo(auditoria.Caso[struct{}, *Llamada]{
-		Accion: "llamadas.ver_activa", Acceso: auditoria.Autenticado, AuditarExito: sinAuditar[*Llamada],
+		Accion: "llamadas.ver_activa", Permiso: nucleo.PermLlamadasVer, AuditarExito: sinAuditar[*Llamada],
 		Logica: func(ctx context.Context, t *auditoria.Tx, _ struct{}) (*Llamada, error) {
 			a, err := alcanceVoz(ctx, nucleo.PermLlamadasVer)
 			if err != nil {
@@ -189,7 +189,7 @@ type EntradaListarLlamadas struct {
 
 func nuevoListarLlamadas(m *Modulo) *auditoria.Caso[EntradaListarLlamadas, nucleo.Pagina[Llamada]] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaListarLlamadas, nucleo.Pagina[Llamada]]{
-		Accion: "llamadas.listar", Acceso: auditoria.Autenticado, AuditarExito: sinAuditar[nucleo.Pagina[Llamada]],
+		Accion: "llamadas.listar", Permiso: nucleo.PermLlamadasVer, AuditarExito: sinAuditar[nucleo.Pagina[Llamada]],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaListarLlamadas) (nucleo.Pagina[Llamada], error) {
 			vacia := nucleo.Pagina[Llamada]{}
 			a, err := alcanceVoz(ctx, nucleo.PermLlamadasVer)
@@ -261,7 +261,7 @@ type EntradaAnotarLlamada struct {
 
 func nuevoAnotarLlamada(m *Modulo) *auditoria.Caso[EntradaAnotarLlamada, Llamada] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaAnotarLlamada, Llamada]{
-		Accion: "llamadas.anotar", Acceso: auditoria.Autenticado,
+		Accion: "llamadas.anotar", Permiso: nucleo.PermLlamadasAnotar,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaAnotarLlamada) (Llamada, error) {
 			a, err := alcanceVoz(ctx, nucleo.PermLlamadasAnotar)
 			if err != nil {
@@ -341,7 +341,7 @@ type EntradaVerRecibir struct {
 
 func nuevoRecibirLlamadas(m *Modulo) *auditoria.Caso[EntradaRecibir, RecibirLlamadas] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaRecibir, RecibirLlamadas]{
-		Accion: "llamadas.recibir", Acceso: auditoria.Autenticado,
+		Accion: "llamadas.recibir", Permiso: nucleo.PermLlamadasContestar,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaRecibir) (RecibirLlamadas, error) {
 			a, err := alcanceVoz(ctx, nucleo.PermLlamadasContestar)
 			if err != nil {
@@ -361,7 +361,7 @@ func nuevoRecibirLlamadas(m *Modulo) *auditoria.Caso[EntradaRecibir, RecibirLlam
 
 func nuevoVerRecibir(m *Modulo) *auditoria.Caso[EntradaVerRecibir, RecibirLlamadas] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaVerRecibir, RecibirLlamadas]{
-		Accion: "llamadas.ver_recibir", Acceso: auditoria.Autenticado, AuditarExito: sinAuditar[RecibirLlamadas],
+		Accion: "llamadas.ver_recibir", Permiso: nucleo.PermLlamadasContestar, AuditarExito: sinAuditar[RecibirLlamadas],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaVerRecibir) (RecibirLlamadas, error) {
 			a, err := alcanceVoz(ctx, nucleo.PermLlamadasContestar)
 			if err != nil {
@@ -390,7 +390,7 @@ type EntradaListarDevoluciones struct {
 
 func nuevoListarDevoluciones(*Modulo) *auditoria.Caso[EntradaListarDevoluciones, nucleo.Pagina[DevolucionLlamada]] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaListarDevoluciones, nucleo.Pagina[DevolucionLlamada]]{
-		Accion: "llamadas.listar_devoluciones", Acceso: auditoria.Autenticado, AuditarExito: sinAuditar[nucleo.Pagina[DevolucionLlamada]],
+		Accion: "llamadas.listar_devoluciones", Permiso: nucleo.PermLlamadasVer, AuditarExito: sinAuditar[nucleo.Pagina[DevolucionLlamada]],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaListarDevoluciones) (nucleo.Pagina[DevolucionLlamada], error) {
 			vacia := nucleo.Pagina[DevolucionLlamada]{}
 			a, err := alcanceVoz(ctx, nucleo.PermLlamadasVer)
@@ -438,7 +438,7 @@ type EntradaDescartarDevolucion struct {
 
 func nuevoDescartarDevolucion(m *Modulo) *auditoria.Caso[EntradaDescartarDevolucion, DevolucionLlamada] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaDescartarDevolucion, DevolucionLlamada]{
-		Accion: "llamadas.descartar_devolucion", Acceso: auditoria.Autenticado,
+		Accion: "llamadas.descartar_devolucion", Permiso: nucleo.PermLlamadasDescartarDevolucion,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaDescartarDevolucion) (DevolucionLlamada, error) {
 			a, err := alcanceVoz(ctx, nucleo.PermLlamadasDescartarDevolucion)
 			if err != nil {

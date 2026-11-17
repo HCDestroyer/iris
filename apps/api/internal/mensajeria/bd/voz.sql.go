@@ -319,6 +319,25 @@ func (q *Queries) FijarReceptor(ctx context.Context, arg FijarReceptorParams) (M
 	return i, err
 }
 
+const fueCandidato = `-- name: FueCandidato :one
+SELECT EXISTS (SELECT 1 FROM mensajeria.llamada_candidatos c JOIN mensajeria.llamadas l ON l.id = c.llamada_id
+    WHERE c.llamada_id = $1 AND c.usuario_id = $2 AND coalesce(l.empresa_id, 0) = $3::bigint)::boolean
+`
+
+type FueCandidatoParams struct {
+	ID        uuid.UUID
+	UsuarioID int64
+	Empresa   int64
+}
+
+// Se le ofreció la llamada alguna vez (aunque ya esté retirado).
+func (q *Queries) FueCandidato(ctx context.Context, arg FueCandidatoParams) (bool, error) {
+	row := q.db.QueryRow(ctx, fueCandidato, arg.ID, arg.UsuarioID, arg.Empresa)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const grabacionDeLlamada = `-- name: GrabacionDeLlamada :one
 SELECT id, llamada_id, empresa_id, origen, adjunto_id, duracion_seg, sha256, estado, url_descarga, vence_en, borrada_en, borrada_por, motivo_borrado, created_at, updated_at FROM mensajeria.llamada_grabaciones WHERE llamada_id = $1
 `

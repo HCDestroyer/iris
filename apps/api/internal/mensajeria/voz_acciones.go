@@ -130,7 +130,7 @@ func llamadaDeQuienLaReclamo(ctx context.Context, q *mensajeriabd.Queries, a alc
 
 func nuevoReclamarLlamada(m *Modulo) *auditoria.Caso[EntradaLlamada, LlamadaReclamada] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaLlamada, LlamadaReclamada]{
-		Accion: "llamadas.reclamar", Acceso: auditoria.Autenticado,
+		Accion: "llamadas.reclamar", Permiso: nucleo.PermLlamadasContestar,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaLlamada) (LlamadaReclamada, error) {
 			a, err := alcanceVoz(ctx, nucleo.PermLlamadasContestar)
 			if err != nil {
@@ -163,11 +163,20 @@ func nuevoReclamarLlamada(m *Modulo) *auditoria.Caso[EntradaLlamada, LlamadaRecl
 					return LlamadaReclamada{}, llamadaNoEncontrada()
 				}
 				misma := actual.ReclamadaPor != nil && *actual.ReclamadaPor == a.usuario || actual.UsuarioID != nil && *actual.UsuarioID == a.usuario
-				if !candidato && !misma {
+				fue, err := q.FueCandidato(ctx, mensajeriabd.FueCandidatoParams{ID: in.ID, UsuarioID: a.usuario, Empresa: a.empresa})
+				if err != nil {
+					return LlamadaReclamada{}, err
+				}
+				if !fue && !misma {
 					return LlamadaReclamada{}, llamadaNoEncontrada()
 				}
+				// Le sonó y ya terminó (perdida, rechazada, contestada por otro y colgada): ya no suena.
 				if llamadaFinal(actual.Estado) {
 					return LlamadaReclamada{}, llamadaYaContestada("", false)
+				}
+				// Sigue viva pero a esta persona ya no le suena (la rechazó o soltó dos veces).
+				if !candidato && !misma {
+					return LlamadaReclamada{}, llamadaNoEncontrada()
 				}
 				quien := ""
 				if id := actual.ReclamadaPor; id != nil && !misma {
@@ -210,7 +219,7 @@ func nombreUsuario(ctx context.Context, q *mensajeriabd.Queries, id int64) strin
 
 func nuevoContestarLlamada(m *Modulo) *auditoria.Caso[EntradaContestar, Llamada] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaContestar, Llamada]{
-		Accion: "llamadas.contestar", Acceso: auditoria.Autenticado,
+		Accion: "llamadas.contestar", Permiso: nucleo.PermLlamadasContestar,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaContestar) (Llamada, error) {
 			a, err := alcanceVoz(ctx, nucleo.PermLlamadasContestar)
 			if err != nil {
@@ -261,7 +270,7 @@ func (m *Modulo) Contestar(ctx context.Context, in EntradaContestar) (Llamada, e
 
 func nuevoConfirmarMedio(m *Modulo) *auditoria.Caso[EntradaLlamada, Llamada] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaLlamada, Llamada]{
-		Accion: "llamadas.confirmar_medio", Acceso: auditoria.Autenticado,
+		Accion: "llamadas.confirmar_medio", Permiso: nucleo.PermLlamadasContestar,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaLlamada) (Llamada, error) {
 			a, err := alcanceVoz(ctx, nucleo.PermLlamadasContestar)
 			if err != nil {
@@ -425,7 +434,7 @@ func (m *Modulo) soltar(ctx context.Context, t *auditoria.Tx, l *mensajeriabd.Me
 
 func nuevoSoltarLlamada(m *Modulo) *auditoria.Caso[EntradaSoltar, Llamada] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaSoltar, Llamada]{
-		Accion: "llamadas.soltar", Acceso: auditoria.Autenticado,
+		Accion: "llamadas.soltar", Permiso: nucleo.PermLlamadasContestar,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaSoltar) (Llamada, error) {
 			a, err := alcanceVoz(ctx, nucleo.PermLlamadasContestar)
 			if err != nil {
@@ -451,7 +460,7 @@ func nuevoSoltarLlamada(m *Modulo) *auditoria.Caso[EntradaSoltar, Llamada] {
 
 func nuevoColgarLlamada(m *Modulo) *auditoria.Caso[EntradaLlamada, Llamada] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaLlamada, Llamada]{
-		Accion: "llamadas.colgar", Acceso: auditoria.Autenticado,
+		Accion: "llamadas.colgar", Permiso: nucleo.PermLlamadasColgar,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaLlamada) (Llamada, error) {
 			a, err := alcanceVoz(ctx, nucleo.PermLlamadasColgar)
 			if err != nil {
@@ -502,7 +511,7 @@ func (m *Modulo) Colgar(ctx context.Context, in EntradaLlamada) (Llamada, error)
 
 func nuevoRechazarLlamada(m *Modulo) *auditoria.Caso[EntradaRechazar, Llamada] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaRechazar, Llamada]{
-		Accion: "llamadas.rechazar", Acceso: auditoria.Autenticado,
+		Accion: "llamadas.rechazar", Permiso: nucleo.PermLlamadasRechazar,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaRechazar) (Llamada, error) {
 			a, err := alcanceVoz(ctx, nucleo.PermLlamadasRechazar)
 			if err != nil {
