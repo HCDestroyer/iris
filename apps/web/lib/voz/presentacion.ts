@@ -30,7 +30,8 @@ export function quienLlama(l: Pick<Llamada, "titulo" | "numero" | "contacto">): 
 export function textoAviso(motivo: MotivoAviso, quien?: string): { titulo: string; detalle: string } {
     switch (motivo) {
         case "otro_la_contesto":
-            return { titulo: quien ? `La contestó ${quien}` : "Otra persona la contestó", detalle: "Ya la están atendiendo." };
+            // Sin saber quién (409 al reclamar): pudo tomarla otra persona o pasar el tiempo de timbre.
+            return quien ? { titulo: `La contestó ${quien}`, detalle: "Ya la están atendiendo." } : { titulo: "Ya no se puede contestar", detalle: "Otra persona la contestó o dejó de sonar." };
         case "reserva_vencida":
             return { titulo: "No se alcanzó a conectar", detalle: "Pasó el tiempo para contestar. Si sigue sonando, vuelve a intentarlo." };
         case "termino_antes":
