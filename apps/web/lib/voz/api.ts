@@ -1,6 +1,6 @@
 import { api, COOKIE_CSRF, CABECERA_CSRF, leerCookie, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { CABECERA_EMPRESA, empresaGuardada } from "@/lib/empresa";
-import { idNavegador } from "./navegador";
+import { CABECERA_PESTANA, idNavegador, idPestana } from "./navegador";
 import type { EntradaAjustesVoz, EntradaLlamadasCanal, ResultadoLlamada } from "./tipos";
 
 /* Llamadas del panel de voz (contratos/voz.md §3), con el cliente tipado. */
@@ -20,6 +20,8 @@ const idem = (clave = nuevaClaveIdempotencia()) => ({ "Idempotency-Key": clave }
 export const CABECERA_NAVEGADOR = "X-Iris-Navegador";
 const navegador = () => ({ [CABECERA_NAVEGADOR]: idNavegador() });
 const de = (empresa: number | undefined) => (empresa === undefined ? {} : { headers: { [CABECERA_EMPRESA]: String(empresa) } });
+/** Lo de una saliente va con el id de esta pestaña (su latido y su respuesta SDP son de ella). */
+const dePestana = (empresa: number | undefined) => ({ headers: { [CABECERA_PESTANA]: idPestana(), ...(empresa === undefined ? {} : { [CABECERA_EMPRESA]: String(empresa) }) } });
 
 // --- «Recibir llamadas» (por usuario y navegador) ----------------------------------------------
 
@@ -38,8 +40,8 @@ export function apagarRecibir() {
 // --- La llamada --------------------------------------------------------------------------------
 
 /** La llamada viva del usuario, o `null` (204). */
-export async function leerLlamadaActiva(signal?: AbortSignal) {
-    return (await resolver(api().GET(`${BASE}/activa`, { signal }))) ?? null;
+export async function leerLlamadaActiva(signal?: AbortSignal, empresa?: number) {
+    return (await resolver(api().GET(`${BASE}/activa`, { signal, ...dePestana(empresa) }))) ?? null;
 }
 
 export function leerLlamada(id: string, signal?: AbortSignal, empresa?: number) {
@@ -63,8 +65,9 @@ export function soltarLlamada(id: string, motivo: string, empresa?: number) {
     return resolver(api().POST(`${BASE}/{id}/soltar`, { params: { path: { id }, header: { ...idem(), ...navegador() } }, body: { motivo }, ...de(empresa) }));
 }
 
-export function colgarLlamada(id: string, clave: string, empresa?: number) {
-    return resolver(api().POST(`${BASE}/{id}/colgar`, { params: { path: { id }, header: idem(clave) }, ...de(empresa) }));
+/** `propia`: solo cuelga si la llamada es mía (`?propia=true`): para una saliente que no es de esta pestaña. */
+export function colgarLlamada(id: string, clave: string, empresa?: number, propia = false) {
+    return resolver(api().POST(`${BASE}/{id}/colgar`, { params: { path: { id }, header: idem(clave), ...(propia ? { query: { propia: true } } : {}) }, ...de(empresa) }));
 }
 
 /** Deja de sonarle a este usuario. Con `paraTodos` (quien supervisa), la rechaza para todos. */
@@ -101,6 +104,37 @@ export function avisarAlCerrar(id: string, accion: "soltar" | "colgar", empresaD
     } catch {
         // Sin red al cerrar: el servidor la termina solo a los 15 s sin el flujo del usuario.
     }
+}
+
+// --- Salientes y permiso de llamada (E1b) ---------------------------------------------------------
+
+const CONV = "/api/v1/mensajeria/conversaciones/{id}";
+
+/** Lo que Iris sabe del permiso del contacto para que lo llamen (no pregunta a Meta). */
+export function leerPermisoLlamada(conversacionId: number, signal?: AbortSignal) {
+    return resolver(api().GET(`${CONV}/permiso-llamada`, { params: { path: { id: conversacionId } }, signal }));
+}
+
+/** Manda al cliente la solicitud de permiso (queda en el hilo). Devuelve el permiso como quedó. */
+export function solicitarPermisoLlamada(conversacionId: number, clave: string) {
+    return resolver(api().POST(`${CONV}/solicitar-permiso-llamada`, { params: { path: { id: conversacionId }, header: idem(clave) } }));
+}
+
+/** Llama al contacto de la conversación con la oferta SDP del navegador. Responde la llamada en `marcando`. */
+export function llamarContacto(conversacionId: number, entrada: { sdpOferta: string; devolucionId?: number | undefined; confirmarRiesgo?: boolean | undefined }, clave: string, empresa?: number, signal?: AbortSignal) {
+    return resolver(
+        api().POST(`${CONV}/llamar`, {
+            signal,
+            params: { path: { id: conversacionId }, header: { ...idem(clave), ...navegador() } },
+            body: { sdpOferta: entrada.sdpOferta, ...(entrada.devolucionId !== undefined ? { devolucionId: entrada.devolucionId } : {}), ...(entrada.confirmarRiesgo ? { confirmarRiesgo: true } : {}) },
+            ...dePestana(empresa),
+        }),
+    );
+}
+
+/** La respuesta SDP de Meta a mi saliente. 409 `sin_respuesta` si aún no llegó. */
+export function leerRespuestaSdp(id: string, empresa?: number) {
+    return resolver(api().GET(`${BASE}/{id}/respuesta-sdp`, { params: { path: { id }, header: navegador() }, ...dePestana(empresa) }));
 }
 
 // --- Devoluciones ------------------------------------------------------------------------------

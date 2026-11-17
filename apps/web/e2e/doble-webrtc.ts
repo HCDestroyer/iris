@@ -15,8 +15,8 @@ export type ControlVoz = {
     medio: "conecta" | "nunca" | "falla";
     /** Veces que se pidió el micrófono. */
     pedidos: number;
-    /** Conexiones creadas (abiertas o no). */
-    conexiones: { cerrada: boolean; oferta: string | null }[];
+    /** Conexiones creadas (abiertas o no). `respuesta`: la respuesta SDP remota aplicada a una oferta propia (saliente). */
+    conexiones: { cerrada: boolean; oferta: string | null; respuesta: string | null }[];
     /** ¿Las pistas del micrófono en uso están activas (no silenciadas)? `null` sin micrófono. */
     pistasActivas: () => boolean | null;
     /** ¿Quedó algún micrófono abierto? */
@@ -25,6 +25,8 @@ export type ControlVoz = {
     cortar: () => void;
     /** La respuesta SDP que da el «navegador» (con su IP privada, como uno real). */
     respuesta: string;
+    /** La oferta SDP que crea el «navegador» para una saliente. */
+    ofertaPropia: string;
 };
 
 declare global {
@@ -52,6 +54,7 @@ function instalar(inicial: Partial<Pick<ControlVoz, "microfono" | "permiso" | "m
             for (const c of abiertas) c.cambiar("failed");
         },
         respuesta: "",
+        ofertaPropia: "",
     };
     window.__voz = control;
 
@@ -107,6 +110,8 @@ function instalar(inicial: Partial<Pick<ControlVoz, "microfono" | "permiso" | "m
         "",
     ].join("\r\n");
     control.respuesta = RESPUESTA;
+    const OFERTA = RESPUESTA.replace("a=setup:active", "a=setup:actpass");
+    control.ofertaPropia = OFERTA;
     class Doble {
         iceConnectionState = "new";
         iceGatheringState = "complete";
@@ -114,7 +119,7 @@ function instalar(inicial: Partial<Pick<ControlVoz, "microfono" | "permiso" | "m
         oniceconnectionstatechange: (() => void) | null = null;
         onicegatheringstatechange: (() => void) | null = null;
         ontrack: (() => void) | null = null;
-        registro = { cerrada: false, oferta: null as string | null };
+        registro = { cerrada: false, oferta: null as string | null, respuesta: null as string | null };
         constructor() {
             control.conexiones.push(this.registro);
             abiertas.push(this);
@@ -122,18 +127,31 @@ function instalar(inicial: Partial<Pick<ControlVoz, "microfono" | "permiso" | "m
         addTrack() {
             return {};
         }
-        setRemoteDescription(d: { sdp: string }) {
-            this.registro.oferta = d.sdp;
+        setRemoteDescription(d: { type?: string; sdp: string }) {
+            if (d.type === "answer") {
+                // Saliente: la respuesta de Meta a la oferta de este navegador. Desde aquí hay medio.
+                this.registro.respuesta = d.sdp;
+                this.negociar();
+            } else {
+                this.registro.oferta = d.sdp;
+            }
             return Promise.resolve();
         }
         createAnswer() {
             return Promise.resolve({ type: "answer", sdp: RESPUESTA });
         }
+        createOffer() {
+            return Promise.resolve({ type: "offer", sdp: OFERTA });
+        }
         setLocalDescription(d: { type: string; sdp: string }) {
             this.localDescription = d;
+            // Entrante: con la respuesta local puesta hay medio. Una oferta local espera la respuesta remota.
+            if (d.type === "answer") this.negociar();
+            return Promise.resolve();
+        }
+        negociar() {
             if (control.medio === "conecta") setTimeout(() => this.cambiar("connected"), 30);
             if (control.medio === "falla") setTimeout(() => this.cambiar("failed"), 30);
-            return Promise.resolve();
         }
         cambiar(estado: string) {
             if (this.registro.cerrada) return;

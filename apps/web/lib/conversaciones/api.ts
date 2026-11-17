@@ -1,4 +1,5 @@
 import { crearGeneradorUuid7 } from "@iris/sync";
+import { CABECERA_PESTANA, idNavegador, idPestana } from "@/lib/voz/navegador";
 import { api, resolver } from "../api/cliente";
 import type { Filtros } from "./estado";
 import type { EventoBandeja } from "./tipos";
@@ -66,8 +67,13 @@ export async function leerCambios(cursor: string | undefined, signal: AbortSigna
  */
 export async function abrirFlujo(cursor: string | undefined, signal: AbortSignal): Promise<Response> {
     const { response } = await api().GET(`${BASE}/eventos`, {
-        params: { header: cursor ? { "Last-Event-ID": cursor } : {} },
-        headers: { Accept: "text/event-stream" },
+        // Siempre con el id de este navegador (voz.md, revisión de E1b): el latido del flujo vale solo
+        // para él y es lo que mantiene viva una llamada saliente hecha desde aquí. Va en la cabecera
+        // (el servidor la acepta igual que `?navegador=`) para que no quede en los registros de acceso.
+        params: { header: { ...(cursor ? { "Last-Event-ID": cursor } : {}), "X-Iris-Navegador": idNavegador() } },
+        // …y con el de esta pestaña: el latido de una saliente es de la pestaña que la hizo (otra
+        // pestaña abierta del mismo navegador no la sostiene).
+        headers: { Accept: "text/event-stream", [CABECERA_PESTANA]: idPestana() },
         parseAs: "stream",
         signal,
     });

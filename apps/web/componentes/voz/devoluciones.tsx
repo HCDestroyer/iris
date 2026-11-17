@@ -1,8 +1,10 @@
 "use client";
 
 import { avisar, Aviso, Boton, Campo, cn, Dialogo, DialogoContenido, DialogoPie } from "@iris/ui";
-import { ChevronDown, MessageSquare, PhoneMissed, RotateCw } from "lucide-react";
+import { ChevronDown, MessageSquare, PhoneMissed, PhoneOutgoing, RotateCw } from "lucide-react";
+import type { Route } from "next";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { createContext, use, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { haceCuanto } from "@/lib/fechas";
@@ -12,12 +14,13 @@ import { useLectura, type Lectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
 import { descartarDevolucion, leerDevoluciones } from "@/lib/voz/api";
 import { escucharEventos } from "@/lib/voz/canal";
-import type { DevolucionLlamada } from "@/lib/voz/tipos";
+import { PERMISO_LLAMAR, type DevolucionLlamada } from "@/lib/voz/tipos";
+import { useVoz } from "./proveedor";
 
 /*
  * Devoluciones pendientes (contratos/voz.md §2.9): las llamadas perdidas que alguien tiene que
- * atender. En E1 no se devuelve la llamada desde el panel (las salientes son E1b): se le escribe al
- * cliente o se descarta con un motivo.
+ * atender: se devuelve la llamada (E1b; quien puede llamar), se le escribe al cliente o se descarta
+ * con un motivo. Si el cliente contesta la devolución, el servidor la da por hecha.
  */
 
 type ContextoDevoluciones = {
@@ -166,8 +169,13 @@ export function ChipPerdida({ conversacionId }: { conversacionId: number }) {
  */
 export function PendientesDevolver({ conversaciones, hrefDe, ahora }: { conversaciones: readonly Conversacion[]; hrefDe: (id: number) => string; ahora: number }) {
     const dev = useDevoluciones();
+    const voz = useVoz();
+    const router = useRouter();
+    const { puede } = useSesion();
     const [abierto, setAbierto] = useState(false);
     if (!dev) return null;
+    const puedeLlamar = voz !== null && puede([PERMISO_LLAMAR]);
+    const vozOcupada = voz !== null && voz.estado.fase !== "libre" && voz.estado.fase !== "aviso";
     const { lectura } = dev;
     if (lectura.estado === "cargando") return null;
     if (lectura.estado === "error") {
@@ -210,6 +218,21 @@ export function PendientesDevolver({ conversaciones, hrefDe, ahora }: { conversa
                                     </span>
                                 </div>
                                 <div className="flex flex-wrap gap-1.5">
+                                    {puedeLlamar ? (
+                                        <Boton
+                                            tamano="sm"
+                                            className="h-7 px-2 text-xs"
+                                            disabled={vozOcupada || voz.comprobando(d.conversacionId)}
+                                            onClick={() => {
+                                                voz.llamar({ id: d.conversacionId, titulo: d.titulo || conv?.titulo || d.numero }, { devolucionId: d.id });
+                                                // La ficha del cliente a la vista mientras suena.
+                                                router.push(hrefDe(d.conversacionId) as Route, { scroll: false });
+                                            }}
+                                        >
+                                            <PhoneOutgoing />
+                                            Devolver la llamada
+                                        </Boton>
+                                    ) : null}
                                     <Boton asChild variante="secundario" tamano="sm" className="h-7 px-2 text-xs">
                                         <Link href={hrefDe(d.conversacionId)} scroll={false}>
                                             <MessageSquare />
