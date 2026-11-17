@@ -47,13 +47,31 @@ al log ni a la auditoría. La auditoría del dispositivo lleva `fin_fcm` (últim
   `asistente_tope:<empresa>:<mes>:<80|100>:<tope>`: una sola vez por umbral, mes y valor del tope
   aunque el evento llegue dos veces; si suben el tope y lo vuelven a cruzar, avisa de nuevo. El
   `enlace` de un aviso solo puede ser una ruta interna del panel (CHECK en la tabla).
-- **Correo del sistema** (`correo.go`): `IRIS_SMTP_HOST`, `IRIS_SMTP_PORT`, `IRIS_SMTP_USUARIO`,
-  `IRIS_SMTP_CONTRASENA`, `IRIS_SMTP_TLS` (`starttls` | `tls`) e `IRIS_SMTP_REMITENTE`, con el cliente
-  SMTP de los buzones (TLS obligatorio, `IRIS_CORREO_REDES_PERMITIDAS`, `IRIS_CORREO_CA`). Un job
-  `notificaciones.enviar_correo` por correo (6 intentos con espera exponencial). Sin host o remitente,
-  el correo queda `omitido` (`sin_correo_sistema`) sin error.
-- Tablas `notificaciones.avisos` y `notificaciones.correos`; la purga de cada hora borra los de más
-  de 180 días.
+- **Correo del sistema** (`correo.go`): un job `notificaciones.enviar_correo` por correo (6 intentos
+  con espera exponencial), con el cliente SMTP de los buzones (`IRIS_CORREO_REDES_PERMITIDAS`,
+  `IRIS_CORREO_CA`). En cada envío se lee por dónde sale (sin reiniciar): el ajuste de la **empresa**
+  del correo → el **global** → `IRIS_SMTP_*` del **entorno** (respaldo) → ninguno. Un ajuste apagado
+  se salta. Sin ninguno, el correo queda `omitido` (`sin_correo_sistema`) sin error.
+- **Correo del sistema desde el panel** (`correo_sistema.go`, `rutas_correo.go`; contrato
+  `.claude/integration/contratos/correo-sistema.md`): `GET /api/v1/correo-sistema/{ambito}` y
+  `POST …/guardar`, `…/probar`, `…/activar`, `…/desactivar`, con `{ambito}` = `global` o el id de la
+  empresa. Permisos `correo_sistema.ver` y `correo_sistema.configurar` (de fábrica solo `admin`); el
+  global exige operar sin límite de empresa (`empresas.todas`) y el de una empresa, estar operando en
+  ella.
+  - La contraseña se cifra con `IRIS_CLAVE_CIFRADO` atada a su fila (entra en `iris clave rotar`),
+    nunca se devuelve (`tieneContrasena`) y queda como `***` en la auditoría. La guardada solo se usa
+    hacia el mismo servidor, puerto y usuario: si cambian, hay que volver a escribirla.
+  - Guarda de red de los buzones en la validación, en la prueba y en cada envío; puertos 25, 465,
+    587 y 2525; TLS verificado. `seguridad: ninguna` solo hacia un servidor dentro de
+    `IRIS_CORREO_REDES_PERMITIDAS` y sin usuario ni contraseña (lo exige también `soporte/correo` y
+    un CHECK de la tabla).
+  - «Probar» manda un correo de asunto y cuerpo fijos a una sola dirección, sin guardar: 5 por
+    usuario y 20 por instalación cada hora (429), y responde una causa de lista cerrada en lenguaje
+    llano, nunca la respuesta cruda del servidor.
+  - Remitente, nombre, usuario, host y destino se rechazan con CR, LF u otros caracteres de control.
+- Tablas `notificaciones.avisos`, `notificaciones.correos`, `notificaciones.correo_ajustes` (una fila
+  por ámbito) y `notificaciones.correo_pruebas` (tope y última prueba; sin host, destino ni
+  credenciales); la purga de cada hora borra los de más de 180 días.
 
 ## Eventos
 

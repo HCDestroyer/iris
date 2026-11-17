@@ -688,6 +688,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/correo-sistema/{ambito}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ver el correo del sistema de un ámbito
+         * @description Permiso `correo_sistema.ver`. `{ambito}` es `global` (exige operar sin límite de empresa) o el id de la empresa (exige estar operando en ella; si no, 404). El ajuste guardado (o los valores por defecto con `configurado: false` y `version: 0`) y por dónde sale hoy el correo: `origen` (`empresa`, `global`, `entorno` o `ninguno`) y `enUso` (este ajuste es el que se usa). Un ajuste apagado se salta. Nunca devuelve la contraseña: solo `tieneContrasena`. Contrato: `.claude/integration/contratos/correo-sistema.md`.
+         */
+        get: operations["verCorreoSistema"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/correo-sistema/{ambito}/activar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Activar el correo del sistema de un ámbito
+         * @description Permiso `correo_sistema.configurar`. `{ambito}` es `global` (exige operar sin límite de empresa) o el id de la empresa (exige estar operando en ella; si no, 404). Vuelve a usar el ajuste guardado. Sin ajuste guardado, 404; `version` distinta, 409. Emite `correo_sistema.ajustes_cambiados`. Contrato: `.claude/integration/contratos/correo-sistema.md`.
+         */
+        post: operations["activarCorreoSistema"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/correo-sistema/{ambito}/desactivar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Desactivar el correo del sistema de un ámbito
+         * @description Permiso `correo_sistema.configurar`. `{ambito}` es `global` (exige operar sin límite de empresa) o el id de la empresa (exige estar operando en ella; si no, 404). El ajuste se conserva pero se salta: se usa el siguiente (el global, o el del servidor). Sin ajuste guardado, 404; `version` distinta, 409. Emite `correo_sistema.ajustes_cambiados`. Contrato: `.claude/integration/contratos/correo-sistema.md`.
+         */
+        post: operations["desactivarCorreoSistema"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/correo-sistema/{ambito}/guardar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Guardar el correo del sistema
+         * @description Permiso `correo_sistema.configurar`. `{ambito}` es `global` (exige operar sin límite de empresa) o el id de la empresa (exige estar operando en ella; si no, 404). Crea o reemplaza el ajuste. `version` la que leíste (0 al crear): distinta, 409. `contrasena` ausente = se conserva; `""` = se borra; si cambias el servidor, el puerto o el usuario hay que volver a escribirla (422 `contrasena_requerida`). Puertos 25, 465, 587 o 2525. `seguridad: ninguna` solo con un servidor de la red interna permitida y sin usuario ni contraseña (422 `sin_cifrado_solo_red_interna`, `sin_cifrado_sin_credenciales`). Un servidor en una red no permitida: 422 `destino_no_permitido`. No prueba la conexión (usa `probar`). Emite `correo_sistema.ajustes_cambiados`. Contrato: `.claude/integration/contratos/correo-sistema.md`.
+         */
+        post: operations["guardarCorreoSistema"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/correo-sistema/{ambito}/probar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Probar el correo del sistema sin guardar
+         * @description Permiso `correo_sistema.configurar`. `{ambito}` es `global` (exige operar sin límite de empresa) o el id de la empresa (exige estar operando en ella; si no, 404). Manda un correo de asunto y cuerpo fijos a `para` (una sola dirección) con los valores del formulario, sin guardarlos. Sin `contrasena` usa la guardada de ese ámbito, solo si el servidor, el puerto y el usuario son los guardados. Responde siempre 200 con `estado` (`ok` o `error`), `causa` (lista cerrada) y `detalle` en lenguaje llano; nunca la respuesta cruda del servidor. Tope: 5 pruebas por usuario y 20 por instalación cada hora (429 `demasiadas_pruebas` con `Retry-After`). Emite `correo_sistema.probado`. Contrato: `.claude/integration/contratos/correo-sistema.md`.
+         */
+        post: operations["probarCorreoSistema"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cotizaciones/{id}": {
         parameters: {
             query?: never;
@@ -8996,6 +9096,45 @@ export interface components {
             routerNombre: string;
             zonaNombre: string;
         };
+        CorreoSistema: {
+            activo: boolean;
+            /** Format: date-time */
+            actualizadoEn: string | null;
+            /** @description global o el id de la empresa */
+            ambito: string;
+            /** @description Hay un ajuste guardado en este ámbito */
+            configurado: boolean;
+            /** Format: int64 */
+            empresaId: number | null;
+            /** @description El ajuste guardado de este ámbito es el que se usa hoy */
+            enUso: boolean;
+            /** @description IRIS_SMTP_* del servidor (respaldo) */
+            entorno: components["schemas"]["EntornoCorreo"];
+            host: string;
+            /**
+             * @description Por dónde saldría hoy un correo de este ámbito
+             * @enum {string}
+             */
+            origen: "empresa" | "global" | "entorno" | "ninguno";
+            /** @description El origen en una frase, lista para mostrar */
+            origenDetalle: string;
+            /** Format: int32 */
+            puerto: number;
+            remitenteCorreo: string;
+            remitenteNombre: string;
+            /** @enum {string} */
+            seguridad: "starttls" | "tls" | "ninguna";
+            /** @description Lo único que se sabe de la contraseña: nunca se devuelve */
+            tieneContrasena: boolean;
+            /** @description La última prueba de este ámbito; ausente si nunca se probó */
+            ultimaPrueba?: components["schemas"]["PruebaCorreo"];
+            usuario: string;
+            /**
+             * Format: int32
+             * @description 0 si no hay ajuste guardado
+             */
+            version: number;
+        };
         Cotizacion: {
             /** Format: date-time */
             aceptadaEn: string | null;
@@ -9113,6 +9252,32 @@ export interface components {
             /** @description Ubicación compartida */
             ubicacion?: components["schemas"]["UbicacionChat"];
         };
+        CuerpoGuardarCorreo: {
+            activo: boolean;
+            /** @description Solo escritura. Ausente = se conserva la guardada; "" = se borra */
+            contrasena?: string;
+            /** @description Nombre DNS o IP, sin esquema ni puerto */
+            host: string;
+            /**
+             * Format: int32
+             * @description 25, 465, 587 o 2525
+             */
+            puerto: number;
+            remitenteCorreo: string;
+            remitenteNombre?: string;
+            /**
+             * @description ninguna: solo un relay de la red interna permitida y sin usuario ni contraseña
+             * @enum {string}
+             */
+            seguridad: "starttls" | "tls" | "ninguna";
+            /** @description Vacío = sin autenticación */
+            usuario?: string;
+            /**
+             * Format: int32
+             * @description La que leíste; 0 al crear
+             */
+            version: number;
+        };
         CuerpoLeerChat: {
             /** @description El último mensaje que viste; la lectura solo avanza */
             hasta_mensaje_id: string;
@@ -9120,6 +9285,28 @@ export interface components {
         CuerpoPedirSugerencia: {
             /** @description «Otra»: descarta la vigente y pide una nueva (origen otra) */
             otra?: boolean;
+        };
+        CuerpoProbarCorreo: {
+            /** @description Solo escritura. Ausente = se conserva la guardada; "" = se borra */
+            contrasena?: string;
+            /** @description Nombre DNS o IP, sin esquema ni puerto */
+            host: string;
+            /** @description Una sola dirección: a quién se manda el correo de prueba */
+            para: string;
+            /**
+             * Format: int32
+             * @description 25, 465, 587 o 2525
+             */
+            puerto: number;
+            remitenteCorreo: string;
+            remitenteNombre?: string;
+            /**
+             * @description ninguna: solo un relay de la red interna permitida y sin usuario ni contraseña
+             * @enum {string}
+             */
+            seguridad: "starttls" | "tls" | "ninguna";
+            /** @description Vacío = sin autenticación */
+            usuario?: string;
         };
         CuerpoVersion: {
             /** Format: int32 */
@@ -9473,6 +9660,11 @@ export interface components {
             argosisp?: components["schemas"]["EnlaceExterno"];
             /** @description Horus Flow; ausente sin conector activo */
             horus?: components["schemas"]["EnlaceExterno"];
+        };
+        EntornoCorreo: {
+            configurado: boolean;
+            host: string;
+            remitenteCorreo: string;
         };
         EntradaAbrirArgos: {
             /** @description Sin destino, la persona llega al inicio del panel de Argos: es «Vincular mi usuario de Argos» */
@@ -14301,7 +14493,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.ver" | "integraciones.ver_pendientes" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.ver" | "integraciones.ver_pendientes" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -14826,6 +15018,14 @@ export interface components {
             /** Format: date-time */
             webhookVerificadoEn: string | null;
         };
+        PruebaCorreo: {
+            /** @enum {string|null} */
+            causa: "no_conecta" | "destino_no_permitido" | "certificado" | "seguridad" | "credenciales" | "remitente_rechazado" | "destinatario_rechazado" | "tiempo_agotado" | "otro" | null;
+            /** Format: date-time */
+            en: string;
+            /** @enum {string} */
+            estado: "ok" | "error";
+        };
         PruebaServidor: {
             /** @enum {string|null} */
             codigo: "destino_no_permitido" | "dns" | "conexion" | "tls" | "sin_tls" | "autenticacion" | "carpeta" | "protocolo" | "cifrado" | null;
@@ -15142,6 +15342,14 @@ export interface components {
             imap: components["schemas"]["PruebaServidor"];
             /** @description Ausente si el buzón no tiene SMTP */
             smtp?: components["schemas"]["PruebaServidor"];
+        };
+        ResultadoPruebaCorreo: {
+            /** @enum {string|null} */
+            causa: "no_conecta" | "destino_no_permitido" | "certificado" | "seguridad" | "credenciales" | "remitente_rechazado" | "destinatario_rechazado" | "tiempo_agotado" | "otro" | null;
+            /** @description Texto llano en español, listo para mostrar */
+            detalle: string;
+            /** @enum {string} */
+            estado: "ok" | "error";
         };
         ResumenAvisos: {
             /** Format: int32 */
@@ -16322,6 +16530,13 @@ export interface components {
             agendar_visita?: boolean;
             /** @description true (por defecto): el saldo solo a quien pasó la verificación fuerte; false: basta que el número coincida */
             dar_saldo: boolean;
+        };
+        VersionCorreoSistema: {
+            /**
+             * Format: int32
+             * @description La que leíste
+             */
+            version: number;
         };
         VersionPlantilla: {
             /** Format: date-time */
@@ -19364,6 +19579,407 @@ export interface operations {
             };
             /** @description Unprocessable Entity */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verCorreoSistema: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description global o el id de la empresa */
+                ambito: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorreoSistema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    activarCorreoSistema: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description global o el id de la empresa */
+                ambito: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionCorreoSistema"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorreoSistema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    desactivarCorreoSistema: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description global o el id de la empresa */
+                ambito: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionCorreoSistema"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorreoSistema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    guardarCorreoSistema: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description global o el id de la empresa */
+                ambito: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CuerpoGuardarCorreo"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorreoSistema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    probarCorreoSistema: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description global o el id de la empresa */
+                ambito: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CuerpoProbarCorreo"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultadoPruebaCorreo"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

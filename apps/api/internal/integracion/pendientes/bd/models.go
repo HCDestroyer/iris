@@ -1795,6 +1795,31 @@ type NotificacionesCorreo struct {
 	UpdatedAt time.Time
 }
 
+type NotificacionesCorreoAjuste struct {
+	ID                int64
+	EmpresaID         *int64
+	Host              string
+	Puerto            int32
+	Seguridad         string
+	Usuario           string
+	ContrasenaCifrada []byte
+	RemitenteNombre   string
+	RemitenteCorreo   string
+	Activo            bool
+	Version           int32
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type NotificacionesCorreoPrueba struct {
+	ID        int64
+	EmpresaID *int64
+	UsuarioID int64
+	Estado    string
+	Causa     *string
+	CreadoEn  time.Time
+}
+
 type NotificacionesDispositivo struct {
 	ID            int64
 	UsuarioID     int64
