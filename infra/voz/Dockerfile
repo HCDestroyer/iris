@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.19.0@sha256:b6afd42430b15f2d2a4c5a02b919e98a525b785b1aaff16747d2f623364e39b6
 # «Iris Voz»: imagen del Servidor de IA (contrato voz.md §4.7). Contexto de build: la raíz del repo.
 #   docker build -f infra/voz/Dockerfile --build-arg VERSION=0.1.0 -t iris-voz .
 #   docker build -f infra/voz/Dockerfile --target ollama-falso -t iris-voz-ollama-falso .   (solo CI)
@@ -10,7 +10,7 @@
 # La imagen final es distroless con glibc (base-debian12:nonroot, uid 65532, sin shell): el medidor
 # ejecuta el nvidia-smi que inyecta el runtime de NVIDIA, que necesita glibc.
 
-FROM golang:1.24.13-bookworm AS build
+FROM golang:1.24.13-bookworm@sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce6173ea77ac AS build
 WORKDIR /src
 ENV CGO_ENABLED=0 GOFLAGS=-trimpath
 COPY apps/api/go.mod apps/api/go.sum ./

@@ -11,6 +11,9 @@
 #   función que usa el instalador. La identidad real (voz-release.yml en una etiqueta voz-v*) solo
 #   existe en una release: voz-release.yml repite esta prueba contra el paquete publicado.
 #
+# Las acciones van fijadas por SHA y el checkout no deja credenciales. Go es el del runner (con
+# GOTOOLCHAIN baja el de go.mod si hace falta): así no hay ninguna acción de terceros.
+#
 # Las pruebas de Go del protocolo (internal/voz) corren en ci.yml con el resto de apps/api.
 name: Iris Voz
 
@@ -47,7 +50,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
       - name: shellcheck
         run: shellcheck infra/voz/*.sh
       - name: verificar.sh
@@ -58,11 +63,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
-          go-version-file: apps/api/go.mod
-          cache-dependency-path: apps/api/go.sum
+          persist-credentials: false
       - name: Instalar, emparejar, usar y desenlazar
         run: sudo -E env "PATH=$PATH" infra/voz/prueba.sh falso
 
@@ -71,11 +74,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
-          go-version-file: apps/api/go.mod
-          cache-dependency-path: apps/api/go.sum
+          persist-credentials: false
       - name: Descargar un modelo por el proxy, comprobar su digest y usarlo
         run: sudo -E env "PATH=$PATH" infra/voz/prueba.sh real
 
@@ -89,7 +90,9 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
       - name: Firmar un paquete de prueba y verificarlo sin red
         env:
           IDENTIDAD: ${{ github.server_url }}/${{ github.workflow_ref }}

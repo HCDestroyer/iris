@@ -2,6 +2,9 @@
 # contenedor de un solo uso baja el modelo al volumen y termina; no tiene ruta a internet salvo por
 # el proxy, que solo deja pasar hacia el registro de modelos (puerto 443).
 services:
+  # Solo nombres exactos: el registro y el almacén de donde el registro sirve los modelos (si el
+  # registro cambia de almacén, el proxy registra el host rechazado; se ajusta con
+  # IRIS_VOZ_DESCARGA_HOSTS en el .env).
   proxy-descarga:
     profiles: [descarga]
     read_only: true
@@ -10,10 +13,12 @@ services:
     image: ${IRIS_VOZ_REGISTRY:-ghcr.io/hcdestroyer}/iris-voz:${IRIS_VOZ_VERSION:?IRIS_VOZ_VERSION is required}
     command: [proxy-descarga]
     user: "65532:65532"
+    pids_limit: 128
+    mem_limit: 256m
     healthcheck:
       disable: true
     environment:
-      IRIS_VOZ_DESCARGA_HOSTS: ${IRIS_VOZ_DESCARGA_HOSTS:-registry.ollama.ai,.r2.cloudflarestorage.com}
+      IRIS_VOZ_DESCARGA_HOSTS: ${IRIS_VOZ_DESCARGA_HOSTS:-registry.ollama.ai,dd20bb891979d25aebc8bec07b2b3bbc.r2.cloudflarestorage.com}
     networks: [descarga, salida]
 
   # Crea el volumen de modelos con el dueño sin privilegios (el de /modelos en la imagen) antes de
@@ -26,6 +31,8 @@ services:
     image: ${IRIS_VOZ_REGISTRY:-ghcr.io/hcdestroyer}/iris-voz:${IRIS_VOZ_VERSION:?IRIS_VOZ_VERSION is required}
     command: [version]
     user: "65532:65532"
+    pids_limit: 32
+    mem_limit: 64m
     network_mode: none
     healthcheck:
       disable: true
@@ -35,6 +42,8 @@ services:
   descarga:
     profiles: [descarga]
     user: "65532:65532"
+    pids_limit: 512
+    mem_limit: 4g
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -139,20 +140,24 @@ func TestEnlaceLimiteDeFrecuencia(t *testing.T) {
 	cert := vozprueba.Certificado(t)
 	bueno := b.AbrirVentana()
 	malo, _ := voz.NuevoCodigo()
+	// Una ráfaga de fallos desde una IP agota su cubo: hasta el código bueno recibe 429 desde ahí.
 	for range 6 {
-		b.Adelantar(3 * time.Second)
 		if _, err := voz.Enlazar(t.Context(), voz.OpcionesEnlace{URL: b.URL, Codigo: malo, Cert: cert}); !errors.Is(err, voz.ErrEnlace) {
 			t.Fatalf("intento fallido: %v", err)
 		}
 	}
-	// Pasado el tope por IP ni el código bueno entra desde esa IP, pero la ventana sigue abierta.
-	b.Adelantar(3 * time.Second)
 	if _, err := voz.Enlazar(t.Context(), voz.OpcionesEnlace{URL: b.URL, Codigo: bueno, Cert: cert}); !errors.Is(err, voz.ErrEnlace) {
-		t.Fatalf("tras el tope por IP: %v", err)
+		t.Fatalf("con el cubo de la IP agotado: %v", err)
 	}
+	// Los fallos no cierran la ventana ni bloquean el enlace: pasado un momento, el código bueno entra.
 	if _, abierta := b.Almacen.VentanaAbierta(b.Ahora()); !abierta {
 		t.Fatal("los fallos cerraron la ventana")
 	}
+	b.Adelantar(5 * time.Second)
+	if _, err := voz.Enlazar(t.Context(), voz.OpcionesEnlace{URL: b.URL, Codigo: bueno, Cert: cert}); err != nil {
+		t.Fatalf("el enlace legítimo quedó bloqueado por los fallos: %v", err)
+	}
+	b.AbrirVentana()
 	// La ventana vence sola a los 15 minutos.
 	b.Adelantar(voz.VidaCodigo)
 	if _, abierta := b.Almacen.VentanaAbierta(b.Ahora()); abierta {
@@ -258,6 +263,15 @@ func TestFirmaYRepeticion(t *testing.T) {
 	if est != 401 || p.Codigo != "reloj_desfasado" || p.HoraServidor == 0 {
 		t.Fatalf("reloj: %d %s", est, out)
 	}
+	// Una marca anterior al arranque del proceso no vale (los nonces vistos no sobreviven a un
+	// reinicio): aunque esté dentro de la ventana y bien firmada.
+	b2 := vozprueba.NuevoBanco(t, vozprueba.Opciones{})
+	_, r2 := b2.Enlazar(cert, versionIris)
+	antes := b2.Inicio().Add(-5 * time.Second)
+	if est, _, _ := crudo(t, b2, cert, "GET", voz.RutaSalud, nil, firmadas(r2.Token, "GET", voz.RutaSalud, nil, antes, nonce())); est != 401 {
+		t.Fatalf("marca anterior al arranque: %d", est)
+	}
+
 	// Ruta literal exacta: con query, con «%» o sin estar en la lista, 404 (aunque esté bien firmada).
 	for _, ruta := range []string{voz.RutaSalud + "?a=1", "/voz/v1/%73alud", voz.Base + "/llm/api/pull", voz.Base + "/llm/api/tags",
 		voz.Base + "/llm/v1/chat/completions/", voz.Base + "/llm/../salud", "/api/pull"} {
@@ -309,18 +323,62 @@ func TestRotacion(t *testing.T) {
 	c1.Cerrar()
 	// (la firma tolera ±30 s; el reloj de la puerta va 20 s adelantado respecto al del cliente)
 	e, _ := b.Almacen.Leer()
-	if e.AnteriorVence.IsZero() || e.HuellaClienteAnterior == "" || len(e.TokenAnterior) != voz.LargoToken {
+	if e.TokenAnteriorVence.IsZero() || e.HuellaAnteriorVence.IsZero() || e.HuellaClienteAnterior == "" || len(e.TokenAnterior) != voz.LargoToken {
 		t.Fatalf("convivencia no guardada")
 	}
-	if err := b.Almacen.Cambiar(func(e *voz.Estado) error { e.AnteriorVence = b.Ahora().Add(-time.Second); return nil }); err != nil {
-		t.Fatal(err)
+	vencer := func() {
+		t.Helper()
+		if err := b.Almacen.Cambiar(func(e *voz.Estado) error {
+			e.TokenAnteriorVence, e.HuellaAnteriorVence = b.Ahora().Add(-time.Second), b.Ahora().Add(-time.Second)
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
+	vencer()
 	if _, err := c1.Salud(ctx); err == nil {
 		t.Fatal("el certificado anterior debía dejar de valer al vencer la convivencia")
 	}
 	if _, err := c2.Salud(ctx); err != nil {
 		t.Fatalf("nuevo tras la convivencia: %v", err)
 	}
+
+	// Una credencial anterior ya vencida no revive al rotar la otra con convivencia: se rota solo el
+	// certificado de cliente (el token anterior, t1, venció arriba y sigue en el archivo) y t1 no
+	// vuelve a valer; y al revés, se rota solo el token y la huella anterior vencida tampoco revive.
+	cert3 := vozprueba.Certificado(t)
+	if err := c2.Credencial(ctx, voz.PeticionCredencial{HuellaCliente: voz.Huella(cert3.Certificate[0]), ConvivenciaSeg: 3600}); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := b.Almacen.Leer(); e.TokenAnterior != nil || !e.TokenAnteriorVence.IsZero() {
+		t.Fatal("el token anterior vencido debía limpiarse al rotar la huella")
+	}
+	_, err = b.Cliente(cert3, t1, versionIris, r.HuellaServidor).Salud(ctx)
+	esperar(t, "401 no_autorizado", err)
+	vencer() // vence la huella anterior (cert2)
+	t2b, _ := voz.NuevoToken()
+	c2n := b.Cliente(cert3, t2, versionIris, r.HuellaServidor)
+	if err := c2n.Credencial(ctx, voz.PeticionCredencial{Token: t2b, ConvivenciaSeg: 3600}); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := b.Almacen.Leer(); e.HuellaClienteAnterior != "" {
+		t.Fatal("la huella anterior vencida debía limpiarse al rotar el token")
+	}
+	c2.Cerrar()
+	if _, err := c2.Salud(ctx); err == nil {
+		t.Fatal("el certificado anterior vencido revivió al rotar el token")
+	}
+	// Convivencia 0 sin token ni huella nuevos revoca de verdad lo anterior (aquí, t2).
+	if _, err := c2n.Salud(ctx); err != nil {
+		t.Fatalf("t2 debía valer durante la convivencia: %v", err)
+	}
+	c3n := b.Cliente(cert3, t2b, versionIris, r.HuellaServidor)
+	if err := c3n.Credencial(ctx, voz.PeticionCredencial{ConvivenciaSeg: 0}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = c2n.Salud(ctx)
+	esperar(t, "401 no_autorizado", err)
+	c2, cert2 = c3n, cert3
 
 	// «Revocar ahora»: convivencia 0.
 	t3, _ := voz.NuevoToken()
@@ -447,12 +505,40 @@ func TestReserializacion(t *testing.T) {
 		t.Fatalf("un rechazo llegó a Ollama (%d chats)", n)
 	}
 
+	// parameters y json_schema se recodifican: clave repetida en cualquier nivel o demasiada
+	// profundidad, 422; lo que llega a Ollama es la recodificación.
+	conEsquema := func(esquema string) []byte {
+		return []byte(`{"model":"modelo-a:latest","messages":[{"role":"user","content":"x"}],"tools":[{"type":"function","function":{"name":"a","parameters":` + esquema + `}}]}`)
+	}
+	hondo := strings.Repeat(`{"a":`, 40) + `1` + strings.Repeat(`}`, 40)
+	for nombre, cuerpo := range map[string][]byte{
+		"clave repetida en parameters":   conEsquema(`{"type":"object","properties":{"a":{"type":"string","type":"number"}}}`),
+		"clave repetida arriba":          conEsquema(`{"type":"object","type":"array"}`),
+		"parameters demasiado profundo":  conEsquema(hondo),
+		"parameters que no es un objeto": conEsquema(`[1]`),
+		"json_schema con clave repetida": []byte(`{"model":"modelo-a:latest","messages":[{"role":"user","content":"x"}],"response_format":{"type":"json_schema","json_schema":{"a":{"b":1,"b":2}}}}`),
+		"json_schema demasiado profundo": []byte(`{"model":"modelo-a:latest","messages":[{"role":"user","content":"x"}],"response_format":{"type":"json_schema","json_schema":` + hondo + `}}`),
+	} {
+		_, err := c.Hacer(ctx, "POST", voz.RutaChat, cuerpo, voz.TopeRespuestaLLM)
+		if got := codigoDe(err); got != "422 peticion_invalida" {
+			t.Fatalf("%s: %s", nombre, got)
+		}
+	}
+	antesN := len(b.Ollama.Chats())
+	if _, err := c.Hacer(ctx, "POST", voz.RutaChat, conEsquema("{ \"type\" : \"object\",\n \"properties\": { \"a\": {\"type\":\"string\"} } }"), voz.TopeRespuestaLLM); err != nil {
+		t.Fatalf("esquema válido: %v", err)
+	}
+	if got := b.Ollama.Chats()[antesN].Cuerpo; !bytes.Contains(got, []byte(`"parameters":{"type":"object","properties":{"a":{"type":"string"}}}`)) {
+		t.Fatalf("parameters no se recodificó: %s", got)
+	}
+	base := len(b.Ollama.Chats())
+
 	// Clave repetida: a Ollama llega una sola vez (no se reenvía lo que escribió el cliente).
 	dup := `{"model":"modelo-b:latest","model":"modelo-a:latest","messages":[{"role":"user","content":"x"}]}`
 	if _, err := c.Hacer(ctx, "POST", voz.RutaChat, []byte(dup), voz.TopeRespuestaLLM); err != nil {
 		t.Fatalf("clave repetida: %v", err)
 	}
-	ultimo := b.Ollama.Chats()[1].Cuerpo
+	ultimo := b.Ollama.Chats()[base].Cuerpo
 	if bytes.Count(ultimo, []byte(`"model"`)) != 1 || !bytes.Contains(ultimo, []byte(`"stream":false`)) || !bytes.Contains(ultimo, []byte(`"max_tokens"`)) {
 		t.Fatalf("cuerpo reserializado: %s", ultimo)
 	}
@@ -497,6 +583,18 @@ func TestTopes(t *testing.T) {
 	_, err = c.Hacer(ctx, "POST", voz.RutaChat, chat, voz.TopeRespuestaLLM)
 	esperar(t, "502 llm_error", err)
 	b.Ollama.Cambiar(func(o *vozprueba.Ollama) { o.Respuesta, o.Estado = nil, 0 })
+
+	// Ollama redirige: no se sigue (ni a otro host ni a otra ruta) y es un error.
+	destino := vozprueba.Nuevo("x")
+	otro := httptest.NewServer(destino)
+	defer otro.Close()
+	b.Ollama.Cambiar(func(o *vozprueba.Ollama) { o.Redirigir = otro.URL + "/v1/chat/completions" })
+	_, err = c.Hacer(ctx, "POST", voz.RutaChat, chat, voz.TopeRespuestaLLM)
+	esperar(t, "502 llm_error", err)
+	if n := len(destino.Peticiones()); n != 0 {
+		t.Fatalf("se siguió la redirección de Ollama (%d peticiones al destino)", n)
+	}
+	b.Ollama.Cambiar(func(o *vozprueba.Ollama) { o.Redirigir = "" })
 
 	// Duración máxima por petición.
 	b.Ollama.Cambiar(func(o *vozprueba.Ollama) { o.Demora = 2 * time.Second })
@@ -642,9 +740,11 @@ func TestMetricasVersionYCompatibilidad(t *testing.T) {
 }
 
 func TestProxyDeDescarga(t *testing.T) {
-	p := voz.ProxyDescarga{Hosts: []string{"registry.ollama.ai", ".r2.cloudflarestorage.com"}}
+	p := voz.ProxyDescarga{Hosts: []string{"registry.ollama.ai", "almacen.r2.cloudflarestorage.com", ".r2.cloudflarestorage.com"}}
 	for host, quiero := range map[string]bool{
-		"registry.ollama.ai": true, "REGISTRY.ollama.ai.": true, "x.r2.cloudflarestorage.com": true,
+		"registry.ollama.ai": true, "REGISTRY.ollama.ai.": true, "almacen.r2.cloudflarestorage.com": true,
+		// Solo nombres exactos: el bucket de otro en el mismo almacén no pasa, ni con un sufijo en la lista.
+		"otro.r2.cloudflarestorage.com": false, "x.almacen.r2.cloudflarestorage.com": false,
 		"r2.cloudflarestorage.com": false, "evil.com": false, "registry.ollama.ai.evil.com": false,
 		"127.0.0.1": false, "10.0.0.1": false, "": false,
 	} {

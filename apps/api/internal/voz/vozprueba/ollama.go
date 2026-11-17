@@ -32,7 +32,9 @@ type Ollama struct {
 	Respuesta []byte
 	Estado    int
 	// Caido: toda petición responde 503.
-	Caido      bool
+	Caido bool
+	// Redirigir: el chat responde 307 hacia esta dirección.
+	Redirigir  string
 	peticiones []Peticion
 }
 
@@ -77,7 +79,7 @@ func (o *Ollama) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	cuerpo, _ := io.ReadAll(io.LimitReader(r.Body, 8<<20))
 	o.mu.Lock()
 	o.peticiones = append(o.peticiones, Peticion{Metodo: r.Method, Ruta: r.URL.Path, Cabeceras: r.Header.Clone(), Cuerpo: cuerpo})
-	caido, demora, resp, estado := o.Caido, o.Demora, o.Respuesta, o.Estado
+	caido, demora, resp, estado, redirigir := o.Caido, o.Demora, o.Respuesta, o.Estado, o.Redirigir
 	type m struct {
 		Name      string    `json:"name"`
 		Model     string    `json:"model"`
@@ -108,6 +110,10 @@ func (o *Ollama) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "GET /api/ps":
 		escribir(map[string]any{"models": ps})
 	case "POST /v1/chat/completions":
+		if redirigir != "" {
+			http.Redirect(w, r, redirigir, http.StatusTemporaryRedirect)
+			return
+		}
 		if demora > 0 {
 			select {
 			case <-time.After(demora):

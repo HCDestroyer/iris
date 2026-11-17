@@ -27,6 +27,24 @@ jq -e --arg v "$version" '.version == $v and .protocolo == "v1" and (.irisMin | 
     { echo "install-voz.sh cannot read the models of manifiesto.json (one per line: nombre, digest)" >&2; exit 1; }
 echo "manifiesto $version: ok"
 
+# The base images of the Dockerfile and its frontend are pinned by digest.
+if grep -E '^(FROM |# syntax=)' "$aqui/Dockerfile" | grep -qv '@sha256:[0-9a-f]\{64\}'; then
+    echo "infra/voz/Dockerfile: an image or the frontend is not pinned by digest" >&2
+    exit 1
+fi
+# voz-release.yml signs with the same cosign the installer pins.
+flujo="$aqui/../../.github/workflows/voz-release.yml"
+if ! grep -qF "COSIGN_VERSION: $COSIGN_VERSION" "$flujo" || ! grep -qF "COSIGN_SHA256: $(cosign_sha256 amd64)" "$flujo"; then
+    echo "voz-release.yml does not pin the same cosign as install-voz.sh" >&2
+    exit 1
+fi
+# Every action of the voz workflows is pinned by commit SHA.
+if grep -hE '^\s*-?\s*uses:' "$aqui/../../.github/workflows/voz.yml" "$flujo" | grep -qvE '@[0-9a-f]{40}( |$)'; then
+    echo "a GitHub action of the voz workflows is not pinned by SHA" >&2
+    exit 1
+fi
+echo "imágenes, cosign y acciones fijadas: ok"
+
 if docker compose version > /dev/null 2>&1; then
     printf 'IRIS_VOZ_VERSION=%s\n' "$version" > "$tmp/.env"
     base=(--env-file "$tmp/.env" -f "$aqui/docker-compose.yml")
@@ -38,7 +56,9 @@ if docker compose version > /dev/null 2>&1; then
     jq -e '
         (.services | to_entries | all(.value.read_only == true and (.value.cap_drop == ["ALL"])
             and (.value.security_opt | index("no-new-privileges:true") != null) and (.value.privileged != true)
-            and (.value.user == "65532:65532")))
+            and (.value.user == "65532:65532") and ((.value.pids_limit // 0) > 0) and ((.value.mem_limit // "0" | tonumber) > 0)))
+        # the download proxy only lets exact hosts through (no suffixes, no wildcards)
+        and (.services["proxy-descarga"].environment.IRIS_VOZ_DESCARGA_HOSTS | split(",") | all(test("^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$")))
         # the only published port is the control port, on the puerta
         and ([.services | to_entries[] | select(.value.ports != null) | .key] == ["puerta"])
         # Ollama: internal network only; nothing but the download proxy reaches the outside

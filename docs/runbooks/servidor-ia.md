@@ -97,6 +97,7 @@ modelos permitidos (`IRIS_VOZ_LLM_SIMULTANEAS` en `/opt/iris-voz/.env` lo fija a
 | Renovar el certificado | `sudo iris-voz renew-cert`: la huella nueva se anuncia a Iris por el canal vigente y Iris la fija sola. Nunca se acepta una huella nueva con un clic |
 | Se perdió el certificado (reinstalación) | `sudo iris-voz renew-cert --no-channel` y enlazar de nuevo con código |
 | Iris comprometido | `sudo iris-voz unpair` en el servidor y enlazar de nuevo: el token y la clave del certificado de cliente viven los dos en Iris y caen juntos |
+| El registro cambió de almacén y `model pull` falla | El proxy de descarga solo admite hosts exactos y registra el rechazado (`sudo iris-voz logs proxy-descarga`). Revisa que sea del registro de modelos y añádelo a `IRIS_VOZ_DESCARGA_HOSTS` en `/opt/iris-voz/.env` |
 | Limitar por IP | `sudo iris-voz ip restrict` (solo la IP de Iris vista al enlazar; apagado de fábrica) y `ip release` |
 
 Si el servidor se cae, el asistente de las empresas que lo usan no queda colgado: las sugerencias
@@ -133,6 +134,16 @@ Anota los resultados de la primera instalación en `voz.md` §4.9.
    y mergea a `main`.
 2. Crea la etiqueta `voz-vX.Y.Z` sobre ese commit. El workflow `voz-release.yml` publica la imagen,
    arma el paquete, lo firma con cosign sin clave y lo verifica sin red antes de crear la release.
-3. Las etiquetas `voz-v*` deben estar **protegidas** en GitHub (regla de etiquetas: solo quien
-   publica puede crearlas, sin borrado ni reescritura): la identidad que acepta el instalador es
-   ese workflow en esa etiqueta.
+3. El job `publicar` espera una aprobación en el entorno `voz-release`.
+
+**Antes de la primera versión hay que preparar el repositorio** (lo gestiona el líder con el dueño;
+no lo hace ningún agente):
+
+- Una **regla de etiquetas** que proteja `voz-v*`: solo quien publica puede crearlas, sin borrado ni
+  reescritura. La identidad que acepta el instalador es ese workflow en esa etiqueta.
+- El **entorno `voz-release`** (Settings → Environments) con revisores obligatorios y limitado a las
+  etiquetas `voz-v*`.
+
+El workflow tiene tres jobs con permisos mínimos: `construir` (publica la imagen), `firmar` (solo
+`id-token: write`; no hace checkout ni ejecuta nada del repositorio) y `publicar` (verifica sin red
+y crea la release). Todas las acciones van fijadas por SHA.

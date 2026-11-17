@@ -1112,7 +1112,8 @@ no guarda ninguna credencial de Iris.
      (`versión_de_Iris` es el valor de `X-Iris-Version`, que así queda **dentro de la cadena firmada**),
      con `K = HKDF-SHA256(token, info = "iris-voz/firma/v1")`, `X-Iris-Marca` (segundos Unix;
      ventana de ±30 s) y `X-Iris-Nonce` (128 bits aleatorios; el motor rechaza un nonce repetido
-     durante 90 s, más que la ventana). Comparación en tiempo constante. Cubre método y ruta: una
+     durante 90 s, más que la ventana; como esa memoria no sobrevive a un reinicio, tampoco
+     acepta ninguna marca anterior al arranque del proceso). Comparación en tiempo constante. Cubre método y ruta: una
      petición capturada no sirve para otro endpoint. Una marca fuera de ventana responde 401
      `reloj_desfasado` con la hora del servidor (único 401 con detalle: no revela nada del secreto);
      Iris lo muestra como «el reloj de uno de los dos servidores está mal» y el instalador comprueba
@@ -1130,8 +1131,11 @@ no guarda ninguna credencial de Iris.
   Un túnel WireGuard entre los dos servidores es opcional y se suma; no sustituye nada.
 - **Dónde vive el token.** Es un secreto compartido (hace falta en los dos lados para el HMAC), así
   que **ninguno guarda «solo el hash»**: en Iris va cifrado con `IRIS_CLAVE_CIFRADO`
-  (`voz_motores.token`); en el servidor de voz, como secreto de Docker en un archivo con permisos
-  mínimos (nunca en el repo, ni en una variable visible en `docker inspect`, ni en logs). **Nada
+  (`voz_motores.token`); en el servidor de voz, en **un archivo de modo 0600 dentro del volumen
+  `estado`** (directorio 0700, del usuario sin privilegios de la puerta, que es el único contenedor
+  que lo monta). No es un secreto de Docker: la puerta tiene que poder reescribirlo al enlazar y
+  al rotar, y un secreto de Docker es de solo lectura. Nunca en el repo, ni en una variable visible
+  en `docker inspect`, ni en logs. **Nada
   se guarda como hash**: el código de enlace va cifrado en Iris y se borra al enlazar o al vencer
   (§4.8).
 - **El token nunca lo copia una persona.** El **derivado** del código (§4.8) **no viaja nunca**: se
@@ -1141,7 +1145,8 @@ no guarda ninguna credencial de Iris.
   («Rotar credenciales», `POST /voz/motores/{id}/rotar-token`, `servidor_ia.administrar`);
   mensajería genera el token nuevo y lo entrega por el canal ya autenticado
   (`POST /voz/v1/credencial`, con mTLS y firmado con el vigente). **Ventana de convivencia:** los
-  dos lados aceptan el nuevo y el anterior durante 24 h y después solo el nuevo; si la entrega
+  dos lados aceptan el nuevo y el anterior durante 24 h y después solo el nuevo (el token y la
+  huella anteriores tienen cada uno su vencimiento: uno vencido no revive al rotar el otro); si la entrega
   falla, sigue valiendo el anterior y el panel lo dice. El certificado de cliente de Iris se
   renueva en la misma operación cuando le quedan menos de 30 días o si el admin lo pide: la puerta
   acepta las dos huellas durante la misma ventana. Cada rotación audita y emite
@@ -1301,7 +1306,8 @@ Cualquier otra ruta o método responde 404 **en la puerta**, sin llegar a Ollama
 **Modelos.** El contenedor `llm` **no tiene salida a red**, así que no puede descargar nada. Los
 modelos se instalan con un comando explícito en el servidor, `iris-voz modelo descargar <nombre>`
 (y `iris-voz modelo quitar <nombre>`), que usa un **contenedor de un solo uso cuya única salida
-es el registro de modelos** (regla de salida por host), escribe en el volumen de modelos y
+es el registro de modelos**: un proxy que solo admite **nombres de host exactos** (el registro y el
+almacén desde el que sirve los modelos; nunca un sufijo, que admitiría el almacén de cualquiera), escribe en el volumen de modelos y
 termina. Los modelos por defecto están **fijados por digest en el manifiesto** (§4.7) y la descarga
 se verifica contra él; el contenedor `llm` monta ese volumen en **solo lectura**. Desde
 el panel solo se **listan** los instalados: Iris no puede pedir, borrar ni crear modelos.
@@ -1415,8 +1421,9 @@ tener mTLS, y solo existe mientras la ventana está abierta. La abre el instalad
 `iris-voz enlazar` en el servidor (nunca Iris ni nada por red), dura **15 min** y es de **un solo
 uso**: se cierra con el primer enlace correcto o al vencer. **Los intentos fallidos no la
 cierran** (cualquiera que alcance el puerto podría impedir el enlace): `/enlazar` tiene **límite de
-frecuencia** (1 intento cada 2 s en total y 5 por IP en la ventana; por encima 429), y con un
-código de 160 bits adivinarlo no es viable. Con la ventana cerrada la ruta responde como cualquier otra sin
+frecuencia por IP** (3 seguidos y después 1 cada 2 s; por encima 429) y uno global holgado que solo
+protege al proceso, de modo que una IP que insiste no gasta el cupo de otra; con un código de 160
+bits adivinarlo no es viable. Con la ventana cerrada la ruta responde como cualquier otra sin
 certificado: corte en el saludo TLS.
 
 **Enlazar** (una vez):

@@ -186,9 +186,104 @@ type errorChat struct{ codigo, detalle string }
 
 func (e *errorChat) Error() string { return e.codigo }
 
-func esObjetoJSON(b json.RawMessage) bool {
-	var m map[string]json.RawMessage
-	return json.Unmarshal(b, &m) == nil && m != nil
+// profundidadMaxJSON: anidamiento máximo de un esquema (parameters, json_schema).
+const profundidadMaxJSON = 32
+
+// recodificarObjeto decodifica un objeto JSON libre (el esquema de una herramienta o de la
+// respuesta) y lo vuelve a codificar: profundidad acotada y ninguna clave repetida en ningún nivel.
+// Lo que sale hacia Ollama es la recodificación, nunca los bytes del cliente.
+func recodificarObjeto(crudo json.RawMessage) (json.RawMessage, bool) {
+	dec := json.NewDecoder(bytes.NewReader(crudo))
+	dec.UseNumber()
+	v, ok := leerValorJSON(dec, 1)
+	if !ok || dec.More() {
+		return nil, false
+	}
+	if _, esObjeto := v.(objetoJSON); !esObjeto {
+		return nil, false
+	}
+	out, err := json.Marshal(v)
+	return out, err == nil
+}
+
+// objetoJSON conserva el orden de las claves al recodificar.
+type objetoJSON []campoJSON
+
+type campoJSON struct {
+	clave string
+	valor any
+}
+
+func (o objetoJSON) MarshalJSON() ([]byte, error) {
+	var b bytes.Buffer
+	b.WriteByte('{')
+	for i, c := range o {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		k, err := json.Marshal(c.clave)
+		if err != nil {
+			return nil, err
+		}
+		v, err := json.Marshal(c.valor)
+		if err != nil {
+			return nil, err
+		}
+		b.Write(k)
+		b.WriteByte(':')
+		b.Write(v)
+	}
+	b.WriteByte('}')
+	return b.Bytes(), nil
+}
+
+func leerValorJSON(dec *json.Decoder, nivel int) (any, bool) {
+	if nivel > profundidadMaxJSON {
+		return nil, false
+	}
+	t, err := dec.Token()
+	if err != nil {
+		return nil, false
+	}
+	d, esDelim := t.(json.Delim)
+	if !esDelim {
+		return t, true
+	}
+	switch d {
+	case '{':
+		o, vistas := objetoJSON{}, map[string]bool{}
+		for dec.More() {
+			k, err := dec.Token()
+			clave, esTexto := k.(string)
+			if err != nil || !esTexto || vistas[clave] {
+				return nil, false
+			}
+			vistas[clave] = true
+			v, ok := leerValorJSON(dec, nivel+1)
+			if !ok {
+				return nil, false
+			}
+			o = append(o, campoJSON{clave, v})
+		}
+		if _, err := dec.Token(); err != nil {
+			return nil, false
+		}
+		return o, true
+	case '[':
+		a := []any{}
+		for dec.More() {
+			v, ok := leerValorJSON(dec, nivel+1)
+			if !ok {
+				return nil, false
+			}
+			a = append(a, v)
+		}
+		if _, err := dec.Token(); err != nil {
+			return nil, false
+		}
+		return a, true
+	}
+	return nil, false
 }
 
 // reserializar decodifica la petición con la lista cerrada de campos, la valida y arma el cuerpo
@@ -248,9 +343,11 @@ func reserializar(cuerpo []byte, maxTokens int) (chatPeticion, []byte, error) {
 				return mal("response_format")
 			}
 		case "json_schema":
-			if !esObjetoJSON(f.JSONSchema) {
+			limpio, ok := recodificarObjeto(f.JSONSchema)
+			if !ok {
 				return mal("response_format")
 			}
+			f.JSONSchema = limpio
 		default:
 			return mal("response_format")
 		}
@@ -258,10 +355,16 @@ func reserializar(cuerpo []byte, maxTokens int) (chatPeticion, []byte, error) {
 	if len(in.Tools) > 64 {
 		return mal("tools")
 	}
-	for _, h := range in.Tools {
-		if h.Type != "function" || !reNombreFuncion.MatchString(h.Function.Name) || len(h.Function.Description) > 4096 ||
-			(h.Function.Parameters != nil && !esObjetoJSON(h.Function.Parameters)) {
+	for i, h := range in.Tools {
+		if h.Type != "function" || !reNombreFuncion.MatchString(h.Function.Name) || len(h.Function.Description) > 4096 {
 			return mal("tools")
+		}
+		if h.Function.Parameters != nil {
+			limpio, ok := recodificarObjeto(h.Function.Parameters)
+			if !ok {
+				return mal("tools")
+			}
+			in.Tools[i].Function.Parameters = limpio
 		}
 	}
 	if in.ToolChoice != nil && *in.ToolChoice != "auto" && *in.ToolChoice != "none" {

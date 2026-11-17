@@ -4,5 +4,6 @@ services:
   llm:
     image: iris-voz-ollama-falso:prueba
     user: "65532:65532"
+    mem_limit: 256m
     environment:
       MODELOS: ${IRIS_VOZ_PRUEBA_MODELOS:-modelo-a:latest,modelo-b:latest}

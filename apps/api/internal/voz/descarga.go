@@ -3,6 +3,7 @@ package voz
 import (
 	"context"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
@@ -14,7 +15,8 @@ import (
 // los hosts del registro de modelos, puerto 443. Lo usa el contenedor de un solo uso de
 // `iris-voz modelo descargar`, que no tiene otra ruta (voz.md §4.4 y §6.3).
 type ProxyDescarga struct {
-	// Hosts permitidos: un nombre exacto, o un sufijo si empieza por punto (".ejemplo.com").
+	// Hosts permitidos: nombres exactos (sin comodines ni sufijos: un sufijo como el de un
+	// almacenamiento de objetos admitiría el bucket de cualquiera).
 	Hosts []string
 }
 
@@ -29,11 +31,7 @@ func (p ProxyDescarga) Permitido(host string) bool {
 		if h == "" {
 			continue
 		}
-		if strings.HasPrefix(h, ".") {
-			if strings.HasSuffix(host, h) && len(host) > len(h) {
-				return true
-			}
-		} else if host == h {
+		if host == h {
 			return true
 		}
 	}
@@ -49,6 +47,10 @@ func ipPublica(ip netip.Addr) bool {
 func (p ProxyDescarga) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	host, puerto, err := net.SplitHostPort(r.RequestURI)
 	if r.Method != http.MethodConnect || err != nil || puerto != "443" || !p.Permitido(host) {
+		if err == nil && len(host) <= 253 {
+			// Solo el nombre: sirve para saber qué host falta si el registro cambia de almacén.
+			slog.Warn("proxy de descarga: destino rechazado", "host", host)
+		}
 		http.Error(w, "destino no permitido", http.StatusForbidden)
 		return
 	}

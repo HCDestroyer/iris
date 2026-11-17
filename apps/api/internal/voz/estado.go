@@ -13,13 +13,14 @@ import (
 // Estado es lo único que la puerta guarda en disco (directorio de estado, modo 0700, archivos
 // 0600): credenciales del canal y ajustes del servidor. Nunca datos de clientes.
 type Estado struct {
-	// Token y TokenAnterior: secreto compartido de la firma (el anterior vale hasta AnteriorVence).
-	Token         []byte    `json:"token,omitempty"`
-	TokenAnterior []byte    `json:"tokenAnterior,omitempty"`
-	AnteriorVence time.Time `json:"anteriorVence,omitempty"`
-	// HuellaCliente: certificado de cliente de Iris fijado (y el anterior, durante la convivencia).
-	HuellaCliente         string `json:"huellaCliente,omitempty"`
-	HuellaClienteAnterior string `json:"huellaClienteAnterior,omitempty"`
+	// Token y TokenAnterior: secreto compartido de la firma (el anterior vale hasta TokenAnteriorVence).
+	Token              []byte    `json:"token,omitempty"`
+	TokenAnterior      []byte    `json:"tokenAnterior,omitempty"`
+	TokenAnteriorVence time.Time `json:"tokenAnteriorVence,omitempty"`
+	// HuellaCliente: certificado de cliente de Iris fijado (y el anterior, hasta HuellaAnteriorVence).
+	HuellaCliente         string    `json:"huellaCliente,omitempty"`
+	HuellaClienteAnterior string    `json:"huellaClienteAnterior,omitempty"`
+	HuellaAnteriorVence   time.Time `json:"huellaAnteriorVence,omitempty"`
 	// IPObservada: la IP de Iris vista al enlazar. RestringirIP la impone (apagado de fábrica).
 	IPObservada  string    `json:"ipObservada,omitempty"`
 	RestringirIP bool      `json:"restringirIp,omitempty"`
@@ -31,9 +32,7 @@ type Estado struct {
 // Enlazado dice si hay un Iris fijado.
 func (e Estado) Enlazado() bool { return len(e.Token) == LargoToken && e.HuellaCliente != "" }
 
-func (e Estado) anteriorVigente(ahora time.Time) bool {
-	return !e.AnteriorVence.IsZero() && ahora.Before(e.AnteriorVence)
-}
+func vigente(vence, ahora time.Time) bool { return !vence.IsZero() && ahora.Before(vence) }
 
 // ventana es la ventana de enlace abierta desde el servidor (voz.md §4.8).
 type ventana struct {
@@ -157,16 +156,19 @@ func (a *Almacen) CerrarVentana() error {
 	return err
 }
 
-func (a *Almacen) cargar(cert, clave string) (*tls.Certificate, error) {
-	c, err := os.ReadFile(a.ruta(cert))
+// Certificado y clave viven en UN archivo PEM (los dos bloques): así cambiar de certificado es un
+// solo renombrado atómico y nunca se ve un certificado con la clave de otro.
+const (
+	archivoPar          = "servidor.pem"
+	archivoParSiguiente = "servidor-siguiente.pem"
+)
+
+func (a *Almacen) cargar(nombre string) (*tls.Certificate, error) {
+	b, err := os.ReadFile(a.ruta(nombre))
 	if err != nil {
 		return nil, err
 	}
-	k, err := os.ReadFile(a.ruta(clave))
-	if err != nil {
-		return nil, err
-	}
-	par, err := tls.X509KeyPair(c, k)
+	par, err := tls.X509KeyPair(b, b)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +182,7 @@ const VidaCertificado = 2 * 365 * 24 * time.Hour
 func (a *Almacen) AsegurarCertificado(nombre string) (string, error) {
 	var huella string
 	err := a.conCandado(func() error {
-		if c, err := a.cargar("cert.pem", "clave.pem"); err == nil {
+		if c, err := a.cargar(archivoPar); err == nil {
 			huella = huellaDeTLS(c)
 			return nil
 		}
@@ -188,10 +190,7 @@ func (a *Almacen) AsegurarCertificado(nombre string) (string, error) {
 		if err != nil {
 			return err
 		}
-		if err := a.escribir("clave.pem", clave); err != nil {
-			return err
-		}
-		if err := a.escribir("cert.pem", cert); err != nil {
+		if err := a.escribir(archivoPar, append(cert, clave...)); err != nil {
 			return err
 		}
 		huella, _, err = HuellaDePEM(cert)
@@ -201,11 +200,11 @@ func (a *Almacen) AsegurarCertificado(nombre string) (string, error) {
 }
 
 // Certificado devuelve el certificado vigente del servidor.
-func (a *Almacen) Certificado() (*tls.Certificate, error) { return a.cargar("cert.pem", "clave.pem") }
+func (a *Almacen) Certificado() (*tls.Certificate, error) { return a.cargar(archivoPar) }
 
 // HuellaSiguiente devuelve la huella del certificado siguiente, si hay una renovación pendiente.
 func (a *Almacen) HuellaSiguiente() string {
-	c, err := a.cargar("cert-siguiente.pem", "clave-siguiente.pem")
+	c, err := a.cargar(archivoParSiguiente)
 	if err != nil {
 		return ""
 	}
@@ -221,10 +220,7 @@ func (a *Almacen) PrepararSiguiente(nombre string) (string, error) {
 		if err != nil {
 			return err
 		}
-		if err := a.escribir("clave-siguiente.pem", clave); err != nil {
-			return err
-		}
-		if err := a.escribir("cert-siguiente.pem", cert); err != nil {
+		if err := a.escribir(archivoParSiguiente, append(cert, clave...)); err != nil {
 			return err
 		}
 		huella, _, err = HuellaDePEM(cert)
@@ -236,22 +232,19 @@ func (a *Almacen) PrepararSiguiente(nombre string) (string, error) {
 // PromoverSiguiente pasa el certificado siguiente a vigente si su huella es la confirmada.
 func (a *Almacen) PromoverSiguiente(huella string) error {
 	return a.conCandado(func() error {
-		c, err := a.cargar("cert-siguiente.pem", "clave-siguiente.pem")
+		c, err := a.cargar(archivoParSiguiente)
 		if err != nil || huellaDeTLS(c) != huella {
 			return errors.New("no hay un certificado siguiente con esa huella")
 		}
-		if err := os.Rename(a.ruta("clave-siguiente.pem"), a.ruta("clave.pem")); err != nil {
-			return err
-		}
-		return os.Rename(a.ruta("cert-siguiente.pem"), a.ruta("cert.pem"))
+		return os.Rename(a.ruta(archivoParSiguiente), a.ruta(archivoPar))
 	})
 }
 
 // Desenlazar borra token y huella fijada: la puerta no acepta nada hasta un enlace nuevo con código.
 func (a *Almacen) Desenlazar() error {
 	return a.Cambiar(func(e *Estado) error {
-		e.Token, e.TokenAnterior, e.AnteriorVence = nil, nil, time.Time{}
-		e.HuellaCliente, e.HuellaClienteAnterior = "", ""
+		e.Token, e.TokenAnterior, e.TokenAnteriorVence = nil, nil, time.Time{}
+		e.HuellaCliente, e.HuellaClienteAnterior, e.HuellaAnteriorVence = "", "", time.Time{}
 		e.EnlazadoEn = time.Time{}
 		return nil
 	})
@@ -263,7 +256,7 @@ func (a *Almacen) RegenerarCertificado(nombre string) (string, error) {
 	if err := a.Desenlazar(); err != nil {
 		return "", err
 	}
-	for _, n := range []string{"cert.pem", "clave.pem", "cert-siguiente.pem", "clave-siguiente.pem"} {
+	for _, n := range []string{archivoPar, archivoParSiguiente} {
 		if err := os.Remove(a.ruta(n)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return "", err
 		}

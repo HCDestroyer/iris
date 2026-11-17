@@ -2,46 +2,52 @@
 # independiente de la de Iris: se publica al empujar una etiqueta voz-vX.Y.Z (protegida: solo quien
 # puede publicar puede crearla), que debe coincidir con infra/voz/manifiesto.json.
 #
-# 1. Construye y publica la imagen ghcr.io/<dueño>/iris-voz:X.Y.Z.
-# 2. Arma el paquete (infra/voz/package-voz.sh) con la imagen fijada por digest.
-# 3. Firma el paquete, el instalador y el manifiesto con cosign SIN CLAVE: la identidad es este
-#    workflow en esta etiqueta (OIDC de GitHub Actions); no hay claves ni secretos que guardar. El
-#    bundle (.sigstore.json) lleva la prueba de inclusión en el registro de transparencia.
-# 4. Verifica lo firmado SIN RED, con la raíz de confianza embebida en install-voz.sh y la misma
-#    función que usa el instalador, contra la identidad real; y comprueba que otra identidad, un
-#    paquete alterado y un bundle sin registro de transparencia fallan (infra/voz/prueba-firma.sh).
-# 5. Crea la release voz-vX.Y.Z (no «latest»: esa es la de Iris) con el paquete, el instalador, el
-#    manifiesto, sus bundles y sus sumas.
+# Tres jobs con los permisos mínimos de cada uno:
+#
+# 1. construir (packages: write): comprueba los archivos, construye y publica la imagen
+#    ghcr.io/<dueño>/iris-voz:X.Y.Z y arma el paquete con la imagen fijada por digest.
+# 2. firmar (id-token: write, nada más): firma el paquete, el instalador y el manifiesto con cosign
+#    SIN CLAVE. La identidad es este workflow en esta etiqueta (OIDC de GitHub Actions); no hay claves
+#    ni secretos que guardar. No hace checkout ni ejecuta nada del repositorio: baja cosign fijado
+#    por sha256 y firma los tres archivos que construyó el job anterior.
+# 3. publicar (contents: write; entorno `voz-release`, con aprobación): verifica lo firmado SIN RED,
+#    con la raíz de confianza embebida en install-voz.sh y la misma función que usa el instalador,
+#    contra la identidad real, y que otra identidad, un paquete alterado y un bundle sin registro de
+#    transparencia fallan (infra/voz/prueba-firma.sh). Después crea la release voz-vX.Y.Z (no
+#    «latest»: esa es la de Iris).
 #
 # install-voz.sh solo acepta paquetes firmados por
 #   https://github.com/HCDestroyer/iris/.github/workflows/voz-release.yml@refs/tags/voz-vX.Y.Z
 # así que este archivo no se puede renombrar sin publicar un instalador nuevo.
+#
+# Requisitos del repositorio (docs/runbooks/servidor-ia.md §8): una regla de etiquetas que proteja
+# voz-v* y el entorno `voz-release` con revisores obligatorios.
 name: Versión de Iris Voz
 
 on:
   push:
     tags: ['voz-v[0-9]+.[0-9]+.[0-9]+']
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
   group: voz-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  publicar:
-    name: Publicar Iris Voz
+  construir:
+    name: Construir la imagen y el paquete
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
-      contents: write
+      contents: read
       packages: write
-      id-token: write
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      version: ${{ steps.v.outputs.version }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
 
       - name: Versión de la etiqueta y del manifiesto
         id: v
@@ -50,7 +56,6 @@ jobs:
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::etiqueta inválida: $GITHUB_REF_NAME"; exit 1; }
           en_manifiesto="$(jq -r .version infra/voz/manifiesto.json)"
           [ "$en_manifiesto" = "$version" ] || { echo "::error::la etiqueta dice $version y manifiesto.json dice $en_manifiesto"; exit 1; }
-          if gh release view "voz-v$version" >/dev/null 2>&1; then echo "::error::ya existe la release voz-v$version"; exit 1; fi
           echo "version=$version" >>"$GITHUB_OUTPUT"
 
       - name: Comprobar los archivos del paquete
@@ -84,26 +89,89 @@ jobs:
           IRIS_PIN_DIGESTS=1 IRIS_REGISTRY="ghcr.io/$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')" \
             infra/voz/package-voz.sh "$VERSION" dist
 
-      - name: Firmar (cosign sin clave) y verificar sin red
-        env:
-          VERSION: ${{ steps.v.outputs.version }}
-          IDENTIDAD: ${{ github.server_url }}/${{ github.workflow_ref }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: paquete
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  firmar:
+    name: Firmar (cosign sin clave)
+    needs: construir
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+    env:
+      VERSION: ${{ needs.construir.outputs.version }}
+      IDENTIDAD: ${{ github.server_url }}/${{ github.workflow_ref }}
+      # El mismo cosign que fija install-voz.sh (infra/voz/verificar.sh comprueba que coinciden).
+      COSIGN_VERSION: v2.6.1
+      COSIGN_SHA256: 064954c5d8c7e3b28188eee5b1727b31c411550bc5fefd41aa672d3c761d103a
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: paquete
+          path: dist
+
+      - name: Firmar el paquete, el instalador y el manifiesto
         run: |
           esperada="https://github.com/HCDestroyer/iris/.github/workflows/voz-release.yml@refs/tags/voz-v$VERSION"
           [ "$IDENTIDAD" = "$esperada" ] || { echo "::error::la identidad de este workflow ($IDENTIDAD) no es la que acepta el instalador ($esperada)"; exit 1; }
-          # shellcheck source=infra/voz/install-voz.sh
-          . infra/voz/install-voz.sh
-          cosign="$(ensure_cosign "$PWD/dist/bin")"
+          curl -fsSL --proto '=https' --tlsv1.2 --retry 3 -o "$RUNNER_TEMP/cosign" \
+            "https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64"
+          echo "$COSIGN_SHA256  $RUNNER_TEMP/cosign" | sha256sum -c -
+          chmod 0755 "$RUNNER_TEMP/cosign"
+          mkdir firmas
           for f in "iris-voz-$VERSION.tar.gz" install-voz.sh manifiesto.json; do
-            "$cosign" sign-blob --yes --new-bundle-format --bundle "dist/$f.sigstore.json" "dist/$f" >/dev/null
+            [ -s "dist/$f" ] || { echo "::error::falta dist/$f"; exit 1; }
+            "$RUNNER_TEMP/cosign" sign-blob --yes --new-bundle-format --bundle "firmas/$f.sigstore.json" "dist/$f" >/dev/null
           done
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: firmas
+          path: firmas/
+          if-no-files-found: error
+          retention-days: 7
+
+  publicar:
+    name: Verificar sin red y publicar
+    needs: [construir, firmar]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Entorno con revisores obligatorios: nadie publica sin una aprobación.
+    environment: voz-release
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.construir.outputs.version }}
+      IDENTIDAD: ${{ github.server_url }}/${{ github.workflow_ref }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: paquete
+          path: dist
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: firmas
+          path: dist
+
+      - name: Verificar las firmas sin red (lo mismo que hará el instalador)
+        run: |
           sudo -E env "PATH=$PATH" IRIS_VOZ_FIRMA_DIR="$PWD/dist" infra/voz/prueba-firma.sh "$IDENTIDAD"
           sudo rm -rf dist/bin dist/alterado.tar.gz dist/sin-tlog.sigstore.json
 
       - name: Crear la release
-        env:
-          VERSION: ${{ steps.v.outputs.version }}
         run: |
+          if gh release view "voz-v$VERSION" >/dev/null 2>&1; then echo "::error::ya existe la release voz-v$VERSION"; exit 1; fi
           gh release create "voz-v$VERSION" --latest=false --verify-tag --title "Iris Voz $VERSION" \
             --notes "AI server package for Iris (Iris Voz $VERSION). Install guide: docs/runbooks/servidor-ia.md. Verify install-voz.sh with its .sigstore.json bundle before running it." \
             "dist/iris-voz-$VERSION.tar.gz#Iris Voz $VERSION install package" \

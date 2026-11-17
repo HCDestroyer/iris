@@ -357,7 +357,7 @@ func medidor() error {
 
 // proxy-descarga: la única salida del paquete, solo hacia el registro de modelos.
 func proxyDescarga() error {
-	hosts := strings.Split(entorno("IRIS_VOZ_DESCARGA_HOSTS", "registry.ollama.ai,.r2.cloudflarestorage.com"), ",")
+	hosts := strings.Split(entorno("IRIS_VOZ_DESCARGA_HOSTS", "registry.ollama.ai,dd20bb891979d25aebc8bec07b2b3bbc.r2.cloudflarestorage.com"), ",")
 	srv := &http.Server{Addr: ":3128", Handler: voz.ProxyDescarga{Hosts: hosts}, ReadHeaderTimeout: 10 * time.Second}
 	return srv.ListenAndServe()
 }

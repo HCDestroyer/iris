@@ -57,18 +57,16 @@ type Config struct {
 
 // Puerta termina TLS y verifica mTLS, firma y nonce de toda ruta (voz.md §4.1).
 type Puerta struct {
-	cfg      Config
-	nonces   *nonces
-	inicio   time.Time
-	ollama   *http.Client
-	mu       sync.Mutex
-	plazas   int // ocupadas (bajo mu)
-	limMetr  *cubo
-	limEnl   *cubo
-	intentos map[string]int // intentos de enlace por IP en la ventana actual (bajo mu)
-	ventanaC string         // código de la ventana a la que pertenecen los intentos (bajo mu)
-	cache    cacheOllama
-	cpu      medidorCPU
+	cfg     Config
+	nonces  *nonces
+	inicio  time.Time
+	ollama  *http.Client
+	mu      sync.Mutex
+	plazas  int // ocupadas (bajo mu)
+	limMetr *cubo
+	enlaces *limiteEnlace
+	cache   cacheOllama
+	cpu     medidorCPU
 }
 
 // Nueva arma la puerta.
@@ -92,13 +90,17 @@ func Nueva(cfg Config) (*Puerta, error) {
 		cfg.PlazoLLM = PlazoLLM
 	}
 	p := &Puerta{cfg: cfg, nonces: nuevosNonces(), inicio: cfg.Ahora(), ollama: cfg.HTTPOllama,
-		limMetr: nuevoCubo(1, 5), limEnl: nuevoCubo(0.5, 1), intentos: map[string]int{}}
+		limMetr: nuevoCubo(1, 5), enlaces: nuevoLimiteEnlace()}
 	if p.ollama == nil {
 		// Una conexión nueva por petición: tras un corte nunca se reutiliza una conexión a medias.
 		// El plazo de cada petición lo pone su contexto.
 		p.ollama = &http.Client{Transport: &http.Transport{DisableKeepAlives: true, Proxy: nil,
 			DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext}}
 	}
+	// Nunca se sigue una redirección de Ollama: un 3xx es un error (no se llama a otro destino).
+	cliente := *p.ollama
+	cliente.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	p.ollama = &cliente
 	return p, nil
 }
 
@@ -109,7 +111,7 @@ func (p *Puerta) fijada(e Estado, huella string, ahora time.Time) bool {
 	if Iguales(huella, e.HuellaCliente) {
 		return true
 	}
-	return e.HuellaClienteAnterior != "" && e.anteriorVigente(ahora) && Iguales(huella, e.HuellaClienteAnterior)
+	return e.HuellaClienteAnterior != "" && vigente(e.HuellaAnteriorVence, ahora) && Iguales(huella, e.HuellaClienteAnterior)
 }
 
 // TLS es la configuración del puerto de control: TLS 1.3, certificado de cliente obligatorio y
@@ -236,6 +238,12 @@ func (p *Puerta) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		sinFirma.json(http.StatusUnauthorized, problema{Codigo: "reloj_desfasado", HoraServidor: ahora.Unix()})
 		return
 	}
+	// Los nonces vistos viven en memoria: tras un reinicio, una petición capturada antes de arrancar
+	// seguiría dentro de la ventana. Nada anterior al arranque de este proceso vale.
+	if marca < p.inicio.Unix() {
+		sinFirma.error(http.StatusUnauthorized, "no_autorizado", "")
+		return
+	}
 	tope := int64(topeCuerpoCorto)
 	if uri == RutaChat {
 		tope = TopePeticionLLM
@@ -248,7 +256,7 @@ func (p *Puerta) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	token := e.Token
 	if !Iguales(firma, FirmaPeticion(token, r.Method, uri, r.Header.Get(CabMarca), nonce, version, cuerpo)) {
 		token = nil
-		if len(e.TokenAnterior) == LargoToken && e.anteriorVigente(ahora) &&
+		if len(e.TokenAnterior) == LargoToken && vigente(e.TokenAnteriorVence, ahora) &&
 			Iguales(firma, FirmaPeticion(e.TokenAnterior, r.Method, uri, r.Header.Get(CabMarca), nonce, version, cuerpo)) {
 			token = e.TokenAnterior
 		}
@@ -309,8 +317,6 @@ type respuestaEnlace struct {
 	Manifiesto Manifiesto `json:"manifiesto"`
 }
 
-const intentosEnlacePorIP = 5
-
 // enlazar es la única ruta antes del mTLS fijado y solo existe con la ventana abierta. Un código
 // vencido, usado o equivocado recibe siempre la misma respuesta. Los fallos no cierran la ventana
 // (cualquiera que alcance el puerto podría impedir el enlace): hay límite de frecuencia.
@@ -321,14 +327,7 @@ func (p *Puerta) enlazar(o respuesta, r *http.Request, huellaCliente string, aho
 		return
 	}
 	ip := ipDe(r)
-	p.mu.Lock()
-	if p.ventanaC != codigo {
-		p.ventanaC, p.intentos = codigo, map[string]int{}
-	}
-	p.intentos[ip]++
-	pasa := p.intentos[ip] <= intentosEnlacePorIP && len(p.intentos) <= 1024
-	p.mu.Unlock()
-	if !pasa || !p.limEnl.permitir(ahora) {
+	if !p.enlaces.permitir(ip, ahora) {
 		o.error(http.StatusTooManyRequests, "demasiadas_peticiones", "")
 		return
 	}
@@ -363,8 +362,8 @@ func (p *Puerta) enlazar(o respuesta, r *http.Request, huellaCliente string, aho
 	}
 	token := TokenDeEnlace(codigo, in.Nonce, nonceS, huellaServidor, huellaCliente)
 	err = p.cfg.Almacen.Cambiar(func(e *Estado) error {
-		e.Token, e.TokenAnterior, e.AnteriorVence = token, nil, time.Time{}
-		e.HuellaCliente, e.HuellaClienteAnterior = huellaCliente, ""
+		e.Token, e.TokenAnterior, e.TokenAnteriorVence = token, nil, time.Time{}
+		e.HuellaCliente, e.HuellaClienteAnterior, e.HuellaAnteriorVence = huellaCliente, "", time.Time{}
 		e.IPObservada, e.EnlazadoEn = ip, ahora.UTC()
 		return nil
 	})
@@ -390,7 +389,8 @@ type PeticionCredencial struct {
 	Token []byte `json:"token,omitempty"`
 	// HuellaCliente: huella del certificado de cliente nuevo. Vacío = no cambia.
 	HuellaCliente string `json:"huellaCliente,omitempty"`
-	// ConvivenciaSeg: cuánto siguen valiendo el token y la huella anteriores (0 = revocar ahora).
+	// ConvivenciaSeg: cuánto siguen valiendo el token y la huella anteriores. 0 = revocar ahora:
+	// lo anterior deja de valer en el acto, también si la petición no trae token ni huella nuevos.
 	ConvivenciaSeg int `json:"convivenciaSeg"`
 	// ConfirmaHuellaServidor: Iris ya fijó esta huella siguiente; la puerta puede empezar a usarla.
 	ConfirmaHuellaServidor string `json:"confirmaHuellaServidor,omitempty"`
@@ -421,26 +421,9 @@ func (p *Puerta) credencial(o respuesta, cuerpo []byte, ahora time.Time) int {
 		}
 		p.cfg.Log.Info("certificado del servidor renovado")
 	}
-	if len(in.Token) != 0 || in.HuellaCliente != "" {
+	if len(in.Token) != 0 || in.HuellaCliente != "" || conv == 0 {
 		err := p.cfg.Almacen.Cambiar(func(e *Estado) error {
-			// Token y certificado de cliente caen juntos: la convivencia es una sola.
-			if conv > 0 {
-				if len(in.Token) != 0 {
-					e.TokenAnterior = e.Token
-				}
-				if in.HuellaCliente != "" && in.HuellaCliente != e.HuellaCliente {
-					e.HuellaClienteAnterior = e.HuellaCliente
-				}
-				e.AnteriorVence = ahora.Add(conv).UTC()
-			} else {
-				e.TokenAnterior, e.HuellaClienteAnterior, e.AnteriorVence = nil, "", time.Time{}
-			}
-			if len(in.Token) != 0 {
-				e.Token = in.Token
-			}
-			if in.HuellaCliente != "" {
-				e.HuellaCliente = in.HuellaCliente
-			}
+			aplicarCredencial(e, in, conv, ahora)
 			return nil
 		})
 		if err != nil {
@@ -454,6 +437,61 @@ func (p *Puerta) credencial(o respuesta, cuerpo []byte, ahora time.Time) int {
 		Estado string `json:"estado"`
 	}{"ok"})
 	return http.StatusOK
+}
+
+// aplicarCredencial cambia las credenciales del canal. Cada anterior tiene su propio vencimiento:
+// primero se limpian las que ya vencieron (una vencida no revive porque se rote la otra) y, con
+// convivencia 0, todas las anteriores dejan de valer aunque no venga nada nuevo.
+func aplicarCredencial(e *Estado, in PeticionCredencial, conv time.Duration, ahora time.Time) {
+	if !vigente(e.TokenAnteriorVence, ahora) {
+		e.TokenAnterior, e.TokenAnteriorVence = nil, time.Time{}
+	}
+	if !vigente(e.HuellaAnteriorVence, ahora) {
+		e.HuellaClienteAnterior, e.HuellaAnteriorVence = "", time.Time{}
+	}
+	if conv == 0 {
+		e.TokenAnterior, e.TokenAnteriorVence = nil, time.Time{}
+		e.HuellaClienteAnterior, e.HuellaAnteriorVence = "", time.Time{}
+	}
+	if len(in.Token) != 0 {
+		if conv > 0 {
+			e.TokenAnterior, e.TokenAnteriorVence = e.Token, ahora.Add(conv).UTC()
+		}
+		e.Token = in.Token
+	}
+	if in.HuellaCliente != "" && in.HuellaCliente != e.HuellaCliente {
+		if conv > 0 {
+			e.HuellaClienteAnterior, e.HuellaAnteriorVence = e.HuellaCliente, ahora.Add(conv).UTC()
+		}
+		e.HuellaCliente = in.HuellaCliente
+	}
+}
+
+// limiteEnlace limita los intentos de /enlazar: un cubo por IP (una IP que insiste no gasta el
+// cupo de otra, así nadie bloquea el enlace legítimo desde otra dirección) y uno global holgado
+// que solo protege al proceso.
+type limiteEnlace struct {
+	mu     sync.Mutex
+	porIP  map[string]*cubo
+	global *cubo
+}
+
+func nuevoLimiteEnlace() *limiteEnlace {
+	return &limiteEnlace{porIP: map[string]*cubo{}, global: nuevoCubo(50, 100)}
+}
+
+func (l *limiteEnlace) permitir(ip string, ahora time.Time) bool {
+	l.mu.Lock()
+	c, ok := l.porIP[ip]
+	if !ok {
+		if len(l.porIP) >= 4096 {
+			l.porIP = map[string]*cubo{} // tope de memoria: se empieza de nuevo
+		}
+		c = nuevoCubo(0.5, 3) // 3 seguidos y luego uno cada 2 s
+		l.porIP[ip] = c
+	}
+	l.mu.Unlock()
+	return c.permitir(ahora) && l.global.permitir(ahora)
 }
 
 // reservar toma una plaza del modelo; false si no hay (no hay cola).

@@ -24,6 +24,7 @@ type Banco struct {
 
 	mu     sync.Mutex
 	desfas time.Duration
+	inicio time.Time
 }
 
 // Opciones del banco.
@@ -35,6 +36,9 @@ type Opciones struct {
 	PlazoLLM       time.Duration
 	MedidorRuta    string
 }
+
+// Inicio es la hora de arranque de la puerta.
+func (b *Banco) Inicio() time.Time { return b.inicio }
 
 // Ahora es el reloj de la puerta (el real más el desfase de Adelantar).
 func (b *Banco) Ahora() time.Time {
@@ -63,7 +67,7 @@ func NuevoBanco(t testing.TB, o Opciones) *Banco {
 	if o.Manifiesto != nil {
 		man = *o.Manifiesto
 	}
-	b := &Banco{T: t, Ollama: Nuevo(o.Modelos...)}
+	b := &Banco{T: t, Ollama: Nuevo(o.Modelos...), inicio: time.Now()}
 	falso := httptest.NewServer(b.Ollama)
 	t.Cleanup(falso.Close)
 	alm, err := voz.AbrirAlmacen(t.TempDir())

@@ -23,6 +23,8 @@ services:
     image: ${IRIS_VOZ_REGISTRY:-ghcr.io/hcdestroyer}/iris-voz:${IRIS_VOZ_VERSION:?IRIS_VOZ_VERSION is required}
     command: [servir]
     user: "65532:65532"
+    pids_limit: 256
+    mem_limit: 512m
     environment:
       IRIS_VOZ_PUERTO: "8443"
       IRIS_VOZ_ESTADO: /estado
@@ -44,6 +46,9 @@ services:
     <<: *endurecido
     image: ollama/ollama:0.12.10@sha256:e8c3d1f6ad16323bc40dc63eff0701d4fc32113f75a86b54b3e836eef8290de6
     user: "65532:65532"
+    pids_limit: 1024
+    # El modelo vive en la GPU; esto acota la memoria del servidor que puede tomar el contenedor.
+    mem_limit: ${IRIS_VOZ_LLM_MEMORIA:-64g}
     environment:
       OLLAMA_HOST: 0.0.0.0:11434
       OLLAMA_MODELS: /modelos
