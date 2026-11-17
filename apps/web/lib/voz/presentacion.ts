@@ -189,7 +189,7 @@ export function textoRequisito(r: RequisitoLlamadas): { nombre: string; detalle:
 // --- Permiso de llamada (E1b) -------------------------------------------------------------------
 
 const fechaCorta = new Intl.DateTimeFormat("es-GT", { day: "numeric", month: "long", timeZone: "America/Guatemala" });
-const fechaHora = new Intl.DateTimeFormat("es-GT", { day: "numeric", month: "long", hour: "numeric", minute: "2-digit", hour12: false, timeZone: "America/Guatemala" });
+const horaCorta = new Intl.DateTimeFormat("es-GT", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "America/Guatemala" });
 
 /** A partir de cuántas salientes seguidas sin contestar WhatsApp pide confirmar: a la cuarta quita el permiso. */
 export const SIN_CONTESTAR_RIESGO = 3;
@@ -224,10 +224,10 @@ export function textoMotivoPermiso(motivo: PermisoLlamada["motivo"]): string | n
     return null;
 }
 
-/** «a partir del 19 de noviembre, 14:30». */
+/** «a partir del 19 de noviembre a las 14:30» (fecha y hora por separado: el separador cambia entre navegadores). */
 export function desdeCuando(iso: string | undefined): string | null {
     const ms = iso ? Date.parse(iso) : NaN;
-    return Number.isNaN(ms) ? null : `a partir del ${fechaHora.format(ms)}`;
+    return Number.isNaN(ms) ? null : `a partir del ${fechaCorta.format(ms)} a las ${horaCorta.format(ms)}`;
 }
 
 /** Los 422 de «Pedir permiso», en llano. `null`: no es uno conocido (se muestra lo que diga el servidor). */

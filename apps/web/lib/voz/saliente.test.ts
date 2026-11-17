@@ -170,10 +170,10 @@ describe("textos de las salientes y del permiso de llamada", () => {
     });
 
     it("los 422 de «Pedir permiso»: el límite dice desde cuándo (hora de Guatemala)", () => {
-        expect(desdeCuando("2026-11-19T20:30:00Z")).toBe("a partir del 19 de noviembre, 14:30");
+        expect(desdeCuando("2026-11-19T20:30:00Z")).toBe("a partir del 19 de noviembre a las 14:30");
         expect(desdeCuando(undefined)).toBeNull();
         expect(desdeCuando("mañana")).toBeNull();
-        expect(textoErrorSolicitud("limite_solicitudes", "2026-11-19T20:30:00Z")).toBe("WhatsApp deja pedirlo una vez cada 24 horas y dos veces cada 7 días. Se le puede volver a pedir a partir del 19 de noviembre, 14:30.");
+        expect(textoErrorSolicitud("limite_solicitudes", "2026-11-19T20:30:00Z")).toBe("WhatsApp deja pedirlo una vez cada 24 horas y dos veces cada 7 días. Se le puede volver a pedir a partir del 19 de noviembre a las 14:30.");
         expect(textoErrorSolicitud("limite_solicitudes", undefined)).toBe("WhatsApp deja pedirlo una vez cada 24 horas y dos veces cada 7 días.");
         expect(textoErrorSolicitud("permiso_ya_vigente", undefined)).toContain("ya se le puede llamar");
         expect(textoErrorSolicitud("sin_plantilla_permiso", undefined)).toContain("plantilla de permiso");

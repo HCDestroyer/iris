@@ -1248,7 +1248,8 @@ test.describe("voz › ajustes", () => {
         const encender = f.getByRole("switch", { name: "Este número recibe llamadas de WhatsApp" });
         // Hasta validarlo con Meta: franja «En pruebas» arriba y la etiqueta junto al interruptor.
         await expect(f.locator('[data-slot="llamadas-en-pruebas"]')).toContainText("Las llamadas de WhatsApp están en pruebas: aún no se han validado con llamadas reales. Enciéndelas solo en un número de prueba.");
-        await expect(f.locator('[data-etiqueta="en-pruebas"]')).toHaveText("En pruebas");
+        // …y junto a la plantilla de permiso de llamada (E1b).
+        await expect(f.locator('[data-etiqueta="en-pruebas"]')).toHaveText(["En pruebas", "En pruebas"]);
         await expect(encender).toBeDisabled();
         await expect(f).toContainText("Falta cumplir los requisitos de Meta de arriba.");
         // La grabación no se ofrece.

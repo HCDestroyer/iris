@@ -423,7 +423,7 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
                 const activa = await leerLlamadaActiva(control.signal).catch(() => null);
                 if (control.signal.aborted || !activa) return;
                 if (activa.estado === "sonando") despachar({ tipo: "entrante", llamada: activa });
-                else if ((activa.estado === "en_curso" || activa.estado === "conectando") && activa.usuario?.id === yoId && activa.puede.colgar) avisarHuerfana(activa);
+                else if ((activa.estado === "en_curso" || activa.estado === "conectando" || activa.estado === "marcando") && activa.usuario?.id === yoId && activa.puede.colgar) avisarHuerfana(activa);
             } catch (error) {
                 if (!control.signal.aborted) setRecibir({ estado: "error", error });
             }
