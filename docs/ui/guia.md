@@ -839,9 +839,12 @@ tarjeta en Integraciones (junto a Argos y Horus). Código en `componentes/servid
   tanto, qué revisar en el servidor y «Probar ahora». Incompatible dice **qué** actualizar según
   `motivoIncompatible`: Iris (`iris_antiguo`) o el servidor, con su comando y su porqué
   (`protocolo`, `iris_nuevo`, `paquete_antiguo`). Sin `versionDisponible` no se nombra versión.
-- **Desactivado.** «Desactivar» (antes «Desenlazar») dice la verdad: Iris deja de usarlo; el enlace
-  del lado del servidor se borra allá con `sudo iris-voz unpair`. En ese estado el tablero y
-  Mantenimiento ofrecen «Enlazar de nuevo», `/enlazar` lo acepta y no hay «Probar».
+- **Desactivado.** «Desactivar» (antes «Desenlazar») dice la verdad: Iris deja de usarlo y el enlace
+  se conserva. En ese estado el tablero y Mantenimiento muestran `ReactivarServidorIa`: la salida
+  principal es «Activar de nuevo» (`POST …/activar` con la huella guardada, que se confirma con la
+  casilla; sin tocar el servidor) y la secundaria «Enlazar de nuevo» (si se cambió de servidor o se
+  reinstaló). `/enlazar` acepta el estado y no hay «Probar». Para enlazar de nuevo basta
+  `sudo iris-voz pair`; `unpair` es solo una nota opcional.
 - **Enlazar** (`/enlazar`): cuatro pasos en una pantalla. Dirección → código de un solo uso (se
   muestra una vez, vence a los 15 minutos, se escribe en el servidor sin eco) → huella con la
   casilla «Coincide con la del instalador» → «Activar» con esa misma huella (un enlace sin activar

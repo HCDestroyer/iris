@@ -65,7 +65,7 @@ export function explicarError(codigo: string, detalle: string | null | undefined
         case "servidor_desactivado":
             return {
                 titulo: "El Servidor de IA está desactivado",
-                texto: "Quien administra la instalación lo desactivó. Puede enlazarlo de nuevo; mientras tanto puedes elegir otro proveedor en «Conexión con la IA».",
+                texto: "Quien administra la instalación lo desactivó. Puede activarlo de nuevo; mientras tanto puedes elegir otro proveedor en «Conexión con la IA».",
                 reintentar: false,
             };
         case "servidor_ia_ocupado":

@@ -370,10 +370,10 @@ export const TEXTO_ROTACION_EN_CURSO = "Ya hay un cambio de llave en curso; espe
 export const TEXTO_ROTACION_SIN_CONFIRMAR = "No se pudo confirmar el cambio. Iris recupera la conexión sola; no hace falta enlazar de nuevo.";
 
 /** 409 `servidor_desactivado` (probar con el servidor desactivado). */
-export const TEXTO_DESACTIVADO = "El servidor está desactivado: Iris no lo usa. Para volver a usarlo hay que enlazarlo de nuevo.";
+export const TEXTO_DESACTIVADO = "El servidor está desactivado: Iris no lo usa. Para volver a usarlo, actívalo de nuevo.";
 
 /** Lo mismo, dicho a quien configura el asistente de una empresa (no puede enlazarlo). */
-export const TEXTO_DESACTIVADO_EMPRESA = "El Servidor de IA está desactivado. Pídele a quien administra la instalación que lo enlace de nuevo, o elige otro proveedor.";
+export const TEXTO_DESACTIVADO_EMPRESA = "El Servidor de IA está desactivado. Pídele a quien administra la instalación que lo active de nuevo, o elige otro proveedor.";
 
 /** «2 de noviembre, 09:00». */
 export const fechaHora = (iso: string): string => {

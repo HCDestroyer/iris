@@ -210,7 +210,7 @@ function Pasos({ pendiente, previo }: { pendiente: Motor | null; previo: Motor |
                     >
                         {reenlace ? (
                             <Aviso tono="info" titulo="Este servidor está desactivado" data-slot="reenlace">
-                                Para volver a usarlo se enlaza de nuevo, con un código nuevo. En el servidor, primero borra el enlace anterior con «{COMANDO.desenlazar}» y luego ejecuta «{COMANDO.enlazar}».
+                                Si es el mismo servidor, lo más corto es «Activar de nuevo» en el tablero. Para enlazarlo con un código nuevo, en el servidor basta ejecutar «{COMANDO.enlazar}». Si quieres invalidar ya el enlace anterior, antes puedes ejecutar «{COMANDO.desenlazar}» (opcional).
                             </Aviso>
                         ) : null}
                         {pendiente && !pendiente.huellaTls ? (

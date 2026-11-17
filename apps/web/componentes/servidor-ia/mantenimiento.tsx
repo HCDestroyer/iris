@@ -20,6 +20,7 @@ import type { Motor } from "@/lib/servidor-ia/tipos";
 import { esquemaEmpresas, type ValoresEmpresas } from "@/lib/servidor-ia/umbrales";
 import { useSesion } from "@/lib/sesion";
 import { Comando, NavServidorIa, RUTA } from "./comun";
+import { ReactivarServidorIa } from "./reactivar";
 
 function Seccion({ icono: Icono, titulo, slot, children }: { icono: LucideIcon; titulo: string; slot: string; children: ReactNode }) {
     return (
@@ -44,21 +45,12 @@ export function MantenimientoServidorIa() {
             <CargaRegistro lectura={lectura} que="el servidor de IA" noEncontrado="Sin servidor de IA">
                 {(motor) =>
                     motor !== null && motor.estado === "desactivado" ? (
-                        <Tarjeta data-slot="servidor-desactivado">
-                            <EstadoVacio
-                                icono={Unlink}
-                                titulo="El servidor está desactivado"
-                                descripcion="Iris no lo usa. Para volver a usarlo hay que enlazarlo de nuevo, con un código nuevo."
-                                accion={
-                                    <Boton asChild>
-                                        <Link href={`${RUTA}/enlazar` as Route}>
-                                            <Link2 />
-                                            Enlazar de nuevo
-                                        </Link>
-                                    </Boton>
-                                }
-                            />
-                        </Tarjeta>
+                        <div className="grid max-w-2xl gap-4" data-slot="servidor-desactivado">
+                            <Aviso tono="warning" titulo="El servidor está desactivado">
+                                Iris no lo usa. Puedes activarlo de nuevo sin tocar el servidor.
+                            </Aviso>
+                            <ReactivarServidorIa alActivar={lectura.reintentar} />
+                        </div>
                     ) : motor === null || motor.estado === "sin_enlazar" ? (
                         <Tarjeta>
                             <EstadoVacio
@@ -376,9 +368,9 @@ function Desenlazar({ motor }: { motor: Motor }) {
     const [error, setError] = useState<unknown>(null);
     return (
         <Seccion icono={Unlink} titulo="Desactivar el servidor" slot="desactivar">
-            <p className="text-sm text-muted-foreground">Iris deja de usarlo en el acto. El servidor y sus modelos no se tocan, y el enlace sigue guardado del lado del servidor: para borrarlo también allá se ejecuta este comando en el servidor.</p>
+            <p className="text-sm text-muted-foreground">Iris deja de usarlo en el acto. El servidor y sus modelos no se tocan y el enlace se conserva: después se puede activar de nuevo desde aquí, sin tocar el servidor.</p>
+            <p className="text-sm text-muted-foreground">Si además quieres borrar el enlace del lado del servidor (opcional), allá se ejecuta este comando; entonces, para volver a usarlo, habrá que enlazarlo con un código nuevo.</p>
             <Comando texto={COMANDO.desenlazar} />
-            <p className="text-sm text-muted-foreground">Para volver a usarlo después hay que enlazarlo de nuevo con un código.</p>
             {error ? (
                 <Aviso tono="error" titulo="No se pudo desactivar">
                     {error instanceof ErrorApi && error.estado === 409 ? "Alguien más lo cambió. Recarga la página." : mensajeDeError(error).titulo}

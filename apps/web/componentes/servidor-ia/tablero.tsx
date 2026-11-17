@@ -36,6 +36,7 @@ import {
 import { RANGOS, type Rango, type ResultadoPrueba, type Tablero, type Umbrales } from "@/lib/servidor-ia/tipos";
 import { DE_FABRICA } from "@/lib/servidor-ia/umbrales";
 import { Comando, LineaEstado, NavServidorIa, RUTA, usePermisosServidorIa, useTablero } from "./comun";
+import { ReactivarServidorIa } from "./reactivar";
 
 /**
  * `/administracion/servidor-ia`: el tablero del Servidor de IA (contratos/voz.md §4.12). Quien
@@ -142,17 +143,8 @@ function Vista({ tablero, rango, alRango, ahora, tolerancia, global, administra,
         }
     }
     const desactivado = e.estado === "desactivado";
-    // Desactivado no se prueba: la salida es enlazarlo de nuevo.
-    const botonProbar = desactivado ? (
-        administra ? (
-            <Boton asChild>
-                <Link href={`${RUTA}/enlazar` as Route}>
-                    <Link2 />
-                    Enlazar de nuevo
-                </Link>
-            </Boton>
-        ) : null
-    ) : administra ? (
+    // Desactivado no se prueba: la salida es activarlo de nuevo (abajo), o enlazarlo de nuevo.
+    const botonProbar = desactivado ? null : administra ? (
         <Boton variante={fuera ? "primario" : "contorno"} tamano={fuera ? "md" : "sm"} disabled={prueba.estado === "probando"} onClick={() => void probar()}>
             <RefreshCw />
             {prueba.estado === "probando" ? "Probando…" : fuera ? "Probar ahora" : "Probar"}
@@ -162,7 +154,7 @@ function Vista({ tablero, rango, alRango, ahora, tolerancia, global, administra,
     return (
         <div className="grid min-w-0 gap-4" data-slot="tablero-servidor-ia">
             {fuera ? (
-                <Fuera tablero={tablero} ahora={ahora} accion={botonProbar} global={global} />
+                <Fuera tablero={tablero} ahora={ahora} accion={botonProbar} global={global} extra={desactivado && administra ? <ReactivarServidorIa alActivar={refrescar} /> : null} />
             ) : (
                 <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
                     <LineaEstado linea={lineaEstado(e, ahora, global)} estado={e.estado} />
@@ -218,7 +210,7 @@ function Vista({ tablero, rango, alRango, ahora, tolerancia, global, administra,
 }
 
 /** Caído, incompatible o desactivado: qué pasa, desde cuándo, qué hace el asistente mientras tanto y qué revisar. */
-function Fuera({ tablero, ahora, accion, global }: { tablero: Tablero; ahora: number; accion: ReactNode; global: boolean }) {
+function Fuera({ tablero, ahora, accion, global, extra }: { tablero: Tablero; ahora: number; accion: ReactNode; global: boolean; extra: ReactNode }) {
     const e = tablero.estado;
     const linea = lineaEstado(e, ahora, global);
     const incompatible = e.estado === "incompatible";
@@ -235,7 +227,7 @@ function Fuera({ tablero, ahora, accion, global }: { tablero: Tablero; ahora: nu
                         {actualizar.comando && global ? <Comando texto={actualizar.comando} /> : null}
                     </span>
                 ) : e.estado === "desactivado" ? (
-                    "Se desactivó desde Iris: Iris no lo usa y el asistente de las empresas que lo tenían elegido no responde con él. Para volver a usarlo hay que enlazarlo de nuevo."
+                    "Se desactivó desde Iris: Iris no lo usa y el asistente de las empresas que lo tenían elegido no responde con él. Para volver a usarlo, actívalo de nuevo."
                 ) : (
                     <>
                         {e.tomadoEn ? `Visto por última vez ${ultimaVez(e.tomadoEn, ahora)}. ` : "Todavía no ha respondido ninguna vez. "}
@@ -243,6 +235,7 @@ function Fuera({ tablero, ahora, accion, global }: { tablero: Tablero; ahora: nu
                     </>
                 )}
             </Aviso>
+            {extra}
             <Tarjeta className="grid gap-2.5 p-4 sm:p-5" data-slot="mientras-tanto">
                 <h2 className="flex items-center gap-2 text-[0.9375rem] font-semibold">
                     <Sparkles aria-hidden className="size-4 text-muted-foreground" />

@@ -773,7 +773,7 @@ test.describe("Servidor de IA › mantenimiento", () => {
         expect(api.servidorIa.recibido.rotaciones).toEqual([{}, { revocar: true }]);
     });
 
-    test("ciclo completo: activo → desactivar → «Enlazar de nuevo» → activo; desactivado tiene salida en el tablero y en Mantenimiento", async ({ page }) => {
+    test("camino largo: activo → desactivar → «Enlazar de nuevo» → activo; desactivado tiene salida en el tablero y en Mantenimiento", async ({ page }) => {
         const api = await abrir(page, `${RUTA}/mantenimiento`);
         const seccion = slot(page, "desactivar");
         // Dice la verdad: Iris deja de usarlo; el enlace del lado del servidor se borra allá.
@@ -795,7 +795,10 @@ test.describe("Servidor de IA › mantenimiento", () => {
         const fuera = slot(page, "servidor-fuera");
         await expect(fuera).toHaveAttribute("data-estado", "desactivado");
         await expect(fuera).toContainText("Desactivado");
-        await expect(fuera).toContainText("Para volver a usarlo hay que enlazarlo de nuevo");
+        await expect(fuera).toContainText("Para volver a usarlo, actívalo de nuevo");
+        // La salida corta va primero; «Enlazar de nuevo» queda como secundaria.
+        await expect(slot(page, "reactivar").getByRole("button", { name: "Activar de nuevo" })).toBeVisible();
+        await expect(slot(page, "reactivar")).toContainText("cuando cambiaste de servidor o lo reinstalaste");
         await expect(page.getByRole("button", { name: /^Probar/ })).toHaveCount(0);
         await expect(slot(page, "cifras")).toHaveAttribute("data-vigentes", "no");
         await esperarSinDesbordes(page);
@@ -809,7 +812,10 @@ test.describe("Servidor de IA › mantenimiento", () => {
 
         // `/enlazar` acepta el servidor desactivado y recuerda su dirección.
         await expect(slot(page, "pasos-enlace")).toHaveAttribute("data-paso-actual", "direccion");
-        await expect(slot(page, "reenlace")).toContainText("sudo iris-voz unpair");
+        // Para enlazar de nuevo basta `pair`; `unpair` es solo una nota opcional.
+        await expect(slot(page, "reenlace")).toContainText("basta ejecutar «sudo iris-voz pair»");
+        await expect(slot(page, "reenlace")).toContainText("«sudo iris-voz unpair» (opcional)");
+        await expect(slot(page, "reenlace")).not.toContainText(/primero borra/);
         await expect(page.getByText("Ya hay un servidor de IA enlazado")).toHaveCount(0);
         await expect(page.getByLabel("Dirección")).toHaveValue("https://10.0.0.5:8443");
         await page.getByRole("button", { name: "Generar el código" }).click();
@@ -824,7 +830,7 @@ test.describe("Servidor de IA › mantenimiento", () => {
         expect(api.servidorIa.recibido.activaciones).toHaveLength(1);
     });
 
-    test("desactivado: el tablero lleva a «Enlazar de nuevo» y, si la API rechaza «Probar» (409), el texto es llano", async ({ page }) => {
+    test("desactivado: «Enlazar de nuevo» sigue a mano y, si la API rechaza «Probar» (409), el texto es llano", async ({ page }) => {
         const api = await abrir(page, RUTA);
         await expect(estado(page)).toHaveAttribute("data-estado", "listo");
         // Otra persona lo desactiva mientras tanto: «Probar» sigue en pantalla hasta la siguiente lectura.
@@ -834,8 +840,63 @@ test.describe("Servidor de IA › mantenimiento", () => {
         const leidas = api.servidorIa.lecturas();
         await adelantarHasta(page, () => api.servidorIa.lecturas() > leidas);
         await expect(slot(page, "servidor-fuera")).toHaveAttribute("data-estado", "desactivado");
-        await slot(page, "servidor-fuera").getByRole("link", { name: "Enlazar de nuevo" }).click();
+        await slot(page, "reactivar").getByRole("link", { name: "Enlazar de nuevo" }).click();
         await expect(page).toHaveURL(new RegExp(`${RUTA}/enlazar$`));
+    });
+
+    test("camino corto: activo → desactivar → «Activar de nuevo» con la huella guardada → activo, sin tocar el servidor", async ({ page }) => {
+        const api = await abrir(page, `${RUTA}/mantenimiento`);
+        await expect(slot(page, "desactivar")).toContainText("después se puede activar de nuevo desde aquí");
+        await slot(page, "desactivar").getByRole("button", { name: "Desactivar…" }).click();
+        await confirmacion(page).getByRole("button", { name: "Desactivar", exact: true }).click();
+        await expect(slot(page, "servidor-fuera")).toHaveAttribute("data-estado", "desactivado");
+
+        const zona = slot(page, "reactivar");
+        const activar = zona.getByRole("button", { name: "Activar de nuevo" });
+        // Enseña la huella guardada, como la imprime el servidor, y no activa sin confirmarla.
+        await expect(zona.locator('[data-slot="huella"]')).toHaveText(HUELLA);
+        await expect(activar).toBeDisabled();
+        await esperarSinDesbordes(page);
+        await captura(page, "desactivado-activar-de-nuevo");
+        await zona.getByRole("checkbox", { name: "Coincide con la del servidor" }).check();
+        await activar.click();
+        await expect(page.getByText("Servidor de IA activado de nuevo")).toBeVisible();
+        await expect(estado(page)).toHaveAttribute("data-estado", "listo");
+        await expect(slot(page, "cifra-uso")).toContainText("63");
+        // Fue `activar` con la huella marcada; no hizo falta enlazar ni conectar.
+        expect(api.servidorIa.recibido.activaciones).toEqual([{ huellaTls: HUELLA }]);
+        expect(api.servidorIa.recibido.enlaces).toHaveLength(0);
+        expect(api.servidorIa.recibido.conexiones).toBe(0);
+    });
+
+    test("«Activar de nuevo» desde Mantenimiento: huella cambiada (409) desmarca y enseña la nueva; un cambio de llave en curso pide esperar", async ({ page }) => {
+        const api = await abrir(page, RUTA, { activar: ["rotacion_en_curso", "huella_cambiada", "ok"] });
+        api.servidorIa.desactivar();
+        await page.goto(`${RUTA}/mantenimiento`);
+        await expect(slot(page, "servidor-desactivado")).toContainText("El servidor está desactivado");
+        await expect(slot(page, "desactivar")).toHaveCount(0);
+        const zona = slot(page, "reactivar");
+        const coincide = zona.getByRole("checkbox", { name: "Coincide con la del servidor" });
+        const activar = zona.getByRole("button", { name: "Activar de nuevo" });
+        await coincide.check();
+        await activar.click();
+        // 409 `rotacion_en_curso`: aviso de espera, la casilla sigue marcada.
+        await expect(slot(page, "error-reactivar")).toHaveAttribute("data-codigo", "rotacion_en_curso");
+        await expect(slot(page, "error-reactivar")).toContainText("Ya hay un cambio de llave en curso; espera unos segundos.");
+        await expect(coincide).toBeChecked();
+        await activar.click();
+        // 409 `huella_cambiada`: se desmarca sola y aparece la huella de ahora; nunca reintenta solo.
+        await expect(slot(page, "error-reactivar")).toHaveAttribute("data-codigo", "huella_cambiada");
+        await expect(zona.locator('[data-slot="huella"]')).toHaveText(HUELLA_OTRA);
+        await expect(coincide).not.toBeChecked();
+        await expect(activar).toBeDisabled();
+        await page.clock.fastForward(30_000);
+        expect(api.servidorIa.recibido.activaciones).toHaveLength(2);
+        await coincide.check();
+        await activar.click();
+        // Activo otra vez: Mantenimiento vuelve a mostrar sus secciones.
+        await expect(slot(page, "quien-puede")).toBeVisible();
+        expect(api.servidorIa.recibido.activaciones).toEqual([{ huellaTls: HUELLA }, { huellaTls: HUELLA }, { huellaTls: HUELLA_OTRA }]);
     });
 });
 
