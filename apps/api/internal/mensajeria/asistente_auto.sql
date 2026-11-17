@@ -154,8 +154,8 @@ SELECT pg_advisory_xact_lock(hashtextextended('mensajeria.verificaciones:' || @e
 
 -- name: ReservarVerificacion :one
 -- El intento se reserva antes de llamar a Argos: cuenta desde ya para el máximo del cliente.
-INSERT INTO mensajeria.asistente_verificaciones (empresa_id, conversacion_id, cliente_id, resultado, creada_en)
-VALUES (sqlc.narg('empresa_id'), @conversacion_id, @cliente_id, 'en_curso', @creada_en)
+INSERT INTO mensajeria.asistente_verificaciones (empresa_id, conversacion_id, cliente_id, resultado, creada_en, numero_verificado)
+VALUES (sqlc.narg('empresa_id'), @conversacion_id, @cliente_id, 'en_curso', @creada_en, @numero_verificado)
 RETURNING id;
 
 -- name: CerrarVerificacion :execrows
@@ -164,9 +164,15 @@ UPDATE mensajeria.asistente_verificaciones SET resultado = @resultado
 WHERE id = @id AND cliente_id = @cliente_id AND resultado = 'en_curso';
 
 -- name: VerificacionesRecientes :one
--- Intentos del desafío que cuentan para el máximo del cliente en la empresa, sumando todas sus
--- conversaciones y canales: los que Argos evaluó y los que están en curso (reservados).
-SELECT count(*)::bigint FROM mensajeria.asistente_verificaciones
+-- Intentos del desafío del cliente en la empresa que cuentan para sus máximos (los que Argos evaluó
+-- y los reservados), separados: desde números verificados como suyos (comparten el tope del cliente),
+-- desde números sin verificar (tope aparte), los de esta conversación sin verificar y los sin
+-- verificar de la última media hora.
+SELECT count(*) FILTER (WHERE numero_verificado)::bigint AS verificados,
+       count(*) FILTER (WHERE NOT numero_verificado)::bigint AS sin_verificar,
+       count(*) FILTER (WHERE NOT numero_verificado AND conversacion_id = @conversacion_id)::bigint AS de_la_conversacion,
+       count(*) FILTER (WHERE NOT numero_verificado AND creada_en >= @reciente::timestamptz)::bigint AS sin_verificar_recientes
+FROM mensajeria.asistente_verificaciones
 WHERE coalesce(empresa_id, 0) = @empresa::bigint AND cliente_id = @cliente_id AND creada_en >= @desde
   AND resultado IN ('coincide', 'no_coincide', 'en_curso');
 

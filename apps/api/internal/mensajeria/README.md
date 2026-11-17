@@ -500,7 +500,7 @@ Emite `conversacion.categorizada`, `categoria.creada`, `categoria.actualizada` y
 
 - **Verificación en dos niveles** (`contacto.verificacion`): `numero` (asociación automática) y `fuerte`
   (confirmada por una persona o por `verificar_identidad` contra Argos, §7.5; el dato nunca se guarda: el
-  mensaje queda con `***`; 3 intentos por cliente y empresa cada día, sumando todas sus conversaciones; cada intento se reserva antes de llamar a Argos). Saldo, promesa y reconexión exigen `fuerte`
+  mensaje queda con `***`; 3 intentos por cliente y empresa cada día entre sus conversaciones de número verificado; desde un número asociado a mano van aparte —3 por conversación, 3 por cliente y 2 por media hora— y no gastan los del titular; cada intento se reserva antes de llamar a Argos). Saldo, promesa y reconexión exigen `fuerte`
   (`perfiles[].exigeVerificacionFuerte.dar_saldo` puede bajar solo el saldo a `numero`).
 - **Reconexión temporal:** caso de uso `PedirReconexion` (`conv_reconexion.go`, permiso
   `conversaciones.pedir_reconexion`), tabla `mensajeria.reconexiones`, evento `reconexion.solicitada`. Solo

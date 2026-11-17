@@ -124,7 +124,7 @@ func TestVerificacionDeIdentidadReservaAtomica(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			id, err := x.m.ReservarVerificacion(x.ctx, 1, cliente, ids[i%2])
+			id, err := x.m.ReservarVerificacion(x.ctx, 1, cliente, ids[i%2], true)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -143,13 +143,118 @@ func TestVerificacionDeIdentidadReservaAtomica(t *testing.T) {
 	}
 	// Otro cliente, y el mismo cliente en otra empresa, tienen su propio tope.
 	for nombre, r := range map[string][2]int64{"otro cliente": {1, otro}, "otra empresa": {2, cliente}} {
-		if id, err := x.m.ReservarVerificacion(x.ctx, r[0], r[1], ids[0]); err != nil || id == 0 {
+		if id, err := x.m.ReservarVerificacion(x.ctx, r[0], r[1], ids[0], true); err != nil || id == 0 {
 			t.Fatalf("%s: reserva %d, %v", nombre, id, err)
 		}
 	}
 	// Pasado el día, vuelve a haber intentos.
 	*x.reloj = x.reloj.Add(24*time.Hour + time.Minute)
-	if id, err := x.m.ReservarVerificacion(x.ctx, 1, cliente, ids[0]); err != nil || id == 0 {
+	if id, err := x.m.ReservarVerificacion(x.ctx, 1, cliente, ids[0], true); err != nil || id == 0 {
 		t.Fatalf("al día siguiente: %d, %v", id, err)
+	}
+}
+
+// asociadaAMano abre una conversación desde un número desconocido y la deja como la dejaría un agente
+// que la asocia a mano al cliente de conv: con cliente, pero sin verificar que el número sea suyo.
+func (x *bandejaIA) asociadaAMano(conv string) string {
+	x.t.Helper()
+	num := numeroCliente()
+	x.texto(num, "wamid.mano"+num, "Hola, ¿cuánto debo de mi servicio?")
+	otra := cid(x.conv(num))
+	if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.conversaciones d SET cliente_id = o.cliente_id, servicio_id = o.servicio_id, asociacion = 'manual',
+		cliente_verificado = false FROM mensajeria.conversaciones o WHERE o.id = $1 AND d.id = $2`, conv, otra); err != nil {
+		x.t.Fatal(err)
+	}
+	return otra
+}
+
+// Denegación dirigida: quien logra que un agente asocie su número al cliente de otro no le gasta los
+// intentos al titular. Los intentos desde un número sin verificar van aparte y están acotados.
+func TestVerificacionDeIdentidadNumeroSinVerificarNoGastaAlTitular(t *testing.T) {
+	const dpi = "8391726480101"
+	x := nuevaBandejaIA(t)
+	x.autonomo("siempre_primero", nil)
+	x.argos.mu.Lock()
+	x.argos.documento = dpi
+	x.argos.mu.Unlock()
+	// Una empresa que deja que el asistente atienda «Pagos y saldo» también a números sin verificar
+	// (sin la condición solo_verificados): ahí está el camino del atacante.
+	previas := map[int64]string{}
+	filas, err := x.bd.Query(x.ctx, `SELECT id, condicion FROM mensajeria.asistente_categorias WHERE nombre = 'Pagos y saldo' AND condicion IS NOT NULL`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for filas.Next() {
+		var id int64
+		var c string
+		if err := filas.Scan(&id, &c); err != nil {
+			t.Fatal(err)
+		}
+		previas[id] = c
+	}
+	filas.Close()
+	if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.asistente_categorias SET condicion = NULL WHERE nombre = 'Pagos y saldo'`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for id, c := range previas {
+			_, _ = x.bd.Exec(x.ctx, `UPDATE mensajeria.asistente_categorias SET condicion = $2 WHERE id = $1`, id, c)
+		}
+	})
+	titular, cliente := x.conClienteArgos()
+	atacante := x.asociadaAMano(titular)
+	otroAtacante := x.asociadaAMano(titular)
+	idDe := func(c string) int64 { id, _ := strconv.ParseInt(c, 10, 64); return id }
+	reservar := func(conv string, verificado bool) int64 {
+		t.Helper()
+		id, err := x.m.ReservarVerificacion(x.ctx, 1, cliente, idDe(conv), verificado)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	// El atacante falla dos veces por el asistente (camino real: la herramienta, con su número sin verificar).
+	*x.reloj = x.reloj.Add(21 * time.Second)
+	x.ia.decir(`{"categoria": "Pagos y saldo", "confianza": 0.95}`)
+	x.guion(dice("Para darte tu saldo, escríbeme tu DPI completo."))
+	x.correr(atacante)
+	for i, malo := range []string{"1111111100101", "2222222200101"} {
+		x.turno(x.numeroDe(atacante), "wamid.at"+strconv.Itoa(i), "Es "+malo, "Pagos y saldo", llama("verificar_identidad", `{}`),
+			dice("Ese dato no coincide. ¿Puedes revisarlo y escribirlo completo?"))
+	}
+	sinVerificar := func() int {
+		return x.contar(`SELECT count(*) FROM mensajeria.asistente_verificaciones WHERE cliente_id = $1 AND NOT numero_verificado`, cliente)
+	}
+	if n := sinVerificar(); n != 2 || x.verificacionesArgos() != 2 {
+		t.Fatalf("intentos del atacante: %d filas sin verificar, %d llamadas a Argos", n, x.verificacionesArgos())
+	}
+	// Tercero en la misma media hora: no llega a Argos (2 por media hora), ni desde otro número sin verificar.
+	if reservar(atacante, false) != 0 || reservar(otroAtacante, false) != 0 {
+		t.Fatal("más de dos intentos sin verificar en media hora")
+	}
+	// El titular, desde su número verificado, conserva sus tres intentos: verifica con normalidad.
+	*x.reloj = x.reloj.Add(21 * time.Second)
+	x.ia.decir(`{"categoria": "Pagos y saldo", "confianza": 0.95}`)
+	x.guion(dice("Para darte tu saldo, escríbeme tu DPI completo."))
+	x.correr(titular)
+	x.turno(x.numeroDe(titular), "wamid.tit1", "Es "+dpi, "Pagos y saldo", llama("verificar_identidad", `{}`), dice("Listo, ya verifiqué tu identidad."))
+	if v := x.verificacion(titular); v != "fuerte" {
+		t.Fatalf("el titular debía verificar: %v", v)
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.asistente_verificaciones WHERE cliente_id = $1 AND numero_verificado AND resultado = 'coincide'`, cliente); n != 1 {
+		t.Fatalf("intento del titular: %d", n)
+	}
+	// Y le quedan los otros dos, ni uno menos.
+	if reservar(titular, true) == 0 || reservar(titular, true) == 0 || reservar(titular, true) != 0 {
+		t.Fatal("el titular debía tener exactamente tres intentos al día")
+	}
+	// Pasada la media hora el atacante tiene un intento más (3 por cliente y día sin verificar) y ahí se acaba,
+	// también desde otro número sin verificar. Máximo absoluto: 6 por cliente y día.
+	*x.reloj = x.reloj.Add(31 * time.Minute)
+	if reservar(atacante, false) == 0 || reservar(atacante, false) != 0 || reservar(otroAtacante, false) != 0 {
+		t.Fatal("tope por cliente y día de los números sin verificar")
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.asistente_verificaciones WHERE cliente_id = $1`, cliente); n != 6 || sinVerificar() != 3 {
+		t.Fatalf("total del cliente: %d (sin verificar %d)", n, sinVerificar())
 	}
 }

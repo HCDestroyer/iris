@@ -172,7 +172,8 @@ func (m *Modulo) CrearOrdenDeVisita(ctx context.Context, empresa, conv, servicio
 }
 
 // ReservarVerificacion reserva un intento del desafío de identidad del cliente (0 = agotados).
-func (m *Modulo) ReservarVerificacion(ctx context.Context, empresa, cliente, conv int64) (int64, error) {
-	id, _, err := m.reservarVerificacion(ctx, &turnoIA{empresa: empresa, clienteID: cliente, conv: conv}, m.ahora().Add(-24*time.Hour))
+func (m *Modulo) ReservarVerificacion(ctx context.Context, empresa, cliente, conv int64, numeroVerificado bool) (int64, error) {
+	id, _, err := m.reservarVerificacion(ctx, &turnoIA{empresa: empresa, clienteID: cliente, conv: conv, numeroVerificado: numeroVerificado},
+		m.ahora().Add(-24*time.Hour))
 	return id, err
 }
