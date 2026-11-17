@@ -100,6 +100,13 @@ func (m *Modulo) aLlamadas(ctx context.Context, q *mensajeriabd.Queries, a alcan
 					if c.Contacto.Verificacion != nil {
 						l.Contacto.Verificacion = *c.Contacto.Verificacion
 					}
+					if !llamadaFinal(f.Estado) {
+						s, err := senalesDe(ctx, q, a.empresa, *c.Contacto.ClienteID, c.Contacto.ServicioID, puede(nucleo.PermClientesVer), puede(nucleo.PermTicketsVer))
+						if err != nil {
+							return nil, err
+						}
+						l.Senales = s
+					}
 				}
 			}
 		}
@@ -123,6 +130,58 @@ func (m *Modulo) aLlamadas(ctx context.Context, q *mensajeriabd.Queries, a alcan
 		out = append(out, l)
 	}
 	return out, nil
+}
+
+// senalesDe lee las señales del cliente que llama de lo que Iris ya tiene (instantánea de Argos y
+// tickets). El saldo vencido no está aquí: se pide a Argos en vivo, fuera de la transacción (VerLlamada).
+func senalesDe(ctx context.Context, q *mensajeriabd.Queries, empresa, cliente int64, servicio *int64, verCliente, verTickets bool) (*SenalesLlamada, error) {
+	s := &SenalesLlamada{}
+	if verCliente {
+		f, err := q.ServicioPrincipal(ctx, mensajeriabd.ServicioPrincipalParams{ClienteID: cliente, Empresa: empresa, ServicioID: servicio})
+		switch {
+		case err == nil:
+			s.Servicio = &ServicioDeLlamada{ID: f.ID, Codigo: f.Codigo, Plan: f.PlanNombre, Estado: f.Estado}
+		case !errors.Is(err, pgx.ErrNoRows):
+			return nil, err
+		}
+	}
+	if verTickets {
+		ts, err := q.TicketsAbiertosDelCliente(ctx, mensajeriabd.TicketsAbiertosDelClienteParams{ClienteID: &cliente, Empresa: &empresa})
+		if err != nil {
+			return nil, err
+		}
+		if len(ts) > 0 {
+			s.TicketAbierto = &TicketDeLlamada{ID: ts[0].ID, Numero: ts[0].Numero, Asunto: ts[0].Asunto}
+		}
+	}
+	return s, nil
+}
+
+// VerLlamada es GET /llamadas/{id}: la llamada y, si está viva, es de un cliente y quien la mira
+// puede ver el estado de cuenta, la señal «tiene saldo vencido» leída de Argos en vivo (después de la
+// transacción, con plazo corto). Solo un booleano: nunca montos. Si Argos no responde, no se sabe y
+// el campo no viaja.
+func (m *Modulo) VerLlamada(ctx context.Context, in EntradaLlamada) (Llamada, error) {
+	l, err := m.Voz.Ver.Ejecutar(ctx, in)
+	if err != nil || l.Senales == nil || l.Contacto.ClienteID == nil || l.ConversacionID == nil || m.cfg.Argos == nil ||
+		!contexto.PermisosDe(ctx).Tiene(string(nucleo.PermClientesEstadoCuenta)) {
+		return l, err
+	}
+	a, err := alcanceVoz(ctx, nucleo.PermLlamadasVer)
+	if err != nil {
+		return l, nil //nolint:nilerr // sin alcance no hay señal; la llamada ya se leyó
+	}
+	cctx, cancelar := context.WithTimeout(ctx, PlazoSaldoLlamada)
+	defer cancelar()
+	e, err := m.cfg.Argos.EstadoCuentaCliente(cctx, atencionDe(a, *l.ConversacionID), *l.Contacto.ClienteID)
+	if err != nil {
+		return l, nil //nolint:nilerr // Argos no respondió: no se sabe
+	}
+	if c := cuentaDe(*l.Contacto.ClienteID, e); c != nil {
+		vencido := !c.alDia
+		l.Senales.SaldoVencido = &vencido
+	}
+	return l, nil
 }
 
 func (m *Modulo) aLlamada(ctx context.Context, q *mensajeriabd.Queries, a alcanceConv, f mensajeriabd.MensajeriaLlamada) (Llamada, error) {
@@ -324,6 +383,9 @@ type RecibirLlamadas struct {
 	Recibe bool `json:"recibe" doc:"Este navegador tiene «Recibir llamadas» encendido"`
 	// Vivo: hay un flujo de eventos abierto con latido reciente (sin él no suena ninguna llamada).
 	Vivo bool `json:"vivo"`
+	// Motivo: por qué lo apagó el servidor. Ausente si está encendido, si lo apagó la persona o si
+	// nunca se encendió en este navegador.
+	Motivo *string `json:"motivo,omitempty" enum:"tope,inactivo" doc:"Por qué el servidor apagó «Recibir llamadas» en este navegador: tope (pasaste de 10 navegadores) o inactivo (30 días sin abrirlo)"`
 }
 
 // EntradaRecibir es POST /llamadas/recibir/encender y /apagar.
@@ -334,7 +396,8 @@ type EntradaRecibir struct {
 
 // EntradaVerRecibir es GET /llamadas/recibir.
 type EntradaVerRecibir struct {
-	Navegador string `query:"navegador" minLength:"8" maxLength:"64" pattern:"^[A-Za-z0-9_-]+$"`
+	Cabecera  string `header:"X-Iris-Navegador" required:"false" maxLength:"64" pattern:"^[A-Za-z0-9_-]{8,64}$" doc:"El id de este navegador (preferido: no queda en los registros de acceso)"`
+	Navegador string `query:"navegador" required:"false" maxLength:"64" pattern:"^[A-Za-z0-9_-]{8,64}$" doc:"El id de este navegador, si no va en la cabecera"`
 }
 
 func nuevoRecibirLlamadas(m *Modulo) *auditoria.Caso[EntradaRecibir, RecibirLlamadas] {
@@ -347,9 +410,14 @@ func nuevoRecibirLlamadas(m *Modulo) *auditoria.Caso[EntradaRecibir, RecibirLlam
 			}
 			t.FijarEmpresa(a.empresa)
 			t.Anotar(map[string]any{"recibe": in.recibe})
-			// Tope de navegadores por usuario: se quitan los que llevan 30 días sin verse y los más viejos.
-			if err := mensajeriabd.New(t).LimpiarReceptores(ctx, mensajeriabd.LimpiarReceptoresParams{Empresa: a.empresa, UsuarioID: a.usuario,
+			// Tope de navegadores por usuario: se apagan (con su motivo) los que llevan 30 días sin verse y
+			// los más viejos; de los apagados solo se guardan los más recientes.
+			if err := mensajeriabd.New(t).ApagarReceptoresDeMas(ctx, mensajeriabd.ApagarReceptoresDeMasParams{Empresa: a.empresa, UsuarioID: a.usuario,
 				Navegador: in.Navegador, Viejo: m.ahora().Add(-30 * 24 * time.Hour), Conservar: MaxNavegadoresRecibir - 1}); err != nil {
+				return RecibirLlamadas{}, err
+			}
+			if err := mensajeriabd.New(t).BorrarReceptoresSobrantes(ctx, mensajeriabd.BorrarReceptoresSobrantesParams{Empresa: a.empresa, UsuarioID: a.usuario,
+				Navegador: in.Navegador, Conservar: 2 * MaxNavegadoresRecibir}); err != nil {
 				return RecibirLlamadas{}, err
 			}
 			f, err := mensajeriabd.New(t).FijarReceptor(ctx, mensajeriabd.FijarReceptorParams{EmpresaID: a.empresaPtr(), UsuarioID: a.usuario,
@@ -370,14 +438,25 @@ func nuevoVerRecibir(m *Modulo) *auditoria.Caso[EntradaVerRecibir, RecibirLlamad
 			if err != nil {
 				return RecibirLlamadas{}, err
 			}
-			f, err := mensajeriabd.New(t).ReceptorDe(ctx, mensajeriabd.ReceptorDeParams{Empresa: a.empresa, UsuarioID: a.usuario, Navegador: in.Navegador})
+			navegador := in.Cabecera
+			if navegador == "" {
+				navegador = in.Navegador
+			}
+			if navegador == "" {
+				return RecibirLlamadas{}, reglaVoz("navegador_requerido", "Falta el id de este navegador (cabecera X-Iris-Navegador)")
+			}
+			f, err := mensajeriabd.New(t).ReceptorDe(ctx, mensajeriabd.ReceptorDeParams{Empresa: a.empresa, UsuarioID: a.usuario, Navegador: navegador})
 			if errors.Is(err, pgx.ErrNoRows) {
 				return RecibirLlamadas{}, nil
 			}
 			if err != nil {
 				return RecibirLlamadas{}, err
 			}
-			return RecibirLlamadas{Recibe: f.Recibe, Vivo: f.Recibe && f.VistoEn.After(m.ahora().Add(-FlujoVivo))}, nil
+			r := RecibirLlamadas{Recibe: f.Recibe, Vivo: f.Recibe && f.VistoEn.After(m.ahora().Add(-FlujoVivo))}
+			if !f.Recibe {
+				r.Motivo = f.ApagadoMotivo
+			}
+			return r, nil
 		},
 	})
 }
@@ -391,7 +470,7 @@ type EntradaListarDevoluciones struct {
 	Limit  int    `query:"limit" minimum:"1" maximum:"100" default:"30"`
 }
 
-func nuevoListarDevoluciones(*Modulo) *auditoria.Caso[EntradaListarDevoluciones, nucleo.Pagina[DevolucionLlamada]] {
+func nuevoListarDevoluciones(m *Modulo) *auditoria.Caso[EntradaListarDevoluciones, nucleo.Pagina[DevolucionLlamada]] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaListarDevoluciones, nucleo.Pagina[DevolucionLlamada]]{
 		Accion: "llamadas.listar_devoluciones", Permiso: nucleo.PermLlamadasVer, AuditarExito: sinAuditar[nucleo.Pagina[DevolucionLlamada]],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaListarDevoluciones) (nucleo.Pagina[DevolucionLlamada], error) {
@@ -427,6 +506,9 @@ func nuevoListarDevoluciones(*Modulo) *auditoria.Caso[EntradaListarDevoluciones,
 			out := make([]DevolucionLlamada, 0, len(filas))
 			for _, f := range filas {
 				out = append(out, aDevolucion(f))
+			}
+			if err := m.conTitulos(ctx, mensajeriabd.New(t), a.usuario, out); err != nil {
+				return vacia, err
 			}
 			return nucleo.Pagina[DevolucionLlamada]{Data: out, NextCursor: siguiente}, nil
 		},
@@ -476,7 +558,11 @@ func nuevoDescartarDevolucion(m *Modulo) *auditoria.Caso[EntradaDescartarDevoluc
 					return DevolucionLlamada{}, err
 				}
 			}
-			return aDevolucion(f), t.Emitir("llamada.devolucion_cerrada", map[string]any{"devolucion_id": f.ID, "conversacion_id": f.ConversacionID,
+			ds := []DevolucionLlamada{aDevolucion(f)}
+			if err := m.conTitulos(ctx, q, a.usuario, ds); err != nil {
+				return DevolucionLlamada{}, err
+			}
+			return ds[0], t.Emitir("llamada.devolucion_cerrada", map[string]any{"devolucion_id": f.ID, "conversacion_id": f.ConversacionID,
 				"empresa_id": f.EmpresaID, "llamada_id": f.LlamadaID, "estado": f.Estado, "usuario_id": a.usuario, "llamada_devuelta_id": nil})
 		},
 	})

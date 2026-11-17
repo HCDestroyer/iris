@@ -62,6 +62,9 @@ func nuevosCasosVoz(m *Modulo) casosVoz {
 // EntradaLlamada identifica una llamada.
 type EntradaLlamada struct {
 	ID uuid.UUID `json:"id"`
+	// Navegador: el id de «Recibir llamadas» de este navegador (cabecera X-Iris-Navegador). La reserva
+	// de reclamar queda atada a él.
+	Navegador string `json:"navegador,omitempty"`
 }
 
 // LlamadaReclamada es la respuesta de reclamar: la oferta SDP solo viaja aquí y solo a quien la ganó.
@@ -80,15 +83,17 @@ type ICELlamada struct {
 // EntradaContestar es POST /llamadas/{id}/contestar.
 type EntradaContestar struct {
 	ID           uuid.UUID `json:"id"`
+	Navegador    string    `json:"navegador,omitempty"`
 	SDPRespuesta string    `json:"-"`
-	// Huella: lo único del SDP que queda en la auditoría.
+	// Huella: lo único del SDP que queda en la auditoría (la del SDP saneado, el que va a Meta).
 	Huella string `json:"sdp_sha256"`
 }
 
 // EntradaSoltar es POST /llamadas/{id}/soltar.
 type EntradaSoltar struct {
-	ID     uuid.UUID `json:"id"`
-	Motivo string    `json:"motivo,omitempty"`
+	ID        uuid.UUID `json:"id"`
+	Navegador string    `json:"navegador,omitempty"`
+	Motivo    string    `json:"motivo,omitempty"`
 }
 
 // EntradaRechazar es POST /llamadas/{id}/rechazar.
@@ -105,9 +110,10 @@ type resultadoMeta struct {
 	Fallo  bool      `json:"fallo"`
 }
 
-// llamadaDeQuienLaReclamo: después de reclamar la llamada es de quien la reclamó (M1). Cualquier
-// otro recibe 404, también un supervisor.
-func llamadaDeQuienLaReclamo(ctx context.Context, q *mensajeriabd.Queries, a alcanceConv, id uuid.UUID) (mensajeriabd.MensajeriaLlamada, error) {
+// llamadaDeQuienLaReclamo: después de reclamar la llamada es de quien la reclamó (M1), en el
+// navegador donde la reclamó. Cualquier otro recibe 404, también un supervisor; la misma persona en
+// otro navegador, 409 con la regla otro_navegador.
+func llamadaDeQuienLaReclamo(ctx context.Context, q *mensajeriabd.Queries, a alcanceConv, id uuid.UUID, navegador string) (mensajeriabd.MensajeriaLlamada, error) {
 	l, err := q.LlamadaParaActualizar(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return l, llamadaNoEncontrada()
@@ -124,6 +130,9 @@ func llamadaDeQuienLaReclamo(ctx context.Context, q *mensajeriabd.Queries, a alc
 	if l.ReclamadaPor == nil || *l.ReclamadaPor != a.usuario {
 		return l, llamadaNoEncontrada()
 	}
+	if l.ReclamadaNavegador == nil || *l.ReclamadaNavegador != navegador {
+		return l, otroNavegador()
+	}
 	return l, nil
 }
 
@@ -139,10 +148,10 @@ func nuevoReclamarLlamada(m *Modulo) *auditoria.Caso[EntradaLlamada, LlamadaRecl
 			t.FijarEntidad("llamada", in.ID)
 			q := mensajeriabd.New(t)
 			ahora := m.ahora()
-			// Repetir (misma pestaña, misma Idempotency-Key): quien ya la tiene recibe otra vez la
-			// oferta, releída de la llamada.
+			// Repetir (mismo navegador, misma Idempotency-Key): quien ya la tiene recibe otra vez la
+			// oferta, releída de la llamada. Desde otro navegador de la misma persona, no: 409 misma_persona.
 			if l, err := q.LlamadaPorID(ctx, in.ID); err == nil && derefEmpresa(l.EmpresaID) == a.empresa && l.Estado == LlamadaConectando &&
-				l.ReclamadaPor != nil && *l.ReclamadaPor == a.usuario && l.SdpOferta != nil && l.PreAceptadaEn == nil && l.ReclamadaHasta != nil && ahora.Before(*l.ReclamadaHasta) {
+				l.ReclamadaPor != nil && *l.ReclamadaPor == a.usuario && l.ReclamadaNavegador != nil && *l.ReclamadaNavegador == in.Navegador && l.SdpOferta != nil && l.PreAceptadaEn == nil && l.ReclamadaHasta != nil && ahora.Before(*l.ReclamadaHasta) {
 				return m.reclamada(ctx, q, a, l)
 			}
 			// Sin «Recibir llamadas» encendido y un flujo vivo no se puede contestar a tiempo.
@@ -150,8 +159,16 @@ func nuevoReclamarLlamada(m *Modulo) *auditoria.Caso[EntradaLlamada, LlamadaRecl
 			if err != nil {
 				return LlamadaReclamada{}, err
 			}
+			// Sin el id del navegador no hay reserva (a quien no es candidato le toca su 404 de siempre).
+			if in.Navegador == "" {
+				if candidato, err := q.EsCandidato(ctx, mensajeriabd.EsCandidatoParams{ID: in.ID, UsuarioID: a.usuario, Empresa: a.empresa}); err != nil {
+					return LlamadaReclamada{}, err
+				} else if candidato {
+					return LlamadaReclamada{}, reglaVoz("navegador_requerido", "Falta la cabecera X-Iris-Navegador con el id de este navegador")
+				}
+			}
 			l, err := q.ReclamarLlamada(ctx, mensajeriabd.ReclamarLlamadaParams{ID: in.ID, Empresa: a.empresa, UsuarioID: &a.usuario, Hasta: ptrT(ahora.Add(ReservaLlamada)),
-				Ahora: ahora})
+				Ahora: ahora, Navegador: in.Navegador})
 			if errors.Is(err, pgx.ErrNoRows) {
 				// ¿No es candidato (404), o alguien se adelantó o ya no suena (409)?
 				candidato, err := q.EsCandidato(ctx, mensajeriabd.EsCandidatoParams{ID: in.ID, UsuarioID: a.usuario, Empresa: a.empresa})
@@ -247,7 +264,7 @@ func nuevoContestarLlamada(m *Modulo) *auditoria.Caso[EntradaContestar, Llamada]
 			t.FijarEmpresa(a.empresa)
 			t.FijarEntidad("llamada", in.ID)
 			q := mensajeriabd.New(t)
-			l, err := llamadaDeQuienLaReclamo(ctx, q, a, in.ID)
+			l, err := llamadaDeQuienLaReclamo(ctx, q, a, in.ID, in.Navegador)
 			if err != nil {
 				return Llamada{}, err
 			}
@@ -274,14 +291,17 @@ func nuevoContestarLlamada(m *Modulo) *auditoria.Caso[EntradaContestar, Llamada]
 // Contestar valida y guarda la intención, manda pre_accept a Meta y devuelve la llamada. Si Meta la
 // rechaza, la llamada vuelve a sonar y responde 502 meta_rechazo.
 func (m *Modulo) Contestar(ctx context.Context, in EntradaContestar) (Llamada, error) {
-	in.Huella = huellaSDP(in.SDPRespuesta)
+	// A Meta va el SDP saneado, y su huella es la que queda en la auditoría. Si no es válido, lo dice
+	// el caso de uso (después de comprobar el permiso y de quién es la llamada).
+	saneado, errSDP := SanearSDP(in.SDPRespuesta)
+	if errSDP == nil {
+		in.Huella = huellaSDP(saneado)
+	}
 	if _, err := m.Voz.contestar.Ejecutar(ctx, in); err != nil {
 		return Llamada{}, err
 	}
-	// A Meta va el SDP saneado (el caso de uso ya comprobó que es válido).
-	saneado, err := SanearSDP(in.SDPRespuesta)
-	if err != nil {
-		return Llamada{}, sdpInvalido("sdpRespuesta", err.Error())
+	if errSDP != nil {
+		return Llamada{}, sdpInvalido("sdpRespuesta", errSDP.Error())
 	}
 	if err := m.cumplirMeta(ctx, nucleo.BDDe(ctx), in.ID, saneado); err != nil {
 		var em *ErrMetaLlamada
@@ -304,7 +324,7 @@ func nuevoConfirmarMedio(m *Modulo) *auditoria.Caso[EntradaLlamada, Llamada] {
 			t.FijarEmpresa(a.empresa)
 			t.FijarEntidad("llamada", in.ID)
 			q := mensajeriabd.New(t)
-			l, err := llamadaDeQuienLaReclamo(ctx, q, a, in.ID)
+			l, err := llamadaDeQuienLaReclamo(ctx, q, a, in.ID, in.Navegador)
 			if err != nil {
 				return Llamada{}, err
 			}
@@ -482,7 +502,7 @@ func nuevoSoltarLlamada(m *Modulo) *auditoria.Caso[EntradaSoltar, Llamada] {
 			t.FijarEmpresa(a.empresa)
 			t.FijarEntidad("llamada", in.ID)
 			q := mensajeriabd.New(t)
-			l, err := llamadaDeQuienLaReclamo(ctx, q, a, in.ID)
+			l, err := llamadaDeQuienLaReclamo(ctx, q, a, in.ID, in.Navegador)
 			if err != nil {
 				return Llamada{}, err
 			}

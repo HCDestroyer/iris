@@ -2,6 +2,8 @@ package mensajeria_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
 )
 
@@ -132,6 +135,8 @@ func nuevaBandejaVoz(t *testing.T) *bandejaVoz {
 	t.Helper()
 	g := &graphFalso{fallar: map[string]error{}, ajustes: mensajeria.AjustesMetaLlamadas{Habilitadas: true, IconoVisible: true, LimiteMensajeria: 10000}}
 	x := &bandejaVoz{bandeja: nuevaBandeja(t, func(c *mensajeria.Config) { c.Llamadas = g }), g: g}
+	// Cada persona en su navegador (el mismo id que usa recibe()).
+	x.agente.navegador, x.supervisor.navegador = fmt.Sprintf("navegador-%d", x.agente.id), fmt.Sprintf("navegador-%d", x.supervisor.id)
 	c := x.exigir(x.api(x.supervisor, http.MethodPost, x.rutaCanal("/llamadas/comprobar"), nil), http.StatusOK)
 	x.exigir(x.configurar(int(c.cuerpo["version"].(float64)), nil), http.StatusOK)
 	// El supervisor también atiende la cola (x.otro no: nunca es candidato).
@@ -387,8 +392,13 @@ func TestLlamadaEntranteContestadaEnElPanel(t *testing.T) {
 			t.Fatalf("quedó SDP, call_id o token donde no debe (%d): %s", n, sql)
 		}
 	}
-	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'llamadas.contestar' AND entrada->>'sdp_sha256' IS NOT NULL AND actor_id = $1`, x.agente.id); n == 0 {
-		t.Fatal("la auditoría de contestar debía llevar la huella del SDP")
+	// La huella auditada es la del SDP saneado (el que llegó a Meta), no la del que mandó el navegador.
+	huella := func(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
+	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'llamadas.contestar' AND entrada->>'sdp_sha256' = $2 AND actor_id = $1`, x.agente.id, huella(x.g.sdps[0])); n != 1 {
+		t.Fatal("la auditoría de contestar debía llevar la huella del SDP saneado")
+	}
+	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'llamadas.contestar' AND entrada->>'sdp_sha256' = $1`, huella(sdpChromium)); n != 0 {
+		t.Fatal("quedó auditada la huella del SDP sin sanear")
 	}
 }
 
@@ -438,12 +448,13 @@ func TestLlamadaPerdidaDevolucionYAviso(t *testing.T) {
 			mia = f.(map[string]any)
 		}
 	}
-	if mia == nil || mia["llamadaId"] != id || mia["pedidaPor"] != "sistema" {
+	// Trae el título y el número de su conversación (el panel no los busca en otra lista).
+	if mia == nil || mia["llamadaId"] != id || mia["pedidaPor"] != "sistema" || mia["numero"] != "+"+strings.TrimPrefix(num, "+") || mia["titulo"] != "Carlos R." {
 		t.Fatalf("por devolver: %v", d)
 	}
 	ruta := fmt.Sprintf("/llamadas/devoluciones/%d/descartar", int64(mia["id"].(float64)))
 	x.exigir(x.api(x.lectura, http.MethodPost, ruta, map[string]any{"motivo": "x"}), http.StatusForbidden)
-	if r := x.exigir(x.api(x.agente, http.MethodPost, ruta, map[string]any{"motivo": "Ya se resolvió por chat"}), http.StatusOK); r.cuerpo["estado"] != "descartada" {
+	if r := x.exigir(x.api(x.agente, http.MethodPost, ruta, map[string]any{"motivo": "Ya se resolvió por chat"}), http.StatusOK); r.cuerpo["estado"] != "descartada" || r.cuerpo["titulo"] != "Carlos R." {
 		t.Fatalf("descartada: %s", crudo(r))
 	}
 	x.exigir(x.api(x.agente, http.MethodPost, ruta, map[string]any{"motivo": "otra vez"}), http.StatusConflict)
@@ -720,6 +731,13 @@ func TestSanearSDP(t *testing.T) {
 	if err := mensajeria.ValidarSDP(san); err != nil {
 		t.Fatalf("saneado: %v", err)
 	}
+	// raddr y rport se quitan estén donde estén, y un 6to4 de una dirección pública se conserva.
+	san, err = mensajeria.SanearSDP(sdpNavegador("a=candidate:2 1 udp 1 190.56.10.9 9 typ srflx suelta raddr 10.0.0.5 rport 9 generation 0\r\n" +
+		"a=candidate:3 1 udp 1 2002:be38:0a07::1 9 typ host\r\na=candidate:4 1 udp 1 2002:c0a8:0101::1 9 typ host\r\na=candidate:5 1 udp 1 ::10.0.0.1 9 typ host\r\n"))
+	if err != nil || !strings.Contains(san, "a=candidate:2 1 udp 1 190.56.10.9 9 typ srflx suelta generation 0\r\n") || !strings.Contains(san, "a=candidate:3 ") ||
+		strings.Contains(san, "a=candidate:4 ") || strings.Contains(san, "a=candidate:5 ") || strings.Contains(san, "raddr") || strings.Contains(san, "rport") {
+		t.Fatalf("raddr desplazado y 6to4: %v\n%s", err, san)
+	}
 	// Candidatos de más: se quedan los primeros 32.
 	if san, err = mensajeria.SanearSDP(sdpNavegador(strings.Repeat("a=candidate:2 1 udp 1 190.56.10.9 9 typ host\r\n", 40))); err != nil ||
 		strings.Count(san, "a=candidate:") != mensajeria.MaxCandidatosSDP {
@@ -775,6 +793,13 @@ func TestValidarSDP(t *testing.T) {
 		"IPv4 en IPv6":         sdpNavegador("a=candidate:2 1 udp 1 ::ffff:10.0.0.1 9 typ host\r\n"),
 		"candidatos de más":    sdpNavegador(strings.Repeat("a=candidate:2 1 udp 1 190.56.10.9 9 typ host\r\n", mensajeria.MaxCandidatosSDP)),
 		"dos audios":           sdpNavegador("m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n"),
+		// IPv6 que embeben una IPv4 privada, y site-local.
+		"IPv4 compatible":     sdpNavegador("a=candidate:2 1 udp 1 ::10.0.0.1 9 typ host\r\n"),
+		"6to4 de una privada": sdpNavegador("a=candidate:2 1 udp 1 2002:0a00:0001::1 9 typ host\r\n"),
+		"IPv4 traducida":      sdpNavegador("a=candidate:2 1 udp 1 ::ffff:0:10.0.0.1 9 typ host\r\n"),
+		"site-local":          sdpNavegador("a=candidate:2 1 udp 1 fec0::1 9 typ host\r\n"),
+		// raddr fuera de su sitio (tras una extensión suelta): se encuentra igual.
+		"raddr desplazado": sdpNavegador("a=candidate:2 1 udp 1 190.56.10.9 9 typ srflx suelta raddr 10.0.0.5 rport 9\r\n"),
 	} {
 		if err := mensajeria.ValidarSDP(malo); err == nil {
 			t.Errorf("%s: debía rechazarse", nombre)
@@ -1027,18 +1052,37 @@ func TestLlamadaRevisionE1(t *testing.T) {
 	// B3: tope de 10 navegadores por usuario; los que llevan 30 días sin verse se quitan.
 	x.sql(`UPDATE mensajeria.llamada_receptores SET visto_en = $2 WHERE usuario_id = $1`, x.supervisor.id, x.reloj.Add(-31*24*time.Hour))
 	x.exigir(x.api(x.supervisor, http.MethodPost, "/llamadas/recibir/encender", map[string]any{"navegador": "navegador-nuevo"}), http.StatusOK)
-	if n := x.contar(`SELECT count(*) FROM mensajeria.llamada_receptores WHERE usuario_id = $1`, x.supervisor.id); n != 1 {
+	if n := x.contar(`SELECT count(*) FROM mensajeria.llamada_receptores WHERE usuario_id = $1 AND recibe`, x.supervisor.id); n != 1 {
 		t.Fatalf("navegadores viejos del supervisor: %d", n)
 	}
+	// El navegador apagado sabe por qué (id por cabecera; también vale la query; sin ninguno, 422).
+	if r := x.exigir(x.api(x.supervisor, http.MethodGet, "/llamadas/recibir", nil), http.StatusOK); r.cuerpo["recibe"] != false || r.cuerpo["motivo"] != "inactivo" {
+		t.Fatalf("apagado por inactivo: %s", crudo(r))
+	}
+	sinNav := x.supervisor
+	sinNav.navegador = ""
+	if r := x.exigir(x.api(sinNav, http.MethodGet, "/llamadas/recibir?navegador=navegador-nuevo", nil), http.StatusOK); r.cuerpo["recibe"] != true || r.cuerpo["motivo"] != nil {
+		t.Fatalf("por query: %s", crudo(r))
+	}
+	x.exigir(x.api(sinNav, http.MethodGet, "/llamadas/recibir", nil), http.StatusUnprocessableEntity)
 	for i := range 14 {
 		x.pasa(time.Second)
 		x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/recibir/encender", map[string]any{"navegador": fmt.Sprintf("navegador-extra-%d", i)}), http.StatusOK)
 	}
-	if n := x.contar(`SELECT count(*) FROM mensajeria.llamada_receptores WHERE usuario_id = $1`, x.agente.id); n != mensajeria.MaxNavegadoresRecibir {
+	if n := x.contar(`SELECT count(*) FROM mensajeria.llamada_receptores WHERE usuario_id = $1 AND recibe`, x.agente.id); n != mensajeria.MaxNavegadoresRecibir {
 		t.Fatalf("navegadores del agente: %d", n)
 	}
-	if n := x.contar(`SELECT count(*) FROM mensajeria.llamada_receptores WHERE usuario_id = $1 AND navegador IN ('navegador-extra-13', 'navegador-extra-4')`, x.agente.id); n != 2 {
+	if n := x.contar(`SELECT count(*) FROM mensajeria.llamada_receptores WHERE usuario_id = $1 AND recibe AND navegador IN ('navegador-extra-13', 'navegador-extra-4')`, x.agente.id); n != 2 {
 		t.Fatal("debían quedar los 10 navegadores más recientes")
+	}
+	viejo := x.agente
+	viejo.navegador = "navegador-extra-0"
+	if r := x.exigir(x.api(viejo, http.MethodGet, "/llamadas/recibir", nil), http.StatusOK); r.cuerpo["recibe"] != false || r.cuerpo["motivo"] != "tope" {
+		t.Fatalf("apagado por tope: %s", crudo(r))
+	}
+	// Al volver a encenderlo se borra el motivo.
+	if r := x.exigir(x.api(viejo, http.MethodPost, "/llamadas/recibir/encender", map[string]any{"navegador": "navegador-extra-0"}), http.StatusOK); r.cuerpo["motivo"] != nil {
+		t.Fatalf("reencendido: %s", crudo(r))
 	}
 
 	// B7: despacho contesta llamadas pero no descarta devoluciones (§8.2).
@@ -1304,5 +1348,171 @@ func TestLlamadaSeguridadE1(t *testing.T) {
 	}
 	if n := x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE grabada`) + x.contar(`SELECT count(*) FROM mensajeria.llamada_grabaciones`); n != 0 {
 		t.Fatalf("ninguna llamada se graba todavía: %d", n)
+	}
+}
+
+// La reserva es de un usuario EN un navegador: la misma persona en dos navegadores no se estorba.
+func TestLlamadaReservaPorNavegador(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	x.recibe(x.agente, x.supervisor)
+	otroNav := x.agente
+	otroNav.navegador = fmt.Sprintf("navegador-b-%d", x.agente.id)
+	x.exigir(x.api(otroNav, http.MethodPost, "/llamadas/recibir/encender", map[string]any{"navegador": otroNav.navegador}), http.StatusOK)
+	sinNav := x.agente
+	sinNav.navegador = ""
+	num, call := numeroCliente(), "wacid.nav"+numeroCliente()
+	x.connect(num, call)
+	id, _, _ := x.llamada(call)
+	// Sin el id del navegador no se reserva.
+	if r := x.exigir(x.api(sinNav, http.MethodPost, "/llamadas/"+id+"/reclamar", nil), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "navegador_requerido") {
+		t.Fatalf("reclamar sin navegador: %s", crudo(r))
+	}
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/reclamar", nil), http.StatusOK)
+	// El otro navegador de la misma persona: 409 misma_persona al reclamar (ni siquiera dentro de la
+	// reserva recibe la oferta), y sus soltar, contestar y confirmar-medio no tocan la reserva.
+	if r := x.exigir(x.api(otroNav, http.MethodPost, "/llamadas/"+id+"/reclamar", nil), http.StatusConflict); !strings.Contains(crudo(r), "misma_persona") || strings.Contains(crudo(r), "fingerprint") {
+		t.Fatalf("reclamar desde el otro navegador: %s", crudo(r))
+	}
+	for _, p := range []persona{otroNav, sinNav} {
+		for ruta, cuerpo := range map[string]any{"/soltar": map[string]any{"motivo": "sin_microfono"}, "/contestar": map[string]any{"sdpRespuesta": sdpNavegador("")}, "/confirmar-medio": nil} {
+			if r := x.exigir(x.api(p, http.MethodPost, "/llamadas/"+id+ruta, cuerpo), http.StatusConflict); !strings.Contains(crudo(r), "otro_navegador") {
+				t.Fatalf("%s desde otro navegador: %s", ruta, crudo(r))
+			}
+		}
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id = $1::uuid AND estado = 'conectando' AND reclamada_por = $2 AND reclamada_navegador = $3`,
+		id, x.agente.id, x.agente.navegador); n != 1 || len(x.g.hechas()) != 0 {
+		t.Fatalf("la reserva del primer navegador debía seguir intacta: %v", x.g.hechas())
+	}
+	// El primero sigue y contesta; repetir reclamar desde él devuelve la oferta.
+	if r := x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/reclamar", nil), http.StatusOK); r.cuerpo["sdpOferta"] != sdpOfertaMeta {
+		t.Fatalf("repetir reclamar en el mismo navegador: %s", crudo(r))
+	}
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/contestar", map[string]any{"sdpRespuesta": sdpNavegador("")}), http.StatusOK)
+	x.exigir(x.api(otroNav, http.MethodPost, "/llamadas/"+id+"/confirmar-medio", nil), http.StatusConflict)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/confirmar-medio", nil), http.StatusOK)
+	if n := x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id = $1::uuid AND estado = 'en_curso' AND reclamada_navegador IS NULL`, id); n != 1 {
+		t.Fatal("en curso, ya sin reserva")
+	}
+	// Colgar: quien la tiene, desde cualquier navegador.
+	if r := x.exigir(x.api(otroNav, http.MethodPost, "/llamadas/"+id+"/colgar", nil), http.StatusOK); r.cuerpo["estado"] != "terminada" {
+		t.Fatalf("colgar desde el otro navegador: %s", crudo(r))
+	}
+	// Soltar desde el navegador de la reserva sí la libera, y limpia el navegador.
+	num2, call2 := numeroCliente(), "wacid.nav2"+numeroCliente()
+	x.pasa(time.Second, x.agente, x.supervisor)
+	x.connect(num2, call2)
+	id2, _, _ := x.llamada(call2)
+	x.exigir(x.api(otroNav, http.MethodPost, "/llamadas/"+id2+"/reclamar", nil), http.StatusOK)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id2+"/soltar", map[string]any{}), http.StatusConflict)
+	x.exigir(x.api(otroNav, http.MethodPost, "/llamadas/"+id2+"/soltar", map[string]any{}), http.StatusOK)
+	if n := x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id = $1::uuid AND estado = 'sonando' AND reclamada_por IS NULL AND reclamada_navegador IS NULL`, id2); n != 1 {
+		t.Fatal("soltada desde su navegador")
+	}
+	// Supervisor (§3.3-8 y §8.2, ya en E1): cuelga la llamada de otra persona con llamadas.colgar; otro agente, no.
+	x.contestar(x.supervisor, id2)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id2+"/colgar", nil), http.StatusNotFound)
+	num3, call3 := numeroCliente(), "wacid.nav3"+numeroCliente()
+	x.pasa(time.Second, x.agente, x.supervisor)
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/llamadas/"+id2+"/colgar", nil), http.StatusOK)
+	x.connect(num3, call3)
+	id3, _, _ := x.llamada(call3)
+	x.contestar(x.agente, id3)
+	if r := x.exigir(x.api(x.supervisor, http.MethodPost, "/llamadas/"+id3+"/colgar", nil), http.StatusOK); r.cuerpo["estado"] != "terminada" || x.g.cuenta("terminate:"+call3) != 1 {
+		t.Fatalf("el supervisor cuelga la llamada de otra persona: %s", crudo(r))
+	}
+}
+
+// Señales del cliente en la llamada: servicio, ticket abierto y «tiene saldo vencido» (solo un
+// booleano, solo en GET /llamadas/{id} y solo para quien puede ver el estado de cuenta).
+func TestLlamadaSenalesDelCliente(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	x.recibe(x.agente)
+	num, call := numeroCliente(), "wacid.senales"+numeroCliente()
+	x.texto(num, "wamid.senales"+num, "Hola")
+	conv := cid(x.conv(num))
+	var cliente int64
+	if err := x.bd.QueryRow(x.ctx, `SELECT coalesce(max(id), 0) + 1000 FROM integracion.argos_clientes`).Scan(&cliente); err != nil {
+		t.Fatal(err)
+	}
+	x.sql(`INSERT INTO integracion.argos_clientes (id, empresa_id, nombre, sincronizado_en, empresas) VALUES ($1, 1, 'Ana Señales', now(), '{1}')`, cliente)
+	x.sql(`INSERT INTO integracion.argos_servicios (id, empresa_id, cliente_id, codigo, plan_nombre, estado, sincronizado_en) VALUES ($1, 1, $2, 'SRV-9', 'Fibra 100', 'suspendido', now())`, cliente*10, cliente)
+	x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv+"/asociar-cliente", map[string]any{"version": ver(x.conv(num)), "clienteId": cliente, "servicioId": cliente * 10}), http.StatusOK)
+	x.sql(`INSERT INTO soporte.tickets (prioridad, origen, asunto, sla_inicio, empresa_id, cliente_id) VALUES ('media', 'panel', 'Sin internet desde ayer', now(), 1, $1)`, cliente)
+	x.argos.mu.Lock()
+	x.argos.cuenta = &argos.EstadoCuenta{Saldo: ptrTexto("350.00"), Moneda: "GTQ", FacturasVencidas: ptrEntero(2), MontoVencido: ptrTexto("350.00")}
+	x.argos.mu.Unlock()
+	x.connect(num, call)
+	id, estado, _ := x.llamada(call)
+	if estado != "sonando" {
+		t.Fatalf("la llamada debía sonar: %s", estado)
+	}
+	// En la lista (lo que lee el aviso): servicio y ticket, sin saldo y sin llamar a Argos.
+	antes := x.argos.cuentas
+	l := x.exigir(x.api(x.agente, http.MethodGet, "/llamadas?estado=sonando", nil), http.StatusOK).cuerpo["data"].([]any)
+	var s map[string]any
+	for _, f := range l {
+		if f.(map[string]any)["id"] == id {
+			s, _ = f.(map[string]any)["senales"].(map[string]any)
+		}
+	}
+	if s == nil || s["servicio"].(map[string]any)["plan"] != "Fibra 100" || s["servicio"].(map[string]any)["estado"] != "suspendido" ||
+		s["ticketAbierto"].(map[string]any)["asunto"] != "Sin internet desde ayer" || s["saldoVencido"] != nil || x.argos.cuentas != antes {
+		t.Fatalf("señales en la lista: %v", s)
+	}
+	// Al ver la llamada, quien puede ver el estado de cuenta recibe el booleano; nunca montos.
+	v := x.exigir(x.api(x.agente, http.MethodGet, "/llamadas/"+id, nil), http.StatusOK)
+	if v.cuerpo["senales"].(map[string]any)["saldoVencido"] != true || strings.Contains(crudo(v), "350") || strings.Contains(crudo(v), "GTQ") {
+		t.Fatalf("saldo vencido: %s", crudo(v))
+	}
+	// Despacho contesta llamadas pero no ve saldos: el campo no viaja y no se le pregunta a Argos.
+	despacho := x.persona([]int64{1}, rolBase("despacho"))
+	x.sql(`INSERT INTO mensajeria.cola_miembros (cola_id, usuario_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, x.cola, despacho.id)
+	antes = x.argos.cuentas
+	v = x.exigir(x.api(despacho, http.MethodGet, "/llamadas/"+id, nil), http.StatusOK)
+	if sd := v.cuerpo["senales"].(map[string]any); sd["saldoVencido"] != nil || sd["servicio"] == nil || x.argos.cuentas != antes {
+		t.Fatalf("despacho no ve el saldo: %s", crudo(v))
+	}
+	// Al día: false. Argos caído: no se sabe (el campo no viaja).
+	x.argos.mu.Lock()
+	x.argos.cuenta = &argos.EstadoCuenta{Saldo: ptrTexto("0.00"), Moneda: "GTQ", FacturasVencidas: ptrEntero(0)}
+	x.argos.mu.Unlock()
+	if v := x.exigir(x.api(x.agente, http.MethodGet, "/llamadas/"+id, nil), http.StatusOK); v.cuerpo["senales"].(map[string]any)["saldoVencido"] != false {
+		t.Fatalf("al día: %s", crudo(v))
+	}
+	x.argos.mu.Lock()
+	x.argos.cuenta = nil
+	x.argos.mu.Unlock()
+	if v := x.exigir(x.api(x.agente, http.MethodGet, "/llamadas/"+id, nil), http.StatusOK); v.cuerpo["senales"].(map[string]any)["saldoVencido"] != nil {
+		t.Fatalf("Argos no responde: %s", crudo(v))
+	}
+	// Terminada: ya no lleva señales.
+	x.webhook(x.eventoLlamada(num, call, "terminate", "", 0))
+	if v := x.exigir(x.api(x.agente, http.MethodGet, "/llamadas/"+id, nil), http.StatusOK); v.cuerpo["senales"] != nil {
+		t.Fatalf("llamada terminada con señales: %s", crudo(v))
+	}
+}
+
+func ptrTexto(s string) *string { return &s }
+func ptrEntero(n int) *int      { return &n }
+
+// El job de escrituras a Meta sigue tomando lotes dentro del mismo ciclo: con más pendientes que un
+// lote, ninguna espera al ciclo siguiente.
+func TestLlamadaMetaVariosLotes(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	x.recibe(x.agente)
+	var calls []string
+	for i := range 3*mensajeria.LoteMetaVoz + 2 {
+		c := fmt.Sprintf("wacid.lote%d%s", i, numeroCliente())
+		calls = append(calls, c)
+		x.connect(numeroCliente(), c)
+	}
+	x.pasa(31*time.Second, x.agente)
+	x.soloMantener()
+	x.despachar()
+	for _, c := range calls {
+		if _, estado, _ := x.llamada(c); estado != "perdida" || x.g.cuenta("reject:"+c) != 1 {
+			t.Fatalf("%s: %s, reject %d", c, estado, x.g.cuenta("reject:"+c))
+		}
 	}
 }

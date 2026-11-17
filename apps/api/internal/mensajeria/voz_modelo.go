@@ -82,6 +82,12 @@ const (
 	// MensajePerdidaNeutro: lo que se le escribe a quien llamó a un número prestado y era de la empresa
 	// prestataria (no se usa el texto de la dueña del número).
 	MensajePerdidaNeutro = "No pudimos contestar tu llamada. Escríbenos por aquí y te atendemos."
+	// PresupuestoMetaVoz: cuánto puede seguir tomando lotes un ciclo del job de escrituras a Meta.
+	PresupuestoMetaVoz = 4 * time.Second
+	// PlazoSaldoLlamada: lo que se espera a Argos por «tiene saldo vencido» al ver una llamada.
+	PlazoSaldoLlamada = 2 * time.Second
+	// CabeceraNavegador: el id del navegador («Recibir llamadas») en las acciones de una llamada.
+	CabeceraNavegador = "X-Iris-Navegador"
 	// LoteMetaVoz: filas que toma el job de escrituras a Meta por ciclo. Las aparta lote × plazo: lo
 	// que tarda, en el peor caso, en atenderlas todas; así otro ciclo no retoma las mismas.
 	LoteMetaVoz = 5
@@ -398,6 +404,7 @@ type Llamada struct {
 	Titulo         string             `json:"titulo" doc:"Nombre del contacto o, si no se conoce, el número"`
 	Contacto       ContactoDeLlamada  `json:"contacto"`
 	Cola           *ColaRef           `json:"cola,omitempty"`
+	Senales        *SenalesLlamada    `json:"senales,omitempty" doc:"Señales del cliente para decidir al contestar. Solo en llamadas vivas (sonando, conectando, en curso) de un cliente identificado"`
 	Estado         string             `json:"estado" enum:"sonando,marcando,conectando,en_curso,terminada,perdida,rechazada,fuera_de_horario,fallida"`
 	AtendidaPor    *string            `json:"atendidaPor,omitempty" enum:"persona,asistente"`
 	Usuario        *UsuarioRef        `json:"usuario,omitempty" doc:"Quien la tiene, o quien la reclamó mientras se conecta"`
@@ -429,14 +436,65 @@ type LlamadaEnMensaje struct {
 }
 
 // DevolucionLlamada es una fila de «Por devolver».
+// SenalesLlamada: lo que el aviso de la llamada muestra del cliente, sin una segunda lectura.
+type SenalesLlamada struct {
+	Servicio      *ServicioDeLlamada `json:"servicio,omitempty" doc:"El servicio de la conversación o, si no tiene, uno activo del cliente (instantánea de Argos). Solo con clientes.ver"`
+	TicketAbierto *TicketDeLlamada   `json:"ticketAbierto,omitempty" doc:"El ticket abierto más reciente del cliente. Solo con tickets.ver"`
+	// SaldoVencido: solo en GET /llamadas/{id} y solo con clientes.estado_cuenta; se lee de Argos en
+	// vivo y nunca trae montos. Ausente: no se sabe (sin permiso, Argos no respondió) o no se pidió.
+	SaldoVencido *bool `json:"saldoVencido,omitempty" doc:"true: el cliente tiene saldo vencido. Solo en GET /llamadas/{id} y solo con clientes.estado_cuenta; ausente si no se sabe. Nunca montos"`
+}
+
+// ServicioDeLlamada es el servicio principal del cliente que llama.
+type ServicioDeLlamada struct {
+	ID     int64  `json:"id"`
+	Codigo string `json:"codigo"`
+	Plan   string `json:"plan"`
+	Estado string `json:"estado"`
+}
+
+// TicketDeLlamada es un ticket abierto del cliente que llama.
+type TicketDeLlamada struct {
+	ID     int64  `json:"id"`
+	Numero string `json:"numero"`
+	Asunto string `json:"asunto"`
+}
+
 type DevolucionLlamada struct {
 	ID             int64     `json:"id"`
 	ConversacionID int64     `json:"conversacionId"`
+	Titulo         string    `json:"titulo" doc:"Nombre del contacto de la conversación o, si no se conoce, el número"`
+	Numero         string    `json:"numero" doc:"Teléfono del contacto en E.164"`
 	LlamadaID      uuid.UUID `json:"llamadaId"`
 	PedidaPor      string    `json:"pedidaPor" enum:"sistema,asistente,cliente"`
 	Estado         string    `json:"estado" enum:"pendiente,hecha,descartada,vencida"`
 	VenceEn        time.Time `json:"venceEn"`
 	CreadaEn       time.Time `json:"creadaEn"`
+}
+
+// conTitulos completa el título y el número de cada devolución con los de su conversación.
+func (m *Modulo) conTitulos(ctx context.Context, q *mensajeriabd.Queries, usuario int64, ds []DevolucionLlamada) error {
+	if len(ds) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(ds))
+	for _, d := range ds {
+		ids = append(ids, d.ConversacionID)
+	}
+	cs, err := m.resumirConvs(ctx, q, usuario, ids)
+	if err != nil {
+		return err
+	}
+	por := map[int64]ConversacionCliente{}
+	for _, c := range cs {
+		por[c.ID] = c
+	}
+	for i := range ds {
+		if c, ok := por[ds[i].ConversacionID]; ok {
+			ds[i].Titulo, ds[i].Numero = c.Titulo, c.Numero
+		}
+	}
+	return nil
 }
 
 func aDevolucion(f mensajeriabd.MensajeriaLlamadaDevolucione) DevolucionLlamada {
@@ -464,6 +522,13 @@ func llamadaYaContestada(quien string, mismaPersona bool) *nucleo.Problema {
 			nucleo.ErrorCampo{Field: "mismaPersona", Message: "true", Rule: "misma_persona"})
 	}
 	return nucleo.Conflicto("llamada_ya_contestada", d)
+}
+
+// otroNavegador: la reserva es de esta misma persona, pero en otro navegador: desde este no se
+// contesta, confirma ni suelta. El panel solo cierra el aviso (errors[0].rule = otro_navegador).
+func otroNavegador() *nucleo.Problema {
+	return nucleo.NuevoProblema(http.StatusConflict, "llamada_ya_contestada", "Conflicto", "Estás contestando esta llamada en otro navegador",
+		nucleo.ErrorCampo{Field: "navegador", Message: "true", Rule: "otro_navegador"})
 }
 
 func llamadaTerminada() *nucleo.Problema {
@@ -555,8 +620,13 @@ var atributosSDP = map[string]bool{"rtpmap": true, "fmtp": true, "rtcp-fb": true
 // redesSDPBloqueadas: además de loopback, privadas y enlace local: CGNAT, NAT64, protocolo y reservadas.
 var redesSDPBloqueadas = []netip.Prefix{netip.MustParsePrefix("100.64.0.0/10"), netip.MustParsePrefix("64:ff9b::/96"), netip.MustParsePrefix("64:ff9b:1::/48"),
 	netip.MustParsePrefix("192.0.0.0/24"), netip.MustParsePrefix("198.18.0.0/15"),
+	// IPv6 que embeben una IPv4 (compatibles ::a.b.c.d, traducidas ::ffff:0:a.b.c.d, Teredo) y las
+	// site-local en desuso.
+	netip.MustParsePrefix("::/96"), netip.MustParsePrefix("::ffff:0:0:0/96"), netip.MustParsePrefix("2001::/32"), netip.MustParsePrefix("fec0::/10"),
 	// Rangos de documentación: nunca son una dirección pública real (y hay redes internas que los usan).
 	netip.MustParsePrefix("192.0.2.0/24"), netip.MustParsePrefix("198.51.100.0/24"), netip.MustParsePrefix("203.0.113.0/24"), netip.MustParsePrefix("2001:db8::/32"), netip.MustParsePrefix("240.0.0.0/4"), netip.MustParsePrefix("0.0.0.0/8")}
+
+var seisACuatro = netip.MustParsePrefix("2002::/16")
 
 // MaxCandidatosSDP: candidatos ICE que se aceptan en un SDP.
 const MaxCandidatosSDP = 32
@@ -570,6 +640,11 @@ func ipDeMedio(texto string, admiteCero bool) bool {
 	ip = ip.Unmap()
 	if ip.IsUnspecified() {
 		return admiteCero
+	}
+	// 6to4 (2002::/16) lleva una IPv4 dentro: vale lo que valga esa.
+	if ip.Is6() && seisACuatro.Contains(ip) {
+		b := ip.As16()
+		return ipDeMedio(netip.AddrFrom4([4]byte{b[2], b[3], b[4], b[5]}).String(), false)
 	}
 	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() || ip.IsMulticast() {
 		return false
@@ -682,21 +757,24 @@ func revisarSDP(sdp string, sanear bool) (string, error) {
 					}
 					return "", errors.New("candidatos de más")
 				}
+				// raddr y rport se buscan en cualquier posición de las extensiones (no de dos en dos: una
+				// extensión suelta no puede esconderlos).
 				limpio := p[:8:8]
-				for k := 8; k < len(p); k += 2 {
-					if k+1 >= len(p) {
-						limpio = append(limpio, p[k]) // una extensión suelta, sin valor
-						break
+				for k := 8; k < len(p); k++ {
+					if p[k] != "raddr" && p[k] != "rport" {
+						limpio = append(limpio, p[k])
+						continue
 					}
-					if p[k] == "raddr" || p[k] == "rport" {
-						if sanear {
-							continue
-						}
+					if k+1 >= len(p) {
+						return "", errors.New("candidato mal formado")
+					}
+					if !sanear {
 						if p[k] == "raddr" && !ipDeMedio(p[k+1], true) {
 							return "", errors.New("candidato con una dirección relacionada interna")
 						}
+						limpio = append(limpio, p[k], p[k+1])
 					}
-					limpio = append(limpio, p[k], p[k+1])
+					k++
 				}
 				if sanear {
 					l = "a=candidate:" + strings.Join(limpio, " ")

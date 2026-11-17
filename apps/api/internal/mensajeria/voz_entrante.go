@@ -26,7 +26,7 @@ func guardarLlamada(ctx context.Context, q *mensajeriabd.Queries, l mensajeriabd
 	return q.GuardarLlamada(ctx, mensajeriabd.GuardarLlamadaParams{ID: l.ID, Estado: l.Estado, AtendidaPor: l.AtendidaPor, UsuarioID: l.UsuarioID,
 		ReclamadaPor: l.ReclamadaPor, ReclamadaHasta: l.ReclamadaHasta, MotivoFin: l.MotivoFin, ContestadaEn: l.ContestadaEn, TerminadaEn: l.TerminadaEn,
 		DuracionSeg: l.DuracionSeg, Nota: l.Nota, Resultado: l.Resultado, SdpOferta: l.SdpOferta, AccionMeta: l.AccionMeta,
-		AccionMetaEstado: l.AccionMetaEstado, AccionMetaEn: l.AccionMetaEn, AccionMetaPor: l.AccionMetaPor, PreAceptadaEn: l.PreAceptadaEn,
+		AccionMetaEstado: l.AccionMetaEstado, AccionMetaEn: l.AccionMetaEn, AccionMetaPor: l.AccionMetaPor, PreAceptadaEn: l.PreAceptadaEn, ReclamadaNavegador: navegadorDeReserva(l),
 		AvisoPerdida: l.AvisoPerdida})
 }
 
@@ -39,6 +39,14 @@ func intencionMeta(l *mensajeriabd.MensajeriaLlamada, accion string, ahora time.
 	if accion == MetaPreAceptar || accion == MetaAceptar {
 		l.AccionMetaPor = l.ReclamadaPor
 	}
+}
+
+// navegadorDeReserva: el navegador solo vale mientras haya reserva.
+func navegadorDeReserva(l mensajeriabd.MensajeriaLlamada) *string {
+	if l.ReclamadaPor == nil {
+		return nil
+	}
+	return l.ReclamadaNavegador
 }
 
 func accionPendiente(l mensajeriabd.MensajeriaLlamada) bool {

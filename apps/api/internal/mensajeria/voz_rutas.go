@@ -14,7 +14,8 @@ import (
 
 type llamadaHTTP struct {
 	nucleo.ConIdempotencia
-	ID uuid.UUID `path:"id" format:"uuid"`
+	ID        uuid.UUID `path:"id" format:"uuid"`
+	Navegador string    `header:"X-Iris-Navegador" required:"false" maxLength:"64" pattern:"^[A-Za-z0-9_-]{8,64}$" doc:"El id de «Recibir llamadas» de este navegador. Obligatorio en reclamar, contestar, confirmar-medio y soltar: la reserva es de un usuario en un navegador"`
 }
 
 type llamadaLecturaHTTP struct {
@@ -45,8 +46,9 @@ type cuerpoMotivo struct {
 
 type llamadaCuerpoHTTP[T any] struct {
 	nucleo.ConIdempotencia
-	ID   uuid.UUID `path:"id" format:"uuid"`
-	Body T
+	ID        uuid.UUID `path:"id" format:"uuid"`
+	Navegador string    `header:"X-Iris-Navegador" required:"false" maxLength:"64" pattern:"^[A-Za-z0-9_-]{8,64}$" doc:"El id de «Recibir llamadas» de este navegador. Obligatorio en reclamar, contestar, confirmar-medio y soltar: la reserva es de un usuario en un navegador"`
+	Body      T
 }
 
 type activaHTTP struct {
@@ -89,7 +91,9 @@ func (m *Modulo) registrarVoz(api huma.API) {
 		return &activaHTTP{Status: http.StatusOK, Body: l}, nil
 	})
 	huma.Register(api, voz(op("verRecibirLlamadas", http.MethodGet, "/llamadas/recibir", "¿Este navegador recibe llamadas?", contestar, http.StatusOK),
-		"`recibe`: el interruptor de este navegador; `vivo`: hay un flujo de eventos abierto con latido reciente (sin él no suena nada)."),
+		"`recibe`: el interruptor de este navegador; `vivo`: hay un flujo de eventos abierto con latido reciente (sin él no suena nada); `motivo`: por qué lo apagó "+
+			"el servidor (`tope`: pasaste de 10 navegadores; `inactivo`: 30 días sin abrirlo). El id va en la cabecera `X-Iris-Navegador` (preferida: no queda en los "+
+			"registros de acceso) o en `?navegador=`; sin ninguno, 422."),
 		func(ctx context.Context, in *EntradaVerRecibir) (*cuerpo[RecibirLlamadas], error) {
 			return responder(k.VerRecibir.Ejecutar(ctx, *in))
 		})
@@ -119,7 +123,7 @@ func (m *Modulo) registrarVoz(api huma.API) {
 	huma.Register(api, voz(op("verLlamada", http.MethodGet, "/llamadas/{id}", "Ver una llamada", ver, http.StatusOK, http.StatusNotFound),
 		"Nunca trae el SDP, el id de la llamada en Meta ni el token. `puede` lo calcula el servidor para ti."),
 		func(ctx context.Context, in *llamadaLecturaHTTP) (*cuerpo[Llamada], error) {
-			return responder(k.Ver.Ejecutar(ctx, EntradaLlamada{ID: in.ID}))
+			return responder(m.VerLlamada(ctx, EntradaLlamada{ID: in.ID}))
 		})
 	huma.Register(api, voz(op("listarLlamadasDeConversacion", http.MethodGet, "/conversaciones/{id}/llamadas", "Llamadas de una conversación", ver, http.StatusOK, http.StatusNotFound), ""),
 		func(ctx context.Context, in *conversacionLlamadasHTTP) (*cuerpo[nucleo.Pagina[Llamada]], error) {
@@ -131,10 +135,12 @@ func (m *Modulo) registrarVoz(api huma.API) {
 		http.StatusOK, http.StatusNotFound, http.StatusConflict),
 		"Atómico: gana uno solo. Responde `{ llamada, sdpOferta, ice, venceEn }`: aplica `sdpOferta` a un `RTCPeerConnection` y manda `contestar` antes de "+
 			"`venceEn` (12 s). Solo un candidato de **esa** llamada puede reclamarla (si no, 404). 409 `llamada_ya_contestada` si otro se adelantó o ya no suena "+
-			"(`errors[0].rule = misma_persona` si fuiste tú en otra pestaña: solo cierra el aviso). 422 `no_recibe_llamadas` sin «Recibir llamadas» o sin el flujo de "+
+			"(`errors[0].rule = misma_persona` si fuiste tú en otro navegador: solo cierra el aviso). La reserva queda atada al navegador de la cabecera `X-Iris-Navegador` "+
+			"(sin ella, 422 `navegador_requerido`): `contestar`, `confirmar-medio` y `soltar` desde otro navegador tuyo responden 409 `llamada_ya_contestada` con "+
+			"`errors[0].rule = otro_navegador` y no tocan la reserva. 422 `no_recibe_llamadas` sin «Recibir llamadas» o sin el flujo de "+
 			"eventos abierto. La respuesta no se guarda por `Idempotency-Key` (lleva el SDP): repetir, mientras dure la reserva, devuelve la misma, releída de la llamada."),
 		func(ctx context.Context, in *llamadaHTTP) (*cuerpo[LlamadaReclamada], error) {
-			return responder(k.Reclamar.Ejecutar(ctx, EntradaLlamada{ID: in.ID}))
+			return responder(k.Reclamar.Ejecutar(ctx, EntradaLlamada{ID: in.ID, Navegador: in.Navegador}))
 		})
 	huma.Register(api, voz(op("contestarLlamada", http.MethodPost, "/llamadas/{id}/contestar", "Contestar: mandar la respuesta SDP", contestar,
 		http.StatusOK, http.StatusNotFound, http.StatusConflict, http.StatusBadGateway),
@@ -142,20 +148,20 @@ func (m *Modulo) registrarVoz(api huma.API) {
 			"sin candidatos a redes internas, máximo 8 KB) y lo manda a WhatsApp (`pre_accept`). Después tienes 5 s para `confirmar-medio`. "+
 			"409 `reserva_vencida` si se pasó el tiempo; 502 `meta_rechazo` si WhatsApp no lo aceptó (la llamada vuelve a sonar)."),
 		func(ctx context.Context, in *llamadaCuerpoHTTP[cuerpoContestar]) (*cuerpo[Llamada], error) {
-			return responder(m.Contestar(ctx, EntradaContestar{ID: in.ID, SDPRespuesta: in.Body.SDPRespuesta}))
+			return responder(m.Contestar(ctx, EntradaContestar{ID: in.ID, Navegador: in.Navegador, SDPRespuesta: in.Body.SDPRespuesta}))
 		})
 	huma.Register(api, voz(op("confirmarMedioLlamada", http.MethodPost, "/llamadas/{id}/confirmar-medio", "Confirmar que el audio conectó", contestar,
 		http.StatusOK, http.StatusNotFound, http.StatusConflict, http.StatusBadGateway),
 		"Cuando el `RTCPeerConnection` está `connected`. El servidor manda `accept` y la llamada pasa a `en_curso` (`llamada.contestada`). "+
 			"409 `reserva_vencida` pasados 5 s desde `contestar`; 502 `meta_rechazo` (la llamada queda `fallida`)."),
 		func(ctx context.Context, in *llamadaHTTP) (*cuerpo[Llamada], error) {
-			return responder(m.ConfirmarMedio(ctx, EntradaLlamada{ID: in.ID}))
+			return responder(m.ConfirmarMedio(ctx, EntradaLlamada{ID: in.ID, Navegador: in.Navegador}))
 		})
 	huma.Register(api, voz(op("soltarLlamada", http.MethodPost, "/llamadas/{id}/soltar", "Soltar la llamada que reclamaste", contestar,
 		http.StatusOK, http.StatusNotFound, http.StatusConflict),
 		"Algo falló antes de contestar (micrófono, medio): vuelve a sonar a los demás. A la segunda vez dejas de recibir esa llamada."),
 		func(ctx context.Context, in *llamadaCuerpoHTTP[cuerpoSoltar]) (*cuerpo[Llamada], error) {
-			return responder(k.Soltar.Ejecutar(ctx, EntradaSoltar{ID: in.ID, Motivo: in.Body.Motivo}))
+			return responder(k.Soltar.Ejecutar(ctx, EntradaSoltar{ID: in.ID, Navegador: in.Navegador, Motivo: in.Body.Motivo}))
 		})
 	huma.Register(api, voz(op("colgarLlamada", http.MethodPost, "/llamadas/{id}/colgar", "Colgar", colgar, http.StatusOK, http.StatusNotFound, http.StatusConflict),
 		"Quien la tiene, o quien supervisa. 409 `llamada_terminada` si ya terminó. Emite `llamada.terminada`."),
