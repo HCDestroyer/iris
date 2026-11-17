@@ -4,5 +4,17 @@
 -- call_permissions o con la respuesta del cliente.
 ALTER TABLE mensajeria.llamada_permisos ADD COLUMN solicitud_sin_confirmar boolean NOT NULL DEFAULT false;
 
+-- Una entrante que el agente dejó mientras la contestaba (cerró la pestaña antes de haber audio): para
+-- el cliente es una llamada perdida, con su propio motivo.
+ALTER TABLE mensajeria.llamadas DROP CONSTRAINT llamadas_motivo_fin_check;
+ALTER TABLE mensajeria.llamadas ADD CONSTRAINT llamadas_motivo_fin_check CHECK (motivo_fin IN ('cliente_colgo', 'agente_colgo', 'asistente_termino',
+    'nadie_contesto', 'rechazada_agente', 'fuera_de_horario', 'sin_capacidad', 'motor_no_disponible', 'duracion_maxima', 'silencio', 'mal_uso', 'tope',
+    'limite', 'error_medio', 'error_meta', 'sin_permiso', 'transferencia_fallida', 'tope_alcanzado', 'agente_salio'));
+
 -- +goose Down
+UPDATE mensajeria.llamadas SET motivo_fin = 'nadie_contesto' WHERE motivo_fin = 'agente_salio';
+ALTER TABLE mensajeria.llamadas DROP CONSTRAINT llamadas_motivo_fin_check;
+ALTER TABLE mensajeria.llamadas ADD CONSTRAINT llamadas_motivo_fin_check CHECK (motivo_fin IN ('cliente_colgo', 'agente_colgo', 'asistente_termino',
+    'nadie_contesto', 'rechazada_agente', 'fuera_de_horario', 'sin_capacidad', 'motor_no_disponible', 'duracion_maxima', 'silencio', 'mal_uso', 'tope',
+    'limite', 'error_medio', 'error_meta', 'sin_permiso', 'transferencia_fallida', 'tope_alcanzado'));
 ALTER TABLE mensajeria.llamada_permisos DROP COLUMN solicitud_sin_confirmar;

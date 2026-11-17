@@ -242,7 +242,8 @@ func (m *Modulo) registrarVoz(api huma.API) {
 	huma.Register(api, voz(op("colgarLlamada", http.MethodPost, "/llamadas/{id}/colgar", "Colgar", colgar, http.StatusOK, http.StatusNotFound, http.StatusConflict),
 		"Quien la tiene, o quien supervisa. Con `?propia=true` solo quien la tiene (supervisar no cuenta): es lo que debe mandar el panel al cerrarse la "+
 			"pestaña, para no colgar la llamada de otra persona si la reserva propia ya venció (404 en ese caso). Con `propia=true` también termina la llamada que "+
-			"estás contestando (`conectando` a tu nombre), aunque WhatsApp no haya respondido todavía al `accept`: queda `terminada`, nunca `en_curso` sin audio. "+
+			"estás contestando (`conectando` a tu nombre), aunque WhatsApp no haya respondido todavía al `accept`: nunca queda `en_curso` sin audio. Si era una entrante queda `perdida` con `motivoFin: agente_salio` "+
+			"(devolución pendiente y lo demás de una perdida). "+
 			"Una saliente también se cuelga mientras marca. "+
 			"409 `llamada_terminada` si ya terminó. Emite `llamada.terminada`."),
 		func(ctx context.Context, in *colgarHTTP) (*cuerpo[Llamada], error) {

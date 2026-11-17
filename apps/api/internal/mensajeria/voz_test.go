@@ -1645,6 +1645,7 @@ func TestLlamadaColgarPropiaConElAcceptEnVuelo(t *testing.T) {
 	x := nuevaBandejaVoz(t)
 	x.recibe(x.agente, x.supervisor)
 	num, call := numeroCliente(), "wacid.cierre"+numeroCliente()
+	x.texto(num, "wamid.cierre"+num, "Hola, los llamo")
 	x.connect(num, call)
 	id, _, _ := x.llamada(call)
 	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/reclamar", nil), http.StatusOK)
@@ -1662,7 +1663,8 @@ func TestLlamadaColgarPropiaConElAcceptEnVuelo(t *testing.T) {
 		}
 		una.Do(func() {
 			// La pestaña se cierra mientras Meta atiende el accept.
-			if r := x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/colgar?propia=true", nil); r.status != http.StatusOK || r.cuerpo["estado"] != "terminada" {
+			if r := x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/colgar?propia=true", nil); r.status != http.StatusOK || r.cuerpo["estado"] != "perdida" ||
+				r.cuerpo["motivoFin"] != "agente_salio" {
 				t.Errorf("colgar propia con el accept en vuelo: %d %s", r.status, crudo(r))
 			}
 		})
@@ -1670,15 +1672,31 @@ func TestLlamadaColgarPropiaConElAcceptEnVuelo(t *testing.T) {
 	rc := x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/confirmar-medio", nil)
 	x.gancho(nil)
 	_, estado, motivo := x.llamada(call)
-	if estado != "terminada" || motivo != "agente_colgo" || x.g.cuenta("terminate:"+call) != 1 || rc.status >= 500 {
+	if estado != "perdida" || motivo != "agente_salio" || x.g.cuenta("terminate:"+call) != 1 || rc.status >= 500 {
 		t.Fatalf("tras el accept tardío: %s %s, confirmar-medio %d, Meta %v", estado, motivo, rc.status, x.g.hechas())
 	}
 	if n := x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id = $1::uuid AND (usuario_id IS NOT NULL OR contestada_en IS NOT NULL OR reclamada_por IS NOT NULL
 		OR accion_meta_estado = 'pendiente')`, id); n != 0 {
 		t.Fatal("la llamada no debía quedar a nombre de nadie ni con una acción a medias")
 	}
-	if x.contar(`SELECT count(*) FROM mensajeria.llamada_tramos WHERE llamada_id = $1::uuid`, id) != 0 || x.eventos("llamada.contestada", id) != 0 || x.eventos("llamada.terminada", id) != 1 {
-		t.Fatal("ni tramo ni contestada; una sola terminada")
+	if x.contar(`SELECT count(*) FROM mensajeria.llamada_tramos WHERE llamada_id = $1::uuid`, id) != 0 || x.eventos("llamada.contestada", id) != 0 ||
+		x.eventos("llamada.terminada", id) != 0 || x.eventos("llamada.perdida", id) != 1 {
+		t.Fatal("ni tramo ni contestada ni terminada; una sola perdida")
+	}
+	// Para el cliente fue una llamada perdida: devolución pendiente, el evento llamada.perdida (con
+	// sus destinatarios del aviso, como cualquier perdida) y el mensaje automático (la ventana está
+	// abierta: escribió antes de llamar).
+	conv := cid(x.conv(num))
+	if n := x.contar(`SELECT count(*) FROM mensajeria.llamada_devoluciones WHERE llamada_id = $1::uuid AND estado = 'pendiente' AND pedida_por = 'sistema'`, id); n != 1 ||
+		x.eventos("llamada.devolucion_pedida", id) != 1 {
+		t.Fatalf("devolución pendiente de la llamada que el agente dejó: %d", n)
+	}
+	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'llamada.perdida' AND payload->>'llamada_id' = $1 AND payload->>'devolucion_id' IS NOT NULL
+		AND payload ? 'usuarios' AND payload->>'direccion' = 'entrante'`, id); n != 1 {
+		t.Fatal("llamada.perdida con su devolución y sus destinatarios")
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND direccion = 'saliente' AND texto = 'No pudimos contestarte. Escríbenos por aquí.'`, conv); n != 1 {
+		t.Fatalf("mensaje automático de llamada perdida: %d", n)
 	}
 	x.exigir(x.api(x.agente, http.MethodGet, "/llamadas/activa", nil), http.StatusNoContent)
 	// Lo mismo sin acción en vuelo (reservada, antes de contestar).
@@ -1687,7 +1705,8 @@ func TestLlamadaColgarPropiaConElAcceptEnVuelo(t *testing.T) {
 	x.connect(num2, call2)
 	id2, _, _ := x.llamada(call2)
 	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id2+"/reclamar", nil), http.StatusOK)
-	if r := x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id2+"/colgar?propia=true", nil), http.StatusOK); r.cuerpo["estado"] != "terminada" || x.g.cuenta("terminate:"+call2) != 1 {
+	if r := x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id2+"/colgar?propia=true", nil), http.StatusOK); r.cuerpo["estado"] != "perdida" ||
+		r.cuerpo["motivoFin"] != "agente_salio" || x.g.cuenta("terminate:"+call2) != 1 {
 		t.Fatalf("colgar propia con la llamada reservada: %s", crudo(r))
 	}
 }

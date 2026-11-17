@@ -575,7 +575,13 @@ func nuevoColgarLlamada(m *Modulo) *auditoria.Caso[EntradaLlamada, Llamada] {
 			if err != nil {
 				return Llamada{}, err
 			}
-			if err := m.cerrarLlamada(ctx, t, &l, &c, LlamadaTerminada, "agente_colgo", m.ahora(), MetaTerminar); err != nil {
+			estado, motivo := LlamadaTerminada, "agente_colgo"
+			if conectandoMia && l.Direccion != "saliente" {
+				// Una entrante que no llegó a tener audio: para el cliente es una llamada perdida. Deja su
+				// devolución pendiente, el mensaje automático si aplica y el aviso, como cualquier perdida.
+				estado, motivo = LlamadaPerdida, "agente_salio"
+			}
+			if err := m.cerrarLlamada(ctx, t, &l, &c, estado, motivo, m.ahora(), MetaTerminar); err != nil {
 				return Llamada{}, err
 			}
 			if _, err := guardarConv(ctx, q, c, false); err != nil {

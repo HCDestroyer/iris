@@ -273,9 +273,11 @@ técnica (§9)**; los que más pesan están listados en §10.
   - **`colgar?propia=true` y la llamada que se está contestando.** Es dueño quien tiene la llamada
     `en_curso` **o reservada a su nombre** (`conectando`, `reclamada_por`). Con `propia=true` y la
     llamada `conectando` a su nombre (la pestaña se cierra, quizá con el `pre_accept` o el `accept`
-    en vuelo) la llamada **se termina** (`terminada`, `agente_colgo`, `terminate` en Meta): el
-    resultado del `accept` que llegue después ya no se aplica, así que nunca queda `en_curso` sin
-    audio. Sin `propia`, colgar una llamada que aún conecta sigue respondiendo 409
+    en vuelo) la llamada **se termina** en Meta (`terminate`) y el resultado del `accept` que
+    llegue después ya no se aplica, así que nunca queda `en_curso` sin audio. Una **entrante** así
+    no llegó a tener audio: para el cliente es una llamada perdida. Queda **`perdida` con
+    `motivoFin: "agente_salio"`** y recibe el mismo trato que cualquier perdida: devolución
+    pendiente, mensaje automático si aplica y `llamada.perdida` con su aviso. Sin `propia`, colgar una llamada que aún conecta sigue respondiendo 409
     `llamada_sin_contestar` (para eso está `soltar`).
   - **Solicitud de permiso sin confirmar.** Si el envío de la solicitud agota sus intentos **sin
     respuesta de Meta** (pudo llegar al cliente), no se descuenta a ciegas: el permiso sigue
