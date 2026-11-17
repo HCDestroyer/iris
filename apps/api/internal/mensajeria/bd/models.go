@@ -2125,6 +2125,20 @@ type NucleoConexionesApp struct {
 	UpdatedAt      time.Time
 }
 
+type NucleoDatosLegale struct {
+	ID               int64
+	EmpresaID        *int64
+	RazonSocial      string
+	NombreComercial  string
+	CorreoPrivacidad string
+	Telefono         string
+	Direccion        string
+	Pais             string
+	Version          int32
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
 type NucleoEmpresa struct {
 	ID             int64
 	Nombre         string

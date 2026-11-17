@@ -278,6 +278,14 @@ const (
 	PermCorreoSistemaConfigurar Permiso = "correo_sistema.configurar"
 )
 
+// Datos legales del titular para las páginas públicas que pide Meta (contratos/legal.md).
+const (
+	// PermDatosLegalesVer: ver los datos legales de la instalación y si las páginas públicas están listas.
+	PermDatosLegalesVer Permiso = "datos_legales.ver"
+	// PermDatosLegalesConfigurar: cambiar lo que publican las páginas de privacidad, términos y eliminación de datos.
+	PermDatosLegalesConfigurar Permiso = "datos_legales.configurar"
+)
+
 // Chat interno del equipo (servicio cmd/mensajeria; contratos/chat.md).
 const (
 	// PermChatVer: ver las conversaciones de las que eres miembro (y las de tu alcance con
@@ -372,6 +380,8 @@ var PermisosSensibles = map[Permiso]bool{
 	PermConversacionesIniciar:         true, PermCampoConfigurar: true,
 	// El SMTP con el que Iris escribe a sus usuarios (servidor, credenciales y remitente).
 	PermCorreoSistemaConfigurar: true,
+	// Lo que publican las páginas legales (a quién escribe un cliente para ejercer sus derechos).
+	PermDatosLegalesConfigurar: true,
 	// Voz: los ajustes de voz de la empresa (las grabaciones llegan con E1c, con sus permisos).
 	PermVozConfigurar: true,
 	// Una saliente cuesta dinero y, sin contestar, puede hacer que Meta revoque el permiso del contacto.
@@ -460,6 +470,8 @@ var Catalogo = []DefPermiso{
 	{PermCorreoSistemaVer, "Ver la configuración del correo del sistema (nunca la contraseña) y por dónde salen hoy los correos"},
 	{PermCotizacionesAceptar, "Marcar como aceptada por el cliente una cotización vigente"},
 	{PermCotizacionesCrear, "Crear cotizaciones (y versiones nuevas) de un prospecto con los planes de Argos"},
+	{PermDatosLegalesConfigurar, "Configurar los datos legales del titular (razón social, contacto de privacidad, dirección y país) que publican las páginas de privacidad, términos y eliminación de datos"},
+	{PermDatosLegalesVer, "Ver los datos legales del titular y si las páginas públicas que pide Meta están listas"},
 	{PermEmpresasAdoptar, "Asignar una empresa a los datos operativos guardados sin empresa (modo sin conector); solo admin global"},
 	{PermEmpresasCrear, "Registrar a mano una empresa de Argos (id, nombre, NIT) cuando el conector no la trajo"},
 	{PermEmpresasEditar, "Editar el nombre y el NIT de una empresa registrada"},

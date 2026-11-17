@@ -45,6 +45,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/config"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/legal"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/servidor"
 	"github.com/HCDestroyer/iris/apps/api/internal/reportes"
 	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
@@ -308,6 +309,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 			com.Registrar,
 			reportes.Nuevo(reportes.Config{}).Registrar,
 			notif.Registrar,
+			legal.Nuevo(legal.Config{}).Registrar,
 		},
 		ProxiesConfiables: cfg.ProxiesConfiables,
 		Delegados:         map[string]http.Handler{mensajeria.Prefijo: proxyMsj},

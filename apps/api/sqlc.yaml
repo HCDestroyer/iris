@@ -214,3 +214,10 @@ sql:
         <<: *gen
         package: notificacionesbd
         out: internal/notificaciones/bd
+  - <<: *base
+    queries: internal/nucleo/legal/consultas.sql
+    gen:
+      go:
+        <<: *gen
+        package: legalbd
+        out: internal/nucleo/legal/bd
