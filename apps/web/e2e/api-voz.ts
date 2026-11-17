@@ -78,7 +78,7 @@ export function apiVoz(
     let idDevolucion = 70;
     const devoluciones: Devolucion[] = [];
     const canales = new Map<number, LlamadasCanal>();
-    let ajustes: AjustesVoz = { version: 3, grabar: "nunca", duracionMaxPersonaMin: 60, segundosAsignado: 10 };
+    let ajustes: AjustesVoz = { version: 3, grabar: "nunca", duracionMaxPersonaMin: 60, segundosAsignado: 10, maxSalientesPorDia: 50, topeMinutosSalientesMes: 300, maxColgadasMarcandoDia: 3 };
 
     /** Lo que recibió el servidor, para comprobarlo en la prueba. */
     const recibido = {
@@ -320,7 +320,7 @@ export function apiVoz(
             const min = Number(cuerpo.duracionMaxPersonaMin);
             if (!(min >= 10 && min <= 120)) return (await problema(route, P("validacion", 422, "Datos inválidos", { errors: [{ field: "body.duracionMaxPersonaMin", message: "Entre 10 y 120 minutos", rule: "rango" }] })), true);
             if (cuerpo.grabar !== undefined && cuerpo.grabar !== "nunca") return (await problema(route, P("grabacion_no_disponible", 422, "La grabación todavía no está disponible")), true);
-            ajustes = { grabar: "nunca", duracionMaxPersonaMin: min, segundosAsignado: Number(cuerpo.segundosAsignado), version: ajustes.version + 1 };
+            ajustes = { ...ajustes, grabar: "nunca", duracionMaxPersonaMin: min, segundosAsignado: Number(cuerpo.segundosAsignado), version: ajustes.version + 1 };
             return (await json(route, ajustes), true);
         }
 
