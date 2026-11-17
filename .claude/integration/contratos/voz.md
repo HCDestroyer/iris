@@ -115,8 +115,11 @@ técnica (§9)**; los que más pesan están listados en §10.
     el ticket abierto más reciente del cliente (exige `tickets.ver`). **`saldoVencido`** es solo un
     booleano, nunca montos: viaja **solo en `GET /llamadas/{id}`** y solo a quien tiene
     `clientes.estado_cuenta`. Iris no guarda saldos (CLAUDE.md §4): se le pregunta a Argos en vivo,
-    después de la transacción y con 2 s de plazo; si Argos no responde o no informa, el campo no
-    viaja (no se sabe). En listas y en el feed nunca viaja.
+    después de la transacción, con un solo intento y 2 s de plazo; si Argos no responde o no
+    informa, el campo no viaja (no se sabe). La respuesta se recuerda 60 s por cliente (un fallo,
+    10 s) y hay una sola consulta a la vez por cliente: releer la llamada no martilla a Argos. En
+    listas y en el feed nunca viaja. `ticketAbierto` respeta el alcance de `tickets.ver` (zona,
+    cuadrilla o asignado a quien mira), igual que la lista de tickets.
   - **`DevolucionLlamada`** trae `titulo` y `numero` de su conversación.
   - **Supervisor.** `rechazar` con `paraTodos` y `colgar` la llamada de otra persona ya están en E1
     en el servidor (§3.3-8, §8.2): los decide `conversaciones.supervisar` junto con

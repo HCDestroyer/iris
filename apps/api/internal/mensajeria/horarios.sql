@@ -110,10 +110,15 @@ WHERE coalesce(empresa_id, 0) = @empresa::bigint AND activo AND busqueda @@ to_t
 ORDER BY ts_rank(busqueda, to_tsquery('spanish', @consulta::text)) DESC, id DESC LIMIT 5;
 
 -- name: TicketsAbiertosDelCliente :many
--- Asuntos de los tickets abiertos del cliente (soporte; solo lectura).
+-- Asuntos de los tickets abiertos del cliente (soporte; solo lectura), con el alcance de tickets.ver
+-- de quien mira (zona, cuadrilla o asignado a él), igual que soporte.ListarTickets.
 SELECT id, numero, asunto FROM soporte.tickets
 WHERE cliente_id = @cliente_id AND (sqlc.narg('empresa')::bigint IS NULL OR empresa_id = sqlc.narg('empresa')::bigint)
   AND estado IN ('nuevo', 'abierto', 'en_espera')
+  AND (@alcance_global::boolean
+       OR zona_id = ANY(@zonas::bigint[])
+       OR cuadrilla_id = ANY(@cuadrillas::bigint[])
+       OR (sqlc.narg('actor_id')::bigint IS NOT NULL AND asignado_a = sqlc.narg('actor_id')))
 ORDER BY id DESC LIMIT 5;
 
 -- name: InsertarEnlaceManual :one

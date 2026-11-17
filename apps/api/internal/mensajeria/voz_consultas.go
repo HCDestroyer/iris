@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
@@ -132,6 +133,23 @@ func (m *Modulo) aLlamadas(ctx context.Context, q *mensajeriabd.Queries, a alcan
 	return out, nil
 }
 
+// ticketsAbiertosVisibles: los tickets abiertos del cliente que quien mira puede ver con tickets.ver
+// (su alcance por zona o cuadrilla, o los que tiene asignados). Sin el permiso, solo los suyos.
+func ticketsAbiertosVisibles(ctx context.Context, q *mensajeriabd.Queries, cliente, empresa *int64) ([]mensajeriabd.TicketsAbiertosDelClienteRow, error) {
+	global, zonas, cuadrillas := contexto.PermisosDe(ctx).Alcances(string(nucleo.PermTicketsVer))
+	p := mensajeriabd.TicketsAbiertosDelClienteParams{ClienteID: cliente, Empresa: empresa, AlcanceGlobal: global, Zonas: zonas, Cuadrillas: cuadrillas}
+	if p.Zonas == nil {
+		p.Zonas = []int64{}
+	}
+	if p.Cuadrillas == nil {
+		p.Cuadrillas = []int64{}
+	}
+	if actor := contexto.ActorDe(ctx); actor.EsUsuario() {
+		p.ActorID = &actor.ID
+	}
+	return q.TicketsAbiertosDelCliente(ctx, p)
+}
+
 // senalesDe lee las señales del cliente que llama de lo que Iris ya tiene (instantánea de Argos y
 // tickets). El saldo vencido no está aquí: se pide a Argos en vivo, fuera de la transacción (VerLlamada).
 func senalesDe(ctx context.Context, q *mensajeriabd.Queries, empresa, cliente int64, servicio *int64, verCliente, verTickets bool) (*SenalesLlamada, error) {
@@ -146,7 +164,7 @@ func senalesDe(ctx context.Context, q *mensajeriabd.Queries, empresa, cliente in
 		}
 	}
 	if verTickets {
-		ts, err := q.TicketsAbiertosDelCliente(ctx, mensajeriabd.TicketsAbiertosDelClienteParams{ClienteID: &cliente, Empresa: &empresa})
+		ts, err := ticketsAbiertosVisibles(ctx, q, &cliente, &empresa)
 		if err != nil {
 			return nil, err
 		}
@@ -171,17 +189,79 @@ func (m *Modulo) VerLlamada(ctx context.Context, in EntradaLlamada) (Llamada, er
 	if err != nil {
 		return l, nil //nolint:nilerr // sin alcance no hay señal; la llamada ya se leyó
 	}
-	cctx, cancelar := context.WithTimeout(ctx, PlazoSaldoLlamada)
-	defer cancelar()
-	e, err := m.cfg.Argos.EstadoCuentaCliente(cctx, atencionDe(a, *l.ConversacionID), *l.Contacto.ClienteID)
-	if err != nil {
-		return l, nil //nolint:nilerr // Argos no respondió: no se sabe
-	}
-	if c := cuentaDe(*l.Contacto.ClienteID, e); c != nil {
-		vencido := !c.alDia
-		l.Senales.SaldoVencido = &vencido
-	}
+	l.Senales.SaldoVencido = m.saldoVencido(ctx, a, *l.ConversacionID, *l.Contacto.ClienteID)
 	return l, nil
+}
+
+// saldoLlamada es una entrada de la caché de «tiene saldo vencido».
+type saldoLlamada struct {
+	vencido *bool // nil: no se sabe
+	hasta   time.Time
+	// listo: abierto mientras alguien le pregunta a Argos; los demás esperan esa respuesta.
+	listo chan struct{}
+}
+
+// saldoVencido pregunta a Argos si el cliente tiene saldo vencido: un solo intento (sin los
+// reintentos del conector) dentro de PlazoSaldoLlamada, una sola consulta a la vez por cliente, y la
+// respuesta se guarda 60 s (un fallo, 10 s): el panel puede releer la llamada sin martillar a un
+// Argos degradado. nil = no se sabe.
+func (m *Modulo) saldoVencido(ctx context.Context, a alcanceConv, conv, cliente int64) *bool {
+	clave := [2]int64{a.empresa, cliente}
+	m.saldosMu.Lock()
+	if m.saldos == nil {
+		m.saldos = map[[2]int64]*saldoLlamada{}
+	}
+	ahora := m.ahora()
+	if e := m.saldos[clave]; e != nil {
+		if e.listo != nil {
+			listo := e.listo
+			m.saldosMu.Unlock()
+			select {
+			case <-listo:
+			case <-ctx.Done():
+				return nil
+			}
+			m.saldosMu.Lock()
+			defer m.saldosMu.Unlock()
+			if e := m.saldos[clave]; e != nil && e.listo == nil {
+				return e.vencido
+			}
+			return nil
+		}
+		if ahora.Before(e.hasta) {
+			m.saldosMu.Unlock()
+			return e.vencido
+		}
+	}
+	// Las vencidas se barren aquí: la caché no crece sin límite.
+	if len(m.saldos) > 500 {
+		for k, e := range m.saldos {
+			if e.listo == nil && !ahora.Before(e.hasta) {
+				delete(m.saldos, k)
+			}
+		}
+	}
+	enVuelo := &saldoLlamada{listo: make(chan struct{})}
+	m.saldos[clave] = enVuelo
+	m.saldosMu.Unlock()
+
+	var vencido *bool
+	vale := VigenciaSaldoFallo
+	cctx, cancelar := context.WithTimeout(conector.UnIntento(ctx), PlazoSaldoLlamada)
+	e, err := m.cfg.Argos.EstadoCuentaCliente(cctx, atencionDe(a, conv), cliente)
+	cancelar()
+	if err == nil {
+		vale = VigenciaSaldo
+		if c := cuentaDe(cliente, e); c != nil {
+			v := !c.alDia
+			vencido = &v
+		}
+	}
+	m.saldosMu.Lock()
+	m.saldos[clave] = &saldoLlamada{vencido: vencido, hasta: m.ahora().Add(vale)}
+	m.saldosMu.Unlock()
+	close(enVuelo.listo)
+	return vencido
 }
 
 func (m *Modulo) aLlamada(ctx context.Context, q *mensajeriabd.Queries, a alcanceConv, f mensajeriabd.MensajeriaLlamada) (Llamada, error) {

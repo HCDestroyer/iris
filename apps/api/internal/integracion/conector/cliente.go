@@ -269,11 +269,19 @@ const maxRespuesta = 4 << 20
 // sirve para explicar al administrador a qué dirección se llamó.
 func (c *Cliente) Base() string { return c.base }
 
+type claveUnIntento struct{}
+
+// UnIntento marca un contexto para que Pedir no reintente: para lecturas en vivo que alguien espera
+// con un plazo corto (si el otro sistema está degradado, no se le insiste).
+func UnIntento(ctx context.Context) context.Context {
+	return context.WithValue(ctx, claveUnIntento{}, true)
+}
+
 // Pedir hace la llamada a base + /api/v1 + ruta; con idempotente=true reintenta según las
 // opciones. destino recibe el JSON normalizado (Decodificar); nil = se descarta el cuerpo.
 func (c *Cliente) Pedir(ctx context.Context, metodo, ruta string, consulta url.Values, cuerpo any, idempotente bool, destino any) error {
 	intentos := 1
-	if idempotente {
+	if idempotente && ctx.Value(claveUnIntento{}) == nil {
 		intentos = c.intentos
 	}
 	espera := c.espera

@@ -959,12 +959,20 @@ const ticketsAbiertosDelCliente = `-- name: TicketsAbiertosDelCliente :many
 SELECT id, numero, asunto FROM soporte.tickets
 WHERE cliente_id = $1 AND ($2::bigint IS NULL OR empresa_id = $2::bigint)
   AND estado IN ('nuevo', 'abierto', 'en_espera')
+  AND ($3::boolean
+       OR zona_id = ANY($4::bigint[])
+       OR cuadrilla_id = ANY($5::bigint[])
+       OR ($6::bigint IS NOT NULL AND asignado_a = $6))
 ORDER BY id DESC LIMIT 5
 `
 
 type TicketsAbiertosDelClienteParams struct {
-	ClienteID *int64
-	Empresa   *int64
+	ClienteID     *int64
+	Empresa       *int64
+	AlcanceGlobal bool
+	Zonas         []int64
+	Cuadrillas    []int64
+	ActorID       *int64
 }
 
 type TicketsAbiertosDelClienteRow struct {
@@ -973,9 +981,17 @@ type TicketsAbiertosDelClienteRow struct {
 	Asunto string
 }
 
-// Asuntos de los tickets abiertos del cliente (soporte; solo lectura).
+// Asuntos de los tickets abiertos del cliente (soporte; solo lectura), con el alcance de tickets.ver
+// de quien mira (zona, cuadrilla o asignado a él), igual que soporte.ListarTickets.
 func (q *Queries) TicketsAbiertosDelCliente(ctx context.Context, arg TicketsAbiertosDelClienteParams) ([]TicketsAbiertosDelClienteRow, error) {
-	rows, err := q.db.Query(ctx, ticketsAbiertosDelCliente, arg.ClienteID, arg.Empresa)
+	rows, err := q.db.Query(ctx, ticketsAbiertosDelCliente,
+		arg.ClienteID,
+		arg.Empresa,
+		arg.AlcanceGlobal,
+		arg.Zonas,
+		arg.Cuadrillas,
+		arg.ActorID,
+	)
 	if err != nil {
 		return nil, err
 	}
