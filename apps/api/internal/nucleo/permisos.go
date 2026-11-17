@@ -262,6 +262,10 @@ const (
 	PermLlamadasAnotar              Permiso = "llamadas.anotar"
 	PermLlamadasDescartarDevolucion Permiso = "llamadas.descartar_devolucion"
 	PermLlamadasConfigurar          Permiso = "llamadas.configurar"
+	// PermLlamadasSolicitarPermiso: pedir al contacto permiso para llamarlo.
+	PermLlamadasSolicitarPermiso Permiso = "llamadas.solicitar_permiso"
+	// PermLlamadasLlamar: llamar al contacto por WhatsApp (saliente: cuesta dinero). Sensible.
+	PermLlamadasLlamar Permiso = "llamadas.llamar"
 	// PermVozConfigurar: ajustes de voz de la empresa (grabación, límites). Sensible.
 	PermVozConfigurar Permiso = "voz.configurar"
 )
@@ -370,6 +374,8 @@ var PermisosSensibles = map[Permiso]bool{
 	PermCorreoSistemaConfigurar: true,
 	// Voz: los ajustes de voz de la empresa (las grabaciones llegan con E1c, con sus permisos).
 	PermVozConfigurar: true,
+	// Una saliente cuesta dinero y, sin contestar, puede hacer que Meta revoque el permiso del contacto.
+	PermLlamadasLlamar: true,
 	// Aprobar una boleta registra un pago en Argos: de administración (MFA y re-autenticación en una
 	// sesión abierta por el autologin).
 	PermBoletasAprobar: true, PermBoletasRechazar: true,
@@ -478,7 +484,9 @@ var Catalogo = []DefPermiso{
 	{PermLlamadasConfigurar, "Encender y configurar las llamadas de WhatsApp de un número (cola, horario, cuánto suena, fuera de horario)"},
 	{PermLlamadasContestar, "Recibir el timbre de las llamadas de WhatsApp en el panel y contestarlas"},
 	{PermLlamadasDescartarDevolucion, "Cerrar una llamada «por devolver» sin llamar, con motivo"},
+	{PermLlamadasLlamar, "Llamar por WhatsApp al contacto de una conversación que dio permiso (devolver la llamada); tiene coste"},
 	{PermLlamadasRechazar, "Dejar de recibir una llamada que suena; si supervisas, rechazarla para todos"},
+	{PermLlamadasSolicitarPermiso, "Pedir al contacto de una conversación permiso para llamarlo por WhatsApp"},
 	{PermLlamadasVer, "Ver las llamadas de las conversaciones que ves y la lista «Por devolver»"},
 	{PermManualesEditar, "Crear, editar, activar y desactivar artículos de la biblioteca de manuales"},
 	{PermManualesRevocarEnlace, "Revocar el enlace público de un manual enviado a un cliente"},
@@ -630,7 +638,7 @@ var RolesBase = []DefRol{
 			PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesReintentar, PermIntegracionesResolverPendiente, PermIntegracionesVerPendientes,
 			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar,
 			PermChatVer, PermChatEnviar, PermChatSupervisar,
-			PermLlamadasConfigurar, PermLlamadasDescartarDevolucion,
+			PermLlamadasConfigurar, PermLlamadasDescartarDevolucion, PermLlamadasSolicitarPermiso, PermLlamadasLlamar,
 			PermConversacionesSupervisar, PermConversacionesAsignar, PermConversacionesTransferir, PermConversacionesAsociar,
 			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesConfigurar, PermCanalesConfigurar, PermManualesEditar, PermManualesRevocarEnlace,
 			PermConversacionesIniciar},
@@ -654,11 +662,11 @@ var RolesBase = []DefRol{
 	{Codigo: "soporte", Nombre: "Soporte", Descripcion: "Atiende tickets",
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosSubir, PermAdjuntosVer, PermEncuestasVer, PermEncuestasCompartir,
-			PermChatVer, PermChatEnviar, PermConversacionesTransferir, PermConversacionesAsociar, PermLlamadasDescartarDevolucion,
+			PermChatVer, PermChatEnviar, PermConversacionesTransferir, PermConversacionesAsociar, PermLlamadasDescartarDevolucion, PermLlamadasSolicitarPermiso,
 			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesIniciar}, slices.Concat(permisosTickets, permisosAtencion)...)},
 	{Codigo: "ventas", Nombre: "Ventas", Descripcion: "Seguimiento comercial",
 		Permisos: append([]Permiso{PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosVer, PermAdjuntosSubir, PermAgendaVer,
-			PermConversacionesTransferir, PermConversacionesAsociar, PermConversacionesIniciar, PermLlamadasDescartarDevolucion},
+			PermConversacionesTransferir, PermConversacionesAsociar, PermConversacionesIniciar, PermLlamadasDescartarDevolucion, PermLlamadasSolicitarPermiso},
 			slices.Concat(permisosComercial, permisosAtencion)...)},
 	{Codigo: "lectura", Nombre: "Lectura", Descripcion: "Solo consulta",
 		Permisos: []Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer,

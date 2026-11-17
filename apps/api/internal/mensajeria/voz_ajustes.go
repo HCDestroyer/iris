@@ -47,22 +47,25 @@ type MensajePerdida struct {
 
 // LlamadasCanal son los ajustes de llamadas de un número.
 type LlamadasCanal struct {
-	CanalID         int64              `json:"canalId"`
-	Version         int32              `json:"version" doc:"0 si nunca se configuraron"`
-	TipoConexion    string             `json:"tipoConexion" enum:"api,qr" doc:"Las llamadas solo existen en números por API"`
-	Disponible      bool               `json:"disponible" doc:"false en un número por QR: el panel avisa y no deja encenderlas"`
-	LlamadasActivas bool               `json:"llamadasActivas"`
-	ColaID          *int64             `json:"colaId,omitempty" doc:"Ausente: la cola del número"`
-	HorarioID       *int64             `json:"horarioId,omitempty" doc:"Ausente: el de la cola o el del número"`
-	SegundosSonando int32              `json:"segundosSonando"`
-	FueraDeHorario  string             `json:"fueraDeHorario" enum:"rechazar_con_mensaje,buzon,asistente"`
-	IconoVisible    bool               `json:"iconoVisible"`
-	Devolucion      bool               `json:"devolucion"`
-	MensajePerdida  MensajePerdida     `json:"mensajePerdida"`
-	Requisitos      RequisitosLlamadas `json:"requisitos"`
-	SincronizadoEn  *time.Time         `json:"sincronizadoEn,omitempty"`
-	WhatsApp        EstadoEnWhatsApp   `json:"whatsapp" doc:"Si los ajustes del número ya están aplicados en WhatsApp"`
-	HorasWhatsApp   *HorasMeta         `json:"horasWhatsapp,omitempty" doc:"El horario de llamadas que tiene WhatsApp (espejo). Ausente: abierto siempre y el horario lo aplica Iris"`
+	CanalID         int64          `json:"canalId"`
+	Version         int32          `json:"version" doc:"0 si nunca se configuraron"`
+	TipoConexion    string         `json:"tipoConexion" enum:"api,qr" doc:"Las llamadas solo existen en números por API"`
+	Disponible      bool           `json:"disponible" doc:"false en un número por QR: el panel avisa y no deja encenderlas"`
+	LlamadasActivas bool           `json:"llamadasActivas"`
+	ColaID          *int64         `json:"colaId,omitempty" doc:"Ausente: la cola del número"`
+	HorarioID       *int64         `json:"horarioId,omitempty" doc:"Ausente: el de la cola o el del número"`
+	SegundosSonando int32          `json:"segundosSonando"`
+	FueraDeHorario  string         `json:"fueraDeHorario" enum:"rechazar_con_mensaje,buzon,asistente"`
+	IconoVisible    bool           `json:"iconoVisible"`
+	Devolucion      bool           `json:"devolucion"`
+	MensajePerdida  MensajePerdida `json:"mensajePerdida"`
+	// PlantillaPermiso: la plantilla de permiso de llamada del número (fuera de la ventana de 24 h).
+	PlantillaPermiso       *string            `json:"plantillaPermiso,omitempty"`
+	PlantillaPermisoIdioma string             `json:"plantillaPermisoIdioma,omitempty"`
+	Requisitos             RequisitosLlamadas `json:"requisitos"`
+	SincronizadoEn         *time.Time         `json:"sincronizadoEn,omitempty"`
+	WhatsApp               EstadoEnWhatsApp   `json:"whatsapp" doc:"Si los ajustes del número ya están aplicados en WhatsApp"`
+	HorasWhatsApp          *HorasMeta         `json:"horasWhatsapp,omitempty" doc:"El horario de llamadas que tiene WhatsApp (espejo). Ausente: abierto siempre y el horario lo aplica Iris"`
 }
 
 // EstadoEnWhatsApp: la escritura en WhatsApp de los ajustes del número (encendido, icono, devolución
@@ -89,6 +92,9 @@ type EntradaLlamadasCanal struct {
 	IconoVisible    bool           `json:"iconoVisible"`
 	Devolucion      bool           `json:"devolucion"`
 	MensajePerdida  MensajePerdida `json:"mensajePerdida"`
+	// PlantillaPermiso: opcional; ausente, se conserva la que hay. Vacía, se quita.
+	PlantillaPermiso       *string `json:"plantillaPermiso,omitempty" maxLength:"200" pattern:"^[a-z0-9_]*$" doc:"Nombre de la plantilla call_permission_request aprobada del número (para pedir permiso de llamada fuera de la ventana de 24 h)"`
+	PlantillaPermisoIdioma string  `json:"plantillaPermisoIdioma,omitempty" pattern:"^[a-z]{2}(_[A-Z]{2})?$" doc:"Idioma de esa plantilla (es de fábrica)"`
 }
 
 func llamadasDeFabrica(canal int64, empresa *int64) mensajeriabd.MensajeriaVozAjustesCanal {
@@ -104,6 +110,7 @@ func aLlamadasCanal(c mensajeriabd.MensajeriaCanal, f mensajeriabd.MensajeriaVoz
 		WhatsApp: EstadoEnWhatsApp{Estado: "aplicado"}}
 	if guardado {
 		r.Version = f.Version
+		r.PlantillaPermiso, r.PlantillaPermisoIdioma = f.PlantillaPermiso, f.PlantillaPermisoIdioma
 		r.WhatsApp = EstadoEnWhatsApp{Estado: f.MetaEstado, Intentos: f.MetaIntentos, Detalle: f.MetaDetalle}
 		if f.MetaEstado == "pendiente" {
 			r.WhatsApp.ProximoIntentoEn = f.MetaProximoEn
@@ -243,10 +250,22 @@ func nuevoConfigurarLlamadasCanal(m *Modulo) *auditoria.Caso[EntradaLlamadasCana
 			if f, err = guardarLlamadasCanal(ctx, q, f); err != nil {
 				return LlamadasCanal{}, err
 			}
+			if in.PlantillaPermiso != nil {
+				f.PlantillaPermiso = nil
+				if *in.PlantillaPermiso != "" {
+					f.PlantillaPermiso = in.PlantillaPermiso
+				}
+				if in.PlantillaPermisoIdioma != "" {
+					f.PlantillaPermisoIdioma = in.PlantillaPermisoIdioma
+				}
+				if err := q.FijarPlantillaPermiso(ctx, mensajeriabd.FijarPlantillaPermisoParams{CanalID: c.ID, Plantilla: f.PlantillaPermiso, Idioma: f.PlantillaPermisoIdioma}); err != nil {
+					return LlamadasCanal{}, err
+				}
+			}
 			vista := func(x mensajeriabd.MensajeriaVozAjustesCanal) map[string]any {
 				return map[string]any{"llamadas_activas": x.LlamadasActivas, "cola_id": x.ColaID, "horario_id": x.HorarioID, "segundos_sonando": x.SegundosSonando,
 					"fuera_de_horario": x.FueraDeHorario, "icono_visible": x.IconoVisible, "devolucion": x.Devolucion, "mensaje_perdida": x.MensajePerdida,
-					"mensaje_perdida_texto": x.MensajePerdidaTexto}
+					"mensaje_perdida_texto": x.MensajePerdidaTexto, "plantilla_permiso": x.PlantillaPermiso}
 			}
 			campos := t.RegistrarCambios("llamadas_canal", c.ID, vista(antes), vista(f))
 			if campos == nil {
@@ -474,7 +493,9 @@ func nuevoGuardarComprobacion(m *Modulo) *auditoria.Caso[entradaComprobado, Llam
 					"Iris no puede comprobarlo: revisa en la app de Meta que el campo «calls» del webhook esté suscrito. Se confirma con la primera llamada que llegue")},
 				{Codigo: "calling_habilitado", Cumple: leido && in.meta.Habilitadas, Detalle: si(leido,
 					si(in.meta.Habilitadas, "Las llamadas están habilitadas en el número", "Falta habilitar las llamadas en el número, en WhatsApp Manager"), sinMeta)},
-				{Codigo: "plantilla_permiso", Aviso: true, Detalle: "Para devolver llamadas fuera de la ventana de 24 h hará falta la plantilla de permiso (llega con las llamadas salientes)"},
+				{Codigo: "plantilla_permiso", Cumple: f.PlantillaPermiso != nil, Aviso: true, Detalle: si(f.PlantillaPermiso != nil,
+					"El número tiene indicada su plantilla de permiso de llamada",
+					"Para pedir permiso de llamada fuera de la ventana de 24 h indica la plantilla call_permission_request aprobada del número")},
 			}
 			res := RequisitosLlamadas{Cumple: true, Requisitos: reqs, ComprobadoEn: &ahora}
 			for _, r := range reqs {
@@ -497,6 +518,39 @@ func nuevoGuardarComprobacion(m *Modulo) *auditoria.Caso[entradaComprobado, Llam
 			return aLlamadasCanal(c, f, true), nil
 		},
 	})
+}
+
+// ConfigurarLlamadas guarda los ajustes de llamadas del número. Si traen una plantilla de permiso,
+// antes se comprueba en Meta (fuera de la transacción) que la cuenta la tiene, aprobada, en ese
+// idioma y de una categoría que sirve para pedir permiso: una plantilla cualquiera no vale.
+func (m *Modulo) ConfigurarLlamadas(ctx context.Context, in EntradaLlamadasCanal) (LlamadasCanal, error) {
+	if in.PlantillaPermiso != nil && *in.PlantillaPermiso != "" {
+		p, err := m.Voz.prepararCanal.Ejecutar(ctx, EntradaIDConv{ID: in.ID})
+		if err != nil {
+			return LlamadasCanal{}, err
+		}
+		if in.PlantillaPermisoIdioma == "" {
+			in.PlantillaPermisoIdioma = "es"
+		}
+		info, err := m.graph().Plantilla(ctx, p.graph, *in.PlantillaPermiso, in.PlantillaPermisoIdioma)
+		if err != nil {
+			return LlamadasCanal{}, metaRechazo()
+		}
+		motivo := ""
+		switch {
+		case !info.Existe:
+			motivo = "La cuenta de WhatsApp no tiene una plantilla con ese nombre en ese idioma"
+		case !info.Aprobada:
+			motivo = "Esa plantilla todavía no está aprobada por WhatsApp"
+		case info.Categoria != "UTILITY" && info.Categoria != "MARKETING":
+			motivo = "Esa plantilla no es de una categoría que sirva para pedir permiso de llamada"
+		}
+		if motivo != "" {
+			return LlamadasCanal{}, reglaVoz("plantilla_permiso_invalida", motivo,
+				nucleo.ErrorCampo{Field: "plantillaPermiso", Message: motivo, Rule: "plantilla_permiso_invalida"})
+		}
+	}
+	return m.Voz.ConfigCanal.Ejecutar(ctx, in)
 }
 
 // ComprobarLlamadas pregunta a Meta si el número cumple los requisitos y guarda el resultado.
@@ -523,6 +577,10 @@ type AjustesVoz struct {
 	Grabar                string `json:"grabar" enum:"nunca" doc:"Siempre nunca: la grabación de llamadas todavía no está disponible"`
 	DuracionMaxPersonaMin int32  `json:"duracionMaxPersonaMin" doc:"Una llamada contestada por una persona se corta a estos minutos (10–120)"`
 	SegundosAsignado      int32  `json:"segundosAsignado" doc:"Cuánto suena primero solo a quien tiene la conversación (0–20)"`
+	// Límites de las llamadas salientes (cuestan dinero).
+	MaxSalientesPorDia      int32 `json:"maxSalientesPorDia" doc:"Llamadas salientes de la empresa por día (0–1000; 0 = ninguna)"`
+	TopeMinutosSalientesMes int32 `json:"topeMinutosSalientesMes" doc:"Minutos de llamadas salientes por mes (0–100000; 0 = ninguna)"`
+	MaxColgadasMarcandoDia  int32 `json:"maxColgadasMarcandoDia" doc:"Cuántas salientes a un mismo contacto se pueden colgar mientras marcan en un día antes de dejar de llamarlo (1–20; 0 = sin límite)"`
 }
 
 // EntradaAjustesVoz es POST /voz/ajustes/actualizar.
@@ -531,10 +589,15 @@ type EntradaAjustesVoz struct {
 	Grabar                string `json:"grabar,omitempty" doc:"Opcional. Solo se acepta nunca: cualquier otro valor, 422 grabacion_no_disponible"`
 	DuracionMaxPersonaMin int32  `json:"duracionMaxPersonaMin" minimum:"10" maximum:"120"`
 	SegundosAsignado      int32  `json:"segundosAsignado" minimum:"0" maximum:"20"`
+	// Opcionales: ausentes, se conservan los que hay.
+	MaxSalientesPorDia      *int32 `json:"maxSalientesPorDia,omitempty" minimum:"0" maximum:"1000"`
+	TopeMinutosSalientesMes *int32 `json:"topeMinutosSalientesMes,omitempty" minimum:"0" maximum:"100000"`
+	MaxColgadasMarcandoDia  *int32 `json:"maxColgadasMarcandoDia,omitempty" minimum:"0" maximum:"20"`
 }
 
 func aAjustesVoz(f mensajeriabd.MensajeriaVozAjuste) AjustesVoz {
-	return AjustesVoz{Version: f.Version, Grabar: "nunca", DuracionMaxPersonaMin: f.DuracionMaxPersonaMin, SegundosAsignado: f.SegundosAsignado}
+	return AjustesVoz{Version: f.Version, Grabar: "nunca", DuracionMaxPersonaMin: f.DuracionMaxPersonaMin, SegundosAsignado: f.SegundosAsignado,
+		MaxSalientesPorDia: f.MaxSalientesPorDia, TopeMinutosSalientesMes: f.TopeMinutosSalientesMes, MaxColgadasMarcandoDia: f.MaxColgadasMarcandoDia}
 }
 
 func nuevoVerAjustesVoz(*Modulo) *auditoria.Caso[struct{}, AjustesVoz] {
@@ -569,6 +632,12 @@ func nuevoFijarAjustesVoz(*Modulo) *auditoria.Caso[EntradaAjustesVoz, AjustesVoz
 				return AjustesVoz{}, campoConv("duracionMaxPersonaMin", "Entre 10 y 120 minutos", "rango")
 			case in.SegundosAsignado < 0 || in.SegundosAsignado > 20:
 				return AjustesVoz{}, campoConv("segundosAsignado", "Entre 0 y 20 segundos", "rango")
+			case in.MaxSalientesPorDia != nil && (*in.MaxSalientesPorDia < 0 || *in.MaxSalientesPorDia > 1000):
+				return AjustesVoz{}, campoConv("maxSalientesPorDia", "Entre 0 y 1000 llamadas", "rango")
+			case in.TopeMinutosSalientesMes != nil && (*in.TopeMinutosSalientesMes < 0 || *in.TopeMinutosSalientesMes > 100000):
+				return AjustesVoz{}, campoConv("topeMinutosSalientesMes", "Entre 0 y 100 000 minutos", "rango")
+			case in.MaxColgadasMarcandoDia != nil && (*in.MaxColgadasMarcandoDia < 0 || *in.MaxColgadasMarcandoDia > 20):
+				return AjustesVoz{}, campoConv("maxColgadasMarcandoDia", "Entre 0 y 20", "rango")
 			}
 			q := mensajeriabd.New(t)
 			antes, err := q.VozAjustesParaActualizar(ctx, a.empresa)
@@ -582,21 +651,38 @@ func nuevoFijarAjustesVoz(*Modulo) *auditoria.Caso[EntradaAjustesVoz, AjustesVoz
 			var f mensajeriabd.MensajeriaVozAjuste
 			if nuevo {
 				antes, _ = ajustesVoz(ctx, q, -1)
+			}
+			salientes, tope := antes.MaxSalientesPorDia, antes.TopeMinutosSalientesMes
+			if in.MaxSalientesPorDia != nil {
+				salientes = *in.MaxSalientesPorDia
+			}
+			if in.TopeMinutosSalientesMes != nil {
+				tope = *in.TopeMinutosSalientesMes
+			}
+			colgadas := antes.MaxColgadasMarcandoDia
+			if in.MaxColgadasMarcandoDia != nil {
+				colgadas = *in.MaxColgadasMarcandoDia
+			}
+			if nuevo {
 				f, err = q.InsertarVozAjustes(ctx, mensajeriabd.InsertarVozAjustesParams{EmpresaID: a.empresaPtr(), Grabar: "nunca",
-					DuracionMaxPersonaMin: in.DuracionMaxPersonaMin, SegundosAsignado: in.SegundosAsignado, RetencionGrabacionesDias: 30})
+					DuracionMaxPersonaMin: in.DuracionMaxPersonaMin, SegundosAsignado: in.SegundosAsignado, RetencionGrabacionesDias: 30,
+					MaxSalientesPorDia: salientes, TopeMinutosSalientesMes: tope, MaxColgadasMarcandoDia: colgadas})
 				if errors.Is(err, pgx.ErrNoRows) {
 					return AjustesVoz{}, nucleo.ConflictoVersion("voz_ajustes", a.empresa)
 				}
 			} else {
 				f, err = q.ActualizarVozAjustes(ctx, mensajeriabd.ActualizarVozAjustesParams{ID: antes.ID, Grabar: "nunca",
-					DuracionMaxPersonaMin: in.DuracionMaxPersonaMin, SegundosAsignado: in.SegundosAsignado, RetencionGrabacionesDias: antes.RetencionGrabacionesDias})
+					DuracionMaxPersonaMin: in.DuracionMaxPersonaMin, SegundosAsignado: in.SegundosAsignado, RetencionGrabacionesDias: antes.RetencionGrabacionesDias,
+					MaxSalientesPorDia: salientes, TopeMinutosSalientesMes: tope, MaxColgadasMarcandoDia: colgadas})
 			}
 			if err != nil {
 				return AjustesVoz{}, err
 			}
 			t.FijarEntidad("voz_ajustes", f.ID)
 			vista := func(x mensajeriabd.MensajeriaVozAjuste) map[string]any {
-				return map[string]any{"duracion_max_persona_min": x.DuracionMaxPersonaMin, "segundos_asignado": x.SegundosAsignado}
+				return map[string]any{"duracion_max_persona_min": x.DuracionMaxPersonaMin, "segundos_asignado": x.SegundosAsignado,
+					"max_salientes_por_dia": x.MaxSalientesPorDia, "tope_minutos_salientes_mes": x.TopeMinutosSalientesMes,
+					"max_colgadas_marcando_dia": x.MaxColgadasMarcandoDia}
 			}
 			campos := t.RegistrarCambios("voz_ajustes", f.ID, vista(antes), vista(f))
 			if campos == nil {
@@ -677,14 +763,44 @@ func nuevoMantenerLlamada(m *Modulo) *auditoria.Caso[uuid.UUID, mantenimientoLla
 					}
 					return mantenimientoLlamada{Cambio: "reserva_vencida"}, m.soltar(ctx, t, &l, ahora)
 				}
+			case LlamadaMarcando:
+				// El cliente no contestó a tiempo: se cancela en Meta y cuenta como sin contestar.
+				if !ahora.Before(l.SuenaHasta) {
+					return cerrar(LlamadaPerdida, "nadie_contesto", MetaTerminar)
+				}
+				// La pestaña que llamó se cerró, se recargó o murió: nadie oiría al cliente si contesta. Se
+				// cancela ya. Cuenta para «timbrar y colgar» y, si llegó a sonar en Meta, como sin contestar.
+				if l.Direccion == "saliente" && ahora.Sub(l.SonoEn) > GraciaSinFlujo &&
+					(l.PestanaVistaEn == nil || !l.PestanaVistaEn.After(ahora.Add(-FlujoVivo-GraciaSinFlujo))) {
+					return cerrar(LlamadaTerminada, "error_medio", MetaTerminar)
+				}
 			case LlamadaEnCurso:
+				// Una saliente se corta al llegar la empresa a su tope de minutos del mes (cuenta lo que
+				// lleva esta y las demás en curso): con 299 de 300 minutos dura, como mucho, lo que queda.
+				if l.Direccion == "saliente" && l.ContestadaEn != nil {
+					usados, err := q.SegundosSalientes(ctx, mensajeriabd.SegundosSalientesParams{Empresa: derefEmpresa(l.EmpresaID), Desde: inicioMes(ahora),
+						Hasta: ahora.Add(time.Hour), Menos: uuid.Nil, Ahora: ahora})
+					if err != nil {
+						return nada, err
+					}
+					if usados >= int64(voz.TopeMinutosSalientesMes)*60 {
+						return cerrar(LlamadaTerminada, "tope_alcanzado", MetaTerminar)
+					}
+				}
 				if l.ContestadaEn != nil && ahora.Sub(*l.ContestadaEn) >= time.Duration(voz.DuracionMaxPersonaMin)*time.Minute {
 					return cerrar(LlamadaTerminada, "duracion_maxima", MetaTerminar)
 				}
 				// El panel de quien la atiende se cerró o se cayó: Meta ya no recibe audio.
 				if l.UsuarioID != nil && l.ContestadaEn != nil && ahora.Sub(*l.ContestadaEn) > FlujoVivo {
-					vivo, err := q.ReceptorVivo(ctx, mensajeriabd.ReceptorVivoParams{Empresa: derefEmpresa(l.EmpresaID), UsuarioID: *l.UsuarioID,
-						VivoDesde: ahora.Add(-FlujoVivo - GraciaSinFlujo)})
+					var vivo bool
+					var err error
+					if l.Direccion == "saliente" {
+						// El latido de una saliente es el del flujo de eventos de la pestaña que llamó.
+						vivo = l.PestanaVistaEn != nil && l.PestanaVistaEn.After(ahora.Add(-FlujoVivo-GraciaSinFlujo))
+					} else {
+						vivo, err = q.ReceptorVivo(ctx, mensajeriabd.ReceptorVivoParams{Empresa: derefEmpresa(l.EmpresaID), UsuarioID: *l.UsuarioID,
+							VivoDesde: ahora.Add(-FlujoVivo - GraciaSinFlujo)})
+					}
 					if err != nil {
 						return nada, err
 					}
@@ -762,6 +878,10 @@ func (m *Modulo) DespacharMetaVoz(ctx context.Context, bd nucleo.BD) error {
 		if len(acciones) < LoteMetaVoz || time.Since(inicio) >= PresupuestoMetaVoz {
 			break
 		}
+	}
+	// Llamadas que existen en Meta y no en Iris: se terminan.
+	if err := m.despacharHuerfanas(ctx, bd); err != nil {
+		return err
 	}
 	// Aplicar los ajustes de un número son dos llamadas a Meta (leer y escribir).
 	canales, err := q.TomarCanalesMetaPendiente(ctx, mensajeriabd.TomarCanalesMetaPendienteParams{Ahora: &ahora, Lote: LoteMetaVoz,

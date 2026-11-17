@@ -110,6 +110,16 @@ type idHTTP struct {
 	ID int64 `path:"id" minimum:"1"`
 }
 
+// entradaEventosConvHTTP: el flujo de la bandeja, que además dice de qué navegador es (voz.md §3.4).
+type entradaEventosConvHTTP struct {
+	UltimoID        string `header:"Last-Event-ID" maxLength:"20" doc:"El id del último evento recibido (lo manda EventSource al reconectar)"`
+	Desde           string `query:"desde" maxLength:"20" doc:"Igual que Last-Event-ID, para clientes que no pueden fijar cabeceras. Sin los dos: desde ahora"`
+	Navegador       string `query:"navegador" required:"false" maxLength:"64" pattern:"^[A-Za-z0-9_-]{8,64}$" doc:"El id de «Recibir llamadas» de este navegador (EventSource no puede mandar cabeceras)"`
+	Cabecera        string `header:"X-Iris-Navegador" required:"false" maxLength:"64" pattern:"^[A-Za-z0-9_-]{8,64}$" doc:"Lo mismo, para clientes que sí pueden mandar cabeceras"`
+	Pestana         string `query:"pestana" required:"false" maxLength:"64" pattern:"^[A-Za-z0-9_-]{8,64}$" doc:"El id de esta pestaña (aleatorio por pestaña): el latido de una llamada saliente es el del flujo de la pestaña que llamó"`
+	PestanaCabecera string `header:"X-Iris-Pestana" required:"false" maxLength:"64" pattern:"^[A-Za-z0-9_-]{8,64}$" doc:"Lo mismo, por cabecera"`
+}
+
 type idCuerpoHTTP[T any] struct {
 	nucleo.ConIdempotencia
 	ID   int64 `path:"id" minimum:"1"`
@@ -321,7 +331,11 @@ func (m *Modulo) registrarConversaciones(api huma.API) {
 		"`data` (un EventoConversacion). Last-Event-ID o ?desde=; latido cada 25 s; cierre a los 30 min; revalidación de la sesión."
 	eventos.Responses = map[string]*huma.Response{"200": {Description: "Flujo de eventos",
 		Content: map[string]*huma.MediaType{"text/event-stream": {Schema: &huma.Schema{Type: huma.TypeString}}}}}
-	huma.Register(api, eventos, func(ctx context.Context, in *entradaEventosHTTP) (*huma.StreamResponse, error) {
+	eventos.Description += " `?navegador=` (o la cabecera `X-Iris-Navegador`): el id de «Recibir llamadas» de este navegador. Con él, el latido del flujo " +
+		"vale solo para ese navegador (es lo que mantiene viva una llamada saliente hecha desde él y su «Recibir llamadas»); sin él, para todos los navegadores " +
+		"del usuario que reciben llamadas. `?pestana=` (o `X-Iris-Pestana`): el id aleatorio de esta pestaña; una llamada **saliente** solo se mantiene viva con el " +
+		"flujo de la pestaña que la hizo (otra pestaña del mismo navegador no la sostiene: a los 55 s se corta)."
+	huma.Register(api, eventos, func(ctx context.Context, in *entradaEventosConvHTTP) (*huma.StreamResponse, error) {
 		desde := in.UltimoID
 		if desde == "" {
 			desde = in.Desde
@@ -329,6 +343,12 @@ func (m *Modulo) registrarConversaciones(api huma.API) {
 		f, sub, quitar, err := m.abrirFlujoConvSSE(ctx, desde)
 		if err != nil {
 			return nil, err
+		}
+		if f.navegador = in.Cabecera; f.navegador == "" {
+			f.navegador = in.Navegador
+		}
+		if f.pestana = in.PestanaCabecera; f.pestana == "" {
+			f.pestana = in.Pestana
 		}
 		return &huma.StreamResponse{Body: func(hctx huma.Context) {
 			r, w := humachi.Unwrap(hctx)

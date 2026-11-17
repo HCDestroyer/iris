@@ -37,6 +37,16 @@ type graphFalso struct {
 	// alAccionar corre mientras «Meta» atiende la acción (fuera del candado): simula lo que pasa en el
 	// panel entre la intención y el resultado.
 	alAccionar func(accion string)
+	// Salientes (E1b): las ofertas que llegaron con connect, el call_id que se devolvió y lo que dice
+	// «Meta» del permiso de llamada.
+	salientes       int
+	proximaSaliente string
+	ultimaSaliente  string
+	ofertas         []string
+	permiso         mensajeria.PermisoMeta
+	permisosLeidos  int
+	// plantillas de la cuenta de WhatsApp, por «nombre|idioma».
+	plantillas map[string]mensajeria.PlantillaMetaInfo
 }
 
 func (g *graphFalso) Accion(_ context.Context, canal mensajeria.CanalGraph, callID, accion, sdp string, _ bool) error {
@@ -136,10 +146,17 @@ type bandejaVoz struct {
 // nuevaBandejaVoz: la bandeja con el doble de la Graph API y las llamadas encendidas en el número.
 func nuevaBandejaVoz(t *testing.T) *bandejaVoz {
 	t.Helper()
-	g := &graphFalso{fallar: map[string]error{}, ajustes: mensajeria.AjustesMetaLlamadas{Habilitadas: true, IconoVisible: true, LimiteMensajeria: 10000}}
+	g := &graphFalso{fallar: map[string]error{}, ajustes: mensajeria.AjustesMetaLlamadas{Habilitadas: true, IconoVisible: true, LimiteMensajeria: 10000},
+		permiso: mensajeria.PermisoMeta{Estado: "sin_pedir"},
+		plantillas: map[string]mensajeria.PlantillaMetaInfo{
+			"permiso_de_llamada|es":    {Existe: true, Aprobada: true, Categoria: "UTILITY"},
+			"permiso_de_llamada|es_MX": {Existe: true, Aprobada: true, Categoria: "MARKETING"},
+			"permiso_en_revision|es":   {Existe: true, Aprobada: false, Categoria: "UTILITY"},
+			"codigo_de_acceso|es":      {Existe: true, Aprobada: true, Categoria: "AUTHENTICATION"}}}
 	x := &bandejaVoz{bandeja: nuevaBandeja(t, func(c *mensajeria.Config) { c.Llamadas = g }), g: g}
 	// Cada persona en su navegador (el mismo id que usa recibe()).
 	x.agente.navegador, x.supervisor.navegador = fmt.Sprintf("navegador-%d", x.agente.id), fmt.Sprintf("navegador-%d", x.supervisor.id)
+	x.agente.pestana, x.supervisor.pestana = fmt.Sprintf("pestana-%d", x.agente.id), fmt.Sprintf("pestana-%d", x.supervisor.id)
 	c := x.exigir(x.api(x.supervisor, http.MethodPost, x.rutaCanal("/llamadas/comprobar"), nil), http.StatusOK)
 	x.exigir(x.configurar(int(c.cuerpo["version"].(float64)), nil), http.StatusOK)
 	// El supervisor también atiende la cola (x.otro no: nunca es candidato).
@@ -242,6 +259,10 @@ func (x *bandejaVoz) pasa(d time.Duration, vivos ...persona) {
 	*x.reloj = x.reloj.Add(d)
 	for _, p := range vivos {
 		x.exigir(x.api(p, http.MethodPost, "/llamadas/recibir/encender", map[string]any{"navegador": fmt.Sprintf("navegador-%d", p.id)}), http.StatusOK)
+		// Y el latido de su pestaña (lo que hace su flujo de eventos) para la saliente que tenga viva.
+		if p.pestana != "" {
+			x.sql(`UPDATE mensajeria.llamadas SET pestana_vista_en = $3 WHERE usuario_id = $1 AND pestana = $2 AND estado IN ('marcando', 'en_curso')`, p.id, p.pestana, *x.reloj)
+		}
 	}
 }
 
@@ -548,14 +569,16 @@ func TestLlamadaLimitesYWebhook(t *testing.T) {
 		"segundosAsignado": 0}), http.StatusForbidden)
 	admin := x.persona([]int64{1}, rolBase("admin"))
 	admin.empresa = 1 // opera en todas: indica cuál con X-Iris-Empresa
-	aj := x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": 0, "duracionMaxPersonaMin": 10,
+	// (otra prueba pudo guardar ya los ajustes de la empresa: se parte de la versión que haya)
+	v0 := x.exigir(x.api(admin, http.MethodGet, "/voz/ajustes", nil), http.StatusOK).cuerpo["version"].(float64)
+	aj := x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": v0, "duracionMaxPersonaMin": 10,
 		"segundosAsignado": 0}), http.StatusOK)
-	if aj.cuerpo["version"] != float64(1) || x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'voz.ajustes_cambiados' AND payload ? 'campos'`) == 0 {
+	if aj.cuerpo["version"] != v0+1 || x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'voz.ajustes_cambiados' AND payload ? 'campos'`) == 0 {
 		t.Fatalf("ajustes de voz: %s", crudo(aj))
 	}
-	x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": 0, "duracionMaxPersonaMin": 10,
+	x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": v0, "duracionMaxPersonaMin": 10,
 		"segundosAsignado": 0}), http.StatusConflict)
-	x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": 1, "duracionMaxPersonaMin": 500,
+	x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": v0 + 1, "duracionMaxPersonaMin": 500,
 		"segundosAsignado": 0}), http.StatusUnprocessableEntity)
 	larga, callLarga := numeroCliente(), "wacid.larga"+numeroCliente()
 	x.pasa(time.Second, x.agente)
@@ -1397,8 +1420,8 @@ func TestLlamadaReservaPorNavegador(t *testing.T) {
 	if n := x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id = $1::uuid AND estado = 'en_curso' AND reclamada_navegador IS NULL`, id); n != 1 {
 		t.Fatal("en curso, ya sin reserva")
 	}
-	// Colgar: quien la tiene, desde cualquier navegador.
-	if r := x.exigir(x.api(otroNav, http.MethodPost, "/llamadas/"+id+"/colgar", nil), http.StatusOK); r.cuerpo["estado"] != "terminada" {
+	// Colgar: quien la tiene, desde cualquier navegador (también con propia=true).
+	if r := x.exigir(x.api(otroNav, http.MethodPost, "/llamadas/"+id+"/colgar?propia=true", nil), http.StatusOK); r.cuerpo["estado"] != "terminada" {
 		t.Fatalf("colgar desde el otro navegador: %s", crudo(r))
 	}
 	// Soltar desde el navegador de la reserva sí la libera, y limpia el navegador.
@@ -1421,6 +1444,12 @@ func TestLlamadaReservaPorNavegador(t *testing.T) {
 	x.connect(num3, call3)
 	id3, _, _ := x.llamada(call3)
 	x.contestar(x.agente, id3)
+	// Al cerrarse la pestaña el panel manda colgar con ?propia=true: ni siquiera quien supervisa cuelga
+	// así la llamada de un compañero (su reserva venció y ahora la llamada es de otra persona).
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/llamadas/"+id3+"/colgar?propia=true", nil), http.StatusNotFound)
+	if _, estado, _ := x.llamada(call3); estado != "en_curso" || x.g.cuenta("terminate:"+call3) != 0 {
+		t.Fatalf("colgar con propia=true no debía tocar la llamada de otra persona: %s", estado)
+	}
 	if r := x.exigir(x.api(x.supervisor, http.MethodPost, "/llamadas/"+id3+"/colgar", nil), http.StatusOK); r.cuerpo["estado"] != "terminada" || x.g.cuenta("terminate:"+call3) != 1 {
 		t.Fatalf("el supervisor cuelga la llamada de otra persona: %s", crudo(r))
 	}

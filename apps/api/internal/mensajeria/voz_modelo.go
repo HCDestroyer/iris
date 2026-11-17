@@ -104,6 +104,8 @@ const (
 type CanalGraph struct {
 	PhoneNumberID string
 	Token         string
+	// WabaID: la cuenta de WhatsApp Business del número (para consultar sus plantillas).
+	WabaID string
 }
 
 // AjustesMetaLlamadas son los ajustes de llamadas del número en Meta (lo que E1 lee y escribe).
@@ -193,6 +195,12 @@ type GraphLlamadas interface {
 	Ajustes(ctx context.Context, canal CanalGraph) (AjustesMetaLlamadas, error)
 	// FijarAjustes escribe icono, devolución y si están habilitadas.
 	FijarAjustes(ctx context.Context, canal CanalGraph, a AjustesMetaLlamadas) error
+	// Llamar inicia una saliente (action connect) con la oferta SDP del navegador y devuelve el call_id.
+	Llamar(ctx context.Context, canal CanalGraph, numero, sdpOferta string) (string, error)
+	// Permiso lee de Meta el permiso de llamada de un número (call_permissions).
+	Permiso(ctx context.Context, canal CanalGraph, numero string) (PermisoMeta, error)
+	// Plantilla dice si la cuenta tiene esa plantilla, si está aprobada y su categoría.
+	Plantilla(ctx context.Context, canal CanalGraph, nombre, idioma string) (PlantillaMetaInfo, error)
 }
 
 // ErrMetaLlamada: Meta rechazó la acción o no respondió. Nunca lleva el mensaje crudo de Meta.
@@ -396,33 +404,36 @@ type PuedeLlamada struct {
 
 // Llamada es una llamada como la ve el panel. Nunca lleva el SDP, el call_id de Meta ni el token.
 type Llamada struct {
-	ID             uuid.UUID          `json:"id"`
-	EmpresaID      *int64             `json:"empresaId,omitempty"`
-	Origen         string             `json:"origen" enum:"whatsapp,centralita"`
-	Direccion      string             `json:"direccion" enum:"entrante,saliente"`
-	ConversacionID *int64             `json:"conversacionId,omitempty"`
-	MensajeID      *uuid.UUID         `json:"mensajeId,omitempty"`
-	Canal          *CanalDeLlamada    `json:"canal,omitempty"`
-	Numero         string             `json:"numero"`
-	Titulo         string             `json:"titulo" doc:"Nombre del contacto o, si no se conoce, el número"`
-	Contacto       ContactoDeLlamada  `json:"contacto"`
-	Cola           *ColaRef           `json:"cola,omitempty"`
-	Senales        *SenalesLlamada    `json:"senales,omitempty" doc:"Señales del cliente para decidir al contestar. Solo en llamadas vivas (sonando, conectando, en curso) de un cliente identificado"`
-	Estado         string             `json:"estado" enum:"sonando,marcando,conectando,en_curso,terminada,perdida,rechazada,fuera_de_horario,fallida"`
-	AtendidaPor    *string            `json:"atendidaPor,omitempty" enum:"persona,asistente"`
-	Usuario        *UsuarioRef        `json:"usuario,omitempty" doc:"Quien la tiene, o quien la reclamó mientras se conecta"`
-	Tramos         []TramoLlamada     `json:"tramos"`
-	SonoEn         time.Time          `json:"sonoEn"`
-	SuenaHasta     *time.Time         `json:"suenaHasta,omitempty" doc:"Mientras suena: cuándo se da por perdida"`
-	ContestadaEn   *time.Time         `json:"contestadaEn,omitempty"`
-	TerminadaEn    *time.Time         `json:"terminadaEn,omitempty"`
-	DuracionSeg    *int32             `json:"duracionSeg,omitempty"`
-	MotivoFin      *string            `json:"motivoFin,omitempty"`
-	Nota           *string            `json:"nota,omitempty"`
-	Resultado      *string            `json:"resultado,omitempty" enum:"resuelto,ticket_creado,devolver,equivocado,otro"`
-	Grabacion      *EstadoGrabacion   `json:"grabacion,omitempty"`
-	Puede          PuedeLlamada       `json:"puede"`
-	Devolucion     *DevolucionLlamada `json:"devolucion,omitempty"`
+	ID             uuid.UUID         `json:"id"`
+	EmpresaID      *int64            `json:"empresaId,omitempty"`
+	Origen         string            `json:"origen" enum:"whatsapp,centralita"`
+	Direccion      string            `json:"direccion" enum:"entrante,saliente"`
+	ConversacionID *int64            `json:"conversacionId,omitempty"`
+	MensajeID      *uuid.UUID        `json:"mensajeId,omitempty"`
+	Canal          *CanalDeLlamada   `json:"canal,omitempty"`
+	Numero         string            `json:"numero"`
+	Titulo         string            `json:"titulo" doc:"Nombre del contacto o, si no se conoce, el número"`
+	Contacto       ContactoDeLlamada `json:"contacto"`
+	Cola           *ColaRef          `json:"cola,omitempty"`
+	Senales        *SenalesLlamada   `json:"senales,omitempty" doc:"Señales del cliente para decidir al contestar. Solo en llamadas vivas (sonando, conectando, en curso) de un cliente identificado"`
+	Estado         string            `json:"estado" enum:"sonando,marcando,conectando,en_curso,terminada,perdida,rechazada,fuera_de_horario,fallida"`
+	AtendidaPor    *string           `json:"atendidaPor,omitempty" enum:"persona,asistente"`
+	Usuario        *UsuarioRef       `json:"usuario,omitempty" doc:"Quien la tiene, o quien la reclamó mientras se conecta"`
+	Tramos         []TramoLlamada    `json:"tramos"`
+	SonoEn         time.Time         `json:"sonoEn"`
+	SuenaHasta     *time.Time        `json:"suenaHasta,omitempty" doc:"Mientras suena: cuándo se da por perdida"`
+	ContestadaEn   *time.Time        `json:"contestadaEn,omitempty"`
+	TerminadaEn    *time.Time        `json:"terminadaEn,omitempty"`
+	DuracionSeg    *int32            `json:"duracionSeg,omitempty"`
+	MotivoFin      *string           `json:"motivoFin,omitempty"`
+	Nota           *string           `json:"nota,omitempty"`
+	Resultado      *string           `json:"resultado,omitempty" enum:"resuelto,ticket_creado,devolver,equivocado,otro"`
+	Grabacion      *EstadoGrabacion  `json:"grabacion,omitempty"`
+	Puede          PuedeLlamada      `json:"puede"`
+	// DeEstaPestana: solo en GET /llamadas/activa y solo para una saliente.
+	DeEstaPestana *bool              `json:"deEstaPestana,omitempty" doc:"Solo en GET /llamadas/activa, para una saliente: true si se hizo desde la pestaña de la cabecera X-Iris-Pestana. false: es de otra pestaña (o de una que ya no existe): esta no tiene el audio"`
+	DevolucionID  *int64             `json:"devolucionId,omitempty" doc:"La devolución que atiende esta saliente"`
+	Devolucion    *DevolucionLlamada `json:"devolucion,omitempty"`
 }
 
 // LlamadaEnMensaje es el objeto llamada de un mensaje de tipo llamada del hilo.
@@ -436,6 +447,8 @@ type LlamadaEnMensaje struct {
 	Usuario     *UsuarioRef      `json:"usuario,omitempty"`
 	TieneNota   bool             `json:"tieneNota"`
 	Grabacion   *EstadoGrabacion `json:"grabacion,omitempty"`
+	// DevolucionID: la devolución que atiende una saliente («Devolver la llamada»).
+	DevolucionID *int64 `json:"devolucionId,omitempty"`
 }
 
 // DevolucionLlamada es una fila de «Por devolver».

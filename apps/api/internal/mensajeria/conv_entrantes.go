@@ -87,6 +87,12 @@ func contenidoEntrante(msg metaMensaje) nuevoMensaje {
 		texto(strings.TrimSpace(msg.Location.Name + " " + msg.Location.Address))
 	case msg.Button != nil:
 		texto(msg.Button.Text)
+	case msg.Interactive != nil && msg.Interactive.CallPermissionReply != nil:
+		if strings.EqualFold(msg.Interactive.CallPermissionReply.Response, "accept") {
+			texto("Aceptó que lo llamen por WhatsApp")
+		} else {
+			texto("No aceptó que lo llamen por WhatsApp")
+		}
 	case msg.Interactive != nil && msg.Interactive.ButtonReply != nil:
 		texto(msg.Interactive.ButtonReply.Title)
 	case msg.Interactive != nil && msg.Interactive.ListReply != nil:

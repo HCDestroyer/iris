@@ -30,7 +30,7 @@ type casosVoz struct {
 	resultadoMeta     *auditoria.Caso[resultadoMeta, bool]
 	Anotar            *auditoria.Caso[EntradaAnotarLlamada, Llamada]
 	Ver               *auditoria.Caso[EntradaLlamada, Llamada]
-	Activa            *auditoria.Caso[struct{}, *Llamada]
+	Activa            *auditoria.Caso[EntradaActiva, *Llamada]
 	Listar            *auditoria.Caso[EntradaListarLlamadas, nucleo.Pagina[Llamada]]
 	Recibir           *auditoria.Caso[EntradaRecibir, RecibirLlamadas]
 	VerRecibir        *auditoria.Caso[EntradaVerRecibir, RecibirLlamadas]
@@ -44,6 +44,12 @@ type casosVoz struct {
 	FijarAjustes      *auditoria.Caso[EntradaAjustesVoz, AjustesVoz]
 	resultadoAjustes  *auditoria.Caso[resultadoAjustesMeta, bool]
 	reintentarAjustes *auditoria.Caso[EntradaIDConv, LlamadasCanal]
+	VerPermiso        *auditoria.Caso[EntradaConvVoz, PermisoLlamada]
+	SolicitarPermiso  *auditoria.Caso[EntradaConvVoz, PermisoLlamada]
+	previoLlamar      *auditoria.Caso[EntradaLlamar, previoLlamar]
+	llamar            *auditoria.Caso[EntradaLlamar, Llamada]
+	resultadoLlamar   *auditoria.Caso[resultadoLlamar, bool]
+	RespuestaSDP      *auditoria.Caso[EntradaLlamada, RespuestaSDP]
 	mantener          *auditoria.Caso[uuid.UUID, mantenimientoLlamada]
 	vencer            *auditoria.Caso[struct{}, int]
 }
@@ -55,6 +61,8 @@ func nuevosCasosVoz(m *Modulo) casosVoz {
 		Recibir: nuevoRecibirLlamadas(m), VerRecibir: nuevoVerRecibir(m), Devoluciones: nuevoListarDevoluciones(m), Descartar: nuevoDescartarDevolucion(m),
 		VerCanal: nuevoVerLlamadasCanal(m), ConfigCanal: nuevoConfigurarLlamadasCanal(m), comprobar: nuevoGuardarComprobacion(m),
 		prepararCanal: nuevoPrepararComprobacion(m), VerAjustes: nuevoVerAjustesVoz(m), FijarAjustes: nuevoFijarAjustesVoz(m),
+		VerPermiso: nuevoVerPermisoLlamada(m), SolicitarPermiso: nuevoSolicitarPermisoLlamada(m), previoLlamar: nuevoPrevioLlamar(m),
+		llamar: nuevoLlamar(m), resultadoLlamar: nuevoResultadoLlamar(m), RespuestaSDP: nuevoRespuestaSDP(m),
 		mantener: nuevoMantenerLlamada(m), vencer: nuevoVencerDevoluciones(m), resultadoAjustes: nuevoResultadoAjustesMeta(m),
 		reintentarAjustes: nuevoReintentarAjustesMeta(m)}
 }
@@ -65,6 +73,11 @@ type EntradaLlamada struct {
 	// Navegador: el id de «Recibir llamadas» de este navegador (cabecera X-Iris-Navegador). La reserva
 	// de reclamar queda atada a él.
 	Navegador string `json:"navegador,omitempty"`
+	// Pestana: el id de la pestaña (X-Iris-Pestana), en respuesta-sdp.
+	Pestana string `json:"pestana,omitempty"`
+	// SoloPropia (colgar): solo si la llamada es de quien lo pide; no vale supervisar. Es lo que manda
+	// el panel al cerrarse la pestaña, para no colgar la llamada de un compañero.
+	SoloPropia bool `json:"soloPropia,omitempty"`
 }
 
 // LlamadaReclamada es la respuesta de reclamar: la oferta SDP solo viaja aquí y solo a quien la ganó.
@@ -536,14 +549,17 @@ func nuevoColgarLlamada(m *Modulo) *auditoria.Caso[EntradaLlamada, Llamada] {
 			if err != nil {
 				return Llamada{}, err
 			}
-			// Quien la tiene, o un supervisor.
-			if (l.UsuarioID == nil || *l.UsuarioID != a.usuario) && !a.supervisa {
+			// Quien la tiene, o un supervisor. Con soloPropia (cierre de pestaña) supervisar no cuenta: si
+			// la reserva propia venció y la llamada ya es de otra persona, no se le cuelga.
+			if (l.UsuarioID == nil || *l.UsuarioID != a.usuario) && (!a.supervisa || in.SoloPropia) {
 				return Llamada{}, llamadaNoEncontrada()
 			}
 			if llamadaFinal(l.Estado) {
 				return Llamada{}, llamadaTerminada()
 			}
-			if l.Estado != LlamadaEnCurso {
+			// Una saliente se puede colgar mientras marca (se cancela: no cuenta como sin contestar).
+			marcando := l.Direccion == "saliente" && l.Estado == LlamadaMarcando
+			if l.Estado != LlamadaEnCurso && !marcando {
 				return Llamada{}, nucleo.Conflicto("llamada_sin_contestar", "La llamada todavía no está en curso: usa rechazar o soltar")
 			}
 			c, err := q.ConversacionClienteParaActualizar(ctx, *l.ConversacionID)

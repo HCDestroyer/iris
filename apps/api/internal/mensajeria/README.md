@@ -550,6 +550,15 @@ Contrato: `.claude/integration/contratos/voz.md`. Código en `voz_*.go`, consult
   `X-Iris-Navegador`; `contestar`, `confirmar-medio` y `soltar` exigen el mismo usuario y el mismo
   navegador (409 `otro_navegador` al otro). `Llamada.senales` lleva servicio y ticket abierto del
   cliente; «tiene saldo vencido» se pregunta a Argos en vivo solo en `GET /llamadas/{id}`.
+- **Salientes (E1b, `voz_salientes.go`).** `POST /conversaciones/{id}/llamar` (solo
+  `llamadas.llamar`, sensible; solo la empresa dueña del número; nunca un número libre) y el permiso
+  del contacto (`llamada_permisos`, `solicitar-permiso-llamada`, respuesta por webhook). En fases:
+  `call_permissions` → llamada `marcando` → `connect` → `call_id`; la respuesta SDP de Meta se valida
+  y se lee con `GET /llamadas/{id}/respuesta-sdp`; `ACCEPTED` la pasa a `en_curso`. Límites por día,
+  por número y tope de minutos del mes (`voz.tope_alcanzado`), decididos con un candado por empresa;
+  el mantenimiento corta al cruzar el tope. Lo que queda vivo en Meta sin llamada en Iris va a
+  `llamadas_huerfanas` y el job `mensajeria.voz_meta` lo termina. Emite `llamada.saliente_iniciada`,
+  `llamada.permiso_solicitado` y `llamada.permiso_cambiado`.
 - **Número prestado.** Una llamada que corresponde a la empresa prestataria no usa nada de la dueña
   (cola, horario, candidatos, textos): no suena y queda `perdida` en la prestataria.
 - **El `connect` se procesa en línea** (`RecibirWebhookMeta`): es la excepción documentada a «los

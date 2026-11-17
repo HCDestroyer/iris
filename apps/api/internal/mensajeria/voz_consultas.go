@@ -85,7 +85,7 @@ func (m *Modulo) aLlamadas(ctx context.Context, q *mensajeriabd.Queries, a alcan
 		l := Llamada{ID: f.ID, EmpresaID: f.EmpresaID, Origen: f.Origen, Direccion: f.Direccion, ConversacionID: f.ConversacionID, MensajeID: uuidDe(f.MensajeID),
 			Numero: f.Numero, Titulo: f.Numero, Contacto: ContactoDeLlamada{Tipo: "desconocido"}, Estado: f.Estado, AtendidaPor: f.AtendidaPor,
 			Tramos: tramos[f.ID], SonoEn: f.SonoEn, ContestadaEn: f.ContestadaEn, TerminadaEn: f.TerminadaEn, DuracionSeg: f.DuracionSeg,
-			MotivoFin: f.MotivoFin, Nota: f.Nota, Resultado: f.Resultado}
+			MotivoFin: f.MotivoFin, Nota: f.Nota, Resultado: f.Resultado, DevolucionID: f.DevolucionID}
 		if l.Tramos == nil {
 			l.Tramos = []TramoLlamada{}
 		}
@@ -125,8 +125,9 @@ func (m *Modulo) aLlamadas(ctx context.Context, q *mensajeriabd.Queries, a alcan
 		l.Puede = PuedeLlamada{
 			Contestar: f.Estado == LlamadaSonando && puede(nucleo.PermLlamadasContestar),
 			Rechazar:  f.Estado == LlamadaSonando && puede(nucleo.PermLlamadasRechazar),
-			Colgar:    f.Estado == LlamadaEnCurso && (mia || a.supervisa) && puede(nucleo.PermLlamadasColgar),
-			Anotar:    (f.Estado == LlamadaEnCurso || f.Estado == LlamadaTerminada) && (mia || a.supervisa) && puede(nucleo.PermLlamadasAnotar),
+			Colgar: (f.Estado == LlamadaEnCurso || (f.Estado == LlamadaMarcando && f.Direccion == "saliente")) && (mia || a.supervisa) &&
+				puede(nucleo.PermLlamadasColgar),
+			Anotar: (f.Estado == LlamadaEnCurso || f.Estado == LlamadaTerminada) && (mia || a.supervisa) && puede(nucleo.PermLlamadasAnotar),
 		}
 		out = append(out, l)
 	}
@@ -290,10 +291,15 @@ func nuevoVerLlamada(m *Modulo) *auditoria.Caso[EntradaLlamada, Llamada] {
 	})
 }
 
-func nuevoLlamadaActiva(m *Modulo) *auditoria.Caso[struct{}, *Llamada] {
-	return auditoria.Nuevo(auditoria.Caso[struct{}, *Llamada]{
+// EntradaActiva es GET /llamadas/activa.
+type EntradaActiva struct {
+	Pestana string `json:"pestana,omitempty"`
+}
+
+func nuevoLlamadaActiva(m *Modulo) *auditoria.Caso[EntradaActiva, *Llamada] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaActiva, *Llamada]{
 		Accion: "llamadas.ver_activa", Permiso: nucleo.PermLlamadasVer, AuditarExito: sinAuditar[*Llamada],
-		Logica: func(ctx context.Context, t *auditoria.Tx, _ struct{}) (*Llamada, error) {
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaActiva) (*Llamada, error) {
 			a, err := alcanceVoz(ctx, nucleo.PermLlamadasVer)
 			if err != nil {
 				return nil, err
@@ -307,6 +313,12 @@ func nuevoLlamadaActiva(m *Modulo) *auditoria.Caso[struct{}, *Llamada] {
 				return nil, err
 			}
 			l, err := m.aLlamada(ctx, q, a, f)
+			// Una saliente es de la pestaña que la hizo: el panel sabe así si esta tiene el audio o si
+			// es una llamada huérfana (la pestaña que llamó ya no está) y solo puede colgarla.
+			if f.Direccion == "saliente" {
+				propia := in.Pestana != "" && f.Pestana != nil && *f.Pestana == in.Pestana
+				l.DeEstaPestana = &propia
+			}
 			return &l, err
 		},
 	})
@@ -718,7 +730,7 @@ func llamadasDeMensajes(ctx context.Context, q *mensajeriabd.Queries, filas []me
 		grabaciones[g.LlamadaID] = g.Estado
 	}
 	for _, l := range ls {
-		x := LlamadaEnMensaje{ID: l.ID, Direccion: l.Direccion, Estado: l.Estado, AtendidaPor: l.AtendidaPor, DuracionSeg: l.DuracionSeg,
+		x := LlamadaEnMensaje{ID: l.ID, Direccion: l.Direccion, Estado: l.Estado, AtendidaPor: l.AtendidaPor, DuracionSeg: l.DuracionSeg, DevolucionID: l.DevolucionID,
 			MotivoFin: l.MotivoFin, TieneNota: l.Nota != nil}
 		if l.UsuarioID != nil {
 			x.Usuario = &UsuarioRef{ID: *l.UsuarioID, Nombre: nombres[*l.UsuarioID]}

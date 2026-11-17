@@ -2200,7 +2200,7 @@ export interface paths {
         put?: never;
         /**
          * Configurar las llamadas de un número
-         * @description Permiso: `llamadas.configurar`. 422 `llamadas_no_disponibles_qr` al encender en un número por QR; 422 `requisitos_sin_cumplir` (con `errors[]` por requisito) si la última comprobación no cumple; 422 `asistente_voz_no_disponible` con `fueraDeHorario: asistente` (llega en otra etapa). Emite `canal_mensajeria.llamadas_cambiadas`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         * @description Permiso: `llamadas.configurar`. 422 `llamadas_no_disponibles_qr` al encender en un número por QR; 422 `requisitos_sin_cumplir` (con `errors[]` por requisito) si la última comprobación no cumple; 422 `asistente_voz_no_disponible` con `fueraDeHorario: asistente` (llega en otra etapa); 422 `plantilla_permiso_invalida` si la cuenta de WhatsApp no tiene esa plantilla aprobada en ese idioma (se comprueba en Meta al guardarla; 502 `meta_rechazo` si Meta no responde). Emite `canal_mensajeria.llamadas_cambiadas`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
          */
         post: operations["configurarLlamadasCanal"];
         delete?: never;
@@ -3266,7 +3266,7 @@ export interface paths {
         };
         /**
          * Tiempo real de la bandeja (Server-Sent Events)
-         * @description Permiso: `conversaciones.ver`. Igual que el flujo del chat: `id` (cursor), `event` (mensaje_nuevo, mensaje_actualizado, conversacion_actualizada, mencion, guardia, aviso_sin_atender, sugerencia), `data` (un EventoConversacion). Last-Event-ID o ?desde=; latido cada 25 s; cierre a los 30 min; revalidación de la sesión.
+         * @description Permiso: `conversaciones.ver`. Igual que el flujo del chat: `id` (cursor), `event` (mensaje_nuevo, mensaje_actualizado, conversacion_actualizada, mencion, guardia, aviso_sin_atender, sugerencia), `data` (un EventoConversacion). Last-Event-ID o ?desde=; latido cada 25 s; cierre a los 30 min; revalidación de la sesión. `?navegador=` (o la cabecera `X-Iris-Navegador`): el id de «Recibir llamadas» de este navegador. Con él, el latido del flujo vale solo para ese navegador (es lo que mantiene viva una llamada saliente hecha desde él y su «Recibir llamadas»); sin él, para todos los navegadores del usuario que reciben llamadas. `?pestana=` (o `X-Iris-Pestana`): el id aleatorio de esta pestaña; una llamada **saliente** solo se mantiene viva con el flujo de la pestaña que la hizo (otra pestaña del mismo navegador no la sostiene: a los 55 s se corta).
          */
         get: operations["eventosConversaciones"];
         put?: never;
@@ -3641,6 +3641,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/conversaciones/{id}/llamar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Llamar por WhatsApp al contacto de la conversación
+         * @description Permiso: `llamadas.llamar`. Saliente con coste: `llamadas.llamar` (sensible). El destino es siempre el contacto de la conversación. El navegador crea la oferta SDP; el servidor la sanea, comprueba el permiso del contacto en WhatsApp y los límites, y responde 201 `{ llamada }` en `marcando`. La respuesta SDP llega después: el feed avisa con `llamada_respuesta` (solo a ti) y se lee con `GET /llamadas/{id}/respuesta-sdp`. Pasa a `en_curso` cuando el cliente contesta; sin contestar en 60 s queda `perdida`. Exige `X-Iris-Navegador` y `X-Iris-Pestana` (422 `navegador_requerido`, `pestana_requerida`): la llamada vive mientras esté abierto el flujo de eventos de **esa pestaña** (`?pestana=`); si se cierra o se recarga, a los 55 s el servidor la cancela. Plazos: la llamada queda creada en el servidor como mucho 6 s después de enviar la petición y la respuesta tarda como mucho 10 s; si la respuesta se pierde, búscala con `GET /llamadas/activa`. 422 `sin_permiso_llamada`, `confirmar_riesgo` (lleva tres sin contestar: repite con `confirmarRiesgo`), `limite_llamadas`, `tope_alcanzado`, `llamadas_inactivas`, `sdp_invalido`; 409 `llamada_en_curso`, `devolucion_cerrada`; 502 `meta_rechazo`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        post: operations["llamarContacto"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/conversaciones/{id}/manual-enlaces": {
         parameters: {
             query?: never;
@@ -3765,6 +3785,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/conversaciones/{id}/permiso-llamada": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Permiso del contacto para que lo llamen
+         * @description Permiso: `conversaciones.ver`. Lo que Iris sabe del permiso (WhatsApp es la verdad y se le pregunta al llamar). `puedeLlamar` es para ti; `motivo` dice por qué no. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        get: operations["verPermisoLlamada"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/conversaciones/{id}/plantillas": {
         parameters: {
             query?: never;
@@ -3879,6 +3919,26 @@ export interface paths {
          * @description Permiso: `conversaciones.sugerencias`. Síncrono (hasta 90 s). Reserva y cuenta para el tope; no se guarda el texto. 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje`; 429 `demasiados_pedidos`; 502 `proveedor_no_responde`, `proveedor_error`, `clave_invalida`, `proveedor_redirige`, `rechazo_modelo`.
          */
         post: operations["resumirConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/solicitar-permiso-llamada": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pedir al contacto permiso para llamarlo
+         * @description Permiso: `llamadas.solicitar_permiso`. Dentro de la ventana de 24 h va como mensaje interactivo; fuera, con la plantilla de permiso del número. 422 `permiso_ya_vigente`, `limite_solicitudes` (1 por 24 h y 2 por 7 días; `errors[0].message` trae desde cuándo se puede), `sin_plantilla_permiso`, `llamadas_inactivas`, `cliente_sin_confirmar`, `baja`. Emite `llamada.permiso_solicitado`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        post: operations["solicitarPermisoLlamada"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4162,7 +4222,7 @@ export interface paths {
         };
         /**
          * La llamada que tienes ahora
-         * @description Permiso: `llamadas.ver`. La que reclamaste o tienes en curso, o 204 si no tienes ninguna. El audio no se puede retomar desde otra pestaña. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         * @description Permiso: `llamadas.ver`. La que reclamaste, tienes en curso o estás haciendo (una saliente que marca), o 204 si no tienes ninguna. No hace falta «Recibir llamadas» ni `llamadas.contestar`. En una saliente, `deEstaPestana` dice si se hizo desde la pestaña de `X-Iris-Pestana`: si es `false`, esta pestaña no tiene el audio (la que llamó se cerró o se recargó) y solo puede colgarla. El audio no se puede retomar desde otra pestaña. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
          */
         get: operations["llamadaActiva"];
         put?: never;
@@ -4324,7 +4384,7 @@ export interface paths {
         put?: never;
         /**
          * Colgar
-         * @description Permiso: `llamadas.colgar`. Quien la tiene, o quien supervisa. 409 `llamada_terminada` si ya terminó. Emite `llamada.terminada`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         * @description Permiso: `llamadas.colgar`. Quien la tiene, o quien supervisa. Con `?propia=true` solo quien la tiene (supervisar no cuenta): es lo que debe mandar el panel al cerrarse la pestaña, para no colgar la llamada de otra persona si la reserva propia ya venció (404 en ese caso). Una saliente también se cuelga mientras marca. 409 `llamada_terminada` si ya terminó. Emite `llamada.terminada`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
          */
         post: operations["colgarLlamada"];
         delete?: never;
@@ -4407,6 +4467,26 @@ export interface paths {
          * @description Permiso: `llamadas.contestar`. Atómico: gana uno solo. Responde `{ llamada, sdpOferta, ice, venceEn }`: aplica `sdpOferta` a un `RTCPeerConnection` y manda `contestar` antes de `venceEn` (12 s). Solo un candidato de **esa** llamada puede reclamarla (si no, 404). 409 `llamada_ya_contestada` si otro se adelantó o ya no suena (`errors[0].rule = misma_persona` si fuiste tú en otro navegador: solo cierra el aviso). La reserva queda atada al navegador de la cabecera `X-Iris-Navegador` (sin ella, 422 `navegador_requerido`): `contestar`, `confirmar-medio` y `soltar` desde otro navegador tuyo responden 409 `llamada_ya_contestada` con `errors[0].rule = otro_navegador` y no tocan la reserva. 422 `no_recibe_llamadas` sin «Recibir llamadas» o sin el flujo de eventos abierto. La respuesta no se guarda por `Idempotency-Key` (lleva el SDP): repetir, mientras dure la reserva, devuelve la misma, releída de la llamada. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
          */
         post: operations["reclamarLlamada"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/llamadas/{id}/respuesta-sdp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * La respuesta SDP de una saliente
+         * @description Permiso: `llamadas.llamar`. Solo quien llamó, desde el mismo navegador (`X-Iris-Navegador`) y la misma pestaña (`X-Iris-Pestana`; desde otra, 409 con `errors[0].rule = otra_pestana`). 409 `sin_respuesta` si WhatsApp aún no la mandó; 409 `llamada_terminada` después. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        get: operations["verRespuestaSDP"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -8065,9 +8145,24 @@ export interface components {
             grabar: "nunca";
             /**
              * Format: int32
+             * @description Cuántas salientes a un mismo contacto se pueden colgar mientras marcan en un día antes de dejar de llamarlo (1–20; 0 = sin límite)
+             */
+            maxColgadasMarcandoDia: number;
+            /**
+             * Format: int32
+             * @description Llamadas salientes de la empresa por día (0–1000; 0 = ninguna)
+             */
+            maxSalientesPorDia: number;
+            /**
+             * Format: int32
              * @description Cuánto suena primero solo a quien tiene la conversación (0–20)
              */
             segundosAsignado: number;
+            /**
+             * Format: int32
+             * @description Minutos de llamadas salientes por mes (0–100000; 0 = ninguna)
+             */
+            topeMinutosSalientesMes: number;
             /**
              * Format: int32
              * @description 0 si nunca se guardaron (valores de fábrica)
@@ -9792,6 +9887,17 @@ export interface components {
             /** @description El último mensaje que viste; la lectura solo avanza */
             hasta_mensaje_id: string;
         };
+        CuerpoLlamar: {
+            /** @description Llamar aunque lleve tres seguidas sin contestar (la cuarta revoca el permiso) */
+            confirmarRiesgo?: boolean;
+            /**
+             * Format: int64
+             * @description La devolución pendiente que atiende esta llamada (queda hecha cuando el cliente contesta)
+             */
+            devolucionId?: number;
+            /** @description La oferta SDP del RTCPeerConnection del navegador */
+            sdpOferta: string;
+        };
         CuerpoMotivo: {
             motivo: string;
         };
@@ -10395,7 +10501,13 @@ export interface components {
             /** @description Opcional. Solo se acepta nunca: cualquier otro valor, 422 grabacion_no_disponible */
             grabar?: string;
             /** Format: int32 */
+            maxColgadasMarcandoDia?: number;
+            /** Format: int32 */
+            maxSalientesPorDia?: number;
+            /** Format: int32 */
             segundosAsignado: number;
+            /** Format: int32 */
+            topeMinutosSalientesMes?: number;
             /** Format: int32 */
             version: number;
         };
@@ -11803,6 +11915,10 @@ export interface components {
             iconoVisible: boolean;
             llamadasActivas: boolean;
             mensajePerdida: components["schemas"]["MensajePerdida"];
+            /** @description Nombre de la plantilla call_permission_request aprobada del número (para pedir permiso de llamada fuera de la ventana de 24 h) */
+            plantillaPermiso?: string;
+            /** @description Idioma de esa plantilla (es de fábrica) */
+            plantillaPermisoIdioma?: string;
             /** Format: int32 */
             segundosSonando: number;
             /** Format: int32 */
@@ -12742,7 +12858,7 @@ export interface components {
             /** @description sugerencia: la sugerencia del asistente como está ahora (§16.2) */
             sugerencia?: components["schemas"]["Sugerencia"];
             /** @enum {string} */
-            tipo: "mensaje_nuevo" | "mensaje_actualizado" | "conversacion_actualizada" | "mencion" | "guardia" | "aviso_sin_atender" | "sugerencia" | "llamada_entrante" | "llamada_actualizada" | "llamada_terminada" | "devolucion_actualizada";
+            tipo: "mensaje_nuevo" | "mensaje_actualizado" | "conversacion_actualizada" | "mencion" | "guardia" | "aviso_sin_atender" | "sugerencia" | "llamada_entrante" | "llamada_actualizada" | "llamada_terminada" | "devolucion_actualizada" | "llamada_respuesta";
         };
         EventoOrden: {
             a: string | null;
@@ -13547,7 +13663,14 @@ export interface components {
             contestadaEn?: string;
             /** Format: int64 */
             conversacionId?: number;
+            /** @description Solo en GET /llamadas/activa, para una saliente: true si se hizo desde la pestaña de la cabecera X-Iris-Pestana. false: es de otra pestaña (o de una que ya no existe): esta no tiene el audio */
+            deEstaPestana?: boolean;
             devolucion?: components["schemas"]["DevolucionLlamada"];
+            /**
+             * Format: int64
+             * @description La devolución que atiende esta saliente
+             */
+            devolucionId?: number;
             /** @enum {string} */
             direccion: "entrante" | "saliente";
             /** Format: int32 */
@@ -13587,6 +13710,8 @@ export interface components {
         LlamadaEnMensaje: {
             /** @enum {string} */
             atendidaPor?: "persona" | "asistente";
+            /** Format: int64 */
+            devolucionId?: number;
             /** @enum {string} */
             direccion: "entrante" | "saliente";
             /** Format: int32 */
@@ -13633,6 +13758,8 @@ export interface components {
             iconoVisible: boolean;
             llamadasActivas: boolean;
             mensajePerdida: components["schemas"]["MensajePerdida"];
+            plantillaPermiso?: string;
+            plantillaPermisoIdioma?: string;
             requisitos: components["schemas"]["RequisitosLlamadas"];
             /** Format: int32 */
             segundosSonando: number;
@@ -13818,10 +13945,10 @@ export interface components {
         MensajeConversacion: {
             adjunto?: components["schemas"]["AdjuntoMensaje"];
             /**
-             * @description Saliente sin autor: el bot, la respuesta de fuera de horario o (3b) el asistente de IA
+             * @description Saliente automático: el bot, la respuesta de fuera de horario, (3b) el asistente de IA o la solicitud de permiso de llamada (esta sí tiene autor)
              * @enum {string|null}
              */
-            automatico: "bot" | "fuera_de_horario" | "asistente" | null;
+            automatico: "bot" | "fuera_de_horario" | "asistente" | "permiso_llamada" | null;
             /** @description Saliente y nota; ausente en entrante, sistema y respuestas automáticas */
             autor?: components["schemas"]["UsuarioRef"];
             /**
@@ -15236,7 +15363,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.descartar_devolucion" | "llamadas.rechazar" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver" | "voz.configurar";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver" | "voz.configurar";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -15246,6 +15373,37 @@ export interface components {
             moduloNombre: string;
             /** @description Permiso de administración: darlo exige confirmar la contraseña */
             sensible: boolean;
+        };
+        PermisoLlamada: {
+            /**
+             * @description vencido: tuvo un permiso temporal que ya pasó (se le puede volver a pedir)
+             * @enum {string}
+             */
+            estado: "sin_pedir" | "pedido" | "temporal" | "permanente" | "negado" | "revocado" | "vencido";
+            /**
+             * @description Por qué no se puede llamar
+             * @enum {string}
+             */
+            motivo?: "llamadas_inactivas" | "sin_permiso_llamada" | "no_autorizado";
+            /**
+             * Format: date-time
+             * @description Desde cuándo se le puede volver a pedir
+             */
+            proximaSolicitudEn?: string;
+            /** @description Tú puedes llamarlo ahora (permiso vigente, llamadas encendidas y llamadas.llamar) */
+            puedeLlamar: boolean;
+            /** @description Se le puede pedir el permiso ahora (1 solicitud por 24 h y 2 por 7 días) */
+            puedeSolicitar: boolean;
+            /**
+             * Format: int32
+             * @description Llamadas seguidas sin contestar: a la cuarta WhatsApp revoca el permiso
+             */
+            sinContestar: number;
+            /**
+             * Format: date-time
+             * @description Con temporal: hasta cuándo vale
+             */
+            venceEn?: string;
         };
         PersonaChat: {
             /**
@@ -16081,6 +16239,10 @@ export interface components {
             titulo: string;
             /** Format: int32 */
             version: number;
+        };
+        RespuestaSDP: {
+            /** @description La respuesta SDP de Meta para el RTCPeerConnection del navegador */
+            sdpRespuesta: string;
         };
         RespuestaTarea: {
             /** @enum {string} */
@@ -17184,10 +17346,10 @@ export interface components {
         };
         UltimoMensajeResumen: {
             /**
-             * @description Saliente sin autor: el bot, la respuesta de fuera de horario o (3b) el asistente de IA
+             * @description Saliente automático: el bot, la respuesta de fuera de horario, (3b) el asistente de IA o la solicitud de permiso de llamada (esta sí tiene autor)
              * @enum {string|null}
              */
-            automatico: "bot" | "fuera_de_horario" | "asistente" | null;
+            automatico: "bot" | "fuera_de_horario" | "asistente" | "permiso_llamada" | null;
             /** Format: date-time */
             creadoEn: string;
             /** @enum {string} */
@@ -30472,10 +30634,18 @@ export interface operations {
             query?: {
                 /** @description Igual que Last-Event-ID, para clientes que no pueden fijar cabeceras. Sin los dos: desde ahora */
                 desde?: string;
+                /** @description El id de «Recibir llamadas» de este navegador (EventSource no puede mandar cabeceras) */
+                navegador?: string;
+                /** @description El id de esta pestaña (aleatorio por pestaña): el latido de una llamada saliente es el del flujo de la pestaña que llamó */
+                pestana?: string;
             };
             header?: {
                 /** @description El id del último evento recibido (lo manda EventSource al reconectar) */
                 "Last-Event-ID"?: string;
+                /** @description Lo mismo, para clientes que sí pueden mandar cabeceras */
+                "X-Iris-Navegador"?: string;
+                /** @description Lo mismo, por cabecera */
+                "X-Iris-Pestana"?: string;
             };
             path?: never;
             cookie?: never;
@@ -32022,6 +32192,102 @@ export interface operations {
             };
         };
     };
+    llamarContacto: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+                /** @description El id de «Recibir llamadas» de este navegador */
+                "X-Iris-Navegador"?: string;
+                /** @description El id de esta pestaña (aleatorio por pestaña, no el del navegador). Obligatorio: solo el flujo de eventos de esta pestaña sostiene la llamada */
+                "X-Iris-Pestana"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CuerpoLlamar"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Llamada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     enlacesManualConversacion: {
         parameters: {
             query?: never;
@@ -32585,6 +32851,73 @@ export interface operations {
             };
         };
     };
+    verPermisoLlamada: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PermisoLlamada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     plantillasConversacion: {
         parameters: {
             query?: never;
@@ -33045,6 +33378,76 @@ export interface operations {
             };
             /** @description Bad Gateway */
             502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    solicitarPermisoLlamada: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PermisoLlamada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -34137,7 +34540,10 @@ export interface operations {
     llamadaActiva: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description El id de esta pestaña (aleatorio por pestaña) */
+                "X-Iris-Pestana"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -34682,12 +35088,13 @@ export interface operations {
     };
     colgarLlamada: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Solo si la llamada es tuya (no vale supervisar): para el cierre de pestaña */
+                propia?: boolean;
+            };
             header?: {
                 /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
                 "Idempotency-Key"?: string;
-                /** @description El id de «Recibir llamadas» de este navegador. Obligatorio en reclamar, contestar, confirmar-medio y soltar: la reserva es de un usuario en un navegador */
-                "X-Iris-Navegador"?: string;
             };
             path: {
                 id: string;
@@ -35053,6 +35460,85 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LlamadaReclamada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verRespuestaSDP: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Iris-Navegador"?: string;
+                "X-Iris-Pestana"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaSDP"];
                 };
             };
             /** @description Unauthorized */

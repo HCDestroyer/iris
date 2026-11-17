@@ -40,6 +40,8 @@ type persona struct {
 	csrf string
 	// navegador: X-Iris-Navegador (el id de «Recibir llamadas»; vacío = sin cabecera).
 	navegador string
+	// pestana: X-Iris-Pestana (el id de la pestaña del panel; vacío = sin cabecera).
+	pestana string
 }
 
 // persona crea un usuario con roles y empresas, y su token (con sus permisos).

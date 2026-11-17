@@ -278,6 +278,9 @@ func (b *bandeja) apiClave(p persona, metodo, ruta, clave string, cuerpo any) re
 	if p.navegador != "" {
 		req.Header.Set(mensajeria.CabeceraNavegador, p.navegador)
 	}
+	if p.pestana != "" {
+		req.Header.Set(mensajeria.CabeceraPestana, p.pestana)
+	}
 	if clave != "" {
 		req.Header.Set("Idempotency-Key", clave)
 	}

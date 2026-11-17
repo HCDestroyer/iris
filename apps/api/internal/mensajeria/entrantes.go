@@ -281,6 +281,15 @@ func nuevoProcesarMeta(m *Modulo) *auditoria.Caso[int64, struct{}] {
 							return struct{}{}, err
 						}
 					}
+					// Estados de una saliente (RINGING, ACCEPTED, REJECTED): llegan en statuses del campo calls.
+					if ch.Field == "calls" {
+						for _, st := range ch.Value.Statuses {
+							if err := m.recibirEventoLlamada(ctx, t, fila, metaLlamada{ID: st.ID, Event: "status", Status: st.Status, To: st.RecipientID,
+								Timestamp: st.Timestamp}, "", ahora); err != nil {
+								return struct{}{}, err
+							}
+						}
+					}
 					for _, msg := range ch.Value.Messages {
 						// La baja primero: así el mensaje ya llega con el número dado de baja (sin
 						// respuestas automáticas a quien pide no recibir mensajes).
@@ -291,6 +300,13 @@ func nuevoProcesarMeta(m *Modulo) *auditoria.Caso[int64, struct{}] {
 						}
 						if err := m.recibirMensaje(ctx, t, fila, msg, perfiles[msg.From], ahora); err != nil {
 							return struct{}{}, err
+						}
+						// La respuesta al permiso de llamada, después del mensaje: mismo orden de candados que
+						// llamar y solicitar (conversación → permiso).
+						if msg.Interactive != nil && msg.Interactive.CallPermissionReply != nil {
+							if err := m.recibirPermisoLlamada(ctx, t, fila, msg, ahora); err != nil {
+								return struct{}{}, err
+							}
 						}
 					}
 					// Coexistencia: lo mandado desde el teléfono, el historial y los contactos (§15.2).
