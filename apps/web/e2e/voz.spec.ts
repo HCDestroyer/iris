@@ -698,6 +698,9 @@ test.describe("voz › plazos, red y cierre", () => {
         // El aviso se fue con la decisión; al volver a abrir el panel se ofrece otra vez.
         await page.reload();
         await page.getByRole("button", { name: "Colgar" }).click();
+        await expect(confirmar.getByRole("button", { name: "Dejarla" })).toBeVisible();
+        // El diálogo entra con animación: se deja asentar antes de medir.
+        await page.clock.fastForward(1_000);
         await sinDesbordes(page);
         await captura(page, "otra-pestana-colgar");
         await confirmar.getByRole("button", { name: "Colgar" }).click();
@@ -787,8 +790,10 @@ test.describe("voz › nunca una llamada viva sin audio (revisión de seguridad)
             primera.estado = "sonando";
             delete primera.usuario;
         }
-        const colgadas = acciones(api, "colgar").length;
+        // Un intento que ya estaba en vuelo puede llegar todavía; después, ninguno más.
         await page.clock.fastForward(3_000);
+        const colgadas = acciones(api, "colgar").length;
+        await page.clock.fastForward(4_000);
         expect(acciones(api, "colgar")).toHaveLength(colgadas);
         await expect(page.getByText("No se pudo colgar una llamada que quedó abierta")).toHaveCount(0);
         // El aviso llano se va solo a los 8 s (el reloj ya pasó de ahí).
@@ -947,8 +952,12 @@ test.describe("voz › nunca una llamada viva sin audio (revisión de seguridad)
         await expect.poll(() => acciones(api, "confirmar-medio").length).toBe(1);
         await page.evaluate(() => window.__voz.cortar());
         await expect(aviso(page)).toHaveAttribute("data-motivo", "medio_fallido");
+        // Aún conectaba: el servidor la termina con `propia` y queda como perdida por devolver
+        // (`agente_salio`); el `accept` que llegue después ya no la deja viva.
+        await adelantarHasta(page, () => ultima(api)?.estado === "perdida");
         liberar();
-        await adelantarHasta(page, () => ultima(api)?.estado === "terminada");
+        await page.clock.fastForward(3_000);
+        expect(ultima(api)).toMatchObject({ estado: "perdida", motivoFin: "agente_salio" });
         expect(acciones(api, "soltar")).toHaveLength(0);
     });
 
@@ -1287,9 +1296,14 @@ test.describe("voz › en el hilo y en la lista", () => {
         expect(api.voz.recibido.descartadas).toHaveLength(1);
 
         // Si la lectura de devoluciones falla: error con «Reintentar», nunca «0 por devolver».
-        await page.route("**/api/v1/mensajeria/llamadas/devoluciones", (r) => r.fulfill({ status: 500, contentType: "application/problem+json", body: JSON.stringify({ type: "urn:iris:problema:error_interno", title: "Error del servidor", status: 500 }) }), { times: 1 });
+        // (Falla hasta que se diga: una relectura tardía por el flujo no se lleva el único 500.)
+        let fallar = true;
+        await page.route("**/api/v1/mensajeria/llamadas/devoluciones", (r) =>
+            fallar ? r.fulfill({ status: 500, contentType: "application/problem+json", body: JSON.stringify({ type: "urn:iris:problema:error_interno", title: "Error del servidor", status: 500 }) }) : r.fallback(),
+        );
         await page.goto("/conversaciones");
         await expect(page.getByText("No se pudieron leer las llamadas por devolver")).toBeVisible();
+        fallar = false;
         await page.getByRole("region", { name: "Conversaciones", exact: true }).getByRole("button", { name: "Reintentar" }).click();
         await expect(page.getByText("No se pudieron leer las llamadas por devolver")).toHaveCount(0);
     });

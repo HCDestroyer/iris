@@ -790,6 +790,14 @@ la marca «En pruebas». El proveedor se monta también para quien solo llama (`
   las salientes y la nota de que se cobran por minuto (en las colgadas, 0 = sin límite; en los
   otros dos, 0 apaga las salientes); en `/administracion/numeros/[id]/llamadas`, «Permiso para
   llamar al cliente» con la plantilla y su idioma.
+- **Consumo junto a los topes** (en «Avanzado»): «Llevas 120 de 300 minutos este mes» y «8 de 50
+  llamadas hoy», con un punto que crece en ámbar al pasar del 80 % y en rojo al llegar al tope. Con
+  el tope en 0 o sin el dato no se muestra nada.
+- **Solicitud sin confirmar:** «Se envió la solicitud, pero WhatsApp aún no confirma que la
+  recibió»; sigue contando y no se ofrece pedir otra.
+- **Entrante que se dejó mientras conectaba** (`agente_salio`): es una perdida por devolver; en el
+  hilo dice «… empezó a contestarla y se cortó antes de conectar» y en la lista «Se cortó al
+  contestar · escríbele» (esto último solo mientras se sabe por el flujo en vivo).
 - **Pruebas:** `lib/voz/saliente.test.ts` y `e2e/voz-salientes.spec.ts` (mismos dobles y reloj).
 
 ## Navegación del panel (fase 1, hecha)
