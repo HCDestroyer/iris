@@ -377,6 +377,50 @@ actúa solo; desde 3b sí (§17.8): `asistente.accion_ejecutada` y `asistente.pa
 corrigió la categoría; `actor_id` = el agente). `asistente.ajustes_cambiados` suma en `campos[]`:
 `modo_autonomo`, `espera_min`, `max_turnos`, `perfiles`, `por_cola`.
 
+### Voz: llamadas, asistente en voz y centralita (contratos/voz.md)
+
+**Contrato, aún sin código:** cada etapa (E1–E4 de `voz.md` §1) emite los suyos cuando se
+implemente. Ninguno lleva texto de turnos, notas, documento, dígitos del teclado, SDP, audio,
+claves ni el número del cliente. Todos llevan `empresa_id`, salvo los del servidor de voz (null).
+
+| Evento | Payload | Cuándo |
+| --- | --- | --- |
+| `llamada.entrante` | `llamada_id`, `conversacion_id` (o null en centralita), `empresa_id`, `canal_id` (o null), `centralita_id` (o null), `cola_id` (o null), `cliente_id` (o null), `origen` (`whatsapp` \| `centralita`) | E1: llegó el webhook `connect` de Meta (o, en E4, el evento de la centralita) y la llamada quedó `sonando`. Una vez por `id_externo`. |
+| `llamada.saliente_iniciada` | `llamada_id`, `conversacion_id`, `empresa_id`, `canal_id`, `usuario_id`, `devolucion_id` (o null) | E1: `llamadas.llamar` mandó `connect` a Meta (`marcando`). |
+| `llamada.contestada` | `llamada_id`, `conversacion_id`, `empresa_id`, `atendida_por` (`persona` \| `asistente`), `usuario_id` (o null), `espera_seg` | Meta aceptó el `accept` (o el cliente contestó una saliente): `en_curso`. |
+| `llamada.terminada` | `llamada_id`, `conversacion_id`, `empresa_id`, `direccion`, `atendida_por` (quien la tenía al final), `usuario_id` (o null), `duracion_seg`, `motivo_fin`, `tramos` (número) | Una llamada contestada terminó. Si el `terminate` de Meta llega después con otra duración, no se emite otra vez. |
+| `llamada.perdida` | `llamada_id`, `conversacion_id`, `empresa_id`, `direccion`, `cola_id` (o null), `sono_seg`, `devolucion_id` (o null) | Entrante que nadie contestó o saliente sin contestar. |
+| `llamada.rechazada` | `llamada_id`, `conversacion_id`, `empresa_id`, `motivo` (`rechazada_agente`, `fuera_de_horario`, `sin_capacidad`, `motor_no_disponible`, `limite`, `mal_uso`, `tope`), `usuario_id` (o null) | Se respondió `reject` a Meta. `fuera_de_horario` corresponde al estado del mismo nombre. |
+| `llamada.fallida` | `llamada_id`, `conversacion_id`, `empresa_id`, `motivo` (`error_medio`, `error_meta`, `motor_no_disponible`, `transferencia_fallida`), `etapa` (`sonando`, `conectando`, `marcando`, `en_curso`) | Error técnico. Si el servidor de voz se cae, una por cada llamada que atendía el asistente. |
+| `llamada.anotada` | `llamada_id`, `conversacion_id`, `empresa_id`, `usuario_id`, `resultado` (o null) | `llamadas.anotar`. La nota no va en el evento. |
+| `llamada.permiso_solicitado` | `conversacion_id`, `empresa_id`, `canal_id`, `usuario_id` (o null si la mandó el asistente al pasar a persona), `mensaje_id` | Se pidió al contacto permiso para llamarlo. |
+| `llamada.permiso_cambiado` | `conversacion_id`, `empresa_id`, `canal_id`, `de`, `a` (`sin_pedir`, `pedido`, `temporal`, `permanente`, `negado`, `revocado`), `vence_en` (o null) | El contacto respondió, venció el permiso o Meta lo revocó (lectura de `call_permissions`). |
+| `llamada.devolucion_pedida` | `devolucion_id`, `conversacion_id`, `empresa_id`, `llamada_id`, `pedida_por` (`sistema`, `asistente`, `cliente`) | Quedó una devolución pendiente (una viva por conversación). |
+| `llamada.devolucion_cerrada` | `devolucion_id`, `conversacion_id`, `empresa_id`, `estado` (`hecha`, `descartada`, `vencida`), `usuario_id` (o null), `llamada_devuelta_id` (o null) | Se devolvió la llamada, se descartó o venció (72 h). |
+| `llamada.grabacion_disponible` | `llamada_id`, `grabacion_id`, `empresa_id`, `origen` (`meta` \| `centralita`), `duracion_seg`, `vence_en` | La grabación quedó guardada en adjuntos. |
+| `llamada.grabacion_borrada` | `llamada_id`, `grabacion_id`, `empresa_id`, `motivo` (`retencion` \| `manual`), `usuario_id` (o null) | Retención vencida o `llamadas.borrar_grabacion`. Borra también la transcripción. |
+| `llamada.transcripcion_lista` | `llamada_id`, `transcripcion_id`, `empresa_id`, `origen` (`turnos` \| `grabacion`), `segmentos` (número) | E2: transcripción redactada guardada. |
+| `llamada.tomada` | `llamada_id`, `conversacion_id`, `empresa_id`, `usuario_id`, `de` (`asistente`) | E3: una persona tomó en vivo la llamada del asistente. |
+| `llamada.transferida` | `llamada_id`, `conversacion_id`, `empresa_id`, `usuario_id` (quien transfiere), `a_usuario_id` (o null), `a_cola_id` (o null) | E3: transferencia entre personas por el puente. |
+| `canal_mensajeria.llamadas_cambiadas` | `canal_id`, `empresa_id`, `campos[]`, `llamadas_activas` | `llamadas.configurar` sobre un número. |
+| `voz.ajustes_cambiados` | `empresa_id`, `campos[]` (las claves como `stt_clave_guardada` / `tts_clave_guardada`, nunca su valor) | `voz.configurar`. |
+| `voz.tope_alcanzado` | `empresa_id`, `tipo` (`asistente` \| `salientes`), `porcentaje` (80, 100), `mes`, `minutos`, `tope` | Una vez por umbral, mes y valor del tope. Al 100 % el asistente deja de contestar (suenan a personas). |
+| `voz.mal_uso_detectado` | `empresa_id`, `llamada_id`, `conversacion_id`, `tipo` (`inyeccion`, `extraccion_prompt`, `datos_de_terceros`, `suplantacion`, `abuso_coste`, `lenguaje`, `verificacion_fallida`, `herramienta_rechazada`), `regla`, `accion` (`aviso`, `paso_a_persona`, `corte`, `bloqueo`) | Uno por incidente (no por turno). Avisa al supervisor de la cola. |
+| `voz.numero_bloqueado` / `voz.numero_desbloqueado` | `empresa_id`, `bloqueo_id`, `hasta`, `motivo`, `usuario_id` (o null = automático) | Bloqueo del asistente de voz para un número (el número no va en el evento). |
+| `voz.motor_enlazado` | `motor_id`, `version`, `protocolo`, `usuario_id` | Emparejamiento completado y confirmado en el panel. |
+| `voz.motor_token_rotado` | `motor_id`, `origen` (`automatica`, `manual`, `enlace`) | Rotación del token de servicio. |
+| `voz.motor_estado_cambiado` | `motor_id`, `de`, `a` (`listo`, `degradado`, `no_disponible`, `incompatible`, `desactivado`), `en_curso`, `version`, `compatible`, `llamadas_cortadas` | Cambio de estado del servidor de voz (salud o compatibilidad). |
+| `centralita.creada` / `centralita.actualizada` | `centralita_id`, `empresa_id`; `tipo`, `modo` (creada); `campos[]`, `activa` (actualizada; el secreto como `secreto_guardado`) | E4: `centralita.configurar`. |
+| `centralita.estado_cambiado` | `centralita_id`, `empresa_id`, `de`, `a` (`conectada`, `desconectada`, `error`, `desactivada`) | E4: la conexión AMI cambió. |
+| `extension.asignada` / `extension.quitada` | `centralita_id`, `extension_id`, `empresa_id`, `usuario_id` | E4: `centralita.asignar_extension`. |
+
+Cambian eventos existentes: `asistente.accion_ejecutada`, `asistente.paso_a_persona` y
+`conversacion.identidad_verificada` suman `canal` (`whatsapp` \| `voz`; ausente = `whatsapp`) y
+`llamada_id`; `asistente.paso_a_persona.motivo` suma `no_se_entiende`, `mal_uso` y
+`duracion_maxima`; `conversacion.mensaje_recibido` / `conversacion.mensaje_enviado` aceptan
+`tipo: llamada`; `notificaciones.avisos_creados.tipo` suma `voz_tope`, `voz_motor_caido`,
+`voz_mal_uso` y `llamada_perdida`.
+
 ## Soporte (I2)
 
 Emite el módulo `soporte`, con `empresa_id` = la empresa del ticket (null sin conector). Las fechas van en UTC (RFC 3339).
