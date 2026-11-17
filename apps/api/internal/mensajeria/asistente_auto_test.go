@@ -349,7 +349,7 @@ func (x *bandejaIA) verificacion(conv string) any {
 
 // A1. Saldo y verificación en dos niveles: que el número coincida no basta para el saldo; el
 // asistente hace el desafío de identidad de Argos (el dato nunca pasa por el modelo ni se guarda),
-// con 3 intentos por conversación y día; el monto va solo en el mensaje (M2: y no vuelve al modelo).
+// con 3 intentos por cliente y día; el monto va solo en el mensaje (M2: y no vuelve al modelo).
 func TestAutonomoSaldo(t *testing.T) {
 	// El DPI de esta prueba: un CUI válido que no usa ninguna otra, para buscarlo en tablas que comparte
 	// todo el paquete. Las búsquedas globales usan el número completo o el tramo «72648 0101» (como lo

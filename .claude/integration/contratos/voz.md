@@ -1780,10 +1780,7 @@ un TURN.
   nombre del archivo de la grabación.
 - El resumen y la clasificación del chat sirven tal cual sobre turnos transcritos.
 
-**Pendiente de código (no está implementado).** El límite de verificación pasa a 3 intentos por
-`cliente_id` y día sumando chat y voz (§5.5 y `conversaciones.md` §17.8.2). **El chat hoy cuenta
-por conversación**; se cambia en la PR de E3 o antes. Hasta entonces el texto de §17.8.2 describe
-el comportamiento acordado, no el del código.
+**Límite de verificación entre canales.** El chat ya cuenta por cliente (`conversaciones.md` §17.8.2: 3 intentos por cliente y día desde números verificados, más una bolsa aparte para números sin verificar). La voz se suma a ese mismo conteo cuando se implemente E3 (§5.5).
 
 ### 10.3 Decisiones del líder (17 nov 2026)
 

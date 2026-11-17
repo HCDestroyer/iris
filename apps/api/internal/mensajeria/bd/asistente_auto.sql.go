@@ -120,6 +120,21 @@ func (q *Queries) AccionesAsistenteRecientes(ctx context.Context, arg AccionesAs
 	return column_1, err
 }
 
+const bloquearVerificacionesCliente = `-- name: BloquearVerificacionesCliente :exec
+SELECT pg_advisory_xact_lock(hashtextextended('mensajeria.verificaciones:' || $1::bigint || ':' || $2::bigint, 0))
+`
+
+type BloquearVerificacionesClienteParams struct {
+	Empresa   int64
+	ClienteID int64
+}
+
+// Serializa el conteo y la reserva de un intento por cliente y empresa (dos conversaciones a la vez).
+func (q *Queries) BloquearVerificacionesCliente(ctx context.Context, arg BloquearVerificacionesClienteParams) error {
+	_, err := q.db.Exec(ctx, bloquearVerificacionesCliente, arg.Empresa, arg.ClienteID)
+	return err
+}
+
 const boletaPorReferenciaConv = `-- name: BoletaPorReferenciaConv :one
 SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente FROM mensajeria.boletas
 WHERE conversacion_id = $1 AND referencia = $2 AND coalesce(empresa_id, 0) = $3::bigint
@@ -227,6 +242,26 @@ func (q *Queries) BotsDiferidosViejos(ctx context.Context, antes time.Time) ([]i
 		return nil, err
 	}
 	return items, nil
+}
+
+const cerrarVerificacion = `-- name: CerrarVerificacion :execrows
+UPDATE mensajeria.asistente_verificaciones SET resultado = $1
+WHERE id = $2 AND cliente_id = $3 AND resultado = 'en_curso'
+`
+
+type CerrarVerificacionParams struct {
+	Resultado string
+	ID        int64
+	ClienteID int64
+}
+
+// El resultado del intento reservado (para el cliente con el que se hizo).
+func (q *Queries) CerrarVerificacion(ctx context.Context, arg CerrarVerificacionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, cerrarVerificacion, arg.Resultado, arg.ID, arg.ClienteID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const contarAccionesTurno = `-- name: ContarAccionesTurno :one
@@ -694,30 +729,6 @@ func (q *Queries) InsertarTurno(ctx context.Context, arg InsertarTurnoParams) (M
 	return i, err
 }
 
-const insertarVerificacion = `-- name: InsertarVerificacion :exec
-INSERT INTO mensajeria.asistente_verificaciones (empresa_id, conversacion_id, cliente_id, resultado, creada_en)
-VALUES ($1, $2, $3, $4, $5)
-`
-
-type InsertarVerificacionParams struct {
-	EmpresaID      *int64
-	ConversacionID int64
-	ClienteID      int64
-	Resultado      string
-	CreadaEn       time.Time
-}
-
-func (q *Queries) InsertarVerificacion(ctx context.Context, arg InsertarVerificacionParams) error {
-	_, err := q.db.Exec(ctx, insertarVerificacion,
-		arg.EmpresaID,
-		arg.ConversacionID,
-		arg.ClienteID,
-		arg.Resultado,
-		arg.CreadaEn,
-	)
-	return err
-}
-
 const liberarArriendoTurno = `-- name: LiberarArriendoTurno :exec
 UPDATE mensajeria.asistente_turnos SET tomado_en = 'epoch' WHERE id = $1 AND estado = 'en_curso'
 `
@@ -989,6 +1000,34 @@ func (q *Queries) ReservarTokensAutonomo(ctx context.Context, arg ReservarTokens
 	var tokens_reservados int64
 	err := row.Scan(&tokens_reservados)
 	return tokens_reservados, err
+}
+
+const reservarVerificacion = `-- name: ReservarVerificacion :one
+INSERT INTO mensajeria.asistente_verificaciones (empresa_id, conversacion_id, cliente_id, resultado, creada_en, numero_verificado)
+VALUES ($1, $2, $3, 'en_curso', $4, $5)
+RETURNING id
+`
+
+type ReservarVerificacionParams struct {
+	EmpresaID        *int64
+	ConversacionID   int64
+	ClienteID        int64
+	CreadaEn         time.Time
+	NumeroVerificado bool
+}
+
+// El intento se reserva antes de llamar a Argos: cuenta desde ya para el máximo del cliente.
+func (q *Queries) ReservarVerificacion(ctx context.Context, arg ReservarVerificacionParams) (int64, error) {
+	row := q.db.QueryRow(ctx, reservarVerificacion,
+		arg.EmpresaID,
+		arg.ConversacionID,
+		arg.ClienteID,
+		arg.CreadaEn,
+		arg.NumeroVerificado,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const resolverReconexion = `-- name: ResolverReconexion :one
@@ -1512,19 +1551,48 @@ func (q *Queries) UltimosEntrantesTexto(ctx context.Context, arg UltimosEntrante
 }
 
 const verificacionesRecientes = `-- name: VerificacionesRecientes :one
-SELECT count(*)::bigint FROM mensajeria.asistente_verificaciones
-WHERE conversacion_id = $1 AND creada_en >= $2 AND resultado IN ('coincide', 'no_coincide')
+SELECT count(*) FILTER (WHERE numero_verificado)::bigint AS verificados,
+       count(*) FILTER (WHERE NOT numero_verificado)::bigint AS sin_verificar,
+       count(*) FILTER (WHERE NOT numero_verificado AND conversacion_id = $1)::bigint AS de_la_conversacion,
+       count(*) FILTER (WHERE NOT numero_verificado AND creada_en >= $2::timestamptz)::bigint AS sin_verificar_recientes
+FROM mensajeria.asistente_verificaciones
+WHERE coalesce(empresa_id, 0) = $3::bigint AND cliente_id = $4 AND creada_en >= $5
+  AND resultado IN ('coincide', 'no_coincide', 'en_curso')
 `
 
 type VerificacionesRecientesParams struct {
 	ConversacionID int64
+	Reciente       time.Time
+	Empresa        int64
+	ClienteID      int64
 	Desde          time.Time
 }
 
-// Intentos del desafío que cuentan para el máximo (los que Argos evaluó).
-func (q *Queries) VerificacionesRecientes(ctx context.Context, arg VerificacionesRecientesParams) (int64, error) {
-	row := q.db.QueryRow(ctx, verificacionesRecientes, arg.ConversacionID, arg.Desde)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
+type VerificacionesRecientesRow struct {
+	Verificados           int64
+	SinVerificar          int64
+	DeLaConversacion      int64
+	SinVerificarRecientes int64
+}
+
+// Intentos del desafío del cliente en la empresa que cuentan para sus máximos (los que Argos evaluó
+// y los reservados), separados: desde números verificados como suyos (comparten el tope del cliente),
+// desde números sin verificar (tope aparte), los de esta conversación sin verificar y los sin
+// verificar de la última media hora.
+func (q *Queries) VerificacionesRecientes(ctx context.Context, arg VerificacionesRecientesParams) (VerificacionesRecientesRow, error) {
+	row := q.db.QueryRow(ctx, verificacionesRecientes,
+		arg.ConversacionID,
+		arg.Reciente,
+		arg.Empresa,
+		arg.ClienteID,
+		arg.Desde,
+	)
+	var i VerificacionesRecientesRow
+	err := row.Scan(
+		&i.Verificados,
+		&i.SinVerificar,
+		&i.DeLaConversacion,
+		&i.SinVerificarRecientes,
+	)
+	return i, err
 }
