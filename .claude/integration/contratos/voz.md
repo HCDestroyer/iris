@@ -90,6 +90,46 @@ técnica (§9)**; los que más pesan están listados en §10.
     la lista cerrada. Al
     terminar la llamada el SDP se tapa (`***`) también en `mensajeria.entrantes.payload`.
   - **`despacho`** no tiene `llamadas.descartar_devolucion` (§8.2).
+- **Seguimiento de E1 (17 nov 2026, después de la #183):**
+  - **La reserva es de un usuario en un navegador.** `reclamar`, `contestar`, `confirmar-medio` y
+    `soltar` llevan la cabecera **`X-Iris-Navegador`** con el id de «Recibir llamadas» de ese
+    navegador (8 a 64 caracteres `[A-Za-z0-9_-]`). `reclamar` lo guarda con la reserva
+    (`llamadas.reclamada_navegador`); sin la cabecera responde **422 `navegador_requerido`**.
+    Repetir `reclamar` desde el mismo navegador devuelve la misma oferta; desde **otro navegador de
+    la misma persona**, 409 `llamada_ya_contestada` con `errors[0].rule = "misma_persona"` (también
+    dentro de la reserva: la oferta solo viaja al navegador que ganó). `contestar`,
+    `confirmar-medio` y `soltar` desde otro navegador de la misma persona (o sin cabecera)
+    responden **409 `llamada_ya_contestada` con `errors[0].rule = "otro_navegador"`** y no tocan la
+    reserva; a cualquier otra persona, 404 como antes. `colgar` no mira el navegador: quien tiene la
+    llamada la cuelga desde cualquiera.
+  - **`GET /llamadas/recibir`** toma el id de la cabecera `X-Iris-Navegador` (preferida: no queda
+    en los registros de acceso) o de `?navegador=`; sin ninguno, 422 `navegador_requerido`.
+    Responde `{ recibe, vivo, motivo? }`: `motivo` dice por qué **el servidor** apagó ese navegador
+    (`tope`: pasó de 10 navegadores; `inactivo`: 30 días sin abrirlo). No viaja si está encendido, si
+    lo apagó la persona o si nunca se encendió. El servidor ya no borra el navegador al apagarlo:
+    lo deja apagado con su motivo (guarda hasta 20 apagados por usuario).
+  - **Señales del cliente en `Llamada`.** `senales: { servicio?, ticketAbierto?, saldoVencido? }`,
+    solo en llamadas vivas (`sonando`, `conectando`, `en_curso`) de un cliente identificado.
+    `servicio { id, codigo, plan, estado }` es el de la conversación o, si no tiene, uno activo del
+    cliente (instantánea de Argos; exige `clientes.ver`). `ticketAbierto { id, numero, asunto }` es
+    el ticket abierto más reciente del cliente (exige `tickets.ver`). **`saldoVencido`** es solo un
+    booleano, nunca montos: viaja **solo en `GET /llamadas/{id}`** y solo a quien tiene
+    `clientes.estado_cuenta`. Iris no guarda saldos (CLAUDE.md §4): se le pregunta a Argos en vivo,
+    después de la transacción, con un solo intento y 2 s de plazo; si Argos no responde o no
+    informa, el campo no viaja (no se sabe). La respuesta se recuerda 60 s por cliente (un fallo,
+    10 s) y hay una sola consulta a la vez por cliente: releer la llamada no martilla a Argos. En
+    listas y en el feed nunca viaja. `ticketAbierto` respeta el alcance de `tickets.ver` (zona,
+    cuadrilla o asignado a quien mira), igual que la lista de tickets.
+  - **`DevolucionLlamada`** trae `titulo` y `numero` de su conversación.
+  - **Supervisor.** `rechazar` con `paraTodos` y `colgar` la llamada de otra persona ya están en E1
+    en el servidor (§3.3-8, §8.2): los decide `conversaciones.supervisar` junto con
+    `llamadas.rechazar` / `llamadas.colgar`; `puede.colgar` ya lo refleja.
+  - **SDP.** `raddr`/`rport` se buscan en cualquier posición de las extensiones del candidato; se
+    bloquean además las IPv6 que embeben una IPv4 (`::a.b.c.d`, `::ffff:0:a.b.c.d`, Teredo; en 6to4
+    `2002::/16` vale lo que valga la IPv4 que lleva dentro) y `fec0::/10`. La huella auditada en
+    `llamadas.contestar` es la del SDP saneado.
+  - **Job `mensajeria.voz_meta`.** Dentro de un ciclo sigue tomando lotes mientras quede
+    presupuesto (4 s): un `terminate` no espera varios ciclos detrás de otras escrituras.
 - **E1c (grabación, pendiente de la prueba real):** la grabación de Meta **no forma parte de E1**.
   No se ofrece ni se acepta: `grabar` es siempre `nunca` (cualquier otro valor en
   `POST /voz/ajustes/actualizar` responde **422 `grabacion_no_disponible`**), Iris **nunca pide** la
@@ -714,6 +754,7 @@ Un supervisor puede **oír** una llamada en curso sin participar.
 | `llamada_ya_contestada` | 409 | Otro la reclamó antes, o ya no está `sonando` |
 | `llamada_terminada` | 409 | Acción sobre una llamada en estado final |
 | `llamada_en_curso` | 409 | El usuario o el contacto ya tienen una llamada viva |
+| `navegador_requerido` | 422 | `reclamar` o `GET /llamadas/recibir` sin el id del navegador (`X-Iris-Navegador`) |
 | `accion_en_curso` | 409 | `soltar` o `reclamar` mientras WhatsApp no ha respondido a un `pre_accept` o `accept` de esa llamada |
 | `reserva_vencida` | 409 | `contestar` o `confirmar-medio` después de `reclamadaHasta` |
 | `sdp_invalido` | 422 | El SDP no pasa la validación (campo `sdpRespuesta` / `sdpOferta`) |

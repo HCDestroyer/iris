@@ -546,6 +546,10 @@ Contrato: `.claude/integration/contratos/voz.md`. Código en `voz_*.go`, consult
   (`SKIP LOCKED`). El resultado de un `pre_accept` o `accept` solo vale si la llamada sigue en manos
   de quien tenía la reserva (`accion_meta_por`); con uno en vuelo, `soltar` y `reclamar` dan 409
   `accion_en_curso`.
+- **Reserva por navegador.** `reclamar` ata la reserva al navegador de la cabecera
+  `X-Iris-Navegador`; `contestar`, `confirmar-medio` y `soltar` exigen el mismo usuario y el mismo
+  navegador (409 `otro_navegador` al otro). `Llamada.senales` lleva servicio y ticket abierto del
+  cliente; «tiene saldo vencido» se pregunta a Argos en vivo solo en `GET /llamadas/{id}`.
 - **Número prestado.** Una llamada que corresponde a la empresa prestataria no usa nada de la dueña
   (cola, horario, candidatos, textos): no suena y queda `perdida` en la prestataria.
 - **El `connect` se procesa en línea** (`RecibirWebhookMeta`): es la excepción documentada a «los

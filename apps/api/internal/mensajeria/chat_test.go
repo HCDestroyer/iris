@@ -38,6 +38,8 @@ type persona struct {
 	cookie string
 	// csrf: el token CSRF de esa sesión (peticiones que cambian estado con cookie).
 	csrf string
+	// navegador: X-Iris-Navegador (el id de «Recibir llamadas»; vacío = sin cabecera).
+	navegador string
 }
 
 // persona crea un usuario con roles y empresas, y su token (con sus permisos).

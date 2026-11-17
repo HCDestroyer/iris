@@ -352,7 +352,8 @@ func nuevoSugerirManuales(m *Modulo) *SugerirManuales {
 			}
 			// 3. Tickets abiertos del cliente.
 			if c.ClienteID != nil {
-				ts, err := q.TicketsAbiertosDelCliente(ctx, mensajeriabd.TicketsAbiertosDelClienteParams{ClienteID: c.ClienteID, Empresa: c.EmpresaID})
+				// Solo los tickets que quien mira puede ver (el motivo de la sugerencia lleva su número).
+				ts, err := ticketsAbiertosVisibles(ctx, q, c.ClienteID, c.EmpresaID)
 				if err != nil {
 					return ListaSugeridos{}, err
 				}
