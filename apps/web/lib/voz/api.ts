@@ -1,6 +1,6 @@
 import { api, COOKIE_CSRF, CABECERA_CSRF, leerCookie, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { CABECERA_EMPRESA, empresaGuardada } from "@/lib/empresa";
-import { idNavegador } from "./navegador";
+import { CABECERA_PESTANA, idNavegador, idPestana } from "./navegador";
 import type { EntradaAjustesVoz, EntradaLlamadasCanal, ResultadoLlamada } from "./tipos";
 
 /* Llamadas del panel de voz (contratos/voz.md §3), con el cliente tipado. */
@@ -20,6 +20,8 @@ const idem = (clave = nuevaClaveIdempotencia()) => ({ "Idempotency-Key": clave }
 export const CABECERA_NAVEGADOR = "X-Iris-Navegador";
 const navegador = () => ({ [CABECERA_NAVEGADOR]: idNavegador() });
 const de = (empresa: number | undefined) => (empresa === undefined ? {} : { headers: { [CABECERA_EMPRESA]: String(empresa) } });
+/** Lo de una saliente va con el id de esta pestaña (su latido y su respuesta SDP son de ella). */
+const dePestana = (empresa: number | undefined) => ({ headers: { [CABECERA_PESTANA]: idPestana(), ...(empresa === undefined ? {} : { [CABECERA_EMPRESA]: String(empresa) }) } });
 
 // --- «Recibir llamadas» (por usuario y navegador) ----------------------------------------------
 
@@ -39,7 +41,7 @@ export function apagarRecibir() {
 
 /** La llamada viva del usuario, o `null` (204). */
 export async function leerLlamadaActiva(signal?: AbortSignal, empresa?: number) {
-    return (await resolver(api().GET(`${BASE}/activa`, { signal, ...de(empresa) }))) ?? null;
+    return (await resolver(api().GET(`${BASE}/activa`, { signal, ...dePestana(empresa) }))) ?? null;
 }
 
 export function leerLlamada(id: string, signal?: AbortSignal, empresa?: number) {
@@ -124,14 +126,14 @@ export function llamarContacto(conversacionId: number, entrada: { sdpOferta: str
             signal,
             params: { path: { id: conversacionId }, header: { ...idem(clave), ...navegador() } },
             body: { sdpOferta: entrada.sdpOferta, ...(entrada.devolucionId !== undefined ? { devolucionId: entrada.devolucionId } : {}), ...(entrada.confirmarRiesgo ? { confirmarRiesgo: true } : {}) },
-            ...de(empresa),
+            ...dePestana(empresa),
         }),
     );
 }
 
 /** La respuesta SDP de Meta a mi saliente. 409 `sin_respuesta` si aún no llegó. */
 export function leerRespuestaSdp(id: string, empresa?: number) {
-    return resolver(api().GET(`${BASE}/{id}/respuesta-sdp`, { params: { path: { id }, header: navegador() }, ...de(empresa) }));
+    return resolver(api().GET(`${BASE}/{id}/respuesta-sdp`, { params: { path: { id }, header: navegador() }, ...dePestana(empresa) }));
 }
 
 // --- Devoluciones ------------------------------------------------------------------------------

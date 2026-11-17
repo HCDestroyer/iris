@@ -80,6 +80,17 @@ describe("máquina de la llamada saliente (E1b)", () => {
         expect(correr([...hastaHablar, { tipo: "colgar", ahora: T0 + 61_000 }])).toMatchObject({ fase: "terminada", duracionSeg: 61, corte: false });
     });
 
+    it("el servidor (u otra persona) la termina mientras marca: se le explica a quien llamaba", () => {
+        for (const motivoFin of ["error_medio", "agente_colgo"]) {
+            const fin = correr([...hastaMarcar, { tipo: "actualizada", llamada: saliente({ estado: "terminada", motivoFin }) }]);
+            expect(fin).toMatchObject({ fase: "aviso", motivo: "cortada", titulo: "Carlos Ruiz", saliente: true });
+        }
+        expect(textoAviso("cortada", undefined, true).titulo).toBe("La llamada se cortó antes de que contestara");
+        // Si la colgué yo, esta pestaña ya está libre cuando llega el aviso: no se dice nada.
+        const colgada = correr([...hastaMarcar, { tipo: "colgar", ahora: T0 }]);
+        expect(siguiente(colgada, { tipo: "actualizada", llamada: saliente({ estado: "terminada", motivoFin: "agente_colgo" }) }, YO)).toBe(LIBRE);
+    });
+
     it("el tope de minutos: antes de hablar es un aviso; hablando, la llamada termina con ese motivo", () => {
         expect(correr([...hastaMarcar, { tipo: "actualizada", llamada: saliente({ estado: "terminada", motivoFin: "tope_alcanzado" }) }])).toMatchObject({ fase: "aviso", motivo: "tope_alcanzado" });
         const cortada = correr([...hastaHablar, { tipo: "actualizada", llamada: saliente({ estado: "terminada", motivoFin: "tope_alcanzado", duracionSeg: 90 }) }]);
@@ -106,8 +117,10 @@ describe("máquina de la llamada saliente (E1b)", () => {
         // Marcando: «Colgar», el plazo, el medio que falla, irse.
         expect(alSalir(marcando, LIBRE, "llamando", false)).toBe("colgar");
         expect(alSalir(marcando, aviso("no_contesto"), "llamando", false)).toBe("colgar");
-        // La llamada sigue en otro navegador mío: aquí no se toca.
-        expect(alSalir(marcando, aviso("otro_navegador"), "llamando", false)).toBeNull();
+        // La respuesta SDP es de otra pestaña o navegador (409): aquí está el micrófono y allá no hay
+        // audio, así que la propia se cuelga igual.
+        expect(alSalir(marcando, aviso("otro_navegador"), "llamando", false)).toBe("colgar");
+        expect(textoAviso("otro_navegador", undefined, true).detalle).toContain("se colgó");
         // Sigue ocupada (pasó a hablar): nada.
         expect(alSalir(marcando, correr(hastaHablar), "en_curso", false)).toBeNull();
         // Hablando, como cualquier llamada.

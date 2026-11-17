@@ -98,7 +98,9 @@ export function apiVoz(
     /** E1b: el permiso de llamada por conversación y lo que hace falta de cada saliente. */
     const permisos = new Map<number, PermisoLlamada>();
     for (const [id, p] of Object.entries(opciones.permisos ?? {})) permisos.set(Number(id), { estado: "sin_pedir", puedeLlamar: false, puedeSolicitar: true, sinContestar: 0, ...p });
-    const salientes = new Map<string, { navegador: string; respuesta: boolean; devolucionId?: number }>();
+    const salientes = new Map<string, { navegador: string; pestana: string; respuesta: boolean; devolucionId?: number }>();
+    /** Una saliente que el servidor aún está creando (la respuesta de `llamar` se perdió). */
+    let tardia: { faltan: number; crear: () => Llamada } | null = null;
 
     /** Lo que recibió el servidor, para comprobarlo en la prueba. */
     const recibido = {
@@ -109,8 +111,10 @@ export function apiVoz(
         recibir: [] as { accion: "encender" | "apagar"; navegador: string }[],
         /** E1b. */
         solicitudes: [] as number[],
-        llamar: [] as { conversacionId: number; cuerpo: Record<string, unknown>; navegador: string; empresa: string }[],
-        respuestas: [] as { llamadaId: string; navegador: string }[],
+        llamar: [] as { conversacionId: number; cuerpo: Record<string, unknown>; navegador: string; pestana: string; empresa: string }[],
+        respuestas: [] as { llamadaId: string; navegador: string; pestana: string }[],
+        /** Lecturas de `GET /llamadas/activa`, con la pestaña que preguntó. */
+        activas: [] as string[],
     };
     /** Para forzar respuestas: la prueba lo cambia antes de actuar. */
     const forzar: {
@@ -137,7 +141,11 @@ export function apiVoz(
          * E1b: qué responde `llamar`. `sin_red`: no llega al servidor. `perdida`: el servidor crea la
          * llamada pero la respuesta no llega al navegador.
          */
-        llamar?: "sin_permiso_llamada" | "limite_llamadas" | "colgadas_marcando" | "tope_alcanzado" | "llamada_en_curso" | "devolucion_cerrada" | "meta_rechazo" | "llamadas_inactivas" | "sin_red" | "perdida";
+        llamar?: "sin_permiso_llamada" | "limite_llamadas" | "colgadas_marcando" | "tope_alcanzado" | "llamada_en_curso" | "devolucion_cerrada" | "meta_rechazo" | "llamadas_inactivas" | "sin_red" | "perdida" | "tardia";
+        /** E1b: la respuesta SDP ya está lista cuando `llamar` responde (su aviso llegó antes y se perdió). */
+        respuestaLista?: boolean;
+        /** E1b: `respuesta-sdp` responde 409 `otra_pestana`. */
+        respuesta?: "otra_pestana";
         /** E1b: cuántas veces más `respuesta-sdp` responde 409 `sin_respuesta`. */
         sinRespuesta?: number;
     } = {};
@@ -214,6 +222,49 @@ export function apiVoz(
         else if (!puedeLlamar) p.motivo = "no_autorizado";
         else delete p.motivo;
         return p;
+    }
+    /** Crea la saliente `marcando` de esa persona, atada a su navegador y a su pestaña. */
+    function crearSaliente(conversacionId: number, yo: { id: number; nombre: string }, navegador: string, pestana: string, devolucionId?: number): Llamada {
+        const conv = conversaciones.find((c) => c.id === conversacionId);
+        if (!conv) throw new Error(`No hay conversación ${conversacionId}`);
+        n += 1;
+        const id = `0199c0de-0000-7000-8000-${String(n).padStart(12, "0")}`;
+        const mensajeId = `0199c0de-1111-7000-8000-${String(n).padStart(12, "0")}`;
+        const ahora = new Date().toISOString();
+        const l: Llamada = {
+            id,
+            empresaId: 1,
+            origen: "whatsapp",
+            direccion: "saliente",
+            conversacionId,
+            mensajeId,
+            canal: { id: conv.canal.id, nombre: conv.canal.nombre, numero: conv.canal.numero },
+            numero: conv.numero,
+            titulo: conv.titulo,
+            contacto: conv.contacto.clienteId ? { tipo: "cliente", clienteId: conv.contacto.clienteId, verificacion: "numero" } : { tipo: "desconocido" },
+            estado: "marcando",
+            usuario: { id: yo.id, nombre: yo.nombre },
+            tramos: [],
+            sonoEn: ahora,
+            puede: { contestar: false, rechazar: false, colgar: true, anotar: false, tomar: false, transferir: false, escucharGrabacion: false },
+        };
+        llamadas.set(id, l);
+        // `respuestaLista`: la respuesta de WhatsApp llegó antes de que `llamar` respondiera (su aviso ya pasó).
+        salientes.set(id, { navegador, pestana, respuesta: forzar.respuestaLista === true, ...(devolucionId !== undefined ? { devolucionId } : {}) });
+        const lista = mensajes.get(conversacionId) ?? [];
+        lista.push({ id: mensajeId, conversacionId, seq: (lista.at(-1)?.seq ?? 0) + 1, direccion: "saliente", tipo: "llamada", texto: null, automatico: null, creadoEn: ahora, enviadoEn: null, entregadoEn: null, leidoEn: null, estadoEntrega: null, motivoFalla: null, menciones: [] });
+        mensajes.set(conversacionId, lista);
+        avisar("llamada_actualizada", l);
+        return l;
+    }
+    /** Una saliente de esta misma persona hecha desde otra pestaña (u otro navegador). */
+    function salienteAjena(conversacionId: number): Llamada {
+        return crearSaliente(conversacionId, actor(), "navegador-de-otra-parte", "pestana-de-otra-parte");
+    }
+    /** El servidor la corta mientras marca (p. ej. 55 s sin el latido de su pestaña). */
+    function cortaServidor(id: string) {
+        const l = llamadas.get(id);
+        if (l) terminar(l, "terminada", "error_medio");
     }
     /** El cliente responde a la solicitud de permiso (webhook `call_permission_reply`). */
     function respondePermiso(conversacionId: number, respuesta: "acepta" | "rechaza") {
@@ -548,10 +599,13 @@ export function apiVoz(
             // llamar
             if (!puede(PERMISO_LLAMAR)) return prohibido();
             const nav = cabeceras["x-iris-navegador"] ?? "";
-            recibido.llamar.push({ conversacionId, cuerpo, navegador: nav, empresa: cabeceras["x-iris-empresa"] ?? "" });
+            const pestana = cabeceras["x-iris-pestana"] ?? "";
+            recibido.llamar.push({ conversacionId, cuerpo, navegador: nav, pestana, empresa: cabeceras["x-iris-empresa"] ?? "" });
             await retenidas.get("llamar");
             if (forzar.llamar === "sin_red") return (await route.abort("internetdisconnected"), true);
             if (!nav) return (await regla("navegador_requerido", "Falta el id del navegador"), true);
+            // El latido de la saliente es de la pestaña que llama (128 bits al azar).
+            if (!/^[0-9a-f]{32}$/.test(pestana)) return (await regla("pestana_requerida", "Falta el id de la pestaña"), true);
             if (forzar.llamar === "llamadas_inactivas") return (await regla("llamadas_inactivas", "El número no tiene las llamadas encendidas"), true);
             if (forzar.llamar === "sin_permiso_llamada" || !vigente(p)) return (await regla("sin_permiso_llamada", "El contacto no ha dado permiso para que lo llamen"), true);
             if (forzar.llamar === "limite_llamadas") return (await regla("limite_llamadas", "Se llegó al límite de llamadas de hoy"), true);
@@ -568,33 +622,13 @@ export function apiVoz(
             const sdp = String(cuerpo.sdpOferta ?? "");
             if (!sdp.includes("m=audio") || !sdp.includes("a=setup:") || !sdp.includes("a=fingerprint:")) return (await regla("sdp_invalido", "SDP inválido"), true);
             if (forzar.llamar === "meta_rechazo") return (await problema(route, P("meta_rechazo", 502, "WhatsApp no aceptó la llamada")), true);
-            n += 1;
-            const id = `0199c0de-0000-7000-8000-${String(n).padStart(12, "0")}`;
-            const mensajeId = `0199c0de-1111-7000-8000-${String(n).padStart(12, "0")}`;
-            const ahora = new Date().toISOString();
-            const l: Llamada = {
-                id,
-                empresaId: 1,
-                origen: "whatsapp",
-                direccion: "saliente",
-                conversacionId,
-                mensajeId,
-                canal: { id: conv.canal.id, nombre: conv.canal.nombre, numero: conv.canal.numero },
-                numero: conv.numero,
-                titulo: conv.titulo,
-                contacto: conv.contacto.clienteId ? { tipo: "cliente", clienteId: conv.contacto.clienteId, verificacion: "numero" } : { tipo: "desconocido" },
-                estado: "marcando",
-                usuario: { id: yo.id, nombre: yo.nombre },
-                tramos: [],
-                sonoEn: ahora,
-                puede: { contestar: false, rechazar: false, colgar: true, anotar: false, tomar: false, transferir: false, escucharGrabacion: false },
-            };
-            llamadas.set(id, l);
-            salientes.set(id, { navegador: nav, respuesta: false, ...(devolucionId !== undefined ? { devolucionId } : {}) });
-            const lista = mensajes.get(conversacionId) ?? [];
-            lista.push({ id: mensajeId, conversacionId, seq: (lista.at(-1)?.seq ?? 0) + 1, direccion: "saliente", tipo: "llamada", texto: null, automatico: null, creadoEn: ahora, enviadoEn: null, entregadoEn: null, leidoEn: null, estadoEntrega: null, motivoFalla: null, menciones: [] });
-            mensajes.set(conversacionId, lista);
-            avisar("llamada_actualizada", l);
+            const crear = () => crearSaliente(conversacionId, yo, nav, pestana, devolucionId);
+            if (forzar.llamar === "tardia") {
+                // La respuesta se pierde y el servidor tarda en crearla: aparece a la tercera lectura de `activa`.
+                tardia = { faltan: 3, crear };
+                return (await route.abort("connectionreset"), true);
+            }
+            const l = crear();
             // Creada en el servidor, pero la respuesta se pierde por el camino.
             if (forzar.llamar === "perdida") return (await route.abort("connectionreset"), true);
             return (await json(route, vista(l), 201), true);
@@ -609,8 +643,10 @@ export function apiVoz(
             const s = salientes.get(respuestaSdp[1] ?? "");
             if (!l || !s || l.usuario?.id !== actor().id) return noExiste();
             const nav = cabeceras["x-iris-navegador"] ?? "";
-            recibido.respuestas.push({ llamadaId: l.id, navegador: nav });
+            const pestana = cabeceras["x-iris-pestana"] ?? "";
+            recibido.respuestas.push({ llamadaId: l.id, navegador: nav, pestana });
             if (s.navegador !== nav) return (await problema(route, P("otro_navegador", 409, "La llamada se hizo desde otro navegador")), true);
+            if (s.pestana !== pestana || forzar.respuesta === "otra_pestana") return (await problema(route, P("otra_pestana", 409, "La llamada se hizo desde otra pestaña")), true);
             if (forzar.sinRespuesta) {
                 forzar.sinRespuesta -= 1;
                 return (await problema(route, P("sin_respuesta", 409, "WhatsApp aún no manda la respuesta")), true);
@@ -666,9 +702,18 @@ export function apiVoz(
         if (ruta === `${BASE}/llamadas/activa` && metodo === "GET") {
             if (!puede("llamadas.ver")) return prohibido();
             const yo = actor().id;
+            const pestana = cabeceras["x-iris-pestana"] ?? "";
+            recibido.activas.push(pestana);
+            if (tardia && (tardia.faltan -= 1) <= 0) {
+                const { crear } = tardia;
+                tardia = null;
+                crear();
+            }
             const viva = [...llamadas.values()].find((l) => (l.estado === "sonando" && puede("llamadas.contestar")) || ((l.estado === "en_curso" || l.estado === "conectando" || l.estado === "marcando") && l.usuario?.id === yo));
             if (!viva) return (await route.fulfill({ status: 204 }), true);
-            return (await json(route, vista(viva)), true);
+            // La saliente propia dice si es de la pestaña que pregunta.
+            const s = salientes.get(viva.id);
+            return (await json(route, s && viva.usuario?.id === yo ? { ...vista(viva), deEstaPestana: s.pestana === pestana } : vista(viva)), true);
         }
         const una = /^\/api\/v1\/mensajeria\/llamadas\/([0-9a-f-]{36})(?:\/(reclamar|contestar|confirmar-medio|soltar|colgar|rechazar|anotar))?$/.exec(ruta);
         if (!una) return false;
@@ -805,7 +850,7 @@ export function apiVoz(
         return (await json(route, vista(l)), true);
     }
 
-    return { manejar, llamadas, devoluciones, recibido, forzar, retener, entrante, historica, perder, contestaOtro, cuelgaCliente, canal, ajustes: () => ajustes, permisoDe, respondePermiso, respondeMeta, contestaCliente, noContesta, cortaPorTope };
+    return { manejar, llamadas, devoluciones, recibido, forzar, retener, entrante, historica, perder, contestaOtro, cuelgaCliente, canal, ajustes: () => ajustes, permisoDe, respondePermiso, respondeMeta, contestaCliente, noContesta, cortaPorTope, cortaServidor, salienteAjena };
 }
 
 export type ApiVoz = ReturnType<typeof apiVoz>;

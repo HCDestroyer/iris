@@ -183,6 +183,25 @@ test.describe("voz salientes › permiso de llamada", () => {
         expect(api.voz.recibido.solicitudes).toEqual([42, 42, 42, 43]);
     });
 
+    test("cada solicitud de permiso es una operación distinta: tras pedirlo con éxito, la siguiente lleva otra `Idempotency-Key`", async ({ page }) => {
+        const api = await abrir(page, "/conversaciones?c=42", { voz: { salientes: true } });
+        const panel = await abrirPermiso(page);
+        await panel.getByRole("button", { name: "Pedir permiso para llamarle" }).click();
+        await expect(panel.locator('[data-slot="permiso-llamada"]')).toHaveAttribute("data-estado", "pedido");
+        // El cliente dijo que no y, días después, se le puede volver a pedir (misma pantalla, sin recargar).
+        await panel.press("Escape");
+        await expect(panel).toHaveCount(0);
+        Object.assign(api.voz.permisoDe(42), { estado: "negado", puedeSolicitar: true });
+        const otraVez = await abrirPermiso(page);
+        await expect(otraVez).toContainText("El cliente dijo que no");
+        await otraVez.getByRole("button", { name: "Pedir permiso para llamarle" }).click();
+        await expect.poll(() => api.voz.recibido.solicitudes).toEqual([42, 42]);
+        const claves = api.peticiones.filter((p) => p.ruta.endsWith("/42/solicitar-permiso-llamada")).map((p) => p.idempotencia);
+        expect(claves).toHaveLength(2);
+        expect(claves[0]).toBeTruthy();
+        expect(claves[1]).not.toBe(claves[0]);
+    });
+
     test("si el permiso no se pudo leer: error con «Reintentar», sin ofrecer llamar ni pedir", async ({ page }) => {
         await abrir(page, "/conversaciones?c=41");
         let fallar = true;
@@ -232,6 +251,9 @@ test.describe("voz salientes › llamar", () => {
         const pedido = api.voz.recibido.llamar[0];
         expect(pedido?.conversacionId).toBe(41);
         expect(pedido?.navegador).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
+        // …y con el id de esta pestaña (128 bits), distinto del de navegador: el latido es de la pestaña.
+        expect(pedido?.pestana).toMatch(/^[0-9a-f]{32}$/);
+        expect(pedido?.pestana).not.toBe(pedido?.navegador);
         expect(String(pedido?.cuerpo.sdpOferta)).toContain("a=setup:actpass");
         expect(pedido?.cuerpo).not.toHaveProperty("confirmarRiesgo");
         expect(pedido?.cuerpo).not.toHaveProperty("devolucionId");
@@ -251,7 +273,7 @@ test.describe("voz salientes › llamar", () => {
         await feedListo(page, api);
         api.voz.respondeMeta(l.id);
         await adelantarHasta(page, () => api.voz.recibido.respuestas.length >= 2, 400);
-        expect(api.voz.recibido.respuestas.every((r) => r.navegador === pedido?.navegador)).toBe(true);
+        expect(api.voz.recibido.respuestas.every((r) => r.navegador === pedido?.navegador && r.pestana === pedido?.pestana)).toBe(true);
         await expect.poll(() => page.evaluate(() => window.__voz.conexiones.at(-1)?.respuesta ?? "")).toContain("a=setup:active");
         // Con la respuesta aplicada sigue «Llamando…»: se habla cuando el cliente contesta.
         await expect(llamando(page)).toBeVisible();
@@ -284,8 +306,11 @@ test.describe("voz salientes › llamar", () => {
 
     test("el flujo de eventos va siempre con el id de este navegador y sigue abierto fuera de la bandeja mientras dure la saliente, aunque no reciba llamadas", async ({ page }) => {
         const flujos: (string | undefined)[] = [];
+        const pestanas: (string | undefined)[] = [];
         page.on("request", (r) => {
-            if (new URL(r.url()).pathname === "/api/v1/mensajeria/conversaciones/eventos") flujos.push(r.headers()["x-iris-navegador"]);
+            if (new URL(r.url()).pathname !== "/api/v1/mensajeria/conversaciones/eventos") return;
+            flujos.push(r.headers()["x-iris-navegador"]);
+            pestanas.push(r.headers()["x-iris-pestana"]);
         });
         // «Recibir llamadas» apagado: fuera de la bandeja este navegador no tendría el flujo abierto.
         const api = await abrir(page, "/conversaciones?c=41", { voz: { ...CON_PERMISO, recibe: false } });
@@ -299,6 +324,8 @@ test.describe("voz salientes › llamar", () => {
         await feedListo(page, api);
         expect(flujos.length).toBeGreaterThan(0);
         expect(flujos.every((n) => n !== undefined && n === navegador)).toBe(true);
+        // El flujo lleva también el id de la pestaña que llamó: es su latido, no el de otra pestaña.
+        expect(pestanas.every((p) => p !== undefined && p === api.voz.recibido.llamar[0]?.pestana)).toBe(true);
         // Y por ese flujo llega que el cliente contestó (el aviso `llamada_respuesta` se perdió: se lee igual).
         await feedListo(page, api);
         api.voz.contestaCliente(l.id, false);
@@ -337,7 +364,16 @@ test.describe("voz salientes › llamar", () => {
 
         // Otra: el servidor nunca avisa. A los 70 s se deja de esperar y se cuelga (no queda marcando).
         const otra = await llamar(page, api);
-        await adelantarHasta(page, () => colgadas(api).some((a) => a.llamadaId === otra.id), 10_000);
+        // De a 3 s: el aviso se cierra solo a los 8 s y un salto largo se lo llevaría por delante.
+        await expect
+            .poll(
+                async () => {
+                    if (!colgadas(api).some((a) => a.llamadaId === otra.id)) await page.clock.fastForward(3_000);
+                    return colgadas(api).some((a) => a.llamadaId === otra.id);
+                },
+                { timeout: 25_000, intervals: [100] },
+            )
+            .toBe(true);
         await expect(aviso(page)).toHaveAttribute("data-motivo", "no_contesto");
         expect(api.voz.llamadas.get(otra.id)?.estado).toBe("terminada");
         expect(await microfonoAbierto(page)).toBe(false);
@@ -424,7 +460,8 @@ test.describe("voz salientes › llamar", () => {
         await panel.getByRole("button", { name: "Llamar", exact: true }).click();
         await expect(aviso(page)).toHaveAttribute("data-motivo", "sin_red");
         await expect(aviso(page)).toContainText("No se pudo hacer la llamada");
-        await adelantarHasta(page, () => api.peticiones.filter((p) => p.ruta.endsWith("/llamadas/activa")).length >= 2);
+        const antes = api.voz.recibido.activas.length;
+        await adelantarHasta(page, () => api.voz.recibido.activas.length >= antes + 2);
         expect(colgadas(api)).toHaveLength(0);
     });
 
@@ -501,6 +538,135 @@ test.describe("voz salientes › nunca una llamada viva sin audio ni sin colgar"
         expect(await microfonoAbierto(page)).toBe(false);
         await expect.poll(() => ultima(api)?.estado).toBe("terminada");
         expect(ultima(api)?.motivoFin).toBe("agente_colgo");
+    });
+
+    test("se pierde la respuesta de `llamar` y el servidor tarda en crearla: se sigue buscando hasta pasar su plazo (no dos lecturas) y se cuelga", async ({ page }) => {
+        const api = await abrir(page, "/conversaciones?c=41");
+        const alAbrir = api.voz.recibido.activas.length;
+        api.voz.forzar.llamar = "tardia";
+        const panel = await abrirPermiso(page);
+        await panel.getByRole("button", { name: "Llamar", exact: true }).click();
+        await expect(aviso(page)).toHaveAttribute("data-motivo", "sin_red");
+        // Las dos primeras lecturas dicen «no hay ninguna»: no basta, el servidor aún puede crearla.
+        await adelantarHasta(page, () => api.voz.recibido.activas.length >= alAbrir + 2);
+        expect(api.voz.llamadas.size).toBe(0);
+        await adelantarHasta(page, () => ultima(api)?.estado === "terminada");
+        expect(ultima(api)?.motivoFin).toBe("agente_colgo");
+        expect(colgadas(api)).toHaveLength(1);
+    });
+
+    test("al buscar la saliente perdida no se cuelga la de otra pestaña: es de otra conversación", async ({ page }) => {
+        const api = await abrir(page, "/conversaciones?c=41");
+        await expect(page.getByRole("log", { name: "Mensajes" })).toBeVisible();
+        const alAbrir = api.voz.recibido.activas.length;
+        // En otra pestaña estoy llamando a María (42); aquí `llamar` a Carlos no llega al servidor.
+        const ajena = api.voz.salienteAjena(42);
+        api.voz.forzar.llamar = "sin_red";
+        const panel = await abrirPermiso(page);
+        await panel.getByRole("button", { name: "Llamar", exact: true }).click();
+        await expect(aviso(page)).toHaveAttribute("data-motivo", "sin_red");
+        // Se busca durante todo el plazo del servidor (30 s) y `activa` siempre devuelve la de María.
+        await adelantarHasta(page, () => api.voz.recibido.activas.length >= alAbrir + 4, 5_000);
+        await page.clock.fastForward(40_000);
+        expect(colgadas(api)).toHaveLength(0);
+        expect(api.voz.llamadas.get(ajena.id)?.estado).toBe("marcando");
+    });
+
+    test("al abrir el panel con una saliente mía viva de otra pestaña (aunque no reciba llamadas ni conteste): lo dice y ofrece colgarla", async ({ page }) => {
+        // Solo llama: sin `llamadas.contestar` y, por tanto, sin «Recibir llamadas».
+        const api = await abrir(page, "/cuenta", { voz: { ...CON_PERMISO, soloLlama: true } });
+        await expect.poll(() => api.voz.recibido.activas.length).toBeGreaterThan(0);
+        expect(api.voz.recibido.activas.every((p) => /^[0-9a-f]{32}$/.test(p))).toBe(true);
+        await expect(page.getByText(/Tenías una llamada/)).toHaveCount(0);
+        // La dejé marcando en otra pestaña (o recargué): al volver a cargar, se lee y se avisa.
+        const ajena = api.voz.salienteAjena(41);
+        await page.reload();
+        await expect(page.getByText("Tenías una llamada con Carlos Ruiz")).toBeVisible();
+        await expect(llamando(page)).toHaveCount(0);
+        await sinDesbordes(page);
+        await captura(page, "huerfana");
+        await page.getByRole("button", { name: "Colgar" }).click();
+        await expect.poll(() => api.voz.llamadas.get(ajena.id)?.estado).toBe("terminada");
+    });
+
+    test("se cierra la pestaña con `llamar` en vuelo: deja una marca y la carga siguiente busca esa saliente y la cuelga", async ({ page }) => {
+        const api = await abrir(page, "/conversaciones?c=41");
+        const soltar = api.voz.retener("llamar");
+        const panel = await abrirPermiso(page);
+        await panel.getByRole("button", { name: "Llamar", exact: true }).click();
+        await expect.poll(() => api.voz.recibido.llamar.length).toBe(1);
+        // Se cierra ya: no hay id que colgar; queda la marca con la conversación.
+        await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+        const marca = await page.evaluate(() => window.localStorage.getItem("iris-llamar-en-vuelo"));
+        expect(JSON.parse(marca ?? "{}")).toMatchObject({ conversacionId: 41, pestana: api.voz.recibido.llamar[0]?.pestana });
+        expect(colgadas(api)).toHaveLength(0);
+        await page.goto("about:blank");
+        // El servidor sí la creó, después de que la pestaña ya no estaba.
+        soltar();
+        await expect.poll(() => ultima(api)?.estado).toBe("marcando");
+        // La carga siguiente (otra pestaña: otro id) toma la marca, la busca y la cuelga.
+        await page.goto("/cuenta");
+        await adelantarHasta(page, () => ultima(api)?.estado === "terminada");
+        expect(await page.evaluate(() => window.localStorage.getItem("iris-llamar-en-vuelo"))).toBeNull();
+        expect(new Set(api.voz.recibido.activas).size).toBeGreaterThan(1);
+    });
+
+    test("otra pestaña abierta atiende la marca en cuanto aparece (evento `storage`) y cuelga la saliente", async ({ page }) => {
+        const api = await abrir(page, "/cuenta");
+        await expect.poll(() => api.voz.recibido.activas.length).toBeGreaterThan(0);
+        const perdida = api.voz.salienteAjena(41);
+        // La pestaña que llamaba se cerró con `llamar` en vuelo y dejó su marca.
+        const empresa = api.peticiones.find((p) => p.empresa)?.empresa;
+        await page.evaluate((empresaId) => {
+            const valor = JSON.stringify({ empresa: empresaId, conversacionId: 41, desde: Date.now(), pestana: "0".repeat(32) });
+            window.localStorage.setItem("iris-llamar-en-vuelo", valor);
+            window.dispatchEvent(new StorageEvent("storage", { key: "iris-llamar-en-vuelo", newValue: valor }));
+        }, empresa ? Number(empresa) : null);
+        await adelantarHasta(page, () => api.voz.llamadas.get(perdida.id)?.estado === "terminada");
+        expect(await page.evaluate(() => window.localStorage.getItem("iris-llamar-en-vuelo"))).toBeNull();
+    });
+
+    test("la respuesta de WhatsApp llegó antes de que `llamar` respondiera (su aviso se perdió): se lee al marcar, sin esperar otro aviso", async ({ page }) => {
+        const api = await abrir(page, "/conversaciones?c=41");
+        api.voz.forzar.respuestaLista = true;
+        await llamar(page, api);
+        await expect.poll(() => page.evaluate(() => window.__voz.conexiones.at(-1)?.respuesta ?? "")).toContain("a=setup:active");
+        expect(api.voz.recibido.respuestas).toHaveLength(1);
+        await expect(llamando(page)).toBeVisible();
+
+        // Y si al marcar todavía no hay respuesta, esa lectura no cuenta como fallo: se espera al aviso.
+        await llamando(page).getByRole("button", { name: "Colgar" }).click();
+        await expect(llamando(page)).toHaveCount(0);
+        await expect.poll(() => ultima(api)?.estado).toBe("terminada");
+        api.voz.forzar.respuestaLista = false;
+        const otra = await llamar(page, api);
+        await expect.poll(() => api.voz.recibido.respuestas.filter((r) => r.llamadaId === otra.id).length).toBe(1);
+        await page.clock.fastForward(8_000);
+        await expect(llamando(page)).toHaveAttribute("data-paso", "marcando");
+        await expect(aviso(page)).toHaveCount(0);
+    });
+
+    test("el servidor corta la saliente mientras marca: se le explica a quien llamaba y no queda el micrófono abierto", async ({ page }) => {
+        const api = await abrir(page, "/conversaciones?c=41");
+        const l = await llamar(page, api);
+        await feedListo(page, api);
+        api.voz.cortaServidor(l.id);
+        await expect(aviso(page)).toHaveAttribute("data-motivo", "cortada");
+        await expect(aviso(page)).toContainText("La llamada se cortó antes de que contestara");
+        await expect(llamando(page)).toHaveCount(0);
+        expect(await microfonoAbierto(page)).toBe(false);
+    });
+
+    test("`respuesta-sdp` dice que la llamada es de otra pestaña (409 `otra_pestana`): no hay audio aquí, así que se cuelga la propia y se dice", async ({ page }) => {
+        const api = await abrir(page, "/conversaciones?c=41");
+        const l = await llamar(page, api);
+        api.voz.forzar.respuesta = "otra_pestana";
+        await feedListo(page, api);
+        api.voz.respondeMeta(l.id);
+        await expect(aviso(page)).toHaveAttribute("data-motivo", "otro_navegador");
+        await expect(aviso(page)).toContainText("La llamada quedó atada a otra pestaña o navegador y se colgó");
+        await expect.poll(() => api.voz.llamadas.get(l.id)?.estado).toBe("terminada");
+        expect(await microfonoAbierto(page)).toBe(false);
     });
 
     test("el cliente contesta pero el audio no conecta: a los 15 s se cuelga y se dice; si el medio falla marcando, también", async ({ page }) => {
@@ -617,6 +783,33 @@ test.describe("voz salientes › devolver la llamada y el hilo", () => {
         expect(api.voz.recibido.llamar.at(-1)?.cuerpo.devolucionId).toBe(api.voz.devoluciones[0]?.id);
         // Con una llamada en marcha no se empieza otra.
         await expect(tarjeta.getByRole("button", { name: "Devolver la llamada" })).toBeDisabled();
+    });
+
+    test("«Devolver la llamada» lee el permiso ANTES de pedir el micrófono: sin permiso, o con el número sin llamadas, lo dice y no llama", async ({ page }) => {
+        // Carlos tiene una llamada por devolver, pero nunca dio permiso.
+        const api = await abrir(page, "/conversaciones?c=41", { voz: { salientes: true, devoluciones: [41] }, doble: { permiso: "prompt" } });
+        const tarjeta = page.getByRole("log", { name: "Mensajes" }).locator('[data-slot="llamada-hilo"][data-estado="perdida"]');
+        await tarjeta.getByRole("button", { name: "Devolver la llamada" }).click();
+        await expect(aviso(page)).toHaveAttribute("data-motivo", "sin_permiso");
+        await expect(aviso(page)).toContainText("Este contacto no ha dado permiso para que lo llamen");
+        expect(await page.evaluate(() => window.__voz.pedidos)).toBe(0);
+        expect(api.voz.recibido.llamar).toHaveLength(0);
+        await aviso(page).getByRole("button", { name: "Cerrar" }).click();
+
+        api.voz.permisoDe(41).motivo = "llamadas_inactivas";
+        await tarjeta.getByRole("button", { name: "Devolver la llamada" }).click();
+        await expect(aviso(page)).toHaveAttribute("data-motivo", "llamadas_inactivas");
+        await aviso(page).getByRole("button", { name: "Cerrar" }).click();
+
+        // Con permiso y tres sin contestar: el aviso de riesgo sale del permiso leído, también antes del micrófono.
+        Object.assign(api.voz.permisoDe(41), { estado: "temporal", venceEn: EN_7_DIAS, sinContestar: 3, motivo: undefined });
+        await tarjeta.getByRole("button", { name: "Devolver la llamada" }).click();
+        await expect(riesgo(page)).toBeVisible();
+        expect(await page.evaluate(() => window.__voz.pedidos)).toBe(0);
+        expect(api.voz.recibido.llamar).toHaveLength(0);
+        await riesgo(page).getByRole("button", { name: "Llamar de todos modos" }).click();
+        await expect(llamando(page)).toHaveAttribute("data-paso", "marcando");
+        expect(api.voz.recibido.llamar.map((p) => [p.cuerpo.confirmarRiesgo, p.cuerpo.devolucionId])).toEqual([[true, api.voz.devoluciones[0]?.id]]);
     });
 
     test("quien no puede llamar no ve «Devolver la llamada»: le escribe o la descarta", async ({ page }) => {

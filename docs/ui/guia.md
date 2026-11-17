@@ -775,9 +775,15 @@ la marca «En pruebas». El proveedor se monta también para quien solo llama (`
 - **Regla de oro, igual que en entrantes:** desde que sale `llamar` la llamada puede existir en el
   servidor, así que dejarla (colgar, error, irse) es colgarla, también si la respuesta se perdió.
   Contestada sin audio en 15 s, se cuelga. Cerrar la pestaña marcando manda `colgar?propia=true`.
-  El flujo de eventos va siempre con el id del navegador y sigue abierto mientras dure la saliente.
+  El flujo de eventos va siempre con el id del navegador **y el de la pestaña** (`X-Iris-Pestana`,
+  128 bits en memoria) y sigue abierto mientras dure la saliente: el latido es de la pestaña que
+  llamó, otra pestaña abierta no la sostiene. Al abrir el panel se lee siempre la llamada activa:
+  una saliente propia que quedó viva en otra parte se dice («Tenías una llamada con…») y se ofrece
+  colgarla. Si la pestaña se cierra con `llamar` en vuelo deja una marca y otra pestaña, o la carga
+  siguiente, busca esa saliente y la cuelga. Si el servidor la corta marcando, se explica.
 - **«Devolver la llamada»:** en «N llamadas por devolver» y en la tarjeta de la perdida, junto a
-  «Escribirle», solo para quien puede llamar. Si el cliente contesta, deja de estar pendiente.
+  «Escribirle», solo para quien puede llamar. Lee el permiso **antes** de pedir el micrófono: sin
+  permiso lo dice y no llama. Si el cliente contesta, deja de estar pendiente.
 - **Ajustes:** en `/administracion/llamadas`, sección plegada «Avanzado» con los tres límites de
   las salientes y la nota de que se cobran por minuto (en las colgadas, 0 = sin límite; en los
   otros dos, 0 apaga las salientes); en `/administracion/numeros/[id]/llamadas`, «Permiso para

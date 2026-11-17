@@ -40,7 +40,9 @@ export function textoAviso(motivo: MotivoAviso, quien?: string, saliente = false
             case "otra_llamada":
                 return { titulo: "Ya hay una llamada en curso", detalle: "Tú o este contacto ya están en otra llamada. Espera a que termine." };
             case "otro_navegador":
-                return { titulo: "Esta llamada sigue en otro navegador", detalle: "Sigue allá: aquí no se cambia nada." };
+                return { titulo: "No se pudo conectar el audio", detalle: "La llamada quedó atada a otra pestaña o navegador y se colgó. Vuelve a llamar desde aquí." };
+            case "cortada":
+                return { titulo: "La llamada se cortó antes de que contestara", detalle: "Se terminó desde el servidor. Vuelve a intentarlo." };
             case "error":
                 return { titulo: "No se pudo hacer la llamada", detalle: "Vuelve a intentarlo." };
             default:

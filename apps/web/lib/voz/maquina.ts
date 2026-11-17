@@ -43,6 +43,8 @@ export type MotivoAviso =
     | "tope_alcanzado"
     /** La llamada por devolver ya la cerró otra persona. */
     | "devolucion_cerrada"
+    /** El servidor (u otra persona) terminó la saliente mientras marcaba. */
+    | "cortada"
     | "error";
 
 export type EstadoVoz =
@@ -113,7 +115,9 @@ function finDeSaliente(l: Llamada): EstadoVoz {
     if (l.motivoFin === "tope_alcanzado") return deSaliente(aviso("tope_alcanzado", l.titulo));
     if (l.estado === "perdida" || l.estado === "rechazada") return deSaliente(aviso("no_contesto", l.titulo));
     if (l.estado === "fallida") return deSaliente(aviso("meta_rechazo", l.titulo));
-    return LIBRE;
+    // `terminada` mientras marcaba y sin haberla colgado aquí (si se cuelga aquí, esta pestaña ya
+    // está libre cuando llega el aviso): la cortó el servidor, o alguien más. Se explica.
+    return deSaliente(aviso("cortada", l.titulo));
 }
 
 /** Marca el aviso como de una saliente: los textos hablan de llamar, no de contestar. */
@@ -260,10 +264,9 @@ export function alSalir(antes: EstadoVoz, despues: EstadoVoz, etapa: Etapa, rese
     }
     // Saliente: desde que sale `llamar` puede existir en el servidor (y sonarle al cliente): se cuelga
     // siempre, también si la respuesta se perdió. Colgar una que ya terminó no hace nada.
-    if (antes.fase === "llamando") {
-        if (despues.fase === "aviso" && despues.motivo === "otro_navegador") return null;
-        return etapa === "preparando" ? null : "colgar";
-    }
+    // Tampoco se deja viva si la respuesta SDP es de otra pestaña o navegador (`otro_navegador`):
+    // aquí está el micrófono y allá no hay audio; se cuelga la propia.
+    if (antes.fase === "llamando") return etapa === "preparando" ? null : "colgar";
     if (antes.fase !== "contestando") return null;
     // La tengo en otro navegador mío, con su audio: aquí no se suelta ni se cuelga nada.
     if (despues.fase === "aviso" && despues.motivo === "otro_navegador") return null;
@@ -296,6 +299,14 @@ export function alCerrarPestana(e: EstadoVoz, etapa: Etapa, reservaSegura: boole
  * se deja de esperar aquí (y se cuelga).
  */
 export const MARCANDO_MAX_MS = 70_000;
+/**
+ * Cuánto puede tardar el servidor en crear la llamada tras recibir `llamar` (habla con WhatsApp
+ * antes de guardarla). Si la respuesta se pierde, se sigue buscando la saliente hasta pasar este
+ * plazo. PROVISIONAL: I1 publicará el valor en el contrato (revisión de seguridad de E1b).
+ */
+export const PLAZO_LLAMAR_SERVIDOR_MS = 30_000;
+/** Cada cuánto se relee `GET /llamadas/activa` mientras se busca una saliente perdida. */
+export const RELEER_PERDIDA_MS = 3_000;
 /** Saliente contestada: cuánto se espera a que conecte el audio antes de colgarla (nunca `en_curso` sin audio). */
 export const MEDIO_SALIENTE_MS = 15_000;
 

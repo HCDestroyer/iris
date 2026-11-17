@@ -123,6 +123,8 @@ function PanelPermiso({ conv, cerrar }: { conv: Destino; cerrar: () => void }) {
         setError(null);
         try {
             reemplazar(await solicitarPermisoLlamada(conv.id, clave.actual()));
+            // Hecho: la próxima solicitud es otra operación, con otra clave.
+            clave.renovar();
             avisar({ titulo: "Se le pidió permiso para llamarle", descripcion: "El mensaje quedó en la conversación. Cuando lo acepte se le podrá llamar." });
         } catch (e) {
             clave.trasError(e);
