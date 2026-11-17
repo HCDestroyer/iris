@@ -86,8 +86,6 @@ type EntradaContestar struct {
 type EntradaSoltar struct {
 	ID     uuid.UUID `json:"id"`
 	Motivo string    `json:"motivo,omitempty"`
-	// vencida: la soltó el mantenimiento porque venció la reserva.
-	vencida bool
 }
 
 // EntradaRechazar es POST /llamadas/{id}/rechazar.
@@ -103,8 +101,6 @@ type resultadoMeta struct {
 	Accion string    `json:"accion"`
 	Fallo  bool      `json:"fallo"`
 }
-
-func usuarioDeCtx(ctx context.Context) int64 { return contexto.ActorDe(ctx).ID }
 
 // llamadaDeQuienLaReclamo: después de reclamar la llamada es de quien la reclamó (M1). Cualquier
 // otro recibe 404, también un supervisor.

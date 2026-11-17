@@ -322,7 +322,7 @@ func (m *Modulo) cerrarLlamada(ctx context.Context, t *auditoria.Tx, l *mensajer
 	l.Estado, l.MotivoFin, l.TerminadaEn = estado, &motivo, &ahora
 	l.SdpOferta, l.ReclamadaPor, l.ReclamadaHasta, l.PreAceptadaEn = nil, nil, nil, nil
 	if l.ContestadaEn != nil {
-		d := int32(max(0, ahora.Sub(*l.ContestadaEn)/time.Second))
+		d := int32(min(max(0, ahora.Sub(*l.ContestadaEn)/time.Second), 24*3600)) //nolint:gosec // acotado a un día
 		l.DuracionSeg = &d
 	}
 	l.AccionMeta, l.AccionMetaEstado, l.AccionMetaEn = nil, nil, nil
@@ -455,7 +455,7 @@ func (m *Modulo) terminarPorMeta(ctx context.Context, t *auditoria.Tx, canal men
 	if l.Estado == LlamadaTerminada {
 		cambio := false
 		if n, err := ev.Duration.Int64(); err == nil && n >= 0 && n < 24*3600 {
-			d := int32(n)
+			d := int32(n) //nolint:gosec // 0 ≤ n < 86 400
 			l.DuracionSeg, cambio = &d, true
 		}
 		if ev.EndTime != "" {

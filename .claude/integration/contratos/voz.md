@@ -1,6 +1,7 @@
 # Contrato de la fase de voz (llamadas de WhatsApp, asistente en voz y centralita)
 
-Estado: **diseño, sin código** (17 nov 2026). Lo implementará I1 en el servicio de mensajería
+Estado (17 nov 2026): **E1 entrantes implementada en el servidor** (`voz_*.go`; ver «Estado de E1» al
+final de §1); el resto, diseño sin código. Lo implementa I1 en el servicio de mensajería
 (`apps/api/internal/mensajeria/voz_*.go`, schema `mensajeria`) y en un servicio nuevo, `cmd/voz`
 (motor de voz, en un servidor dedicado). Lo usará el panel (I3). Valen las reglas del inicio de
 `contratos/conversaciones.md`: base `/api/v1/mensajeria`, personas con sesión del panel (cookie
@@ -35,6 +36,28 @@ técnica (§9)**; los que más pesan están listados en §10.
 | **E3** Verificación fuerte y traspaso en vivo | Verificación `fuerte` por teclado (DTMF); `consultar_saldo`, visitas (`ofrecer_visita`, `agendar_visita`), promesa y reconexión con las reglas de §17 del chat **más** las de voz (todo eso pide `fuerte` en la llamada, §5.1.1); **escuchar en vivo**; una persona **toma la llamada en vivo** (`tomar`) y transferencia entre personas | E2 |
 | **E4a** Centralita Issabel, solo lectura | Conexión AMI de solo lectura + CDR: ventana con el cliente cuando suena la extensión del usuario; la llamada queda en la ficha del cliente y, si se elige, en un ticket | Independiente de E1–E3 |
 | **E4b** Centralita, llamar y grabaciones | Clic-para-llamar (`Originate`), extensión por usuario, grabaciones de Issabel servidas por Iris con su ACL | E4a |
+
+**Estado de E1 (decisiones del líder, 17 nov 2026).** E1 se parte en dos PR:
+
+- **E1 (hecha en el servidor):** entrantes contestadas en el panel (`reclamar` → `contestar` →
+  `confirmar-medio` → `colgar`, con `soltar` y `rechazar`), perdidas con devolución pendiente y
+  mensaje automático, fuera de horario, la llamada como mensaje del hilo, nota posterior, «Recibir
+  llamadas», ajustes por número (`comprobar`, `configurar`, `sincronizar`), `GET/POST /voz/ajustes`
+  con los campos de E1 (`grabar`, `duracionMaxPersonaMin`, `segundosAsignado`,
+  `retencionGrabacionesDias`) y su evento `voz.ajustes_cambiados`, feed, permisos y roles.
+- **E1b (PR siguiente):** llamadas **salientes** («Devolver la llamada», permiso del contacto,
+  `llamar`, `llamada_permisos`, `llamadas.llamar`, `llamadas.solicitar_permiso`, botón «Llámanos»,
+  `maxSalientesPorDia`, `topeMinutosSalientesMes`).
+- **Límites de E1:** un `connect` de más de 60 s no hace sonar nada (queda `perdida`); duración
+  máxima por llamada (`duracionMaxPersonaMin`); ráfaga: la cuarta llamada de un número al mismo
+  canal en 10 minutos se rechaza (`motivo_fin: limite`), sin mensaje. `voz_bloqueos` queda en E2.
+- **Pendiente dentro de E1 (no está en esta PR):** descargar, servir, borrar y vencer la **grabación**
+  de Meta (existen la tabla, el ajuste `grabar` y la petición de grabación al aceptar; falta el
+  webhook `call_recording_available` y sus endpoints, que dependen de validar la forma real con un
+  número de prueba); el push `llamada_perdida`; el espejo de `call_hours`; marcar `buzonDeVoz` en el
+  audio del buzón (no se sabe qué lo distingue, §10.1-9); y la escritura en Meta de los ajustes del
+  número con pendiente y reintentos (hoy se escribe una vez tras guardar y, si falla, queda en el
+  log: «Sincronizar» lo corrige).
 
 **Fuera de alcance, explícitamente:**
 
@@ -89,6 +112,12 @@ Todas llevan `empresa_id`, `created_at`, `updated_at` y, las editables, `version
 | `resultado` | text null | Lista cerrada elegida por el agente: `resuelto`, `ticket_creado`, `devolver`, `equivocado`, `otro` |
 | `grabada` | bool | Se pidió grabación para esta llamada |
 | `sdp_oferta` | text null | Solo mientras `sonando`/`conectando`; **se borra al terminar** |
+
+Además (añadidas al implementar E1): `suena_hasta` (cuándo se da por perdida: `sono_en` +
+`segundosSonando` del número al llegar); `accion_meta`, `accion_meta_estado` (`pendiente` \|
+`hecha` \| `fallida`) y `accion_meta_en` (la intención de las dos fases de §3.3); `pre_aceptada_en`
+(cuándo aceptó Meta el `pre_accept`: desde ahí corren los 5 s de `confirmar-medio`); y
+`aviso_perdida` (ya salió el mensaje «No pudimos contestarte» por esta llamada).
 
 Nunca se guarda audio ni DTMF en esta tabla.
 
@@ -150,7 +179,14 @@ Un tramo por cada participante del lado del negocio, en orden.
 **`mensajeria.llamada_candidatos`** (`llamada_id`, `empresa_id`, `usuario_id`, `desde`,
 `retirado_en`, `motivo_retiro`): a quién se le ofreció la llamada. La escribe la misma transacción
 que decide a quién le suena (§3.5) y es lo que comprueba `reclamar` (§3.3): solo un candidato vivo
-puede reclamar.
+puede reclamar. `sueltas` cuenta las reservas que soltó o dejó vencer: a la segunda queda retirado
+(`motivo_retiro`: `rechazo` \| `solto` \| `fin` \| `no_disponible`).
+
+**`mensajeria.llamada_receptores`** (`empresa_id`, `usuario_id`, `navegador`, `recibe`, `visto_en`):
+el interruptor «Recibir llamadas», uno por usuario y navegador (§3.4). `navegador` es un id de 8 a 64
+caracteres (`[A-Za-z0-9_-]`) que el panel genera y guarda en ese navegador. `visto_en` lo renueva el
+flujo SSE del usuario (`GET /conversaciones/eventos`) al abrirse y en cada latido: es candidato quien
+tiene alguna fila con `recibe` y `visto_en` en los últimos 40 s.
 
 ### 2.5 `mensajeria.llamada_permisos` (permiso del contacto para que lo llamemos)
 
@@ -186,7 +222,10 @@ perfil del asistente valen también por voz; nunca más que las del perfil).
 del número), `horario_id` (null = el del número o la cola), `segundos_sonando`,
 `fuera_de_horario` (`rechazar_con_mensaje` \| `buzon` \| `asistente`), `icono_visible` (espejo de
 `call_icon_visibility`), `devolucion` (espejo de `callback_permission_status`), `horas_meta` (espejo
-de `call_hours`: zona, hasta 2 franjas por día y 20 feriados), `sincronizado_en`.
+de `call_hours`: zona, hasta 2 franjas por día y 20 feriados), `sincronizado_en`, `mensaje_perdida`
+(bool, encendido de fábrica) y `mensaje_perdida_texto` (≤ 500): el mensaje automático por una llamada
+que nadie contestó, una vez por hora y conversación, **solo con la ventana de 24 h abierta** (una
+llamada sola no la abre, §10.1-9) y nunca a quien pidió `BAJA`.
 
 Los ajustes del asistente (`mensajeria.asistente_ajustes`, perfiles, categorías, topes de tokens)
 **no se duplican**: la voz usa los mismos y `acciones_voz` solo puede restar.
@@ -355,8 +394,10 @@ responde **404**.
    Gana quien actualiza la fila. Respuesta 200
    `{ llamada, sdpOferta, ice: { servidores: [] }, venceEn }`. El que pierde recibe **409
    `llamada_ya_contestada`** (`detail` con el nombre de quien la tiene) y a todos los demás les llega
-   `llamada_actualizada` (deja de sonarles). Repetir con la misma `Idempotency-Key` devuelve —con el SDP **releído de la llamada**, nunca guardado en la idempotencia— la misma
-   respuesta al ganador.
+   `llamada_actualizada` (deja de sonarles). Repetir, mientras dure la reserva, devuelve —con el SDP **releído de la llamada**, nunca guardado en la idempotencia— la misma
+   respuesta al ganador: `reclamar` no guarda su respuesta por `Idempotency-Key` (es idempotente por
+   naturaleza). Quien nunca fue candidato recibe 404; a quien le sonó y la llamada ya terminó, 409
+   `llamada_ya_contestada`; a quien la rechazó o soltó dos veces mientras sigue viva, 404.
 5. **Responder.** El navegador pide el micrófono, crea un `RTCPeerConnection`, aplica `sdpOferta`,
    genera la respuesta y manda `POST /llamadas/{id}/contestar { sdpRespuesta }`. El servidor valida
    el SDP (§6, fila «SDP del navegador»), llama a Meta `POST /<PHONE_NUMBER_ID>/calls` con
@@ -428,8 +469,9 @@ redes que bloquean UDP (un TURN propio, opcional, §10).
   `llamadas.contestar`; `GET /llamadas/recibir` dice cómo está), no cuando ya está sonando. Sin
   micrófono concedido, `recibe` es `false`.
 - Varias pestañas: suena en todas; `reclamar` es atómico también entre pestañas del mismo usuario
-  (la segunda recibe 409 `llamada_ya_contestada` con `mismaPersona: true` y el panel solo cierra el
-  aviso).
+  (la segunda pestaña que reclama dentro de la reserva recibe la misma respuesta 200; pasada la
+  reserva, 409 `llamada_ya_contestada` con `errors[0].rule = "misma_persona"` —el problema RFC 9457
+  de Iris no lleva campos extra— y el panel solo cierra el aviso).
 - Si nadie es candidato: va al asistente si está configurado (§3.5); si no, sigue sonando hasta
   `segundosSonando` y queda `perdida` con su devolución pendiente y, si el número lo tiene
   encendido, un mensaje automático al cliente («No pudimos contestarte…»), una vez por hora.
@@ -558,7 +600,9 @@ Un supervisor puede **oír** una llamada en curso sin participar.
 - `POST /canales/{id}/llamadas/sincronizar`: lee de Meta los ajustes del número y marca diferencias;
   los cambios hechos en Iris se escriben en Meta en un pendiente con reintentos.
 - `GET /voz/ajustes`, `POST /voz/ajustes/actualizar` (`voz.configurar`, **solo admin**): lo de
-  `voz_ajustes`. STT, TTS y LLM de voz se **eligen** entre los que declara el catálogo del servidor de voz
+  `voz_ajustes`. **En E1** solo `{ version, grabar, duracionMaxPersonaMin (10–120),
+  segundosAsignado (0–20), retencionGrabacionesDias (1–365) }`, con rangos validados (422) y
+  `voz.ajustes_cambiados`; E2 lo amplía. STT, TTS y LLM de voz se **eligen** entre los que declara el catálogo del servidor de voz
   (`GET /voz/catalogo`); aquí **no hay URL ni clave** que escribir (§4.3).
 - `POST /voz/probar { texto? }` (`voz.configurar`): prueba TTS → STT de ida y vuelta en el motor con
   una frase fija o la escrita (≤ 200) → `{ estado, latenciaSttMs, latenciaTtsMs, latenciaLlmMs,
@@ -1515,7 +1559,7 @@ cortada emite además su `llamada.fallida` **con** su empresa. El detalle está 
 | `llamada.tomada` / `llamada.transferida` | mensajeria (voz) | llamada_id, conversacion_id, usuario_id; de (asistente o usuario_id), a_usuario_id (o null), a_cola_id (o null) | E3 |
 | `llamada.escucha_iniciada` / `llamada.escucha_terminada` | mensajeria (voz) | llamada_id, conversacion_id, usuario_id (quien escucha); duracion_seg (terminada) | E3 |
 | `canal_mensajeria.llamadas_cambiadas` | mensajeria (voz) | canal_id, campos[], llamadas_activas | E1 |
-| `voz.ajustes_cambiados` | mensajeria (voz) | campos[]; nunca claves | E2 |
+| `voz.ajustes_cambiados` | mensajeria (voz) | campos[]; nunca claves | E1 (los campos de E1), E2 |
 | `voz.motor_enlazado` / `voz.motor_token_rotado` | mensajeria (voz) | motor_id; version, protocolo, usuario_id (enlazado); origen (automatica, manual, enlace) (rotado); `empresa_id` null; nunca el código ni el token | E2 |
 | `voz.motor_estado_cambiado` | mensajeria (voz) | motor_id, de, a, en_curso, version, compatible, llamadas_cortadas; `empresa_id` null | E2 |
 | `voz.tope_alcanzado` | mensajeria (voz) | tipo (asistente, salientes), porcentaje (80, 100), mes, minutos, tope | E2 |
@@ -1683,6 +1727,10 @@ Cerradas tras la revisión de seguridad; ya están aplicadas en el documento.
 | `llamadas.llamar` | Solo `supervisor` y `admin` de fábrica |
 | Grabación | **Apagada de fábrica** |
 | Transferencia entre personas en E1 | **No hay.** Llega en E3 con el puente |
+| Ajustes de empresa en E1 | `GET/POST /voz/ajustes` con los campos que E1 usa; E2 lo amplía |
+| Salientes | En una **E1b** aparte: E1 es solo entrantes |
+| Límites de E1 | `connect` de más de 60 s no suena, duración máxima y ráfaga de 3 en 10 min por número; `voz_bloqueos` en E2 |
+| Tablas que faltaban | `llamada_receptores`, columnas `accion_meta*` y `mensaje_perdida*` (§2) |
 | Llamadas de Issabel | **Fuera de la bandeja**: ficha del cliente y ticket |
 | Claves de STT/TTS externos | **Solo en el servidor dedicado, por instalación; nunca por llamada** (§4.3) |
 | Quién abre conexiones | Solo mensajería: al servidor de voz y al AMI (§4.2, §3.12) |
