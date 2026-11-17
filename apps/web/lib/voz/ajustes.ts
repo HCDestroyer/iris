@@ -118,7 +118,7 @@ export type Consumo = { texto: string; nivel: "normal" | "cerca" | "tope" };
 
 function consumo(lleva: unknown, tope: unknown, texto: (lleva: number, tope: number) => string): Consumo | null {
     // Sin el dato, o con el tope en 0 (salientes apagadas), no se inventa nada.
-    if (typeof lleva !== "number" || typeof tope !== "number" || !Number.isFinite(lleva) || lleva < 0 || tope <= 0) return null;
+    if (typeof lleva !== "number" || typeof tope !== "number" || !Number.isFinite(lleva) || !Number.isFinite(tope) || lleva < 0 || tope <= 0) return null;
     const parte = lleva / tope;
     return { texto: texto(Math.floor(lleva), tope), nivel: parte >= 1 ? "tope" : parte >= 0.8 ? "cerca" : "normal" };
 }

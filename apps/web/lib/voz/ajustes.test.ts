@@ -94,6 +94,9 @@ describe("consumo junto a los topes de salientes", () => {
         // Salientes apagadas (tope 0) o un servidor que no manda el dato.
         expect(consumoSalientes({ ...AJUSTES, topeMinutosSalientesMes: 0, maxSalientesPorDia: 0 })).toEqual({ mes: null, hoy: null });
         expect(consumoSalientes({ topeMinutosSalientesMes: 300, maxSalientesPorDia: 50 })).toEqual({ mes: null, hoy: null });
+        // Ni el tope ni el consumo pueden ser infinitos o NaN.
+        expect(consumoSalientes({ ...AJUSTES, topeMinutosSalientesMes: Infinity, maxSalientesPorDia: NaN, minutosSalientesMes: 10, salientesHoy: 1 })).toEqual({ mes: null, hoy: null });
+        expect(consumoSalientes({ ...AJUSTES, minutosSalientesMes: Infinity, salientesHoy: NaN })).toEqual({ mes: null, hoy: null });
     });
 });
 

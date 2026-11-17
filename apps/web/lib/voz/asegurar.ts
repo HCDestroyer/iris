@@ -88,7 +88,11 @@ export async function colgarSeguro(id: string, ctx: Contexto, soloSiEsMia: boole
             // (200: queda `perdida` con `agente_salio`, o `terminada`): eso es el final. El anterior
             // responde 404: no es el final (puede aceptarse en cualquier momento); se espera y se relee.
             try {
-                return { tipo: "colgada", llamada: await colgarLlamada(id, nuevaClaveIdempotencia(), ctx.empresa, true) };
+                const colgada = await colgarLlamada(id, nuevaClaveIdempotencia(), ctx.empresa, true);
+                // Solo es el final si la llamada devuelta ya terminó: un 200 con la llamada aún viva
+                // no se da por colgado; se sigue releyendo.
+                if (esFinal(colgada)) return { tipo: "colgada", llamada: colgada };
+                ultimo = new Error("El servidor respondió 200 pero la llamada sigue viva");
             } catch (e) {
                 if (e instanceof ErrorApi && e.codigo === "llamada_terminada") return { tipo: "nada" };
                 ultimo = e;
@@ -98,14 +102,17 @@ export async function colgarSeguro(id: string, ctx: Contexto, soloSiEsMia: boole
             continue;
         }
         try {
-            return { tipo: "colgada", llamada: await colgarLlamada(id, nuevaClaveIdempotencia(), ctx.empresa, true) };
+            const colgada = await colgarLlamada(id, nuevaClaveIdempotencia(), ctx.empresa, true);
+            if (esFinal(colgada)) return { tipo: "colgada", llamada: colgada };
+            // 200 con la llamada aún viva: no está colgada; se reintenta como cualquier fallo.
+            ultimo = new Error("El servidor respondió 200 pero la llamada sigue viva");
         } catch (e) {
             if (e instanceof ErrorApi && e.codigo === "llamada_terminada") return { tipo: "nada" };
             // Un 404 aquí no es final: la lectura acaba de decir que sigue viva a mi nombre.
             ultimo = e;
-            fallos += 1;
-            await esperar(ESPERAS_COLGAR[fallos] ?? 8000);
         }
+        fallos += 1;
+        await esperar(ESPERAS_COLGAR[fallos] ?? 8000);
     }
     return { tipo: "fallo", error: ultimo };
 }

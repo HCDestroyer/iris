@@ -46,6 +46,25 @@ describe("colgarSeguro (solo si es mía): nunca una llamada viva sin audio", () 
         }
     });
 
+    it("un 200 de `colgar?propia=true` con la llamada aún viva no es el final: se sigue releyendo hasta que de verdad termina", async () => {
+        // Mientras conecta: 200 pero sigue `conectando`; a la siguiente, ya `perdida`.
+        leerLlamada.mockResolvedValue(llamada({}));
+        colgarLlamada.mockResolvedValueOnce(llamada({ estado: "conectando" })).mockResolvedValue(llamada({ estado: "perdida", motivoFin: "agente_salio" }));
+        expect(await colgarSeguro("x", ctx, true)).toMatchObject({ tipo: "colgada", llamada: { estado: "perdida" } });
+        expect(leerLlamada).toHaveBeenCalledTimes(2);
+        expect(colgarLlamada).toHaveBeenCalledTimes(2);
+        // Ya en curso: 200 pero sigue `en_curso`; se reintenta y, si nunca termina, es un fallo (no «colgada»).
+        leerLlamada.mockReset();
+        colgarLlamada.mockReset();
+        leerLlamada.mockResolvedValue(llamada({ estado: "en_curso" }));
+        colgarLlamada.mockResolvedValueOnce(llamada({ estado: "en_curso" })).mockResolvedValue(llamada({ estado: "terminada" }));
+        expect((await colgarSeguro("x", ctx, true)).tipo).toBe("colgada");
+        expect(colgarLlamada).toHaveBeenCalledTimes(2);
+        colgarLlamada.mockReset();
+        colgarLlamada.mockResolvedValue(llamada({ estado: "en_curso" }));
+        expect((await colgarSeguro("x", ctx, true)).tipo).toBe("fallo");
+    });
+
     it("contra un servidor anterior (404 a `propia` mientras conecta): ese 404 no es el final; se relee y, cuando el `accept` llega tarde, se cuelga", async () => {
         leerLlamada.mockResolvedValueOnce(llamada({})).mockResolvedValueOnce(llamada({})).mockResolvedValue(llamada({ estado: "en_curso" }));
         colgarLlamada.mockRejectedValueOnce(problema(404, "no_encontrado")).mockRejectedValueOnce(problema(404, "no_encontrado")).mockResolvedValue(llamada({ estado: "terminada" }));

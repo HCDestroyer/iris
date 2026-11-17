@@ -752,7 +752,13 @@ test.describe("voz › nunca una llamada viva sin audio (revisión de seguridad)
         await expect.poll(() => ultima(api)?.estado).toBe("en_curso");
         // …y entonces sí se cuelga (solo la mía). Se le dice al agente.
         await adelantarHasta(page, () => ultima(api)?.estado === "terminada");
-        expect(api.peticiones.filter((p) => p.ruta.endsWith("/colgar")).every((p) => p.query.get("propia") === "true")).toBe(true);
+        // Hubo al menos un `colgar` (mientras conectaba se intenta en cada relectura y el servidor
+        // anterior responde 404), todos de esta llamada y todos con `propia`.
+        const colgares = api.peticiones.filter((p) => p.ruta.endsWith("/colgar"));
+        expect(colgares.length).toBeGreaterThanOrEqual(1);
+        expect(colgares.length).toBe(acciones(api, "colgar").length);
+        expect(acciones(api, "colgar").every((a) => a.llamadaId === ultima(api)?.id)).toBe(true);
+        expect(colgares.every((p) => p.query.get("propia") === "true")).toBe(true);
         await expect(page.getByText("La llamada se conectó sin audio y se colgó")).toBeVisible();
         await expect(barra(page)).toHaveCount(0);
     });
@@ -795,6 +801,10 @@ test.describe("voz › nunca una llamada viva sin audio (revisión de seguridad)
         const colgadas = acciones(api, "colgar").length;
         await page.clock.fastForward(4_000);
         expect(acciones(api, "colgar")).toHaveLength(colgadas);
+        // La llamada, que ya no es mía, sigue sonándoles a los demás: ningún `colgar` la tocó (todos
+        // fueron con `propia`, mientras estaba reservada a mi nombre, y ninguno después).
+        expect(primera?.estado).toBe("sonando");
+        expect(api.peticiones.filter((p) => p.ruta.endsWith("/colgar")).every((p) => p.query.get("propia") === "true")).toBe(true);
         await expect(page.getByText("No se pudo colgar una llamada que quedó abierta")).toHaveCount(0);
         // El aviso llano se va solo a los 8 s (el reloj ya pasó de ahí).
         await page.clock.fastForward(8_000);
@@ -815,11 +825,19 @@ test.describe("voz › nunca una llamada viva sin audio (revisión de seguridad)
                 { timeout: 25_000, intervals: [150] },
             )
             .toBeGreaterThan(0);
-        // El `accept` llegó tarde y quedó `en_curso` sin audio: «Reintentar» la cuelga.
+        // Se intentó colgar en cada una de las 30 relecturas mientras conectaba (404 del servidor anterior).
         const segunda = ultima(api);
+        const deLaSegunda = (accion: string) => acciones(api, accion).filter((a) => a.llamadaId === segunda?.id);
+        expect(deLaSegunda("colgar")).toHaveLength(30);
+        expect(deLaSegunda("soltar")).toHaveLength(1);
+        // El `accept` llegó tarde y quedó `en_curso` sin audio: «Reintentar» la cuelga, con un solo `colgar` más.
         if (segunda) segunda.estado = "en_curso";
         await page.getByRole("button", { name: "Reintentar" }).click();
         await adelantarHasta(page, () => ultima(api)?.estado === "terminada");
+        expect(deLaSegunda("colgar")).toHaveLength(31);
+        expect(deLaSegunda("soltar")).toHaveLength(2);
+        // Ninguno tocó la primera llamada después de que dejó de ser mía.
+        expect(acciones(api, "colgar").filter((a) => a.llamadaId === primera?.id)).toHaveLength(colgadas);
     });
 
     test("se deja la llamada mientras conecta (`confirmar-medio` en vuelo): el servidor la termina con `propia` y queda como perdida por devolver (`agente_salio`), con su texto en el hilo y en la lista", async ({ page }) => {
