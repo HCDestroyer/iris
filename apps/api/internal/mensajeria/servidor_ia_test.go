@@ -301,16 +301,36 @@ func TestServidorIAEnlazarActivarYUsar(t *testing.T) {
 		t.Fatalf("la huella siguiente debía quedar fijada (%s, quería %s): %v", huella, siguiente, err)
 	}
 
-	// Desactivar («Desenlazar» en el panel): deja de usarse en el acto.
+	// Desactivar («Desenlazar» en el panel): deja de usarse en el acto. Con el servidor desactivado
+	// nada toca la red (F3): ni generar, ni «Probar» de la tarjeta, ni rotar, ni «Probar» y los
+	// modelos del asistente. Todo responde servidor_desactivado.
 	x.exigir(x.api(x.admin, http.MethodPost, x.ruta("/desactivar"), map[string]any{"motivo": "mantenimiento"}), http.StatusOK, "estado", "desactivado")
-	n := len(x.banco.Ollama.Chats())
+	rutas := len(x.banco.Rutas())
 	_, _, err = x.proveedor(1).Generar(ctx, mensajeria.PedidoIA{Modelo: "modelo-a:latest", Contenido: "hola", MaxTokens: 10})
-	if codigoIA(err) != mensajeria.ErrIAServidorNoDisponible || len(x.banco.Ollama.Chats()) != n {
+	if codigoIA(err) != mensajeria.ErrIAServidorDesactivado {
 		t.Fatalf("desactivado debía fallar al instante sin llamar: %s", codigoIA(err))
+	}
+	x.exigir(x.api(x.admin, http.MethodPost, x.ruta("/probar"), nil), http.StatusConflict, "type", "urn:iris:problema:servidor_desactivado")
+	x.exigir(x.api(x.admin, http.MethodPost, x.ruta("/rotar-token"), map[string]any{}), http.StatusConflict, "type", "urn:iris:problema:servidor_desactivado")
+	x.exigir(x.api(x.admin, http.MethodPost, "/asistente/probar", map[string]any{"proveedor": "servidor_ia", "url": "", "modelo": "modelo-a:latest"}), http.StatusConflict, "type", "urn:iris:problema:servidor_desactivado")
+	x.exigir(x.api(x.admin, http.MethodGet, "/asistente/modelos", nil), http.StatusConflict, "type", "urn:iris:problema:servidor_desactivado")
+	if n := len(x.banco.Rutas()); n != rutas {
+		t.Fatalf("con el servidor desactivado no debía salir ninguna petición: %v", x.banco.Rutas()[rutas:])
 	}
 	if x.eventosIA("voz.motor_desactivado") != 1 {
 		t.Fatal("falta voz.motor_desactivado")
 	}
+	// Salidas de «desactivado»: activar de nuevo (con la huella; rota el token) o enlazar otra vez.
+	// (La huella es la que muestra ahora la tarjeta: el servidor renovó su certificado más arriba.)
+	if r := x.exigir(x.api(x.admin, http.MethodPost, x.ruta("/activar"), map[string]any{"huellaTls": siguiente}), http.StatusOK); r.cuerpo["estado"] != "listo" ||
+		r.cuerpo["activado"] != true {
+		t.Fatalf("activar desde desactivado: %v", r.cuerpo)
+	}
+	if err := x.generar(); err != nil {
+		t.Fatalf("tras activar de nuevo: %v", err)
+	}
+	x.exigir(x.api(x.admin, http.MethodPost, x.ruta("/desactivar"), map[string]any{}), http.StatusOK, "estado", "desactivado")
+	x.exigir(x.api(x.admin, http.MethodPost, "/voz/motores/enlazar", map[string]any{"nombre": "IA principal", "url": x.banco.URL}), http.StatusCreated)
 }
 
 func (x *bancoIA) eventosIA(evento string) int {
@@ -427,22 +447,70 @@ func TestServidorIAPlazasCaidaYCompatibilidad(t *testing.T) {
 	}
 }
 
+// conVersion arma el servidor de IA de prueba con un Iris de esa versión.
+func bancoIAConVersion(t *testing.T, version string, o vozprueba.Opciones) *bancoIA {
+	t.Helper()
+	return bancoIASobre(t, nuevaBandeja(t, func(c *mensajeria.Config) { c.PermitirLoopbackIA = true; c.Version = version }), o)
+}
+
+// F4: solo una versión PUBLICADA exacta fuera del rango del paquete es incompatible, y entonces
+// «Activar» responde 409 con el motivo en vez de dejar el servidor activado y en rojo.
 func TestServidorIAIncompatible(t *testing.T) {
-	man := voz.Manifiesto{Version: "0.1.0", Protocolo: voz.Protocolo, IrisMin: "9.0.0", IrisMax: "9.9.9"}
-	x := nuevoBancoIA(t, vozprueba.Opciones{Manifiesto: &man})
+	man := voz.Manifiesto{Version: "0.1.0", Protocolo: voz.Protocolo, IrisMin: "0.28.0", IrisMax: "0.99.0"}
+	x := bancoIAConVersion(t, "v0.27.0", vozprueba.Opciones{Manifiesto: &man})
 	r := x.enlazar()
 	paquete := r.cuerpo["paquete"].(map[string]any)
 	if paquete["compatible"] != false || paquete["motivoIncompatible"] != "iris_antiguo" {
 		t.Fatalf("paquete: %v", paquete)
 	}
-	r = x.activar()
-	if r.cuerpo["estado"] != "incompatible" {
-		t.Fatalf("estado: %v", r.cuerpo["estado"])
+	antes := len(x.banco.Rutas())
+	a := x.api(x.admin, http.MethodPost, x.ruta("/activar"), map[string]any{"huellaTls": x.banco.Huella})
+	x.exigir(a, http.StatusConflict, "type", "urn:iris:problema:incompatible")
+	if !strings.Contains(fmt.Sprint(a.cuerpo["detail"]), "actualizar Iris") || a.cuerpo["errors"].([]any)[0].(map[string]any)["rule"] != "iris_antiguo" ||
+		len(x.banco.Rutas()) != antes || x.columna("activado_en") != nil {
+		t.Fatalf("activar un servidor incompatible: %v", a.cuerpo)
 	}
 	// Incompatible = no se usa.
 	x.exigir(x.elegir(x.admin, "modelo-a:latest", nil), http.StatusUnprocessableEntity, "type", "urn:iris:problema:servidor_ia_no_disponible")
 	_, _, err := x.proveedor(1).Generar(x.ctx, mensajeria.PedidoIA{Modelo: "modelo-a:latest", Contenido: "hola", MaxTokens: 10})
 	if codigoIA(err) != mensajeria.ErrIAServidorNoDisponible || len(x.banco.Ollama.Chats()) != 0 {
 		t.Fatalf("incompatible debía fallar sin llamar: %s", codigoIA(err))
+	}
+}
+
+// F4: un binario de desarrollo (sin versión, o construido con commits después de la etiqueta) no se
+// compara con el rango del paquete: enlaza, activa y se usa.
+func TestServidorIAVersionDeDesarrollo(t *testing.T) {
+	man := voz.Manifiesto{Version: "0.1.0", Protocolo: voz.Protocolo, IrisMin: "0.28.0", IrisMax: "0.99.0"}
+	for _, version := range []string{"0.0.0-dev", "v0.27.0-36-g1a2b3c4", "v0.27.0-36-g1a2b3c4-dirty", "prueba"} {
+		x := bancoIAConVersion(t, version, vozprueba.Opciones{Manifiesto: &man})
+		r := x.enlazar()
+		if p := r.cuerpo["paquete"].(map[string]any); p["compatible"] != true || p["motivoIncompatible"] != nil {
+			t.Fatalf("%s: un binario de desarrollo debía ser compatible: %v", version, p)
+		}
+		if a := x.activar(); a.cuerpo["estado"] != "listo" {
+			t.Fatalf("%s: estado tras activar: %v", version, a.cuerpo["estado"])
+		}
+		if err := x.generar(); err != nil {
+			t.Fatalf("%s: la puerta tampoco debía rechazar a un Iris de desarrollo: %v", version, err)
+		}
+	}
+	// La versión publicada exacta dentro del rango, también; y una ya activa que deja de ser
+	// compatible (Iris se actualizó por encima del rango) queda «incompatible» en el latido siguiente.
+	x := bancoIAConVersion(t, "0.28.0", vozprueba.Opciones{Manifiesto: &man})
+	x.enlazar()
+	if a := x.activar(); a.cuerpo["estado"] != "listo" {
+		t.Fatalf("0.28.0: %v", a.cuerpo["estado"])
+	}
+	yb := nuevaBandeja(t, func(c *mensajeria.Config) { c.PermitirLoopbackIA = true; c.Version = "1.0.0" })
+	*yb.reloj = *x.reloj
+	y := &bancoIA{bandeja: yb, banco: x.banco, motor: x.motor}
+	y.latir()
+	if y.estado() != "incompatible" {
+		t.Fatalf("un Iris 1.0.0 con un paquete que admite hasta 0.99.0: %s", y.estado())
+	}
+	var motivo *string
+	if err := y.bd.QueryRow(y.ctx, `SELECT motivo_incompatible FROM mensajeria.voz_motores WHERE id = $1`, y.motor).Scan(&motivo); err != nil || motivo == nil || *motivo != "iris_nuevo" {
+		t.Fatalf("motivo: %v %v", motivo, err)
 	}
 }

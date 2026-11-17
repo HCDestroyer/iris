@@ -236,3 +236,35 @@ func TestRechazoExplicitoPorConexion(t *testing.T) {
 		}
 	}
 }
+
+// F4: solo una versión publicada exacta se compara con el rango del paquete. Un binario sin versión
+// o construido con commits después de la etiqueta es de desarrollo y se admite.
+func TestVersionesDeDesarrollo(t *testing.T) {
+	man := voz.Manifiesto{Version: "0.1.0", Protocolo: voz.Protocolo, IrisMin: "0.28.0", IrisMax: "0.99.0"}
+	for version, quiero := range map[string]struct {
+		desarrollo, admite bool
+		motivo             string
+	}{
+		"0.0.0-dev":                {true, true, ""},
+		"0.0.0":                    {true, true, ""},
+		"v0.27.0-36-g1a2b3c4":      {true, true, ""},
+		"0.27.0-36-g1a2b3c4-dirty": {true, true, ""},
+		"v0.27.0-dirty":            {true, true, ""},
+		"1.5.0-2-gabcdef0":         {true, true, ""},
+		"0.27.0":                   {false, false, "iris_antiguo"},
+		"v0.27.0":                  {false, false, "iris_antiguo"},
+		"0.27.0-rc.1":              {false, false, "iris_antiguo"},
+		"0.28.0":                   {false, true, ""},
+		"0.50.3":                   {false, true, ""},
+		"1.0.0":                    {false, false, "iris_nuevo"},
+		"0.27.0-36-gzzzz":          {false, false, "iris_antiguo"},
+		"no es una versión":        {false, false, "iris_nuevo"},
+	} {
+		if voz.VersionDesarrollo(version) != quiero.desarrollo || man.AdmiteIris(version) != quiero.admite {
+			t.Fatalf("%s: desarrollo=%v admite=%v", version, voz.VersionDesarrollo(version), man.AdmiteIris(version))
+		}
+		if ok, motivo := voz.Compatible(man, version, "0.1.0"); ok != quiero.admite || motivo != quiero.motivo {
+			t.Fatalf("%s: compatible=%v motivo=%q", version, ok, motivo)
+		}
+	}
+}

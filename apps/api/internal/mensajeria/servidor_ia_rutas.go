@@ -19,7 +19,7 @@ func (m *Modulo) registrarServidorIA(api huma.API) {
 	k := m.ServidorIA
 	ver, adm := nucleo.PermServidorIAVer, nucleo.PermServidorIAAdministrar
 	ia := func(o huma.Operation, detalle string) huma.Operation {
-		o.Description += " " + detalle + " El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`; cualquier otro recibe 404. " +
+		o.Description += " " + detalle + " El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`: sin el permiso, 403; con el permiso y sin `empresas.todas`, 404. " +
 			"Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8."
 		return o
 	}
@@ -52,7 +52,8 @@ func (m *Modulo) registrarServidorIA(api huma.API) {
 		http.StatusOK, http.StatusNotFound, http.StatusConflict, http.StatusBadGateway),
 		"Cuando la huella coincide con la del instalador. Lo primero que hace Iris es cambiar el secreto del canal por uno aleatorio, sin convivencia; si eso falla, "+
 			"no se activa. También vuelve a activar uno desactivado. `huellaTls` es la huella que el administrador comparó: 409 `huella_cambiada` si el servidor "+
-			"enlazado ya no es ese (alguien enlazó otro entretanto). 409 `motor_sin_enlazar`, `enlace_vencido` (24 h sin activar) o `rotacion_en_curso`. "+
+			"enlazado ya no es ese (alguien enlazó otro entretanto). 409 `incompatible` si las versiones no son compatibles (`errors[0].rule` = iris_antiguo, iris_nuevo, "+
+			"paquete_antiguo o protocolo): no se activa. 409 `motor_sin_enlazar`, `enlace_vencido` (24 h sin activar) o `rotacion_en_curso`. "+
 			"Emite `voz.motor_activado` y `voz.motor_token_rotado`."),
 		func(ctx context.Context, in *idCuerpoHTTP[EntradaActivarMotor]) (*cuerpo[MotorIA], error) {
 			in.Body.ID = in.ID
@@ -101,7 +102,7 @@ func (m *Modulo) registrarServidorIA(api huma.API) {
 	tab := op("tableroServidorIA", http.MethodGet, "/servidor-ia/tablero", "Tablero del servidor de IA", nucleo.PermServidorIAVerUso, http.StatusOK, http.StatusNotFound)
 	tab.Description += " Con `servidor_ia.ver` y `empresas.todas`: todo (GPU, CPU, memoria, disco, modelos, ocupación y el uso de todas las empresas). Con " +
 		"`servidor_ia.ver_uso`: el estado general y solo el uso de la empresa activa (`servidor: null`, `avisos: []`, series solo con peticiones y tiempos). " +
-		"Cualquier otro, 404. `estado.lecturaOk` es `false` si la última lectura del servidor falló: lo de `servidor` es de `estado.tomadoEn` y no debe " +
+		"Sin ninguno de los dos permisos, 403; con `servidor_ia.ver_uso` y sin empresa activa, 404. `estado.lecturaOk` es `false` si la última lectura del servidor falló: lo de `servidor` es de `estado.tomadoEn` y no debe " +
 		"mostrarse como actual. Nunca lleva texto de prompts ni de respuestas. Contrato: `.claude/integration/contratos/voz.md` §4.12."
 	huma.Register(api, tab, func(ctx context.Context, in *EntradaTableroIA) (*cuerpo[TableroIA], error) {
 		return responder(k.Tablero.Ejecutar(ctx, *in))

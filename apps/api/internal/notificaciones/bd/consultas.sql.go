@@ -339,16 +339,17 @@ func (q *Queries) CerrarPruebaCorreo(ctx context.Context, arg CerrarPruebaCorreo
 
 const contarAvisosNoLeidos = `-- name: ContarAvisosNoLeidos :one
 SELECT count(*)::integer FROM notificaciones.avisos
-WHERE usuario_id = $1 AND (coalesce(empresa_id, 0) = coalesce($2::bigint, 0) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral')) AND leido_en IS NULL
+WHERE usuario_id = $1 AND ((NOT $2::boolean AND coalesce(empresa_id, 0) = coalesce($3::bigint, 0)) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral')) AND leido_en IS NULL
 `
 
 type ContarAvisosNoLeidosParams struct {
-	UsuarioID int64
-	Empresa   *int64
+	UsuarioID       int64
+	SoloInstalacion bool
+	Empresa         *int64
 }
 
 func (q *Queries) ContarAvisosNoLeidos(ctx context.Context, arg ContarAvisosNoLeidosParams) (int32, error) {
-	row := q.db.QueryRow(ctx, contarAvisosNoLeidos, arg.UsuarioID, arg.Empresa)
+	row := q.db.QueryRow(ctx, contarAvisosNoLeidos, arg.UsuarioID, arg.SoloInstalacion, arg.Empresa)
 	var column_1 int32
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -1233,15 +1234,16 @@ func (q *Queries) InsertarRechazoCorreo(ctx context.Context, arg InsertarRechazo
 
 const leerAviso = `-- name: LeerAviso :one
 UPDATE notificaciones.avisos SET leido_en = coalesce(leido_en, $1)
-WHERE id = $2 AND usuario_id = $3 AND (coalesce(empresa_id, 0) = coalesce($4::bigint, 0) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral'))
+WHERE id = $2 AND usuario_id = $3 AND ((NOT $4::boolean AND coalesce(empresa_id, 0) = coalesce($5::bigint, 0)) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral'))
 RETURNING id, usuario_id, empresa_id, tipo, clave, nivel, titulo, enlace, datos, evento_id, leido_en, creado_en
 `
 
 type LeerAvisoParams struct {
-	Ahora     *time.Time
-	ID        int64
-	UsuarioID int64
-	Empresa   *int64
+	Ahora           *time.Time
+	ID              int64
+	UsuarioID       int64
+	SoloInstalacion bool
+	Empresa         *int64
 }
 
 // Marca leído (si ya lo estaba, lo deja igual).
@@ -1250,6 +1252,7 @@ func (q *Queries) LeerAviso(ctx context.Context, arg LeerAvisoParams) (Notificac
 		arg.Ahora,
 		arg.ID,
 		arg.UsuarioID,
+		arg.SoloInstalacion,
 		arg.Empresa,
 	)
 	var i NotificacionesAviso
@@ -1272,17 +1275,23 @@ func (q *Queries) LeerAviso(ctx context.Context, arg LeerAvisoParams) (Notificac
 
 const leerTodosLosAvisos = `-- name: LeerTodosLosAvisos :execrows
 UPDATE notificaciones.avisos SET leido_en = $1
-WHERE usuario_id = $2 AND (coalesce(empresa_id, 0) = coalesce($3::bigint, 0) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral')) AND leido_en IS NULL
+WHERE usuario_id = $2 AND ((NOT $3::boolean AND coalesce(empresa_id, 0) = coalesce($4::bigint, 0)) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral')) AND leido_en IS NULL
 `
 
 type LeerTodosLosAvisosParams struct {
-	Ahora     *time.Time
-	UsuarioID int64
-	Empresa   *int64
+	Ahora           *time.Time
+	UsuarioID       int64
+	SoloInstalacion bool
+	Empresa         *int64
 }
 
 func (q *Queries) LeerTodosLosAvisos(ctx context.Context, arg LeerTodosLosAvisosParams) (int64, error) {
-	result, err := q.db.Exec(ctx, leerTodosLosAvisos, arg.Ahora, arg.UsuarioID, arg.Empresa)
+	result, err := q.db.Exec(ctx, leerTodosLosAvisos,
+		arg.Ahora,
+		arg.UsuarioID,
+		arg.SoloInstalacion,
+		arg.Empresa,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -1291,26 +1300,29 @@ func (q *Queries) LeerTodosLosAvisos(ctx context.Context, arg LeerTodosLosAvisos
 
 const listarAvisos = `-- name: ListarAvisos :many
 SELECT id, usuario_id, empresa_id, tipo, clave, nivel, titulo, enlace, datos, evento_id, leido_en, creado_en FROM notificaciones.avisos
-WHERE usuario_id = $1 AND (coalesce(empresa_id, 0) = coalesce($2::bigint, 0) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral'))
-  AND (NOT $3::boolean OR leido_en IS NULL)
-  AND ($4::bigint = 0 OR id < $4::bigint)
+WHERE usuario_id = $1 AND ((NOT $2::boolean AND coalesce(empresa_id, 0) = coalesce($3::bigint, 0)) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral'))
+  AND (NOT $4::boolean OR leido_en IS NULL)
+  AND ($5::bigint = 0 OR id < $5::bigint)
 ORDER BY id DESC
-LIMIT $5
+LIMIT $6
 `
 
 type ListarAvisosParams struct {
-	UsuarioID    int64
-	Empresa      *int64
-	SoloNoLeidos bool
-	AntesDe      int64
-	Limite       int32
+	UsuarioID       int64
+	SoloInstalacion bool
+	Empresa         *int64
+	SoloNoLeidos    bool
+	AntesDe         int64
+	Limite          int32
 }
 
 // Los del usuario en la empresa activa (null = sin conector), del más nuevo al más viejo. Los del
-// servidor de IA son de la instalación: se ven con cualquier empresa activa.
+// servidor de IA son de la instalación: se ven con cualquier empresa activa, y también sin empresa
+// elegida (@solo_instalacion: entonces solo esos).
 func (q *Queries) ListarAvisos(ctx context.Context, arg ListarAvisosParams) ([]NotificacionesAviso, error) {
 	rows, err := q.db.Query(ctx, listarAvisos,
 		arg.UsuarioID,
+		arg.SoloInstalacion,
 		arg.Empresa,
 		arg.SoloNoLeidos,
 		arg.AntesDe,
@@ -1757,6 +1769,34 @@ func (q *Queries) QuitarTokenDeOtros(ctx context.Context, arg QuitarTokenDeOtros
 		return nil, err
 	}
 	return items, nil
+}
+
+const reactivarAviso = `-- name: ReactivarAviso :one
+UPDATE notificaciones.avisos SET leido_en = NULL, creado_en = $1::timestamptz, evento_id = $2,
+    datos = jsonb_set(datos, '{veces}', to_jsonb(coalesce((datos->>'veces')::integer, 1) + 1))
+WHERE usuario_id = $3 AND clave = $4 AND evento_id IS DISTINCT FROM $2
+RETURNING id
+`
+
+type ReactivarAvisoParams struct {
+	Ahora     time.Time
+	EventoID  pgtype.UUID
+	UsuarioID int64
+	Clave     string
+}
+
+// Otro episodio dentro del enfriamiento: no hay aviso nuevo; el que ya existe vuelve a no leído, con
+// la hora de ahora y la cuenta de veces. El mismo evento otra vez (reintento del relay) no cuenta.
+func (q *Queries) ReactivarAviso(ctx context.Context, arg ReactivarAvisoParams) (int64, error) {
+	row := q.db.QueryRow(ctx, reactivarAviso,
+		arg.Ahora,
+		arg.EventoID,
+		arg.UsuarioID,
+		arg.Clave,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const rechazosCorreoDesde = `-- name: RechazosCorreoDesde :many

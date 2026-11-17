@@ -31,6 +31,8 @@ const (
 	// ErrIAServidorNoDisponible: el servidor de IA no está activo, compatible y contestando, o la
 	// empresa no puede usarlo.
 	ErrIAServidorNoDisponible = "servidor_ia_no_disponible"
+	// ErrIAServidorDesactivado: el administrador de la instalación lo desactivó. No se llama.
+	ErrIAServidorDesactivado = "servidor_desactivado"
 )
 
 func esIP(s string) bool {
@@ -113,8 +115,10 @@ func nuevosCasosPlazas(m *Modulo, k *CasosServidorIA) {
 			if err != nil {
 				return plazaIA{}, err
 			}
-			// Caído, incompatible, desactivado o sin permiso para esta empresa: falla al instante, sin
-			// llamar al servidor.
+			if f.Estado == MotorDesactivado {
+				return plazaIA{}, iaDesactivado()
+			}
+			// Caído, incompatible o sin permiso para esta empresa: falla al instante, sin llamar al servidor.
 			if !motorUtilizable(f) || !empresaPermitida(f, in.Empresa) || !slices.Contains(modelosUtilizables(f), in.Modelo) {
 				return plazaIA{}, noDisponible
 			}
@@ -188,6 +192,10 @@ type proveedorServidorIA struct {
 	empresa int64
 	modelo  string
 	plazo   time.Duration
+}
+
+func iaDesactivado() *ErrorIA {
+	return &ErrorIA{Codigo: ErrIAServidorDesactivado, Detalle: "El servidor de IA está desactivado: el administrador de la instalación debe activarlo o enlazarlo de nuevo"}
 }
 
 func motivoUso(err error) string {
@@ -293,6 +301,9 @@ func (p *proveedorServidorIA) Generar(ctx context.Context, in PedidoIA) (Respues
 // no se llama al servidor ni se gasta una plaza).
 func (p *proveedorServidorIA) Modelos(ctx context.Context) ([]ModeloIA, error) {
 	f, err := p.m.ServidorIA.motorActual.Ejecutar(ctx, struct{}{})
+	if err == nil && f != nil && f.Estado == MotorDesactivado {
+		return nil, iaDesactivado()
+	}
 	if err != nil || f == nil || !motorUtilizable(*f) || !empresaPermitida(*f, p.empresa) {
 		return nil, &ErrorIA{Codigo: ErrIAServidorNoDisponible, Detalle: "El servidor de IA no está disponible ahora"}
 	}

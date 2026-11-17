@@ -62,6 +62,7 @@ func (m *Modulo) nuevoAvisarServidorIA() *auditoria.Caso[EntradaAvisarServidorIA
 	return auditoria.Nuevo(auditoria.Caso[EntradaAvisarServidorIA, ResultadoAvisarTope]{
 		Accion: "avisos.servidor_ia", Acceso: auditoria.Autenticado, SinEmpresa: true,
 		AuditarExito: func(r ResultadoAvisarTope) bool { return r.Avisos > 0 },
+		// (un aviso reactivado no deja otra fila de auditoría: es el mismo aviso)
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaAvisarServidorIA) (ResultadoAvisarTope, error) {
 			r := ResultadoAvisarTope{}
 			if err := soloSistema(ctx); err != nil {
@@ -90,13 +91,15 @@ func (m *Modulo) nuevoAvisarServidorIA() *auditoria.Caso[EntradaAvisarServidorIA
 			}
 			// Enfriamiento: como mucho un aviso (y un correo) por tipo, servidor y hora, por más
 			// episodios que se abran (un servidor inestable u hostil no inunda la campana ni el
-			// correo). La clave lleva la hora, no el evento; el episodio sigue en el tablero.
+			// correo). La clave lleva la hora, no el evento; el episodio sigue en el tablero. Un
+			// episodio nuevo dentro de la hora no crea nada: reactiva el aviso que ya hay (vuelve a no
+			// leído, con la hora de ahora y la cuenta de veces), sin otro correo.
 			clave := fmt.Sprintf("%s:%d:%s", tipo, in.MotorID, m.ahora().Format("2006-01-02T15"))
 			if tipo == TipoAvisoServidorIAUmbral {
 				clave = fmt.Sprintf("%s:%d:%s:%s", tipo, in.MotorID, in.Tipo, m.ahora().Format("2006-01-02T15"))
 			}
 			titulo := TituloServidorIA(tipo, in.Tipo)
-			datosMapa := map[string]any{"motor_id": in.MotorID}
+			datosMapa := map[string]any{"motor_id": in.MotorID, "veces": 1}
 			if tipo == TipoAvisoServidorIAUmbral {
 				// Solo números y el tipo de una lista cerrada: nada de lo que mande el servidor llega como texto.
 				datosMapa["tipo"], datosMapa["valor"], datosMapa["umbral"] = in.Tipo, in.Valor, in.Umbral
@@ -116,6 +119,14 @@ func (m *Modulo) nuevoAvisarServidorIA() *auditoria.Caso[EntradaAvisarServidorIA
 				av, err := q.InsertarAviso(ctx, notificacionesbd.InsertarAvisoParams{UsuarioID: u.ID, Tipo: tipo, Clave: clave, Nivel: nivel,
 					Titulo: titulo, Enlace: &enlace, Datos: datos, EventoID: pgtype.UUID{Bytes: in.EventoID, Valid: true}})
 				if esSinFilas(err) {
+					_, errR := q.ReactivarAviso(ctx, notificacionesbd.ReactivarAvisoParams{UsuarioID: u.ID, Clave: clave, Ahora: m.ahora(),
+						EventoID: pgtype.UUID{Bytes: in.EventoID, Valid: true}})
+					if errR == nil {
+						r.Reactivados++
+						usuarios = append(usuarios, u.ID)
+					} else if !esSinFilas(errR) {
+						return r, errR
+					}
 					continue
 				}
 				if err != nil {
@@ -149,13 +160,14 @@ func (m *Modulo) nuevoAvisarServidorIA() *auditoria.Caso[EntradaAvisarServidorIA
 					}
 				}
 			}
-			if r.Avisos == 0 {
+			if r.Avisos == 0 && r.Reactivados == 0 {
 				return r, nil
 			}
-			t.Anotar(map[string]any{"clave": clave, "avisos": r.Avisos, "correos_pendientes": r.CorreosPendientes, "correos_omitidos": r.CorreosOmitidos})
+			t.Anotar(map[string]any{"clave": clave, "avisos": r.Avisos, "reactivados": r.Reactivados, "correos_pendientes": r.CorreosPendientes,
+				"correos_omitidos": r.CorreosOmitidos})
 			correo := "enviar"
-			if !hayCorreo {
-				correo = "omitido"
+			if !hayCorreo || r.Avisos == 0 {
+				correo = "omitido" // un aviso reactivado no manda otro correo
 			}
 			return r, t.EmitirEnEmpresa("notificaciones.avisos_creados", nil, map[string]any{"tipo": tipo, "clave": clave,
 				"empresa_id": nil, "usuarios": usuarios, "correo": correo})

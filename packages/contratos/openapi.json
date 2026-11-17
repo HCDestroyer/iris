@@ -1714,7 +1714,7 @@
           },
           "datos": {
             "additionalProperties": {},
-            "description": "Referencias del aviso; asistente_tope: porcentaje (80, 100), mes (YYYY-MM) y tope (tokens del mes cuando se avisó)",
+            "description": "Referencias del aviso; asistente_tope: porcentaje (80, 100), mes (YYYY-MM) y tope (tokens del mes cuando se avisó). Los del servidor de IA llevan además veces (entero, 1 o más): cuántos episodios de ese tipo hubo en la hora; al repetirse, el mismo aviso vuelve a no leído con creadoEn actualizado",
             "type": "object"
           },
           "empresaId": {
@@ -14030,7 +14030,10 @@
               "sin_configurar",
               "rechazo_modelo",
               "respuesta_invalida",
-              "url_no_permitida"
+              "url_no_permitida",
+              "servidor_ia_no_disponible",
+              "servidor_ia_ocupado",
+              "servidor_desactivado"
             ],
             "type": "string"
           },
@@ -39889,7 +39892,7 @@
     },
     "/api/v1/mensajeria/asistente/ajustes/actualizar": {
       "post": {
-        "description": "Permiso: `mensajeria.asistente_configurar`. `clave` es solo escritura (ausente la deja, \"\" la borra) y nunca se devuelve: `claveGuardadaEn`. `version` 0 la primera vez (409 `conflicto_version`). Activar exige URL y modelo (Anthropic: clave); 422 `sin_configurar`, `url_no_permitida`; 422 `clave_requerida` si cambia el proveedor o la URL con clave guardada y sin `clave`. Evento `asistente.ajustes_cambiados`.",
+        "description": "Permiso: `mensajeria.asistente_configurar`. `clave` es solo escritura (ausente la deja, \"\" la borra) y nunca se devuelve: `claveGuardadaEn`. `version` 0 la primera vez (409 `conflicto_version`). Activar exige URL y modelo (Anthropic: clave; `servidor_ia`: solo el modelo); 422 `sin_configurar`, `url_no_permitida`; 422 `clave_requerida` si cambia el proveedor o la URL con clave guardada y sin `clave`. Evento `asistente.ajustes_cambiados`.",
         "operationId": "actualizarAjustesAsistente",
         "parameters": [
           {
@@ -40698,7 +40701,7 @@
     },
     "/api/v1/mensajeria/asistente/modelos": {
       "get": {
-        "description": "Permiso: `mensajeria.asistente_configurar`. Solo con lo guardado (para otra URL o clave: `POST /asistente/modelos`). Si el proveedor falla: 502 `proveedor_error` con un detalle único (no distingue conexión rechazada, tiempo agotado ni respuesta inesperada).",
+        "description": "Permiso: `mensajeria.asistente_configurar`. Solo con lo guardado (para otra URL o clave: `POST /asistente/modelos`). Si el proveedor falla: 502 `proveedor_error` con un detalle único (no distingue conexión rechazada, tiempo agotado ni respuesta inesperada). Con `servidor_ia`: 409 `servidor_desactivado`, 502 `servidor_ia_no_disponible`.",
         "operationId": "modelosAsistente",
         "responses": {
           "200": {
@@ -40730,6 +40733,16 @@
               }
             },
             "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "422": {
             "content": {
@@ -40880,7 +40893,7 @@
     },
     "/api/v1/mensajeria/asistente/probar": {
       "post": {
-        "description": "Permiso: `mensajeria.asistente_configurar`. Manda un pedido corto real (no cuenta para el tope). Cualquier falla responde lo mismo (`estado: error`, `latenciaMs: 0`, `detalle` único) para no servir como escáner de puertos. Sin `clave` usa la guardada solo si proveedor y URL son los guardados. No guarda nada.",
+        "description": "Permiso: `mensajeria.asistente_configurar`. Manda un pedido corto real (no cuenta para el tope). Cualquier falla responde lo mismo (`estado: error`, `latenciaMs: 0`, `detalle` único) para no servir como escáner de puertos. Sin `clave` usa la guardada solo si proveedor y URL son los guardados. No guarda nada. Con `servidor_ia` (sin URL ni clave que revisar) la falla es propia: 409 `servidor_desactivado` o `servidor_ia_ocupado`, 502 `servidor_ia_no_disponible`.",
         "operationId": "probarAsistente",
         "parameters": [
           {
@@ -40935,6 +40948,16 @@
             },
             "description": "Forbidden"
           },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
           "422": {
             "content": {
               "application/problem+json": {
@@ -40954,6 +40977,16 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Gateway"
           }
         },
         "security": [
@@ -58381,7 +58414,7 @@
     },
     "/api/v1/mensajeria/servidor-ia/tablero": {
       "get": {
-        "description": "Permiso: `servidor_ia.ver_uso`. Con `servidor_ia.ver` y `empresas.todas`: todo (GPU, CPU, memoria, disco, modelos, ocupación y el uso de todas las empresas). Con `servidor_ia.ver_uso`: el estado general y solo el uso de la empresa activa (`servidor: null`, `avisos: []`, series solo con peticiones y tiempos). Cualquier otro, 404. `estado.lecturaOk` es `false` si la última lectura del servidor falló: lo de `servidor` es de `estado.tomadoEn` y no debe mostrarse como actual. Nunca lleva texto de prompts ni de respuestas. Contrato: `.claude/integration/contratos/voz.md` §4.12.",
+        "description": "Permiso: `servidor_ia.ver_uso`. Con `servidor_ia.ver` y `empresas.todas`: todo (GPU, CPU, memoria, disco, modelos, ocupación y el uso de todas las empresas). Con `servidor_ia.ver_uso`: el estado general y solo el uso de la empresa activa (`servidor: null`, `avisos: []`, series solo con peticiones y tiempos). Sin ninguno de los dos permisos, 403; con `servidor_ia.ver_uso` y sin empresa activa, 404. `estado.lecturaOk` es `false` si la última lectura del servidor falló: lo de `servidor` es de `estado.tomadoEn` y no debe mostrarse como actual. Nunca lleva texto de prompts ni de respuestas. Contrato: `.claude/integration/contratos/voz.md` §4.12.",
         "operationId": "tableroServidorIA",
         "parameters": [
           {
@@ -58479,7 +58512,7 @@
     },
     "/api/v1/mensajeria/servidor-ia/umbrales": {
       "get": {
-        "description": "Permiso: `servidor_ia.ver`. Los valores de fábrica si nadie los cambió. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`; cualquier otro recibe 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "description": "Permiso: `servidor_ia.ver`. Los valores de fábrica si nadie los cambió. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`: sin el permiso, 403; con el permiso y sin `empresas.todas`, 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
         "operationId": "verUmbralesServidorIA",
         "responses": {
           "200": {
@@ -58560,7 +58593,7 @@
     },
     "/api/v1/mensajeria/servidor-ia/umbrales/actualizar": {
       "post": {
-        "description": "Permiso: `servidor_ia.administrar`. Emite `servidor_ia.ajustes_cambiados`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`; cualquier otro recibe 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "description": "Permiso: `servidor_ia.administrar`. Emite `servidor_ia.ajustes_cambiados`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`: sin el permiso, 403; con el permiso y sin `empresas.todas`, 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
         "operationId": "actualizarUmbralesServidorIA",
         "parameters": [
           {
@@ -59160,7 +59193,7 @@
     },
     "/api/v1/mensajeria/voz/motores": {
       "get": {
-        "description": "Permiso: `servidor_ia.ver`. Uno como mucho. `huellaTls` es la huella del certificado que vio Iris: se compara con la que imprimió el instalador antes de activar. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`; cualquier otro recibe 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "description": "Permiso: `servidor_ia.ver`. Uno como mucho. `huellaTls` es la huella del certificado que vio Iris: se compara con la que imprimió el instalador antes de activar. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`: sin el permiso, 403; con el permiso y sin `empresas.todas`, 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
         "operationId": "listarMotoresIA",
         "responses": {
           "200": {
@@ -59231,7 +59264,7 @@
     },
     "/api/v1/mensajeria/voz/motores/enlazar": {
       "post": {
-        "description": "Permiso: `servidor_ia.administrar`. Devuelve **una vez** un código de un solo uso (160 bits) que vale 15 minutos y se escribe en el servidor con `iris-voz pair`. Iris lo guarda cifrado hasta enlazar o hasta que vence, y lo borra. Enlazar de nuevo invalida el canal anterior. 409 `motor_ya_enlazado` si hay uno activo (desactívalo antes); 422 `url_no_permitida`. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`; cualquier otro recibe 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "description": "Permiso: `servidor_ia.administrar`. Devuelve **una vez** un código de un solo uso (160 bits) que vale 15 minutos y se escribe en el servidor con `iris-voz pair`. Iris lo guarda cifrado hasta enlazar o hasta que vence, y lo borra. Enlazar de nuevo invalida el canal anterior. 409 `motor_ya_enlazado` si hay uno activo (desactívalo antes); 422 `url_no_permitida`. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`: sin el permiso, 403; con el permiso y sin `empresas.todas`, 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
         "operationId": "enlazarMotorIA",
         "parameters": [
           {
@@ -59334,7 +59367,7 @@
     },
     "/api/v1/mensajeria/voz/motores/{id}/activar": {
       "post": {
-        "description": "Permiso: `servidor_ia.administrar`. Cuando la huella coincide con la del instalador. Lo primero que hace Iris es cambiar el secreto del canal por uno aleatorio, sin convivencia; si eso falla, no se activa. También vuelve a activar uno desactivado. `huellaTls` es la huella que el administrador comparó: 409 `huella_cambiada` si el servidor enlazado ya no es ese (alguien enlazó otro entretanto). 409 `motor_sin_enlazar`, `enlace_vencido` (24 h sin activar) o `rotacion_en_curso`. Emite `voz.motor_activado` y `voz.motor_token_rotado`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`; cualquier otro recibe 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "description": "Permiso: `servidor_ia.administrar`. Cuando la huella coincide con la del instalador. Lo primero que hace Iris es cambiar el secreto del canal por uno aleatorio, sin convivencia; si eso falla, no se activa. También vuelve a activar uno desactivado. `huellaTls` es la huella que el administrador comparó: 409 `huella_cambiada` si el servidor enlazado ya no es ese (alguien enlazó otro entretanto). 409 `incompatible` si las versiones no son compatibles (`errors[0].rule` = iris_antiguo, iris_nuevo, paquete_antiguo o protocolo): no se activa. 409 `motor_sin_enlazar`, `enlace_vencido` (24 h sin activar) o `rotacion_en_curso`. Emite `voz.motor_activado` y `voz.motor_token_rotado`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`: sin el permiso, 403; con el permiso y sin `empresas.todas`, 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
         "operationId": "activarMotorIA",
         "parameters": [
           {
@@ -59467,7 +59500,7 @@
     },
     "/api/v1/mensajeria/voz/motores/{id}/conectar": {
       "post": {
-        "description": "Permiso: `servidor_ia.administrar`. Después de escribir el código en el servidor. Iris y el servidor se demuestran que conocen el código, cada prueba atada al certificado del otro; el código no viaja y el secreto inicial del canal se deriva en los dos lados. Queda pendiente de activar: `huellaTls` trae la huella a comparar. 409 `enlace_vencido`; 502 `motor_no_responde` (la misma respuesta para cualquier falla). Emite `voz.motor_enlazado`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`; cualquier otro recibe 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "description": "Permiso: `servidor_ia.administrar`. Después de escribir el código en el servidor. Iris y el servidor se demuestran que conocen el código, cada prueba atada al certificado del otro; el código no viaja y el secreto inicial del canal se deriva en los dos lados. Queda pendiente de activar: `huellaTls` trae la huella a comparar. 409 `enlace_vencido`; 502 `motor_no_responde` (la misma respuesta para cualquier falla). Emite `voz.motor_enlazado`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`: sin el permiso, 403; con el permiso y sin `empresas.todas`, 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
         "operationId": "conectarMotorIA",
         "parameters": [
           {
@@ -59590,7 +59623,7 @@
     },
     "/api/v1/mensajeria/voz/motores/{id}/desactivar": {
       "post": {
-        "description": "Permiso: `servidor_ia.administrar`. Deja de usarse en el acto: el asistente de las empresas que lo usan falla al instante (sugerencias con «Reintentar»; el autónomo pasa a una persona). Emite `voz.motor_desactivado` y `voz.motor_estado_cambiado`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`; cualquier otro recibe 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "description": "Permiso: `servidor_ia.administrar`. Deja de usarse en el acto: el asistente de las empresas que lo usan falla al instante (sugerencias con «Reintentar»; el autónomo pasa a una persona). Emite `voz.motor_desactivado` y `voz.motor_estado_cambiado`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`: sin el permiso, 403; con el permiso y sin `empresas.todas`, 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
         "operationId": "desactivarMotorIA",
         "parameters": [
           {
@@ -59703,7 +59736,7 @@
     },
     "/api/v1/mensajeria/voz/motores/{id}/empresas/actualizar": {
       "post": {
-        "description": "Permiso: `servidor_ia.administrar`. `empresas: null` = todas. `simultaneasPorEmpresa`: peticiones al modelo a la vez por empresa (además, cada empresa activa tiene una plaza garantizada). Quitar una empresa no borra sus ajustes: su asistente deja de poder usarlo. Emite `voz.motor_empresas_cambiadas`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`; cualquier otro recibe 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "description": "Permiso: `servidor_ia.administrar`. `empresas: null` = todas. `simultaneasPorEmpresa`: peticiones al modelo a la vez por empresa (además, cada empresa activa tiene una plaza garantizada). Quitar una empresa no borra sus ajustes: su asistente deja de poder usarlo. Emite `voz.motor_empresas_cambiadas`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`: sin el permiso, 403; con el permiso y sin `empresas.todas`, 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
         "operationId": "actualizarEmpresasMotorIA",
         "parameters": [
           {
@@ -59826,7 +59859,7 @@
     },
     "/api/v1/mensajeria/voz/motores/{id}/modelos/actualizar": {
       "post": {
-        "description": "Permiso: `servidor_ia.administrar`. De los que declara el servidor en `catalogo.llm` (los que su administrador deja usar; Iris no puede ampliarlos), los que las empresas pueden elegir. `modelos: null` = todos. 422 `modelo_no_instalado` si alguno no está en el catálogo. Emite `voz.motor_modelos_cambiados`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`; cualquier otro recibe 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "description": "Permiso: `servidor_ia.administrar`. De los que declara el servidor en `catalogo.llm` (los que su administrador deja usar; Iris no puede ampliarlos), los que las empresas pueden elegir. `modelos: null` = todos. 422 `modelo_no_instalado` si alguno no está en el catálogo. Emite `voz.motor_modelos_cambiados`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`: sin el permiso, 403; con el permiso y sin `empresas.todas`, 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
         "operationId": "actualizarModelosMotorIA",
         "parameters": [
           {
@@ -59949,7 +59982,7 @@
     },
     "/api/v1/mensajeria/voz/motores/{id}/probar": {
       "post": {
-        "description": "Permiso: `servidor_ia.administrar`. Pasos `conexion`, `compatibilidad`, `gpu`, `stt`, `tts`, `llm` (una frase fija de ida y vuelta), `medios` y `capacidad`; los que esta instalación no trae salen `omitido` y no vuelven `error` la prueba. Guarda el resultado en `ultimaPrueba`. No cuenta para los topes. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`; cualquier otro recibe 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "description": "Permiso: `servidor_ia.administrar`. Pasos `conexion`, `compatibilidad`, `gpu`, `stt`, `tts`, `llm` (una frase fija de ida y vuelta), `medios` y `capacidad`; los que esta instalación no trae salen `omitido` y no vuelven `error` la prueba. Guarda el resultado en `ultimaPrueba`. No cuenta para los topes. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`: sin el permiso, 403; con el permiso y sin `empresas.todas`, 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
         "operationId": "probarMotorIA",
         "parameters": [
           {
@@ -60062,7 +60095,7 @@
     },
     "/api/v1/mensajeria/voz/motores/{id}/rotar-token": {
       "post": {
-        "description": "Permiso: `servidor_ia.administrar`. Las anteriores siguen valiendo 24 h; con `revocar: true` dejan de valer en el acto y también se cambia el certificado de cliente. Si Iris se vio comprometido, rotar no basta: `iris-voz unpair` en el servidor y enlazar de nuevo. Emite `voz.motor_token_rotado`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`; cualquier otro recibe 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "description": "Permiso: `servidor_ia.administrar`. Las anteriores siguen valiendo 24 h; con `revocar: true` dejan de valer en el acto y también se cambia el certificado de cliente. Si Iris se vio comprometido, rotar no basta: `iris-voz unpair` en el servidor y enlazar de nuevo. Emite `voz.motor_token_rotado`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`: sin el permiso, 403; con el permiso y sin `empresas.todas`, 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
         "operationId": "rotarTokenMotorIA",
         "parameters": [
           {

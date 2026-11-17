@@ -1319,7 +1319,7 @@ Cualquier otra ruta o método responde 404 **en la puerta**, sin llegar a Ollama
   con `//`, `.` o `..`: 404 sin normalizar.
 - **Decodifica y reserializa.** La petición debe ser JSON de **1 MB** como máximo. La puerta la
   decodifica con una **lista cerrada de campos** (`model`, `messages`, `stream`, `temperature`,
-  `max_tokens` ≤ tope del servidor, `response_format`, `tools`, `tool_choice` —solo `"auto"` o
+  `max_tokens` (por encima del tope del servidor se recorta al tope; no es un error), `response_format`, `tools`, `tool_choice` —solo `"auto"` o
   `"none"`—; cualquier otro campo, también dentro de `messages` y `tools` fuera de su esquema,
   → 422 `campo_no_permitido`) y **arma una petición nueva** hacia Ollama con solo esos campos.
   `keep_alive` y el tamaño de contexto **no los decide el cliente**: los fija el paquete en el
@@ -1423,6 +1423,14 @@ instalable aparte, construido solo para ese servidor.
   supone**, y **en los dos sentidos**: Iris comprueba su versión contra `irisMin`/`irisMax` y la
   del paquete contra su `vozMin`; la puerta comprueba la versión de Iris (cabecera firmada
   `X-Iris-Version`) contra su rango y responde 426 `iris_incompatible` si no entra.
+  **Binarios de desarrollo:** un Iris sin versión (`0.0.0-dev`) o construido con commits después
+  de la etiqueta (lo que da `git describe`: `v0.27.0-36-g<sha>`, con o sin `-dirty`) no equivale a
+  ninguna versión publicada: **no se compara con el rango** y se trata como compatible en los dos
+  lados (Iris lo avisa en su registro). Solo una versión publicada exacta fuera del rango es
+  incompatible. **«Activar» un servidor incompatible responde 409 `incompatible`** (con el motivo
+  en `errors[0].rule`: `iris_antiguo`, `iris_nuevo`, `paquete_antiguo` o `protocolo`): no se activa
+  algo que Iris no va a usar. Si deja de ser compatible ya activado (se actualizó uno de los dos),
+  el latido lo deja en `incompatible`.
 - **Comprobación de compatibilidad:** `GET /voz/v1/version` →
   `{ version, protocolo, irisMin, irisMax, gpu: { modelo, vramMb }, catalogo }`. Se comprueba
   **al enlazar** (el manifiesto va en la respuesta de `/enlazar`), **en cada latido** (`/salud`) y
@@ -1547,6 +1555,15 @@ entrega (§4.11) `stt`, `tts` y `medios` salen `omitido`; `llm` es obligatorio.
 (`servidor_ia.administrar`; evento `voz.motor_empresas_cambiadas`). De fábrica `null`: lo pueden
 usar todas. `activar` y `desactivar` emiten `voz.motor_activado` y `voz.motor_desactivado`;
 `voz.motor_enlazado` sale al completarse el intercambio del paso 4.
+
+**Desactivado.** Con el servidor `desactivado` Iris no le manda nada: generar (sugerencias,
+autónomo, resumen, categoría), «Probar» de la tarjeta (`POST /voz/motores/{id}/probar`), «Rotar»
+y «Probar» y los modelos del asistente responden **409 `servidor_desactivado`** sin tocar la red.
+Las credenciales no se borran (el borrado real es `iris-voz unpair`, en el servidor). **Salidas de
+`desactivado`:** (1) **activar de nuevo** con `POST /voz/motores/{id}/activar { huellaTls }` (la
+huella que muestra la tarjeta; rota el token y vuelve a `listo` en el primer latido), o (2)
+**enlazar de nuevo** con `POST /voz/motores/enlazar` (201, código nuevo), que es lo que toca si en
+el servidor se hizo `unpair` o se reinstaló.
 
 Eventos: `voz.motor_enlazado`, `voz.motor_estado_cambiado`, `voz.motor_token_rotado` (§8.1).
 Errores: 409 `motor_ya_enlazado`, 422 `url_no_permitida` (reglas de §16.1 del chat; aquí se permite
@@ -1677,10 +1694,11 @@ quienes tienen `servidor_ia.ver`. Mientras el servidor esté `no_disponible`, `d
 
 | Uso | Qué pasa |
 | --- | --- |
-| Sugerencia (botón o automática) | Falla **al instante**, sin llamar al servidor: `proveedor_no_disponible`, visible con «Reintentar». No gasta tokens |
+| Sugerencia (botón o automática) | Falla **al instante**, sin llamar al servidor: `error.codigo` = `servidor_ia_no_disponible` (o `servidor_desactivado`, o `servidor_ia_ocupado` si no hay plaza), visible con «Reintentar». No gasta tokens |
 | Asistente autónomo | No contesta: la conversación **pasa a una persona** (`asistente.paso_a_persona`, `motivo: sin_respuesta`) con la regla de siempre de §17 del chat |
 | Petición en curso cuando cae | Vence a su plazo (`PlazoIA`), **un solo intento**, y sigue la fila que le toque |
-| Resumen, categoría, «Probar mensaje» | Error visible; nada queda a medias |
+| Resumen, categoría, «Probar mensaje» | Error visible; nada queda a medias. «Probar mensaje» y «Probar» del asistente (`POST /asistente/probar`) responden el error propio: 502 `servidor_ia_no_disponible`, 409 `servidor_desactivado` o `servidor_ia_ocupado`, con texto llano (no «revisa la URL y la clave»: con el servidor de IA no hay) |
+| «Configurado» | Con `servidor_ia` es proveedor + modelo: no lleva URL ni clave en ningún camino (guardar, encender, probar, sugerir, autónomo, categorizar) |
 
 Cuando el servidor vuelve y pasa la comprobación de compatibilidad queda `listo` solo, sin
 intervención. No hay proveedor de reserva automático: cambiar a otro proveedor es una decisión de
@@ -1787,7 +1805,12 @@ rechazos; `caido` e `incompatible` se cierran tras 6 lecturas seguidas (1 minuto
 estado. Un servidor que va y viene es un solo episodio. **Enfriamiento de avisos:** la campana y
 el correo llevan como mucho **un aviso por tipo, servidor y hora** (por umbral: por cada uno de
 vram, disco, temperatura y saturación), por más episodios o cambios de estado que haya; el
-episodio sigue en el tablero. **Lo que se guarda:** de cada lectura, los escalares; la muestra
+episodio sigue en el tablero. **La campana no se queda callada:** otro episodio dentro de esa hora
+no crea un aviso ni manda otro correo, pero **reactiva el aviso que ya existe**: vuelve a no leído,
+`creadoEn` pasa a ser la hora del episodio nuevo y `datos.veces` (entero, desde 1) lleva la cuenta
+(«2 veces en esta hora»). El mismo evento repetido no cuenta. **Sin empresa elegida** (un admin
+de la instalación con varias empresas que no eligió ninguna), `GET /yo/avisos`, su resumen y
+«leer» devuelven solo los avisos de la instalación (`empresaId: null`) en vez de 422. **Lo que se guarda:** de cada lectura, los escalares; la muestra
 completa solo de la última lectura buena. Una lectura con más de 16 tarjetas se descarta
 entera; con más de 64 modelos se guardan los primeros 64 (el tablero no se queda ciego). Umbrales por instalación
 (`POST /servidor-ia/umbrales/actualizar { …, version }`, `servidor_ia.administrar`, auditado,

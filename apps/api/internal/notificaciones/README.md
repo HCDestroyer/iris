@@ -51,7 +51,9 @@ al log ni a la auditoría. La auditoría del dispositivo lleva `fin_fcm` (últim
   `voz.motor_estado_cambiado` (solo `no_disponible` e `incompatible`) y `servidor_ia.umbral_superado`
   y crea aviso y correo para cada persona activa con `servidor_ia.ver` y `empresas.todas` sin
   límite. Tipos `servidor_ia_caido`, `servidor_ia_incompatible` y como mucho uno por tipo, servidor y hora
-  (la clave lleva la hora: un servidor inestable no inunda la campana ni el correo). Son de la instalación: se ven en la
+  (la clave lleva la hora: un servidor inestable no inunda la campana ni el correo). Otro episodio en
+  esa hora reactiva el mismo aviso (no leído, `creadoEn` nuevo, `datos.veces` + 1), sin correo. Sin
+  empresa elegida, la campana devuelve solo estos avisos de la instalación (no 422). Son de la instalación: se ven en la
   campana con cualquier empresa activa. Los datos solo llevan números y un tipo de lista cerrada.
 - **Correo del sistema** (`correo.go`): un job `notificaciones.enviar_correo` por correo (6 intentos
   con espera exponencial), con el cliente SMTP de los buzones (`IRIS_CORREO_REDES_PERMITIDAS`,
