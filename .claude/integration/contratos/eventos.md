@@ -381,7 +381,8 @@ corrigió la categoría; `actor_id` = el agente). `asistente.ajustes_cambiados` 
 
 **Contrato, aún sin código:** cada etapa (E1–E4 de `voz.md` §1) emite los suyos cuando se
 implemente. Ninguno lleva texto de turnos, notas, documento, dígitos del teclado, SDP, audio,
-claves ni el número del cliente. Todos llevan `empresa_id`, salvo los del servidor de voz (null).
+claves ni el número del cliente. Todos llevan `empresa_id`, salvo los del servidor de voz
+(`voz.motor_*`), que van con `empresa_id: null` porque el servidor es de la instalación (voz.md §8.1).
 
 | Evento | Payload | Cuándo |
 | --- | --- | --- |
@@ -402,8 +403,9 @@ claves ni el número del cliente. Todos llevan `empresa_id`, salvo los del servi
 | `llamada.transcripcion_lista` | `llamada_id`, `transcripcion_id`, `empresa_id`, `origen` (`turnos` \| `grabacion`), `segmentos` (número) | E2: transcripción redactada guardada. |
 | `llamada.tomada` | `llamada_id`, `conversacion_id`, `empresa_id`, `usuario_id`, `de` (`asistente`) | E3: una persona tomó en vivo la llamada del asistente. |
 | `llamada.transferida` | `llamada_id`, `conversacion_id`, `empresa_id`, `usuario_id` (quien transfiere), `a_usuario_id` (o null), `a_cola_id` (o null) | E3: transferencia entre personas por el puente. |
+| `llamada.escucha_iniciada` / `llamada.escucha_terminada` | `llamada_id`, `conversacion_id`, `empresa_id`, `usuario_id` (quien escucha); `duracion_seg` (terminada) | E3: `llamadas.escuchar_en_vivo` (solo recepción; voz.md §3.8.1). |
 | `canal_mensajeria.llamadas_cambiadas` | `canal_id`, `empresa_id`, `campos[]`, `llamadas_activas` | `llamadas.configurar` sobre un número. |
-| `voz.ajustes_cambiados` | `empresa_id`, `campos[]` (las claves como `stt_clave_guardada` / `tts_clave_guardada`, nunca su valor) | `voz.configurar`. |
+| `voz.ajustes_cambiados` | `empresa_id`, `campos[]` (Iris no guarda claves de STT/TTS: viven en el servidor de voz) | `voz.configurar`. |
 | `voz.tope_alcanzado` | `empresa_id`, `tipo` (`asistente` \| `salientes`), `porcentaje` (80, 100), `mes`, `minutos`, `tope` | Una vez por umbral, mes y valor del tope. Al 100 % el asistente deja de contestar (suenan a personas). |
 | `voz.mal_uso_detectado` | `empresa_id`, `llamada_id`, `conversacion_id`, `tipo` (`inyeccion`, `extraccion_prompt`, `datos_de_terceros`, `suplantacion`, `abuso_coste`, `lenguaje`, `verificacion_fallida`, `herramienta_rechazada`), `regla`, `accion` (`aviso`, `paso_a_persona`, `corte`, `bloqueo`) | Uno por incidente (no por turno). Avisa al supervisor de la cola. |
 | `voz.numero_bloqueado` / `voz.numero_desbloqueado` | `empresa_id`, `bloqueo_id`, `hasta`, `motivo`, `usuario_id` (o null = automático) | Bloqueo del asistente de voz para un número (el número no va en el evento). |

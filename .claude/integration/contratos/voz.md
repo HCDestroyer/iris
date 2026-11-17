@@ -16,7 +16,8 @@ Decisiones ya tomadas (PM y líder), que este contrato no reabre:
 - El motor de voz corre en un **servidor privado dedicado con GPU**, distinto del de Iris. Lo que
   corre ahí se construye **exclusivamente para ese servidor** y se entrega como un paquete propio,
   «Iris Voz» (§4.7). **Por defecto todo es local** en ese servidor: STT, TTS y LLM (Ollama u otro
-  compatible); los proveedores externos son una opción por empresa.
+  compatible); los proveedores externos son una opción que cada empresa elige entre los que el servidor de voz
+  tiene instalados (sus claves viven solo en ese servidor, por instalación; §4.3).
 - El asistente de IA puede contestar llamadas, con reglas de seguridad de fábrica.
 - **Proveedor libre:** STT, TTS y LLM son adaptadores intercambiables, configurables por empresa.
 - Todo es configurable por empresa salvo lo que exige la seguridad (§7).
@@ -31,7 +32,7 @@ técnica (§9)**; los que más pesan están listados en §10.
 | --- | --- | --- |
 | **E1** Personas contestan en el panel | Llamadas **entrantes** de WhatsApp contestadas en el navegador; perdidas; fuera de horario y buzón de voz; la llamada queda en la conversación como mensaje de tipo `llamada`; nota posterior; «Devolver la llamada» con solicitud de permiso; botón «Llámanos» en mensajes; ajustes por número; grabación opcional (apagada de fábrica) | Solo mensajería y panel. **No necesita `cmd/voz`** |
 | **E2** El asistente contesta | El asistente atiende la llamada desde `cmd/voz`: informa (`buscar_manual`, `estado_del_servicio`), `crear_ticket` con confirmación y `pasar_a_persona` (sin traspaso en vivo: ofrece devolución de llamada o seguir por chat). Nivel de verificación `numero` | E1, `cmd/voz`, prueba técnica §9 aprobada |
-| **E3** Verificación fuerte y traspaso en vivo | Verificación `fuerte` por teclado (DTMF); `consultar_saldo`, visitas (`ofrecer_visita`, `agendar_visita`), promesa y reconexión con las mismas reglas de §17 del chat; una persona **toma la llamada en vivo** (`tomar`) y transferencia entre personas | E2 |
+| **E3** Verificación fuerte y traspaso en vivo | Verificación `fuerte` por teclado (DTMF); `consultar_saldo`, visitas (`ofrecer_visita`, `agendar_visita`), promesa y reconexión con las reglas de §17 del chat **más** las de voz (todo eso pide `fuerte` en la llamada, §5.1.1); **escuchar en vivo**; una persona **toma la llamada en vivo** (`tomar`) y transferencia entre personas | E2 |
 | **E4a** Centralita Issabel, solo lectura | Conexión AMI de solo lectura + CDR: ventana con el cliente cuando suena la extensión del usuario; la llamada queda en la ficha del cliente y, si se elige, en un ticket | Independiente de E1–E3 |
 | **E4b** Centralita, llamar y grabaciones | Clic-para-llamar (`Originate`), extensión por usuario, grabaciones de Issabel servidas por Iris con su ACL | E4a |
 
@@ -146,6 +147,11 @@ Un tramo por cada participante del lado del negocio, en orden.
 | `turnos` | Con `asistente`: cuántos turnos habló |
 | `puente` | bool: el audio de este tramo pasa por `cmd/voz` (§3.8). `false` cuando el navegador habla directo con Meta |
 
+**`mensajeria.llamada_candidatos`** (`llamada_id`, `empresa_id`, `usuario_id`, `desde`,
+`retirado_en`, `motivo_retiro`): a quién se le ofreció la llamada. La escribe la misma transacción
+que decide a quién le suena (§3.5) y es lo que comprueba `reclamar` (§3.3): solo un candidato vivo
+puede reclamar.
+
 ### 2.5 `mensajeria.llamada_permisos` (permiso del contacto para que lo llamemos)
 
 Una fila por `(empresa_id, canal_id, numero)`.
@@ -167,9 +173,11 @@ auditar.
 
 **`mensajeria.voz_ajustes`** (una fila por empresa; sin fila = valores de fábrica, `version: 0`):
 `activo`, `asistente_contesta` (`nunca` \| `sin_nadie` \| `siempre_primero`, como `modoAutonomo`),
-proveedores (`stt_proveedor`, `stt_url`, `stt_modelo`, `stt_clave` cifrada, `tts_*` igual, `tts_voz`),
+proveedores (`stt_proveedor`, `stt_modelo`, `tts_proveedor`, `tts_modelo`, `tts_voz`, `llm_voz`:
+ids del catálogo del servidor de voz; **sin URL ni clave**, §4.3),
 límites (§7.2), `grabar` (`nunca` \| `todas` \| `asistente`), `transcribir` (bool),
-`retencion_grabaciones_dias`, `retencion_transcripciones_dias`, `tope_minutos_asistente_mes`,
+`retencion_grabaciones_dias`, `retencion_transcripciones_dias`, `retencion_turnos_voz_dias`,
+`aviso_escucha` (§3.8.1), límites sin cliente asociado (§7.2), `tope_minutos_asistente_mes`,
 `tope_minutos_salientes_mes`, `saludo` (texto), `despedida` (texto), `acciones_voz` (qué acciones del
 perfil del asistente valen también por voz; nunca más que las del perfil).
 
@@ -191,12 +199,33 @@ Los ajustes del asistente (`mensajeria.asistente_ajustes`, perfiles, categorías
 `vence_en` (retención), `borrada_en`, `borrada_por`, `motivo_borrado`. El audio nunca sale en una URL
 pública ni firmada de larga vida: se sirve por `GET /llamadas/{id}/grabacion` con sesión y permiso.
 
+**Descarga desde Meta** (job; al llegar `call_recording_available`): solo `https` y solo a una
+**lista cerrada de hosts** de Meta fijada en el código (el de la Graph API y los de descarga de
+medios que confirme la prueba, §9); cualquier otro host se rechaza sin conectar. **Sin
+redirecciones** (un 3xx es un error; si Meta redirige de verdad, el destino debe estar en la misma
+lista y el token **no** se reenvía). El token del número solo se manda a esos hosts. Tope de tamaño
+(`duracionMaxPersonaMin` × un máximo de bytes por minuto, y nunca más de 60 MB), cortando la
+descarga al pasarlo. Antes de guardar se valida que sea **Ogg/Opus** de verdad (cabeceras `OggS` y
+`OpusHead`, una sola pista de audio, duración coherente con la llamada); si no, `fallida`. Las
+ventanas de captura por teclado se **silencian antes de guardar** (§5.5).
+
 **`mensajeria.llamada_transcripciones`**: `id`, `llamada_id`, `empresa_id`, `estado` (`pendiente`
 \| `lista` \| `fallida` \| `borrada`), `segmentos` (jsonb: `[{ t, quien: cliente|asistente|agente,
 texto }]`, **ya redactado** con `RedactarParaIA` antes de guardarse: nunca existe una versión sin
 redactar en la base), `origen` (`turnos`: lo que el STT entregó durante la llamada con el asistente;
 `grabacion`: transcrita después), `vence_en`, `borrada_en`. Los tramos de captura por teclado
 aparecen como `(el cliente marcó en el teclado: ***)`.
+
+**Dónde se transcribe.** Siempre en el **servidor de voz**, por el mismo canal autenticado (§4.2):
+mensajería envía el audio de la grabación en flujo a `POST /voz/v1/transcribir` y recibe los
+segmentos; el motor **no guarda** ni el audio ni el texto (memoria, y se descarta al responder).
+Nunca se manda una grabación a otro servicio desde mensajería.
+
+**`transcribir: false` no evita los turnos del asistente.** Para funcionar, el asistente guarda el
+texto de cada turno (lo que entendió el STT y lo que dijo) en `mensajeria.asistente_turnos`, igual
+que en el chat y **ya redactado**. Eso existe aunque la transcripción esté apagada, se ve con
+`llamadas.ver_transcripcion` y tiene su propia retención (`retencionTurnosVozDias`, 30 de fábrica):
+al vencer, el texto de los turnos de voz se borra y quedan solo ids, tiempos y resultados.
 
 ### 2.8 Mal uso, uso y motores
 
@@ -212,11 +241,13 @@ automático), `levantado_por`, `levantado_en`.
 
 **`mensajeria.voz_uso`** (por empresa y mes en `America/Guatemala`): `segundos_asistente`,
 `segundos_reservados`, `segundos_personas`, `segundos_salientes`, `stt_segundos`, `tts_caracteres`,
-`llamadas`, `cortes_por_tope`. La reserva se hace en la misma sentencia que la comprobación, como
+`llamadas`, `cortes_por_tope`. Los segundos los mide **mensajería** con su propio reloj (de `accept` a `terminate`) y los corrige
+con `duration` de Meta cuando llega; **nunca** con las métricas que reporta el motor. La reserva se hace en la misma sentencia que la comprobación, como
 `tokens_autonomo_reservados` (§17.8.2 del chat).
 
 **`mensajeria.voz_motores`** (por instalación, no por empresa): `id`, `nombre`, `url`,
-`token` (cifrado con `IRIS_CLAVE_CIFRADO`: mensajería es quien lo presenta) y `token_anterior`
+`token` (cifrado con `IRIS_CLAVE_CIFRADO`: es un secreto compartido para la firma, §4.2),
+`cert_cliente` y `cert_cliente_clave` (cifrada; mTLS), `cert_cliente_vence_en` y `token_anterior`
 (rotación), `token_rotado_en`, `huella_tls` (pin del certificado), `ips[]` permitidas,
 `capacidad_declarada`, `en_curso`, `estado` (`sin_enlazar` \| `listo` \| `degradado` \|
 `no_disponible` \| `incompatible` \| `desactivado`), `ultimo_latido_en`, `version_motor`,
@@ -261,8 +292,8 @@ dígitos), `usuario_id`, `activa`. Única por `(centralita_id, extension)` y una
   Una perdida **no** detiene el SLA y crea la devolución pendiente.
 - **`asistente_*`:** el turno de voz es un turno de `mensajeria.asistente_turnos` con `canal = voz`
   y `llamada_id`; acciones, verificaciones y ofertas de visita usan sus tablas actuales. La
-  verificación `fuerte` obtenida en una llamada vale en la conversación con la misma vigencia
-  (`verificacionFuerteMin`) y **además se pierde al terminar la llamada** (§5.5).
+  verificación `fuerte` de una llamada queda **ligada a su `llamada_id`**: el chat no la hereda y
+  una `fuerte` del chat no vale en una llamada (§5.5).
 
 ## 3. API del panel
 
@@ -312,11 +343,13 @@ responde **404**.
    **sin SDP**.
 4. **Reclamar (atómico).** `POST /llamadas/{id}/reclamar` (`llamadas.contestar`), sin cuerpo. El
    servidor hace **una sola sentencia**:
-   `UPDATE mensajeria.llamadas SET estado = 'conectando', reclamada_por = $u, reclamada_hasta = now() + interval '12 seconds' WHERE id = $1 AND estado = 'sonando' RETURNING …`.
+   `UPDATE mensajeria.llamadas l SET estado = 'conectando', reclamada_por = $u, reclamada_hasta = now() + interval '12 seconds' WHERE l.id = $1 AND l.empresa_id = $empresa AND l.estado = 'sonando' AND EXISTS (SELECT 1 FROM mensajeria.llamada_candidatos c WHERE c.llamada_id = l.id AND c.usuario_id = $u AND c.retirado_en IS NULL) RETURNING …`.
+   Quien no es candidato vivo de **esa** llamada en **esa** empresa recibe 404, aunque vea la
+   conversación.
    Gana quien actualiza la fila. Respuesta 200
    `{ llamada, sdpOferta, ice: { servidores: [] }, venceEn }`. El que pierde recibe **409
    `llamada_ya_contestada`** (`detail` con el nombre de quien la tiene) y a todos los demás les llega
-   `llamada_actualizada` (deja de sonarles). Repetir con la misma `Idempotency-Key` devuelve la misma
+   `llamada_actualizada` (deja de sonarles). Repetir con la misma `Idempotency-Key` devuelve —con el SDP **releído de la llamada**, nunca guardado en la idempotencia— la misma
    respuesta al ganador.
 5. **Responder.** El navegador pide el micrófono, crea un `RTCPeerConnection`, aplica `sdpOferta`,
    genera la respuesta y manda `POST /llamadas/{id}/contestar { sdpRespuesta }`. El servidor valida
@@ -341,6 +374,39 @@ responde **404**.
 `reclamar`, `contestar`, `confirmar-medio`, `soltar`, `colgar` y `rechazar` son casos de uso con
 auditoría. El SDP **no** va en la auditoría ni en los eventos (queda su sha256).
 
+**Quién puede seguir (M1).** Después de `reclamar`, la llamada es de quien la reclamó:
+`contestar`, `confirmar-medio`, `soltar` y, en salientes, `GET /llamadas/{id}/respuesta-sdp` exigen
+`reclamada_por = actor` (o `usuario_id = actor` en una saliente) y la empresa activa; **cualquier
+otro recibe 404**, también un supervisor. La respuesta guardada por `Idempotency-Key` de `reclamar`,
+`contestar` y `llamar` **no contiene SDP** (se guarda sin `sdpOferta` / `sdpRespuesta` y se rellena
+al repetir leyendo `llamadas.sdp_oferta`, mientras exista y solo para el mismo actor). Terminada la
+llamada el SDP se borra y la repetición responde 409 `llamada_terminada`.
+
+**Excepción documentada a la regla 3 de `CLAUDE.md` (webhook en línea).** La regla dice «se guarda en
+entrantes y se procesa en un job». El webhook `connect` se guarda en `mensajeria.entrantes` igual que
+todos (misma deduplicación, mismo reproceso), pero **además se procesa en la misma petición**. Por
+qué: Meta deja sonar 30–60 s y una llamada que espera a la cola de jobs se pierde; es el único
+webhook con plazo de segundos. Qué lo mantiene seguro: (1) el procesamiento es el **mismo caso de
+uso** que usaría el job (`voz.RecibirLlamada`), no lógica en el handler; (2) es idempotente por la
+unicidad de `id_externo`: si el job lo vuelve a ejecutar, o Meta reintenta, no hace nada; (3) si el
+proceso en línea falla, el webhook responde 200 igualmente (ya está guardado) y el job lo reintenta
+de inmediato con prioridad; (4) la transacción no llama a nadie por red. Solo `connect` tiene esta
+excepción: `terminate`, `call_recording_available` y los estados van por el job normal.
+
+**Llamadas a la Graph API, fuera de la transacción (dos fases).** Ninguna transacción espera a Meta:
+
+1. **Intención** (transacción): se valida, se cambia el estado (`conectando`, `marcando`…), se
+   anota `accion_meta` (`pre_accept`, `accept`, `reject`, `terminate`, `connect`) con
+   `accion_meta_estado = pendiente` y una clave propia, auditoría incluida. Commit.
+2. **Llamada a Meta**, sin transacción abierta, con plazo corto (4 s).
+3. **Resultado** (transacción): `hecha` o `fallida`, el cambio de estado que corresponda y su evento.
+
+Si el proceso muere entre 1 y 3, el mantenimiento (cada 5 s para llamadas vivas) encuentra la
+intención `pendiente`: `terminate` y `reject` se repiten (son idempotentes en Meta para un
+`call_id`); `pre_accept`, `accept` y `connect` **no** se repiten a ciegas: la llamada pasa a
+`fallida` (`error_meta`) y, si Meta sí la había conectado, el `terminate` siguiente la cierra. Lo
+mismo vale para la asignación a `cmd/voz` (§4.3).
+
 **Por qué el navegador habla directo con Meta:** el audio no pasa por el servidor de Iris (menos
 latencia, ningún puerto UDP en Iris, y E1 no depende del servidor dedicado). Meta es ICE-lite con IP
 pública, así que el navegador no necesita TURN en una red normal; `ice.servidores` existe para las
@@ -352,7 +418,8 @@ redes que bloquean UDP (un TURN propio, opcional, §10).
   **disponible**. Sin panel abierto no es candidato: nunca se le reserva una llamada a alguien que
   no puede contestarla.
 - El panel pide el permiso del micrófono al encender «Recibir llamadas» (un interruptor por usuario
-  y navegador, `POST /llamadas/mi-estado { recibe: true }`), no cuando ya está sonando. Sin
+  y navegador, acciones `POST /llamadas/recibir/encender` y `POST /llamadas/recibir/apagar`, con
+  `llamadas.contestar`; `GET /llamadas/recibir` dice cómo está), no cuando ya está sonando. Sin
   micrófono concedido, `recibe` es `false`.
 - Varias pestañas: suena en todas; `reclamar` es atómico también entre pestañas del mismo usuario
   (la segunda recibe 409 `llamada_ya_contestada` con `mismaPersona: true` y el panel solo cierra el
@@ -443,6 +510,33 @@ traspaso en vivo se hace con un **puente en `cmd/voz`**:
   puede encender `siemprePorMotor` (todas las llamadas contestadas por personas pasan por el puente;
   más latencia y dependencia del servidor dedicado; apagado de fábrica).
 - `POST /llamadas/{id}/silenciar` no existe: silenciar el micrófono es local del navegador.
+- **`tomar` y `transferir` están bloqueados durante una captura por teclado** (§5.5): responden 409
+  `captura_en_curso` y el panel reintenta solo al terminar la captura (como mucho 30 s). Así los
+  dígitos nunca llegan al navegador de nadie.
+
+#### 3.8.1 Escuchar en vivo (E3)
+
+Un supervisor puede **oír** una llamada en curso sin participar.
+
+- `POST /llamadas/{id}/escuchar` (`llamadas.escuchar_en_vivo`, **sensible**; de fábrica solo
+  `supervisor` y `admin`, y solo llamadas de las colas que supervisa) → `{ sdpOferta }` de `cmd/voz`;
+  `POST /llamadas/{id}/escuchar/contestar { sdpRespuesta }`; `POST /llamadas/{id}/dejar-de-escuchar`.
+- **Solo recepción:** la conexión se negocia `recvonly` en el navegador y `cmd/voz` no acepta ni
+  reenvía audio de quien escucha. No puede hablar, ni «susurrar» al agente, ni tomar la llamada
+  desde ahí (para eso está `tomar`).
+- Solo existe en llamadas cuyo audio pasa por `cmd/voz` (las del asistente y las de puente). En
+  una llamada que una persona contestó directo con Meta: 422 `escucha_no_disponible`.
+- **Mudo durante las capturas por teclado:** `cmd/voz` no reenvía nada a quien escucha mientras
+  dura una captura.
+- **Auditado** cada inicio y fin (`llamadas.escuchar_en_vivo`, con duración), evento
+  `llamada.escucha_iniciada`, y como máximo 2 personas escuchando una llamada.
+- **Visible:** el agente que atiende ve en su pantalla «<nombre> está escuchando» (siempre; no se
+  puede escuchar a un compañero a escondidas). Hacia el cliente, `avisoEscucha` (configurable según
+  la ley local; fábrica `en_saludo`): `en_saludo` añade al saludo «Esta llamada puede ser
+  supervisada para mejorar el servicio.»; `al_escuchar` lo dice una frase fija cuando alguien empieza
+  a escuchar (solo posible con el asistente); `nunca` exige que un admin lo marque expresamente y
+  queda auditado.
+- El asistente no cambia su comportamiento porque alguien escuche, ni lo sabe el modelo.
 
 ### 3.9 Ajustes
 
@@ -458,9 +552,8 @@ traspaso en vivo se hace con un **puente en `cmd/voz`**:
 - `POST /canales/{id}/llamadas/sincronizar`: lee de Meta los ajustes del número y marca diferencias;
   los cambios hechos en Iris se escriben en Meta en un pendiente con reintentos.
 - `GET /voz/ajustes`, `POST /voz/ajustes/actualizar` (`voz.configurar`, **solo admin**): lo de
-  `voz_ajustes`. Claves `sttClave` / `ttsClave` de solo escritura con `*GuardadaEn`; misma regla de
-  «la clave no viaja a otro servidor» (422 `clave_requerida`) y las mismas reglas de URL (422
-  `url_no_permitida`) de §16.1 del chat.
+  `voz_ajustes`. STT, TTS y LLM de voz se **eligen** entre los que declara el catálogo del servidor de voz
+  (`GET /voz/catalogo`); aquí **no hay URL ni clave** que escribir (§4.3).
 - `POST /voz/probar { texto? }` (`voz.configurar`): prueba TTS → STT de ida y vuelta en el motor con
   una frase fija o la escrita (≤ 200) → `{ estado, latenciaSttMs, latenciaTtsMs, latenciaLlmMs,
   textoReconocido, detalle }`. Mismo error único que `asistente/probar`. No cuenta para el tope.
@@ -519,6 +612,82 @@ traspaso en vivo se hace con un **puente en `cmd/voz`**:
 | `meta_rechazo` | 502 | Meta rechazó la acción (`detail` fijo, sin el mensaje de Meta) |
 | `grabacion_no_disponible` | 404 | Sin grabación, vencida o borrada (también sin permiso) |
 
+### 3.12 Centralita Issabel (E4)
+
+Solo **mensajería** abre conexiones: hacia el AMI y hacia el origen de las grabaciones. Issabel
+nunca llama a Iris y `cmd/voz` no participa.
+
+**Conexión** (`centralita.configurar`, sensible):
+
+- `GET /centralitas`, `GET /centralitas/{id}`, `POST /centralitas`,
+  `POST /centralitas/{id}/actualizar|probar|activar|desactivar`. `secreto` y la credencial de
+  grabaciones son de solo escritura (`*GuardadoEn`), cifradas, y no viajan a otro host: cambiar
+  `host`, `puerto` o `grabacionesUrl` sin volver a escribir la credencial → 422 `clave_requerida`.
+- **`host` y `grabacionesUrl` pasan las reglas de URL de §16.1 del chat** (se permiten IP privadas;
+  bloqueados siempre link-local, metadata, loopback salvo la variable de entorno, sin redirecciones,
+  revisión después de resolver el DNS y en cada conexión). `puerto` solo 5039 (AMI sobre TLS) salvo
+  que un admin de la instalación permita otro; el AMI sin TLS (5038) **no se admite**. Huella TLS
+  fijada al probar; si cambia, la conexión se detiene hasta que un admin la confirme.
+- `probar` hace `Login` + `Ping` + comprobación de permisos efectivos del usuario AMI: si en modo
+  `lectura` el usuario **tiene** permisos de escritura, responde `estado: "permisos_de_mas"` y no
+  deja activar (el mínimo privilegio se comprueba, no se supone). Error único para todo lo demás.
+
+**Extensiones** (`centralita.asignar_extension`): `GET /centralitas/{id}/extensiones`,
+`POST /centralitas/{id}/extensiones/asignar { usuarioId, extension }`,
+`POST /centralitas/{id}/extensiones/{extensionId}/quitar`. `extension`: `^[0-9]{2,8}$`.
+
+**Eventos del AMI (E4a).** Iris se suscribe solo a las clases `call` y `cdr` y **descarta todo
+evento cuya extensión no esté registrada y activa** en `centralita_extensiones` (los demás no se
+guardan ni se miran: la centralita puede tener tráfico que no es de Iris). De cada evento se toman
+campos de una lista cerrada (`Linkedid`, `Uniqueid`, `CallerIDNum`, `ConnectedLineNum`, `Exten`,
+`Channel` solo para extraer la extensión, estado, tiempos, `recordingfile` del CDR); el resto se
+ignora. Todos son texto no confiable (§6.2, fila 24). El número se normaliza a E.164 y se asocia a
+un cliente con la misma regla de §3.4 del chat (una sola coincidencia; si no, sin cliente).
+
+- Feed: `llamada_entrante` con `origen: "centralita"` **solo al usuario dueño de la extensión**: la
+  «ventana con el cliente» (nombre, servicios y tickets abiertos de la instantánea). No hay
+  `reclamar`: se contesta en el teléfono.
+- `POST /llamadas/{id}/vincular-ticket { ticketId }` y `POST /llamadas/{id}/crear-ticket`
+  (`tickets.crear`), `POST /llamadas/{id}/anotar`. La llamada se ve en la ficha del cliente y en el
+  ticket, **no en la bandeja** (decisión del líder).
+
+**Clic-para-llamar (E4b)** — `POST /centralitas/llamar` (`centralita.llamar`):
+
+```json
+{ "clienteId": 4101, "telefono": "movil" }      // o { "ticketId": 4812, "telefono": "principal" }
+```
+
+- **El destino lo resuelve el servidor**: `telefono` es `principal` \| `movil` \| `contacto` y el
+  número sale de la instantánea de Argos del cliente (o del cliente del ticket) en la empresa
+  activa. **No existe un campo de número libre.** Un cliente o ticket que el usuario no ve: 404.
+- **Solo nacional de fábrica:** el número debe ser `+502` y 8 dígitos; otros países, números cortos,
+  de tarificación especial y los que empiezan por códigos de servicio se rechazan
+  (422 `destino_no_permitido`). Una empresa puede añadir prefijos a una lista explícita
+  (`prefijosPermitidos`, solo admin).
+- **Límite por usuario y día** (`llamadasCentralitaPorUsuarioDia`: 60 de fábrica, 1–300) y por
+  empresa; 422 `limite_llamadas`.
+- La extensión de origen es **la del usuario** (422 `sin_extension` si no tiene); no se puede llamar
+  desde la de otro.
+- **Lo que va al AMI lo arma el servidor** con plantilla fija: `Action: Originate`,
+  `Channel: Local/<extension>@<contexto_salida>`, `Exten: <prefijo_salida><digitos>`,
+  `Context: <contexto_salida>`, `Priority: 1`, `CallerID` fijo de la centralita, `Async: true`,
+  `ActionID` propio. Nunca `Application`, `Data`, `Variable` ni canales distintos de `Local/`.
+  **Validación estricta de cada campo** antes de escribir en el socket: extensión y dígitos
+  `^[0-9]+$`; `contexto_salida` y `prefijo_salida` `^[A-Za-z0-9_-]{0,40}$` al guardarlos y otra vez
+  al usarlos; **ningún campo puede contener CR, LF, NUL ni dos puntos** (un salto de línea es
+  inyección de cabeceras AMI): si aparece, no se envía nada y queda un intento de mal uso.
+- Respuesta 202 `{ llamada }` (`marcando`); el resto llega por los eventos del AMI. Dos fases como
+  en §3.3. Auditoría con cliente y extensión, **sin el número** (queda en la llamada).
+
+**Grabaciones de la centralita:** se traen con la credencial de solo lectura, validando el nombre
+contra el `recordingfile` del CDR de **esa** llamada (`^[A-Za-z0-9._-]+$`, sin rutas), con las
+mismas reglas de descarga de §2.7 (host fijo = el configurado, sin redirecciones, tope de tamaño,
+formato validado: WAV o el que confirme la prueba) y se sirven solo por
+`GET /llamadas/{id}/grabacion` con `llamadas.escuchar_grabacion`.
+
+Errores: `destino_no_permitido`, `sin_extension`, `centralita_desconectada` (503),
+`permisos_de_mas`, `limite_llamadas`, `url_no_permitida`, `clave_requerida`.
+
 ## 4. Interfaz mensajería ↔ `cmd/voz`
 
 ### 4.1 Qué es `cmd/voz` y por qué no toca la base
@@ -531,8 +700,8 @@ detecta el teclado (DTMF). **No decide nada de negocio.**
 **No tiene acceso a la base de Iris.** Justificación:
 
 - Es el único componente con un puerto abierto a internet que procesa entrada hostil en tiempo real
-  (RTP, audio, voz transcrita). Si lo comprometen, sin credenciales de base ni de Argos lo peor que
-  se pierde es el audio de las llamadas en curso, no los datos de los clientes.
+  (RTP, audio, voz transcrita). Sin credenciales de base, de Meta ni de Argos, un motor comprometido
+  queda acotado a las llamadas que tiene vivas (el alcance exacto está abajo).
 - El aislamiento por empresa y cliente queda en **un** sitio (mensajería), con el ACL, la auditoría
   y el outbox que ya existen. `cmd/voz` no puede saltárselos porque no conoce a ningún cliente.
 - Postgres no se expone fuera del servidor de Iris.
@@ -542,30 +711,64 @@ detecta el teclado (DTMF). **No decide nada de negocio.**
 Tampoco tiene el token de los números de Meta: las llamadas a la Graph API (`pre_accept`, `accept`,
 `terminate`) las hace **siempre mensajería**.
 
+**Qué puede y qué no puede un motor comprometido (dicho sin adornos).** Quien controle el servidor
+de voz:
+
+- **Oye y lee las llamadas en curso**: el audio de las dos partes, lo que transcribe el STT y todo
+  texto que mensajería le manda decir (incluido un saldo dicho con `fuerte` o un número de ticket).
+- **Ve los documentos tecleados** en las capturas de verificación mientras ocurren (los reúne él).
+- **Puede falsificar turnos y teclas**: inventar que el cliente dijo «sí», que marcó 1 o que tecleó
+  un documento. Es decir, **equivale al cliente de cada llamada viva, con su nivel de
+  verificación**, y puede hacer lo que ese cliente podría hacer por voz.
+- Si la empresa usa el LLM del servidor de voz (§4.4), además ve los prompts y los resultados de
+  herramientas de esas llamadas (nunca documentos ni montos: no se le dan al modelo, §17.9).
+- **No puede:** crear llamadas ni hacer que una exista (nacen del webhook firmado de Meta), elegir
+  de qué cliente o empresa es una llamada, actuar sobre un cliente sin una llamada viva suya, leer
+  la base, llamar a la API de Iris, a Meta ni a Argos, ni leer llamadas pasadas (no las guarda).
+
+Lo que limita el daño, además del aislamiento: una sola ejecución por herramienta con efecto y
+llamada (§5.3), los límites por llamada, por número y por día (§7.2), los minutos medidos por
+mensajería y no por el motor, la verificación contra Argos (un documento inventado no coincide), el
+SDP del motor validado como cualquier otro (§6.2, fila 11) y el corte inmediato al desactivar el
+motor en el panel (todas sus llamadas se terminan desde mensajería).
+
 ### 4.2 Transporte y autenticación
 
 **Solo mensajería abre conexiones hacia `cmd/voz`**; `cmd/voz` nunca llama a Iris. Así la
 superficie del servidor de Iris no crece (no hay un endpoint interno nuevo que proteger) y el motor
 no guarda ninguna credencial de Iris.
 
-- HTTPS (TLS 1.3) en un puerto TCP de `cmd/voz` (`IRIS_VOZ_PUERTO`, 8443), con dos capas:
-  1. **El motor se autentica ante mensajería** con su certificado TLS; mensajería lo **fija**
-     (`huella_tls`: la del certificado o la de una CA privada de la instalación). No se confía en
-     las CA públicas.
-  2. **Mensajería se autentica ante el motor** con un **token de servicio**
-     (`Authorization: Bearer iris_voz_…`, 32 bytes aleatorios; el motor guarda solo su hash) **y**
-     una firma por petición: `X-Iris-Firma: HMAC-SHA256(token, marca_de_tiempo + "." + cuerpo)` con
-     `X-Iris-Marca` (tolerancia de 30 s) y `X-Iris-Nonce` (rechazo de repeticiones 60 s).
-  3. **Lista de IP** en el cortafuegos del servidor dedicado y en `cmd/voz`
-     (`IRIS_VOZ_IPS_PERMITIDAS`): el puerto de control solo acepta la IP de salida de Iris.
-  4. Opcional y recomendado: certificado de cliente (mTLS) con la misma CA privada, o un túnel
-     WireGuard entre los dos servidores. No sustituyen al token: se suman.
-- **El token nunca lo copia una persona:** nace en el emparejamiento (§4.8) y viaja por el canal ya
-  autenticado. **Rotación:** automática cada 30 días y manual con
-  `POST /voz/motores/{id}/rotar-token`; mensajería entrega el nuevo al motor por el canal
-  (`POST /voz/v1/credencial`, autenticado con el vigente); el motor acepta el nuevo y el anterior
-  durante 24 h y después solo el nuevo. En el servidor dedicado se guarda solo su hash, como
-  secreto de Docker (nunca en el repo ni visible en `docker inspect`).
+- HTTPS (TLS 1.3) en un puerto TCP del servidor de voz (`IRIS_VOZ_PUERTO`, 8443). Cuatro capas,
+  **todas obligatorias**:
+  1. **mTLS.** El servidor de voz presenta su certificado y mensajería lo **fija** (`huella_tls`);
+     mensajería presenta un **certificado de cliente** propio (par de claves generado en Iris al
+     emparejar, clave privada cifrada con `IRIS_CLAVE_CIFRADO`) y el servidor de voz fija su huella.
+     No se confía en las CA públicas ni en ninguna CA: son dos huellas intercambiadas en el
+     emparejamiento (§4.8). Sin certificado de cliente válido la conexión se corta en el saludo TLS,
+     antes de leer una sola cabecera.
+  2. **Firma por petición**, sin `Authorization: Bearer` (el token nunca viaja):
+     `X-Iris-Firma: HMAC-SHA256(K, método + "\n" + ruta_con_query + "\n" + marca + "\n" + nonce + "\n" + sha256(cuerpo))`,
+     con `K = HKDF-SHA256(token, info = "iris-voz/firma/v1")`, `X-Iris-Marca` (segundos Unix;
+     ventana de ±30 s) y `X-Iris-Nonce` (128 bits aleatorios; el motor rechaza un nonce repetido
+     durante 90 s, más que la ventana). Comparación en tiempo constante. Cubre método y ruta: una
+     petición capturada no sirve para otro endpoint. El WebSocket firma su petición de apertura y,
+     dentro, cada mensaje lleva `seq` y un HMAC con una clave de sesión
+     (`HKDF(token, info = "iris-voz/canal/v1" + llamadaId + nonce de apertura)`).
+  3. **Lista de IP** en el cortafuegos del servidor dedicado y en el propio servicio: el puerto de
+     control solo acepta la IP de salida de Iris.
+  4. Las respuestas del motor que importan (`sdpRespuesta`, `/version`) van firmadas igual, con
+     `info = "iris-voz/respuesta/v1"`, para que una terminación TLS intermedia no pueda alterarlas.
+  Un túnel WireGuard entre los dos servidores es opcional y se suma; no sustituye nada.
+- **Dónde vive el token.** Es un secreto compartido (hace falta en los dos lados para el HMAC), así
+  que **ninguno guarda «solo el hash»**: en Iris va cifrado con `IRIS_CLAVE_CIFRADO`
+  (`voz_motores.token`); en el servidor de voz, como secreto de Docker en un archivo con permisos
+  mínimos (nunca en el repo, ni en una variable visible en `docker inspect`, ni en logs). Lo único
+  que se guarda como hash es el **código de enlace**.
+- **El token nunca lo copia una persona:** nace en el emparejamiento (§4.8). **Rotación:**
+  automática cada 30 días y manual con `POST /voz/motores/{id}/rotar-token`; mensajería entrega el
+  nuevo por el canal (`POST /voz/v1/credencial`, firmado con el vigente); los dos lados aceptan el
+  nuevo y el anterior durante 24 h y después solo el nuevo. El certificado de cliente se renueva en
+  la misma operación cuando le quedan menos de 30 días.
 - Sin `voz_motores` activo o sin token: todo lo que necesita el motor responde 503
   `motor_no_disponible` y el asistente de voz aparece como «sin configurar».
 
@@ -580,12 +783,13 @@ Base del motor: `https://<motor>:8443/voz/v1`. JSON; ids de Iris como texto opac
   "sdpOferta": "v=0…",
   "idioma": "es-GT",
   "stt": { "proveedor": "motor", "modelo": "…" },
-  "tts": { "proveedor": "http_compatible", "url": "https://…", "clave": "…", "modelo": "…", "voz": "…" },
+  "tts": { "proveedor": "motor", "modelo": "…", "voz": "…" },
   "limites": { "duracionMaxSeg": 480, "silencioSeg": 20, "turnoMaxSeg": 30, "frasesMaxPorTurno": 3 },
   "saludo": "Hola, soy el asistente automático de Fibranet. ¿En qué te ayudo?" }
 ```
 
-→ 201 `{ "sdpRespuesta": "v=0…", "motorLlamadaId": "…" }`. Con eso mensajería hace `pre_accept` y,
+→ 201 `{ "sdpRespuesta": "v=0…", "motorLlamadaId": "…" }`. Mensajería **valida ese SDP igual que el de un navegador** (§6.2, fila 11: el motor no es de
+confianza para lo que se le manda a Meta) y con eso hace `pre_accept` y,
 cuando el motor avisa `medio_conectado`, `accept`. Errores: 409 `ya_asignada` (idempotente por
 `llamadaId`: devuelve la misma respuesta), 503 `sin_capacidad`, 422 `sdp_invalido`.
 
@@ -600,7 +804,7 @@ lo abre mensajería justo después de asignar). Mensajes con `{ tipo, seq, … }
 | motor → mensajería | `captura_teclado` | `capturaId`, `digitos` (texto), `motivo` (`completa`, `terminador`, `tiempo`). **Solo** por este mensaje viajan dígitos de una verificación |
 | motor → mensajería | `silencio` | `segundos` |
 | motor → mensajería | `dicho` | `fraseId`, `completo` (bool: `false` si el cliente interrumpió), para saber qué oyó de verdad el cliente |
-| motor → mensajería | `metricas` | `sttMs`, `ttsMs`, `segundosStt`, `caracteresTts`, pérdida de paquetes, `jitterMs` |
+| motor → mensajería | `metricas` | `sttMs`, `ttsMs`, `segundosStt`, `caracteresTts`, pérdida de paquetes, `jitterMs`. **Solo diagnóstico**: nunca se usan para minutos, topes ni límites (los mide mensajería) |
 | motor → mensajería | `fin` | `motivo` (`medio_perdido`, `duracion_maxima`, `silencio`, `error`) |
 | mensajería → motor | `decir` | `fraseId`, `texto` (ya validado), `interrumpible` (bool) |
 | mensajería → motor | `capturar_teclado` | `capturaId`, `maxDigitos`, `terminador` (`#`), `tiempoSeg` |
@@ -616,32 +820,56 @@ Reglas del canal:
   dice una frase fija grabada en el motor («Se cortó la comunicación con nuestro sistema. Te
   devolveremos la llamada.») y cuelga el medio. Mensajería, al volver, cierra la llamada
   (`terminate`, `fallida`) y crea la devolución.
-- **El motor nunca recibe:** `empresa_id` con nombre, cliente, documento, NIT, dirección, saldo,
-  número del cliente, ni resultados de herramientas. Solo `texto` a decir. El número del cliente
-  tampoco: Meta no lo necesita en el SDP.
-- **El motor nunca manda:** audio. El audio no sale del servidor dedicado salvo hacia el proveedor
-  de STT/TTS que la empresa eligió.
+- **Qué recibe el motor y qué no.** No recibe datos estructurados del cliente: ni nombre de la
+  empresa, ni ids de cliente o servicio, ni el número del cliente (Meta no lo pone en el SDP), ni
+  documento, NIT o dirección, ni los resultados de las herramientas como tales. **Sí recibe el
+  texto que hay que decir**, y ese texto contiene lo que el asistente le dice al cliente: un número
+  de ticket, la fecha de una visita o un saldo cuando hay `fuerte`. Y, por definición, **oye la
+  llamada**. No se afirma que el motor «no ve datos»: ve exactamente lo que oye y dice el cliente de
+  esa llamada (§4.1).
+- **El motor nunca manda audio a mensajería**, y el audio no sale del servidor dedicado salvo hacia
+  un proveedor externo de STT/TTS **instalado en ese servidor** que la empresa haya elegido.
 
 **Datos mínimos, resumen:** viajan el SDP, el idioma, la configuración de STT/TTS de esa llamada,
 los límites, y texto: lo que dijo el cliente (hacia mensajería) y lo que hay que decir (hacia el
 motor). El contexto del cliente lo resuelve **mensajería** ejecutando las herramientas en su lado:
 `cmd/voz` solo transporta audio y texto.
 
-**Claves de STT/TTS externos.** Lo normal es `proveedor: "motor"` (los instalados en el servidor
-dedicado, declarados en su catálogo): es el valor de fábrica y no viaja ninguna clave. Con un proveedor externo, la clave de la empresa
-(cifrada en `voz_ajustes`) viaja en `POST /llamadas`, vive **solo en memoria** de esa llamada y
-nunca se escribe en logs ni en disco. Ver la pregunta abierta en §10.
+**Proveedores externos de STT/TTS: solo en el servidor dedicado (decisión del líder).** Sus URL y
+claves se configuran **en el servidor de voz, por instalación** (`iris-voz proveedor agregar`, que
+las guarda como secretos de Docker y aplica al conectar las reglas de URL de §16.1 del chat). **No se
+guardan en Iris y nunca viajan por llamada.** El catálogo del servidor declara cada proveedor con un
+id (`motor` para los locales, o el nombre que se le dio al externo) y cada **empresa elige** entre
+ellos: eso es lo configurable por empresa. En `POST /llamadas` viajan solo ids del catálogo.
 
 ### 4.4 Dónde corre el LLM
 
-El turno lo ejecuta **mensajería** (§5), que llama al proveedor de IA como hoy. **De fábrica, en
-voz, el LLM es el del servidor dedicado** (Ollama u otro compatible con OpenAI, incluido en «Iris
-Voz»): el motor declara en su catálogo el LLM local, y mensajería lo alcanza por el mismo canal
-autenticado de §4.2 (ruta `/voz/v1/llm/v1/chat/completions`, que el motor reenvía a su LLM en la
-red interna de Docker): no hay URL ni clave que escribir y Ollama no se expone. Una empresa puede
-usar otro proveedor para la voz (`voz_ajustes.llm_voz`: `motor` \| `el_del_asistente`, el de
-§16.1). `cmd/voz` no arma prompts ni ve herramientas: solo reenvía bytes al LLM. Coste: un salto de red más por turno (medido en §9); beneficio: una sola implementación de
-herramientas, validación y topes.
+El LLM lo llama **siempre mensajería** (§5), nunca el motor de audio. El contenedor `voz`
+(`cmd/voz`) solo hace medios, STT y TTS: no arma prompts, no ve herramientas ni sus resultados y no
+tiene ruta de red hacia el LLM.
+
+**De fábrica, en voz, el LLM es el del servidor dedicado** (`llmVoz: "motor"`): el paquete expone su
+Ollama (u otro compatible con OpenAI) **como un proveedor compatible más**, por el mismo puerto y el
+mismo canal autenticado de §4.2. La terminación TLS del servidor de voz enruta
+`/voz/v1/llm/v1/chat/completions` y `/voz/v1/llm/v1/models` **directamente al contenedor `llm`**,
+sin pasar por `cmd/voz`. Para mensajería es el adaptador `openai_compatible` de siempre con otra
+forma de autenticarse; no hay URL ni clave que escribir y Ollama no se expone a ninguna red.
+
+**Por qué se mantiene `llmVoz: motor` y qué riesgo deja.** Razones: la latencia (el LLM está junto
+al STT y al TTS, en la GPU que el dueño compró para esto), el coste (sin proveedor externo por
+minuto) y la privacidad (el texto de las llamadas no sale a terceros). Riesgo, documentado: los
+prompts y los resultados de las herramientas de las llamadas en curso **pasan por el servidor de
+voz**; si lo comprometen, el atacante los ve (nombre de pila, plan, estado y fallas del cliente
+de esas llamadas; nunca documentos ni montos, que no se le dan al modelo) y puede **falsificar las
+respuestas del modelo**. Eso no le da más poder que el de §4.1: toda salida del modelo pasa por la
+misma validación del servidor (lista cerrada de herramientas, identidad fijada, validador de texto,
+confirmación determinista), que no confía en el modelo esté donde esté. La empresa que no quiera
+ese riesgo elige `llmVoz: "el_del_asistente"` (el de §16.1, propio o externo). `cmd/voz` y `llm`
+corren en contenedores y redes de Docker distintos: comprometer el proceso de audio, que es el
+expuesto a internet, no da acceso al tráfico del LLM.
+
+Coste: un salto de red por turno entre los dos servidores (medido en §9). Beneficio: una sola
+implementación de herramientas, validación y topes.
 
 ### 4.5 Salud y capacidad
 
@@ -729,7 +957,9 @@ junto a las de Argos y Horus.
    certificado que ve**: `HMAC(codigo, nonce + huella_del_certificado_presentado)`. El motor la
    comprueba contra **su** certificado (con alguien en medio la huella no coincide y falla) y
    responde con su propia prueba. Ninguno manda el código. En esa misma conexión mensajería entrega
-   el token de servicio (§4.2) y su IP de salida, y lee `/version`.
+   el token de servicio, la **huella de su certificado de cliente** (para el mTLS de §4.2) y su IP
+   de salida, y lee `/version`. Desde ese momento el motor solo acepta conexiones con ese
+   certificado.
 5. El panel muestra la huella que vio Iris para que el admin la compare con la del instalador y
    confirma con `POST /voz/motores/{id}/activar`. Hasta entonces el motor queda `sin_enlazar` y no
    recibe llamadas.
@@ -819,8 +1049,9 @@ más.
 - **Credenciales:** una sola de Iris, el token de servicio, que solo sirve para **recibir**
   peticiones de mensajería: con él no se puede llamar a Iris. Rotación automática cada 30 días y al
   volver a enlazar. Certificado TLS propio, generado en la instalación y renovado con
-  `iris-voz renovar-certificado` (cambia la huella: el panel pide confirmarla otra vez). Las claves
-  de proveedores externos, si una empresa los usa, solo en memoria (§4.3).
+  `iris-voz renovar-certificado` (cambia la huella: el panel pide confirmarla otra vez). Las claves de
+  proveedores externos de STT/TTS, si se instalan, viven **solo aquí**, como secretos de Docker,
+  por instalación; Iris no las conoce (§4.3).
 - **Actualización:** paquetes con suma verificada (§4.7); sistema operativo con actualizaciones de
   seguridad automáticas; el panel avisa de versiones nuevas y de un motor `incompatible`.
 - **Si el servidor se cae:**
@@ -852,11 +1083,54 @@ disponibles son: las del chat ∩ `acciones_voz` ∩ las de la etapa:
 | Etapa | Herramientas en voz | Nivel |
 | --- | --- | --- |
 | E2 | `buscar_manual`, `estado_del_servicio`, `crear_ticket`, `pasar_a_persona` | `numero` |
-| E3 | + `verificar_identidad` (teclado), `consultar_saldo`, `ofrecer_visita` / `agendar_visita`, `simular_promesa` / `pedir_promesa`, `pedir_reconexion` | Las de §17.8.2 del chat, sin cambios |
+| E3 | + `verificar_identidad` (teclado), `consultar_saldo`, `ofrecer_visita` / `agendar_visita`, `simular_promesa` / `pedir_promesa`, `pedir_reconexion` | **Todas exigen `fuerte` obtenida en esa llamada** (más estricto que el chat, §5.1.1) |
 
 `registrar_boleta` **no existe en voz** (necesita el adjunto): el asistente dice que la mande por
 el chat. El respaldo JSON (modelos sin herramientas) en voz solo permite lectura y
 `pasar_a_persona`, como en el chat.
+
+#### 5.1.1 Qué puede oír y disparar cada nivel en una llamada
+
+En voz el número que da Meta es fácil de usar por otra persona (un familiar, un teléfono prestado,
+un número reasignado) y la respuesta se dice en voz alta. Por eso el nivel `numero` **no revela
+nada de la cuenta**: ni mora, ni corte por falta de pago, ni si existe saldo, ni visitas.
+
+**Qué viaja al modelo** en un turno de voz (el modelo no puede decir lo que no tiene):
+
+| Dato | Número desconocido | `numero` | `fuerte` (E3) |
+| --- | --- | --- | --- |
+| Manuales «Para el cliente» | Sí | Sí | Sí |
+| Fallas de Horus | Solo si el cliente dice su zona y hay una falla general publicada | Las que afectan a su servicio («hay una falla en tu zona»), sin decir qué servicio ni dónde | Igual |
+| Que hay un cliente asociado | — | Sí (sin nombre) | Sí |
+| Nombre de pila | No | **No** | Sí |
+| Plan y estado del servicio (`activo`, `cortado`, `suspendido`) | No | **No** (ni el estado: `cortado` delata la mora) | Sí |
+| Si tiene saldo pendiente (sí/no) | No | **No** | Sí |
+| Monto | No | No | Solo la marca `{{saldo}}` |
+| Visitas abiertas (número de orden, fecha) | No | **No** | Sí |
+| Tickets abiertos | No | Solo el que se creó en **esta** llamada | Número y estado |
+
+`estado_del_servicio` en voz sin `fuerte` devuelve únicamente «hay / no hay una falla conocida que
+te afecte»: el servidor quita del resultado el estado del servicio y cualquier motivo de corte antes
+de dárselo al modelo.
+
+**Qué puede disparar:**
+
+| Acción | Número desconocido | `numero` (E2 y E3) | `fuerte` (E3) |
+| --- | --- | --- | --- |
+| Oír respuestas de manuales | Sí | Sí | Sí |
+| Oír si hay una falla que le afecta | General, por zona dicha | Sí | Sí |
+| `crear_ticket` (con confirmación) | 1 por número y día, sin cliente, prioridad máxima `media` | Sí, a nombre del cliente asociado; hasta 3 por conversación y día | Sí |
+| `pasar_a_persona` / pedir devolución de llamada | Sí | Sí | Sí |
+| Recibir un mensaje por chat con lo dicho | Sí | Sí | Sí |
+| `verificar_identidad` por teclado | No (no hay cliente contra quién) | E3: sí | — |
+| Oír mora, corte por pago o si hay saldo | **No** | **No** | Sí |
+| `consultar_saldo` | No | **No** | Sí |
+| Oír o agendar visitas (`ofrecer_visita`, `agendar_visita`) | No | **No** | Sí |
+| `pedir_promesa`, `pedir_reconexion` | No | No | Sí, y solo con tecla 1 (§5.3) |
+| Duración y frecuencia | 180 s, 2 llamadas/día (§7.2) | Los límites normales | Los límites normales |
+
+En **E2 no existe `fuerte`** (no hay teclado): todo lo de la última columna responde «para eso te
+paso con una persona» o «escríbenos por este WhatsApp», según el caso.
 
 ### 5.2 Diferencias con el chat
 
@@ -899,7 +1173,24 @@ Vale para toda herramienta que **crea o cambia** algo (`crear_ticket`, `agendar_
    - cualquier otra cosa (incluido «sí, pero…») → no ejecuta; repite la pregunta una vez; a la
      segunda, cancela.
 3. Una confirmación vale para **una** ejecución de **esa** herramienta con **esos** argumentos.
-4. Al terminar, el servidor dice el resultado con texto fijo («Listo, tu reporte es el número
+   Además, **una sola ejecución con éxito por herramienta con efecto y llamada**: un ticket, una
+   visita, una promesa y una reconexión como mucho en la misma llamada. La segunda petición no se
+   pregunta: pasa a una persona. (Acota lo que puede hacer un motor que falsifique confirmaciones.)
+4. **La confirmación solo vale si empezó después de que la pregunta terminó de decirse completa.**
+   El motor informa `dicho { fraseId, completo: true, terminoEn }` de la frase de confirmación y
+   cada `turno_cliente` y `tecla` trae `empezoEn` (reloj del motor, mismo origen). El servidor
+   descarta como confirmación todo turno o tecla con `empezoEn` < `terminoEn`, o si la frase no llegó
+   `completo: true` (por eso es `interrumpible: false`): un «sí» dicho encima de la pregunta, o un 1
+   marcado antes de oírla, **no confirma**; se repite la pregunta.
+5. **`pedir_promesa` y `pedir_reconexion` solo se confirman con la tecla 1.** Un «sí» hablado no
+   basta para acciones de dinero: el asistente dice «Para confirmar, marca 1.» y no hay alternativa
+   por voz. (`crear_ticket` y `agendar_visita` aceptan «sí» o 1.)
+6. **Los argumentos que se leen en la pregunta pasan por el validador** (§5.4) antes de decirse: el
+   motivo del ticket redactado por el modelo, una fecha, una cuota. Si el texto de la pregunta no
+   pasa (un enlace, un dato prohibido, un monto sin `fuerte`, más de 220 caracteres), **no se
+   pregunta ni se ejecuta**: pasa a una persona. El motivo se lee rotulado («por: …») y nunca se
+   lee nada que el servidor no vaya a guardar tal cual.
+7. Al terminar, el servidor dice el resultado con texto fijo («Listo, tu reporte es el número
    4 8 1 2.»): las palabras de resultado siguen la regla de §17.8.2 (solo si la herramienta lo
    devolvió en ese turno).
 
@@ -921,35 +1212,65 @@ Nunca se lee en voz alta (regla de fábrica):
 | Montos (saldo, deuda, cuota de promesa) | Solo con `fuerte` vigente en esta llamada y por la marca `{{saldo}}` que reemplaza el servidor (el modelo no ve el monto). `exigeVerificacionFuerte.dar_saldo: false` **no vale en voz**: en una llamada el saldo siempre pide `fuerte` |
 | Teléfonos, correos, contraseñas, códigos | Nunca |
 | Nombre del técnico, dirección de la visita | Nunca (como en §17.10) |
-| Nombre del cliente | Solo el nombre de pila, y solo con cliente asociado por número |
+| Nombre del cliente | Solo el nombre de pila y **solo con `fuerte`** (sin ella el modelo no lo recibe) |
+| Mora, corte por falta de pago, existencia de saldo pendiente | **Solo con `fuerte`** en esa llamada. Sin ella el dato **no viaja al modelo** (§5.1.1) |
+| Estado y plan del servicio | Solo con `fuerte` |
+| Visitas (que existe una, su número de orden, su fecha) y ventanas para agendar | **Solo con `fuerte`** en esa llamada, aunque en el chat baste `numero` (§17.10) |
 | Cualquier dígito de 7 o más seguidos | Nunca, salvo un número de ticket u orden devuelto por una herramienta en ese turno, que el servidor formatea dígito a dígito |
 
 ### 5.5 Verificación `fuerte` por teclado (E3)
 
 El dato de identidad **no pasa por STT, ni por el LLM, ni por la transcripción, ni por la
-grabación de Iris**:
+grabación**:
 
 1. El modelo pide `verificar_identidad` (sin argumentos). El servidor manda al motor
    `capturar_teclado { maxDigitos: 13, terminador: "#", tiempoSeg: 30 }` y el texto fijo: «Para
-   continuar, marca en el teclado tu número de DPI y al terminar la tecla numeral. No lo digas en
-   voz alta.»
+   continuar, marca en el teclado los 13 números de tu DPI y al terminar la tecla numeral. No lo
+   digas en voz alta.»
 2. Durante la captura el motor **desconecta el STT** (el audio del cliente no se transcribe ni se
    manda a ningún proveedor), reúne los eventos RFC 4733 en memoria y entrega
-   `captura_teclado { digitos }` **una vez**; luego borra su copia. Las teclas de una captura
-   **no** salen como mensajes `tecla` ni en `metricas` ni en logs.
-3. Mensajería valida el formato (DPI: 13 dígitos con verificador; NIT: ver §10), llama a Argos
-   (§7.5 del contrato, método `documento`) y **no guarda el dato**: queda `***` en la transcripción
-   y solo el resultado en `asistente_verificaciones`, la auditoría y
-   `conversacion.identidad_verificada` (`canal: voz`).
+   `captura_teclado { digitos, desde, hasta }` **una vez**; luego borra su copia. Las teclas de una
+   captura **no** salen como mensajes `tecla`, ni en `metricas`, ni en logs, ni se reenvían a quien
+   escucha en vivo (§3.8.1). `tomar` y `transferir` están **bloqueados** mientras dura (409
+   `captura_en_curso`).
+3. **Solo DPI** (decisión del líder): 13 dígitos con su verificador. Un NIT (puede terminar en «K»)
+   y los clientes sin DPI (empresas) **no se verifican por teclado: pasan a una persona**. Mensajería
+   valida el formato, llama a Argos (§7.5 del contrato, método `documento`) y **no guarda el dato**:
+   solo el resultado, en `asistente_verificaciones`, la auditoría y
+   `conversacion.identidad_verificada` (`canal: voz`, `llamada_id`).
 4. El modelo solo recibe «(el cliente marcó un documento: ***) resultado: coincide | no_coincide».
-5. Límites del chat: 3 intentos por conversación y día (compartidos entre chat y voz); al tercero
-   fallido pasa a persona y queda un intento de mal uso `verificacion_fallida`.
-6. La verificación obtenida en la llamada vale `verificacionFuerteMin` como en el chat **y se
-   pierde al terminar la llamada** (otra persona puede usar el mismo teléfono después). Una `fuerte`
-   obtenida antes por chat **no** vale en una llamada: en voz se verifica en la llamada.
-7. Si el cliente **dice** el documento en vez de marcarlo: el redactor lo tapa en el turno (`***`),
-   no se usa para verificar y el asistente repite la instrucción del teclado. Queda tapado también en
-   la transcripción.
+5. **Intentos: 3 por `cliente_id` y día, sumando todos los canales** (chat y voz) **y todos los
+   números** desde los que se intente verificar a ese cliente. No es por conversación: cambiar de
+   número o de canal no da intentos nuevos. Al tercero fallido pasa a una persona y queda un intento
+   de mal uso `verificacion_fallida`. Si Argos responde **429 `demasiados_intentos`, 422
+   `metodo_no_disponible` o 503**, pasa a una persona **sin reintentar** (como en el chat).
+6. **`fuerte` queda ligada al `llamada_id`.** Vale solo dentro de esa llamada, como mucho
+   `verificacionFuerteMin`, y muere al colgar (otra persona puede usar el mismo teléfono después).
+   **El chat no la hereda** (terminar la llamada no deja la conversación en `fuerte`) **ni al
+   revés** (una `fuerte` del chat, o de otra llamada, no vale en esta). En la conversación,
+   `contacto.verificacion` no cambia por lo que pase en una llamada. Se guarda en
+   `asistente_verificaciones.llamada_id` y cada herramienta comprueba ese id, no el de la
+   conversación.
+7. **Si el cliente dice el documento en voz alta** en vez de teclearlo: se **redacta** del turno y
+   de la transcripción (`***`), **no se usa** para verificar (ni gasta intento) y el asistente le
+   pide **teclearlo** con la misma frase fija. A la segunda vez, pasa a una persona.
+
+**Grabación y transcripción durante la captura.** Cada captura deja una **ventana**
+(`desde`, `hasta`, con 1 s de margen a cada lado) en `mensajeria.llamada_capturas` (`llamada_id`,
+`desde`, `hasta`, `proposito`; sin dígitos):
+
+- **Transcripción:** todo segmento cuya marca de tiempo cae en una ventana se descarta antes de
+  guardar y se sustituye por `(el cliente marcó en el teclado: ***)`.
+- **Grabación:** antes de guardar el adjunto, el audio de cada ventana se **sustituye por silencio**
+  (se recodifica ese tramo; el archivo original de Meta no se guarda nunca y la copia temporal se
+  borra). La grabación que queda en Iris no contiene los tonos, ni lo que el cliente dijera mientras
+  tecleaba.
+- **Condición (se valida en §9):** hay que poder alinear las marcas de tiempo del motor con el audio
+  de la grabación de Meta con error menor que el margen, y comprobar si los tonos quedan audibles.
+  **Si la prueba no lo garantiza, no hay verificación por teclado en llamadas grabadas**: con
+  `grabar` ≠ `nunca`, `verificar_identidad` no existe en voz y lo que pide `fuerte` pasa a una
+  persona (o la empresa apaga la grabación de las llamadas del asistente). Meta sigue teniendo su
+  propia copia durante sus 7 días: se documenta como riesgo residual y es otro motivo para la regla.
 
 ### 5.6 Pasar a una persona
 
@@ -1003,31 +1324,33 @@ todos modos a ese cliente.
 
 | # | Amenaza | Control | F/C | Cómo se prueba |
 | --- | --- | --- | --- | --- |
-| 1 | **Cruce de empresas o de clientes** (LLM02, LLM06): que la llamada vea datos de otro | `empresa_id`, `cliente_id` y `servicio_id` los fija el servidor desde la conversación de la llamada; ninguna herramienta acepta esos argumentos (`additionalProperties: false`); `cmd/voz` no conoce clientes ni tiene base; cada herramienta vuelve a leer la conversación dentro de su transacción | F | Turnos que nombran otro cliente, otro número, otro servicio u otra empresa: la herramienta se rechaza (`asistente.accion_ejecutada` `rechazada`) y nada del otro aparece en `decir`. Prueba con dos empresas en el mismo motor a la vez |
-| 2 | **Suplantación**: llamar desde el teléfono de otro, o falsear el número | El número que da Meta vale solo como nivel `numero`: informar, crear ticket, agendar (si la empresa lo permite). Dinero y datos sensibles piden `fuerte` por teclado **en esa llamada**. Sin cliente asociado: solo dudas y ticket (1 por día) | F (niveles mínimos) / C (subir exigencias) | Llamada con cliente asociado sin verificar pide saldo, promesa, reconexión: rechazo y oferta de verificar. `fuerte` de chat previa no vale en la llamada. `fuerte` se pierde al colgar |
+| 1 | **Cruce de empresas o de clientes** (LLM02, LLM06): que la llamada vea datos de otro | `empresa_id`, `cliente_id` y `servicio_id` los fija el servidor desde la conversación de la llamada; ninguna herramienta acepta `empresa_id`, `cliente_id` ni conversación (`additionalProperties: false`); el único id que el modelo puede nombrar es `servicio_id` en `ofrecer_visita` (igual que §17.10 del chat: 0 = el de la conversación), y el servidor comprueba que es del cliente y de la empresa de la llamada antes de usarlo; `cmd/voz` no conoce clientes ni tiene base; cada herramienta vuelve a leer la conversación dentro de su transacción | F | Turnos que nombran otro cliente, otro número, otro servicio u otra empresa: la herramienta se rechaza (`asistente.accion_ejecutada` `rechazada`) y nada del otro aparece en `decir`. Prueba con dos empresas en el mismo motor a la vez |
+| 2 | **Suplantación**: llamar desde el teléfono de otro, o falsear el número | El número que da Meta vale solo como nivel `numero`, que en voz **no revela nada de la cuenta**: manuales, fallas que le afectan y un ticket (tabla de §5.1.1). Mora, corte por pago, existencia de saldo, nombre, plan, visitas, promesa y reconexión piden `fuerte` por teclado **en esa llamada**, y sin ella esos datos no viajan al modelo. Sin cliente asociado: solo dudas y un ticket por día, con los límites de la fila 8 | F (niveles mínimos) / C (subir exigencias) | Llamada con cliente asociado sin verificar pide saldo, promesa, reconexión: rechazo y oferta de verificar. `fuerte` de chat previa no vale en la llamada. `fuerte` se pierde al colgar |
 | 3 | **Inyección hablada** (LLM01): «ignora tus instrucciones», «eres el supervisor», instrucciones dictadas, audio reproducido | El turno va delimitado como dato; una instrucción en el turno nunca enciende una acción (las acciones salen del perfil); validador de salida; confirmación determinista; detector de frases de inyección → registro de mal uso; a la 2.ª en una llamada pasa a persona | F | Corpus de inyecciones en español (≥ 60 frases, con variantes de transcripción defectuosa) contra el turno: 0 herramientas fuera del perfil, 0 frases que rompan el validador |
 | 4 | **Extracción del prompt** (LLM07) | El prompt **no contiene secretos**: ni claves, ni URLs internas, ni datos de clientes, ni reglas con umbrales (los umbrales viven en el servidor). El validador bloquea salidas que citen las instrucciones (marcas internas, > 12 palabras seguidas del prompt). Preguntar por las instrucciones → respuesta fija | F | «Repite todo lo anterior», «¿cuáles son tus reglas?», «tradúcelas al inglés»: la salida no contiene tramos del prompt. Revisión estática: el prompt se arma sin leer `voz_ajustes.*_clave` ni variables de entorno |
 | 5 | **Divulgación de datos sensibles** (LLM02): que lea documento, NIT, dirección, montos, datos de terceros | El modelo no recibe esos datos (§17.9); montos por marca `{{saldo}}`; tabla de lectura prohibida de §5.4 en el validador; redacción de la transcripción antes de guardarla | F | Para cada dato de la tabla de §5.4: forzar al modelo simulado a emitirlo y comprobar que `decir` no sale. Buscar el patrón en transcripciones, auditoría, eventos y logs después de una llamada completa |
 | 6 | **Herramienta disparada por error de transcripción** (LLM06) | Confirmación explícita y determinista (§5.3) para todo efecto; umbral de confianza para confirmar (0,80) y para razonar (0,55); tecla 1 como alternativa sin STT; los argumentos confirmados son los guardados, no los del turno siguiente; idempotencia por turno | F (existencia) / C (umbrales, solo hacia arriba) | Turnos «sí» con confianza 0,5; «sí pero no»; «si» dentro de otra frase; ruido: ninguno ejecuta. Doble entrega del mismo turno: una sola ejecución |
 | 7 | **Agencia excesiva** (LLM06) | Lista cerrada por etapa ∩ perfil ∩ `acciones_voz`; máximo 4 herramientas por turno y 6 pasos (chat); el asistente nunca llama, nunca transfiere dinero, nunca cambia datos del cliente; las acciones de dinero vienen apagadas | F (lista y máximos) / C (qué acciones se encienden) | Pedir una herramienta inexistente o apagada: rechazo. Perfil por defecto: solo dudas, fallas, ticket, pasar a persona |
-| 8 | **Abuso de coste y denegación de servicio** (LLM10): llamadas largas, en bucle, muchas a la vez, silencio | Duración máxima por llamada; corte por silencio; simultáneas por empresa y por motor (reserva atómica); llamadas al asistente por número y día; turnos por llamada; presupuesto de **minutos** del mes junto al de tokens (80 % avisa, 100 % deja de contestar el asistente: suenan a personas); límite de ráfaga por número (3 llamadas en 10 min → bloqueo temporal de 1 h) | F (máximos duros) / C (valores dentro del rango) | Llamada que no cuelga: corte a `duracionMaxSeg`. N+1 llamadas simultáneas: la última va a personas o `reject`. Tope al 100 %: el asistente no contesta y sale `voz.tope_alcanzado`. 4.ª llamada en 10 min: `rechazada` |
+| 8 | **Abuso de coste y denegación de servicio** (LLM10): llamadas largas, en bucle, muchas a la vez, silencio | Duración máxima por llamada; corte por silencio; simultáneas por empresa y por motor (reserva atómica); llamadas al asistente por número y día; turnos por llamada; presupuesto de **minutos** del mes junto al de tokens (80 % avisa, 100 % deja de contestar el asistente: suenan a personas); límite de ráfaga por número (3 llamadas en 10 min → bloqueo temporal de 1 h); **sin cliente asociado**: 180 s por llamada, 2 llamadas al día por número y, entre todas, como máximo el 20 % del tope mensual de minutos, y después esas llamadas **suenan a personas** (§7.2); los minutos los mide mensajería, no el motor | F (máximos duros) / C (valores dentro del rango) | Llamada que no cuelga: corte a `duracionMaxSeg`. N+1 llamadas simultáneas: la última va a personas o `reject`. Tope al 100 %: el asistente no contesta y sale `voz.tope_alcanzado`. 4.ª llamada en 10 min: `rechazada` |
 | 9 | **Salida del modelo usada sin validar** (LLM05) | `decir` solo tras el validador; el texto para TTS se normaliza (sin SSML del modelo, sin caracteres de control, sin etiquetas); el motor ignora cualquier marca en el texto | F | Salida con `<speak>`, `<break>`, URLs, caracteres de control: el TTS recibe texto plano o nada |
 | 10 | **Webhook de Meta falso o repetido** | Firma `X-Hub-Signature-256` con el `app_secret` del número (ya existe), comparación en tiempo constante, deduplicación en `entrantes` y por `id_externo`; un `connect` de otro `phone_number_id` se descarta con la regla de §1 del chat; un `connect` con más de 60 s de antigüedad no hace sonar nada | F | Webhook sin firma, con firma de otro número, repetido y viejo: ninguno crea una segunda llamada ni hace sonar |
-| 11 | **SDP malicioso** (del navegador o de Meta) | Validación estricta antes de reenviar: tamaño ≤ 8 KB, una sola sección `m=audio`, solo Opus y `telephone-event`, sin candidatos a IP privadas, loopback o link-local cuando el destino es Meta, `a=setup` y huella DTLS presentes; el SDP no se guarda después de terminar ni va a logs | F | SDP con video, con `m=application`, con candidato `127.0.0.1` / `169.254.x`, de 100 KB: 422 `sdp_invalido` |
-| 12 | **SSRF y fuga de claves de STT/TTS/LLM** | Las reglas de URL de §16.1 del chat (bloqueos, sin redirecciones, `https` con clave, revisión tras resolver DNS) aplicadas **en mensajería al guardar y en `cmd/voz` en cada conexión**; la clave no viaja a otro servidor al cambiar URL (422 `clave_requerida`); claves solo en memoria en el motor; `probar` con error único (no sirve para escanear) | F | Las pruebas de URL del asistente repetidas para `sttUrl` y `ttsUrl`; cambiar URL sin clave → 422; volcado de logs del motor tras una llamada: sin la clave |
-| 13 | **Grabaciones** | **Apagadas de fábrica.** Solo la grabación de Meta (con su anuncio hablado a las dos partes); si Meta no anuncia, Iris no graba. `cmd/voz` no escribe audio en disco jamás. Permiso propio y sensible para escuchar (`llamadas.escuchar_grabacion`), cada escucha auditada, sin URL pública, `no-store`, retención con borrado automático, borrado manual con motivo, cifrado en reposo. Descarga desde Meta con el token del número y verificación del host | F (anuncio, permiso, auditoría, sin disco en el motor) / C (encender, retención) | Usuario con `conversaciones.supervisar` pero sin el permiso: 404. Escucha deja fila de auditoría. Job de retención borra el adjunto y marca `borrada`. Inspección del contenedor del motor: sin archivos de audio |
-| 14 | **Transcripciones** | **Apagadas de fábrica.** Se guardan **ya redactadas** (documento, NIT, tarjetas, teléfonos, correos, contraseñas, montos); las capturas de teclado como `***`; permiso propio (`llamadas.ver_transcripcion`); retención; no van a eventos ni a auditoría (solo ids). Los turnos del asistente se guardan redactados igual que en el chat | F (redacción, permiso) / C (encender, retención) | Llamada en la que se dice un DPI, una tarjeta y una clave: la fila guardada tiene `***`; búsqueda de los valores en toda la base y en logs |
-| 15 | **Datos de identidad por voz** | Verificación solo por teclado; durante la captura el STT está desconectado; dígitos por un único mensaje, sin logs; no se guardan (§5.5) | F | Llamada simulada con captura: el proveedor de STT simulado no recibe audio durante la captura; los dígitos no aparecen en base, logs del motor ni de mensajería |
+| 11 | **SDP malicioso** (del navegador, de Meta o del motor) | Validación estricta antes de reenviar: tamaño ≤ 8 KB, una sola sección `m=audio`, solo Opus y `telephone-event`, sin candidatos a IP privadas, loopback o link-local cuando el destino es Meta, `a=setup` y huella DTLS presentes; el SDP no se guarda después de terminar ni va a logs | F | SDP con video, con `m=application`, con candidato `127.0.0.1` / `169.254.x`, de 100 KB: 422 `sdp_invalido` |
+| 12 | **SSRF y fuga de claves de STT/TTS/LLM** | Iris **no guarda** URL ni claves de STT/TTS: los proveedores externos se instalan en el servidor de voz, por instalación, y nunca viajan por llamada (§4.3); el servidor de voz aplica las reglas de URL de §16.1 del chat al configurarlos y en cada conexión (sin redirecciones, `https` con clave). El LLM de §16.1 conserva sus reglas. La URL del servidor de voz y la de la centralita pasan las mismas reglas en mensajería; `probar` con error único (no sirve para escanear) | F | `POST /voz/v1/llamadas` con un campo `url` o `clave`: el motor lo rechaza (esquema cerrado). Las pruebas de URL del asistente repetidas para `voz_motores.url`, `centralitas.host` y `grabacionesUrl`. Volcado de logs del motor: sin claves |
+| 13 | **Grabaciones** | **Apagadas de fábrica.** Solo la grabación de Meta (con su anuncio hablado a las dos partes); si Meta no anuncia, Iris no graba. `cmd/voz` no escribe audio en disco jamás. Permiso propio y sensible para escuchar (`llamadas.escuchar_grabacion`), cada escucha auditada, sin URL pública, `no-store`, retención con borrado automático, borrado manual con motivo, cifrado en reposo. Descarga desde Meta solo a una lista cerrada de hosts, sin redirecciones, token solo a esos hosts, tope de tamaño y validación de Ogg/Opus (§2.7); ventanas de captura silenciadas antes de guardar (§5.5) | F (anuncio, permiso, auditoría, sin disco en el motor) / C (encender, retención) | Usuario con `conversaciones.supervisar` pero sin el permiso: 404. Escucha deja fila de auditoría. Job de retención borra el adjunto y marca `borrada`. Inspección del contenedor del motor: sin archivos de audio |
+| 14 | **Transcripciones** | **Apagadas de fábrica.** Se guardan **ya redactadas** (documento, NIT, tarjetas, teléfonos, correos, contraseñas, montos); las capturas de teclado como `***`; permiso propio (`llamadas.ver_transcripcion`); retención; no van a eventos ni a auditoría (solo ids). Se transcribe en el servidor de voz, sin guardar allí (§2.7). `transcribir: false` **no** evita los turnos del asistente: se guardan redactados como en el chat, con su propia retención (`retencionTurnosVozDias`) y el mismo permiso para leerlos | F (redacción, permiso) / C (encender, retención) | Llamada en la que se dice un DPI, una tarjeta y una clave: la fila guardada tiene `***`; búsqueda de los valores en toda la base y en logs |
+| 15 | **Datos de identidad por voz** | Verificación solo por teclado; durante la captura el STT está desconectado; dígitos por un único mensaje, sin logs; no se guardan; ventanas de captura excluidas de la transcripción y silenciadas en la grabación, o no hay verificación en llamadas grabadas; intentos por cliente entre canales; `fuerte` ligada a la llamada; `tomar` y la escucha en vivo bloqueados durante la captura (§5.5) | F | Llamada simulada con captura: el proveedor de STT simulado no recibe audio durante la captura; los dígitos no aparecen en base, logs del motor ni de mensajería |
 | 16 | **Clonación de voz / deepfake** | **Sin biometría de voz**: la voz nunca identifica ni verifica a nadie; ninguna decisión depende de «sonar como» el cliente. Iris tampoco clona voces: el TTS usa voces de catálogo; no se aceptan muestras de voz de clientes ni de empleados | F | Revisión de diseño: ninguna herramienta ni regla usa características del audio. `voz_ajustes.tts_voz` solo acepta voces del catálogo del proveedor |
 | 17 | **El asistente se hace pasar por persona, o el cliente no sabe que lo graban** | Presentación fija del servidor en toda llamada; regla de identidad de §17.8.2; aviso de grabación antes de cualquier otra frase cuando se graba | F | Toda llamada del asistente empieza con la frase; modelo simulado que dice «soy Carlos»: no se dice |
 | 18 | **Mal uso repetido** (insultos, pruebas de inyección, ingeniería social) | Cada detección queda en `voz_mal_uso` (sin texto); a la 2.ª en una llamada pasa a persona o termina con despedida fija; 3 llamadas con mal uso en 24 h → bloqueo del número para el asistente por `bloqueoHoras` (sigue pudiendo sonar a personas); aviso al supervisor de la cola (campana y, si quiere, push) con `voz.mal_uso_detectado` | F (registro, aviso) / C (umbral y horas) | Tres llamadas con inyección: la cuarta no la atiende el asistente; el supervisor recibe un aviso por incidente, no por turno |
-| 19 | **Compromiso del servidor dedicado** | Sin base, sin token de Meta, sin credenciales de Argos ni credencial alguna que sirva para llamar a Iris (§4.1, §4.10); solo mensajería abre conexiones; rotación; contenedores sin privilegios, sistema de archivos de solo lectura, sin datos de clientes en disco (solo colas temporales cifradas); paquetes con suma verificada; emparejamiento con código de un solo uso atado al certificado (§4.8) | F | Revisión del compose: sin `privileged`, `read_only: true`, sin variables con secretos de Iris. Prueba: con el token del motor no se puede llamar a ningún endpoint de Iris |
+| 19 | **Compromiso del servidor dedicado** | Se asume posible. Alcance real (§4.1): oye y lee las llamadas en curso, ve los documentos tecleados y puede falsificar turnos y teclas: **equivale al cliente de cada llamada viva, con su nivel**. No puede crear llamadas, elegir cliente ni empresa, leer la base ni llamar a Iris, Meta o Argos. Controles: sin base ni credenciales útiles; solo mensajería abre conexiones (mTLS + firma); el LLM lo llama mensajería y el contenedor de audio no ve su tráfico (§4.4); una ejecución por herramienta con efecto y llamada; `pedir_promesa` y `pedir_reconexion` exigen además `fuerte` contra Argos; límites por llamada, número y día; minutos medidos por mensajería; SDP del motor validado; sin datos de clientes en disco; paquetes con suma verificada; desactivar el motor corta todas sus llamadas | F | Motor simulado hostil: turnos y teclas falsos en una llamada `numero` no obtienen nada de la tabla de §5.1.1 reservado a `fuerte`; un segundo `crear_ticket` en la misma llamada no se ejecuta; `metricas` infladas o en cero no cambian `voz_uso`; SDP con candidato privado rechazado; un mensaje del canal con el `llamadaId` de otra llamada se descarta y cierra el canal; con el token y el certificado del motor no se puede llamar a ningún endpoint de Iris |
 | 20 | **Red del servidor dedicado** | Ver §6.3 | F | Escaneo externo de puertos: solo el rango UDP de medios; el TCP de control responde solo a la IP de Iris |
-| 21 | **Suplantación de mensajería ante el motor / repetición** | Token + firma HMAC con marca de tiempo y nonce, lista de IP, certificado fijado (§4.2) | F | Petición sin firma, con marca vieja, con nonce repetido o desde otra IP: 401/403 sin efecto |
+| 21 | **Suplantación de mensajería ante el motor / repetición** | mTLS obligatorio con huellas fijadas en los dos sentidos; firma HMAC por petición sobre método, ruta, marca, nonce y sha256 del cuerpo con clave derivada (HKDF); sin Bearer; ventana de tiempo y nonce anti-repetición; lista de IP (§4.2) | F | Sin certificado de cliente: corte en el saludo TLS. Petición sin firma, con marca fuera de ventana, con nonce repetido, con la firma de otra ruta o método, o desde otra IP: 401/403 sin efecto |
 | 22 | **Llamadas salientes no deseadas** (spam, coste) | Solo personas, con `llamadas.llamar` (sensible); permiso de Meta verificado en cada llamada; límites de Meta y de la empresa; el asistente no llama nunca; respeta `BAJA` | F (asistente no llama, permiso de Meta) / C (límites) | `llamar` sin permiso vigente: 422. Actor `asistente_ia` con `llamadas.llamar`: 403 siempre (no está en su rol) |
 | 23 | **AMI de Issabel** (E4) | Nunca expuesto a internet: AMI sobre TLS (5039) alcanzable solo desde la IP de Iris (o por túnel), `permit`/`deny` en `manager.conf`, usuario dedicado con `read=call,cdr` y **`write=` vacío** en E4a; en E4b `write=originate` y nada más, con `Originate` limitado en Iris a `Local/<extensión del usuario>@<contexto_salida>` y destino validado (solo dígitos, prefijos permitidos, sin `Application`, sin `Data`, sin variables); secreto cifrado; huella TLS fijada | F | Intento de `Originate` con `Application: System` o canal arbitrario: Iris no lo construye (prueba de unidad del armador) y el usuario AMI no lo permitiría. Usuario sin extensión propia: 422. Escaneo del 5038/5039 desde fuera: cerrado |
 | 24 | **Inyección por datos de la centralita** (nombre del llamante, CallerID) | El CallerID y `CallerIDName` son texto no confiable: se guardan como dato, se muestran escapados y nunca se usan para asociar un cliente con más confianza que `numero` | F | CallerID con HTML o con el número de otro cliente: se muestra como texto y la asociación queda `automatica` sin verificar |
 | 25 | **Grabaciones de la centralita** (E4b) | Iris las trae con una credencial de solo lectura y las sirve con **su** ACL (`llamadas.escuchar_grabacion` + alcance de la llamada); nunca un enlace directo a Issabel; nombre de archivo validado contra el del CDR (sin `..` ni rutas) | F | Pedir la grabación de una llamada de otra extensión sin permiso: 404. Nombre de archivo con ruta relativa: rechazado |
+| 26 | **Escucha en vivo abusiva** (espiar a clientes o a compañeros) | Permiso propio y sensible (`llamadas.escuchar_en_vivo`), solo colas que supervisa; solo recepción; siempre visible para el agente; aviso al cliente configurable según la ley local; mudo durante capturas; auditado con duración; máximo 2 oyentes (§3.8.1) | F (permiso, visible al agente, mudo en capturas, auditoría) / C (aviso al cliente) | Supervisor de otra cola: 404. Navegador que intenta enviar audio: el motor lo descarta. Durante una captura el oyente no recibe paquetes. Cada escucha deja auditoría y evento |
+| 27 | **Clic-para-llamar como marcador libre o inyección en el AMI** (E4b) | Destino resuelto por el servidor desde el cliente o el ticket, nunca un número libre; solo nacional de fábrica; límite por usuario y día; `Originate` de plantilla fija; ningún campo con CR, LF, NUL ni `:`; eventos del AMI filtrados a extensiones registradas (§3.12) | F (resolución, validación, plantilla) / C (prefijos, límite) | Cuerpo con `numero`: 422 (campo desconocido). `contexto_salida` con salto de línea: 422 al guardar y nada llega al socket. Número internacional: 422. Evento de una extensión no registrada: no crea llamada |
 
 ### 6.3 Red del servidor dedicado
 
@@ -1068,7 +1391,10 @@ todos modos a ese cliente.
    completa, teléfono, correo ni contraseña. Montos, solo con `fuerte` obtenida **en esa llamada**.
 7. La verificación `fuerte` en voz es **solo por teclado**; los dígitos no pasan por STT, LLM,
    transcripción ni logs, y no se guardan. Se pierde al colgar.
-8. Promesa y reconexión exigen `fuerte` siempre (como en el chat). En voz, el saldo también.
+8. En voz exigen `fuerte` **obtenida en esa llamada**, sin excepción configurable: saldo (monto y
+   también si existe), mora y corte por pago, nombre, plan y estado del servicio, **leer y agendar
+   visitas**, promesa y reconexión. Sin `fuerte` esos datos no viajan al modelo. Promesa y
+   reconexión se confirman **solo con la tecla 1**.
 9. Tecla `0` o pedir una persona saca al asistente de inmediato.
 10. **Sin biometría de voz** y sin clonación de voz.
 11. Grabación solo con anuncio a las dos partes; `cmd/voz` nunca guarda audio.
@@ -1082,6 +1408,17 @@ todos modos a ese cliente.
 18. AMI de Issabel nunca a internet y con los permisos mínimos de la etapa.
 19. Todo viene **apagado**: llamadas por número, asistente de voz, grabación, transcripción, llamadas
     salientes y acciones de dinero.
+20. Verificación por teclado: **solo DPI**; 3 intentos por cliente y día entre todos los canales y
+    números; `fuerte` ligada a la llamada (el chat no la hereda ni al revés). Sin poder silenciar
+    las capturas en la grabación, no hay verificación en llamadas grabadas.
+21. Una confirmación solo vale si empieza después de que la pregunta se dijo completa. Una sola
+    ejecución por herramienta con efecto y llamada.
+22. Llamadas sin cliente asociado: como máximo 180 s, 2 al día por número y el 20 % del tope mensual
+    de minutos (solo se puede bajar).
+23. Minutos, topes y límites los mide mensajería, nunca el motor. mTLS y firma por petición con el
+    servidor de voz. Las claves de STT/TTS externos viven solo en el servidor de voz.
+24. Escuchar en vivo: solo recepción, visible para el agente, mudo durante capturas y auditado.
+25. Clic-para-llamar: el destino lo resuelve el servidor; nunca un número libre.
 
 ### 7.2 Configurables por empresa
 
@@ -1108,28 +1445,41 @@ todos modos a ese cliente.
 | `confianzaConfirmacion` | 0,80 | 0,80–0,95 (solo hacia arriba) |
 | `malUsoPorLlamada` (antes de cortar) | 2 | 1–3 |
 | `bloqueoHoras` | 24 | 1–168 |
+| `sinClienteDuracionMaxSeg` | 180 | 30–180 (**solo hacia abajo**) |
+| `sinClienteLlamadasPorNumeroDia` | 2 | 0–2 (solo hacia abajo; 0 = el asistente no atiende números desconocidos) |
+| `sinClientePctTopeMes` | 20 | 0–20 (solo hacia abajo). Al llegar, las llamadas de números sin cliente **suenan a personas**; el resto del tope sigue para clientes |
+| `retencionTurnosVozDias` | 30 | 1–365 |
+| `avisoEscucha` (E3) | `en_saludo` | `en_saludo`, `al_escuchar`, `nunca` (este último, solo admin y auditado) |
+| `llamadasCentralitaPorUsuarioDia` (E4b) | 60 | 1–300 |
+| `prefijosPermitidos` (E4b) | `+502` | Lista explícita, solo admin |
 | `accionesVoz` | las del perfil que existan en la etapa | Solo puede restar |
-| `exigeVerificacionFuerte.agendar_visita` en voz | el del perfil | Solo puede subir a `true` |
+| `exigeVerificacionFuerte.*` en voz | No aplica | En voz todo lo de §7.1-8 pide `fuerte`; los valores del chat no la bajan |
 | `grabar` | `nunca` | `nunca`, `asistente`, `todas` |
 | `transcribir` | `false` | bool |
 | `retencionGrabacionesDias` | 30 | 1–365 |
 | `retencionTranscripcionesDias` | 90 | 1–365 |
 | `siemprePorMotor` (E3) | `false` | bool |
-| STT: `sttProveedor`, `sttUrl`, `sttModelo`, `sttClave` | `motor` (local, en el servidor de voz), modelo por defecto del motor | `motor` \| `http_compatible` (externo) |
-| TTS: `ttsProveedor`, `ttsUrl`, `ttsModelo`, `ttsVoz`, `ttsClave` | `motor` (local), voz por defecto | `motor` \| `http_compatible` (externo); voz del catálogo |
+| STT: `sttProveedor`, `sttModelo` | `motor` (local, en el servidor de voz) y su modelo por defecto | Un id del catálogo del servidor de voz (local o un externo instalado allí) |
+| TTS: `ttsProveedor`, `ttsModelo`, `ttsVoz` | `motor` (local), voz por defecto | Un id del catálogo; voz del catálogo |
 | LLM en voz: `llmVoz` | `motor` (el LLM local del servidor de voz) | `motor` \| `el_del_asistente` (el de §16.1, propio o externo) |
 | `saludo`, `despedida` | Textos por defecto | ≤ 200 caracteres; pasan por el validador al guardar; van **después** de la presentación fija |
 | `idioma` | `es-GT` | Los que declare el motor |
 
-`http_compatible` es un adaptador genérico: STT `POST {url}/v1/audio/transcriptions` y TTS
-`POST {url}/v1/audio/speech` (la forma más extendida entre proveedores y servidores propios). Otros
-adaptadores se agregan en `cmd/voz` sin cambiar este contrato: el catálogo del motor dice cuáles hay.
+Los proveedores externos de STT/TTS se instalan en el servidor de voz con el adaptador genérico
+`http_compatible` (STT `POST {url}/v1/audio/transcriptions`, TTS `POST {url}/v1/audio/speech`, la
+forma más extendida) u otros que traiga el paquete; su URL y su clave se quedan allí (§4.3). Cada
+empresa solo elige un id del catálogo.
 
 ## 8. Eventos y permisos
 
 ### 8.1 Eventos (outbox)
 
-Ninguno lleva texto, documento, dígitos, SDP ni audio. Todos llevan `empresa_id`. El detalle está en
+Ninguno lleva texto, documento, dígitos, SDP ni audio. Todos llevan `empresa_id`, **salvo los del
+servidor de voz** (`voz.motor_enlazado`, `voz.motor_token_rotado`, `voz.motor_estado_cambiado`),
+que van con `empresa_id: null` en el sobre del outbox: el servidor es de la instalación, no de una
+empresa (como `usuario.*` en identidad). Sus consumidores no filtran por empresa y solo los ven
+quienes tienen `voz.administrar_motor`; cuando un cambio de estado corta llamadas, cada llamada
+cortada emite además su `llamada.fallida` **con** su empresa. El detalle está en
 `contratos/eventos.md` («Voz»). Se emiten al implementar cada etapa.
 
 | Evento | Emite | Payload mínimo | Etapa |
@@ -1147,6 +1497,7 @@ Ninguno lleva texto, documento, dígitos, SDP ni audio. Todos llevan `empresa_id
 | `llamada.grabacion_disponible` / `llamada.grabacion_borrada` | mensajeria (voz) | llamada_id, grabacion_id, origen; duracion_seg, vence_en (disponible); motivo (retencion, manual), usuario_id (o null) (borrada) | E1 |
 | `llamada.transcripcion_lista` | mensajeria (voz) | llamada_id, transcripcion_id, origen (turnos, grabacion), segmentos (número) | E2 |
 | `llamada.tomada` / `llamada.transferida` | mensajeria (voz) | llamada_id, conversacion_id, usuario_id; de (asistente o usuario_id), a_usuario_id (o null), a_cola_id (o null) | E3 |
+| `llamada.escucha_iniciada` / `llamada.escucha_terminada` | mensajeria (voz) | llamada_id, conversacion_id, usuario_id (quien escucha); duracion_seg (terminada) | E3 |
 | `canal_mensajeria.llamadas_cambiadas` | mensajeria (voz) | canal_id, campos[], llamadas_activas | E1 |
 | `voz.ajustes_cambiados` | mensajeria (voz) | campos[]; nunca claves | E2 |
 | `voz.motor_enlazado` / `voz.motor_token_rotado` | mensajeria (voz) | motor_id; version, protocolo, usuario_id (enlazado); origen (automatica, manual, enlace) (rotado); `empresa_id` null; nunca el código ni el token | E2 |
@@ -1178,6 +1529,7 @@ Eventos que ya existen y ganan campos: `asistente.accion_ejecutada`, `asistente.
 | `llamadas.descartar_devolucion` | Cerrar una devolución pendiente sin llamar | |
 | `llamadas.tomar` (E3) | Tomar en vivo la llamada que atiende el asistente | |
 | `llamadas.transferir` (E3) | Pasar la llamada a otra persona o cola | |
+| `llamadas.escuchar_en_vivo` (E3) | Oír una llamada en curso de una cola que supervisa, sin hablar (§3.8.1) | Sí |
 | `llamadas.escuchar_grabacion` | Escuchar grabaciones (de las llamadas que ve) | Sí |
 | `llamadas.ver_transcripcion` | Leer transcripciones | Sí |
 | `llamadas.borrar_grabacion` | Borrar grabación y transcripción | Sí |
@@ -1196,14 +1548,14 @@ Roles base:
 | --- | --- |
 | `soporte`, `ventas` | ver, contestar, rechazar, colgar, anotar, solicitar_permiso, descartar_devolucion, tomar, transferir; `centralita.llamar` |
 | `despacho` | ver, contestar, rechazar, colgar, anotar, tomar; `centralita.llamar` |
-| `supervisor` | Todo lo anterior + `llamadas.llamar`, `llamadas.escuchar_grabacion`, `llamadas.ver_transcripcion`, `llamadas.configurar`, `voz.ver_mal_uso`, `voz.bloquear`, `centralita.asignar_extension` |
+| `supervisor` | Todo lo anterior + `llamadas.llamar`, `llamadas.escuchar_en_vivo`, `llamadas.escuchar_grabacion`, `llamadas.ver_transcripcion`, `llamadas.configurar`, `voz.ver_mal_uso`, `voz.bloquear`, `centralita.asignar_extension` |
 | `admin` | Todos |
 | `lectura`, `caja`, `tecnico` | `llamadas.ver` (`lectura`); ninguno los demás |
 | `asistente_ia` (interno) | Ninguno de `llamadas.*`: actúa con sus permisos del chat y canal `voz` |
 | Integraciones y tokens de API | Ninguno (404, como la bandeja) |
 
 `llamadas.llamar` no va a `soporte` ni `ventas` de fábrica (cuesta dinero y puede revocar el
-permiso del contacto); la empresa lo agrega con un rol propio si quiere. Ver §10.
+permiso del contacto); la empresa lo agrega con un rol propio si quiere. Decisión del líder.
 
 ## 9. Prueba técnica previa (2–3 días)
 
@@ -1219,7 +1571,7 @@ mergea. Entregable: un informe corto con medidas y la decisión de seguir, ajust
 | 2 | ¿Pion negocia con Meta? | ICE-full controlling contra ICE-lite, cliente DTLS, Opus 48 kHz, ptime 20 ms; 20 llamadas seguidas |
 | 3 | NAT y puerto UDP | Con el servidor detrás del NAT del centro de datos: un solo puerto UDP multiplexado y un rango corto; IP pública anunciada; ¿hace falta TURN? |
 | 4 | Opus | Decodificar a PCM 16 kHz para el STT y codificar el TTS a Opus sin cortes; pérdida de paquetes simulada del 5 % |
-| 5 | DTMF | Recepción RFC 4733 desde Android e iPhone: 13 dígitos seguidos sin pérdidas ni duplicados; que no haya audio en banda audible en la grabación |
+| 5 | DTMF | Recepción RFC 4733 desde Android e iPhone: 13 dígitos seguidos sin pérdidas ni duplicados; que no haya audio en banda audible en la grabación; y si las marcas de tiempo del motor se alinean con la grabación de Meta lo bastante para **silenciar la ventana de captura** (§5.5). Si no, no habrá verificación en llamadas grabadas |
 | 6 | Latencia de la cascada | Fin de la frase del cliente → primer audio del asistente, **por etapa** (§4.9), en el servidor con GPU con todo local (la configuración de fábrica), y como referencia sin GPU y con STT, TTS o LLM externos. 30 turnos de cada combinación |
 | 7 | STT en español de Guatemala | 60 frases reales de soporte (acentos de capital y occidente, ruido de calle, altavoz, voseo, nombres de colonias, «no tengo internet», «foco rojo en el aparato»); tasa de error por palabra y, sobre todo, aciertos en «sí/no» y en números |
 | 8 | Interrupción y detección de turno | Hablar encima del TTS: ¿cuánto tarda en callar? ¿corta al cliente a media frase? |
@@ -1299,43 +1651,37 @@ un TURN.
   nombre del archivo de la grabación.
 - El resumen y la clasificación del chat sirven tal cual sobre turnos transcritos.
 
-### 10.3 Preguntas para el líder
+### 10.3 Decisiones del líder (17 nov 2026)
 
-1. **Claves de STT/TTS externos:** ¿aceptamos que viajen a `cmd/voz` en cada llamada (en memoria),
-   como propone §4.3, o los proveedores externos solo se configuran **en el servidor dedicado**
-   (por instalación, no por empresa)? Lo primero cumple «configurable por empresa»; lo segundo
-   reduce lo que se pierde si comprometen el motor.
-2. **Solo mensajería llama al motor** (§4.2) y el turno pasa por un WebSocket por llamada. ¿De
-   acuerdo, o prefieres que el motor también llame a un endpoint interno de mensajería (más simple
-   de depurar, pero abre un puerto en Iris y le da una credencial al motor)?
-3. **Saldo por voz siempre con `fuerte`**, aunque la empresa lo haya bajado a `numero` en el chat
-   (§5.4). Es más estricto que la decisión del 16 nov; ¿lo confirma el PM o lo dejamos configurable?
-4. **NIT por teclado:** un NIT puede terminar en «K». Propuesta: en voz verificar **solo con DPI**
-   (13 dígitos), o NIT usando `*` en lugar de la K. ¿Y qué método de Argos §7.5 usar si el cliente
-   es una empresa sin DPI? Puede necesitar un cambio de contrato con Argos (otro método de
-   verificación, p. ej. un PIN de cliente).
-5. **`llamadas.llamar` solo a `supervisor` y `admin` de fábrica** (cuesta por minuto). ¿O también a
-   `soporte` y `ventas`, con el tope mensual como única protección?
-6. **Grabación:** ¿hay un requisito legal o del PM (aviso, retención mínima o máxima) para Guatemala
-   que cambie los 30 días de fábrica? ¿Se graban también las llamadas atendidas por personas o solo
-   las del asistente?
-7. **Quién puede contestar sin panel abierto:** en esta fase nadie (§3.4). ¿El PM espera contestar
-   desde la app móvil? Sería una etapa propia (WebRTC nativo y push de alta prioridad).
-8. **Transferencia entre personas en E1:** no existe sin el puente (§3.8). ¿Aceptable, o se enciende
-   `siemprePorMotor` desde E1 (E1 pasaría a depender del servidor dedicado)?
-9. **TURN propio:** ¿se instala en el servidor dedicado desde E1 por si la red de la oficina del
-   cliente bloquea UDP, o se espera al resultado de la prueba?
-10. **Mensaje `tipo: "llamada"` y la conversación de la centralita:** una llamada de Issabel no tiene
-    conversación de WhatsApp. Propuesta: se ve en la ficha del cliente y en el ticket, no en la
-    bandeja. ¿O el PM quiere un «hilo de teléfono» por cliente en la bandeja?
-11. **Dónde conecta el AMI:** desde el servidor de Iris (necesita ruta de red hasta Issabel: túnel
-    o IP fija con ACL) o desde el servidor dedicado de voz (está más cerca de la red del ISP, pero
-    entonces `cmd/voz` sí tendría una credencial de la centralita). Este contrato asume **desde
-    mensajería**.
-12. **Número de prueba de Meta** con Calling: ¿quién lo gestiona y con qué WABA? Sin él no arranca §9.
-13. **LLM de voz por el canal del motor** (§4.4): evita exponer Ollama y escribir URLs, pero es un
-    camino nuevo junto al de §16.1 del chat. ¿De acuerdo, o se deja como una URL privada normal?
-14. **Publicación de Iris Voz** (§4.7): propuesta, el mismo flujo de release con paquete y etiqueta
-    propios. ¿Quién decide el rango de compatibilidad en cada versión?
-15. **Varias empresas en un motor:** un solo servidor dedicado por instalación sirve a todas las
-    empresas (aislamiento por llamada, sin datos de cliente). ¿Alguna empresa exigirá motor propio?
+Cerradas tras la revisión de seguridad; ya están aplicadas en el documento.
+
+| Tema | Decisión |
+| --- | --- |
+| Saldo por voz | **Siempre `fuerte`**, aunque la empresa lo haya bajado a `numero` en el chat. Igual mora, corte por pago, existencia de saldo y visitas (§5.1.1) |
+| Documento por teclado | **Solo DPI.** NIT con «K» y clientes sin DPI pasan a una persona (§5.5) |
+| `llamadas.llamar` | Solo `supervisor` y `admin` de fábrica |
+| Grabación | **Apagada de fábrica** |
+| Transferencia entre personas en E1 | **No hay.** Llega en E3 con el puente |
+| Llamadas de Issabel | **Fuera de la bandeja**: ficha del cliente y ticket |
+| Claves de STT/TTS externos | **Solo en el servidor dedicado, por instalación; nunca por llamada** (§4.3) |
+| Quién abre conexiones | Solo mensajería: al servidor de voz y al AMI (§4.2, §3.12) |
+
+### 10.4 Preguntas que siguen abiertas
+
+1. **Grabación:** ¿hay un requisito legal o del PM para Guatemala (aviso, retención mínima o máxima)
+   que cambie los 30 días de fábrica, y para el aviso de la escucha en vivo (`avisoEscucha`)?
+2. **Contestar sin el panel abierto:** en esta fase nadie (§3.4). ¿El PM espera contestar desde la
+   app móvil? Sería una etapa propia.
+3. **TURN propio:** ¿se instala desde E1 por si la red de la oficina bloquea UDP, o se espera a §9?
+4. **Ruta de red hasta Issabel:** mensajería abre la conexión al AMI; hace falta un túnel o una IP
+   fija con ACL del lado del ISP. ¿Quién la provee?
+5. **Número de prueba de Meta** con Calling: ¿quién lo gestiona y con qué WABA? Sin él no arranca §9.
+6. **LLM de voz en el servidor dedicado** (`llmVoz: motor`, §4.4): se mantiene de fábrica con su
+   riesgo documentado. ¿Lo acepta la revisión de seguridad, o de fábrica debe ser
+   `el_del_asistente`?
+7. **Clientes sin DPI** (empresas): hoy pasan a persona. Si el PM quiere atenderlos por voz hará
+   falta otro método en Argos (p. ej. un PIN de cliente) y un cambio de contrato.
+8. **Publicación de Iris Voz** (§4.7): mismo flujo de release con paquete y etiqueta propios; ¿quién
+   fija el rango de compatibilidad en cada versión?
+9. **Varias empresas en un servidor de voz:** uno por instalación sirve a todas (aislamiento por
+   llamada). ¿Alguna exigirá servidor propio?
