@@ -245,8 +245,9 @@ func TestVerificacionDeIdentidadNumeroSinVerificarNoGastaAlTitular(t *testing.T)
 		t.Fatalf("intento del titular: %d", n)
 	}
 	// Y le quedan los otros dos, ni uno menos.
-	if reservar(titular, true) == 0 || reservar(titular, true) == 0 || reservar(titular, true) != 0 {
-		t.Fatal("el titular debía tener exactamente tres intentos al día")
+	segundo, tercero, cuarto := reservar(titular, true), reservar(titular, true), reservar(titular, true)
+	if segundo == 0 || tercero == 0 || cuarto != 0 {
+		t.Fatalf("el titular debía tener exactamente tres intentos al día: %d %d %d", segundo, tercero, cuarto)
 	}
 	// Pasada la media hora el atacante tiene un intento más (3 por cliente y día sin verificar) y ahí se acaba,
 	// también desde otro número sin verificar. Máximo absoluto: 6 por cliente y día.
