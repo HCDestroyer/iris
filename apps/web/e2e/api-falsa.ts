@@ -5,7 +5,7 @@ import { simularChatPanel, type ApiChatPanel } from "./api-chat-panel";
 import { apiComercial, type ApiComercial } from "./api-comercial";
 import { PERMISO_CONFIGURAR } from "./api-asistente";
 import { apiConversaciones, PERMISOS_CONVERSACIONES, type ApiConversaciones, type OpcionesConversaciones } from "./api-conversaciones";
-import { apiVoz, PERMISOS_LLAMADAS, PERMISOS_VOZ_ADMIN, type ApiVoz, type OpcionesVoz } from "./api-voz";
+import { apiVoz, PERMISO_LLAMAR, PERMISO_PEDIR, PERMISOS_LLAMADAS, PERMISOS_VOZ_ADMIN, type ApiVoz, type OpcionesVoz } from "./api-voz";
 import { apiPagos, PERMISOS_ABRIR_ARGOS, PERMISOS_PAGOS, type ApiPagos, type OpcionesPagos } from "./api-pagos";
 import { apiEncuestas, type ApiEncuestas } from "./api-encuestas";
 import { apiMeta, type ApiMeta, type OpcionesMeta } from "./api-meta";
@@ -676,7 +676,12 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             ...(opciones.chat && actual.correo === ADMIN.correo ? PERMISOS_CHAT : []),
             ...(opciones.pagos && actual.correo === ADMIN.correo ? PERMISOS_PAGOS.filter((p) => !pagos.sinPermisos.includes(p)) : []),
             ...(opciones.pagos && actual.correo === AGENTE_CONV.correo ? PERMISOS_ABRIR_ARGOS : []),
-            ...(opciones.voz && (permisosPorCorreo[actual.correo] ?? []).includes("conversaciones.responder") ? PERMISOS_LLAMADAS : []),
+            ...(opciones.voz && (permisosPorCorreo[actual.correo] ?? []).includes("conversaciones.responder")
+                ? PERMISOS_LLAMADAS.filter((p) => !(opciones.voz?.soloLlama && actual.correo === ADMIN.correo && p === "llamadas.contestar"))
+                : []),
+            // E1b: llamar es de quien supervisa (aquí, Ana); pedir el permiso, de cualquiera que atiende.
+            ...(opciones.voz?.salientes && (permisosPorCorreo[actual.correo] ?? []).includes("conversaciones.responder") ? [PERMISO_PEDIR] : []),
+            ...(opciones.voz?.salientes && actual.correo === ADMIN.correo ? [PERMISO_LLAMAR] : []),
             ...(opciones.voz && !opciones.voz.soloAtender && actual.correo === ADMIN.correo ? PERMISOS_VOZ_ADMIN : []),
             ...(opciones.correo && (actual.correo === ADMIN.correo || actual.correo === SUPERVISOR_ZONA.correo) ? PERMISOS_CORREO : []),
             ...(opciones.correo && actual.correo === CONSULTA.correo ? PERMISOS_CORREO.slice(0, 1) : []),

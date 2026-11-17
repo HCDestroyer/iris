@@ -38,8 +38,8 @@ export function apagarRecibir() {
 // --- La llamada --------------------------------------------------------------------------------
 
 /** La llamada viva del usuario, o `null` (204). */
-export async function leerLlamadaActiva(signal?: AbortSignal) {
-    return (await resolver(api().GET(`${BASE}/activa`, { signal }))) ?? null;
+export async function leerLlamadaActiva(signal?: AbortSignal, empresa?: number) {
+    return (await resolver(api().GET(`${BASE}/activa`, { signal, ...de(empresa) }))) ?? null;
 }
 
 export function leerLlamada(id: string, signal?: AbortSignal, empresa?: number) {
@@ -101,6 +101,37 @@ export function avisarAlCerrar(id: string, accion: "soltar" | "colgar", empresaD
     } catch {
         // Sin red al cerrar: el servidor la termina solo a los 15 s sin el flujo del usuario.
     }
+}
+
+// --- Salientes y permiso de llamada (E1b) ---------------------------------------------------------
+
+const CONV = "/api/v1/mensajeria/conversaciones/{id}";
+
+/** Lo que Iris sabe del permiso del contacto para que lo llamen (no pregunta a Meta). */
+export function leerPermisoLlamada(conversacionId: number, signal?: AbortSignal) {
+    return resolver(api().GET(`${CONV}/permiso-llamada`, { params: { path: { id: conversacionId } }, signal }));
+}
+
+/** Manda al cliente la solicitud de permiso (queda en el hilo). Devuelve el permiso como quedó. */
+export function solicitarPermisoLlamada(conversacionId: number, clave: string) {
+    return resolver(api().POST(`${CONV}/solicitar-permiso-llamada`, { params: { path: { id: conversacionId }, header: idem(clave) } }));
+}
+
+/** Llama al contacto de la conversación con la oferta SDP del navegador. Responde la llamada en `marcando`. */
+export function llamarContacto(conversacionId: number, entrada: { sdpOferta: string; devolucionId?: number | undefined; confirmarRiesgo?: boolean | undefined }, clave: string, empresa?: number, signal?: AbortSignal) {
+    return resolver(
+        api().POST(`${CONV}/llamar`, {
+            signal,
+            params: { path: { id: conversacionId }, header: { ...idem(clave), ...navegador() } },
+            body: { sdpOferta: entrada.sdpOferta, ...(entrada.devolucionId !== undefined ? { devolucionId: entrada.devolucionId } : {}), ...(entrada.confirmarRiesgo ? { confirmarRiesgo: true } : {}) },
+            ...de(empresa),
+        }),
+    );
+}
+
+/** La respuesta SDP de Meta a mi saliente. 409 `sin_respuesta` si aún no llegó. */
+export function leerRespuestaSdp(id: string, empresa?: number) {
+    return resolver(api().GET(`${BASE}/{id}/respuesta-sdp`, { params: { path: { id }, header: navegador() }, ...de(empresa) }));
 }
 
 // --- Devoluciones ------------------------------------------------------------------------------

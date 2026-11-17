@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { entradaDeAjustes, entradaDeCanal, esquemaAjustesVoz, esquemaLlamadasCanal, motivoNoEncender, valoresDeAjustes, valoresDeCanal } from "./ajustes";
+import { entradaDeAjustes, entradaDeCanal, esquemaAjustesVoz, esquemaLlamadasCanal, motivoNoEncender, resumenSalientes, valoresDeAjustes, valoresDeCanal } from "./ajustes";
 import type { AjustesVoz, LlamadasCanal } from "./tipos";
 
 const CANAL: LlamadasCanal = {
@@ -17,13 +17,13 @@ const CANAL: LlamadasCanal = {
     whatsapp: { estado: "aplicado", intentos: 1 },
     version: 4,
 };
-const AJUSTES: AjustesVoz = { version: 3, grabar: "nunca", duracionMaxPersonaMin: 60, segundosAsignado: 10 };
+const AJUSTES: AjustesVoz = { version: 3, grabar: "nunca", duracionMaxPersonaMin: 60, segundosAsignado: 10, maxSalientesPorDia: 50, topeMinutosSalientesMes: 300, maxColgadasMarcandoDia: 3 };
 
 describe("ajustes de llamadas por número (espejo de `POST /canales/{id}/llamadas/configurar`)", () => {
     it("lo leído va y vuelve igual; sin cola ni horario no se mandan", () => {
         const v = valoresDeCanal(CANAL);
         expect(esquemaLlamadasCanal.safeParse(v).success).toBe(true);
-        expect(entradaDeCanal(v, CANAL.version)).toEqual({ version: 4, llamadasActivas: false, colaId: 2, segundosSonando: 30, fueraDeHorario: "rechazar_con_mensaje", iconoVisible: true, devolucion: false, mensajePerdida: { activo: true, texto: "No pudimos contestarte." } });
+        expect(entradaDeCanal(v, CANAL.version)).toEqual({ version: 4, llamadasActivas: false, colaId: 2, segundosSonando: 30, fueraDeHorario: "rechazar_con_mensaje", iconoVisible: true, devolucion: false, mensajePerdida: { activo: true, texto: "No pudimos contestarte." }, plantillaPermiso: "" });
         const sin = entradaDeCanal({ ...v, colaId: "", horarioId: "" }, 4);
         expect("colaId" in sin || "horarioId" in sin).toBe(false);
     });
@@ -59,6 +59,42 @@ describe("ajustes de llamadas de la empresa (campos de E1)", () => {
         expect(error({ duracionMaxPersonaMin: "121" })).toBe("Entre 10 y 120 minutos");
         expect(error({ segundosAsignado: "21" })).toBe("Entre 0 y 20 segundos");
         expect(error({ segundosAsignado: "0" })).toBeUndefined();
-        expect(entradaDeAjustes({ duracionMaxPersonaMin: "45", segundosAsignado: "0" }, AJUSTES)).toEqual({ version: 3, duracionMaxPersonaMin: 45, segundosAsignado: 0 });
+        expect(entradaDeAjustes({ ...valoresDeAjustes(AJUSTES), duracionMaxPersonaMin: "45", segundosAsignado: "0" }, AJUSTES)).toEqual({
+            version: 3,
+            duracionMaxPersonaMin: 45,
+            segundosAsignado: 0,
+            maxSalientesPorDia: 50,
+            topeMinutosSalientesMes: 300,
+            maxColgadasMarcandoDia: 3,
+        });
+    });
+
+    it("E1b: límites de las salientes (0 apaga las llamadas; en las colgadas, 0 es sin límite)", () => {
+        const error = (cambio: Record<string, string>) => esquemaAjustesVoz.safeParse({ ...valoresDeAjustes(AJUSTES), ...cambio }).error?.issues[0]?.message;
+        expect(error({ maxSalientesPorDia: "1001" })).toBe("Entre 0 y 1000 llamadas");
+        expect(error({ maxSalientesPorDia: "0" })).toBeUndefined();
+        expect(error({ topeMinutosSalientesMes: "100001" })).toBe("Entre 0 y 100 000 minutos");
+        expect(error({ topeMinutosSalientesMes: "1.5" })).toBe("Entre 0 y 100 000 minutos");
+        expect(error({ maxColgadasMarcandoDia: "21" })).toBe("Entre 0 y 20");
+        expect(error({ maxColgadasMarcandoDia: "0" })).toBeUndefined();
+        expect(resumenSalientes(valoresDeAjustes(AJUSTES))).toBe("Hasta 50 llamadas salientes al día · 300 minutos al mes");
+        expect(resumenSalientes({ ...valoresDeAjustes(AJUSTES), topeMinutosSalientesMes: "0" })).toBe("Las llamadas salientes están apagadas");
+    });
+});
+
+describe("E1b: plantilla de permiso de llamada del número", () => {
+    it("nombre como en Meta e idioma; vacía se quita y el idioma solo viaja con plantilla", () => {
+        const base = valoresDeCanal({ ...CANAL, plantillaPermiso: "permiso_llamada", plantillaPermisoIdioma: "es" });
+        expect(base).toMatchObject({ plantillaPermiso: "permiso_llamada", plantillaPermisoIdioma: "es" });
+        const error = (cambio: Partial<typeof base>) => esquemaLlamadasCanal.safeParse({ ...base, ...cambio }).error?.issues[0]?.message;
+        expect(error({})).toBeUndefined();
+        expect(error({ plantillaPermiso: "Permiso Llamada" })).toBe("Solo minúsculas, números y guion bajo, como en Meta");
+        expect(error({ plantillaPermisoIdioma: "español" })).toBe("El código del idioma, como «es» o «es_MX»");
+        expect(error({ plantillaPermisoIdioma: "es_MX" })).toBeUndefined();
+        expect(error({ plantillaPermiso: "", plantillaPermisoIdioma: "" })).toBeUndefined();
+        expect(entradaDeCanal(base, 4)).toMatchObject({ plantillaPermiso: "permiso_llamada", plantillaPermisoIdioma: "es" });
+        const sin = entradaDeCanal({ ...base, plantillaPermiso: "" }, 4);
+        expect(sin.plantillaPermiso).toBe("");
+        expect("plantillaPermisoIdioma" in sin).toBe(false);
     });
 });

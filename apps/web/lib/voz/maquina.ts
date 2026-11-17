@@ -28,23 +28,47 @@ export type MotivoAviso =
     | "otra_llamada"
     /** 409 `llamada_ya_contestada` (`otro_navegador`): la reserva es de otro navegador mío. */
     | "otro_navegador"
+    // --- Salientes (E1b) ---
+    /** El cliente no contestó (o rechazó) en el minuto que deja WhatsApp. */
+    | "no_contesto"
+    /** El contacto no ha dado permiso (o WhatsApp no deja llamarlo ahora). */
+    | "sin_permiso"
+    /** El número no tiene las llamadas encendidas para esta empresa (o es prestado). */
+    | "llamadas_inactivas"
+    /** Límite de llamadas del día (de WhatsApp o de la empresa). */
+    | "limite_llamadas"
+    /** Se colgaron varias llamadas a este contacto antes de que contestara: hasta mañana. */
+    | "limite_colgadas"
+    /** La empresa llegó a su tope de minutos de salientes del mes. */
+    | "tope_alcanzado"
+    /** La llamada por devolver ya la cerró otra persona. */
+    | "devolucion_cerrada"
     | "error";
 
 export type EstadoVoz =
     | { fase: "libre" }
     | { fase: "sonando"; llamada: Llamada }
     | { fase: "contestando"; llamada: Llamada; paso: PasoContestar; venceEn: number | null }
+    /**
+     * Saliente (E1b): `preparando` (micrófono y oferta, aún no se pidió nada al servidor) y
+     * `marcando` (el servidor ya tiene la llamada y WhatsApp le suena al cliente).
+     */
+    | { fase: "llamando"; paso: "preparando" | "marcando"; conversacionId: number; titulo: string; llamada: Llamada | null }
     | { fase: "en_curso"; llamada: Llamada; desde: number; silenciada: boolean }
     /** Terminó una llamada que sí se habló: se ofrece la nota. `corte`: se cayó el medio. */
     | { fase: "terminada"; llamada: Llamada; duracionSeg: number; corte: boolean }
     /** No se llegó a hablar: un mensaje llano y se cierra. */
-    | { fase: "aviso"; motivo: MotivoAviso; quien?: string | undefined; titulo: string; detalle?: string | undefined };
+    | { fase: "aviso"; motivo: MotivoAviso; quien?: string | undefined; titulo: string; detalle?: string | undefined; saliente?: true };
 
 export type EventoVoz =
     /** Feed `llamada_entrante`, o la llamada sigue sonando al abrir el panel. */
     | { tipo: "entrante"; llamada: Llamada }
-    /** Feed `llamada_actualizada` / `llamada_terminada`, o una relectura. */
-    | { tipo: "actualizada"; llamada: Llamada }
+    /** Feed `llamada_actualizada` / `llamada_terminada`, o una relectura. `ahora`: para contar desde que contesta. */
+    | { tipo: "actualizada"; llamada: Llamada; ahora?: number }
+    /** Saliente: la persona tocó «Llamar». */
+    | { tipo: "llamar"; conversacionId: number; titulo: string }
+    /** Saliente: el servidor aceptó `llamar` y la llamada está `marcando`. */
+    | { tipo: "marcando"; llamada: Llamada }
     | { tipo: "contestar" }
     | { tipo: "rechazar" }
     | { tipo: "reclamada"; llamada: Llamada; venceEn: number }
@@ -78,11 +102,22 @@ const segundos = (desde: number, ahora: number) => Math.max(0, Math.round((ahora
 
 /** La llamada en la que está esta pestaña, si hay una. */
 export function llamadaDe(e: EstadoVoz): Llamada | null {
-    return e.fase === "sonando" || e.fase === "contestando" || e.fase === "en_curso" || e.fase === "terminada" ? e.llamada : null;
+    return e.fase === "sonando" || e.fase === "contestando" || e.fase === "en_curso" || e.fase === "terminada" || e.fase === "llamando" ? e.llamada : null;
 }
 
-/** ¿Esta pestaña está ocupada con una llamada (contestándola o hablando)? */
-export const ocupada = (e: EstadoVoz): boolean => e.fase === "contestando" || e.fase === "en_curso";
+/** ¿Esta pestaña está ocupada con una llamada (contestándola, llamando o hablando)? */
+export const ocupada = (e: EstadoVoz): boolean => e.fase === "contestando" || e.fase === "en_curso" || e.fase === "llamando";
+
+/** Una saliente que terminó sin hablarse: qué decirle a quien llamó (o nada, si la colgó él). */
+function finDeSaliente(l: Llamada): EstadoVoz {
+    if (l.motivoFin === "tope_alcanzado") return deSaliente(aviso("tope_alcanzado", l.titulo));
+    if (l.estado === "perdida" || l.estado === "rechazada") return deSaliente(aviso("no_contesto", l.titulo));
+    if (l.estado === "fallida") return deSaliente(aviso("meta_rechazo", l.titulo));
+    return LIBRE;
+}
+
+/** Marca el aviso como de una saliente: los textos hablan de llamar, no de contestar. */
+const deSaliente = (e: EstadoVoz): EstadoVoz => (e.fase === "aviso" ? { ...e, saliente: true } : e);
 
 export function siguiente(e: EstadoVoz, ev: EventoVoz, yo: number): EstadoVoz {
     switch (ev.tipo) {
@@ -98,6 +133,12 @@ export function siguiente(e: EstadoVoz, ev: EventoVoz, yo: number): EstadoVoz {
             if (!actual || actual.id !== ev.llamada.id) return e;
             const l = ev.llamada;
             const deOtro = l.usuario !== undefined && l.usuario.id !== yo;
+            if (e.fase === "llamando") {
+                // El cliente contestó: se habla. `marcando` → `en_curso` es con el `ACCEPTED` de WhatsApp.
+                if (l.estado === "en_curso") return { fase: "en_curso", llamada: l, desde: ev.ahora ?? (Date.parse(l.contestadaEn ?? "") || Date.now()), silenciada: false };
+                if (esFinal(l)) return finDeSaliente(l);
+                return { ...e, llamada: l };
+            }
             if (e.fase === "sonando") {
                 if (l.estado === "sonando") return l.puede.contestar ? { fase: "sonando", llamada: l } : LIBRE;
                 // Otra persona la reclamó o ya habla: deja de sonar aquí, diciendo quién.
@@ -119,6 +160,11 @@ export function siguiente(e: EstadoVoz, ev: EventoVoz, yo: number): EstadoVoz {
             if (e.fase === "terminada") return { ...e, llamada: l };
             return e;
         }
+        case "llamar":
+            // Con una llamada entrando, viva o sin anotar no se empieza otra.
+            return e.fase === "libre" || e.fase === "aviso" ? { fase: "llamando", paso: "preparando", conversacionId: ev.conversacionId, titulo: ev.titulo, llamada: null } : e;
+        case "marcando":
+            return e.fase === "llamando" && e.paso === "preparando" ? { ...e, paso: "marcando", llamada: ev.llamada } : e;
         case "contestar":
             return e.fase === "sonando" ? { fase: "contestando", llamada: e.llamada, paso: "reclamando", venceEn: null } : e;
         case "rechazar":
@@ -132,8 +178,11 @@ export function siguiente(e: EstadoVoz, ev: EventoVoz, yo: number): EstadoVoz {
         case "medio_confirmado":
             return e.fase === "contestando" && e.paso === "confirmando" ? { fase: "en_curso", llamada: ev.llamada, desde: ev.ahora, silenciada: false } : e;
         case "plazo_vencido":
+            // Saliente: pasó el minuto de WhatsApp (y un margen) sin que contestara.
+            if (e.fase === "llamando") return deSaliente(aviso("no_contesto", e.titulo));
             return e.fase === "contestando" ? aviso("reserva_vencida", e.llamada.titulo) : e;
         case "fallo":
+            if (e.fase === "llamando") return deSaliente(aviso(ev.motivo, e.titulo, ev.quien, ev.detalle));
             if (e.fase === "contestando" || e.fase === "sonando") return aviso(ev.motivo, e.llamada.titulo, ev.quien, ev.detalle);
             return e;
         case "otra_pestana":
@@ -141,6 +190,8 @@ export function siguiente(e: EstadoVoz, ev: EventoVoz, yo: number): EstadoVoz {
         case "silenciar":
             return e.fase === "en_curso" ? { ...e, silenciada: ev.silenciada } : e;
         case "colgar":
+            // Colgar mientras marca: no hubo llamada que anotar.
+            if (e.fase === "llamando") return LIBRE;
             return e.fase === "en_curso" ? { fase: "terminada", llamada: e.llamada, duracionSeg: segundos(e.desde, ev.ahora), corte: false } : e;
         case "medio_caido":
             return e.fase === "en_curso" ? { fase: "terminada", llamada: e.llamada, duracionSeg: segundos(e.desde, ev.ahora), corte: true } : e;
@@ -183,7 +234,11 @@ export type Etapa =
     | "respondida"
     /** `confirmar-medio` salió: el servidor puede haber aceptado ya (llamada `en_curso`). */
     | "confirmando"
-    | "en_curso";
+    | "en_curso"
+    /** Saliente: micrófono y oferta; aún no salió `llamar` (o el servidor dijo que no la creó). */
+    | "preparando"
+    /** Saliente: `llamar` salió; el servidor puede tener ya la llamada marcando, haya respondido o no. */
+    | "llamando";
 
 /**
  * Al dejar de atender una llamada en esta pestaña (se cierra el audio local), qué hay que asegurar
@@ -203,6 +258,12 @@ export function alSalir(antes: EstadoVoz, despues: EstadoVoz, etapa: Etapa, rese
         // Llegó por el feed ya terminada: no hay nada que colgar.
         return despues.fase === "terminada" && esFinal(despues.llamada) ? null : "colgar";
     }
+    // Saliente: desde que sale `llamar` puede existir en el servidor (y sonarle al cliente): se cuelga
+    // siempre, también si la respuesta se perdió. Colgar una que ya terminó no hace nada.
+    if (antes.fase === "llamando") {
+        if (despues.fase === "aviso" && despues.motivo === "otro_navegador") return null;
+        return etapa === "preparando" ? null : "colgar";
+    }
     if (antes.fase !== "contestando") return null;
     // La tengo en otro navegador mío, con su audio: aquí no se suelta ni se cuelga nada.
     if (despues.fase === "aviso" && despues.motivo === "otro_navegador") return null;
@@ -218,6 +279,9 @@ export function alSalir(antes: EstadoVoz, despues: EstadoVoz, etapa: Etapa, rese
  */
 export function alCerrarPestana(e: EstadoVoz, etapa: Etapa, reservaSegura: boolean): { accion: "soltar" | "colgar"; id: string; propia?: true } | null {
     if (e.fase === "en_curso") return { accion: "colgar", id: e.llamada.id };
+    // Saliente marcando: se cuelga la mía (sin el id, porque `llamar` no ha respondido, no se puede:
+    // el servidor la corta sola a los 55 s sin el latido de este navegador).
+    if (e.fase === "llamando") return e.llamada ? { accion: "colgar", id: e.llamada.id, propia: true } : null;
     if (e.fase !== "contestando") return null;
     // `confirmar-medio` salió y no se sabe si se aceptó: al cerrar no hay tiempo de leer de quién es
     // la llamada, así que se cuelga con `propia` (solo si la tengo yo: quien supervisa no cuelga por
@@ -226,6 +290,14 @@ export function alCerrarPestana(e: EstadoVoz, etapa: Etapa, reservaSegura: boole
     // También con `reclamar` en vuelo: si no llegó a reservarse, el servidor responde 404 y no pasa nada.
     return reservaSegura ? { accion: "soltar", id: e.llamada.id } : null;
 }
+
+/**
+ * Saliente: WhatsApp deja sonar 60 s y el servidor la da por perdida; si el aviso no llega, a los 70 s
+ * se deja de esperar aquí (y se cuelga).
+ */
+export const MARCANDO_MAX_MS = 70_000;
+/** Saliente contestada: cuánto se espera a que conecte el audio antes de colgarla (nunca `en_curso` sin audio). */
+export const MEDIO_SALIENTE_MS = 15_000;
 
 /** Tope del timbre: sin noticias de la llamada en este tiempo, deja de sonar aquí. */
 export const TIMBRE_MAX_MS = 60_000;

@@ -1284,6 +1284,7 @@ test.describe("voz › ajustes", () => {
                     iconoVisible: true,
                     devolucion: false,
                     mensajePerdida: { activo: true, texto: "No pudimos contestarte. Escríbenos por aquí y te atendemos." },
+                    plantillaPermiso: "",
                 },
             },
         ]);
@@ -1388,7 +1389,7 @@ test.describe("voz › ajustes", () => {
         await f.getByRole("button", { name: "Guardar" }).click();
         await expect(page.getByText("Ajustes de llamadas guardados")).toBeVisible();
         // La grabación no existe todavía: ni se ofrece ni se manda.
-        expect(api.voz.recibido.ajustes).toEqual([{ version: 3, duracionMaxPersonaMin: 45, segundosAsignado: 0 }]);
+        expect(api.voz.recibido.ajustes).toEqual([{ version: 3, duracionMaxPersonaMin: 45, segundosAsignado: 0, maxSalientesPorDia: 50, topeMinutosSalientesMes: 300, maxColgadasMarcandoDia: 3 }]);
     });
 
     test("sin `llamadas.configurar` no hay «Llamadas» en los números ni se entra por la URL", async ({ page }) => {

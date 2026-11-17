@@ -1,7 +1,7 @@
 "use client";
 
 import { Boton, Cargando, cn } from "@iris/ui";
-import { AlertTriangle, ArrowLeftRight, Bot, FileText, History, MapPin, MessageCircle, Paperclip, PencilLine, Plug, RotateCw, ShieldCheck, ShieldX, Smartphone, Sparkles, Timer, UserRound, Voicemail } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, Bot, FileText, History, MapPin, MessageCircle, Paperclip, PencilLine, PhoneCall, Plug, RotateCw, ShieldCheck, ShieldX, Smartphone, Sparkles, Timer, UserRound, Voicemail } from "lucide-react";
 import { Fragment, useEffect, useLayoutEffect, useRef } from "react";
 import type { Pendiente } from "@/lib/conversaciones/estado";
 import { hora, separadorDia, tamanoLegible, textoEntrega, textoEvento } from "@/lib/conversaciones/presentacion";
@@ -178,8 +178,10 @@ function Burbuja({ m }: { m: Mensaje }) {
     const propia = m.direccion === "saliente";
     const nota = m.direccion === "nota";
     // Fase 1.1: mensajes del bot (`automatico: "bot"`) con su etiqueta y borde punteado de información.
-    const automatico = m.automatico ?? null;
+    const automatico: string | null = m.automatico ?? null;
     const delBot = propia && automatico === "bot";
+    // Voz E1b: la solicitud de permiso para llamar (el valor aún no está en el tipo generado: i3.md).
+    const pidePermiso = propia && automatico === "permiso_llamada";
     // Fase 3 (§17): el asistente de IA respondió solo, o dejó una nota al pasar a una persona.
     const delAsistente = (propia || nota) && esDelAsistente(m);
     // §15.2: lo mandado desde la app WhatsApp Business del teléfono (sin autor) y lo traído del historial.
@@ -209,7 +211,8 @@ function Burbuja({ m }: { m: Mensaje }) {
                 className={cn(
                     "flex max-w-[min(72%,35rem)] min-w-0 flex-col gap-0.5 rounded-[0.875rem] px-3 py-2",
                     m.direccion === "entrante" && "self-start rounded-bl-sm border border-border bg-card",
-                    propia && !delBot && !delAsistente && "self-end rounded-br-sm bg-primary/10",
+                    propia && !delBot && !delAsistente && !pidePermiso && "self-end rounded-br-sm bg-primary/10",
+                    pidePermiso && "self-end rounded-br-sm border border-primary/40 bg-primary/[0.06]",
                     propia && delAsistente && "self-end rounded-br-sm border border-primary/30 bg-primary/[0.06]",
                     delBot && "self-end rounded-br-sm border border-dashed border-info/40 bg-card",
                     nota && "self-end rounded-br-sm border border-dashed border-warning/50 bg-warning/10",
@@ -227,6 +230,12 @@ function Burbuja({ m }: { m: Mensaje }) {
                     <span className="flex items-center gap-1 text-[0.6875rem] font-semibold text-muted-foreground" data-slot="etiqueta-historial">
                         <History aria-hidden className="size-3.5" />
                         Del historial del teléfono
+                    </span>
+                ) : null}
+                {pidePermiso ? (
+                    <span className="flex items-center gap-1 text-[0.6875rem] font-semibold text-primary" data-slot="etiqueta-permiso-llamada">
+                        <PhoneCall aria-hidden className="size-3.5" />
+                        Solicitud de permiso para llamar
                     </span>
                 ) : null}
                 {delBot ? (

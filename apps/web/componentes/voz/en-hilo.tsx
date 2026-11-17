@@ -1,7 +1,7 @@
 "use client";
 
 import { avisar, Boton, cn, DialogoConfirmar } from "@iris/ui";
-import { Clock, MessageSquare, Phone, PhoneCall, PhoneIncoming, PhoneMissed, PhoneOff, StickyNote, TriangleAlert, type LucideIcon } from "lucide-react";
+import { Clock, MessageSquare, PhoneCall, PhoneIncoming, PhoneMissed, PhoneOff, PhoneOutgoing, StickyNote, TriangleAlert, type LucideIcon } from "lucide-react";
 import { useState } from "react";
 import { nuevaClaveIdempotencia } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
@@ -10,7 +10,9 @@ import { useSesion } from "@/lib/sesion";
 import { colgarLlamada } from "@/lib/voz/api";
 import type { Mensaje } from "@/lib/conversaciones/tipos";
 import { llamadaEnHilo, type IconoLlamada, type TonoLlamada } from "@/lib/voz/presentacion";
+import { PERMISO_LLAMAR } from "@/lib/voz/tipos";
 import { useDevoluciones } from "./devoluciones";
+import { useVoz } from "./proveedor";
 
 const ICONO: Record<IconoLlamada, LucideIcon> = {
     contestada: PhoneIncoming,
@@ -19,6 +21,7 @@ const ICONO: Record<IconoLlamada, LucideIcon> = {
     fuera_de_horario: Clock,
     en_curso: PhoneCall,
     fallida: TriangleAlert,
+    saliente: PhoneOutgoing,
 };
 
 const CLASE: Record<TonoLlamada, { caja: string; icono: string }> = {
@@ -41,17 +44,19 @@ function irAlCompositor(conversacionId: number) {
 
 /**
  * Una llamada en el hilo (`tipo: "llamada"`): tarjeta centrada con icono + texto + color. La
- * perdida es la única en rojo y trae qué hacer: «Escribirle» (devolver la llamada desde el panel
- * llega con las salientes) y, si sigue pendiente, «Descartar».
+ * perdida es la única en rojo y trae qué hacer: «Devolver la llamada» (E1b; si sigue pendiente y
+ * esta persona puede llamar), «Escribirle» y «Descartar». Una saliente (`direccion: saliente`) dice
+ * quién la hizo y, si el cliente no contestó, lo dice en ámbar: no hay nada que devolver.
  */
 export function LlamadaEnHilo({ m }: { m: Mensaje }) {
     const dev = useDevoluciones();
+    const voz = useVoz();
     const { yo, puede } = useSesion();
     const [colgando, setColgando] = useState(false);
     if (!m.llamada) return null;
     const l = m.llamada;
     const v = llamadaEnHilo(l);
-    const Icono = l.direccion === "saliente" && v.icono === "contestada" ? Phone : ICONO[v.icono];
+    const Icono = ICONO[v.icono];
     const clase = CLASE[v.tono];
     const pendiente = l.estado === "perdida" ? dev?.deLlamada(l.id) : undefined;
     // Quien supervisa puede colgar la llamada viva de otra persona (la propia se cuelga en la barra).
@@ -62,6 +67,7 @@ export function LlamadaEnHilo({ m }: { m: Mensaje }) {
             data-mensaje={m.id}
             data-slot="llamada-hilo"
             data-estado={l.estado}
+            data-direccion={l.direccion}
             data-tono={v.tono}
             className={cn("flex w-full max-w-[min(100%,26rem)] min-w-0 flex-col gap-2 self-center rounded-xl border p-3", clase.caja)}
         >
@@ -112,6 +118,12 @@ export function LlamadaEnHilo({ m }: { m: Mensaje }) {
             ) : null}
             {l.estado === "perdida" ? (
                 <div className="flex flex-wrap gap-1.5">
+                    {pendiente && voz && puede([PERMISO_LLAMAR]) ? (
+                        <Boton tamano="sm" disabled={voz.estado.fase !== "libre" && voz.estado.fase !== "aviso"} onClick={() => voz.llamar({ id: m.conversacionId, titulo: pendiente.titulo || pendiente.numero }, { devolucionId: pendiente.id })}>
+                            <PhoneOutgoing />
+                            Devolver la llamada
+                        </Boton>
+                    ) : null}
                     <Boton variante="secundario" tamano="sm" onClick={() => irAlCompositor(m.conversacionId)}>
                         <MessageSquare />
                         Escribirle

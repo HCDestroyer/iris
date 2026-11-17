@@ -15,7 +15,7 @@ type Resumen = "apagado" | "encendido" | "atencion";
 function useResumen(): Resumen | null {
     const voz = useVoz();
     const disponible = useEstoyDisponible();
-    if (!voz || voz.recibir.estado !== "listo") return null;
+    if (!voz?.contesta || voz.recibir.estado !== "listo") return null;
     if (voz.microfono === "denegado" || voz.microfono === "sin_microfono" || voz.desplazado !== null) return "atencion";
     if (!voz.recibir.recibe) return "apagado";
     // Encendido pero ahora no sonaría: sin flujo en vivo o «No disponible».
@@ -32,7 +32,8 @@ export function ControlRecibir({ className }: { className?: string }) {
     const voz = useVoz();
     const disponible = useEstoyDisponible();
     const [explicando, setExplicando] = useState(false);
-    if (!voz) return null;
+    // Quien solo llama (sin `llamadas.contestar`) no tiene «Recibir llamadas».
+    if (!voz?.contesta) return null;
     const { recibir, microfono } = voz;
     if (!voz.admite) {
         return (
@@ -191,7 +192,8 @@ export function BotonRecibir() {
     const voz = useVoz();
     const resumen = useResumen();
     const [abierto, setAbierto] = useState(false);
-    if (!voz) return null;
+    // Quien solo llama (sin `llamadas.contestar`) no tiene «Recibir llamadas».
+    if (!voz?.contesta) return null;
     const nombre = resumen ? NOMBRE[resumen] : "Recibir llamadas";
     return (
         <PanelEmergente

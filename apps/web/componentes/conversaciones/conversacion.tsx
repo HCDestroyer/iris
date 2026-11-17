@@ -25,6 +25,7 @@ import { Hilo } from "./hilo";
 import { useAhora, useAncho } from "./reloj";
 import { BotonSugerir, PausaAsistente, TarjetaSugerencia, useAsistente } from "./sugerencia";
 import { IndicadorVerificacion } from "./verificacion";
+import { BotonLlamada } from "../voz/llamar";
 import { faltaParaVencer, nivelVerificacion, trasFallarRelectura } from "@/lib/asistente/fase3b";
 
 /** Cada cuánto se relee una conversación con la identidad verificada, por si ya venció. */
@@ -370,6 +371,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                         </span>
                     </div>
                     <AccionesConversacion conv={conv} estrecho={anchoSeccion > 0 && anchoSeccion < 480} alActualizar={aplicarConversacion} recargar={refrescarDetalle} abrirAyuda={abrirAyuda} />
+                    {detenido ? null : <BotonLlamada conv={{ id: conv.id, titulo: conv.titulo }} />}
                     <Boton
                         variante="contorno"
                         tamano="icono-sm"
