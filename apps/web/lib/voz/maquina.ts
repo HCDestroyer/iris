@@ -141,6 +141,21 @@ export function siguiente(e: EstadoVoz, ev: EventoVoz, yo: number): EstadoVoz {
     }
 }
 
+/** La reserva de `reclamar` (§3.3, paso 4) y el plazo para `confirmar-medio` (paso 6). */
+export const RESERVA_MS = 12_000;
+export const CONFIRMAR_MS = 5_000;
+
+/**
+ * Cuánto esperar antes de dar la reserva por vencida. Se usa el `venceEn` del servidor solo si cae
+ * dentro de la reserva; si el reloj de este equipo está desfasado (da un plazo ya pasado o más largo
+ * que la reserva), valen los 12 s desde que llegó la respuesta. El servidor sigue mandando: si para
+ * él ya venció, responde 409 `reserva_vencida`.
+ */
+export function plazoReserva(venceEn: string, ahora: number): number {
+    const resto = Date.parse(venceEn) - ahora;
+    return resto > 0 && resto <= RESERVA_MS ? resto : RESERVA_MS;
+}
+
 // --- Qué hace falta al pasar de un estado a otro (lo ejecuta el proveedor) ----------------------
 
 /** ¿Debe sonar el timbre? Solo mientras la llamada espera a que alguien la conteste aquí. */

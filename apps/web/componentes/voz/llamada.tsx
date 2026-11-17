@@ -74,6 +74,7 @@ const PASO: Record<Extract<EstadoVoz, { fase: "contestando" }>["paso"], string> 
  */
 export function AvisoLlamada() {
     const voz = useVoz();
+    const router = useRouter();
     const estado = voz?.estado;
     const llamada = estado && (estado.fase === "sonando" || estado.fase === "contestando") ? estado.llamada : null;
     const detalle = useContexto(llamada?.conversacionId);
@@ -135,7 +136,16 @@ export function AvisoLlamada() {
                         <PhoneOff />
                         Rechazar
                     </Boton>
-                    <Boton onClick={voz.contestar}>
+                    <Boton
+                        onClick={() => {
+                            voz.contestar();
+                            // La ficha del cliente a la vista: se abre su conversación, salvo que
+                            // estés llenando un formulario (no se pierde lo escrito; queda «Ver cliente»).
+                            const id = llamada.conversacionId;
+                            const yaAhi = window.location.pathname === "/conversaciones" && new URLSearchParams(window.location.search).get("c") === String(id);
+                            if (id !== undefined && !yaAhi && !document.querySelector('[data-slot="formulario-pagina"]')) router.push(hrefConversacion(id));
+                        }}
+                    >
                         <Phone />
                         Contestar
                     </Boton>
@@ -193,8 +203,11 @@ export function BarraLlamada() {
                 </span>
             </p>
             {llamada.conversacionId !== undefined && !enSuConversacion ? (
-                <Boton asChild variante="fantasma" tamano="sm" className="hidden sm:inline-flex">
-                    <Link href={hrefConversacion(llamada.conversacionId)}>Ver cliente</Link>
+                <Boton asChild variante="fantasma" tamano="sm" className="px-2 sm:px-3">
+                    <Link href={hrefConversacion(llamada.conversacionId)} aria-label="Ver cliente">
+                        <UserRound className="sm:hidden" />
+                        <span className="hidden sm:inline">Ver cliente</span>
+                    </Link>
                 </Boton>
             ) : null}
             <Boton variante={silenciada ? "primario" : "secundario"} tamano="sm" aria-pressed={silenciada} aria-label={silenciada ? "Activar micrófono" : "Silenciar"} onClick={() => voz.silenciar(!silenciada)}>

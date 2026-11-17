@@ -23,7 +23,7 @@ import {
     soltarLlamada,
 } from "@/lib/voz/api";
 import { escucharEventos, escucharFuente, fuenteAjena, publicarEvento } from "@/lib/voz/canal";
-import { alCerrarPestana, debeSoltar, debeSonar, LIBRE, llamadaDe, ocupada, siguiente, type EstadoVoz, type EventoVoz } from "@/lib/voz/maquina";
+import { alCerrarPestana, CONFIRMAR_MS, debeSoltar, debeSonar, LIBRE, llamadaDe, ocupada, plazoReserva, siguiente, type EstadoVoz, type EventoVoz } from "@/lib/voz/maquina";
 import { conectar, ErrorMicrofono, navegadorAdmiteLlamadas, pedirMicrofono, permisoMicrofono, soltarMicrofono, type Conexion, type EstadoMicrofono } from "@/lib/voz/medios";
 import { idNavegador } from "@/lib/voz/navegador";
 import { motivoDeCodigo } from "@/lib/voz/presentacion";
@@ -42,9 +42,6 @@ import type { Llamada } from "@/lib/voz/tipos";
  *   solo a una, y el servidor avisa a las demás.
  * - Al cerrar la pestaña: `soltar` (aún sin aceptar) o `colgar` (en curso), con `keepalive`.
  */
-
-/** Plazo para `confirmar-medio` después de `contestar` (§3.3, paso 6). */
-const PLAZO_CONFIRMAR_MS = 5000;
 
 export type EstadoRecibir =
     | { estado: "cargando" }
@@ -280,9 +277,9 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
             const mio: Intento = { conexion: null, microfono: null, plazo: 0, liberar };
             intento.current = mio;
             const vivo = () => intento.current === mio;
-            const plazoHasta = (cuando: number) => {
+            const plazoDe = (ms: number) => {
                 window.clearTimeout(mio.plazo);
-                mio.plazo = window.setTimeout(() => vivo() && despachar({ tipo: "plazo_vencido" }), Math.max(0, cuando - Date.now()));
+                mio.plazo = window.setTimeout(() => vivo() && despachar({ tipo: "plazo_vencido" }), ms);
             };
             despachar({ tipo: "contestar" });
             try {
@@ -290,7 +287,7 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
                 if (!vivo()) return;
                 despachar({ tipo: "reclamada", llamada: r.llamada, venceEn: Date.parse(r.venceEn) });
                 if (!vivo()) return;
-                plazoHasta(Date.parse(r.venceEn));
+                plazoDe(plazoReserva(r.venceEn, Date.now()));
                 const mic = await pedirMicrofono();
                 if (!vivo()) {
                     soltarMicrofono(mic);
@@ -308,7 +305,7 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
                 if (!vivo()) return;
                 despachar({ tipo: "respuesta_enviada", llamada: respondida });
                 if (!vivo()) return;
-                plazoHasta(Date.now() + PLAZO_CONFIRMAR_MS);
+                plazoDe(CONFIRMAR_MS);
                 await conexion.conectado;
                 if (!vivo()) return;
                 const enCurso = await confirmarMedio(id, nuevaClaveIdempotencia());

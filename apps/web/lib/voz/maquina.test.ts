@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { alCerrarPestana, debeSoltar, debeSonar, LIBRE, llamadaDe, ocupada, siguiente, type EstadoVoz, type EventoVoz } from "./maquina";
+import { alCerrarPestana, debeSoltar, debeSonar, LIBRE, llamadaDe, ocupada, plazoReserva, siguiente, type EstadoVoz, type EventoVoz } from "./maquina";
 import { duracionCorta, llamadaEnHilo, motivoDeCodigo, quienLlama, reloj, textoAviso, textoRequisito } from "./presentacion";
 import type { Llamada } from "./tipos";
 
@@ -157,6 +157,15 @@ describe("máquina de la llamada entrante (contratos/voz.md §3.3)", () => {
         expect(siguiente(confirmada, { tipo: "cerrar" }, YO)).toBe(LIBRE);
         // Mientras está la nota abierta, otra entrante no la tapa.
         expect(siguiente(colgue, { tipo: "entrante", llamada: llamada({ id: "otra" }) }, YO)).toBe(colgue);
+    });
+
+    it("el plazo de la reserva aguanta un reloj desfasado: nunca más de 12 s ni vencida de entrada", () => {
+        expect(plazoReserva("2026-11-17T16:00:22Z", T0)).toBe(12_000);
+        expect(plazoReserva("2026-11-17T16:00:18.500Z", T0)).toBe(8_500);
+        // Reloj del equipo adelantado (el plazo «ya pasó») o atrasado (daría minutos): 12 s.
+        expect(plazoReserva("2026-11-17T16:00:05Z", T0)).toBe(12_000);
+        expect(plazoReserva("2026-11-17T16:05:00Z", T0)).toBe(12_000);
+        expect(plazoReserva("no es una fecha", T0)).toBe(12_000);
     });
 
     it("al cerrar la pestaña: nada si solo suena, `soltar` si la reclamé, `colgar` si hablo", () => {
