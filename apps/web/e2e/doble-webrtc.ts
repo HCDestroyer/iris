@@ -82,7 +82,27 @@ function instalar(inicial: Partial<Pick<ControlVoz, "microfono" | "permiso" | "m
         value: { query: (d: { name: string }) => (d.name === "microphone" ? Promise.resolve({ state: control.permiso }) : Promise.reject(new TypeError("no"))) },
     });
 
-    const RESPUESTA = "v=0\r\no=- 2 2 IN IP4 0.0.0.0\r\ns=-\r\nt=0 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2\r\na=setup:active\r\n";
+    // Como un navegador real con el micrófono permitido: trae la IP privada del equipo.
+    const RESPUESTA = [
+        "v=0",
+        "o=- 2 2 IN IP4 127.0.0.1",
+        "s=-",
+        "t=0 0",
+        "m=audio 54321 UDP/TLS/RTP/SAVPF 111",
+        "c=IN IP4 192.168.1.23",
+        "a=rtcp:9 IN IP4 192.168.1.23",
+        "a=candidate:1 1 udp 2122260223 192.168.1.23 54321 typ host generation 0",
+        "a=candidate:3 1 udp 1686052607 190.56.10.20 54321 typ srflx raddr 192.168.1.23 rport 54321 generation 0",
+        "a=ice-ufrag:abcd",
+        "a=ice-pwd:0123456789abcdefghijklmn",
+        "a=fingerprint:sha-256 AA:BB:CC:DD",
+        "a=setup:active",
+        "a=mid:0",
+        "a=sendrecv",
+        "a=rtcp-mux",
+        "a=rtpmap:111 opus/48000/2",
+        "",
+    ].join("\r\n");
     class Doble {
         iceConnectionState = "new";
         iceGatheringState = "complete";

@@ -430,7 +430,10 @@ export function apiVoz(
                 if (forzar.contestar === "reserva_vencida" || reserva.hasta < Date.now()) return (await vencida(), true);
                 if (forzar.contestar === "meta_rechazo") return (await problema(route, P("meta_rechazo", 502, "WhatsApp no aceptó la llamada")), true);
                 const sdp = String(cuerpo.sdpRespuesta ?? "");
-                if (forzar.contestar === "sdp_invalido" || !sdp.includes("m=audio")) {
+                // Como el servidor (§6.2-11): audio, `a=setup`, huella DTLS y ninguna dirección de una red interna.
+                const interna = /(^|\s)(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|127\.|169\.254\.|f[cd][0-9a-f]{2}:|fe80:)/im;
+                const direcciones = sdp.split(/\r?\n/).filter((l) => /^(c=|a=rtcp:|a=candidate:)/.test(l));
+                if (forzar.contestar === "sdp_invalido" || !sdp.includes("m=audio") || !sdp.includes("a=setup:") || !sdp.includes("a=fingerprint:") || direcciones.some((l) => interna.test(l))) {
                     return (await problema(route, P("sdp_invalido", 422, "SDP inválido", { errors: [{ field: "body.sdpRespuesta", message: "Solo audio Opus", rule: "sdp" }] })), true);
                 }
                 // Desde aquí corren los 5 s para `confirmar-medio`.

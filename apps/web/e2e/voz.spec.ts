@@ -184,7 +184,12 @@ test.describe("voz › llamada entrante", () => {
         await expect(tarjeta).toHaveCount(0);
         // reclamar → contestar (con la respuesta SDP) → confirmar-medio, una vez cada uno.
         expect(api.voz.recibido.acciones.map((a) => a.accion)).toEqual(["reclamar", "contestar", "confirmar-medio"]);
-        expect(String(acciones(api, "contestar")[0]?.cuerpo.sdpRespuesta)).toContain("m=audio");
+        // La respuesta SDP viaja sin la red interna de quien contesta (el servidor la rechazaría).
+        const sdp = String(acciones(api, "contestar")[0]?.cuerpo.sdpRespuesta);
+        expect(sdp).toContain("m=audio");
+        expect(sdp).toContain("c=IN IP4 0.0.0.0");
+        expect(sdp).not.toContain("192.168.");
+        expect(sdp).not.toContain("a=candidate:");
         expect(await page.evaluate(() => window.__voz.conexiones.map((c) => c.oferta?.includes("m=audio")))).toEqual([true]);
         expect(api.voz.llamadas.get(llamada.id)?.estado).toBe("en_curso");
         // La ficha del cliente a la vista: se abrió su conversación.
@@ -361,10 +366,10 @@ test.describe("voz › plazos, red y cierre", () => {
         await aviso(page).getByRole("button", { name: "Contestar" }).click();
         await expect(aviso(page)).toContainText("Conectando el audio…");
         await expect.poll(() => acciones(api, "contestar").length).toBe(1);
-        await captura(page, "conectando");
-        await page.clock.fastForward(4_000);
+        // A mitad del plazo sigue intentando; pasado, se rinde.
+        await page.clock.fastForward(2_500);
         await expect(aviso(page)).toHaveAttribute("data-fase", "contestando");
-        await page.clock.fastForward(1_200);
+        await page.clock.fastForward(2_700);
         await expect(aviso(page)).toHaveAttribute("data-motivo", "reserva_vencida");
         await expect(aviso(page)).toContainText("No se alcanzó a conectar");
         await expect.poll(() => acciones(api, "soltar").length).toBe(1);
@@ -379,9 +384,10 @@ test.describe("voz › plazos, red y cierre", () => {
         await ajustarVoz(page, { microfono: "colgado" });
         await aviso(page).getByRole("button", { name: "Contestar" }).click();
         await expect(aviso(page)).toContainText("Abriendo el micrófono…");
-        await page.clock.fastForward(11_000);
+        await captura(page, "conectando");
+        await page.clock.fastForward(8_000);
         await expect(aviso(page)).toHaveAttribute("data-fase", "contestando");
-        await page.clock.fastForward(1_200);
+        await page.clock.fastForward(4_200);
         await expect(aviso(page)).toHaveAttribute("data-motivo", "reserva_vencida");
         await expect.poll(() => acciones(api, "soltar").length).toBe(1);
         expect(acciones(api, "contestar")).toHaveLength(0);
@@ -478,7 +484,8 @@ test.describe("voz › plazos, red y cierre", () => {
         await suena(page, api, 42);
         await ajustarVoz(page, { medio: "nunca" });
         await aviso(page).getByRole("button", { name: "Contestar" }).click();
-        await expect.poll(() => acciones(api, "contestar").length).toBe(1);
+        // La respuesta SDP de esta segunda llamada ya salió: la reserva es mía y aún no conecta.
+        await expect.poll(() => acciones(api, "contestar").length).toBe(2);
         await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
         await expect.poll(() => acciones(api, "soltar").map((a) => a.cuerpo)).toEqual([{ motivo: "pestana_cerrada" }]);
     });
@@ -600,6 +607,9 @@ test.describe("voz › en el hilo y en la lista", () => {
 test.describe("voz › ajustes", () => {
     test("por número: requisitos sin cumplir en llano, comprobar, encender y guardar lo que el servidor espera", async ({ page }) => {
         const api = await abrir(page, "/administracion/numeros", { voz: { sinRequisitos: true } });
+        await expect(page.getByRole("link", { name: "Llamadas de Soporte" })).toBeVisible();
+        await esperarSinDesbordes(page);
+        await captura(page, "numeros-lista");
         await page.getByRole("link", { name: "Llamadas de Soporte" }).click();
         await expect(page).toHaveURL(/\/administracion\/numeros\/3\/llamadas$/);
         const f = page.getByRole("form", { name: "Llamadas de Soporte" });
@@ -683,7 +693,7 @@ test.describe("voz › ajustes", () => {
         const g = page.getByRole("form", { name: "Llamadas de Soporte" });
         await expect(g.getByRole("switch", { name: "Mostrar el botón de llamar en WhatsApp" })).toBeChecked();
         await g.getByRole("button", { name: "Leer ajustes de Meta" }).click();
-        await expect(page.getByText("Ajustes leídos de Meta")).toBeVisible();
+        await expect(page.getByText("Ajustes leídos de Meta", { exact: true })).toBeVisible();
         await expect(g.getByRole("switch", { name: "Mostrar el botón de llamar en WhatsApp" })).not.toBeChecked();
     });
 

@@ -4,6 +4,8 @@
  * respuesta SDP para `contestar`.
  */
 
+import { respuestaSinRedInterna } from "./sdp";
+
 export type EstadoMicrofono = "concedido" | "denegado" | "sin_microfono" | "no_disponible";
 
 /** ¿Este navegador puede contestar llamadas? (contexto seguro, micrófono y WebRTC) */
@@ -57,8 +59,6 @@ export type Conexion = {
 
 /** Cuánto se tolera `disconnected` antes de dar la llamada por caída (suele recuperarse sola). */
 const TOLERANCIA_CORTE_MS = 8000;
-/** Cuánto se espera a que termine de juntar candidatos ICE antes de mandar la respuesta. */
-const ESPERA_CANDIDATOS_MS = 1500;
 
 /** Arma el `RTCPeerConnection` con la oferta de Meta y devuelve la respuesta. */
 export async function conectar(sdpOferta: string, servidores: readonly string[], microfono: MediaStream): Promise<Conexion> {
@@ -118,19 +118,11 @@ export async function conectar(sdpOferta: string, servidores: readonly string[],
 
         await pc.setRemoteDescription({ type: "offer", sdp: sdpOferta });
         await pc.setLocalDescription(await pc.createAnswer());
-        if (pc.iceGatheringState !== "complete") {
-            await new Promise<void>((resolver) => {
-                const t = window.setTimeout(resolver, ESPERA_CANDIDATOS_MS);
-                pc.onicegatheringstatechange = () => {
-                    if (pc.iceGatheringState === "complete") {
-                        window.clearTimeout(t);
-                        resolver();
-                    }
-                };
-            });
-        }
-        const sdpRespuesta = pc.localDescription?.sdp;
-        if (!sdpRespuesta) throw new Error("medio_fallido");
+        // No se espera a juntar candidatos: Meta (ICE-lite) aprende la dirección del navegador de sus
+        // comprobaciones, y los candidatos con la red interna no deben viajar (ver `sdp.ts`).
+        const local = pc.localDescription?.sdp;
+        if (!local) throw new Error("medio_fallido");
+        const sdpRespuesta = respuestaSinRedInterna(local);
         return {
             sdpRespuesta,
             conectado,
