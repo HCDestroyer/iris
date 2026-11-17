@@ -5,7 +5,7 @@ import type { OpcionesVoz } from "./api-voz";
 import { abrirMenu, esTelefono, hojaMas } from "./ayudas";
 import { elegirOpcion } from "./controles";
 import { mensaje } from "./datos-conversaciones";
-import { esperarSinDesbordes } from "./desbordes";
+import { buscarDesbordes, esperarSinDesbordes } from "./desbordes";
 import { ajustarVoz, instalarDobleVoz, type ControlVoz } from "./doble-webrtc";
 
 /*
@@ -55,6 +55,15 @@ const nota = (page: Page) => page.getByRole("dialog", { name: "Terminó la llama
 const acciones = (api: Api, accion: string) => api.voz.recibido.acciones.filter((a) => a.accion === accion);
 const captura = (page: Page, nombre: string) => page.screenshot({ path: path.join(carpeta, `${nombre}-${test.info().project.name}.png`) });
 
+/**
+ * Sin desbordes, una vez asentado lo que entra con animación (el diálogo de la nota, la hoja «Más»):
+ * se espera hasta 5 s a que quede en su sitio; si algo sigue fuera, falla diciendo qué.
+ */
+async function sinDesbordes(page: Page) {
+    await expect.poll(async () => (await buscarDesbordes(page)).length, { timeout: 5_000 }).toBe(0).catch(() => undefined);
+    await esperarSinDesbordes(page);
+}
+
 /** «Recibir llamadas»: en escritorio, el teléfono de la barra superior; en el teléfono, arriba de «Más». */
 async function abrirRecibir(page: Page) {
     if (esTelefono(page)) {
@@ -85,7 +94,7 @@ test.describe("voz › recibir llamadas", () => {
         await expect(panel).toContainText("Iris necesita tu micrófono");
         await expect(panel).toContainText("solo se usa mientras estás en una llamada");
         expect(await page.evaluate(() => window.__voz.pedidos)).toBe(0);
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
         await captura(page, "recibir-explica");
         await panel.getByRole("button", { name: "Permitir micrófono" }).click();
         await expect(interruptor).toBeChecked();
@@ -115,7 +124,7 @@ test.describe("voz › recibir llamadas", () => {
         await expect(panel).toContainText("Toca el candado de la barra de direcciones");
         await expect(interruptor).not.toBeChecked();
         expect(api.voz.recibido.recibir).toEqual([]);
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
         await captura(page, "recibir-microfono-bloqueado");
         // Sin micrófono conectado.
         await ajustarVoz(page, { microfono: "sin_microfono" });
@@ -161,7 +170,7 @@ test.describe("voz › recibir llamadas", () => {
         const panel = await abrirRecibir(page);
         await expect(panel).toContainText("Este navegador dejó de recibir llamadas");
         await expect(panel.getByRole("switch", { name: "Recibir llamadas en este navegador" })).not.toBeChecked();
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
         await captura(page, "recibir-desplazado");
         await panel.getByRole("button", { name: "Volver a encender" }).click();
         await expect(panel.getByRole("switch", { name: "Recibir llamadas en este navegador" })).toBeChecked();
@@ -195,7 +204,7 @@ test.describe("voz › llamada entrante", () => {
         // Servicio y ticket: lo que manda el servidor en la conversación.
         await expect(tarjeta.getByRole("list", { name: "Datos del cliente" })).toContainText("Ticket TK-004812");
         await expect(tarjeta).toHaveAttribute("data-timbre", "sonando");
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
         await captura(page, "entrante");
 
         await tarjeta.getByRole("button", { name: "Contestar" }).click();
@@ -217,7 +226,7 @@ test.describe("voz › llamada entrante", () => {
         await expect(barra(page)).toContainText("Carlos Ruiz");
         await page.clock.fastForward(72_000);
         await expect(barra(page).getByRole("timer")).toHaveText(/^01:1\d$/);
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
         await captura(page, "en-curso");
 
         // Silenciar apaga la pista del micrófono, no la llamada.
@@ -240,7 +249,7 @@ test.describe("voz › llamada entrante", () => {
         await expect(barra(page)).toBeVisible();
         await expect(barra(page).getByRole("link", { name: "Ver cliente" })).toHaveAttribute("href", "/conversaciones?c=41");
         expect(await page.evaluate(() => window.__voz.conexiones.filter((c) => !c.cerrada).length)).toBe(1);
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
         await captura(page, "en-curso-otra-pantalla");
 
         await barra(page).getByRole("button", { name: "Colgar" }).click();
@@ -255,7 +264,7 @@ test.describe("voz › llamada entrante", () => {
         await expect(dialogo.getByRole("button", { name: "Guardar nota" })).toBeDisabled();
         await dialogo.getByLabel("Nota (opcional)").fill("Reinició el router con ayuda; quedó navegando.");
         await elegirOpcion(dialogo.getByLabel("¿Cómo quedó? (opcional)"), "Quedó resuelto");
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
         await captura(page, "nota");
         // El servidor falla una vez: la nota no se pierde y se puede reintentar.
         api.voz.forzar.anotar = "error";
@@ -299,7 +308,7 @@ test.describe("voz › llamada entrante", () => {
         const tarjeta = aviso(page);
         await expect(tarjeta).toHaveAccessibleName("Llamada entrante de Número desconocido");
         await expect(tarjeta).toContainText(`Llamada de WhatsApp · ${llamada.numero}`);
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
         await captura(page, "entrante-desconocido");
         await tarjeta.getByRole("button", { name: "Rechazar" }).click();
         await expect(tarjeta).toHaveCount(0);
@@ -316,7 +325,7 @@ test.describe("voz › llamada entrante", () => {
         await expect(aviso(page)).toHaveAttribute("data-fase", "aviso");
         await expect(aviso(page)).toContainText("La contestó Rosa Sánchez");
         await expect(aviso(page).getByRole("button", { name: "Contestar" })).toHaveCount(0);
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
         await captura(page, "otro-la-contesto");
         // El mensaje se va solo.
         await page.clock.fastForward(8_500);
@@ -361,7 +370,7 @@ test.describe("voz › llamada entrante", () => {
         await expect(aviso(page)).toHaveAttribute("data-motivo", "otra_llamada");
         await expect(aviso(page)).toContainText("Ya tienes otra llamada");
         expect(acciones(api, "soltar")).toHaveLength(0);
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
     });
 
     test("la tengo en otra pestaña (regla `misma_persona`): aquí solo se cierra el aviso", async ({ page }) => {
@@ -420,7 +429,7 @@ test.describe("voz › plazos, red y cierre", () => {
         await expect.poll(() => acciones(api, "soltar").length).toBe(1);
         expect(acciones(api, "confirmar-medio")).toHaveLength(0);
         expect(await page.evaluate(() => ({ abiertas: window.__voz.conexiones.filter((c) => !c.cerrada).length, microfono: window.__voz.microfonoAbierto() }))).toEqual({ abiertas: 0, microfono: false });
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
     });
 
     test("al soltar, WhatsApp aún no responde (409 `accion_en_curso`): se reintenta solo hasta soltarla", async ({ page }) => {
@@ -434,8 +443,9 @@ test.describe("voz › plazos, red y cierre", () => {
         await page.clock.fastForward(2_100);
         await expect.poll(() => acciones(api, "soltar").length).toBe(2);
         expect(api.voz.llamadas.get(llamada.id)?.estado).toBe("sonando");
-        // Nada de esto se le muestra a la persona como un error aparte.
-        await expect(page.getByRole("alert")).toHaveCount(0);
+        // A la persona solo se le dijo lo primero: el reintento no agrega otro error.
+        await expect(aviso(page)).toHaveAttribute("data-motivo", "medio_fallido");
+        await expect(page.getByText(/WhatsApp aún no responde|accion_en_curso/)).toHaveCount(0);
     });
 
     test("pasan los 12 s de la reserva sin llegar a responder (el micrófono no contesta): se suelta", async ({ page }) => {
@@ -491,7 +501,7 @@ test.describe("voz › plazos, red y cierre", () => {
         await expect(aviso(page)).toHaveAttribute("data-motivo", "sin_red");
         await expect(aviso(page)).toContainText("Se perdió la conexión");
         expect(acciones(api, "soltar")).toHaveLength(3);
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
     });
 
     test("se cae el medio a mitad de la llamada: termina, lo dice y avisa al servidor", async ({ page }) => {
@@ -503,7 +513,7 @@ test.describe("voz › plazos, red y cierre", () => {
         await expect(barra(page)).toHaveCount(0);
         await expect(nota(page)).toContainText("La llamada se cortó");
         await expect.poll(() => acciones(api, "colgar").length).toBe(1);
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
         await captura(page, "corte");
     });
 
@@ -599,7 +609,7 @@ test.describe("voz › en el hilo y en la lista", () => {
         expect(await page.evaluate(() => Boolean(document.activeElement?.closest('[data-slot="compositor"] [data-slot="solo-plantilla"]')))).toBe(true);
         expect(perdida.estado).toBe("perdida");
         await tarjeta("perdida").scrollIntoViewIfNeeded();
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
         await captura(page, "hilo-llamadas");
     });
 
@@ -614,7 +624,7 @@ test.describe("voz › en el hilo y en la lista", () => {
         await expect(porDevolver.getByRole("listitem")).toHaveCount(2);
         await expect(porDevolver).toContainText("Carlos Ruiz");
         await expect(porDevolver.getByRole("link", { name: "Escribirle" }).first()).toHaveAttribute("href", /c=41/);
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
         await captura(page, "perdidas-lista");
 
         await porDevolver.locator("li", { hasText: "Carlos Ruiz" }).getByRole("button", { name: "Descartar" }).click();
@@ -671,7 +681,7 @@ test.describe("voz › ajustes", () => {
     test("por número: requisitos sin cumplir en llano, comprobar, encender y guardar lo que el servidor espera", async ({ page }) => {
         const api = await abrir(page, "/administracion/numeros", { voz: { sinRequisitos: true } });
         await expect(page.getByRole("link", { name: "Llamadas de Soporte" })).toBeVisible();
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
         await captura(page, "numeros-lista");
         await page.getByRole("link", { name: "Llamadas de Soporte" }).click();
         await expect(page).toHaveURL(/\/administracion\/numeros\/3\/llamadas$/);
@@ -689,7 +699,7 @@ test.describe("voz › ajustes", () => {
         await expect(f).toContainText("Falta cumplir los requisitos de Meta de arriba.");
         // La grabación no se ofrece.
         await expect(f).not.toContainText(/[Gg]rab/);
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
         await captura(page, "ajustes-numero-requisitos");
 
         await f.getByRole("button", { name: "Comprobar otra vez" }).click();
@@ -703,7 +713,7 @@ test.describe("voz › ajustes", () => {
         await elegirOpcion(f.getByLabel("Si llaman fuera de horario"), "Que deje un mensaje en el buzón de voz de WhatsApp");
         // Con cambios sin guardar no se consulta a Meta (se perderían).
         await expect(f.getByRole("button", { name: "Leer ajustes de Meta" })).toBeDisabled();
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
         await captura(page, "ajustes-numero");
         await f.getByRole("button", { name: "Guardar" }).click();
         await expect(page.getByText("Soporte ya recibe llamadas")).toBeVisible();
@@ -752,7 +762,7 @@ test.describe("voz › ajustes", () => {
         canal.version += 1;
         await f.getByRole("button", { name: "Guardar" }).click();
         await expect(f).toContainText("Alguien más cambió las llamadas de este número");
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
 
         // Al reabrir, «Leer ajustes de Meta» trae lo que hay allá (el botón de llamar, apagado).
         await page.reload();
@@ -771,7 +781,7 @@ test.describe("voz › ajustes", () => {
         await expect(estado).toContainText("Pendiente de aplicar en WhatsApp");
         await expect(estado).toContainText("WhatsApp no respondió. Iris lo vuelve a intentar solo en 4 minutos.");
         await expect(f.locator('[data-slot="horas-whatsapp"]')).toContainText("el horario lo aplica Iris");
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
         await captura(page, "ajustes-numero-pendiente");
         // Al intentarlo ya, WhatsApp lo rechaza: error con «Reintentar», sin perder lo guardado.
         api.voz.forzar.aplicar = "error";
@@ -781,7 +791,7 @@ test.describe("voz › ajustes", () => {
         await expect(error).toHaveAttribute("data-estado", "error");
         await expect(error).toContainText("No se pudo aplicar en WhatsApp");
         await expect(error).toContainText("WhatsApp rechazó los ajustes del número. Lo guardado en Iris no se pierde.");
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
         delete api.voz.forzar.aplicar;
         await error.getByRole("button", { name: "Reintentar" }).click();
         await expect(page.getByText("Ajustes aplicados en WhatsApp")).toBeVisible();
@@ -795,7 +805,7 @@ test.describe("voz › ajustes", () => {
         await expect(page.getByText("Está conectado por QR")).toBeVisible();
         await expect(page.getByRole("switch")).toHaveCount(0);
         await expect(page.getByRole("button", { name: "Guardar" })).toHaveCount(0);
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
         await captura(page, "ajustes-numero-qr");
         await page.getByRole("link", { name: "Volver a los números" }).click();
         await expect(page).toHaveURL(/\/administracion\/numeros$/);
@@ -808,7 +818,7 @@ test.describe("voz › ajustes", () => {
         await expect(page).toHaveURL(/\/administracion\/llamadas$/);
         const f = page.getByRole("form", { name: "Ajustes de llamadas" });
         await expect(f.getByLabel("Segundos que suena solo a quien tiene la conversación")).toHaveValue("10");
-        await expect(f.locator('[data-slot="grabacion-no-disponible"]')).toContainText("La grabación todavía no está disponible.");
+        await expect(f.locator('[data-slot="grabacion-no-disponible"]')).toContainText("la grabación todavía no está disponible.");
         await expect(f.getByRole("switch")).toHaveCount(0);
         // El campo no deja pasar del máximo de fábrica (120 min).
         await f.getByLabel("Minutos que puede durar una llamada, como mucho").fill("500");
@@ -818,7 +828,7 @@ test.describe("voz › ajustes", () => {
         await f.getByLabel("Minutos que puede durar una llamada, como mucho").blur();
         await f.getByLabel("Segundos que suena solo a quien tiene la conversación").fill("0");
         await f.getByLabel("Segundos que suena solo a quien tiene la conversación").blur();
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
         await captura(page, "ajustes-empresa");
         await f.getByRole("button", { name: "Guardar" }).click();
         await expect(page.getByText("Ajustes de llamadas guardados")).toBeVisible();
