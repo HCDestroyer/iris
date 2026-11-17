@@ -21,29 +21,31 @@ import (
 
 // casosVoz reúne los casos de uso de la voz.
 type casosVoz struct {
-	Reclamar       *auditoria.Caso[EntradaLlamada, LlamadaReclamada]
-	contestar      *auditoria.Caso[EntradaContestar, Llamada]
-	confirmarMedio *auditoria.Caso[EntradaLlamada, Llamada]
-	Soltar         *auditoria.Caso[EntradaSoltar, Llamada]
-	colgar         *auditoria.Caso[EntradaLlamada, Llamada]
-	rechazar       *auditoria.Caso[EntradaRechazar, Llamada]
-	resultadoMeta  *auditoria.Caso[resultadoMeta, bool]
-	Anotar         *auditoria.Caso[EntradaAnotarLlamada, Llamada]
-	Ver            *auditoria.Caso[EntradaLlamada, Llamada]
-	Activa         *auditoria.Caso[struct{}, *Llamada]
-	Listar         *auditoria.Caso[EntradaListarLlamadas, nucleo.Pagina[Llamada]]
-	Recibir        *auditoria.Caso[EntradaRecibir, RecibirLlamadas]
-	VerRecibir     *auditoria.Caso[EntradaVerRecibir, RecibirLlamadas]
-	Devoluciones   *auditoria.Caso[EntradaListarDevoluciones, nucleo.Pagina[DevolucionLlamada]]
-	Descartar      *auditoria.Caso[EntradaDescartarDevolucion, DevolucionLlamada]
-	VerCanal       *auditoria.Caso[EntradaIDConv, LlamadasCanal]
-	ConfigCanal    *auditoria.Caso[EntradaLlamadasCanal, LlamadasCanal]
-	comprobar      *auditoria.Caso[entradaComprobado, LlamadasCanal]
-	prepararCanal  *auditoria.Caso[EntradaIDConv, canalPorComprobar]
-	VerAjustes     *auditoria.Caso[struct{}, AjustesVoz]
-	FijarAjustes   *auditoria.Caso[EntradaAjustesVoz, AjustesVoz]
-	mantener       *auditoria.Caso[uuid.UUID, mantenimientoLlamada]
-	vencer         *auditoria.Caso[struct{}, int]
+	Reclamar          *auditoria.Caso[EntradaLlamada, LlamadaReclamada]
+	contestar         *auditoria.Caso[EntradaContestar, Llamada]
+	confirmarMedio    *auditoria.Caso[EntradaLlamada, Llamada]
+	Soltar            *auditoria.Caso[EntradaSoltar, Llamada]
+	colgar            *auditoria.Caso[EntradaLlamada, Llamada]
+	rechazar          *auditoria.Caso[EntradaRechazar, Llamada]
+	resultadoMeta     *auditoria.Caso[resultadoMeta, bool]
+	Anotar            *auditoria.Caso[EntradaAnotarLlamada, Llamada]
+	Ver               *auditoria.Caso[EntradaLlamada, Llamada]
+	Activa            *auditoria.Caso[struct{}, *Llamada]
+	Listar            *auditoria.Caso[EntradaListarLlamadas, nucleo.Pagina[Llamada]]
+	Recibir           *auditoria.Caso[EntradaRecibir, RecibirLlamadas]
+	VerRecibir        *auditoria.Caso[EntradaVerRecibir, RecibirLlamadas]
+	Devoluciones      *auditoria.Caso[EntradaListarDevoluciones, nucleo.Pagina[DevolucionLlamada]]
+	Descartar         *auditoria.Caso[EntradaDescartarDevolucion, DevolucionLlamada]
+	VerCanal          *auditoria.Caso[EntradaIDConv, LlamadasCanal]
+	ConfigCanal       *auditoria.Caso[EntradaLlamadasCanal, LlamadasCanal]
+	comprobar         *auditoria.Caso[entradaComprobado, LlamadasCanal]
+	prepararCanal     *auditoria.Caso[EntradaIDConv, canalPorComprobar]
+	VerAjustes        *auditoria.Caso[struct{}, AjustesVoz]
+	FijarAjustes      *auditoria.Caso[EntradaAjustesVoz, AjustesVoz]
+	resultadoAjustes  *auditoria.Caso[resultadoAjustesMeta, bool]
+	reintentarAjustes *auditoria.Caso[EntradaIDConv, LlamadasCanal]
+	mantener          *auditoria.Caso[uuid.UUID, mantenimientoLlamada]
+	vencer            *auditoria.Caso[struct{}, int]
 }
 
 func nuevosCasosVoz(m *Modulo) casosVoz {
@@ -53,7 +55,8 @@ func nuevosCasosVoz(m *Modulo) casosVoz {
 		Recibir: nuevoRecibirLlamadas(m), VerRecibir: nuevoVerRecibir(m), Devoluciones: nuevoListarDevoluciones(m), Descartar: nuevoDescartarDevolucion(m),
 		VerCanal: nuevoVerLlamadasCanal(m), ConfigCanal: nuevoConfigurarLlamadasCanal(m), comprobar: nuevoGuardarComprobacion(m),
 		prepararCanal: nuevoPrepararComprobacion(m), VerAjustes: nuevoVerAjustesVoz(m), FijarAjustes: nuevoFijarAjustesVoz(m),
-		mantener: nuevoMantenerLlamada(m), vencer: nuevoVencerDevoluciones(m)}
+		mantener: nuevoMantenerLlamada(m), vencer: nuevoVencerDevoluciones(m), resultadoAjustes: nuevoResultadoAjustesMeta(m),
+		reintentarAjustes: nuevoReintentarAjustesMeta(m)}
 }
 
 // EntradaLlamada identifica una llamada.

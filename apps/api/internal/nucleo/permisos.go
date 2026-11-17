@@ -261,10 +261,7 @@ const (
 	PermLlamadasColgar              Permiso = "llamadas.colgar"
 	PermLlamadasAnotar              Permiso = "llamadas.anotar"
 	PermLlamadasDescartarDevolucion Permiso = "llamadas.descartar_devolucion"
-	// Sensibles: oír o borrar la grabación de una llamada.
-	PermLlamadasEscucharGrabacion Permiso = "llamadas.escuchar_grabacion"
-	PermLlamadasBorrarGrabacion   Permiso = "llamadas.borrar_grabacion"
-	PermLlamadasConfigurar        Permiso = "llamadas.configurar"
+	PermLlamadasConfigurar Permiso = "llamadas.configurar"
 	// PermVozConfigurar: ajustes de voz de la empresa (grabación, límites). Sensible.
 	PermVozConfigurar Permiso = "voz.configurar"
 )
@@ -371,8 +368,8 @@ var PermisosSensibles = map[Permiso]bool{
 	PermConversacionesIniciar:         true, PermCampoConfigurar: true,
 	// El SMTP con el que Iris escribe a sus usuarios (servidor, credenciales y remitente).
 	PermCorreoSistemaConfigurar: true,
-	// Voz: las grabaciones (oír y borrar) y los ajustes de voz de la empresa.
-	PermLlamadasEscucharGrabacion: true, PermLlamadasBorrarGrabacion: true, PermVozConfigurar: true,
+	// Voz: los ajustes de voz de la empresa (las grabaciones llegan con E1c, con sus permisos).
+	PermVozConfigurar: true,
 	// Aprobar una boleta registra un pago en Argos: de administración (MFA y re-autenticación en una
 	// sesión abierta por el autologin).
 	PermBoletasAprobar: true, PermBoletasRechazar: true,
@@ -477,12 +474,10 @@ var Catalogo = []DefPermiso{
 	{PermIntegracionesVer, "Ver los conectores y su estado (nunca el token ni el secreto)"},
 	{PermIntegracionesVerPendientes, "Ver la cola de acciones pendientes hacia Argos y su último error"},
 	{PermLlamadasAnotar, "Dejar la nota y el resultado de una llamada que atendiste (o de cualquiera, si supervisas)"},
-	{PermLlamadasBorrarGrabacion, "Borrar la grabación de una llamada, con motivo"},
 	{PermLlamadasColgar, "Terminar la llamada que tienes (o cualquiera, si supervisas)"},
 	{PermLlamadasConfigurar, "Encender y configurar las llamadas de WhatsApp de un número (cola, horario, cuánto suena, fuera de horario)"},
 	{PermLlamadasContestar, "Recibir el timbre de las llamadas de WhatsApp en el panel y contestarlas"},
 	{PermLlamadasDescartarDevolucion, "Cerrar una llamada «por devolver» sin llamar, con motivo"},
-	{PermLlamadasEscucharGrabacion, "Escuchar las grabaciones de las llamadas que ves (cada escucha queda auditada)"},
 	{PermLlamadasRechazar, "Dejar de recibir una llamada que suena; si supervisas, rechazarla para todos"},
 	{PermLlamadasVer, "Ver las llamadas de las conversaciones que ves y la lista «Por devolver»"},
 	{PermManualesEditar, "Crear, editar, activar y desactivar artículos de la biblioteca de manuales"},
@@ -567,7 +562,7 @@ var Catalogo = []DefPermiso{
 	{PermUsuariosQuitarRol, "Quitar un rol (o una asignación con alcance) a un usuario"},
 	{PermUsuariosReiniciarMFA, "Reiniciar el MFA de otro usuario (borra su TOTP y cierra sus sesiones)"},
 	{PermUsuariosVer, "Ver y buscar usuarios"},
-	{PermVozConfigurar, "Configurar la voz de la empresa: grabación de llamadas, duración máxima y a quién le suena primero"},
+	{PermVozConfigurar, "Configurar la voz de la empresa: duración máxima de una llamada y a quién le suena primero"},
 }
 
 // DefRol es un rol base. Permisos nil = todos los del catálogo (admin).
@@ -635,7 +630,7 @@ var RolesBase = []DefRol{
 			PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesReintentar, PermIntegracionesResolverPendiente, PermIntegracionesVerPendientes,
 			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar,
 			PermChatVer, PermChatEnviar, PermChatSupervisar,
-			PermLlamadasEscucharGrabacion, PermLlamadasConfigurar,
+			PermLlamadasConfigurar,
 			PermConversacionesSupervisar, PermConversacionesAsignar, PermConversacionesTransferir, PermConversacionesAsociar,
 			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesConfigurar, PermCanalesConfigurar, PermManualesEditar, PermManualesRevocarEnlace,
 			PermConversacionesIniciar},

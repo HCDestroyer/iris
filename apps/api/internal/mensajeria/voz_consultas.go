@@ -114,13 +114,11 @@ func (m *Modulo) aLlamadas(ctx context.Context, q *mensajeriabd.Queries, a alcan
 			l.Grabacion = &EstadoGrabacion{Estado: e}
 		}
 		mia := f.UsuarioID != nil && *f.UsuarioID == a.usuario
-		final := llamadaFinal(f.Estado)
 		l.Puede = PuedeLlamada{
-			Contestar:         f.Estado == LlamadaSonando && puede(nucleo.PermLlamadasContestar),
-			Rechazar:          f.Estado == LlamadaSonando && puede(nucleo.PermLlamadasRechazar),
-			Colgar:            f.Estado == LlamadaEnCurso && (mia || a.supervisa) && puede(nucleo.PermLlamadasColgar),
-			Anotar:            (f.Estado == LlamadaEnCurso || f.Estado == LlamadaTerminada) && (mia || a.supervisa) && puede(nucleo.PermLlamadasAnotar),
-			EscucharGrabacion: final && grabaciones[f.ID] == "disponible" && puede(nucleo.PermLlamadasEscucharGrabacion),
+			Contestar: f.Estado == LlamadaSonando && puede(nucleo.PermLlamadasContestar),
+			Rechazar:  f.Estado == LlamadaSonando && puede(nucleo.PermLlamadasRechazar),
+			Colgar:    f.Estado == LlamadaEnCurso && (mia || a.supervisa) && puede(nucleo.PermLlamadasColgar),
+			Anotar:    (f.Estado == LlamadaEnCurso || f.Estado == LlamadaTerminada) && (mia || a.supervisa) && puede(nucleo.PermLlamadasAnotar),
 		}
 		out = append(out, l)
 	}

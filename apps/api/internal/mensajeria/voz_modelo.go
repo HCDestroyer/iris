@@ -7,9 +7,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -75,6 +77,8 @@ const (
 	VenceDevolucion = 72 * time.Hour
 	// AvisoPerdidaCada: el mensaje «No pudimos contestarte» sale una vez por hora y conversación.
 	AvisoPerdidaCada = time.Hour
+	// VentanaBuzon: un audio que llega en este tiempo tras una llamada dejada al buzón es su recado.
+	VentanaBuzon = 5 * time.Minute
 	// MaxSDP: tamaño máximo de un SDP.
 	MaxSDP = 8 << 10
 )
@@ -94,7 +98,74 @@ type AjustesMetaLlamadas struct {
 	LimiteMensajeria int64 `json:"limiteMensajeria"`
 	// WebhookCalls: la app está suscrita al campo calls.
 	WebhookCalls bool `json:"webhookCalls"`
+	// Horas: el espejo de call_hours (nil = abierto siempre: Iris aplica su horario de su lado).
+	Horas *HorasMeta `json:"horas,omitempty"`
 }
+
+// HorasMeta es call_hours de Meta: zona, hasta 2 franjas por día y hasta 20 feriados.
+type HorasMeta struct {
+	Zona     string        `json:"zona"`
+	Franjas  []FranjaMeta  `json:"franjas"`
+	Feriados []FeriadoMeta `json:"feriados"`
+}
+
+// FranjaMeta: un tramo de un día (1 = lunes … 7 = domingo), en HHMM.
+type FranjaMeta struct {
+	Dia    int    `json:"dia"`
+	Abre   string `json:"abre"`
+	Cierra string `json:"cierra"`
+}
+
+// FeriadoMeta: una fecha con su tramo (abre = cierra = "0000": cerrado todo el día).
+type FeriadoMeta struct {
+	Fecha  string `json:"fecha"`
+	Abre   string `json:"abre"`
+	Cierra string `json:"cierra"`
+}
+
+func hhmm(minutos int) string {
+	if minutos >= 24*60 {
+		return "2359"
+	}
+	return fmt.Sprintf("%02d%02d", minutos/60, minutos%60)
+}
+
+// horasMetaDe convierte el horario de Iris a call_hours si cabe en los límites de Meta (2 franjas
+// por día, 20 feriados, un tramo por feriado). Si no cabe, o no hay horario, nil: call_hours queda
+// abierto y el horario lo aplica Iris al llegar la llamada (§2.11).
+func horasMetaDe(c *calendario) *HorasMeta {
+	if c == nil || len(c.feriados) > 20 {
+		return nil
+	}
+	h := &HorasMeta{Zona: c.zona.String(), Franjas: []FranjaMeta{}, Feriados: []FeriadoMeta{}}
+	for d := 1; d <= 7; d++ {
+		if len(c.semanal[d]) > 2 {
+			return nil
+		}
+		for _, t := range c.semanal[d] {
+			h.Franjas = append(h.Franjas, FranjaMeta{Dia: d, Abre: hhmm(t.ini), Cierra: hhmm(t.fin)})
+		}
+	}
+	fechas := make([]string, 0, len(c.feriados))
+	for f := range c.feriados {
+		fechas = append(fechas, f)
+	}
+	slices.Sort(fechas)
+	for _, f := range fechas {
+		ts := c.feriados[f]
+		switch len(ts) {
+		case 0:
+			h.Feriados = append(h.Feriados, FeriadoMeta{Fecha: f, Abre: "0000", Cierra: "0000"})
+		case 1:
+			h.Feriados = append(h.Feriados, FeriadoMeta{Fecha: f, Abre: hhmm(ts[0].ini), Cierra: hhmm(ts[0].fin)})
+		default:
+			return nil
+		}
+	}
+	return h
+}
+
+var diasMeta = []string{"", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"}
 
 // GraphLlamadas es la parte de la Graph API de Meta que usa la voz. Va detrás de una interfaz porque
 // todo lo que se sabe de la Calling API es un supuesto a validar con un número de prueba (§10.1):
@@ -161,9 +232,8 @@ func (g graphHTTP) Accion(ctx context.Context, canal CanalGraph, callID, accion,
 	if sdp != "" {
 		c["session"] = map[string]any{"sdp_type": "answer", "sdp": sdp}
 	}
-	if grabar && accion == MetaAceptar {
-		c["recording"] = map[string]any{"enabled": true}
-	}
+	// grabar no se usa todavía: la grabación de Meta llega con E1c, cuando se valide con un número real.
+	_ = grabar
 	_, err := g.pedir(ctx, http.MethodPost, canal, "/calls", c)
 	return err
 }
@@ -221,10 +291,23 @@ func (g graphHTTP) FijarAjustes(ctx context.Context, canal CanalGraph, a Ajustes
 		}
 		return f
 	}
-	_, err := g.pedir(ctx, http.MethodPost, canal, "/settings", map[string]any{"calling": map[string]any{
+	calling := map[string]any{
 		"status":                     si(a.Habilitadas, "ENABLED", "DISABLED"),
 		"call_icon_visibility":       si(a.IconoVisible, "DEFAULT", "DISABLE_ALL"),
-		"callback_permission_status": si(a.Devolucion, "ENABLED", "DISABLED")}})
+		"callback_permission_status": si(a.Devolucion, "ENABLED", "DISABLED")}
+	horas := map[string]any{"status": "DISABLED"}
+	if a.Horas != nil {
+		semana, feriados := []map[string]any{}, []map[string]any{}
+		for _, f := range a.Horas.Franjas {
+			semana = append(semana, map[string]any{"day_of_week": diasMeta[f.Dia], "open_time": f.Abre, "close_time": f.Cierra})
+		}
+		for _, f := range a.Horas.Feriados {
+			feriados = append(feriados, map[string]any{"date": f.Fecha, "start_time": f.Abre, "end_time": f.Cierra})
+		}
+		horas = map[string]any{"status": "ENABLED", "timezone_id": a.Horas.Zona, "weekly_operating_hours": semana, "holiday_schedule": feriados}
+	}
+	calling["call_hours"] = horas
+	_, err := g.pedir(ctx, http.MethodPost, canal, "/settings", map[string]any{"calling": calling})
 	return err
 }
 
@@ -294,7 +377,7 @@ type PuedeLlamada struct {
 	Tomar             bool `json:"tomar" doc:"E3: siempre false en E1"`
 	Transferir        bool `json:"transferir" doc:"E3: siempre false en E1"`
 	Anotar            bool `json:"anotar"`
-	EscucharGrabacion bool `json:"escucharGrabacion"`
+	EscucharGrabacion bool `json:"escucharGrabacion" doc:"E1c (grabación): siempre false por ahora"`
 }
 
 // Llamada es una llamada como la ve el panel. Nunca lleva el SDP, el call_id de Meta ni el token.

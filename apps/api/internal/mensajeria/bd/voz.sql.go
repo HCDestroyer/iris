@@ -68,6 +68,30 @@ func (q *Queries) AvisoPerdidaReciente(ctx context.Context, arg AvisoPerdidaReci
 	return column_1, err
 }
 
+const canalesConMetaPendiente = `-- name: CanalesConMetaPendiente :many
+SELECT canal_id FROM mensajeria.voz_ajustes_canal WHERE meta_estado = 'pendiente' AND meta_proximo_en <= $1 ORDER BY meta_proximo_en LIMIT 50
+`
+
+func (q *Queries) CanalesConMetaPendiente(ctx context.Context, ahora *time.Time) ([]int64, error) {
+	rows, err := q.db.Query(ctx, canalesConMetaPendiente, ahora)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var canal_id int64
+		if err := rows.Scan(&canal_id); err != nil {
+			return nil, err
+		}
+		items = append(items, canal_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const candidatosVivos = `-- name: CandidatosVivos :many
 SELECT usuario_id FROM mensajeria.llamada_candidatos WHERE llamada_id = $1 AND retirado_en IS NULL ORDER BY usuario_id
 `
@@ -279,6 +303,62 @@ type FijarMensajeDeLlamadaParams struct {
 func (q *Queries) FijarMensajeDeLlamada(ctx context.Context, arg FijarMensajeDeLlamadaParams) error {
 	_, err := q.db.Exec(ctx, fijarMensajeDeLlamada, arg.MensajeID, arg.ID)
 	return err
+}
+
+const fijarMetaAjustesCanal = `-- name: FijarMetaAjustesCanal :one
+UPDATE mensajeria.voz_ajustes_canal SET meta_estado = $1, meta_intentos = $2, meta_proximo_en = $3,
+    meta_detalle = $4, horas_meta = $5,
+    sincronizado_en = coalesce($6, sincronizado_en), updated_at = now()
+WHERE canal_id = $7
+RETURNING canal_id, empresa_id, llamadas_activas, requisitos, cola_id, horario_id, segundos_sonando, fuera_de_horario, icono_visible, devolucion, horas_meta, mensaje_perdida, mensaje_perdida_texto, sincronizado_en, version, created_at, updated_at, meta_estado, meta_intentos, meta_proximo_en, meta_detalle
+`
+
+type FijarMetaAjustesCanalParams struct {
+	MetaEstado     string
+	MetaIntentos   int32
+	MetaProximoEn  *time.Time
+	MetaDetalle    *string
+	HorasMeta      []byte
+	SincronizadoEn *time.Time
+	CanalID        int64
+}
+
+// El estado de la escritura en WhatsApp de los ajustes del número (pendiente con reintentos).
+func (q *Queries) FijarMetaAjustesCanal(ctx context.Context, arg FijarMetaAjustesCanalParams) (MensajeriaVozAjustesCanal, error) {
+	row := q.db.QueryRow(ctx, fijarMetaAjustesCanal,
+		arg.MetaEstado,
+		arg.MetaIntentos,
+		arg.MetaProximoEn,
+		arg.MetaDetalle,
+		arg.HorasMeta,
+		arg.SincronizadoEn,
+		arg.CanalID,
+	)
+	var i MensajeriaVozAjustesCanal
+	err := row.Scan(
+		&i.CanalID,
+		&i.EmpresaID,
+		&i.LlamadasActivas,
+		&i.Requisitos,
+		&i.ColaID,
+		&i.HorarioID,
+		&i.SegundosSonando,
+		&i.FueraDeHorario,
+		&i.IconoVisible,
+		&i.Devolucion,
+		&i.HorasMeta,
+		&i.MensajePerdida,
+		&i.MensajePerdidaTexto,
+		&i.SincronizadoEn,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.MetaEstado,
+		&i.MetaIntentos,
+		&i.MetaProximoEn,
+		&i.MetaDetalle,
+	)
+	return i, err
 }
 
 const fijarReceptor = `-- name: FijarReceptor :one
@@ -617,7 +697,7 @@ ON CONFLICT (canal_id) DO UPDATE SET llamadas_activas = EXCLUDED.llamadas_activa
     icono_visible = EXCLUDED.icono_visible, devolucion = EXCLUDED.devolucion, horas_meta = EXCLUDED.horas_meta,
     mensaje_perdida = EXCLUDED.mensaje_perdida, mensaje_perdida_texto = EXCLUDED.mensaje_perdida_texto,
     sincronizado_en = EXCLUDED.sincronizado_en, version = mensajeria.voz_ajustes_canal.version + 1, updated_at = now()
-RETURNING canal_id, empresa_id, llamadas_activas, requisitos, cola_id, horario_id, segundos_sonando, fuera_de_horario, icono_visible, devolucion, horas_meta, mensaje_perdida, mensaje_perdida_texto, sincronizado_en, version, created_at, updated_at
+RETURNING canal_id, empresa_id, llamadas_activas, requisitos, cola_id, horario_id, segundos_sonando, fuera_de_horario, icono_visible, devolucion, horas_meta, mensaje_perdida, mensaje_perdida_texto, sincronizado_en, version, created_at, updated_at, meta_estado, meta_intentos, meta_proximo_en, meta_detalle
 `
 
 type GuardarVozAjustesCanalParams struct {
@@ -673,6 +753,10 @@ func (q *Queries) GuardarVozAjustesCanal(ctx context.Context, arg GuardarVozAjus
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MetaEstado,
+		&i.MetaIntentos,
+		&i.MetaProximoEn,
+		&i.MetaDetalle,
 	)
 	return i, err
 }
@@ -1131,6 +1215,26 @@ func (q *Queries) LlamadaActivaDeUsuario(ctx context.Context, arg LlamadaActivaD
 	return i, err
 }
 
+const llamadaAlBuzonReciente = `-- name: LlamadaAlBuzonReciente :one
+SELECT EXISTS (SELECT 1 FROM mensajeria.llamadas l JOIN mensajeria.voz_ajustes_canal a ON a.canal_id = l.canal_id
+    WHERE l.conversacion_id = $1 AND l.estado = 'fuera_de_horario' AND a.fuera_de_horario = 'buzon'
+      AND l.sono_en > $2 AND l.sono_en <= $3)::boolean
+`
+
+type LlamadaAlBuzonRecienteParams struct {
+	ConversacionID *int64
+	Desde          time.Time
+	Hasta          time.Time
+}
+
+// ¿Hubo una llamada de esta conversación que se dejó al buzón de voz (fuera de horario) hace poco?
+func (q *Queries) LlamadaAlBuzonReciente(ctx context.Context, arg LlamadaAlBuzonRecienteParams) (bool, error) {
+	row := q.db.QueryRow(ctx, llamadaAlBuzonReciente, arg.ConversacionID, arg.Desde, arg.Hasta)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const llamadaParaActualizar = `-- name: LlamadaParaActualizar :one
 SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at FROM mensajeria.llamadas WHERE id = $1 FOR UPDATE
 `
@@ -1471,6 +1575,15 @@ func (q *Queries) LlamadasVivas(ctx context.Context) ([]MensajeriaLlamada, error
 	return items, nil
 }
 
+const marcarBuzonDeVoz = `-- name: MarcarBuzonDeVoz :exec
+UPDATE mensajeria.conversacion_mensajes SET buzon_de_voz = true WHERE id = $1
+`
+
+func (q *Queries) MarcarBuzonDeVoz(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, marcarBuzonDeVoz, id)
+	return err
+}
+
 const receptorDe = `-- name: ReceptorDe :one
 SELECT id, empresa_id, usuario_id, navegador, recibe, visto_en, created_at, updated_at FROM mensajeria.llamada_receptores
 WHERE coalesce(empresa_id, 0) = $1::bigint AND usuario_id = $2 AND navegador = $3
@@ -1758,7 +1871,7 @@ func (q *Queries) VozAjustes(ctx context.Context, empresa int64) (MensajeriaVozA
 }
 
 const vozAjustesCanal = `-- name: VozAjustesCanal :one
-SELECT canal_id, empresa_id, llamadas_activas, requisitos, cola_id, horario_id, segundos_sonando, fuera_de_horario, icono_visible, devolucion, horas_meta, mensaje_perdida, mensaje_perdida_texto, sincronizado_en, version, created_at, updated_at FROM mensajeria.voz_ajustes_canal WHERE canal_id = $1
+SELECT canal_id, empresa_id, llamadas_activas, requisitos, cola_id, horario_id, segundos_sonando, fuera_de_horario, icono_visible, devolucion, horas_meta, mensaje_perdida, mensaje_perdida_texto, sincronizado_en, version, created_at, updated_at, meta_estado, meta_intentos, meta_proximo_en, meta_detalle FROM mensajeria.voz_ajustes_canal WHERE canal_id = $1
 `
 
 func (q *Queries) VozAjustesCanal(ctx context.Context, canalID int64) (MensajeriaVozAjustesCanal, error) {
@@ -1782,12 +1895,16 @@ func (q *Queries) VozAjustesCanal(ctx context.Context, canalID int64) (Mensajeri
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MetaEstado,
+		&i.MetaIntentos,
+		&i.MetaProximoEn,
+		&i.MetaDetalle,
 	)
 	return i, err
 }
 
 const vozAjustesCanalParaActualizar = `-- name: VozAjustesCanalParaActualizar :one
-SELECT canal_id, empresa_id, llamadas_activas, requisitos, cola_id, horario_id, segundos_sonando, fuera_de_horario, icono_visible, devolucion, horas_meta, mensaje_perdida, mensaje_perdida_texto, sincronizado_en, version, created_at, updated_at FROM mensajeria.voz_ajustes_canal WHERE canal_id = $1 FOR UPDATE
+SELECT canal_id, empresa_id, llamadas_activas, requisitos, cola_id, horario_id, segundos_sonando, fuera_de_horario, icono_visible, devolucion, horas_meta, mensaje_perdida, mensaje_perdida_texto, sincronizado_en, version, created_at, updated_at, meta_estado, meta_intentos, meta_proximo_en, meta_detalle FROM mensajeria.voz_ajustes_canal WHERE canal_id = $1 FOR UPDATE
 `
 
 func (q *Queries) VozAjustesCanalParaActualizar(ctx context.Context, canalID int64) (MensajeriaVozAjustesCanal, error) {
@@ -1811,6 +1928,10 @@ func (q *Queries) VozAjustesCanalParaActualizar(ctx context.Context, canalID int
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MetaEstado,
+		&i.MetaIntentos,
+		&i.MetaProximoEn,
+		&i.MetaDetalle,
 	)
 	return i, err
 }

@@ -48,8 +48,30 @@ func (g *graphFalso) Ajustes(context.Context, mensajeria.CanalGraph) (mensajeria
 func (g *graphFalso) FijarAjustes(_ context.Context, _ mensajeria.CanalGraph, a mensajeria.AjustesMetaLlamadas) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if err := g.fallar["fijar"]; err != nil {
+		return err
+	}
 	g.fijados = append(g.fijados, a)
 	return nil
+}
+
+func (g *graphFalso) falla(accion string, err error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if err == nil {
+		delete(g.fallar, accion)
+		return
+	}
+	g.fallar[accion] = err
+}
+
+func (g *graphFalso) ultimoFijado() mensajeria.AjustesMetaLlamadas {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if len(g.fijados) == 0 {
+		return mensajeria.AjustesMetaLlamadas{}
+	}
+	return g.fijados[len(g.fijados)-1]
 }
 
 func (g *graphFalso) hechas() []string {
@@ -456,19 +478,19 @@ func TestLlamadaLimitesYWebhook(t *testing.T) {
 		}
 	}
 	// Duración máxima (10 min en esta empresa) y panel caído.
-	x.exigir(x.api(x.supervisor, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": 0, "grabar": "nunca", "duracionMaxPersonaMin": 10,
-		"segundosAsignado": 0, "retencionGrabacionesDias": 30}), http.StatusForbidden)
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": 0, "duracionMaxPersonaMin": 10,
+		"segundosAsignado": 0}), http.StatusForbidden)
 	admin := x.persona([]int64{1}, rolBase("admin"))
 	admin.empresa = 1 // opera en todas: indica cuál con X-Iris-Empresa
-	aj := x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": 0, "grabar": "nunca", "duracionMaxPersonaMin": 10,
-		"segundosAsignado": 0, "retencionGrabacionesDias": 30}), http.StatusOK)
+	aj := x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": 0, "duracionMaxPersonaMin": 10,
+		"segundosAsignado": 0}), http.StatusOK)
 	if aj.cuerpo["version"] != float64(1) || x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'voz.ajustes_cambiados' AND payload ? 'campos'`) == 0 {
 		t.Fatalf("ajustes de voz: %s", crudo(aj))
 	}
-	x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": 0, "grabar": "nunca", "duracionMaxPersonaMin": 10,
-		"segundosAsignado": 0, "retencionGrabacionesDias": 30}), http.StatusConflict)
-	x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": 1, "grabar": "nunca", "duracionMaxPersonaMin": 500,
-		"segundosAsignado": 0, "retencionGrabacionesDias": 30}), http.StatusUnprocessableEntity)
+	x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": 0, "duracionMaxPersonaMin": 10,
+		"segundosAsignado": 0}), http.StatusConflict)
+	x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": 1, "duracionMaxPersonaMin": 500,
+		"segundosAsignado": 0}), http.StatusUnprocessableEntity)
 	larga, callLarga := numeroCliente(), "wacid.larga"+numeroCliente()
 	x.pasa(time.Second, x.agente)
 	x.connect(larga, callLarga)
@@ -582,5 +604,256 @@ func TestValidarSDP(t *testing.T) {
 		if err := mensajeria.ValidarSDP(malo); err == nil {
 			t.Errorf("%s: debía rechazarse", nombre)
 		}
+	}
+}
+
+// versionLlamadas: la versión vigente de los ajustes de llamadas del número.
+func (x *bandejaVoz) versionLlamadas() int {
+	x.t.Helper()
+	return int(x.exigir(x.api(x.supervisor, http.MethodGet, x.rutaCanal("/llamadas"), nil), http.StatusOK).cuerpo["version"].(float64))
+}
+
+// en: fija el reloj en una hora local de Guatemala.
+func (x *bandejaVoz) en(fechaHora string) {
+	x.t.Helper()
+	gt, err := time.LoadLocation("America/Guatemala")
+	if err != nil {
+		x.t.Fatal(err)
+	}
+	h, err := time.ParseInLocation("2006-01-02 15:04", fechaHora, gt)
+	if err != nil {
+		x.t.Fatal(err)
+	}
+	*x.reloj = h.UTC()
+}
+
+// Fuera de horario (§3.6): dentro, fuera, feriado, una franja que cruza la medianoche y la zona
+// America/Guatemala; el mensaje sale una vez por ventana cerrada, compartida con el chat; y el buzón.
+func TestLlamadaFueraDeHorario(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	// Lunes a viernes de 08:00 a 17:00; el viernes además de 22:00 a medianoche y el sábado de 00:00 a
+	// 02:00 (una franja que cruza la medianoche); el viernes 6 de noviembre de 2026 es feriado.
+	h := x.horario([]map[string]any{
+		{"dias": []int{1, 2, 3, 4}, "inicio": "08:00", "fin": "17:00"},
+		{"dias": []int{5}, "inicio": "08:00", "fin": "17:00"}, {"dias": []int{5}, "inicio": "22:00", "fin": "24:00"},
+		{"dias": []int{6}, "inicio": "00:00", "fin": "02:00"},
+	}, []map[string]any{{"fecha": "2026-11-06", "nombre": "Feriado", "franjas": []any{}}})
+	x.bandeja.exigir(x.configurarNumero(h["id"], map[string]any{"responder": true, "mensaje": "Estamos cerrados. Te atendemos al abrir."}), http.StatusOK)
+	x.exigir(x.configurar(x.versionLlamadas(), nil), http.StatusOK)
+	llamar := func(cuando string) (num, call, estado string) {
+		t.Helper()
+		x.en(cuando)
+		num, call = numeroCliente(), "wacid.horario"+numeroCliente()
+		x.connect(num, call)
+		_, estado, _ = x.llamada(call)
+		return num, call, estado
+	}
+	cerrados := func(num string) int {
+		return x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes m JOIN mensajeria.conversaciones c ON c.id = m.conversacion_id
+			WHERE c.numero = $1 AND m.direccion = 'saliente' AND m.texto = 'Estamos cerrados. Te atendemos al abrir.'`, "+"+num)
+	}
+	for _, c := range []struct{ cuando, estado, nota string }{
+		{"2026-11-05 10:00", "sonando", "jueves en horario"},
+		{"2026-11-05 17:30", "fuera_de_horario", "jueves 17:30 de Guatemala (23:30 UTC): la zona es la de Guatemala, no UTC"},
+		{"2026-11-05 07:59", "fuera_de_horario", "un minuto antes de abrir"},
+		{"2026-11-06 10:00", "fuera_de_horario", "feriado, aunque sea viernes a media mañana"},
+		{"2026-11-13 23:30", "sonando", "viernes 23:30: dentro de la franja que cruza la medianoche"},
+		{"2026-11-14 01:30", "sonando", "sábado 01:30: la misma franja, ya del otro lado"},
+		{"2026-11-14 02:00", "fuera_de_horario", "sábado 02:00: cerró"},
+		{"2026-11-15 12:00", "fuera_de_horario", "domingo"},
+	} {
+		if _, call, estado := llamar(c.cuando); estado != c.estado {
+			t.Errorf("%s (%s): %s", c.nota, c.cuando, estado)
+		} else if estado == "fuera_de_horario" && x.g.cuenta("reject:"+call) != 1 {
+			t.Errorf("%s: debía rechazarse en WhatsApp", c.nota)
+		}
+	}
+	// El cliente escribió hace poco (ventana de 24 h abierta) y llama con el horario cerrado: se rechaza
+	// y sale el mensaje de fuera de horario, una sola vez por ventana cerrada, compartida con el chat.
+	x.en("2026-11-16 16:00")
+	num := numeroCliente()
+	x.texto(num, "wamid.dia"+num, "Hola")
+	x.en("2026-11-16 19:00")
+	call := "wacid.cerrado" + num
+	x.connect(num, call)
+	id, estado, motivo := x.llamada(call)
+	if estado != "fuera_de_horario" || motivo != "fuera_de_horario" || cerrados(num) != 1 || x.eventos("llamada.rechazada", id) != 1 {
+		t.Fatalf("fuera de horario con mensaje: %s %s, mensajes %d", estado, motivo, cerrados(num))
+	}
+	x.pasa(time.Minute)
+	x.connect(num, "wacid.cerrado2"+num)
+	x.texto(num, "wamid.noche"+num, "¿Hay alguien?")
+	if cerrados(num) != 1 {
+		t.Fatalf("el mensaje de fuera de horario sale una vez por ventana cerrada: %d", cerrados(num))
+	}
+	if x.contar(`SELECT count(*) FROM mensajeria.llamada_devoluciones d JOIN mensajeria.llamadas l ON l.id = d.llamada_id WHERE l.id = $1::uuid`, id) != 0 {
+		t.Fatal("una llamada fuera de horario no es una perdida: no crea devolución")
+	}
+	// Buzón de voz: Iris no toca la llamada y el recado que llega como audio queda marcado.
+	x.exigir(x.configurar(x.versionLlamadas(), map[string]any{"fueraDeHorario": "buzon"}), http.StatusOK)
+	x.en("2026-11-17 20:00")
+	numB, callB := numeroCliente(), "wacid.buzon"+numeroCliente()
+	x.connect(numB, callB)
+	if _, estado, _ := x.llamada(callB); estado != "fuera_de_horario" || x.g.cuenta("reject:"+callB) != 0 {
+		t.Fatalf("buzón: %s, acciones %v", estado, x.g.hechas())
+	}
+	x.pasa(2 * time.Minute)
+	x.webhook(x.mensajeCliente(numB, "wamid.recado"+numB, `"type":"audio","audio":{"id":"medio-1","mime_type":"audio/ogg"}`))
+	x.en("2026-11-18 10:00")
+	x.webhook(x.mensajeCliente(numB, "wamid.nota"+numB, `"type":"audio","audio":{"id":"medio-2","mime_type":"audio/ogg"}`))
+	var recado, nota bool
+	for _, m := range x.mensajes(x.supervisor, cid(x.conv(numB))) {
+		if m["tipo"] == "audio" {
+			if m["buzonDeVoz"] == true {
+				recado = true
+			} else {
+				nota = true
+			}
+		}
+	}
+	if !recado || !nota {
+		t.Fatalf("buzón de voz: recado marcado %v, audio normal sin marcar %v", recado, nota)
+	}
+}
+
+// Los ajustes del número se escriben en WhatsApp como un pendiente con reintentos y su estado se ve
+// en GET /canales/{id}/llamadas; el horario de llamadas es el espejo del de Iris cuando cabe.
+func TestLlamadasAjustesPendientesEnWhatsApp(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	ver := func() map[string]any {
+		return x.exigir(x.api(x.supervisor, http.MethodGet, x.rutaCanal("/llamadas"), nil), http.StatusOK).cuerpo
+	}
+	if w := ver()["whatsapp"].(map[string]any); w["estado"] != "aplicado" || !x.g.ultimoFijado().Habilitadas || x.g.ultimoFijado().Horas != nil {
+		t.Fatalf("recién encendidas: %v %+v", w, x.g.ultimoFijado())
+	}
+	// Con un horario que cabe en los límites de Meta, viaja como horario de llamadas.
+	h := x.horario([]map[string]any{{"dias": []int{1, 2, 3, 4, 5}, "inicio": "08:00", "fin": "12:00"}, {"dias": []int{1, 2, 3, 4, 5}, "inicio": "14:00", "fin": "18:00"}},
+		[]map[string]any{{"fecha": "2026-12-25", "nombre": "Navidad", "franjas": []any{}}})
+	r := x.exigir(x.configurar(x.versionLlamadas(), map[string]any{"horarioId": h["id"]}), http.StatusOK)
+	horas := x.g.ultimoFijado().Horas
+	if horas == nil || horas.Zona != "America/Guatemala" || len(horas.Franjas) != 10 || horas.Franjas[0].Abre != "0800" || horas.Franjas[1].Cierra != "1800" ||
+		len(horas.Feriados) != 1 || horas.Feriados[0].Fecha != "2026-12-25" {
+		t.Fatalf("horario de llamadas en WhatsApp: %+v", horas)
+	}
+	if v := ver(); v["whatsapp"].(map[string]any)["estado"] != "aplicado" || v["horasWhatsapp"].(map[string]any)["zona"] != "America/Guatemala" {
+		t.Fatalf("espejo: %v (%v)", v, r.cuerpo)
+	}
+	// Un horario con tres franjas en un día no cabe: WhatsApp queda abierto y el horario lo aplica Iris.
+	h3 := x.horario([]map[string]any{{"dias": []int{1}, "inicio": "08:00", "fin": "10:00"}, {"dias": []int{1}, "inicio": "11:00", "fin": "13:00"},
+		{"dias": []int{1}, "inicio": "15:00", "fin": "18:00"}}, nil)
+	x.exigir(x.configurar(x.versionLlamadas(), map[string]any{"horarioId": h3["id"]}), http.StatusOK)
+	if x.g.ultimoFijado().Horas != nil || ver()["horasWhatsapp"] != nil {
+		t.Fatalf("un horario que no cabe no se manda: %+v", x.g.ultimoFijado().Horas)
+	}
+	// WhatsApp no responde: queda pendiente, visible, y se reintenta solo con espera creciente.
+	x.g.falla("fijar", &mensajeria.ErrMetaLlamada{SinRespuesta: true})
+	antes := len(x.g.fijados)
+	x.exigir(x.configurar(x.versionLlamadas(), map[string]any{"iconoVisible": false}), http.StatusOK)
+	w := ver()["whatsapp"].(map[string]any)
+	if w["estado"] != "pendiente" || w["intentos"] != float64(1) || w["proximoIntentoEn"] == nil || w["detalle"] == nil || strings.Contains(fmt.Sprint(w["detalle"]), "meta:") {
+		t.Fatalf("pendiente: %v", w)
+	}
+	x.pasa(30 * time.Second)
+	x.mantener()
+	if ver()["whatsapp"].(map[string]any)["intentos"] != float64(1) {
+		t.Fatal("antes de tiempo no se reintenta")
+	}
+	x.g.falla("fijar", nil)
+	x.pasa(31 * time.Second)
+	x.mantener()
+	if w := ver()["whatsapp"].(map[string]any); w["estado"] != "aplicado" || len(x.g.fijados) != antes+1 || x.g.ultimoFijado().IconoVisible {
+		t.Fatalf("aplicado al reintentar: %v", w)
+	}
+	// Se agotan los reintentos: error, hasta que alguien pulse «Reintentar».
+	x.g.falla("fijar", &mensajeria.ErrMetaLlamada{Status: 400})
+	x.exigir(x.configurar(x.versionLlamadas(), map[string]any{"iconoVisible": true}), http.StatusOK)
+	for range len(mensajeria.EsperasMeta) {
+		x.pasa(13 * time.Hour)
+		x.mantener()
+	}
+	if w := ver()["whatsapp"].(map[string]any); w["estado"] != "error" || w["proximoIntentoEn"] != nil {
+		t.Fatalf("agotado: %v", w)
+	}
+	x.pasa(13 * time.Hour)
+	x.mantener() // en error ya no se reintenta solo
+	x.g.falla("fijar", nil)
+	x.exigir(x.api(x.agente, http.MethodPost, x.rutaCanal("/llamadas/aplicar"), nil), http.StatusForbidden)
+	if r := x.exigir(x.api(x.supervisor, http.MethodPost, x.rutaCanal("/llamadas/aplicar"), nil), http.StatusOK); r.cuerpo["whatsapp"].(map[string]any)["estado"] != "aplicado" ||
+		!x.g.ultimoFijado().IconoVisible {
+		t.Fatalf("reintentar: %v", r.cuerpo)
+	}
+}
+
+// Seguridad (contratos/voz.md §6.2, filas que tocan E1): webhook sin firma o de otro número, cruce de
+// empresas, eventos sin número ni SDP, y la grabación que todavía no se puede encender.
+func TestLlamadaSeguridadE1(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	x.recibe(x.agente)
+	num, call := numeroCliente(), "wacid.seg"+numeroCliente()
+	// Fila 10: sin firma, con la firma de otro secreto, o de otro phone_number_id: no crea nada.
+	cuerpo := x.eventoLlamada(num, call, "connect", fmt.Sprintf(`,"session":{"sdp_type":"offer","sdp":%q}`, sdpOfertaMeta), 0)
+	for nombre, firma := range map[string]string{"sin firma": "", "firma de otro secreto": mensajeria.FirmarMeta("otro-secreto-de-app", []byte(cuerpo))} {
+		req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("%s/canales/%d/webhook", rutaMsj, x.canal.ID), strings.NewReader(cuerpo))
+		req.Header.Set("Content-Type", "application/json")
+		if firma != "" {
+			req.Header.Set("X-Hub-Signature-256", firma)
+		}
+		w := httptest.NewRecorder()
+		x.h.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("%s: %d", nombre, w.Code)
+		}
+	}
+	x.webhook(strings.Replace(cuerpo, fmt.Sprintf(`"phone_number_id":%q`, x.pnid), `"phone_number_id":"999000111"`, 1))
+	if n := x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id_externo = $1`, call); n != 0 {
+		t.Fatalf("webhook falso o de otro número creó una llamada: %d", n)
+	}
+	// Fila 1: una persona de otra empresa no ve ni toca la llamada, ni siquiera con el id.
+	x.connect(num, call)
+	id, _, _ := x.llamada(call)
+	ajena := x.persona([]int64{2}, rolBase("supervisor"))
+	for _, ruta := range []string{"/reclamar", "/colgar", "/confirmar-medio"} {
+		x.exigir(x.api(ajena, http.MethodPost, "/llamadas/"+id+ruta, nil), http.StatusNotFound)
+	}
+	x.exigir(x.api(ajena, http.MethodPost, "/llamadas/"+id+"/rechazar", map[string]any{"paraTodos": true}), http.StatusNotFound)
+	x.exigir(x.api(ajena, http.MethodPost, "/llamadas/"+id+"/contestar", map[string]any{"sdpRespuesta": sdpNavegador("")}), http.StatusNotFound)
+	x.exigir(x.api(ajena, http.MethodGet, "/llamadas/"+id, nil), http.StatusNotFound)
+	x.exigir(x.api(ajena, http.MethodGet, x.rutaCanal("/llamadas"), nil), http.StatusNotFound)
+	if d := x.exigir(x.api(ajena, http.MethodGet, "/llamadas", nil), http.StatusOK).cuerpo["data"].([]any); len(d) != 0 {
+		t.Fatalf("lista de otra empresa: %v", d)
+	}
+	if _, estado, _ := x.llamada(call); estado != "sonando" {
+		t.Fatalf("la llamada no debía cambiar: %s", estado)
+	}
+	// Un rol sin llamadas.contestar (técnico) y uno de solo lectura.
+	x.exigir(x.api(x.tecnico, http.MethodGet, "/llamadas/"+id, nil), http.StatusForbidden)
+	// Lectura tiene llamadas.ver, pero una llamada solo se ve si se ve su conversación.
+	x.exigir(x.api(x.lectura, http.MethodGet, "/llamadas/"+id, nil), http.StatusNotFound)
+	x.exigir(x.api(x.supervisor, http.MethodGet, "/llamadas/"+id, nil), http.StatusOK)
+	x.exigir(x.api(x.lectura, http.MethodPost, "/llamadas/recibir/encender", map[string]any{"navegador": "navegador-lectura"}), http.StatusForbidden)
+	// Eventos y auditoría: solo ids, estados y códigos; nunca el número del cliente ni el SDP.
+	x.contestar(x.agente, id)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/colgar", nil), http.StatusOK)
+	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento LIKE 'llamada.%' AND (payload::text LIKE '%' || $1 || '%' OR payload::text LIKE '%fingerprint%')`, num); n != 0 {
+		t.Fatalf("eventos de llamada con el número o el SDP: %d", n)
+	}
+	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion LIKE 'llamadas.%' AND (entrada::text LIKE '%' || $1 || '%' OR entrada::text LIKE '%fingerprint%')`, num); n != 0 {
+		t.Fatalf("auditoría de llamadas con el número o el SDP: %d", n)
+	}
+	// Grabación (E1c): no se ofrece ni se acepta, y nunca se pide a Meta.
+	admin := x.persona([]int64{1}, rolBase("admin"))
+	admin.empresa = 1
+	if v := x.exigir(x.api(admin, http.MethodGet, "/voz/ajustes", nil), http.StatusOK); v.cuerpo["grabar"] != "nunca" {
+		t.Fatalf("ajustes: %v", v.cuerpo)
+	}
+	for _, g := range []string{"todas", "asistente"} {
+		r := x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": 0, "grabar": g, "duracionMaxPersonaMin": 60, "segundosAsignado": 10}),
+			http.StatusUnprocessableEntity)
+		if !strings.Contains(crudo(r), "grabacion_no_disponible") {
+			t.Fatalf("grabar %s: %s", g, crudo(r))
+		}
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE grabada`) + x.contar(`SELECT count(*) FROM mensajeria.llamada_grabaciones`); n != 0 {
+		t.Fatalf("ninguna llamada se graba todavía: %d", n)
 	}
 }

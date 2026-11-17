@@ -20,7 +20,7 @@ type EventoPush = integracion.Evento
 
 // EventosPush son los eventos que escucha el emisor (contratos/push.md §3).
 var EventosPush = []string{
-	"chat.mensaje_enviado", "chat.mencion", "conversacion.mencion", "conversacion.aviso_sin_atender",
+	"chat.mensaje_enviado", "chat.mencion", "conversacion.mencion", "conversacion.aviso_sin_atender", "llamada.perdida",
 	"orden.asignada", "orden.programada",
 }
 
@@ -96,6 +96,14 @@ func destinoDe(e integracion.Evento) (*destino, error) {
 	case "conversacion.aviso_sin_atender":
 		return &destino{tipo: TipoBandeja, usuarios: sinAutor(p.Usuarios, 0),
 			datos: map[string]any{"conversacion_id": p.ConversacionID, "bot_contesta_en": p.BotContestaEn}}, nil
+	case "llamada.perdida":
+		// A quien tiene la conversación y a quienes supervisan la cola (contratos/voz.md §3.4), con la
+		// preferencia «bandeja». Sin número ni nombre en el evento: el contenido se arma al enviar.
+		if len(p.Usuarios) == 0 || p.ConversacionID == 0 {
+			return nil, nil
+		}
+		return &destino{tipo: TipoBandeja, usuarios: sinAutor(p.Usuarios, 0),
+			datos: map[string]any{"conversacion_id": p.ConversacionID, "llamada_perdida": true}}, nil
 	case "orden.asignada":
 		if p.TecnicoID == nil || (p.TecnicoAnteriorID != nil && *p.TecnicoAnteriorID == *p.TecnicoID) {
 			return nil, nil

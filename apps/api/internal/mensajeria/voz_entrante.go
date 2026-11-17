@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -122,7 +123,7 @@ func (m *Modulo) recibirLlamada(ctx context.Context, t *auditoria.Tx, canal mens
 	}
 	l, err := q.InsertarLlamada(ctx, mensajeriabd.InsertarLlamadaParams{LlamadaID: id, EmpresaID: c.EmpresaID, CanalID: &canal.ID, ConversacionID: &c.ID,
 		Externo: ev.ID, Numero: numero, ClienteID: c.ClienteID, Servicio: c.ServicioID, ColaID: cola, SonoEn: sono,
-		SuenaHasta: ahora.Add(time.Duration(aj.SegundosSonando) * time.Second), SdpOferta: sdp, Grabada: voz.Grabar == "todas"})
+		SuenaHasta: ahora.Add(time.Duration(aj.SegundosSonando) * time.Second), SdpOferta: sdp})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil // ya se recibió (Meta reintentó, o el job después del proceso en línea)
 	}
@@ -356,8 +357,24 @@ func (m *Modulo) cerrarLlamada(ctx context.Context, t *auditoria.Tx, l *mensajer
 				return err
 			}
 		}
+		// usuarios: a quién se le avisa por push (quien tiene la conversación y quienes supervisan la cola).
+		usuarios := []int64{}
+		if c != nil && c.AsignadoA != nil {
+			usuarios = append(usuarios, *c.AsignadoA)
+		}
+		if l.ColaID != nil {
+			sups, errS := q.SupervisoresDeColas(ctx, []int64{*l.ColaID})
+			if errS != nil {
+				return errS
+			}
+			for _, s := range sups {
+				if !slices.Contains(usuarios, s.ID) {
+					usuarios = append(usuarios, s.ID)
+				}
+			}
+		}
 		err = t.Emitir("llamada.perdida", con(map[string]any{"direccion": l.Direccion, "cola_id": l.ColaID,
-			"sono_seg": int(max(0, ahora.Sub(l.SonoEn)/time.Second)), "devolucion_id": devolucion}))
+			"sono_seg": int(max(0, ahora.Sub(l.SonoEn)/time.Second)), "devolucion_id": devolucion, "usuarios": usuarios}))
 	case LlamadaRechazada, LlamadaFueraDeHorario:
 		err = t.Emitir("llamada.rechazada", con(map[string]any{"motivo": motivo, "usuario_id": l.UsuarioID}))
 	case LlamadaFallida:

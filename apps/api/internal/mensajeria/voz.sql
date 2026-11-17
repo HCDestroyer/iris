@@ -254,3 +254,23 @@ RETURNING *;
 
 -- name: GrabacionesVencidas :many
 SELECT * FROM mensajeria.llamada_grabaciones WHERE estado = 'disponible' AND vence_en <= @ahora ORDER BY id LIMIT 100 FOR UPDATE SKIP LOCKED;
+
+-- name: FijarMetaAjustesCanal :one
+-- El estado de la escritura en WhatsApp de los ajustes del número (pendiente con reintentos).
+UPDATE mensajeria.voz_ajustes_canal SET meta_estado = @meta_estado, meta_intentos = @meta_intentos, meta_proximo_en = sqlc.narg('meta_proximo_en'),
+    meta_detalle = sqlc.narg('meta_detalle'), horas_meta = sqlc.narg('horas_meta'),
+    sincronizado_en = coalesce(sqlc.narg('sincronizado_en'), sincronizado_en), updated_at = now()
+WHERE canal_id = @canal_id
+RETURNING *;
+
+-- name: CanalesConMetaPendiente :many
+SELECT canal_id FROM mensajeria.voz_ajustes_canal WHERE meta_estado = 'pendiente' AND meta_proximo_en <= @ahora ORDER BY meta_proximo_en LIMIT 50;
+
+-- name: MarcarBuzonDeVoz :exec
+UPDATE mensajeria.conversacion_mensajes SET buzon_de_voz = true WHERE id = @id;
+
+-- name: LlamadaAlBuzonReciente :one
+-- ¿Hubo una llamada de esta conversación que se dejó al buzón de voz (fuera de horario) hace poco?
+SELECT EXISTS (SELECT 1 FROM mensajeria.llamadas l JOIN mensajeria.voz_ajustes_canal a ON a.canal_id = l.canal_id
+    WHERE l.conversacion_id = @conversacion_id AND l.estado = 'fuera_de_horario' AND a.fuera_de_horario = 'buzon'
+      AND l.sono_en > @desde AND l.sono_en <= @hasta)::boolean;

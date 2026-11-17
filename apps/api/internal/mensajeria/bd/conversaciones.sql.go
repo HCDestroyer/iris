@@ -1643,7 +1643,7 @@ func (q *Queries) EventosConv(ctx context.Context, arg EventosConvParams) ([]Men
 }
 
 const fijarAdjuntoMensaje = `-- name: FijarAdjuntoMensaje :one
-UPDATE mensajeria.conversacion_mensajes SET adjunto_id = $1, updated_at = now() WHERE id = $2 RETURNING id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id, lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, motivo_falla, detalle_falla, proveedor_id, intentos, hash_contenido, idempotency_key, creado_en, enviado_en, entregado_en, leido_en, created_at, updated_at, automatico, origen, con_saldo, llamada_id
+UPDATE mensajeria.conversacion_mensajes SET adjunto_id = $1, updated_at = now() WHERE id = $2 RETURNING id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id, lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, motivo_falla, detalle_falla, proveedor_id, intentos, hash_contenido, idempotency_key, creado_en, enviado_en, entregado_en, leido_en, created_at, updated_at, automatico, origen, con_saldo, llamada_id, buzon_de_voz
 `
 
 type FijarAdjuntoMensajeParams struct {
@@ -1689,6 +1689,7 @@ func (q *Queries) FijarAdjuntoMensaje(ctx context.Context, arg FijarAdjuntoMensa
 		&i.Origen,
 		&i.ConSaldo,
 		&i.LlamadaID,
+		&i.BuzonDeVoz,
 	)
 	return i, err
 }
@@ -2302,7 +2303,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
     $9, $10, $11, $12, $13, $14,
     $15::bigint[], $16, $17, $18, $19,
     $20, $21, $22, $23, $24)
-RETURNING id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id, lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, motivo_falla, detalle_falla, proveedor_id, intentos, hash_contenido, idempotency_key, creado_en, enviado_en, entregado_en, leido_en, created_at, updated_at, automatico, origen, con_saldo, llamada_id
+RETURNING id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id, lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, motivo_falla, detalle_falla, proveedor_id, intentos, hash_contenido, idempotency_key, creado_en, enviado_en, entregado_en, leido_en, created_at, updated_at, automatico, origen, con_saldo, llamada_id, buzon_de_voz
 `
 
 type InsertarMensajeConversacionParams struct {
@@ -2396,6 +2397,7 @@ func (q *Queries) InsertarMensajeConversacion(ctx context.Context, arg InsertarM
 		&i.Origen,
 		&i.ConSaldo,
 		&i.LlamadaID,
+		&i.BuzonDeVoz,
 	)
 	return i, err
 }
@@ -2733,7 +2735,7 @@ func (q *Queries) ListarEtiquetas(ctx context.Context, empresa int64) ([]Mensaje
 }
 
 const listarMensajesConversacion = `-- name: ListarMensajesConversacion :many
-SELECT id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id, lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, motivo_falla, detalle_falla, proveedor_id, intentos, hash_contenido, idempotency_key, creado_en, enviado_en, entregado_en, leido_en, created_at, updated_at, automatico, origen, con_saldo, llamada_id FROM mensajeria.conversacion_mensajes
+SELECT id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id, lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, motivo_falla, detalle_falla, proveedor_id, intentos, hash_contenido, idempotency_key, creado_en, enviado_en, entregado_en, leido_en, created_at, updated_at, automatico, origen, con_saldo, llamada_id, buzon_de_voz FROM mensajeria.conversacion_mensajes
 WHERE conversacion_id = $1
   -- Una conversación pasada a otra empresa: las notas de la anterior no se ven (§15.3).
   AND coalesce(empresa_id, 0) = (SELECT coalesce(c.empresa_id, 0) FROM mensajeria.conversaciones c WHERE c.id = $1)
@@ -2798,6 +2800,7 @@ func (q *Queries) ListarMensajesConversacion(ctx context.Context, arg ListarMens
 			&i.Origen,
 			&i.ConSaldo,
 			&i.LlamadaID,
+			&i.BuzonDeVoz,
 		); err != nil {
 			return nil, err
 		}
@@ -2870,7 +2873,7 @@ SET estado_entrega = $1::text, proveedor_id = coalesce($2, proveedor_id),
     leido_en = coalesce($5, leido_en), motivo_falla = $6, detalle_falla = $7,
     intentos = intentos + $8::integer, updated_at = now()
 WHERE id = $9
-RETURNING id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id, lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, motivo_falla, detalle_falla, proveedor_id, intentos, hash_contenido, idempotency_key, creado_en, enviado_en, entregado_en, leido_en, created_at, updated_at, automatico, origen, con_saldo, llamada_id
+RETURNING id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id, lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, motivo_falla, detalle_falla, proveedor_id, intentos, hash_contenido, idempotency_key, creado_en, enviado_en, entregado_en, leido_en, created_at, updated_at, automatico, origen, con_saldo, llamada_id, buzon_de_voz
 `
 
 type MarcarEnvioMensajeParams struct {
@@ -2933,6 +2936,7 @@ func (q *Queries) MarcarEnvioMensaje(ctx context.Context, arg MarcarEnvioMensaje
 		&i.Origen,
 		&i.ConSaldo,
 		&i.LlamadaID,
+		&i.BuzonDeVoz,
 	)
 	return i, err
 }
@@ -2941,7 +2945,7 @@ const marcarEnvioMensajeEntrante = `-- name: MarcarEnvioMensajeEntrante :one
 UPDATE mensajeria.conversacion_mensajes
 SET medio_id = NULL, motivo_falla = $1, detalle_falla = $2, intentos = intentos + 1, updated_at = now()
 WHERE id = $3
-RETURNING id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id, lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, motivo_falla, detalle_falla, proveedor_id, intentos, hash_contenido, idempotency_key, creado_en, enviado_en, entregado_en, leido_en, created_at, updated_at, automatico, origen, con_saldo, llamada_id
+RETURNING id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id, lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, motivo_falla, detalle_falla, proveedor_id, intentos, hash_contenido, idempotency_key, creado_en, enviado_en, entregado_en, leido_en, created_at, updated_at, automatico, origen, con_saldo, llamada_id, buzon_de_voz
 `
 
 type MarcarEnvioMensajeEntranteParams struct {
@@ -2989,6 +2993,7 @@ func (q *Queries) MarcarEnvioMensajeEntrante(ctx context.Context, arg MarcarEnvi
 		&i.Origen,
 		&i.ConSaldo,
 		&i.LlamadaID,
+		&i.BuzonDeVoz,
 	)
 	return i, err
 }
@@ -3019,7 +3024,7 @@ func (q *Queries) MediosPorDescargar(ctx context.Context, antes time.Time) ([]uu
 }
 
 const mensajeConversacionParaActualizar = `-- name: MensajeConversacionParaActualizar :one
-SELECT id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id, lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, motivo_falla, detalle_falla, proveedor_id, intentos, hash_contenido, idempotency_key, creado_en, enviado_en, entregado_en, leido_en, created_at, updated_at, automatico, origen, con_saldo, llamada_id FROM mensajeria.conversacion_mensajes WHERE id = $1 FOR UPDATE
+SELECT id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id, lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, motivo_falla, detalle_falla, proveedor_id, intentos, hash_contenido, idempotency_key, creado_en, enviado_en, entregado_en, leido_en, created_at, updated_at, automatico, origen, con_saldo, llamada_id, buzon_de_voz FROM mensajeria.conversacion_mensajes WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) MensajeConversacionParaActualizar(ctx context.Context, id uuid.UUID) (MensajeriaConversacionMensaje, error) {
@@ -3060,12 +3065,13 @@ func (q *Queries) MensajeConversacionParaActualizar(ctx context.Context, id uuid
 		&i.Origen,
 		&i.ConSaldo,
 		&i.LlamadaID,
+		&i.BuzonDeVoz,
 	)
 	return i, err
 }
 
 const mensajeConversacionPorClave = `-- name: MensajeConversacionPorClave :one
-SELECT id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id, lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, motivo_falla, detalle_falla, proveedor_id, intentos, hash_contenido, idempotency_key, creado_en, enviado_en, entregado_en, leido_en, created_at, updated_at, automatico, origen, con_saldo, llamada_id FROM mensajeria.conversacion_mensajes WHERE autor_id = $1 AND idempotency_key = $2
+SELECT id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id, lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, motivo_falla, detalle_falla, proveedor_id, intentos, hash_contenido, idempotency_key, creado_en, enviado_en, entregado_en, leido_en, created_at, updated_at, automatico, origen, con_saldo, llamada_id, buzon_de_voz FROM mensajeria.conversacion_mensajes WHERE autor_id = $1 AND idempotency_key = $2
 `
 
 type MensajeConversacionPorClaveParams struct {
@@ -3111,12 +3117,13 @@ func (q *Queries) MensajeConversacionPorClave(ctx context.Context, arg MensajeCo
 		&i.Origen,
 		&i.ConSaldo,
 		&i.LlamadaID,
+		&i.BuzonDeVoz,
 	)
 	return i, err
 }
 
 const mensajeConversacionPorID = `-- name: MensajeConversacionPorID :one
-SELECT id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id, lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, motivo_falla, detalle_falla, proveedor_id, intentos, hash_contenido, idempotency_key, creado_en, enviado_en, entregado_en, leido_en, created_at, updated_at, automatico, origen, con_saldo, llamada_id FROM mensajeria.conversacion_mensajes WHERE id = $1
+SELECT id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id, lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, motivo_falla, detalle_falla, proveedor_id, intentos, hash_contenido, idempotency_key, creado_en, enviado_en, entregado_en, leido_en, created_at, updated_at, automatico, origen, con_saldo, llamada_id, buzon_de_voz FROM mensajeria.conversacion_mensajes WHERE id = $1
 `
 
 func (q *Queries) MensajeConversacionPorID(ctx context.Context, id uuid.UUID) (MensajeriaConversacionMensaje, error) {
@@ -3157,12 +3164,13 @@ func (q *Queries) MensajeConversacionPorID(ctx context.Context, id uuid.UUID) (M
 		&i.Origen,
 		&i.ConSaldo,
 		&i.LlamadaID,
+		&i.BuzonDeVoz,
 	)
 	return i, err
 }
 
 const mensajeEntrantePorProveedor = `-- name: MensajeEntrantePorProveedor :one
-SELECT id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id, lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, motivo_falla, detalle_falla, proveedor_id, intentos, hash_contenido, idempotency_key, creado_en, enviado_en, entregado_en, leido_en, created_at, updated_at, automatico, origen, con_saldo, llamada_id FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND proveedor_id = $2
+SELECT id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id, lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, motivo_falla, detalle_falla, proveedor_id, intentos, hash_contenido, idempotency_key, creado_en, enviado_en, entregado_en, leido_en, created_at, updated_at, automatico, origen, con_saldo, llamada_id, buzon_de_voz FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND proveedor_id = $2
 `
 
 type MensajeEntrantePorProveedorParams struct {
@@ -3208,12 +3216,13 @@ func (q *Queries) MensajeEntrantePorProveedor(ctx context.Context, arg MensajeEn
 		&i.Origen,
 		&i.ConSaldo,
 		&i.LlamadaID,
+		&i.BuzonDeVoz,
 	)
 	return i, err
 }
 
 const mensajeSalientePorProveedor = `-- name: MensajeSalientePorProveedor :one
-SELECT m.id, m.conversacion_id, m.empresa_id, m.seq, m.direccion, m.tipo, m.texto, m.adjunto_id, m.medio_id, m.lat, m.lon, m.plantilla, m.variables, m.autor_id, m.menciones, m.evento, m.respuesta_rapida_id, m.estado_entrega, m.motivo_falla, m.detalle_falla, m.proveedor_id, m.intentos, m.hash_contenido, m.idempotency_key, m.creado_en, m.enviado_en, m.entregado_en, m.leido_en, m.created_at, m.updated_at, m.automatico, m.origen, m.con_saldo, m.llamada_id FROM mensajeria.conversacion_mensajes m JOIN mensajeria.conversaciones c ON c.id = m.conversacion_id
+SELECT m.id, m.conversacion_id, m.empresa_id, m.seq, m.direccion, m.tipo, m.texto, m.adjunto_id, m.medio_id, m.lat, m.lon, m.plantilla, m.variables, m.autor_id, m.menciones, m.evento, m.respuesta_rapida_id, m.estado_entrega, m.motivo_falla, m.detalle_falla, m.proveedor_id, m.intentos, m.hash_contenido, m.idempotency_key, m.creado_en, m.enviado_en, m.entregado_en, m.leido_en, m.created_at, m.updated_at, m.automatico, m.origen, m.con_saldo, m.llamada_id, m.buzon_de_voz FROM mensajeria.conversacion_mensajes m JOIN mensajeria.conversaciones c ON c.id = m.conversacion_id
 WHERE c.canal_id = $1 AND m.proveedor_id = $2 AND m.direccion = 'saliente'
 FOR UPDATE OF m
 `
@@ -3261,12 +3270,13 @@ func (q *Queries) MensajeSalientePorProveedor(ctx context.Context, arg MensajeSa
 		&i.Origen,
 		&i.ConSaldo,
 		&i.LlamadaID,
+		&i.BuzonDeVoz,
 	)
 	return i, err
 }
 
 const mensajesConversacionPorIDs = `-- name: MensajesConversacionPorIDs :many
-SELECT id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id, lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, motivo_falla, detalle_falla, proveedor_id, intentos, hash_contenido, idempotency_key, creado_en, enviado_en, entregado_en, leido_en, created_at, updated_at, automatico, origen, con_saldo, llamada_id FROM mensajeria.conversacion_mensajes WHERE id = ANY ($1::uuid[])
+SELECT id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id, lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, motivo_falla, detalle_falla, proveedor_id, intentos, hash_contenido, idempotency_key, creado_en, enviado_en, entregado_en, leido_en, created_at, updated_at, automatico, origen, con_saldo, llamada_id, buzon_de_voz FROM mensajeria.conversacion_mensajes WHERE id = ANY ($1::uuid[])
 `
 
 func (q *Queries) MensajesConversacionPorIDs(ctx context.Context, ids []uuid.UUID) ([]MensajeriaConversacionMensaje, error) {
@@ -3313,6 +3323,7 @@ func (q *Queries) MensajesConversacionPorIDs(ctx context.Context, ids []uuid.UUI
 			&i.Origen,
 			&i.ConSaldo,
 			&i.LlamadaID,
+			&i.BuzonDeVoz,
 		); err != nil {
 			return nil, err
 		}
