@@ -832,7 +832,9 @@ tarjeta en Integraciones (junto a Argos y Horus). Código en `componentes/servid
   (10 → 20 → 40 → 60 s) y vuelve a su ritmo al primer éxito; con 401, 403 o 404 no insiste: queda
   «Reintentar».
 - **Nunca cifras viejas.** Si una relectura falla, las cifras se quitan y queda el error con
-  «Reintentar». Una lectura de más de 60 s tampoco es «ahora», aunque llegue con `lecturaOk: true`. Caído, incompatible o con la última lectura fallida: las cifras de ahora dicen «Sin
+  «Reintentar». Una lectura de más de 60 s tampoco es «ahora», aunque llegue con `lecturaOk: true`;
+  la antigüedad se mide contra la hora del servidor (cabecera `Date` de la respuesta), no contra el
+  reloj del equipo; sin esa cabecera la tolerancia sube a 5 minutos. Caído, incompatible o con la última lectura fallida: las cifras de ahora dicen «Sin
   datos», «Visto por última vez hoy a las 10:42 (hace 20 min)», qué pasa con el asistente mientras
   tanto, qué revisar en el servidor y «Probar ahora». Incompatible dice **qué** actualizar según
   `motivoIncompatible`: Iris (`iris_antiguo`) o el servidor, con su comando y su porqué
@@ -841,7 +843,8 @@ tarjeta en Integraciones (junto a Argos y Horus). Código en `componentes/servid
   muestra una vez, vence a los 15 minutos, se escribe en el servidor sin eco) → huella con la
   casilla «Coincide con la del instalador» → «Activar» con esa misma huella (un enlace sin activar
   caduca a las 24 h). Si el servidor cambió entretanto (409 `huella_cambiada`) se desmarca la
-  casilla y se enseña la huella de ahora; nunca se reintenta solo. 409 `rotacion_en_curso`, aquí y
+  casilla y se enseña la huella de ahora; nunca se reintenta solo. La marca guarda **qué huella**
+  se comparó (no un sí/no) y la casilla se apaga mientras hay una petición en curso. 409 `rotacion_en_curso`, aquí y
   al rotar, es un aviso de «espera unos segundos», no un error.
   Si «conectar» falla, el servidor responde lo mismo (502) para un código usado o mal escrito que
   para un servidor fuera de alcance: el texto lo dice así, sin afirmar cuál fue. Un paso

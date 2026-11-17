@@ -45,7 +45,7 @@ import { Comando, LineaEstado, NavServidorIa, RUTA, usePermisosServidorIa, useTa
 export function TableroServidorIa({ umbrales = null }: { umbrales?: Umbrales | null }) {
     const { global, administra } = usePermisosServidorIa();
     const [rango, setRango] = useState<Rango>("ahora");
-    const { lectura, refrescar, ahora } = useTablero(rango);
+    const { lectura, refrescar, ahora, tolerancia } = useTablero(rango);
 
     return (
         <>
@@ -85,7 +85,7 @@ export function TableroServidorIa({ umbrales = null }: { umbrales?: Umbrales | n
                     />
                 </Tarjeta>
             ) : (
-                <Vista tablero={lectura.datos} rango={rango} alRango={setRango} ahora={ahora} global={global} administra={administra} umbrales={umbrales} refrescar={refrescar} />
+                <Vista tablero={lectura.datos} rango={rango} alRango={setRango} ahora={ahora} tolerancia={tolerancia} global={global} administra={administra} umbrales={umbrales} refrescar={refrescar} />
             )}
         </>
     );
@@ -117,11 +117,11 @@ function SinServidor({ global, administra }: { global: boolean; administra: bool
     );
 }
 
-type PropsVista = { tablero: Tablero; rango: Rango; alRango: (r: Rango) => void; ahora: number; global: boolean; administra: boolean; umbrales: Umbrales | null; refrescar: () => void };
+type PropsVista = { tablero: Tablero; rango: Rango; alRango: (r: Rango) => void; ahora: number; tolerancia: number; global: boolean; administra: boolean; umbrales: Umbrales | null; refrescar: () => void };
 
-function Vista({ tablero, rango, alRango, ahora, global, administra, umbrales, refrescar }: PropsVista) {
+function Vista({ tablero, rango, alRango, ahora, tolerancia, global, administra, umbrales, refrescar }: PropsVista) {
     const e = tablero.estado;
-    const vigentes = cifrasVigentes(tablero, ahora);
+    const vigentes = cifrasVigentes(tablero, ahora, tolerancia);
     const fuera = !enServicio(e.estado) && e.estado !== "degradado";
     const [prueba, setPrueba] = useState<{ estado: "libre" } | { estado: "probando" } | { estado: "hecha"; resultado: ResultadoPrueba } | { estado: "error"; error: unknown }>({ estado: "libre" });
     const limites = umbrales ?? { ...DE_FABRICA, version: 0 };

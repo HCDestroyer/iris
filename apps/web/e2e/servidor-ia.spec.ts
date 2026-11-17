@@ -291,6 +291,22 @@ test.describe("Servidor de IA › caído o incompatible", () => {
         await expect(slot(page, "modelos")).toHaveCount(0);
     });
 
+    test("con el reloj del equipo adelantado 2 minutos, una lectura fresca sigue a la vista (se mide con la hora del servidor)", async ({ page }) => {
+        await abrir(page, RUTA, { relojAdelantado: 120_000 });
+        await expect(slot(page, "cifras")).toHaveAttribute("data-vigentes", "si");
+        await expect(slot(page, "cifra-uso")).toContainText("63");
+        await expect(slot(page, "lectura-fallida")).toHaveCount(0);
+        await expect(slot(page, "modelos")).toBeVisible();
+    });
+
+    test("con el reloj adelantado, una lectura de verdad vieja se sigue marcando", async ({ page }) => {
+        await abrir(page, RUTA, { relojAdelantado: 120_000, lecturaVieja: true });
+        await expect(slot(page, "lectura-fallida")).toContainText("La última lectura del servidor ya es vieja");
+        await expect(slot(page, "lectura-fallida")).toContainText("(hace 5 min)");
+        await expect(slot(page, "cifras")).toHaveAttribute("data-vigentes", "no");
+        await expect(slot(page, "cifras")).not.toContainText(/\d/);
+    });
+
     test("degradado: quien administra la instalación lee el detalle técnico del servidor", async ({ page }) => {
         await abrir(page, RUTA, { motor: "degradado", detalle: "texto-secreto" });
         await expect(estado(page)).toHaveAttribute("data-estado", "degradado");
@@ -421,6 +437,37 @@ test.describe("Servidor de IA › enlazar", () => {
         await page.getByRole("button", { name: "Activar", exact: true }).click();
         await expect(estado(page)).toHaveAttribute("data-estado", "listo");
         expect(api.servidorIa.recibido.activaciones).toEqual([{ huellaTls: HUELLA }, { huellaTls: HUELLA_OTRA }]);
+    });
+
+    test("mientras se relee la huella tras el 409 la casilla no se puede marcar: no se activa con una huella que nadie comparó", async ({ page }) => {
+        const api = await abrir(page, `${RUTA}/enlazar`, { motor: "con_huella", activar: ["huella_cambiada"] });
+        const coincide = page.getByRole("checkbox", { name: "Coincide con la del instalador" });
+        const activar = page.getByRole("button", { name: "Activar", exact: true });
+        await expect(slot(page, "huella")).toContainText("3FA9");
+        // A partir de aquí, la relectura de la tarjeta se queda esperando.
+        let soltar: () => void = () => undefined;
+        const espera = new Promise<void>((resolver) => (soltar = resolver));
+        await page.route("**/api/v1/mensajeria/voz/motores", async (route) => {
+            await espera;
+            await route.fallback();
+        });
+        await coincide.check();
+        await activar.click();
+        await expect(slot(page, "error-enlace")).toHaveAttribute("data-codigo", "huella_cambiada");
+        // La huella vieja sigue en pantalla mientras llega la nueva: la casilla está apagada y un clic no la marca.
+        await expect(slot(page, "huella")).toContainText("3FA9");
+        await expect(coincide).toBeDisabled();
+        await expect(coincide).not.toBeChecked();
+        await coincide.click({ force: true, timeout: 2_000 }).catch(() => undefined);
+        await expect(coincide).not.toBeChecked();
+        // (El botón dice «Activando…» mientras tanto.)
+        await expect(page.getByRole("button", { name: /^Activ/ })).toBeDisabled();
+        soltar();
+        await expect(slot(page, "huella")).toContainText("9B04");
+        await expect(coincide).toBeEnabled();
+        await expect(coincide).not.toBeChecked();
+        await expect(activar).toBeDisabled();
+        expect(api.servidorIa.recibido.activaciones).toEqual([{ huellaTls: HUELLA }]);
     });
 
     test("activar con un cambio de llave en curso (409): pide esperar y deja reintentar a mano", async ({ page }) => {

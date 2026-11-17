@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cantidad, cifrasVigentes, COMANDO, duracionLlana, lecturaReciente, lineaTarjeta, enServicio, huellaLegible, lineaEstado, queActualizar, seriesDe, tamano, tarjetaGpu, textoAviso, textoError, textoErrorEnlace, textoPlazas, tiempoRespuesta, tonoFrente, ultimaVez } from "./presentacion";
+import { cantidad, cifrasVigentes, COMANDO, LECTURA_VIEJA_SIN_HORA_MS, duracionLlana, lecturaReciente, lineaTarjeta, enServicio, huellaLegible, lineaEstado, queActualizar, seriesDe, tamano, tarjetaGpu, textoAviso, textoError, textoErrorEnlace, textoPlazas, tiempoRespuesta, tonoFrente, ultimaVez } from "./presentacion";
 import type { AvisoServidor, Tablero } from "./tipos";
 import { DE_FABRICA, entradaDeUmbrales, esDeFabrica, esquemaEmpresas, esquemaEnlace, esquemaUmbrales, valoresDeUmbrales } from "./umbrales";
 
@@ -43,6 +43,13 @@ describe("textos del Servidor de IA", () => {
         expect(cifrasVigentes(tablero({ tomadoEn: "2026-11-17T17:00:59Z" }), AHORA)).toBe(false);
         expect(cifrasVigentes(tablero({ tomadoEn: null }), AHORA)).toBe(false);
         expect(lecturaReciente("no es una fecha", AHORA)).toBe(false);
+        // Sin la hora del servidor (solo el reloj del navegador) la tolerancia es de 5 minutos: una
+        // lectura fresca no se da por vieja con el reloj adelantado 2 minutos, y una de 6 minutos sí.
+        const adelantado = AHORA + 2 * 60_000;
+        expect(cifrasVigentes(tablero({ tomadoEn: "2026-11-17T17:01:56Z" }), adelantado)).toBe(false);
+        expect(cifrasVigentes(tablero({ tomadoEn: "2026-11-17T17:01:56Z" }), adelantado, LECTURA_VIEJA_SIN_HORA_MS)).toBe(true);
+        expect(cifrasVigentes(tablero({ tomadoEn: "2026-11-17T16:56:00Z" }), AHORA, LECTURA_VIEJA_SIN_HORA_MS)).toBe(false);
+        expect(cifrasVigentes(tablero({ tomadoEn: "2026-11-17T17:01:56Z", lecturaOk: false }), AHORA, LECTURA_VIEJA_SIN_HORA_MS)).toBe(false);
     });
 
     it("el detalle técnico del servidor solo lo lee quien administra la instalación", () => {

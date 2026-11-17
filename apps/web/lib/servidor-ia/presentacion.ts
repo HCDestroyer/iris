@@ -61,21 +61,26 @@ const TITULO_ESTADO: Record<EstadoMotor, { tono: Tono; titulo: string }> = {
 /** ¿El asistente puede usar el servidor ahora? Solo `listo`. */
 export const enServicio = (estado: EstadoMotor | null): boolean => estado === "listo";
 
-/** Una lectura de más de un minuto ya no es «ahora», diga lo que diga `lecturaOk`. */
+/** Una lectura de más de un minuto ya no es «ahora», diga lo que diga `lecturaOk`. Se mide contra la hora del servidor. */
 export const LECTURA_VIEJA_MS = 60_000;
+/**
+ * Sin la hora del servidor solo queda el reloj del navegador, que puede estar mal puesto: la
+ * tolerancia sube a 5 minutos y el corte fino queda en `lecturaOk`, que lo decide el servidor.
+ */
+export const LECTURA_VIEJA_SIN_HORA_MS = 5 * 60_000;
 
 /** ¿La muestra (`tomadoEn`) es reciente respecto de `ahora`? Sin fecha, no. */
-export function lecturaReciente(tomadoEn: string | null, ahora: number): boolean {
+export function lecturaReciente(tomadoEn: string | null, ahora: number, tolerancia = LECTURA_VIEJA_MS): boolean {
     const ms = tomadoEn === null ? NaN : Date.parse(tomadoEn);
-    return !Number.isNaN(ms) && ahora - ms <= LECTURA_VIEJA_MS;
+    return !Number.isNaN(ms) && ahora - ms <= tolerancia;
 }
 
 /**
  * ¿Lo que trae `servidor` es de ahora? Solo si el servidor responde, la última lectura salió bien
  * **y es reciente**. Si no, las cifras son viejas y **no se muestran como actuales** («Sin datos»).
  */
-export const cifrasVigentes = (t: Tablero, ahora: number): boolean =>
-    t.servidor !== null && t.estado.lecturaOk && (t.estado.estado === "listo" || t.estado.estado === "degradado") && lecturaReciente(t.estado.tomadoEn, ahora);
+export const cifrasVigentes = (t: Tablero, ahora: number, tolerancia = LECTURA_VIEJA_MS): boolean =>
+    t.servidor !== null && t.estado.lecturaOk && (t.estado.estado === "listo" || t.estado.estado === "degradado") && lecturaReciente(t.estado.tomadoEn, ahora, tolerancia);
 
 /**
  * La línea de estado, en llano: «En línea · versión 0.1.0 · compatible con esta versión de Iris ·

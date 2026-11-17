@@ -98,7 +98,9 @@ function Pasos({ pendiente }: { pendiente: Motor | null }) {
     const [enlace, setEnlace] = useState<EnlaceCreado | null>(null);
     const [error, setError] = useState<unknown>(null);
     const [ocupado, setOcupado] = useState<"conectar" | "activar" | null>(null);
-    const [coincide, setCoincide] = useState(false);
+    // Se guarda **qué huella** se marcó, no un sí/no: si la huella en pantalla cambia, la marca deja de valer sola.
+    const [huellaMarcada, setHuellaMarcada] = useState<string | null>(null);
+    const coincide = Boolean(motor?.huellaTls) && huellaMarcada === motor?.huellaTls;
     const [ahora, setAhora] = useState(() => Date.now());
     const form = useForm<ValoresEnlace>({ resolver: zodResolver(esquemaEnlace), defaultValues: { nombre: pendiente?.nombre ?? "Servidor de IA", url: pendiente?.url ?? "" } });
 
@@ -151,7 +153,7 @@ function Pasos({ pendiente }: { pendiente: Motor | null }) {
             if (e instanceof ErrorApi && e.codigo === "huella_cambiada") {
                 // Lo comparado ya no vale: se desmarca y se enseña la huella de ahora para compararla otra vez.
                 // Nunca se reintenta solo.
-                setCoincide(false);
+                setHuellaMarcada(null);
                 try {
                     const actual = await leerMotor();
                     setMotor(actual?.huellaTls && actual.estado === "sin_enlazar" ? actual : null);
@@ -166,7 +168,7 @@ function Pasos({ pendiente }: { pendiente: Motor | null }) {
     function empezarDeNuevo() {
         setMotor(null);
         setEnlace(null);
-        setCoincide(false);
+        setHuellaMarcada(null);
         setError(null);
     }
 
@@ -274,7 +276,7 @@ function Pasos({ pendiente }: { pendiente: Motor | null }) {
                                 <span key={i}>{grupo}</span>
                             ))}
                         </p>
-                        <Casilla etiqueta="Coincide con la del instalador" checked={coincide} onChange={(ev) => setCoincide(ev.target.checked)} />
+                        <Casilla etiqueta="Coincide con la del instalador" checked={coincide} disabled={ocupado !== null} onChange={(ev) => setHuellaMarcada(ev.target.checked ? motor.huellaTls : null)} />
                         <p className="flex items-start gap-2 rounded-lg bg-elevated p-2.5 text-[0.8125rem] text-muted-foreground">
                             <ShieldAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
                             <span>

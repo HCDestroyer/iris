@@ -60,6 +60,8 @@ export type OpcionesServidorIa = {
     avisos?: AvisoServidor[] | null;
     /** El `detalle` técnico del servidor (con `motor: "degradado"`). */
     detalle?: string;
+    /** El reloj del navegador va adelantado estos ms respecto del servidor (la cabecera `Date` trae la hora buena). */
+    relojAdelantado?: number;
     /** `lecturaOk: true` pero la muestra es de hace 5 minutos. */
     lecturaVieja?: boolean;
     /** Las primeras `n` rotaciones se hacen en el servidor pero la respuesta no llega. */
@@ -294,13 +296,17 @@ export function apiServidorIa(opciones: OpcionesServidorIa = {}) {
             }
             lecturas++;
             const propias = global ? x.empresas : x.empresas.filter((e) => e.id === x.empresaId);
-            // El «ahora» del servidor es el reloj simulado de la página.
-            const ahora = await route
+            // El «ahora» del servidor sale del reloj simulado de la página, menos lo que ese reloj vaya adelantado.
+            const pagina = await route
                 .request()
                 .frame()
                 .evaluate(() => Date.now())
                 .catch(() => AHORA_SIA);
-            return (await json(route, tablero(rango, global, propias, ahora)), true);
+            // `Date` va al segundo: el «ahora» del servidor también, para que las cuentas cuadren.
+            const ahora = Math.floor((pagina - (opciones.relojAdelantado ?? 0)) / 1000) * 1000;
+            // Como un servidor de verdad: la respuesta lleva su hora en `Date`.
+            await route.fulfill({ status: 200, contentType: "application/json", headers: { Date: new Date(ahora).toUTCString() }, body: JSON.stringify(tablero(rango, global, propias, ahora)) });
+            return true;
         }
         if (ruta === `${SERVIDOR}/umbrales` && metodo === "GET") {
             if (!global) return prohibido();

@@ -34,5 +34,15 @@ export const guardarEmpresasPermitidas = (id: number, entrada: Schema<"EntradaEm
 export const guardarModelosPermitidos = (id: number, entrada: Schema<"EntradaModelosMotor">, clave: string) => resolver(api().POST(`${MOTORES}/{id}/modelos/actualizar`, { params: accion(id, clave), body: entrada }));
 
 export const leerTablero = (rango: Rango, signal?: AbortSignal) => resolver(api().GET(`${SERVIDOR}/tablero`, { params: { query: { rango } }, signal }));
+/**
+ * El tablero con la hora del servidor al responder (cabecera `Date`), para medir la antigüedad de
+ * la lectura sin depender del reloj del navegador. `horaServidor: null` si la cabecera no llegó.
+ */
+export async function leerTableroConHora(rango: Rango, signal?: AbortSignal) {
+    const peticion = api().GET(`${SERVIDOR}/tablero`, { params: { query: { rango } }, signal });
+    const [tablero, { response }] = await Promise.all([resolver(peticion), peticion]);
+    const fecha = Date.parse(response.headers.get("Date") ?? "");
+    return { tablero, horaServidor: Number.isNaN(fecha) ? null : fecha };
+}
 export const leerUmbrales = (signal?: AbortSignal) => resolver(api().GET(`${SERVIDOR}/umbrales`, { signal }));
 export const guardarUmbrales = (entrada: EntradaUmbrales, clave: string) => resolver(api().POST(`${SERVIDOR}/umbrales/actualizar`, { params: { header: cabeceraIdem(clave) }, body: entrada }));

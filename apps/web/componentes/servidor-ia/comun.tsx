@@ -8,8 +8,8 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { BotonCopiar } from "@/componentes/cuenta/boton-copiar";
 import { ErrorApi } from "@/lib/api/errores";
-import { leerTablero } from "@/lib/servidor-ia/api";
-import { REFRESCO_MS, type Tono } from "@/lib/servidor-ia/presentacion";
+import { leerTableroConHora } from "@/lib/servidor-ia/api";
+import { LECTURA_VIEJA_MS, LECTURA_VIEJA_SIN_HORA_MS, REFRESCO_MS, type Tono } from "@/lib/servidor-ia/presentacion";
 import { PERMISO_ADMINISTRAR, PERMISO_VER, PERMISO_VER_USO, type Rango, type Tablero } from "@/lib/servidor-ia/tipos";
 import { useSesion } from "@/lib/sesion";
 
@@ -118,9 +118,12 @@ export function esperaTrasFallos(fallos: number, base: number): number {
  * relectura falla **no se quedan las cifras anteriores**: se dice el error y se sigue intentando,
  * cada vez más espaciado (vuelve a su ritmo al primer éxito). Con 401, 403 o 404 deja de insistir.
  */
-export function useTablero(rango: Rango): { lectura: LecturaTablero; refrescar: () => void; ahora: number } {
+export function useTablero(rango: Rango): { lectura: LecturaTablero; refrescar: () => void; ahora: number; tolerancia: number } {
     const [resultado, setResultado] = useState<{ rango: Rango; lectura: LecturaTablero }>({ rango, lectura: { estado: "cargando" } });
-    const [ahora, setAhora] = useState(() => Date.now());
+    // `ahora` es la hora **del servidor** al leer (cabecera `Date`): con ella se mide la antigüedad de
+    // la lectura y se dicen los «hace X», sin depender del reloj de este equipo. Si la cabecera no
+    // llega, queda el reloj del navegador con una tolerancia más ancha.
+    const [reloj, setReloj] = useState<{ ahora: number; delServidor: boolean }>(() => ({ ahora: Date.now(), delServidor: false }));
     const refrescar = useRef<() => void>(() => undefined);
 
     useEffect(() => {
@@ -141,12 +144,12 @@ export function useTablero(rango: Rango): { lectura: LecturaTablero; refrescar: 
             control?.abort();
             const mio = new AbortController();
             control = mio;
-            leerTablero(rango, mio.signal).then(
-                (datos) => {
+            leerTableroConHora(rango, mio.signal).then(
+                ({ tablero, horaServidor }) => {
                     if (!vivo || mio.signal.aborted) return;
                     fallos = 0;
-                    setAhora(Date.now());
-                    setResultado({ rango, lectura: { estado: "listo", datos } });
+                    setReloj({ ahora: horaServidor ?? Date.now(), delServidor: horaServidor !== null });
+                    setResultado({ rango, lectura: { estado: "listo", datos: tablero } });
                     programar();
                 },
                 (error: unknown) => {
@@ -178,5 +181,5 @@ export function useTablero(rango: Rango): { lectura: LecturaTablero; refrescar: 
 
     // Al cambiar de rango, lo del anterior no es de este: se carga de nuevo.
     const lectura: LecturaTablero = resultado.rango === rango ? resultado.lectura : { estado: "cargando" };
-    return { lectura, refrescar: () => refrescar.current(), ahora };
+    return { lectura, refrescar: () => refrescar.current(), ahora: reloj.ahora, tolerancia: reloj.delServidor ? LECTURA_VIEJA_MS : LECTURA_VIEJA_SIN_HORA_MS };
 }
