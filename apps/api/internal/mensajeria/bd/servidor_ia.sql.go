@@ -322,12 +322,12 @@ func (q *Queries) AsegurarUsoIA(ctx context.Context, arg AsegurarUsoIAParams) er
 
 const borrarCodigosEnlaceVencidos = `-- name: BorrarCodigosEnlaceVencidos :execrows
 UPDATE mensajeria.voz_motores SET enlace_codigo = NULL, enlace_vence_en = NULL, updated_at = now()
-WHERE enlace_codigo IS NOT NULL AND enlace_vence_en <= now()
+WHERE enlace_codigo IS NOT NULL AND enlace_vence_en <= $1
 `
 
 // El código de enlace no se queda guardado: se borra al vencer.
-func (q *Queries) BorrarCodigosEnlaceVencidos(ctx context.Context) (int64, error) {
-	result, err := q.db.Exec(ctx, borrarCodigosEnlaceVencidos)
+func (q *Queries) BorrarCodigosEnlaceVencidos(ctx context.Context, ahora *time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, borrarCodigosEnlaceVencidos, ahora)
 	if err != nil {
 		return 0, err
 	}
@@ -335,11 +335,11 @@ func (q *Queries) BorrarCodigosEnlaceVencidos(ctx context.Context) (int64, error
 }
 
 const borrarPlazasVencidasIA = `-- name: BorrarPlazasVencidasIA :execrows
-DELETE FROM mensajeria.servidor_ia_plazas WHERE vence_en <= now()
+DELETE FROM mensajeria.servidor_ia_plazas WHERE vence_en <= $1
 `
 
-func (q *Queries) BorrarPlazasVencidasIA(ctx context.Context) (int64, error) {
-	result, err := q.db.Exec(ctx, borrarPlazasVencidasIA)
+func (q *Queries) BorrarPlazasVencidasIA(ctx context.Context, ahora time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, borrarPlazasVencidasIA, ahora)
 	if err != nil {
 		return 0, err
 	}
@@ -1083,11 +1083,16 @@ func (q *Queries) MotorIAUnicoParaActualizar(ctx context.Context) (MensajeriaVoz
 }
 
 const plazasEnCursoIA = `-- name: PlazasEnCursoIA :one
-SELECT count(*) FROM mensajeria.servidor_ia_plazas WHERE motor_id = $1 AND vence_en > now()
+SELECT count(*) FROM mensajeria.servidor_ia_plazas WHERE motor_id = $1 AND vence_en > $2
 `
 
-func (q *Queries) PlazasEnCursoIA(ctx context.Context, motorID int64) (int64, error) {
-	row := q.db.QueryRow(ctx, plazasEnCursoIA, motorID)
+type PlazasEnCursoIAParams struct {
+	MotorID int64
+	Ahora   time.Time
+}
+
+func (q *Queries) PlazasEnCursoIA(ctx context.Context, arg PlazasEnCursoIAParams) (int64, error) {
+	row := q.db.QueryRow(ctx, plazasEnCursoIA, arg.MotorID, arg.Ahora)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -1278,7 +1283,7 @@ const reservarPlazaIA = `-- name: ReservarPlazaIA :one
 WITH m AS (
     SELECT vm.id, vm.max_simultaneas, vm.simultaneas_por_empresa, vm.empresas_permitidas FROM mensajeria.voz_motores vm WHERE vm.id = $4 FOR UPDATE
 ), vivas AS (
-    SELECT p.empresa_id FROM mensajeria.servidor_ia_plazas p JOIN m ON m.id = p.motor_id WHERE p.vence_en > now()
+    SELECT p.empresa_id FROM mensajeria.servidor_ia_plazas p JOIN m ON m.id = p.motor_id WHERE p.vence_en > $5
 ), cuenta AS (
     SELECT (SELECT count(*) FROM vivas) AS total, (SELECT count(*) FROM vivas WHERE empresa_id = $2) AS propias
 ), esperan AS (
@@ -1299,10 +1304,12 @@ type ReservarPlazaIAParams struct {
 	EmpresaID int64
 	VenceEn   time.Time
 	MotorID   int64
+	Ahora     time.Time
 }
 
-// Toma una plaza en la misma sentencia en que se decide llamar (el candado de la fila del servidor
-// pone en fila a las reservas). Hay plaza si: queda sitio en el servidor, la empresa no pasó su
+// Toma una plaza en la misma sentencia en que se decide llamar. Quien la llama ya tiene el candado
+// de la fila del servidor (MotorIAUnicoParaActualizar, en la misma transacción), que pone en fila a
+// las reservas. Hay plaza si: queda sitio en el servidor, la empresa no pasó su
 // máximo y, si la empresa ya tiene alguna en curso, después de tomarla quedan libres al menos tantas
 // como empresas activas sin ninguna en curso (una plaza garantizada por empresa activa).
 func (q *Queries) ReservarPlazaIA(ctx context.Context, arg ReservarPlazaIAParams) (uuid.UUID, error) {
@@ -1311,6 +1318,7 @@ func (q *Queries) ReservarPlazaIA(ctx context.Context, arg ReservarPlazaIAParams
 		arg.EmpresaID,
 		arg.VenceEn,
 		arg.MotorID,
+		arg.Ahora,
 	)
 	var id uuid.UUID
 	err := row.Scan(&id)

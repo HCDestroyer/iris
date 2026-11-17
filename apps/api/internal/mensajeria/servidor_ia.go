@@ -406,7 +406,7 @@ type entradaFijarToken struct {
 func nuevosCasosServidorIA(m *Modulo) *CasosServidorIA {
 	k := &CasosServidorIA{}
 	enCurso := func(ctx context.Context, q *mensajeriabd.Queries, id int64) int64 {
-		n, _ := q.PlazasEnCursoIA(ctx, id)
+		n, _ := q.PlazasEnCursoIA(ctx, mensajeriabd.PlazasEnCursoIAParams{MotorID: id, Ahora: m.ahora()})
 		return n
 	}
 	motorDe := func(ctx context.Context, q *mensajeriabd.Queries, id int64, bloquear bool) (mensajeriabd.MensajeriaVozMotor, error) {

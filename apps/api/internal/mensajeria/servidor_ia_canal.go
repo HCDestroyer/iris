@@ -125,7 +125,7 @@ func (k *ConectarMotor) Ejecutar(ctx context.Context, id int64) (MotorIA, error)
 // tokenVivo devuelve el token con el que el servidor contesta: el vigente o, si una rotación quedó
 // a medias (el servidor la aplicó y la respuesta se perdió), el siguiente.
 func (m *Modulo) tokenVivo(ctx context.Context, c conexionMotor) ([]byte, voz.Salud, error) {
-	var ultimo error = errors.New("servidor de IA sin credenciales")
+	ultimo := errors.New("servidor de IA sin credenciales")
 	for _, token := range [][]byte{c.token, c.tokenSiguiente} {
 		if len(token) != voz.LargoToken {
 			continue
@@ -220,15 +220,12 @@ func nuevoGuardarCredencial(m *Modulo, accion string) *auditoria.Caso[credencial
 				return MotorIA{}, err
 			}
 			if in.Activar {
-				de := f.Estado
-				// Queda no_disponible hasta el primer latido, que llega enseguida.
+				// Queda no_disponible hasta el primer latido, que llega enseguida y emite el cambio de
+				// estado real (aquí no: todavía no se sabe nada del servidor).
 				if f, err = q.ActivarMotorIA(ctx, mensajeriabd.ActivarMotorIAParams{ID: in.ID, Estado: MotorNoDisponible}); err != nil {
 					return MotorIA{}, err
 				}
 				if err := t.EmitirEnEmpresa("voz.motor_activado", nil, map[string]any{"motor_id": f.ID, "usuario_id": contexto.ActorDe(ctx).ID, "version": f.VersionMotor}); err != nil {
-					return MotorIA{}, err
-				}
-				if err := emitirEstadoMotor(t, f, de); err != nil {
 					return MotorIA{}, err
 				}
 			}
@@ -493,10 +490,10 @@ func nuevosCasosLatido(m *Modulo, k *CasosServidorIA) {
 		Logica: func(ctx context.Context, t *auditoria.Tx, _ struct{}) (struct{}, error) {
 			q := mensajeriabd.New(t)
 			// El código de enlace no se queda guardado después de vencer.
-			if _, err := q.BorrarCodigosEnlaceVencidos(ctx); err != nil {
+			if _, err := q.BorrarCodigosEnlaceVencidos(ctx, ptrT(m.ahora())); err != nil {
 				return struct{}{}, err
 			}
-			_, err := q.BorrarPlazasVencidasIA(ctx)
+			_, err := q.BorrarPlazasVencidasIA(ctx, m.ahora())
 			return struct{}{}, err
 		},
 	})

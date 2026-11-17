@@ -30,7 +30,7 @@ WHERE id = @id RETURNING *;
 -- name: BorrarCodigosEnlaceVencidos :execrows
 -- El código de enlace no se queda guardado: se borra al vencer.
 UPDATE mensajeria.voz_motores SET enlace_codigo = NULL, enlace_vence_en = NULL, updated_at = now()
-WHERE enlace_codigo IS NOT NULL AND enlace_vence_en <= now();
+WHERE enlace_codigo IS NOT NULL AND enlace_vence_en <= @ahora;
 
 -- name: GuardarEnlaceMotorIA :one
 -- El intercambio con código se completó: se borra el código y queda pendiente de activar.
@@ -87,14 +87,15 @@ UPDATE mensajeria.voz_motores SET empresas_permitidas = @empresas_permitidas, si
 WHERE id = @id RETURNING *;
 
 -- name: ReservarPlazaIA :one
--- Toma una plaza en la misma sentencia en que se decide llamar (el candado de la fila del servidor
--- pone en fila a las reservas). Hay plaza si: queda sitio en el servidor, la empresa no pasó su
+-- Toma una plaza en la misma sentencia en que se decide llamar. Quien la llama ya tiene el candado
+-- de la fila del servidor (MotorIAUnicoParaActualizar, en la misma transacción), que pone en fila a
+-- las reservas. Hay plaza si: queda sitio en el servidor, la empresa no pasó su
 -- máximo y, si la empresa ya tiene alguna en curso, después de tomarla quedan libres al menos tantas
 -- como empresas activas sin ninguna en curso (una plaza garantizada por empresa activa).
 WITH m AS (
     SELECT vm.id, vm.max_simultaneas, vm.simultaneas_por_empresa, vm.empresas_permitidas FROM mensajeria.voz_motores vm WHERE vm.id = @motor_id FOR UPDATE
 ), vivas AS (
-    SELECT p.empresa_id FROM mensajeria.servidor_ia_plazas p JOIN m ON m.id = p.motor_id WHERE p.vence_en > now()
+    SELECT p.empresa_id FROM mensajeria.servidor_ia_plazas p JOIN m ON m.id = p.motor_id WHERE p.vence_en > @ahora
 ), cuenta AS (
     SELECT (SELECT count(*) FROM vivas) AS total, (SELECT count(*) FROM vivas WHERE empresa_id = @empresa_id) AS propias
 ), esperan AS (
@@ -113,10 +114,10 @@ RETURNING mensajeria.servidor_ia_plazas.id;
 DELETE FROM mensajeria.servidor_ia_plazas WHERE id = $1;
 
 -- name: BorrarPlazasVencidasIA :execrows
-DELETE FROM mensajeria.servidor_ia_plazas WHERE vence_en <= now();
+DELETE FROM mensajeria.servidor_ia_plazas WHERE vence_en <= @ahora;
 
 -- name: PlazasEnCursoIA :one
-SELECT count(*) FROM mensajeria.servidor_ia_plazas WHERE motor_id = $1 AND vence_en > now();
+SELECT count(*) FROM mensajeria.servidor_ia_plazas WHERE motor_id = @motor_id AND vence_en > @ahora;
 
 -- name: AsegurarUsoIA :exec
 INSERT INTO mensajeria.servidor_ia_uso (motor_id, hora, empresa_id, modelo, latencia_cubetas)

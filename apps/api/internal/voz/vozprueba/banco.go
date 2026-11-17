@@ -3,6 +3,7 @@ package vozprueba
 import (
 	"crypto/tls"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
@@ -25,6 +26,8 @@ type Banco struct {
 	mu     sync.Mutex
 	desfas time.Duration
 	inicio time.Time
+	reloj  func() time.Time
+	srv    *http.Server
 }
 
 // Opciones del banco.
@@ -35,6 +38,8 @@ type Opciones struct {
 	MaxSimultaneas int
 	PlazoLLM       time.Duration
 	MedidorRuta    string
+	// Ahora: el reloj de la puerta (por defecto, el real). Para pruebas con reloj fijo.
+	Ahora func() time.Time
 }
 
 // Inicio es la hora de arranque de la puerta.
@@ -44,6 +49,9 @@ func (b *Banco) Inicio() time.Time { return b.inicio }
 func (b *Banco) Ahora() time.Time {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.reloj != nil {
+		return b.reloj().Add(b.desfas)
+	}
 	return time.Now().Add(b.desfas)
 }
 
@@ -67,7 +75,7 @@ func NuevoBanco(t testing.TB, o Opciones) *Banco {
 	if o.Manifiesto != nil {
 		man = *o.Manifiesto
 	}
-	b := &Banco{T: t, Ollama: Nuevo(o.Modelos...), inicio: time.Now()}
+	b := &Banco{T: t, Ollama: Nuevo(o.Modelos...), inicio: time.Now(), reloj: o.Ahora}
 	falso := httptest.NewServer(b.Ollama)
 	t.Cleanup(falso.Close)
 	alm, err := voz.AbrirAlmacen(t.TempDir())
@@ -95,6 +103,7 @@ func NuevoBanco(t testing.TB, o Opciones) *Banco {
 		t.Fatal(err)
 	}
 	srv := voz.Servidor(b.Puerta)
+	b.srv = srv
 	go func() { _ = voz.Escuchar(srv, l) }()
 	t.Cleanup(func() { _ = srv.Close() })
 	b.URL = "https://" + l.Addr().String()
@@ -150,3 +159,6 @@ func (b *Banco) Cliente(cert tls.Certificate, token []byte, versionIris string, 
 	b.T.Cleanup(c.Cerrar)
 	return c
 }
+
+// Apagar tira el servidor (como si la máquina se cayera).
+func (b *Banco) Apagar() { _ = b.srv.Close() }

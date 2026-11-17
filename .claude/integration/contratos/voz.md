@@ -1608,7 +1608,8 @@ sin `Authorization`.
   encendido): una empresa que ya tiene alguna en curso solo toma otra plaza si, después, quedan
   libres al menos tantas como empresas activas sin ninguna en curso. Si hay más empresas activas
   que plazas, la garantía no puede cumplirse para todas y la tarjeta lo avisa.
-- Mensajería reserva la plaza en la misma sentencia en que decide llamar y la suelta al terminar o
+- Mensajería reserva la plaza en la misma transacción en que decide llamar, con el candado de la fila
+  del servidor tomado antes de contar (así dos reservas a la vez no ven la misma foto), y la suelta al terminar o
   al vencer el plazo. **Toda** llamada al modelo cuenta, también `/asistente/probar`, resumen y
   categoría.
 - **No hay cola** (decisión: una cola con plazos de 20–40 s por petición solo esconde la espera).
