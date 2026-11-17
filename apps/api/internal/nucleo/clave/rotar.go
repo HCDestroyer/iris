@@ -39,10 +39,10 @@ const (
 	// ColumnaAsistente: clave del proveedor de IA del asistente de cada empresa
 	// (contratos/conversaciones.md §16.1).
 	ColumnaAsistente = "mensajeria.asistente_ajustes.clave_cifrada"
-	// ColumnaMotorIA: credenciales del canal con el servidor de IA (token, clave del certificado de
+	// ColumnaMotor…: credenciales del canal con el servidor de IA (token, clave del certificado de
 	// cliente y código de enlace pendiente; contratos/voz.md §4.2).
-	ColumnaMotorToken          = "mensajeria.voz_motores.token"
-	ColumnaMotorTokenSiguiente = "mensajeria.voz_motores.token_siguiente"
+	ColumnaMotorToken          = "mensajeria.voz_motores.token"           //nolint:gosec // nombre de una columna, no un secreto
+	ColumnaMotorTokenSiguiente = "mensajeria.voz_motores.token_siguiente" //nolint:gosec // nombre de una columna, no un secreto
 	ColumnaMotorClaveCert      = "mensajeria.voz_motores.cert_cliente_clave"
 	ColumnaMotorCodigoEnlace   = "mensajeria.voz_motores.enlace_codigo"
 	// ColumnaCorreoSistema: contraseña del SMTP del correo del sistema (contratos/correo-sistema.md).
