@@ -282,7 +282,9 @@ técnica (§9)**; los que más pesan están listados en §10.
     timbrando allá) y **`terminate`** si el `accept` ya salió o estaba en vuelo. Si Meta responde
     que la acción **no aplica (400 o 404)** se prueba la otra, y se alterna mientras lo siga
     diciendo (un `accept` tardío pudo conectar: entonces vale `terminate`). Cualquier otro fallo
-    (401, 403, 429, 5xx, red) reintenta la misma acción. Si en 2 minutos no entra ninguna, la
+    (401, 403, 429, 5xx, red) reintenta la misma acción. Si **las dos** responden 404 seguidas, la
+    llamada ya no existe en Meta (terminó por su cuenta): queda cerrada sin más intentos, sin
+    huérfana y sin aviso. Si en 2 minutos no entra ninguna, la
     llamada no se da por cerrada en silencio: su `call_id` pasa a `llamadas_huerfanas` (el job la
     sigue intentando terminar) y queda una línea de auditoría (`llamadas.accion_meta_agotada`). Sin `propia`, colgar una llamada que aún conecta sigue respondiendo 409
     `llamada_sin_contestar` (para eso está `soltar`).

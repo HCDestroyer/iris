@@ -57,7 +57,7 @@ SET estado = @estado, atendida_por = sqlc.narg('atendida_por'), usuario_id = sql
     contestada_en = sqlc.narg('contestada_en'), terminada_en = sqlc.narg('terminada_en'), duracion_seg = sqlc.narg('duracion_seg'),
     nota = sqlc.narg('nota'), resultado = sqlc.narg('resultado'), sdp_oferta = sqlc.narg('sdp_oferta'),
     accion_meta = sqlc.narg('accion_meta'), accion_meta_estado = sqlc.narg('accion_meta_estado'), accion_meta_en = sqlc.narg('accion_meta_en'),
-    accion_meta_por = sqlc.narg('accion_meta_por'),
+    accion_meta_por = sqlc.narg('accion_meta_por'), accion_meta_no_existe = @accion_meta_no_existe,
     pre_aceptada_en = sqlc.narg('pre_aceptada_en'), aviso_perdida = @aviso_perdida, updated_at = now()
 WHERE id = @id
 RETURNING *;

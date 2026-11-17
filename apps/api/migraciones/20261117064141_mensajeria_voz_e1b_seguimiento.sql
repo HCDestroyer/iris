@@ -8,6 +8,9 @@ ALTER TABLE mensajeria.llamada_permisos ADD COLUMN solicitud_sin_confirmar boole
 ALTER TABLE mensajeria.llamada_permisos ADD COLUMN solicitud_intentos integer NOT NULL DEFAULT 0;
 ALTER TABLE mensajeria.llamada_permisos ADD COLUMN solicitud_proximo_en timestamptz;
 
+-- La última acción con Meta respondió 404 (la llamada no existe allá): si la otra también, está cerrada.
+ALTER TABLE mensajeria.llamadas ADD COLUMN accion_meta_no_existe boolean NOT NULL DEFAULT false;
+
 -- Una entrante que el agente dejó mientras la contestaba (cerró la pestaña antes de haber audio): para
 -- el cliente es una llamada perdida, con su propio motivo.
 ALTER TABLE mensajeria.llamadas DROP CONSTRAINT llamadas_motivo_fin_check;
@@ -16,6 +19,7 @@ ALTER TABLE mensajeria.llamadas ADD CONSTRAINT llamadas_motivo_fin_check CHECK (
     'limite', 'error_medio', 'error_meta', 'sin_permiso', 'transferencia_fallida', 'tope_alcanzado', 'agente_salio'));
 
 -- +goose Down
+ALTER TABLE mensajeria.llamadas DROP COLUMN accion_meta_no_existe;
 UPDATE mensajeria.llamadas SET motivo_fin = 'nadie_contesto' WHERE motivo_fin = 'agente_salio';
 ALTER TABLE mensajeria.llamadas DROP CONSTRAINT llamadas_motivo_fin_check;
 ALTER TABLE mensajeria.llamadas ADD CONSTRAINT llamadas_motivo_fin_check CHECK (motivo_fin IN ('cliente_colgo', 'agente_colgo', 'asistente_termino',

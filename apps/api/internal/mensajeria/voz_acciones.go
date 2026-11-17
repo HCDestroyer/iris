@@ -126,6 +126,8 @@ type resultadoMeta struct {
 	// NoAplica: Meta respondió 400 o 404: esa acción no vale para el estado en que tiene la llamada
 	// (no es un fallo de credenciales, de límite ni de red: esos se reintentan igual).
 	NoAplica bool `json:"no_aplica,omitempty"`
+	// NoExiste: fue un 404 (Meta no tiene esa llamada).
+	NoExiste bool `json:"no_existe,omitempty"`
 }
 
 // llamadaDeQuienLaReclamo: después de reclamar la llamada es de quien la reclamó (M1), en el
@@ -427,11 +429,21 @@ func nuevoResultadoMeta(m *Modulo) *auditoria.Caso[resultadoMeta, bool] {
 				// acción no aplica (400 o 404), se prueba la otra; y se alterna mientras lo siga diciendo.
 				// Cualquier otro fallo (401, 403, 429, 5xx, red) reintenta la misma acción.
 				if in.Fallo && in.NoAplica && l.Direccion == "entrante" && l.ContestadaEn == nil && (in.Accion == MetaTerminar || in.Accion == MetaRechazar) {
+					// Las dos acciones respondieron 404: la llamada ya no existe en Meta (terminó por su
+					// cuenta). Está cerrada: sin más intentos, sin huérfana y sin aviso.
+					if in.NoExiste && l.AccionMetaNoExiste {
+						hecha := "hecha"
+						l.AccionMetaEstado = &hecha
+						t.Anotar(map[string]any{"no_existe_en_meta": true})
+						_, err = guardarLlamada(ctx, q, l)
+						return true, err
+					}
 					otra := MetaRechazar
 					if in.Accion == MetaRechazar {
 						otra = MetaTerminar
 					}
 					intencionMeta(&l, otra, ahora)
+					l.AccionMetaNoExiste = in.NoExiste
 					t.Anotar(map[string]any{"no_aplica": in.Accion, "se_prueba": otra})
 					_, err = guardarLlamada(ctx, q, l)
 					return true, err
@@ -620,12 +632,8 @@ func nuevoColgarLlamada(m *Modulo) *auditoria.Caso[EntradaLlamada, Llamada] {
 // Colgar termina la llamada en Iris y se lo pide a Meta (terminate es idempotente: si Meta no
 // responde, el mantenimiento lo repite).
 func (m *Modulo) Colgar(ctx context.Context, in EntradaLlamada) (Llamada, error) {
-	l, err := m.Voz.colgar.Ejecutar(ctx, in)
-	if err != nil {
-		return Llamada{}, err
-	}
-	_ = m.cumplirMeta(ctx, nucleo.BDDe(ctx), in.ID, "")
-	return l, nil
+	// La acción con Meta la manda el propio cierre, después del COMMIT (trasCommitMeta): una sola pasada.
+	return m.Voz.colgar.Ejecutar(ctx, in)
 }
 
 func nuevoRechazarLlamada(m *Modulo) *auditoria.Caso[EntradaRechazar, Llamada] {

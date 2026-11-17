@@ -1803,4 +1803,46 @@ func TestLlamadaColgarPropiaConElAcceptEnVuelo(t *testing.T) {
 	if x.contar(`SELECT count(*) FROM mensajeria.llamadas_huerfanas WHERE canal_id = $1 AND call_id = $2 AND estado = 'hecha'`, x.canal.ID, call5) != 1 {
 		t.Fatalf("la huérfana debía terminarse: %v", deLaLlamada(call5))
 	}
+	// La llamada ya terminó en Meta por su cuenta: reject y terminate responden 404. Está cerrada: un
+	// intento de cada una y nada más (ni dos minutos alternando, ni huérfana, ni aviso de agotada).
+	num6, call6 := numeroCliente(), "wacid.cierre6"+numeroCliente()
+	x.pasa(time.Second, x.agente, x.supervisor)
+	x.connect(num6, call6)
+	id6, _, _ := x.llamada(call6)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id6+"/reclamar", nil), http.StatusOK)
+	x.g.falla("reject", &mensajeria.ErrMetaLlamada{Status: 404})
+	x.g.falla("terminate", &mensajeria.ErrMetaLlamada{Status: 404})
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id6+"/colgar?propia=true", nil), http.StatusOK)
+	for range 3 {
+		x.pasa(30 * time.Second)
+		x.despachar()
+	}
+	x.pasa(3 * time.Minute)
+	x.despachar()
+	x.g.falla("reject", nil)
+	x.g.falla("terminate", nil)
+	if h := deLaLlamada(call6); len(h) != 2 || h[0] != "reject" || h[1] != "terminate" {
+		t.Fatalf("404 a las dos acciones: un intento de cada una: %v", h)
+	}
+	if x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id = $1::uuid AND estado = 'perdida' AND accion_meta_estado = 'hecha'`, id6) != 1 ||
+		x.contar(`SELECT count(*) FROM mensajeria.llamadas_huerfanas WHERE canal_id = $1 AND call_id = $2`, x.canal.ID, call6) != 0 ||
+		x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'llamadas.accion_meta_agotada' AND entidad_id = $1`, id6) != 0 {
+		t.Fatal("la llamada que no existe en Meta queda cerrada, sin huérfana ni aviso de agotada")
+	}
+	// Con 400 en una y 404 en la otra sigue alternando (un 404 solo no basta).
+	num7, call7 := numeroCliente(), "wacid.cierre7"+numeroCliente()
+	x.pasa(time.Second, x.agente, x.supervisor)
+	x.connect(num7, call7)
+	id7, _, _ := x.llamada(call7)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id7+"/reclamar", nil), http.StatusOK)
+	x.g.falla("reject", &mensajeria.ErrMetaLlamada{Status: 400})
+	x.g.falla("terminate", &mensajeria.ErrMetaLlamada{Status: 404})
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id7+"/colgar?propia=true", nil), http.StatusOK)
+	x.pasa(9 * time.Second)
+	x.despachar()
+	x.g.falla("reject", nil)
+	x.g.falla("terminate", nil)
+	if h := deLaLlamada(call7); len(h) < 4 || x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id = $1::uuid AND accion_meta_estado = 'pendiente'`, id7) != 1 {
+		t.Fatalf("400 y 404 alternados siguen intentando: %v", h)
+	}
 }
