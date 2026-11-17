@@ -815,24 +815,33 @@ tarjeta en Integraciones (junto a Argos y Horus). Código en `componentes/servid
 - **Tablero.** Línea de estado en llano («En línea · versión… · compatible… · encendido hace 6
   días»), periodos Ahora / 1 hora / 24 horas / 7 días, cuatro cifras con `Medidor` (uso, memoria de
   video, temperatura, peticiones en curso con las **rechazadas por saturación**: no hay cola),
-  tres `GraficaSerie`, modelos, uso por empresa y errores recientes. Con varias tarjetas gráficas,
-  un bloque por tarjeta; sin ninguna, «No hay tarjeta gráfica detectada». Modelos y uso son listas,
-  no tablas: caben en 390 px sin desplazarse a lo ancho.
+  «El resto del servidor» (procesador, memoria del equipo y disco de los modelos; la potencia va
+  junto al nombre de cada tarjeta), tres `GraficaSerie`, modelos, uso por empresa y errores
+  recientes. Con varias tarjetas gráficas, un bloque por tarjeta; sin ninguna (`gpus.estado:
+  "omitido"`), «No hay tarjeta gráfica detectada». Modelos y uso son listas, no tablas: caben en
+  390 px sin desplazarse a lo ancho. Si hay más empresas activas que turnos
+  (`estado.plazasInsuficientes`), un aviso llano con enlace a Mantenimiento.
 - **Refresco.** `useTablero` relee cada 10 s en «Ahora» (30 s, 60 s y 5 min en los otros), sin
   pasar por «cargando», en pausa con la pestaña oculta y al instante al volver.
 - **Nunca cifras viejas.** Si una relectura falla, las cifras se quitan y queda el error con
   «Reintentar». Caído, incompatible o con la última lectura fallida: las cifras de ahora dicen «Sin
   datos», «Visto por última vez hoy a las 10:42 (hace 20 min)», qué pasa con el asistente mientras
-  tanto, qué revisar en el servidor y «Probar ahora». Incompatible dice **qué** actualizar: el
-  servidor (con su comando) o Iris.
+  tanto, qué revisar en el servidor y «Probar ahora». Incompatible dice **qué** actualizar según
+  `motivoIncompatible`: Iris (`iris_antiguo`) o el servidor, con su comando y su porqué
+  (`protocolo`, `iris_nuevo`, `paquete_antiguo`). Sin `versionDisponible` no se nombra versión.
 - **Enlazar** (`/enlazar`): cuatro pasos en una pantalla. Dirección → código de un solo uso (se
   muestra una vez, vence a los 15 minutos, se escribe en el servidor sin eco) → huella con la
   casilla «Coincide con la del instalador» → «Activar» (un enlace sin activar caduca a las 24 h).
-  El 401 de «conectar» no distingue código vencido, usado o mal escrito: el texto lo dice así.
+  El 401 de «conectar» no distingue código usado o mal escrito: el texto lo dice así. Un paso
+  vencido (409 `enlace_vencido`, el mismo para el código y para activar) ofrece empezar de nuevo.
+- **Comandos del servidor.** Los que se copian son los del instalador real (`infra/voz/install-voz.sh`):
+  `iris-voz pair`, `status`, `upgrade`, `unpair` y `model pull|allow|remove <nombre>`.
 - **Avisos** (`/avisos`, `FormularioPagina`): los de la semana y, plegado en «Avanzado», los
-  umbrales con «Valores de fábrica». «Servidor caído» y «Versión incompatible» no tienen umbral.
+  umbrales y cuántos días de historial se guardan, con «Valores de fábrica». «Servidor caído» y
+  «Versión incompatible» no tienen umbral.
 - **Mantenimiento** (`/mantenimiento`): quién puede usarlo y simultáneas por empresa, modelos
-  permitidos (solo lectura: se descargan en el servidor con un comando, que se puede copiar),
+  permitidos en dos niveles (el servidor declara los suyos; aquí se eligen «Todos los del servidor»
+  o «Solo algunos»; descargar uno nuevo es un comando en el servidor, que se puede copiar),
   «Rotar credenciales» y «Revocar ahora» (cada confirmación dice qué pasa mientras tanto) y
   «Desenlazar» con confirmación.
 - **En el asistente de cada empresa** (`/administracion/asistente/conexion`): el proveedor
@@ -840,6 +849,8 @@ tarjeta en Integraciones (junto a Argos y Horus). Código en `componentes/servid
   sin dirección ni clave, con «Pruébalo antes de guardar». Si había una clave guardada de otro
   proveedor se avisa que se borra y se manda `clave: ""`. Si no está disponible, lo dice antes de
   guardar y ante el 422 `servidor_ia_no_disponible`.
+- **Campana.** `servidor_ia_caido`, `servidor_ia_incompatible` y `servidor_ia_umbral` tienen su
+  icono y su segunda línea en `lib/campana.ts`; el título lo pone el servidor.
 - **Provisional.** Los tipos de `lib/servidor-ia/tipos.ts` y el cliente de `lib/servidor-ia/api.ts`
   están escritos según el contrato hasta que el OpenAPI traiga estas rutas (ver
   `.claude/integration/i3.md`).

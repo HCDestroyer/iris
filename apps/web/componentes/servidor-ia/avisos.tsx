@@ -25,7 +25,7 @@ type Datos = { umbrales: Umbrales; avisos: AvisoServidor[] };
 
 /**
  * `/administracion/servidor-ia/avisos`: los avisos de la última semana y, en «Avanzado», cuándo
- * avisar (`POST /servidor-ia/umbrales/actualizar`, contratos/voz.md §4.12). «Servidor caído» y
+ * avisar (`POST /servidor-ia/umbrales/actualizar`, contratos/voz.md §4.12) y cuánto historial se guarda. «Servidor caído» y
  * «Versión incompatible» avisan siempre: no tienen umbral.
  */
 export function AvisosServidorIa() {
@@ -152,6 +152,10 @@ function Formulario({ datos }: { datos: Datos }) {
                         </div>
                         <div className="grid gap-3 sm:grid-cols-2">
                             <CampoNumero etiqueta="Disco de los modelos: avisa si pasa de (%)" minimo={50} maximo={99} ayuda={`De fábrica: ${DE_FABRICA.discoPct} %.`} error={errores.discoPct?.message} {...form.register("discoPct")} />
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2" data-slot="retencion">
+                            <CampoNumero etiqueta="Historial detallado: guardar (días)" minimo={1} maximo={30} ayuda={`Lo que alimenta «Ahora», «1 hora» y «24 horas». De fábrica: ${DE_FABRICA.retencionDetalleDias} días.`} error={errores.retencionDetalleDias?.message} {...form.register("retencionDetalleDias")} />
+                            <CampoNumero etiqueta="Historial por hora: guardar (días)" minimo={7} maximo={365} ayuda={`Lo que alimenta «7 días» y el uso por empresa. De fábrica: ${DE_FABRICA.retencionHoraDias} días.`} error={errores.retencionHoraDias?.message} {...form.register("retencionHoraDias")} />
                         </div>
                         <div>
                             <Boton

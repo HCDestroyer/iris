@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { primeroDelMesSiguiente, textoPausado, tonoFuente } from "./asistente/presentacion";
-import { detalleAvisoPanel, enlaceAvisoPanel, hayQueActuar, marcarLeido, sesionVencida, sondeoActivo, tonoAvisoPanel, type AvisoPanel } from "./campana";
+import { detalleAvisoPanel, enlaceAvisoPanel, hayQueActuar, iconoAvisoPanel, marcarLeido, sesionVencida, sondeoActivo, tonoAvisoPanel, type AvisoPanel } from "./campana";
 
 const aviso = (x: Partial<AvisoPanel> = {}): AvisoPanel => ({
     id: 1,
@@ -14,6 +14,25 @@ const aviso = (x: Partial<AvisoPanel> = {}): AvisoPanel => ({
     creadoEn: "2026-11-10T15:00:00Z",
     empresaId: 7,
     ...x,
+});
+
+describe("avisos del Servidor de IA en la campana", () => {
+    // PROVISIONAL: los tipos nuevos aún no están en el tipo generado.
+    const sia = (tipo: string, datos: AvisoPanel["datos"] = {}) => aviso({ tipo: tipo as AvisoPanel["tipo"], nivel: "peligro", enlace: "/administracion/servidor-ia", datos, empresaId: null });
+
+    it("cada tipo tiene su icono y su segunda línea en llano", () => {
+        expect(iconoAvisoPanel(sia("servidor_ia_caido").tipo)).not.toBe(iconoAvisoPanel(sia("otro").tipo));
+        expect(iconoAvisoPanel(sia("servidor_ia_incompatible").tipo)).not.toBe(iconoAvisoPanel(sia("servidor_ia_umbral").tipo));
+        expect(detalleAvisoPanel(sia("servidor_ia_caido"))).toContain("pasa a personas");
+        expect(detalleAvisoPanel(sia("servidor_ia_incompatible"))).toContain("qué hay que actualizar");
+        expect(detalleAvisoPanel(sia("servidor_ia_umbral", { tipo: "temperatura", valor: 88.4, umbral: 85 }))).toContain("llegó a 88 °C");
+        expect(detalleAvisoPanel(sia("servidor_ia_umbral", { tipo: "vram", valor: 97, umbral: 95 }))).toContain("al 97 % (avisa al 95 %)");
+        expect(detalleAvisoPanel(sia("servidor_ia_umbral", { tipo: "saturacion", valor: 12, umbral: 10 }))).toContain("Se rechazaron 12 peticiones");
+        expect(detalleAvisoPanel(sia("servidor_ia_umbral", { tipo: "disco", valor: 93, umbral: 90 }))).toContain("al 93 %");
+        // Un dato que no vino bien no se inventa.
+        expect(detalleAvisoPanel(sia("servidor_ia_umbral", { tipo: "temperatura", valor: "mucho" }))).toContain("se calentó de más");
+        expect(enlaceAvisoPanel(sia("servidor_ia_caido").enlace)).toBe("/administracion/servidor-ia");
+    });
 });
 
 describe("avisos de la campana", () => {

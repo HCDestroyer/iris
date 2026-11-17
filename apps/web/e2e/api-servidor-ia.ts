@@ -37,11 +37,15 @@ export type OpcionesServidorIa = {
      * `con_huella` (conectado, falta activar), `listo` (por defecto), `no_disponible` (caído hace 20
      * minutos), `incompatible` (hay que actualizar el servidor) o `incompatible_iris` (hay que actualizar Iris).
      */
-    motor?: "ninguno" | "a_medias" | "con_huella" | "listo" | "no_disponible" | "incompatible" | "incompatible_iris";
+    motor?: "ninguno" | "a_medias" | "con_huella" | "listo" | "no_disponible" | "incompatible" | "incompatible_iris" | "incompatible_protocolo" | "incompatible_iris_nuevo";
     /** Tarjetas gráficas que reporta (por defecto, 1). */
     gpus?: 0 | 1 | 2;
     /** Respuestas de «conectar», en orden (por defecto, `ok`). */
-    conectar?: ("ok" | "401" | "429")[];
+    conectar?: ("ok" | "401" | "429" | "vencido")[];
+    /** Hay más empresas activas que plazas (§4.11). */
+    plazasInsuficientes?: boolean;
+    /** Lo que el admin de la instalación dejó elegir a las empresas (`null`, por defecto: todos). */
+    modelosPermitidos?: string[] | null;
     /** El servidor está «listo» pero la última lectura de métricas falló. */
     lecturaFallida?: boolean;
     /** Rechazadas por saturación en el rango (por defecto, 0). */
@@ -66,8 +70,9 @@ function motorBase(estado: Motor["estado"]): Motor {
         enlazadoEn: "2026-11-11T15:00:00Z",
         enlaceVenceEn: null,
         paquete: { version: "0.1.0", protocolo: "1", compatible: true, motivoIncompatible: null, versionDisponible: null },
-        capacidad: { maxSimultaneas: 4, enCurso: 2 },
+        capacidad: { maxSimultaneas: 4, enCurso: 2, empresasActivas: 1, plazasInsuficientes: false },
         catalogo: { llm: MODELOS_SIA.map((id) => ({ id })) },
+        modelosPermitidos: null,
         huellaTls: HUELLA,
         tokenRotadoEn: "2026-11-02T15:00:00Z",
         certClienteVenceEn: "2027-11-11T15:00:00Z",
@@ -95,12 +100,14 @@ function motorInicial(o: OpcionesServidorIa): Motor | null {
         };
     }
     if (como === "no_disponible") return { ...motorBase("no_disponible"), detalle: "No responde", ultimoLatidoEn: iso(AHORA_SIA - 20 * 60_000) };
-    if (como === "incompatible") return { ...motorBase("incompatible"), paquete: { version: "0.0.9", protocolo: "0", compatible: false, motivoIncompatible: "motor_antiguo", versionDisponible: "0.1.0" } };
+    if (como === "incompatible") return { ...motorBase("incompatible"), paquete: { version: "0.0.9", protocolo: "0", compatible: false, motivoIncompatible: "paquete_antiguo", versionDisponible: null } };
+    if (como === "incompatible_protocolo") return { ...motorBase("incompatible"), paquete: { version: "0.0.9", protocolo: "0", compatible: false, motivoIncompatible: "protocolo", versionDisponible: null } };
+    if (como === "incompatible_iris_nuevo") return { ...motorBase("incompatible"), paquete: { version: "0.0.9", protocolo: "1", compatible: false, motivoIncompatible: "iris_nuevo", versionDisponible: null } };
     if (como === "incompatible_iris") return { ...motorBase("incompatible"), paquete: { version: "0.3.0", protocolo: "3", compatible: false, motivoIncompatible: "iris_antiguo", versionDisponible: null } };
-    return motorBase("listo");
+    return { ...motorBase("listo"), modelosPermitidos: o.modelosPermitidos ?? null, capacidad: { maxSimultaneas: 4, enCurso: 2, empresasActivas: o.plazasInsuficientes ? 6 : 1, plazasInsuficientes: o.plazasInsuficientes ?? false } };
 }
 
-const PASO: Record<Rango, { n: number; ms: number }> = { ahora: { n: 30, ms: 10_000 }, "1h": { n: 60, ms: 60_000 }, "24h": { n: 96, ms: 15 * 60_000 }, "7d": { n: 168, ms: 3_600_000 } };
+const PASO: Record<Rango, { n: number; ms: number }> = { ahora: { n: 60, ms: 10_000 }, "1h": { n: 60, ms: 60_000 }, "24h": { n: 96, ms: 15 * 60_000 }, "7d": { n: 168, ms: 3_600_000 } };
 
 /** Series deterministas: una ola suave, con un tramo sin respuesta en «24 horas». */
 function series(rango: Rango, conGpu: boolean, caidoDesde: number | null, escala = 1): PuntoSerie[] {
@@ -144,6 +151,7 @@ export function apiServidorIa(opciones: OpcionesServidorIa = {}) {
         pruebas: 0,
         rotaciones: [] as unknown[],
         empresas: [] as unknown[],
+        modelos: [] as unknown[],
         desactivaciones: [] as unknown[],
         umbrales: [] as unknown[],
         tableros: [] as Rango[],
@@ -182,7 +190,7 @@ export function apiServidorIa(opciones: OpcionesServidorIa = {}) {
             tomadoEn: iso(caidoDesde ?? (opciones.lecturaFallida ? AHORA_SIA - 3 * 60_000 : AHORA_SIA - 4_000)),
             lecturaOk,
             modelosDisponibles: vivo ? MODELOS_SIA : [],
-            ...(global ? { empresasQueLoUsan: empresas.map((e) => e.nombre) } : {}),
+            ...(global ? { empresasQueLoUsan: empresas.map((e) => e.nombre), empresasActivas: opciones.plazasInsuficientes ? 6 : empresas.length, plazasInsuficientes: opciones.plazasInsuficientes ?? false } : {}),
         };
         const avisos: AvisoServidor[] =
             opciones.avisos ??
@@ -204,12 +212,14 @@ export function apiServidorIa(opciones: OpcionesServidorIa = {}) {
             estado,
             servidor: lecturaOk
                 ? {
-                      gpus: nGpus === 0 ? [] : nGpus === 2 ? [GPU_1, GPU_2] : [GPU_1],
+                      gpus: nGpus === 0 ? { estado: "omitido", lista: [] } : { estado: "ok", lista: nGpus === 2 ? [GPU_1, GPU_2] : [GPU_1] },
+                      cpu: { nucleos: 16, usoPct: 12 },
+                      memoria: { usadoMb: 21_504, totalMb: 65_536 },
                       disco: { usadoMb: 61_440, totalMb: 204_800 },
                       modelos: [
-                          { id: "qwen2.5:14b", tamanoMb: 9_216, cargado: true, vramMb: 10_240, cargadoHasta: iso(AHORA_SIA + 4 * 60_000) },
-                          { id: "llama3.1:8b", tamanoMb: 4_813, cargado: true, vramMb: 4_096, cargadoHasta: iso(AHORA_SIA + 2 * 60_000) },
-                          { id: "gemma3:27b", tamanoMb: 17_408, cargado: false, vramMb: null, cargadoHasta: null },
+                          { id: "qwen2.5:14b", tamanoMb: 9_216, permitido: true, cargado: true, vramMb: 10_240, cargadoHasta: iso(AHORA_SIA + 4 * 60_000) },
+                          { id: "llama3.1:8b", tamanoMb: 4_813, permitido: true, cargado: true, vramMb: 4_096, cargadoHasta: iso(AHORA_SIA + 2 * 60_000) },
+                          { id: "gemma3:27b", tamanoMb: 17_408, permitido: false, cargado: false, vramMb: null, cargadoHasta: null },
                       ],
                       // Cambia en cada lectura: así se ve que el tablero se refresca.
                       llm: { enCurso: 1 + (lecturas % 3), maxSimultaneas: 4 },
@@ -238,14 +248,17 @@ export function apiServidorIa(opciones: OpcionesServidorIa = {}) {
         const SERVIDOR = "/api/v1/mensajeria/servidor-ia";
         const MOTORES = "/api/v1/mensajeria/voz/motores";
         if (!ruta.startsWith(SERVIDOR) && !ruta.startsWith(MOTORES)) return false;
-        // `servidor_ia.ver` y `.administrar` solo valen con `empresas.todas` (§4.8).
+        // `servidor_ia.ver` y `.administrar` solo valen con `empresas.todas` (§4.8): sin el permiso, 403;
+        // con el permiso pero sin `empresas.todas`, 404.
         const global = puede(PERMISO_SIA_VER) && puede("empresas.todas");
         const administra = global && puede(PERMISO_SIA_ADMINISTRAR);
-        const prohibido = async () => (await problema(route, P("prohibido", 403, "Sin permiso")), true);
+        const prohibido = async (p: Permiso = PERMISO_SIA_VER) =>
+            puede(p) ? (await problema(route, P("no_encontrado", 404, "No existe")), true) : (await problema(route, P("prohibido", 403, "Sin permiso")), true);
         const conflictoVersion = async () => (await problema(route, P("conflicto_version", 409, "Alguien más lo cambió")), true);
 
         if (ruta === `${SERVIDOR}/tablero` && metodo === "GET") {
-            if (!global && !puede(PERMISO_SIA_VER_USO)) return prohibido();
+            // Ni `ver` global ni `ver_uso`: 404.
+            if (!global && !puede(PERMISO_SIA_VER_USO)) return (await problema(route, P("no_encontrado", 404, "No existe")), true);
             const rango = (x.query.get("rango") ?? "ahora") as Rango;
             recibido.tableros.push(rango);
             if (fallaTablero > 0) {
@@ -257,11 +270,11 @@ export function apiServidorIa(opciones: OpcionesServidorIa = {}) {
             return (await json(route, tablero(rango, global, propias)), true);
         }
         if (ruta === `${SERVIDOR}/umbrales` && metodo === "GET") {
-            if (!administra) return prohibido();
+            if (!global) return prohibido();
             return (await json(route, umbrales), true);
         }
         if (ruta === `${SERVIDOR}/umbrales/actualizar` && metodo === "POST") {
-            if (!administra) return prohibido();
+            if (!administra) return prohibido(PERMISO_SIA_ADMINISTRAR);
             recibido.umbrales.push({ ...cuerpo, idempotencia: x.idempotencia });
             if (conflicto) {
                 conflicto = false;
@@ -272,7 +285,8 @@ export function apiServidorIa(opciones: OpcionesServidorIa = {}) {
             if (Number(cuerpo.saturacionRechazos) === 999) {
                 return (await problema(route, P("validacion", 422, "Datos inválidos", { errors: [{ field: "body.saturacionRechazos", message: "Demasiado alto para este servidor" }] })), true);
             }
-            umbrales = { ...(cuerpo as unknown as Umbrales), version: umbrales.version + 1 };
+            // Los dos de retención son opcionales al actualizar.
+            umbrales = { ...umbrales, ...(cuerpo as unknown as Partial<Umbrales>), version: umbrales.version + 1 };
             return (await json(route, umbrales), true);
         }
 
@@ -281,13 +295,13 @@ export function apiServidorIa(opciones: OpcionesServidorIa = {}) {
             if (!global) return prohibido();
             return (await json(route, { data: motor ? [motor] : [], nextCursor: null }), true);
         }
-        if (!administra) return prohibido();
+        if (!administra) return prohibido(PERMISO_SIA_ADMINISTRAR);
         if (ruta === `${MOTORES}/enlazar` && metodo === "POST") {
             recibido.enlaces.push({ cuerpo, idempotencia: x.idempotencia });
             if (motor && motor.estado !== "sin_enlazar") return (await problema(route, P("motor_ya_enlazado", 409, "Ya hay un servidor enlazado")), true);
             if (String(cuerpo.url).includes("127.0.0.1")) return (await problema(route, P("url_no_permitida", 422, "Dirección no permitida", { errors: [{ field: "body.url", message: "Esa dirección no se puede usar" }] })), true);
             if (String(cuerpo.url).includes("10.9.9.9")) return (await problema(route, P("motor_no_responde", 502, "El servidor no responde")), true);
-            motor = { ...motorBase("sin_enlazar"), version: 1, nombre: String(cuerpo.nombre), url: String(cuerpo.url), enlazadoEn: null, paquete: null, capacidad: null, catalogo: null, tokenRotadoEn: null, huellaTls: null, enlaceVenceEn: iso(AHORA_SIA + 24 * 3_600_000) };
+            motor = { ...motorBase("sin_enlazar"), version: 1, nombre: String(cuerpo.nombre), url: String(cuerpo.url), enlazadoEn: null, paquete: null, capacidad: null, catalogo: null, tokenRotadoEn: null, huellaTls: null, enlaceVenceEn: iso(AHORA_SIA + 15 * 60_000) };
             const creado: EnlaceCreado = { motor, codigo: CODIGO_ENLACE, venceEn: iso(AHORA_SIA + 15 * 60_000) };
             return (await json(route, creado, 201), true);
         }
@@ -300,13 +314,16 @@ export function apiServidorIa(opciones: OpcionesServidorIa = {}) {
                 // 401 sin detalle: no se dice si el código estaba vencido, usado o mal escrito.
                 if (como === "401") return (await problema(route, P("no_autorizado", 401, "No autorizado")), true);
                 if (como === "429") return (await problema(route, P("demasiados_intentos", 429, "Demasiados intentos")), true);
-                motor = { ...motor, huellaTls: HUELLA, version: motor.version + 1 };
+                // La ventana de 15 minutos del código se cerró.
+                if (como === "vencido") return (await problema(route, P("enlace_vencido", 409, "El enlace venció")), true);
+                // Conectado: ahora hay 24 horas para activar.
+                motor = { ...motor, huellaTls: HUELLA, version: motor.version + 1, enlaceVenceEn: iso(AHORA_SIA + 24 * 3_600_000) };
                 return (await json(route, motor), true);
             }
             case "activar": {
                 recibido.activaciones.push(cuerpo);
                 if (cuerpo.version !== motor.version) return conflictoVersion();
-                if (motor.enlaceVenceEn && Date.parse(motor.enlaceVenceEn) < AHORA_SIA) return (await problema(route, P("enlace_vencido", 422, "El enlace caducó")), true);
+                if (motor.enlaceVenceEn && Date.parse(motor.enlaceVenceEn) < AHORA_SIA) return (await problema(route, P("enlace_vencido", 409, "El enlace venció")), true);
                 motor = { ...motorBase("listo"), nombre: motor.nombre, url: motor.url, version: motor.version + 1, enlazadoEn: iso(AHORA_SIA), tokenRotadoEn: iso(AHORA_SIA) };
                 return (await json(route, motor), true);
             }
@@ -334,6 +351,15 @@ export function apiServidorIa(opciones: OpcionesServidorIa = {}) {
                 motor = { ...motor, empresasPermitidas: cuerpo.empresas as number[] | null, simultaneasPorEmpresa: Number(cuerpo.simultaneasPorEmpresa), version: motor.version + 1 };
                 return (await json(route, motor), true);
             }
+            case "modelos/actualizar": {
+                recibido.modelos.push({ ...cuerpo, idempotencia: x.idempotencia });
+                if (cuerpo.version !== motor.version) return conflictoVersion();
+                const pedidos = cuerpo.modelos as string[] | null;
+                const catalogo = (motor.catalogo?.llm ?? []).map((m) => m.id);
+                if (pedidos && pedidos.some((m) => !catalogo.includes(m))) return (await problema(route, P("validacion", 422, "Ese modelo no está en el servidor")), true);
+                motor = { ...motor, modelosPermitidos: pedidos, version: motor.version + 1 };
+                return (await json(route, motor), true);
+            }
             case "desactivar": {
                 recibido.desactivaciones.push(cuerpo);
                 if (cuerpo.version !== motor.version) return conflictoVersion();
@@ -358,6 +384,10 @@ export function apiServidorIa(opciones: OpcionesServidorIa = {}) {
         caer: () => {
             if (motor) motor = { ...motor, estado: "no_disponible", detalle: "No responde" };
             caidoDesde = AHORA_SIA - 30_000;
+        },
+        /** En el servidor quitaron un modelo del catálogo: guardar con él responde 422. */
+        quitarDelCatalogo: (id: string) => {
+            if (motor?.catalogo) motor = { ...motor, catalogo: { llm: motor.catalogo.llm.filter((m) => m.id !== id) } };
         },
         /** Las próximas `n` lecturas del tablero responden 500. */
         fallarTablero: (n: number) => (fallaTablero = n),

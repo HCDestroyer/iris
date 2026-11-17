@@ -109,9 +109,11 @@ function Pasos({ pendiente }: { pendiente: Motor | null }) {
 
     const paso = motor ? "huella" : enlace ? "codigo" : "direccion";
     const vence = enlace ? Date.parse(enlace.venceEn) : NaN;
-    const codigoVencido = enlace !== null && !Number.isNaN(vence) && ahora > vence;
+    // La ventana vencida también la dice el servidor (409 `enlace_vencido`, el mismo código para los dos pasos).
+    const vencidoAlla = error instanceof ErrorApi && error.codigo === "enlace_vencido";
+    const codigoVencido = enlace !== null && ((!Number.isNaN(vence) && ahora > vence) || vencidoAlla);
     const caduca = motor?.enlaceVenceEn ? Date.parse(motor.enlaceVenceEn) : NaN;
-    const enlaceCaducado = !Number.isNaN(caduca) && ahora > caduca;
+    const enlaceCaducado = motor !== null && ((!Number.isNaN(caduca) && ahora > caduca) || vencidoAlla);
 
     async function generar(d: ValoresEnlace) {
         setError(null);
@@ -156,7 +158,7 @@ function Pasos({ pendiente }: { pendiente: Motor | null }) {
         setError(null);
     }
 
-    const aviso = error ? (
+    const aviso = error && !vencidoAlla ? (
         <Aviso tono="error" titulo={paso === "huella" ? "No se pudo activar" : paso === "codigo" ? "No se pudo conectar" : "No se pudo empezar el enlace"} data-slot="error-enlace">
             {textoDe(error)}
         </Aviso>
@@ -167,7 +169,7 @@ function Pasos({ pendiente }: { pendiente: Motor | null }) {
             <Paso numero={1} titulo="Instala Iris Voz en tu servidor" estado="hecho">
                 <p className="text-sm text-muted-foreground">Pide a quien cuida el servidor que ejecute el instalador de Iris Voz. Al terminar muestra dos cosas que vas a necesitar aquí: la dirección del servidor y su huella.</p>
                 <p className="text-sm text-muted-foreground">Si ya estaba instalado, este comando abre de nuevo la ventana para enlazar (dura 15 minutos):</p>
-                <Comando texto="sudo iris-voz enlazar" />
+                <Comando texto="sudo iris-voz pair" />
             </Paso>
 
             <Paso numero={2} titulo={paso === "direccion" ? "Escribe la dirección del servidor" : "Escribe el código en el servidor"} estado={paso === "huella" ? "hecho" : "actual"}>
@@ -198,7 +200,7 @@ function Pasos({ pendiente }: { pendiente: Motor | null }) {
                 ) : paso === "codigo" && enlace ? (
                     <>
                         <p className="text-sm text-muted-foreground">
-                            Este código sirve una sola vez y solo se muestra ahora. En el servidor, <span className="font-medium text-foreground">iris-voz enlazar</span> lo pide: escríbelo o pégalo allá (no se ve mientras se escribe, es normal).
+                            Este código sirve una sola vez y solo se muestra ahora. En el servidor, <span className="font-medium text-foreground">iris-voz pair</span> lo pide: escríbelo o pégalo allá (no se ve mientras se escribe, es normal).
                         </p>
                         <div className="flex min-w-0 items-center gap-2 rounded-lg bg-elevated py-2 pr-2 pl-3" data-slot="codigo-enlace">
                             <code className="min-w-0 flex-1 font-mono text-sm font-semibold [overflow-wrap:anywhere]">{enlace.codigo}</code>
@@ -216,7 +218,7 @@ function Pasos({ pendiente }: { pendiente: Motor | null }) {
                                     </Boton>
                                 }
                             >
-                                Pasaron los 15 minutos. Genera otro y vuelve a ejecutar «iris-voz enlazar» en el servidor.
+                                Pasaron los 15 minutos. Genera otro y vuelve a ejecutar «sudo iris-voz pair» en el servidor.
                             </Aviso>
                         ) : (
                             <p className="text-[0.8125rem] text-muted-foreground" data-slot="codigo-vence">

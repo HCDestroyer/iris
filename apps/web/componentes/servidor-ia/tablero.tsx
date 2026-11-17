@@ -1,7 +1,7 @@
 "use client";
 
 import { avisar, Aviso, Boton, cn, Esqueleto, EstadoVacio, GraficaSerie, GrupoSegmentado, InsigniaEstado, Medidor, Tarjeta } from "@iris/ui";
-import { Building2, Check, CircleCheck, Clock, Cpu, Info, Layers, Link2, MemoryStick, MessageCircle, RefreshCw, Server, Sparkles, Thermometer, TriangleAlert, Users, Wrench, type LucideIcon } from "lucide-react";
+import { Building2, Check, CircleCheck, Clock, Cpu, HardDrive, Info, Layers, Link2, MemoryStick, MessageCircle, RefreshCw, Server, Sparkles, Thermometer, TriangleAlert, Users, Wrench, type LucideIcon } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
@@ -19,13 +19,16 @@ import {
     MIENTRAS_TANTO,
     NOMBRE_PASO,
     NOMBRE_RANGO,
+    potencia,
     queActualizar,
     seriesDe,
     tamano,
     tarjetaGpu,
     TEXTO_RANGO,
     textoError,
+    textoPlazas,
     tiempoRespuesta,
+    tonoFrente,
     ultimaVez,
 } from "@/lib/servidor-ia/presentacion";
 import { RANGOS, type Rango, type ResultadoPrueba, type Tablero, type Umbrales } from "@/lib/servidor-ia/tipos";
@@ -151,6 +154,24 @@ function Vista({ tablero, rango, alRango, ahora, global, administra, umbrales, r
                     {botonProbar}
                 </div>
             )}
+            {global && e.plazasInsuficientes ? (
+                <Aviso
+                    tono="warning"
+                    titulo="No alcanzan los turnos para todas las empresas"
+                    data-slot="plazas-insuficientes"
+                    {...(administra
+                        ? {
+                              accion: (
+                                  <Boton asChild variante="secundario" tamano="sm">
+                                      <Link href={`${RUTA}/mantenimiento` as Route}>Ir a Mantenimiento</Link>
+                                  </Boton>
+                              ),
+                          }
+                        : {})}
+                >
+                    {textoPlazas(e.empresasActivas, tablero.servidor?.llm.maxSimultaneas ?? null)}
+                </Aviso>
+            ) : null}
             {prueba.estado === "hecha" ? <ResultadoDePrueba resultado={prueba.resultado} /> : null}
             {prueba.estado === "error" ? (
                 <Aviso tono="error" titulo="No se pudo hacer la prueba">
@@ -246,7 +267,7 @@ function Fuera({ tablero, ahora, accion, global }: { tablero: Tablero; ahora: nu
                             Que Iris Voz esté corriendo. Este comando lo dice:
                         </li>
                     </ul>
-                    <Comando texto="sudo iris-voz estado" />
+                    <Comando texto="sudo iris-voz status" />
                     <p className="text-[0.8125rem] text-muted-foreground">Si lo acabas de reiniciar, tarda cerca de un minuto en volver.</p>
                 </Tarjeta>
             ) : null}
@@ -315,7 +336,7 @@ function Cifras({ tablero, vigentes, rango, limites }: { tablero: Tablero; vigen
             </section>
         );
     }
-    const gpus = Array.isArray(s.gpus) ? s.gpus : [];
+    const gpus = s.gpus.estado === "ok" ? s.gpus.lista : [];
     const peticiones = (
         <Cifra
             icono={MessageCircle}
@@ -334,6 +355,7 @@ function Cifras({ tablero, vigentes, rango, limites }: { tablero: Tablero; vigen
                     El servidor responde, pero no reporta ninguna tarjeta gráfica: sin ella los modelos trabajan con el procesador y contestan mucho más lento. Revisa que la tarjeta esté instalada y con sus controladores.
                 </Aviso>
                 <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{peticiones}</div>
+                <Equipo tablero={tablero} limites={limites} />
             </section>
         );
     }
@@ -349,7 +371,7 @@ function Cifras({ tablero, vigentes, rango, limites }: { tablero: Tablero; vigen
                             </h2>
                         ) : null}
                         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                            <Cifra icono={Cpu} nombre="Uso de la tarjeta gráfica" valor={t.uso ? t.uso.valor.replace(" %", "") : null} unidad="%" {...(gpus.length === 1 ? { detalle: t.nombre } : {})} {...(t.uso ? { medidor: { parte: t.uso.parte, texto: t.uso.valor } } : {})} slot="cifra-uso" />
+                            <Cifra icono={Cpu} nombre="Uso de la tarjeta gráfica" valor={t.uso ? t.uso.valor.replace(" %", "") : null} unidad="%" {...(gpus.length === 1 || g.potenciaW !== null ? { detalle: [gpus.length === 1 ? t.nombre : null, g.potenciaW !== null ? potencia(g.potenciaW) : null].filter(Boolean).join(" · ") } : {})} {...(t.uso ? { medidor: { parte: t.uso.parte, texto: t.uso.valor } } : {})} slot="cifra-uso" />
                             <Cifra icono={MemoryStick} nombre="Memoria de video" valor={t.memoria?.valor ?? null} {...(t.memoria ? { unidad: t.memoria.de, detalle: t.memoria.detalle, medidor: { parte: t.memoria.parte, tono: t.memoria.tono, texto: `${t.memoria.valor} ${t.memoria.de}` } } : {})} slot="cifra-vram" />
                             <Cifra icono={Thermometer} nombre="Temperatura" valor={t.temperatura?.valor ?? null} unidad="°C" {...(t.temperatura ? { detalle: t.temperatura.detalle, medidor: { parte: t.temperatura.parte, tono: t.temperatura.tono, texto: `${t.temperatura.valor} °C` } } : {})} slot="cifra-temperatura" />
                             {i === 0 ? peticiones : null}
@@ -357,7 +379,53 @@ function Cifras({ tablero, vigentes, rango, limites }: { tablero: Tablero; vigen
                     </div>
                 );
             })}
+            <Equipo tablero={tablero} limites={limites} />
         </section>
+    );
+}
+
+/** El resto del equipo: procesador, memoria y el disco donde viven los modelos. Lo que no llega, «Sin datos». */
+function Equipo({ tablero, limites }: { tablero: Tablero; limites: Umbrales }) {
+    const s = tablero.servidor;
+    if (!s) return null;
+    const parte = (u: { usadoMb: number; totalMb: number } | null) => (u && u.totalMb > 0 ? u.usadoMb / u.totalMb : null);
+    const memoria = parte(s.memoria);
+    const disco = parte(s.disco);
+    const tonoDisco = disco === null ? "normal" : tonoFrente(disco * 100, limites.discoPct);
+    return (
+        <div className="grid gap-2" data-slot="resto-servidor">
+            <h2 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">El resto del servidor</h2>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+                <Cifra
+                    icono={Cpu}
+                    nombre="Procesador"
+                    valor={s.cpu && s.cpu.usoPct !== null ? String(Math.round(s.cpu.usoPct)) : null}
+                    unidad="%"
+                    {...(s.cpu && s.cpu.usoPct !== null ? { detalle: `${s.cpu.nucleos} ${s.cpu.nucleos === 1 ? "núcleo" : "núcleos"}`, medidor: { parte: s.cpu.usoPct / 100, texto: `${Math.round(s.cpu.usoPct)} %` } } : {})}
+                    slot="cifra-cpu"
+                />
+                <Cifra
+                    icono={MemoryStick}
+                    nombre="Memoria del equipo"
+                    valor={s.memoria && memoria !== null ? (s.memoria.usadoMb / 1024).toFixed(1) : null}
+                    {...(s.memoria && memoria !== null ? { unidad: `de ${tamano(s.memoria.totalMb)}`, detalle: `${Math.round(memoria * 100)} %`, medidor: { parte: memoria, texto: `${Math.round(memoria * 100)} %` } } : {})}
+                    slot="cifra-memoria"
+                />
+                <Cifra
+                    icono={HardDrive}
+                    nombre="Disco de los modelos"
+                    valor={s.disco && disco !== null ? (s.disco.usadoMb / 1024).toFixed(1) : null}
+                    {...(s.disco && disco !== null
+                        ? {
+                              unidad: `de ${tamano(s.disco.totalMb)}`,
+                              detalle: `${Math.round(disco * 100)} % · ${tonoDisco === "error" ? "casi lleno" : `avisa al ${limites.discoPct} %`}`,
+                              medidor: { parte: disco, tono: tonoDisco, texto: `${Math.round(disco * 100)} %` },
+                          }
+                        : {})}
+                    slot="cifra-disco"
+                />
+            </div>
+        </div>
     );
 }
 
@@ -467,7 +535,7 @@ function Modelos({ tablero, administra }: { tablero: Tablero; administra: boolea
                         <li key={m.id} className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 py-2" data-modelo={m.id}>
                             <span className="min-w-0">
                                 <span className="font-mono text-[0.8125rem] font-medium [overflow-wrap:anywhere]">{m.id}</span>
-                                <span className="ml-2 text-[0.8125rem] whitespace-nowrap text-muted-foreground">{m.tamanoMb === null ? "" : `${tamano(m.tamanoMb)} en disco`}</span>
+                                <span className="ml-2 text-[0.8125rem] whitespace-nowrap text-muted-foreground">{[m.tamanoMb === null ? null : `${tamano(m.tamanoMb)} en disco`, m.permitido ? null : "no permitido"].filter(Boolean).join(" · ")}</span>
                             </span>
                             {m.cargado ? (
                                 <span className="inline-flex items-center gap-1 text-[0.8125rem] font-medium whitespace-nowrap text-success">

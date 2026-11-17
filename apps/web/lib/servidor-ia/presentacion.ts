@@ -92,18 +92,26 @@ export function ultimaVez(iso: string, ahora: number): string {
     return `${mismoDia ? "hoy" : `el ${dia.format(ms)}`} a las ${hora.format(ms)} (${haceCuanto(iso, ahora)})`;
 }
 
-/** Qué hay que actualizar cuando no son compatibles (se comprueba en los dos sentidos, §4.7). */
+/** El comando que actualiza Iris Voz, en el servidor. */
+export const COMANDO_ACTUALIZAR = "sudo iris-voz upgrade";
+
+/** Qué hay que actualizar cuando no son compatibles (se comprueba en los dos sentidos, §4.7): solo `iris_antiguo` pide actualizar Iris. */
 export function queActualizar(p: Pick<Paquete, "version" | "motivoIncompatible" | "versionDisponible">): { titulo: string; detalle: string; comando: string | null } {
-    const hasta = p.versionDisponible ? ` a la ${p.versionDisponible} o una más nueva` : "";
-    // Supuesto de forma: `iris_antiguo` = el servidor es más nuevo que lo que esta versión de Iris conoce.
-    if (p.motivoIncompatible === "iris_antiguo") {
-        return { titulo: "Hay que actualizar Iris", detalle: `El servidor tiene Iris Voz ${p.version}, más nuevo que lo que esta versión de Iris sabe usar. Actualiza Iris; en el servidor no hay que hacer nada.`, comando: null };
+    const servidor = (detalle: string) => ({ titulo: "Hay que actualizar Iris Voz en el servidor", detalle: `${detalle} Se actualiza en el servidor, con este comando:`, comando: COMANDO_ACTUALIZAR });
+    // Hoy `versionDisponible` es siempre `null`: sin ella no se dice a cuál.
+    const hasta = p.versionDisponible ? ` (a la ${p.versionDisponible} o una más nueva)` : "";
+    switch (p.motivoIncompatible) {
+        case "iris_antiguo":
+            return { titulo: "Hay que actualizar Iris", detalle: `El servidor tiene Iris Voz ${p.version}, más nuevo que lo que esta versión de Iris sabe usar. Actualiza Iris; en el servidor no hay que hacer nada.`, comando: null };
+        case "iris_nuevo":
+            return servidor(`Esta versión de Iris es más nueva que lo que Iris Voz ${p.version} sabe atender${hasta}.`);
+        case "paquete_antiguo":
+            return servidor(`El servidor tiene Iris Voz ${p.version}, más antiguo que el mínimo que usa esta versión de Iris${hasta}.`);
+        case "protocolo":
+            return servidor(`Iris y el servidor (Iris Voz ${p.version}) no hablan la misma versión del protocolo${hasta}.`);
+        default:
+            return servidor(`El servidor tiene Iris Voz ${p.version}, que no es compatible con esta versión de Iris${hasta}.`);
     }
-    return {
-        titulo: "Hay que actualizar Iris Voz en el servidor",
-        detalle: `El servidor tiene Iris Voz ${p.version} y esta versión de Iris necesita una más nueva${hasta ? `: actualízalo${hasta}` : ""}. Se actualiza en el servidor, con este comando:`,
-        comando: "sudo iris-voz actualizar",
-    };
 }
 
 // --- Tarjetas -----------------------------------------------------------------------------------
@@ -153,7 +161,7 @@ export function tarjetaGpu(g: Gpu, u: Pick<Umbrales, "vramPct" | "temperaturaC">
 // --- Series -------------------------------------------------------------------------------------
 
 export const NOMBRE_RANGO: Record<Rango, string> = { ahora: "Ahora", "1h": "1 hora", "24h": "24 horas", "7d": "7 días" };
-export const TEXTO_RANGO: Record<Rango, string> = { ahora: "en los últimos 5 minutos", "1h": "en la última hora", "24h": "en las últimas 24 horas", "7d": "en los últimos 7 días" };
+export const TEXTO_RANGO: Record<Rango, string> = { ahora: "en los últimos 10 minutos", "1h": "en la última hora", "24h": "en las últimas 24 horas", "7d": "en los últimos 7 días" };
 
 /** Cada cuánto se relee el tablero (ms). En 7 días los datos van por hora: no hace falta correr. */
 export const REFRESCO_MS: Record<Rango, number> = { ahora: 10_000, "1h": 30_000, "24h": 60_000, "7d": 300_000 };
@@ -175,7 +183,7 @@ export function seriesDe(puntos: readonly PuntoSerie[], rango: Rango): SeriesTab
     const formato = rango === "7d" ? diaHora : rango === "ahora" ? horaSeg : hora;
     const instantes = puntos.map((p) => formato.format(Date.parse(p.t)));
     const medio = instantes[Math.floor((instantes.length - 1) / 2)] ?? "";
-    const marcas: [string, string, string] = rango === "ahora" ? ["hace 5 min", "hace 2 min", "ahora"] : [instantes[0] ?? "", medio, instantes.at(-1) ?? ""];
+    const marcas: [string, string, string] = rango === "ahora" ? ["hace 10 min", "hace 5 min", "ahora"] : [instantes[0] ?? "", medio, instantes.at(-1) ?? ""];
     const seg = (ms: number | null) => (ms === null ? null : ms / 1000);
     return {
         instantes,
@@ -258,7 +266,7 @@ export function huellaLegible(huella: string): string[] {
 
 /** Los errores de enlazar, conectar y activar, en llano. `null`: uno que no se conoce (se usa el del servidor). */
 export function textoErrorEnlace(codigo: string, estado: number): string | null {
-    if (estado === 401) return "El servidor no aceptó el código. Puede que esté mal escrito allá, que ya se haya usado o que la ventana de 15 minutos se haya cerrado. Vuelve a ejecutar «iris-voz enlazar» en el servidor y escribe el código de nuevo.";
+    if (estado === 401) return "El servidor no aceptó el código. Puede que esté mal escrito allá o que ya se haya usado. Vuelve a ejecutar «sudo iris-voz pair» en el servidor y escribe el código de nuevo.";
     if (estado === 429) return "Demasiados intentos seguidos. Espera unos segundos y vuelve a probar.";
     switch (codigo) {
         case "motor_ya_enlazado":
@@ -268,9 +276,9 @@ export function textoErrorEnlace(codigo: string, estado: number): string | null 
         case "motor_no_responde":
             return "Iris no pudo llegar al servidor en esa dirección. Revisa que esté encendido, que la dirección sea la que mostró el instalador y que la ventana de enlace siga abierta.";
         case "motor_incompatible":
-            return "La versión de Iris Voz del servidor no es compatible con esta versión de Iris. Actualiza el servidor (sudo iris-voz actualizar) y vuelve a enlazar.";
+            return "La versión de Iris Voz del servidor no es compatible con esta versión de Iris. Actualiza el servidor (sudo iris-voz upgrade) y vuelve a enlazar.";
         case "enlace_vencido":
-            return "El enlace caducó sin activarse. Hay que empezar de nuevo.";
+            return "Ese paso del enlace ya venció: el código vale 15 minutos y, una vez conectado, hay 24 horas para activar. Hay que empezar de nuevo.";
         default:
             return null;
     }
@@ -278,3 +286,12 @@ export function textoErrorEnlace(codigo: string, estado: number): string | null 
 
 /** El 422 al guardar `servidor_ia` en el asistente de una empresa (§4.11). */
 export const TEXTO_NO_DISPONIBLE = "El Servidor de IA no está disponible para esta empresa ahora: no está enlazado y en línea, la empresa no está entre las permitidas o ese modelo ya no está instalado. Pídele a quien administra la instalación que lo revise, o elige otro proveedor.";
+
+/** «310 W». */
+export const potencia = (w: number): string => `${Math.round(w)} W`;
+
+/** El aviso de que la plaza asegurada no alcanza para todas las empresas (§4.11). */
+export function textoPlazas(empresasActivas: number | undefined, plazas: number | null): string {
+    const cuantas = empresasActivas === undefined || plazas === null ? "" : ` (${empresasActivas} ${empresasActivas === 1 ? "empresa" : "empresas"} y ${plazas} ${plazas === 1 ? "turno" : "turnos"})`;
+    return `Hay más empresas usando el servidor que turnos disponibles${cuantas}: ya no se le puede asegurar un turno a cada una y a ratos alguna se quedará sin respuesta. Deja menos empresas permitidas o usa un modelo más pequeño.`;
+}

@@ -14,8 +14,8 @@ import { nuevaClaveIdempotencia } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
-import { desactivarMotor, guardarEmpresasPermitidas, leerMotor, rotarCredenciales } from "@/lib/servidor-ia/api";
-import { fechaDia } from "@/lib/servidor-ia/presentacion";
+import { desactivarMotor, guardarEmpresasPermitidas, guardarModelosPermitidos, leerMotor, rotarCredenciales } from "@/lib/servidor-ia/api";
+import { fechaDia, textoPlazas } from "@/lib/servidor-ia/presentacion";
 import type { Motor } from "@/lib/servidor-ia/tipos";
 import { esquemaEmpresas, type ValoresEmpresas } from "@/lib/servidor-ia/umbrales";
 import { useSesion } from "@/lib/sesion";
@@ -59,7 +59,7 @@ export function MantenimientoServidorIa() {
                     ) : (
                         <div className="grid max-w-2xl gap-4">
                             <QuienPuede key={motor.version} motor={motor} alGuardar={reemplazar} />
-                            <ModelosPermitidos motor={motor} />
+                            <ModelosPermitidos key={`m${motor.version}`} motor={motor} alGuardar={reemplazar} />
                             <Credenciales motor={motor} alCambiar={reemplazar} />
                             <Desenlazar motor={motor} />
                         </div>
@@ -122,6 +122,11 @@ function QuienPuede({ motor, alGuardar }: { motor: Motor; alGuardar: (m: Motor) 
                         <p className="text-[0.8125rem] text-muted-foreground">A una empresa que quites no se le borra nada: su asistente queda «sin configurar» hasta que elija otro proveedor.</p>
                     </div>
                 ) : null}
+                {motor.capacidad?.plazasInsuficientes ? (
+                    <Aviso tono="warning" titulo="No alcanzan los turnos para todas las empresas" data-slot="plazas-insuficientes">
+                        {textoPlazas(motor.capacidad.empresasActivas, plazas)}
+                    </Aviso>
+                ) : null}
                 <CampoNumero
                     etiqueta="Peticiones a la vez por empresa, como mucho"
                     minimo={1}
@@ -145,27 +150,111 @@ function QuienPuede({ motor, alGuardar }: { motor: Motor; alGuardar: (m: Motor) 
     );
 }
 
-function ModelosPermitidos({ motor }: { motor: Motor }) {
-    const modelos = motor.catalogo?.llm ?? [];
+/**
+ * Modelos en dos niveles (§4.12): el servidor declara los que su administrador deja usar a Iris
+ * (`catalogo.llm`); de esos, aquí se eligen los que las empresas pueden escoger (`null` = todos).
+ */
+function ModelosPermitidos({ motor, alGuardar }: { motor: Motor; alGuardar: (m: Motor) => void }) {
+    const catalogo = (motor.catalogo?.llm ?? []).map((m) => m.id);
+    const clave = useClaveIdempotencia();
+    const [cuales, setCuales] = useState<"todos" | "algunos">(motor.modelosPermitidos === null ? "todos" : "algunos");
+    const [elegidos, setElegidos] = useState<string[]>(motor.modelosPermitidos ?? catalogo);
+    const [guardando, setGuardando] = useState(false);
+    const [error, setError] = useState<unknown>(null);
+    const [falta, setFalta] = useState(false);
+    const antes = motor.modelosPermitidos;
+    const ahora = cuales === "todos" ? null : catalogo.filter((m) => elegidos.includes(m));
+    const sucio = JSON.stringify(antes === null ? null : [...antes].sort()) !== JSON.stringify(ahora === null ? null : [...ahora].sort());
+    const conflicto = error instanceof ErrorApi && error.estado === 409;
+
+    async function guardar() {
+        setError(null);
+        if (ahora !== null && ahora.length === 0) {
+            setFalta(true);
+            return;
+        }
+        setGuardando(true);
+        try {
+            const nuevo = await guardarModelosPermitidos(motor.id, { modelos: ahora, version: motor.version }, clave.actual());
+            clave.renovar();
+            avisar({ titulo: "Guardados los modelos que pueden elegir las empresas" });
+            alGuardar(nuevo);
+        } catch (e) {
+            clave.trasError(e);
+            setError(e);
+        } finally {
+            setGuardando(false);
+        }
+    }
+
     return (
         <Seccion icono={Download} titulo="Modelos" slot="modelos-permitidos">
-            <p className="text-sm text-muted-foreground">Los modelos se descargan y se permiten en el propio servidor, con un comando: desde Iris solo se ven. Estos son los que las empresas pueden elegir ahora:</p>
-            {modelos.length > 0 ? (
-                <ul className="flex flex-wrap gap-1.5" aria-label="Modelos permitidos">
-                    {modelos.map((m) => (
-                        <li key={m.id} className="rounded-md bg-elevated px-2 py-0.5 font-mono text-[0.8125rem]">
-                            {m.id}
-                        </li>
-                    ))}
-                </ul>
+            {catalogo.length === 0 ? (
+                <p className="text-sm font-medium text-warning">El servidor no deja usar ningún modelo todavía: sin uno, ninguna empresa puede usarlo. Descarga y permite uno con los comandos de abajo.</p>
             ) : (
-                <p className="text-sm font-medium text-warning">Ninguno todavía: sin un modelo permitido, ninguna empresa puede usar el servidor.</p>
+                <form
+                    noValidate
+                    className="grid gap-3"
+                    onSubmit={(ev) => {
+                        ev.preventDefault();
+                        void guardar();
+                    }}
+                >
+                    <GrupoOpciones
+                        leyenda="Modelos que las empresas pueden elegir"
+                        nombre="cuales-modelos"
+                        valor={cuales}
+                        alCambiar={(v) => {
+                            setCuales(v);
+                            setFalta(false);
+                        }}
+                        opciones={[
+                            { valor: "todos", etiqueta: "Todos los del servidor", detalle: "También los que se descarguen después." },
+                            { valor: "algunos", etiqueta: "Solo algunos", detalle: "Los demás no aparecen en los ajustes del asistente." },
+                        ]}
+                    />
+                    {cuales === "algunos" ? (
+                        <div className="grid gap-1.5" role="group" aria-label="Modelos permitidos">
+                            {catalogo.map((m) => (
+                                <Casilla
+                                    key={m}
+                                    etiqueta={m}
+                                    checked={elegidos.includes(m)}
+                                    onChange={(ev) => {
+                                        setElegidos(ev.target.checked ? [...elegidos, m] : elegidos.filter((x) => x !== m));
+                                        setFalta(false);
+                                    }}
+                                />
+                            ))}
+                            {falta ? <p className="text-sm text-error">Elige al menos un modelo, o deja «Todos los del servidor».</p> : null}
+                            <p className="text-[0.8125rem] text-muted-foreground">Si quitas el modelo que usa una empresa, su asistente deja de responder hasta que elija otro.</p>
+                        </div>
+                    ) : (
+                        <ul className="flex flex-wrap gap-1.5" aria-label="Modelos del servidor">
+                            {catalogo.map((m) => (
+                                <li key={m} className="rounded-md bg-elevated px-2 py-0.5 font-mono text-[0.8125rem]">
+                                    {m}
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                    {error ? (
+                        <Aviso tono="error" titulo={conflicto ? "Alguien más lo cambió" : "No se pudo guardar"} data-slot="error-modelos-permitidos">
+                            {conflicto ? "Recarga la página para ver el cambio." : error instanceof ErrorApi && error.estado === 422 ? "Alguno de esos modelos ya no está en el servidor. Recarga la página y vuelve a elegir." : mensajeDeError(error).titulo}
+                        </Aviso>
+                    ) : null}
+                    <div className="flex justify-end">
+                        <Boton type="submit" disabled={guardando || !sucio}>
+                            {guardando ? "Guardando…" : "Guardar"}
+                        </Boton>
+                    </div>
+                </form>
             )}
-            <p className="text-sm text-muted-foreground">Para descargar uno y permitirlo:</p>
-            <Comando texto="sudo iris-voz modelo descargar <nombre>" />
-            <Comando texto="sudo iris-voz modelo permitir <nombre>" />
-            <p className="text-sm text-muted-foreground">Y para quitar uno que ya no se usa:</p>
-            <Comando texto="sudo iris-voz modelo quitar <nombre>" />
+            <p className="text-sm text-muted-foreground">Iris solo puede elegir entre los modelos que el servidor ya tiene y deja usar. Para sumar uno, se descarga y se permite en el propio servidor:</p>
+            <Comando texto="sudo iris-voz model pull <nombre>" />
+            <Comando texto="sudo iris-voz model allow <nombre>" />
+            <p className="text-sm text-muted-foreground">Y para borrar del servidor uno que ya no se usa:</p>
+            <Comando texto="sudo iris-voz model remove <nombre>" />
         </Seccion>
     );
 }
@@ -221,7 +310,7 @@ function Credenciales({ motor, alCambiar }: { motor: Motor; alCambiar: (m: Motor
                 open={dialogo === "revocar"}
                 onOpenChange={(a) => !a && setDialogo(null)}
                 titulo="¿Revocar las credenciales ahora?"
-                descripcion="La llave y el certificado anteriores dejan de valer en el acto y se cambian por unos nuevos. Úsalo si crees que alguien los copió. Las respuestas que estén en camino en ese instante pueden fallar. Si lo que estuvo en riesgo fue el propio Iris, esto no basta: ejecuta «sudo iris-voz desenlazar» en el servidor y vuelve a enlazar."
+                descripcion="La llave y el certificado anteriores dejan de valer en el acto y se cambian por unos nuevos. Úsalo si crees que alguien los copió. Las respuestas que estén en camino en ese instante pueden fallar. Si lo que estuvo en riesgo fue el propio Iris, esto no basta: ejecuta «sudo iris-voz unpair» en el servidor y vuelve a enlazar."
                 textoConfirmar="Revocar ahora"
                 textoCancelar="Cancelar"
                 textoOcupado="Revocando…"

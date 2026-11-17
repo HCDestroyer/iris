@@ -62,7 +62,14 @@ test.describe("Servidor de IA › tablero", () => {
         const cifras = slot(page, "cifras");
         await expect(cifras).toHaveAttribute("data-vigentes", "si");
         await expect(slot(page, "cifra-uso")).toContainText("63");
-        await expect(slot(page, "cifra-uso")).toContainText("NVIDIA RTX 4090");
+        await expect(slot(page, "cifra-uso")).toContainText("NVIDIA RTX 4090 · 310 W");
+        // El resto del servidor: procesador, memoria y el disco de los modelos.
+        await expect(slot(page, "cifra-cpu")).toContainText("12");
+        await expect(slot(page, "cifra-cpu")).toContainText("16 núcleos");
+        await expect(slot(page, "cifra-memoria")).toContainText("21.0");
+        await expect(slot(page, "cifra-disco")).toContainText("60.0");
+        await expect(slot(page, "cifra-disco")).toContainText("30 % · avisa al 90 %");
+        await expect(slot(page, "plazas-insuficientes")).toHaveCount(0);
         await expect(slot(page, "cifra-vram")).toContainText("14.0");
         await expect(slot(page, "cifra-vram")).toContainText("58 %");
         await expect(slot(page, "cifra-temperatura")).toContainText("71");
@@ -75,6 +82,7 @@ test.describe("Servidor de IA › tablero", () => {
         const modelos = slot(page, "modelos");
         await expect(modelos.locator('[data-modelo="qwen2.5:14b"]')).toContainText("En memoria · ocupa 10.0 GB");
         await expect(modelos.locator('[data-modelo="gemma3:27b"]')).toContainText("Sin cargar");
+        await expect(modelos.locator('[data-modelo="gemma3:27b"]')).toContainText("no permitido");
         await expect(slot(page, "errores-recientes")).toContainText("Sin errores");
         await captura(page, "tablero-ahora");
 
@@ -163,6 +171,16 @@ test.describe("Servidor de IA › tablero", () => {
         await expect(aviso).toContainText("Activo ahora");
     });
 
+    test("más empresas que turnos: lo avisa en llano y lleva a Mantenimiento", async ({ page }) => {
+        await abrir(page, RUTA, { plazasInsuficientes: true });
+        const aviso = slot(page, "plazas-insuficientes");
+        await expect(aviso).toContainText("Hay más empresas usando el servidor que turnos disponibles (6 empresas y 4 turnos)");
+        await captura(page, "tablero-plazas");
+        await aviso.getByRole("link", { name: "Ir a Mantenimiento" }).click();
+        await expect(page).toHaveURL(new RegExp(`${RUTA}/mantenimiento$`));
+        await expect(slot(page, "quien-puede").locator('[data-slot="plazas-insuficientes"]')).toBeVisible();
+    });
+
     test("«Probar» con el servidor en línea: los pasos en llano", async ({ page }) => {
         const api = await abrir(page, RUTA);
         await page.getByRole("button", { name: "Probar", exact: true }).click();
@@ -189,7 +207,7 @@ test.describe("Servidor de IA › caído o incompatible", () => {
         await expect(slot(page, "modelos")).toHaveCount(0);
         await expect(slot(page, "mientras-tanto")).toContainText("Qué pasa con el asistente mientras tanto");
         await expect(slot(page, "mientras-tanto")).toContainText("Cable Norte");
-        await expect(slot(page, "que-revisar")).toContainText("sudo iris-voz estado");
+        await expect(slot(page, "que-revisar")).toContainText("sudo iris-voz status");
 
         await page.getByRole("button", { name: "Probar ahora" }).click();
         await expect(slot(page, "resultado-prueba")).toHaveAttribute("data-estado", "error");
@@ -215,9 +233,17 @@ test.describe("Servidor de IA › caído o incompatible", () => {
         const fuera = slot(page, "servidor-fuera");
         await expect(fuera).toContainText("Versión incompatible");
         await expect(fuera).toContainText("Hay que actualizar Iris Voz en el servidor");
-        await expect(fuera.locator('[data-slot="comando"]')).toContainText("sudo iris-voz actualizar");
+        await expect(fuera.locator('[data-slot="comando"]')).toContainText("sudo iris-voz upgrade");
         await expect(slot(page, "cifras")).toHaveAttribute("data-vigentes", "no");
         await captura(page, "incompatible");
+    });
+
+    test("incompatible por el protocolo o porque Iris es más nuevo: también se actualiza el servidor, con su porqué", async ({ page }) => {
+        await abrir(page, RUTA, { motor: "incompatible_protocolo" });
+        await expect(slot(page, "servidor-fuera")).toContainText("no hablan la misma versión del protocolo");
+        await expect(slot(page, "servidor-fuera").locator('[data-slot="comando"]')).toContainText("sudo iris-voz upgrade");
+        // Sin `versionDisponible` no se dice a qué versión.
+        await expect(slot(page, "servidor-fuera")).not.toContainText("o una más nueva");
     });
 
     test("incompatible porque Iris es antiguo: dice que hay que actualizar Iris y no da comando", async ({ page }) => {
@@ -245,7 +271,7 @@ test.describe("Servidor de IA › enlazar", () => {
         await captura(page, "sin-servidor");
         await page.getByRole("link", { name: "Enlazar servidor" }).click();
         await expect(pasos(page)).toHaveAttribute("data-paso-actual", "direccion");
-        await expect(pasos(page)).toContainText("sudo iris-voz enlazar");
+        await expect(pasos(page)).toContainText("sudo iris-voz pair");
 
         // La dirección tiene que ser https.
         await page.getByLabel("Dirección").fill("http://10.0.0.5:8443");
@@ -302,6 +328,16 @@ test.describe("Servidor de IA › enlazar", () => {
         await expect(pasos(page)).toHaveAttribute("data-paso-actual", "direccion");
     });
 
+    test("si el servidor dice que la ventana ya venció (409), se ofrece generar otro código", async ({ page }) => {
+        await abrir(page, `${RUTA}/enlazar`, { motor: "ninguno", conectar: ["vencido"] });
+        await page.getByLabel("Dirección").fill("https://10.0.0.5:8443");
+        await page.getByRole("button", { name: "Generar el código" }).click();
+        await page.getByRole("button", { name: "Ya lo escribieron: conectar" }).click();
+        await expect(slot(page, "codigo-vencido")).toContainText("El código venció");
+        await expect(slot(page, "error-enlace")).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Ya lo escribieron: conectar" })).toBeDisabled();
+    });
+
     test("errores del servidor al empezar: dirección no permitida junto al campo y servidor que no responde", async ({ page }) => {
         await abrir(page, `${RUTA}/enlazar`, { motor: "ninguno" });
         await page.getByLabel("Dirección").fill("https://127.0.0.1:8443");
@@ -355,6 +391,8 @@ test.describe("Servidor de IA › avisos y umbrales", () => {
         await expect(f.getByLabel("Temperatura: avisa si pasa de (°C)")).toHaveValue("85");
         await expect(f.getByLabel("Saturación: avisa si se rechazan más de (peticiones)")).toHaveValue("10");
         await expect(f.getByLabel("Saturación: en (minutos)")).toHaveValue("5");
+        await expect(f.getByLabel("Historial detallado: guardar (días)")).toHaveValue("7");
+        await expect(f.getByLabel("Historial por hora: guardar (días)")).toHaveValue("90");
 
         await f.getByLabel("Temperatura: avisa si pasa de (°C)").fill("120");
         // El campo no deja pasar del rango del contrato (60 a 100 °C).
@@ -368,7 +406,7 @@ test.describe("Servidor de IA › avisos y umbrales", () => {
 
         await expect(page).toHaveURL(new RegExp(`${RUTA}$`));
         await expect(page.getByText("Avisos del servidor de IA guardados")).toBeVisible();
-        expect(api.servidorIa.recibido.umbrales[0]).toMatchObject({ version: 2, temperaturaC: 80, vramPct: 95, saturacionRechazos: 10 });
+        expect(api.servidorIa.recibido.umbrales[0]).toMatchObject({ version: 2, temperaturaC: 80, vramPct: 95, saturacionRechazos: 10, retencionDetalleDias: 7, retencionHoraDias: 90 });
         expect((api.servidorIa.recibido.umbrales[0] as { idempotencia?: string }).idempotencia).toBeTruthy();
         // El tablero ya usa el umbral nuevo.
         await expect(slot(page, "cifra-temperatura")).toContainText("80 °C");
@@ -393,6 +431,44 @@ test.describe("Servidor de IA › avisos y umbrales", () => {
 });
 
 test.describe("Servidor de IA › mantenimiento", () => {
+    test("modelos permitidos: de los que declara el servidor se eligen los que ven las empresas", async ({ page }) => {
+        const api = await abrir(page, `${RUTA}/mantenimiento`);
+        const modelos = slot(page, "modelos-permitidos");
+        await expect(modelos.getByRole("radio", { name: /Todos los del servidor/ })).toBeChecked();
+        await expect(modelos.getByRole("button", { name: "Guardar" })).toBeDisabled();
+        await modelos.getByRole("radio", { name: /Solo algunos/ }).click();
+        // Empiezan todos marcados: se quita el que sobra.
+        await expect(modelos.getByRole("checkbox", { name: "llama3.1:8b" })).toBeChecked();
+        await modelos.getByRole("checkbox", { name: "llama3.1:8b" }).uncheck();
+        await modelos.getByRole("checkbox", { name: "qwen2.5:14b" }).uncheck();
+        await modelos.getByRole("button", { name: "Guardar" }).click();
+        await expect(modelos).toContainText("Elige al menos un modelo");
+        expect(api.servidorIa.recibido.modelos).toHaveLength(0);
+        await modelos.getByRole("checkbox", { name: "qwen2.5:14b" }).check();
+        await captura(page, "mantenimiento-modelos");
+        await modelos.getByRole("button", { name: "Guardar" }).click();
+        await expect(page.getByText("Guardados los modelos que pueden elegir las empresas")).toBeVisible();
+        expect(api.servidorIa.recibido.modelos[0]).toMatchObject({ modelos: ["qwen2.5:14b"], version: 4 });
+        expect((api.servidorIa.recibido.modelos[0] as { idempotencia?: string }).idempotencia).toBeTruthy();
+
+        // De vuelta a «todos» se manda `null`, con la versión nueva.
+        await modelos.getByRole("radio", { name: /Todos los del servidor/ }).click();
+        await modelos.getByRole("button", { name: "Guardar" }).click();
+        await expect.poll(() => api.servidorIa.recibido.modelos.length).toBe(2);
+        expect(api.servidorIa.recibido.modelos[1]).toMatchObject({ modelos: null, version: 5 });
+    });
+
+    test("modelos permitidos: si el servidor ya no tiene uno de los elegidos (422), lo dice", async ({ page }) => {
+        const api = await abrir(page, `${RUTA}/mantenimiento`, { modelosPermitidos: ["qwen2.5:14b"] });
+        const modelos = slot(page, "modelos-permitidos");
+        await expect(modelos.getByRole("radio", { name: /Solo algunos/ })).toBeChecked();
+        await expect(modelos.getByRole("checkbox", { name: "llama3.1:8b" })).not.toBeChecked();
+        api.servidorIa.quitarDelCatalogo("llama3.1:8b");
+        await modelos.getByRole("checkbox", { name: "llama3.1:8b" }).check();
+        await modelos.getByRole("button", { name: "Guardar" }).click();
+        await expect(slot(page, "error-modelos-permitidos")).toContainText("ya no está en el servidor");
+    });
+
     test("quién puede usarlo y simultáneas por empresa; modelos permitidos con sus comandos", async ({ page }) => {
         const api = await abrir(page, `${RUTA}/mantenimiento`);
         const quien = slot(page, "quien-puede");
@@ -409,8 +485,8 @@ test.describe("Servidor de IA › mantenimiento", () => {
 
         const modelos = slot(page, "modelos-permitidos");
         for (const m of MODELOS_SIA) await expect(modelos).toContainText(m);
-        await expect(modelos).toContainText("sudo iris-voz modelo descargar");
-        await expect(modelos).toContainText("sudo iris-voz modelo permitir");
+        await expect(modelos).toContainText("sudo iris-voz model pull");
+        await expect(modelos).toContainText("sudo iris-voz model allow");
         await esperarSinDesbordes(page);
         await captura(page, "mantenimiento");
     });
@@ -475,6 +551,28 @@ test.describe("Servidor de IA › quién lo ve", () => {
         await page.goto(`${RUTA}/mantenimiento`);
         await expect(slot(page, "quien-puede")).toHaveCount(0);
         await expect(slot(page, "credenciales")).toHaveCount(0);
+    });
+
+    test("campana: caído, incompatible y umbral, cada uno con su texto, y llevan al tablero", async ({ page }) => {
+        // PROVISIONAL: los tres tipos aún no están en el tipo generado.
+        const aviso = (id: number, tipo: string, titulo: string, datos: Record<string, unknown> = {}) =>
+            ({ id, tipo, nivel: tipo === "servidor_ia_umbral" ? "alerta" : "peligro", titulo, enlace: RUTA, datos, leido: false, leidoEn: null, creadoEn: "2026-11-17T16:42:00Z", empresaId: null }) as unknown as NonNullable<OpcionesApi["avisosPanel"]>[number];
+        await abrir(page, "/administracion", {}, ADMIN, {
+            avisosPanel: [
+                aviso(31, "servidor_ia_caido", "El servidor de IA no responde"),
+                aviso(32, "servidor_ia_incompatible", "El servidor de IA no es compatible con esta versión de Iris"),
+                aviso(33, "servidor_ia_umbral", "Temperatura alta en el servidor de IA", { tipo: "temperatura", valor: 88, umbral: 85 }),
+            ],
+        });
+        await page.getByRole("button", { name: /^Avisos/ }).click();
+        const panel = page.getByRole("dialog", { name: "Avisos" });
+        await expect(panel.locator('[data-aviso="servidor_ia_caido"]')).toContainText("El servidor de IA no responde");
+        await expect(panel.locator('[data-aviso="servidor_ia_caido"]')).toContainText("pasa a personas hasta que vuelva");
+        await expect(panel.locator('[data-aviso="servidor_ia_incompatible"]')).toContainText("El tablero dice qué hay que actualizar");
+        await expect(panel.locator('[data-aviso="servidor_ia_umbral"]')).toContainText("La tarjeta gráfica llegó a 88 °C");
+        await captura(page, "campana");
+        await panel.locator('[data-aviso="servidor_ia_caido"]').getByRole("link").first().click();
+        await expect(page).toHaveURL(new RegExp(`${RUTA}$`));
     });
 
     test("en Integraciones, la tarjeta del servidor solo la ve quien administra la instalación", async ({ page }) => {

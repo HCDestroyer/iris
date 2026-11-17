@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { cantidad, cifrasVigentes, duracionLlana, enServicio, huellaLegible, lineaEstado, queActualizar, seriesDe, tamano, tarjetaGpu, textoAviso, textoError, textoErrorEnlace, tiempoRespuesta, tonoFrente, ultimaVez } from "./presentacion";
+import { cantidad, cifrasVigentes, duracionLlana, enServicio, huellaLegible, lineaEstado, queActualizar, seriesDe, tamano, tarjetaGpu, textoAviso, textoError, textoErrorEnlace, textoPlazas, tiempoRespuesta, tonoFrente, ultimaVez } from "./presentacion";
 import type { Tablero } from "./tipos";
 import { DE_FABRICA, entradaDeUmbrales, esDeFabrica, esquemaEmpresas, esquemaEnlace, esquemaUmbrales, valoresDeUmbrales } from "./umbrales";
 
 const AHORA = Date.parse("2026-11-17T17:02:00Z");
 const estado = (e: Partial<Tablero["estado"]>): Tablero["estado"] => ({ motorId: 1, estado: "listo", detalle: null, version: "0.1.0", compatible: true, motivoIncompatible: null, encendidoSeg: 6 * 86_400, tomadoEn: "2026-11-17T17:01:56Z", lecturaOk: true, modelosDisponibles: [], ...e });
-const tablero = (e: Partial<Tablero["estado"]>, servidor: Tablero["servidor"] = { gpus: [], disco: null, modelos: [], llm: { enCurso: 0, maxSimultaneas: 4 }, rechazadas: 0 }): Tablero => ({ estado: estado(e), servidor, series: null, uso: null, avisos: [] });
+const tablero = (e: Partial<Tablero["estado"]>, servidor: Tablero["servidor"] = { gpus: { estado: "omitido", lista: [] }, cpu: null, memoria: null, disco: null, modelos: [], llm: { enCurso: 0, maxSimultaneas: 4 }, rechazadas: 0 }): Tablero => ({ estado: estado(e), servidor, series: null, uso: null, avisos: [] });
 
 describe("textos del Servidor de IA", () => {
     it("cantidades, tamaños y tiempos en llano", () => {
@@ -40,10 +40,20 @@ describe("textos del Servidor de IA", () => {
     });
 
     it("la compatibilidad se explica en los dos sentidos", () => {
-        const servidor = queActualizar({ version: "0.0.9", motivoIncompatible: "motor_antiguo", versionDisponible: "0.1.0" });
-        expect(servidor.titulo).toBe("Hay que actualizar Iris Voz en el servidor");
-        expect(servidor.comando).toBe("sudo iris-voz actualizar");
-        expect(servidor.detalle).toContain("a la 0.1.0 o una más nueva");
+        // Solo `iris_antiguo` pide actualizar Iris; los otros tres, el servidor, cada uno con su porqué.
+        for (const [motivo, texto] of [
+            ["paquete_antiguo", "más antiguo que el mínimo"],
+            ["iris_nuevo", "más nueva que lo que Iris Voz 0.0.9 sabe atender"],
+            ["protocolo", "no hablan la misma versión del protocolo"],
+        ] as const) {
+            const servidor = queActualizar({ version: "0.0.9", motivoIncompatible: motivo, versionDisponible: null });
+            expect(servidor.titulo).toBe("Hay que actualizar Iris Voz en el servidor");
+            expect(servidor.comando).toBe("sudo iris-voz upgrade");
+            expect(servidor.detalle).toContain(texto);
+            // Sin `versionDisponible` no se dice a cuál versión.
+            expect(servidor.detalle).not.toContain("o una más nueva");
+        }
+        expect(queActualizar({ version: "0.0.9", motivoIncompatible: "paquete_antiguo", versionDisponible: "0.1.0" }).detalle).toContain("a la 0.1.0 o una más nueva");
         const iris = queActualizar({ version: "0.3.0", motivoIncompatible: "iris_antiguo", versionDisponible: null });
         expect(iris.titulo).toBe("Hay que actualizar Iris");
         expect(iris.comando).toBeNull();
@@ -71,7 +81,7 @@ describe("textos del Servidor de IA", () => {
         expect(s.peticiones).toEqual([4, null]);
         expect(s.media).toEqual([1.5, null]);
         expect(s.instantes).toEqual(["10:00", "10:01"]);
-        expect(seriesDe(puntos, "ahora").marcas).toEqual(["hace 5 min", "hace 2 min", "ahora"]);
+        expect(seriesDe(puntos, "ahora").marcas).toEqual(["hace 10 min", "hace 5 min", "ahora"]);
     });
 
     it("errores, avisos y fallos del enlace en llano", () => {
@@ -84,14 +94,17 @@ describe("textos del Servidor de IA", () => {
         // 401: no se distingue código vencido, usado o mal escrito (el servidor no lo dice).
         expect(textoErrorEnlace("no_autorizado", 401)).toContain("no aceptó el código");
         expect(textoErrorEnlace("motor_no_responde", 502)).toContain("no pudo llegar al servidor");
+        expect(textoErrorEnlace("enlace_vencido", 409)).toContain("ya venció");
         expect(textoErrorEnlace("otro", 500)).toBeNull();
+        expect(textoPlazas(6, 4)).toContain("más empresas usando el servidor que turnos disponibles (6 empresas y 4 turnos)");
+        expect(textoPlazas(undefined, null)).not.toContain("(");
         expect(huellaLegible("3fa91c07b2de")).toEqual(["3FA9", "1C07", "B2DE"]);
     });
 });
 
 describe("umbrales y formularios del Servidor de IA", () => {
-    it("los de fábrica: 95 % de memoria de video, 90 % de disco, 85 °C y 10 rechazos en 5 minutos", () => {
-        expect(DE_FABRICA).toEqual({ vramPct: 95, vramMinutos: 5, discoPct: 90, temperaturaC: 85, temperaturaMinutos: 5, saturacionRechazos: 10, saturacionMinutos: 5 });
+    it("los de fábrica: 95 % de memoria de video, 90 % de disco, 85 °C, 10 rechazos en 5 minutos y 7 y 90 días de historial", () => {
+        expect(DE_FABRICA).toEqual({ vramPct: 95, vramMinutos: 5, discoPct: 90, temperaturaC: 85, temperaturaMinutos: 5, saturacionRechazos: 10, saturacionMinutos: 5, retencionDetalleDias: 7, retencionHoraDias: 90 });
         const v = valoresDeUmbrales(DE_FABRICA);
         expect(esDeFabrica(v)).toBe(true);
         expect(esDeFabrica({ ...v, temperaturaC: "80" })).toBe(false);
@@ -111,6 +124,9 @@ describe("umbrales y formularios del Servidor de IA", () => {
         expect(falla({ saturacionRechazos: "1000" })).toBe(false);
         expect(falla({ saturacionMinutos: "61" })).toBe(true);
         expect(falla({ vramMinutos: "cinco" })).toBe(true);
+        expect(falla({ retencionDetalleDias: "31" })).toBe(true);
+        expect(falla({ retencionHoraDias: "6" })).toBe(true);
+        expect(falla({ retencionHoraDias: "365" })).toBe(false);
     });
 
     it("«solo ciertas empresas» pide al menos una; la dirección del enlace es https sin ruta", () => {

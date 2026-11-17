@@ -12,6 +12,8 @@ export const DE_FABRICA: Omit<Umbrales, "version"> = {
     temperaturaMinutos: 5,
     saturacionRechazos: 10,
     saturacionMinutos: 5,
+    retencionDetalleDias: 7,
+    retencionHoraDias: 90,
 };
 
 const entero = (min: number, max: number, mensaje: string) =>
@@ -28,6 +30,8 @@ export const esquemaUmbrales = z.object({
     temperaturaMinutos: entero(1, 60, "Entre 1 y 60 minutos"),
     saturacionRechazos: entero(1, 1000, "Entre 1 y 1000"),
     saturacionMinutos: entero(1, 60, "Entre 1 y 60 minutos"),
+    retencionDetalleDias: entero(1, 30, "Entre 1 y 30 días"),
+    retencionHoraDias: entero(7, 365, "Entre 7 y 365 días"),
 });
 export type ValoresUmbrales = z.infer<typeof esquemaUmbrales>;
 export const CAMPOS_UMBRALES = Object.keys(DE_FABRICA) as (keyof ValoresUmbrales)[];
@@ -40,6 +44,8 @@ export const valoresDeUmbrales = (u: Omit<Umbrales, "version">): ValoresUmbrales
     temperaturaMinutos: String(u.temperaturaMinutos),
     saturacionRechazos: String(u.saturacionRechazos),
     saturacionMinutos: String(u.saturacionMinutos),
+    retencionDetalleDias: String(u.retencionDetalleDias),
+    retencionHoraDias: String(u.retencionHoraDias),
 });
 
 export const entradaDeUmbrales = (v: ValoresUmbrales, version: number): Umbrales => ({
@@ -51,6 +57,8 @@ export const entradaDeUmbrales = (v: ValoresUmbrales, version: number): Umbrales
     temperaturaMinutos: Number(v.temperaturaMinutos),
     saturacionRechazos: Number(v.saturacionRechazos),
     saturacionMinutos: Number(v.saturacionMinutos),
+    retencionDetalleDias: Number(v.retencionDetalleDias),
+    retencionHoraDias: Number(v.retencionHoraDias),
 });
 
 /** ¿Son los valores de fábrica? */

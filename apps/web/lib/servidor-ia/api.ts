@@ -27,7 +27,7 @@ export async function leerMotor(signal?: AbortSignal): Promise<Motor | null> {
 
 /** Crea el enlace: devuelve el código de un solo uso, que se muestra una vez (no se guarda por `Idempotency-Key`). */
 export const enlazarMotor = (entrada: { nombre: string; url: string }, clave: string) => mandar<EnlaceCreado>(`${MOTORES}/enlazar`, clave, entrada);
-/** Iris se presenta al servidor con el código ya escrito allá. Código vencido, usado o equivocado: 401, sin detalle. */
+/** Iris se presenta al servidor con el código ya escrito allá. Código usado o equivocado: 401, sin detalle; ventana vencida: 409 `enlace_vencido`. */
 export const conectarMotor = (id: number, clave: string) => mandar<Motor>(`${MOTORES}/${id}/conectar`, clave);
 export const activarMotor = (id: number, version: number, clave: string) => mandar<Motor>(`${MOTORES}/${id}/activar`, clave, { version });
 export const desactivarMotor = (id: number, version: number, motivo: string, clave: string) => mandar<Motor>(`${MOTORES}/${id}/desactivar`, clave, { version, motivo });
@@ -36,6 +36,9 @@ export const probarMotor = (id: number, clave: string) => mandar<ResultadoPrueba
 export const rotarCredenciales = (id: number, revocar: boolean, clave: string) => mandar<Motor>(`${MOTORES}/${id}/rotar-token`, clave, revocar ? { revocar: true } : {});
 export const guardarEmpresasPermitidas = (id: number, entrada: { empresas: number[] | null; simultaneasPorEmpresa: number; version: number }, clave: string) =>
     mandar<Motor>(`${MOTORES}/${id}/empresas/actualizar`, clave, entrada);
+
+/** Los modelos que las empresas pueden elegir, de los que declara el servidor; `null` = todos. */
+export const guardarModelosPermitidos = (id: number, entrada: { modelos: string[] | null; version: number }, clave: string) => mandar<Motor>(`${MOTORES}/${id}/modelos/actualizar`, clave, entrada);
 
 export const leerTablero = (rango: Rango, signal?: AbortSignal) => leer<Tablero>(`${SERVIDOR}/tablero`, { signal, params: { query: { rango } } });
 export const leerUmbrales = (signal?: AbortSignal) => leer<Umbrales>(`${SERVIDOR}/umbrales`, { signal });

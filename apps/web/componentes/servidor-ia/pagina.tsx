@@ -12,8 +12,9 @@ import { TableroServidorIa } from "./tablero";
  * cifras no dependen de ellos.
  */
 export function PaginaServidorIa() {
-    const { administra } = usePermisosServidorIa();
-    return administra ? <ConUmbrales /> : <TableroServidorIa />;
+    // Los umbrales los lee quien ve todo (`servidor_ia.ver`); cambiarlos pide `.administrar`.
+    const { global } = usePermisosServidorIa();
+    return global ? <ConUmbrales /> : <TableroServidorIa />;
 }
 
 function ConUmbrales() {
