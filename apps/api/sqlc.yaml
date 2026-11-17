@@ -192,6 +192,7 @@ sql:
       - internal/mensajeria/asistente3.sql
       - internal/mensajeria/asistente_auto.sql
       - internal/mensajeria/voz.sql
+      - internal/mensajeria/servidor_ia.sql
     gen:
       go:
         <<: *gen
@@ -207,6 +208,7 @@ sql:
           mensajeria_asistente_categoria: MensajeriaCategoria
           mensajeria_cola_supervisore: MensajeriaColaSupervisor
           mensajeria_conexion_metum: MensajeriaConexionMeta
+          mensajeria_voz_motore: MensajeriaVozMotor
   - <<: *base
     queries: internal/notificaciones/consultas.sql
     gen:

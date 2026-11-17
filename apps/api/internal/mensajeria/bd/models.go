@@ -1869,6 +1869,28 @@ type MensajeriaRespuestaRapida struct {
 	UpdatedAt time.Time
 }
 
+type MensajeriaServidorIaPlaza struct {
+	ID        uuid.UUID
+	MotorID   int64
+	EmpresaID int64
+	TomadaEn  time.Time
+	VenceEn   time.Time
+}
+
+type MensajeriaServidorIaUso struct {
+	MotorID         int64
+	Hora            time.Time
+	EmpresaID       int64
+	Modelo          string
+	Peticiones      int64
+	TokensEntrada   int64
+	TokensSalida    int64
+	LatenciaMsSuma  int64
+	LatenciaCubetas []int64
+	Errores         []byte
+	Rechazos        int64
+}
+
 type MensajeriaSugerencia struct {
 	ID               uuid.UUID
 	EmpresaID        *int64
@@ -1935,6 +1957,56 @@ type MensajeriaVozAjustesCanal struct {
 	MetaDetalle            *string
 	PlantillaPermiso       *string
 	PlantillaPermisoIdioma string
+}
+
+type MensajeriaVozMotor struct {
+	ID                    int64
+	Nombre                string
+	Url                   string
+	Estado                string
+	EnlazadoEn            *time.Time
+	ActivadoEn            *time.Time
+	EnlaceCodigo          []byte
+	EnlaceVenceEn         *time.Time
+	EnlaceUsadoEn         *time.Time
+	Token                 []byte
+	TokenSiguiente        []byte
+	TokenRotadoEn         *time.Time
+	CertCliente           *string
+	CertClienteClave      []byte
+	CertClienteVenceEn    *time.Time
+	HuellaTls             *string
+	HuellaTlsSiguiente    *string
+	IpObservada           *string
+	RestringeIp           bool
+	EmpresasPermitidas    []int64
+	SimultaneasPorEmpresa int32
+	ModelosPermitidos     []string
+	VramPct               int32
+	VramMinutos           int32
+	DiscoPct              int32
+	TemperaturaC          int32
+	TemperaturaMinutos    int32
+	SaturacionRechazos    int32
+	SaturacionMinutos     int32
+	RetencionDetalleDias  int32
+	RetencionHoraDias     int32
+	UmbralesVersion       int32
+	MaxSimultaneas        int32
+	VersionMotor          *string
+	VersionProtocolo      *string
+	IrisMin               *string
+	IrisMax               *string
+	Compatible            bool
+	MotivoIncompatible    *string
+	Catalogo              []byte
+	Detalle               *string
+	FallosSeguidos        int32
+	UltimoLatidoEn        *time.Time
+	UltimaPrueba          []byte
+	Version               int32
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 type MensajeriaWebhooksSalida struct {
