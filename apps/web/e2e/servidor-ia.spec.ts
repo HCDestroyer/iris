@@ -701,6 +701,8 @@ test.describe("Servidor de IA › quién lo ve", () => {
     test("el admin de una empresa ve el estado general y solo el uso de su empresa", async ({ page }) => {
         const api = await abrir(page, RUTA, {}, SUPERVISOR_ZONA);
         await expect(estado(page)).toContainText("En línea");
+        // `encendidoSeg` le llega nulo: la línea no inventa cuánto lleva encendido.
+        await expect(estado(page)).toHaveText("En línea · versión 0.1.0 · compatible con esta versión de Iris");
         await expect(page.getByRole("navigation", { name: "Secciones del Servidor de IA" })).toHaveCount(0);
         await expect(page.getByRole("button", { name: "Probar", exact: true })).toHaveCount(0);
         await expect(slot(page, "cifras")).toHaveCount(0);

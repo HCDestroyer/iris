@@ -210,7 +210,8 @@ export function apiServidorIa(opciones: OpcionesServidorIa = {}) {
             version: motor.paquete?.version ?? null,
             compatible: motor.paquete?.compatible ?? null,
             motivoIncompatible: motor.paquete?.motivoIncompatible ?? null,
-            encendidoSeg: vivo ? 6 * 86_400 + 3_600 : null,
+            // Al admin de una empresa (`ver_uso`) no le llega cuánto lleva encendido.
+            encendidoSeg: vivo && global ? 6 * 86_400 + 3_600 : null,
             // La muestra buena es de hace 4 s en el reloj de la página (que la prueba adelanta).
             tomadoEn: iso(caidoDesde ?? (opciones.lecturaFallida ? AHORA_SIA - 3 * 60_000 : opciones.lecturaVieja ? ahora - 5 * 60_000 : ahora - 4_000)),
             lecturaOk,
