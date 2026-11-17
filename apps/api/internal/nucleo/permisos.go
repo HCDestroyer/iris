@@ -261,7 +261,7 @@ const (
 	PermLlamadasColgar              Permiso = "llamadas.colgar"
 	PermLlamadasAnotar              Permiso = "llamadas.anotar"
 	PermLlamadasDescartarDevolucion Permiso = "llamadas.descartar_devolucion"
-	PermLlamadasConfigurar Permiso = "llamadas.configurar"
+	PermLlamadasConfigurar          Permiso = "llamadas.configurar"
 	// PermVozConfigurar: ajustes de voz de la empresa (grabación, límites). Sensible.
 	PermVozConfigurar Permiso = "voz.configurar"
 )

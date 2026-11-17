@@ -42,22 +42,28 @@ técnica (§9)**; los que más pesan están listados en §10.
 - **E1 (hecha en el servidor):** entrantes contestadas en el panel (`reclamar` → `contestar` →
   `confirmar-medio` → `colgar`, con `soltar` y `rechazar`), perdidas con devolución pendiente y
   mensaje automático, fuera de horario, la llamada como mensaje del hilo, nota posterior, «Recibir
-  llamadas», ajustes por número (`comprobar`, `configurar`, `sincronizar`), `GET/POST /voz/ajustes`
-  con los campos de E1 (`grabar`, `duracionMaxPersonaMin`, `segundosAsignado`,
-  `retencionGrabacionesDias`) y su evento `voz.ajustes_cambiados`, feed, permisos y roles.
+  llamadas», ajustes por número (`comprobar`, `configurar`, `sincronizar`, `aplicar`), `GET/POST
+  /voz/ajustes` con los campos de E1 (`duracionMaxPersonaMin`, `segundosAsignado`) y su evento
+  `voz.ajustes_cambiados`, feed, permisos y roles.
 - **E1b (PR siguiente):** llamadas **salientes** («Devolver la llamada», permiso del contacto,
   `llamar`, `llamada_permisos`, `llamadas.llamar`, `llamadas.solicitar_permiso`, botón «Llámanos»,
   `maxSalientesPorDia`, `topeMinutosSalientesMes`).
 - **Límites de E1:** un `connect` de más de 60 s no hace sonar nada (queda `perdida`); duración
   máxima por llamada (`duracionMaxPersonaMin`); ráfaga: la cuarta llamada de un número al mismo
   canal en 10 minutos se rechaza (`motivo_fin: limite`), sin mensaje. `voz_bloqueos` queda en E2.
-- **Pendiente dentro de E1 (no está en esta PR):** descargar, servir, borrar y vencer la **grabación**
-  de Meta (existen la tabla, el ajuste `grabar` y la petición de grabación al aceptar; falta el
-  webhook `call_recording_available` y sus endpoints, que dependen de validar la forma real con un
-  número de prueba); el push `llamada_perdida`; el espejo de `call_hours`; marcar `buzonDeVoz` en el
-  audio del buzón (no se sabe qué lo distingue, §10.1-9); y la escritura en Meta de los ajustes del
-  número con pendiente y reintentos (hoy se escribe una vez tras guardar y, si falla, queda en el
-  log: «Sincronizar» lo corrige).
+- **E1c (grabación, pendiente de la prueba real):** la grabación de Meta **no forma parte de E1**.
+  No se ofrece ni se acepta: `grabar` es siempre `nunca` (cualquier otro valor en
+  `POST /voz/ajustes/actualizar` responde **422 `grabacion_no_disponible`**), Iris **nunca pide** la
+  grabación a Meta y no existen todavía `llamadas.escuchar_grabacion` ni `llamadas.borrar_grabacion`
+  ni sus endpoints. Quedan creadas, vacías, la tabla `llamada_grabaciones` y la columna
+  `llamadas.grabada`. E1c se hará cuando un número de prueba confirme cómo se pide la grabación y
+  la forma de `call_recording_available` (§9.1-10); todo lo de §2.7 y la fila 13 de §6.2 vale para
+  entonces.
+- **Hecho en E1 además de lo anterior:** push de llamada perdida; marca `buzonDeVoz` del recado del
+  buzón; espejo de `call_hours`; y la escritura de los ajustes del número en WhatsApp como pendiente
+  con reintentos y estado visible (§3.9).
+- **Lo único de E1 que no se ha podido comprobar:** el cliente real de la Graph API y la forma del
+  webhook, contra Meta de verdad (guion en `docs/runbooks/voz-prueba-manual.md`).
 
 **Fuera de alcance, explícitamente:**
 
@@ -475,9 +481,12 @@ redes que bloquean UDP (un TURN propio, opcional, §10).
 - Si nadie es candidato: va al asistente si está configurado (§3.5); si no, sigue sonando hasta
   `segundosSonando` y queda `perdida` con su devolución pendiente y, si el número lo tiene
   encendido, un mensaje automático al cliente («No pudimos contestarte…»), una vez por hora.
-- **Push al teléfono** (`notificaciones`, tipo `llamada_perdida`) a quien tiene la conversación
-  asignada y a los supervisores de la cola, según sus preferencias. Contestar desde la app es de otra
-  fase.
+- **Push al teléfono** (`notificaciones`) a quien tiene la conversación asignada y a los supervisores
+  de la cola, según sus preferencias. Sale con el tipo de push **`bandeja`** (el interruptor «bandeja»
+  de las preferencias también lo calla; no hay un interruptor aparte) y con `datos.llamada_perdida:
+  true`, título «Llamada perdida» y enlace a la conversación; a diferencia de «¿Alguien la atiende?»,
+  se avisa aunque la conversación tenga dueño. Los destinatarios van en `llamada.perdida.usuarios`.
+  Contestar desde la app es de otra fase.
 - Si la pestaña se cierra o se cae **durante** la llamada: Meta deja de recibir audio; el servidor
   nota que el flujo SSE del usuario murió y a los 15 s sin que vuelva termina la llamada
   (`motivo_fin: error_medio`). Al reabrir, `GET /llamadas/activa` le dice si sigue viva; el audio no
@@ -506,7 +515,10 @@ Según `voz_ajustes_canal.fuera_de_horario`:
   compartida con el chat (no sale dos veces por escribir y luego llamar).
 - `buzon`: no se hace nada con la llamada de Iris; el buzón lo da Meta (ajuste del número) y el
   audio llega por el webhook `messages` como mensaje `audio` con `buzonDeVoz: true`. La llamada
-  queda `fuera_de_horario`.
+  queda `fuera_de_horario`. **Cómo se marca (supuesto, §10.1-9):** como no se sabe qué distingue en
+  el webhook un recado de un audio normal, Iris marca `buzonDeVoz` en el audio entrante de esa
+  conversación que llega hasta 5 minutos después de una llamada dejada al buzón. Si la prueba real
+  muestra una marca propia de Meta, se cambia por ella.
 - `asistente`: contesta el asistente con el perfil de la franja (como en el chat).
 
 La guardia (§10.2 del chat) se avisa igual que con un mensaje.
@@ -597,12 +609,28 @@ Un supervisor puede **oír** una llamada en curso sin participar.
   `limite_mensajeria` (≥ 2 000 destinatarios/día), `webhook_calls` (campo `calls` suscrito),
   `calling_habilitado`, `plantilla_permiso` (solo aviso: sin ella no hay solicitud fuera de ventana).
   Mismo trato de errores que `probar` del número: nunca el mensaje crudo de Meta.
-- `POST /canales/{id}/llamadas/sincronizar`: lee de Meta los ajustes del número y marca diferencias;
-  los cambios hechos en Iris se escriben en Meta en un pendiente con reintentos.
+- `POST /canales/{id}/llamadas/sincronizar`: lee de Meta los ajustes del número y copia a Iris el
+  icono y la devolución.
+- **Escritura en WhatsApp, pendiente con reintentos.** Al guardar `configurar`, lo que también vive
+  en Meta (encendido, icono, devolución y horario de llamadas) queda `pendiente`: se intenta al
+  momento, después del COMMIT, y si Meta no responde o lo rechaza se reintenta solo a 1 min, 5 min,
+  30 min, 2 h y 12 h; agotados, queda en `error`. `GET /canales/{id}/llamadas` lo muestra en
+  `whatsapp: { estado: aplicado | pendiente | error, intentos, proximoIntentoEn?, detalle? }`
+  («pendiente de aplicar en WhatsApp»; `detalle` en texto llano, nunca el mensaje de Meta).
+  `POST /canales/{id}/llamadas/aplicar` (`llamadas.configurar`) lo intenta ya, también desde `error`.
+  El estado vive en `voz_ajustes_canal` (`meta_estado`, `meta_intentos`, `meta_proximo_en`,
+  `meta_detalle`), no en `integracion.pendientes`: el servicio de mensajería no usa esa cola y aquí
+  solo hay un pendiente por número, que siempre manda el estado actual.
+- **Espejo de `call_hours`.** El horario de llamadas de WhatsApp sale del de Iris (el `horarioId` del
+  ajuste; si no, el del número) cuando cabe en los límites de Meta: hasta 2 franjas por día, 20
+  feriados y un tramo por feriado. Si cabe, viaja en la misma escritura y `horasWhatsapp` lo refleja;
+  si no cabe o no hay horario, `call_hours` queda abierto, `horasWhatsapp` va ausente e Iris aplica el
+  horario de su lado al llegar la llamada (§2.11). La forma exacta del objeto en Meta es un supuesto
+  (§10.1-7).
 - `GET /voz/ajustes`, `POST /voz/ajustes/actualizar` (`voz.configurar`, **solo admin**): lo de
-  `voz_ajustes`. **En E1** solo `{ version, grabar, duracionMaxPersonaMin (10–120),
-  segundosAsignado (0–20), retencionGrabacionesDias (1–365) }`, con rangos validados (422) y
-  `voz.ajustes_cambiados`; E2 lo amplía. STT, TTS y LLM de voz se **eligen** entre los que declara el catálogo del servidor de voz
+  `voz_ajustes`. **En E1** solo `{ version, duracionMaxPersonaMin (10–120), segundosAsignado
+  (0–20) }`, con rangos validados (422) y `voz.ajustes_cambiados`; el `GET` trae además `grabar:
+  "nunca"` (fijo hasta E1c; mandar otro valor: 422 `grabacion_no_disponible`). E2 lo amplía. STT, TTS y LLM de voz se **eligen** entre los que declara el catálogo del servidor de voz
   (`GET /voz/catalogo`); aquí **no hay URL ni clave** que escribir (§4.3).
 - `POST /voz/probar { texto? }` (`voz.configurar`): prueba TTS → STT de ida y vuelta en el motor con
   una frase fija o la escrita (≤ 200) → `{ estado, latenciaSttMs, latenciaTtsMs, latenciaLlmMs,
@@ -1548,7 +1576,7 @@ cortada emite además su `llamada.fallida` **con** su empresa. El detalle está 
 | `llamada.saliente_iniciada` | mensajeria (voz) | llamada_id, conversacion_id, canal_id, usuario_id, devolucion_id (o null) | E1 |
 | `llamada.contestada` | mensajeria (voz) | llamada_id, conversacion_id, atendida_por (persona, asistente), usuario_id (o null), espera_seg | E1 |
 | `llamada.terminada` | mensajeria (voz) | llamada_id, conversacion_id, direccion, atendida_por, usuario_id (o null), duracion_seg, motivo_fin, tramos | E1 |
-| `llamada.perdida` | mensajeria (voz) | llamada_id, conversacion_id, direccion, cola_id (o null), sono_seg, devolucion_id (o null) | E1 |
+| `llamada.perdida` | mensajeria (voz) | llamada_id, conversacion_id, direccion, cola_id (o null), sono_seg, devolucion_id (o null), usuarios[] (a quién se le avisa por push) | E1 |
 | `llamada.rechazada` | mensajeria (voz) | llamada_id, conversacion_id, motivo (rechazada_agente, fuera_de_horario, sin_capacidad, motor_no_disponible, limite, mal_uso, tope), usuario_id (o null) | E1 |
 | `llamada.fallida` | mensajeria (voz) | llamada_id, conversacion_id, motivo (error_medio, error_meta, motor_no_disponible, transferencia_fallida), etapa (sonando, conectando, en_curso) | E1 |
 | `llamada.anotada` | mensajeria (voz) | llamada_id, conversacion_id, usuario_id, resultado (o null) | E1 |
@@ -1731,6 +1759,10 @@ Cerradas tras la revisión de seguridad; ya están aplicadas en el documento.
 | Salientes | En una **E1b** aparte: E1 es solo entrantes |
 | Límites de E1 | `connect` de más de 60 s no suena, duración máxima y ráfaga de 3 en 10 min por número; `voz_bloqueos` en E2 |
 | Tablas que faltaban | `llamada_receptores`, columnas `accion_meta*` y `mensaje_perdida*` (§2) |
+| Grabación | **Fuera de E1: E1c**, pendiente de la prueba real. No se ofrece ni se acepta (422 `grabacion_no_disponible`) |
+| Mensaje de llamada perdida | Solo con la ventana de 24 h abierta |
+| Supervisor de la cola (en voz) | Quien tiene `conversaciones.supervisar` |
+| `reclamar` repetido | Relee la oferta de la llamada; su respuesta no se guarda por `Idempotency-Key` |
 | Llamadas de Issabel | **Fuera de la bandeja**: ficha del cliente y ticket |
 | Claves de STT/TTS externos | **Solo en el servidor dedicado, por instalación; nunca por llamada** (§4.3) |
 | Quién abre conexiones | Solo mensajería: al servidor de voz y al AMI (§4.2, §3.12) |

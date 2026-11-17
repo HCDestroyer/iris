@@ -45,7 +45,9 @@ solo sitio (`graphHTTP`, `apps/api/internal/mensajeria/voz_modelo.go`) y la form
 | 5 | Un `connect` repetido trae el mismo `id` | Mirar reintentos de Meta en `entrantes` | Revisar la deduplicación |
 | 6 | Qué trae `terminate` si nadie contestó | Colgar desde el teléfono antes de contestar | Ajustar `terminarPorMeta` |
 | 7 | Una llamada **no** abre la ventana de 24 h | Llamar desde un número que no ha escrito y ver si sale el mensaje de llamada perdida | Si la abre, quitar la condición |
-| 8 | La grabación se pide al aceptar (`recording`) y llega `call_recording_available` | Encender `grabar: todas` y contestar | Define la descarga (pendiente de E1) |
+| 8 | Cómo se pide la grabación y qué trae `call_recording_available` | Con una página de prueba aparte (Iris no la pide: la grabación es E1c) | Define E1c |
+| 9 | La forma de `call_hours` en `POST /{phone_number_id}/settings` | Configurar un horario que quepa y mirar WhatsApp Manager | Ajustar `graphHTTP.FijarAjustes` |
+| 10 | Qué distingue el recado del buzón de un audio normal | Dejar un recado con `fueraDeHorario: buzon` y mirar el webhook `messages` | Cambiar la regla de los 5 minutos por la marca de Meta |
 
 ## 4. Fuera de horario, perdida y límites
 

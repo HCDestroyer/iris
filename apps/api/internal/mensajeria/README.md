@@ -549,7 +549,8 @@ Contrato: `.claude/integration/contratos/voz.md`. Código en `voz_*.go`, consult
   de 24 h está abierta, el mensaje automático, una vez por hora), reserva vencida, ampliar de la
   persona asignada a toda la cola, duración máxima y panel caído (15 s sin flujo).
 - **Seguridad.** El SDP se valida antes de reenviarlo (`ValidarSDP`), nunca va a auditoría (solo su
-  sha256), eventos, feed ni idempotencia, y se borra al terminar. El `call_id` de Meta y el token no
+  sha256), eventos, feed ni idempotencia, y se borra al terminar. Los eventos de llamada no llevan
+  el número del cliente. El `call_id` de Meta y el token no
   salen por la API. Solo un candidato vivo de esa llamada puede reclamarla; después solo quien la
   reclamó sigue (los demás, 404). Llamadas solo en números por API.
 - **Graph API detrás de una interfaz** (`GraphLlamadas`): todo lo de la Calling API es un supuesto a
@@ -561,5 +562,12 @@ Contrato: `.claude/integration/contratos/voz.md`. Código en `voz_*.go`, consult
   `llamada.rechazada`, `llamada.fallida`, `llamada.anotada`, `llamada.devolucion_pedida`,
   `llamada.devolucion_cerrada`, `canal_mensajeria.llamadas_cambiadas`, `voz.ajustes_cambiados` y
   `conversacion.mensaje_recibido` con `tipo: llamada`. No consume eventos.
-- **Pendiente de E1:** la grabación de Meta (descarga, escucha, borrado y retención), el push de
-  llamada perdida y el espejo de `call_hours`. Las salientes llegan con E1b.
+- **Ajustes en WhatsApp:** encendido, icono, devolución y horario de llamadas (`call_hours`, espejo
+  del horario de Iris cuando cabe en los límites de Meta) se escriben como un pendiente con
+  reintentos (1 min, 5 min, 30 min, 2 h, 12 h; después `error`), con su estado en
+  `GET /canales/{id}/llamadas` y `POST …/llamadas/aplicar` para reintentar.
+- **Llamada perdida:** push a quien tiene la conversación y a quienes supervisan la cola (lo arma
+  `notificaciones` con el tipo `bandeja`). **Buzón de voz:** el audio que llega hasta 5 minutos
+  después de una llamada dejada al buzón se marca `buzonDeVoz`.
+- **Fuera de E1:** la grabación de Meta es **E1c** (no se ofrece ni se acepta: 422
+  `grabacion_no_disponible`; nunca se pide a Meta). Las salientes llegan con E1b.

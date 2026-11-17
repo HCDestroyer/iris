@@ -76,6 +76,10 @@ al log ni a la auditoría. La auditoría del dispositivo lleva `fin_fcm` (últim
   por ámbito) y `notificaciones.correo_pruebas` (tope y última prueba; sin host, destino ni
   credenciales); la purga de cada hora borra los de más de 180 días.
 
+- **Llamada perdida** (`contratos/voz.md` §3.4): consume `llamada.perdida` y avisa por push a
+  `usuarios[]` (quien tiene la conversación y quienes supervisan la cola) con el tipo `bandeja`
+  (respeta ese interruptor y el «no molestar»), título «Llamada perdida» y `llamada_perdida: true`.
+
 ## Eventos
 
 - **Emite:** `dispositivo.registrado`, `dispositivo.quitado`, `notificaciones.preferencias_cambiadas`
