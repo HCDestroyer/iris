@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"mime"
 	"mime/quotedprintable"
+	"net"
 	"net/mail"
 	"net/smtp"
 	"net/textproto"
@@ -84,22 +85,34 @@ func Enviar(ctx context.Context, op Opciones, srv Servidor, s Saliente) error {
 	}
 	defer func() { _ = c.Close() }()
 	if err := c.Mail(s.De.Address); err != nil {
-		return nuevoError("protocolo", "El servidor rechazó el remitente", err)
+		return rechazo("remitente", "El servidor rechazó el remitente", err)
 	}
 	if err := c.Rcpt(s.Para.Address); err != nil {
-		return nuevoError("protocolo", "El servidor rechazó el destinatario", err)
+		return rechazo("destinatario", "El servidor rechazó el destinatario", err)
 	}
 	w, err := c.Data()
 	if err != nil {
-		return nuevoError("protocolo", "El servidor rechazó el mensaje", err)
+		return rechazo("mensaje", "El servidor rechazó el mensaje", err)
 	}
 	if _, err := w.Write(Componer(s)); err != nil {
 		return Resumir(err)
 	}
 	if err := w.Close(); err != nil {
-		return nuevoError("protocolo", "El servidor rechazó el mensaje", err)
+		return rechazo("mensaje", "El servidor rechazó el mensaje", err)
 	}
 	return c.Quit()
+}
+
+// rechazo: el servidor contestó que no en un paso del envío. Si lo que falló fue la red (plazo,
+// corte), se resume como error de red.
+func rechazo(paso, detalle string, err error) *Error {
+	var tp *textproto.Error
+	if !errors.As(err, &tp) {
+		return Resumir(err)
+	}
+	e := nuevoError("protocolo", detalle, err)
+	e.Paso = paso
+	return e
 }
 
 // ProbarSMTP conecta, negocia TLS y se autentica (sin enviar nada).
@@ -113,7 +126,13 @@ func ProbarSMTP(ctx context.Context, op Opciones, srv Servidor) error {
 }
 
 func abrirSMTP(ctx context.Context, op Opciones, srv Servidor) (*smtp.Client, error) {
-	conn, err := op.conectar(ctx, srv)
+	var conn net.Conn
+	var err error
+	if srv.TLS == TLSNinguna {
+		conn, err = op.conectarEnClaro(ctx, srv)
+	} else {
+		conn, err = op.conectar(ctx, srv)
+	}
 	if err != nil {
 		return nil, Resumir(err)
 	}
@@ -136,7 +155,7 @@ func abrirSMTP(ctx context.Context, op Opciones, srv Servidor) (*smtp.Client, er
 			return nil, Resumir(err)
 		}
 	}
-	if srv.Usuario != "" {
+	if srv.Usuario != "" && srv.TLS != TLSNinguna {
 		if err := c.Auth(smtp.PlainAuth("", srv.Usuario, srv.Contrasena, srv.Host)); err != nil {
 			_ = c.Close()
 			var tp *textproto.Error

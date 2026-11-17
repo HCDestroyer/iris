@@ -246,6 +246,8 @@ Argos ni Horus; nunca llevan textos de clientes.
 | Evento | Payload | Cuándo |
 | --- | --- | --- |
 | `notificaciones.avisos_creados` | `tipo` (`asistente_tope`), `clave` (`asistente_tope:<empresa>:<YYYY-MM>:<80\|100>:<tope>`), `empresa_id` (o null), `usuarios[]` (los avisados esta vez), `correo` (`enviar` \| `omitido`: sin correo del sistema) | El worker consumió `asistente.tope_alcanzado` y creó al menos un aviso (`avisos.asistente_tope`, actor sistema). Un evento repetido no crea avisos ni emite; con otro valor del tope en el mismo mes sí (clave nueva). |
+| `correo_sistema.ajustes_cambiados` | `empresa_id` (o null = el ajuste global), `campos[]` (los que cambiaron, en snake_case; puede traer `contrasena`, nunca su valor), `activo` | Guardar, activar o desactivar el correo del sistema de un ámbito (`contratos/correo-sistema.md`). Sin consumidores hoy: el worker lee el ajuste vigente en cada envío. |
+| `correo_sistema.probado` | `empresa_id` (o null), `estado` (`ok` \| `error`), `causa` (o null; lista cerrada de `correo-sistema.md` §3.3), `usuario_id` | Cada «probar» del correo del sistema. Nunca el host, el destinatario ni credenciales. |
 | `notificaciones.correo_enviado` / `notificaciones.correo_fallido` | `correo_id`, `usuario_id`, `tipo`, `clave`, `motivo` (o null; en fallido, el resumen del error SMTP sin credenciales) | Job `notificaciones.enviar_correo`: el SMTP del sistema aceptó el correo, o falló en el último intento (6). Los omitidos (`sin_correo_sistema`, `sin_correo`) no emiten: quedan en `notificaciones.correos`. |
 
 **Consume** `asistente.tope_alcanzado` (avisos del panel) y `chat.mensaje_enviado`, `chat.mencion`, `conversacion.mencion`,

@@ -27,6 +27,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
+	"github.com/HCDestroyer/iris/apps/api/internal/soporte/correo"
 )
 
 // ZonaPorDefecto de las preferencias (No molestar y «hoy»).
@@ -71,9 +72,21 @@ type Config struct {
 	Reloj func() time.Time
 	// RetencionEnvios: cuánto se guardan los envíos (30 días).
 	RetencionEnvios time.Duration
-	// Correo saliente del sistema (IRIS_SMTP_*; nil = sin correo: los avisos por correo quedan
-	// «omitido» con motivo sin_correo_sistema).
+	// Correo saliente del sistema del entorno (IRIS_SMTP_*): el respaldo cuando no hay un ajuste
+	// activo guardado desde el panel (contratos/correo-sistema.md §2). nil = sin respaldo.
 	Correo EmisorCorreo
+	// Cifrador de la contraseña del correo del sistema (IRIS_CLAVE_CIFRADO; nil = no se puede
+	// guardar ni leer una contraseña).
+	Cifrador *nucleo.Cifrador
+	// RedCorreo: la protección de red y las autoridades de los buzones (IRIS_CORREO_REDES_PERMITIDAS,
+	// IRIS_CORREO_CA) para el SMTP guardado desde el panel.
+	RedCorreo correo.Opciones
+	// PuertosCorreo permitidos (pruebas; vacío = 25, 465, 587 y 2525).
+	PuertosCorreo []int
+	// EsperaNoConecta: tiempo mínimo de respuesta de «probar» cuando no se pudo abrir la conexión,
+	// para que un puerto cerrado y uno filtrado tarden lo mismo (11 s por defecto: algo más que el
+	// plazo de conexión).
+	EsperaNoConecta time.Duration
 	// BaseURL del panel para los enlaces de los correos (IRIS_BASE_URL).
 	BaseURL string
 	Log     *slog.Logger
@@ -101,12 +114,22 @@ type Modulo struct {
 	AvisarTope     *auditoria.Caso[EntradaAvisarTope, ResultadoAvisarTope]
 	prepararCorreo *auditoria.Caso[int64, *correoListo]
 	cerrarCorreo   *auditoria.Caso[ResultadoCorreo, bool]
+	// Correo del sistema configurable desde el panel (contratos/correo-sistema.md).
+	VerCorreoSistema        *auditoria.Caso[EntradaVerCorreo, CorreoSistema]
+	GuardarCorreoSistema    *auditoria.Caso[EntradaGuardarCorreo, CorreoSistema]
+	ActivarCorreoSistema    *auditoria.Caso[EntradaActivarCorreo, CorreoSistema]
+	DesactivarCorreoSistema *auditoria.Caso[EntradaActivarCorreo, CorreoSistema]
+	prepararPruebaCorreo    *auditoria.Caso[EntradaProbarCorreo, *pruebaLista]
+	cerrarPruebaCorreo      *auditoria.Caso[cierrePrueba, bool]
 }
 
 // Nuevo arma el módulo.
 func Nuevo(cfg Config) *Modulo {
 	if cfg.Reloj == nil {
 		cfg.Reloj = time.Now
+	}
+	if cfg.EsperaNoConecta <= 0 {
+		cfg.EsperaNoConecta = 11 * time.Second
 	}
 	if cfg.RetencionEnvios <= 0 {
 		cfg.RetencionEnvios = 30 * 24 * time.Hour
@@ -137,13 +160,20 @@ func Nuevo(cfg Config) *Modulo {
 	m.AvisarTope = m.nuevoAvisarTope()
 	m.prepararCorreo = m.nuevoPrepararCorreo()
 	m.cerrarCorreo = m.nuevoCerrarCorreo()
+	m.VerCorreoSistema = m.nuevoVerCorreoSistema()
+	m.GuardarCorreoSistema = m.nuevoGuardarCorreoSistema()
+	m.ActivarCorreoSistema = m.nuevoActivarCorreoSistema(true)
+	m.DesactivarCorreoSistema = m.nuevoActivarCorreoSistema(false)
+	m.prepararPruebaCorreo = m.nuevoPrepararPruebaCorreo()
+	m.cerrarPruebaCorreo = m.nuevoCerrarPruebaCorreo()
 	return m
 }
 
 // Estado del push.
 func (m *Modulo) Estado() EstadoPush { return m.cfg.Estado }
 
-// CorreoActivo: hay correo saliente del sistema.
+// CorreoActivo: hay correo saliente del sistema en el entorno (IRIS_SMTP_*). El que vale en cada
+// envío se resuelve con los ajustes del panel (emisorVigente).
 func (m *Modulo) CorreoActivo() bool { return m.cfg.Correo != nil }
 
 // Activo: hay a quién mandar los mensajes.

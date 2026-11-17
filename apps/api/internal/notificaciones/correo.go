@@ -20,9 +20,10 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/soporte/correo"
 )
 
-// Correo saliente del sistema (IRIS_SMTP_*): avisos a usuarios de Iris, no respuestas a clientes
-// (esas salen por el SMTP de cada buzón de soporte). Sin IRIS_SMTP_HOST ni IRIS_SMTP_REMITENTE no hay
-// correo del sistema: los correos quedan «omitido» con motivo sin_correo_sistema, sin error.
+// Correo saliente del sistema: avisos a usuarios de Iris, no respuestas a clientes (esas salen por
+// el SMTP de cada buzón de soporte). Se configura en el panel (correo_sistema.go: el ajuste de la
+// empresa, o el global) y IRIS_SMTP_* queda de respaldo. Sin ninguno, los correos quedan «omitido»
+// con motivo sin_correo_sistema, sin error.
 
 // EmisorCorreo manda un correo de texto plano.
 type EmisorCorreo interface {
@@ -31,8 +32,9 @@ type EmisorCorreo interface {
 	Dominio() string
 }
 
-// SMTPSistema manda por el SMTP del sistema con TLS obligatorio (implícito o STARTTLS) y la
-// protección de red de los buzones (IRIS_CORREO_REDES_PERMITIDAS).
+// SMTPSistema manda por el SMTP del sistema con TLS (implícito o STARTTLS; en claro solo hacia un
+// relay de la red interna permitida y sin credenciales) y la protección de red de los buzones
+// (IRIS_CORREO_REDES_PERMITIDAS).
 type SMTPSistema struct {
 	Servidor  correo.Servidor
 	Remitente mail.Address
@@ -106,6 +108,8 @@ type correoListo struct {
 	Asunto    string
 	Texto     string `json:"-"`
 	MessageID string
+	// Emisor vigente para la empresa del correo (nil = no hay correo del sistema).
+	Emisor EmisorCorreo `json:"-"`
 }
 
 // ResultadoCorreo es lo que respondió el SMTP.
@@ -123,7 +127,8 @@ func (m *Modulo) nuevoPrepararCorreo() *auditoria.Caso[int64, *correoListo] {
 			if err := soloSistema(ctx); err != nil {
 				return nil, err
 			}
-			c, err := notificacionesbd.New(t).CorreoParaEnviar(ctx, id)
+			q := notificacionesbd.New(t)
+			c, err := q.CorreoParaEnviar(ctx, id)
 			if esSinFilas(err) || (err == nil && c.Estado != "pendiente") {
 				return nil, nil
 			}
@@ -134,11 +139,16 @@ func (m *Modulo) nuevoPrepararCorreo() *auditoria.Caso[int64, *correoListo] {
 			if err != nil {
 				return &correoListo{ID: c.ID}, nil // lo cierra como fallido
 			}
-			dominio := "iris"
-			if m.cfg.Correo != nil {
-				dominio = m.cfg.Correo.Dominio()
+			// El ajuste vigente se lee en cada envío: un cambio en el panel vale sin reiniciar.
+			emisor, err := m.emisorVigente(ctx, q, c.EmpresaID)
+			if err != nil {
+				return nil, err
 			}
-			return &correoListo{ID: c.ID, Para: *para, Asunto: c.Asunto, Texto: m.textoCorreo(c),
+			dominio := "iris"
+			if emisor != nil {
+				dominio = emisor.Dominio()
+			}
+			return &correoListo{ID: c.ID, Para: *para, Emisor: emisor, Asunto: c.Asunto, Texto: m.textoCorreo(c),
 				MessageID: fmt.Sprintf("iris.aviso.%d.%s@%s", c.ID, uuid.NewString()[:8], dominio)}, nil
 		},
 	})
@@ -243,10 +253,10 @@ func (m *Modulo) EnviarCorreo(ctx context.Context, id int64, ultimo bool) error 
 	switch {
 	case c.Para.Address == "":
 		errEnvio, ultimo = fmt.Errorf("el correo del usuario no es válido"), true
-	case m.cfg.Correo == nil:
+	case c.Emisor == nil:
 		errEnvio, ultimo = fmt.Errorf("no hay correo saliente del sistema configurado"), true
 	default:
-		errEnvio = m.cfg.Correo.Enviar(ctx, c.Para, c.Asunto, c.Texto, c.MessageID)
+		errEnvio = c.Emisor.Enviar(ctx, c.Para, c.Asunto, c.Texto, c.MessageID)
 	}
 	in := ResultadoCorreo{CorreoID: id, Ultimo: ultimo}
 	if errEnvio != nil {

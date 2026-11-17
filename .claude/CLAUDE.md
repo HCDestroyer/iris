@@ -281,6 +281,8 @@ Una tarea está terminada solo si:
 | `centralita.creada` / `centralita.actualizada` / `centralita.estado_cambiado` / `extension.asignada` / `extension.quitada` | mensajeria (voz, E4) | centralita_id, empresa_id; tipo, modo (creada); campos[], activa (actualizada); de, a (estado); extension_id, usuario_id (extensión); nunca el secreto |
 | `notificaciones.avisos_creados` | notificaciones (avisos del panel) | tipo (asistente_tope), clave, empresa_id (o null), usuarios[], correo (enviar, omitido) |
 | `notificaciones.correo_enviado` / `notificaciones.correo_fallido` | notificaciones (correo del sistema) | correo_id, usuario_id, tipo, clave, motivo (o null) |
+| `correo_sistema.ajustes_cambiados` | notificaciones (correo del sistema) | empresa_id (o null = global), campos[], activo; nunca la contraseña |
+| `correo_sistema.probado` | notificaciones (correo del sistema) | empresa_id (o null), estado (ok, error), causa (o null), usuario_id; nunca el host, el destino ni credenciales |
 | `dispositivo.registrado` / `dispositivo.quitado` | notificaciones | dispositivo_id, usuario_id, empresa_id, token_fin; plataforma, app_version, nuevo (registrado); motivo (usuario, sesion_cerrada, token_invalido, otro_usuario, sin_acceso) (quitado); nunca el token |
 | `notificaciones.preferencias_cambiadas` | notificaciones | usuario_id, campos[], version |
 

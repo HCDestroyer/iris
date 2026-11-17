@@ -79,3 +79,13 @@ FOR UPDATE;
 
 -- name: RecifrarAsistente :exec
 UPDATE mensajeria.asistente_ajustes SET clave_cifrada = @clave_cifrada WHERE id = @id;
+
+-- name: CorreosSistemaCifrados :many
+-- Contraseña del SMTP del correo del sistema (global y por empresa).
+SELECT id, contrasena_cifrada FROM notificaciones.correo_ajustes
+WHERE contrasena_cifrada IS NOT NULL
+ORDER BY id
+FOR UPDATE;
+
+-- name: RecifrarCorreoSistema :exec
+UPDATE notificaciones.correo_ajustes SET contrasena_cifrada = @contrasena_cifrada WHERE id = @id;
