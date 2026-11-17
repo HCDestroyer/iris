@@ -86,6 +86,9 @@ const (
 	PresupuestoMetaVoz = 4 * time.Second
 	// PlazoSaldoLlamada: lo que se espera a Argos por «tiene saldo vencido» al ver una llamada.
 	PlazoSaldoLlamada = 2 * time.Second
+	// VigenciaSaldo y VigenciaSaldoFallo: cuánto se recuerda la respuesta de Argos (y un fallo).
+	VigenciaSaldo      = 60 * time.Second
+	VigenciaSaldoFallo = 10 * time.Second
 	// CabeceraNavegador: el id del navegador («Recibir llamadas») en las acciones de una llamada.
 	CabeceraNavegador = "X-Iris-Navegador"
 	// LoteMetaVoz: filas que toma el job de escrituras a Meta por ciclo. Las aparta lote × plazo: lo

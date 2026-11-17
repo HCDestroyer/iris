@@ -737,11 +737,14 @@ func (m *Modulo) DespacharMetaVoz(ctx context.Context, bd nucleo.BD) error {
 	// atenderlas todas): otro ciclo no retoma las mismas mientras tanto.
 	// Mientras quede presupuesto se toma otro lote: con muchas pendientes, un terminate (p. ej. por
 	// duración máxima) no espera varios ciclos. Lo ya tomado queda apartado: no se repite en el ciclo.
+	// El apartado de cada lote cuenta desde que se toma ese lote (no desde que empezó el ciclo): un
+	// segundo lote tomado cerca del presupuesto no se sale de su apartado.
 	gracia := 2 * PlazoMeta
 	inicio := time.Now()
 	for {
+		tomado := ahora.Add(time.Since(inicio))
 		acciones, err := q.TomarAccionesMeta(ctx, mensajeriabd.TomarAccionesMetaParams{Antes: ptrT(ahora.Add(-gracia)), Lote: LoteMetaVoz,
-			Aparte: ahora.Add(LoteMetaVoz*PlazoMeta - gracia)})
+			Aparte: tomado.Add(LoteMetaVoz*PlazoMeta - gracia)})
 		if err != nil {
 			return err
 		}
@@ -762,7 +765,7 @@ func (m *Modulo) DespacharMetaVoz(ctx context.Context, bd nucleo.BD) error {
 	}
 	// Aplicar los ajustes de un número son dos llamadas a Meta (leer y escribir).
 	canales, err := q.TomarCanalesMetaPendiente(ctx, mensajeriabd.TomarCanalesMetaPendienteParams{Ahora: &ahora, Lote: LoteMetaVoz,
-		Aparte: ahora.Add(LoteMetaVoz * 2 * PlazoMeta)})
+		Aparte: ahora.Add(time.Since(inicio) + LoteMetaVoz*2*PlazoMeta)})
 	if err != nil {
 		return err
 	}

@@ -12,11 +12,14 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 )
 
 // Voz E1 (contratos/voz.md): llamadas entrantes de WhatsApp contestadas en el panel, contra Postgres
@@ -1465,6 +1468,11 @@ func TestLlamadaSenalesDelCliente(t *testing.T) {
 	if v.cuerpo["senales"].(map[string]any)["saldoVencido"] != true || strings.Contains(crudo(v), "350") || strings.Contains(crudo(v), "GTQ") {
 		t.Fatalf("saldo vencido: %s", crudo(v))
 	}
+	// Releer la llamada no vuelve a preguntar a Argos: la respuesta se recuerda 60 s.
+	antes = x.argos.cuentas
+	if v := x.exigir(x.api(x.agente, http.MethodGet, "/llamadas/"+id, nil), http.StatusOK); v.cuerpo["senales"].(map[string]any)["saldoVencido"] != true || x.argos.cuentas != antes {
+		t.Fatalf("relectura dentro de la vigencia: %s, consultas %d → %d", crudo(v), antes, x.argos.cuentas)
+	}
 	// Despacho contesta llamadas pero no ve saldos: el campo no viaja y no se le pregunta a Argos.
 	despacho := x.persona([]int64{1}, rolBase("despacho"))
 	x.sql(`INSERT INTO mensajeria.cola_miembros (cola_id, usuario_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, x.cola, despacho.id)
@@ -1473,18 +1481,55 @@ func TestLlamadaSenalesDelCliente(t *testing.T) {
 	if sd := v.cuerpo["senales"].(map[string]any); sd["saldoVencido"] != nil || sd["servicio"] == nil || x.argos.cuentas != antes {
 		t.Fatalf("despacho no ve el saldo: %s", crudo(v))
 	}
-	// Al día: false. Argos caído: no se sabe (el campo no viaja).
+	// ticketAbierto respeta el alcance de tickets.ver: quien solo ve los tickets de una zona no ve el
+	// de otra (ni sin zona); el servicio sí.
+	var zona int64
+	if err := x.bd.QueryRow(x.ctx, `SELECT coalesce(max(id), 0) + 1000 FROM agenda.zonas`).Scan(&zona); err != nil {
+		t.Fatal(err)
+	}
+	x.sql(`INSERT INTO agenda.zonas (id, empresa_id, origen, nombre) VALUES ($1, 1, 'local', $2)`, zona, fmt.Sprint("Zona señales ", zona))
+	deZona := x.persona([]int64{1}, rolBase("ventas"), identidad.AsignacionRol{Rol: "soporte", ZonaID: &zona})
+	x.sql(`INSERT INTO mensajeria.cola_miembros (cola_id, usuario_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, x.cola, deZona.id)
+	v = x.exigir(x.api(deZona, http.MethodGet, "/llamadas/"+id, nil), http.StatusOK)
+	if sd := v.cuerpo["senales"].(map[string]any); sd["ticketAbierto"] != nil || sd["servicio"] == nil {
+		t.Fatalf("ticket fuera del alcance: %s", crudo(v))
+	}
+	x.sql(`UPDATE soporte.tickets SET zona_id = $2 WHERE cliente_id = $1`, cliente, zona)
+	v = x.exigir(x.api(deZona, http.MethodGet, "/llamadas/"+id, nil), http.StatusOK)
+	if sd := v.cuerpo["senales"].(map[string]any); sd["ticketAbierto"] == nil {
+		t.Fatalf("ticket de su zona: %s", crudo(v))
+	}
+	// Al día, pero dentro de los 60 s sigue valiendo lo recordado; pasados, se vuelve a preguntar: false.
 	x.argos.mu.Lock()
 	x.argos.cuenta = &argos.EstadoCuenta{Saldo: ptrTexto("0.00"), Moneda: "GTQ", FacturasVencidas: ptrEntero(0)}
 	x.argos.mu.Unlock()
+	x.pasa(59 * time.Second)
+	if v := x.exigir(x.api(x.agente, http.MethodGet, "/llamadas/"+id, nil), http.StatusOK); v.cuerpo["senales"].(map[string]any)["saldoVencido"] != true {
+		t.Fatalf("dentro de la vigencia: %s", crudo(v))
+	}
+	x.pasa(2 * time.Second)
 	if v := x.exigir(x.api(x.agente, http.MethodGet, "/llamadas/"+id, nil), http.StatusOK); v.cuerpo["senales"].(map[string]any)["saldoVencido"] != false {
 		t.Fatalf("al día: %s", crudo(v))
 	}
+	// Argos caído: no se sabe (el campo no viaja), y el fallo también se recuerda unos segundos:
+	// releer la llamada no insiste.
 	x.argos.mu.Lock()
 	x.argos.cuenta = nil
 	x.argos.mu.Unlock()
-	if v := x.exigir(x.api(x.agente, http.MethodGet, "/llamadas/"+id, nil), http.StatusOK); v.cuerpo["senales"].(map[string]any)["saldoVencido"] != nil {
-		t.Fatalf("Argos no responde: %s", crudo(v))
+	x.pasa(61 * time.Second)
+	antes = x.argos.cuentas
+	for range 5 {
+		if v := x.exigir(x.api(x.agente, http.MethodGet, "/llamadas/"+id, nil), http.StatusOK); v.cuerpo["senales"].(map[string]any)["saldoVencido"] != nil {
+			t.Fatalf("Argos no responde: %s", crudo(v))
+		}
+	}
+	if x.argos.cuentas != antes+1 {
+		t.Fatalf("con Argos caído se le preguntó %d veces en vez de 1", x.argos.cuentas-antes)
+	}
+	x.pasa(11 * time.Second)
+	x.exigir(x.api(x.agente, http.MethodGet, "/llamadas/"+id, nil), http.StatusOK)
+	if x.argos.cuentas != antes+2 {
+		t.Fatalf("pasada la vigencia del fallo debía preguntar otra vez: %d", x.argos.cuentas-antes)
 	}
 	// Terminada: ya no lleva señales.
 	x.webhook(x.eventoLlamada(num, call, "terminate", "", 0))
@@ -1514,5 +1559,52 @@ func TestLlamadaMetaVariosLotes(t *testing.T) {
 		if _, estado, _ := x.llamada(c); estado != "perdida" || x.g.cuenta("reject:"+c) != 1 {
 			t.Fatalf("%s: %s, reject %d", c, estado, x.g.cuenta("reject:"+c))
 		}
+	}
+}
+
+// La lectura del saldo usa un solo intento del conector: con Argos degradado no se le insiste.
+func TestSaldoUnSoloIntento(t *testing.T) {
+	var pedidos atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		pedidos.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	cli := argos.NuevoCliente(srv.URL, "atk_prueba", argos.OpcionesCliente{Intentos: 3, Espera: time.Millisecond})
+	if _, err := cli.EstadoCuenta(context.Background(), 7, 1); err == nil || pedidos.Load() != 3 {
+		t.Fatalf("de fábrica el conector reintenta: %v, %d pedidos", err, pedidos.Load())
+	}
+	pedidos.Store(0)
+	if _, err := cli.EstadoCuenta(conector.UnIntento(context.Background()), 7, 1); err == nil || pedidos.Load() != 1 {
+		t.Fatalf("con UnIntento: %v, %d pedidos", err, pedidos.Load())
+	}
+}
+
+// El apartado de cada lote del job de escrituras a Meta cuenta desde que se toma ese lote: el
+// segundo lote de un ciclo lento queda apartado más tarde que el primero.
+func TestLlamadaMetaApartadoPorLote(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	x.recibe(x.agente)
+	var calls []string
+	for i := range mensajeria.LoteMetaVoz + 2 {
+		c := fmt.Sprintf("wacid.aparte%d%s", i, numeroCliente())
+		calls = append(calls, c)
+		x.connect(numeroCliente(), c)
+	}
+	x.pasa(31*time.Second, x.agente)
+	x.soloMantener()
+	x.g.falla("reject", &mensajeria.ErrMetaLlamada{Status: 500})
+	x.gancho(func(string) { time.Sleep(120 * time.Millisecond) })
+	x.despachar()
+	x.gancho(nil)
+	x.g.falla("reject", nil)
+	var primero, ultimo time.Time
+	if err := x.bd.QueryRow(x.ctx, `SELECT min(accion_meta_en), max(accion_meta_en) FROM mensajeria.llamadas WHERE id_externo = ANY($1) AND accion_meta_estado = 'pendiente'`,
+		calls).Scan(&primero, &ultimo); err != nil {
+		t.Fatal(err)
+	}
+	// Apartadas lote × plazo menos la gracia (12 s) desde que se tomó cada lote.
+	if base := x.reloj.Add(12 * time.Second); primero.Before(base) || ultimo.Sub(primero) < 400*time.Millisecond {
+		t.Fatalf("apartado por lote: primero %s, último %s (reloj %s)", primero, ultimo, x.reloj)
 	}
 }

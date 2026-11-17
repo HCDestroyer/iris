@@ -13,6 +13,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -150,6 +151,10 @@ type Config struct {
 // Modulo reúne los casos de uso.
 type Modulo struct {
 	cfg Config
+
+	// saldos: caché corta de «tiene saldo vencido» por empresa y cliente (voz; solo en memoria).
+	saldosMu sync.Mutex
+	saldos   map[[2]int64]*saldoLlamada
 
 	EnviarAviso             *EnviarAviso
 	VerAviso                *auditoria.Caso[EntradaVerAviso, AvisoDetalle]
