@@ -148,11 +148,18 @@ test.describe("Servidor de IA › tablero", () => {
         await captura(page, "tablero-dos-tarjetas");
     });
 
-    test("sin tarjeta gráfica: lo dice y no inventa cifras de GPU", async ({ page }) => {
+    test("tarjeta gráfica «omitida»: «Sin datos» y un texto neutro; no afirma que no hay tarjeta", async ({ page }) => {
         await abrir(page, RUTA, { gpus: 0 });
-        await expect(slot(page, "sin-tarjeta-grafica")).toContainText("No hay tarjeta gráfica detectada");
-        await expect(slot(page, "cifra-uso")).toHaveCount(0);
-        await expect(slot(page, "cifra-peticiones")).toBeVisible();
+        // `omitido` es «sin tarjeta o sin lectura»: no se sabe cuál.
+        await expect(slot(page, "gpu-sin-lectura")).toHaveText("El servidor no reportó la tarjeta gráfica en esta lectura.");
+        for (const cifra of ["cifra-uso", "cifra-vram", "cifra-temperatura"]) {
+            await expect(slot(page, cifra)).toContainText("Sin datos");
+            await expect(slot(page, cifra)).not.toContainText(/\d/);
+        }
+        await expect(slot(page, "tablero-servidor-ia")).not.toContainText(/No hay tarjeta gráfica|sin tarjeta gráfica/i);
+        // Lo que sí se leyó se sigue mostrando.
+        await expect(slot(page, "cifra-peticiones")).toContainText("de 4 a la vez");
+        await expect(slot(page, "cifra-cpu")).toContainText("12");
         await rango(page, "1 hora").click();
         await expect(slot(page, "series").getByRole("heading", { name: "Peticiones por minuto" })).toBeVisible();
         await expect(slot(page, "series").getByRole("heading", { name: "Uso y memoria de video" })).toHaveCount(0);
@@ -207,7 +214,7 @@ test.describe("Servidor de IA › caído o incompatible", () => {
         await expect(slot(page, "modelos")).toHaveCount(0);
         await expect(slot(page, "mientras-tanto")).toContainText("Qué pasa con el asistente mientras tanto");
         await expect(slot(page, "mientras-tanto")).toContainText("Cable Norte");
-        await expect(slot(page, "que-revisar")).toContainText("sudo iris-voz status");
+        await expect(slot(page, "que-revisar")).toContainText("sudo iris-voz estado");
 
         await page.getByRole("button", { name: "Probar ahora" }).click();
         await expect(slot(page, "resultado-prueba")).toHaveAttribute("data-estado", "error");
@@ -233,7 +240,7 @@ test.describe("Servidor de IA › caído o incompatible", () => {
         const fuera = slot(page, "servidor-fuera");
         await expect(fuera).toContainText("Versión incompatible");
         await expect(fuera).toContainText("Hay que actualizar Iris Voz en el servidor");
-        await expect(fuera.locator('[data-slot="comando"]')).toContainText("sudo iris-voz upgrade");
+        await expect(fuera.locator('[data-slot="comando"]')).toContainText("sudo iris-voz actualizar");
         await expect(slot(page, "cifras")).toHaveAttribute("data-vigentes", "no");
         await captura(page, "incompatible");
     });
@@ -241,7 +248,7 @@ test.describe("Servidor de IA › caído o incompatible", () => {
     test("incompatible por el protocolo o porque Iris es más nuevo: también se actualiza el servidor, con su porqué", async ({ page }) => {
         await abrir(page, RUTA, { motor: "incompatible_protocolo" });
         await expect(slot(page, "servidor-fuera")).toContainText("no hablan la misma versión del protocolo");
-        await expect(slot(page, "servidor-fuera").locator('[data-slot="comando"]')).toContainText("sudo iris-voz upgrade");
+        await expect(slot(page, "servidor-fuera").locator('[data-slot="comando"]')).toContainText("sudo iris-voz actualizar");
         // Sin `versionDisponible` no se dice a qué versión.
         await expect(slot(page, "servidor-fuera")).not.toContainText("o una más nueva");
     });
@@ -260,6 +267,66 @@ test.describe("Servidor de IA › caído o incompatible", () => {
         await expect(slot(page, "cifras")).toHaveAttribute("data-vigentes", "no");
         await expect(slot(page, "cifras").getByText("Sin datos")).toHaveCount(4);
     });
+
+    test("lectura «buena» pero de hace 5 minutos: tampoco se muestra como actual", async ({ page }) => {
+        await abrir(page, RUTA, { lecturaVieja: true });
+        await expect(estado(page)).toHaveAttribute("data-estado", "listo");
+        await expect(slot(page, "lectura-fallida")).toContainText("La última lectura del servidor ya es vieja");
+        await expect(slot(page, "lectura-fallida")).toContainText("(hace 5 min)");
+        await expect(slot(page, "cifras")).toHaveAttribute("data-vigentes", "no");
+        await expect(slot(page, "cifras").getByText("Sin datos")).toHaveCount(4);
+        await expect(slot(page, "cifras")).not.toContainText(/\d/);
+        await expect(slot(page, "modelos")).toHaveCount(0);
+    });
+
+    test("degradado: quien administra la instalación lee el detalle técnico del servidor", async ({ page }) => {
+        await abrir(page, RUTA, { motor: "degradado", detalle: "texto-secreto" });
+        await expect(estado(page)).toHaveAttribute("data-estado", "degradado");
+        await expect(estado(page)).toContainText("Con problemas");
+        await expect(estado(page)).toContainText("texto-secreto");
+    });
+});
+
+test.describe("Servidor de IA › sondeo", () => {
+    const TABLERO = "/api/v1/mensajeria/servidor-ia/tablero";
+    const lecturas = (api: Api) => api.peticiones.filter((p) => p.ruta === TABLERO).length;
+
+    test("con 404 no insiste: una sola petición hasta que se pulsa «Reintentar»", async ({ page }) => {
+        const api = await abrir(page, "/administracion");
+        api.responderProblema(TABLERO, { type: "urn:iris:problema:no_encontrado", title: "No encontrado", status: 404 }, 1);
+        await page.goto(RUTA);
+        await expect(page.getByText("No se pudo cargar el servidor de IA")).toBeVisible();
+        expect(lecturas(api)).toBe(1);
+        await page.clock.fastForward(180_000);
+        // Volver a la pestaña tampoco lo reintenta solo.
+        await pestanaVisible(page, false);
+        await pestanaVisible(page, true);
+        await page.clock.fastForward(30_000);
+        expect(lecturas(api)).toBe(1);
+        await page.getByRole("button", { name: "Reintentar" }).click();
+        await expect(slot(page, "cifras")).toBeVisible();
+        expect(lecturas(api)).toBe(2);
+    });
+
+    test("con 500 reintenta cada vez más espaciado y vuelve a su ritmo al primer éxito", async ({ page }) => {
+        const api = await abrir(page, "/administracion");
+        api.responderProblema(TABLERO, { type: "urn:iris:problema:error_interno", title: "Error interno", status: 500 }, 4);
+        await page.goto(RUTA);
+        await expect(page.getByText("No se pudo cargar el servidor de IA")).toBeVisible();
+        expect(lecturas(api)).toBe(1);
+        // Fallos en 0 s, +10 s y +30 s: en 65 s son 3 peticiones (a ritmo fijo de 10 s serían 7).
+        // (De a 5 s: `fastForward` dispara cada temporizador una sola vez por salto.)
+        for (let i = 0; i < 13; i++) {
+            await page.clock.fastForward(5_000);
+            await page.waitForTimeout(60);
+        }
+        expect(lecturas(api)).toBe(3);
+        // El cuarto fallo (+70 s) y el primer éxito (+130 s).
+        await adelantarHasta(page, () => api.servidorIa.lecturas() >= 1, 10_000);
+        await expect(slot(page, "cifras")).toBeVisible();
+        const tras = api.servidorIa.lecturas();
+        await adelantarHasta(page, () => api.servidorIa.lecturas() > tras);
+    });
 });
 
 test.describe("Servidor de IA › enlazar", () => {
@@ -271,7 +338,7 @@ test.describe("Servidor de IA › enlazar", () => {
         await captura(page, "sin-servidor");
         await page.getByRole("link", { name: "Enlazar servidor" }).click();
         await expect(pasos(page)).toHaveAttribute("data-paso-actual", "direccion");
-        await expect(pasos(page)).toContainText("sudo iris-voz pair");
+        await expect(pasos(page)).toContainText("sudo iris-voz enlazar");
 
         // La dirección tiene que ser https.
         await page.getByLabel("Dirección").fill("http://10.0.0.5:8443");
@@ -412,6 +479,18 @@ test.describe("Servidor de IA › avisos y umbrales", () => {
         await expect(slot(page, "cifra-temperatura")).toContainText("80 °C");
     });
 
+    test("si el tablero no trae la lista de avisos, no dice «ninguno»: «Sin datos»", async ({ page }) => {
+        await abrir(page, `${RUTA}/avisos`, { avisos: null });
+        await expect(slot(page, "avisos-sin-datos")).toContainText("Sin datos");
+        await expect(slot(page, "sin-avisos")).toHaveCount(0);
+    });
+
+    test("con la lista leída y vacía sí dice que no hubo ninguno", async ({ page }) => {
+        await abrir(page, `${RUTA}/avisos`, { avisos: [] });
+        await expect(slot(page, "sin-avisos")).toContainText("Ninguno en los últimos 7 días.");
+        await expect(slot(page, "avisos-sin-datos")).toHaveCount(0);
+    });
+
     test("«Valores de fábrica» los devuelve; 409 si alguien más los cambió; 422 del servidor junto al campo", async ({ page }) => {
         const api = await abrir(page, `${RUTA}/avisos`, { conflicto: true });
         const f = form(page);
@@ -485,10 +564,34 @@ test.describe("Servidor de IA › mantenimiento", () => {
 
         const modelos = slot(page, "modelos-permitidos");
         for (const m of MODELOS_SIA) await expect(modelos).toContainText(m);
-        await expect(modelos).toContainText("sudo iris-voz model pull");
-        await expect(modelos).toContainText("sudo iris-voz model allow");
+        await expect(modelos).toContainText("sudo iris-voz modelo descargar");
+        await expect(modelos).toContainText("sudo iris-voz modelo permitir");
         await esperarSinDesbordes(page);
         await captura(page, "mantenimiento");
+    });
+
+    test("rotar sin respuesta: no afirma si se cambió, relee la tarjeta y el reintento repite la misma clave", async ({ page }) => {
+        const api = await abrir(page, `${RUTA}/mantenimiento`, { rotarSinRespuesta: 1 });
+        const cred = slot(page, "credenciales");
+        await expect(slot(page, "ultima-rotacion")).toContainText("2 de noviembre");
+        await cred.getByRole("button", { name: "Rotar credenciales" }).click();
+        await confirmacion(page).getByRole("button", { name: "Rotar", exact: true }).click();
+        const error = slot(page, "error-credenciales");
+        await expect(error).toHaveAttribute("data-sin-respuesta", "true");
+        await expect(error).toContainText("No se sabe si las credenciales se cambiaron");
+        await expect(error).not.toContainText(/no se cambió nada|sigue valiendo la llave actual/i);
+        // Lo releído: el servidor sí la había rotado.
+        await expect(slot(page, "ultima-rotacion")).toContainText("17 de noviembre");
+        await expect(page.getByText("Credenciales rotadas")).toHaveCount(0);
+
+        await cred.getByRole("button", { name: "Rotar credenciales" }).click();
+        await confirmacion(page).getByRole("button", { name: "Rotar", exact: true }).click();
+        await expect(page.getByText("Credenciales rotadas")).toBeVisible();
+        await expect(error).toHaveCount(0);
+        const claves = api.servidorIa.recibido.clavesRotar;
+        expect(claves).toHaveLength(2);
+        expect(claves[0]).toBeTruthy();
+        expect(claves[1]).toBe(claves[0]);
     });
 
     test("rotar credenciales (convive 24 h) y «Revocar ahora» con confirmación que dice lo que pasa", async ({ page }) => {
@@ -554,9 +657,19 @@ test.describe("Servidor de IA › quién lo ve", () => {
     });
 
     test("campana: caído, incompatible y umbral, cada uno con su texto, y llevan al tablero", async ({ page }) => {
-        // PROVISIONAL: los tres tipos aún no están en el tipo generado.
-        const aviso = (id: number, tipo: string, titulo: string, datos: Record<string, unknown> = {}) =>
-            ({ id, tipo, nivel: tipo === "servidor_ia_umbral" ? "alerta" : "peligro", titulo, enlace: RUTA, datos, leido: false, leidoEn: null, creadoEn: "2026-11-17T16:42:00Z", empresaId: null }) as unknown as NonNullable<OpcionesApi["avisosPanel"]>[number];
+        type AvisoPanel = NonNullable<OpcionesApi["avisosPanel"]>[number];
+        const aviso = (id: number, tipo: AvisoPanel["tipo"], titulo: string, datos: AvisoPanel["datos"] = {}): AvisoPanel => ({
+            id,
+            tipo,
+            nivel: tipo === "servidor_ia_umbral" ? "alerta" : "peligro",
+            titulo,
+            enlace: RUTA,
+            datos,
+            leido: false,
+            leidoEn: null,
+            creadoEn: "2026-11-17T16:42:00Z",
+            empresaId: null,
+        });
         await abrir(page, "/administracion", {}, ADMIN, {
             avisosPanel: [
                 aviso(31, "servidor_ia_caido", "El servidor de IA no responde"),
@@ -575,11 +688,35 @@ test.describe("Servidor de IA › quién lo ve", () => {
         await expect(page).toHaveURL(new RegExp(`${RUTA}$`));
     });
 
+    test("el admin de una empresa no lee el detalle técnico del servidor aunque llegue", async ({ page }) => {
+        await abrir(page, RUTA, { motor: "degradado", detalle: "texto-secreto" }, SUPERVISOR_ZONA);
+        await expect(estado(page)).toHaveAttribute("data-estado", "degradado");
+        await expect(estado(page)).toContainText("Con problemas");
+        await expect(page.locator("body")).not.toContainText("texto-secreto");
+        await rango(page, "24 horas").click();
+        await expect(slot(page, "uso-empresa")).toBeVisible();
+        await expect(page.locator("body")).not.toContainText("texto-secreto");
+    });
+
+    test("con `servidor_ia.administrar` pero sin `empresas.todas`: «Sin permiso» en las cuatro pantallas y ninguna petición", async ({ page }) => {
+        const api = await abrir(page, `${RUTA}/mantenimiento`, { zonaAdministra: true }, SUPERVISOR_ZONA);
+        for (const ruta of [`${RUTA}/mantenimiento`, `${RUTA}/enlazar`, `${RUTA}/avisos`, RUTA]) {
+            await page.goto(ruta);
+            await expect(slot(page, "sin-permiso")).toContainText("No tienes permiso para ver esta sección");
+            await expect(page.getByRole("navigation", { name: "Secciones del Servidor de IA" })).toHaveCount(0);
+        }
+        await page.goto("/administracion/integraciones");
+        await expect(page.getByRole("heading", { name: "Integraciones" }).first()).toBeVisible();
+        await expect(slot(page, "tarjeta-servidor-ia")).toHaveCount(0);
+        expect(api.peticiones.filter((p) => p.ruta.includes("/voz/motores") || p.ruta.includes("/servidor-ia/"))).toHaveLength(0);
+    });
+
     test("en Integraciones, la tarjeta del servidor solo la ve quien administra la instalación", async ({ page }) => {
         await abrir(page, "/administracion/integraciones");
         const tarjeta = slot(page, "tarjeta-servidor-ia");
         await expect(tarjeta).toContainText("En línea");
         await expect(tarjeta).toContainText("versión 0.1.0");
+        await expect(tarjeta).toContainText("visto por última vez hoy a las 11:01");
         await tarjeta.getByRole("link", { name: "Abrir el tablero" }).click();
         await expect(page).toHaveURL(new RegExp(`${RUTA}$`));
     });

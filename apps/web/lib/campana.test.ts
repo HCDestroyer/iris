@@ -17,11 +17,16 @@ const aviso = (x: Partial<AvisoPanel> = {}): AvisoPanel => ({
 });
 
 describe("avisos del Servidor de IA en la campana", () => {
-    // PROVISIONAL: los tipos nuevos aún no están en el tipo generado.
-    const sia = (tipo: string, datos: AvisoPanel["datos"] = {}) => aviso({ tipo: tipo as AvisoPanel["tipo"], nivel: "peligro", enlace: "/administracion/servidor-ia", datos, empresaId: null });
+    const sia = (tipo: AvisoPanel["tipo"], datos: AvisoPanel["datos"] = {}) => aviso({ tipo, nivel: "peligro", enlace: "/administracion/servidor-ia", datos, empresaId: null });
 
     it("cada tipo tiene su icono y su segunda línea en llano", () => {
-        expect(iconoAvisoPanel(sia("servidor_ia_caido").tipo)).not.toBe(iconoAvisoPanel(sia("otro").tipo));
+        // Un tipo que el panel no conoce (o un nombre heredado de `Object`) lleva la campana, no revienta.
+        const campana = iconoAvisoPanel("tipo_nuevo" as AvisoPanel["tipo"]);
+        expect(iconoAvisoPanel("constructor" as AvisoPanel["tipo"])).toBe(campana);
+        expect(iconoAvisoPanel("toString" as AvisoPanel["tipo"])).toBe(campana);
+        expect(detalleAvisoPanel({ tipo: "constructor" as AvisoPanel["tipo"], nivel: "info", datos: {} })).toBeNull();
+        expect(iconoAvisoPanel("servidor_ia_caido")).not.toBe(campana);
+        expect(iconoAvisoPanel("asistente_tope")).not.toBe(campana);
         expect(iconoAvisoPanel(sia("servidor_ia_incompatible").tipo)).not.toBe(iconoAvisoPanel(sia("servidor_ia_umbral").tipo));
         expect(detalleAvisoPanel(sia("servidor_ia_caido"))).toContain("pasa a personas");
         expect(detalleAvisoPanel(sia("servidor_ia_incompatible"))).toContain("qué hay que actualizar");

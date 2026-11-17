@@ -17,11 +17,11 @@ export function tonoAvisoPanel(nivel: AvisoPanel["nivel"]): "info" | "warning" |
     return nivel === "peligro" ? "error" : nivel === "alerta" ? "warning" : "info";
 }
 
-// PROVISIONAL: los tres tipos del Servidor de IA aún no están en el tipo generado; se comparan como texto.
-const ICONO_TIPO: Record<string, LucideIcon> = { asistente_tope: Sparkles, servidor_ia_caido: Server, servidor_ia_incompatible: RefreshCw, servidor_ia_umbral: Gauge };
+const ICONO_TIPO: Record<AvisoPanel["tipo"], LucideIcon> = { asistente_tope: Sparkles, servidor_ia_caido: Server, servidor_ia_incompatible: RefreshCw, servidor_ia_umbral: Gauge };
 
+/** El icono del tipo; uno que este panel aún no conoce (o un nombre heredado como «constructor») lleva la campana. */
 export function iconoAvisoPanel(tipo: AvisoPanel["tipo"]): LucideIcon {
-    return ICONO_TIPO[tipo] ?? Bell;
+    return Object.hasOwn(ICONO_TIPO, tipo) ? ICONO_TIPO[tipo] : Bell;
 }
 
 const numero = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? Math.round(v) : null);
@@ -52,7 +52,7 @@ function mesDe(datos: AvisoPanel["datos"]): string | null {
 
 /** Segunda línea del aviso: al 100 %, hasta cuándo queda pausado; al 80 %, qué pasa si sigue. */
 export function detalleAvisoPanel(a: Pick<AvisoPanel, "tipo" | "nivel" | "datos">): string | null {
-    const tipo: string = a.tipo;
+    const tipo = a.tipo;
     if (tipo === "servidor_ia_caido") return "Lo que el asistente atendía solo pasa a personas hasta que vuelva. Iris lo sigue intentando sola.";
     if (tipo === "servidor_ia_incompatible") return "El asistente no lo usa hasta actualizar. El tablero dice qué hay que actualizar.";
     if (tipo === "servidor_ia_umbral") return detalleUmbral(a.datos);

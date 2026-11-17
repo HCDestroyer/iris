@@ -120,7 +120,7 @@ type PropsVista = { tablero: Tablero; rango: Rango; alRango: (r: Rango) => void;
 
 function Vista({ tablero, rango, alRango, ahora, global, administra, umbrales, refrescar }: PropsVista) {
     const e = tablero.estado;
-    const vigentes = cifrasVigentes(tablero);
+    const vigentes = cifrasVigentes(tablero, ahora);
     const fuera = !enServicio(e.estado) && e.estado !== "degradado";
     const [prueba, setPrueba] = useState<{ estado: "libre" } | { estado: "probando" } | { estado: "hecha"; resultado: ResultadoPrueba } | { estado: "error"; error: unknown }>({ estado: "libre" });
     const limites = umbrales ?? { ...DE_FABRICA, version: 0 };
@@ -152,7 +152,7 @@ function Vista({ tablero, rango, alRango, ahora, global, administra, umbrales, r
                 <Fuera tablero={tablero} ahora={ahora} accion={botonProbar} global={global} />
             ) : (
                 <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
-                    <LineaEstado linea={lineaEstado(e, ahora)} estado={e.estado} />
+                    <LineaEstado linea={lineaEstado(e, ahora, global)} estado={e.estado} />
                     {botonProbar}
                 </div>
             )}
@@ -180,9 +180,9 @@ function Vista({ tablero, rango, alRango, ahora, global, administra, umbrales, r
                     {mensajeDeError(prueba.error).titulo}
                 </Aviso>
             ) : null}
-            {!fuera && !e.lecturaOk ? (
-                <Aviso tono="warning" titulo="No se pudo leer el servidor en el último intento" data-slot="lectura-fallida">
-                    {e.tomadoEn ? `La última lectura buena fue ${ultimaVez(e.tomadoEn, ahora)}. ` : ""}Las cifras de ahora no se muestran hasta que vuelva a responder.
+            {!fuera && global && !vigentes ? (
+                <Aviso tono="warning" titulo={e.lecturaOk ? "La última lectura del servidor ya es vieja" : "No se pudo leer el servidor en el último intento"} data-slot="lectura-fallida">
+                    {e.tomadoEn ? `La última lectura${e.lecturaOk ? "" : " buena"} fue ${ultimaVez(e.tomadoEn, ahora)}. ` : ""}Las cifras de ahora no se muestran hasta que llegue una lectura nueva.
                 </Aviso>
             ) : null}
 
@@ -207,7 +207,7 @@ function Vista({ tablero, rango, alRango, ahora, global, administra, umbrales, r
 /** Caído, incompatible o desactivado: qué pasa, desde cuándo, qué hace el asistente mientras tanto y qué revisar. */
 function Fuera({ tablero, ahora, accion, global }: { tablero: Tablero; ahora: number; accion: ReactNode; global: boolean }) {
     const e = tablero.estado;
-    const linea = lineaEstado(e, ahora);
+    const linea = lineaEstado(e, ahora, global);
     const incompatible = e.estado === "incompatible";
     const actualizar = incompatible ? queActualizar({ version: e.version ?? "", motivoIncompatible: e.motivoIncompatible, versionDisponible: null }) : null;
     const empresas = e.empresasQueLoUsan ?? [];
@@ -269,7 +269,7 @@ function Fuera({ tablero, ahora, accion, global }: { tablero: Tablero; ahora: nu
                             Que Iris Voz esté corriendo. Este comando lo dice:
                         </li>
                     </ul>
-                    <Comando texto="sudo iris-voz status" />
+                    <Comando texto="sudo iris-voz estado" />
                     <p className="text-[0.8125rem] text-muted-foreground">Si lo acabas de reiniciar, tarda cerca de un minuto en volver.</p>
                 </Tarjeta>
             ) : null}
@@ -351,12 +351,19 @@ function Cifras({ tablero, vigentes, rango, limites }: { tablero: Tablero; vigen
         />
     );
     if (gpus.length === 0) {
+        // `omitido` es «sin tarjeta gráfica o sin lectura»: no se afirma ninguna de las dos.
         return (
             <section aria-label="Cifras de ahora" className="grid gap-3" data-slot="cifras" data-vigentes="si">
-                <Aviso tono="warning" titulo="No hay tarjeta gráfica detectada" data-slot="sin-tarjeta-grafica">
-                    El servidor responde, pero no reporta ninguna tarjeta gráfica: sin ella los modelos trabajan con el procesador y contestan mucho más lento. Revisa que la tarjeta esté instalada y con sus controladores.
-                </Aviso>
-                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{peticiones}</div>
+                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                    <Cifra icono={Cpu} nombre="Uso de la tarjeta gráfica" valor={null} slot="cifra-uso" />
+                    <Cifra icono={MemoryStick} nombre="Memoria de video" valor={null} slot="cifra-vram" />
+                    <Cifra icono={Thermometer} nombre="Temperatura" valor={null} slot="cifra-temperatura" />
+                    {peticiones}
+                </div>
+                <p className="flex items-start gap-2 text-[0.8125rem] text-muted-foreground" data-slot="gpu-sin-lectura">
+                    <Info aria-hidden className="mt-0.5 size-4 shrink-0" />
+                    El servidor no reportó la tarjeta gráfica en esta lectura.
+                </p>
                 <Equipo tablero={tablero} limites={limites} />
             </section>
         );

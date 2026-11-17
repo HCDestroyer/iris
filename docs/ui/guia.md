@@ -817,14 +817,21 @@ tarjeta en Integraciones (junto a Argos y Horus). Código en `componentes/servid
   video, temperatura, peticiones en curso con las **rechazadas por saturación**: no hay cola),
   «El resto del servidor» (procesador, memoria del equipo y disco de los modelos; la potencia va
   junto al nombre de cada tarjeta), tres `GraficaSerie`, modelos, uso por empresa y errores
-  recientes. Con varias tarjetas gráficas, un bloque por tarjeta; sin ninguna (`gpus.estado:
-  "omitido"`), «No hay tarjeta gráfica detectada». Modelos y uso son listas, no tablas: caben en
+  recientes. Con varias tarjetas gráficas, un bloque por tarjeta. Con `gpus.estado: "omitido"`
+  («sin tarjeta o sin lectura», no se sabe cuál) las cifras de GPU van en «Sin datos» con el texto
+  neutro «El servidor no reportó la tarjeta gráfica en esta lectura»: no se afirma que no hay tarjeta. Modelos y uso son listas, no tablas: caben en
   390 px sin desplazarse a lo ancho. Si hay más empresas activas que turnos
   (`estado.plazasInsuficientes`), un aviso llano con enlace a Mantenimiento.
-- **Refresco.** `useTablero` relee cada 10 s en «Ahora» (30 s, 60 s y 5 min en los otros), sin
-  pasar por «cargando», en pausa con la pestaña oculta y al instante al volver.
+- **Quién entra.** Cada página pasa por `PuertaServidorIa` (permiso **y** `empresas.todas`, como la
+  API): quien tiene `servidor_ia.administrar` sin `empresas.todas` ve «Sin permiso» y la pantalla no
+  llega a pedir nada. Avisos y Mantenimiento solo aparecen en la navegación para quien administra.
+  El `detalle` técnico del servidor solo se pinta a quien administra la instalación.
+- **Refresco.** `useTablero` relee cada 10 s en «Ahora» (30 s y 60 s en los otros), sin pasar por
+  «cargando», en pausa con la pestaña oculta y al instante al volver. Si falla, espera cada vez más
+  (10 → 20 → 40 → 60 s) y vuelve a su ritmo al primer éxito; con 401, 403 o 404 no insiste: queda
+  «Reintentar».
 - **Nunca cifras viejas.** Si una relectura falla, las cifras se quitan y queda el error con
-  «Reintentar». Caído, incompatible o con la última lectura fallida: las cifras de ahora dicen «Sin
+  «Reintentar». Una lectura de más de 60 s tampoco es «ahora», aunque llegue con `lecturaOk: true`. Caído, incompatible o con la última lectura fallida: las cifras de ahora dicen «Sin
   datos», «Visto por última vez hoy a las 10:42 (hace 20 min)», qué pasa con el asistente mientras
   tanto, qué revisar en el servidor y «Probar ahora». Incompatible dice **qué** actualizar según
   `motivoIncompatible`: Iris (`iris_antiguo`) o el servidor, con su comando y su porqué
@@ -835,15 +842,17 @@ tarjeta en Integraciones (junto a Argos y Horus). Código en `componentes/servid
   Si «conectar» falla, el servidor responde lo mismo (502) para un código usado o mal escrito que
   para un servidor fuera de alcance: el texto lo dice así, sin afirmar cuál fue. Un paso
   vencido (409 `enlace_vencido`, el mismo para el código y para activar) ofrece empezar de nuevo.
-- **Comandos del servidor.** Los que se copian son los del instalador real (`infra/voz/install-voz.sh`):
-  `iris-voz pair`, `status`, `upgrade`, `unpair` y `model pull|allow|remove <nombre>`.
+- **Comandos del servidor.** Los que se copian son los del instalador (`infra/voz/install-voz.sh`):
+  `iris-voz enlazar`, `estado`, `actualizar`, `desenlazar` y `modelo descargar|permitir|quitar <nombre>`.
 - **Avisos** (`/avisos`, `FormularioPagina`): los de la semana y, plegado en «Avanzado», los
   umbrales y cuántos días de historial se guardan, con «Valores de fábrica». «Servidor caído» y
-  «Versión incompatible» no tienen umbral.
+  «Versión incompatible» no tienen umbral. «Ninguno en los últimos 7 días» solo se dice si la lista
+  llegó; si no vino, «Sin datos». Un tipo de aviso desconocido se pinta genérico, no rompe.
 - **Mantenimiento** (`/mantenimiento`): quién puede usarlo y simultáneas por empresa, modelos
   permitidos en dos niveles (el servidor declara los suyos; aquí se eligen «Todos los del servidor»
   o «Solo algunos»; descargar uno nuevo es un comando en el servidor, que se puede copiar),
-  «Rotar credenciales» y «Revocar ahora» (cada confirmación dice qué pasa mientras tanto) y
+  «Rotar credenciales» y «Revocar ahora» (cada confirmación dice qué pasa mientras tanto; si no
+  llega respuesta se dice que no se sabe, se relee la tarjeta y el reintento repite la misma clave) y
   «Desenlazar» con confirmación.
 - **En el asistente de cada empresa** (`/administracion/asistente/conexion`): el proveedor
   «Servidor de IA» aparece si los ajustes traen `servidorIa`; se elige un modelo de los permitidos,
@@ -852,9 +861,7 @@ tarjeta en Integraciones (junto a Argos y Horus). Código en `componentes/servid
   guardar y ante el 422 `servidor_ia_no_disponible`.
 - **Campana.** `servidor_ia_caido`, `servidor_ia_incompatible` y `servidor_ia_umbral` tienen su
   icono y su segunda línea en `lib/campana.ts`; el título lo pone el servidor.
-- **Tipos.** Todo sale de `packages/contratos` (`lib/servidor-ia/tipos.ts` son solo alias). Lo
-  único que aún se compara como texto son los tres tipos nuevos de la campana, que el tipo generado
-  de `AvisoPanel` todavía no trae.
+- **Tipos.** Todo sale de `packages/contratos` (`lib/servidor-ia/tipos.ts` son solo alias).
 
 ## Navegación del panel (fase 1, hecha)
 

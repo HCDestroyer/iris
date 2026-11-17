@@ -61,14 +61,28 @@ const TITULO_ESTADO: Record<EstadoMotor, { tono: Tono; titulo: string }> = {
 /** ¿El asistente puede usar el servidor ahora? Solo `listo`. */
 export const enServicio = (estado: EstadoMotor | null): boolean => estado === "listo";
 
-/**
- * ¿Lo que trae `servidor` es de ahora? Solo si el servidor responde y la última lectura salió
- * bien. Si no, las cifras son viejas y **no se muestran como actuales** (zona «Sin datos»).
- */
-export const cifrasVigentes = (t: Tablero): boolean => t.servidor !== null && t.estado.lecturaOk && (t.estado.estado === "listo" || t.estado.estado === "degradado");
+/** Una lectura de más de un minuto ya no es «ahora», diga lo que diga `lecturaOk`. */
+export const LECTURA_VIEJA_MS = 60_000;
 
-/** La línea de estado, en llano: «En línea · versión 0.1.0 · compatible con esta versión de Iris · encendido hace 6 días». */
-export function lineaEstado(e: Tablero["estado"], ahora: number): { tono: Tono; titulo: string; detalle: string } {
+/** ¿La muestra (`tomadoEn`) es reciente respecto de `ahora`? Sin fecha, no. */
+export function lecturaReciente(tomadoEn: string | null, ahora: number): boolean {
+    const ms = tomadoEn === null ? NaN : Date.parse(tomadoEn);
+    return !Number.isNaN(ms) && ahora - ms <= LECTURA_VIEJA_MS;
+}
+
+/**
+ * ¿Lo que trae `servidor` es de ahora? Solo si el servidor responde, la última lectura salió bien
+ * **y es reciente**. Si no, las cifras son viejas y **no se muestran como actuales** («Sin datos»).
+ */
+export const cifrasVigentes = (t: Tablero, ahora: number): boolean =>
+    t.servidor !== null && t.estado.lecturaOk && (t.estado.estado === "listo" || t.estado.estado === "degradado") && lecturaReciente(t.estado.tomadoEn, ahora);
+
+/**
+ * La línea de estado, en llano: «En línea · versión 0.1.0 · compatible con esta versión de Iris ·
+ * encendido hace 6 días». El `detalle` técnico del servidor solo lo lee quien administra la
+ * instalación (`global`): al admin de una empresa no se le enseña aunque llegue.
+ */
+export function lineaEstado(e: Tablero["estado"], ahora: number, global = false): { tono: Tono; titulo: string; detalle: string } {
     if (e.estado === null) return { tono: "neutro", titulo: "Sin servidor de IA", detalle: "Todavía no hay ninguno enlazado." };
     const base = TITULO_ESTADO[e.estado];
     const partes: string[] = [];
@@ -80,7 +94,7 @@ export function lineaEstado(e: Tablero["estado"], ahora: number): { tono: Tono; 
     } else if (e.tomadoEn) {
         partes.push(`visto por última vez ${ultimaVez(e.tomadoEn, ahora)}`);
     }
-    if (e.estado === "degradado" && e.detalle) partes.push(e.detalle);
+    if (global && e.estado === "degradado" && e.detalle) partes.push(e.detalle);
     return { ...base, detalle: partes.join(" · ") };
 }
 
@@ -93,7 +107,7 @@ export function ultimaVez(iso: string, ahora: number): string {
 }
 
 /** El comando que actualiza Iris Voz, en el servidor. */
-export const COMANDO_ACTUALIZAR = "sudo iris-voz upgrade";
+export const COMANDO_ACTUALIZAR = "sudo iris-voz actualizar";
 
 /** Qué hay que actualizar cuando no son compatibles (se comprueba en los dos sentidos, §4.7): solo `iris_antiguo` pide actualizar Iris. */
 export function queActualizar(p: Pick<Paquete, "version" | "motivoIncompatible" | "versionDisponible">): { titulo: string; detalle: string; comando: string | null } {
@@ -112,6 +126,14 @@ export function queActualizar(p: Pick<Paquete, "version" | "motivoIncompatible" 
         default:
             return servidor(`El servidor tiene Iris Voz ${p.version}, que no es compatible con esta versión de Iris${hasta}.`);
     }
+}
+
+/** La línea de la tarjeta de Integraciones: el estado y cuándo se le vio por última vez (no afirma que la lectura sea de ahora). */
+export function lineaTarjeta(m: { estado: EstadoMotor; version: string | null; ultimoLatidoEn: string | null }, ahora: number): { tono: Tono; titulo: string; detalle: string } {
+    const partes: string[] = [];
+    if (m.version) partes.push(`versión ${m.version}`);
+    partes.push(m.ultimoLatidoEn ? `visto por última vez ${ultimaVez(m.ultimoLatidoEn, ahora)}` : "todavía no ha respondido");
+    return { ...TITULO_ESTADO[m.estado], detalle: partes.join(" · ") };
 }
 
 // --- Tarjetas -----------------------------------------------------------------------------------
@@ -163,8 +185,8 @@ export function tarjetaGpu(g: Gpu, u: Pick<Umbrales, "vramPct" | "temperaturaC">
 export const NOMBRE_RANGO: Record<Rango, string> = { ahora: "Ahora", "1h": "1 hora", "24h": "24 horas", "7d": "7 días" };
 export const TEXTO_RANGO: Record<Rango, string> = { ahora: "en los últimos 10 minutos", "1h": "en la última hora", "24h": "en las últimas 24 horas", "7d": "en los últimos 7 días" };
 
-/** Cada cuánto se relee el tablero (ms). En 7 días los datos van por hora: no hace falta correr. */
-export const REFRESCO_MS: Record<Rango, number> = { ahora: 10_000, "1h": 30_000, "24h": 60_000, "7d": 300_000 };
+/** Cada cuánto se relee el tablero (ms). Nunca más de un minuto: las cifras de «ahora» van en todos los periodos. */
+export const REFRESCO_MS: Record<Rango, number> = { ahora: 10_000, "1h": 30_000, "24h": 60_000, "7d": 60_000 };
 
 export type SeriesTablero = {
     instantes: string[];
@@ -241,6 +263,9 @@ export function textoAviso(a: AvisoServidor): { titulo: string; detalle: string 
                 titulo: "Saturación",
                 detalle: `${valor === null ? "Se rechazaron peticiones" : `Se rechazaron ${valor} ${valor === 1 ? "petición" : "peticiones"}`} porque el servidor estaba lleno. No hay cola: una petición sin lugar falla al instante y el asistente la pasa a una persona. Qué hacer: menos empresas, un modelo más pequeño o más memoria de video.`,
             };
+        default:
+            // Un tipo que este panel aún no conoce: se dice que lo hay, sin inventar qué es.
+            return { titulo: "Aviso del servidor de IA", detalle: "Mira el tablero del servidor de IA para ver qué pasa." };
     }
 }
 
@@ -268,9 +293,9 @@ export function huellaLegible(huella: string): string[] {
 export function textoErrorEnlace(codigo: string, estado: number, alConectar = false): string | null {
     // Al conectar, el servidor responde lo mismo para cualquier falla (no delata si el código era bueno).
     if (alConectar && codigo === "motor_no_responde") {
-        return "Iris no pudo conectarse con el servidor. Puede que el código esté mal escrito allá o ya se haya usado, que la ventana de 15 minutos se haya cerrado o que el servidor no esté al alcance. Vuelve a ejecutar «sudo iris-voz pair» en el servidor y escribe el código de nuevo.";
+        return "Iris no pudo conectarse con el servidor. Puede que el código esté mal escrito allá o ya se haya usado, que la ventana de 15 minutos se haya cerrado o que el servidor no esté al alcance. Vuelve a ejecutar «sudo iris-voz enlazar» en el servidor y escribe el código de nuevo.";
     }
-    if (estado === 401) return "El servidor no aceptó el código. Puede que esté mal escrito allá o que ya se haya usado. Vuelve a ejecutar «sudo iris-voz pair» en el servidor y escribe el código de nuevo.";
+    if (estado === 401) return "El servidor no aceptó el código. Puede que esté mal escrito allá o que ya se haya usado. Vuelve a ejecutar «sudo iris-voz enlazar» en el servidor y escribe el código de nuevo.";
     if (estado === 429) return "Demasiados intentos seguidos. Espera unos segundos y vuelve a probar.";
     switch (codigo) {
         case "motor_ya_enlazado":
@@ -280,7 +305,7 @@ export function textoErrorEnlace(codigo: string, estado: number, alConectar = fa
         case "motor_no_responde":
             return "Iris no pudo llegar al servidor en esa dirección. Revisa que esté encendido, que la dirección sea la que mostró el instalador y que la ventana de enlace siga abierta.";
         case "motor_incompatible":
-            return "La versión de Iris Voz del servidor no es compatible con esta versión de Iris. Actualiza el servidor (sudo iris-voz upgrade) y vuelve a enlazar.";
+            return "La versión de Iris Voz del servidor no es compatible con esta versión de Iris. Actualiza el servidor (sudo iris-voz actualizar) y vuelve a enlazar.";
         case "enlace_vencido":
             return "Ese paso del enlace ya venció: el código vale 15 minutos y, una vez conectado, hay 24 horas para activar. Hay que empezar de nuevo.";
         default:

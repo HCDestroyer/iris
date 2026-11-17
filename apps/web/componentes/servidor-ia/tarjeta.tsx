@@ -7,7 +7,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useLectura } from "@/lib/lectura";
 import { leerMotor } from "@/lib/servidor-ia/api";
-import { lineaEstado } from "@/lib/servidor-ia/presentacion";
+import { lineaTarjeta } from "@/lib/servidor-ia/presentacion";
 import { LineaEstado, RUTA, usePermisosServidorIa } from "./comun";
 
 /**
@@ -37,13 +37,7 @@ function Contenido() {
                     // Sin lectura no se dice ningún estado.
                     <p className="text-sm text-warning">No se pudo leer su estado.</p>
                 ) : motor ? (
-                    <LineaEstado
-                        estado={motor.estado}
-                        linea={lineaEstado(
-                            { motorId: motor.id, estado: motor.estado, detalle: motor.detalle, version: motor.paquete?.version ?? null, compatible: motor.paquete?.compatible ?? null, motivoIncompatible: motor.paquete?.motivoIncompatible ?? null, encendidoSeg: null, tomadoEn: motor.ultimoLatidoEn, lecturaOk: true, modelosDisponibles: [] },
-                            ahora,
-                        )}
-                    />
+                    <LineaEstado estado={motor.estado} linea={lineaTarjeta({ estado: motor.estado, version: motor.paquete.version, ultimoLatidoEn: motor.ultimoLatidoEn }, ahora)} />
                 ) : (
                     <p className="text-sm text-muted-foreground">Una computadora tuya, con tarjeta gráfica, donde el asistente trabaja sin mandar nada a servicios de fuera. Todavía no hay ninguna enlazada.</p>
                 )}

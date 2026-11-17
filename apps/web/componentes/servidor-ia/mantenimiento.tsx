@@ -251,36 +251,56 @@ function ModelosPermitidos({ motor, alGuardar }: { motor: Motor; alGuardar: (m: 
                 </form>
             )}
             <p className="text-sm text-muted-foreground">Iris solo puede elegir entre los modelos que el servidor ya tiene y deja usar. Para sumar uno, se descarga y se permite en el propio servidor:</p>
-            <Comando texto="sudo iris-voz model pull <nombre>" />
-            <Comando texto="sudo iris-voz model allow <nombre>" />
+            <Comando texto="sudo iris-voz modelo descargar <nombre>" />
+            <Comando texto="sudo iris-voz modelo permitir <nombre>" />
             <p className="text-sm text-muted-foreground">Y para borrar del servidor uno que ya no se usa:</p>
-            <Comando texto="sudo iris-voz model remove <nombre>" />
+            <Comando texto="sudo iris-voz modelo quitar <nombre>" />
         </Seccion>
     );
 }
 
 function Credenciales({ motor, alCambiar }: { motor: Motor; alCambiar: (m: Motor) => void }) {
     const [dialogo, setDialogo] = useState<"rotar" | "revocar" | null>(null);
-    const [error, setError] = useState<unknown>(null);
+    const [error, setError] = useState<{ error: unknown; releido: boolean } | null>(null);
+    // Una clave por acción: si no llegó respuesta, el reintento repite la misma y no rota dos veces.
+    const claveRotar = useClaveIdempotencia();
+    const claveRevocar = useClaveIdempotencia();
     async function hacer(revocar: boolean) {
+        const clave = revocar ? claveRevocar : claveRotar;
         setError(null);
         try {
-            alCambiar(await rotarCredenciales(motor.id, revocar, nuevaClaveIdempotencia()));
+            alCambiar(await rotarCredenciales(motor.id, revocar, clave.actual()));
+            clave.renovar();
             avisar({ titulo: revocar ? "Credenciales revocadas y cambiadas" : "Credenciales rotadas", ...(revocar ? {} : { descripcion: "La anterior sigue valiendo 24 horas." }) });
         } catch (e) {
-            setError(e);
+            clave.trasError(e);
+            // No se sabe si llegó a hacerse: se vuelve a leer la tarjeta para enseñar lo que hay ahora.
+            let releido = false;
+            try {
+                const actual = await leerMotor();
+                if (actual) {
+                    alCambiar(actual);
+                    releido = true;
+                }
+            } catch {
+                // Tampoco se pudo leer: queda dicho abajo.
+            }
+            setError({ error: e, releido });
         }
         setDialogo(null);
     }
+    const sinRespuesta = error !== null && (!(error.error instanceof ErrorApi) || error.error.estado === 0 || error.error.estado >= 500);
     return (
         <Seccion icono={KeyRound} titulo="Credenciales" slot="credenciales">
             <p className="text-sm text-muted-foreground">Es la llave secreta con la que Iris y el servidor se reconocen. Iris la cambia sola cada 30 días; conviene cambiarla a mano si alguien que tenía acceso al servidor ya no trabaja contigo.</p>
             <Aviso tono="info" titulo="Mientras tanto">
-                Las respuestas no se interrumpen: durante 24 horas valen la llave nueva y la anterior. Si el servidor está apagado no se cambia nada y sigue valiendo la actual.
+                Las respuestas no se interrumpen: durante 24 horas valen la llave nueva y la anterior.
             </Aviso>
             {error ? (
-                <Aviso tono="error" titulo="No se pudieron cambiar las credenciales" data-slot="error-credenciales">
-                    {error instanceof ErrorApi && error.codigo === "motor_no_responde" ? "El servidor no respondió: no se cambió nada y sigue valiendo la llave actual." : mensajeDeError(error).titulo}
+                <Aviso tono="error" titulo={sinRespuesta ? "No se sabe si las credenciales se cambiaron" : "No se pudieron cambiar las credenciales"} data-slot="error-credenciales" data-sin-respuesta={sinRespuesta}>
+                    {sinRespuesta
+                        ? `No llegó una respuesta clara, así que el cambio pudo hacerse o no. ${error.releido ? "Abajo está la última rotación que Iris tiene registrada ahora" : "Tampoco se pudo volver a leer el servidor"}: si no cambió, vuelve a intentarlo (repetirlo no rota dos veces).`
+                        : mensajeDeError(error.error).titulo}
                 </Aviso>
             ) : null}
             <div className="flex flex-wrap gap-2">
@@ -310,7 +330,7 @@ function Credenciales({ motor, alCambiar }: { motor: Motor; alCambiar: (m: Motor
                 open={dialogo === "revocar"}
                 onOpenChange={(a) => !a && setDialogo(null)}
                 titulo="¿Revocar las credenciales ahora?"
-                descripcion="La llave y el certificado anteriores dejan de valer en el acto y se cambian por unos nuevos. Úsalo si crees que alguien los copió. Las respuestas que estén en camino en ese instante pueden fallar. Si lo que estuvo en riesgo fue el propio Iris, esto no basta: ejecuta «sudo iris-voz unpair» en el servidor y vuelve a enlazar."
+                descripcion="La llave y el certificado anteriores dejan de valer en el acto y se cambian por unos nuevos. Úsalo si crees que alguien los copió. Las respuestas que estén en camino en ese instante pueden fallar. Si lo que estuvo en riesgo fue el propio Iris, esto no basta: ejecuta «sudo iris-voz desenlazar» en el servidor y vuelve a enlazar."
                 textoConfirmar="Revocar ahora"
                 textoCancelar="Cancelar"
                 textoOcupado="Revocando…"

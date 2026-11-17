@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { avisar, Aviso, Boton, CampoNumero, FormularioPagina, InsigniaEstado, liberarProteccion, SeccionFormulario } from "@iris/ui";
-import { ChevronDown, HardDrive, MemoryStick, RefreshCw, RotateCcw, Server, Thermometer, Users, type LucideIcon } from "lucide-react";
+import { Bell, ChevronDown, HardDrive, MemoryStick, RefreshCw, RotateCcw, Server, Thermometer, Users, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -21,7 +21,8 @@ import { NavServidorIa, RUTA } from "./comun";
 
 const ICONO: Record<TipoAviso, LucideIcon> = { caido: Server, incompatible: RefreshCw, vram: MemoryStick, disco: HardDrive, temperatura: Thermometer, saturacion: Users };
 
-type Datos = { umbrales: Umbrales; avisos: AvisoServidor[] };
+/** `avisos: null`: el tablero no trajo la lista; no se puede decir «ninguno». */
+type Datos = { umbrales: Umbrales; avisos: AvisoServidor[] | null };
 
 /**
  * `/administracion/servidor-ia/avisos`: los avisos de la última semana y, en «Avanzado», cuándo
@@ -31,7 +32,7 @@ type Datos = { umbrales: Umbrales; avisos: AvisoServidor[] };
 export function AvisosServidorIa() {
     const lectura = useLectura<Datos>(async (signal) => {
         const [umbrales, tablero] = await Promise.all([leerUmbrales(signal), leerTablero("7d", signal)]);
-        return { umbrales, avisos: tablero.avisos ?? [] };
+        return { umbrales, avisos: tablero.avisos ?? null };
     });
     return (
         <CargaRegistro lectura={lectura} que="los avisos del servidor de IA" noEncontrado="Sin servidor de IA">
@@ -51,8 +52,8 @@ function Formulario({ datos }: { datos: Datos }) {
     const [abierto, setAbierto] = useState(false);
     const avanzado = abierto || CAMPOS_UMBRALES.some((c) => errores[c] !== undefined);
     const conflicto = error instanceof ErrorApi && error.estado === 409;
-    const activos = datos.avisos.filter((a) => a.activo);
-    const pasados = datos.avisos.filter((a) => !a.activo);
+    const activos = (datos.avisos ?? []).filter((a) => a.activo);
+    const pasados = (datos.avisos ?? []).filter((a) => !a.activo);
 
     return (
         <FormularioPagina
@@ -85,7 +86,11 @@ function Formulario({ datos }: { datos: Datos }) {
         >
             <NavServidorIa />
             <SeccionFormulario titulo="Avisos de esta semana">
-                {datos.avisos.length === 0 ? (
+                {datos.avisos === null ? (
+                    <p className="text-sm text-muted-foreground" data-slot="avisos-sin-datos">
+                        Sin datos: no se pudo leer la lista de avisos de esta semana.
+                    </p>
+                ) : datos.avisos.length === 0 ? (
                     <p className="text-sm text-muted-foreground" data-slot="sin-avisos">
                         Ninguno en los últimos 7 días.
                     </p>
@@ -93,7 +98,8 @@ function Formulario({ datos }: { datos: Datos }) {
                     <ul className="grid gap-4" data-slot="lista-avisos">
                         {[...activos, ...pasados].map((a, i) => {
                             const t = textoAviso(a);
-                            const Icono = ICONO[a.tipo];
+                            // Un tipo que este panel aún no conoce no tumba la pantalla.
+                            const Icono = Object.hasOwn(ICONO, a.tipo) ? ICONO[a.tipo] : Bell;
                             return (
                                 <li key={`${a.tipo}-${a.desde}-${i}`} className="grid grid-cols-[2rem_minmax(0,1fr)] gap-3" data-aviso={a.tipo} data-activo={a.activo}>
                                     <span aria-hidden className={`flex size-8 items-center justify-center rounded-lg ${a.activo ? "bg-warning/15 text-warning" : "bg-elevated text-muted-foreground"}`}>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { cantidad, cifrasVigentes, duracionLlana, enServicio, huellaLegible, lineaEstado, queActualizar, seriesDe, tamano, tarjetaGpu, textoAviso, textoError, textoErrorEnlace, textoPlazas, tiempoRespuesta, tonoFrente, ultimaVez } from "./presentacion";
-import type { Tablero } from "./tipos";
+import { cantidad, cifrasVigentes, duracionLlana, lecturaReciente, lineaTarjeta, enServicio, huellaLegible, lineaEstado, queActualizar, seriesDe, tamano, tarjetaGpu, textoAviso, textoError, textoErrorEnlace, textoPlazas, tiempoRespuesta, tonoFrente, ultimaVez } from "./presentacion";
+import type { AvisoServidor, Tablero } from "./tipos";
 import { DE_FABRICA, entradaDeUmbrales, esDeFabrica, esquemaEmpresas, esquemaEnlace, esquemaUmbrales, valoresDeUmbrales } from "./umbrales";
 
 const AHORA = Date.parse("2026-11-17T17:02:00Z");
@@ -33,10 +33,37 @@ describe("textos del Servidor de IA", () => {
     it("las cifras de ahora solo valen con el servidor en servicio y la última lectura buena", () => {
         expect(enServicio("listo")).toBe(true);
         expect(enServicio("degradado")).toBe(false);
-        expect(cifrasVigentes(tablero({}))).toBe(true);
-        expect(cifrasVigentes(tablero({ lecturaOk: false }))).toBe(false);
-        expect(cifrasVigentes(tablero({ estado: "no_disponible" }))).toBe(false);
-        expect(cifrasVigentes(tablero({}, null))).toBe(false);
+        expect(cifrasVigentes(tablero({}), AHORA)).toBe(true);
+        expect(cifrasVigentes(tablero({ lecturaOk: false }), AHORA)).toBe(false);
+        expect(cifrasVigentes(tablero({ estado: "no_disponible" }), AHORA)).toBe(false);
+        expect(cifrasVigentes(tablero({}, null), AHORA)).toBe(false);
+        // Una lectura de hace 5 minutos no es «ahora», aunque el servidor diga `lecturaOk: true`.
+        expect(cifrasVigentes(tablero({ lecturaOk: true, tomadoEn: "2026-11-17T16:57:00Z" }), AHORA)).toBe(false);
+        expect(cifrasVigentes(tablero({ tomadoEn: "2026-11-17T17:01:00Z" }), AHORA)).toBe(true);
+        expect(cifrasVigentes(tablero({ tomadoEn: "2026-11-17T17:00:59Z" }), AHORA)).toBe(false);
+        expect(cifrasVigentes(tablero({ tomadoEn: null }), AHORA)).toBe(false);
+        expect(lecturaReciente("no es una fecha", AHORA)).toBe(false);
+    });
+
+    it("el detalle técnico del servidor solo lo lee quien administra la instalación", () => {
+        const degradado = estado({ estado: "degradado", detalle: "texto-secreto" });
+        expect(lineaEstado(degradado, AHORA).detalle).not.toContain("texto-secreto");
+        expect(lineaEstado(degradado, AHORA, false).detalle).not.toContain("texto-secreto");
+        expect(lineaEstado(degradado, AHORA, true).detalle).toContain("texto-secreto");
+        expect(lineaEstado(degradado, AHORA).titulo).toBe("Con problemas");
+    });
+
+    it("la tarjeta de Integraciones dice cuándo se le vio por última vez, sin afirmar que la lectura es de ahora", () => {
+        expect(lineaTarjeta({ estado: "listo", version: "0.1.0", ultimoLatidoEn: "2026-11-17T16:42:00Z" }, AHORA)).toEqual({ tono: "ok", titulo: "En línea", detalle: "versión 0.1.0 · visto por última vez hoy a las 10:42 (hace 20 min)" });
+        expect(lineaTarjeta({ estado: "sin_enlazar", version: null, ultimoLatidoEn: null }, AHORA).detalle).toBe("todavía no ha respondido");
+    });
+
+    it("un tipo de aviso que el panel no conoce no tumba la pantalla", () => {
+        for (const tipo of ["nuevo_tipo", "constructor", "toString"]) {
+            const t = textoAviso({ tipo: tipo as AvisoServidor["tipo"], activo: true, desde: "", hasta: null, valor: 3, umbral: 1 });
+            expect(t.titulo).toBe("Aviso del servidor de IA");
+            expect(typeof t.detalle).toBe("string");
+        }
     });
 
     it("la compatibilidad se explica en los dos sentidos", () => {
@@ -48,7 +75,7 @@ describe("textos del Servidor de IA", () => {
         ] as const) {
             const servidor = queActualizar({ version: "0.0.9", motivoIncompatible: motivo, versionDisponible: null });
             expect(servidor.titulo).toBe("Hay que actualizar Iris Voz en el servidor");
-            expect(servidor.comando).toBe("sudo iris-voz upgrade");
+            expect(servidor.comando).toBe("sudo iris-voz actualizar");
             expect(servidor.detalle).toContain(texto);
             // Sin `versionDisponible` no se dice a cuál versión.
             expect(servidor.detalle).not.toContain("o una más nueva");

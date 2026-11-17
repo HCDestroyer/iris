@@ -1,25 +1,44 @@
 "use client";
 
-import { Boton, cn } from "@iris/ui";
-import { Bell, LayoutDashboard, Wrench, type LucideIcon } from "lucide-react";
+import { Boton, cn, EstadoVacio, Tarjeta } from "@iris/ui";
+import { Bell, LayoutDashboard, Lock, Wrench, type LucideIcon } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { BotonCopiar } from "@/componentes/cuenta/boton-copiar";
+import { ErrorApi } from "@/lib/api/errores";
 import { leerTablero } from "@/lib/servidor-ia/api";
 import { REFRESCO_MS, type Tono } from "@/lib/servidor-ia/presentacion";
-import { PERMISO_ADMINISTRAR, PERMISO_VER, type Rango, type Tablero } from "@/lib/servidor-ia/tipos";
+import { PERMISO_ADMINISTRAR, PERMISO_VER, PERMISO_VER_USO, type Rango, type Tablero } from "@/lib/servidor-ia/tipos";
 import { useSesion } from "@/lib/sesion";
 
 export const RUTA = "/administracion/servidor-ia";
 
-/** Quién mira: quien administra la instalación (todas las empresas) o el admin de una empresa. */
-export function usePermisosServidorIa(): { global: boolean; administra: boolean } {
+/**
+ * Quién mira: quien administra la instalación (`global`, y además `administra`) o el admin de una
+ * empresa (`uso`). Como la API: `servidor_ia.ver` y `.administrar` solo valen con `empresas.todas`
+ * (§4.8); con el permiso pero sin `empresas.todas` no hay nada que ver.
+ */
+export function usePermisosServidorIa(): { global: boolean; administra: boolean; uso: boolean } {
     const { yo, puede } = useSesion();
-    // Como la API: `servidor_ia.ver` y `.administrar` solo valen con `empresas.todas` (§4.8).
     const global = puede([PERMISO_VER]) && yo.todasLasEmpresas;
-    return { global, administra: global && puede([PERMISO_ADMINISTRAR]) };
+    return { global, administra: global && puede([PERMISO_ADMINISTRAR]), uso: puede([PERMISO_VER_USO]) };
+}
+
+/**
+ * La puerta de cada pantalla de la sección: `ver` deja pasar a quien administra la instalación o
+ * al admin de una empresa; `administrar`, solo a quien la administra. Quien no pasa ve «Sin
+ * permiso» y la pantalla no llega a montarse (no pide nada a la API).
+ */
+export function PuertaServidorIa({ nivel, children }: { nivel: "ver" | "administrar"; children: ReactNode }) {
+    const { global, administra, uso } = usePermisosServidorIa();
+    if (nivel === "administrar" ? administra : global || uso) return children;
+    return (
+        <Tarjeta data-slot="sin-permiso">
+            <EstadoVacio icono={Lock} titulo="No tienes permiso para ver esta sección" descripcion="El servidor de IA lo administra quien ve todas las empresas de la instalación." />
+        </Tarjeta>
+    );
 }
 
 /** Un comando para pegar en el servidor, con «Copiar». */
@@ -60,11 +79,11 @@ const SECCIONES: readonly { href: string; texto: string; icono: LucideIcon }[] =
     { href: `${RUTA}/mantenimiento`, texto: "Mantenimiento", icono: Wrench },
 ];
 
-/** Las tres partes de la sección, solo para quien administra la instalación. */
+/** Las tres partes de la sección, solo para quien la administra (Avisos y Mantenimiento piden `servidor_ia.administrar`). */
 export function NavServidorIa() {
     const ruta = usePathname();
-    const { global } = usePermisosServidorIa();
-    if (!global) return null;
+    const { administra } = usePermisosServidorIa();
+    if (!administra) return null;
     return (
         <nav aria-label="Secciones del Servidor de IA" className="-mx-1 mb-4 flex gap-1 overflow-x-auto px-1">
             {SECCIONES.map((s) => {
@@ -84,10 +103,20 @@ export function NavServidorIa() {
 
 export type LecturaTablero = { estado: "cargando" } | { estado: "error"; error: unknown } | { estado: "listo"; datos: Tablero };
 
+/** Estos no se arreglan reintentando: sesión vencida, sin permiso o no existe. Queda «Reintentar» a mano. */
+export const sinReintento = (error: unknown): boolean => error instanceof ErrorApi && (error.estado === 401 || error.estado === 403 || error.estado === 404);
+
+/** Espera antes del siguiente intento tras `fallos` seguidos: 10 → 20 → 40 → 60 s (nunca menos que el ritmo del periodo). */
+export function esperaTrasFallos(fallos: number, base: number): number {
+    if (fallos <= 0) return base;
+    return Math.max(base, Math.min(60_000, 10_000 * 2 ** (fallos - 1)));
+}
+
 /**
  * El tablero del rango, releído solo: cada 10 s en «Ahora» (más despacio en los rangos largos), sin
  * pasar por «cargando» (no parpadea), en pausa con la pestaña oculta y al momento al volver. Si una
- * relectura falla **no se quedan las cifras anteriores**: se dice el error y se sigue intentando.
+ * relectura falla **no se quedan las cifras anteriores**: se dice el error y se sigue intentando,
+ * cada vez más espaciado (vuelve a su ritmo al primer éxito). Con 401, 403 o 404 deja de insistir.
  */
 export function useTablero(rango: Rango): { lectura: LecturaTablero; refrescar: () => void; ahora: number } {
     const [resultado, setResultado] = useState<{ rango: Rango; lectura: LecturaTablero }>({ rango, lectura: { estado: "cargando" } });
@@ -97,7 +126,17 @@ export function useTablero(rango: Rango): { lectura: LecturaTablero; refrescar: 
     useEffect(() => {
         let control: AbortController | null = null;
         let vivo = true;
-        const leer = () => {
+        let fallos = 0;
+        let detenido = false;
+        let reloj: number | undefined;
+        const programar = () => {
+            window.clearTimeout(reloj);
+            if (!vivo || detenido) return;
+            reloj = window.setTimeout(leer, esperaTrasFallos(fallos, REFRESCO_MS[rango]));
+        };
+        function leer() {
+            window.clearTimeout(reloj);
+            // Con la pestaña oculta no se lee ni se programa: al volver, `visibilitychange` lo reanuda.
             if (document.visibilityState !== "visible") return;
             control?.abort();
             const mio = new AbortController();
@@ -105,24 +144,35 @@ export function useTablero(rango: Rango): { lectura: LecturaTablero; refrescar: 
             leerTablero(rango, mio.signal).then(
                 (datos) => {
                     if (!vivo || mio.signal.aborted) return;
+                    fallos = 0;
                     setAhora(Date.now());
                     setResultado({ rango, lectura: { estado: "listo", datos } });
+                    programar();
                 },
                 (error: unknown) => {
                     if (!vivo || mio.signal.aborted) return;
+                    fallos++;
+                    detenido = sinReintento(error);
                     setResultado({ rango, lectura: { estado: "error", error } });
+                    programar();
                 },
             );
+        }
+        const alVolver = () => {
+            if (!detenido) leer();
         };
-        refrescar.current = leer;
+        // «Reintentar» a mano siempre lee, también después de un 401, 403 o 404.
+        refrescar.current = () => {
+            detenido = false;
+            leer();
+        };
         leer();
-        const id = window.setInterval(leer, REFRESCO_MS[rango]);
-        document.addEventListener("visibilitychange", leer);
+        document.addEventListener("visibilitychange", alVolver);
         return () => {
             vivo = false;
             control?.abort();
-            window.clearInterval(id);
-            document.removeEventListener("visibilitychange", leer);
+            window.clearTimeout(reloj);
+            document.removeEventListener("visibilitychange", alVolver);
         };
     }, [rango]);
 
