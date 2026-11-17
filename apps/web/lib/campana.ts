@@ -1,11 +1,13 @@
 import type { Schema } from "@iris/contratos";
-import { Bell, Sparkles, type LucideIcon } from "lucide-react";
+import { Bell, Gauge, RefreshCw, Server, Sparkles, type LucideIcon } from "lucide-react";
 import { textoPausado } from "./asistente/presentacion";
 
 /*
  * Avisos personales de la campana del panel (`GET /yo/avisos`, contratos/conversaciones.md §16.9).
- * Hoy solo `asistente_tope`: el asistente de IA llegó al 80 % (`alerta`) o al 100 % (`peligro`, se
- * pausó) del tope del mes. El texto (`titulo`) lo arma el servidor; aquí solo cómo se pinta.
+ * `asistente_tope`: el asistente de IA llegó al 80 % (`alerta`) o al 100 % (`peligro`, se pausó) del
+ * tope del mes. `servidor_ia_caido`, `servidor_ia_incompatible` y `servidor_ia_umbral`
+ * (contratos/voz.md §4.12): uno por episodio, a quien administra la instalación. El texto
+ * (`titulo`) lo arma el servidor; aquí solo cómo se pinta.
  */
 
 export type AvisoPanel = Schema<"AvisoPanel">;
@@ -15,8 +17,31 @@ export function tonoAvisoPanel(nivel: AvisoPanel["nivel"]): "info" | "warning" |
     return nivel === "peligro" ? "error" : nivel === "alerta" ? "warning" : "info";
 }
 
+const ICONO_TIPO: Record<AvisoPanel["tipo"], LucideIcon> = { asistente_tope: Sparkles, servidor_ia_caido: Server, servidor_ia_incompatible: RefreshCw, servidor_ia_umbral: Gauge };
+
+/** El icono del tipo; uno que este panel aún no conoce (o un nombre heredado como «constructor») lleva la campana. */
 export function iconoAvisoPanel(tipo: AvisoPanel["tipo"]): LucideIcon {
-    return tipo === "asistente_tope" ? Sparkles : Bell;
+    return Object.hasOwn(ICONO_TIPO, tipo) ? ICONO_TIPO[tipo] : Bell;
+}
+
+const numero = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? Math.round(v) : null);
+
+/** Segunda línea de un aviso de umbral del Servidor de IA, con `datos: { tipo, valor, umbral }`. */
+function detalleUmbral(datos: AvisoPanel["datos"]): string {
+    const valor = numero(datos["valor"]);
+    const umbral = numero(datos["umbral"]);
+    switch (datos["tipo"]) {
+        case "vram":
+            return `${valor === null ? "La memoria de video pasó del umbral" : `La memoria de video está al ${valor} %`}${umbral === null ? "" : ` (avisa al ${umbral} %)`}. Si se llena, las respuestas fallan.`;
+        case "disco":
+            return `${valor === null ? "El disco de los modelos está casi lleno" : `El disco de los modelos está al ${valor} %`}. Quita en el servidor los modelos que ya no se usan.`;
+        case "temperatura":
+            return `${valor === null ? "La tarjeta gráfica se calentó de más" : `La tarjeta gráfica llegó a ${valor} °C`}. Revisa la ventilación del servidor.`;
+        case "saturacion":
+            return `${valor === null ? "Se rechazaron peticiones" : `Se rechazaron ${valor} ${valor === 1 ? "petición" : "peticiones"}`} porque el servidor estaba lleno. No hay cola: pasan a una persona.`;
+        default:
+            return "Mira el tablero del servidor de IA.";
+    }
 }
 
 /** Mes `YYYY-MM` de `datos.mes`, o `null` si no vino bien. */
@@ -27,7 +52,14 @@ function mesDe(datos: AvisoPanel["datos"]): string | null {
 
 /** Segunda línea del aviso: al 100 %, hasta cuándo queda pausado; al 80 %, qué pasa si sigue. */
 export function detalleAvisoPanel(a: Pick<AvisoPanel, "tipo" | "nivel" | "datos">): string | null {
-    if (a.tipo !== "asistente_tope") return null;
+    const tipo = a.tipo;
+    // Los del Servidor de IA se reactivan si el problema se repite: `datos.veces` dice cuántas en la hora.
+    const veces = numero(a.datos["veces"]);
+    const repetido = veces !== null && veces > 1 ? ` Ya van ${veces} veces en esta hora.` : "";
+    if (tipo === "servidor_ia_caido") return `Lo que el asistente atendía solo pasa a personas hasta que vuelva. Iris lo sigue intentando sola.${repetido}`;
+    if (tipo === "servidor_ia_incompatible") return `El asistente no lo usa hasta actualizar. El tablero dice qué hay que actualizar.${repetido}`;
+    if (tipo === "servidor_ia_umbral") return `${detalleUmbral(a.datos)}${repetido}`;
+    if (tipo !== "asistente_tope") return null;
     if (a.nivel === "peligro") {
         const mes = mesDe(a.datos);
         return mes ? textoPausado(mes) : "Pausado hasta el mes siguiente o hasta que subas el tope.";

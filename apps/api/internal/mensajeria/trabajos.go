@@ -26,6 +26,7 @@ func (m *Modulo) RegistrarWorkers(w *river.Workers, bd nucleo.BD) {
 	river.AddWorker(w, &trabajadorMantenimiento{m: m, bd: bd})
 	river.AddWorker(w, &trabajadorMantenimientoVoz{m: m, bd: bd})
 	river.AddWorker(w, &trabajadorMetaVoz{m: m, bd: bd})
+	river.AddWorker(w, &trabajadorServidorIA{m: m, bd: bd})
 	river.AddWorker(w, &trabajadorMensaje{m: m, bd: bd})
 	river.AddWorker(w, &trabajadorMedio{m: m, bd: bd})
 	river.AddWorker(w, &trabajadorAsistenteSugerir{m: m, bd: bd})
@@ -118,6 +119,8 @@ func Reloj(ctx context.Context, cliente *river.Client[pgx.Tx], log *slog.Logger)
 			return
 		case <-despacho.C:
 			encolar(ArgsDespacharWebhooks{})
+			// El latido del servidor de IA (contratos/voz.md §4.5): cada 10 s.
+			encolar(ArgsServidorIA{})
 		case <-mant.C:
 			encolar(ArgsMantenimiento{})
 		}

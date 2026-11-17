@@ -270,6 +270,18 @@ const (
 	PermVozConfigurar Permiso = "voz.configurar"
 )
 
+// Servidor de IA («Iris Voz», contratos/voz.md §4.8 y §8.2): es de la instalación, así que ver y
+// administrar exigen además empresas.todas sin límite de alcance.
+const (
+	// PermServidorIAVer: ver la tarjeta del servidor de IA (estado, versión, GPU, modelos).
+	PermServidorIAVer Permiso = "servidor_ia.ver"
+	// PermServidorIAAdministrar: enlazar, activar, probar, rotar credenciales, empresas permitidas y
+	// desactivar. Sensible.
+	PermServidorIAAdministrar Permiso = "servidor_ia.administrar"
+	// PermServidorIAVerUso: el uso del servidor de IA de la propia empresa y su estado general.
+	PermServidorIAVerUso Permiso = "servidor_ia.ver_uso"
+)
+
 // Correo del sistema configurable desde el panel (contratos/correo-sistema.md).
 const (
 	// PermCorreoSistemaVer: ver el SMTP del correo del sistema (nunca la contraseña) y por dónde sale.
@@ -384,6 +396,8 @@ var PermisosSensibles = map[Permiso]bool{
 	PermDatosLegalesConfigurar: true,
 	// Voz: los ajustes de voz de la empresa (las grabaciones llegan con E1c, con sus permisos).
 	PermVozConfigurar: true,
+	// El servidor de IA de la instalación: sus credenciales y quién puede usarlo.
+	PermServidorIAAdministrar: true,
 	// Una saliente cuesta dinero y, sin contestar, puede hacer que Meta revoque el permiso del contacto.
 	PermLlamadasLlamar: true,
 	// Aprobar una boleta registra un pago en Argos: de administración (MFA y re-autenticación en una
@@ -554,6 +568,9 @@ var Catalogo = []DefPermiso{
 	{PermRutasProponer, "Proponer la ruta del día de un técnico (orden de visita con OSRM y las ventanas de cita)"},
 	{PermRutasPublicar, "Publicar la ruta del día de un técnico (la recibe en la app de campo)"},
 	{PermRutasVer, "Ver las rutas del día: propuesta, publicada y el recorrido real (según el alcance)"},
+	{PermServidorIAAdministrar, "Administrar el servidor de IA de la instalación: enlazarlo, activarlo, probarlo, rotar sus credenciales, elegir qué empresas lo usan y desactivarlo (solo con todas las empresas)"},
+	{PermServidorIAVer, "Ver el servidor de IA de la instalación: estado, versión, GPU y modelos (solo con todas las empresas)"},
+	{PermServidorIAVerUso, "Ver el uso que tu empresa hace del servidor de IA y su estado general"},
 	{PermSSOEmitir, "Pedir un ticket de autologin («Ver en Iris») para abrir un ticket, una orden o un prospecto (lo usa Argos con el token del canje)"},
 	{PermTicketsAsignar, "Asignar tickets a un usuario o a una cuadrilla"},
 	{PermTicketsCerrar, "Cerrar tickets (sin resolver, con motivo)"},
@@ -771,7 +788,8 @@ var modulosPermiso = map[string][2]string{
 	"reportes": {"reportes", "Reportes"},
 	"clientes": {"integraciones", "Argos e integraciones"}, "integraciones": {"integraciones", "Argos e integraciones"},
 	"portal": {"integraciones", "Argos e integraciones"}, "sso": {"integraciones", "Argos e integraciones"},
-	"usuarios": {"usuarios", "Usuarios y accesos"}, "accesos": {"usuarios", "Usuarios y accesos"},
+	"servidor_ia": {"integraciones", "Argos e integraciones"},
+	"usuarios":    {"usuarios", "Usuarios y accesos"}, "accesos": {"usuarios", "Usuarios y accesos"},
 	"tokens": {"usuarios", "Usuarios y accesos"},
 	"roles":  {"roles", "Roles y permisos"}, "permisos": {"roles", "Roles y permisos"},
 	"empresas":       {"empresas", "Empresas"},

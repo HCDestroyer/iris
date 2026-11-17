@@ -5,6 +5,7 @@ import { simularChatPanel, type ApiChatPanel } from "./api-chat-panel";
 import { apiComercial, type ApiComercial } from "./api-comercial";
 import { PERMISO_CONFIGURAR } from "./api-asistente";
 import { apiConversaciones, PERMISOS_CONVERSACIONES, type ApiConversaciones, type OpcionesConversaciones } from "./api-conversaciones";
+import { apiServidorIa, PERMISO_SIA_ADMINISTRAR, PERMISO_SIA_VER, PERMISO_SIA_VER_USO, type ApiServidorIa, type OpcionesServidorIa } from "./api-servidor-ia";
 import { apiVoz, PERMISO_LLAMAR, PERMISO_PEDIR, PERMISOS_LLAMADAS, PERMISOS_VOZ_ADMIN, type ApiVoz, type OpcionesVoz } from "./api-voz";
 import { apiPagos, PERMISOS_ABRIR_ARGOS, PERMISOS_PAGOS, type ApiPagos, type OpcionesPagos } from "./api-pagos";
 import { apiEncuestas, type ApiEncuestas } from "./api-encuestas";
@@ -330,6 +331,12 @@ export type OpcionesApi = {
      * arranca la voz.
      */
     voz?: OpcionesVoz;
+    /**
+     * Servidor de IA (e2e/api-servidor-ia.ts): Ana (admin, con `empresas.todas`) recibe
+     * `servidor_ia.ver` y `.administrar`; Zoe (admin de una empresa), solo `servidor_ia.ver_uso`.
+     * Sin esta opción nadie los tiene.
+     */
+    servidorIa?: OpcionesServidorIa;
 };
 
 export type Peticion = { metodo: string; ruta: string; query: URLSearchParams; empresa: string | undefined; idempotencia: string | undefined; cuerpo: unknown };
@@ -385,6 +392,8 @@ export type ApiFalsa = {
     chat: ApiChatPanel | null;
     /** Voz E1: llamadas, devoluciones y lo que recibió el servidor (solo con `voz`). */
     voz: ApiVoz;
+    /** Servidor de IA: la tarjeta, el tablero y lo que recibió el servidor. */
+    servidorIa: ApiServidorIa;
     /** ¿Hay un flujo de eventos de conversaciones abierto ahora (esperando eventos)? */
     flujoAbierto: () => boolean;
     /** Números de WhatsApp: resultados de Meta, cuerpos recibidos y credenciales guardadas. */
@@ -529,6 +538,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     const pagos = apiPagos(() => ({ id: enlaceActor.id, nombre: enlaceNombre.nombre }), opciones.pagos, () => sso.reautenticaciones > 0);
     const numeros = apiNumeros(conversaciones.canales, opciones.numeros);
     const meta = apiMeta(numeros.interno, conversaciones.conversaciones, opciones.meta);
+    const servidorIa = apiServidorIa(opciones.servidorIa);
     const voz = apiVoz(
         {
             actor: () => ({ id: enlaceActor.id, nombre: enlaceNombre.nombre }),
@@ -697,6 +707,9 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             ...(opciones.legal && actual.correo === ADMIN.correo ? PERMISOS_LEGAL : []),
             ...(opciones.legal && (actual.correo === CONSULTA.correo || actual.correo === SUPERVISOR_ZONA.correo) ? PERMISOS_LEGAL.slice(0, 1) : []),
             ...(opciones.legal && actual.correo === CONSULTA.correo ? (["empresas.todas"] satisfies Permiso[]) : []),
+            ...(opciones.servidorIa && actual.correo === ADMIN.correo ? [PERMISO_SIA_VER, PERMISO_SIA_ADMINISTRAR] : []),
+            ...(opciones.servidorIa?.soloUso && actual.correo === LECTOR.correo ? [PERMISO_SIA_VER_USO] : []),
+            ...(opciones.servidorIa && actual.correo === SUPERVISOR_ZONA.correo ? (opciones.servidorIa.zonaAdministra ? [PERMISO_SIA_VER, PERMISO_SIA_ADMINISTRAR] : [PERMISO_SIA_VER_USO]) : []),
         ];
         if (await sso.manejar({ route, metodo, ruta, actual, puede: (p) => permisos.includes(p), cuerpo, cookies, idempotencia: cabeceras["idempotency-key"] })) {
             return;
@@ -982,6 +995,9 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         if (await meta.manejar({ route, metodo, ruta, cuerpo, idempotencia: cabeceras["idempotency-key"], puede, empresaId })) {
             return;
         }
+        if (opciones.servidorIa && (await servidorIa.manejar({ route, metodo, ruta, query: url.searchParams, cuerpo, idempotencia: cabeceras["idempotency-key"], puede, empresas, empresaId }))) {
+            return;
+        }
         if (await voz.manejar({ route, metodo, ruta, query: url.searchParams, cuerpo, idempotencia: cabeceras["idempotency-key"], puede })) {
             return;
         }
@@ -1172,6 +1188,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         },
         conversaciones,
         voz,
+        servidorIa,
         flujoAbierto: conversaciones.flujoAbierto,
         pagos,
         encuestas: { encuestas: encuestas.encuestas, publicasConSesion: encuestas.publicasConSesion, respuestas: encuestas.respuestas, enlacesPedidos: encuestas.enlacesPedidos },

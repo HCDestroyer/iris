@@ -1,10 +1,11 @@
-import { Cloud, ClipboardList, DatabaseZap, History, KeyRound, Mail, MailCheck, Map as IconoMapa, Plug, Scale, ShieldCheck, Smartphone, Users, Zap, Phone, PhoneCall, CalendarClock, BookOpen, Inbox, Settings2, Sparkles, type LucideIcon } from "lucide-react";
+import { Cloud, ClipboardList, Cpu, DatabaseZap, History, KeyRound, Mail, MailCheck, Map as IconoMapa, Plug, Scale, ShieldCheck, Smartphone, Users, Zap, Phone, PhoneCall, CalendarClock, BookOpen, Inbox, Settings2, Sparkles, type LucideIcon } from "lucide-react";
 import { PERMISO_CONFIGURAR_ASISTENTE } from "@/lib/asistente/permisos";
 import { PERMISOS_CUADRILLAS, PERMISOS_ZONAS } from "@/lib/agenda/permisos";
 import { PERMISO_CONFIGURAR_CORREO, PERMISO_VER_CORREO } from "@/lib/correo/tipos";
 import { PERMISO_CONFIGURAR_LEGAL, PERMISO_VER_LEGAL } from "@/lib/legal/datos";
 import { PERMISO_CONEXION_META } from "@/lib/meta/tipos";
 import type { Permiso } from "@/lib/menu";
+import { PERMISO_VER, PERMISO_VER_USO } from "@/lib/servidor-ia/tipos";
 
 /** Secciones de Administración (índice y buscador global). Sin `href`: aún sin pantalla. */
 export type Seccion = { href?: string; titulo: string; descripcion: string; icono: LucideIcon; permisos: readonly Permiso[] };
@@ -121,6 +122,13 @@ export const SECCIONES: readonly Seccion[] = [
         descripcion: "Conectores con Argos y Horus Flow: conectar, activar y desactivar.",
         icono: Plug,
         permisos: ["integraciones.ver"],
+    },
+    {
+        href: "/administracion/servidor-ia",
+        titulo: "Servidor de IA",
+        descripcion: "La computadora con tarjeta gráfica donde trabaja el asistente: estado, uso y avisos.",
+        icono: Cpu,
+        permisos: [PERMISO_VER, PERMISO_VER_USO],
     },
     {
         href: "/administracion/datos-sin-empresa",

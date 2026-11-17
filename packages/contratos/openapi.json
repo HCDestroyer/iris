@@ -945,9 +945,14 @@
             "enum": [
               "ollama",
               "openai_compatible",
-              "anthropic"
+              "anthropic",
+              "servidor_ia"
             ],
             "type": "string"
+          },
+          "servidorIa": {
+            "$ref": "#/components/schemas/ServidorIAAsistente",
+            "description": "El servidor de IA de la instalación para esta empresa: si está disponible y sus modelos. Sin URL, huella ni versión"
           },
           "topeTokensMes": {
             "format": "int64",
@@ -1709,7 +1714,7 @@
           },
           "datos": {
             "additionalProperties": {},
-            "description": "Referencias del aviso; asistente_tope: porcentaje (80, 100), mes (YYYY-MM) y tope (tokens del mes cuando se avisó)",
+            "description": "Referencias del aviso; asistente_tope: porcentaje (80, 100), mes (YYYY-MM) y tope (tokens del mes cuando se avisó). Los del servidor de IA llevan además veces (entero, 1 o más): cuántos episodios de ese tipo hubo en la hora; al repetirse, el mismo aviso vuelve a no leído con creadoEn actualizado",
             "type": "object"
           },
           "empresaId": {
@@ -1750,9 +1755,12 @@
             "type": "string"
           },
           "tipo": {
-            "description": "asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes",
+            "description": "asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)",
             "enum": [
-              "asistente_tope"
+              "asistente_tope",
+              "servidor_ia_caido",
+              "servidor_ia_incompatible",
+              "servidor_ia_umbral"
             ],
             "type": "string"
           },
@@ -1772,6 +1780,59 @@
           "leidoEn",
           "creadoEn",
           "empresaId"
+        ],
+        "type": "object"
+      },
+      "AvisoServidorIA": {
+        "additionalProperties": false,
+        "properties": {
+          "activo": {
+            "type": "boolean"
+          },
+          "desde": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "hasta": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tipo": {
+            "enum": [
+              "caido",
+              "incompatible",
+              "vram",
+              "disco",
+              "temperatura",
+              "saturacion"
+            ],
+            "type": "string"
+          },
+          "umbral": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "valor": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "tipo",
+          "activo",
+          "desde",
+          "hasta",
+          "valor",
+          "umbral"
         ],
         "type": "object"
       },
@@ -2164,6 +2225,27 @@
           "version",
           "creadoEn",
           "actualizadoEn"
+        ],
+        "type": "object"
+      },
+      "CPUTablero": {
+        "additionalProperties": false,
+        "properties": {
+          "nucleos": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "usoPct": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "nucleos",
+          "usoPct"
         ],
         "type": "object"
       },
@@ -2901,6 +2983,35 @@
         ],
         "type": "object"
       },
+      "CapacidadMotor": {
+        "additionalProperties": false,
+        "properties": {
+          "empresasActivas": {
+            "description": "Empresas con el asistente encendido sobre este servidor",
+            "format": "int64",
+            "type": "integer"
+          },
+          "enCurso": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "maxSimultaneas": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "plazasInsuficientes": {
+            "description": "Hay más empresas activas que plazas: la plaza garantizada por empresa no alcanza para todas",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "maxSimultaneas",
+          "enCurso",
+          "empresasActivas",
+          "plazasInsuficientes"
+        ],
+        "type": "object"
+      },
       "CargoArgos": {
         "additionalProperties": false,
         "properties": {
@@ -2921,6 +3032,24 @@
           "id",
           "productoId",
           "monto"
+        ],
+        "type": "object"
+      },
+      "CatalogoMotor": {
+        "additionalProperties": false,
+        "properties": {
+          "llm": {
+            "items": {
+              "$ref": "#/components/schemas/ModeloMotor"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "llm"
         ],
         "type": "object"
       },
@@ -6394,6 +6523,16 @@
         },
         "type": "object"
       },
+      "CuerpoRotarMotor": {
+        "additionalProperties": false,
+        "properties": {
+          "revocar": {
+            "description": "«Revocar ahora»: las credenciales anteriores dejan de valer en el acto",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "CuerpoSoltar": {
         "additionalProperties": false,
         "properties": {
@@ -6883,6 +7022,27 @@
           "vencidos"
         ],
         "type": "object"
+      },
+      "DiscoTablero": {
+        "additionalProperties": false,
+        "properties": {
+          "totalMb": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "usadoMb": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "usadoMb",
+          "totalMb"
+        ],
+        "type": [
+          "object",
+          "null"
+        ]
       },
       "DisponibilidadAgente": {
         "additionalProperties": false,
@@ -7549,6 +7709,28 @@
         ],
         "type": "object"
       },
+      "EnlaceMotor": {
+        "additionalProperties": false,
+        "properties": {
+          "codigo": {
+            "description": "Código de un solo uso (160 bits): se escribe en el servidor con «iris-voz pair». No se vuelve a mostrar",
+            "type": "string"
+          },
+          "motor": {
+            "$ref": "#/components/schemas/MotorIA"
+          },
+          "venceEn": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "motor",
+          "codigo",
+          "venceEn"
+        ],
+        "type": "object"
+      },
       "EnlaceRevocado": {
         "additionalProperties": false,
         "properties": {
@@ -7694,6 +7876,21 @@
         },
         "required": [
           "codigo"
+        ],
+        "type": "object"
+      },
+      "EntradaActivarMotor": {
+        "additionalProperties": false,
+        "properties": {
+          "huellaTls": {
+            "description": "La huella que el administrador comparó con la del instalador (la que devolvió «Conectar»). Si el servidor enlazado ya no es ese, 409 huella_cambiada",
+            "maxLength": 128,
+            "minLength": 16,
+            "type": "string"
+          }
+        },
+        "required": [
+          "huellaTls"
         ],
         "type": "object"
       },
@@ -8073,7 +8270,8 @@
             "enum": [
               "ollama",
               "openai_compatible",
-              "anthropic"
+              "anthropic",
+              "servidor_ia"
             ],
             "type": "string"
           },
@@ -10310,6 +10508,16 @@
         ],
         "type": "object"
       },
+      "EntradaDesactivarMotor": {
+        "additionalProperties": false,
+        "properties": {
+          "motivo": {
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "EntradaDesactivarUsuario": {
         "additionalProperties": false,
         "properties": {
@@ -10929,6 +11137,41 @@
         ],
         "type": "object"
       },
+      "EntradaEmpresasMotor": {
+        "additionalProperties": false,
+        "properties": {
+          "empresas": {
+            "description": "Las empresas que pueden usarlo; null = todas",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "maxItems": 500,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "simultaneasPorEmpresa": {
+            "description": "Peticiones al modelo a la vez por empresa",
+            "format": "int32",
+            "maximum": 64,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "empresas",
+          "simultaneasPorEmpresa"
+        ],
+        "type": "object"
+      },
       "EntradaEncuestaPublica": {
         "additionalProperties": false,
         "properties": {
@@ -10941,6 +11184,27 @@
         },
         "required": [
           "token"
+        ],
+        "type": "object"
+      },
+      "EntradaEnlazarMotor": {
+        "additionalProperties": false,
+        "properties": {
+          "nombre": {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "url": {
+            "description": "https://servidor:puerto (la que mostró el instalador)",
+            "maxLength": 300,
+            "minLength": 9,
+            "type": "string"
+          }
+        },
+        "required": [
+          "nombre",
+          "url"
         ],
         "type": "object"
       },
@@ -11938,7 +12202,8 @@
             "enum": [
               "ollama",
               "openai_compatible",
-              "anthropic"
+              "anthropic",
+              "servidor_ia"
             ],
             "type": "string"
           },
@@ -11950,6 +12215,32 @@
         "required": [
           "proveedor",
           "url"
+        ],
+        "type": "object"
+      },
+      "EntradaModelosMotor": {
+        "additionalProperties": false,
+        "properties": {
+          "modelos": {
+            "description": "De catalogo.llm, los que las empresas pueden elegir; null = todos",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 256,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "modelos"
         ],
         "type": "object"
       },
@@ -12359,7 +12650,8 @@
             "enum": [
               "ollama",
               "openai_compatible",
-              "anthropic"
+              "anthropic",
+              "servidor_ia"
             ],
             "type": "string"
           },
@@ -13512,6 +13804,81 @@
         ],
         "type": "object"
       },
+      "EntradaUmbralesIA": {
+        "additionalProperties": false,
+        "properties": {
+          "discoPct": {
+            "format": "int32",
+            "maximum": 99,
+            "minimum": 50,
+            "type": "integer"
+          },
+          "retencionDetalleDias": {
+            "format": "int32",
+            "maximum": 30,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "retencionHoraDias": {
+            "format": "int32",
+            "maximum": 365,
+            "minimum": 7,
+            "type": "integer"
+          },
+          "saturacionMinutos": {
+            "format": "int32",
+            "maximum": 60,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "saturacionRechazos": {
+            "format": "int32",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "temperaturaC": {
+            "format": "int32",
+            "maximum": 100,
+            "minimum": 60,
+            "type": "integer"
+          },
+          "temperaturaMinutos": {
+            "format": "int32",
+            "maximum": 60,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "vramMinutos": {
+            "format": "int32",
+            "maximum": 60,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "vramPct": {
+            "format": "int32",
+            "maximum": 100,
+            "minimum": 50,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "vramPct",
+          "vramMinutos",
+          "discoPct",
+          "temperaturaC",
+          "temperaturaMinutos",
+          "saturacionRechazos",
+          "saturacionMinutos"
+        ],
+        "type": "object"
+      },
       "EntradaUnirContacto": {
         "additionalProperties": false,
         "properties": {
@@ -13798,6 +14165,36 @@
         ],
         "type": "object"
       },
+      "ErrorRecienteIA": {
+        "additionalProperties": false,
+        "properties": {
+          "cuenta": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "motivo": {
+            "enum": [
+              "tiempo_agotado",
+              "no_disponible",
+              "ocupado",
+              "respuesta_invalida",
+              "modelo_no_instalado",
+              "otro"
+            ],
+            "type": "string"
+          },
+          "ultimoEn": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "motivo",
+          "cuenta",
+          "ultimoEn"
+        ],
+        "type": "object"
+      },
       "ErrorSugerencia": {
         "additionalProperties": false,
         "properties": {
@@ -13810,7 +14207,10 @@
               "sin_configurar",
               "rechazo_modelo",
               "respuesta_invalida",
-              "url_no_permitida"
+              "url_no_permitida",
+              "servidor_ia_no_disponible",
+              "servidor_ia_ocupado",
+              "servidor_desactivado"
             ],
             "type": "string"
           },
@@ -14134,6 +14534,124 @@
         "required": [
           "estado",
           "version"
+        ],
+        "type": "object"
+      },
+      "EstadoTableroIA": {
+        "additionalProperties": false,
+        "properties": {
+          "compatible": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "detalle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "empresasActivas": {
+            "description": "Solo con servidor_ia.ver",
+            "format": "int64",
+            "type": "integer"
+          },
+          "empresasQueLoUsan": {
+            "description": "Solo con servidor_ia.ver",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "encendidoSeg": {
+            "description": "Solo con servidor_ia.ver; null para el admin de empresa",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "sin_enlazar",
+              "listo",
+              "degradado",
+              "no_disponible",
+              "incompatible",
+              "desactivado"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lecturaOk": {
+            "description": "false: la última lectura falló; lo de servidor no es de ahora y no se muestra como actual",
+            "type": "boolean"
+          },
+          "modelosDisponibles": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "motivoIncompatible": {
+            "enum": [
+              "protocolo",
+              "iris_antiguo",
+              "iris_nuevo",
+              "paquete_antiguo"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "motorId": {
+            "description": "null: no hay ningún servidor enlazado",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "plazasInsuficientes": {
+            "description": "Solo con servidor_ia.ver: hay más empresas activas que plazas",
+            "type": "boolean"
+          },
+          "tomadoEn": {
+            "description": "Cuándo se tomó la última muestra que sí se pudo leer",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "motorId",
+          "estado",
+          "detalle",
+          "version",
+          "compatible",
+          "motivoIncompatible",
+          "encendidoSeg",
+          "tomadoEn",
+          "lecturaOk",
+          "modelosDisponibles"
         ],
         "type": "object"
       },
@@ -15604,6 +16122,111 @@
         ],
         "type": "object"
       },
+      "GPUMotor": {
+        "additionalProperties": false,
+        "properties": {
+          "modelo": {
+            "type": "string"
+          },
+          "vramMb": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "modelo",
+          "vramMb"
+        ],
+        "type": [
+          "object",
+          "null"
+        ]
+      },
+      "GPUTablero": {
+        "additionalProperties": false,
+        "properties": {
+          "indice": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "potenciaW": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "temperaturaC": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "usoPct": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "vramTotalMb": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "vramUsadaMb": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "indice",
+          "nombre",
+          "usoPct",
+          "vramUsadaMb",
+          "vramTotalMb",
+          "temperaturaC",
+          "potenciaW"
+        ],
+        "type": "object"
+      },
+      "GPUsTablero": {
+        "additionalProperties": false,
+        "properties": {
+          "estado": {
+            "description": "ok: hay tarjetas en lista. sin_gpu: el servidor respondió y no tiene tarjeta. omitido: no hubo lectura de la GPU (no se puede afirmar nada)",
+            "enum": [
+              "ok",
+              "sin_gpu",
+              "omitido"
+            ],
+            "type": "string"
+          },
+          "lista": {
+            "items": {
+              "$ref": "#/components/schemas/GPUTablero"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "estado",
+          "lista"
+        ],
+        "type": "object"
+      },
       "GuardiaFueraDeHorario": {
         "additionalProperties": false,
         "properties": {
@@ -16530,6 +17153,24 @@
               "$ref": "#/components/schemas/ModeloIA"
             },
             "type": "array"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "ListaMotoresIA": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/MotorIA"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           }
         },
         "required": [
@@ -18040,6 +18681,56 @@
         ],
         "type": "object"
       },
+      "ModeloMotor": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "ModeloTablero": {
+        "additionalProperties": false,
+        "properties": {
+          "cargado": {
+            "type": "boolean"
+          },
+          "cargadoHasta": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "permitido": {
+            "type": "boolean"
+          },
+          "tamanoMb": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "vramMb": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "tamanoMb",
+          "permitido",
+          "cargado",
+          "vramMb",
+          "cargadoHasta"
+        ],
+        "type": "object"
+      },
       "MotivoSugerencia": {
         "additionalProperties": false,
         "properties": {
@@ -18059,6 +18750,171 @@
         "required": [
           "tipo",
           "detalle"
+        ],
+        "type": "object"
+      },
+      "MotorIA": {
+        "additionalProperties": false,
+        "properties": {
+          "activado": {
+            "description": "El administrador comparó la huella y lo activó",
+            "type": "boolean"
+          },
+          "capacidad": {
+            "$ref": "#/components/schemas/CapacidadMotor"
+          },
+          "catalogo": {
+            "$ref": "#/components/schemas/CatalogoMotor"
+          },
+          "certClienteVenceEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "detalle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "empresasPermitidas": {
+            "description": "null = todas",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "enlaceVenceEn": {
+            "description": "Hasta cuándo vale el paso pendiente del enlace: los 15 min del código antes de «Conectar» o las 24 h para «Activar» después; null si no hay nada pendiente",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enlazado": {
+            "description": "El intercambio con código se completó",
+            "type": "boolean"
+          },
+          "enlazadoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "sin_enlazar",
+              "listo",
+              "degradado",
+              "no_disponible",
+              "incompatible",
+              "desactivado"
+            ],
+            "type": "string"
+          },
+          "gpu": {
+            "$ref": "#/components/schemas/GPUMotor"
+          },
+          "huellaTls": {
+            "description": "La huella del certificado del servidor que vio Iris: compárala con la que imprimió el instalador antes de activar",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "ipObservada": {
+            "description": "La IP de Iris que vio el servidor al enlazar",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "modelosPermitidos": {
+            "description": "De catalogo.llm, los que las empresas pueden elegir; null = todos",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "paquete": {
+            "$ref": "#/components/schemas/PaqueteMotor"
+          },
+          "restringeIp": {
+            "description": "El servidor solo acepta esa IP (se enciende en el servidor)",
+            "type": "boolean"
+          },
+          "simultaneasPorEmpresa": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "tokenRotadoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ultimaPrueba": {
+            "$ref": "#/components/schemas/PruebaMotor"
+          },
+          "ultimoLatidoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "url": {
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "nombre",
+          "url",
+          "version",
+          "estado",
+          "detalle",
+          "enlazado",
+          "activado",
+          "enlaceVenceEn",
+          "enlazadoEn",
+          "ultimoLatidoEn",
+          "paquete",
+          "capacidad",
+          "gpu",
+          "catalogo",
+          "huellaTls",
+          "tokenRotadoEn",
+          "certClienteVenceEn",
+          "ipObservada",
+          "restringeIp",
+          "empresasPermitidas",
+          "modelosPermitidos",
+          "simultaneasPorEmpresa",
+          "ultimaPrueba"
         ],
         "type": "object"
       },
@@ -18319,6 +19175,24 @@
           "estado",
           "inicio",
           "fin"
+        ],
+        "type": "object"
+      },
+      "OcupacionIA": {
+        "additionalProperties": false,
+        "properties": {
+          "enCurso": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "maxSimultaneas": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enCurso",
+          "maxSimultaneas"
         ],
         "type": "object"
       },
@@ -21165,6 +22039,68 @@
         ],
         "type": "object"
       },
+      "PaqueteMotor": {
+        "additionalProperties": false,
+        "properties": {
+          "compatible": {
+            "type": "boolean"
+          },
+          "irisMax": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "irisMin": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "motivoIncompatible": {
+            "description": "iris_antiguo: hay que actualizar Iris; cualquier otro: hay que actualizar el servidor de IA",
+            "enum": [
+              "protocolo",
+              "iris_antiguo",
+              "iris_nuevo",
+              "paquete_antiguo"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "protocolo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "versionDisponible": {
+            "description": "Siempre null: Iris no consulta versiones nuevas del paquete",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "version",
+          "protocolo",
+          "irisMin",
+          "irisMax",
+          "compatible",
+          "motivoIncompatible",
+          "versionDisponible"
+        ],
+        "type": "object"
+      },
       "ParadaCampo": {
         "additionalProperties": false,
         "properties": {
@@ -21512,6 +22448,46 @@
           "conversacion",
           "destino",
           "destinoDisponible"
+        ],
+        "type": "object"
+      },
+      "PasoPrueba": {
+        "additionalProperties": false,
+        "properties": {
+          "codigo": {
+            "enum": [
+              "conexion",
+              "compatibilidad",
+              "gpu",
+              "stt",
+              "tts",
+              "llm",
+              "medios",
+              "capacidad"
+            ],
+            "type": "string"
+          },
+          "detalle": {
+            "type": "string"
+          },
+          "estado": {
+            "enum": [
+              "ok",
+              "error",
+              "omitido"
+            ],
+            "type": "string"
+          },
+          "ms": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "codigo",
+          "estado",
+          "ms",
+          "detalle"
         ],
         "type": "object"
       },
@@ -22102,6 +23078,9 @@
           "rutas.proponer",
           "rutas.publicar",
           "rutas.ver",
+          "servidor_ia.administrar",
+          "servidor_ia.ver",
+          "servidor_ia.ver_uso",
           "sso.emitir",
           "tickets.asignar",
           "tickets.cerrar",
@@ -23816,6 +24795,40 @@
         ],
         "type": "object"
       },
+      "PruebaMotor": {
+        "additionalProperties": false,
+        "properties": {
+          "estado": {
+            "enum": [
+              "ok",
+              "error"
+            ],
+            "type": "string"
+          },
+          "pasos": {
+            "items": {
+              "$ref": "#/components/schemas/PasoPrueba"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "probadoEn": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "estado",
+          "probadoEn",
+          "pasos"
+        ],
+        "type": [
+          "object",
+          "null"
+        ]
+      },
       "PruebaServidor": {
         "additionalProperties": false,
         "properties": {
@@ -23961,6 +24974,59 @@
           "lat",
           "lon",
           "registradaEn"
+        ],
+        "type": "object"
+      },
+      "PuntoSerieIA": {
+        "additionalProperties": false,
+        "properties": {
+          "latenciaMediaMs": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "latenciaP95Ms": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "peticionesMin": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "t": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "usoPct": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "vramPct": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "t",
+          "usoPct",
+          "vramPct",
+          "peticionesMin",
+          "latenciaMediaMs",
+          "latenciaP95Ms"
         ],
         "type": "object"
       },
@@ -26180,6 +27246,30 @@
         ],
         "type": "object"
       },
+      "ServidorIAAsistente": {
+        "additionalProperties": false,
+        "properties": {
+          "disponible": {
+            "description": "Hay un servidor de IA activo, compatible, contestando y que esta empresa puede usar",
+            "type": "boolean"
+          },
+          "modelos": {
+            "description": "Los modelos que el servidor deja usar",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "disponible",
+          "modelos"
+        ],
+        "type": "object"
+      },
       "ServidorIMAP": {
         "additionalProperties": false,
         "properties": {
@@ -26255,6 +27345,53 @@
           "usuario"
         ],
         "type": "object"
+      },
+      "ServidorTablero": {
+        "additionalProperties": false,
+        "properties": {
+          "cpu": {
+            "$ref": "#/components/schemas/CPUTablero"
+          },
+          "disco": {
+            "$ref": "#/components/schemas/DiscoTablero"
+          },
+          "gpus": {
+            "$ref": "#/components/schemas/GPUsTablero"
+          },
+          "llm": {
+            "$ref": "#/components/schemas/OcupacionIA"
+          },
+          "memoria": {
+            "$ref": "#/components/schemas/UsoRecurso"
+          },
+          "modelos": {
+            "items": {
+              "$ref": "#/components/schemas/ModeloTablero"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "rechazadas": {
+            "description": "Rechazadas por saturación (servidor_ia_ocupado) en el rango",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "gpus",
+          "cpu",
+          "memoria",
+          "disco",
+          "modelos",
+          "llm",
+          "rechazadas"
+        ],
+        "type": [
+          "object",
+          "null"
+        ]
       },
       "SesionActiva": {
         "additionalProperties": false,
@@ -26567,6 +27704,47 @@
           "origen",
           "creadaEn",
           "actualizadaEn"
+        ],
+        "type": "object"
+      },
+      "TableroIA": {
+        "additionalProperties": false,
+        "properties": {
+          "avisos": {
+            "items": {
+              "$ref": "#/components/schemas/AvisoServidorIA"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "estado": {
+            "$ref": "#/components/schemas/EstadoTableroIA"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/PuntoSerieIA"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "servidor": {
+            "$ref": "#/components/schemas/ServidorTablero",
+            "description": "Solo con servidor_ia.ver; null para el admin de empresa o si nunca hubo lectura"
+          },
+          "uso": {
+            "$ref": "#/components/schemas/UsoTableroIA"
+          }
+        },
+        "required": [
+          "estado",
+          "servidor",
+          "series",
+          "uso",
+          "avisos"
         ],
         "type": "object"
       },
@@ -28012,6 +29190,74 @@
         ],
         "type": "object"
       },
+      "UmbralesIA": {
+        "additionalProperties": false,
+        "properties": {
+          "discoPct": {
+            "description": "Disco de los modelos por encima de este porcentaje (50 a 99; 90)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "retencionDetalleDias": {
+            "description": "Días que se guardan las muestras en detalle (1 a 30; 7)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "retencionHoraDias": {
+            "description": "Días que se guardan los agregados por hora (7 a 365; 90)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "saturacionMinutos": {
+            "description": "…en estos minutos (1 a 60; 5)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "saturacionRechazos": {
+            "description": "Peticiones rechazadas por falta de plaza (1 a 1000; 10)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "temperaturaC": {
+            "description": "Temperatura de la GPU (60 a 100; 85)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "temperaturaMinutos": {
+            "description": "…durante estos minutos (1 a 60; 5)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "version": {
+            "description": "0 si todavía no hay servidor",
+            "format": "int32",
+            "type": "integer"
+          },
+          "vramMinutos": {
+            "description": "…durante estos minutos (1 a 60; 5)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "vramPct": {
+            "description": "Memoria de video por encima de este porcentaje (50 a 100; 95)",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "vramPct",
+          "vramMinutos",
+          "discoPct",
+          "temperaturaC",
+          "temperaturaMinutos",
+          "saturacionRechazos",
+          "saturacionMinutos",
+          "retencionDetalleDias",
+          "retencionHoraDias"
+        ],
+        "type": "object"
+      },
       "UnidadBodega": {
         "additionalProperties": false,
         "properties": {
@@ -28166,6 +29412,105 @@
           "minutosUsados"
         ],
         "type": "object"
+      },
+      "UsoEmpresaIA": {
+        "additionalProperties": false,
+        "properties": {
+          "empresaId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "errores": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "latenciaMediaMs": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "peticiones": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "rechazadas": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "tokensEntrada": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "tokensSalida": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "empresaId",
+          "nombre",
+          "peticiones",
+          "tokensEntrada",
+          "tokensSalida",
+          "latenciaMediaMs",
+          "errores",
+          "rechazadas"
+        ],
+        "type": "object"
+      },
+      "UsoRecurso": {
+        "additionalProperties": false,
+        "properties": {
+          "totalMb": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "usadoMb": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "usadoMb",
+          "totalMb"
+        ],
+        "type": "object"
+      },
+      "UsoTableroIA": {
+        "additionalProperties": false,
+        "properties": {
+          "empresas": {
+            "items": {
+              "$ref": "#/components/schemas/UsoEmpresaIA"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "errores": {
+            "items": {
+              "$ref": "#/components/schemas/ErrorRecienteIA"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "empresas",
+          "errores"
+        ],
+        "type": [
+          "object",
+          "null"
+        ]
       },
       "Usuario": {
         "additionalProperties": false,
@@ -38902,7 +40247,7 @@
     },
     "/api/v1/mensajeria/asistente/ajustes/actualizar": {
       "post": {
-        "description": "Permiso: `mensajeria.asistente_configurar`. `clave` es solo escritura (ausente la deja, \"\" la borra) y nunca se devuelve: `claveGuardadaEn`. `version` 0 la primera vez (409 `conflicto_version`). Activar exige URL y modelo (Anthropic: clave); 422 `sin_configurar`, `url_no_permitida`; 422 `clave_requerida` si cambia el proveedor o la URL con clave guardada y sin `clave`. Evento `asistente.ajustes_cambiados`.",
+        "description": "Permiso: `mensajeria.asistente_configurar`. `clave` es solo escritura (ausente la deja, \"\" la borra) y nunca se devuelve: `claveGuardadaEn`. `version` 0 la primera vez (409 `conflicto_version`). Activar exige URL y modelo (Anthropic: clave; `servidor_ia`: solo el modelo); 422 `sin_configurar`, `url_no_permitida`; 422 `clave_requerida` si cambia el proveedor o la URL con clave guardada y sin `clave`. Evento `asistente.ajustes_cambiados`.",
         "operationId": "actualizarAjustesAsistente",
         "parameters": [
           {
@@ -39711,7 +41056,7 @@
     },
     "/api/v1/mensajeria/asistente/modelos": {
       "get": {
-        "description": "Permiso: `mensajeria.asistente_configurar`. Solo con lo guardado (para otra URL o clave: `POST /asistente/modelos`). Si el proveedor falla: 502 `proveedor_error` con un detalle único (no distingue conexión rechazada, tiempo agotado ni respuesta inesperada).",
+        "description": "Permiso: `mensajeria.asistente_configurar`. Solo con lo guardado (para otra URL o clave: `POST /asistente/modelos`). Si el proveedor falla: 502 `proveedor_error` con un detalle único (no distingue conexión rechazada, tiempo agotado ni respuesta inesperada). Con `servidor_ia`: 409 `servidor_desactivado`, 502 `servidor_ia_no_disponible`.",
         "operationId": "modelosAsistente",
         "responses": {
           "200": {
@@ -39743,6 +41088,16 @@
               }
             },
             "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "422": {
             "content": {
@@ -39893,7 +41248,7 @@
     },
     "/api/v1/mensajeria/asistente/probar": {
       "post": {
-        "description": "Permiso: `mensajeria.asistente_configurar`. Manda un pedido corto real (no cuenta para el tope). Cualquier falla responde lo mismo (`estado: error`, `latenciaMs: 0`, `detalle` único) para no servir como escáner de puertos. Sin `clave` usa la guardada solo si proveedor y URL son los guardados. No guarda nada.",
+        "description": "Permiso: `mensajeria.asistente_configurar`. Manda un pedido corto real (no cuenta para el tope). Cualquier falla responde lo mismo (`estado: error`, `latenciaMs: 0`, `detalle` único) para no servir como escáner de puertos. Sin `clave` usa la guardada solo si proveedor y URL son los guardados. No guarda nada. Con `servidor_ia` (sin URL ni clave que revisar) la falla es propia: 409 `servidor_desactivado` o `servidor_ia_ocupado`, 502 `servidor_ia_no_disponible`.",
         "operationId": "probarAsistente",
         "parameters": [
           {
@@ -39948,6 +41303,16 @@
             },
             "description": "Forbidden"
           },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
           "422": {
             "content": {
               "application/problem+json": {
@@ -39967,6 +41332,16 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Gateway"
           }
         },
         "security": [
@@ -57392,6 +58767,298 @@
         "x-permiso": "conversaciones.configurar"
       }
     },
+    "/api/v1/mensajeria/servidor-ia/tablero": {
+      "get": {
+        "description": "Permiso: `servidor_ia.ver_uso`. Con `servidor_ia.ver` y `empresas.todas`: todo (GPU, CPU, memoria, disco, modelos, ocupación y el uso de todas las empresas). Con `servidor_ia.ver_uso`: el estado general y solo el uso de la empresa activa (`servidor: null`, `avisos: []`, series solo con peticiones y tiempos). Sin ninguno de los dos permisos, 403; con `servidor_ia.ver_uso` y sin empresa activa, 404. `estado.lecturaOk` es `false` si la última lectura del servidor falló: lo de `servidor` es de `estado.tomadoEn` y no debe mostrarse como actual. Nunca lleva texto de prompts ni de respuestas. Contrato: `.claude/integration/contratos/voz.md` §4.12.",
+        "operationId": "tableroServidorIA",
+        "parameters": [
+          {
+            "explode": false,
+            "in": "query",
+            "name": "rango",
+            "schema": {
+              "default": "1h",
+              "enum": [
+                "ahora",
+                "1h",
+                "24h",
+                "7d"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TableroIA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Tablero del servidor de IA",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "servidor_ia.ver_uso"
+      }
+    },
+    "/api/v1/mensajeria/servidor-ia/umbrales": {
+      "get": {
+        "description": "Permiso: `servidor_ia.ver`. Los valores de fábrica si nadie los cambió. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`: sin el permiso, 403; con el permiso y sin `empresas.todas`, 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "operationId": "verUmbralesServidorIA",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UmbralesIA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Umbrales de los avisos del servidor de IA",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "servidor_ia.ver"
+      }
+    },
+    "/api/v1/mensajeria/servidor-ia/umbrales/actualizar": {
+      "post": {
+        "description": "Permiso: `servidor_ia.administrar`. Emite `servidor_ia.ajustes_cambiados`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`: sin el permiso, 403; con el permiso y sin `empresas.todas`, 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "operationId": "actualizarUmbralesServidorIA",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaUmbralesIA"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UmbralesIA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cambiar los umbrales de los avisos del servidor de IA",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "servidor_ia.administrar"
+      }
+    },
     "/api/v1/mensajeria/sugerencias/{id}/calificar": {
       "post": {
         "description": "Permiso: `conversaciones.sugerencias`.",
@@ -57877,6 +59544,1041 @@
           "mensajeria"
         ],
         "x-permiso": "voz.configurar"
+      }
+    },
+    "/api/v1/mensajeria/voz/motores": {
+      "get": {
+        "description": "Permiso: `servidor_ia.ver`. Uno como mucho. `huellaTls` es la huella del certificado que vio Iris: se compara con la que imprimió el instalador antes de activar. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`: sin el permiso, 403; con el permiso y sin `empresas.todas`, 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "operationId": "listarMotoresIA",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListaMotoresIA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "El servidor de IA de la instalación",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "servidor_ia.ver"
+      }
+    },
+    "/api/v1/mensajeria/voz/motores/enlazar": {
+      "post": {
+        "description": "Permiso: `servidor_ia.administrar`. Devuelve **una vez** un código de un solo uso (160 bits) que vale 15 minutos y se escribe en el servidor con `iris-voz pair`. Iris lo guarda cifrado hasta enlazar o hasta que vence, y lo borra. Enlazar de nuevo invalida el canal anterior. 409 `motor_ya_enlazado` si hay uno activo (desactívalo antes); 422 `url_no_permitida`. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`: sin el permiso, 403; con el permiso y sin `empresas.todas`, 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "operationId": "enlazarMotorIA",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEnlazarMotor"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnlaceMotor"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Pedir un código para enlazar el servidor de IA",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "servidor_ia.administrar"
+      }
+    },
+    "/api/v1/mensajeria/voz/motores/{id}/activar": {
+      "post": {
+        "description": "Permiso: `servidor_ia.administrar`. Cuando la huella coincide con la del instalador. Lo primero que hace Iris es cambiar el secreto del canal por uno aleatorio, sin convivencia; si eso falla, no se activa. También vuelve a activar uno desactivado. `huellaTls` es la huella que el administrador comparó: 409 `huella_cambiada` si el servidor enlazado ya no es ese (alguien enlazó otro entretanto). 409 `incompatible` si las versiones no son compatibles (`errors[0].rule` = iris_antiguo, iris_nuevo, paquete_antiguo o protocolo): no se activa. 409 `motor_sin_enlazar`, `enlace_vencido` (24 h sin activar) o `rotacion_en_curso`. Emite `voz.motor_activado` y `voz.motor_token_rotado`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`: sin el permiso, 403; con el permiso y sin `empresas.todas`, 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "operationId": "activarMotorIA",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaActivarMotor"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MotorIA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Activar el servidor de IA",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "servidor_ia.administrar"
+      }
+    },
+    "/api/v1/mensajeria/voz/motores/{id}/conectar": {
+      "post": {
+        "description": "Permiso: `servidor_ia.administrar`. Después de escribir el código en el servidor. Iris y el servidor se demuestran que conocen el código, cada prueba atada al certificado del otro; el código no viaja y el secreto inicial del canal se deriva en los dos lados. Queda pendiente de activar: `huellaTls` trae la huella a comparar. 409 `enlace_vencido`; 502 `motor_no_responde` (la misma respuesta para cualquier falla). Emite `voz.motor_enlazado`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`: sin el permiso, 403; con el permiso y sin `empresas.todas`, 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "operationId": "conectarMotorIA",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MotorIA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Hacer el intercambio de enlace con el servidor de IA",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "servidor_ia.administrar"
+      }
+    },
+    "/api/v1/mensajeria/voz/motores/{id}/desactivar": {
+      "post": {
+        "description": "Permiso: `servidor_ia.administrar`. Deja de usarse en el acto: el asistente de las empresas que lo usan falla al instante (sugerencias con «Reintentar»; el autónomo pasa a una persona). Emite `voz.motor_desactivado` y `voz.motor_estado_cambiado`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`: sin el permiso, 403; con el permiso y sin `empresas.todas`, 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "operationId": "desactivarMotorIA",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaDesactivarMotor"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MotorIA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Desactivar el servidor de IA",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "servidor_ia.administrar"
+      }
+    },
+    "/api/v1/mensajeria/voz/motores/{id}/empresas/actualizar": {
+      "post": {
+        "description": "Permiso: `servidor_ia.administrar`. `empresas: null` = todas. `simultaneasPorEmpresa`: peticiones al modelo a la vez por empresa (además, cada empresa activa tiene una plaza garantizada). Quitar una empresa no borra sus ajustes: su asistente deja de poder usarlo. Emite `voz.motor_empresas_cambiadas`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`: sin el permiso, 403; con el permiso y sin `empresas.todas`, 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "operationId": "actualizarEmpresasMotorIA",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEmpresasMotor"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MotorIA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Qué empresas usan el servidor de IA",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "servidor_ia.administrar"
+      }
+    },
+    "/api/v1/mensajeria/voz/motores/{id}/modelos/actualizar": {
+      "post": {
+        "description": "Permiso: `servidor_ia.administrar`. De los que declara el servidor en `catalogo.llm` (los que su administrador deja usar; Iris no puede ampliarlos), los que las empresas pueden elegir. `modelos: null` = todos. 422 `modelo_no_instalado` si alguno no está en el catálogo. Emite `voz.motor_modelos_cambiados`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`: sin el permiso, 403; con el permiso y sin `empresas.todas`, 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "operationId": "actualizarModelosMotorIA",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaModelosMotor"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MotorIA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Qué modelos pueden elegir las empresas",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "servidor_ia.administrar"
+      }
+    },
+    "/api/v1/mensajeria/voz/motores/{id}/probar": {
+      "post": {
+        "description": "Permiso: `servidor_ia.administrar`. Pasos `conexion`, `compatibilidad`, `gpu`, `stt`, `tts`, `llm` (una frase fija de ida y vuelta), `medios` y `capacidad`; los que esta instalación no trae salen `omitido` y no vuelven `error` la prueba. Guarda el resultado en `ultimaPrueba`. No cuenta para los topes. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`: sin el permiso, 403; con el permiso y sin `empresas.todas`, 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "operationId": "probarMotorIA",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MotorIA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Probar el servidor de IA",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "servidor_ia.administrar"
+      }
+    },
+    "/api/v1/mensajeria/voz/motores/{id}/rotar-token": {
+      "post": {
+        "description": "Permiso: `servidor_ia.administrar`. Las anteriores siguen valiendo 24 h; con `revocar: true` dejan de valer en el acto y también se cambia el certificado de cliente. Si Iris se vio comprometido, rotar no basta: `iris-voz unpair` en el servidor y enlazar de nuevo. Emite `voz.motor_token_rotado`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`: sin el permiso, 403; con el permiso y sin `empresas.todas`, 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "operationId": "rotarTokenMotorIA",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoRotarMotor"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MotorIA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Rotar las credenciales del canal con el servidor de IA",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "servidor_ia.administrar"
       }
     },
     "/api/v1/ordenes": {

@@ -145,6 +145,7 @@ dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`avis
 | `AreaTexto`, `CampoArea` | `TextArea` | |
 | `Etiqueta` | `Label` | |
 | `ProveedorRutas` | `RouterProvider` de React Aria | |
+| `GraficaSerie`, `Medidor` | — | Propios de Iris (SVG, sin librería). `GraficaSerie`: una a dos series en un solo eje, con leyenda si hay dos, el último valor rotulado, el tramo sin datos en gris (nunca una línea en cero), cursor al pasar o con las flechas y «Ver tabla». Colores `--hx-grafico-1` y `--hx-grafico-2` (validados para daltonismo en claro y oscuro); el texto va en color de texto, no de la serie. `Medidor`: barra `role="meter"` con tono `normal`, `aviso` o `error`; con `parte: null` no dibuja nada. |
 | `BarraGuardar`, `FormularioPagina`, `SeccionFormulario` | — | Composición propia de Iris con `Boton`. `BarraGuardar` acepta `nota` (una línea a la izquierda: «Al guardar, Iris prueba la conexión con Meta.»). `FormularioPagina` acepta `accionTitulo` (a la derecha del título: el interruptor que enciende lo que la pantalla configura) |
 
 `useCambiosSinGuardar(isDirty, isSubmitting)` sirve igual dentro de `DialogoProtegido` que dentro de
@@ -827,6 +828,90 @@ la marca «En pruebas». El proveedor se monta también para quien solo llama (`
   hilo dice «… empezó a contestarla y se cortó antes de conectar» y en la lista «Se cortó al
   contestar · escríbele» (esto último solo mientras se sabe por el flujo en vivo).
 - **Pruebas:** `lib/voz/saliente.test.ts` y `e2e/voz-salientes.spec.ts` (mismos dobles y reloj).
+
+## Servidor de IA (nov. 2026)
+
+`/administracion/servidor-ia` (contratos/voz.md §4.8, §4.11 y §4.12). Entrada en Administración y
+tarjeta en Integraciones (junto a Argos y Horus). Código en `componentes/servidor-ia/` y
+`lib/servidor-ia/`.
+
+- **Quién ve qué.** Quien administra la instalación (`servidor_ia.ver` con `empresas.todas`) ve
+  todo; con `servidor_ia.administrar`, además «Probar», Avisos y Mantenimiento. El admin de una
+  empresa (`servidor_ia.ver_uso`) ve la línea de estado y **solo el uso de su empresa** (cuatro
+  cifras, peticiones por minuto, tiempos y errores): nada de la tarjeta gráfica, los modelos, la
+  saturación ni las otras empresas, y una nota que lo dice.
+- **Tablero.** Línea de estado en llano («En línea · versión… · compatible… · encendido hace 6
+  días»), periodos Ahora / 1 hora / 24 horas / 7 días, cuatro cifras con `Medidor` (uso, memoria de
+  video, temperatura, peticiones en curso con las **rechazadas por saturación**: no hay cola),
+  «El resto del servidor» (procesador, memoria del equipo y disco de los modelos; la potencia va
+  junto al nombre de cada tarjeta), tres `GraficaSerie`, modelos, uso por empresa y errores
+  recientes. Con varias tarjetas gráficas, un bloque por tarjeta. Con `gpus.estado: "omitido"`
+  («sin tarjeta o sin lectura», no se sabe cuál) las cifras de GPU van en «Sin datos» con el texto
+  neutro «El servidor no reportó la tarjeta gráfica en esta lectura»; «No hay tarjeta gráfica
+  detectada» solo se dice con `gpus.estado: "sin_gpu"`. Modelos y uso son listas, no tablas: caben en
+  390 px sin desplazarse a lo ancho. Si hay más empresas activas que turnos
+  (`estado.plazasInsuficientes`), un aviso llano con enlace a Mantenimiento.
+- **Quién entra.** Cada página pasa por `PuertaServidorIa` (permiso **y** `empresas.todas`, como la
+  API): quien tiene `servidor_ia.administrar` sin `empresas.todas` ve «Sin permiso» y la pantalla no
+  llega a pedir nada. Avisos y Mantenimiento solo aparecen en la navegación para quien administra.
+  El `detalle` técnico del servidor solo se pinta a quien administra la instalación.
+- **Refresco.** `useTablero` relee cada 10 s en «Ahora» (30 s y 60 s en los otros), sin pasar por
+  «cargando», en pausa con la pestaña oculta y al instante al volver. Si falla, espera cada vez más
+  (10 → 20 → 40 → 60 s) y vuelve a su ritmo al primer éxito; con 401, 403 o 404 no insiste: queda
+  «Reintentar».
+- **Nunca cifras viejas.** Si una relectura falla, las cifras se quitan y queda el error con
+  «Reintentar». Una lectura de más de 60 s tampoco es «ahora», aunque llegue con `lecturaOk: true`;
+  la antigüedad se mide contra la hora del servidor (cabecera `Date` de la respuesta), no contra el
+  reloj del equipo; sin esa cabecera la tolerancia sube a 5 minutos. Caído, incompatible o con la última lectura fallida: las cifras de ahora dicen «Sin
+  datos», «Visto por última vez hoy a las 10:42 (hace 20 min)», qué pasa con el asistente mientras
+  tanto, qué revisar en el servidor y «Probar ahora». Incompatible dice **qué** actualizar según
+  `motivoIncompatible`: Iris (`iris_antiguo`) o el servidor, con su comando y su porqué
+  (`protocolo`, `iris_nuevo`, `paquete_antiguo`). Sin `versionDisponible` no se nombra versión.
+- **Desactivado.** «Desactivar» (antes «Desenlazar») dice la verdad: Iris deja de usarlo y el enlace
+  se conserva. En ese estado el tablero y Mantenimiento muestran `ReactivarServidorIa`: la salida
+  principal es «Activar de nuevo» (`POST …/activar` con la huella guardada, que se confirma con la
+  casilla; sin tocar el servidor) y la secundaria «Enlazar de nuevo» (si se cambió de servidor o se
+  reinstaló). `/enlazar` acepta el estado y no hay «Probar». Para enlazar de nuevo basta
+  `sudo iris-voz pair`; `unpair` es solo una nota opcional.
+- **Enlazar** (`/enlazar`): cuatro pasos en una pantalla. Dirección → código de un solo uso (se
+  muestra una vez, vence a los 15 minutos, se escribe en el servidor sin eco) → huella con la
+  casilla «Coincide con la del instalador» → «Activar» con esa misma huella (un enlace sin activar
+  caduca a las 24 h). Si el servidor cambió entretanto (409 `huella_cambiada`) se desmarca la
+  casilla y se enseña la huella de ahora; nunca se reintenta solo. La marca guarda **qué huella**
+  se comparó (no un sí/no) y la casilla se apaga mientras hay una petición en curso. 409 `rotacion_en_curso`, aquí y
+  al rotar, es un aviso de «espera unos segundos», no un error. La huella se escribe **como la
+  imprime el servidor** (`sha256:` y minúsculas seguidas) y, aparte, en grupos de cuatro para
+  leerla. Si «Conectar» ya dijo que no son compatibles, se avisa en ese paso qué actualizar y
+  «Activar» queda apagado.
+  Si «conectar» falla, el servidor responde lo mismo (502) para un código usado o mal escrito que
+  para un servidor fuera de alcance: el texto lo dice así, sin afirmar cuál fue. Un paso
+  vencido (409 `enlace_vencido`, el mismo para el código y para activar) ofrece empezar de nuevo.
+- **Comandos del servidor: siempre en inglés** (regla del PM; nunca en español). Viven en un solo
+  sitio, `COMANDO` de `lib/servidor-ia/presentacion.ts`: `iris-voz pair`, `unpair`, `status`,
+  `upgrade` y `model pull|allow|remove <nombre>`. Solo el texto que se copia; los rótulos y las
+  explicaciones del panel siguen en español.
+- **Avisos** (`/avisos`, `FormularioPagina`): los de la semana y, plegado en «Avanzado», los
+  umbrales y cuántos días de historial se guardan, con «Valores de fábrica». «Servidor caído» y
+  «Versión incompatible» no tienen umbral. «Ninguno en los últimos 7 días» solo se dice si la lista
+  llegó; si no vino, «Sin datos». Un tipo de aviso desconocido se pinta genérico, no rompe.
+- **Mantenimiento** (`/mantenimiento`): quién puede usarlo y simultáneas por empresa, modelos
+  permitidos en dos niveles (el servidor declara los suyos; aquí se eligen «Todos los del servidor»
+  o «Solo algunos»; descargar uno nuevo es un comando en el servidor, que se puede copiar),
+  «Rotar credenciales» y «Revocar ahora» (cada confirmación dice qué pasa mientras tanto; si no
+  llega respuesta: «No se pudo confirmar el cambio. Iris recupera la conexión sola…», se relee la tarjeta y el reintento repite la misma clave) y
+  «Desenlazar» con confirmación.
+- **Camino para `ver_uso`.** `servidor_ia.ver` y `.ver_uso` abren «Administración» en el menú: quien
+  solo tiene `ver_uso` llega por ahí a su tablero de uso.
+- **En el asistente de cada empresa** (`/administracion/asistente/conexion`): el proveedor
+  «Servidor de IA» aparece si los ajustes traen `servidorIa`; se elige un modelo de los permitidos,
+  sin dirección ni clave, con «Pruébalo antes de guardar». Si había una clave guardada de otro
+  proveedor se avisa que se borra y se manda `clave: ""`. Si no está disponible, lo dice antes de
+  guardar y ante el 422 `servidor_ia_no_disponible`. Con `servidor_ia` la API guarda `url: ""` y
+  sin clave: «conectado» es proveedor + modelo (`proveedorConectado`), y los fixtures lo reflejan.
+- **Campana.** `servidor_ia_caido`, `servidor_ia_incompatible` y `servidor_ia_umbral` tienen su
+  icono y su segunda línea en `lib/campana.ts`; el título lo pone el servidor. Si el problema se
+  repite en la hora (`datos.veces` > 1), la segunda línea añade «Ya van N veces en esta hora».
+- **Tipos.** Todo sale de `packages/contratos` (`lib/servidor-ia/tipos.ts` son solo alias).
 
 ## Navegación del panel (fase 1, hecha)
 

@@ -56,6 +56,20 @@ export function explicarError(codigo: string, detalle: string | null | undefined
                 texto: "Se llegó al tope de uso del mes. Vuelve el mes que viene o cuando un administrador suba el tope.",
                 reintentar: false,
             };
+        case "servidor_ia_no_disponible":
+            return {
+                titulo: "El Servidor de IA no está disponible",
+                texto: "No responde, no está enlazado o tu empresa no está entre las permitidas. Avisa a quien administra la instalación; mientras tanto puedes elegir otro proveedor en «Conexión con la IA».",
+                reintentar: true,
+            };
+        case "servidor_desactivado":
+            return {
+                titulo: "El Servidor de IA está desactivado",
+                texto: "Quien administra la instalación lo desactivó. Puede activarlo de nuevo; mientras tanto puedes elegir otro proveedor en «Conexión con la IA».",
+                reintentar: false,
+            };
+        case "servidor_ia_ocupado":
+            return { titulo: "El Servidor de IA está lleno ahora", texto: "Todos sus turnos están ocupados. Vuelve a intentarlo en unos segundos.", reintentar: true };
         case "sin_configurar":
             return { titulo: "El asistente no está configurado", texto: "Un administrador debe revisarlo en Administración › Asistente de IA.", reintentar: false };
         case "asistente_inactivo":

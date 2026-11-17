@@ -237,6 +237,52 @@ func (q *Queries) CorreosSistemaCifrados(ctx context.Context) ([]CorreosSistemaC
 	return items, nil
 }
 
+const motoresIACifrados = `-- name: MotoresIACifrados :many
+SELECT id, token, token_siguiente, cert_cliente_clave, cert_cliente_clave_siguiente, enlace_codigo FROM mensajeria.voz_motores
+WHERE token IS NOT NULL OR token_siguiente IS NOT NULL OR cert_cliente_clave IS NOT NULL OR cert_cliente_clave_siguiente IS NOT NULL
+   OR enlace_codigo IS NOT NULL
+ORDER BY id
+FOR UPDATE
+`
+
+type MotoresIACifradosRow struct {
+	ID                        int64
+	Token                     []byte
+	TokenSiguiente            []byte
+	CertClienteClave          []byte
+	CertClienteClaveSiguiente []byte
+	EnlaceCodigo              []byte
+}
+
+// Credenciales del canal con el servidor de IA (token de la firma, clave del certificado de cliente
+// y, mientras dura, el código de enlace).
+func (q *Queries) MotoresIACifrados(ctx context.Context) ([]MotoresIACifradosRow, error) {
+	rows, err := q.db.Query(ctx, motoresIACifrados)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MotoresIACifradosRow
+	for rows.Next() {
+		var i MotoresIACifradosRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Token,
+			&i.TokenSiguiente,
+			&i.CertClienteClave,
+			&i.CertClienteClaveSiguiente,
+			&i.EnlaceCodigo,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const recifrarAsistente = `-- name: RecifrarAsistente :exec
 UPDATE mensajeria.asistente_ajustes SET clave_cifrada = $1 WHERE id = $2
 `
@@ -333,6 +379,33 @@ type RecifrarCorreoSistemaParams struct {
 
 func (q *Queries) RecifrarCorreoSistema(ctx context.Context, arg RecifrarCorreoSistemaParams) error {
 	_, err := q.db.Exec(ctx, recifrarCorreoSistema, arg.ContrasenaCifrada, arg.ID)
+	return err
+}
+
+const recifrarMotorIA = `-- name: RecifrarMotorIA :exec
+UPDATE mensajeria.voz_motores SET token = $1, token_siguiente = $2, cert_cliente_clave = $3,
+    cert_cliente_clave_siguiente = $4, enlace_codigo = $5
+WHERE id = $6
+`
+
+type RecifrarMotorIAParams struct {
+	Token                     []byte
+	TokenSiguiente            []byte
+	CertClienteClave          []byte
+	CertClienteClaveSiguiente []byte
+	EnlaceCodigo              []byte
+	ID                        int64
+}
+
+func (q *Queries) RecifrarMotorIA(ctx context.Context, arg RecifrarMotorIAParams) error {
+	_, err := q.db.Exec(ctx, recifrarMotorIA,
+		arg.Token,
+		arg.TokenSiguiente,
+		arg.CertClienteClave,
+		arg.CertClienteClaveSiguiente,
+		arg.EnlaceCodigo,
+		arg.ID,
+	)
 	return err
 }
 

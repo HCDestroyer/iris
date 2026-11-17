@@ -41,20 +41,21 @@ func (m *Modulo) registrarAsistente(api huma.API) {
 	act := op("actualizarAjustesAsistente", http.MethodPost, "/asistente/ajustes/actualizar", "Guardar los ajustes del asistente de IA", conf,
 		http.StatusOK, http.StatusConflict)
 	act.Description += " `clave` es solo escritura (ausente la deja, \"\" la borra) y nunca se devuelve: `claveGuardadaEn`. `version` 0 la primera vez " +
-		"(409 `conflicto_version`). Activar exige URL y modelo (Anthropic: clave); 422 `sin_configurar`, `url_no_permitida`; 422 `clave_requerida` si " +
+		"(409 `conflicto_version`). Activar exige URL y modelo (Anthropic: clave; `servidor_ia`: solo el modelo); 422 `sin_configurar`, `url_no_permitida`; 422 `clave_requerida` si " +
 		"cambia el proveedor o la URL con clave guardada y sin `clave`. Evento `asistente.ajustes_cambiados`."
 	huma.Register(api, act, func(ctx context.Context, in *cuerpoHTTP[EntradaAjustesAsistente]) (*cuerpo[AjustesAsistente], error) {
 		return responder(k.FijarAjustes.Ejecutar(ctx, in.Body))
 	})
-	prob := op("probarAsistente", http.MethodPost, "/asistente/probar", "Probar la conexión con el proveedor de IA", conf, http.StatusOK)
+	prob := op("probarAsistente", http.MethodPost, "/asistente/probar", "Probar la conexión con el proveedor de IA", conf, http.StatusOK, http.StatusConflict, http.StatusBadGateway)
 	prob.Description += " Manda un pedido corto real (no cuenta para el tope). Cualquier falla responde lo mismo (`estado: error`, `latenciaMs: 0`, " +
-		"`detalle` único) para no servir como escáner de puertos. Sin `clave` usa la guardada solo si proveedor y URL son los guardados. No guarda nada."
+		"`detalle` único) para no servir como escáner de puertos. Sin `clave` usa la guardada solo si proveedor y URL son los guardados. No guarda nada. " +
+		"Con `servidor_ia` (sin URL ni clave que revisar) la falla es propia: 409 `servidor_desactivado` o `servidor_ia_ocupado`, 502 `servidor_ia_no_disponible`."
 	huma.Register(api, prob, func(ctx context.Context, in *cuerpoHTTP[EntradaProbarAsistente]) (*cuerpo[PruebaAsistente], error) {
 		return responder(k.Probar.Ejecutar(ctx, in.Body))
 	})
-	mods := op("modelosAsistente", http.MethodGet, "/asistente/modelos", "Modelos del proveedor guardado", conf, http.StatusOK, http.StatusBadGateway)
+	mods := op("modelosAsistente", http.MethodGet, "/asistente/modelos", "Modelos del proveedor guardado", conf, http.StatusOK, http.StatusConflict, http.StatusBadGateway)
 	mods.Description += " Solo con lo guardado (para otra URL o clave: `POST /asistente/modelos`). Si el proveedor falla: 502 `proveedor_error` con un " +
-		"detalle único (no distingue conexión rechazada, tiempo agotado ni respuesta inesperada)."
+		"detalle único (no distingue conexión rechazada, tiempo agotado ni respuesta inesperada). Con `servidor_ia`: 409 `servidor_desactivado`, 502 `servidor_ia_no_disponible`."
 	huma.Register(api, mods, func(ctx context.Context, _ *struct{}) (*cuerpo[ListaModelosAsistente], error) {
 		return responder(k.Modelos.Ejecutar(ctx, EntradaModelosAsistente{}))
 	})

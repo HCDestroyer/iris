@@ -419,7 +419,14 @@ claves ni el número del cliente. Todos llevan `empresa_id`, salvo los del servi
 | `voz.tope_alcanzado` | `empresa_id`, `tipo` (`asistente` \| `salientes`), `porcentaje` (80, 100), `mes`, `minutos`, `tope` | Una vez por umbral, mes y valor del tope. Al 100 % el asistente deja de contestar (suenan a personas). Con `tipo: salientes` (E1b) sale al terminar la saliente que cruza el umbral; `minutos` son los de salientes contestadas del mes (hora de Guatemala) y pasado el 100 % `llamar` responde 422 `tope_alcanzado`. |
 | `voz.mal_uso_detectado` | `empresa_id`, `llamada_id`, `conversacion_id`, `tipo` (`inyeccion`, `extraccion_prompt`, `datos_de_terceros`, `suplantacion`, `abuso_coste`, `lenguaje`, `verificacion_fallida`, `herramienta_rechazada`), `regla`, `accion` (`aviso`, `paso_a_persona`, `corte`, `bloqueo`) | Uno por incidente (no por turno). Avisa al supervisor de la cola. |
 | `voz.numero_bloqueado` / `voz.numero_desbloqueado` | `empresa_id`, `bloqueo_id`, `hasta`, `motivo`, `usuario_id` (o null = automático) | Bloqueo del asistente de voz para un número (el número no va en el evento). |
-| `voz.motor_enlazado` | `motor_id`, `version`, `protocolo`, `usuario_id` | Emparejamiento completado y confirmado en el panel. |
+| `voz.motor_enlazado` | `motor_id`, `version`, `protocolo`, `usuario_id` | Intercambio de enlace completado (`conectar`, voz.md §4.8); falta activar. Nunca el código ni el token. |
+| `voz.motor_activado` | `motor_id`, `usuario_id`, `version` | El admin comparó la huella y activó; el token ya es el aleatorio. |
+| `voz.motor_desactivado` | `motor_id`, `usuario_id`, `motivo` (o null) | Desactivado en el panel: deja de usarse en el acto. |
+| `voz.motor_empresas_cambiadas` | `motor_id`, `usuario_id`, `empresas` (ids o null = todas), `simultaneas_por_empresa` | Empresas permitidas o reparto cambiados. |
+| `voz.motor_modelos_cambiados` | `motor_id`, `usuario_id`, `modelos` (ids o null = todos los del catálogo) | Modelos que las empresas pueden elegir. |
+| `servidor_ia.umbral_superado` | `motor_id`, `tipo` (`vram`, `disco`, `temperatura`, `saturacion`), `valor`, `umbral` | Una vez por episodio (voz.md §4.12). `empresa_id: null`. |
+| `servidor_ia.umbral_normalizado` | `motor_id`, `tipo`, `valor`, `umbral` | Cierre del episodio. |
+| `servidor_ia.ajustes_cambiados` | `motor_id`, `campos[]` | Umbrales o retención del tablero. |
 | `voz.motor_token_rotado` | `motor_id`, `origen` (`automatica`, `manual`, `enlace`) | Rotación del token de servicio. |
 | `voz.motor_estado_cambiado` | `motor_id`, `de`, `a` (`listo`, `degradado`, `no_disponible`, `incompatible`, `desactivado`), `en_curso`, `version`, `compatible`, `llamadas_cortadas` | Cambio de estado del servidor de voz (salud o compatibilidad). |
 | `centralita.creada` / `centralita.actualizada` | `centralita_id`, `empresa_id`; `tipo`, `modo` (creada); `campos[]`, `activa` (actualizada; el secreto como `secreto_guardado`) | E4: `centralita.configurar`. |

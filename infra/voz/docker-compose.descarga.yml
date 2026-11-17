@@ -1,0 +1,83 @@
+# Descarga de modelos (`iris-voz model pull <name>`): la única salida a red del paquete. Un
+# contenedor de un solo uso baja el modelo al volumen y termina; no tiene ruta a internet salvo por
+# el proxy, que solo deja pasar hacia el registro de modelos (puerto 443).
+services:
+  # Solo nombres exactos: el registro y el almacén de donde el registro sirve los modelos (si el
+  # registro cambia de almacén, el proxy registra el host rechazado; se ajusta con
+  # IRIS_VOZ_DESCARGA_HOSTS en el .env).
+  proxy-descarga:
+    profiles: [descarga]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    image: ${IRIS_VOZ_REGISTRY:-ghcr.io/hcdestroyer}/iris-voz:${IRIS_VOZ_VERSION:?IRIS_VOZ_VERSION is required}
+    command: [pull-proxy]
+    user: "65532:65532"
+    pids_limit: 128
+    mem_limit: 256m
+    healthcheck:
+      disable: true
+    environment:
+      IRIS_VOZ_DESCARGA_HOSTS: ${IRIS_VOZ_DESCARGA_HOSTS:-registry.ollama.ai,dd20bb891979d25aebc8bec07b2b3bbc.r2.cloudflarestorage.com}
+    networks: [descarga, salida]
+
+  # Crea el volumen de modelos con el dueño sin privilegios (el de /modelos en la imagen) antes de
+  # que lo monte nadie más. Sin red.
+  preparar:
+    profiles: [descarga]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    image: ${IRIS_VOZ_REGISTRY:-ghcr.io/hcdestroyer}/iris-voz:${IRIS_VOZ_VERSION:?IRIS_VOZ_VERSION is required}
+    command: [version]
+    user: "65532:65532"
+    pids_limit: 32
+    mem_limit: 64m
+    network_mode: none
+    healthcheck:
+      disable: true
+    volumes:
+      - modelos:/modelos
+
+  descarga:
+    profiles: [descarga]
+    user: "65532:65532"
+    pids_limit: 512
+    mem_limit: 4g
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    image: ollama/ollama:0.12.10@sha256:e8c3d1f6ad16323bc40dc63eff0701d4fc32113f75a86b54b3e836eef8290de6
+    # Arranca un Ollama local al contenedor, espera a que conteste y descarga o borra un modelo.
+    entrypoint:
+      - /bin/sh
+      - -ceu
+      - |
+        ollama serve >/tmp/ollama.log 2>&1 &
+        i=0
+        until ollama list >/dev/null 2>&1; do
+          i=$$((i + 1))
+          [ "$$i" -le 30 ] || { echo "ollama did not start" >&2; cat /tmp/ollama.log >&2; exit 1; }
+          sleep 1
+        done
+        exec ollama "$$@"
+      - descarga
+    environment:
+      OLLAMA_HOST: 127.0.0.1:11434
+      OLLAMA_MODELS: /modelos
+      OLLAMA_NOPRUNE: "1"
+      HOME: /tmp/casa
+      HTTPS_PROXY: http://proxy-descarga:3128
+      NO_PROXY: 127.0.0.1,localhost
+    tmpfs:
+      - /tmp
+    volumes:
+      - modelos:/modelos
+    networks: [descarga]
+    depends_on: [proxy-descarga]
+
+networks:
+  # Sin salida: de aquí solo se sale por el proxy.
+  descarga:
+    internal: true
+  salida: {}

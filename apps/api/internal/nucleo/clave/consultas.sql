@@ -80,6 +80,20 @@ FOR UPDATE;
 -- name: RecifrarAsistente :exec
 UPDATE mensajeria.asistente_ajustes SET clave_cifrada = @clave_cifrada WHERE id = @id;
 
+-- name: MotoresIACifrados :many
+-- Credenciales del canal con el servidor de IA (token de la firma, clave del certificado de cliente
+-- y, mientras dura, el código de enlace).
+SELECT id, token, token_siguiente, cert_cliente_clave, cert_cliente_clave_siguiente, enlace_codigo FROM mensajeria.voz_motores
+WHERE token IS NOT NULL OR token_siguiente IS NOT NULL OR cert_cliente_clave IS NOT NULL OR cert_cliente_clave_siguiente IS NOT NULL
+   OR enlace_codigo IS NOT NULL
+ORDER BY id
+FOR UPDATE;
+
+-- name: RecifrarMotorIA :exec
+UPDATE mensajeria.voz_motores SET token = @token, token_siguiente = @token_siguiente, cert_cliente_clave = @cert_cliente_clave,
+    cert_cliente_clave_siguiente = @cert_cliente_clave_siguiente, enlace_codigo = @enlace_codigo
+WHERE id = @id;
+
 -- name: CorreosSistemaCifrados :many
 -- Contraseña del SMTP del correo del sistema (global y por empresa).
 SELECT id, contrasena_cifrada FROM notificaciones.correo_ajustes
