@@ -20,6 +20,7 @@ export type LlamadasCanal = Schema<"LlamadasCanal">;
 export type EntradaLlamadasCanal = Schema<"EntradaLlamadasCanal">;
 export type RequisitosLlamadas = Schema<"RequisitosLlamadas">;
 export type RequisitoLlamadas = Schema<"RequisitoLlamadas">;
+export type PermisoLlamada = Schema<"PermisoLlamada">;
 export type AjustesVoz = Schema<"AjustesVoz">;
 export type EntradaAjustesVoz = Schema<"EntradaAjustesVoz">;
 
@@ -28,4 +29,6 @@ export const PERMISO_CONTESTAR = "llamadas.contestar" satisfies Permiso;
 export const PERMISO_ANOTAR = "llamadas.anotar" satisfies Permiso;
 export const PERMISO_DESCARTAR_DEVOLUCION = "llamadas.descartar_devolucion" satisfies Permiso;
 export const PERMISO_CONFIGURAR_LLAMADAS = "llamadas.configurar" satisfies Permiso;
+export const PERMISO_LLAMAR = "llamadas.llamar" satisfies Permiso;
+export const PERMISO_SOLICITAR_PERMISO = "llamadas.solicitar_permiso" satisfies Permiso;
 export const PERMISO_CONFIGURAR_VOZ = "voz.configurar" satisfies Permiso;

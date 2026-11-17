@@ -44,9 +44,8 @@ export async function permisoMicrofono(): Promise<"granted" | "denied" | "prompt
     }
 }
 
-export type Conexion = {
-    /** La respuesta SDP para `contestar`. */
-    sdpRespuesta: string;
+/** Lo común de una conexión de audio, entrante o saliente. */
+export type Medio = {
     /** Se resuelve cuando el medio conecta; se rechaza si falla. */
     conectado: Promise<void>;
     /** Avisa si el medio se cae después de conectar. */
@@ -55,11 +54,24 @@ export type Conexion = {
     cerrar: () => void;
 };
 
+export type Conexion = Medio & {
+    /** La respuesta SDP para `contestar`. */
+    sdpRespuesta: string;
+};
+
+/** Una llamada saliente: el navegador ofrece y la respuesta de Meta llega después. */
+export type Oferta = Medio & {
+    /** La oferta SDP para `llamar`. */
+    sdpOferta: string;
+    /** Aplica la respuesta SDP de Meta (`GET /llamadas/{id}/respuesta-sdp`). Una sola vez. */
+    aplicarRespuesta: (sdp: string) => Promise<void>;
+};
+
 /** Cuánto se tolera `disconnected` antes de dar la llamada por caída (suele recuperarse sola). */
 const TOLERANCIA_CORTE_MS = 8000;
 
-/** Arma el `RTCPeerConnection` con la oferta de Meta y devuelve la respuesta. */
-export async function conectar(sdpOferta: string, servidores: readonly string[], microfono: MediaStream): Promise<Conexion> {
+/** `RTCPeerConnection` con el micrófono, el audio remoto y la vigilancia del medio. */
+function montar(servidores: readonly string[], microfono: MediaStream): { pc: RTCPeerConnection; medio: Medio } {
     const pc = new RTCPeerConnection({ iceServers: servidores.length ? [{ urls: [...servidores] }] : [] });
     const audio = typeof Audio === "undefined" ? null : new Audio();
     if (audio) audio.autoplay = true;
@@ -86,42 +98,36 @@ export async function conectar(sdpOferta: string, servidores: readonly string[],
         soltarMicrofono(microfono);
     };
 
-    try {
-        pc.ontrack = (e) => {
-            if (!audio) return;
-            audio.srcObject = e.streams[0] ?? new MediaStream([e.track]);
-            void audio.play().catch(() => undefined);
+    pc.ontrack = (e) => {
+        if (!audio) return;
+        audio.srcObject = e.streams[0] ?? new MediaStream([e.track]);
+        void audio.play().catch(() => undefined);
+    };
+    for (const pista of microfono.getAudioTracks()) pc.addTrack(pista, microfono);
+
+    const conectado = new Promise<void>((resolver, rechazar) => {
+        pc.oniceconnectionstatechange = () => {
+            const estado = pc.iceConnectionState;
+            if (estado === "connected" || estado === "completed") {
+                window.clearTimeout(corte);
+                conecto = true;
+                resolver();
+            } else if (estado === "failed" || estado === "closed") {
+                window.clearTimeout(corte);
+                if (conecto) caida?.();
+                else rechazar(new Error("medio_fallido"));
+            } else if (estado === "disconnected" && conecto) {
+                window.clearTimeout(corte);
+                corte = window.setTimeout(() => !cerrada && caida?.(), TOLERANCIA_CORTE_MS);
+            }
         };
-        for (const pista of microfono.getAudioTracks()) pc.addTrack(pista, microfono);
+    });
+    // Si nadie espera `conectado` (se cerró antes), que no quede un rechazo sin atender.
+    conectado.catch(() => undefined);
 
-        const conectado = new Promise<void>((resolver, rechazar) => {
-            pc.oniceconnectionstatechange = () => {
-                const estado = pc.iceConnectionState;
-                if (estado === "connected" || estado === "completed") {
-                    window.clearTimeout(corte);
-                    conecto = true;
-                    resolver();
-                } else if (estado === "failed" || estado === "closed") {
-                    window.clearTimeout(corte);
-                    if (conecto) caida?.();
-                    else rechazar(new Error("medio_fallido"));
-                } else if (estado === "disconnected" && conecto) {
-                    window.clearTimeout(corte);
-                    corte = window.setTimeout(() => !cerrada && caida?.(), TOLERANCIA_CORTE_MS);
-                }
-            };
-        });
-        // Si nadie espera `conectado` (se cerró antes), que no quede un rechazo sin atender.
-        conectado.catch(() => undefined);
-
-        await pc.setRemoteDescription({ type: "offer", sdp: sdpOferta });
-        await pc.setLocalDescription(await pc.createAnswer());
-        // La respuesta del navegador va tal cual: el servidor la sanea antes de mandarla a Meta
-        // (voz.md, revisión de seguridad de E1). No se espera a juntar candidatos: Meta es ICE-lite.
-        const sdpRespuesta = pc.localDescription?.sdp;
-        if (!sdpRespuesta) throw new Error("medio_fallido");
-        return {
-            sdpRespuesta,
+    return {
+        pc,
+        medio: {
             conectado,
             alCaer: (aviso) => {
                 caida = aviso;
@@ -130,9 +136,49 @@ export async function conectar(sdpOferta: string, servidores: readonly string[],
                 for (const pista of microfono.getAudioTracks()) pista.enabled = !silenciada;
             },
             cerrar,
+        },
+    };
+}
+
+/** Entrante: arma la conexión con la oferta de Meta y devuelve la respuesta. */
+export async function conectar(sdpOferta: string, servidores: readonly string[], microfono: MediaStream): Promise<Conexion> {
+    const { pc, medio } = montar(servidores, microfono);
+    try {
+        await pc.setRemoteDescription({ type: "offer", sdp: sdpOferta });
+        await pc.setLocalDescription(await pc.createAnswer());
+        // La respuesta del navegador va tal cual: el servidor la sanea antes de mandarla a Meta
+        // (voz.md, revisión de seguridad de E1). No se espera a juntar candidatos: Meta es ICE-lite.
+        const sdpRespuesta = pc.localDescription?.sdp;
+        if (!sdpRespuesta) throw new Error("medio_fallido");
+        return { ...medio, sdpRespuesta };
+    } catch (e) {
+        medio.cerrar();
+        throw e;
+    }
+}
+
+/**
+ * Saliente (E1b): el navegador crea la oferta, que va a `POST /conversaciones/{id}/llamar` (el
+ * servidor la sanea); la respuesta de Meta se aplica cuando el feed avisa `llamada_respuesta`.
+ */
+export async function ofrecer(microfono: MediaStream): Promise<Oferta> {
+    const { pc, medio } = montar([], microfono);
+    try {
+        await pc.setLocalDescription(await pc.createOffer());
+        const sdpOferta = pc.localDescription?.sdp;
+        if (!sdpOferta) throw new Error("medio_fallido");
+        let aplicada = false;
+        return {
+            ...medio,
+            sdpOferta,
+            aplicarRespuesta: async (sdp) => {
+                if (aplicada) return;
+                aplicada = true;
+                await pc.setRemoteDescription({ type: "answer", sdp });
+            },
         };
     } catch (e) {
-        cerrar();
+        medio.cerrar();
         throw e;
     }
 }

@@ -683,9 +683,24 @@ test.describe("voz › plazos, red y cierre", () => {
         await page.evaluate(() => window.addEventListener("pagehide", (e) => e.stopImmediatePropagation(), true));
         await page.reload();
         expect(acciones(api, "colgar")).toHaveLength(0);
-        await expect(page.getByText("Tenías una llamada con Carlos Ruiz")).toBeVisible();
+        // Puede ser una que quedó sin audio o una sana en otra pestaña: se dice así y colgar se confirma.
+        await expect(page.getByText("Tienes una llamada abierta en otra pestaña, o que quedó sin audio")).toBeVisible();
+        await expect(page.getByText("Con Carlos Ruiz.")).toBeVisible();
         await expect(barra(page)).toHaveCount(0);
         await page.getByRole("button", { name: "Colgar" }).click();
+        const confirmar = page.getByRole("alertdialog", { name: "¿Colgar la llamada con Carlos Ruiz?" });
+        await expect(confirmar).toContainText("Si estás hablando en otra pestaña, se cortará.");
+        // «Dejarla»: un clic no cuelga una llamada sana de otra pestaña.
+        await confirmar.getByRole("button", { name: "Dejarla" }).click();
+        await expect(confirmar).toHaveCount(0);
+        expect(acciones(api, "colgar")).toHaveLength(0);
+        expect(api.voz.llamadas.get(llamada.id)?.estado).toBe("en_curso");
+        // El aviso se fue con la decisión; al volver a abrir el panel se ofrece otra vez.
+        await page.reload();
+        await page.getByRole("button", { name: "Colgar" }).click();
+        await sinDesbordes(page);
+        await captura(page, "otra-pestana-colgar");
+        await confirmar.getByRole("button", { name: "Colgar" }).click();
         await expect.poll(() => api.voz.llamadas.get(llamada.id)?.estado).toBe("terminada");
     });
 });
@@ -715,21 +730,25 @@ test.describe("voz › nunca una llamada viva sin audio (revisión de seguridad)
         const api = await abrir(page, "/cuenta");
         await suena(page, api);
         const liberar = api.voz.retener("confirmar-medio");
-        // El primer `colgar` falla: el servidor aún no la había aceptado del todo.
-        api.voz.forzar.colgar = 1;
         await aviso(page).getByRole("button", { name: "Contestar" }).click();
         await expect.poll(() => acciones(api, "confirmar-medio").length).toBe(1);
+        const lecturas = () => api.peticiones.filter((p) => p.metodo === "GET" && p.ruta.endsWith(`/llamadas/${ultima(api)?.id}`)).length;
+        const antes = lecturas();
         await page.clock.fastForward(8_200);
         await expect(aviso(page)).toHaveAttribute("data-fase", "aviso");
         expect(await medios(page)).toEqual({ abiertas: 0, microfono: false });
-        // No se manda `soltar` (el servidor lo rechazaría con la llamada ya aceptada): se cuelga.
-        await expect.poll(() => acciones(api, "colgar").length).toBe(1);
+        // La llamada sigue `conectando`, reservada a mi nombre: aún no es de nadie y el servidor
+        // respondería 404 a `colgar?propia=true`. Ese 404 no es el final: se relee y se espera.
+        await adelantarHasta(page, () => lecturas() >= antes + 3);
+        expect(ultima(api)?.estado).toBe("conectando");
         expect(acciones(api, "soltar")).toHaveLength(0);
-        // Ahora sí responde el 200 de la confirmación: la llamada queda `en_curso` sin nadie al audio…
+        // El `accept` termina tarde: la llamada queda `en_curso` sin nadie al audio…
         liberar();
         await expect.poll(() => ultima(api)?.estado).toBe("en_curso");
-        // …y el reintento de colgar la termina. Se le dice al agente.
+        // …y entonces sí se cuelga (solo la mía). Se le dice al agente.
         await adelantarHasta(page, () => ultima(api)?.estado === "terminada");
+        expect(acciones(api, "colgar")).toHaveLength(1);
+        expect(api.peticiones.find((p) => p.ruta.endsWith("/colgar"))?.query.get("propia")).toBe("true");
         await expect(page.getByText("La llamada se conectó sin audio y se colgó")).toBeVisible();
         await expect(barra(page)).toHaveCount(0);
     });
@@ -753,23 +772,46 @@ test.describe("voz › nunca una llamada viva sin audio (revisión de seguridad)
         api.voz.forzar.soltar = "error";
         await aviso(page).getByRole("button", { name: "Contestar" }).click();
         await expect(aviso(page)).toHaveAttribute("data-motivo", "medio_fallido");
-        await expect.poll(() => ultima(api)?.estado).toBe("terminada");
+        const lecturas = () => api.peticiones.filter((p) => p.metodo === "GET" && p.ruta.endsWith(`/llamadas/${ultima(api)?.id}`)).length;
+        // Sigue `conectando`, reservada a mi nombre: aún no es de nadie (colgar con `propia` daría
+        // 404, y eso no es el final). Se relee mientras siga así.
+        await adelantarHasta(page, () => lecturas() >= 3);
         expect(acciones(api, "soltar")).toHaveLength(1);
-        expect(acciones(api, "colgar")).toHaveLength(1);
-        await aviso(page).getByRole("button", { name: "Cerrar" }).click();
+        expect(acciones(api, "colgar")).toHaveLength(0);
+        // La reserva vence en el servidor y la llamada vuelve a sonarles a los demás: nada mío que colgar.
+        const primera = ultima(api);
+        if (primera) {
+            primera.estado = "sonando";
+            delete primera.usuario;
+        }
+        await page.clock.fastForward(3_000);
+        expect(acciones(api, "colgar")).toHaveLength(0);
+        await expect(page.getByText("No se pudo colgar una llamada que quedó abierta")).toHaveCount(0);
+        // El aviso llano se va solo a los 8 s (el reloj ya pasó de ahí).
+        await page.clock.fastForward(8_000);
+        await expect(aviso(page)).toHaveCount(0);
+        if (primera) api.voz.cuelgaCliente(primera.id);
 
-        // Ni soltar ni colgar salen: no se calla.
+        // No sale de `conectando` y no se puede soltar: no se calla.
         await suena(page, api, 42);
-        api.voz.forzar.colgar = 99;
         await aviso(page).getByRole("button", { name: "Contestar" }).click();
         await expect(aviso(page)).toHaveAttribute("data-motivo", "medio_fallido");
-        // 6 intentos y se rinde (1 de la primera llamada + 6).
-        await adelantarHasta(page, () => acciones(api, "colgar").length === 7);
         const fijo = page.getByText("No se pudo colgar una llamada que quedó abierta");
-        await expect(fijo).toBeVisible();
-        api.voz.forzar.colgar = 0;
+        await expect
+            .poll(
+                async () => {
+                    await page.clock.fastForward(4_000);
+                    return fijo.count();
+                },
+                { timeout: 25_000, intervals: [150] },
+            )
+            .toBeGreaterThan(0);
+        // El `accept` llegó tarde y quedó `en_curso` sin audio: «Reintentar» la cuelga.
+        const segunda = ultima(api);
+        if (segunda) segunda.estado = "en_curso";
         await page.getByRole("button", { name: "Reintentar" }).click();
-        await expect.poll(() => ultima(api)?.estado).toBe("terminada");
+        await adelantarHasta(page, () => ultima(api)?.estado === "terminada");
+        expect(acciones(api, "colgar")).toHaveLength(1);
     });
 
     test("`soltar` de una reserva que ya tomó otra persona no cuelga la llamada de un compañero (aunque yo supervise)", async ({ page }) => {
@@ -1248,7 +1290,8 @@ test.describe("voz › ajustes", () => {
         const encender = f.getByRole("switch", { name: "Este número recibe llamadas de WhatsApp" });
         // Hasta validarlo con Meta: franja «En pruebas» arriba y la etiqueta junto al interruptor.
         await expect(f.locator('[data-slot="llamadas-en-pruebas"]')).toContainText("Las llamadas de WhatsApp están en pruebas: aún no se han validado con llamadas reales. Enciéndelas solo en un número de prueba.");
-        await expect(f.locator('[data-etiqueta="en-pruebas"]')).toHaveText("En pruebas");
+        // …y junto a la plantilla de permiso de llamada (E1b).
+        await expect(f.locator('[data-etiqueta="en-pruebas"]')).toHaveText(["En pruebas", "En pruebas"]);
         await expect(encender).toBeDisabled();
         await expect(f).toContainText("Falta cumplir los requisitos de Meta de arriba.");
         // La grabación no se ofrece.
@@ -1284,6 +1327,7 @@ test.describe("voz › ajustes", () => {
                     iconoVisible: true,
                     devolucion: false,
                     mensajePerdida: { activo: true, texto: "No pudimos contestarte. Escríbenos por aquí y te atendemos." },
+                    plantillaPermiso: "",
                 },
             },
         ]);
@@ -1388,7 +1432,7 @@ test.describe("voz › ajustes", () => {
         await f.getByRole("button", { name: "Guardar" }).click();
         await expect(page.getByText("Ajustes de llamadas guardados")).toBeVisible();
         // La grabación no existe todavía: ni se ofrece ni se manda.
-        expect(api.voz.recibido.ajustes).toEqual([{ version: 3, duracionMaxPersonaMin: 45, segundosAsignado: 0 }]);
+        expect(api.voz.recibido.ajustes).toEqual([{ version: 3, duracionMaxPersonaMin: 45, segundosAsignado: 0, maxSalientesPorDia: 50, topeMinutosSalientesMes: 300, maxColgadasMarcandoDia: 3 }]);
     });
 
     test("sin `llamadas.configurar` no hay «Llamadas» en los números ni se entra por la URL", async ({ page }) => {

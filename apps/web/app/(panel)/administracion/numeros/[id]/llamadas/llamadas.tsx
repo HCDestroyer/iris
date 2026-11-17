@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Schema } from "@iris/contratos";
-import { avisar, Aviso, Boton, CampoArea, CampoNumero, CampoSelector, cn, FormularioPagina, Interruptor, liberarProteccion, SeccionFormulario } from "@iris/ui";
+import { avisar, Aviso, Boton, Campo, CampoArea, CampoNumero, CampoSelector, cn, FormularioPagina, Interruptor, liberarProteccion, SeccionFormulario } from "@iris/ui";
 import { ArrowLeft, CircleAlert, CircleCheck, CircleHelp, CircleX, RefreshCw, RotateCw } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -175,7 +175,12 @@ function Formulario({ numero, llamadas, colas, horarios, alCambiar }: Datos & { 
                 setError(e);
                 return;
             }
-            const campos = erroresACampos(e, ["llamadasActivas", "colaId", "horarioId", "segundosSonando", "fueraDeHorario", "iconoVisible", "devolucion"], form.setError);
+            if (e instanceof ErrorApi && e.codigo === "plantilla_permiso_invalida") {
+                // La cuenta de WhatsApp no tiene esa plantilla aprobada en ese idioma: se dice junto al campo.
+                form.setError("plantillaPermiso", { message: "WhatsApp no tiene aprobada una plantilla con ese nombre en ese idioma. Revisa el nombre y el idioma en Meta (tiene que ser de permiso de llamada)." }, { shouldFocus: true });
+                return;
+            }
+            const campos = erroresACampos(e, ["llamadasActivas", "colaId", "horarioId", "segundosSonando", "fueraDeHorario", "iconoVisible", "devolucion", "plantillaPermiso", "plantillaPermisoIdioma"], form.setError);
             const textoMensaje = e instanceof ErrorApi ? e.errorDeCampo("mensajePerdida.texto") : undefined;
             if (textoMensaje) form.setError("mensajeTexto", { message: textoMensaje });
             if (!campos && !textoMensaje) setError(e);
@@ -320,7 +325,28 @@ function Formulario({ numero, llamadas, colas, horarios, alCambiar }: Datos & { 
             <SeccionFormulario titulo="Llamadas perdidas">
                 <Interruptor etiqueta="Escribirle al cliente cuando nadie contesta" ayuda="Como mucho una vez por hora a cada cliente." {...form.register("mensajeActivo")} />
                 <CampoArea etiqueta="Mensaje" rows={3} maxLength={500} error={errores.mensajeTexto?.message} {...form.register("mensajeTexto")} />
-                <Interruptor etiqueta="Preguntarle al cliente si acepta que lo llamen de vuelta" ayuda="WhatsApp se lo pregunta después de una llamada. Devolver la llamada desde Iris llega en una etapa siguiente." error={errores.devolucion?.message} {...form.register("devolucion")} />
+                <Interruptor etiqueta="Preguntarle al cliente si acepta que lo llamen de vuelta" ayuda="WhatsApp se lo pregunta después de una llamada perdida. Si acepta, se le puede devolver la llamada desde Iris." error={errores.devolucion?.message} {...form.register("devolucion")} />
+            </SeccionFormulario>
+
+            <SeccionFormulario
+                titulo="Permiso para llamar al cliente"
+                descripcion="WhatsApp solo deja llamar a quien aceptó recibir llamadas de la empresa. Si el cliente escribió en las últimas 24 horas, Iris se lo pide con un mensaje; si no, hace falta una plantilla de permiso de llamada aprobada en Meta."
+            >
+                <EtiquetaEnPruebas />
+                <div className="grid gap-4 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]" data-slot="plantilla-permiso">
+                    <Campo
+                        etiqueta="Plantilla de permiso de llamada"
+                        placeholder="permiso_de_llamada"
+                        autoComplete="off"
+                        autoCapitalize="none"
+                        spellCheck={false}
+                        maxLength={200}
+                        ayuda="El nombre tal como está en Meta. Vacío: solo se puede pedir permiso a quien escribió en las últimas 24 horas."
+                        error={errores.plantillaPermiso?.message}
+                        {...form.register("plantillaPermiso")}
+                    />
+                    <Campo etiqueta="Idioma" placeholder="es" autoComplete="off" autoCapitalize="none" spellCheck={false} maxLength={5} ayuda="Como «es» o «es_MX»." error={errores.plantillaPermisoIdioma?.message} {...form.register("plantillaPermisoIdioma")} />
+                </div>
             </SeccionFormulario>
         </FormularioPagina>
     );

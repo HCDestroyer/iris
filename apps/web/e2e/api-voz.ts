@@ -17,6 +17,7 @@ type Devolucion = Schema<"DevolucionLlamada">;
 type LlamadasCanal = Schema<"LlamadasCanal">;
 type AjustesVoz = Schema<"AjustesVoz">;
 type Requisito = Schema<"RequisitoLlamadas">;
+type PermisoLlamada = Schema<"PermisoLlamada">;
 
 const json = (route: Route, cuerpo: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(cuerpo) });
 const problema = (route: Route, p: Problema) => route.fulfill({ status: p.status, contentType: "application/problem+json", body: JSON.stringify(p) });
@@ -26,6 +27,9 @@ const P = (codigo: string, status: number, title: string, extra: Partial<Problem
 export const PERMISOS_LLAMADAS: Permiso[] = ["llamadas.ver", "llamadas.contestar", "llamadas.rechazar", "llamadas.colgar", "llamadas.anotar", "llamadas.descartar_devolucion"];
 /** Además, quien administra. */
 export const PERMISOS_VOZ_ADMIN: Permiso[] = ["llamadas.configurar", "voz.configurar"];
+/** E1b: llamar es de quien supervisa; pedir el permiso, de quien atiende. */
+export const PERMISO_LLAMAR: Permiso = "llamadas.llamar";
+export const PERMISO_PEDIR: Permiso = "llamadas.solicitar_permiso";
 
 export type OpcionesVoz = {
     /** «Recibir llamadas» ya encendido en este navegador (por defecto, apagado). */
@@ -40,9 +44,21 @@ export type OpcionesVoz = {
     saldoVencido?: number[];
     /** Cómo están en WhatsApp los ajustes del número 3 (por defecto, aplicados). */
     whatsapp?: "pendiente" | "error";
+    /**
+     * E1b: Ana (admin) puede llamar y pedir permiso; quien atiende sin administrar solo puede pedirlo.
+     * Sin esta opción nadie tiene esos permisos y el panel no ofrece llamar.
+     */
+    salientes?: boolean;
+    /** E1b: el permiso de llamada de cada conversación al empezar (por defecto, sin pedir). */
+    permisos?: Record<number, Partial<PermisoLlamada>>;
+    /** E1b: Ana llama pero no contesta (sin `llamadas.contestar`). */
+    soloLlama?: boolean;
 };
 
 /** Una oferta SDP de mentira con forma de SDP (el doble de `RTCPeerConnection` no la interpreta). */
+/** La respuesta SDP de Meta a una saliente (E1b). */
+export const SDP_RESPUESTA = "v=0\r\no=- 3 3 IN IP4 157.240.0.1\r\ns=-\r\nt=0 0\r\nm=audio 3480 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2\r\na=setup:active\r\na=fingerprint:sha-256 11:22:33:44\r\n";
+
 export const SDP_OFERTA = "v=0\r\no=- 1 1 IN IP4 157.240.0.1\r\ns=-\r\nt=0 0\r\nm=audio 3480 UDP/TLS/RTP/SAVPF 111 126\r\na=rtpmap:111 opus/48000/2\r\na=setup:actpass\r\n";
 
 const BASE = "/api/v1/mensajeria";
@@ -79,6 +95,12 @@ export function apiVoz(
     const devoluciones: Devolucion[] = [];
     const canales = new Map<number, LlamadasCanal>();
     let ajustes: AjustesVoz = { version: 3, grabar: "nunca", duracionMaxPersonaMin: 60, segundosAsignado: 10, maxSalientesPorDia: 50, topeMinutosSalientesMes: 300, maxColgadasMarcandoDia: 3, minutosSalientesMes: 0, salientesHoy: 0 };
+    /** E1b: el permiso de llamada por conversación y lo que hace falta de cada saliente. */
+    const permisos = new Map<number, PermisoLlamada>();
+    for (const [id, p] of Object.entries(opciones.permisos ?? {})) permisos.set(Number(id), { estado: "sin_pedir", puedeLlamar: false, puedeSolicitar: true, sinContestar: 0, ...p });
+    const salientes = new Map<string, { navegador: string; pestana: string; respuesta: boolean; devolucionId?: number }>();
+    /** Una saliente que el servidor aún está creando (la respuesta de `llamar` se perdió). */
+    let tardia: { faltan: number; crear: () => Llamada } | null = null;
 
     /** Lo que recibió el servidor, para comprobarlo en la prueba. */
     const recibido = {
@@ -87,6 +109,12 @@ export function apiVoz(
         ajustes: [] as Record<string, unknown>[],
         descartadas: [] as { id: number; motivo: string }[],
         recibir: [] as { accion: "encender" | "apagar"; navegador: string }[],
+        /** E1b. */
+        solicitudes: [] as number[],
+        llamar: [] as { conversacionId: number; cuerpo: Record<string, unknown>; navegador: string; pestana: string; empresa: string }[],
+        respuestas: [] as { llamadaId: string; navegador: string; pestana: string }[],
+        /** Lecturas de `GET /llamadas/activa`, con la pestaña que preguntó. */
+        activas: [] as string[],
     };
     /** Para forzar respuestas: la prueba lo cambia antes de actuar. */
     const forzar: {
@@ -107,12 +135,25 @@ export function apiVoz(
         soltar?: "error";
         anotar?: "error";
         descartar?: "cerrada";
+        /** E1b: el 422 de «Pedir permiso». */
+        solicitar?: "permiso_ya_vigente" | "limite_solicitudes" | "sin_plantilla_permiso" | "baja";
+        /**
+         * E1b: qué responde `llamar`. `sin_red`: no llega al servidor. `perdida`: el servidor crea la
+         * llamada pero la respuesta no llega al navegador.
+         */
+        llamar?: "sin_permiso_llamada" | "limite_llamadas" | "colgadas_marcando" | "tope_alcanzado" | "llamada_en_curso" | "devolucion_cerrada" | "meta_rechazo" | "llamadas_inactivas" | "sin_red" | "perdida" | "tardia";
+        /** E1b: la respuesta SDP ya está lista cuando `llamar` responde (su aviso llegó antes y se perdió). */
+        respuestaLista?: boolean;
+        /** E1b: `respuesta-sdp` responde 409 `otra_pestana`. */
+        respuesta?: "otra_pestana";
+        /** E1b: cuántas veces más `respuesta-sdp` responde 409 `sin_respuesta`. */
+        sinRespuesta?: number;
     } = {};
 
     /** Peticiones que el «servidor» deja esperando hasta que la prueba las suelte (para las carreras). */
     const retenidas = new Map<string, Promise<void>>();
     /** Retiene la próxima petición de esa acción (ya recibida y anotada) hasta llamar a lo que devuelve. */
-    function retener(accion: "reclamar" | "confirmar-medio" | "contestar"): () => void {
+    function retener(accion: "reclamar" | "confirmar-medio" | "contestar" | "llamar"): () => void {
         let liberar: () => void = () => undefined;
         retenidas.set(accion, new Promise<void>((resolver) => (liberar = resolver)));
         return () => {
@@ -128,7 +169,7 @@ export function apiVoz(
         return {
             contestar: l.estado === "sonando",
             rechazar: l.estado === "sonando",
-            colgar: mia && (l.estado === "en_curso" || l.estado === "conectando"),
+            colgar: mia && (l.estado === "en_curso" || l.estado === "conectando" || l.estado === "marcando"),
             anotar: mia && (final || l.estado === "en_curso"),
             tomar: false,
             transferir: false,
@@ -155,10 +196,121 @@ export function apiVoz(
             ...(l.usuario ? { usuario: l.usuario } : {}),
         };
     }
-    function avisar(tipo: "llamada_entrante" | "llamada_actualizada" | "llamada_terminada", l: Llamada) {
+    function avisar(tipo: "llamada_entrante" | "llamada_actualizada" | "llamada_terminada" | "llamada_respuesta", l: Llamada) {
         alHilo(l);
         const m = mensajeDe(l);
-        emitir({ tipo, conversacionId: l.conversacionId ?? 0, llamada: vista(l), ...(m && tipo !== "llamada_entrante" ? { mensaje: structuredClone(m) } : {}) });
+        emitir({ tipo, conversacionId: l.conversacionId ?? 0, llamada: vista(l), ...(m && tipo !== "llamada_entrante" && tipo !== "llamada_respuesta" ? { mensaje: structuredClone(m) } : {}) });
+    }
+
+    // --- E1b: salientes y permiso de llamada ---------------------------------------------------
+    function permisoDe(conversacionId: number): PermisoLlamada {
+        let p = permisos.get(conversacionId);
+        if (!p) {
+            p = { estado: "sin_pedir", puedeLlamar: false, puedeSolicitar: true, sinContestar: 0 };
+            permisos.set(conversacionId, p);
+        }
+        return p;
+    }
+    const vigente = (p: PermisoLlamada) => p.estado === "temporal" || p.estado === "permanente";
+    /** Lo que ve quien pregunta: `puedeLlamar` y `motivo` dependen de su permiso de usuario. */
+    function vistaPermiso(conversacionId: number, puedeLlamar: boolean): PermisoLlamada {
+        const p = structuredClone(permisoDe(conversacionId));
+        if (p.motivo === "llamadas_inactivas") return { ...p, puedeLlamar: false, puedeSolicitar: false };
+        p.puedeLlamar = vigente(p) && puedeLlamar;
+        if (!vigente(p)) p.motivo = "sin_permiso_llamada";
+        else if (!puedeLlamar) p.motivo = "no_autorizado";
+        else delete p.motivo;
+        return p;
+    }
+    /** Crea la saliente `marcando` de esa persona, atada a su navegador y a su pestaña. */
+    function crearSaliente(conversacionId: number, yo: { id: number; nombre: string }, navegador: string, pestana: string, devolucionId?: number): Llamada {
+        const conv = conversaciones.find((c) => c.id === conversacionId);
+        if (!conv) throw new Error(`No hay conversación ${conversacionId}`);
+        n += 1;
+        const id = `0199c0de-0000-7000-8000-${String(n).padStart(12, "0")}`;
+        const mensajeId = `0199c0de-1111-7000-8000-${String(n).padStart(12, "0")}`;
+        const ahora = new Date().toISOString();
+        const l: Llamada = {
+            id,
+            empresaId: 1,
+            origen: "whatsapp",
+            direccion: "saliente",
+            conversacionId,
+            mensajeId,
+            canal: { id: conv.canal.id, nombre: conv.canal.nombre, numero: conv.canal.numero },
+            numero: conv.numero,
+            titulo: conv.titulo,
+            contacto: conv.contacto.clienteId ? { tipo: "cliente", clienteId: conv.contacto.clienteId, verificacion: "numero" } : { tipo: "desconocido" },
+            estado: "marcando",
+            usuario: { id: yo.id, nombre: yo.nombre },
+            tramos: [],
+            sonoEn: ahora,
+            puede: { contestar: false, rechazar: false, colgar: true, anotar: false, tomar: false, transferir: false, escucharGrabacion: false },
+        };
+        llamadas.set(id, l);
+        // `respuestaLista`: la respuesta de WhatsApp llegó antes de que `llamar` respondiera (su aviso ya pasó).
+        salientes.set(id, { navegador, pestana, respuesta: forzar.respuestaLista === true, ...(devolucionId !== undefined ? { devolucionId } : {}) });
+        const lista = mensajes.get(conversacionId) ?? [];
+        lista.push({ id: mensajeId, conversacionId, seq: (lista.at(-1)?.seq ?? 0) + 1, direccion: "saliente", tipo: "llamada", texto: null, automatico: null, creadoEn: ahora, enviadoEn: null, entregadoEn: null, leidoEn: null, estadoEntrega: null, motivoFalla: null, menciones: [] });
+        mensajes.set(conversacionId, lista);
+        avisar("llamada_actualizada", l);
+        return l;
+    }
+    /** Una saliente de esta misma persona hecha desde otra pestaña (u otro navegador). */
+    function salienteAjena(conversacionId: number): Llamada {
+        return crearSaliente(conversacionId, actor(), "navegador-de-otra-parte", "pestana-de-otra-parte");
+    }
+    /** El servidor la corta mientras marca (p. ej. 55 s sin el latido de su pestaña). */
+    function cortaServidor(id: string) {
+        const l = llamadas.get(id);
+        if (l) terminar(l, "terminada", "error_medio");
+    }
+    /** El cliente responde a la solicitud de permiso (webhook `call_permission_reply`). */
+    function respondePermiso(conversacionId: number, respuesta: "acepta" | "rechaza") {
+        const p = permisoDe(conversacionId);
+        if (respuesta === "acepta") Object.assign(p, { estado: "temporal", venceEn: new Date(Date.now() + 7 * 86_400_000).toISOString(), puedeSolicitar: false, sinContestar: 0 });
+        else Object.assign(p, { estado: "negado", puedeSolicitar: false });
+        emitir({ tipo: "conversacion_actualizada", conversacionId });
+    }
+    /** WhatsApp manda la respuesta SDP del cliente: el feed avisa a quien llamó (sin el SDP). */
+    function respondeMeta(id: string) {
+        const l = llamadas.get(id);
+        const s = salientes.get(id);
+        if (!l || !s) return;
+        s.respuesta = true;
+        avisar("llamada_respuesta", l);
+    }
+    /** El cliente contesta (`ACCEPTED`): la saliente pasa a `en_curso`. `conRespuesta: false`: el aviso `llamada_respuesta` se perdió. */
+    function contestaCliente(id: string, conRespuesta = true) {
+        const l = llamadas.get(id);
+        const s = salientes.get(id);
+        if (!l || !s) return;
+        if (conRespuesta && !s.respuesta) respondeMeta(id);
+        s.respuesta = true;
+        l.estado = "en_curso";
+        l.atendidaPor = "persona";
+        l.contestadaEn = new Date().toISOString();
+        permisoDe(l.conversacionId ?? 0).sinContestar = 0;
+        const d = devoluciones.find((x) => x.id === s.devolucionId);
+        if (d) {
+            d.estado = "hecha";
+            emitir({ tipo: "devolucion_actualizada", conversacionId: d.conversacionId });
+        }
+        avisar("llamada_actualizada", l);
+    }
+    /** El cliente no contesta o rechaza: `perdida`, suma una sin contestar y a la cuarta se revoca el permiso. */
+    function noContesta(id: string) {
+        const l = llamadas.get(id);
+        if (!l) return;
+        const p = permisoDe(l.conversacionId ?? 0);
+        p.sinContestar += 1;
+        if (p.sinContestar >= 4) Object.assign(p, { estado: "revocado", puedeSolicitar: true });
+        terminar(l, "perdida", "nadie_contesto");
+    }
+    /** La empresa llega a su tope de minutos con la llamada en curso: el servidor la corta. */
+    function cortaPorTope(id: string) {
+        const l = llamadas.get(id);
+        if (l) terminar(l, "terminada", "tope_alcanzado");
     }
 
     /** Entra una llamada de WhatsApp a la conversación: suena a los candidatos. */
@@ -320,7 +472,18 @@ export function apiVoz(
             const min = Number(cuerpo.duracionMaxPersonaMin);
             if (!(min >= 10 && min <= 120)) return (await problema(route, P("validacion", 422, "Datos inválidos", { errors: [{ field: "body.duracionMaxPersonaMin", message: "Entre 10 y 120 minutos", rule: "rango" }] })), true);
             if (cuerpo.grabar !== undefined && cuerpo.grabar !== "nunca") return (await problema(route, P("grabacion_no_disponible", 422, "La grabación todavía no está disponible")), true);
-            ajustes = { ...ajustes, grabar: "nunca", duracionMaxPersonaMin: min, segundosAsignado: Number(cuerpo.segundosAsignado), version: ajustes.version + 1 };
+            const opcional = (clave: "maxSalientesPorDia" | "topeMinutosSalientesMes" | "maxColgadasMarcandoDia") => (typeof cuerpo[clave] === "number" ? cuerpo[clave] : ajustes[clave]);
+            ajustes = {
+                grabar: "nunca",
+                duracionMaxPersonaMin: min,
+                segundosAsignado: Number(cuerpo.segundosAsignado),
+                maxSalientesPorDia: opcional("maxSalientesPorDia"),
+                topeMinutosSalientesMes: opcional("topeMinutosSalientesMes"),
+                maxColgadasMarcandoDia: opcional("maxColgadasMarcandoDia"),
+                minutosSalientesMes: ajustes.minutosSalientesMes,
+                salientesHoy: ajustes.salientesHoy,
+                version: ajustes.version + 1,
+            };
             return (await json(route, ajustes), true);
         }
 
@@ -357,9 +520,21 @@ export function apiVoz(
             }
             const seg = Number(cuerpo.segundosSonando);
             if (!(seg >= 15 && seg <= 45)) return (await problema(route, P("validacion", 422, "Datos inválidos", { errors: [{ field: "body.segundosSonando", message: "Entre 15 y 45 segundos", rule: "rango" }] })), true);
-            const { version: _version, colaId, horarioId, ...resto } = cuerpo as unknown as Schema<"EntradaLlamadasCanal">;
+            // E1b: la plantilla de permiso tiene que estar aprobada en la cuenta de WhatsApp, en ese idioma.
+            if (cuerpo.plantillaPermiso === "no_existe" || (cuerpo.plantillaPermiso && cuerpo.plantillaPermisoIdioma === "fr")) {
+                return (await problema(route, P("plantilla_permiso_invalida", 422, "La plantilla de permiso no está aprobada en WhatsApp", { errors: [{ field: "body.plantillaPermiso", message: "No hay una plantilla aprobada con ese nombre e idioma", rule: "plantilla_permiso_invalida" }] })), true);
+            }
+            const { version: _version, colaId, horarioId, plantillaPermiso, plantillaPermisoIdioma, ...resto } = cuerpo as unknown as Schema<"EntradaLlamadasCanal">;
             void _version;
             const nuevo: LlamadasCanal = { ...c, ...resto, version: c.version + 1 };
+            // Ausente se conserva; vacía se quita; con plantilla y sin idioma, «es».
+            if (plantillaPermiso === "") {
+                delete nuevo.plantillaPermiso;
+                delete nuevo.plantillaPermisoIdioma;
+            } else if (plantillaPermiso !== undefined) {
+                nuevo.plantillaPermiso = plantillaPermiso;
+                nuevo.plantillaPermisoIdioma = plantillaPermisoIdioma ?? "es";
+            }
             if (colaId !== undefined) nuevo.colaId = colaId;
             else delete nuevo.colaId;
             if (horarioId !== undefined) nuevo.horarioId = horarioId;
@@ -368,7 +543,120 @@ export function apiVoz(
             return (await json(route, nuevo), true);
         }
 
+        // --- E1b: permiso de llamada y «Llamar» ---
+        const deConv = /^\/api\/v1\/mensajeria\/conversaciones\/(\d+)\/(permiso-llamada|solicitar-permiso-llamada|llamar)$/.exec(ruta);
+        if (deConv) {
+            const conversacionId = Number(deConv[1]);
+            const conv = conversaciones.find((c) => c.id === conversacionId);
+            if (!conv) return noExiste();
+            const yo = actor();
+            if (deConv[2] === "permiso-llamada") {
+                if (metodo !== "GET") return false;
+                return (await json(route, vistaPermiso(conversacionId, puede(PERMISO_LLAMAR))), true);
+            }
+            if (metodo !== "POST") return false;
+            const p = permisoDe(conversacionId);
+            const regla = (codigo: string, titulo: string, errores?: Problema["errors"]) => problema(route, P(codigo, 422, titulo, { detail: titulo, ...(errores ? { errors: errores } : {}) }));
+            if (deConv[2] === "solicitar-permiso-llamada") {
+                if (!puede(PERMISO_PEDIR)) return prohibido();
+                recibido.solicitudes.push(conversacionId);
+                if (forzar.solicitar === "permiso_ya_vigente" || vigente(p)) {
+                    Object.assign(p, { estado: vigente(p) ? p.estado : "temporal", venceEn: p.venceEn ?? new Date(Date.now() + 5 * 86_400_000).toISOString(), puedeSolicitar: false });
+                    return (await regla("permiso_ya_vigente", "El contacto ya dio permiso para que lo llamen"), true);
+                }
+                if (forzar.solicitar === "limite_solicitudes") {
+                    const prox = "2026-11-19T20:30:00Z";
+                    Object.assign(p, { puedeSolicitar: false, proximaSolicitudEn: prox });
+                    return (await regla("limite_solicitudes", "WhatsApp deja pedir el permiso una vez cada 24 horas y dos veces cada 7 días", [{ field: "proximaSolicitudEn", message: prox, rule: "limite_solicitudes" }]), true);
+                }
+                if (forzar.solicitar === "sin_plantilla_permiso") return (await regla("sin_plantilla_permiso", "Fuera de la ventana de 24 h hace falta la plantilla de permiso del número"), true);
+                if (forzar.solicitar === "baja") return (await regla("baja", "El cliente pidió no recibir mensajes por WhatsApp"), true);
+                Object.assign(p, { estado: "pedido", puedeSolicitar: false, proximaSolicitudEn: new Date(Date.now() + 86_400_000).toISOString() });
+                // Queda en el hilo como texto saliente `automatico: "permiso_llamada"` (aún fuera del enum generado).
+                const lista = mensajes.get(conversacionId) ?? [];
+                const ahora = new Date().toISOString();
+                const m = {
+                    id: `0199c0de-2222-7000-8000-${String(lista.length + 1).padStart(12, "0")}`,
+                    conversacionId,
+                    seq: (lista.at(-1)?.seq ?? 0) + 1,
+                    direccion: "saliente",
+                    tipo: "texto",
+                    texto: "¿Nos permites llamarte por WhatsApp?",
+                    automatico: "permiso_llamada",
+                    autor: { id: yo.id, nombre: yo.nombre },
+                    creadoEn: ahora,
+                    enviadoEn: ahora,
+                    entregadoEn: null,
+                    leidoEn: null,
+                    estadoEntrega: "enviado",
+                    motivoFalla: null,
+                    menciones: [],
+                } satisfies Partial<Mensaje> as Mensaje;
+                lista.push(m);
+                mensajes.set(conversacionId, lista);
+                emitir({ tipo: "mensaje_nuevo", conversacionId, mensaje: structuredClone(m) });
+                return (await json(route, vistaPermiso(conversacionId, puede(PERMISO_LLAMAR))), true);
+            }
+            // llamar
+            if (!puede(PERMISO_LLAMAR)) return prohibido();
+            const nav = cabeceras["x-iris-navegador"] ?? "";
+            const pestana = cabeceras["x-iris-pestana"] ?? "";
+            recibido.llamar.push({ conversacionId, cuerpo, navegador: nav, pestana, empresa: cabeceras["x-iris-empresa"] ?? "" });
+            await retenidas.get("llamar");
+            if (forzar.llamar === "sin_red") return (await route.abort("internetdisconnected"), true);
+            if (!nav) return (await regla("navegador_requerido", "Falta el id del navegador"), true);
+            // El latido de la saliente es de la pestaña que llama (128 bits al azar).
+            if (!/^[A-Za-z0-9_-]{8,64}$/.test(pestana)) return (await regla("pestana_requerida", "Falta el id de la pestaña"), true);
+            if (forzar.llamar === "llamadas_inactivas") return (await regla("llamadas_inactivas", "El número no tiene las llamadas encendidas"), true);
+            if (forzar.llamar === "sin_permiso_llamada" || !vigente(p)) return (await regla("sin_permiso_llamada", "El contacto no ha dado permiso para que lo llamen"), true);
+            if (forzar.llamar === "limite_llamadas") return (await regla("limite_llamadas", "Se llegó al límite de llamadas de hoy"), true);
+            if (forzar.llamar === "colgadas_marcando") return (await regla("limite_llamadas", "Hoy ya se colgaron varias llamadas a este contacto antes de que contestara", [{ field: "", message: "Vuelve a intentarlo mañana", rule: "colgadas_marcando" }]), true);
+            if (forzar.llamar === "tope_alcanzado") return (await regla("tope_alcanzado", "La empresa llegó a su tope de minutos de llamadas salientes"), true);
+            if (forzar.llamar === "llamada_en_curso" || [...llamadas.values()].some((v) => ["marcando", "en_curso", "conectando"].includes(v.estado) && (v.usuario?.id === yo.id || v.conversacionId === conversacionId))) {
+                return (await problema(route, P("llamada_en_curso", 409, "Ya hay una llamada en curso")), true);
+            }
+            const devolucionId = typeof cuerpo.devolucionId === "number" ? cuerpo.devolucionId : undefined;
+            if (forzar.llamar === "devolucion_cerrada" || (devolucionId !== undefined && devoluciones.find((d) => d.id === devolucionId)?.estado !== "pendiente")) {
+                return (await problema(route, P("devolucion_cerrada", 409, "La devolución ya está cerrada")), true);
+            }
+            if (p.sinContestar >= 3 && cuerpo.confirmarRiesgo !== true) return (await regla("confirmar_riesgo", "Lleva tres llamadas seguidas sin contestar"), true);
+            const sdp = String(cuerpo.sdpOferta ?? "");
+            if (!sdp.includes("m=audio") || !sdp.includes("a=setup:") || !sdp.includes("a=fingerprint:")) return (await regla("sdp_invalido", "SDP inválido"), true);
+            if (forzar.llamar === "meta_rechazo") return (await problema(route, P("meta_rechazo", 502, "WhatsApp no aceptó la llamada")), true);
+            const crear = () => crearSaliente(conversacionId, yo, nav, pestana, devolucionId);
+            if (forzar.llamar === "tardia") {
+                // La respuesta se pierde y el servidor tarda en crearla: aparece a la tercera lectura de `activa`.
+                tardia = { faltan: 3, crear };
+                return (await route.abort("connectionreset"), true);
+            }
+            const l = crear();
+            // Creada en el servidor, pero la respuesta se pierde por el camino.
+            if (forzar.llamar === "perdida") return (await route.abort("connectionreset"), true);
+            return (await json(route, vista(l), 201), true);
+        }
+
         if (!ruta.startsWith(`${BASE}/llamadas`)) return false;
+
+        // --- E1b: la respuesta SDP de una saliente (solo quien llamó, desde el mismo navegador) ---
+        const respuestaSdp = /^\/api\/v1\/mensajeria\/llamadas\/([0-9a-f-]{36})\/respuesta-sdp$/.exec(ruta);
+        if (respuestaSdp && metodo === "GET") {
+            const l = llamadas.get(respuestaSdp[1] ?? "");
+            const s = salientes.get(respuestaSdp[1] ?? "");
+            if (!l || !s || l.usuario?.id !== actor().id) return noExiste();
+            const nav = cabeceras["x-iris-navegador"] ?? "";
+            const pestana = cabeceras["x-iris-pestana"] ?? "";
+            recibido.respuestas.push({ llamadaId: l.id, navegador: nav, pestana });
+            if (s.navegador !== nav) return (await problema(route, P("otro_navegador", 409, "La llamada se hizo desde otro navegador")), true);
+            if (s.pestana !== pestana || forzar.respuesta === "otra_pestana") {
+                return (await problema(route, P("llamada_ya_contestada", 409, "La llamada se hizo desde otra pestaña", { errors: [{ field: "", message: "La llamada se hizo desde otra pestaña", rule: "otra_pestana" }] })), true);
+            }
+            if (forzar.sinRespuesta) {
+                forzar.sinRespuesta -= 1;
+                return (await problema(route, P("sin_respuesta", 409, "WhatsApp aún no manda la respuesta")), true);
+            }
+            if (!s.respuesta) return (await problema(route, P("sin_respuesta", 409, "WhatsApp aún no manda la respuesta")), true);
+            return (await json(route, { sdpRespuesta: SDP_RESPUESTA }), true);
+        }
 
         // --- «Recibir llamadas» ---
         if (ruta === `${BASE}/llamadas/recibir` && metodo === "GET") {
@@ -417,9 +705,18 @@ export function apiVoz(
         if (ruta === `${BASE}/llamadas/activa` && metodo === "GET") {
             if (!puede("llamadas.ver")) return prohibido();
             const yo = actor().id;
-            const viva = [...llamadas.values()].find((l) => (l.estado === "sonando" && puede("llamadas.contestar")) || ((l.estado === "en_curso" || l.estado === "conectando") && l.usuario?.id === yo));
+            const pestana = cabeceras["x-iris-pestana"] ?? "";
+            recibido.activas.push(pestana);
+            if (tardia && (tardia.faltan -= 1) <= 0) {
+                const { crear } = tardia;
+                tardia = null;
+                crear();
+            }
+            const viva = [...llamadas.values()].find((l) => (l.estado === "sonando" && puede("llamadas.contestar")) || ((l.estado === "en_curso" || l.estado === "conectando" || l.estado === "marcando") && l.usuario?.id === yo));
             if (!viva) return (await route.fulfill({ status: 204 }), true);
-            return (await json(route, vista(viva)), true);
+            // La saliente propia dice si es de la pestaña que pregunta.
+            const s = salientes.get(viva.id);
+            return (await json(route, s && viva.usuario?.id === yo ? { ...vista(viva), deEstaPestana: s.pestana === pestana } : vista(viva)), true);
         }
         const una = /^\/api\/v1\/mensajeria\/llamadas\/([0-9a-f-]{36})(?:\/(reclamar|contestar|confirmar-medio|soltar|colgar|rechazar|anotar))?$/.exec(ruta);
         if (!una) return false;
@@ -532,13 +829,15 @@ export function apiVoz(
         if (accion === "colgar") {
             if (!puede("llamadas.colgar")) return prohibido();
             // `?propia=true`: solo cuelga quien tiene la llamada (aunque supervise).
-            if (query.get("propia") === "true" && l.usuario?.id !== yo.id) return noExiste();
+            // …y una reservada aún sin aceptar (`conectando`) todavía no es de nadie: 404 a `propia`.
+            if (query.get("propia") === "true" && (l.usuario?.id !== yo.id || l.estado === "conectando")) return noExiste();
             if (forzar.colgar) {
                 forzar.colgar -= 1;
                 return (await problema(route, P("error_interno", 500, "Error del servidor")), true);
             }
             if (final) return (await problema(route, P("llamada_terminada", 409, "La llamada ya terminó")), true);
-            terminar(l, "terminada", "colgo_agente");
+            // Colgar mientras marca: `terminada` (`agente_colgo`) y no cuenta como sin contestar.
+            terminar(l, "terminada", l.estado === "marcando" ? "agente_colgo" : "colgo_agente");
             return (await json(route, vista(l)), true);
         }
         // anotar
@@ -555,7 +854,7 @@ export function apiVoz(
         return (await json(route, vista(l)), true);
     }
 
-    return { manejar, llamadas, devoluciones, recibido, forzar, retener, entrante, historica, perder, contestaOtro, cuelgaCliente, canal, ajustes: () => ajustes };
+    return { manejar, llamadas, devoluciones, recibido, forzar, retener, entrante, historica, perder, contestaOtro, cuelgaCliente, canal, ajustes: () => ajustes, permisoDe, respondePermiso, respondeMeta, contestaCliente, noContesta, cortaPorTope, cortaServidor, salienteAjena };
 }
 
 export type ApiVoz = ReturnType<typeof apiVoz>;

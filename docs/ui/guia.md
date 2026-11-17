@@ -729,7 +729,7 @@ solo para quien tiene `llamadas.contestar`: el aviso y la barra aparecen en cual
 - **En el hilo:** la llamada es una tarjeta centrada con icono + texto + color: contestada (verde),
   rechazada (neutro), fuera de horario y fallida (ámbar), perdida (rojo, la única que pide actuar:
   «Escribirle» y, si sigue pendiente, «Descartar»). El audio del buzón lleva «Mensaje de voz del
-  buzón». No hay «Devolver la llamada» hasta que existan las salientes (E1b).
+  buzón». Con las salientes (abajo), la perdida pendiente suma «Devolver la llamada».
 - **En la lista:** la fila con una llamada por devolver lleva el chip rojo «Llamada perdida ·
   escríbele», y arriba se juntan como «N llamadas por devolver» (plegado es una línea).
 - **Ajustes:** `/administracion/numeros/[id]/llamadas` (requisitos de Meta como «Listo / Falta /
@@ -742,6 +742,55 @@ solo para quien tiene `llamadas.contestar`: el aviso y la barra aparecen en cual
 - **Pruebas:** `lib/voz/*.test.ts` (máquina, textos, ajustes) y `e2e/voz.spec.ts` con
   `e2e/api-voz.ts`, `e2e/doble-webrtc.ts` (micrófono y `RTCPeerConnection` de mentira) y
   `page.clock` para los plazos de 12 s y 5 s.
+
+### Llamar al cliente (salientes, voz E1b)
+
+Contrato: `voz.md`, bloques «E1b hecha en el servidor» y «Revisión de seguridad de E1b». Todo lleva
+la marca «En pruebas». El proveedor se monta también para quien solo llama (`llamadas.llamar` sin
+`llamadas.contestar`): esa persona no tiene «Recibir llamadas».
+
+- **Acceso:** el teléfono de la cabecera de la conversación (`BotonLlamada`, panel emergente
+  «Llamar por WhatsApp»), solo con `llamadas.llamar` o `llamadas.solicitar_permiso`. El permiso se
+  lee al abrir y se relee cuando el flujo trae algo de esa conversación.
+- **Permiso del contacto, en llano (icono + texto + color):** «Sin permiso todavía», «El permiso venció el 10 de noviembre», «Permiso pedido», «Permiso concedido
+  hasta el 24 de noviembre», «El cliente dijo que no», «WhatsApp quitó el permiso». Abajo, una
+  línea fija: «WhatsApp solo deja que una empresa llame a quien aceptó recibir sus llamadas.»
+  `motivo` se dice aparte (`llamadas_inactivas`, `no_autorizado`). Si la lectura falla: error con
+  «Reintentar» y no se ofrece llamar ni pedir.
+- **«Pedir permiso para llamarle»** (`llamadas.solicitar_permiso` y `puedeSolicitar`): el mensaje
+  queda en el hilo con la etiqueta «Solicitud de permiso para llamar». Sus 422 en llano junto al
+  botón: ya vigente, límite (con «a partir del 19 de noviembre a las 14:30»), falta la plantilla;
+  BAJA y lo demás, con las palabras del servidor.
+- **«Llamar»** (`llamadas.llamar` y `puedeLlamar`): la barra de la llamada dice «Preparando la
+  llamada a…» y «Llamando a…» con «Colgar»; pasa a la barra de llamada en curso cuando el cliente
+  contesta. Si no contesta (o rechaza) queda «No contestó» y en el hilo «Se le llamó y no contestó»
+  en ámbar (no hay nada que devolver). Con una llamada en marcha no se empieza otra.
+- **Tres sin contestar:** antes de la cuarta, un diálogo explica que si tampoco contesta WhatsApp
+  quita el permiso («Llamar de todos modos» / «No llamar»). El panel también lo cuenta («Van 3
+  llamadas seguidas sin contestar»).
+- **Límites, en llano:** límite del día, «Hoy ya no se le puede llamar» (se colgaron varias antes
+  de que contestara), tope de minutos del mes (también si corta una llamada en curso: se explica en
+  la nota), ya hay una llamada, la devolución ya la cerró otra persona, WhatsApp no la aceptó.
+- **Regla de oro, igual que en entrantes:** desde que sale `llamar` la llamada puede existir en el
+  servidor, así que dejarla (colgar, error, irse) es colgarla, también si la respuesta se perdió.
+  Contestada sin audio en 15 s, se cuelga. Cerrar la pestaña marcando manda `colgar?propia=true`.
+  El flujo de eventos va siempre con el id del navegador **y el de la pestaña** (`X-Iris-Pestana`,
+  128 bits en memoria) y sigue abierto mientras dure la saliente: el latido es de la pestaña que
+  llamó, otra pestaña abierta no la sostiene. Al abrir el panel se lee siempre la llamada activa:
+  una llamada propia viva que no es de esta pestaña se dice («Tienes una llamada abierta en otra
+  pestaña, o que quedó sin audio») y «Colgar» pide confirmación («Si estás hablando en otra
+  pestaña, se cortará» · «Dejarla»). Mientras se comprueba si quedó viva una llamada cuya respuesta
+  se perdió, «Llamar» a ese contacto dice «Comprobando la llamada anterior…» y no deja llamar. Si la pestaña se cierra con `llamar` en vuelo deja una marca y otra pestaña, o la carga
+  siguiente, busca esa saliente y la cuelga. Si el servidor la corta marcando (55 s sin el latido
+  de su pestaña), se explica: «La llamada se cortó: se perdió la conexión con Iris».
+- **«Devolver la llamada»:** en «N llamadas por devolver» y en la tarjeta de la perdida, junto a
+  «Escribirle», solo para quien puede llamar. Lee el permiso **antes** de pedir el micrófono: sin
+  permiso lo dice y no llama. Si el cliente contesta, deja de estar pendiente.
+- **Ajustes:** en `/administracion/llamadas`, sección plegada «Avanzado» con los tres límites de
+  las salientes y la nota de que se cobran por minuto (en las colgadas, 0 = sin límite; en los
+  otros dos, 0 apaga las salientes); en `/administracion/numeros/[id]/llamadas`, «Permiso para
+  llamar al cliente» con la plantilla y su idioma.
+- **Pruebas:** `lib/voz/saliente.test.ts` y `e2e/voz-salientes.spec.ts` (mismos dobles y reloj).
 
 ## Navegación del panel (fase 1, hecha)
 
@@ -957,6 +1006,7 @@ Cada fase:
 | 4 · App de campo en el navegador (hecha) | Barra inferior, pasos independientes, firma y cierre como paso final, barra de estado discreta, botones grandes, «Por recibir» y «Mi bodega» | I3 |
 | 5 · App nativa | Las pantallas de la fase 4 con HeroUI Native | I4 |
 | Voz E1 (hecha) | Llamadas de WhatsApp contestadas en el panel: recibir, contestar, barra en curso, nota, hilo, perdidas y ajustes | I3 |
+| Voz E1b (en revisión) | Llamar al cliente: permiso del contacto, «Llamar», «Devolver la llamada», límites y ajustes | I3 |
 | 6 · Portal de clientes | Mis casos, nuevo caso y conversación con el mismo estilo | I3 |
 
 ## Uso rápido

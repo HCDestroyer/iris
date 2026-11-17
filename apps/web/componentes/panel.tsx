@@ -207,15 +207,20 @@ function DisponibilidadSiAplica({ children }: { children: ReactNode }) {
 }
 
 /**
- * Voz (E1): solo para quien contesta llamadas (`llamadas.contestar`) y ve conversaciones, con la
+ * Voz (E1 y E1b): para quien contesta llamadas (`llamadas.contestar`) o llama (`llamadas.llamar`) y ve conversaciones, con la
  * empresa activa resuelta. Va en el layout: el aviso de una llamada y la barra de la llamada en
  * curso siguen al navegar.
  */
 function VozSiAplica({ children }: { children: ReactNode }) {
     const { yo, puede } = useSesion();
-    const activa = puede(["llamadas.contestar"]) && puede(["conversaciones.ver"]) && (yo.modoEmpresa === "sin_conector" || yo.empresaActiva !== undefined);
+    const contesta = puede(["llamadas.contestar"]);
+    const activa = (contesta || puede(["llamadas.llamar"])) && puede(["conversaciones.ver"]) && (yo.modoEmpresa === "sin_conector" || yo.empresaActiva !== undefined);
     if (!activa) return children;
-    return <ProveedorVoz key={yo.empresaActiva?.id ?? 0}>{children}</ProveedorVoz>;
+    return (
+        <ProveedorVoz key={yo.empresaActiva?.id ?? 0} contesta={contesta}>
+            {children}
+        </ProveedorVoz>
+    );
 }
 
 const CONSULTA_ESCRITORIO = "(min-width: 1024px)";

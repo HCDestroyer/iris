@@ -1,7 +1,7 @@
 "use client";
 
 import { avisar, Aviso, Boton, CampoArea, CampoSelector, Cargando, cn, Dialogo, DialogoConfirmar, DialogoContenido, DialogoPie, InsigniaEstado } from "@iris/ui";
-import { Banknote, CalendarPlus, LifeBuoy, Mic, MicOff, Phone, PhoneCall, PhoneIncoming, PhoneOff, RotateCw, UserRound, X } from "lucide-react";
+import { Banknote, CalendarPlus, LifeBuoy, Mic, MicOff, Phone, PhoneCall, PhoneIncoming, PhoneOff, PhoneOutgoing, RotateCw, UserRound, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -96,9 +96,9 @@ export function AvisoLlamada() {
     const marco = "fixed inset-x-2 top-[calc(env(safe-area-inset-top)+4rem)] z-50 mx-auto grid w-auto max-w-sm gap-3 rounded-xl border p-3.5 shadow-lg sm:inset-x-auto sm:right-4 sm:w-[22rem]";
 
     if (estado.fase === "aviso") {
-        const t = textoAviso(estado.motivo, estado.quien);
+        const t = textoAviso(estado.motivo, estado.quien, estado.saliente === true);
         return (
-            <section role="status" aria-label="Llamada" data-slot="aviso-llamada" data-fase="aviso" data-motivo={estado.motivo} className={cn(marco, "border-border bg-card")}>
+            <section role="status" aria-label="Llamada" data-slot="aviso-llamada" data-fase="aviso" data-motivo={estado.motivo} data-saliente={estado.saliente || undefined} className={cn(marco, "border-border bg-card")}>
                 <div className="flex min-w-0 items-start gap-2.5">
                     <PhoneOff aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                     <div className="grid min-w-0 flex-1 gap-0.5">
@@ -210,6 +210,38 @@ export function BarraLlamada() {
     const estado = voz?.estado;
     const enCurso = estado?.fase === "en_curso" ? estado : null;
     const segundos = useTranscurrido(enCurso?.desde ?? null);
+    if (voz && estado?.fase === "llamando") {
+        // Saliente (E1b): mientras se prepara y mientras le suena al cliente. «Colgar» la corta.
+        const enSuConversacion = ruta === "/conversaciones" && params.get("c") === String(estado.conversacionId);
+        return (
+            <section
+                aria-label="Llamando"
+                data-slot="barra-llamada"
+                data-fase="llamando"
+                data-paso={estado.paso}
+                className="sticky top-14 z-[15] flex h-[3.25rem] min-w-0 items-center gap-2 border-b border-primary/40 bg-[color-mix(in_oklab,var(--hx-primary)_12%,var(--hx-bg))] px-3 sm:gap-3 sm:px-4 lg:px-6"
+            >
+                <span aria-hidden className="size-2 shrink-0 rounded-full bg-warning motion-safe:animate-pulse" />
+                <PhoneOutgoing aria-hidden className="size-4 shrink-0 text-primary" />
+                <p role="status" className="min-w-0 flex-1 truncate text-sm font-semibold">
+                    {estado.paso === "preparando" ? "Preparando la llamada a " : "Llamando a "}
+                    {estado.titulo}…
+                </p>
+                {!enSuConversacion ? (
+                    <Boton asChild variante="fantasma" tamano="sm" className="px-2 sm:px-3">
+                        <Link href={hrefConversacion(estado.conversacionId)} aria-label="Ver cliente">
+                            <UserRound className="sm:hidden" />
+                            <span className="hidden sm:inline">Ver cliente</span>
+                        </Link>
+                    </Boton>
+                ) : null}
+                <Boton variante="peligro" tamano="sm" onClick={voz.colgar}>
+                    <PhoneOff />
+                    Colgar
+                </Boton>
+            </section>
+        );
+    }
     if (!voz || !enCurso) return null;
     const { llamada, silenciada } = enCurso;
     const quien = quienLlama(llamada);
@@ -326,7 +358,11 @@ function FormularioNota({ terminada, alTicket }: { terminada: Extract<EstadoVoz,
                         void seguir(() => undefined);
                     }}
                 >
-                    {corte ? (
+                    {llamada.motivoFin === "tope_alcanzado" ? (
+                        <Aviso tono="warning" titulo="La llamada se cortó por el tope de minutos" data-slot="corte-tope">
+                            La empresa llegó a su tope de minutos de llamadas salientes de este mes. Un administrador puede subirlo en Administración → Llamadas; mientras tanto, escríbele al cliente.
+                        </Aviso>
+                    ) : corte ? (
                         <Aviso tono="warning" titulo="La llamada se cortó">
                             Se perdió la conexión del audio. Si hace falta, escríbele al cliente.
                         </Aviso>
