@@ -62,6 +62,12 @@ export function explicarError(codigo: string, detalle: string | null | undefined
                 texto: "No responde, no está enlazado o tu empresa no está entre las permitidas. Avisa a quien administra la instalación; mientras tanto puedes elegir otro proveedor en «Conexión con la IA».",
                 reintentar: true,
             };
+        case "servidor_desactivado":
+            return {
+                titulo: "El Servidor de IA está desactivado",
+                texto: "Quien administra la instalación lo desactivó. Puede enlazarlo de nuevo; mientras tanto puedes elegir otro proveedor en «Conexión con la IA».",
+                reintentar: false,
+            };
         case "servidor_ia_ocupado":
             return { titulo: "El Servidor de IA está lleno ahora", texto: "Todos sus turnos están ocupados. Vuelve a intentarlo en unos segundos.", reintentar: true };
         case "sin_configurar":

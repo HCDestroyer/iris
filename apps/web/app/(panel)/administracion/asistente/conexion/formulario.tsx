@@ -31,7 +31,7 @@ import type { AjustesAsistente as Ajustes, ModeloIA, PruebaAsistente, UsoAsisten
 import { erroresACampos } from "@/lib/formularios";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
-import { TEXTO_NO_DISPONIBLE } from "@/lib/servidor-ia/presentacion";
+import { TEXTO_DESACTIVADO_EMPRESA, TEXTO_NO_DISPONIBLE } from "@/lib/servidor-ia/presentacion";
 import type { ServidorIaEnAsistente } from "@/lib/servidor-ia/tipos";
 
 const CAMPOS_SERVIDOR = ["url", "clave", "modelo", "topeTokensMes", "precioEntradaMillon", "precioSalidaMillon"] as const;
@@ -512,7 +512,7 @@ function Prueba({ form, destinoCambiado }: { form: UseFormReturn<ValoresAjustes>
                 <p role="status" data-prueba={ok ? "ok" : "error"} className={cn("flex items-start gap-1.5 text-sm font-medium", ok ? "text-success" : "text-error")}>
                     {ok ? <CircleCheck aria-hidden className="mt-0.5 size-4 shrink-0" /> : <CircleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />}
                     <span className="min-w-0 break-words">
-                        {estado.tipo === "hecho" ? (ok ? textoPrueba(estado.prueba) : `No respondió: ${textoPrueba(estado.prueba)}`) : estado.error instanceof ErrorApi && estado.error.codigo === "servidor_ia_no_disponible" ? TEXTO_NO_DISPONIBLE : `No se pudo probar: ${motivoModelos(estado.error)}`}
+                        {estado.tipo === "hecho" ? (ok ? textoPrueba(estado.prueba) : `No respondió: ${textoPrueba(estado.prueba)}`) : estado.error instanceof ErrorApi && estado.error.codigo === "servidor_ia_no_disponible" ? TEXTO_NO_DISPONIBLE : estado.error instanceof ErrorApi && estado.error.codigo === "servidor_desactivado" ? TEXTO_DESACTIVADO_EMPRESA : `No se pudo probar: ${motivoModelos(estado.error)}`}
                     </span>
                 </p>
             ) : null}

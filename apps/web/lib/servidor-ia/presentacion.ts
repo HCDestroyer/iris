@@ -372,6 +372,9 @@ export const TEXTO_ROTACION_SIN_CONFIRMAR = "No se pudo confirmar el cambio. Iri
 /** 409 `servidor_desactivado` (probar con el servidor desactivado). */
 export const TEXTO_DESACTIVADO = "El servidor está desactivado: Iris no lo usa. Para volver a usarlo hay que enlazarlo de nuevo.";
 
+/** Lo mismo, dicho a quien configura el asistente de una empresa (no puede enlazarlo). */
+export const TEXTO_DESACTIVADO_EMPRESA = "El Servidor de IA está desactivado. Pídele a quien administra la instalación que lo enlace de nuevo, o elige otro proveedor.";
+
 /** «2 de noviembre, 09:00». */
 export const fechaHora = (iso: string): string => {
     const ms = Date.parse(iso);

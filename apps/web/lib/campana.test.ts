@@ -34,6 +34,11 @@ describe("avisos del Servidor de IA en la campana", () => {
         expect(detalleAvisoPanel(sia("servidor_ia_umbral", { tipo: "vram", valor: 97, umbral: 95 }))).toContain("al 97 % (avisa al 95 %)");
         expect(detalleAvisoPanel(sia("servidor_ia_umbral", { tipo: "saturacion", valor: 12, umbral: 10 }))).toContain("Se rechazaron 12 peticiones");
         expect(detalleAvisoPanel(sia("servidor_ia_umbral", { tipo: "disco", valor: 93, umbral: 90 }))).toContain("al 93 %");
+        // Si se repite en la hora, el aviso vuelve con su cuenta; una sola vez no la dice.
+        expect(detalleAvisoPanel(sia("servidor_ia_caido", { veces: 2 }))).toContain("Ya van 2 veces en esta hora.");
+        expect(detalleAvisoPanel(sia("servidor_ia_umbral", { tipo: "temperatura", valor: 88, umbral: 85, veces: 3 }))).toContain("Ya van 3 veces en esta hora.");
+        expect(detalleAvisoPanel(sia("servidor_ia_caido", { veces: 1 }))).not.toContain("veces");
+        expect(detalleAvisoPanel(sia("servidor_ia_caido", { veces: "muchas" }))).not.toContain("veces");
         // Un dato que no vino bien no se inventa.
         expect(detalleAvisoPanel(sia("servidor_ia_umbral", { tipo: "temperatura", valor: "mucho" }))).toContain("se calentó de más");
         expect(enlaceAvisoPanel(sia("servidor_ia_caido").enlace)).toBe("/administracion/servidor-ia");

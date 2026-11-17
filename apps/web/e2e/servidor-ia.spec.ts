@@ -889,7 +889,7 @@ test.describe("Servidor de IA › quién lo ve", () => {
             avisosPanel: [
                 aviso(31, "servidor_ia_caido", "El servidor de IA no responde"),
                 aviso(32, "servidor_ia_incompatible", "El servidor de IA no es compatible con esta versión de Iris"),
-                aviso(33, "servidor_ia_umbral", "Temperatura alta en el servidor de IA", { tipo: "temperatura", valor: 88, umbral: 85 }),
+                aviso(33, "servidor_ia_umbral", "Temperatura alta en el servidor de IA", { tipo: "temperatura", valor: 88, umbral: 85, veces: 2 }),
             ],
         });
         await page.getByRole("button", { name: /^Avisos/ }).click();
@@ -898,6 +898,9 @@ test.describe("Servidor de IA › quién lo ve", () => {
         await expect(panel.locator('[data-aviso="servidor_ia_caido"]')).toContainText("pasa a personas hasta que vuelva");
         await expect(panel.locator('[data-aviso="servidor_ia_incompatible"]')).toContainText("El tablero dice qué hay que actualizar");
         await expect(panel.locator('[data-aviso="servidor_ia_umbral"]')).toContainText("La tarjeta gráfica llegó a 88 °C");
+        // El que se repitió en la hora dice cuántas veces; el que pasó una sola vez, no.
+        await expect(panel.locator('[data-aviso="servidor_ia_umbral"]')).toContainText("Ya van 2 veces en esta hora.");
+        await expect(panel.locator('[data-aviso="servidor_ia_caido"]')).not.toContainText("veces");
         await captura(page, "campana");
         await panel.locator('[data-aviso="servidor_ia_caido"]').getByRole("link").first().click();
         await expect(page).toHaveURL(new RegExp(`${RUTA}$`));
@@ -935,6 +938,23 @@ test.describe("Servidor de IA › quién lo ve", () => {
         await expect(estado(page)).toContainText("En línea");
         await expect(slot(page, "uso-empresa")).toBeVisible();
         await expect(slot(page, "nota-admin-empresa")).toBeVisible();
+    });
+
+    test("campana sin empresa elegida: los avisos de la instalación se ven igual, sin error", async ({ page }) => {
+        // Dos empresas y ninguna elegida: `/yo/avisos` no depende de la empresa activa.
+        const api = await abrir(page, "/administracion", {}, ADMIN, {
+            empresas: EMPRESAS,
+            avisosPanel: [{ id: 41, tipo: "servidor_ia_caido", nivel: "peligro", titulo: "El servidor de IA no responde", enlace: RUTA, datos: { veces: 1 }, leido: false, leidoEn: null, creadoEn: "2026-11-17T16:42:00Z", empresaId: null }],
+        });
+        const campana = page.getByRole("button", { name: /^Avisos/ });
+        await expect(campana).toHaveAccessibleName(/1 aviso sin leer/);
+        await campana.click();
+        const panel = page.getByRole("dialog", { name: "Avisos" });
+        await expect(panel.locator('[data-aviso="servidor_ia_caido"]')).toContainText("El servidor de IA no responde");
+        await expect(panel.getByRole("button", { name: "Reintentar" })).toHaveCount(0);
+        const pedidos = api.peticiones.filter((p) => p.ruta === "/api/v1/yo/avisos");
+        expect(pedidos.length).toBeGreaterThan(0);
+        expect(pedidos.every((p) => p.empresa === undefined)).toBe(true);
     });
 
     test("en Integraciones, la tarjeta del servidor solo la ve quien administra la instalación", async ({ page }) => {

@@ -878,7 +878,8 @@ tarjeta en Integraciones (junto a Argos y Horus). Código en `componentes/servid
   guardar y ante el 422 `servidor_ia_no_disponible`. Con `servidor_ia` la API guarda `url: ""` y
   sin clave: «conectado» es proveedor + modelo (`proveedorConectado`), y los fixtures lo reflejan.
 - **Campana.** `servidor_ia_caido`, `servidor_ia_incompatible` y `servidor_ia_umbral` tienen su
-  icono y su segunda línea en `lib/campana.ts`; el título lo pone el servidor.
+  icono y su segunda línea en `lib/campana.ts`; el título lo pone el servidor. Si el problema se
+  repite en la hora (`datos.veces` > 1), la segunda línea añade «Ya van N veces en esta hora».
 - **Tipos.** Todo sale de `packages/contratos` (`lib/servidor-ia/tipos.ts` son solo alias).
 
 ## Navegación del panel (fase 1, hecha)

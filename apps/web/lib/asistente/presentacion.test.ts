@@ -66,6 +66,7 @@ describe("explicarError", () => {
         expect(caido.texto).toContain("Avisa a quien administra la instalación");
         expect(caido.texto).not.toContain("servidor_ia");
         expect(caido.reintentar).toBe(true);
+        expect(explicarError("servidor_desactivado", "servidor_desactivado", "sugerencia")).toMatchObject({ titulo: "El Servidor de IA está desactivado", reintentar: false });
         expect(explicarError("servidor_ia_ocupado", null, "sugerencia")).toMatchObject({ titulo: "El Servidor de IA está lleno ahora", reintentar: true });
         expect(explicarError("sin_mensaje", null, "resumen").titulo).toBe("Todavía no hay qué resumir");
     });

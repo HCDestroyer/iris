@@ -53,9 +53,12 @@ function mesDe(datos: AvisoPanel["datos"]): string | null {
 /** Segunda línea del aviso: al 100 %, hasta cuándo queda pausado; al 80 %, qué pasa si sigue. */
 export function detalleAvisoPanel(a: Pick<AvisoPanel, "tipo" | "nivel" | "datos">): string | null {
     const tipo = a.tipo;
-    if (tipo === "servidor_ia_caido") return "Lo que el asistente atendía solo pasa a personas hasta que vuelva. Iris lo sigue intentando sola.";
-    if (tipo === "servidor_ia_incompatible") return "El asistente no lo usa hasta actualizar. El tablero dice qué hay que actualizar.";
-    if (tipo === "servidor_ia_umbral") return detalleUmbral(a.datos);
+    // Los del Servidor de IA se reactivan si el problema se repite: `datos.veces` dice cuántas en la hora.
+    const veces = numero(a.datos["veces"]);
+    const repetido = veces !== null && veces > 1 ? ` Ya van ${veces} veces en esta hora.` : "";
+    if (tipo === "servidor_ia_caido") return `Lo que el asistente atendía solo pasa a personas hasta que vuelva. Iris lo sigue intentando sola.${repetido}`;
+    if (tipo === "servidor_ia_incompatible") return `El asistente no lo usa hasta actualizar. El tablero dice qué hay que actualizar.${repetido}`;
+    if (tipo === "servidor_ia_umbral") return `${detalleUmbral(a.datos)}${repetido}`;
     if (tipo !== "asistente_tope") return null;
     if (a.nivel === "peligro") {
         const mes = mesDe(a.datos);
