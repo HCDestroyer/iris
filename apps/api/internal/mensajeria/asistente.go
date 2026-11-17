@@ -44,7 +44,7 @@ type FuentesAsistente struct {
 // AjustesAsistente es GET /asistente/ajustes.
 type AjustesAsistente struct {
 	Activo              bool             `json:"activo"`
-	Proveedor           string           `json:"proveedor" enum:"ollama,openai_compatible,anthropic"`
+	Proveedor           string           `json:"proveedor" enum:"ollama,openai_compatible,anthropic,servidor_ia"`
 	URL                 string           `json:"url" doc:"URL base del servidor (vacía en anthropic = https://api.anthropic.com)"`
 	ClaveGuardadaEn     *time.Time       `json:"claveGuardadaEn" nullable:"true" doc:"Cuándo se guardó la clave (nunca se devuelve)"`
 	Modelo              string           `json:"modelo"`
@@ -67,13 +67,15 @@ type AjustesAsistente struct {
 	VerificacionFuerteMin int32 `json:"verificacionFuerteMin" required:"false" doc:"Minutos que vale la verificación fuerte de identidad dentro de un periodo de la conversación (5 a 1440; 60 por defecto). Después vuelve a numero y el asistente pide verificar otra vez"`
 	// Visitas: cómo agenda visitas el asistente (§17.10); solo aplica con la acción agendar_visita encendida.
 	Visitas VisitasAsistente `json:"visitas" required:"false" doc:"Ajustes de agendar_visita: tipos, bloques, anticipación, días hacia adelante y límites. Siempre viene (con los valores de fábrica si la empresa no los cambió)"`
+	// ServidorIA: si la empresa puede elegir el proveedor servidor_ia y con qué modelos (voz.md §4.11).
+	ServidorIA ServidorIAAsistente `json:"servidorIa" required:"false" doc:"El servidor de IA de la instalación para esta empresa: si está disponible y sus modelos. Sin URL, huella ni versión"`
 }
 
 // EntradaAjustesAsistente es POST /asistente/ajustes/actualizar.
 type EntradaAjustesAsistente struct {
 	Version             int32            `json:"version" minimum:"0"`
 	Activo              bool             `json:"activo"`
-	Proveedor           string           `json:"proveedor" enum:"ollama,openai_compatible,anthropic"`
+	Proveedor           string           `json:"proveedor" enum:"ollama,openai_compatible,anthropic,servidor_ia"`
 	URL                 string           `json:"url" maxLength:"500"`
 	Clave               *string          `json:"clave,omitempty" maxLength:"500" auditoria:"sensible" doc:"Solo escritura: ausente la deja, \"\" la borra"`
 	Modelo              string           `json:"modelo" maxLength:"200"`
@@ -105,7 +107,7 @@ type EstadoAsistente struct {
 
 // EntradaProbarAsistente es POST /asistente/probar.
 type EntradaProbarAsistente struct {
-	Proveedor string  `json:"proveedor" enum:"ollama,openai_compatible,anthropic"`
+	Proveedor string  `json:"proveedor" enum:"ollama,openai_compatible,anthropic,servidor_ia"`
 	URL       string  `json:"url" maxLength:"500"`
 	Clave     *string `json:"clave,omitempty" maxLength:"500" auditoria:"sensible" doc:"Sin clave: la guardada, solo si proveedor y URL son los guardados"`
 	Modelo    string  `json:"modelo" maxLength:"200"`
@@ -121,7 +123,7 @@ type PruebaAsistente struct {
 
 // EntradaModelosAsistente es POST /asistente/modelos (GET: vacía, lo guardado).
 type EntradaModelosAsistente struct {
-	Proveedor string  `json:"proveedor" enum:"ollama,openai_compatible,anthropic"`
+	Proveedor string  `json:"proveedor" enum:"ollama,openai_compatible,anthropic,servidor_ia"`
 	URL       string  `json:"url" maxLength:"500"`
 	Clave     *string `json:"clave,omitempty" maxLength:"500" auditoria:"sensible" doc:"Sin clave: la guardada, solo si proveedor y URL son los guardados"`
 }
@@ -381,7 +383,7 @@ func (m *Modulo) sumarUso(ctx context.Context, t *auditoria.Tx, empresa int64, u
 
 // Casos ------------------------------------------------------------------------------------------
 
-func nuevoVerAjustesAsistente(*Modulo) *auditoria.Caso[struct{}, AjustesAsistente] {
+func nuevoVerAjustesAsistente(m *Modulo) *auditoria.Caso[struct{}, AjustesAsistente] {
 	return auditoria.Nuevo(auditoria.Caso[struct{}, AjustesAsistente]{
 		Accion: "mensajeria.asistente_ver_ajustes", Permiso: nucleo.PermMensajeriaAsistenteConfigurar, AuditarExito: sinAuditar[AjustesAsistente],
 		Logica: func(ctx context.Context, t *auditoria.Tx, _ struct{}) (AjustesAsistente, error) {
@@ -389,11 +391,17 @@ func nuevoVerAjustesAsistente(*Modulo) *auditoria.Caso[struct{}, AjustesAsistent
 			if err != nil {
 				return AjustesAsistente{}, err
 			}
-			f, err := leerAjustesAsistente(ctx, mensajeriabd.New(t), empresa)
-			if err != nil || f == nil {
+			q := mensajeriabd.New(t)
+			f, err := leerAjustesAsistente(ctx, q, empresa)
+			if err != nil {
 				return ajustesPorDefecto(), err
 			}
-			return aAjustes(*f), nil
+			r := ajustesPorDefecto()
+			if f != nil {
+				r = aAjustes(*f)
+			}
+			r.ServidorIA, err = m.servidorIAPara(ctx, q, empresa)
+			return r, err
 		},
 	})
 }
@@ -419,6 +427,12 @@ func nuevoEstadoAsistente(m *Modulo) *auditoria.Caso[struct{}, EstadoAsistente] 
 
 // validarConexion: la URL (si hay, o la de Anthropic por defecto) y lo que exige activar.
 func validarConexionAsistente(proveedor, url, modelo string, conClave, activo, loopback bool) error {
+	if proveedor == ProveedorServidorIA {
+		if modelo == "" {
+			return campoConv("modelo", "Elige un modelo del servidor de IA", "required")
+		}
+		return nil
+	}
 	if u := NormalizarURLIA(proveedor, url); u != "" {
 		if err := validarURLIA(u, loopback, conClave); err != nil {
 			var e *ErrorIA
@@ -456,9 +470,18 @@ func nuevoFijarAjustesAsistente(m *Modulo) *auditoria.Caso[EntradaAjustesAsisten
 			in.URL = strings.TrimRight(strings.TrimSpace(in.URL), "/")
 			in.Modelo = strings.TrimSpace(in.Modelo)
 			switch in.Proveedor {
-			case ProveedorOllama, ProveedorOpenAICompatible, ProveedorAnthropic:
+			case ProveedorOllama, ProveedorOpenAICompatible, ProveedorAnthropic, ProveedorServidorIA:
 			default:
-				return AjustesAsistente{}, campoConv("proveedor", "ollama, openai_compatible o anthropic", "enum")
+				return AjustesAsistente{}, campoConv("proveedor", "ollama, openai_compatible, anthropic o servidor_ia", "enum")
+			}
+			// El servidor de IA no lleva URL ni clave: el destino no lo escribe la empresa.
+			if in.Proveedor == ProveedorServidorIA {
+				if in.URL != "" {
+					return AjustesAsistente{}, campoConv("url", "Con el servidor de IA no se escribe URL", "servidor_ia_sin_url")
+				}
+				if in.Clave != nil && strings.TrimSpace(*in.Clave) != "" {
+					return AjustesAsistente{}, campoConv("clave", "Con el servidor de IA no se escribe clave", "servidor_ia_sin_clave")
+				}
 			}
 			if in.Modo != ModoAsistenteAutomatico && in.Modo != ModoAsistenteBoton {
 				return AjustesAsistente{}, campoConv("modo", "automatico o boton", "enum")
@@ -504,6 +527,18 @@ func nuevoFijarAjustesAsistente(m *Modulo) *auditoria.Caso[EntradaAjustesAsisten
 			}
 			if err := validarConexionAsistente(in.Proveedor, in.URL, in.Modelo, conClave, in.Activo, m.cfg.PermitirLoopbackIA); err != nil {
 				return AjustesAsistente{}, err
+			}
+			if in.Proveedor == ProveedorServidorIA {
+				// Tiene que haber un servidor activo, compatible y contestando, que esta empresa pueda
+				// usar, y el modelo debe ser uno de los que deja usar.
+				s, err := m.servidorIAPara(ctx, q, empresa)
+				if err != nil {
+					return AjustesAsistente{}, err
+				}
+				if !s.Disponible || !slices.Contains(s.Modelos, in.Modelo) {
+					return AjustesAsistente{}, reglaConv(ErrIAServidorNoDisponible,
+						"El servidor de IA no está disponible para esta empresa o no tiene ese modelo")
+				}
 			}
 			var f mensajeriabd.MensajeriaAsistenteAjuste
 			if nuevo {
@@ -565,6 +600,9 @@ func nuevoFijarAjustesAsistente(m *Modulo) *auditoria.Caso[EntradaAjustesAsisten
 				previo = vista(aAjustes(antes))
 			}
 			r := aAjustes(f)
+			if r.ServidorIA, err = m.servidorIAPara(ctx, q, empresa); err != nil {
+				return AjustesAsistente{}, err
+			}
 			campos := t.RegistrarCambios("asistente_ajustes", f.ID, previo, vista(r))
 			if campos == nil {
 				campos = []string{}
@@ -586,6 +624,12 @@ func claveAsistenteRequerida() *nucleo.Problema {
 
 func (m *Modulo) conexionAsistente(f mensajeriabd.MensajeriaAsistenteAjuste) (ConfigProveedor, error) {
 	cfg := ConfigProveedor{Proveedor: f.Proveedor, URL: f.Url, Modelo: f.Modelo, PermitirLoopback: m.cfg.PermitirLoopbackIA}
+	if f.EmpresaID != nil {
+		cfg.EmpresaID = *f.EmpresaID
+	}
+	if f.Proveedor == ProveedorServidorIA {
+		return cfg, nil // sin URL ni clave: el canal es el del servidor de la instalación
+	}
 	if f.ClaveCifrada != nil {
 		if m.cfg.Cifrador == nil {
 			return cfg, &ErrorIA{Codigo: ErrIASinConfig, Detalle: "Falta IRIS_CLAVE_CIFRADO para leer la clave"}
@@ -603,6 +647,11 @@ func (m *Modulo) conexionAsistente(f mensajeriabd.MensajeriaAsistenteAjuste) (Co
 }
 
 func (m *Modulo) proveedorDe(cfg ConfigProveedor, plazo time.Duration) (Proveedor, error) {
+	if cfg.Proveedor == ProveedorServidorIA {
+		// Por el canal autenticado del servidor de IA, con su reparto entre empresas (toda llamada
+		// al modelo cuenta: sugerencias, autónomo, resumen, categoría y «Probar»).
+		return &proveedorServidorIA{m: m, empresa: cfg.EmpresaID, modelo: cfg.Modelo, plazo: plazo}, nil
+	}
 	return m.cfg.FabricaIA(cfg, NuevoHTTPIA(plazo, m.cfg.PermitirLoopbackIA))
 }
 
@@ -626,8 +675,13 @@ func (m *Modulo) conexionPedida(ctx context.Context, t *auditoria.Tx, proveedor,
 	}
 	switch proveedor {
 	case ProveedorOllama, ProveedorOpenAICompatible, ProveedorAnthropic:
+	case ProveedorServidorIA:
+		if strings.TrimSpace(url) != "" || (clave != nil && strings.TrimSpace(*clave) != "") {
+			return ConfigProveedor{}, campoConv("url", "Con el servidor de IA no se escribe URL ni clave", "servidor_ia_sin_url")
+		}
+		return ConfigProveedor{Proveedor: proveedor, Modelo: strings.TrimSpace(modelo), EmpresaID: empresa}, nil
 	default:
-		return ConfigProveedor{}, campoConv("proveedor", "ollama, openai_compatible o anthropic", "enum")
+		return ConfigProveedor{}, campoConv("proveedor", "ollama, openai_compatible, anthropic o servidor_ia", "enum")
 	}
 	url = strings.TrimRight(strings.TrimSpace(url), "/")
 	cfg := ConfigProveedor{Proveedor: proveedor, URL: url, Modelo: strings.TrimSpace(modelo), PermitirLoopback: m.cfg.PermitirLoopbackIA}

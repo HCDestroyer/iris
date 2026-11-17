@@ -39,13 +39,16 @@ const (
 	// ColumnaAsistente: clave del proveedor de IA del asistente de cada empresa
 	// (contratos/conversaciones.md §16.1).
 	ColumnaAsistente = "mensajeria.asistente_ajustes.clave_cifrada"
+	// ColumnaMotorIA: credenciales del canal con el servidor de IA (token, clave del certificado de
+	// cliente y código de enlace pendiente; contratos/voz.md §4.2).
+	ColumnaMotorIA = "mensajeria.voz_motores.credenciales"
 	// ColumnaCorreoSistema: contraseña del SMTP del correo del sistema (contratos/correo-sistema.md).
 	ColumnaCorreoSistema = "notificaciones.correo_ajustes.contrasena_cifrada"
 )
 
 // Columnas en el orden en que se rotan y se informan.
 var Columnas = []string{ColumnaTOTP, ColumnaTokenConector, ColumnaSecretoWebhook, ColumnaIMAP, ColumnaSMTP, ColumnaVerificador,
-	ColumnaWebhookSalida, ColumnaCanalMensajeria, ColumnaConexionMeta, ColumnaAsistente, ColumnaCorreoSistema}
+	ColumnaWebhookSalida, ColumnaCanalMensajeria, ColumnaConexionMeta, ColumnaAsistente, ColumnaMotorIA, ColumnaCorreoSistema}
 
 // datoAsociadoBuzon es el de internal/soporte (buzones.go, de I2): "soporte.buzon:<id>:imap|smtp".
 // La prueba de la rotación lo verifica leyendo el buzón con el módulo de soporte.
@@ -146,6 +149,9 @@ func nuevoRotar(c *nucleo.Cifrador) *auditoria.Caso[EntradaRotar, Resultado] {
 				return Resultado{}, err
 			}
 			if err := r.asistentes(ctx, q, in.Simular); err != nil {
+				return Resultado{}, err
+			}
+			if err := r.motoresIA(ctx, q, in.Simular); err != nil {
 				return Resultado{}, err
 			}
 			if err := r.correosSistema(ctx, q, in.Simular); err != nil {
@@ -370,6 +376,36 @@ func (r *rotador) correosSistema(ctx context.Context, q *clavebd.Queries, simula
 		}
 		if cambio && !simular {
 			if err := q.RecifrarCorreoSistema(ctx, clavebd.RecifrarCorreoSistemaParams{ID: f.ID, ContrasenaCifrada: nuevo}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (r *rotador) motoresIA(ctx context.Context, q *clavebd.Queries, simular bool) error {
+	filas, err := q.MotoresIACifrados(ctx)
+	if err != nil {
+		return err
+	}
+	for _, f := range filas {
+		p := clavebd.RecifrarMotorIAParams{ID: f.ID, Token: f.Token, TokenSiguiente: f.TokenSiguiente,
+			CertClienteClave: f.CertClienteClave, EnlaceCodigo: f.EnlaceCodigo}
+		hay := false
+		for _, c := range []struct {
+			valor *[]byte
+			campo string
+		}{{&p.Token, "token"}, {&p.TokenSiguiente, "token"}, {&p.CertClienteClave, "cert_cliente_clave"}, {&p.EnlaceCodigo, "enlace_codigo"}} {
+			nuevo, cambio, err := r.valor(ColumnaMotorIA, f.ID, *c.valor, mensajeria.DatosAsociadosMotor(f.ID, c.campo))
+			if err != nil {
+				return err
+			}
+			if cambio {
+				*c.valor, hay = nuevo, true
+			}
+		}
+		if hay && !simular {
+			if err := q.RecifrarMotorIA(ctx, p); err != nil {
 				return err
 			}
 		}

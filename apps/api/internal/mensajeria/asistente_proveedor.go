@@ -158,6 +158,8 @@ type ConfigProveedor struct {
 	Modelo    string
 	// PermitirLoopback: IRIS_ASISTENTE_PERMITIR_LOOPBACK (Ollama en el mismo host).
 	PermitirLoopback bool
+	// EmpresaID: la empresa que pide (solo servidor_ia: reparto de plazas y uso por empresa).
+	EmpresaID int64
 }
 
 // FabricaProveedor arma el proveedor de una configuración (pruebas: uno falso).
