@@ -5,6 +5,7 @@ import { simularChatPanel, type ApiChatPanel } from "./api-chat-panel";
 import { apiComercial, type ApiComercial } from "./api-comercial";
 import { PERMISO_CONFIGURAR } from "./api-asistente";
 import { apiConversaciones, PERMISOS_CONVERSACIONES, type ApiConversaciones, type OpcionesConversaciones } from "./api-conversaciones";
+import { apiVoz, PERMISOS_LLAMADAS, PERMISOS_VOZ_ADMIN, type ApiVoz, type OpcionesVoz } from "./api-voz";
 import { apiPagos, PERMISOS_ABRIR_ARGOS, PERMISOS_PAGOS, type ApiPagos, type OpcionesPagos } from "./api-pagos";
 import { apiEncuestas, type ApiEncuestas } from "./api-encuestas";
 import { apiMeta, type ApiMeta, type OpcionesMeta } from "./api-meta";
@@ -317,6 +318,12 @@ export type OpcionesApi = {
      * `chat.supervisar`. Sin esta opción nadie tiene permisos del chat y el panel no lo arranca.
      */
     chat?: boolean;
+    /**
+     * Voz E1 (e2e/api-voz.ts): quien tiene la bandeja recibe los permisos de llamadas y Ana (admin),
+     * además, `llamadas.configurar` y `voz.configurar`. Sin esta opción nadie los tiene y el panel no
+     * arranca la voz.
+     */
+    voz?: OpcionesVoz;
 };
 
 export type Peticion = { metodo: string; ruta: string; query: URLSearchParams; empresa: string | undefined; idempotencia: string | undefined; cuerpo: unknown };
@@ -368,6 +375,10 @@ export type ApiFalsa = {
     conversaciones: Pick<ApiConversaciones, "conversaciones" | "mensajes" | "enviados" | "mensajeDelCliente" | "horarios" | "manuales" | "canales" | "configurados" | "respuestas" | "colas" | "agentes" | "bandeja11" | "asistente" | "fase3">;
     /** Chat del equipo (solo con `chat: true`). */
     chat: ApiChatPanel | null;
+    /** Voz E1: llamadas, devoluciones y lo que recibió el servidor (solo con `voz`). */
+    voz: ApiVoz;
+    /** ¿Hay un flujo de eventos de conversaciones abierto ahora (esperando eventos)? */
+    flujoAbierto: () => boolean;
     /** Números de WhatsApp: resultados de Meta, cuerpos recibidos y credenciales guardadas. */
     numeros: Pick<ApiNumeros, "resultados" | "cuerpos" | "secretos" | "ultimoCreado">;
     /** Conexión con Meta, QR y préstamos: cuerpos recibidos, préstamos y el resultado del QR. */
@@ -509,6 +520,16 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     const pagos = apiPagos(() => ({ id: enlaceActor.id, nombre: enlaceNombre.nombre }), opciones.pagos, () => sso.reautenticaciones > 0);
     const numeros = apiNumeros(conversaciones.canales, opciones.numeros);
     const meta = apiMeta(numeros.interno, conversaciones.conversaciones, opciones.meta);
+    const voz = apiVoz(
+        {
+            actor: () => ({ id: enlaceActor.id, nombre: enlaceNombre.nombre }),
+            conversaciones: conversaciones.conversaciones,
+            mensajes: conversaciones.mensajes,
+            emitir: conversaciones.emitirEvento,
+            tipoConexion: (id) => (numeros.interno.extra(id)?.tipoConexion === "qr" ? "qr" : "api"),
+        },
+        opciones.voz,
+    );
     const listables = [...(PAGINA_1.data ?? []), ...(PAGINA_2.data ?? [])];
     const cuenta = apiCuenta(() => [...usuarios, ...listables.filter((u) => !usuarios.some((x) => x.id === u.id))]);
     const sso = apiSSO({
@@ -655,6 +676,8 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             ...(opciones.chat && actual.correo === ADMIN.correo ? PERMISOS_CHAT : []),
             ...(opciones.pagos && actual.correo === ADMIN.correo ? PERMISOS_PAGOS.filter((p) => !pagos.sinPermisos.includes(p)) : []),
             ...(opciones.pagos && actual.correo === AGENTE_CONV.correo ? PERMISOS_ABRIR_ARGOS : []),
+            ...(opciones.voz && (permisosPorCorreo[actual.correo] ?? []).includes("conversaciones.responder") ? PERMISOS_LLAMADAS : []),
+            ...(opciones.voz && !opciones.voz.soloAtender && actual.correo === ADMIN.correo ? PERMISOS_VOZ_ADMIN : []),
             ...(opciones.correo && (actual.correo === ADMIN.correo || actual.correo === SUPERVISOR_ZONA.correo) ? PERMISOS_CORREO : []),
             ...(opciones.correo && actual.correo === CONSULTA.correo ? PERMISOS_CORREO.slice(0, 1) : []),
         ];
@@ -926,6 +949,9 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         if (await meta.manejar({ route, metodo, ruta, cuerpo, idempotencia: cabeceras["idempotency-key"], puede, empresaId })) {
             return;
         }
+        if (await voz.manejar({ route, metodo, ruta, query: url.searchParams, cuerpo, idempotencia: cabeceras["idempotency-key"], puede })) {
+            return;
+        }
         if (await numeros.manejar({ route, metodo, ruta, cuerpo, idempotencia: cabeceras["idempotency-key"], puede, empresaId })) {
             return;
         }
@@ -1111,6 +1137,8 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             descartes: () => sso.descartes,
         },
         conversaciones,
+        voz,
+        flujoAbierto: conversaciones.flujoAbierto,
         pagos,
         encuestas: { encuestas: encuestas.encuestas, publicasConSesion: encuestas.publicasConSesion, respuestas: encuestas.respuestas, enlacesPedidos: encuestas.enlacesPedidos },
         cuenta: { cambiarVersion: cuenta.cambiarVersion, sacarDelAlcance: cuenta.sacarDelAlcance, reinicios: cuenta.reinicios },

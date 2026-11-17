@@ -257,7 +257,7 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
     const { ref: refCampo, ...registro } = form.register("texto", { onChange: (e: { target: { value: string } }) => !e.target.value.trim() && setSugerenciaId(null) });
 
     return (
-        <div className="shrink-0 px-3 pt-2 pb-3 @min-[700px]/conv:px-3.5">
+        <div className="shrink-0 px-3 pt-2 pb-3 @min-[700px]/conv:px-3.5" data-slot="compositor">
             {modo === "responder" && !cerrada && deLaCola.length > 0 ? (
                 <div
                     role="group"
@@ -294,7 +294,7 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                     </span>
                 </div>
                 {soloPlantilla ? (
-                    <div className="grid gap-2 px-3 pt-2 pb-2.5">
+                    <div className="grid gap-2 px-3 pt-2 pb-2.5" data-slot="solo-plantilla">
                         <p className="text-sm text-muted-foreground">El cliente no escribe hace más de 24 h: WhatsApp solo deja mandarle una plantilla aprobada en este número.</p>
                         {conv.contacto.tipo === "cliente" && !conv.contacto.verificado ? (
                             <p className="text-sm text-warning">Falta que un supervisor confirme el cliente para mandarle plantillas.</p>
