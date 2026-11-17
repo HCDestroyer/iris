@@ -20,6 +20,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
 
 // Voz E1 (contratos/voz.md): llamadas entrantes de WhatsApp contestadas en el panel, contra Postgres
@@ -144,8 +145,41 @@ type bandejaVoz struct {
 }
 
 // nuevaBandejaVoz: la bandeja con el doble de la Graph API y las llamadas encendidas en el número.
+// aislarColaMeta deja la cola de escrituras a Meta solo para esta prueba. La cola es global a
+// propósito (cualquier réplica toma lo de cualquier canal, con SKIP LOCKED y apartado), así que dos
+// procesos de prueba contra la misma base se quitan las filas entre sí: el despacho de uno toma la
+// huérfana del otro, la aparta 20 s y la intenta contra SU doble de Meta. Y las pendientes que dejó
+// una prueba anterior compiten por el lote de la siguiente. Un candado de sesión de Postgres pone en
+// fila las pruebas de voz de todos los procesos y, ya con el candado, se cierra lo que quedó atrás.
+func aislarColaMeta(t *testing.T) {
+	t.Helper()
+	pool := pruebas.Pool(t)
+	ctx := context.Background()
+	con, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := con.Exec(ctx, `SELECT pg_advisory_lock(hashtext('iris.pruebas.voz_meta'))`); err != nil {
+		con.Release()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = con.Exec(ctx, `SELECT pg_advisory_unlock(hashtext('iris.pruebas.voz_meta'))`)
+		con.Release()
+	})
+	for _, sql := range []string{
+		`UPDATE mensajeria.llamadas_huerfanas SET estado = 'agotada', updated_at = now() WHERE estado = 'pendiente'`,
+		`UPDATE mensajeria.llamadas SET accion_meta_estado = 'fallida' WHERE accion_meta_estado = 'pendiente'`,
+	} {
+		if _, err := con.Exec(ctx, sql); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func nuevaBandejaVoz(t *testing.T) *bandejaVoz {
 	t.Helper()
+	aislarColaMeta(t)
 	g := &graphFalso{fallar: map[string]error{}, ajustes: mensajeria.AjustesMetaLlamadas{Habilitadas: true, IconoVisible: true, LimiteMensajeria: 10000},
 		permiso: mensajeria.PermisoMeta{Estado: "sin_pedir"},
 		plantillas: map[string]mensajeria.PlantillaMetaInfo{
