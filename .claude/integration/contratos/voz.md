@@ -277,13 +277,17 @@ técnica (§9)**; los que más pesan están listados en §10.
     llegue después ya no se aplica, así que nunca queda `en_curso` sin audio. Una **entrante** así
     no llegó a tener audio: para el cliente es una llamada perdida. Queda **`perdida` con
     `motivoFin: "agente_salio"`** y recibe el mismo trato que cualquier perdida: devolución
-    pendiente, mensaje automático si aplica y `llamada.perdida` con su aviso. Sin `propia`, colgar una llamada que aún conecta sigue respondiendo 409
+    pendiente, mensaje automático si aplica y `llamada.perdida` con su aviso. A Meta se le
+    manda **`reject`** si nunca se envió `accept` (solo reservada o pre-aceptada: la llamada sigue
+    timbrando allá) y **`terminate`** si el `accept` ya salió o estaba en vuelo; si Meta responde
+    que ese `terminate` no aplica, se manda `reject`. Sin `propia`, colgar una llamada que aún conecta sigue respondiendo 409
     `llamada_sin_contestar` (para eso está `soltar`).
   - **Solicitud de permiso sin confirmar.** Si el envío de la solicitud agota sus intentos **sin
     respuesta de Meta** (pudo llegar al cliente), no se descuenta a ciegas: el permiso sigue
     `pedido`, la solicitud sigue contando para el límite y `permiso-llamada` trae
     `solicitudSinConfirmar: true`. El job `mensajeria.voz_meta` pregunta a Meta
-    (`call_permissions`, una vez por minuto): si hay permiso, o Meta cuenta alguna solicitud a ese
+    (`call_permissions`, con espera creciente: al momento y después a 1, 2, 5, 15 y cada 60
+    minutos, hasta un día; esos intentos no cuentan como lectura del permiso): si hay permiso, o Meta cuenta alguna solicitud a ese
     número en 24 h, llegó (deja de estar sin confirmar y sigue contando); si Meta cuenta cero, no
     llegó y se libera el cupo (`sin_pedir`); si Meta no lo dice o no responde, sigue contando. La
     respuesta del cliente por webhook también la confirma. Solo cuando Meta **rechaza** el envío

@@ -1242,9 +1242,7 @@ func (m *Modulo) solicitudDePermisoFallida(ctx context.Context, t *auditoria.Tx,
 		return nil
 	}
 	if sinRespuesta {
-		p.SolicitudSinConfirmar, p.SincronizadoEn = true, nil
-		_, err = guardarPermiso(ctx, q, p)
-		return err
+		return q.MarcarSolicitudSinConfirmar(ctx, p.ID)
 	}
 	_, err = descontarSolicitud(ctx, t, p, &c.ID)
 	return err
@@ -1313,11 +1311,11 @@ func nuevoResolverSolicitud(m *Modulo) *auditoria.Caso[solicitudResuelta, bool] 
 // resolverSolicitudes pregunta a Meta por las solicitudes de permiso que quedaron sin confirmar.
 // Solo se libera el cupo si Meta dice que no cuenta ninguna solicitud a ese número; si la cuenta, o
 // ya hay permiso, llegó. Si Meta no lo dice o no responde, sigue contando y se vuelve a preguntar
-// (una vez por minuto) hasta que pase un día.
+// con espera creciente (1, 2, 5, 15 y después cada 60 minutos) hasta que pase un día.
 func (m *Modulo) resolverSolicitudes(ctx context.Context, bd nucleo.BD) error {
 	q := mensajeriabd.New(bd)
 	ahora := m.ahora()
-	filas, err := q.TomarSolicitudesSinConfirmar(ctx, mensajeriabd.TomarSolicitudesSinConfirmarParams{Ahora: ahora, Antes: ptrT(ahora.Add(-time.Minute)), Lote: LoteMetaVoz})
+	filas, err := q.TomarSolicitudesSinConfirmar(ctx, mensajeriabd.TomarSolicitudesSinConfirmarParams{Ahora: ahora, Lote: LoteMetaVoz})
 	if err != nil {
 		return err
 	}
@@ -1338,7 +1336,7 @@ func (m *Modulo) resolverSolicitudes(ctx context.Context, bd nucleo.BD) error {
 			}
 			meta, err := m.graph().Permiso(ctx, cg, p.Numero)
 			if err != nil {
-				continue // Meta no responde: sigue contando; se pregunta otra vez en un minuto
+				continue // Meta no responde: sigue contando; se pregunta otra vez más adelante
 			}
 			r.meta = meta
 			switch {

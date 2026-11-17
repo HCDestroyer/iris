@@ -1377,25 +1377,37 @@ func TestSolicitarPermisoSinConfirmar(t *testing.T) {
 	if p := permiso(conv); p["estado"] != "pedido" || p["solicitudSinConfirmar"] != true || p["puedeSolicitar"] != false {
 		t.Fatalf("sin respuesta de Meta al enviar: %v", p)
 	}
-	// Meta no dice cuántas solicitudes cuenta, o no responde: no se libera el cupo.
+	// Meta no dice cuántas solicitudes cuenta, o no responde: no se libera el cupo. Se le vuelve a
+	// preguntar con espera creciente (1, 2, 5… minutos), no cada minuto.
+	leidas := func() int {
+		x.g.mu.Lock()
+		defer x.g.mu.Unlock()
+		return x.g.permisosLeidos
+	}
 	fijar(mensajeria.PermisoMeta{Estado: "sin_pedir"})
-	x.despachar()
+	base := leidas()
+	x.despachar() // intento 1: Meta no dice cuántas cuenta
+	x.despachar() // enseguida: todavía no toca
 	x.pasa(61 * time.Second)
 	x.g.falla("permiso", &mensajeria.ErrMetaLlamada{SinRespuesta: true})
-	x.despachar()
+	x.despachar() // intento 2 (al minuto): Meta no responde
 	x.g.falla("permiso", nil)
+	x.pasa(61 * time.Second)
+	x.despachar() // a los 61 s del segundo: la espera ya es de 2 minutos
+	if n := leidas() - base; n != 2 {
+		t.Fatalf("consultas a Meta con espera creciente: %d", n)
+	}
 	if p := permiso(conv); p["solicitudSinConfirmar"] != true || p["puedeSolicitar"] != false {
 		t.Fatalf("sin dato de Meta no se libera el cupo: %v", p)
 	}
-	// Se pregunta como mucho una vez por minuto.
-	leidas := x.g.permisosLeidos
-	x.despachar()
-	if x.g.permisosLeidos != leidas {
-		t.Fatal("no debía preguntar a Meta otra vez antes de un minuto")
+	// Un intento (fallido o sin dato) no cuenta como lectura buena del permiso: sincronizado_en no se toca.
+	if n := x.contar(`SELECT count(*) FROM mensajeria.llamada_permisos p JOIN mensajeria.conversaciones c ON c.numero = p.numero AND c.canal_id = p.canal_id
+		WHERE c.id = $1 AND p.sincronizado_en IS NULL AND p.solicitud_intentos = 2`, conv); n != 1 {
+		t.Fatal("los intentos del job no debían marcar sincronizado_en")
 	}
 	// Meta dice que no cuenta ninguna solicitud a ese número: no llegó, se libera.
 	fijar(mensajeria.PermisoMeta{Estado: "sin_pedir", SolicitudesEnDia: n(0)})
-	x.pasa(61 * time.Second)
+	x.pasa(60 * time.Second)
 	x.despachar()
 	if p := permiso(conv); p["estado"] != "sin_pedir" || p["solicitudSinConfirmar"] == true || p["puedeSolicitar"] != true {
 		t.Fatalf("Meta no la cuenta: %v", p)

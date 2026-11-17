@@ -642,8 +642,15 @@ func (m *Modulo) cumplirMeta(ctx context.Context, bd nucleo.BD, id uuid.UUID, sd
 		return err
 	}
 	errMeta := m.graph().Accion(ctx, cg, l.IDExterno, *l.AccionMeta, sdp, l.Grabada)
-	if _, err := m.Voz.resultadoMeta.Ejecutar(ctxSistema(ctx, bd), resultadoMeta{ID: id, Accion: *l.AccionMeta, Fallo: errMeta != nil}); err != nil {
+	var em *ErrMetaLlamada
+	rechazada := errors.As(errMeta, &em) && !em.SinRespuesta
+	cambio, err := m.Voz.resultadoMeta.Ejecutar(ctxSistema(ctx, bd), resultadoMeta{ID: id, Accion: *l.AccionMeta, Fallo: errMeta != nil, Rechazada: rechazada})
+	if err != nil {
 		return err
+	}
+	// Meta rechazó el terminate y la intención pasó a reject (resultadoMeta): se manda ya.
+	if cambio && rechazada && *l.AccionMeta == MetaTerminar {
+		return m.cumplirMeta(ctx, bd, id, "")
 	}
 	return errMeta
 }

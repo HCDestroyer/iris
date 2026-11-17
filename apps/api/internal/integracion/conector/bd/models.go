@@ -1737,6 +1737,8 @@ type MensajeriaLlamadaPermiso struct {
 	CreatedAt                time.Time
 	UpdatedAt                time.Time
 	SolicitudSinConfirmar    bool
+	SolicitudIntentos        int32
+	SolicitudProximoEn       *time.Time
 }
 
 type MensajeriaLlamadaReceptore struct {

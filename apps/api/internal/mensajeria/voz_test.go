@@ -1705,8 +1705,48 @@ func TestLlamadaColgarPropiaConElAcceptEnVuelo(t *testing.T) {
 	x.connect(num2, call2)
 	id2, _, _ := x.llamada(call2)
 	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id2+"/reclamar", nil), http.StatusOK)
+	// Nunca se mandó accept: la llamada sigue timbrando en Meta y lo que la corta es reject, no terminate.
 	if r := x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id2+"/colgar?propia=true", nil), http.StatusOK); r.cuerpo["estado"] != "perdida" ||
-		r.cuerpo["motivoFin"] != "agente_salio" || x.g.cuenta("terminate:"+call2) != 1 {
-		t.Fatalf("colgar propia con la llamada reservada: %s", crudo(r))
+		r.cuerpo["motivoFin"] != "agente_salio" || x.g.cuenta("reject:"+call2) != 1 || x.g.cuenta("terminate:"+call2) != 0 {
+		t.Fatalf("colgar propia con la llamada reservada: %s %v", crudo(r), x.g.hechas())
+	}
+	// Lo mismo ya pre-aceptada (contestó, pero el audio no llegó a conectar).
+	num3, call3 := numeroCliente(), "wacid.cierre3"+numeroCliente()
+	x.pasa(time.Second, x.agente, x.supervisor)
+	x.connect(num3, call3)
+	id3, _, _ := x.llamada(call3)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id3+"/reclamar", nil), http.StatusOK)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id3+"/contestar", map[string]any{"sdpRespuesta": sdpNavegador("")}), http.StatusOK)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id3+"/colgar?propia=true", nil), http.StatusOK)
+	if x.g.cuenta("reject:"+call3) != 1 || x.g.cuenta("terminate:"+call3) != 0 {
+		t.Fatalf("pre-aceptada: reject y no terminate: %v", x.g.hechas())
+	}
+	// Con el accept en vuelo se manda terminate; si Meta responde que no aplica (todavía no la había
+	// aceptado), se manda reject: el cliente no se queda oyendo el timbre.
+	num4, call4 := numeroCliente(), "wacid.cierre4"+numeroCliente()
+	x.pasa(time.Second, x.agente, x.supervisor)
+	x.connect(num4, call4)
+	id4, _, _ := x.llamada(call4)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id4+"/reclamar", nil), http.StatusOK)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id4+"/contestar", map[string]any{"sdpRespuesta": sdpNavegador("")}), http.StatusOK)
+	x.g.falla("terminate", &mensajeria.ErrMetaLlamada{Status: 400})
+	var otra sync.Once
+	x.gancho(func(accion string) {
+		if accion == "accept" {
+			otra.Do(func() {
+				if r := x.api(x.agente, http.MethodPost, "/llamadas/"+id4+"/colgar?propia=true", nil); r.status != http.StatusOK {
+					t.Errorf("colgar propia con el accept en vuelo y Meta rechazando el terminate: %d %s", r.status, crudo(r))
+				}
+			})
+		}
+	})
+	x.api(x.agente, http.MethodPost, "/llamadas/"+id4+"/confirmar-medio", nil)
+	x.gancho(nil)
+	x.g.falla("terminate", nil)
+	if _, estado, _ := x.llamada(call4); estado != "perdida" || x.g.cuenta("terminate:"+call4) != 1 || x.g.cuenta("reject:"+call4) != 1 {
+		t.Fatalf("terminate rechazado por Meta → reject: %s %v", estado, x.g.hechas())
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id = $1::uuid AND accion_meta = 'reject' AND accion_meta_estado = 'hecha'`, id4); n != 1 {
+		t.Fatal("la acción con Meta debía quedar hecha con reject")
 	}
 }

@@ -122,6 +122,8 @@ type resultadoMeta struct {
 	ID     uuid.UUID `json:"id"`
 	Accion string    `json:"accion"`
 	Fallo  bool      `json:"fallo"`
+	// Rechazada: Meta respondió que no (no es que no respondiera).
+	Rechazada bool `json:"rechazada,omitempty"`
 }
 
 // llamadaDeQuienLaReclamo: después de reclamar la llamada es de quien la reclamó (M1), en el
@@ -418,6 +420,13 @@ func nuevoResultadoMeta(m *Modulo) *auditoria.Caso[resultadoMeta, bool] {
 			case llamadaFinal(l.Estado):
 				// reject o terminate de una llamada ya cerrada: solo queda anotado. Si Meta no
 				// respondió, la intención sigue pendiente y el job de escrituras a Meta la repite (son idempotentes).
+				// Meta dice que el terminate no aplica a una entrante que nunca llegó a tener audio (no
+				// se había aceptado todavía): lo que corta el timbre del cliente es reject.
+				if in.Fallo && in.Rechazada && in.Accion == MetaTerminar && l.Direccion == "entrante" && l.ContestadaEn == nil {
+					intencionMeta(&l, MetaRechazar, ahora)
+					_, err = guardarLlamada(ctx, q, l)
+					return true, err
+				}
 				if in.Fallo {
 					return false, nil
 				}
@@ -575,13 +584,20 @@ func nuevoColgarLlamada(m *Modulo) *auditoria.Caso[EntradaLlamada, Llamada] {
 			if err != nil {
 				return Llamada{}, err
 			}
+			// Qué se le pide a Meta: si nunca se mandó accept (solo reservada o pre-aceptada), la llamada
+			// sigue timbrando allá y lo que la corta es reject; con el accept mandado o en vuelo, terminate
+			// (y si Meta responde que no aplica, reject: lo cambia resultadoMeta).
+			accion := MetaTerminar
+			if conectandoMia && (l.AccionMeta == nil || *l.AccionMeta != MetaAceptar) {
+				accion = MetaRechazar
+			}
 			estado, motivo := LlamadaTerminada, "agente_colgo"
 			if conectandoMia && l.Direccion != "saliente" {
 				// Una entrante que no llegó a tener audio: para el cliente es una llamada perdida. Deja su
 				// devolución pendiente, el mensaje automático si aplica y el aviso, como cualquier perdida.
 				estado, motivo = LlamadaPerdida, "agente_salio"
 			}
-			if err := m.cerrarLlamada(ctx, t, &l, &c, estado, motivo, m.ahora(), MetaTerminar); err != nil {
+			if err := m.cerrarLlamada(ctx, t, &l, &c, estado, motivo, m.ahora(), accion); err != nil {
 				return Llamada{}, err
 			}
 			if _, err := guardarConv(ctx, q, c, false); err != nil {

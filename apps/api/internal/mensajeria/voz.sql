@@ -468,12 +468,18 @@ RETURNING *;
 
 -- name: TomarSolicitudesSinConfirmar :many
 -- Solicitudes de permiso cuyo envío quedó sin respuesta de Meta: el job de escrituras las resuelve
--- preguntando a Meta (una vez por minuto cada una; SKIP LOCKED).
-UPDATE mensajeria.llamada_permisos SET sincronizado_en = @ahora::timestamptz
-WHERE id IN (SELECT p.id FROM mensajeria.llamada_permisos p
-    WHERE p.solicitud_sin_confirmar AND (p.sincronizado_en IS NULL OR p.sincronizado_en <= @antes)
-    ORDER BY p.updated_at LIMIT @lote FOR UPDATE SKIP LOCKED)
-RETURNING *;
+-- preguntando a Meta, con espera creciente entre intentos (1, 2, 5, 15 y después 60 minutos; SKIP
+-- LOCKED). No toca sincronizado_en: un intento no es una lectura buena.
+UPDATE mensajeria.llamada_permisos p SET solicitud_intentos = p.solicitud_intentos + 1,
+    solicitud_proximo_en = sqlc.arg('ahora')::timestamptz
+        + (CASE p.solicitud_intentos WHEN 0 THEN 1 WHEN 1 THEN 2 WHEN 2 THEN 5 WHEN 3 THEN 15 ELSE 60 END) * interval '1 minute'
+WHERE p.id IN (SELECT x.id FROM mensajeria.llamada_permisos x
+    WHERE x.solicitud_sin_confirmar AND (x.solicitud_proximo_en IS NULL OR x.solicitud_proximo_en <= sqlc.arg('ahora')::timestamptz)
+    ORDER BY x.solicitud_proximo_en NULLS FIRST LIMIT @lote FOR UPDATE SKIP LOCKED)
+RETURNING p.*;
+
+-- name: MarcarSolicitudSinConfirmar :exec
+UPDATE mensajeria.llamada_permisos SET solicitud_sin_confirmar = true, solicitud_intentos = 0, solicitud_proximo_en = NULL, updated_at = now() WHERE id = @id;
 
 -- name: PermisoLlamadaPorID :one
 SELECT * FROM mensajeria.llamada_permisos WHERE id = @id FOR UPDATE;
