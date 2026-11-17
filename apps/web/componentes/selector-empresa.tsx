@@ -4,13 +4,28 @@ import { Aviso, Boton, Selector, Tarjeta, TarjetaDescripcion, TarjetaEncabezado,
 import { Building2, ChevronRight, DatabaseZap } from "lucide-react";
 import Link from "next/link";
 import { useSesion } from "@/lib/sesion";
+import { useVoz } from "./voz/proveedor";
+
+/**
+ * Cambiar de empresa. Con una llamada viva o sonando pregunta antes y la cuelga o suelta con la
+ * empresa de la llamada: después del cambio el servidor ya no la encontraría (404) y quedaría viva.
+ */
+function useCambiarEmpresa(): (id: number) => Promise<void> {
+    const { elegirEmpresa } = useSesion();
+    const voz = useVoz();
+    return async (id) => {
+        if (voz && !(await voz.antesDeSalir())) return;
+        elegirEmpresa(id);
+    };
+}
 
 /**
  * Empresa activa en la barra superior: con varias, una lista para cambiar; con una, solo su
  * nombre; sin conector (sin empresas registradas), nada.
  */
 export function SelectorEmpresa() {
-    const { yo, empresas, elegirEmpresa } = useSesion();
+    const { yo, empresas } = useSesion();
+    const cambiar = useCambiarEmpresa();
     if (yo.modoEmpresa === "sin_conector" || empresas.length === 0) {
         return null;
     }
@@ -35,7 +50,7 @@ export function SelectorEmpresa() {
                 onChange={(e) => {
                     const id = Number(e.target.value);
                     if (id > 0) {
-                        elegirEmpresa(id);
+                        void cambiar(id);
                     }
                 }}
             >
@@ -56,7 +71,8 @@ export function SelectorEmpresa() {
 
 /** Pantalla para elegir empresa cuando hay varias y no hay ninguna activa (o la API la pidió). */
 export function ElegirEmpresa({ motivo }: { motivo?: "no_permitida" | undefined }) {
-    const { empresas, elegirEmpresa } = useSesion();
+    const { empresas } = useSesion();
+    const cambiar = useCambiarEmpresa();
     return (
         <div className="mx-auto grid max-w-lg gap-4">
             {motivo === "no_permitida" ? (
@@ -80,7 +96,7 @@ export function ElegirEmpresa({ motivo }: { motivo?: "no_permitida" | undefined 
                 <ul className="grid gap-2 p-5 pt-0" aria-label="Empresas">
                     {empresas.map((e) => (
                         <li key={e.id}>
-                            <Boton variante="secundario" className="w-full justify-between" onClick={() => elegirEmpresa(e.id)}>
+                            <Boton variante="secundario" className="w-full justify-between" onClick={() => void cambiar(e.id)}>
                                 <span className="truncate">{e.nombre}</span>
                                 <ChevronRight aria-hidden />
                             </Boton>

@@ -1,4 +1,4 @@
-import { Cloud, ClipboardList, DatabaseZap, History, KeyRound, Mail, MailCheck, Map as IconoMapa, Plug, ShieldCheck, Smartphone, Users, Zap, Phone, CalendarClock, BookOpen, Inbox, Settings2, Sparkles, type LucideIcon } from "lucide-react";
+import { Cloud, ClipboardList, DatabaseZap, History, KeyRound, Mail, MailCheck, Map as IconoMapa, Plug, ShieldCheck, Smartphone, Users, Zap, Phone, PhoneCall, CalendarClock, BookOpen, Inbox, Settings2, Sparkles, type LucideIcon } from "lucide-react";
 import { PERMISO_CONFIGURAR_ASISTENTE } from "@/lib/asistente/permisos";
 import { PERMISOS_CUADRILLAS, PERMISOS_ZONAS } from "@/lib/agenda/permisos";
 import { PERMISO_CONFIGURAR_CORREO, PERMISO_VER_CORREO } from "@/lib/correo/tipos";
@@ -26,7 +26,7 @@ export const SECCIONES: readonly Seccion[] = [
     {
         href: "/administracion/numeros",
         titulo: "Números de WhatsApp",
-        descripcion: "Agregar números, credenciales de Meta, conexión, uso, cola y horario.",
+        descripcion: "Agregar números, credenciales de Meta, conexión, uso, cola, horario y llamadas.",
         icono: Phone,
         permisos: ["canales.configurar", "mensajeria.configurar"],
     },
@@ -50,6 +50,13 @@ export const SECCIONES: readonly Seccion[] = [
         descripcion: "Minutos de inactividad para pasar a No disponible.",
         icono: Settings2,
         permisos: ["canales.configurar"],
+    },
+    {
+        href: "/administracion/llamadas",
+        titulo: "Llamadas",
+        descripcion: "A quién le suena primero y cuánto puede durar una llamada de WhatsApp.",
+        icono: PhoneCall,
+        permisos: ["voz.configurar"],
     },
     {
         href: "/administracion/asistente",

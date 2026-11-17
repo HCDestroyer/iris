@@ -47,6 +47,11 @@ export const PERMISOS_CONVERSACIONES: Permiso[] = [
 export type OpcionesConversaciones = OpcionesBandeja11 & {
     /** `/eventos` responde 503: el panel trabaja con el sondeo. */
     sinFlujo?: boolean;
+    /**
+     * `/eventos` espera hasta 15 s a que haya un evento antes de cerrar (como un flujo que sigue
+     * abierto): lo que se emite llega al instante. Para lo que depende del SSE (las llamadas).
+     */
+    flujoLargo?: boolean;
     /** Asistente de IA (§16, e2e/api-asistente.ts). */
     asistente?: OpcionesAsistente;
 };
@@ -59,6 +64,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
     const eventos: Evento[] = [];
     let cursor = 100;
     let seq = 1000;
+    let flujosEnEspera = 0;
     const enviados: { ruta: string; cuerpo: unknown; idempotencia: string | undefined }[] = [];
 
     const colasBase: ColaBase[] = [
@@ -171,6 +177,13 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         }
         cursor += 1;
         eventos.push({ id: String(cursor), tipo: "conversacion_actualizada", ...base, conversacion: structuredClone(c) });
+    }
+
+    /** Un evento cualquiera del feed (las llamadas de voz, e2e/api-voz.ts). */
+    function emitirEvento(evento: Omit<Evento, "id" | "ocurridoEn" | "noLeidos">) {
+        cursor += 1;
+        const c = conversaciones.find((x) => x.id === evento.conversacionId);
+        eventos.push({ id: String(cursor), ocurridoEn: new Date().toISOString(), noLeidos: c?.noLeidos ?? 0, ...evento });
     }
 
     const fase3 = apiFase3({ conversaciones, mensajes, enviados }, opciones.asistente?.fase3);
@@ -290,13 +303,19 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                 if (opciones.sinFlujo) return (await problema(route, P("flujos_agotados", 503, "Sin flujos")), true);
                 const desde = Number((await route.request().headerValue("last-event-id")) ?? cursor);
                 let pendientes = eventos.filter((e) => Number(e.id) > desde);
+                flujosEnEspera += 1;
                 if (pendientes.length === 0) {
                     // Espera breve (como un latido) y cierra: el panel reconecta con su cursor.
-                    await new Promise((r) => setTimeout(r, 400));
-                    pendientes = eventos.filter((e) => Number(e.id) > desde);
+                    const hasta = Date.now() + (opciones.flujoLargo ? 15_000 : 400);
+                    while (pendientes.length === 0 && Date.now() < hasta) {
+                        await new Promise((r) => setTimeout(r, opciones.flujoLargo ? 40 : 400));
+                        pendientes = eventos.filter((e) => Number(e.id) > desde);
+                    }
                 }
+                flujosEnEspera -= 1;
                 const cuerpoSSE = pendientes.map((e) => `id: ${e.id}\nevent: ${e.tipo}\ndata: ${JSON.stringify(e)}\n\n`).join("") || ": latido\n\n";
-                await route.fulfill({ status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-store" }, body: cuerpoSSE });
+                // La página pudo irse mientras se esperaba.
+                await route.fulfill({ status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-store" }, body: cuerpoSSE }).catch(() => undefined);
                 return true;
             }
         }
@@ -586,7 +605,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         return false;
     }
 
-    return { manejar, conversaciones, mensajes, enviados, mensajeDelCliente, horarios, manuales, canales, configurados, respuestas, enlaces, consentimientos, colas, agentes, bandeja11: b11, asistente, fase3 };
+    return { manejar, emitirEvento, flujoAbierto: () => flujosEnEspera > 0, conversaciones, mensajes, enviados, mensajeDelCliente, horarios, manuales, canales, configurados, respuestas, enlaces, consentimientos, colas, agentes, bandeja11: b11, asistente, fase3 };
 }
 
 export type ApiConversaciones = ReturnType<typeof apiConversaciones>;

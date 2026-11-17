@@ -219,6 +219,8 @@ export function textoUltimo(u: Conversacion["ultimoMensaje"]): string {
 
 function adjuntoCorto(tipo: string): string {
     switch (tipo) {
+        case "llamada":
+            return "Llamada de WhatsApp";
         case "imagen":
             return "Foto";
         case "documento":

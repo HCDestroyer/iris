@@ -774,7 +774,8 @@ const esquemaTicket = z.object({
 });
 
 /** Ticket desde la conversación (cliente y servicio de la conversación): asunto y descripción. */
-function DialogoTicket({ conv, cerrar, alHecho }: { conv: ConversacionDetalle; cerrar: () => void; alHecho: (c: Conversacion) => void }) {
+/** «Crear ticket» con el cliente y el servicio de la conversación (también al terminar una llamada). */
+export function DialogoTicket({ conv, cerrar, alHecho }: { conv: Pick<ConversacionDetalle, "id" | "titulo" | "ultimoMensaje">; cerrar: () => void; alHecho: (c: Conversacion) => void }) {
     const form = useForm({ resolver: zodResolver(esquemaTicket), defaultValues: { asunto: "", descripcion: conv.ultimoMensaje?.direccion === "entrante" ? (conv.ultimoMensaje.texto ?? "") : "" } });
     useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
     const clave = useClaveIdempotencia();
