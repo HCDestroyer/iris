@@ -832,7 +832,8 @@ tarjeta en Integraciones (junto a Argos y Horus). Código en `componentes/servid
 - **Enlazar** (`/enlazar`): cuatro pasos en una pantalla. Dirección → código de un solo uso (se
   muestra una vez, vence a los 15 minutos, se escribe en el servidor sin eco) → huella con la
   casilla «Coincide con la del instalador» → «Activar» (un enlace sin activar caduca a las 24 h).
-  El 401 de «conectar» no distingue código usado o mal escrito: el texto lo dice así. Un paso
+  Si «conectar» falla, el servidor responde lo mismo (502) para un código usado o mal escrito que
+  para un servidor fuera de alcance: el texto lo dice así, sin afirmar cuál fue. Un paso
   vencido (409 `enlace_vencido`, el mismo para el código y para activar) ofrece empezar de nuevo.
 - **Comandos del servidor.** Los que se copian son los del instalador real (`infra/voz/install-voz.sh`):
   `iris-voz pair`, `status`, `upgrade`, `unpair` y `model pull|allow|remove <nombre>`.
@@ -851,9 +852,9 @@ tarjeta en Integraciones (junto a Argos y Horus). Código en `componentes/servid
   guardar y ante el 422 `servidor_ia_no_disponible`.
 - **Campana.** `servidor_ia_caido`, `servidor_ia_incompatible` y `servidor_ia_umbral` tienen su
   icono y su segunda línea en `lib/campana.ts`; el título lo pone el servidor.
-- **Provisional.** Los tipos de `lib/servidor-ia/tipos.ts` y el cliente de `lib/servidor-ia/api.ts`
-  están escritos según el contrato hasta que el OpenAPI traiga estas rutas (ver
-  `.claude/integration/i3.md`).
+- **Tipos.** Todo sale de `packages/contratos` (`lib/servidor-ia/tipos.ts` son solo alias). Lo
+  único que aún se compara como texto son los tres tipos nuevos de la campana, que el tipo generado
+  de `AvisoPanel` todavía no trae.
 
 ## Navegación del panel (fase 1, hecha)
 

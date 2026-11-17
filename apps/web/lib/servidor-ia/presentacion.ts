@@ -265,7 +265,11 @@ export function huellaLegible(huella: string): string[] {
 }
 
 /** Los errores de enlazar, conectar y activar, en llano. `null`: uno que no se conoce (se usa el del servidor). */
-export function textoErrorEnlace(codigo: string, estado: number): string | null {
+export function textoErrorEnlace(codigo: string, estado: number, alConectar = false): string | null {
+    // Al conectar, el servidor responde lo mismo para cualquier falla (no delata si el código era bueno).
+    if (alConectar && codigo === "motor_no_responde") {
+        return "Iris no pudo conectarse con el servidor. Puede que el código esté mal escrito allá o ya se haya usado, que la ventana de 15 minutos se haya cerrado o que el servidor no esté al alcance. Vuelve a ejecutar «sudo iris-voz pair» en el servidor y escribe el código de nuevo.";
+    }
     if (estado === 401) return "El servidor no aceptó el código. Puede que esté mal escrito allá o que ya se haya usado. Vuelve a ejecutar «sudo iris-voz pair» en el servidor y escribe el código de nuevo.";
     if (estado === 429) return "Demasiados intentos seguidos. Espera unos segundos y vuelve a probar.";
     switch (codigo) {

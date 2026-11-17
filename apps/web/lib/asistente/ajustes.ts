@@ -8,15 +8,11 @@ import type { AjustesAsistente, EntradaAjustesAsistente, ProveedorIA } from "./t
  * contraseña; el tope va de 1 000 a 1 000 000 000 tokens; los precios son decimales como texto.
  */
 
-/**
- * PROVISIONAL: `servidor_ia` (contratos/voz.md §4.11) todavía no está en el tipo generado. Cuando
- * `packages/contratos` lo traiga, `ProveedorForm` es `ProveedorIA` y sobran los `as` de este archivo.
- */
-export type ProveedorForm = ProveedorIA | "servidor_ia";
-export const SERVIDOR_IA = "servidor_ia" satisfies ProveedorForm;
+/** El Servidor de IA de la instalación (contratos/voz.md §4.11): sin dirección ni clave. */
+export const SERVIDOR_IA = "servidor_ia" satisfies ProveedorIA;
 const PROVEEDOR_ZOD = z.enum(["ollama", "openai_compatible", "anthropic", "servidor_ia"]);
 
-export const PROVEEDORES: readonly { valor: ProveedorForm; titulo: string; detalle: string; recomendado?: boolean; nube: boolean }[] = [
+export const PROVEEDORES: readonly { valor: ProveedorIA; titulo: string; detalle: string; recomendado?: boolean; nube: boolean }[] = [
     {
         valor: "servidor_ia",
         titulo: "Servidor de IA",
@@ -72,7 +68,7 @@ export function urlValida(texto: string): boolean {
  * La dirección como la compara el servidor (§16.1): sin barra final; en OpenAI y Ollama sin `/v1`;
  * Anthropic vacía es la oficial.
  */
-export function urlNormalizada(proveedor: ProveedorForm, url: string): string {
+export function urlNormalizada(proveedor: ProveedorIA, url: string): string {
     let u = url.trim().replace(/\/+$/, "");
     if (proveedor !== "anthropic") u = u.replace(/\/v1$/, "");
     if (proveedor === "anthropic" && u === "") u = "https://api.anthropic.com";
@@ -163,7 +159,7 @@ export function entradaDe(d: ValoresAjustes, version: number): EntradaAjustesAsi
     const clave = propio ? (d.claveGuardada ? { clave: "" } : {}) : escrita ? { clave: escrita } : d.quitarClave ? { clave: "" } : {};
     return {
         activo: d.activo,
-        proveedor: d.proveedor as ProveedorIA,
+        proveedor: d.proveedor,
         url: propio ? "" : d.url.trim(),
         modelo: d.modelo.trim(),
         modo: d.modo,
@@ -177,10 +173,10 @@ export function entradaDe(d: ValoresAjustes, version: number): EntradaAjustesAsi
 }
 
 /** El proveedor manda los mensajes fuera de la red de la empresa. */
-export const esNube = (p: ProveedorForm) => PROVEEDORES.find((x) => x.valor === p)?.nube ?? true;
+export const esNube = (p: ProveedorIA) => PROVEEDORES.find((x) => x.valor === p)?.nube ?? true;
 
 /** Ejemplo de dirección por proveedor (texto de ayuda del campo). */
-export function ejemploUrl(p: ProveedorForm): string {
+export function ejemploUrl(p: ProveedorIA): string {
     if (p === "ollama") return "http://10.0.0.20:11434";
     if (p === "anthropic") return "Vacía: https://api.anthropic.com";
     return "https://openrouter.ai/api/v1";

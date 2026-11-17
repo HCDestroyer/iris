@@ -129,7 +129,9 @@ function Vista({ tablero, rango, alRango, ahora, global, administra, umbrales, r
         if (e.motorId === null) return;
         setPrueba({ estado: "probando" });
         try {
-            const resultado = await probarMotor(e.motorId, nuevaClaveIdempotencia());
+            // El resultado llega en `ultimaPrueba` de la tarjeta.
+            const resultado = (await probarMotor(e.motorId, nuevaClaveIdempotencia())).ultimaPrueba;
+            if (!resultado) throw new Error("La prueba no devolvió resultado");
             setPrueba({ estado: "hecha", resultado });
             avisar(resultado.estado === "ok" ? { titulo: "El servidor de IA respondió bien" } : { tono: "warning", titulo: "La prueba encontró un problema" });
             refrescar();
@@ -280,11 +282,11 @@ function ResultadoDePrueba({ resultado }: { resultado: ResultadoPrueba }) {
         <Tarjeta className="grid gap-2 p-4" data-slot="resultado-prueba" data-estado={resultado.estado}>
             <h2 className="text-[0.9375rem] font-semibold">{resultado.estado === "ok" ? "La prueba salió bien" : "La prueba encontró un problema"}</h2>
             <ul className="grid gap-1.5 text-sm">
-                {resultado.pasos.map((p) => (
+                {(resultado.pasos ?? []).map((p) => (
                     <li key={p.codigo} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5" data-paso={p.codigo} data-estado={p.estado}>
                         <InsigniaEstado tono={p.estado === "ok" ? "success" : p.estado === "error" ? "error" : "neutral"} texto={p.estado === "ok" ? "Bien" : p.estado === "error" ? "Falló" : "No aplica"} />
                         <span className="font-medium">{NOMBRE_PASO[p.codigo] ?? p.codigo}</span>
-                        {p.ms !== null && p.estado === "ok" ? <span className="text-muted-foreground tabular-nums">{tiempoRespuesta(p.ms)}</span> : null}
+                        {p.estado === "ok" ? <span className="text-muted-foreground tabular-nums">{tiempoRespuesta(p.ms)}</span> : null}
                         {p.detalle && p.estado === "error" ? <span className="basis-full text-[0.8125rem] text-muted-foreground">{p.detalle}</span> : null}
                     </li>
                 ))}
@@ -336,7 +338,7 @@ function Cifras({ tablero, vigentes, rango, limites }: { tablero: Tablero; vigen
             </section>
         );
     }
-    const gpus = s.gpus.estado === "ok" ? s.gpus.lista : [];
+    const gpus = s.gpus.estado === "ok" ? (s.gpus.lista ?? []) : [];
     const peticiones = (
         <Cifra
             icono={MessageCircle}
@@ -431,16 +433,16 @@ function Equipo({ tablero, limites }: { tablero: Tablero; limites: Umbrales }) {
 
 /** Lo que ve el admin de una empresa: si está listo y qué modelos hay. Nada de la tarjeta gráfica ni de la ocupación. */
 function EstadoGeneral({ tablero }: { tablero: Tablero }) {
-    const e = tablero.estado;
+    const disponibles = tablero.estado.modelosDisponibles ?? [];
     return (
         <Tarjeta className="grid gap-2 p-4 sm:p-5" data-slot="estado-general">
             <h2 className="flex items-center gap-2 text-[0.9375rem] font-semibold">
                 <Layers aria-hidden className="size-4 text-muted-foreground" />
                 Modelos disponibles
             </h2>
-            {e.modelosDisponibles.length > 0 ? (
+            {disponibles.length > 0 ? (
                 <ul className="flex flex-wrap gap-1.5">
-                    {e.modelosDisponibles.map((m) => (
+                    {disponibles.map((m) => (
                         <li key={m} className="rounded-md bg-elevated px-2 py-0.5 font-mono text-[0.8125rem]">
                             {m}
                         </li>
@@ -462,7 +464,7 @@ function EstadoGeneral({ tablero }: { tablero: Tablero }) {
 
 /** El uso de la empresa activa en el periodo. Sin lectura: «Sin datos», nunca ceros. */
 function CifrasEmpresa({ tablero, rango }: { tablero: Tablero; rango: Rango }) {
-    const u = tablero.uso?.empresas[0] ?? null;
+    const u = tablero.uso?.empresas?.[0] ?? null;
     // Leído y sin fila: la empresa no lo usó. Sin leer: no se sabe.
     const cero = tablero.uso !== null && u === null;
     const numero = (v: number | undefined) => (v !== undefined ? cantidad(v) : cero ? "0" : null);
@@ -535,12 +537,12 @@ function Modelos({ tablero, administra }: { tablero: Tablero; administra: boolea
                         <li key={m.id} className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 py-2" data-modelo={m.id}>
                             <span className="min-w-0">
                                 <span className="font-mono text-[0.8125rem] font-medium [overflow-wrap:anywhere]">{m.id}</span>
-                                <span className="ml-2 text-[0.8125rem] whitespace-nowrap text-muted-foreground">{[m.tamanoMb === null ? null : `${tamano(m.tamanoMb)} en disco`, m.permitido ? null : "no permitido"].filter(Boolean).join(" · ")}</span>
+                                <span className="ml-2 text-[0.8125rem] whitespace-nowrap text-muted-foreground">{[`${tamano(m.tamanoMb)} en disco`, m.permitido ? null : "no permitido"].filter(Boolean).join(" · ")}</span>
                             </span>
                             {m.cargado ? (
                                 <span className="inline-flex items-center gap-1 text-[0.8125rem] font-medium whitespace-nowrap text-success">
                                     <Check aria-hidden className="size-3.5" />
-                                    En memoria{m.vramMb !== null ? ` · ocupa ${tamano(m.vramMb)}` : ""}
+                                    En memoria{m.vramMb > 0 ? ` · ocupa ${tamano(m.vramMb)}` : ""}
                                 </span>
                             ) : (
                                 <span className="text-[0.8125rem] whitespace-nowrap text-muted-foreground">Sin cargar</span>
@@ -579,7 +581,8 @@ function Uso({ tablero, rango }: { tablero: Tablero; rango: Rango }) {
             </MarcoUso>
         );
     }
-    if (uso.empresas.length === 0) {
+    const empresas = uso.empresas ?? [];
+    if (empresas.length === 0) {
         return (
             <MarcoUso {...marco}>
                 <p className="text-sm text-muted-foreground">{global ? "Ninguna empresa lo usó en este periodo." : "Tu empresa no lo usó en este periodo."}</p>
@@ -589,7 +592,7 @@ function Uso({ tablero, rango }: { tablero: Tablero; rango: Rango }) {
     return (
         <MarcoUso {...marco}>
             <ul className="grid gap-0 divide-y divide-border" aria-label="Uso por empresa">
-                {uso.empresas.map((u) => (
+                {empresas.map((u) => (
                     <li key={u.empresaId} className="grid min-w-0 gap-1.5 py-2.5" data-empresa={u.empresaId}>
                         <p className="text-sm font-semibold [overflow-wrap:anywhere]">{u.nombre}</p>
                         <dl className="grid grid-cols-3 gap-x-3 gap-y-1.5 text-[0.8125rem] sm:grid-cols-5">
@@ -642,14 +645,14 @@ function Errores({ tablero, rango, ahora }: { tablero: Tablero; rango: Rango; ah
             </h2>
             {!uso ? (
                 <p className="text-sm text-muted-foreground">No se pudieron leer los errores de este periodo.</p>
-            ) : uso.errores.length === 0 ? (
+            ) : (uso.errores ?? []).length === 0 ? (
                 <p className="flex items-center gap-2 rounded-lg bg-success/10 p-2.5 text-sm">
                     <CircleCheck aria-hidden className="size-4 shrink-0 text-success" />
                     Sin errores {TEXTO_RANGO[rango]}.
                 </p>
             ) : (
                 <ul className="grid gap-2 text-sm">
-                    {uso.errores.map((x) => {
+                    {(uso.errores ?? []).map((x) => {
                         const t = textoError(x.motivo, x.cuenta);
                         return (
                             <li key={x.motivo} className="flex min-w-0 flex-wrap items-baseline gap-x-2" data-error={x.motivo}>

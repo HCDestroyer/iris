@@ -266,7 +266,7 @@ test.describe("Servidor de IA › enlazar", () => {
     const pasos = (page: Page) => slot(page, "pasos-enlace");
 
     test("de «Sin servidor» a activado: dirección, código de un solo uso, código incorrecto, huella con «Coincide» y «Activar»", async ({ page }) => {
-        const api = await abrir(page, RUTA, { motor: "ninguno", conectar: ["401", "ok"] });
+        const api = await abrir(page, RUTA, { motor: "ninguno", conectar: ["fallo", "ok"] });
         await expect(slot(page, "sin-servidor")).toContainText("Sin servidor de IA");
         await captura(page, "sin-servidor");
         await page.getByRole("link", { name: "Enlazar servidor" }).click();
@@ -289,9 +289,9 @@ test.describe("Servidor de IA › enlazar", () => {
         expect(api.servidorIa.recibido.enlaces[0]?.idempotencia).toBeTruthy();
         await captura(page, "enlazar-codigo");
 
-        // Código mal escrito en el servidor (o vencido, o usado): 401 sin detalle; se puede reintentar.
+        // Código mal escrito en el servidor (o usado): el servidor responde lo mismo que si no estuviera; se puede reintentar.
         await page.getByRole("button", { name: "Ya lo escribieron: conectar" }).click();
-        await expect(slot(page, "error-enlace")).toContainText("El servidor no aceptó el código");
+        await expect(slot(page, "error-enlace")).toContainText("Puede que el código esté mal escrito allá o ya se haya usado");
         await expect(slot(page, "codigo-enlace")).toContainText(CODIGO_ENLACE);
         await page.getByRole("button", { name: "Ya lo escribieron: conectar" }).click();
 
@@ -312,7 +312,7 @@ test.describe("Servidor de IA › enlazar", () => {
         await expect(page.getByText("Servidor de IA activado")).toBeVisible();
         await expect(estado(page)).toHaveAttribute("data-estado", "listo");
         expect(api.servidorIa.recibido.conexiones).toBe(2);
-        expect(api.servidorIa.recibido.activaciones).toEqual([{ version: 2 }]);
+        expect(api.servidorIa.recibido.activaciones).toHaveLength(1);
     });
 
     test("la ventana del código vence a los 15 minutos: no deja conectar y ofrece generar otro", async ({ page }) => {
@@ -519,7 +519,7 @@ test.describe("Servidor de IA › mantenimiento", () => {
         await confirmacion(page).getByRole("button", { name: "Desenlazar", exact: true }).click();
         await expect(page).toHaveURL(new RegExp(`${RUTA}$`));
         await expect(slot(page, "sin-servidor")).toBeVisible();
-        expect(api.servidorIa.recibido.desactivaciones[0]).toMatchObject({ version: 4 });
+        expect(api.servidorIa.recibido.desactivaciones[0]).toMatchObject({ motivo: "desenlazado_desde_el_panel" });
     });
 });
 
@@ -597,9 +597,8 @@ test.describe("Servidor de IA › quién lo ve", () => {
 test.describe("Servidor de IA › en el asistente de cada empresa", () => {
     const f = (page: Page) => page.getByRole("form", { name: "Conexión con la IA" });
     const CONEXION = "/administracion/asistente/conexion";
-    // PROVISIONAL: `servidorIa` aún no está en el tipo generado de los ajustes.
     const con = (ajustes: Partial<AjustesAsistente>, servidorIa: { disponible: boolean; modelos: string[] }): Partial<OpcionesApi> => ({
-        conversaciones: { asistente: { ajustes: { ...ajustes, servidorIa } as Partial<AjustesAsistente> } },
+        conversaciones: { asistente: { ajustes: { ...ajustes, servidorIa } } },
     });
     const guardados = (api: Api) => api.conversaciones.asistente.guardados as Record<string, unknown>[];
 

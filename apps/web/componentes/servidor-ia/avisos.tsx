@@ -31,7 +31,7 @@ type Datos = { umbrales: Umbrales; avisos: AvisoServidor[] };
 export function AvisosServidorIa() {
     const lectura = useLectura<Datos>(async (signal) => {
         const [umbrales, tablero] = await Promise.all([leerUmbrales(signal), leerTablero("7d", signal)]);
-        return { umbrales, avisos: tablero.avisos };
+        return { umbrales, avisos: tablero.avisos ?? [] };
     });
     return (
         <CargaRegistro lectura={lectura} que="los avisos del servidor de IA" noEncontrado="Sin servidor de IA">

@@ -81,7 +81,7 @@ function QuienPuede({ motor, alGuardar }: { motor: Motor; alGuardar: (m: Motor) 
     const [quienes, elegidas] = useWatch({ control: form.control, name: ["quienes", "empresas"] });
     const errores = form.formState.errors;
     const conflicto = error instanceof ErrorApi && error.estado === 409;
-    const plazas = motor.capacidad?.maxSimultaneas ?? null;
+    const plazas = motor.capacidad.maxSimultaneas > 0 ? motor.capacidad.maxSimultaneas : null;
 
     async function guardar(d: ValoresEmpresas) {
         setError(null);
@@ -122,7 +122,7 @@ function QuienPuede({ motor, alGuardar }: { motor: Motor; alGuardar: (m: Motor) 
                         <p className="text-[0.8125rem] text-muted-foreground">A una empresa que quites no se le borra nada: su asistente queda «sin configurar» hasta que elija otro proveedor.</p>
                     </div>
                 ) : null}
-                {motor.capacidad?.plazasInsuficientes ? (
+                {motor.capacidad.plazasInsuficientes ? (
                     <Aviso tono="warning" titulo="No alcanzan los turnos para todas las empresas" data-slot="plazas-insuficientes">
                         {textoPlazas(motor.capacidad.empresasActivas, plazas)}
                     </Aviso>
@@ -155,7 +155,7 @@ function QuienPuede({ motor, alGuardar }: { motor: Motor; alGuardar: (m: Motor) 
  * (`catalogo.llm`); de esos, aquí se eligen los que las empresas pueden escoger (`null` = todos).
  */
 function ModelosPermitidos({ motor, alGuardar }: { motor: Motor; alGuardar: (m: Motor) => void }) {
-    const catalogo = (motor.catalogo?.llm ?? []).map((m) => m.id);
+    const catalogo = (motor.catalogo.llm ?? []).map((m) => m.id);
     const clave = useClaveIdempotencia();
     const [cuales, setCuales] = useState<"todos" | "algunos">(motor.modelosPermitidos === null ? "todos" : "algunos");
     const [elegidos, setElegidos] = useState<string[]>(motor.modelosPermitidos ?? catalogo);
@@ -351,7 +351,7 @@ function Desenlazar({ motor }: { motor: Motor }) {
                 alConfirmar={async () => {
                     setError(null);
                     try {
-                        await desactivarMotor(motor.id, motor.version, "desenlazado_desde_el_panel", nuevaClaveIdempotencia());
+                        await desactivarMotor(motor.id, "desenlazado_desde_el_panel", nuevaClaveIdempotencia());
                         avisar({ titulo: "Servidor de IA desenlazado" });
                         router.replace(RUTA as Route);
                     } catch (e) {

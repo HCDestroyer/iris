@@ -25,7 +25,7 @@ import { Comando, RUTA } from "./comun";
 const hora = new Intl.DateTimeFormat("es-GT", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: ZONA });
 const diaHora = new Intl.DateTimeFormat("es-GT", { weekday: "long", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: ZONA });
 
-const textoDe = (e: unknown): string => (e instanceof ErrorApi ? (textoErrorEnlace(e.codigo, e.estado) ?? (e.detalle || e.titulo)) : mensajeDeError(e).titulo);
+const textoDe = (e: unknown, alConectar: boolean): string => (e instanceof ErrorApi ? (textoErrorEnlace(e.codigo, e.estado, alConectar) ?? (e.detalle || e.titulo)) : mensajeDeError(e).titulo);
 
 /** Un paso numerado: hecho (✓), el actual (número en la marca) o por venir (apagado). */
 function Paso({ numero, titulo, estado, children }: { numero: number; titulo: string; estado: "hecho" | "actual" | "despues"; children?: ReactNode }) {
@@ -142,7 +142,7 @@ function Pasos({ pendiente }: { pendiente: Motor | null }) {
         setError(null);
         setOcupado("activar");
         try {
-            await activarMotor(motor.id, motor.version, nuevaClaveIdempotencia());
+            await activarMotor(motor.id, nuevaClaveIdempotencia());
             avisar({ titulo: "Servidor de IA activado", descripcion: "Cada empresa ya puede elegirlo en los ajustes de su asistente." });
             router.replace(RUTA as Route);
         } catch (e) {
@@ -160,7 +160,7 @@ function Pasos({ pendiente }: { pendiente: Motor | null }) {
 
     const aviso = error && !vencidoAlla ? (
         <Aviso tono="error" titulo={paso === "huella" ? "No se pudo activar" : paso === "codigo" ? "No se pudo conectar" : "No se pudo empezar el enlace"} data-slot="error-enlace">
-            {textoDe(error)}
+            {textoDe(error, paso === "codigo")}
         </Aviso>
     ) : null;
 

@@ -5,7 +5,7 @@ import { DE_FABRICA, entradaDeUmbrales, esDeFabrica, esquemaEmpresas, esquemaEnl
 
 const AHORA = Date.parse("2026-11-17T17:02:00Z");
 const estado = (e: Partial<Tablero["estado"]>): Tablero["estado"] => ({ motorId: 1, estado: "listo", detalle: null, version: "0.1.0", compatible: true, motivoIncompatible: null, encendidoSeg: 6 * 86_400, tomadoEn: "2026-11-17T17:01:56Z", lecturaOk: true, modelosDisponibles: [], ...e });
-const tablero = (e: Partial<Tablero["estado"]>, servidor: Tablero["servidor"] = { gpus: { estado: "omitido", lista: [] }, cpu: null, memoria: null, disco: null, modelos: [], llm: { enCurso: 0, maxSimultaneas: 4 }, rechazadas: 0 }): Tablero => ({ estado: estado(e), servidor, series: null, uso: null, avisos: [] });
+const tablero = (e: Partial<Tablero["estado"]>, servidor: Tablero["servidor"] = { gpus: { estado: "omitido", lista: [] }, cpu: { nucleos: 16, usoPct: null }, memoria: { usadoMb: 0, totalMb: 0 }, disco: null, modelos: [], llm: { enCurso: 0, maxSimultaneas: 4 }, rechazadas: 0 }): Tablero => ({ estado: estado(e), servidor, series: null, uso: null, avisos: [] });
 
 describe("textos del Servidor de IA", () => {
     it("cantidades, tamaños y tiempos en llano", () => {
@@ -94,6 +94,8 @@ describe("textos del Servidor de IA", () => {
         // 401: no se distingue código vencido, usado o mal escrito (el servidor no lo dice).
         expect(textoErrorEnlace("no_autorizado", 401)).toContain("no aceptó el código");
         expect(textoErrorEnlace("motor_no_responde", 502)).toContain("no pudo llegar al servidor");
+        // Al conectar, la misma respuesta vale para un código malo: el texto no afirma cuál fue.
+        expect(textoErrorEnlace("motor_no_responde", 502, true)).toContain("Puede que el código esté mal escrito allá");
         expect(textoErrorEnlace("enlace_vencido", 409)).toContain("ya venció");
         expect(textoErrorEnlace("otro", 500)).toBeNull();
         expect(textoPlazas(6, 4)).toContain("más empresas usando el servidor que turnos disponibles (6 empresas y 4 turnos)");

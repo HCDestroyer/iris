@@ -61,8 +61,8 @@ function Formulario({ ajustes }: { ajustes: Ajustes }) {
     const [proveedor, url, cambiarClave, quitarClave, modo] = useWatch({ control: form.control, name: ["proveedor", "url", "cambiarClave", "quitarClave", "modo"] });
     const errores = form.formState.errors;
     const guardada = ajustes.claveGuardadaEn !== null;
-    // PROVISIONAL: `servidorIa` (voz.md §4.11) aún no está en el tipo generado. Sin el campo, la opción no se ofrece.
-    const servidorIa = (ajustes as Ajustes & { servidorIa?: ServidorIaEnAsistente }).servidorIa ?? null;
+    // Sin `servidorIa` en los ajustes (voz.md §4.11), la opción no se ofrece.
+    const servidorIa = ajustes.servidorIa ?? null;
     const propio = proveedor === SERVIDOR_IA;
     const noDisponible = error instanceof ErrorApi && error.codigo === "servidor_ia_no_disponible";
     // La clave guardada no viaja a otro servidor (§16.1): con otro proveedor o dirección hay que escribirla.
@@ -131,7 +131,7 @@ function Formulario({ ajustes }: { ajustes: Ajustes }) {
                         if (v === SERVIDOR_IA && !(servidorIa?.modelos ?? []).includes(form.getValues("modelo"))) form.setValue("modelo", "", { shouldDirty: true });
                         abrirClaveSiCambia();
                     }}
-                    opciones={PROVEEDORES.filter((p) => p.valor !== SERVIDOR_IA || servidorIa !== null || ajustes.proveedor === (SERVIDOR_IA as string)).map((p) => ({
+                    opciones={PROVEEDORES.filter((p) => p.valor !== SERVIDOR_IA || servidorIa !== null || ajustes.proveedor === SERVIDOR_IA).map((p) => ({
                         valor: p.valor,
                         texto: p.titulo,
                         contenido: (
@@ -391,7 +391,7 @@ function SelectorModelo({ form, ajustes, registrarCargar }: { form: UseFormRetur
         setLista({ estado: "cargando" });
         // Lo guardado, por GET; otro destino o una clave nueva, por POST (la clave no va en la URL).
         if (!clave && !cambiaDestino(d)) pedir((signal) => leerModelosGuardados(signal));
-        else pedir((signal) => consultarModelos({ proveedor: d.proveedor as Ajustes["proveedor"], url, ...(clave ? { clave } : {}) }, signal));
+        else pedir((signal) => consultarModelos({ proveedor: d.proveedor, url, ...(clave ? { clave } : {}) }, signal));
     }
 
     useEffect(() => {
@@ -476,8 +476,7 @@ function Prueba({ form, destinoCambiado }: { form: UseFormReturn<ValoresAjustes>
         if (d.proveedor === SERVIDOR_IA) {
             setEstado({ tipo: "probando" });
             try {
-                // PROVISIONAL: el tipo generado aún no conoce `servidor_ia`.
-                setEstado({ tipo: "hecho", prueba: await probarAsistente({ proveedor: d.proveedor as Ajustes["proveedor"], url: "", modelo: d.modelo.trim() }) });
+                setEstado({ tipo: "hecho", prueba: await probarAsistente({ proveedor: d.proveedor, url: "", modelo: d.modelo.trim() }) });
             } catch (e) {
                 setEstado({ tipo: "fallo", error: e });
             }
@@ -495,7 +494,7 @@ function Prueba({ form, destinoCambiado }: { form: UseFormReturn<ValoresAjustes>
         }
         setEstado({ tipo: "probando" });
         try {
-            const p = await probarAsistente({ proveedor: d.proveedor as Ajustes["proveedor"], url: d.url.trim(), modelo: d.modelo.trim(), ...(clave ? { clave } : {}) });
+            const p = await probarAsistente({ proveedor: d.proveedor, url: d.url.trim(), modelo: d.modelo.trim(), ...(clave ? { clave } : {}) });
             setEstado({ tipo: "hecho", prueba: p });
         } catch (e) {
             setEstado({ tipo: "fallo", error: e });
