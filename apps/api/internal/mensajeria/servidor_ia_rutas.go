@@ -51,10 +51,12 @@ func (m *Modulo) registrarServidorIA(api huma.API) {
 	huma.Register(api, ia(op("activarMotorIA", http.MethodPost, "/voz/motores/{id}/activar", "Activar el servidor de IA", adm,
 		http.StatusOK, http.StatusNotFound, http.StatusConflict, http.StatusBadGateway),
 		"Cuando la huella coincide con la del instalador. Lo primero que hace Iris es cambiar el secreto del canal por uno aleatorio, sin convivencia; si eso falla, "+
-			"no se activa. También vuelve a activar uno desactivado. 409 `motor_sin_enlazar` o `enlace_vencido` (24 h sin activar). Emite `voz.motor_activado` y "+
-			"`voz.motor_token_rotado`."),
-		func(ctx context.Context, in *idHTTP) (*cuerpo[MotorIA], error) {
-			return responder(k.Activar.Ejecutar(ctx, in.ID))
+			"no se activa. También vuelve a activar uno desactivado. `huellaTls` es la huella que el administrador comparó: 409 `huella_cambiada` si el servidor "+
+			"enlazado ya no es ese (alguien enlazó otro entretanto). 409 `motor_sin_enlazar`, `enlace_vencido` (24 h sin activar) o `rotacion_en_curso`. "+
+			"Emite `voz.motor_activado` y `voz.motor_token_rotado`."),
+		func(ctx context.Context, in *idCuerpoHTTP[EntradaActivarMotor]) (*cuerpo[MotorIA], error) {
+			in.Body.ID = in.ID
+			return responder(k.Activar.Ejecutar(ctx, in.Body))
 		})
 	huma.Register(api, ia(op("desactivarMotorIA", http.MethodPost, "/voz/motores/{id}/desactivar", "Desactivar el servidor de IA", adm,
 		http.StatusOK, http.StatusNotFound),

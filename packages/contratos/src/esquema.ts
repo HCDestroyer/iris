@@ -4996,7 +4996,7 @@ export interface paths {
         put?: never;
         /**
          * Activar el servidor de IA
-         * @description Permiso: `servidor_ia.administrar`. Cuando la huella coincide con la del instalador. Lo primero que hace Iris es cambiar el secreto del canal por uno aleatorio, sin convivencia; si eso falla, no se activa. También vuelve a activar uno desactivado. 409 `motor_sin_enlazar` o `enlace_vencido` (24 h sin activar). Emite `voz.motor_activado` y `voz.motor_token_rotado`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`; cualquier otro recibe 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.
+         * @description Permiso: `servidor_ia.administrar`. Cuando la huella coincide con la del instalador. Lo primero que hace Iris es cambiar el secreto del canal por uno aleatorio, sin convivencia; si eso falla, no se activa. También vuelve a activar uno desactivado. `huellaTls` es la huella que el administrador comparó: 409 `huella_cambiada` si el servidor enlazado ya no es ese (alguien enlazó otro entretanto). 409 `motor_sin_enlazar`, `enlace_vencido` (24 h sin activar) o `rotacion_en_curso`. Emite `voz.motor_activado` y `voz.motor_token_rotado`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`; cualquier otro recibe 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.
          */
         post: operations["activarMotorIA"];
         delete?: never;
@@ -10655,6 +10655,10 @@ export interface components {
             /** @description Código TOTP de 6 dígitos */
             codigo: string;
         };
+        EntradaActivarMotor: {
+            /** @description La huella que el administrador comparó con la del instalador (la que devolvió «Conectar»). Si el servidor enlazado ya no es ese, 409 huella_cambiada */
+            huellaTls: string;
+        };
         EntradaActividad: {
             descripcion: string;
             /**
@@ -13799,8 +13803,11 @@ export interface components {
             vramUsadaMb: number | null;
         };
         GPUsTablero: {
-            /** @enum {string} */
-            estado: "ok" | "omitido";
+            /**
+             * @description ok: hay tarjetas en lista. sin_gpu: el servidor respondió y no tiene tarjeta. omitido: no hubo lectura de la GPU (no se puede afirmar nada)
+             * @enum {string}
+             */
+            estado: "ok" | "sin_gpu" | "omitido";
             lista: components["schemas"]["GPUTablero"][] | null;
         };
         GuardiaFueraDeHorario: {
@@ -38101,7 +38108,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaActivarMotor"];
+            };
+        };
         responses: {
             /** @description OK */
             200: {

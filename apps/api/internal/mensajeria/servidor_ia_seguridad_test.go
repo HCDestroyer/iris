@@ -111,12 +111,12 @@ func TestServidorIAPermisosYAuditoria(t *testing.T) {
 	}
 
 	// M1: sin el permiso, 403 (no 404) en activar, rotar y probar.
-	for _, ruta := range []string{"/activar", "/rotar-token", "/probar"} {
-		x.exigir(x.api(x.supervisor, http.MethodPost, x.ruta(ruta), map[string]any{}), http.StatusForbidden)
+	for ruta, cuerpo := range map[string]any{"/activar": map[string]any{"huellaTls": x.banco.Huella}, "/rotar-token": map[string]any{}, "/probar": nil} {
+		x.exigir(x.api(x.supervisor, http.MethodPost, x.ruta(ruta), cuerpo), http.StatusForbidden)
 	}
 	// M1: una sesión de autologin sin re-autenticar no activa, y no sale ni una petición al servidor.
 	antes := len(x.banco.Rutas())
-	if _, err := k.Activar.Ejecutar(x.sso(false), x.motor); problemaDe(err) != "reautenticacion_requerida" {
+	if _, err := k.Activar.Ejecutar(x.sso(false), mensajeria.EntradaActivarMotor{ID: x.motor, HuellaTLS: x.banco.Huella}); problemaDe(err) != "reautenticacion_requerida" {
 		t.Fatalf("activar con autologin sin re-autenticar: %s", problemaDe(err))
 	}
 	if n := len(x.banco.Rutas()); n != antes {
@@ -234,6 +234,12 @@ func TestServidorIARotacionAMediasYConcurrente(t *testing.T) {
 	for _, revocar := range []bool{false, true} {
 		if err := x.m.RotacionAMedias(x.ctx, x.bd, x.motor, revocar); err != nil {
 			t.Fatal(err)
+		}
+		// Lo que garantiza el servidor: aplica la credencial entera o no la aplica. Con convivencia la
+		// llave anterior sigue valiendo (24 h) aunque ya esté aplicada la nueva; con «Revocar ahora»
+		// deja de valer en el acto y lo que vale es lo que Iris guardó antes de entregar.
+		if err := x.generar(); (err == nil) == revocar {
+			t.Fatalf("revocar=%v: con la rotación aplicada en el servidor, la llave vigente de Iris: %v", revocar, err)
 		}
 		pasar()
 		x.exigir(x.api(x.admin, http.MethodPost, x.ruta("/rotar-token"), map[string]any{"revocar": revocar}), http.StatusOK)
@@ -416,5 +422,43 @@ func TestServidorIARotarClaveDeCifrado(t *testing.T) {
 		if _, err := vieja.Descifrar(y.columna(col), mensajeria.DatosAsociadosMotor(y.motor, col)); err == nil {
 			t.Fatalf("%s seguía cifrado con la clave vieja", col)
 		}
+	}
+}
+
+// «Activar» liga lo que el administrador comparó: si entre «Conectar» y «Activar» se enlazó otro
+// servidor, la huella ya no es la que vio y no se activa.
+func TestServidorIAActivarLigaLaHuella(t *testing.T) {
+	x := nuevoBancoIA(t, vozprueba.Opciones{})
+	x.enlazar() // el administrador ve y compara la huella del servidor A
+	a := x.banco
+	// Otra persona enlaza otro servidor (B) mientras tanto.
+	b := vozprueba.NuevoBanco(t, vozprueba.Opciones{Ahora: func() time.Time { return *x.reloj }})
+	r := x.exigir(x.api(x.admin, http.MethodPost, "/voz/motores/enlazar", map[string]any{"nombre": "Otro", "url": b.URL}), http.StatusCreated)
+	if id := int64(r.cuerpo["motor"].(map[string]any)["id"].(float64)); id != x.motor {
+		t.Fatalf("el servidor es uno por instalación: %d", id)
+	}
+	if err := b.Almacen.AbrirVentana(r.cuerpo["codigo"].(string), b.Ahora()); err != nil {
+		t.Fatal(err)
+	}
+	x.exigir(x.api(x.admin, http.MethodPost, x.ruta("/conectar"), nil), http.StatusOK, "huellaTls", b.Huella)
+	if a.Huella == b.Huella {
+		t.Fatal("los dos servidores debían tener huellas distintas")
+	}
+	// El primero activa con lo que comparó (A): 409, sin tocar ningún servidor.
+	enA, enB := len(a.Rutas()), len(b.Rutas())
+	activar := func(huella any) respuesta {
+		return x.api(x.admin, http.MethodPost, x.ruta("/activar"), map[string]any{"huellaTls": huella})
+	}
+	x.exigir(activar(a.Huella), http.StatusConflict, "type", "urn:iris:problema:huella_cambiada")
+	if len(a.Rutas()) != enA || len(b.Rutas()) != enB || x.columna("activado_en") != nil {
+		t.Fatal("con la huella cambiada no debía activarse ni llamarse a ningún servidor")
+	}
+	// Sin huella no se activa a ciegas.
+	x.exigir(x.api(x.admin, http.MethodPost, x.ruta("/activar"), map[string]any{}), http.StatusUnprocessableEntity)
+	x.exigir(activar(strings.Repeat("0", 64)), http.StatusConflict, "type", "urn:iris:problema:huella_cambiada")
+	// Con la huella que muestra ahora la tarjeta (B), sí.
+	x.exigir(activar(b.Huella), http.StatusOK, "activado", "true", "huellaTls", b.Huella)
+	if len(b.Rutas()) == enB || len(a.Rutas()) != enA {
+		t.Fatal("la activación debía ir al servidor B y solo a él")
 	}
 }

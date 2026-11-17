@@ -79,6 +79,22 @@ func TestServidorIATableroMuestrasYAvisos(t *testing.T) {
 	caliente := voz.GPU{Indice: 0, Nombre: "NVIDIA GeForce RTX 4090", UsoPct: pf(70), VRAMUsadaMb: pf(23000), VRAMTotalMb: pf(24000), TemperaturaC: pf(85), PotenciaW: pf(310)}
 	normal := voz.GPU{Indice: 0, Nombre: "NVIDIA GeForce RTX 4090", UsoPct: pf(20), VRAMUsadaMb: pf(9000), VRAMTotalMb: pf(24000), TemperaturaC: pf(55), PotenciaW: pf(120)}
 
+	// Con medidor y sin lectura todavía (el archivo no existe): «omitido» = no se puede afirmar nada.
+	// Con una lectura sin ninguna tarjeta: «sin_gpu».
+	if g := x.tablero("ahora")["servidor"].(map[string]any)["gpus"].(map[string]any); g["estado"] != "omitido" {
+		t.Fatalf("GPU sin lectura: %v", g)
+	}
+	*x.reloj = x.reloj.Add(10 * time.Second)
+	vacia, _ := json.Marshal(voz.LecturaGPU{TomadoEn: *x.reloj, GPUs: []voz.GPU{}})
+	if err := os.WriteFile(ruta, vacia, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	x.latir()
+	if g := x.tablero("ahora")["servidor"].(map[string]any)["gpus"].(map[string]any); g["estado"] != "sin_gpu" {
+		t.Fatalf("GPU con lectura y sin tarjetas: %v", g)
+	}
+	*x.reloj = x.reloj.Add(time.Minute) // fuera de la ventana de «durante 1 minuto»
+
 	// «Durante 1 minuto»: dos muestras por encima no bastan; con la tercera se abre el episodio, una
 	// sola vez, con su evento.
 	x.medir(ruta, caliente)
@@ -278,6 +294,7 @@ func TestServidorIAMetricasRevalidadas(t *testing.T) {
 		"modelo con nombre raro":        func(m *voz.Metricas) { m.Modelos[0].ID = "modelo a; rm -rf /" },
 		"peticiones en curso absurdas":  func(m *voz.Metricas) { m.LLM.EnCurso = 100000 },
 		"tiempo encendido negativo":     func(m *voz.Metricas) { m.EncendidoSeg = -1 },
+		"estado de GPU fuera de lista":  func(m *voz.Metricas) { m.GPUs.Estado = "raro" },
 	} {
 		mala := buena
 		mala.GPUs.Lista = append([]voz.GPU(nil), buena.GPUs.Lista...)

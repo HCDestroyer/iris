@@ -2,6 +2,7 @@ package mensajeria
 
 import (
 	"context"
+	"crypto/subtle"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -302,8 +303,16 @@ func nuevoGuardarCredencial(m *Modulo, accion string) *auditoria.Caso[credencial
 	})
 }
 
-// Ejecutar activa el servidor.
-func (a *ActivarMotor) Ejecutar(ctx context.Context, id int64) (MotorIA, error) {
+// EntradaActivarMotor es POST /voz/motores/{id}/activar.
+type EntradaActivarMotor struct {
+	ID        int64  `json:"-"`
+	HuellaTLS string `json:"huellaTls" minLength:"16" maxLength:"128" doc:"La huella que el administrador comparó con la del instalador (la que devolvió «Conectar»). Si el servidor enlazado ya no es ese, 409 huella_cambiada"`
+}
+
+// Ejecutar activa el servidor. La huella de la entrada liga la activación a lo que el administrador
+// comparó: si entre «Conectar» y «Activar» alguien enlazó otro servidor, no se activa a ciegas.
+func (a *ActivarMotor) Ejecutar(ctx context.Context, in EntradaActivarMotor) (MotorIA, error) {
+	id := in.ID
 	c, err := a.k.admin.Ejecutar(ctx, id)
 	if err != nil {
 		return MotorIA{}, err
@@ -312,6 +321,9 @@ func (a *ActivarMotor) Ejecutar(ctx context.Context, id int64) (MotorIA, error) 
 	switch {
 	case f.EnlazadoEn == nil || len(c.token) != voz.LargoToken:
 		return MotorIA{}, reglaMotor(http.StatusConflict, "motor_sin_enlazar", "Primero hay que enlazar el servidor con el código y «Conectar»")
+	case f.HuellaTls == nil || subtle.ConstantTimeCompare([]byte(*f.HuellaTls), []byte(in.HuellaTLS)) != 1:
+		return MotorIA{}, reglaMotor(http.StatusConflict, "huella_cambiada",
+			"El servidor enlazado ya no es el que comparaste: revisa la huella que muestra ahora la tarjeta y vuelve a compararla con la del instalador")
 	case f.ActivadoEn != nil && f.Estado != MotorDesactivado:
 		return aMotorIA(f, 0), nil
 	case f.ActivadoEn == nil && a.m.ahora().Sub(*f.EnlazadoEn) > vidaEnlaceSinActivar:

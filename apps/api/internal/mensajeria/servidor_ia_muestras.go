@@ -38,6 +38,14 @@ func muestraDe(mt voz.Metricas) (muestraGuardada, mensajeriabd.InsertarMuestraIA
 	var p mensajeriabd.InsertarMuestraIAParams
 	g := muestraGuardada{EncendidoSeg: mt.EncendidoSeg, Servidor: ServidorTablero{GPUs: GPUsTablero{Estado: "omitido", Lista: []GPUTablero{}}, Modelos: []ModeloTablero{}}}
 	megas := func(v int64) bool { return v >= 0 && v <= 1<<32 }
+	switch mt.GPUs.Estado {
+	case "", voz.EstadoOmitido:
+	case voz.EstadoSinGPU:
+		// El servidor respondió y dice que no tiene tarjeta (si aun así manda alguna, mandan las tarjetas).
+		g.Servidor.GPUs.Estado = "sin_gpu"
+	default:
+		return g, p, false
+	}
 	if mt.EncendidoSeg < 0 || mt.EncendidoSeg > 100*365*86400 || len(mt.GPUs.Lista) > 64 || len(mt.Modelos) > 256 ||
 		mt.CPU.Nucleos < 0 || mt.CPU.Nucleos > 4096 || !enRango(mt.CPU.UsoPct, 0, 100) ||
 		!megas(mt.Memoria.UsadoMb) || !megas(mt.Memoria.TotalMb) || mt.Memoria.UsadoMb > mt.Memoria.TotalMb ||

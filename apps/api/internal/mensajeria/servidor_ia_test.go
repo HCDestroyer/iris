@@ -90,7 +90,8 @@ func (x *bancoIA) enlazar() respuesta {
 
 func (x *bancoIA) activar() respuesta {
 	x.t.Helper()
-	return x.exigir(x.api(x.admin, http.MethodPost, x.ruta("/activar"), nil), http.StatusOK)
+	// La huella que el administrador comparó con la del instalador.
+	return x.exigir(x.api(x.admin, http.MethodPost, x.ruta("/activar"), map[string]any{"huellaTls": x.banco.Huella}), http.StatusOK)
 }
 
 func (x *bancoIA) latir() {
@@ -238,6 +239,10 @@ func TestServidorIAEnlazarActivarYUsar(t *testing.T) {
 	est := tab.cuerpo["estado"].(map[string]any)
 	if est["estado"] != "listo" || est["lecturaOk"] != true || est["empresasActivas"] != float64(1) || len(tab.cuerpo["uso"].(map[string]any)["empresas"].([]any)) != 1 {
 		t.Fatalf("tablero: %v", tab.cuerpo)
+	}
+	// Instalado sin GPU: el servidor respondió y no tiene tarjeta (no es «sin lectura»).
+	if g := tab.cuerpo["servidor"].(map[string]any)["gpus"].(map[string]any); g["estado"] != "sin_gpu" || len(g["lista"].([]any)) != 0 {
+		t.Fatalf("GPU de un servidor sin tarjeta: %v", g)
 	}
 	x.exigir(x.api(x.agente, http.MethodGet, "/servidor-ia/tablero", nil), http.StatusNotFound)
 	um := x.exigir(x.api(x.admin, http.MethodGet, "/servidor-ia/umbrales", nil), http.StatusOK, "vramPct", "95", "saturacionRechazos", "10")

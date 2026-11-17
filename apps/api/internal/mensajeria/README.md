@@ -600,7 +600,7 @@ Un servidor dedicado con GPU, de la instalación, que el asistente de chat usa c
 - **Tarjeta** (`servidor_ia.ver` / `servidor_ia.administrar`, más `empresas.todas`):
   `GET /voz/motores`, `POST /voz/motores/enlazar` (código de un solo uso, guardado cifrado hasta
   enlazar o 15 min), `…/{id}/conectar` (el intercambio; el secreto inicial se deriva, no viaja),
-  `…/activar` (rota a un token aleatorio sin convivencia), `…/desactivar`, `…/probar`,
+  `…/activar` (con la `huellaTls` que comparó el admin: 409 `huella_cambiada` si ya no es esa; rota a un token aleatorio sin convivencia), `…/desactivar`, `…/probar`,
   `…/rotar-token` (`revocar: true` = sin convivencia y certificado de cliente nuevo; lo nuevo se
   guarda como «siguiente» antes de entregarlo y una rotación a medias se termina sola; una a la
   vez: 409 `rotacion_en_curso`),

@@ -95,7 +95,7 @@ type GPUTablero struct {
 
 // GPUsTablero: siempre un objeto.
 type GPUsTablero struct {
-	Estado string       `json:"estado" enum:"ok,omitido"`
+	Estado string       `json:"estado" enum:"ok,sin_gpu,omitido" doc:"ok: hay tarjetas en lista. sin_gpu: el servidor respondió y no tiene tarjeta. omitido: no hubo lectura de la GPU (no se puede afirmar nada)"`
 	Lista  []GPUTablero `json:"lista"`
 }
 
