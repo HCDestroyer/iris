@@ -1,6 +1,7 @@
 package mensajeria
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -45,6 +46,9 @@ func (e EntradaMeta) MarshalJSON() ([]byte, error) {
 // MetaRecibido es la respuesta (200).
 type MetaRecibido struct {
 	Duplicado bool `json:"duplicado"`
+	// llamada: el webhook trae un connect de una llamada; se procesa además en línea (§3.3 de voz.md).
+	llamada  bool
+	entrante int64
 }
 
 // EntradaVerificarMeta es el GET de verificación.
@@ -106,7 +110,10 @@ func nuevoRecibirMeta(m *Modulo) *auditoria.Caso[EntradaMeta, MetaRecibido] {
 			if err != nil || !nuevo {
 				return MetaRecibido{Duplicado: !nuevo}, err
 			}
-			return MetaRecibido{}, m.encolar(ctx, t.Tx, ArgsProcesarEntrante{EntranteID: id})
+			// Un connect de una llamada tiene plazo de segundos: además del job, se procesa en la misma
+			// petición (el mismo caso de uso, idempotente por el call_id).
+			conLlamada := bytes.Contains(in.Cuerpo, []byte(`"calls"`)) && bytes.Contains(in.Cuerpo, []byte(`"connect"`))
+			return MetaRecibido{llamada: conLlamada, entrante: id}, m.encolar(ctx, t.Tx, ArgsProcesarEntrante{EntranteID: id})
 		},
 	})
 }
@@ -269,6 +276,11 @@ func nuevoProcesarMeta(m *Modulo) *auditoria.Caso[int64, struct{}] {
 					for _, c := range ch.Value.Contacts {
 						perfiles[c.WaID] = c.Profile.Name
 					}
+					for _, ll := range ch.Value.Calls {
+						if err := m.recibirEventoLlamada(ctx, t, fila, ll, perfiles["+"+strings.TrimPrefix(ll.From, "+")]+perfiles[strings.TrimPrefix(ll.From, "+")], ahora); err != nil {
+							return struct{}{}, err
+						}
+					}
 					for _, msg := range ch.Value.Messages {
 						// La baja primero: así el mensaje ya llega con el número dado de baja (sin
 						// respuestas automáticas a quien pide no recibir mensajes).
@@ -414,4 +426,21 @@ func (m *Modulo) calidadDelNumero(ctx context.Context, t *auditoria.Tx, q *mensa
 		return err
 	}
 	return t.Emitir("canal_mensajeria.calidad", map[string]any{"canal_id": canal, "evento": evento, "pausado_hasta": hasta})
+}
+
+// RecibirWebhookMeta guarda el webhook y, si trae el connect de una llamada, lo procesa en la misma
+// petición (excepción documentada a «se procesa en un job», contratos/voz.md §3.3): Meta deja sonar
+// 30–60 s y una llamada que espera a la cola de jobs se pierde. Es el mismo caso de uso que corre el
+// job (mensajeria.procesar_webhook), idempotente; si aquí falla, la respuesta es 200 igual (ya está
+// guardado) y el job lo reintenta.
+func (m *Modulo) RecibirWebhookMeta(ctx context.Context, in EntradaMeta) (MetaRecibido, error) {
+	r, err := m.RecibirMeta.Ejecutar(ctx, in)
+	if err != nil || !r.llamada || r.Duplicado {
+		return r, err
+	}
+	bd := nucleo.BDDe(ctx)
+	if _, err := m.procesarMeta.Ejecutar(ctxSistema(context.WithoutCancel(ctx), bd), r.entrante); err != nil {
+		slog.WarnContext(ctx, "voz: el connect no se pudo procesar en línea; lo reintenta el job", "entrante_id", r.entrante, "err", err)
+	}
+	return r, nil
 }

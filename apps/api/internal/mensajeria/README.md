@@ -528,3 +528,52 @@ Emite `conversacion.categorizada`, `categoria.creada`, `categoria.actualizada` y
 - Eventos: `orden.creada` (origen `asistente`), `orden.programada`, `conversacion.vinculo_creado` y
   `asistente.accion_ejecutada` (`ofrecer_visita`, `agendar_visita`).
 
+## Voz, etapa E1: llamadas de WhatsApp contestadas en el panel
+
+Contrato: `.claude/integration/contratos/voz.md`. Código en `voz_*.go`, consultas en `voz.sql`.
+
+- **Qué hace.** Una llamada entrante de WhatsApp (webhook `calls` de Meta) suena en el panel a
+  quienes atienden la cola, están disponibles y tienen «Recibir llamadas» encendido con el panel
+  abierto. Uno la reclama (reserva atómica de 12 s), el navegador negocia el audio **directo con
+  Meta** y el servidor solo pasa la señalización: `reclamar` → `contestar` (`pre_accept`) →
+  `confirmar-medio` (`accept`) → `colgar`. La llamada queda en la conversación como un mensaje de
+  tipo `llamada`, con su nota posterior.
+- **Dos fases con Meta.** Ninguna transacción espera a la Graph API: se guarda la intención
+  (`accion_meta` pendiente), se llama a Meta sin transacción (4 s) y se guarda el resultado. El
+  mantenimiento (job `mensajeria.mantenimiento_voz`, cada 5 s) da por fallida una llamada cuyo
+  `pre_accept` o `accept` quedó a medias, pero no llama a Meta: los `reject` y `terminate` que
+  decide, sus reintentos y los ajustes de número pendientes los hace el job `mensajeria.voz_meta`
+  (`SKIP LOCKED`). El resultado de un `pre_accept` o `accept` solo vale si la llamada sigue en manos
+  de quien tenía la reserva (`accion_meta_por`); con uno en vuelo, `soltar` y `reclamar` dan 409
+  `accion_en_curso`.
+- **Número prestado.** Una llamada que corresponde a la empresa prestataria no usa nada de la dueña
+  (cola, horario, candidatos, textos): no suena y queda `perdida` en la prestataria.
+- **El `connect` se procesa en línea** (`RecibirWebhookMeta`): es la excepción documentada a «los
+  webhooks se procesan en un job». Es el mismo caso de uso que corre el job, idempotente por el
+  `call_id`.
+- **Mantenimiento:** perdida al vencer `segundosSonando` (con devolución pendiente y, si la ventana
+  de 24 h está abierta, el mensaje automático, una vez por hora), reserva vencida, ampliar de la
+  persona asignada a toda la cola, duración máxima y panel caído (15 s sin flujo).
+- **Seguridad.** El SDP se valida antes de reenviarlo (`ValidarSDP`), nunca va a auditoría (solo su
+  sha256), eventos, feed ni idempotencia, y se borra al terminar. Los eventos de llamada no llevan
+  el número del cliente. El `call_id` de Meta y el token no
+  salen por la API. Solo un candidato vivo de esa llamada puede reclamarla; después solo quien la
+  reclamó sigue (los demás, 404). Llamadas solo en números por API.
+- **Graph API detrás de una interfaz** (`GraphLlamadas`): todo lo de la Calling API es un supuesto a
+  validar con un número de prueba; las pruebas usan un doble. Guion de la prueba manual:
+  `docs/runbooks/voz-prueba-manual.md`.
+- **Tablas:** `llamadas`, `llamada_tramos`, `llamada_candidatos`, `llamada_receptores`,
+  `llamada_devoluciones`, `llamada_grabaciones`, `voz_ajustes`, `voz_ajustes_canal`.
+- **Emite:** `llamada.entrante`, `llamada.contestada`, `llamada.terminada`, `llamada.perdida`,
+  `llamada.rechazada`, `llamada.fallida`, `llamada.anotada`, `llamada.devolucion_pedida`,
+  `llamada.devolucion_cerrada`, `canal_mensajeria.llamadas_cambiadas`, `voz.ajustes_cambiados` y
+  `conversacion.mensaje_recibido` con `tipo: llamada`. No consume eventos.
+- **Ajustes en WhatsApp:** encendido, icono, devolución y horario de llamadas (`call_hours`, espejo
+  del horario de Iris cuando cabe en los límites de Meta) se escriben como un pendiente con
+  reintentos (1 min, 5 min, 30 min, 2 h, 12 h; después `error`), con su estado en
+  `GET /canales/{id}/llamadas` y `POST …/llamadas/aplicar` para reintentar.
+- **Llamada perdida:** push a quien tiene la conversación y a quienes supervisan la cola (lo arma
+  `notificaciones` con el tipo `bandeja`). **Buzón de voz:** el audio que llega hasta 5 minutos
+  después de una llamada dejada al buzón se marca `buzonDeVoz`.
+- **Fuera de E1:** la grabación de Meta es **E1c** (no se ofrece ni se acepta: 422
+  `grabacion_no_disponible`; nunca se pide a Meta). Las salientes llegan con E1b.

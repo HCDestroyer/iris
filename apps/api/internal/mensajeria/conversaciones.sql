@@ -517,8 +517,9 @@ RETURNING *;
 -- Feed ------------------------------------------------------------------------------------------
 
 -- name: InsertarEventoConv :one
-INSERT INTO mensajeria.conv_eventos (empresa_id, conversacion_id, tipo, mensaje_id, usuario_id, ocurrido_en, sugerencia_id)
-VALUES (sqlc.narg('empresa_id'), @conversacion_id, @tipo, sqlc.narg('mensaje_id'), sqlc.narg('usuario_id'), @ocurrido_en, sqlc.narg('sugerencia_id'))
+INSERT INTO mensajeria.conv_eventos (empresa_id, conversacion_id, tipo, mensaje_id, usuario_id, ocurrido_en, sugerencia_id, llamada_id)
+VALUES (sqlc.narg('empresa_id'), @conversacion_id, @tipo, sqlc.narg('mensaje_id'), sqlc.narg('usuario_id'), @ocurrido_en, sqlc.narg('sugerencia_id'),
+    sqlc.narg('llamada_id'))
 RETURNING id;
 
 -- name: NotificarConv :exec

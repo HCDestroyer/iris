@@ -283,7 +283,9 @@ type MensajeConversacion struct {
 	ConversacionID int64             `json:"conversacionId"`
 	Seq            int64             `json:"seq"`
 	Direccion      string            `json:"direccion" enum:"entrante,saliente,nota,sistema"`
-	Tipo           string            `json:"tipo" enum:"texto,imagen,documento,audio,video,ubicacion,plantilla,contacto,sistema"`
+	Tipo           string            `json:"tipo" enum:"texto,imagen,documento,audio,video,ubicacion,plantilla,contacto,sistema,llamada"`
+	Llamada        *LlamadaEnMensaje `json:"llamada,omitempty" doc:"Con tipo llamada: la llamada de WhatsApp (contratos/voz.md §3.2)"`
+	BuzonDeVoz     bool              `json:"buzonDeVoz,omitempty" doc:"Un audio que es el recado del buzón de voz de una llamada fuera de horario"`
 	Texto          *string           `json:"texto" nullable:"true" doc:"Texto plano: nunca se interpreta como HTML"`
 	Adjunto        *AdjuntoMensaje   `json:"adjunto,omitempty"`
 	Ubicacion      *UbicacionChat    `json:"ubicacion,omitempty"`
@@ -907,9 +909,20 @@ func mensajesConv(ctx context.Context, q *mensajeriabd.Queries, filas []mensajer
 			estados[e.ID] = e
 		}
 	}
+	llamadas, err := llamadasDeMensajes(ctx, q, filas)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]MensajeConversacion, 0, len(filas))
 	for _, f := range filas {
-		out = append(out, aMensajeConv(f, nombres, estados))
+		x := aMensajeConv(f, nombres, estados)
+		x.BuzonDeVoz = f.BuzonDeVoz
+		if id := uuidDe(f.LlamadaID); id != nil {
+			if l, ok := llamadas[*id]; ok {
+				x.Llamada = &l
+			}
+		}
+		out = append(out, x)
 	}
 	return out, nil
 }

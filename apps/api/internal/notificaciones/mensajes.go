@@ -234,8 +234,9 @@ func (m *Modulo) armarBandeja(ctx context.Context, t *auditoria.Tx, d destinatar
 	if err != nil {
 		return contenidoPush{}, "", err
 	}
-	// Ya la tomó alguien o se resolvió: no hace falta preguntar.
-	if cv.AsignadoA != nil || cv.Estado == "resuelta" {
+	// Ya la tomó alguien o se resolvió: no hace falta preguntar. Una llamada perdida sí se avisa
+	// aunque la conversación tenga dueño (es a quien más le importa).
+	if datos["llamada_perdida"] != true && (cv.AsignadoA != nil || cv.Estado == "resuelta") {
 		return contenidoPush{}, OmitidoNoAplica, nil
 	}
 	if !mismoID(cv.EmpresaID, d.disp.EmpresaID) {
@@ -256,6 +257,9 @@ func (m *Modulo) armarBandeja(ctx context.Context, t *auditoria.Tx, d destinatar
 	c := contenidoPush{tipo: TipoBandeja, titulo: "¿Alguien la atiende?", cuerpo: "Cliente esperando en " + cola, ocurrido: env.CreatedAt,
 		grupo: fmt.Sprintf("conversacion-%d", cv.ID), etiqueta: fmt.Sprintf("conversacion-%d", cv.ID),
 		enlace: fmt.Sprintf("iris://conversaciones/%d", cv.ID), acciones: []string{"ver"}}
+	if datos["llamada_perdida"] == true {
+		c.titulo, c.cuerpo = "Llamada perdida", "Nadie contestó una llamada en "+cola
+	}
 	var contacto any
 	if d.pref.Contenido == ContenidoCompleto && cv.ContactoNombre != "" {
 		contacto = cv.ContactoNombre

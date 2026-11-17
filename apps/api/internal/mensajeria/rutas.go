@@ -32,8 +32,14 @@ func IdempotenciaPropia(r *http.Request) bool {
 		return false
 	}
 	return r.URL.Path == Prefijo+"/avisos" || r.URL.Path == Prefijo+"/consentimientos" || rutaChatPropia.MatchString(r.URL.Path) ||
-		rutaConvPropia.MatchString(r.URL.Path) || rutaAsistentePropia.MatchString(r.URL.Path) || rutaBoletaPropia.MatchString(r.URL.Path)
+		rutaConvPropia.MatchString(r.URL.Path) || rutaAsistentePropia.MatchString(r.URL.Path) || rutaBoletaPropia.MatchString(r.URL.Path) ||
+		rutaReclamarLlamada.MatchString(r.URL.Path)
 }
+
+// rutaReclamarLlamada: reclamar una llamada es idempotente por naturaleza (quien ya la tiene recibe
+// otra vez la oferta, releída de la llamada) y su respuesta lleva el SDP, que nunca se guarda en la
+// idempotencia (contratos/voz.md §3.3).
+var rutaReclamarLlamada = regexp.MustCompile(`^` + regexp.QuoteMeta(Prefijo) + `/llamadas/[0-9a-fA-F-]{36}/reclamar$`)
 
 // rutaBoletaPropia: aprobar y rechazar una boleta son idempotentes por naturaleza: la clave hacia
 // Argos sale del comprobante (iris:aprobar:<id>), no de la Idempotency-Key del panel, y repetir la
@@ -240,7 +246,7 @@ func (m *Modulo) Registrar(api huma.API) {
 		"Firmado con el app secret del canal (`X-Hub-Signature-256: sha256=<hex>`; 401 `firma_invalida`, sin auditar). Se guarda deduplicado y se procesa en un job."
 	huma.Register(api, webhook, func(ctx context.Context, in *entradaMetaHTTP) (*cuerpo[MetaRecibido], error) {
 		ctx = contexto.ConCanal(ctx, contexto.CanalWebhook)
-		return responder(m.RecibirMeta.Ejecutar(ctx, EntradaMeta{CanalID: in.ID, Firma: in.Firma, Cuerpo: in.RawBody}))
+		return responder(m.RecibirWebhookMeta(ctx, EntradaMeta{CanalID: in.ID, Firma: in.Firma, Cuerpo: in.RawBody}))
 	})
 	verif := op("verificarWebhookMeta", http.MethodGet, "/canales/{id}/webhook", "Verificación de la suscripción del webhook de Meta", "",
 		http.StatusOK, http.StatusForbidden)

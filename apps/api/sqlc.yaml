@@ -191,6 +191,7 @@ sql:
       - internal/mensajeria/boletas.sql
       - internal/mensajeria/asistente3.sql
       - internal/mensajeria/asistente_auto.sql
+      - internal/mensajeria/voz.sql
     gen:
       go:
         <<: *gen

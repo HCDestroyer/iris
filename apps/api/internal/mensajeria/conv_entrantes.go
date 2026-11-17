@@ -207,6 +207,19 @@ func (m *Modulo) recibirMensaje(ctx context.Context, t *auditoria.Tx, canal mens
 			return err
 		}
 	}
+	// Buzón de voz (contratos/voz.md §3.6): Meta entrega el recado como un audio normal. Se marca el
+	// audio que llega poco después de una llamada que se dejó al buzón (supuesto §10.1-9).
+	if f.Tipo == "audio" {
+		buzon, err := q.LlamadaAlBuzonReciente(ctx, mensajeriabd.LlamadaAlBuzonRecienteParams{ConversacionID: &c.ID, Desde: cuando.Add(-VentanaBuzon), Hasta: cuando})
+		if err != nil {
+			return err
+		}
+		if buzon {
+			if err := q.MarcarBuzonDeVoz(ctx, f.ID); err != nil {
+				return err
+			}
+		}
+	}
 	// Horario, bot y fuera de horario son de la dueña del número: no se aplican a las
 	// conversaciones de otra empresa (§15.3).
 	if m.alRecibir != nil && empresa == derefEmpresa(canal.EmpresaID) {

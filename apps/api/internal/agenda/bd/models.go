@@ -1461,6 +1461,7 @@ type MensajeriaConvEvento struct {
 	OcurridoEn     time.Time
 	CreatedAt      time.Time
 	SugerenciaID   *uuid.UUID
+	LlamadaID      *uuid.UUID
 }
 
 type MensajeriaConversacionEtiqueta struct {
@@ -1510,6 +1511,8 @@ type MensajeriaConversacionMensaje struct {
 	Automatico        *string
 	Origen            *string
 	ConSaldo          bool
+	LlamadaID         *uuid.UUID
+	BuzonDeVoz        bool
 }
 
 type MensajeriaConversacionParticipante struct {
@@ -1632,6 +1635,114 @@ type MensajeriaHorario struct {
 	UpdatedAt time.Time
 }
 
+type MensajeriaLlamada struct {
+	ID               uuid.UUID
+	EmpresaID        *int64
+	Origen           string
+	CanalID          *int64
+	ConversacionID   *int64
+	MensajeID        *uuid.UUID
+	IDExterno        string
+	Direccion        string
+	Numero           string
+	ClienteID        *int64
+	ServicioID       *int64
+	ColaID           *int64
+	Estado           string
+	AtendidaPor      *string
+	UsuarioID        *int64
+	ReclamadaPor     *int64
+	ReclamadaHasta   *time.Time
+	MotivoFin        *string
+	SonoEn           time.Time
+	SuenaHasta       time.Time
+	ContestadaEn     *time.Time
+	TerminadaEn      *time.Time
+	DuracionSeg      *int32
+	Nota             *string
+	Resultado        *string
+	Grabada          bool
+	SdpOferta        *string
+	AccionMeta       *string
+	AccionMetaEstado *string
+	AccionMetaEn     *time.Time
+	PreAceptadaEn    *time.Time
+	AvisoPerdida     bool
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	AccionMetaPor    *int64
+}
+
+type MensajeriaLlamadaCandidato struct {
+	LlamadaID    uuid.UUID
+	EmpresaID    *int64
+	UsuarioID    int64
+	Desde        time.Time
+	RetiradoEn   *time.Time
+	MotivoRetiro *string
+	Sueltas      int32
+}
+
+type MensajeriaLlamadaDevolucione struct {
+	ID                int64
+	EmpresaID         *int64
+	ConversacionID    int64
+	LlamadaID         uuid.UUID
+	PedidaPor         string
+	Estado            string
+	AtendidaPor       *int64
+	LlamadaDevueltaID *uuid.UUID
+	Motivo            *string
+	VenceEn           time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type MensajeriaLlamadaGrabacione struct {
+	ID            int64
+	LlamadaID     uuid.UUID
+	EmpresaID     *int64
+	Origen        string
+	AdjuntoID     *uuid.UUID
+	DuracionSeg   *int32
+	Sha256        *string
+	Estado        string
+	UrlDescarga   *string
+	VenceEn       *time.Time
+	BorradaEn     *time.Time
+	BorradaPor    *int64
+	MotivoBorrado *string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type MensajeriaLlamadaReceptore struct {
+	ID        int64
+	EmpresaID *int64
+	UsuarioID int64
+	Navegador string
+	Recibe    bool
+	VistoEn   time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type MensajeriaLlamadaTramo struct {
+	ID          int64
+	LlamadaID   uuid.UUID
+	EmpresaID   *int64
+	Orden       int32
+	Tipo        string
+	UsuarioID   *int64
+	MotorID     *int64
+	Inicio      time.Time
+	Fin         *time.Time
+	DuracionSeg *int32
+	MotivoFin   *string
+	Turnos      *int32
+	Puente      bool
+}
+
 type MensajeriaManualEnlace struct {
 	HashToken      []byte
 	ID             int64
@@ -1745,6 +1856,42 @@ type MensajeriaSugerencia struct {
 	GeneradaEn       *time.Time
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+}
+
+type MensajeriaVozAjuste struct {
+	ID                       int64
+	EmpresaID                *int64
+	Grabar                   string
+	DuracionMaxPersonaMin    int32
+	SegundosAsignado         int32
+	RetencionGrabacionesDias int32
+	Version                  int32
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+}
+
+type MensajeriaVozAjustesCanal struct {
+	CanalID             int64
+	EmpresaID           *int64
+	LlamadasActivas     bool
+	Requisitos          []byte
+	ColaID              *int64
+	HorarioID           *int64
+	SegundosSonando     int32
+	FueraDeHorario      string
+	IconoVisible        bool
+	Devolucion          bool
+	HorasMeta           []byte
+	MensajePerdida      bool
+	MensajePerdidaTexto string
+	SincronizadoEn      *time.Time
+	Version             int32
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	MetaEstado          string
+	MetaIntentos        int32
+	MetaProximoEn       *time.Time
+	MetaDetalle         *string
 }
 
 type MensajeriaWebhooksSalida struct {

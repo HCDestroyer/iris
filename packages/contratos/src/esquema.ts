@@ -2129,6 +2129,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/canales/{id}/llamadas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ajustes de llamadas de un número
+         * @description Permiso: `llamadas.configurar`. Sin configurar: los de fábrica con `version: 0`. `disponible: false` en un número por QR. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        get: operations["verLlamadasCanal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/canales/{id}/llamadas/aplicar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reintentar ahora la escritura de los ajustes en WhatsApp
+         * @description Permiso: `llamadas.configurar`. Los ajustes del número (encendido, icono, devolución y horario de llamadas) se escriben en WhatsApp como un pendiente con reintentos (1 min, 5 min, 30 min, 2 h, 12 h). `whatsapp.estado` dice cómo va: `aplicado`, `pendiente` o `error`. Este endpoint lo intenta ya, también desde `error`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        post: operations["reintentarLlamadasCanalEnWhatsApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/canales/{id}/llamadas/comprobar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Comprobar los requisitos de WhatsApp para tener llamadas
+         * @description Permiso: `llamadas.configurar`. Pregunta a WhatsApp y guarda el resultado en `requisitos` (`conexion_api`, `limite_mensajeria`, `webhook_calls`, `calling_habilitado` y, como aviso, `plantilla_permiso`). Nunca el mensaje crudo de Meta. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        post: operations["comprobarLlamadasCanal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/canales/{id}/llamadas/configurar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Configurar las llamadas de un número
+         * @description Permiso: `llamadas.configurar`. 422 `llamadas_no_disponibles_qr` al encender en un número por QR; 422 `requisitos_sin_cumplir` (con `errors[]` por requisito) si la última comprobación no cumple; 422 `asistente_voz_no_disponible` con `fueraDeHorario: asistente` (llega en otra etapa). Emite `canal_mensajeria.llamadas_cambiadas`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        post: operations["configurarLlamadasCanal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/canales/{id}/llamadas/sincronizar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Traer de WhatsApp los ajustes de llamadas del número
+         * @description Permiso: `llamadas.configurar`. Como `comprobar` y además copia a Iris el icono de llamada y la devolución que tiene el número en WhatsApp. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        post: operations["sincronizarLlamadasCanal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/canales/{id}/prestamo/configurar": {
         parameters: {
             query?: never;
@@ -3521,6 +3621,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/conversaciones/{id}/llamadas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Llamadas de una conversación
+         * @description Permiso: `llamadas.ver`.  Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        get: operations["listarLlamadasDeConversacion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/conversaciones/{id}/manual-enlaces": {
         parameters: {
             query?: never;
@@ -4013,6 +4133,306 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/llamadas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Llamadas de las conversaciones que ves
+         * @description Permiso: `llamadas.ver`. De la más nueva a la más vieja, con cursor. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        get: operations["listarLlamadas"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/llamadas/activa": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * La llamada que tienes ahora
+         * @description Permiso: `llamadas.ver`. La que reclamaste o tienes en curso, o 204 si no tienes ninguna. El audio no se puede retomar desde otra pestaña. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        get: operations["llamadaActiva"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/llamadas/devoluciones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Llamadas por devolver
+         * @description Permiso: `llamadas.ver`. Una pendiente por conversación; la crea una llamada perdida y vence a las 72 h. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        get: operations["listarDevolucionesLlamada"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/llamadas/devoluciones/{id}/descartar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cerrar una devolución sin llamar
+         * @description Permiso: `llamadas.descartar_devolucion`. 409 `devolucion_cerrada` si ya no está pendiente. Emite `llamada.devolucion_cerrada`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        post: operations["descartarDevolucionLlamada"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/llamadas/recibir": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * ¿Este navegador recibe llamadas?
+         * @description Permiso: `llamadas.contestar`. `recibe`: el interruptor de este navegador; `vivo`: hay un flujo de eventos abierto con latido reciente (sin él no suena nada). Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        get: operations["verRecibirLlamadas"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/llamadas/recibir/apagar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apagar «Recibir llamadas» en este navegador
+         * @description Permiso: `llamadas.contestar`. Un interruptor por usuario y navegador (`navegador`: un id que el panel genera y guarda). El panel pide el micrófono al encenderlo. Solo le suena a quien lo tiene encendido, está disponible y tiene abierto el flujo `GET /conversaciones/eventos`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        post: operations["apagarRecibirLlamadas"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/llamadas/recibir/encender": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Encender «Recibir llamadas» en este navegador
+         * @description Permiso: `llamadas.contestar`. Un interruptor por usuario y navegador (`navegador`: un id que el panel genera y guarda). El panel pide el micrófono al encenderlo. Solo le suena a quien lo tiene encendido, está disponible y tiene abierto el flujo `GET /conversaciones/eventos`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        post: operations["encenderRecibirLlamadas"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/llamadas/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ver una llamada
+         * @description Permiso: `llamadas.ver`. Nunca trae el SDP, el id de la llamada en Meta ni el token. `puede` lo calcula el servidor para ti. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        get: operations["verLlamada"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/llamadas/{id}/anotar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Nota y resultado de una llamada
+         * @description Permiso: `llamadas.anotar`. Quien la atendió o quien supervisa. La nota también queda en el hilo como nota interna. Emite `llamada.anotada` (sin la nota). Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        post: operations["anotarLlamada"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/llamadas/{id}/colgar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Colgar
+         * @description Permiso: `llamadas.colgar`. Quien la tiene, o quien supervisa. 409 `llamada_terminada` si ya terminó. Emite `llamada.terminada`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        post: operations["colgarLlamada"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/llamadas/{id}/confirmar-medio": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirmar que el audio conectó
+         * @description Permiso: `llamadas.contestar`. Cuando el `RTCPeerConnection` está `connected`. El servidor manda `accept` y la llamada pasa a `en_curso` (`llamada.contestada`). 409 `reserva_vencida` pasados 5 s desde `contestar`; 502 `meta_rechazo` (la llamada queda `fallida`). Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        post: operations["confirmarMedioLlamada"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/llamadas/{id}/contestar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Contestar: mandar la respuesta SDP
+         * @description Permiso: `llamadas.contestar`. Solo quien la reclamó (cualquier otro, 404). El servidor valida el SDP (422 `sdp_invalido`: una sola sección de audio, solo Opus y telephone-event, sin candidatos a redes internas, máximo 8 KB) y lo manda a WhatsApp (`pre_accept`). Después tienes 5 s para `confirmar-medio`. 409 `reserva_vencida` si se pasó el tiempo; 502 `meta_rechazo` si WhatsApp no lo aceptó (la llamada vuelve a sonar). Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        post: operations["contestarLlamada"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/llamadas/{id}/rechazar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rechazar una llamada que suena
+         * @description Permiso: `llamadas.rechazar`. Por defecto solo deja de sonarte a ti. Con `paraTodos: true` (quien supervisa) la rechaza en WhatsApp y queda `rechazada`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        post: operations["rechazarLlamada"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/llamadas/{id}/reclamar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reclamar una llamada que suena
+         * @description Permiso: `llamadas.contestar`. Atómico: gana uno solo. Responde `{ llamada, sdpOferta, ice, venceEn }`: aplica `sdpOferta` a un `RTCPeerConnection` y manda `contestar` antes de `venceEn` (12 s). Solo un candidato de **esa** llamada puede reclamarla (si no, 404). 409 `llamada_ya_contestada` si otro se adelantó o ya no suena (`errors[0].rule = misma_persona` si fuiste tú en otra pestaña: solo cierra el aviso). 422 `no_recibe_llamadas` sin «Recibir llamadas» o sin el flujo de eventos abierto. La respuesta no se guarda por `Idempotency-Key` (lleva el SDP): repetir, mientras dure la reserva, devuelve la misma, releída de la llamada. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        post: operations["reclamarLlamada"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/llamadas/{id}/soltar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Soltar la llamada que reclamaste
+         * @description Permiso: `llamadas.contestar`. Algo falló antes de contestar (micrófono, medio): vuelve a sonar a los demás. A la segunda vez dejas de recibir esa llamada. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        post: operations["soltarLlamada"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/manual-enlaces/{id}/revocar": {
         parameters: {
             query?: never;
@@ -4339,6 +4759,46 @@ export interface paths {
          * @description Permiso: `conversaciones.sugerencias`. Solo desde `lista` (422 `sugerencia_no_vigente`); repetir sobre `usada` es 200. No envía nada: lo envía la persona.
          */
         post: operations["usarSugerencia"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/voz/ajustes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ajustes de voz de la empresa
+         * @description Permiso: `voz.configurar`. E1: duración máxima de una llamada y cuánto suena primero a quien tiene la conversación. `grabar` es siempre `nunca`: la grabación todavía no está disponible. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        get: operations["verAjustesVoz"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/voz/ajustes/actualizar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Guardar los ajustes de voz de la empresa
+         * @description Permiso: `voz.configurar`. `version` la que leíste (0 la primera vez): distinta, 409. `grabar` distinto de `nunca`: 422 `grabacion_no_disponible`. Emite `voz.ajustes_cambiados`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        post: operations["actualizarAjustesVoz"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7592,6 +8052,28 @@ export interface components {
             modoAutonomo?: "nunca" | "sin_nadie" | "siempre_primero";
             perfil?: components["schemas"]["PerfilPrueba"];
         };
+        AjustesVoz: {
+            /**
+             * Format: int32
+             * @description Una llamada contestada por una persona se corta a estos minutos (10–120)
+             */
+            duracionMaxPersonaMin: number;
+            /**
+             * @description Siempre nunca: la grabación de llamadas todavía no está disponible
+             * @enum {string}
+             */
+            grabar: "nunca";
+            /**
+             * Format: int32
+             * @description Cuánto suena primero solo a quien tiene la conversación (0–20)
+             */
+            segundosAsignado: number;
+            /**
+             * Format: int32
+             * @description 0 si nunca se guardaron (valores de fábrica)
+             */
+            version: number;
+        };
         Alta: {
             /** Format: int64 */
             clienteArgosId: number | null;
@@ -8136,6 +8618,12 @@ export interface components {
              * @description Última verificación correcta de Meta (hub.challenge); null si no la hizo o cambió el verify token
              */
             webhookVerificadoEn: string | null;
+        };
+        CanalDeLlamada: {
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+            numero: string;
         };
         CanalRef: {
             /** Format: int64 */
@@ -8729,6 +9217,19 @@ export interface components {
             /** @description El número coincide con un teléfono del cliente en Argos (o lo confirmó un supervisor). Sin verificar: ni plantillas fuera de ventana, ni boletas, ni promesas */
             verificado: boolean;
         };
+        ContactoDeLlamada: {
+            /** Format: int64 */
+            clienteId?: number;
+            /** Format: int64 */
+            servicioId?: number;
+            /** @enum {string} */
+            tipo: "cliente" | "desconocido";
+            /**
+             * @description La de la conversación; una llamada no la cambia
+             * @enum {string}
+             */
+            verificacion?: "numero" | "fuerte";
+        };
         ContactoIris: {
             /**
              * Format: int64
@@ -9232,8 +9733,17 @@ export interface components {
              */
             usuario_id: number;
         };
+        CuerpoAnotar: {
+            nota: string;
+            /** @enum {string} */
+            resultado?: "resuelto" | "ticket_creado" | "devolver" | "equivocado" | "otro";
+        };
         CuerpoCalificar: {
             util: boolean;
+        };
+        CuerpoContestar: {
+            /** @description La respuesta SDP del RTCPeerConnection del navegador */
+            sdpRespuesta: string;
         };
         CuerpoEnviarMensaje: {
             /** @description Una foto registrada antes en POST /api/v1/adjuntos con entidad chat_conversacion y entidadId = la conversación (puede seguir subiéndose) */
@@ -9282,6 +9792,9 @@ export interface components {
             /** @description El último mensaje que viste; la lectura solo avanza */
             hasta_mensaje_id: string;
         };
+        CuerpoMotivo: {
+            motivo: string;
+        };
         CuerpoPedirSugerencia: {
             /** @description «Otra»: descarta la vigente y pide una nueva (origen otra) */
             otra?: boolean;
@@ -9307,6 +9820,15 @@ export interface components {
             seguridad: "starttls" | "tls" | "ninguna";
             /** @description Vacío = sin autenticación */
             usuario?: string;
+        };
+        CuerpoRechazar: {
+            motivo?: string;
+            /** @description Rechazarla para todos (solo quien supervisa): WhatsApp deja de sonar */
+            paraTodos?: boolean;
+        };
+        CuerpoSoltar: {
+            /** @description Por qué no se pudo contestar (p. ej. sin_microfono, medio_no_conecta) */
+            motivo?: string;
         };
         CuerpoVersion: {
             /** Format: int32 */
@@ -9387,6 +9909,21 @@ export interface components {
             ruta: string;
             /** @enum {string} */
             tipo: "ticket" | "orden" | "prospecto";
+        };
+        DevolucionLlamada: {
+            /** Format: int64 */
+            conversacionId: number;
+            /** Format: date-time */
+            creadaEn: string;
+            /** @enum {string} */
+            estado: "pendiente" | "hecha" | "descartada" | "vencida";
+            /** Format: int64 */
+            id: number;
+            llamadaId: string;
+            /** @enum {string} */
+            pedidaPor: "sistema" | "asistente" | "cliente";
+            /** Format: date-time */
+            venceEn: string;
         };
         DiaTickets: {
             /** Format: int64 */
@@ -9845,6 +10382,16 @@ export interface components {
         EntradaAjustesBandeja: {
             /** Format: int32 */
             minutosInactividad: number;
+            /** Format: int32 */
+            version: number;
+        };
+        EntradaAjustesVoz: {
+            /** Format: int32 */
+            duracionMaxPersonaMin: number;
+            /** @description Opcional. Solo se acepta nunca: cualquier otro valor, 422 grabacion_no_disponible */
+            grabar?: string;
+            /** Format: int32 */
+            segundosAsignado: number;
             /** Format: int32 */
             version: number;
         };
@@ -11241,6 +11788,22 @@ export interface components {
             /** @enum {string} */
             tipo: "plan" | "instalacion" | "equipo" | "descuento" | "otro";
         };
+        EntradaLlamadasCanal: {
+            /** Format: int64 */
+            colaId?: number;
+            devolucion: boolean;
+            /** @enum {string} */
+            fueraDeHorario: "rechazar_con_mensaje" | "buzon" | "asistente";
+            /** Format: int64 */
+            horarioId?: number;
+            iconoVisible: boolean;
+            llamadasActivas: boolean;
+            mensajePerdida: components["schemas"]["MensajePerdida"];
+            /** Format: int32 */
+            segundosSonando: number;
+            /** Format: int32 */
+            version: number;
+        };
         EntradaLote: {
             /** @description Cursor de cambios que tiene el teléfono (se devuelve igual) */
             cursor?: string;
@@ -11611,6 +12174,10 @@ export interface components {
             causa?: "no_aparece" | "monto_distinto" | "ilegible" | "falta_dato" | "duplicado" | "otro";
             /** @description Por qué se rechaza: queda en Argos y en la boleta. Al cliente se le dice un texto fijo según la causa; este motivo se agrega solo si no trae enlaces, dominios ni números largos */
             motivo: string;
+        };
+        EntradaRecibir: {
+            /** @description Id que el panel genera y guarda en este navegador */
+            navegador: string;
         };
         EntradaRecibirTraslado: {
             /**
@@ -12042,6 +12609,23 @@ export interface components {
             /** @description Saldo en texto decimal (numeric(14,2)) */
             saldo: string | null;
         };
+        EstadoEnWhatsApp: {
+            /** @description Texto llano, nunca el mensaje crudo de Meta */
+            detalle?: string;
+            /**
+             * @description pendiente: «pendiente de aplicar en WhatsApp»; error: se agotaron los reintentos
+             * @enum {string}
+             */
+            estado: "aplicado" | "pendiente" | "error";
+            /** Format: int32 */
+            intentos: number;
+            /** Format: date-time */
+            proximoIntentoEn?: string;
+        };
+        EstadoGrabacion: {
+            /** @enum {string} */
+            estado: "pendiente" | "disponible" | "fallida" | "borrada";
+        };
         EstadoHorario: {
             abierto: boolean;
             /** @description La franja abierta (con su perfil) */
@@ -12140,6 +12724,8 @@ export interface components {
             conversacionId: number;
             /** @description Cursor del feed (el id de SSE / Last-Event-ID) */
             id: string;
+            /** @description llamada_entrante (solo a quien le suena), llamada_actualizada, llamada_terminada y devolucion_actualizada: la llamada como la ves ahora, sin SDP */
+            llamada?: components["schemas"]["Llamada"];
             /** @description mensaje_nuevo, mensaje_actualizado, mencion y guardia (estado actual del mensaje) */
             mensaje?: components["schemas"]["MensajeConversacion"];
             /**
@@ -12152,7 +12738,7 @@ export interface components {
             /** @description sugerencia: la sugerencia del asistente como está ahora (§16.2) */
             sugerencia?: components["schemas"]["Sugerencia"];
             /** @enum {string} */
-            tipo: "mensaje_nuevo" | "mensaje_actualizado" | "conversacion_actualizada" | "mencion" | "guardia" | "aviso_sin_atender" | "sugerencia";
+            tipo: "mensaje_nuevo" | "mensaje_actualizado" | "conversacion_actualizada" | "mencion" | "guardia" | "aviso_sin_atender" | "sugerencia" | "llamada_entrante" | "llamada_actualizada" | "llamada_terminada" | "devolucion_actualizada";
         };
         EventoOrden: {
             a: string | null;
@@ -12351,6 +12937,11 @@ export interface components {
             /** @description Vacío = cerrado todo el día */
             franjas: components["schemas"]["FranjaHorario"][];
             nombre: string;
+        };
+        FeriadoMeta: {
+            abre: string;
+            cierra: string;
+            fecha: string;
         };
         Ficha: {
             cliente: components["schemas"]["ClienteResumen"];
@@ -12643,6 +13234,12 @@ export interface components {
             /** @description Perfil del asistente de IA en esta franja (§17.1): un código de perfil o solo_sugerir */
             perfil?: string | null;
         };
+        FranjaMeta: {
+            abre: string;
+            cierra: string;
+            /** Format: int64 */
+            dia: number;
+        };
         FuenteSugerencia: {
             /** @description Id del manual, del servicio o clave de Horus */
             entidadId: string | null;
@@ -12694,6 +13291,14 @@ export interface components {
             version: number;
             /** @description IANA, America/Guatemala por defecto */
             zona: string;
+        };
+        HorasMeta: {
+            feriados: components["schemas"]["FeriadoMeta"][] | null;
+            franjas: components["schemas"]["FranjaMeta"][] | null;
+            zona: string;
+        };
+        ICELlamada: {
+            servidores: string[] | null;
         };
         IPResuelta: {
             /** Format: int64 */
@@ -12928,6 +13533,118 @@ export interface components {
             data: components["schemas"]["ManualSugerido"][];
             nextCursor: string | null;
         };
+        Llamada: {
+            /** @enum {string} */
+            atendidaPor?: "persona" | "asistente";
+            canal?: components["schemas"]["CanalDeLlamada"];
+            cola?: components["schemas"]["ColaRef"];
+            contacto: components["schemas"]["ContactoDeLlamada"];
+            /** Format: date-time */
+            contestadaEn?: string;
+            /** Format: int64 */
+            conversacionId?: number;
+            devolucion?: components["schemas"]["DevolucionLlamada"];
+            /** @enum {string} */
+            direccion: "entrante" | "saliente";
+            /** Format: int32 */
+            duracionSeg?: number;
+            /** Format: int64 */
+            empresaId?: number;
+            /** @enum {string} */
+            estado: "sonando" | "marcando" | "conectando" | "en_curso" | "terminada" | "perdida" | "rechazada" | "fuera_de_horario" | "fallida";
+            grabacion?: components["schemas"]["EstadoGrabacion"];
+            id: string;
+            mensajeId?: string;
+            motivoFin?: string;
+            nota?: string;
+            numero: string;
+            /** @enum {string} */
+            origen: "whatsapp" | "centralita";
+            puede: components["schemas"]["PuedeLlamada"];
+            /** @enum {string} */
+            resultado?: "resuelto" | "ticket_creado" | "devolver" | "equivocado" | "otro";
+            /** Format: date-time */
+            sonoEn: string;
+            /**
+             * Format: date-time
+             * @description Mientras suena: cuándo se da por perdida
+             */
+            suenaHasta?: string;
+            /** Format: date-time */
+            terminadaEn?: string;
+            /** @description Nombre del contacto o, si no se conoce, el número */
+            titulo: string;
+            tramos: components["schemas"]["TramoLlamada"][] | null;
+            /** @description Quien la tiene, o quien la reclamó mientras se conecta */
+            usuario?: components["schemas"]["UsuarioRef"];
+        };
+        LlamadaEnMensaje: {
+            /** @enum {string} */
+            atendidaPor?: "persona" | "asistente";
+            /** @enum {string} */
+            direccion: "entrante" | "saliente";
+            /** Format: int32 */
+            duracionSeg?: number;
+            /** @enum {string} */
+            estado: "sonando" | "marcando" | "conectando" | "en_curso" | "terminada" | "perdida" | "rechazada" | "fuera_de_horario" | "fallida";
+            grabacion?: components["schemas"]["EstadoGrabacion"];
+            id: string;
+            motivoFin?: string;
+            tieneNota: boolean;
+            usuario?: components["schemas"]["UsuarioRef"];
+        };
+        LlamadaReclamada: {
+            ice: components["schemas"]["ICELlamada"];
+            llamada: components["schemas"]["Llamada"];
+            /** @description La oferta SDP de Meta para el RTCPeerConnection del navegador */
+            sdpOferta: string;
+            /**
+             * Format: date-time
+             * @description Hasta cuándo vale la reserva: hay que mandar contestar antes
+             */
+            venceEn: string;
+        };
+        LlamadasCanal: {
+            /** Format: int64 */
+            canalId: number;
+            /**
+             * Format: int64
+             * @description Ausente: la cola del número
+             */
+            colaId?: number;
+            devolucion: boolean;
+            /** @description false en un número por QR: el panel avisa y no deja encenderlas */
+            disponible: boolean;
+            /** @enum {string} */
+            fueraDeHorario: "rechazar_con_mensaje" | "buzon" | "asistente";
+            /**
+             * Format: int64
+             * @description Ausente: el de la cola o el del número
+             */
+            horarioId?: number;
+            /** @description El horario de llamadas que tiene WhatsApp (espejo). Ausente: abierto siempre y el horario lo aplica Iris */
+            horasWhatsapp?: components["schemas"]["HorasMeta"];
+            iconoVisible: boolean;
+            llamadasActivas: boolean;
+            mensajePerdida: components["schemas"]["MensajePerdida"];
+            requisitos: components["schemas"]["RequisitosLlamadas"];
+            /** Format: int32 */
+            segundosSonando: number;
+            /** Format: date-time */
+            sincronizadoEn?: string;
+            /**
+             * @description Las llamadas solo existen en números por API
+             * @enum {string}
+             */
+            tipoConexion: "api" | "qr";
+            /**
+             * Format: int32
+             * @description 0 si nunca se configuraron
+             */
+            version: number;
+            /** @description Si los ajustes del número ya están aplicados en WhatsApp */
+            whatsapp: components["schemas"]["EstadoEnWhatsApp"];
+        };
         MFAConfigurado: {
             /** @description Secreto TOTP en base32 */
             secreto: string;
@@ -13106,6 +13823,8 @@ export interface components {
              * @enum {string}
              */
             autorTipo?: "cliente" | "persona" | "asistente_ia" | "sistema";
+            /** @description Un audio que es el recado del buzón de voz de una llamada fuera de horario */
+            buzonDeVoz?: boolean;
             /** Format: int64 */
             conversacionId: number;
             /** Format: date-time */
@@ -13122,6 +13841,8 @@ export interface components {
             id: string;
             /** Format: date-time */
             leidoEn: string | null;
+            /** @description Con tipo llamada: la llamada de WhatsApp (contratos/voz.md §3.2) */
+            llamada?: components["schemas"]["LlamadaEnMensaje"];
             menciones: components["schemas"]["UsuarioRef"][];
             motivoFalla: string | null;
             /**
@@ -13135,8 +13856,12 @@ export interface components {
             /** @description Texto plano: nunca se interpreta como HTML */
             texto: string | null;
             /** @enum {string} */
-            tipo: "texto" | "imagen" | "documento" | "audio" | "video" | "ubicacion" | "plantilla" | "contacto" | "sistema";
+            tipo: "texto" | "imagen" | "documento" | "audio" | "video" | "ubicacion" | "plantilla" | "contacto" | "sistema" | "llamada";
             ubicacion?: components["schemas"]["UbicacionChat"];
+        };
+        MensajePerdida: {
+            activo: boolean;
+            texto: string;
         };
         MensajePortal: {
             adjuntos: string[] | null;
@@ -13994,6 +14719,11 @@ export interface components {
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
+        PaginaDevolucionLlamada: {
+            data: components["schemas"]["DevolucionLlamada"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
         PaginaDispositivo: {
             data: components["schemas"]["Dispositivo"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
@@ -14016,6 +14746,11 @@ export interface components {
         };
         PaginaEventoTicket: {
             data: components["schemas"]["EventoTicket"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
+        PaginaLlamada: {
+            data: components["schemas"]["Llamada"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
@@ -14495,7 +15230,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.ver" | "integraciones.ver_pendientes" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.descartar_devolucion" | "llamadas.rechazar" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver" | "voz.configurar";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -15034,6 +15769,18 @@ export interface components {
             detalle: string | null;
             ok: boolean;
         };
+        PuedeLlamada: {
+            anotar: boolean;
+            colgar: boolean;
+            contestar: boolean;
+            /** @description E1c (grabación): siempre false por ahora */
+            escucharGrabacion: boolean;
+            rechazar: boolean;
+            /** @description E3: siempre false en E1 */
+            tomar: boolean;
+            /** @description E3: siempre false en E1 */
+            transferir: boolean;
+        };
         PuntoPosicion: {
             /** Format: double */
             lat: number;
@@ -15071,6 +15818,11 @@ export interface components {
         Reautenticado: {
             /** Format: date-time */
             validaHasta: string;
+        };
+        RecibirLlamadas: {
+            /** @description Este navegador tiene «Recibir llamadas» encendido */
+            recibe: boolean;
+            vivo: boolean;
         };
         RecorridoReal: {
             /** @description false = no se puede mostrar (motivo); nunca suponer «no se movió» */
@@ -15234,6 +15986,21 @@ export interface components {
             data: components["schemas"]["FilaTecnico"][] | null;
             periodo: components["schemas"]["Periodo"];
             total: components["schemas"]["FilaTecnico"];
+        };
+        RequisitoLlamadas: {
+            aviso: boolean;
+            /** @enum {string} */
+            codigo: "conexion_api" | "limite_mensajeria" | "webhook_calls" | "calling_habilitado" | "plantilla_permiso";
+            cumple: boolean;
+            /** @description Texto llano, listo para mostrar (nunca el mensaje crudo de Meta) */
+            detalle: string;
+            sinComprobar?: boolean;
+        };
+        RequisitosLlamadas: {
+            /** Format: date-time */
+            comprobadoEn?: string;
+            cumple: boolean;
+            requisitos: components["schemas"]["RequisitoLlamadas"][] | null;
         };
         RespuestaAsignables: {
             data: components["schemas"]["Asignable"][] | null;
@@ -16307,6 +17074,18 @@ export interface components {
             fin: string;
             /** Format: date-time */
             inicio: string;
+        };
+        TramoLlamada: {
+            /** Format: int32 */
+            duracionSeg?: number;
+            /** Format: date-time */
+            fin?: string;
+            /** Format: date-time */
+            inicio: string;
+            motivoFin?: string;
+            /** @enum {string} */
+            tipo: "asistente" | "persona";
+            usuario?: components["schemas"]["UsuarioRef"];
         };
         Traslado: {
             /** Format: int64 */
@@ -25251,6 +26030,375 @@ export interface operations {
             };
         };
     };
+    verLlamadasCanal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlamadasCanal"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    reintentarLlamadasCanalEnWhatsApp: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlamadasCanal"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    comprobarLlamadasCanal: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlamadasCanal"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    configurarLlamadasCanal: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaLlamadasCanal"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlamadasCanal"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    sincronizarLlamadasCanal: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlamadasCanal"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     configurarPrestamoCanal: {
         parameters: {
             query?: never;
@@ -30772,6 +31920,76 @@ export interface operations {
             };
         };
     };
+    listarLlamadasDeConversacion: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaLlamada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     enlacesManualConversacion: {
         parameters: {
             query?: never;
@@ -32819,6 +34037,1115 @@ export interface operations {
             };
         };
     };
+    listarLlamadas: {
+        parameters: {
+            query?: {
+                estado?: "sonando" | "conectando" | "en_curso" | "terminada" | "perdida" | "rechazada" | "fuera_de_horario" | "fallida";
+                direccion?: "entrante" | "saliente";
+                conversacionId?: number;
+                colaId?: number;
+                desde?: string;
+                hasta?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaLlamada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    llamadaActiva: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Llamada"];
+                };
+            };
+            /** @description No tienes una llamada viva */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarDevolucionesLlamada: {
+        parameters: {
+            query?: {
+                estado?: "pendiente" | "hecha" | "descartada" | "vencida";
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaDevolucionLlamada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    descartarDevolucionLlamada: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CuerpoMotivo"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevolucionLlamada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verRecibirLlamadas: {
+        parameters: {
+            query?: {
+                navegador?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecibirLlamadas"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    apagarRecibirLlamadas: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaRecibir"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecibirLlamadas"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    encenderRecibirLlamadas: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaRecibir"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecibirLlamadas"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verLlamada: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Llamada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    anotarLlamada: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CuerpoAnotar"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Llamada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    colgarLlamada: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Llamada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    confirmarMedioLlamada: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Llamada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    contestarLlamada: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CuerpoContestar"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Llamada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    rechazarLlamada: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CuerpoRechazar"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Llamada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    reclamarLlamada: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlamadaReclamada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    soltarLlamada: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CuerpoSoltar"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Llamada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     revocarEnlaceManual: {
         parameters: {
             query?: never;
@@ -34093,6 +36420,134 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verAjustesVoz: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AjustesVoz"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    actualizarAjustesVoz: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAjustesVoz"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AjustesVoz"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -456,6 +456,39 @@ func TestBandejaAlguienLaAtiende(t *testing.T) {
 	}
 }
 
+// Llamada perdida (contratos/voz.md §3.4): a quien tiene la conversación y a quienes supervisan la
+// cola, con la preferencia «bandeja», sin número ni nombre salvo que el usuario pida contenido completo.
+func TestPushLlamadaPerdida(t *testing.T) {
+	e := nuevoEntorno(t, true)
+	ana := e.persona([]int64{1}, "soporte")
+	beto := e.persona([]int64{1}, "soporte")
+	tokAna, tokBeto := e.dispositivo(ana), e.dispositivo(beto)
+	conv := e.conversacionCliente(1, &ana.id)
+	e.evento("llamada.perdida", emp(1), "", map[string]any{"llamada_id": uuid.Must(uuid.NewV7()), "conversacion_id": conv, "empresa_id": 1,
+		"direccion": "entrante", "cola_id": nil, "sono_seg": 30, "devolucion_id": 7, "usuarios": []int64{ana.id}})
+	e.enviarEncolados()
+	ms := e.fcm.para(tokAna)
+	if len(ms) != 1 || len(e.fcm.para(tokBeto)) != 0 {
+		t.Fatalf("push de llamada perdida: Ana %d, Beto %d", len(ms), len(e.fcm.para(tokBeto)))
+	}
+	if d := ms[0].Data; d["tipo"] != "bandeja" || d["titulo"] != "Llamada perdida" || !strings.HasPrefix(d["cuerpo"], "Nadie contestó una llamada en ") {
+		t.Fatalf("data: %v", d)
+	}
+	// Con la preferencia de la bandeja apagada no sale.
+	e.preferencias(beto, func(p map[string]any) { p["tipos"].(map[string]any)["bandeja"] = false })
+	e.evento("llamada.perdida", emp(1), "", map[string]any{"llamada_id": uuid.Must(uuid.NewV7()), "conversacion_id": conv, "empresa_id": 1,
+		"usuarios": []int64{beto.id}})
+	e.enviarEncolados()
+	if len(e.fcm.para(tokBeto)) != 0 {
+		t.Fatal("la preferencia «bandeja» apagada también calla la llamada perdida")
+	}
+	// Sin a quién avisar, el evento no crea envíos.
+	e.evento("llamada.perdida", emp(1), "", map[string]any{"conversacion_id": conv, "empresa_id": 1, "usuarios": []int64{}})
+	if n := e.enviarEncolados(); n != 0 {
+		t.Fatalf("sin usuarios: %d envíos", n)
+	}
+}
+
 // Órdenes --------------------------------------------------------------------------------------
 
 func (e *entorno) orden(empresa int64, tecnico int64, inicio, fin time.Time) (int64, string) {
