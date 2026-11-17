@@ -1112,7 +1112,8 @@ no guarda ninguna credencial de Iris.
      (`versión_de_Iris` es el valor de `X-Iris-Version`, que así queda **dentro de la cadena firmada**),
      con `K = HKDF-SHA256(token, info = "iris-voz/firma/v1")`, `X-Iris-Marca` (segundos Unix;
      ventana de ±30 s) y `X-Iris-Nonce` (128 bits aleatorios; el motor rechaza un nonce repetido
-     durante 90 s, más que la ventana). Comparación en tiempo constante. Cubre método y ruta: una
+     durante 90 s, más que la ventana; como esa memoria no sobrevive a un reinicio, tampoco
+     acepta ninguna marca anterior al arranque del proceso). Comparación en tiempo constante. Cubre método y ruta: una
      petición capturada no sirve para otro endpoint. Una marca fuera de ventana responde 401
      `reloj_desfasado` con la hora del servidor (único 401 con detalle: no revela nada del secreto);
      Iris lo muestra como «el reloj de uno de los dos servidores está mal» y el instalador comprueba
@@ -1130,8 +1131,11 @@ no guarda ninguna credencial de Iris.
   Un túnel WireGuard entre los dos servidores es opcional y se suma; no sustituye nada.
 - **Dónde vive el token.** Es un secreto compartido (hace falta en los dos lados para el HMAC), así
   que **ninguno guarda «solo el hash»**: en Iris va cifrado con `IRIS_CLAVE_CIFRADO`
-  (`voz_motores.token`); en el servidor de voz, como secreto de Docker en un archivo con permisos
-  mínimos (nunca en el repo, ni en una variable visible en `docker inspect`, ni en logs). **Nada
+  (`voz_motores.token`); en el servidor de voz, en **un archivo de modo 0600 dentro del volumen
+  `estado`** (directorio 0700, del usuario sin privilegios de la puerta, que es el único contenedor
+  que lo monta). No es un secreto de Docker: la puerta tiene que poder reescribirlo al enlazar y
+  al rotar, y un secreto de Docker es de solo lectura. Nunca en el repo, ni en una variable visible
+  en `docker inspect`, ni en logs. **Nada
   se guarda como hash**: el código de enlace va cifrado en Iris y se borra al enlazar o al vencer
   (§4.8).
 - **El token nunca lo copia una persona.** El **derivado** del código (§4.8) **no viaja nunca**: se
@@ -1141,7 +1145,8 @@ no guarda ninguna credencial de Iris.
   («Rotar credenciales», `POST /voz/motores/{id}/rotar-token`, `servidor_ia.administrar`);
   mensajería genera el token nuevo y lo entrega por el canal ya autenticado
   (`POST /voz/v1/credencial`, con mTLS y firmado con el vigente). **Ventana de convivencia:** los
-  dos lados aceptan el nuevo y el anterior durante 24 h y después solo el nuevo; si la entrega
+  dos lados aceptan el nuevo y el anterior durante 24 h y después solo el nuevo (el token y la
+  huella anteriores tienen cada uno su vencimiento: uno vencido no revive al rotar el otro); si la entrega
   falla, sigue valiendo el anterior y el panel lo dice. El certificado de cliente de Iris se
   renueva en la misma operación cuando le quedan menos de 30 días o si el admin lo pide: la puerta
   acepta las dos huellas durante la misma ventana. Cada rotación audita y emite
@@ -1301,7 +1306,8 @@ Cualquier otra ruta o método responde 404 **en la puerta**, sin llegar a Ollama
 **Modelos.** El contenedor `llm` **no tiene salida a red**, así que no puede descargar nada. Los
 modelos se instalan con un comando explícito en el servidor, `iris-voz modelo descargar <nombre>`
 (y `iris-voz modelo quitar <nombre>`), que usa un **contenedor de un solo uso cuya única salida
-es el registro de modelos** (regla de salida por host), escribe en el volumen de modelos y
+es el registro de modelos**: un proxy que solo admite **nombres de host exactos** (el registro y el
+almacén desde el que sirve los modelos; nunca un sufijo, que admitiría el almacén de cualquiera), escribe en el volumen de modelos y
 termina. Los modelos por defecto están **fijados por digest en el manifiesto** (§4.7) y la descarga
 se verifica contra él; el contenedor `llm` monta ese volumen en **solo lectura**. Desde
 el panel solo se **listan** los instalados: Iris no puede pedir, borrar ni crear modelos.
@@ -1415,8 +1421,9 @@ tener mTLS, y solo existe mientras la ventana está abierta. La abre el instalad
 `iris-voz enlazar` en el servidor (nunca Iris ni nada por red), dura **15 min** y es de **un solo
 uso**: se cierra con el primer enlace correcto o al vencer. **Los intentos fallidos no la
 cierran** (cualquiera que alcance el puerto podría impedir el enlace): `/enlazar` tiene **límite de
-frecuencia** (1 intento cada 2 s en total y 5 por IP en la ventana; por encima 429), y con un
-código de 160 bits adivinarlo no es viable. Con la ventana cerrada la ruta responde como cualquier otra sin
+frecuencia por IP** (3 seguidos y después 1 cada 2 s; por encima 429) y uno global holgado que solo
+protege al proceso, de modo que una IP que insiste no gasta el cupo de otra; con un código de 160
+bits adivinarlo no es viable. Con la ventana cerrada la ruta responde como cualquier otra sin
 certificado: corte en el saludo TLS.
 
 **Enlazar** (una vez):
@@ -1661,18 +1668,18 @@ firmada como `/version`):
 
 ```json
 { "estado": "listo", "encendidoSeg": 86400, "version": "1.0.0", "tomadoEn": "…",
-  "gpus": [{ "indice": 0, "nombre": "…", "usoPct": 37, "vramUsadaMb": 0, "vramTotalMb": 0,
-             "temperaturaC": 61, "potenciaW": 180 }],
+  "gpus": { "lista": [{ "indice": 0, "nombre": "…", "usoPct": 37, "vramUsadaMb": 0,
+             "vramTotalMb": 0, "temperaturaC": 61, "potenciaW": 180 }] },
   "cpu": { "nucleos": 16, "usoPct": 12 }, "memoria": { "usadaMb": 0, "totalMb": 0 },
   "disco": { "usadoMb": 0, "totalMb": 0 },
-  "modelos": [{ "id": "…", "tamanoMb": 0, "cargado": true, "vramMb": 0, "cargadoHasta": "…" }],
+  "modelos": [{ "id": "…", "tamanoMb": 0, "permitido": true, "cargado": true, "vramMb": 0, "cargadoHasta": "…" }],
   "llm": { "enCurso": 1, "maxSimultaneas": 4 } }
 ```
 
 - GPU por tarjeta. **No la lee la puerta** (no ve la GPU): la lee un contenedor **medidor**, sin
   ningún puerto y sin red, que ejecuta `nvidia-smi` con argumentos fijos (plazo 2 s) y deja el
   resultado en un volumen `tmpfs` que la puerta monta en solo lectura; una lectura de más de 15 s
-  se da por perdida. Sin GPU (`--sin-gpu`) o sin lectura, `"gpus": { "estado": "omitido" }`. Un dato que la tarjeta no da va `null`, no inventado.
+  se da por perdida. Sin GPU (`--no-gpu`) o sin lectura, `"gpus": { "estado": "omitido", "lista": [] }`. Un dato que la tarjeta no da va `null`, no inventado.
 - `disco` es el del volumen de modelos. `modelos` sale de la lista de instalados y de los cargados
   en memoria que declara Ollama; `cargadoHasta` es hasta cuándo queda residente.
 - **Seguridad de la ruta:** no acepta parámetros ni cuerpo; **no ejecuta ningún comando con
@@ -1731,10 +1738,84 @@ evento `servidor_ia.ajustes_cambiados`), de fábrica:
 | Saturación | 10 rechazos por `servidor_ia_ocupado` en 5 min | 1–1000; 1–60 min |
 | Caído / incompatible | siempre (no se apaga) | — |
 
+**Formas fijadas con el panel (17 nov 2026).** Son las que supuso I3 en `.claude/integration/i3.md`,
+salvo lo marcado con «(cambia)».
+
+`GET /servidor-ia/tablero?rango=ahora|1h|24h|7d` → 200:
+
+```json
+{ "estado": { "motorId": 1, "estado": "listo", "detalle": null, "version": "0.1.0", "compatible": true,
+              "motivoIncompatible": null, "encendidoSeg": 86400, "tomadoEn": "…", "lecturaOk": true,
+              "modelosDisponibles": ["…"], "empresasQueLoUsan": ["Empresa 1"],
+              "empresasActivas": 3, "plazasInsuficientes": false },
+  "servidor": { "gpus": { "estado": "ok", "lista": [{ "indice": 0, "nombre": "…", "usoPct": 37,
+                  "vramUsadaMb": 0, "vramTotalMb": 0, "temperaturaC": 61, "potenciaW": 180 }] },
+                "cpu": { "nucleos": 16, "usoPct": 12 }, "memoria": { "usadoMb": 0, "totalMb": 0 },
+                "disco": { "usadoMb": 0, "totalMb": 0 },
+                "modelos": [{ "id": "…", "tamanoMb": 0, "permitido": true, "cargado": true, "vramMb": 0, "cargadoHasta": "…" }],
+                "llm": { "enCurso": 1, "maxSimultaneas": 4 }, "rechazadas": 0 },
+  "series": [{ "t": "…", "usoPct": 37, "vramPct": 40, "peticionesMin": 3, "latenciaMediaMs": 900, "latenciaP95Ms": 2000 }],
+  "uso": { "empresas": [{ "empresaId": 1, "nombre": "…", "peticiones": 0, "tokensEntrada": 0, "tokensSalida": 0,
+                          "latenciaMediaMs": 900, "errores": 0, "rechazadas": 0 }],
+           "errores": [{ "motivo": "tiempo_agotado", "cuenta": 2, "ultimoEn": "…" }] },
+  "avisos": [{ "tipo": "vram", "activo": true, "desde": "…", "hasta": null, "valor": 97, "umbral": 95 }] }
+```
+
+- `estado.lecturaOk` es `false` cuando la última lectura del servidor falló: entonces `servidor`
+  es lo de `estado.tomadoEn` (la última muestra buena) o `null`, y **no se muestra como actual**.
+  `estado.motorId` es `null` si no hay ningún servidor enlazado.
+- `servidor.gpus` es **siempre un objeto** `{ estado: "ok" | "omitido", lista: [] }` **(cambia:** el
+  panel supuso una lista o `{estado:"omitido"}`; una unión así no sale bien en los tipos
+  generados**)**. `disco` (el volumen de modelos) y `potenciaW` por tarjeta sí llegan; `cpu` y
+  `memoria` también. Un dato que la tarjeta no da es `null`.
+- `series`: un punto cada 10 s en `ahora` (últimos 10 min), por minuto hasta `24h` y por hora en
+  `7d`. Un valor `null` = en ese instante no hubo lectura (o no hay GPU).
+- `uso` y `servidor.rechazadas` son del rango pedido. `uso.errores[].motivo` es la lista cerrada de
+  `servidor_ia_uso` (`tiempo_agotado`, `no_disponible`, `ocupado`, `respuesta_invalida`,
+  `modelo_no_instalado`, `otro`).
+- `avisos[].tipo`: `caido`, `incompatible`, `vram`, `disco`, `temperatura`, `saturacion`. Los
+  activos y los cerrados dentro del rango.
+- **«Más empresas activas que plazas»** llega en `estado.plazasInsuficientes` (con
+  `estado.empresasActivas`) y, en la tarjeta, en `capacidad.plazasInsuficientes` y
+  `capacidad.empresasActivas` de `GET /voz/motores`.
+- **Admin de empresa (`servidor_ia.ver_uso`):** el mismo cuerpo con `servidor: null`, `avisos: []`,
+  `estado` sin `empresasQueLoUsan`, `empresasActivas` ni `plazasInsuficientes`, `series` solo con
+  `peticionesMin`, `latenciaMediaMs` y `latenciaP95Ms` de **su** empresa (`usoPct` y `vramPct` en
+  `null`) y `uso.empresas` con una sola fila, la suya.
+
+`GET /servidor-ia/umbrales` (`servidor_ia.ver`) y `POST /servidor-ia/umbrales/actualizar`
+(`servidor_ia.administrar`): `{ version, vramPct, vramMinutos, discoPct, temperaturaC,
+temperaturaMinutos, saturacionRechazos, saturacionMinutos, retencionDetalleDias, retencionHoraDias }`
+(los dos de retención son nuevos respecto a lo que supuso el panel; opcionales al actualizar).
+
+**Tarjeta (`GET /voz/motores`).** Además de lo de §4.8:
+
+- `paquete.motivoIncompatible` es una **lista cerrada**: `protocolo`, `iris_antiguo`, `iris_nuevo`,
+  `paquete_antiguo`. `iris_antiguo` = hay que actualizar Iris; cualquier otro = hay que actualizar
+  el servidor de IA. `paquete.versionDisponible` existe y es `null` (Iris no consulta versiones nuevas).
+- `enlazado` y `activado` (booleanos) y `enlaceVenceEn`: hasta cuándo vale el **paso pendiente** del
+  enlace: los 15 min del código antes de «Conectar», o las 24 h para «Activar» después; `null` si
+  no hay nada pendiente. Un paso vencido responde 409 `enlace_vencido` (un solo código para los dos).
+- **«Desenlazar» en el panel es `POST /voz/motores/{id}/desactivar`**: Iris deja de usarlo en el
+  acto. El borrado real de las credenciales en el servidor es `iris-voz unpair`, allá.
+- **Modelos permitidos: dos niveles.** El servidor declara en `catalogo.llm` los que **su**
+  administrador deja usar a Iris (`iris-voz model allow`); Iris no puede ampliarlos. Dentro de esos,
+  el admin de la instalación elige **desde el panel** los que las empresas pueden escoger:
+  `modelosPermitidos` en la tarjeta (`null` = todos los del catálogo) y
+  `POST /voz/motores/{id}/modelos/actualizar { modelos: [ids] | null, version }`
+  (`servidor_ia.administrar`; 422 si alguno no está en `catalogo.llm`; evento
+  `voz.motor_modelos_cambiados`). Las empresas ven la intersección.
+- Permisos: sin `servidor_ia.ver`/`administrar`, 403; con el permiso pero sin `empresas.todas`, 404.
+
+**Campana.** Tres tipos nuevos de aviso (`notificaciones.avisos`), a quienes tienen
+`servidor_ia.ver` y `empresas.todas`: `servidor_ia_caido`, `servidor_ia_incompatible` y
+`servidor_ia_umbral` (`datos: { tipo: vram | disco | temperatura | saturacion, valor, umbral }`).
+Uno por episodio; enlazan a Administración → Servidor de IA.
+
 Eventos nuevos, con `empresa_id: null`, que se añaden al catálogo al implementar:
 `servidor_ia.umbral_superado` / `servidor_ia.umbral_normalizado` (motor_id, tipo, valor, umbral),
 `servidor_ia.ajustes_cambiados` (motor_id, campos[]) y `voz.motor_activado` /
-`voz.motor_desactivado` / `voz.motor_empresas_cambiadas`. Caído e incompatible siguen saliendo como
+`voz.motor_desactivado` / `voz.motor_empresas_cambiadas` / `voz.motor_modelos_cambiados`. Caído e incompatible siguen saliendo como
 `voz.motor_estado_cambiado`.
 
 ## 5. El asistente en voz
