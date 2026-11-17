@@ -99,6 +99,9 @@ describe("ajustes de la fase 3 (§17.1)", () => {
         expect(proveedorConectado(BASE)).toBe(true);
         expect(proveedorConectado({ ...BASE, modelo: " " })).toBe(false);
         expect(proveedorConectado({ ...BASE, url: "" })).toBe(false);
+        // Servidor de IA, como lo guarda la API: sin dirección ni clave. Conectado = con modelo.
+        expect(proveedorConectado({ ...BASE, proveedor: "servidor_ia", url: "", modelo: "qwen2.5:14b", claveGuardadaEn: null })).toBe(true);
+        expect(proveedorConectado({ ...BASE, proveedor: "servidor_ia", url: "", modelo: "", claveGuardadaEn: null })).toBe(false);
         expect(proveedorConectado({ ...BASE, proveedor: "anthropic", url: "", modelo: "", claveGuardadaEn: null })).toBe(false);
         expect(proveedorConectado({ ...BASE, proveedor: "anthropic", url: "", modelo: "", claveGuardadaEn: "2026-10-20T15:00:00Z" })).toBe(true);
     });

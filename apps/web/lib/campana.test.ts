@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { primeroDelMesSiguiente, textoPausado, tonoFuente } from "./asistente/presentacion";
-import { detalleAvisoPanel, enlaceAvisoPanel, hayQueActuar, marcarLeido, sesionVencida, sondeoActivo, tonoAvisoPanel, type AvisoPanel } from "./campana";
+import { detalleAvisoPanel, enlaceAvisoPanel, hayQueActuar, iconoAvisoPanel, marcarLeido, sesionVencida, sondeoActivo, tonoAvisoPanel, type AvisoPanel } from "./campana";
 
 const aviso = (x: Partial<AvisoPanel> = {}): AvisoPanel => ({
     id: 1,
@@ -14,6 +14,35 @@ const aviso = (x: Partial<AvisoPanel> = {}): AvisoPanel => ({
     creadoEn: "2026-11-10T15:00:00Z",
     empresaId: 7,
     ...x,
+});
+
+describe("avisos del Servidor de IA en la campana", () => {
+    const sia = (tipo: AvisoPanel["tipo"], datos: AvisoPanel["datos"] = {}) => aviso({ tipo, nivel: "peligro", enlace: "/administracion/servidor-ia", datos, empresaId: null });
+
+    it("cada tipo tiene su icono y su segunda línea en llano", () => {
+        // Un tipo que el panel no conoce (o un nombre heredado de `Object`) lleva la campana, no revienta.
+        const campana = iconoAvisoPanel("tipo_nuevo" as AvisoPanel["tipo"]);
+        expect(iconoAvisoPanel("constructor" as AvisoPanel["tipo"])).toBe(campana);
+        expect(iconoAvisoPanel("toString" as AvisoPanel["tipo"])).toBe(campana);
+        expect(detalleAvisoPanel({ tipo: "constructor" as AvisoPanel["tipo"], nivel: "info", datos: {} })).toBeNull();
+        expect(iconoAvisoPanel("servidor_ia_caido")).not.toBe(campana);
+        expect(iconoAvisoPanel("asistente_tope")).not.toBe(campana);
+        expect(iconoAvisoPanel(sia("servidor_ia_incompatible").tipo)).not.toBe(iconoAvisoPanel(sia("servidor_ia_umbral").tipo));
+        expect(detalleAvisoPanel(sia("servidor_ia_caido"))).toContain("pasa a personas");
+        expect(detalleAvisoPanel(sia("servidor_ia_incompatible"))).toContain("qué hay que actualizar");
+        expect(detalleAvisoPanel(sia("servidor_ia_umbral", { tipo: "temperatura", valor: 88.4, umbral: 85 }))).toContain("llegó a 88 °C");
+        expect(detalleAvisoPanel(sia("servidor_ia_umbral", { tipo: "vram", valor: 97, umbral: 95 }))).toContain("al 97 % (avisa al 95 %)");
+        expect(detalleAvisoPanel(sia("servidor_ia_umbral", { tipo: "saturacion", valor: 12, umbral: 10 }))).toContain("Se rechazaron 12 peticiones");
+        expect(detalleAvisoPanel(sia("servidor_ia_umbral", { tipo: "disco", valor: 93, umbral: 90 }))).toContain("al 93 %");
+        // Si se repite en la hora, el aviso vuelve con su cuenta; una sola vez no la dice.
+        expect(detalleAvisoPanel(sia("servidor_ia_caido", { veces: 2 }))).toContain("Ya van 2 veces en esta hora.");
+        expect(detalleAvisoPanel(sia("servidor_ia_umbral", { tipo: "temperatura", valor: 88, umbral: 85, veces: 3 }))).toContain("Ya van 3 veces en esta hora.");
+        expect(detalleAvisoPanel(sia("servidor_ia_caido", { veces: 1 }))).not.toContain("veces");
+        expect(detalleAvisoPanel(sia("servidor_ia_caido", { veces: "muchas" }))).not.toContain("veces");
+        // Un dato que no vino bien no se inventa.
+        expect(detalleAvisoPanel(sia("servidor_ia_umbral", { tipo: "temperatura", valor: "mucho" }))).toContain("se calentó de más");
+        expect(enlaceAvisoPanel(sia("servidor_ia_caido").enlace)).toBe("/administracion/servidor-ia");
+    });
 });
 
 describe("avisos de la campana", () => {

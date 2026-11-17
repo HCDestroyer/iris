@@ -111,6 +111,8 @@ export function conPerfilDefecto(a: Pick<AjustesAsistente, "perfiles">, cambio: 
 /** ¿Hay un proveedor de IA conectado? (lo mismo que el servidor exige para activar, §16.1) */
 export function proveedorConectado(a: Pick<AjustesAsistente, "proveedor" | "url" | "modelo" | "claveGuardadaEn">): boolean {
     if (a.proveedor === "anthropic") return a.claveGuardadaEn !== null;
+    // El Servidor de IA no lleva dirección ni clave (la API guarda `url: ""`): basta el modelo (voz.md §4.11).
+    if (a.proveedor === "servidor_ia") return a.modelo.trim() !== "";
     return a.url.trim() !== "" && a.modelo.trim() !== "";
 }
 

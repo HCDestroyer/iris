@@ -2,6 +2,7 @@ package mensajeria
 
 import (
 	"context"
+	"errors"
 	"net/netip"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 
 	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/voz"
 )
 
 // Lo que corren los workers, para las pruebas (sin River).
@@ -176,4 +178,107 @@ func (m *Modulo) ReservarVerificacion(ctx context.Context, empresa, cliente, con
 	id, _, err := m.reservarVerificacion(ctx, &turnoIA{empresa: empresa, clienteID: cliente, conv: conv, numeroVerificado: numeroVerificado},
 		m.ahora().Add(-24*time.Hour))
 	return id, err
+}
+
+// ProveedorPara arma el proveedor del asistente de una configuración (el mismo que usa el módulo).
+func (m *Modulo) ProveedorPara(cfg ConfigProveedor, plazo time.Duration) (Proveedor, error) {
+	return m.proveedorDe(cfg, plazo)
+}
+
+// RotacionAMedias deja una rotación de credenciales como queda si la respuesta del servidor se
+// pierde: lo «siguiente» guardado en Iris y ya aplicado en el servidor, sin promover.
+func (m *Modulo) RotacionAMedias(ctx context.Context, bd nucleo.BD, id int64, revocar bool) error {
+	ctx = ctxSistema(ctx, bd)
+	c, err := m.ServidorIA.leer.Ejecutar(ctx, id)
+	if err != nil {
+		return err
+	}
+	convivencia := convivenciaRotacion
+	if revocar {
+		convivencia = 0
+	}
+	return m.entregarCredencial(ctx, m.ServidorIA, c, canalVivo{token: c.token, cert: c.cert}, convivencia, revocar)
+}
+
+// EstimarEntradaIA y UsoContado: la cuenta propia de tokens del servidor de IA.
+func EstimarEntradaIA(in PedidoIA) int64 { return estimarEntradaIA(in) }
+
+func UsoContado(in PedidoIA, declarado UsoIA, salida string) UsoIA {
+	return usoContado(in, declarado, salida)
+}
+
+// PlazoRotacionIA: lo que dura apartada una rotación.
+const PlazoRotacionIA = plazoRotacionIA
+
+// MetricasValidas: la revalidación de lo que devuelve /metricas.
+func MetricasValidas(mt voz.Metricas) bool {
+	_, _, ok := muestraDe(mt)
+	return ok
+}
+
+// ModelosDeMuestra: cuántos modelos se guardan de una lectura y si la lista quedó cortada.
+func ModelosDeMuestra(mt voz.Metricas) (int, bool, bool) {
+	g, _, ok := muestraDe(mt)
+	return len(g.Servidor.Modelos), g.ModelosTruncados, ok
+}
+
+// FijarSondeoSiguienteIA hace fallar (o no) el sondeo de lo «siguiente» en el latido.
+func (m *Modulo) FijarSondeoSiguienteIA(f func() error) { m.sondeoSiguienteIA = f }
+
+// SiguienteSinEntregar deja guardado lo «siguiente» de una rotación cuya entrega nunca llegó al
+// servidor (Iris lo guardó y la petición se perdió antes de aplicarse).
+func (m *Modulo) SiguienteSinEntregar(ctx context.Context, bd nucleo.BD, id int64, conCertificado bool) error {
+	ctx = ctxSistema(ctx, bd)
+	c, err := m.ServidorIA.leer.Ejecutar(ctx, id)
+	if err != nil {
+		return err
+	}
+	nuevo, err := voz.NuevoToken()
+	if err != nil {
+		return err
+	}
+	fijar := entradaFijarSiguiente{ID: id, Version: c.fila.Version, Token: nuevo}
+	if conCertificado {
+		// Como «Revocar ahora»: también un certificado de cliente nuevo, que el servidor no conoce.
+		cert, clave, err := voz.GenerarCertificado("iris", vidaCertCliente)
+		if err != nil {
+			return err
+		}
+		cifrada, err := m.cifrarMotor(id, "cert_cliente_clave", clave)
+		if err != nil {
+			return err
+		}
+		pem, vence := string(cert), m.ahora().Add(vidaCertCliente)
+		fijar.Cert, fijar.CertClave, fijar.CertVence = &pem, cifrada, &vence
+	}
+	_, err = m.ServidorIA.fijarSiguiente.Ejecutar(ctx, fijar)
+	return err
+}
+
+// TokenDeMotor: el token vigente que Iris tiene guardado, descifrado (para compararlo con el del servidor).
+func (m *Modulo) TokenDeMotor(ctx context.Context, bd nucleo.BD, id int64) ([]byte, error) {
+	c, err := m.ServidorIA.leer.Ejecutar(ctxSistema(ctx, bd), id)
+	return c.token, err
+}
+
+// CredencialConLoVigente manda a /credencial una petición de solo confirmar firmada con el token que
+// Iris tiene como vigente (durante la convivencia de una rotación a medias, el anterior del servidor).
+func (m *Modulo) CredencialConLoVigente(ctx context.Context, bd nucleo.BD, id int64) error {
+	c, err := m.ServidorIA.leer.Ejecutar(ctxSistema(ctx, bd), id)
+	if err != nil {
+		return err
+	}
+	cli, err := m.clienteCon(c, c.cert, c.token)
+	if err != nil {
+		return err
+	}
+	defer cli.Cerrar()
+	err = cli.Credencial(ctx, voz.PeticionCredencial{ConfirmaHuellaServidor: *c.fila.HuellaTls})
+	// 409 sin_huella_siguiente: la puerta autenticó la petición y la atendió (no hay nada que
+	// confirmar). Lo que se comprueba es que no la rechaza con 401.
+	var ep *voz.ErrorPuerta
+	if errors.As(err, &ep) && ep.Estado == 409 {
+		return nil
+	}
+	return err
 }

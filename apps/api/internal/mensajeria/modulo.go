@@ -156,6 +156,9 @@ type Modulo struct {
 	saldosMu sync.Mutex
 	saldos   map[[2]int64]*saldoLlamada
 
+	// ServidorIA: el servidor de IA de la instalación (contratos/voz.md §4).
+	ServidorIA *CasosServidorIA
+
 	EnviarAviso             *EnviarAviso
 	VerAviso                *auditoria.Caso[EntradaVerAviso, AvisoDetalle]
 	RegistrarConsentimiento *RegistrarConsentimiento
@@ -212,6 +215,8 @@ type Modulo struct {
 	resumenes *cacheResumen
 	// trasLeerCabeza: solo pruebas (entre la cabeza y los eventos de leerFeed).
 	trasLeerCabeza func()
+	// sondeoSiguienteIA: solo pruebas (hace fallar el sondeo de lo «siguiente» del servidor de IA).
+	sondeoSiguienteIA func() error
 	// fallarFila: solo pruebas (un error en una fila del barrido de disponibilidad o del bot).
 	fallarFila  func(id int64) error
 	retirarFoto *auditoria.Caso[uuid.UUID, string]
@@ -329,6 +334,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.retirarFoto = nuevoRetirarFotoSinEnviar(m)
 	m.Conv = nuevosCasosConv(m)
 	m.Voz = nuevosCasosVoz(m)
+	m.ServidorIA = nuevosCasosServidorIA(m)
 	m.abrirFlujoConv = nuevoAbrirFlujoConv(m)
 	m.prepararMedio = nuevoPrepararMedio(m)
 	m.guardarMedio = nuevoGuardarMedio(m)

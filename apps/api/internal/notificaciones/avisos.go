@@ -14,6 +14,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	notificacionesbd "github.com/HCDestroyer/iris/apps/api/internal/notificaciones/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
 
 // Avisos del panel (la campana de la barra superior) y correos del sistema. El primer uso es el
@@ -24,6 +25,14 @@ import (
 
 // Tipos de aviso.
 const TipoAvisoAsistenteTope = "asistente_tope"
+
+// Avisos del servidor de IA de la instalación (contratos/voz.md §4.12): a quienes tienen
+// servidor_ia.ver y todas las empresas. Uno por episodio.
+const (
+	TipoAvisoServidorIACaido        = "servidor_ia_caido"
+	TipoAvisoServidorIAIncompatible = "servidor_ia_incompatible"
+	TipoAvisoServidorIAUmbral       = "servidor_ia_umbral"
+)
 
 // EnlaceAsistente es la pantalla de los ajustes y el uso del asistente en el panel.
 const EnlaceAsistente = "/administracion/asistente"
@@ -40,11 +49,11 @@ const (
 // AvisoPanel es un aviso de la campana.
 type AvisoPanel struct {
 	ID        int64          `json:"id"`
-	Tipo      string         `json:"tipo" enum:"asistente_tope" doc:"asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes"`
+	Tipo      string         `json:"tipo" enum:"asistente_tope,servidor_ia_caido,servidor_ia_incompatible,servidor_ia_umbral" doc:"asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)"`
 	Nivel     string         `json:"nivel" enum:"info,alerta,peligro" doc:"alerta al 80 %, peligro al 100 % (el asistente se pausó)"`
 	Titulo    string         `json:"titulo" doc:"Texto en español, listo para mostrar"`
 	Enlace    *string        `json:"enlace" nullable:"true" doc:"Ruta del panel a la que lleva (p. ej. /administracion/asistente)"`
-	Datos     map[string]any `json:"datos" doc:"Referencias del aviso; asistente_tope: porcentaje (80, 100), mes (YYYY-MM) y tope (tokens del mes cuando se avisó)"`
+	Datos     map[string]any `json:"datos" doc:"Referencias del aviso; asistente_tope: porcentaje (80, 100), mes (YYYY-MM) y tope (tokens del mes cuando se avisó). Los del servidor de IA llevan además veces (entero, 1 o más): cuántos episodios de ese tipo hubo en la hora; al repetirse, el mismo aviso vuelve a no leído con creadoEn actualizado"`
 	Leido     bool           `json:"leido"`
 	LeidoEn   *time.Time     `json:"leidoEn" nullable:"true"`
 	CreadoEn  time.Time      `json:"creadoEn"`
@@ -79,6 +88,18 @@ type EntradaLeerAviso struct {
 	ID int64 `json:"id"`
 }
 
+// empresaAvisos: la empresa activa de la campana. Sin empresa elegida (un admin de la instalación
+// con varias empresas que todavía no eligió, o sin ninguna asignada) la campana no falla: muestra
+// solo los avisos de la instalación (el servidor de IA), que no son de ninguna empresa.
+func empresaAvisos(ctx context.Context) (*int64, bool, error) {
+	switch contexto.EmpresasDe(ctx).Estado {
+	case contexto.EmpresaPorElegir, contexto.EmpresaSinAsignar:
+		return nil, true, nil
+	}
+	e, err := empresaDispositivo(ctx)
+	return e, false, err
+}
+
 func (m *Modulo) nuevoListarAvisos() *auditoria.Caso[EntradaListarAvisos, nucleo.Pagina[AvisoPanel]] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaListarAvisos, nucleo.Pagina[AvisoPanel]]{
 		Accion: "avisos.listar", Acceso: auditoria.Autenticado,
@@ -88,7 +109,7 @@ func (m *Modulo) nuevoListarAvisos() *auditoria.Caso[EntradaListarAvisos, nucleo
 			if err != nil {
 				return nucleo.Pagina[AvisoPanel]{}, err
 			}
-			empresa, err := empresaDispositivo(ctx)
+			empresa, soloInstalacion, err := empresaAvisos(ctx)
 			if err != nil {
 				return nucleo.Pagina[AvisoPanel]{}, err
 			}
@@ -97,7 +118,7 @@ func (m *Modulo) nuevoListarAvisos() *auditoria.Caso[EntradaListarAvisos, nucleo
 				return nucleo.Pagina[AvisoPanel]{}, err
 			}
 			limite := in.Limite()
-			fs, err := notificacionesbd.New(t).ListarAvisos(ctx, notificacionesbd.ListarAvisosParams{UsuarioID: a.ID, Empresa: empresa,
+			fs, err := notificacionesbd.New(t).ListarAvisos(ctx, notificacionesbd.ListarAvisosParams{UsuarioID: a.ID, Empresa: empresa, SoloInstalacion: soloInstalacion,
 				SoloNoLeidos: in.SoloNoLeidos, AntesDe: antes, Limite: int32(limite + 1)}) //nolint:gosec // acotado a 200
 			if err != nil {
 				return nucleo.Pagina[AvisoPanel]{}, err
@@ -116,11 +137,11 @@ func (m *Modulo) nuevoResumenAvisos() *auditoria.Caso[struct{}, ResumenAvisos] {
 			if err != nil {
 				return ResumenAvisos{}, err
 			}
-			empresa, err := empresaDispositivo(ctx)
+			empresa, soloInstalacion, err := empresaAvisos(ctx)
 			if err != nil {
 				return ResumenAvisos{}, err
 			}
-			n, err := notificacionesbd.New(t).ContarAvisosNoLeidos(ctx, notificacionesbd.ContarAvisosNoLeidosParams{UsuarioID: a.ID, Empresa: empresa})
+			n, err := notificacionesbd.New(t).ContarAvisosNoLeidos(ctx, notificacionesbd.ContarAvisosNoLeidosParams{UsuarioID: a.ID, Empresa: empresa, SoloInstalacion: soloInstalacion})
 			return ResumenAvisos{NoLeidos: n}, err
 		},
 	})
@@ -137,11 +158,11 @@ func (m *Modulo) nuevoLeerAviso() *auditoria.Caso[EntradaLeerAviso, AvisoPanel] 
 			if err != nil {
 				return AvisoPanel{}, err
 			}
-			empresa, err := empresaDispositivo(ctx)
+			empresa, soloInstalacion, err := empresaAvisos(ctx)
 			if err != nil {
 				return AvisoPanel{}, err
 			}
-			f, err := notificacionesbd.New(t).LeerAviso(ctx, notificacionesbd.LeerAvisoParams{ID: in.ID, UsuarioID: a.ID, Empresa: empresa, Ahora: ptr(m.ahora())})
+			f, err := notificacionesbd.New(t).LeerAviso(ctx, notificacionesbd.LeerAvisoParams{ID: in.ID, UsuarioID: a.ID, Empresa: empresa, SoloInstalacion: soloInstalacion, Ahora: ptr(m.ahora())})
 			if esSinFilas(err) {
 				return AvisoPanel{}, nucleo.NoEncontrado("No existe el aviso")
 			}
@@ -162,11 +183,11 @@ func (m *Modulo) nuevoLeerTodosLosAvisos() *auditoria.Caso[struct{}, AvisosLeido
 			if err != nil {
 				return AvisosLeidos{}, err
 			}
-			empresa, err := empresaDispositivo(ctx)
+			empresa, soloInstalacion, err := empresaAvisos(ctx)
 			if err != nil {
 				return AvisosLeidos{}, err
 			}
-			n, err := notificacionesbd.New(t).LeerTodosLosAvisos(ctx, notificacionesbd.LeerTodosLosAvisosParams{UsuarioID: a.ID, Empresa: empresa, Ahora: ptr(m.ahora())})
+			n, err := notificacionesbd.New(t).LeerTodosLosAvisos(ctx, notificacionesbd.LeerTodosLosAvisosParams{UsuarioID: a.ID, Empresa: empresa, SoloInstalacion: soloInstalacion, Ahora: ptr(m.ahora())})
 			return AvisosLeidos{Leidos: n}, err
 		},
 	})
@@ -191,7 +212,9 @@ type EntradaAvisarTope struct {
 
 // ResultadoAvisarTope: cuántos avisos nuevos y cuántos correos quedaron por enviar u omitidos.
 type ResultadoAvisarTope struct {
-	Avisos            int `json:"avisos"`
+	Avisos int `json:"avisos"`
+	// Reactivados: avisos que ya existían y volvieron a no leído (otro episodio dentro del enfriamiento).
+	Reactivados       int `json:"reactivados,omitempty"`
 	CorreosPendientes int `json:"correos_pendientes"`
 	CorreosOmitidos   int `json:"correos_omitidos"`
 }
@@ -328,6 +351,7 @@ func (m *Modulo) nuevoAvisarTope() *auditoria.Caso[EntradaAvisarTope, ResultadoA
 // SuscribirAvisos registra el suscriptor de los avisos del panel (cmd/worker). Corre aunque el push
 // esté apagado: la campana y el correo no dependen de FCM.
 func (m *Modulo) SuscribirAvisos(bus *integracion.Bus, bd nucleo.BD) {
+	m.suscribirServidorIA(bus, bd)
 	bus.Suscribir("notificaciones.avisos", "asistente.tope_alcanzado", func(ctx context.Context, e integracion.Evento) error {
 		var in EntradaAvisarTope
 		if err := json.Unmarshal(e.Payload, &in); err != nil {

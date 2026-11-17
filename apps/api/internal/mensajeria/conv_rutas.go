@@ -204,6 +204,7 @@ func listasNoNulas(api huma.API) {
 
 func (m *Modulo) registrarConversaciones(api huma.API) {
 	m.registrarVoz(api)
+	m.registrarServidorIA(api)
 	k := m.Conv
 	ver, resp, conf, canalesConf := nucleo.PermConversacionesVer, nucleo.PermConversacionesResponder, nucleo.PermConversacionesConfigurar, nucleo.PermCanalesConfigurar
 

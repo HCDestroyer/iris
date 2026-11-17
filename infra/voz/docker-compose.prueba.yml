@@ -1,0 +1,9 @@
+# Solo CI: cambia Ollama por uno falso (cmd/voz-ollama-falso) para probar el paquete sin GPU ni
+# modelos. No va en el paquete publicado.
+services:
+  llm:
+    image: iris-voz-ollama-falso:prueba
+    user: "65532:65532"
+    mem_limit: 256m
+    environment:
+      MODELOS: ${IRIS_VOZ_PRUEBA_MODELOS:-modelo-a:latest,modelo-b:latest}

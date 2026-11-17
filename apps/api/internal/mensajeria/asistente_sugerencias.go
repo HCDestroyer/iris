@@ -60,7 +60,7 @@ type AccionSugerencia struct {
 
 // ErrorSugerencia es por qué no hay texto.
 type ErrorSugerencia struct {
-	Codigo  string `json:"codigo" enum:"proveedor_no_responde,proveedor_error,clave_invalida,tope_alcanzado,sin_configurar,rechazo_modelo,respuesta_invalida,url_no_permitida"`
+	Codigo  string `json:"codigo" enum:"proveedor_no_responde,proveedor_error,clave_invalida,tope_alcanzado,sin_configurar,rechazo_modelo,respuesta_invalida,url_no_permitida,servidor_ia_no_disponible,servidor_ia_ocupado,servidor_desactivado"`
 	Detalle string `json:"detalle" doc:"En español"`
 }
 

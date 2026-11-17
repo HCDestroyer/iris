@@ -187,8 +187,11 @@ func (m *Modulo) prepararPrueba(ctx context.Context, t *auditoria.Tx, in Entrada
 	if err != nil {
 		return pruebaPreparada{}, err
 	}
-	if aj == nil || (aj.Proveedor != ProveedorAnthropic && (aj.Url == "" || aj.Modelo == "")) || (aj.Proveedor == ProveedorAnthropic && aj.ClaveCifrada == nil) {
-		return pruebaPreparada{}, reglaConv(ErrIASinConfig, "Guarda primero el proveedor de IA (URL, modelo y clave) para poder probar")
+	if aj == nil {
+		return pruebaPreparada{}, reglaConv(ErrIASinConfig, "Guarda primero el proveedor de IA para poder probar")
+	}
+	if !proveedorConfigurado(aj.Proveedor, aj.Url, aj.Modelo, aj.ClaveCifrada != nil) {
+		return pruebaPreparada{}, reglaConv(ErrIASinConfig, "Guarda primero el proveedor de IA para poder probar: "+faltaConfigurar(aj.Proveedor))
 	}
 	if pausado, err := m.pausadoPorTope(ctx, q, empresa, aj.TopeTokensMes); err != nil {
 		return pruebaPreparada{}, err
