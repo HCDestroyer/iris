@@ -333,8 +333,13 @@ func reserializar(cuerpo []byte, maxTokens int) (chatPeticion, []byte, error) {
 	if in.MaxTokens == nil {
 		in.MaxTokens = &maxTokens
 	}
-	if *in.MaxTokens < 1 || *in.MaxTokens > maxTokens {
+	if *in.MaxTokens < 1 {
 		return mal("max_tokens")
+	}
+	if *in.MaxTokens > maxTokens {
+		// El tope es del servidor: pedir más no es un error del cliente (Iris pide hasta 8192 para una
+		// sugerencia); se recorta y la respuesta puede salir truncada (finish_reason «length»).
+		in.MaxTokens = &maxTokens
 	}
 	if f := in.ResponseFormat; f != nil {
 		switch f.Type {

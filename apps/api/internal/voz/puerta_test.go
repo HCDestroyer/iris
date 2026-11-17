@@ -494,7 +494,7 @@ func TestReserializacion(t *testing.T) {
 		`{"model":"modelo-a:latest","messages":[{"role":"user","content":"x"}],"tools":[{"type":"function","function":{"name":"a","url":"x"}}]}`: "422 campo_no_permitido",
 		`{"model":"modelo-a:latest","messages":[{"role":"user","content":"x"}],"stream":true}`:                                                   "422 flujo_no_disponible",
 		`{"model":"modelo-a:latest","messages":[{"role":"user","content":"x"}],"tool_choice":"required"}`:                                        "422 peticion_invalida",
-		`{"model":"modelo-a:latest","messages":[{"role":"user","content":"x"}],"max_tokens":999999}`:                                             "422 peticion_invalida",
+		`{"model":"modelo-a:latest","messages":[{"role":"user","content":"x"}],"max_tokens":0}`:                                                  "422 peticion_invalida",
 		`{"model":"modelo-a:latest","messages":[{"role":"raiz","content":"x"}]}`:                                                                 "422 peticion_invalida",
 		`{"model":"modelo-a:latest","messages":[]}`:                                                                                              "422 peticion_invalida",
 		`{"model":"modelo-a:latest","messages":[{"role":"user","content":"x"}]} {"otro":1}`:                                                      "422 peticion_invalida",
@@ -550,6 +550,14 @@ func TestReserializacion(t *testing.T) {
 	ultimo := b.Ollama.Chats()[base].Cuerpo
 	if bytes.Count(ultimo, []byte(`"model"`)) != 1 || !bytes.Contains(ultimo, []byte(`"stream":false`)) || !bytes.Contains(ultimo, []byte(`"max_tokens"`)) {
 		t.Fatalf("cuerpo reserializado: %s", ultimo)
+	}
+	// max_tokens por encima del tope del servidor no es un error: se recorta al tope (4096 de fábrica).
+	// Iris pide hasta 8192 para una sugerencia.
+	if _, err := c.Hacer(ctx, "POST", voz.RutaChat, []byte(`{"model":"modelo-a:latest","messages":[{"role":"user","content":"x"}],"max_tokens":999999}`), voz.TopeRespuestaLLM); err != nil {
+		t.Fatalf("max_tokens por encima del tope: %v", err)
+	}
+	if recortado := b.Ollama.Chats()[base+1].Cuerpo; !bytes.Contains(recortado, []byte(`"max_tokens":4096`)) {
+		t.Fatalf("max_tokens debía recortarse al tope: %s", recortado)
 	}
 
 	// La lista de modelos es la de los permitidos e instalados.

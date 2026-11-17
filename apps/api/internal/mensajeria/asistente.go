@@ -425,6 +425,30 @@ func nuevoEstadoAsistente(m *Modulo) *auditoria.Caso[struct{}, EstadoAsistente] 
 	})
 }
 
+// proveedorConfigurado: lo mínimo para poder llamar al modelo. Es la ÚNICA definición de
+// «configurado»: el servidor de IA de la instalación no lleva URL ni clave (basta el modelo),
+// Anthropic lleva clave (la URL y el modelo tienen valor por defecto) y los demás, URL y modelo.
+func proveedorConfigurado(proveedor, url, modelo string, conClave bool) bool {
+	switch proveedor {
+	case ProveedorServidorIA:
+		return modelo != ""
+	case ProveedorAnthropic:
+		return conClave
+	}
+	return url != "" && modelo != ""
+}
+
+// faltaConfigurar: el texto de lo que falta, por proveedor.
+func faltaConfigurar(proveedor string) string {
+	switch proveedor {
+	case ProveedorServidorIA:
+		return "Falta elegir un modelo del servidor de IA"
+	case ProveedorAnthropic:
+		return "Falta la clave de API de Anthropic"
+	}
+	return "Falta la URL del servidor o el modelo"
+}
+
 // validarConexion: la URL (si hay, o la de Anthropic por defecto) y lo que exige activar.
 func validarConexionAsistente(proveedor, url, modelo string, conClave, activo, loopback bool) error {
 	if proveedor == ProveedorServidorIA {
@@ -443,18 +467,8 @@ func validarConexionAsistente(proveedor, url, modelo string, conClave, activo, l
 			return err
 		}
 	}
-	if !activo {
-		return nil
-	}
-	switch proveedor {
-	case ProveedorAnthropic:
-		if !conClave {
-			return reglaConv("sin_configurar", "Para activar Anthropic falta la clave de API")
-		}
-	default:
-		if url == "" || modelo == "" {
-			return reglaConv("sin_configurar", "Para activar el asistente falta la URL del servidor o el modelo")
-		}
+	if activo && !proveedorConfigurado(proveedor, url, modelo, conClave) {
+		return reglaConv(ErrIASinConfig, "Para activar el asistente: "+faltaConfigurar(proveedor))
 	}
 	return nil
 }
@@ -779,8 +793,29 @@ func (p *ProbarAsistente) Ejecutar(ctx context.Context, in EntradaProbarAsistent
 	if err != nil {
 		// Un solo mensaje y sin latencia: no se distingue un puerto cerrado de uno abierto.
 		r = PruebaAsistente{Estado: "error", Detalle: DetalleFallaIA}
+		if propio := problemaServidorIA(err); propio != nil {
+			// El servidor de IA de la instalación no tiene URL ni clave que revisar: se dice lo que pasa.
+			_, _ = p.registro.Ejecutar(ctx, PruebaAsistente{Estado: "error", Detalle: propio.Detail})
+			return PruebaAsistente{}, propio
+		}
 	}
 	return p.registro.Ejecutar(ctx, r)
+}
+
+// problemaServidorIA: los errores propios del servidor de IA de la instalación, con su código y un
+// texto llano (nil si el error no es de esos).
+func problemaServidorIA(err error) *nucleo.Problema {
+	var e *ErrorIA
+	if !errors.As(err, &e) {
+		return nil
+	}
+	switch e.Codigo {
+	case ErrIAServidorDesactivado, ErrIAOcupado:
+		return nucleo.NuevoProblema(http.StatusConflict, e.Codigo, "Servidor de IA", e.Detalle)
+	case ErrIAServidorNoDisponible:
+		return nucleo.NuevoProblema(http.StatusBadGateway, e.Codigo, "Servidor de IA", e.Detalle)
+	}
+	return nil
 }
 
 func detalleIA(err error) string {
@@ -831,6 +866,9 @@ func (k *ModelosAsistente) Ejecutar(ctx context.Context, in EntradaModelosAsiste
 	defer cancelar()
 	ms, err := prov.Modelos(cctx)
 	if err != nil {
+		if propio := problemaServidorIA(err); propio != nil {
+			return ListaModelosAsistente{}, propio
+		}
 		return ListaModelosAsistente{}, falla
 	}
 	if ms == nil {
@@ -848,6 +886,9 @@ func problemaIA(err error) error {
 	switch e.Codigo {
 	case "url_no_permitida", ErrIASinConfig, ErrIATope:
 		return nucleo.NuevoProblema(http.StatusUnprocessableEntity, e.Codigo, "No se puede", e.Detalle)
+	}
+	if propio := problemaServidorIA(err); propio != nil {
+		return propio
 	}
 	return nucleo.NuevoProblema(http.StatusBadGateway, e.Codigo, "El proveedor de IA falló", e.Detalle)
 }

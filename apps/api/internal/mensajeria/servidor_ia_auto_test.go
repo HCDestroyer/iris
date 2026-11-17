@@ -20,6 +20,8 @@ import (
 type guionOllama struct {
 	mu        sync.Mutex
 	categoria string
+	// contenido: si no está vacío, lo que responde a todo pedido que no sea un turno autónomo.
+	contenido string
 	pasos     []pasoFalso
 	autonomos []string
 }
@@ -34,6 +36,9 @@ func chatOllama(msg map[string]any, fin string) []byte {
 func (g *guionOllama) responder(cuerpo []byte) []byte {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if !esAutonomo(string(cuerpo)) && g.contenido != "" {
+		return chatOllama(map[string]any{"role": "assistant", "content": g.contenido}, "stop")
+	}
 	if !esAutonomo(string(cuerpo)) {
 		return chatOllama(map[string]any{"role": "assistant", "content": fmt.Sprintf(`{"categoria": %q, "confianza": 0.95}`, g.categoria)}, "stop")
 	}
@@ -184,5 +189,96 @@ func TestServidorIAModoAutonomoDePuntaAPunta(t *testing.T) {
 	}
 	if len(modelo.pedidos()) != pedidosAntes {
 		t.Fatalf("con el servidor caído no debía llegar nada más al modelo: %d", len(modelo.pedidos()))
+	}
+}
+
+func (g *guionOllama) decir(s string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.contenido = s
+}
+
+// F2 y F7: con el servidor de IA «configurado» es proveedor + modelo (no hay URL ni clave). Cada
+// camino del asistente funciona sin ellas, y cuando el servidor no está la falla es propia.
+func TestServidorIACaminosDelAsistente(t *testing.T) {
+	xi := nuevaBandejaIA(t)
+	x := bancoIASobre(t, xi.bandeja, vozprueba.Opciones{})
+	x.enlazar()
+	x.activar()
+	modelo := &guionOllama{categoria: "Planes y precios"}
+	x.banco.Ollama.Cambiar(func(o *vozprueba.Ollama) { o.Responder = modelo.responder })
+	servidorIA := map[string]any{"proveedor": "servidor_ia", "url": "", "modelo": "modelo-a:latest"}
+
+	// Guardar y encender: sin modelo no está configurado; con modelo, sí (sin URL ni clave).
+	sinModelo := map[string]any{"proveedor": "servidor_ia", "url": "", "modelo": ""}
+	xi.exigir(xi.ajustes(sinModelo), http.StatusUnprocessableEntity)
+	xi.exigir(xi.ajustes(servidorIA), http.StatusOK, "activo", "true", "proveedor", "servidor_ia")
+
+	// «Probar» y los modelos, con lo guardado y con lo que se manda.
+	for _, cuerpo := range []map[string]any{servidorIA} {
+		p := xi.api(xi.admin, http.MethodPost, "/asistente/probar", cuerpo)
+		xi.exigir(p, http.StatusOK)
+		if p.cuerpo["estado"] != "ok" {
+			t.Fatalf("probar con el servidor de IA: %v", p.cuerpo)
+		}
+	}
+	ms := xi.api(xi.admin, http.MethodGet, "/asistente/modelos", nil)
+	xi.exigir(ms, http.StatusOK)
+	if len(ms.cuerpo["data"].([]any)) != 1 {
+		t.Fatalf("modelos: %v", ms.cuerpo)
+	}
+
+	// «Probar un mensaje» (lo que encontró la prueba de punta a punta: respondía 422 sin_configurar).
+	modelo.decir(`{"categoria": "Planes y precios", "confianza": 0.9, "texto": "Hola, soy el asistente virtual.", "fuentes": [], "acciones": [], "pasar": null}`)
+	*xi.reloj = xi.reloj.Add(7 * time.Second)
+	pm := xi.api(xi.admin, http.MethodPost, "/asistente/probar-mensaje", map[string]any{"texto": "hola, ¿qué planes tienen?"})
+	xi.exigir(pm, http.StatusOK)
+	if pm.cuerpo["haria"] == nil {
+		t.Fatalf("probar-mensaje con el servidor de IA: %v", pm.cuerpo)
+	}
+
+	// Sugerencia con el botón.
+	num := numeroCliente()
+	xi.texto(num, "wamid.cam1", "Hola, ¿tienen planes de fibra?")
+	conv := cid(xi.conv(num))
+	modelo.decir(respuestaModelo("Claro, con gusto te cuento de los planes.", nil, nil))
+	if s := xi.pedirYGenerar(xi.agente, conv); s["estado"] != "lista" || !strings.HasPrefix(s["texto"].(string), "Claro, con gusto") {
+		t.Fatalf("sugerencia con el servidor de IA: %v", s)
+	}
+	// Los tres pedidos (probar, probar un mensaje y la sugerencia) pasaron por el servidor de IA y
+	// quedaron contados. Clasificar y el modo autónomo: TestServidorIAModoAutonomoDePuntaAPunta.
+	usadas := xi.contar(`SELECT coalesce(sum(peticiones), 0)::int FROM mensajeria.servidor_ia_uso WHERE motor_id = $1 AND empresa_id = 1`, x.motor)
+	if usadas != 3 {
+		t.Fatalf("peticiones por el servidor de IA: %d", usadas)
+	}
+	// Tope del mes: al llegar, los caminos responden tope_alcanzado (no sin_configurar ni un fallo de red).
+	xi.exigir(xi.ajustes(map[string]any{"proveedor": "servidor_ia", "url": "", "modelo": "modelo-a:latest", "topeTokensMes": 1000}), http.StatusOK)
+	*xi.reloj = xi.reloj.Add(7 * time.Second)
+	xi.exigir(xi.api(xi.admin, http.MethodPost, "/asistente/probar-mensaje", map[string]any{"texto": "hola"}), http.StatusUnprocessableEntity, "type", "urn:iris:problema:tope_alcanzado")
+	xi.exigir(xi.ajustes(servidorIA), http.StatusOK)
+
+	// F7: el servidor se cae. «Probar» ya no dice «revisa la URL, la clave y el modelo» (no hay URL
+	// ni clave): responde su propio error, en texto llano. Y la sugerencia lleva ese código.
+	x.banco.Apagar()
+	for range 3 {
+		x.latir()
+	}
+	p := xi.api(xi.admin, http.MethodPost, "/asistente/probar", servidorIA)
+	xi.exigir(p, http.StatusBadGateway, "type", "urn:iris:problema:servidor_ia_no_disponible")
+	if d := fmt.Sprint(p.cuerpo["detail"]); strings.Contains(d, "URL") || strings.Contains(d, "clave") || !strings.Contains(d, "servidor de IA") {
+		t.Fatalf("texto de probar con el servidor caído: %q", d)
+	}
+	xi.exigir(xi.api(xi.admin, http.MethodGet, "/asistente/modelos", nil), http.StatusBadGateway, "type", "urn:iris:problema:servidor_ia_no_disponible")
+	*xi.reloj = xi.reloj.Add(7 * time.Second)
+	xi.exigir(xi.api(xi.admin, http.MethodPost, "/asistente/probar-mensaje", map[string]any{"texto": "hola"}), http.StatusBadGateway, "type", "urn:iris:problema:servidor_ia_no_disponible")
+	if s := xi.pedirYGenerar(xi.agente, conv); s["estado"] != "error" || s["error"].(map[string]any)["codigo"] != "servidor_ia_no_disponible" {
+		t.Fatalf("sugerencia con el servidor caído: %v", s)
+	}
+	// Y desactivado (F3): servidor_desactivado.
+	x.exigir(x.api(x.admin, http.MethodPost, x.ruta("/desactivar"), map[string]any{}), http.StatusOK)
+	*xi.reloj = xi.reloj.Add(7 * time.Second)
+	xi.exigir(xi.api(xi.admin, http.MethodPost, "/asistente/probar-mensaje", map[string]any{"texto": "hola"}), http.StatusConflict, "type", "urn:iris:problema:servidor_desactivado")
+	if s := xi.pedirYGenerar(xi.agente, conv); s["estado"] != "error" || s["error"].(map[string]any)["codigo"] != "servidor_desactivado" {
+		t.Fatalf("sugerencia con el servidor desactivado: %v", s)
 	}
 }

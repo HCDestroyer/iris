@@ -174,9 +174,27 @@ func (m Manifiesto) Validar() error {
 	return nil
 }
 
-// AdmiteIris dice si esa versión de Iris entra en [irisMin, irisMax]. La versión 0.0.0 (binario de
-// desarrollo, sin versión) solo entra si irisMin es 0.0.0.
+var reDesarrollo = regexp.MustCompile(`-\d+-g[0-9a-f]{4,40}(-dirty)?$|-dirty$`)
+
+// VersionDesarrollo dice si esa versión de Iris es un binario de desarrollo y no una versión
+// publicada: 0.0.0 (sin versión: `0.0.0-dev`) o lo que da `git describe` con commits después de la
+// etiqueta (`v0.27.0-36-gabc1234`, o `-dirty`). De esas no se sabe a qué versión publicada
+// equivalen: no se comparan con el rango del paquete.
+func VersionDesarrollo(version string) bool {
+	p, ok := partes(version)
+	if !ok {
+		return false
+	}
+	return p == [3]int{} || reDesarrollo.MatchString(version)
+}
+
+// AdmiteIris dice si esa versión de Iris entra en [irisMin, irisMax]. Un binario de desarrollo
+// (VersionDesarrollo) se admite siempre: solo una versión publicada exacta fuera del rango es
+// incompatible.
 func (m Manifiesto) AdmiteIris(version string) bool {
+	if VersionDesarrollo(version) {
+		return true
+	}
 	a, ok1 := CompararVersion(version, m.IrisMin)
 	b, ok2 := CompararVersion(version, m.IrisMax)
 	return ok1 && ok2 && a >= 0 && b <= 0

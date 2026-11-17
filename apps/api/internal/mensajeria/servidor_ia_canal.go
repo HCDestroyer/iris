@@ -197,6 +197,27 @@ func (m *Modulo) canalVivo(ctx context.Context, c conexionMotor) (canalVivo, err
 // tanto nadie más rota ni termina esa rotación: ni otra persona, ni otra réplica, ni el latido.
 const plazoRotacionIA = 30 * time.Second
 
+func motorDesactivado() *nucleo.Problema {
+	return reglaMotor(http.StatusConflict, ErrIAServidorDesactivado, "El servidor de IA está desactivado: actívalo de nuevo o enlázalo otra vez")
+}
+
+func motorIncompatible(motivo *string) *nucleo.Problema {
+	detalle := "La versión del servidor de IA y la de Iris no son compatibles"
+	switch derefTexto(motivo) {
+	case "iris_antiguo":
+		detalle += ": hay que actualizar Iris"
+	case "iris_nuevo", "paquete_antiguo":
+		detalle += ": hay que actualizar el servidor de IA (iris-voz upgrade)"
+	case "protocolo":
+		detalle += ": hablan protocolos distintos; actualiza el más antiguo de los dos"
+	}
+	p := reglaMotor(http.StatusConflict, "incompatible", detalle)
+	if m := derefTexto(motivo); m != "" {
+		p.Errors = []nucleo.ErrorCampo{{Field: "paquete.motivoIncompatible", Message: detalle, Rule: m}}
+	}
+	return p
+}
+
 func rotacionEnCurso() *nucleo.Problema {
 	return nucleo.Conflicto("rotacion_en_curso", "Hay otra rotación de credenciales en curso: vuelve a intentarlo en unos segundos")
 }
@@ -341,6 +362,13 @@ func (a *ActivarMotor) Ejecutar(ctx context.Context, in EntradaActivarMotor) (Mo
 	case f.ActivadoEn == nil && a.m.ahora().Sub(*f.EnlazadoEn) > vidaEnlaceSinActivar:
 		return MotorIA{}, reglaMotor(http.StatusConflict, "enlace_vencido", "El enlace caducó sin activarse: enlaza de nuevo con otro código")
 	}
+	if !f.Compatible {
+		// No se activa algo que Iris no va a usar: el motivo dice cuál de los dos hay que actualizar.
+		return MotorIA{}, motorIncompatible(f.MotivoIncompatible)
+	}
+	if voz.VersionDesarrollo(a.m.versionIris()) {
+		slog.WarnContext(ctx, "servidor de IA: este Iris es un binario de desarrollo; no se compara su versión con el rango del paquete", "version", a.m.versionIris())
+	}
 	if a.m.rotacionEnVuelo(f) {
 		return MotorIA{}, rotacionEnCurso()
 	}
@@ -401,6 +429,9 @@ func (r *RotarMotor) Ejecutar(ctx context.Context, in EntradaRotarMotor) (MotorI
 func (r *RotarMotor) rotar(ctx context.Context, c conexionMotor, origen string, revocar bool) (MotorIA, error) {
 	if c.fila.ActivadoEn == nil || len(c.token) != voz.LargoToken {
 		return MotorIA{}, reglaMotor(http.StatusConflict, "motor_sin_enlazar", "El servidor de IA no está activado")
+	}
+	if c.fila.Estado == MotorDesactivado {
+		return MotorIA{}, motorDesactivado()
 	}
 	if r.m.rotacionEnVuelo(c.fila) {
 		return MotorIA{}, rotacionEnCurso()
@@ -480,6 +511,9 @@ func (p *ProbarMotor) Ejecutar(ctx context.Context, id int64) (MotorIA, error) {
 	}
 	if c.fila.EnlazadoEn == nil || c.fila.ActivadoEn == nil {
 		return MotorIA{}, reglaMotor(http.StatusConflict, "motor_sin_enlazar", "El servidor de IA no está activado")
+	}
+	if c.fila.Estado == MotorDesactivado {
+		return MotorIA{}, motorDesactivado()
 	}
 	pr := PruebaMotor{Estado: "ok", ProbadoEn: p.m.ahora(), Pasos: []PasoPrueba{}}
 	paso := func(codigo string, inicio time.Time, err error, detalle string) bool {
