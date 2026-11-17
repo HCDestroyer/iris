@@ -1,7 +1,7 @@
 "use client";
 
 import { Boton, Cargando, cn } from "@iris/ui";
-import { AlertTriangle, ArrowLeftRight, Bot, FileText, History, MapPin, MessageCircle, Paperclip, PencilLine, Plug, RotateCw, ShieldCheck, ShieldX, Smartphone, Sparkles, Timer, UserRound } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, Bot, FileText, History, MapPin, MessageCircle, Paperclip, PencilLine, Plug, RotateCw, ShieldCheck, ShieldX, Smartphone, Sparkles, Timer, UserRound, Voicemail } from "lucide-react";
 import { Fragment, useEffect, useLayoutEffect, useRef } from "react";
 import type { Pendiente } from "@/lib/conversaciones/estado";
 import { hora, separadorDia, tamanoLegible, textoEntrega, textoEvento } from "@/lib/conversaciones/presentacion";
@@ -233,6 +233,13 @@ function Burbuja({ m }: { m: Mensaje }) {
                     <span className="flex items-center gap-1 text-[0.6875rem] font-semibold text-info" data-slot="etiqueta-bot">
                         <Bot aria-hidden className="size-3.5" />
                         Bot · mensaje automático
+                    </span>
+                ) : null}
+                {m.buzonDeVoz ? (
+                    // Voz E1: el recado que el cliente dejó en el buzón al llamar fuera de horario.
+                    <span className="flex items-center gap-1 text-[0.6875rem] font-semibold text-warning" data-slot="etiqueta-buzon">
+                        <Voicemail aria-hidden className="size-3.5" />
+                        Mensaje de voz del buzón
                     </span>
                 ) : null}
                 {m.adjunto ? <Adjunto m={m} /> : null}

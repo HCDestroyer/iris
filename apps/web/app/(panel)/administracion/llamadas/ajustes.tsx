@@ -85,7 +85,7 @@ function Formulario({ ajustes }: { ajustes: AjustesVoz }) {
             </SeccionFormulario>
             <SeccionFormulario titulo="Grabación">
                 <p className="text-sm text-muted-foreground" data-slot="grabacion-no-disponible">
-                    Las llamadas no se graban. La grabación todavía no está disponible.
+                    Las llamadas no se graban: la grabación todavía no está disponible.
                 </p>
             </SeccionFormulario>
             {puede(["llamadas.configurar"]) ? (

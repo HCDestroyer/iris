@@ -59,6 +59,8 @@ type ContextoVoz = {
     errorColgar: unknown;
     reintentarColgar: () => void;
     recibir: EstadoRecibir;
+    /** El servidor apagó «Recibir» en este navegador (pasó del máximo por persona): se ofrece volver a encender. */
+    desplazado: boolean;
     /** Lo que se sabe del micrófono en este navegador (`null`: aún no se preguntó). */
     microfono: EstadoMicrofono | null;
     /** ¿Este navegador puede contestar? (micrófono y WebRTC, en contexto seguro) */
@@ -97,6 +99,28 @@ function tomarCandado(nombre: string): Promise<(() => void) | null> {
     });
 }
 
+const esperar = (ms: number) => new Promise<void>((resolver) => window.setTimeout(resolver, ms));
+const accionEnCurso = (e: unknown) => e instanceof ErrorApi && e.codigo === "accion_en_curso";
+
+/**
+ * `soltar` responde 409 `accion_en_curso` mientras WhatsApp no ha contestado a un `pre_accept` o
+ * `accept` de esa llamada: se reintenta a los pocos segundos, sin alarmar a nadie.
+ */
+async function soltarConReintento(id: string, motivo: string) {
+    for (let intento = 0; intento < 4; intento++) {
+        try {
+            await soltarLlamada(id, motivo);
+            return;
+        } catch (e) {
+            if (!accionEnCurso(e)) return;
+            await esperar(2000);
+        }
+    }
+}
+
+/** Cada cuánto se relee si este navegador sigue recibiendo (el servidor guarda como mucho 10 por persona). */
+const RELEER_RECIBIR_MS = 60_000;
+
 type Intento = { conexion: Conexion | null; microfono: MediaStream | null; plazo: number; liberar: (() => void) | null };
 
 export function ProveedorVoz({ children }: { children: ReactNode }) {
@@ -133,7 +157,7 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
             estadoRef.current = despues;
             setEstado(despues);
             const soltar = debeSoltar(antes, despues);
-            if (soltar) void soltarLlamada(soltar, despues.fase === "aviso" ? despues.motivo : "error").catch(() => undefined);
+            if (soltar) void soltarConReintento(soltar, despues.fase === "aviso" ? despues.motivo : "error");
             if (!ocupada(despues)) limpiar();
             return despues;
         },
@@ -146,8 +170,38 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
     const [microfono, setMicrofono] = useState<EstadoMicrofono | null>(null);
     const [cambiando, setCambiando] = useState(false);
     const [errorCambio, setErrorCambio] = useState<unknown>(null);
+    const [desplazado, setDesplazado] = useState(false);
     const recibe = recibir.estado === "listo" && recibir.recibe;
     const recibeRef = useRef(recibe);
+    const releerRecibir = useRef<() => void>(() => undefined);
+
+    // Con «Recibir» encendido se relee de vez en cuando: si el servidor lo apagó aquí (se pasó de los
+    // 10 navegadores por persona, o lleva mucho sin verse), se dice y se ofrece volver a encender.
+    useEffect(() => {
+        if (!recibe) return;
+        let vivo = true;
+        const leer = () => {
+            if (document.visibilityState !== "visible") return;
+            leerRecibir(idNavegador()).then(
+                (r) => {
+                    if (!vivo || r.recibe) return;
+                    setRecibir({ estado: "listo", recibe: false });
+                    setDesplazado(true);
+                },
+                // Una relectura fallida no cambia nada: el interruptor sigue como se leyó.
+                () => undefined,
+            );
+        };
+        releerRecibir.current = leer;
+        const id = window.setInterval(leer, RELEER_RECIBIR_MS);
+        document.addEventListener("visibilitychange", leer);
+        return () => {
+            vivo = false;
+            releerRecibir.current = () => undefined;
+            window.clearInterval(id);
+            document.removeEventListener("visibilitychange", leer);
+        };
+    }, [recibe]);
     useEffect(() => {
         recibeRef.current = recibe;
     });
@@ -194,6 +248,7 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
             setMicrofono("concedido");
             const r = await encenderRecibir(idNavegador());
             setRecibir({ estado: "listo", recibe: r.recibe });
+            setDesplazado(false);
             avisar({ titulo: "Este navegador ya recibe llamadas" });
             return true;
         } catch (e) {
@@ -211,6 +266,7 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
         try {
             const r = await apagarRecibir(idNavegador());
             setRecibir({ estado: "listo", recibe: r.recibe });
+            setDesplazado(false);
             avisar({ titulo: "Este navegador ya no recibe llamadas" });
         } catch (e) {
             setErrorCambio(e);
@@ -283,7 +339,17 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
             };
             despachar({ tipo: "contestar" });
             try {
-                const r = await reclamarLlamada(id);
+                // 409 `accion_en_curso`: WhatsApp aún responde a otra acción de esta llamada; se reintenta.
+                let r: Awaited<ReturnType<typeof reclamarLlamada>> | null = null;
+                for (let vez = 0; r === null; vez++) {
+                    try {
+                        r = await reclamarLlamada(id);
+                    } catch (e) {
+                        if (!accionEnCurso(e) || vez >= 3) throw e;
+                        await esperar(1500);
+                        if (!vivo()) return;
+                    }
+                }
                 if (!vivo()) return;
                 despachar({ tipo: "reclamada", llamada: r.llamada, venceEn: Date.parse(r.venceEn) });
                 if (!vivo()) return;
@@ -326,6 +392,8 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
                 } else if (error instanceof ErrorApi) {
                     if (error.codigo === "llamada_ya_contestada" && error.errores[0]?.rule === "misma_persona") despachar({ tipo: "otra_pestana" });
                     else despachar({ tipo: "fallo", motivo: motivoDeCodigo(error.codigo, error.estado), detalle: error.codigo === "llamada_ya_contestada" ? error.detalle : undefined });
+                    // El servidor dice que este navegador ya no recibe: se relee para decirlo.
+                    if (error.codigo === "no_recibe_llamadas") releerRecibir.current();
                 } else {
                     despachar({ tipo: "fallo", motivo: "medio_fallido" });
                 }
@@ -413,8 +481,8 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
     }, []);
 
     const valor = useMemo<ContextoVoz>(
-        () => ({ estado, contestar, rechazar, colgar, silenciar, cerrar, errorColgar, reintentarColgar, recibir, microfono, admite, cambiando, errorCambio, encender, apagar, reintentarRecibir, feed, timbre: suena }),
-        [estado, contestar, rechazar, colgar, silenciar, cerrar, errorColgar, reintentarColgar, recibir, microfono, admite, cambiando, errorCambio, encender, apagar, reintentarRecibir, feed, suena],
+        () => ({ estado, contestar, rechazar, colgar, silenciar, cerrar, errorColgar, reintentarColgar, recibir, desplazado, microfono, admite, cambiando, errorCambio, encender, apagar, reintentarRecibir, feed, timbre: suena }),
+        [estado, contestar, rechazar, colgar, silenciar, cerrar, errorColgar, reintentarColgar, recibir, desplazado, microfono, admite, cambiando, errorCambio, encender, apagar, reintentarRecibir, feed, suena],
     );
     return <Contexto value={valor}>{children}</Contexto>;
 }

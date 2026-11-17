@@ -76,13 +76,7 @@ export type ValoresAjustesVoz = z.infer<typeof esquemaAjustesVoz>;
 
 export const valoresDeAjustes = (a: AjustesVoz): ValoresAjustesVoz => ({ duracionMaxPersonaMin: String(a.duracionMaxPersonaMin), segundosAsignado: String(a.segundosAsignado) });
 
-/** La grabación no se ofrece todavía: `grabar` y su retención viajan como vinieron. */
-export function entradaDeAjustes(v: ValoresAjustesVoz, a: AjustesVoz): EntradaAjustesVoz {
-    return {
-        version: a.version,
-        grabar: a.grabar,
-        retencionGrabacionesDias: a.retencionGrabacionesDias,
-        duracionMaxPersonaMin: Number(v.duracionMaxPersonaMin),
-        segundosAsignado: Number(v.segundosAsignado),
-    };
+/** La grabación todavía no existe (`grabar` es siempre `nunca`): no se ofrece ni se manda. */
+export function entradaDeAjustes(v: ValoresAjustesVoz, a: Pick<AjustesVoz, "version">): EntradaAjustesVoz {
+    return { version: a.version, duracionMaxPersonaMin: Number(v.duracionMaxPersonaMin), segundosAsignado: Number(v.segundosAsignado) };
 }

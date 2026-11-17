@@ -205,14 +205,21 @@ func (m *Modulo) registrarVoz(api huma.API) {
 				return responder(m.ComprobarLlamadas(ctx, in.ID, r.sincronizar))
 			})
 	}
+	huma.Register(api, voz(op("reintentarLlamadasCanalEnWhatsApp", http.MethodPost, "/canales/{id}/llamadas/aplicar", "Reintentar ahora la escritura de los ajustes en WhatsApp", conf,
+		http.StatusOK, http.StatusNotFound, http.StatusConflict),
+		"Los ajustes del número (encendido, icono, devolución y horario de llamadas) se escriben en WhatsApp como un pendiente con reintentos (1 min, 5 min, 30 min, 2 h, 12 h). "+
+			"`whatsapp.estado` dice cómo va: `aplicado`, `pendiente` o `error`. Este endpoint lo intenta ya, también desde `error`."),
+		func(ctx context.Context, in *idHTTP) (*cuerpo[LlamadasCanal], error) {
+			return responder(m.ReintentarEnWhatsApp(ctx, in.ID))
+		})
 	vozConf := nucleo.PermVozConfigurar
 	huma.Register(api, voz(op("verAjustesVoz", http.MethodGet, "/voz/ajustes", "Ajustes de voz de la empresa", vozConf, http.StatusOK),
-		"E1: grabación, duración máxima de una llamada, cuánto suena primero a quien tiene la conversación y retención de grabaciones."),
+		"E1: duración máxima de una llamada y cuánto suena primero a quien tiene la conversación. `grabar` es siempre `nunca`: la grabación todavía no está disponible."),
 		func(ctx context.Context, _ *struct{}) (*cuerpo[AjustesVoz], error) {
 			return responder(k.VerAjustes.Ejecutar(ctx, struct{}{}))
 		})
 	huma.Register(api, voz(op("actualizarAjustesVoz", http.MethodPost, "/voz/ajustes/actualizar", "Guardar los ajustes de voz de la empresa", vozConf,
-		http.StatusOK, http.StatusConflict), "`version` la que leíste (0 la primera vez): distinta, 409. Emite `voz.ajustes_cambiados`."),
+		http.StatusOK, http.StatusConflict), "`version` la que leíste (0 la primera vez): distinta, 409. `grabar` distinto de `nunca`: 422 `grabacion_no_disponible`. Emite `voz.ajustes_cambiados`."),
 		func(ctx context.Context, in *cuerpoHTTP[EntradaAjustesVoz]) (*cuerpo[AjustesVoz], error) {
 			return responder(k.FijarAjustes.Ejecutar(ctx, in.Body))
 		})

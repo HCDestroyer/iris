@@ -47,6 +47,8 @@ export function textoAviso(motivo: MotivoAviso, quien?: string): { titulo: strin
             return { titulo: "No se pudo conectar el audio", detalle: "Tu red no dejó pasar la llamada. Prueba otra vez o desde otra red." };
         case "meta_rechazo":
             return { titulo: "WhatsApp no aceptó la llamada", detalle: "Puede que el cliente ya haya colgado." };
+        case "otra_llamada":
+            return { titulo: "Ya tienes otra llamada", detalle: "Termínala para contestar esta. Mientras tanto les sigue sonando a los demás." };
         default:
             return { titulo: "No se pudo contestar", detalle: "Vuelve a intentarlo." };
     }
@@ -59,6 +61,7 @@ export function motivoDeCodigo(codigo: string, estado: number): MotivoAviso {
     if (codigo === "llamada_terminada") return "termino_antes";
     if (codigo === "no_recibe_llamadas") return "no_recibe_llamadas";
     if (codigo === "meta_rechazo") return "meta_rechazo";
+    if (codigo === "llamada_en_curso") return "otra_llamada";
     if (codigo === "sdp_invalido") return "medio_fallido";
     return estado === 0 ? "sin_red" : "error";
 }
@@ -108,7 +111,13 @@ const NOMBRE_REQUISITO: Record<RequisitoLlamadas["codigo"], string> = {
     plantilla_permiso: "Hay una plantilla para pedir permiso de llamar",
 };
 
-/** Un requisito de Meta, en llano. `aviso`: no impide encender (solo limita algo). */
-export function textoRequisito(r: RequisitoLlamadas): { nombre: string; detalle: string; estado: "cumple" | "falta" | "aviso" } {
-    return { nombre: NOMBRE_REQUISITO[r.codigo] ?? r.codigo.replace(/_/g, " "), detalle: r.detalle, estado: r.cumple ? "cumple" : r.aviso ? "aviso" : "falta" };
+export type EstadoRequisito = "cumple" | "falta" | "aviso" | "sin_comprobar";
+
+/**
+ * Un requisito de Meta, en llano. `aviso`: no impide encender (solo limita algo). `sinComprobar`:
+ * Iris no lo puede leer de Meta (se sabrá al llegar la primera llamada); nunca se muestra como cumplido.
+ */
+export function textoRequisito(r: RequisitoLlamadas): { nombre: string; detalle: string; estado: EstadoRequisito } {
+    const estado: EstadoRequisito = r.sinComprobar ? "sin_comprobar" : r.cumple ? "cumple" : r.aviso ? "aviso" : "falta";
+    return { nombre: NOMBRE_REQUISITO[r.codigo] ?? r.codigo.replace(/_/g, " "), detalle: r.detalle, estado };
 }

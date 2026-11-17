@@ -36,6 +36,8 @@ export type OpcionesVoz = {
     sinRequisitos?: boolean;
     /** Solo quien atiende: sin `llamadas.configurar` ni `voz.configurar`. */
     soloAtender?: boolean;
+    /** Cómo están en WhatsApp los ajustes del número 3 (por defecto, aplicados). */
+    whatsapp?: "pendiente" | "error";
 };
 
 /** Una oferta SDP de mentira con forma de SDP (el doble de `RTCPeerConnection` no la interpreta). */
@@ -47,7 +49,8 @@ const OTRA = { id: 9, nombre: "Rosa Sánchez" };
 const REQUISITOS = (cumple: boolean): Requisito[] => [
     { codigo: "conexion_api", cumple: true, aviso: false, detalle: "" },
     { codigo: "limite_mensajeria", cumple, aviso: false, detalle: cumple ? "" : "Hoy puede escribirle a 250 personas al día. Sube de nivel en Meta enviando mensajes de calidad." },
-    { codigo: "webhook_calls", cumple: true, aviso: false, detalle: "" },
+    // Iris no puede leer la suscripción al campo `calls`: sin comprobar hasta la primera llamada.
+    { codigo: "webhook_calls", cumple: false, aviso: true, sinComprobar: true, detalle: "" },
     { codigo: "calling_habilitado", cumple, aviso: false, detalle: cumple ? "" : "Enciende las llamadas del número en WhatsApp Manager." },
     { codigo: "plantilla_permiso", cumple: false, aviso: true, detalle: "Sin ella no se le puede pedir permiso de llamar a un cliente fuera de las 24 horas." },
 ];
@@ -72,7 +75,7 @@ export function apiVoz(
     let idDevolucion = 70;
     const devoluciones: Devolucion[] = [];
     const canales = new Map<number, LlamadasCanal>();
-    let ajustes: AjustesVoz = { version: 3, grabar: "nunca", duracionMaxPersonaMin: 60, segundosAsignado: 10, retencionGrabacionesDias: 30 };
+    let ajustes: AjustesVoz = { version: 3, grabar: "nunca", duracionMaxPersonaMin: 60, segundosAsignado: 10 };
 
     /** Lo que recibió el servidor, para comprobarlo en la prueba. */
     const recibido = {
@@ -84,7 +87,13 @@ export function apiVoz(
     };
     /** Para forzar respuestas: la prueba lo cambia antes de actuar. */
     const forzar: {
-        reclamar?: "otro" | "misma_persona" | "no_recibe" | "sin_red";
+        reclamar?: "otro" | "misma_persona" | "no_recibe" | "sin_red" | "otra_llamada";
+        /** Cuántas veces más `reclamar` / `soltar` responden 409 `accion_en_curso` (WhatsApp aún no contesta). */
+        enCurso?: { reclamar?: number; soltar?: number };
+        /** El servidor apagó «Recibir» en este navegador (pasó del máximo por persona). */
+        desplazado?: boolean;
+        /** Qué pasa al reintentar la escritura en WhatsApp (por defecto, se aplica). */
+        aplicar?: "error";
         contestar?: "sdp_invalido" | "reserva_vencida" | "meta_rechazo";
         confirmar?: "reserva_vencida";
         colgar?: "error";
@@ -254,6 +263,12 @@ export function apiVoz(
                 devolucion: false,
                 mensajePerdida: { activo: true, texto: "No pudimos contestarte. Escríbenos por aquí y te atendemos." },
                 requisitos: { cumple, comprobadoEn: new Date(Date.now() - 3_600_000).toISOString(), requisitos: qr ? [{ codigo: "conexion_api", cumple: false, aviso: false, detalle: "El número está conectado por QR." }] : REQUISITOS(cumple) },
+                whatsapp:
+                    id === 3 && opciones.whatsapp === "pendiente"
+                        ? { estado: "pendiente", intentos: 2, proximoIntentoEn: new Date(Date.now() + 4 * 60_000).toISOString(), detalle: "WhatsApp no respondió." }
+                        : id === 3 && opciones.whatsapp === "error"
+                          ? { estado: "error", intentos: 6, detalle: "WhatsApp rechazó los ajustes del número." }
+                          : { estado: "aplicado", intentos: 1 },
                 version: 1,
             };
             canales.set(id, c);
@@ -278,12 +293,13 @@ export function apiVoz(
             if (cuerpo.version !== ajustes.version) return (await problema(route, P("conflicto_version", 409, "Alguien más lo cambió")), true);
             const min = Number(cuerpo.duracionMaxPersonaMin);
             if (!(min >= 10 && min <= 120)) return (await problema(route, P("validacion", 422, "Datos inválidos", { errors: [{ field: "body.duracionMaxPersonaMin", message: "Entre 10 y 120 minutos", rule: "rango" }] })), true);
-            ajustes = { ...(cuerpo as unknown as AjustesVoz), version: ajustes.version + 1 };
+            if (cuerpo.grabar !== undefined && cuerpo.grabar !== "nunca") return (await problema(route, P("grabacion_no_disponible", 422, "La grabación todavía no está disponible")), true);
+            ajustes = { grabar: "nunca", duracionMaxPersonaMin: min, segundosAsignado: Number(cuerpo.segundosAsignado), version: ajustes.version + 1 };
             return (await json(route, ajustes), true);
         }
 
         // --- Ajustes por número ---
-        const porCanal = /^\/api\/v1\/mensajeria\/canales\/(\d+)\/llamadas(?:\/(configurar|comprobar|sincronizar))?$/.exec(ruta);
+        const porCanal = /^\/api\/v1\/mensajeria\/canales\/(\d+)\/llamadas(?:\/(configurar|comprobar|sincronizar|aplicar))?$/.exec(ruta);
         if (porCanal) {
             if (!puede("llamadas.configurar")) return prohibido();
             const c = canal(Number(porCanal[1]));
@@ -292,6 +308,11 @@ export function apiVoz(
             if (porCanal[2] === "comprobar") {
                 // Meta ya la dejó lista: la segunda comprobación pasa.
                 if (c.tipoConexion === "api") c.requisitos = { cumple: true, comprobadoEn: new Date().toISOString(), requisitos: REQUISITOS(true) };
+                c.version += 1;
+                return (await json(route, c), true);
+            }
+            if (porCanal[2] === "aplicar") {
+                c.whatsapp = forzar.aplicar === "error" ? { estado: "error", intentos: c.whatsapp.intentos + 1, detalle: "WhatsApp rechazó los ajustes del número." } : { estado: "aplicado", intentos: c.whatsapp.intentos + 1 };
                 c.version += 1;
                 return (await json(route, c), true);
             }
@@ -327,7 +348,7 @@ export function apiVoz(
         if (ruta === `${BASE}/llamadas/recibir` && metodo === "GET") {
             if (!puede("llamadas.contestar")) return prohibido();
             const nav = query.get("navegador") ?? "";
-            return (await json(route, { recibe: recibe.get(nav) ?? opciones.recibe ?? false, vivo: true }), true);
+            return (await json(route, { recibe: forzar.desplazado ? false : (recibe.get(nav) ?? opciones.recibe ?? false), vivo: true }), true);
         }
         const interruptor = /^\/api\/v1\/mensajeria\/llamadas\/recibir\/(encender|apagar)$/.exec(ruta);
         if (interruptor && metodo === "POST") {
@@ -337,6 +358,7 @@ export function apiVoz(
             const accion = interruptor[1] as "encender" | "apagar";
             recibido.recibir.push({ accion, navegador: nav });
             recibe.set(nav, accion === "encender");
+            if (accion === "encender") delete forzar.desplazado;
             return (await json(route, { recibe: accion === "encender", vivo: true }), true);
         }
 
@@ -390,6 +412,11 @@ export function apiVoz(
 
         if (accion === "reclamar") {
             if (!puede("llamadas.contestar")) return prohibido();
+            if (forzar.enCurso?.reclamar) {
+                forzar.enCurso.reclamar -= 1;
+                return (await problema(route, P("accion_en_curso", 409, "WhatsApp aún no responde")), true);
+            }
+            if (forzar.reclamar === "otra_llamada") return (await problema(route, P("llamada_en_curso", 409, "Ya tienes otra llamada")), true);
             if (forzar.reclamar === "sin_red") return (await route.abort("internetdisconnected"), true);
             if (forzar.reclamar === "no_recibe") return (await problema(route, P("no_recibe_llamadas", 422, "Este navegador no recibe llamadas")), true);
             if (forzar.reclamar === "misma_persona") return (await yaContestada("Ya la contestaste en otra pestaña.", "misma_persona"), true);
@@ -419,6 +446,10 @@ export function apiVoz(
             if (reserva?.usuarioId !== yo.id) return noExiste();
             if (final) return (await problema(route, P("llamada_terminada", 409, "La llamada ya terminó")), true);
             if (accion === "soltar") {
+                if (forzar.enCurso?.soltar) {
+                    forzar.enCurso.soltar -= 1;
+                    return (await problema(route, P("accion_en_curso", 409, "WhatsApp aún no responde")), true);
+                }
                 l.estado = "sonando";
                 delete l.usuario;
                 reservas.delete(l.id);

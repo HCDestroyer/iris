@@ -32,7 +32,12 @@ UPDATE mensajeria.conversacion_mensajes SET llamada_id = @llamada_id WHERE id = 
 UPDATE mensajeria.llamadas l
 SET estado = 'conectando', reclamada_por = @usuario_id, reclamada_hasta = @hasta, updated_at = now()
 WHERE l.id = @id AND coalesce(l.empresa_id, 0) = @empresa::bigint AND l.estado = 'sonando'
+  -- Todavía suena, y no hay una acción con Meta a medias (un pre_accept o accept de la reserva anterior).
+  AND l.suena_hasta > @ahora::timestamptz AND l.accion_meta_estado IS DISTINCT FROM 'pendiente'
   AND EXISTS (SELECT 1 FROM mensajeria.llamada_candidatos c WHERE c.llamada_id = l.id AND c.usuario_id = @usuario_id AND c.retirado_en IS NULL)
+  -- Quien ya tiene una llamada viva no reclama otra.
+  AND NOT EXISTS (SELECT 1 FROM mensajeria.llamadas o WHERE o.id <> l.id AND o.estado IN ('conectando', 'en_curso')
+      AND (o.usuario_id = @usuario_id OR o.reclamada_por = @usuario_id))
 RETURNING *;
 
 -- name: EsCandidato :one
@@ -52,6 +57,7 @@ SET estado = @estado, atendida_por = sqlc.narg('atendida_por'), usuario_id = sql
     contestada_en = sqlc.narg('contestada_en'), terminada_en = sqlc.narg('terminada_en'), duracion_seg = sqlc.narg('duracion_seg'),
     nota = sqlc.narg('nota'), resultado = sqlc.narg('resultado'), sdp_oferta = sqlc.narg('sdp_oferta'),
     accion_meta = sqlc.narg('accion_meta'), accion_meta_estado = sqlc.narg('accion_meta_estado'), accion_meta_en = sqlc.narg('accion_meta_en'),
+    accion_meta_por = sqlc.narg('accion_meta_por'),
     pre_aceptada_en = sqlc.narg('pre_aceptada_en'), aviso_perdida = @aviso_perdida, updated_at = now()
 WHERE id = @id
 RETURNING *;
@@ -134,8 +140,49 @@ SELECT EXISTS (SELECT 1 FROM mensajeria.llamadas
 SELECT * FROM mensajeria.llamadas WHERE estado IN ('sonando', 'marcando', 'conectando', 'en_curso') ORDER BY sono_en LIMIT 200;
 
 -- name: LlamadasConAccionPendiente :many
--- Intenciones con Meta que quedaron a medias (el proceso murió entre la intención y el resultado).
-SELECT * FROM mensajeria.llamadas WHERE accion_meta_estado = 'pendiente' AND accion_meta_en < @antes ORDER BY accion_meta_en LIMIT 100;
+-- Intenciones pre_accept o accept que quedaron a medias (el proceso murió entre la intención y el
+-- resultado): las revisa el mantenimiento, que no las repite a ciegas.
+SELECT * FROM mensajeria.llamadas WHERE accion_meta_estado = 'pendiente' AND accion_meta_en < @antes
+  AND estado IN ('sonando', 'marcando', 'conectando', 'en_curso') ORDER BY accion_meta_en LIMIT 100;
+
+-- name: TomarAccionesMeta :many
+-- El job de escrituras a Meta toma las reject y terminate pendientes de llamadas ya cerradas cuyo
+-- intento ya toca (SKIP LOCKED: dos réplicas no toman la misma) y las deja apartadas un rato.
+UPDATE mensajeria.llamadas SET accion_meta_en = @ahora::timestamptz
+WHERE id IN (SELECT l.id FROM mensajeria.llamadas l
+    WHERE l.accion_meta_estado = 'pendiente' AND l.accion_meta IN ('reject', 'terminate') AND l.accion_meta_en <= @antes
+      AND l.estado IN ('terminada', 'perdida', 'rechazada', 'fuera_de_horario', 'fallida')
+    ORDER BY l.accion_meta_en LIMIT 50 FOR UPDATE SKIP LOCKED)
+RETURNING id, terminada_en;
+
+-- name: AgotarAccionMeta :exec
+UPDATE mensajeria.llamadas SET accion_meta_estado = 'fallida' WHERE id = @id AND accion_meta_estado = 'pendiente';
+
+-- name: TomarCanalesMetaPendiente :many
+-- Lo mismo para los ajustes de número pendientes de aplicar en WhatsApp.
+UPDATE mensajeria.voz_ajustes_canal SET meta_proximo_en = @aparte::timestamptz
+WHERE canal_id IN (SELECT a.canal_id FROM mensajeria.voz_ajustes_canal a WHERE a.meta_estado = 'pendiente' AND a.meta_proximo_en <= @ahora
+    ORDER BY a.meta_proximo_en LIMIT 20 FOR UPDATE SKIP LOCKED)
+RETURNING canal_id;
+
+-- name: EntrantesDeLlamada :many
+-- Los webhooks guardados que traen esa llamada (para tapar su SDP al terminar).
+SELECT id, payload FROM mensajeria.entrantes
+WHERE canal_id = @canal_id AND created_at >= @desde AND payload::text LIKE '%' || @marca::text || '%'
+ORDER BY id LIMIT 50;
+
+-- name: LimpiarReceptores :exec
+-- Tope de navegadores por usuario en «Recibir llamadas»: se quitan los que llevan 30 días sin verse
+-- y, de los demás, los más viejos que pasen del tope.
+DELETE FROM mensajeria.llamada_receptores r
+WHERE coalesce(r.empresa_id, 0) = @empresa::bigint AND r.usuario_id = @usuario_id AND r.navegador <> @navegador
+  AND (r.visto_en < @viejo OR r.id IN (SELECT x.id FROM mensajeria.llamada_receptores x
+        WHERE coalesce(x.empresa_id, 0) = @empresa::bigint AND x.usuario_id = @usuario_id AND x.navegador <> @navegador
+        ORDER BY x.visto_en DESC, x.id DESC OFFSET @conservar));
+
+-- name: CanalRecibioLlamadas :one
+-- ¿Ha llegado alguna vez un webhook de llamada a este número? (prueba de que el campo calls está suscrito)
+SELECT EXISTS (SELECT 1 FROM mensajeria.llamadas WHERE canal_id = @canal_id)::boolean;
 
 -- name: ListarLlamadas :many
 SELECT l.* FROM mensajeria.llamadas l
@@ -254,3 +301,20 @@ RETURNING *;
 
 -- name: GrabacionesVencidas :many
 SELECT * FROM mensajeria.llamada_grabaciones WHERE estado = 'disponible' AND vence_en <= @ahora ORDER BY id LIMIT 100 FOR UPDATE SKIP LOCKED;
+
+-- name: FijarMetaAjustesCanal :one
+-- El estado de la escritura en WhatsApp de los ajustes del número (pendiente con reintentos).
+UPDATE mensajeria.voz_ajustes_canal SET meta_estado = @meta_estado, meta_intentos = @meta_intentos, meta_proximo_en = sqlc.narg('meta_proximo_en'),
+    meta_detalle = sqlc.narg('meta_detalle'), horas_meta = sqlc.narg('horas_meta'),
+    sincronizado_en = coalesce(sqlc.narg('sincronizado_en'), sincronizado_en), updated_at = now()
+WHERE canal_id = @canal_id
+RETURNING *;
+
+-- name: MarcarBuzonDeVoz :exec
+UPDATE mensajeria.conversacion_mensajes SET buzon_de_voz = true WHERE id = @id;
+
+-- name: LlamadaAlBuzonReciente :one
+-- ¿Hubo una llamada de esta conversación que se dejó al buzón de voz (fuera de horario) hace poco?
+SELECT EXISTS (SELECT 1 FROM mensajeria.llamadas l JOIN mensajeria.voz_ajustes_canal a ON a.canal_id = l.canal_id
+    WHERE l.conversacion_id = @conversacion_id AND l.estado = 'fuera_de_horario' AND a.fuera_de_horario = 'buzon'
+      AND l.sono_en > @desde AND l.sono_en <= @hasta)::boolean;

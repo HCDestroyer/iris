@@ -117,6 +117,11 @@ export function sincronizarLlamadasCanal(id: number) {
     return resolver(api().POST(`${CANAL}/sincronizar`, { params: { path: { id }, header: idem() } }));
 }
 
+/** Reintenta ya la escritura de los ajustes del número en WhatsApp (también desde `error`). */
+export function aplicarLlamadasCanal(id: number) {
+    return resolver(api().POST(`${CANAL}/aplicar`, { params: { path: { id }, header: idem() } }));
+}
+
 export function leerAjustesVoz(signal?: AbortSignal) {
     return resolver(api().GET("/api/v1/mensajeria/voz/ajustes", { signal }));
 }

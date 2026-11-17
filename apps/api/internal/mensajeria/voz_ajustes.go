@@ -28,6 +28,8 @@ type RequisitoLlamadas struct {
 	Detalle string `json:"detalle" doc:"Texto llano, listo para mostrar (nunca el mensaje crudo de Meta)"`
 	// Aviso: no impide encender las llamadas.
 	Aviso bool `json:"aviso"`
+	// SinComprobar: Iris no puede comprobarlo (el panel lo muestra como «sin comprobar», no como cumplido).
+	SinComprobar bool `json:"sinComprobar,omitempty"`
 }
 
 // RequisitosLlamadas es la última comprobación.
@@ -59,7 +61,21 @@ type LlamadasCanal struct {
 	MensajePerdida  MensajePerdida     `json:"mensajePerdida"`
 	Requisitos      RequisitosLlamadas `json:"requisitos"`
 	SincronizadoEn  *time.Time         `json:"sincronizadoEn,omitempty"`
+	WhatsApp        EstadoEnWhatsApp   `json:"whatsapp" doc:"Si los ajustes del número ya están aplicados en WhatsApp"`
+	HorasWhatsApp   *HorasMeta         `json:"horasWhatsapp,omitempty" doc:"El horario de llamadas que tiene WhatsApp (espejo). Ausente: abierto siempre y el horario lo aplica Iris"`
 }
+
+// EstadoEnWhatsApp: la escritura en WhatsApp de los ajustes del número (encendido, icono, devolución
+// y horario de llamadas) es un pendiente con reintentos.
+type EstadoEnWhatsApp struct {
+	Estado           string     `json:"estado" enum:"aplicado,pendiente,error" doc:"pendiente: «pendiente de aplicar en WhatsApp»; error: se agotaron los reintentos"`
+	Intentos         int32      `json:"intentos"`
+	ProximoIntentoEn *time.Time `json:"proximoIntentoEn,omitempty"`
+	Detalle          *string    `json:"detalle,omitempty" doc:"Texto llano, nunca el mensaje crudo de Meta"`
+}
+
+// EsperasMeta: espera antes de cada reintento de escribir los ajustes en WhatsApp. Al agotarlas queda en error.
+var EsperasMeta = []time.Duration{time.Minute, 5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 12 * time.Hour}
 
 // EntradaLlamadasCanal es POST /canales/{id}/llamadas/configurar.
 type EntradaLlamadasCanal struct {
@@ -84,9 +100,20 @@ func aLlamadasCanal(c mensajeriabd.MensajeriaCanal, f mensajeriabd.MensajeriaVoz
 	r := LlamadasCanal{CanalID: c.ID, TipoConexion: c.TipoConexion, Disponible: c.TipoConexion == ConexionAPI, LlamadasActivas: f.LlamadasActivas,
 		ColaID: f.ColaID, HorarioID: f.HorarioID, SegundosSonando: f.SegundosSonando, FueraDeHorario: f.FueraDeHorario, IconoVisible: f.IconoVisible,
 		Devolucion: f.Devolucion, MensajePerdida: MensajePerdida{Activo: f.MensajePerdida, Texto: f.MensajePerdidaTexto},
-		Requisitos: RequisitosLlamadas{Requisitos: []RequisitoLlamadas{}}, SincronizadoEn: f.SincronizadoEn}
+		Requisitos: RequisitosLlamadas{Requisitos: []RequisitoLlamadas{}}, SincronizadoEn: f.SincronizadoEn,
+		WhatsApp: EstadoEnWhatsApp{Estado: "aplicado"}}
 	if guardado {
 		r.Version = f.Version
+		r.WhatsApp = EstadoEnWhatsApp{Estado: f.MetaEstado, Intentos: f.MetaIntentos, Detalle: f.MetaDetalle}
+		if f.MetaEstado == "pendiente" {
+			r.WhatsApp.ProximoIntentoEn = f.MetaProximoEn
+		}
+		if len(f.HorasMeta) > 0 {
+			var h HorasMeta
+			if json.Unmarshal(f.HorasMeta, &h) == nil && h.Zona != "" {
+				r.HorasWhatsApp = &h
+			}
+		}
 	}
 	if len(f.Requisitos) > 0 {
 		_ = json.Unmarshal(f.Requisitos, &r.Requisitos)
@@ -225,21 +252,145 @@ func nuevoConfigurarLlamadasCanal(m *Modulo) *auditoria.Caso[EntradaLlamadasCana
 			if campos == nil {
 				campos = []string{}
 			}
-			// Lo que también vive en Meta se escribe después del COMMIT (sin transacción abierta).
-			if c.TipoConexion == ConexionAPI && (antes.LlamadasActivas != f.LlamadasActivas || antes.IconoVisible != f.IconoVisible || antes.Devolucion != f.Devolucion) {
-				if cg, err := m.canalGraphDe(ctx, q, c.ID); err == nil {
-					meta := AjustesMetaLlamadas{Habilitadas: f.LlamadasActivas, IconoVisible: f.IconoVisible, Devolucion: f.Devolucion}
-					t.AlConfirmar(func(ctx context.Context) {
-						if err := m.graph().FijarAjustes(context.WithoutCancel(ctx), cg, meta); err != nil {
-							slog.WarnContext(ctx, "voz: escribir en Meta los ajustes de llamadas del número; usa «Sincronizar»", "canal_id", c.ID, "err", err)
-						}
-					})
+			// Lo que también vive en WhatsApp (encendido, icono, devolución y horario de llamadas) queda
+			// como pendiente con reintentos: se intenta ya, después del COMMIT, y si falla lo repite el
+			// mantenimiento. El panel ve el estado en `whatsapp`.
+			if c.TipoConexion == ConexionAPI && (!guardado || antes.LlamadasActivas != f.LlamadasActivas || antes.IconoVisible != f.IconoVisible ||
+				antes.Devolucion != f.Devolucion || !mismoPtr(antes.HorarioID, f.HorarioID) || antes.MetaEstado != "aplicado") {
+				ahora := m.ahora()
+				if f, err = q.FijarMetaAjustesCanal(ctx, mensajeriabd.FijarMetaAjustesCanalParams{CanalID: c.ID, MetaEstado: "pendiente", MetaProximoEn: &ahora,
+					HorasMeta: f.HorasMeta}); err != nil {
+					return LlamadasCanal{}, err
 				}
+				bd := nucleo.BDDe(ctx)
+				t.AlConfirmar(func(ctx context.Context) { _ = m.AplicarLlamadasEnWhatsApp(ctx, bd, c.ID) })
 			}
 			return aLlamadasCanal(c, f, true), t.Emitir("canal_mensajeria.llamadas_cambiadas", map[string]any{"canal_id": c.ID, "empresa_id": c.EmpresaID,
 				"campos": campos, "llamadas_activas": f.LlamadasActivas})
 		},
 	})
+}
+
+func mismoPtr(a, b *int64) bool {
+	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
+}
+
+// resultadoAjustesMeta es lo que respondió WhatsApp al escribir los ajustes del número.
+type resultadoAjustesMeta struct {
+	CanalID int64 `json:"canal_id"`
+	Fallo   bool  `json:"fallo"`
+	horas   *HorasMeta
+}
+
+// AplicarLlamadasEnWhatsApp escribe en WhatsApp los ajustes pendientes del número (dos fases: leer,
+// llamar a Meta sin transacción, guardar el resultado). Si falla, se reintenta con espera creciente
+// (1 min, 5 min, 30 min, 2 h, 12 h) y al agotarse queda en `error` hasta que alguien lo reintente.
+func (m *Modulo) AplicarLlamadasEnWhatsApp(ctx context.Context, bd nucleo.BD, canalID int64) error {
+	ctx = ctxSistema(context.WithoutCancel(ctx), bd)
+	q := mensajeriabd.New(bd)
+	f, err := q.VozAjustesCanal(ctx, canalID)
+	if err != nil || f.MetaEstado != "pendiente" {
+		return err
+	}
+	cg, err := m.canalGraphDe(ctx, q, canalID)
+	if err != nil {
+		return err
+	}
+	meta := AjustesMetaLlamadas{Habilitadas: f.LlamadasActivas, IconoVisible: f.IconoVisible, Devolucion: f.Devolucion}
+	// El horario de llamadas de WhatsApp sale del de Iris (el del ajuste; si no, el del número),
+	// cuando cabe en los límites de Meta.
+	if cal, err := calendarioEfectivo(ctx, q, f.HorarioID, canalID); err == nil {
+		meta.Horas = horasMetaDe(cal)
+	}
+	errMeta := m.graph().FijarAjustes(ctx, cg, meta)
+	_, err = m.Voz.resultadoAjustes.Ejecutar(ctx, resultadoAjustesMeta{CanalID: canalID, Fallo: errMeta != nil, horas: meta.Horas})
+	return err
+}
+
+func nuevoResultadoAjustesMeta(m *Modulo) *auditoria.Caso[resultadoAjustesMeta, bool] {
+	return auditoria.Nuevo(auditoria.Caso[resultadoAjustesMeta, bool]{
+		Accion: "llamadas.aplicar_en_whatsapp", Acceso: auditoria.Autenticado, SinEmpresa: true,
+		Logica: func(ctx context.Context, t *auditoria.Tx, in resultadoAjustesMeta) (bool, error) {
+			if err := soloSistemaVoz(ctx); err != nil {
+				return false, err
+			}
+			q := mensajeriabd.New(t)
+			f, err := q.VozAjustesCanalParaActualizar(ctx, in.CanalID)
+			if err != nil || f.MetaEstado != "pendiente" {
+				return false, err
+			}
+			t.FijarEmpresa(derefEmpresa(f.EmpresaID))
+			t.FijarEntidad("canal_mensajeria", in.CanalID)
+			ahora := m.ahora()
+			p := mensajeriabd.FijarMetaAjustesCanalParams{CanalID: in.CanalID, MetaEstado: "aplicado", HorasMeta: f.HorasMeta}
+			if !in.Fallo {
+				p.SincronizadoEn = &ahora
+				p.HorasMeta = nil
+				if in.horas != nil {
+					if p.HorasMeta, err = json.Marshal(in.horas); err != nil {
+						return false, err
+					}
+				}
+			} else {
+				p.MetaIntentos = f.MetaIntentos + 1
+				if int(f.MetaIntentos) < len(EsperasMeta) {
+					p.MetaEstado = "pendiente"
+					p.MetaProximoEn = ptrT(ahora.Add(EsperasMeta[f.MetaIntentos]))
+					p.MetaDetalle = nombrePtr("WhatsApp no respondió o no aceptó los ajustes. Se vuelve a intentar solo")
+				} else {
+					p.MetaEstado = "error"
+					p.MetaDetalle = nombrePtr("WhatsApp no aceptó los ajustes del número después de varios intentos. Revisa el número en WhatsApp Manager y usa «Reintentar»")
+				}
+			}
+			t.Anotar(map[string]any{"estado": p.MetaEstado, "intentos": p.MetaIntentos})
+			_, err = q.FijarMetaAjustesCanal(ctx, p)
+			return true, err
+		},
+	})
+}
+
+// nuevoReintentarAjustesMeta: «Reintentar» del panel (también desde `error`).
+func nuevoReintentarAjustesMeta(m *Modulo) *auditoria.Caso[EntradaIDConv, LlamadasCanal] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaIDConv, LlamadasCanal]{
+		Accion: "llamadas.reintentar_en_whatsapp", Permiso: nucleo.PermLlamadasConfigurar,
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaIDConv) (LlamadasCanal, error) {
+			a, err := alcanceVoz(ctx, nucleo.PermLlamadasConfigurar)
+			if err != nil {
+				return LlamadasCanal{}, err
+			}
+			t.FijarEmpresa(a.empresa)
+			t.FijarEntidad("canal_mensajeria", in.ID)
+			q := mensajeriabd.New(t)
+			c, err := canalDeLlamadas(ctx, q, a, in.ID)
+			if err != nil {
+				return LlamadasCanal{}, err
+			}
+			f, guardado, err := leerLlamadasCanal(ctx, q, c, true)
+			if err != nil {
+				return LlamadasCanal{}, err
+			}
+			if !guardado || c.TipoConexion != ConexionAPI {
+				return LlamadasCanal{}, nucleo.Conflicto("sin_ajustes", "Este número todavía no tiene ajustes de llamadas que aplicar")
+			}
+			ahora := m.ahora()
+			if f, err = q.FijarMetaAjustesCanal(ctx, mensajeriabd.FijarMetaAjustesCanalParams{CanalID: c.ID, MetaEstado: "pendiente", MetaProximoEn: &ahora,
+				HorasMeta: f.HorasMeta}); err != nil {
+				return LlamadasCanal{}, err
+			}
+			return aLlamadasCanal(c, f, true), nil
+		},
+	})
+}
+
+// ReintentarEnWhatsApp vuelve a intentar ya la escritura de los ajustes del número.
+func (m *Modulo) ReintentarEnWhatsApp(ctx context.Context, id int64) (LlamadasCanal, error) {
+	if _, err := m.Voz.reintentarAjustes.Ejecutar(ctx, EntradaIDConv{ID: id}); err != nil {
+		return LlamadasCanal{}, err
+	}
+	if err := m.AplicarLlamadasEnWhatsApp(ctx, nucleo.BDDe(ctx), id); err != nil {
+		return LlamadasCanal{}, err
+	}
+	return m.Voz.VerCanal.Ejecutar(ctx, EntradaIDConv{ID: id})
 }
 
 // Comprobar los requisitos de Meta (dos fases: leer el número, preguntar a Meta, guardar) --------------
@@ -308,13 +459,19 @@ func nuevoGuardarComprobacion(m *Modulo) *auditoria.Caso[entradaComprobado, Llam
 				return mal
 			}
 			sinMeta := "No se pudo consultar a WhatsApp. Vuelve a intentar"
+			recibio, err := q.CanalRecibioLlamadas(ctx, &c.ID)
+			if err != nil {
+				return LlamadasCanal{}, err
+			}
 			leido := api && !in.fallo
 			reqs := []RequisitoLlamadas{
 				{Codigo: "conexion_api", Cumple: api, Detalle: si(api, "El número está conectado por API", "El número está conectado por QR: las llamadas no están disponibles")},
 				{Codigo: "limite_mensajeria", Cumple: leido && in.meta.LimiteMensajeria >= 2000, Detalle: si(leido,
 					si(in.meta.LimiteMensajeria >= 2000, "El límite de mensajería del número alcanza", "WhatsApp exige un límite de al menos 2 000 destinatarios por día"), sinMeta)},
-				{Codigo: "webhook_calls", Cumple: leido && in.meta.WebhookCalls, Detalle: si(leido,
-					si(in.meta.WebhookCalls, "La app recibe los avisos de llamadas", "Falta suscribir el campo «calls» en el webhook de la app de Meta"), sinMeta)},
+				// La suscripción al campo calls no se puede leer con el token del número: solo se da por
+				// cumplida si ya llegó alguna llamada a este número; si no, queda «sin comprobar» (aviso).
+				{Codigo: "webhook_calls", Cumple: recibio, Aviso: !recibio, SinComprobar: !recibio, Detalle: si(recibio, "La app recibe los avisos de llamadas",
+					"Iris no puede comprobarlo: revisa en la app de Meta que el campo «calls» del webhook esté suscrito. Se confirma con la primera llamada que llegue")},
 				{Codigo: "calling_habilitado", Cumple: leido && in.meta.Habilitadas, Detalle: si(leido,
 					si(in.meta.Habilitadas, "Las llamadas están habilitadas en el número", "Falta habilitar las llamadas en el número, en WhatsApp Manager"), sinMeta)},
 				{Codigo: "plantilla_permiso", Aviso: true, Detalle: "Para devolver llamadas fuera de la ventana de 24 h hará falta la plantilla de permiso (llega con las llamadas salientes)"},
@@ -362,25 +519,22 @@ func (m *Modulo) ComprobarLlamadas(ctx context.Context, id int64, sincronizar bo
 
 // AjustesVoz son los ajustes de voz de la empresa que usa E1 (E2 los amplía).
 type AjustesVoz struct {
-	Version                  int32  `json:"version" doc:"0 si nunca se guardaron (valores de fábrica)"`
-	Grabar                   string `json:"grabar" enum:"nunca,todas,asistente" doc:"De fábrica nunca. asistente no graba nada hasta E2"`
-	DuracionMaxPersonaMin    int32  `json:"duracionMaxPersonaMin" doc:"Una llamada contestada por una persona se corta a estos minutos (10–120)"`
-	SegundosAsignado         int32  `json:"segundosAsignado" doc:"Cuánto suena primero solo a quien tiene la conversación (0–20)"`
-	RetencionGrabacionesDias int32  `json:"retencionGrabacionesDias" doc:"Días que se guarda una grabación (1–365)"`
+	Version               int32  `json:"version" doc:"0 si nunca se guardaron (valores de fábrica)"`
+	Grabar                string `json:"grabar" enum:"nunca" doc:"Siempre nunca: la grabación de llamadas todavía no está disponible"`
+	DuracionMaxPersonaMin int32  `json:"duracionMaxPersonaMin" doc:"Una llamada contestada por una persona se corta a estos minutos (10–120)"`
+	SegundosAsignado      int32  `json:"segundosAsignado" doc:"Cuánto suena primero solo a quien tiene la conversación (0–20)"`
 }
 
 // EntradaAjustesVoz es POST /voz/ajustes/actualizar.
 type EntradaAjustesVoz struct {
-	Version                  int32  `json:"version" minimum:"0"`
-	Grabar                   string `json:"grabar" enum:"nunca,todas,asistente"`
-	DuracionMaxPersonaMin    int32  `json:"duracionMaxPersonaMin" minimum:"10" maximum:"120"`
-	SegundosAsignado         int32  `json:"segundosAsignado" minimum:"0" maximum:"20"`
-	RetencionGrabacionesDias int32  `json:"retencionGrabacionesDias" minimum:"1" maximum:"365"`
+	Version               int32  `json:"version" minimum:"0"`
+	Grabar                string `json:"grabar,omitempty" doc:"Opcional. Solo se acepta nunca: cualquier otro valor, 422 grabacion_no_disponible"`
+	DuracionMaxPersonaMin int32  `json:"duracionMaxPersonaMin" minimum:"10" maximum:"120"`
+	SegundosAsignado      int32  `json:"segundosAsignado" minimum:"0" maximum:"20"`
 }
 
 func aAjustesVoz(f mensajeriabd.MensajeriaVozAjuste) AjustesVoz {
-	return AjustesVoz{Version: f.Version, Grabar: f.Grabar, DuracionMaxPersonaMin: f.DuracionMaxPersonaMin, SegundosAsignado: f.SegundosAsignado,
-		RetencionGrabacionesDias: f.RetencionGrabacionesDias}
+	return AjustesVoz{Version: f.Version, Grabar: "nunca", DuracionMaxPersonaMin: f.DuracionMaxPersonaMin, SegundosAsignado: f.SegundosAsignado}
 }
 
 func nuevoVerAjustesVoz(*Modulo) *auditoria.Caso[struct{}, AjustesVoz] {
@@ -407,14 +561,14 @@ func nuevoFijarAjustesVoz(*Modulo) *auditoria.Caso[EntradaAjustesVoz, AjustesVoz
 			}
 			t.FijarEmpresa(a.empresa)
 			switch {
-			case in.Grabar != "nunca" && in.Grabar != "todas" && in.Grabar != "asistente":
-				return AjustesVoz{}, campoConv("grabar", "nunca, todas o asistente", "enum")
+			case in.Grabar != "" && in.Grabar != "nunca":
+				// La grabación de Meta llega con E1c: no se puede encender, ni a medias.
+				return AjustesVoz{}, reglaVoz("grabacion_no_disponible", "La grabación de llamadas todavía no está disponible",
+					nucleo.ErrorCampo{Field: "grabar", Message: "Aún no disponible", Rule: "grabacion_no_disponible"})
 			case in.DuracionMaxPersonaMin < 10 || in.DuracionMaxPersonaMin > 120:
 				return AjustesVoz{}, campoConv("duracionMaxPersonaMin", "Entre 10 y 120 minutos", "rango")
 			case in.SegundosAsignado < 0 || in.SegundosAsignado > 20:
 				return AjustesVoz{}, campoConv("segundosAsignado", "Entre 0 y 20 segundos", "rango")
-			case in.RetencionGrabacionesDias < 1 || in.RetencionGrabacionesDias > 365:
-				return AjustesVoz{}, campoConv("retencionGrabacionesDias", "Entre 1 y 365 días", "rango")
 			}
 			q := mensajeriabd.New(t)
 			antes, err := q.VozAjustesParaActualizar(ctx, a.empresa)
@@ -428,22 +582,21 @@ func nuevoFijarAjustesVoz(*Modulo) *auditoria.Caso[EntradaAjustesVoz, AjustesVoz
 			var f mensajeriabd.MensajeriaVozAjuste
 			if nuevo {
 				antes, _ = ajustesVoz(ctx, q, -1)
-				f, err = q.InsertarVozAjustes(ctx, mensajeriabd.InsertarVozAjustesParams{EmpresaID: a.empresaPtr(), Grabar: in.Grabar,
-					DuracionMaxPersonaMin: in.DuracionMaxPersonaMin, SegundosAsignado: in.SegundosAsignado, RetencionGrabacionesDias: in.RetencionGrabacionesDias})
+				f, err = q.InsertarVozAjustes(ctx, mensajeriabd.InsertarVozAjustesParams{EmpresaID: a.empresaPtr(), Grabar: "nunca",
+					DuracionMaxPersonaMin: in.DuracionMaxPersonaMin, SegundosAsignado: in.SegundosAsignado, RetencionGrabacionesDias: 30})
 				if errors.Is(err, pgx.ErrNoRows) {
 					return AjustesVoz{}, nucleo.ConflictoVersion("voz_ajustes", a.empresa)
 				}
 			} else {
-				f, err = q.ActualizarVozAjustes(ctx, mensajeriabd.ActualizarVozAjustesParams{ID: antes.ID, Grabar: in.Grabar,
-					DuracionMaxPersonaMin: in.DuracionMaxPersonaMin, SegundosAsignado: in.SegundosAsignado, RetencionGrabacionesDias: in.RetencionGrabacionesDias})
+				f, err = q.ActualizarVozAjustes(ctx, mensajeriabd.ActualizarVozAjustesParams{ID: antes.ID, Grabar: "nunca",
+					DuracionMaxPersonaMin: in.DuracionMaxPersonaMin, SegundosAsignado: in.SegundosAsignado, RetencionGrabacionesDias: antes.RetencionGrabacionesDias})
 			}
 			if err != nil {
 				return AjustesVoz{}, err
 			}
 			t.FijarEntidad("voz_ajustes", f.ID)
 			vista := func(x mensajeriabd.MensajeriaVozAjuste) map[string]any {
-				return map[string]any{"grabar": x.Grabar, "duracion_max_persona_min": x.DuracionMaxPersonaMin, "segundos_asignado": x.SegundosAsignado,
-					"retencion_grabaciones_dias": x.RetencionGrabacionesDias}
+				return map[string]any{"duracion_max_persona_min": x.DuracionMaxPersonaMin, "segundos_asignado": x.SegundosAsignado}
 			}
 			campos := t.RegistrarCambios("voz_ajustes", f.ID, vista(antes), vista(f))
 			if campos == nil {
@@ -482,21 +635,7 @@ func nuevoMantenerLlamada(m *Modulo) *auditoria.Caso[uuid.UUID, mantenimientoLla
 			ahora := m.ahora()
 			pendiente := l.AccionMetaEstado != nil && *l.AccionMetaEstado == "pendiente" && l.AccionMetaEn != nil
 			if llamadaFinal(l.Estado) {
-				// terminate y reject son idempotentes en Meta: se repiten (hasta 2 minutos).
-				if pendiente && ahora.Sub(*l.AccionMetaEn) > 2*PlazoMeta {
-					if l.TerminadaEn != nil && ahora.Sub(*l.TerminadaEn) > 2*time.Minute {
-						f := "fallida"
-						l.AccionMetaEstado = &f
-						_, err := guardarLlamada(ctx, q, l)
-						return mantenimientoLlamada{Cambio: "accion_meta_agotada"}, err
-					}
-					l.AccionMetaEn = &ahora
-					if _, err := guardarLlamada(ctx, q, l); err != nil {
-						return nada, err
-					}
-					m.trasCommitMeta(ctx, t, l.ID)
-				}
-				return nada, nil
+				return nada, nil // sus reject y terminate pendientes los repite el job de escrituras a Meta
 			}
 			if l.ConversacionID == nil {
 				return nada, nil
@@ -559,9 +698,10 @@ func nuevoMantenerLlamada(m *Modulo) *auditoria.Caso[uuid.UUID, mantenimientoLla
 	})
 }
 
-// MantenerLlamadas recorre las llamadas vivas y las intenciones con Meta que quedaron a medias.
+// MantenerLlamadas recorre las llamadas vivas y las intenciones con Meta que quedaron a medias. No
+// llama a Meta: lo que haya que pedirle queda anotado para DespacharMetaVoz (otro job).
 func (m *Modulo) MantenerLlamadas(ctx context.Context, bd nucleo.BD) error {
-	ctx = ctxSistema(ctx, bd)
+	ctx = sinMetaEnLinea(ctxSistema(ctx, bd))
 	q := mensajeriabd.New(bd)
 	vivas, err := q.LlamadasVivas(ctx)
 	if err != nil {
@@ -583,6 +723,62 @@ func (m *Modulo) MantenerLlamadas(ctx context.Context, bd nucleo.BD) error {
 	}
 	_, err = m.Voz.vencer.Ejecutar(ctx, struct{}{})
 	return err
+}
+
+// DespacharMetaVoz hace las escrituras a Meta que quedaron pendientes: los reject y terminate de
+// llamadas ya cerradas (idempotentes en Meta; se repiten hasta 2 minutos) y los ajustes de números
+// por aplicar. Corre en su propio job, fuera del ciclo del mantenimiento: una Graph API lenta no
+// retrasa el timbre. Toma las filas con SKIP LOCKED: dos réplicas no repiten la misma.
+func (m *Modulo) DespacharMetaVoz(ctx context.Context, bd nucleo.BD) error {
+	ctx = ctxSistema(ctx, bd)
+	q := mensajeriabd.New(bd)
+	ahora := m.ahora()
+	acciones, err := q.TomarAccionesMeta(ctx, mensajeriabd.TomarAccionesMetaParams{Ahora: ahora, Antes: ptrT(ahora.Add(-2 * PlazoMeta))})
+	if err != nil {
+		return err
+	}
+	for _, a := range acciones {
+		if a.TerminadaEn != nil && ahora.Sub(*a.TerminadaEn) > 2*time.Minute {
+			if err := q.AgotarAccionMeta(ctx, a.ID); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := m.cumplirMeta(ctx, bd, a.ID, ""); err != nil {
+			slog.WarnContext(ctx, "voz: acción pendiente con Meta", "llamada_id", a.ID, "err", err)
+		}
+	}
+	canales, err := q.TomarCanalesMetaPendiente(ctx, mensajeriabd.TomarCanalesMetaPendienteParams{Ahora: &ahora, Aparte: ahora.Add(time.Minute)})
+	if err != nil {
+		return err
+	}
+	for _, id := range canales {
+		if err := m.AplicarLlamadasEnWhatsApp(ctx, bd, id); err != nil {
+			slog.WarnContext(ctx, "voz: aplicar en WhatsApp los ajustes de un número", "canal_id", id, "err", err)
+		}
+	}
+	return nil
+}
+
+// ArgsMetaVoz: las escrituras pendientes a Meta, en su propio job.
+type ArgsMetaVoz struct{}
+
+// Kind implementa river.JobArgs.
+func (ArgsMetaVoz) Kind() string { return "mensajeria.voz_meta" }
+
+// InsertOpts: uno cada 5 s aunque haya varias réplicas.
+func (ArgsMetaVoz) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: Cola, MaxAttempts: 1, UniqueOpts: river.UniqueOpts{ByPeriod: 5 * time.Second}}
+}
+
+type trabajadorMetaVoz struct {
+	river.WorkerDefaults[ArgsMetaVoz]
+	m  *Modulo
+	bd nucleo.BD
+}
+
+func (w *trabajadorMetaVoz) Work(ctx context.Context, _ *river.Job[ArgsMetaVoz]) error {
+	return w.m.DespacharMetaVoz(ctx, w.bd)
 }
 
 // ArgsMantenimientoVoz: el mantenimiento de las llamadas vivas, cada 5 s.

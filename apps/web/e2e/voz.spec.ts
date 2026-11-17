@@ -4,6 +4,7 @@ import { ADMIN, AGENTE_CONV, CONSULTA, conSesion, simularApi } from "./api-falsa
 import type { OpcionesVoz } from "./api-voz";
 import { abrirMenu, esTelefono, hojaMas } from "./ayudas";
 import { elegirOpcion } from "./controles";
+import { mensaje } from "./datos-conversaciones";
 import { esperarSinDesbordes } from "./desbordes";
 import { ajustarVoz, instalarDobleVoz, type ControlVoz } from "./doble-webrtc";
 
@@ -148,6 +149,24 @@ test.describe("voz › recibir llamadas", () => {
         await expect(otra.getByRole("switch")).toHaveCount(0);
         await otra.getByRole("button", { name: "Reintentar" }).click();
         await expect(otra.getByRole("switch", { name: "Recibir llamadas en este navegador" })).toBeVisible();
+    });
+
+    test("el servidor apagó «Recibir» en este navegador (más de 10 por persona): lo dice y deja volver a encender", async ({ page }) => {
+        const api = await abrir(page, "/cuenta");
+        if (!esTelefono(page)) await expect(page.getByRole("button", { name: "Recibir llamadas: encendido" })).toBeVisible();
+        else await feedListo(page, api);
+        api.voz.forzar.desplazado = true;
+        await page.clock.fastForward(61_000);
+        if (!esTelefono(page)) await expect(page.getByRole("button", { name: "Recibir llamadas: necesita tu atención" })).toBeVisible();
+        const panel = await abrirRecibir(page);
+        await expect(panel).toContainText("Este navegador dejó de recibir llamadas");
+        await expect(panel.getByRole("switch", { name: "Recibir llamadas en este navegador" })).not.toBeChecked();
+        await esperarSinDesbordes(page);
+        await captura(page, "recibir-desplazado");
+        await panel.getByRole("button", { name: "Volver a encender" }).click();
+        await expect(panel.getByRole("switch", { name: "Recibir llamadas en este navegador" })).toBeChecked();
+        await expect(panel).not.toContainText("Este navegador dejó de recibir llamadas");
+        expect(api.voz.recibido.recibir.map((r) => r.accion)).toEqual(["encender"]);
     });
 
     test("sin `llamadas.contestar` no hay interruptor, ni aviso, ni se abre el flujo", async ({ page }) => {
@@ -319,6 +338,32 @@ test.describe("voz › llamada entrante", () => {
         await expect(aviso(page)).toHaveCount(0);
     });
 
+    test("WhatsApp aún responde a otra acción (409 `accion_en_curso`): se reintenta sin alarmar y conecta; ya tengo otra llamada: se dice", async ({ page }) => {
+        const api = await abrir(page, "/cuenta");
+        await suena(page, api);
+        api.voz.forzar.enCurso = { reclamar: 2 };
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect.poll(() => acciones(api, "reclamar").length).toBe(1);
+        // Mientras reintenta sigue diciendo «Contestando…», sin error.
+        await expect(aviso(page)).toContainText("Contestando…");
+        await page.clock.fastForward(1_600);
+        await expect.poll(() => acciones(api, "reclamar").length).toBe(2);
+        await page.clock.fastForward(1_600);
+        await expect(barra(page)).toBeVisible();
+        expect(acciones(api, "reclamar")).toHaveLength(3);
+        await barra(page).getByRole("button", { name: "Colgar" }).click();
+        await nota(page).getByRole("button", { name: "Ahora no" }).click();
+
+        // 409 `llamada_en_curso`: ya tengo otra viva en otro navegador.
+        await suena(page, api, 42);
+        api.voz.forzar.reclamar = "otra_llamada";
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect(aviso(page)).toHaveAttribute("data-motivo", "otra_llamada");
+        await expect(aviso(page)).toContainText("Ya tienes otra llamada");
+        expect(acciones(api, "soltar")).toHaveLength(0);
+        await esperarSinDesbordes(page);
+    });
+
     test("la tengo en otra pestaña (regla `misma_persona`): aquí solo se cierra el aviso", async ({ page }) => {
         const api = await abrir(page, "/cuenta");
         await suena(page, api);
@@ -376,6 +421,21 @@ test.describe("voz › plazos, red y cierre", () => {
         expect(acciones(api, "confirmar-medio")).toHaveLength(0);
         expect(await page.evaluate(() => ({ abiertas: window.__voz.conexiones.filter((c) => !c.cerrada).length, microfono: window.__voz.microfonoAbierto() }))).toEqual({ abiertas: 0, microfono: false });
         await esperarSinDesbordes(page);
+    });
+
+    test("al soltar, WhatsApp aún no responde (409 `accion_en_curso`): se reintenta solo hasta soltarla", async ({ page }) => {
+        const api = await abrir(page, "/cuenta", { doble: { permiso: "granted", medio: "falla" } });
+        const llamada = await suena(page, api);
+        api.voz.forzar.enCurso = { soltar: 1 };
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect(aviso(page)).toHaveAttribute("data-motivo", "medio_fallido");
+        await expect.poll(() => acciones(api, "soltar").length).toBe(1);
+        expect(api.voz.llamadas.get(llamada.id)?.estado).toBe("conectando");
+        await page.clock.fastForward(2_100);
+        await expect.poll(() => acciones(api, "soltar").length).toBe(2);
+        expect(api.voz.llamadas.get(llamada.id)?.estado).toBe("sonando");
+        // Nada de esto se le muestra a la persona como un error aparte.
+        await expect(page.getByRole("alert")).toHaveCount(0);
     });
 
     test("pasan los 12 s de la reserva sin llegar a responder (el micrófono no contesta): se suelta", async ({ page }) => {
@@ -514,6 +574,8 @@ test.describe("voz › en el hilo y en la lista", () => {
         api.voz.historica(41, "fuera_de_horario");
         api.voz.historica(41, "fallida");
         const perdida = api.voz.historica(41, "perdida", { duracionSeg: 25 });
+        // El recado que dejó en el buzón de voz al llamar fuera de horario.
+        api.conversaciones.mensajes.get(41)?.push(mensaje(41, { direccion: "entrante", tipo: "audio", texto: null, buzonDeVoz: true, creadoEn: new Date().toISOString() }));
         await page.goto("/conversaciones?c=41");
         const hilo = page.getByRole("log", { name: "Mensajes" });
         const tarjeta = (estado: string) => hilo.locator(`[data-slot="llamada-hilo"][data-estado="${estado}"]`);
@@ -525,6 +587,7 @@ test.describe("voz › en el hilo y en la lista", () => {
         await expect(tarjeta("fuera_de_horario")).toContainText("Llamó fuera de horario");
         await expect(tarjeta("fuera_de_horario")).toHaveAttribute("data-tono", "aviso");
         await expect(tarjeta("fallida")).toContainText("La llamada no se pudo conectar");
+        await expect(hilo.locator('[data-slot="etiqueta-buzon"]')).toHaveText("Mensaje de voz del buzón");
         await expect(tarjeta("perdida")).toContainText("Llamada perdida de WhatsApp");
         await expect(tarjeta("perdida")).toContainText("Sonó 25 s y nadie contestó");
         await expect(tarjeta("perdida")).toHaveAttribute("data-tono", "error");
@@ -617,6 +680,9 @@ test.describe("voz › ajustes", () => {
         await expect(requisitos.locator('[data-requisito="limite_mensajeria"]')).toContainText("Falta: Puede escribirle a 2,000 personas al día o más");
         await expect(requisitos.locator('[data-requisito="limite_mensajeria"]')).toContainText("Hoy puede escribirle a 250 personas al día");
         await expect(requisitos.locator('[data-requisito="conexion_api"]')).toContainText("Listo:");
+        // Lo que Iris no puede leer de Meta nunca se muestra como cumplido.
+        await expect(requisitos.locator('[data-requisito="webhook_calls"]')).toContainText("Sin comprobar: Meta le avisa a Iris de las llamadas");
+        await expect(requisitos.locator('[data-requisito="webhook_calls"]')).toContainText("No impide encender");
         await expect(requisitos.locator('[data-requisito="plantilla_permiso"]')).toContainText("Recomendado:");
         const encender = f.getByRole("switch", { name: "Este número recibe llamadas de WhatsApp" });
         await expect(encender).toBeDisabled();
@@ -697,6 +763,31 @@ test.describe("voz › ajustes", () => {
         await expect(g.getByRole("switch", { name: "Mostrar el botón de llamar en WhatsApp" })).not.toBeChecked();
     });
 
+    test("lo guardado aún no está en WhatsApp: «pendiente de aplicar» y, agotados los reintentos, error con «Reintentar»", async ({ page }) => {
+        const api = await abrir(page, "/administracion/numeros/3/llamadas", { voz: { recibe: true, whatsapp: "pendiente" } });
+        const f = page.getByRole("form", { name: "Llamadas de Soporte" });
+        const estado = f.locator('[data-slot="en-whatsapp"]');
+        await expect(estado).toHaveAttribute("data-estado", "pendiente");
+        await expect(estado).toContainText("Pendiente de aplicar en WhatsApp");
+        await expect(estado).toContainText("WhatsApp no respondió. Iris lo vuelve a intentar solo en 4 minutos.");
+        await expect(f.locator('[data-slot="horas-whatsapp"]')).toContainText("el horario lo aplica Iris");
+        await esperarSinDesbordes(page);
+        await captura(page, "ajustes-numero-pendiente");
+        // Al intentarlo ya, WhatsApp lo rechaza: error con «Reintentar», sin perder lo guardado.
+        api.voz.forzar.aplicar = "error";
+        await estado.getByRole("button", { name: "Aplicar ahora" }).click();
+        await expect(page.getByText("WhatsApp todavía no los aplica")).toBeVisible();
+        const error = page.getByRole("form", { name: "Llamadas de Soporte" }).locator('[data-slot="en-whatsapp"]');
+        await expect(error).toHaveAttribute("data-estado", "error");
+        await expect(error).toContainText("No se pudo aplicar en WhatsApp");
+        await expect(error).toContainText("WhatsApp rechazó los ajustes del número. Lo guardado en Iris no se pierde.");
+        await esperarSinDesbordes(page);
+        delete api.voz.forzar.aplicar;
+        await error.getByRole("button", { name: "Reintentar" }).click();
+        await expect(page.getByText("Ajustes aplicados en WhatsApp")).toBeVisible();
+        await expect(page.locator('[data-slot="en-whatsapp"]')).toHaveCount(0);
+    });
+
     test("un número por QR no puede recibir llamadas: se dice y no hay formulario", async ({ page }) => {
         const api = await abrir(page, "/administracion/numeros/10/llamadas", { opciones: { meta: { qr: true } } });
         await expect(page.getByRole("heading", { name: "Llamadas de Ventas tienda" })).toBeVisible();
@@ -711,7 +802,7 @@ test.describe("voz › ajustes", () => {
         expect(api.voz.recibido.configurados).toHaveLength(0);
     });
 
-    test("de la empresa: a quién le suena primero y duración; la grabación viaja como vino y no se ofrece", async ({ page }) => {
+    test("de la empresa: a quién le suena primero y duración; la grabación no se ofrece ni se manda", async ({ page }) => {
         const api = await abrir(page, "/administracion");
         await page.getByRole("link", { name: /^Llamadas/ }).click();
         await expect(page).toHaveURL(/\/administracion\/llamadas$/);
@@ -731,7 +822,8 @@ test.describe("voz › ajustes", () => {
         await captura(page, "ajustes-empresa");
         await f.getByRole("button", { name: "Guardar" }).click();
         await expect(page.getByText("Ajustes de llamadas guardados")).toBeVisible();
-        expect(api.voz.recibido.ajustes).toEqual([{ version: 3, grabar: "nunca", retencionGrabacionesDias: 30, duracionMaxPersonaMin: 45, segundosAsignado: 0 }]);
+        // La grabación no existe todavía: ni se ofrece ni se manda.
+        expect(api.voz.recibido.ajustes).toEqual([{ version: 3, duracionMaxPersonaMin: 45, segundosAsignado: 0 }]);
     });
 
     test("sin `llamadas.configurar` no hay «Llamadas» en los números ni se entra por la URL", async ({ page }) => {

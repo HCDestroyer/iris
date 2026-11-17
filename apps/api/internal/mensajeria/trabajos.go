@@ -25,6 +25,7 @@ func (m *Modulo) RegistrarWorkers(w *river.Workers, bd nucleo.BD) {
 	river.AddWorker(w, &trabajadorDespacho{m: m, bd: bd})
 	river.AddWorker(w, &trabajadorMantenimiento{m: m, bd: bd})
 	river.AddWorker(w, &trabajadorMantenimientoVoz{m: m, bd: bd})
+	river.AddWorker(w, &trabajadorMetaVoz{m: m, bd: bd})
 	river.AddWorker(w, &trabajadorMensaje{m: m, bd: bd})
 	river.AddWorker(w, &trabajadorMedio{m: m, bd: bd})
 	river.AddWorker(w, &trabajadorAsistenteSugerir{m: m, bd: bd})
@@ -112,6 +113,7 @@ func Reloj(ctx context.Context, cliente *river.Client[pgx.Tx], log *slog.Logger)
 		select {
 		case <-voz.C:
 			encolar(ArgsMantenimientoVoz{})
+			encolar(ArgsMetaVoz{})
 		case <-ctx.Done():
 			return
 		case <-despacho.C:

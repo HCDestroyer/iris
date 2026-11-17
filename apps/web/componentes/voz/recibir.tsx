@@ -15,7 +15,7 @@ function useResumen(): Resumen | null {
     const voz = useVoz();
     const disponible = useEstoyDisponible();
     if (!voz || voz.recibir.estado !== "listo") return null;
-    if (voz.microfono === "denegado" || voz.microfono === "sin_microfono") return "atencion";
+    if (voz.microfono === "denegado" || voz.microfono === "sin_microfono" || voz.desplazado) return "atencion";
     if (!voz.recibir.recibe) return "apagado";
     // Encendido pero ahora no sonaría: sin flujo en vivo o «No disponible».
     if ((voz.feed !== null && voz.feed !== "en_vivo" && voz.feed !== "conectando") || disponible === false) return "atencion";
@@ -111,6 +111,19 @@ export function ControlRecibir({ className }: { className?: string }) {
                     </span>
                 </Aviso>
             ) : null}
+            {voz.desplazado && !recibir.recibe ? (
+                <Aviso
+                    tono="warning"
+                    titulo="Este navegador dejó de recibir llamadas"
+                    accion={
+                        <Boton variante="secundario" tamano="sm" disabled={voz.cambiando} onClick={() => void voz.encender()}>
+                            Volver a encender
+                        </Boton>
+                    }
+                >
+                    Tienes «Recibir llamadas» encendido en muchos navegadores y se guardan como mucho 10. Si contestas desde aquí, vuelve a encenderlo.
+                </Aviso>
+            ) : null}
             {bloqueado ? (
                 <Aviso
                     tono="warning"
@@ -152,7 +165,7 @@ export function ControlRecibir({ className }: { className?: string }) {
                 ) : (
                     <p className="text-xs text-muted-foreground">Te suenan las llamadas de WhatsApp de tus colas mientras tengas Iris abierto y estés «Disponible».</p>
                 )
-            ) : !explicando && !bloqueado && !sinMicrofono ? (
+            ) : !explicando && !bloqueado && !sinMicrofono && !voz.desplazado ? (
                 <p className="text-xs text-muted-foreground">Apagado: las llamadas no suenan en este navegador.</p>
             ) : null}
         </div>

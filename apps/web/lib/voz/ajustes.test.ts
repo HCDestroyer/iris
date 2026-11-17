@@ -14,9 +14,10 @@ const CANAL: LlamadasCanal = {
     devolucion: false,
     mensajePerdida: { activo: true, texto: "No pudimos contestarte." },
     requisitos: { cumple: true, requisitos: [] },
+    whatsapp: { estado: "aplicado", intentos: 1 },
     version: 4,
 };
-const AJUSTES: AjustesVoz = { version: 3, grabar: "nunca", duracionMaxPersonaMin: 60, segundosAsignado: 10, retencionGrabacionesDias: 30 };
+const AJUSTES: AjustesVoz = { version: 3, grabar: "nunca", duracionMaxPersonaMin: 60, segundosAsignado: 10 };
 
 describe("ajustes de llamadas por número (espejo de `POST /canales/{id}/llamadas/configurar`)", () => {
     it("lo leído va y vuelve igual; sin cola ni horario no se mandan", () => {
@@ -52,13 +53,12 @@ describe("ajustes de llamadas por número (espejo de `POST /canales/{id}/llamada
 });
 
 describe("ajustes de llamadas de la empresa (campos de E1)", () => {
-    it("rangos del servidor y la grabación viaja como vino (no se ofrece)", () => {
+    it("rangos del servidor; la grabación no existe todavía y no se manda", () => {
         const error = (cambio: Record<string, string>) => esquemaAjustesVoz.safeParse({ ...valoresDeAjustes(AJUSTES), ...cambio }).error?.issues[0]?.message;
         expect(error({ duracionMaxPersonaMin: "9" })).toBe("Entre 10 y 120 minutos");
         expect(error({ duracionMaxPersonaMin: "121" })).toBe("Entre 10 y 120 minutos");
         expect(error({ segundosAsignado: "21" })).toBe("Entre 0 y 20 segundos");
         expect(error({ segundosAsignado: "0" })).toBeUndefined();
-        const grabando: AjustesVoz = { ...AJUSTES, grabar: "todas", retencionGrabacionesDias: 90 };
-        expect(entradaDeAjustes({ duracionMaxPersonaMin: "45", segundosAsignado: "0" }, grabando)).toEqual({ version: 3, grabar: "todas", retencionGrabacionesDias: 90, duracionMaxPersonaMin: 45, segundosAsignado: 0 });
+        expect(entradaDeAjustes({ duracionMaxPersonaMin: "45", segundosAsignado: "0" }, AJUSTES)).toEqual({ version: 3, duracionMaxPersonaMin: 45, segundosAsignado: 0 });
     });
 });

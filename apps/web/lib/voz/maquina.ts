@@ -24,6 +24,8 @@ export type MotivoAviso =
     | "sin_red"
     | "medio_fallido"
     | "meta_rechazo"
+    /** 409 `llamada_en_curso`: ya tengo otra llamada viva (en otra pestaña o navegador). */
+    | "otra_llamada"
     | "error";
 
 export type EstadoVoz =

@@ -1511,6 +1511,7 @@ type MensajeriaConversacionMensaje struct {
 	Origen            *string
 	ConSaldo          bool
 	LlamadaID         *uuid.UUID
+	BuzonDeVoz        bool
 }
 
 type MensajeriaConversacionParticipante struct {
@@ -1668,6 +1669,7 @@ type MensajeriaLlamada struct {
 	AvisoPerdida     bool
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+	AccionMetaPor    *int64
 }
 
 type MensajeriaLlamadaCandidato struct {
@@ -1885,6 +1887,10 @@ type MensajeriaVozAjustesCanal struct {
 	Version             int32
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+	MetaEstado          string
+	MetaIntentos        int32
+	MetaProximoEn       *time.Time
+	MetaDetalle         *string
 }
 
 type MensajeriaWebhooksSalida struct {

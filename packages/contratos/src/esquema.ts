@@ -2149,6 +2149,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/canales/{id}/llamadas/aplicar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reintentar ahora la escritura de los ajustes en WhatsApp
+         * @description Permiso: `llamadas.configurar`. Los ajustes del número (encendido, icono, devolución y horario de llamadas) se escriben en WhatsApp como un pendiente con reintentos (1 min, 5 min, 30 min, 2 h, 12 h). `whatsapp.estado` dice cómo va: `aplicado`, `pendiente` o `error`. Este endpoint lo intenta ya, también desde `error`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        post: operations["reintentarLlamadasCanalEnWhatsApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/canales/{id}/llamadas/comprobar": {
         parameters: {
             query?: never;
@@ -4754,7 +4774,7 @@ export interface paths {
         };
         /**
          * Ajustes de voz de la empresa
-         * @description Permiso: `voz.configurar`. E1: grabación, duración máxima de una llamada, cuánto suena primero a quien tiene la conversación y retención de grabaciones. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         * @description Permiso: `voz.configurar`. E1: duración máxima de una llamada y cuánto suena primero a quien tiene la conversación. `grabar` es siempre `nunca`: la grabación todavía no está disponible. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
          */
         get: operations["verAjustesVoz"];
         put?: never;
@@ -4776,7 +4796,7 @@ export interface paths {
         put?: never;
         /**
          * Guardar los ajustes de voz de la empresa
-         * @description Permiso: `voz.configurar`. `version` la que leíste (0 la primera vez): distinta, 409. Emite `voz.ajustes_cambiados`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         * @description Permiso: `voz.configurar`. `version` la que leíste (0 la primera vez): distinta, 409. `grabar` distinto de `nunca`: 422 `grabacion_no_disponible`. Emite `voz.ajustes_cambiados`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
          */
         post: operations["actualizarAjustesVoz"];
         delete?: never;
@@ -8039,15 +8059,10 @@ export interface components {
              */
             duracionMaxPersonaMin: number;
             /**
-             * @description De fábrica nunca. asistente no graba nada hasta E2
+             * @description Siempre nunca: la grabación de llamadas todavía no está disponible
              * @enum {string}
              */
-            grabar: "nunca" | "todas" | "asistente";
-            /**
-             * Format: int32
-             * @description Días que se guarda una grabación (1–365)
-             */
-            retencionGrabacionesDias: number;
+            grabar: "nunca";
             /**
              * Format: int32
              * @description Cuánto suena primero solo a quien tiene la conversación (0–20)
@@ -10373,10 +10388,8 @@ export interface components {
         EntradaAjustesVoz: {
             /** Format: int32 */
             duracionMaxPersonaMin: number;
-            /** @enum {string} */
-            grabar: "nunca" | "todas" | "asistente";
-            /** Format: int32 */
-            retencionGrabacionesDias: number;
+            /** @description Opcional. Solo se acepta nunca: cualquier otro valor, 422 grabacion_no_disponible */
+            grabar?: string;
             /** Format: int32 */
             segundosAsignado: number;
             /** Format: int32 */
@@ -12596,6 +12609,19 @@ export interface components {
             /** @description Saldo en texto decimal (numeric(14,2)) */
             saldo: string | null;
         };
+        EstadoEnWhatsApp: {
+            /** @description Texto llano, nunca el mensaje crudo de Meta */
+            detalle?: string;
+            /**
+             * @description pendiente: «pendiente de aplicar en WhatsApp»; error: se agotaron los reintentos
+             * @enum {string}
+             */
+            estado: "aplicado" | "pendiente" | "error";
+            /** Format: int32 */
+            intentos: number;
+            /** Format: date-time */
+            proximoIntentoEn?: string;
+        };
         EstadoGrabacion: {
             /** @enum {string} */
             estado: "pendiente" | "disponible" | "fallida" | "borrada";
@@ -12912,6 +12938,11 @@ export interface components {
             franjas: components["schemas"]["FranjaHorario"][];
             nombre: string;
         };
+        FeriadoMeta: {
+            abre: string;
+            cierra: string;
+            fecha: string;
+        };
         Ficha: {
             cliente: components["schemas"]["ClienteResumen"];
             /** @description Ausente si no se pudo leer (ver estadoCuentaError); nunca se muestran totales calculados sobre datos que no se leyeron */
@@ -13203,6 +13234,12 @@ export interface components {
             /** @description Perfil del asistente de IA en esta franja (§17.1): un código de perfil o solo_sugerir */
             perfil?: string | null;
         };
+        FranjaMeta: {
+            abre: string;
+            cierra: string;
+            /** Format: int64 */
+            dia: number;
+        };
         FuenteSugerencia: {
             /** @description Id del manual, del servicio o clave de Horus */
             entidadId: string | null;
@@ -13253,6 +13290,11 @@ export interface components {
             /** Format: int32 */
             version: number;
             /** @description IANA, America/Guatemala por defecto */
+            zona: string;
+        };
+        HorasMeta: {
+            feriados: components["schemas"]["FeriadoMeta"][] | null;
+            franjas: components["schemas"]["FranjaMeta"][] | null;
             zona: string;
         };
         ICELlamada: {
@@ -13580,6 +13622,8 @@ export interface components {
              * @description Ausente: el de la cola o el del número
              */
             horarioId?: number;
+            /** @description El horario de llamadas que tiene WhatsApp (espejo). Ausente: abierto siempre y el horario lo aplica Iris */
+            horasWhatsapp?: components["schemas"]["HorasMeta"];
             iconoVisible: boolean;
             llamadasActivas: boolean;
             mensajePerdida: components["schemas"]["MensajePerdida"];
@@ -13598,6 +13642,8 @@ export interface components {
              * @description 0 si nunca se configuraron
              */
             version: number;
+            /** @description Si los ajustes del número ya están aplicados en WhatsApp */
+            whatsapp: components["schemas"]["EstadoEnWhatsApp"];
         };
         MFAConfigurado: {
             /** @description Secreto TOTP en base32 */
@@ -13777,6 +13823,8 @@ export interface components {
              * @enum {string}
              */
             autorTipo?: "cliente" | "persona" | "asistente_ia" | "sistema";
+            /** @description Un audio que es el recado del buzón de voz de una llamada fuera de horario */
+            buzonDeVoz?: boolean;
             /** Format: int64 */
             conversacionId: number;
             /** Format: date-time */
@@ -15182,7 +15230,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.borrar_grabacion" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.descartar_devolucion" | "llamadas.escuchar_grabacion" | "llamadas.rechazar" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver" | "voz.configurar";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.descartar_devolucion" | "llamadas.rechazar" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver" | "voz.configurar";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -15725,6 +15773,7 @@ export interface components {
             anotar: boolean;
             colgar: boolean;
             contestar: boolean;
+            /** @description E1c (grabación): siempre false por ahora */
             escucharGrabacion: boolean;
             rechazar: boolean;
             /** @description E3: siempre false en E1 */
@@ -15945,6 +15994,7 @@ export interface components {
             cumple: boolean;
             /** @description Texto llano, listo para mostrar (nunca el mensaje crudo de Meta) */
             detalle: string;
+            sinComprobar?: boolean;
         };
         RequisitosLlamadas: {
             /** Format: date-time */
@@ -26020,6 +26070,85 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    reintentarLlamadasCanalEnWhatsApp: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlamadasCanal"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

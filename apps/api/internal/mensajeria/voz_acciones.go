@@ -21,29 +21,31 @@ import (
 
 // casosVoz reúne los casos de uso de la voz.
 type casosVoz struct {
-	Reclamar       *auditoria.Caso[EntradaLlamada, LlamadaReclamada]
-	contestar      *auditoria.Caso[EntradaContestar, Llamada]
-	confirmarMedio *auditoria.Caso[EntradaLlamada, Llamada]
-	Soltar         *auditoria.Caso[EntradaSoltar, Llamada]
-	colgar         *auditoria.Caso[EntradaLlamada, Llamada]
-	rechazar       *auditoria.Caso[EntradaRechazar, Llamada]
-	resultadoMeta  *auditoria.Caso[resultadoMeta, bool]
-	Anotar         *auditoria.Caso[EntradaAnotarLlamada, Llamada]
-	Ver            *auditoria.Caso[EntradaLlamada, Llamada]
-	Activa         *auditoria.Caso[struct{}, *Llamada]
-	Listar         *auditoria.Caso[EntradaListarLlamadas, nucleo.Pagina[Llamada]]
-	Recibir        *auditoria.Caso[EntradaRecibir, RecibirLlamadas]
-	VerRecibir     *auditoria.Caso[EntradaVerRecibir, RecibirLlamadas]
-	Devoluciones   *auditoria.Caso[EntradaListarDevoluciones, nucleo.Pagina[DevolucionLlamada]]
-	Descartar      *auditoria.Caso[EntradaDescartarDevolucion, DevolucionLlamada]
-	VerCanal       *auditoria.Caso[EntradaIDConv, LlamadasCanal]
-	ConfigCanal    *auditoria.Caso[EntradaLlamadasCanal, LlamadasCanal]
-	comprobar      *auditoria.Caso[entradaComprobado, LlamadasCanal]
-	prepararCanal  *auditoria.Caso[EntradaIDConv, canalPorComprobar]
-	VerAjustes     *auditoria.Caso[struct{}, AjustesVoz]
-	FijarAjustes   *auditoria.Caso[EntradaAjustesVoz, AjustesVoz]
-	mantener       *auditoria.Caso[uuid.UUID, mantenimientoLlamada]
-	vencer         *auditoria.Caso[struct{}, int]
+	Reclamar          *auditoria.Caso[EntradaLlamada, LlamadaReclamada]
+	contestar         *auditoria.Caso[EntradaContestar, Llamada]
+	confirmarMedio    *auditoria.Caso[EntradaLlamada, Llamada]
+	Soltar            *auditoria.Caso[EntradaSoltar, Llamada]
+	colgar            *auditoria.Caso[EntradaLlamada, Llamada]
+	rechazar          *auditoria.Caso[EntradaRechazar, Llamada]
+	resultadoMeta     *auditoria.Caso[resultadoMeta, bool]
+	Anotar            *auditoria.Caso[EntradaAnotarLlamada, Llamada]
+	Ver               *auditoria.Caso[EntradaLlamada, Llamada]
+	Activa            *auditoria.Caso[struct{}, *Llamada]
+	Listar            *auditoria.Caso[EntradaListarLlamadas, nucleo.Pagina[Llamada]]
+	Recibir           *auditoria.Caso[EntradaRecibir, RecibirLlamadas]
+	VerRecibir        *auditoria.Caso[EntradaVerRecibir, RecibirLlamadas]
+	Devoluciones      *auditoria.Caso[EntradaListarDevoluciones, nucleo.Pagina[DevolucionLlamada]]
+	Descartar         *auditoria.Caso[EntradaDescartarDevolucion, DevolucionLlamada]
+	VerCanal          *auditoria.Caso[EntradaIDConv, LlamadasCanal]
+	ConfigCanal       *auditoria.Caso[EntradaLlamadasCanal, LlamadasCanal]
+	comprobar         *auditoria.Caso[entradaComprobado, LlamadasCanal]
+	prepararCanal     *auditoria.Caso[EntradaIDConv, canalPorComprobar]
+	VerAjustes        *auditoria.Caso[struct{}, AjustesVoz]
+	FijarAjustes      *auditoria.Caso[EntradaAjustesVoz, AjustesVoz]
+	resultadoAjustes  *auditoria.Caso[resultadoAjustesMeta, bool]
+	reintentarAjustes *auditoria.Caso[EntradaIDConv, LlamadasCanal]
+	mantener          *auditoria.Caso[uuid.UUID, mantenimientoLlamada]
+	vencer            *auditoria.Caso[struct{}, int]
 }
 
 func nuevosCasosVoz(m *Modulo) casosVoz {
@@ -53,7 +55,8 @@ func nuevosCasosVoz(m *Modulo) casosVoz {
 		Recibir: nuevoRecibirLlamadas(m), VerRecibir: nuevoVerRecibir(m), Devoluciones: nuevoListarDevoluciones(m), Descartar: nuevoDescartarDevolucion(m),
 		VerCanal: nuevoVerLlamadasCanal(m), ConfigCanal: nuevoConfigurarLlamadasCanal(m), comprobar: nuevoGuardarComprobacion(m),
 		prepararCanal: nuevoPrepararComprobacion(m), VerAjustes: nuevoVerAjustesVoz(m), FijarAjustes: nuevoFijarAjustesVoz(m),
-		mantener: nuevoMantenerLlamada(m), vencer: nuevoVencerDevoluciones(m)}
+		mantener: nuevoMantenerLlamada(m), vencer: nuevoVencerDevoluciones(m), resultadoAjustes: nuevoResultadoAjustesMeta(m),
+		reintentarAjustes: nuevoReintentarAjustesMeta(m)}
 }
 
 // EntradaLlamada identifica una llamada.
@@ -147,7 +150,8 @@ func nuevoReclamarLlamada(m *Modulo) *auditoria.Caso[EntradaLlamada, LlamadaRecl
 			if err != nil {
 				return LlamadaReclamada{}, err
 			}
-			l, err := q.ReclamarLlamada(ctx, mensajeriabd.ReclamarLlamadaParams{ID: in.ID, Empresa: a.empresa, UsuarioID: &a.usuario, Hasta: ptrT(ahora.Add(ReservaLlamada))})
+			l, err := q.ReclamarLlamada(ctx, mensajeriabd.ReclamarLlamadaParams{ID: in.ID, Empresa: a.empresa, UsuarioID: &a.usuario, Hasta: ptrT(ahora.Add(ReservaLlamada)),
+				Ahora: ahora})
 			if errors.Is(err, pgx.ErrNoRows) {
 				// ¿No es candidato (404), o alguien se adelantó o ya no suena (409)?
 				candidato, err := q.EsCandidato(ctx, mensajeriabd.EsCandidatoParams{ID: in.ID, UsuarioID: a.usuario, Empresa: a.empresa})
@@ -173,6 +177,19 @@ func nuevoReclamarLlamada(m *Modulo) *auditoria.Caso[EntradaLlamada, LlamadaRecl
 				// Sigue viva pero a esta persona ya no le suena (la rechazó o soltó dos veces).
 				if !candidato && !misma {
 					return LlamadaReclamada{}, llamadaNoEncontrada()
+				}
+				// Suena y es candidato, pero no la pudo reclamar: tiene otra llamada viva, o hay una acción
+				// con Meta a medias de la reserva anterior, o ya se acabó el tiempo del timbre.
+				if actual.Estado == LlamadaSonando {
+					if otra, err := q.LlamadaActivaDeUsuario(ctx, mensajeriabd.LlamadaActivaDeUsuarioParams{Empresa: a.empresa, UsuarioID: &a.usuario}); err == nil && otra.ID != actual.ID {
+						return LlamadaReclamada{}, nucleo.Conflicto("llamada_en_curso", "Ya tienes una llamada: termínala antes de contestar otra")
+					} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+						return LlamadaReclamada{}, err
+					}
+					if accionPendiente(actual) {
+						return LlamadaReclamada{}, accionEnCurso()
+					}
+					return LlamadaReclamada{}, llamadaYaContestada("", false)
 				}
 				quien := ""
 				if id := actual.ReclamadaPor; id != nil && !misma {
@@ -204,6 +221,12 @@ func (m *Modulo) reclamada(ctx context.Context, q *mensajeriabd.Queries, a alcan
 }
 
 func ptrT(t time.Time) *time.Time { return &t }
+
+// accionEnCurso: hay una acción con WhatsApp a medias sobre la llamada (un pre_accept o un accept que
+// todavía no respondió): mientras tanto no se puede soltar ni reclamar.
+func accionEnCurso() *nucleo.Problema {
+	return nucleo.Conflicto("accion_en_curso", "WhatsApp todavía no respondió a la acción anterior sobre esta llamada. Vuelve a intentar en unos segundos")
+}
 
 func nombreUsuario(ctx context.Context, q *mensajeriabd.Queries, id int64) string {
 	ns, err := q.NombresUsuarios(ctx, []int64{id})
@@ -342,15 +365,26 @@ func nuevoResultadoMeta(m *Modulo) *auditoria.Caso[resultadoMeta, bool] {
 				}
 				c = &f
 			}
+			// El resultado de un pre_accept o un accept solo vale si la llamada sigue conectando en manos de
+			// quien tenía la reserva al pedirlo. Si no (se soltó, venció, la tiene otro), no se aplica: la
+			// llamada se termina en Meta y queda fallida, sin dejarla a nombre de quien no tiene el audio.
+			esReserva := in.Accion == MetaPreAceptar || in.Accion == MetaAceptar
+			vigente := l.Estado == LlamadaConectando && l.ReclamadaPor != nil && l.AccionMetaPor != nil && *l.ReclamadaPor == *l.AccionMetaPor
+			if esReserva && !vigente && !llamadaFinal(l.Estado) {
+				t.Anotar(map[string]any{"descartado": in.Accion})
+				return true, m.cerrarLlamada(ctx, t, &l, c, LlamadaFallida, "error_meta", ahora, MetaTerminar)
+			}
 			switch {
 			case llamadaFinal(l.Estado):
 				// reject o terminate de una llamada ya cerrada: solo queda anotado. Si Meta no
-				// respondió, la intención sigue pendiente y el mantenimiento la repite (son idempotentes).
+				// respondió, la intención sigue pendiente y el job de escrituras a Meta la repite (son idempotentes).
 				if in.Fallo {
 					return false, nil
 				}
 				_, err = guardarLlamada(ctx, q, l)
 				return true, err
+			case esReserva && l.ReclamadaPor == nil:
+				return false, nil // inalcanzable (vigente lo exige); sin desreferenciar nil
 			case in.Accion == MetaPreAceptar && !in.Fallo:
 				l.PreAceptadaEn = &ahora
 				l.ReclamadaHasta = ptrT(ahora.Add(EsperaMedio))
@@ -406,6 +440,9 @@ func soloSistemaVoz(ctx context.Context) error {
 
 // trasCommitMeta ejecuta, después del COMMIT, la acción con Meta que quedó anotada como intención.
 func (m *Modulo) trasCommitMeta(ctx context.Context, t *auditoria.Tx, id uuid.UUID) {
+	if ctx.Value(claveSinMeta{}) != nil {
+		return
+	}
 	bd := nucleo.BDDe(ctx)
 	t.AlConfirmar(func(ctx context.Context) { _ = m.cumplirMeta(ctx, bd, id, "") })
 }
@@ -445,6 +482,10 @@ func nuevoSoltarLlamada(m *Modulo) *auditoria.Caso[EntradaSoltar, Llamada] {
 			}
 			if l.Estado != LlamadaConectando {
 				return Llamada{}, reservaLlamadaVencida()
+			}
+			// Con un pre_accept o un accept en vuelo no se suelta: su resultado decide (M1).
+			if accionPendiente(l) {
+				return Llamada{}, accionEnCurso()
 			}
 			if err := m.soltar(ctx, t, &l, m.ahora()); err != nil {
 				return Llamada{}, err

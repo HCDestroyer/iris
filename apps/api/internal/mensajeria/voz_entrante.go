@@ -2,8 +2,10 @@ package mensajeria
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -24,13 +26,78 @@ func guardarLlamada(ctx context.Context, q *mensajeriabd.Queries, l mensajeriabd
 	return q.GuardarLlamada(ctx, mensajeriabd.GuardarLlamadaParams{ID: l.ID, Estado: l.Estado, AtendidaPor: l.AtendidaPor, UsuarioID: l.UsuarioID,
 		ReclamadaPor: l.ReclamadaPor, ReclamadaHasta: l.ReclamadaHasta, MotivoFin: l.MotivoFin, ContestadaEn: l.ContestadaEn, TerminadaEn: l.TerminadaEn,
 		DuracionSeg: l.DuracionSeg, Nota: l.Nota, Resultado: l.Resultado, SdpOferta: l.SdpOferta, AccionMeta: l.AccionMeta,
-		AccionMetaEstado: l.AccionMetaEstado, AccionMetaEn: l.AccionMetaEn, PreAceptadaEn: l.PreAceptadaEn, AvisoPerdida: l.AvisoPerdida})
+		AccionMetaEstado: l.AccionMetaEstado, AccionMetaEn: l.AccionMetaEn, AccionMetaPor: l.AccionMetaPor, PreAceptadaEn: l.PreAceptadaEn,
+		AvisoPerdida: l.AvisoPerdida})
 }
 
 // intencionMeta anota la acción que se va a pedir a Meta (primera fase, dentro de la transacción).
+// Un pre_accept o un accept recuerdan de quién era la reserva: su resultado solo vale si la llamada
+// sigue en manos de esa persona (M1).
 func intencionMeta(l *mensajeriabd.MensajeriaLlamada, accion string, ahora time.Time) {
 	p := "pendiente"
-	l.AccionMeta, l.AccionMetaEstado, l.AccionMetaEn = &accion, &p, &ahora
+	l.AccionMeta, l.AccionMetaEstado, l.AccionMetaEn, l.AccionMetaPor = &accion, &p, &ahora, nil
+	if accion == MetaPreAceptar || accion == MetaAceptar {
+		l.AccionMetaPor = l.ReclamadaPor
+	}
+}
+
+func accionPendiente(l mensajeriabd.MensajeriaLlamada) bool {
+	return l.AccionMetaEstado != nil && *l.AccionMetaEstado == "pendiente"
+}
+
+type claveSinMeta struct{}
+
+// sinMetaEnLinea marca un contexto (el del mantenimiento) en el que las acciones con Meta no se
+// ejecutan tras el COMMIT: quedan anotadas y las hace el job de escrituras a Meta.
+func sinMetaEnLinea(ctx context.Context) context.Context {
+	return context.WithValue(ctx, claveSinMeta{}, true)
+}
+
+// taparSDPEntrantes deja como *** el SDP de la llamada en los webhooks guardados (§6.2, fila 11): al
+// terminar la llamada el SDP no queda en ningún sitio.
+func taparSDPEntrantes(ctx context.Context, q *mensajeriabd.Queries, l mensajeriabd.MensajeriaLlamada) error {
+	if l.CanalID == nil {
+		return nil
+	}
+	filas, err := q.EntrantesDeLlamada(ctx, mensajeriabd.EntrantesDeLlamadaParams{CanalID: *l.CanalID, Desde: l.SonoEn.Add(-10 * time.Minute), Marca: l.IDExterno})
+	if err != nil {
+		return err
+	}
+	for _, f := range filas {
+		var doc map[string]any
+		if json.Unmarshal(f.Payload, &doc) != nil {
+			continue
+		}
+		cambio := false
+		entradas, _ := doc["entry"].([]any)
+		for _, e := range entradas {
+			cambios, _ := e.(map[string]any)["changes"].([]any)
+			for _, c := range cambios {
+				valor, _ := c.(map[string]any)["value"].(map[string]any)
+				llamadas, _ := valor["calls"].([]any)
+				for _, x := range llamadas {
+					ll, _ := x.(map[string]any)
+					if ll["id"] != l.IDExterno {
+						continue
+					}
+					if ses, ok := ll["session"].(map[string]any); ok && ses["sdp"] != "***" {
+						ses["sdp"], cambio = "***", true
+					}
+				}
+			}
+		}
+		if !cambio {
+			continue
+		}
+		b, err := json.Marshal(doc)
+		if err != nil {
+			return err
+		}
+		if err := q.FijarPayloadEntrante(ctx, mensajeriabd.FijarPayloadEntranteParams{ID: f.ID, Payload: b}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // canalGraphDe: el número y su token para llamar a Meta.
@@ -108,13 +175,23 @@ func (m *Modulo) recibirLlamada(ctx context.Context, t *auditoria.Tx, canal mens
 	if err != nil {
 		return err
 	}
-	cola := c.ColaID
-	if aj.ColaID != nil {
+	// Número prestado (§15.3 del chat): si la llamada corresponde a la empresa prestataria no se usa
+	// nada de la dueña: ni su cola, ni su horario, ni sus textos, ni sus candidatos.
+	ajena := d.empresa != derefEmpresa(canal.EmpresaID)
+	cola, segundos := c.ColaID, aj.SegundosSonando
+	if ajena {
+		segundos = 30
+	} else if aj.ColaID != nil {
 		cola = aj.ColaID
 	}
+	// La oferta de Meta pasa la misma validación que el SDP del navegador antes de entregarse.
 	var sdp *string
-	if ev.Session != nil && ev.Session.SDP != "" && len(ev.Session.SDP) <= MaxSDP {
-		sdp = &ev.Session.SDP
+	if ev.Session != nil && ev.Session.SDP != "" {
+		if err := ValidarSDP(ev.Session.SDP); err != nil {
+			slog.WarnContext(ctx, "voz: la oferta SDP de Meta no pasa la validación; la llamada no suena", "canal_id", canal.ID, "motivo", err.Error())
+		} else {
+			sdp = &ev.Session.SDP
+		}
 	}
 	sono := instanteMeta(ev.Timestamp, ahora)
 	if sono.After(ahora) {
@@ -122,7 +199,7 @@ func (m *Modulo) recibirLlamada(ctx context.Context, t *auditoria.Tx, canal mens
 	}
 	l, err := q.InsertarLlamada(ctx, mensajeriabd.InsertarLlamadaParams{LlamadaID: id, EmpresaID: c.EmpresaID, CanalID: &canal.ID, ConversacionID: &c.ID,
 		Externo: ev.ID, Numero: numero, ClienteID: c.ClienteID, Servicio: c.ServicioID, ColaID: cola, SonoEn: sono,
-		SuenaHasta: ahora.Add(time.Duration(aj.SegundosSonando) * time.Second), SdpOferta: sdp, Grabada: voz.Grabar == "todas"})
+		SuenaHasta: ahora.Add(time.Duration(segundos) * time.Second), SdpOferta: sdp})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil // ya se recibió (Meta reintentó, o el job después del proceso en línea)
 	}
@@ -162,6 +239,12 @@ func (m *Modulo) recibirLlamada(ctx context.Context, t *auditoria.Tx, canal mens
 	// Un connect viejo (más de 60 s) no hace sonar nada: Meta ya dejó de llamar.
 	if ahora.Sub(sono) > ConnectViejo || sdp == nil {
 		return m.cerrarLlamada(ctx, t, &l, &c, LlamadaPerdida, "nadie_contesto", ahora, "")
+	}
+	// En un número prestado, las llamadas de la empresa prestataria todavía no suenan (E1: los ajustes de
+	// llamadas son de la dueña del número). Queda como perdida en la prestataria, con su devolución
+	// pendiente y un mensaje neutro.
+	if ajena {
+		return m.cerrarLlamada(ctx, t, &l, &c, LlamadaPerdida, "nadie_contesto", ahora, MetaRechazar)
 	}
 	// 2. Ráfaga: la cuarta llamada del número en 10 minutos se rechaza, sin mensaje.
 	recientes, err := q.LlamadasRecientesDeNumero(ctx, mensajeriabd.LlamadasRecientesDeNumeroParams{CanalID: &canal.ID, Numero: numero, Desde: ahora.Add(-RafagaVentana)})
@@ -325,11 +408,16 @@ func (m *Modulo) cerrarLlamada(ctx context.Context, t *auditoria.Tx, l *mensajer
 		d := int32(min(max(0, ahora.Sub(*l.ContestadaEn)/time.Second), 24*3600)) //nolint:gosec // acotado a un día
 		l.DuracionSeg = &d
 	}
-	l.AccionMeta, l.AccionMetaEstado, l.AccionMetaEn = nil, nil, nil
+	l.AccionMeta, l.AccionMetaEstado, l.AccionMetaEn, l.AccionMetaPor = nil, nil, nil, nil
 	if accionMeta != "" {
-		intencionMeta(l, accionMeta, ahora)
-		// Segunda fase, después del COMMIT: la transacción no llama a nadie por red.
-		m.trasCommitMeta(ctx, t, l.ID)
+		if ctx.Value(claveSinMeta{}) != nil {
+			// Desde el mantenimiento no se llama a Meta: queda anotada, ya vencida, para el job de escrituras.
+			intencionMeta(l, accionMeta, ahora.Add(-2*PlazoMeta))
+		} else {
+			intencionMeta(l, accionMeta, ahora)
+			// Segunda fase, después del COMMIT: la transacción no llama a nadie por red.
+			m.trasCommitMeta(ctx, t, l.ID)
+		}
 	}
 	if err := q.RetirarCandidatos(ctx, mensajeriabd.RetirarCandidatosParams{LlamadaID: l.ID, Ahora: &ahora}); err != nil {
 		return err
@@ -356,8 +444,24 @@ func (m *Modulo) cerrarLlamada(ctx context.Context, t *auditoria.Tx, l *mensajer
 				return err
 			}
 		}
+		// usuarios: a quién se le avisa por push (quien tiene la conversación y quienes supervisan la cola).
+		usuarios := []int64{}
+		if c != nil && c.AsignadoA != nil {
+			usuarios = append(usuarios, *c.AsignadoA)
+		}
+		if l.ColaID != nil {
+			sups, errS := q.SupervisoresDeColas(ctx, []int64{*l.ColaID})
+			if errS != nil {
+				return errS
+			}
+			for _, s := range sups {
+				if !slices.Contains(usuarios, s.ID) {
+					usuarios = append(usuarios, s.ID)
+				}
+			}
+		}
 		err = t.Emitir("llamada.perdida", con(map[string]any{"direccion": l.Direccion, "cola_id": l.ColaID,
-			"sono_seg": int(max(0, ahora.Sub(l.SonoEn)/time.Second)), "devolucion_id": devolucion}))
+			"sono_seg": int(max(0, ahora.Sub(l.SonoEn)/time.Second)), "devolucion_id": devolucion, "usuarios": usuarios}))
 	case LlamadaRechazada, LlamadaFueraDeHorario:
 		err = t.Emitir("llamada.rechazada", con(map[string]any{"motivo": motivo, "usuario_id": l.UsuarioID}))
 	case LlamadaFallida:
@@ -367,6 +471,9 @@ func (m *Modulo) cerrarLlamada(ctx context.Context, t *auditoria.Tx, l *mensajer
 		return err
 	}
 	if *l, err = guardarLlamada(ctx, q, *l); err != nil {
+		return err
+	}
+	if err := taparSDPEntrantes(ctx, q, *l); err != nil {
 		return err
 	}
 	return m.emitirEventoLlamada(ctx, t, *l, EventoLlamadaTerminada, nil)
@@ -395,12 +502,22 @@ func (m *Modulo) trasPerdida(ctx context.Context, t *auditoria.Tx, l *mensajeria
 	if l.CanalID == nil {
 		return devolucion, nil
 	}
-	aj, err := q.VozAjustesCanal(ctx, *l.CanalID)
-	if err != nil || !aj.MensajePerdida {
-		if errors.Is(err, pgx.ErrNoRows) {
-			err = nil
-		}
+	// El texto configurado es de la dueña del número: en la conversación de otra empresa (número
+	// prestado) sale uno neutro, que no nombra a nadie.
+	canal, err := q.CanalPorID(ctx, *l.CanalID)
+	if err != nil {
 		return devolucion, err
+	}
+	texto := MensajePerdidaNeutro
+	if derefEmpresa(canal.EmpresaID) == derefEmpresa(l.EmpresaID) {
+		aj, err := q.VozAjustesCanal(ctx, *l.CanalID)
+		if err != nil || !aj.MensajePerdida {
+			if errors.Is(err, pgx.ErrNoRows) {
+				err = nil
+			}
+			return devolucion, err
+		}
+		texto = aj.MensajePerdidaTexto
 	}
 	reciente, err := q.AvisoPerdidaReciente(ctx, mensajeriabd.AvisoPerdidaRecienteParams{ConversacionID: &c.ID, Desde: ahora.Add(-AvisoPerdidaCada)})
 	if err != nil || reciente {
@@ -410,7 +527,7 @@ func (m *Modulo) trasPerdida(ctx context.Context, t *auditoria.Tx, l *mensajeria
 	if puede, err := m.puedeContestarBot(ctx, q, *c); err != nil || !puede {
 		return devolucion, err
 	}
-	if _, err := m.mensajeAutomatico(ctx, t, c, aj.MensajePerdidaTexto, AutomaticoBot); err != nil {
+	if _, err := m.mensajeAutomatico(ctx, t, c, texto, AutomaticoBot); err != nil {
 		return devolucion, err
 	}
 	l.AvisoPerdida = true

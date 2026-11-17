@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Schema } from "@iris/contratos";
 import { avisar, Aviso, Boton, CampoArea, CampoNumero, CampoSelector, cn, FormularioPagina, Interruptor, liberarProteccion, SeccionFormulario } from "@iris/ui";
-import { ArrowLeft, CircleAlert, CircleCheck, CircleX, RefreshCw, RotateCw } from "lucide-react";
+import { ArrowLeft, CircleAlert, CircleCheck, CircleHelp, CircleX, RefreshCw, RotateCw } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
@@ -24,7 +24,7 @@ import { leerCanales } from "@/lib/numeros/api";
 import { idDeParametro } from "@/lib/parametros";
 import { useSesion } from "@/lib/sesion";
 import { entradaDeCanal, esquemaLlamadasCanal, motivoNoEncender, valoresDeCanal, type ValoresLlamadasCanal } from "@/lib/voz/ajustes";
-import { comprobarLlamadasCanal, configurarLlamadasCanal, leerLlamadasCanal, sincronizarLlamadasCanal } from "@/lib/voz/api";
+import { aplicarLlamadasCanal, comprobarLlamadasCanal, configurarLlamadasCanal, leerLlamadasCanal, sincronizarLlamadasCanal } from "@/lib/voz/api";
 import { textoRequisito } from "@/lib/voz/presentacion";
 import type { LlamadasCanal } from "@/lib/voz/tipos";
 
@@ -88,15 +88,45 @@ function NumeroPorQr({ numero }: { numero: NumeroCorto }) {
     );
 }
 
-const ICONO_REQUISITO = { cumple: CircleCheck, falta: CircleX, aviso: CircleAlert } as const;
-const CLASE_REQUISITO = { cumple: "text-success", falta: "text-error", aviso: "text-warning" } as const;
-const TEXTO_REQUISITO = { cumple: "Listo", falta: "Falta", aviso: "Recomendado" } as const;
+/**
+ * Lo guardado también vive en WhatsApp (encendido, botón de llamar, devolución y horario): si aún
+ * no se aplicó allá, se dice; si se agotaron los reintentos, error con «Reintentar».
+ */
+function EnWhatsApp({ llamadas, ahora, ocupado, aplicando, alReintentar }: { llamadas: LlamadasCanal; ahora: number; ocupado: boolean; aplicando: boolean; alReintentar: () => void }) {
+    const w = llamadas.whatsapp;
+    if (w.estado === "aplicado") return null;
+    const reintentar = (
+        <Boton type="button" variante="secundario" tamano="sm" disabled={ocupado} onClick={alReintentar}>
+            <RotateCw />
+            {aplicando ? "Aplicando…" : w.estado === "error" ? "Reintentar" : "Aplicar ahora"}
+        </Boton>
+    );
+    if (w.estado === "error") {
+        return (
+            <Aviso tono="error" titulo="No se pudo aplicar en WhatsApp" accion={reintentar} data-slot="en-whatsapp" data-estado="error">
+                {w.detalle ?? "WhatsApp no aceptó los ajustes de este número."} Lo guardado en Iris no se pierde.
+            </Aviso>
+        );
+    }
+    const proximo = w.proximoIntentoEn ? Date.parse(w.proximoIntentoEn) : NaN;
+    const minutos = Number.isNaN(proximo) ? null : Math.max(1, Math.ceil((proximo - ahora) / 60_000));
+    return (
+        <Aviso tono="warning" titulo="Pendiente de aplicar en WhatsApp" accion={reintentar} data-slot="en-whatsapp" data-estado="pendiente">
+            {w.detalle ? `${w.detalle} ` : ""}
+            {minutos === null ? "Iris lo vuelve a intentar solo." : `Iris lo vuelve a intentar solo en ${minutos === 1 ? "1 minuto" : `${minutos} minutos`}.`}
+        </Aviso>
+    );
+}
+
+const ICONO_REQUISITO = { cumple: CircleCheck, falta: CircleX, aviso: CircleAlert, sin_comprobar: CircleHelp } as const;
+const CLASE_REQUISITO = { cumple: "text-success", falta: "text-error", aviso: "text-warning", sin_comprobar: "text-muted-foreground" } as const;
+const TEXTO_REQUISITO = { cumple: "Listo", falta: "Falta", aviso: "Recomendado", sin_comprobar: "Sin comprobar" } as const;
 
 function Formulario({ numero, llamadas, colas, horarios, alCambiar }: Datos & { alCambiar: (l: LlamadasCanal) => void }) {
     const router = useRouter();
     const clave = useClaveIdempotencia();
     const [error, setError] = useState<unknown>(null);
-    const [meta, setMeta] = useState<{ accion: "comprobar" | "sincronizar" | null; error: unknown }>({ accion: null, error: null });
+    const [meta, setMeta] = useState<{ accion: "comprobar" | "sincronizar" | "aplicar" | null; error: unknown }>({ accion: null, error: null });
     const [ahora] = useState(() => Date.now());
     const form = useForm<ValoresLlamadasCanal>({ resolver: zodResolver(esquemaLlamadasCanal), defaultValues: valoresDeCanal(llamadas) });
     const v = useWatch({ control: form.control });
@@ -107,11 +137,21 @@ function Formulario({ numero, llamadas, colas, horarios, alCambiar }: Datos & { 
     const cola = colas.find((c) => String(c.id) === v.colaId);
     const requisitos = llamadas.requisitos.requisitos ?? [];
 
-    async function conMeta(accion: "comprobar" | "sincronizar") {
+    async function conMeta(accion: "comprobar" | "sincronizar" | "aplicar") {
         setMeta({ accion, error: null });
         try {
-            const nuevo = await (accion === "comprobar" ? comprobarLlamadasCanal(numero.id) : sincronizarLlamadasCanal(numero.id));
-            avisar({ titulo: accion === "comprobar" ? (nuevo.requisitos.cumple ? "El número cumple los requisitos" : "Todavía faltan requisitos") : "Ajustes leídos de Meta" });
+            const nuevo = await (accion === "comprobar" ? comprobarLlamadasCanal(numero.id) : accion === "sincronizar" ? sincronizarLlamadasCanal(numero.id) : aplicarLlamadasCanal(numero.id));
+            const titulo =
+                accion === "comprobar"
+                    ? nuevo.requisitos.cumple
+                        ? "El número cumple los requisitos"
+                        : "Todavía faltan requisitos"
+                    : accion === "sincronizar"
+                      ? "Ajustes leídos de Meta"
+                      : nuevo.whatsapp.estado === "aplicado"
+                        ? "Ajustes aplicados en WhatsApp"
+                        : "WhatsApp todavía no los aplica";
+            avisar({ titulo, ...(accion === "aplicar" && nuevo.whatsapp.estado !== "aplicado" ? { tono: "warning" as const } : {}) });
             setMeta({ accion: null, error: null });
             alCambiar(nuevo);
         } catch (e) {
@@ -169,6 +209,7 @@ function Formulario({ numero, llamadas, colas, horarios, alCambiar }: Datos & { 
                 ) : null
             }
         >
+            <EnWhatsApp llamadas={llamadas} ahora={ahora} ocupado={meta.accion !== null || sucio} aplicando={meta.accion === "aplicar"} alReintentar={() => void conMeta("aplicar")} />
             <SeccionFormulario titulo="Requisitos de Meta" descripcion="Meta solo deja recibir llamadas en los números que cumplen esto.">
                 <ul className="grid gap-2" aria-label="Requisitos" data-slot="requisitos" data-cumple={llamadas.requisitos.cumple ? "si" : "no"}>
                     {requisitos.map((r) => {
@@ -181,6 +222,7 @@ function Formulario({ numero, llamadas, colas, horarios, alCambiar }: Datos & { 
                                     <span className="text-sm">
                                         <span className={cn("font-semibold", CLASE_REQUISITO[t.estado])}>{TEXTO_REQUISITO[t.estado]}:</span> {t.nombre}
                                     </span>
+                                    {t.estado === "sin_comprobar" && !t.detalle ? <span className="text-[0.8125rem] text-muted-foreground">Iris no lo puede leer de Meta: se sabrá cuando llegue la primera llamada. No impide encender.</span> : null}
                                     {t.detalle && t.estado !== "cumple" ? <span className="text-[0.8125rem] text-muted-foreground">{t.detalle}</span> : null}
                                 </div>
                             </li>
@@ -259,6 +301,11 @@ function Formulario({ numero, llamadas, colas, horarios, alCambiar }: Datos & { 
                     <Link href="/administracion/horarios" className="text-primary underline-offset-2 hover:underline">
                         Administrar horarios
                     </Link>
+                </p>
+                <p className="text-sm text-muted-foreground" data-slot="horas-whatsapp" data-espejo={llamadas.horasWhatsapp ? "si" : "no"}>
+                    {llamadas.horasWhatsapp
+                        ? "WhatsApp también tiene este horario: fuera de él, el cliente ni siquiera puede llamar."
+                        : "En WhatsApp el número aparece abierto siempre; el horario lo aplica Iris cuando entra la llamada."}
                 </p>
                 <CampoSelector etiqueta="Si llaman fuera de horario" error={errores.fueraDeHorario?.message} {...form.register("fueraDeHorario")}>
                     <option value="rechazar_con_mensaje">No contestar y mandarle el mensaje de fuera de horario</option>

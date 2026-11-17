@@ -212,6 +212,11 @@ describe("textos de la voz", () => {
         expect(motivoDeCodigo("llamada_terminada", 409)).toBe("termino_antes");
         expect(motivoDeCodigo("no_recibe_llamadas", 422)).toBe("no_recibe_llamadas");
         expect(motivoDeCodigo("meta_rechazo", 502)).toBe("meta_rechazo");
+        expect(motivoDeCodigo("llamada_en_curso", 409)).toBe("otra_llamada");
+        expect(textoAviso("otra_llamada").titulo).toBe("Ya tienes otra llamada");
+        // Iris no puede leer el webhook de Meta: «sin comprobar», nunca «cumple».
+        expect(textoRequisito({ codigo: "webhook_calls", cumple: false, aviso: true, sinComprobar: true, detalle: "Se sabrá con la primera llamada." }).estado).toBe("sin_comprobar");
+        expect(textoRequisito({ codigo: "webhook_calls", cumple: true, aviso: true, sinComprobar: true, detalle: "" }).estado).toBe("sin_comprobar");
         expect(motivoDeCodigo("sin_conexion", 0)).toBe("sin_red");
         expect(motivoDeCodigo("otro", 500)).toBe("error");
         expect(textoRequisito({ codigo: "limite_mensajeria", cumple: false, aviso: false, detalle: "Hoy: 250 al día." })).toEqual({ nombre: "Puede escribirle a 2,000 personas al día o más", detalle: "Hoy: 250 al día.", estado: "falta" });
