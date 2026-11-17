@@ -49,6 +49,11 @@ func (c *correoFalso) Enviar(_ context.Context, para mail.Address, asunto, texto
 
 func (c *correoFalso) Dominio() string { return "iris.prueba" }
 
+// Describir: el host y el remitente del «.env» (lo que el GET del correo del sistema puede mostrar).
+func (c *correoFalso) Describir() (string, string) {
+	return "smtp.entorno.example", "entorno@iris.prueba"
+}
+
 func (c *correoFalso) para(correo string) []correoEnviado {
 	c.mu.Lock()
 	defer c.mu.Unlock()

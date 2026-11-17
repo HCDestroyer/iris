@@ -66,9 +66,10 @@ func (m *Modulo) registrarCorreoSistema(api huma.API) {
 	huma.Register(api, operacionCorreo("guardarCorreoSistema", http.MethodPost, "/api/v1/correo-sistema/{ambito}/guardar", "Guardar el correo del sistema",
 		"Crea o reemplaza el ajuste. `version` la que leíste (0 al crear): distinta, 409. `contrasena` ausente = se conserva; `\"\"` = se borra; "+
 			"si cambias el servidor, el puerto o el usuario hay que volver a escribirla (422 `contrasena_requerida`). Puertos 25, 465, 587 o 2525. "+
-			"`seguridad: ninguna` solo con un servidor de la red interna permitida y sin usuario ni contraseña (422 `sin_cifrado_solo_red_interna`, "+
-			"`sin_cifrado_sin_credenciales`). Un servidor en una red no permitida: 422 `destino_no_permitido`. No prueba la conexión (usa `probar`). "+
-			"Emite `correo_sistema.ajustes_cambiados`.", configurar, http.StatusConflict),
+			"`seguridad: ninguna` solo en el ámbito global, con un servidor de la red interna permitida y sin usuario ni contraseña (422 "+
+			"`sin_cifrado_solo_global`, `sin_cifrado_solo_red_interna`, `sin_cifrado_sin_credenciales`). Un servidor en una red no permitida: 422 "+
+			"`destino_no_permitido`; tras 10 servidores rechazados en una hora, 429 `demasiados_rechazos`. No prueba la conexión (usa `probar`). "+
+			"Emite `correo_sistema.ajustes_cambiados`.", configurar, http.StatusConflict, http.StatusTooManyRequests),
 		func(ctx context.Context, in *entradaGuardarCorreoHTTP) (*cuerpo[CorreoSistema], error) {
 			r, err := m.GuardarCorreoSistema.Ejecutar(ctx, EntradaGuardarCorreo{Ambito: in.Ambito, CuerpoGuardarCorreo: in.Body})
 			if err != nil {
@@ -81,7 +82,8 @@ func (m *Modulo) registrarCorreoSistema(api huma.API) {
 		"Manda un correo de asunto y cuerpo fijos a `para` (una sola dirección) con los valores del formulario, sin guardarlos. Sin `contrasena` usa "+
 			"la guardada de ese ámbito, solo si el servidor, el puerto y el usuario son los guardados. Responde siempre 200 con `estado` (`ok` o "+
 			"`error`), `causa` (lista cerrada) y `detalle` en lenguaje llano; nunca la respuesta cruda del servidor. Tope: 5 pruebas por usuario y "+
-			"20 por instalación cada hora (429 `demasiadas_pruebas` con `Retry-After`). Emite `correo_sistema.probado`.", configurar, http.StatusTooManyRequests),
+			"20 por instalación cada hora (429 `demasiadas_pruebas` con `Retry-After`); los servidores rechazados por la guarda de red cuentan "+
+			"aparte (429 `demasiados_rechazos`). Si no se pudo abrir la conexión (`no_conecta`) la respuesta tarda siempre unos 11 s. Emite `correo_sistema.probado`.", configurar, http.StatusTooManyRequests),
 		func(ctx context.Context, in *entradaProbarCorreoHTTP) (*cuerpo[ResultadoPruebaCorreo], error) {
 			r, err := m.ProbarCorreoSistema(ctx, EntradaProbarCorreo{Ambito: in.Ambito, CuerpoProbarCorreo: in.Body})
 			if err != nil {

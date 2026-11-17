@@ -62,12 +62,15 @@ al log ni a la auditoría. La auditoría del dispositivo lleva `fin_fcm` (últim
     nunca se devuelve (`tieneContrasena`) y queda como `***` en la auditoría. La guardada solo se usa
     hacia el mismo servidor, puerto y usuario: si cambian, hay que volver a escribirla.
   - Guarda de red de los buzones en la validación, en la prueba y en cada envío; puertos 25, 465,
-    587 y 2525; TLS verificado. `seguridad: ninguna` solo hacia un servidor dentro de
-    `IRIS_CORREO_REDES_PERMITIDAS` y sin usuario ni contraseña (lo exige también `soporte/correo` y
-    un CHECK de la tabla).
+    587 y 2525; TLS verificado. `seguridad: ninguna` solo en el ajuste global, hacia un servidor
+    dentro de `IRIS_CORREO_REDES_PERMITIDAS` y sin usuario ni contraseña (lo exigen también
+    `soporte/correo` y dos CHECK de la tabla). Los servidores que rechaza la guarda de red cuentan
+    para un tope de 10 por usuario y hora (429 `demasiados_rechazos`, antes de resolver el nombre).
   - «Probar» manda un correo de asunto y cuerpo fijos a una sola dirección, sin guardar: 5 por
     usuario y 20 por instalación cada hora (429), y responde una causa de lista cerrada en lenguaje
-    llano, nunca la respuesta cruda del servidor.
+    llano, nunca la respuesta cruda del servidor. `no_conecta` tarda siempre lo mismo (11 s): un
+    puerto cerrado y uno filtrado no se distinguen ni por la causa ni por el tiempo.
+  - Del `.env`, el GET muestra el host y el remitente solo en el ámbito global.
   - Remitente, nombre, usuario, host y destino se rechazan con CR, LF u otros caracteres de control.
 - Tablas `notificaciones.avisos`, `notificaciones.correos`, `notificaciones.correo_ajustes` (una fila
   por ámbito) y `notificaciones.correo_pruebas` (tope y última prueba; sin host, destino ni
