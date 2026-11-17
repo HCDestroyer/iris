@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { alCerrarPestana, alSalir, debeSonar, LIBRE, llamadaDe, ocupada, plazoReserva, plazoTimbre, siguiente, type EstadoVoz, type Etapa, type EventoVoz } from "./maquina";
+import { alCerrarPestana, alSalir, debeSonar, LIBRE, llamadaDe, ocupada, siguiente, type EstadoVoz, type Etapa, type EventoVoz } from "./maquina";
 import { duracionCorta, llamadaEnHilo, motivoDeCodigo, quienLlama, reloj, textoAviso, textoRequisito } from "./presentacion";
 import type { Llamada } from "./tipos";
 
@@ -159,15 +159,6 @@ describe("máquina de la llamada entrante (contratos/voz.md §3.3)", () => {
         expect(siguiente(colgue, { tipo: "entrante", llamada: llamada({ id: "otra" }) }, YO)).toBe(colgue);
     });
 
-    it("el plazo de la reserva aguanta un reloj desfasado: nunca más de 12 s ni vencida de entrada", () => {
-        expect(plazoReserva("2026-11-17T16:00:22Z", T0)).toBe(12_000);
-        expect(plazoReserva("2026-11-17T16:00:18.500Z", T0)).toBe(8_500);
-        // Reloj del equipo adelantado (el plazo «ya pasó») o atrasado (daría minutos): 12 s.
-        expect(plazoReserva("2026-11-17T16:00:05Z", T0)).toBe(12_000);
-        expect(plazoReserva("2026-11-17T16:05:00Z", T0)).toBe(12_000);
-        expect(plazoReserva("no es una fecha", T0)).toBe(12_000);
-    });
-
     it("nunca se cierra el audio sin asegurar el final en el servidor: qué mandar al dejar la llamada", () => {
         const en = (n: number) => correr(hastaHablar.slice(0, n));
         const vencida = (antes: EstadoVoz) => siguiente(antes, { tipo: "plazo_vencido" }, YO);
@@ -209,11 +200,6 @@ describe("máquina de la llamada entrante (contratos/voz.md §3.3)", () => {
         // Caducar no toca una llamada que ya se está contestando o en curso.
         const hablando = correr(hastaHablar);
         expect(siguiente(hablando, { tipo: "caducar" }, YO)).toBe(hablando);
-        // Hasta `suenaHasta` si es creíble; nunca más de 60 s ni con un reloj desfasado.
-        expect(plazoTimbre("2026-11-17T16:00:35Z", T0)).toBe(25_000);
-        expect(plazoTimbre("2026-11-17T16:30:00Z", T0)).toBe(60_000);
-        expect(plazoTimbre("2026-11-17T15:00:00Z", T0)).toBe(60_000);
-        expect(plazoTimbre(undefined, T0)).toBe(60_000);
     });
 
     it("al cerrar la pestaña (keepalive): nada si solo suena; `soltar` si la reserva es o puede ser mía; `colgar` si pudo aceptarse", () => {

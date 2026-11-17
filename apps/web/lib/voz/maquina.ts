@@ -155,16 +155,12 @@ export function siguiente(e: EstadoVoz, ev: EventoVoz, yo: number): EstadoVoz {
 export const RESERVA_MS = 12_000;
 export const CONFIRMAR_MS = 5_000;
 
-/**
- * Cuánto esperar antes de dar la reserva por vencida. Se usa el `venceEn` del servidor solo si cae
- * dentro de la reserva; si el reloj de este equipo está desfasado (da un plazo ya pasado o más largo
- * que la reserva), valen los 12 s desde que llegó la respuesta. El servidor sigue mandando: si para
- * él ya venció, responde 409 `reserva_vencida`.
+/*
+ * Los plazos se cuentan desde que llega la respuesta de `reclamar` (o el evento de la llamada), no
+ * con `venceEn` / `suenaHasta`: el reloj de este equipo puede ir adelantado o atrasado respecto al
+ * servidor. El servidor sigue mandando: si para él la reserva ya venció responde 409
+ * `reserva_vencida`, y cuando la llamada deja de sonar lo dice por el feed.
  */
-export function plazoReserva(venceEn: string, ahora: number): number {
-    const resto = Date.parse(venceEn) - ahora;
-    return resto > 0 && resto <= RESERVA_MS ? resto : RESERVA_MS;
-}
 
 // --- Qué hace falta al pasar de un estado a otro (lo ejecuta el proveedor) ----------------------
 
@@ -227,8 +223,3 @@ export function alCerrarPestana(e: EstadoVoz, etapa: Etapa, reservaSegura: boole
 /** Tope del timbre: sin noticias de la llamada en este tiempo, deja de sonar aquí. */
 export const TIMBRE_MAX_MS = 60_000;
 
-/** Cuánto puede sonar aquí: hasta `suenaHasta` si es creíble (reloj del equipo), y nunca más del tope. */
-export function plazoTimbre(suenaHasta: string | undefined, ahora: number): number {
-    const resto = suenaHasta ? Date.parse(suenaHasta) - ahora : NaN;
-    return resto > 0 && resto <= TIMBRE_MAX_MS ? resto : TIMBRE_MAX_MS;
-}

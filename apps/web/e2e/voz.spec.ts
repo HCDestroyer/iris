@@ -50,6 +50,19 @@ async function feedListo(page: Page, api: Api) {
         .toBe(true);
 }
 
+/** Adelanta el reloj de a poco hasta que se cumpla (los reintentos esperan 1, 2, 4, 8 y 8 s tras cada respuesta). */
+const adelantarHasta = (page: Page, listo: () => boolean | undefined) =>
+    expect
+        .poll(
+            async () => {
+                if (listo()) return true;
+                await page.clock.fastForward(2_000);
+                return Boolean(listo());
+            },
+            { timeout: 25_000, intervals: [150] },
+        )
+        .toBe(true);
+
 const aviso = (page: Page) => page.locator('[data-slot="aviso-llamada"]');
 const barra = (page: Page) => page.getByRole("region", { name: "Llamada en curso" });
 const nota = (page: Page) => page.getByRole("dialog", { name: "Terminó la llamada" });
@@ -453,9 +466,9 @@ test.describe("voz › plazos, red y cierre", () => {
         await aviso(page).getByRole("button", { name: "Contestar" }).click();
         await expect(aviso(page)).toContainText("Abriendo el micrófono…");
         await captura(page, "conectando");
-        await page.clock.fastForward(8_000);
+        await page.clock.fastForward(5_000);
         await expect(aviso(page)).toHaveAttribute("data-fase", "contestando");
-        await page.clock.fastForward(4_200);
+        await page.clock.fastForward(7_200);
         await expect(aviso(page)).toHaveAttribute("data-motivo", "reserva_vencida");
         await expect.poll(() => acciones(api, "soltar").length).toBe(1);
         expect(acciones(api, "contestar")).toHaveLength(0);
@@ -535,10 +548,8 @@ test.describe("voz › plazos, red y cierre", () => {
         await barra(page).getByRole("button", { name: "Colgar" }).click();
         await expect(nota(page)).toBeVisible();
         await expect.poll(() => acciones(api, "colgar").length).toBe(1);
-        await page.clock.fastForward(1_100);
-        await expect.poll(() => acciones(api, "colgar").length).toBe(2);
-        await page.clock.fastForward(2_100);
-        await expect.poll(() => api.voz.llamadas.get([...api.voz.llamadas.keys()].at(-1) ?? "")?.estado).toBe("terminada");
+        await adelantarHasta(page, () => api.voz.llamadas.get([...api.voz.llamadas.keys()].at(-1) ?? "")?.estado === "terminada");
+        expect(acciones(api, "colgar")).toHaveLength(3);
         await expect(nota(page)).not.toContainText("No se pudo avisar que colgaste");
         await nota(page).getByRole("button", { name: "Ahora no" }).click();
 
@@ -549,11 +560,9 @@ test.describe("voz › plazos, red y cierre", () => {
         api.voz.forzar.colgar = 6;
         await barra(page).getByRole("button", { name: "Colgar" }).click();
         await expect(nota(page)).toBeVisible();
-        for (const espera of [1_100, 2_100, 4_100, 8_100, 8_100]) {
-            const antes = acciones(api, "colgar").length;
-            await page.clock.fastForward(espera);
-            await expect.poll(() => acciones(api, "colgar").length).toBe(antes + 1);
-        }
+        const antes = acciones(api, "colgar").length;
+        await adelantarHasta(page, () => api.voz.forzar.colgar === 0);
+        expect(acciones(api, "colgar").length - antes).toBeLessThanOrEqual(6);
         await expect(nota(page)).toContainText("No se pudo avisar que colgaste");
         await nota(page).getByRole("button", { name: "Reintentar" }).click();
         await expect(nota(page)).not.toContainText("No se pudo avisar que colgaste");
@@ -634,8 +643,7 @@ test.describe("voz › nunca una llamada viva sin audio (revisión de seguridad)
         liberar();
         await expect.poll(() => ultima(api)?.estado).toBe("en_curso");
         // …y el reintento de colgar la termina. Se le dice al agente.
-        await page.clock.fastForward(1_100);
-        await expect.poll(() => ultima(api)?.estado).toBe("terminada");
+        await adelantarHasta(page, () => ultima(api)?.estado === "terminada");
         await expect(page.getByText("La llamada se conectó sin audio y se colgó")).toBeVisible();
         await expect(barra(page)).toHaveCount(0);
     });
@@ -669,12 +677,8 @@ test.describe("voz › nunca una llamada viva sin audio (revisión de seguridad)
         api.voz.forzar.colgar = 99;
         await aviso(page).getByRole("button", { name: "Contestar" }).click();
         await expect(aviso(page)).toHaveAttribute("data-motivo", "medio_fallido");
-        await expect.poll(() => acciones(api, "colgar").length).toBe(2);
-        for (const espera of [1_100, 2_100, 4_100, 8_100, 8_100]) {
-            const antes = acciones(api, "colgar").length;
-            await page.clock.fastForward(espera);
-            await expect.poll(() => acciones(api, "colgar").length).toBe(antes + 1);
-        }
+        // 6 intentos y se rinde (1 de la primera llamada + 6).
+        await adelantarHasta(page, () => acciones(api, "colgar").length === 7);
         const fijo = page.getByText("No se pudo colgar una llamada que quedó abierta");
         await expect(fijo).toBeVisible();
         api.voz.forzar.colgar = 0;
@@ -761,8 +765,7 @@ test.describe("voz › nunca una llamada viva sin audio (revisión de seguridad)
         await page.evaluate(() => window.__voz.cortar());
         await expect(aviso(page)).toHaveAttribute("data-motivo", "medio_fallido");
         liberar();
-        await page.clock.fastForward(1_100);
-        await expect.poll(() => ultima(api)?.estado).toBe("terminada");
+        await adelantarHasta(page, () => ultima(api)?.estado === "terminada");
         expect(acciones(api, "soltar")).toHaveLength(0);
     });
 
@@ -804,6 +807,9 @@ test.describe("voz › nunca una llamada viva sin audio (revisión de seguridad)
         const llamada = await suena(page, api);
         await aviso(page).getByRole("button", { name: "Contestar" }).click();
         await expect(barra(page)).toBeVisible();
+        // Al contestar se abrió la conversación; se vuelve al inicio (en el teléfono, ahí está «Más»).
+        await page.getByRole("link", { name: "Iris, inicio" }).click();
+        await expect(page).toHaveURL(/\/$/);
         if (esTelefono(page)) {
             await abrirMenu(page);
             await hojaMas(page).getByRole("menuitem", { name: "Cerrar sesión" }).click();

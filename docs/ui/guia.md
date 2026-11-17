@@ -714,6 +714,11 @@ solo para quien tiene `llamadas.contestar`: el aviso y la barra aparecen en cual
 - **Si no se pudo contestar** (otra persona la tomó, venció el tiempo, micrófono, red, ya tienes
   otra llamada): un mensaje llano que se va solo a los 8 s. Si la tienes en otra pestaña, el aviso
   solo se cierra. Nunca un código ni un error técnico.
+- **Nunca una llamada viva sin audio:** si esta pestaña deja una llamada que el servidor pudo
+  aceptar, la cuelga (con reintentos) y se lo dice al agente («La llamada se conectó sin audio y se
+  colgó»); si no logra colgarla, deja un aviso fijo con «Reintentar».
+- **Irse con una llamada:** cerrar sesión o cambiar de empresa con una llamada viva o sonando
+  pregunta antes («Tienes una llamada con…» · «Quedarme» / «Colgar y seguir») y la termina primero.
 - **Llamada en curso:** barra bajo la barra superior (`data-slot="barra-llamada"`), en todas las
   pantallas: punto, nombre, tiempo, «Silenciar» y «Colgar» (rojo). Las pantallas de alto completo
   le ceden su alto (`--alto-llamada`).
@@ -729,7 +734,7 @@ solo para quien tiene `llamadas.contestar`: el aviso y la barra aparecen en cual
   Recomendado / Sin comprobar», «pendiente de aplicar en WhatsApp» con «Reintentar», a quién le
   suena, horario y llamadas perdidas; un número por QR solo muestra por qué no puede) y
   `/administracion/llamadas` (de la empresa). **La grabación no se ofrece.**
-- **Pruebas:** `lib/voz/*.test.ts` (máquina, textos, SDP, ajustes) y `e2e/voz.spec.ts` con
+- **Pruebas:** `lib/voz/*.test.ts` (máquina, textos, ajustes) y `e2e/voz.spec.ts` con
   `e2e/api-voz.ts`, `e2e/doble-webrtc.ts` (micrófono y `RTCPeerConnection` de mentira) y
   `page.clock` para los plazos de 12 s y 5 s.
 

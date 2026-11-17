@@ -23,7 +23,7 @@ import {
 } from "@/lib/voz/api";
 import { colgarSeguro, soltarSeguro, type Fin } from "@/lib/voz/asegurar";
 import { escucharEventos, escucharFuente, fuenteAjena, publicarEvento } from "@/lib/voz/canal";
-import { alCerrarPestana, alSalir, CONFIRMAR_MS, debeSonar, LIBRE, llamadaDe, ocupada, plazoReserva, plazoTimbre, siguiente, type EstadoVoz, type Etapa, type EventoVoz } from "@/lib/voz/maquina";
+import { alCerrarPestana, alSalir, CONFIRMAR_MS, debeSonar, LIBRE, llamadaDe, ocupada, RESERVA_MS, siguiente, TIMBRE_MAX_MS, type EstadoVoz, type Etapa, type EventoVoz } from "@/lib/voz/maquina";
 import { conectar, ErrorMicrofono, navegadorAdmiteLlamadas, pedirMicrofono, permisoMicrofono, soltarMicrofono, type Conexion, type EstadoMicrofono } from "@/lib/voz/medios";
 import { idNavegador } from "@/lib/voz/navegador";
 import { motivoDeCodigo } from "@/lib/voz/presentacion";
@@ -411,7 +411,7 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
                 mio.etapa = "reservada";
                 despachar({ tipo: "reclamada", llamada: r.llamada, venceEn: Date.parse(r.venceEn) });
                 if (!vivo()) return;
-                plazoDe(plazoReserva(r.venceEn, Date.now()));
+                plazoDe(RESERVA_MS);
                 const mic = await pedirMicrofono();
                 if (!vivo()) {
                     soltarMicrofono(mic);
@@ -518,12 +518,11 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
     // Tope propio: sin noticias de la llamada, deja de sonar aquí (como mucho 60 s).
     const sonando = estado.fase === "sonando" ? estado.llamada : null;
     const idSonando = sonando?.id;
-    const suenaHasta = sonando?.suenaHasta;
     useEffect(() => {
         if (idSonando === undefined) return;
-        const t = window.setTimeout(() => despachar({ tipo: "caducar" }), plazoTimbre(suenaHasta, Date.now()));
+        const t = window.setTimeout(() => despachar({ tipo: "caducar" }), TIMBRE_MAX_MS);
         return () => window.clearTimeout(t);
-    }, [idSonando, suenaHasta, despachar]);
+    }, [idSonando, despachar]);
 
     // --- Cierre de la pestaña o del proveedor -------------------------------------------------
     useEffect(() => {
