@@ -112,6 +112,7 @@ lint-infra: ## bash -n + shellcheck de scripts y docker compose config (avisa si
 		docker compose -f infra/docker-compose.yml --env-file .env.example --profile app config --quiet && echo "compose: ok"; \
 		docker compose -p iris-carga -f infra/docker-compose.yml -f infra/carga/compose.yml --env-file .env.example --profile app config --quiet && echo "compose de carga: ok"; \
 		infra/produccion/verificar.sh; \
+		infra/voz/verificar.sh; \
 	else \
 		echo "lint-infra: omitido docker compose config (docker compose no instalado)"; \
 	fi

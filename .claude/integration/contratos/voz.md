@@ -1661,18 +1661,18 @@ firmada como `/version`):
 
 ```json
 { "estado": "listo", "encendidoSeg": 86400, "version": "1.0.0", "tomadoEn": "…",
-  "gpus": [{ "indice": 0, "nombre": "…", "usoPct": 37, "vramUsadaMb": 0, "vramTotalMb": 0,
-             "temperaturaC": 61, "potenciaW": 180 }],
+  "gpus": { "lista": [{ "indice": 0, "nombre": "…", "usoPct": 37, "vramUsadaMb": 0,
+             "vramTotalMb": 0, "temperaturaC": 61, "potenciaW": 180 }] },
   "cpu": { "nucleos": 16, "usoPct": 12 }, "memoria": { "usadaMb": 0, "totalMb": 0 },
   "disco": { "usadoMb": 0, "totalMb": 0 },
-  "modelos": [{ "id": "…", "tamanoMb": 0, "cargado": true, "vramMb": 0, "cargadoHasta": "…" }],
+  "modelos": [{ "id": "…", "tamanoMb": 0, "permitido": true, "cargado": true, "vramMb": 0, "cargadoHasta": "…" }],
   "llm": { "enCurso": 1, "maxSimultaneas": 4 } }
 ```
 
 - GPU por tarjeta. **No la lee la puerta** (no ve la GPU): la lee un contenedor **medidor**, sin
   ningún puerto y sin red, que ejecuta `nvidia-smi` con argumentos fijos (plazo 2 s) y deja el
   resultado en un volumen `tmpfs` que la puerta monta en solo lectura; una lectura de más de 15 s
-  se da por perdida. Sin GPU (`--sin-gpu`) o sin lectura, `"gpus": { "estado": "omitido" }`. Un dato que la tarjeta no da va `null`, no inventado.
+  se da por perdida. Sin GPU (`--no-gpu`) o sin lectura, `"gpus": { "estado": "omitido", "lista": [] }`. Un dato que la tarjeta no da va `null`, no inventado.
 - `disco` es el del volumen de modelos. `modelos` sale de la lista de instalados y de los cargados
   en memoria que declara Ollama; `cargadoHasta` es hasta cuándo queda residente.
 - **Seguridad de la ruta:** no acepta parámetros ni cuerpo; **no ejecuta ningún comando con

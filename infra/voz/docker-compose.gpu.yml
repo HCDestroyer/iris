@@ -1,0 +1,53 @@
+# Suma la GPU al compose de «Iris Voz» (runtime de NVIDIA, nvidia-container-toolkit): Ollama la usa y
+# el medidor la lee. La puerta no ve la GPU.
+services:
+  puerta:
+    environment:
+      IRIS_VOZ_MEDIDOR: /medidor/gpu.json
+    volumes:
+      - medidor:/medidor:ro
+
+  llm:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # Lee la GPU con nvidia-smi (argumentos fijos, plazo de 2 s) y deja la lectura en un tmpfs que la
+  # puerta monta en solo lectura. Sin red y sin puertos.
+  medidor:
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    image: ${IRIS_VOZ_REGISTRY:-ghcr.io/hcdestroyer}/iris-voz:${IRIS_VOZ_VERSION:?IRIS_VOZ_VERSION is required}
+    command: [medidor]
+    user: "65532:65532"
+    network_mode: none
+    healthcheck:
+      disable: true
+    environment:
+      IRIS_VOZ_MEDIDOR: /medidor/gpu.json
+    volumes:
+      - medidor:/medidor
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, utility]
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "3" }
+
+volumes:
+  medidor:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=1m,uid=65532,gid=65532,mode=0755"

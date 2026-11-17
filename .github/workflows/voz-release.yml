@@ -1,0 +1,116 @@
+# Publica una versión de «Iris Voz» (Servidor de IA, contrato voz.md §4.7). Versión propia,
+# independiente de la de Iris: se publica al empujar una etiqueta voz-vX.Y.Z (protegida: solo quien
+# puede publicar puede crearla), que debe coincidir con infra/voz/manifiesto.json.
+#
+# 1. Construye y publica la imagen ghcr.io/<dueño>/iris-voz:X.Y.Z.
+# 2. Arma el paquete (infra/voz/package-voz.sh) con la imagen fijada por digest.
+# 3. Firma el paquete, el instalador y el manifiesto con cosign SIN CLAVE: la identidad es este
+#    workflow en esta etiqueta (OIDC de GitHub Actions); no hay claves ni secretos que guardar. El
+#    bundle (.sigstore.json) lleva la prueba de inclusión en el registro de transparencia.
+# 4. Verifica lo firmado SIN RED, con la raíz de confianza embebida en install-voz.sh y la misma
+#    función que usa el instalador, contra la identidad real; y comprueba que otra identidad, un
+#    paquete alterado y un bundle sin registro de transparencia fallan (infra/voz/prueba-firma.sh).
+# 5. Crea la release voz-vX.Y.Z (no «latest»: esa es la de Iris) con el paquete, el instalador, el
+#    manifiesto, sus bundles y sus sumas.
+#
+# install-voz.sh solo acepta paquetes firmados por
+#   https://github.com/HCDestroyer/iris/.github/workflows/voz-release.yml@refs/tags/voz-vX.Y.Z
+# así que este archivo no se puede renombrar sin publicar un instalador nuevo.
+name: Versión de Iris Voz
+
+on:
+  push:
+    tags: ['voz-v[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: voz-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publicar:
+    name: Publicar Iris Voz
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Versión de la etiqueta y del manifiesto
+        id: v
+        run: |
+          version="${GITHUB_REF_NAME#voz-v}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::etiqueta inválida: $GITHUB_REF_NAME"; exit 1; }
+          en_manifiesto="$(jq -r .version infra/voz/manifiesto.json)"
+          [ "$en_manifiesto" = "$version" ] || { echo "::error::la etiqueta dice $version y manifiesto.json dice $en_manifiesto"; exit 1; }
+          if gh release view "voz-v$version" >/dev/null 2>&1; then echo "::error::ya existe la release voz-v$version"; exit 1; fi
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+
+      - name: Comprobar los archivos del paquete
+        run: infra/voz/verificar.sh
+
+      - name: Entrar a GHCR
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: echo "$TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+
+      - name: Construir y publicar la imagen
+        id: img
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          dueno="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          imagen="ghcr.io/$dueno/iris-voz:$VERSION"
+          docker build -f infra/voz/Dockerfile --build-arg VERSION="$VERSION" -t "$imagen" .
+          docker push "$imagen"
+          digest="$(docker buildx imagetools inspect "$imagen" --format '{{json .Manifest}}' | jq -r .digest)"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no se pudo leer el digest de $imagen"; exit 1; }
+          echo "digest=$digest" >>"$GITHUB_OUTPUT"
+          echo "$imagen@$digest" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Armar el paquete (imagen fijada por digest)
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+          IRIS_VOZ_DIGEST: ${{ steps.img.outputs.digest }}
+        run: |
+          IRIS_PIN_DIGESTS=1 IRIS_REGISTRY="ghcr.io/$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')" \
+            infra/voz/package-voz.sh "$VERSION" dist
+
+      - name: Firmar (cosign sin clave) y verificar sin red
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+          IDENTIDAD: ${{ github.server_url }}/${{ github.workflow_ref }}
+        run: |
+          esperada="https://github.com/HCDestroyer/iris/.github/workflows/voz-release.yml@refs/tags/voz-v$VERSION"
+          [ "$IDENTIDAD" = "$esperada" ] || { echo "::error::la identidad de este workflow ($IDENTIDAD) no es la que acepta el instalador ($esperada)"; exit 1; }
+          # shellcheck source=infra/voz/install-voz.sh
+          . infra/voz/install-voz.sh
+          cosign="$(ensure_cosign "$PWD/dist/bin")"
+          for f in "iris-voz-$VERSION.tar.gz" install-voz.sh manifiesto.json; do
+            "$cosign" sign-blob --yes --new-bundle-format --bundle "dist/$f.sigstore.json" "dist/$f" >/dev/null
+          done
+          sudo -E env "PATH=$PATH" IRIS_VOZ_FIRMA_DIR="$PWD/dist" infra/voz/prueba-firma.sh "$IDENTIDAD"
+          sudo rm -rf dist/bin dist/alterado.tar.gz dist/sin-tlog.sigstore.json
+
+      - name: Crear la release
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          gh release create "voz-v$VERSION" --latest=false --verify-tag --title "Iris Voz $VERSION" \
+            --notes "AI server package for Iris (Iris Voz $VERSION). Install guide: docs/runbooks/servidor-ia.md. Verify install-voz.sh with its .sigstore.json bundle before running it." \
+            "dist/iris-voz-$VERSION.tar.gz#Iris Voz $VERSION install package" \
+            "dist/iris-voz-$VERSION.tar.gz.sigstore.json#Iris Voz $VERSION install package signature (Sigstore bundle)" \
+            "dist/iris-voz-$VERSION.tar.gz.sha256#Iris Voz $VERSION install package SHA-256" \
+            "dist/install-voz.sh#Iris Voz installer (install-voz.sh)" \
+            "dist/install-voz.sh.sigstore.json#Iris Voz installer signature (Sigstore bundle)" \
+            "dist/install-voz.sh.sha256#Iris Voz installer SHA-256" \
+            "dist/manifiesto.json#Iris Voz $VERSION manifest" \
+            "dist/manifiesto.json.sigstore.json#Iris Voz $VERSION manifest signature (Sigstore bundle)"

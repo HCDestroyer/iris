@@ -201,7 +201,47 @@ func ejecutar(orden string, args []string) error {
 	return fmt.Errorf("orden desconocida: %s", orden)
 }
 
+// digestModelo pregunta al contenedor llm el digest de un modelo instalado (para comprobarlo contra
+// el manifiesto del paquete después de una descarga).
+func digestModelo(nombre string) error {
+	ctx, cancelar := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelar()
+	base := strings.TrimRight(entorno("IRIS_VOZ_OLLAMA_URL", "http://llm:11434"), "/")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/api/tags", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := (&http.Client{Transport: &http.Transport{Proxy: nil}}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var tags struct {
+		Models []struct {
+			Name   string `json:"name"`
+			Digest string `json:"digest"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&tags); err != nil {
+		return err
+	}
+	for _, m := range tags.Models {
+		if m.Name == nombre {
+			fmt.Println("sha256:" + strings.TrimPrefix(m.Digest, "sha256:"))
+			return nil
+		}
+	}
+	return fmt.Errorf("el modelo %s no está instalado", nombre)
+}
+
 func modelo(alm *voz.Almacen, args []string) error {
+	if len(args) == 2 && args[0] == "digest" && voz.ReNombreModelo.MatchString(args[1]) {
+		nombre := args[1]
+		if !strings.Contains(nombre, ":") {
+			nombre += ":latest"
+		}
+		return digestModelo(nombre)
+	}
 	if len(args) == 1 && args[0] == "lista" {
 		e, err := alm.Leer()
 		if err != nil {

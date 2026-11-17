@@ -1,0 +1,96 @@
+# «Iris Voz» (Servidor de IA, contrato voz.md §4): pruebas del paquete que se instala aparte.
+#
+# - archivos: infra/voz/verificar.sh (raíz de confianza embebida, manifiesto, endurecimiento del
+#   compose, contenido del paquete) y shellcheck.
+# - paquete-falso: levanta el paquete con Docker Compose y un Ollama falso (sin GPU), empareja con
+#   `iris-voz pair`, usa el modelo por el canal autenticado y desenlaza.
+# - paquete-real: lo mismo con un Ollama de verdad en CPU y un modelo diminuto, descargado por el
+#   proxy que solo llega al registro de modelos y comprobado por digest.
+# - firma: firma un paquete de prueba con cosign sin clave (la identidad es ESTE workflow) y lo
+#   verifica SIN RED con la raíz de confianza embebida y el cosign fijado por sha256: la misma
+#   función que usa el instalador. La identidad real (voz-release.yml en una etiqueta voz-v*) solo
+#   existe en una release: voz-release.yml repite esta prueba contra el paquete publicado.
+#
+# Las pruebas de Go del protocolo (internal/voz) corren en ci.yml con el resto de apps/api.
+name: Iris Voz
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - infra/voz/**
+      - apps/api/internal/voz/**
+      - apps/api/cmd/voz-puerta/**
+      - apps/api/cmd/voz-ollama-falso/**
+      - apps/api/go.mod
+      - .github/workflows/voz.yml
+  pull_request:
+    paths:
+      - infra/voz/**
+      - apps/api/internal/voz/**
+      - apps/api/cmd/voz-puerta/**
+      - apps/api/cmd/voz-ollama-falso/**
+      - apps/api/go.mod
+      - .github/workflows/voz.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: voz-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  archivos:
+    name: Archivos del paquete
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: shellcheck
+        run: shellcheck infra/voz/*.sh
+      - name: verificar.sh
+        run: infra/voz/verificar.sh
+
+  paquete-falso:
+    name: Paquete con Ollama falso
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: apps/api/go.mod
+          cache-dependency-path: apps/api/go.sum
+      - name: Instalar, emparejar, usar y desenlazar
+        run: sudo -E env "PATH=$PATH" infra/voz/prueba.sh falso
+
+  paquete-real:
+    name: Paquete con Ollama real (CPU)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: apps/api/go.mod
+          cache-dependency-path: apps/api/go.sum
+      - name: Descargar un modelo por el proxy, comprobar su digest y usarlo
+        run: sudo -E env "PATH=$PATH" infra/voz/prueba.sh real
+
+  firma:
+    name: Firma sin clave y verificación sin red
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Un PR desde un fork no recibe el token OIDC: ahí la firma no se puede probar.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Firmar un paquete de prueba y verificarlo sin red
+        env:
+          IDENTIDAD: ${{ github.server_url }}/${{ github.workflow_ref }}
+        run: sudo -E env "PATH=$PATH" infra/voz/prueba-firma.sh "$IDENTIDAD" sign
