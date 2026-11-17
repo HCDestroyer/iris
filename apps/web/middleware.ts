@@ -11,6 +11,8 @@ import { NextResponse, type NextRequest } from "next/server";
 // /soporte/entrar no pasa por aquí (lee el ticket del fragmento, que el servidor nunca ve).
 // La encuesta pública (/encuesta#<token>) tampoco: es sin sesión y el token va en el fragmento.
 // Ni el autologin desde Argos (/sso/entrar#<ticket>), que abre la sesión.
+// Ni las páginas legales públicas que revisa Meta (privacidad, términos y eliminación de datos, en
+// español y en /en/…): responden 200 a un visitante anónimo y a un rastreador (lib/legal/paginas.ts).
 const COOKIE_SESION = "iris_sesion";
 const COOKIE_PORTAL = "iris_portal";
 
@@ -40,6 +42,6 @@ export function middleware(peticion: NextRequest) {
 
 export const config = {
     matcher: [
-        "/((?!api/|_next/|entrar(?:/|$)|campo(?:/|$)|encuesta(?:/|$)|sso/entrar(?:/|$)|sw\\.js|soporte/entrar(?:/|$)|icon\\.svg|favicon\\.ico|robots\\.txt|manifest\\.webmanifest).*)",
+        "/((?!api/|_next/|entrar(?:/|$)|campo(?:/|$)|encuesta(?:/|$)|sso/entrar(?:/|$)|privacidad(?:/|$)|terminos(?:/|$)|eliminacion-de-datos(?:/|$)|en/(?:privacy|terms|data-deletion)(?:/|$)|sw\\.js|soporte/entrar(?:/|$)|icon\\.svg|favicon\\.ico|robots\\.txt|manifest\\.webmanifest).*)",
     ],
 };

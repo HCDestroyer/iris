@@ -18,6 +18,7 @@ import { apiOrdenes } from "./api-ordenes";
 import { apiPlantillas, type ApiPlantillas } from "./api-plantillas";
 import { apiRutas, type ApiRutas } from "./api-rutas";
 import { apiCorreo, type ApiCorreo, type OpcionesCorreo } from "./api-correo";
+import { apiLegal, PERMISOS_LEGAL, type ApiLegal, type OpcionesLegal } from "./api-legal";
 import { PERMISO_CONFIGURAR_CORREO, PERMISO_VER_CORREO } from "../lib/correo/tipos";
 import { buzonesIniciales, resultadoPrueba } from "./datos-buzones";
 import type { EscenarioOrdenes } from "./datos-ordenes";
@@ -309,6 +310,11 @@ export type OpcionesApi = {
      * SUPERVISOR_ZONA (solo su empresa) lo ven y lo configuran; CONSULTA solo lo ve.
      */
     correo?: OpcionesCorreo;
+    /**
+     * Datos legales del titular (e2e/api-legal.ts, contratos/legal.md). ADMIN los ve y los configura;
+     * CONSULTA y SUPERVISOR_ZONA solo los ven (y la segunda no opera en todas las empresas: 403).
+     */
+    legal?: OpcionesLegal;
     /** Números de WhatsApp: alta, credenciales y conexión (e2e/api-numeros.ts). */
     numeros?: OpcionesNumeros;
     /** Conexión con Meta, QR y préstamos (e2e/api-meta.ts, contrato §15). */
@@ -337,6 +343,8 @@ export type ApiFalsa = {
     peticiones: Peticion[];
     /** Correo del sistema: lo guardado, las pruebas y los cambios de encendido. */
     correo: ApiCorreo;
+    /** Datos legales: lo guardado y los cuerpos de `guardar`. */
+    legal: ApiLegal;
     /** «MÉTODO /api/v1/…» en el orden en que llegaron, incluido el chat del equipo (`/mensajeria/chat`). */
     orden: string[];
     /** Hace fallar `GET /yo` o `GET /usuarios` las próximas `n` veces con 500. */
@@ -490,6 +498,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     const fallos = new Map<string, number>();
     const problemas: { prefijo: string; p: Problema; n: number }[] = [];
     const correo = apiCorreo(opciones.correo);
+    const legal = apiLegal(opciones.legal);
     const mfaPendiente = new Map<string, number>();
     const empresas = opciones.sinEmpresa ? [] : (opciones.empresas ?? []);
     const hayRegistradas = opciones.sinEmpresa === true || empresas.length > 0;
@@ -685,6 +694,9 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             ...(opciones.voz && !opciones.voz.soloAtender && actual.correo === ADMIN.correo ? PERMISOS_VOZ_ADMIN : []),
             ...(opciones.correo && (actual.correo === ADMIN.correo || actual.correo === SUPERVISOR_ZONA.correo) ? PERMISOS_CORREO : []),
             ...(opciones.correo && actual.correo === CONSULTA.correo ? PERMISOS_CORREO.slice(0, 1) : []),
+            ...(opciones.legal && actual.correo === ADMIN.correo ? PERMISOS_LEGAL : []),
+            ...(opciones.legal && (actual.correo === CONSULTA.correo || actual.correo === SUPERVISOR_ZONA.correo) ? PERMISOS_LEGAL.slice(0, 1) : []),
+            ...(opciones.legal && actual.correo === CONSULTA.correo ? (["empresas.todas"] satisfies Permiso[]) : []),
         ];
         if (await sso.manejar({ route, metodo, ruta, actual, puede: (p) => permisos.includes(p), cuerpo, cookies, idempotencia: cabeceras["idempotency-key"] })) {
             return;
@@ -804,6 +816,22 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         if (metodo === "GET" && ruta === "/api/v1/integraciones/enlaces") {
             if (!puede("clientes.ver") && !puede("integraciones.abrir_argos")) return prohibido();
             return route.fulfill({ json: opciones.enlaces ?? ({} satisfies Schema<"EnlacesExternos">) });
+        }
+
+        if (
+            ruta.startsWith("/api/v1/datos-legales") &&
+            (await legal.manejar({
+                route,
+                metodo,
+                ruta,
+                cuerpo: (cuerpo ?? {}) as Record<string, unknown>,
+                idempotencia: cabeceras["idempotency-key"],
+                puedeVer: puede(PERMISOS_LEGAL[0]),
+                puedeConfigurar: puede(PERMISOS_LEGAL[1]),
+                sinLimiteDeEmpresa: puede("empresas.todas") || modo === "sin_conector",
+            }))
+        ) {
+            return;
         }
 
         if (
@@ -1101,6 +1129,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         mutaciones,
         peticiones,
         correo,
+        legal,
         avisosPanel,
         orden,
         tickets: esc.tickets,

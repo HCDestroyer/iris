@@ -48,6 +48,7 @@ const ETIQUETAS: Readonly<Record<string, string>> = {
     "/administracion/bandeja": "Ajustes de la bandeja",
     "/administracion/llamadas": "Ajustes de llamadas",
     "/administracion/correo": "Correo",
+    "/administracion/datos-legales": "Datos legales",
     "/administracion/asistente": "Asistente de IA",
     "/administracion/asistente/conexion": "Conexión con la IA",
     "/administracion/asistente/limites": "Límites",
