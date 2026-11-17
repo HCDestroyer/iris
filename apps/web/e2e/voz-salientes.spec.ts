@@ -668,7 +668,7 @@ test.describe("voz salientes › nunca una llamada viva sin audio ni sin colgar"
         // 55 s sin el latido de esta pestaña: `terminada` con `error_medio`. Se dice en llano.
         await expect(aviso(page)).toHaveAttribute("data-motivo", "sin_latido");
         await expect(aviso(page)).toContainText("La llamada se cortó: se perdió la conexión con Iris");
-        await expect(aviso(page)).toContainText("No cuenta como llamada sin contestar");
+        await expect(aviso(page)).toContainText("Si llegó a sonarle al cliente, cuenta como una llamada sin contestar.");
         const tarjeta = page.getByRole("log", { name: "Mensajes" }).locator('[data-slot="llamada-hilo"][data-direccion="saliente"]');
         await expect(tarjeta).toContainText("La llamada al cliente se cortó");
         await expect(tarjeta).toHaveAttribute("data-tono", "aviso");

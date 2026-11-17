@@ -84,7 +84,7 @@ describe("máquina de la llamada saliente (E1b)", () => {
         // 55 s sin el latido de la pestaña que llamó (`error_medio`): se dice que fue la conexión.
         expect(correr([...hastaMarcar, { tipo: "actualizada", llamada: saliente({ estado: "terminada", motivoFin: "error_medio" }) }])).toMatchObject({ fase: "aviso", motivo: "sin_latido", titulo: "Carlos Ruiz", saliente: true });
         expect(textoAviso("sin_latido", undefined, true).titulo).toBe("La llamada se cortó: se perdió la conexión con Iris");
-        expect(textoAviso("sin_latido", undefined, true).detalle).toContain("No cuenta como llamada sin contestar");
+        expect(textoAviso("sin_latido", undefined, true).detalle).toContain("cuenta como una llamada sin contestar");
         // La colgó otra persona (quien supervisa).
         expect(correr([...hastaMarcar, { tipo: "actualizada", llamada: saliente({ estado: "terminada", motivoFin: "agente_colgo" }) }])).toMatchObject({ fase: "aviso", motivo: "cortada", saliente: true });
         expect(textoAviso("cortada", undefined, true).titulo).toBe("La llamada se cortó antes de que contestara");

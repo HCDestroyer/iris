@@ -44,7 +44,7 @@ export function textoAviso(motivo: MotivoAviso, quien?: string, saliente = false
             case "cortada":
                 return { titulo: "La llamada se cortó antes de que contestara", detalle: "Se terminó desde el servidor. Vuelve a intentarlo." };
             case "sin_latido":
-                return { titulo: "La llamada se cortó: se perdió la conexión con Iris", detalle: "Esta pestaña estuvo casi un minuto sin conexión y la llamada se canceló. No cuenta como llamada sin contestar: revisa tu red y vuelve a llamar." };
+                return { titulo: "La llamada se cortó: se perdió la conexión con Iris", detalle: "Esta pestaña estuvo casi un minuto sin conexión y la llamada se canceló. Si llegó a sonarle al cliente, cuenta como una llamada sin contestar. Revisa tu red antes de volver a llamar." };
             case "error":
                 return { titulo: "No se pudo hacer la llamada", detalle: "Vuelve a intentarlo." };
             default:
