@@ -4976,7 +4976,7 @@ export interface paths {
         put?: never;
         /**
          * Pedir un código para enlazar el servidor de IA
-         * @description Permiso: `servidor_ia.administrar`. Devuelve **una vez** un código de un solo uso (160 bits) que vale 15 minutos y se escribe en el servidor con `iris-voz pair`. Iris lo guarda cifrado hasta enlazar o hasta que vence, y lo borra. Enlazar de nuevo invalida el canal anterior. 409 `motor_ya_enlazado` si hay uno activo (desactívalo antes); 422 `url_no_permitida`. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`; cualquier otro recibe 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.
+         * @description Permiso: `servidor_ia.administrar`. Devuelve **una vez** un código de un solo uso (160 bits) que vale 15 minutos y se escribe en el servidor con `iris-voz enlazar`. Iris lo guarda cifrado hasta enlazar o hasta que vence, y lo borra. Enlazar de nuevo invalida el canal anterior. 409 `motor_ya_enlazado` si hay uno activo (desactívalo antes); 422 `url_no_permitida`. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`; cualquier otro recibe 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.
          */
         post: operations["enlazarMotorIA"];
         delete?: never;
@@ -5116,7 +5116,7 @@ export interface paths {
         put?: never;
         /**
          * Rotar las credenciales del canal con el servidor de IA
-         * @description Permiso: `servidor_ia.administrar`. Las anteriores siguen valiendo 24 h; con `revocar: true` dejan de valer en el acto y también se cambia el certificado de cliente. Si Iris se vio comprometido, rotar no basta: `iris-voz unpair` en el servidor y enlazar de nuevo. Emite `voz.motor_token_rotado`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`; cualquier otro recibe 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.
+         * @description Permiso: `servidor_ia.administrar`. Las anteriores siguen valiendo 24 h; con `revocar: true` dejan de valer en el acto y también se cambia el certificado de cliente. Si Iris se vio comprometido, rotar no basta: `iris-voz desenlazar` en el servidor y enlazar de nuevo. Emite `voz.motor_token_rotado`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`; cualquier otro recibe 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.
          */
         post: operations["rotarTokenMotorIA"];
         delete?: never;
@@ -8627,10 +8627,10 @@ export interface components {
              */
             nivel: "info" | "alerta" | "peligro";
             /**
-             * @description asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes
+             * @description asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)
              * @enum {string}
              */
-            tipo: "asistente_tope";
+            tipo: "asistente_tope" | "servidor_ia_caido" | "servidor_ia_incompatible" | "servidor_ia_umbral";
             /** @description Texto en español, listo para mostrar */
             titulo: string;
         };
@@ -10592,7 +10592,7 @@ export interface components {
             venceEn: string;
         };
         EnlaceMotor: {
-            /** @description Código de un solo uso (160 bits): se escribe en el servidor con «iris-voz pair». No se vuelve a mostrar */
+            /** @description Código de un solo uso (160 bits): se escribe en el servidor con «iris-voz enlazar». No se vuelve a mostrar */
             codigo: string;
             motor: components["schemas"]["MotorIA"];
             /** Format: date-time */

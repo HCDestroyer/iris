@@ -1,4 +1,4 @@
-# Descarga de modelos (`iris-voz model pull <name>`): la única salida a red del paquete. Un
+# Descarga de modelos (`iris-voz modelo descargar <name>`): la única salida a red del paquete. Un
 # contenedor de un solo uso baja el modelo al volumen y termina; no tiene ruta a internet salvo por
 # el proxy, que solo deja pasar hacia el registro de modelos (puerto 443).
 services:

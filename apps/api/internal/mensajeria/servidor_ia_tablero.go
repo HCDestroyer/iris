@@ -430,7 +430,7 @@ func nuevosCasosTablero(m *Modulo, k *CasosServidorIA) {
 			}
 			insuf := f.ActivadoEn != nil && f.MaxSimultaneas > 0 && n > int(f.MaxSimultaneas)
 			r.Estado.EmpresasActivas, r.Estado.PlazasInsuficientes = &n, &insuf
-			enCurso, err := q.PlazasEnCursoIA(ctx, f.ID)
+			enCurso, err := q.PlazasEnCursoIA(ctx, mensajeriabd.PlazasEnCursoIAParams{MotorID: f.ID, Ahora: ahora})
 			if err != nil {
 				return r, err
 			}

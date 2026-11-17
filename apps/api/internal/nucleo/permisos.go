@@ -777,7 +777,7 @@ var modulosPermiso = map[string][2]string{
 	"clientes": {"integraciones", "Argos e integraciones"}, "integraciones": {"integraciones", "Argos e integraciones"},
 	"portal": {"integraciones", "Argos e integraciones"}, "sso": {"integraciones", "Argos e integraciones"},
 	"servidor_ia": {"integraciones", "Argos e integraciones"},
-	"usuarios": {"usuarios", "Usuarios y accesos"}, "accesos": {"usuarios", "Usuarios y accesos"},
+	"usuarios":    {"usuarios", "Usuarios y accesos"}, "accesos": {"usuarios", "Usuarios y accesos"},
 	"tokens": {"usuarios", "Usuarios y accesos"},
 	"roles":  {"roles", "Roles y permisos"}, "permisos": {"roles", "Roles y permisos"},
 	"empresas":       {"empresas", "Empresas"},

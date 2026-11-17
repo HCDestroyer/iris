@@ -590,3 +590,35 @@ Contrato: `.claude/integration/contratos/voz.md`. Código en `voz_*.go`, consult
   después de una llamada dejada al buzón se marca `buzonDeVoz`.
 - **Fuera de E1:** la grabación de Meta es **E1c** (no se ofrece ni se acepta: 422
   `grabacion_no_disponible`; nunca se pide a Meta). Las salientes llegan con E1b.
+
+## Servidor de IA («Iris Voz», `contratos/voz.md` §4)
+
+Un servidor dedicado con GPU, de la instalación, que el asistente de chat usa como proveedor
+(`servidor_ia`) por un canal autenticado: mTLS con huellas fijadas y firma por petición
+(`internal/voz`). Solo Iris abre conexiones hacia él. Guía: `docs/runbooks/servidor-ia.md`.
+
+- **Tarjeta** (`servidor_ia.ver` / `servidor_ia.administrar`, más `empresas.todas`):
+  `GET /voz/motores`, `POST /voz/motores/enlazar` (código de un solo uso, guardado cifrado hasta
+  enlazar o 15 min), `…/{id}/conectar` (el intercambio; el secreto inicial se deriva, no viaja),
+  `…/activar` (rota a un token aleatorio sin convivencia), `…/desactivar`, `…/probar`,
+  `…/rotar-token` (`revocar: true` = sin convivencia y certificado de cliente nuevo),
+  `…/empresas/actualizar` y `…/modelos/actualizar`.
+- **Proveedor del asistente** (`servidor_ia_proveedor.go`): el adaptador compatible con OpenAI con
+  otro transporte. Toda llamada al modelo toma una **plaza** (tope del servidor, máximo por empresa y
+  una plaza garantizada por empresa activa; sin cola: `servidor_ia_ocupado` al instante), anota el
+  uso por hora, empresa y modelo (`servidor_ia_uso`, sin texto) y cuenta para el tope de tokens
+  `max(lo que declara el servidor, la estimación propia)`. Con el servidor caído, degradado,
+  incompatible o desactivado falla al instante sin llamar (`servidor_ia_no_disponible`).
+- **Latido** (job `mensajeria.servidor_ia`, cada 10 s): `/salud`, compatibilidad en los dos
+  sentidos, catálogo revalidado, huella siguiente del servidor (solo se acepta anunciada por el
+  canal vigente), rotación automática del token cada 30 días y limpieza de códigos y plazas
+  vencidos. Tres fallos seguidos → `no_disponible`.
+- **Tablero y umbrales**: `GET /servidor-ia/tablero`, `GET /servidor-ia/umbrales`,
+  `POST /servidor-ia/umbrales/actualizar`. Hoy el tablero trae estado y uso; las series y la
+  muestra del servidor (GPU, CPU, disco) y los avisos llegan con el muestreo de `/metricas`.
+
+Eventos (todos con `empresa_id: null`): `voz.motor_enlazado`, `voz.motor_activado`,
+`voz.motor_desactivado`, `voz.motor_estado_cambiado`, `voz.motor_token_rotado`,
+`voz.motor_empresas_cambiadas`, `voz.motor_modelos_cambiados`, `servidor_ia.ajustes_cambiados`.
+No consume eventos. Secretos cifrados con `IRIS_CLAVE_CIFRADO` (los rota `iris clave rotar`): el
+token, la clave del certificado de cliente y el código de enlace pendiente.

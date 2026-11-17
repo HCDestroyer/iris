@@ -100,7 +100,10 @@ func nuevosCasosPlazas(m *Modulo, k *CasosServidorIA) {
 		Accion: "servidor_ia.usar", Acceso: auditoria.Autenticado, SinEmpresa: true, AuditarExito: sinAuditar[plazaIA],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaPlaza) (plazaIA, error) {
 			q := mensajeriabd.New(t)
-			f, err := q.MotorIA(ctx)
+			// El candado de la fila del servidor pone en fila a las reservas: se toma ANTES de contar las
+			// plazas (en READ COMMITTED, una sentencia que espera un candado cuenta con la foto de antes
+			// de esperar), y la cuenta y la reserva van después, en esta misma transacción.
+			f, err := q.MotorIAUnicoParaActualizar(ctx)
 			noDisponible := &ErrorIA{Codigo: ErrIAServidorNoDisponible, Detalle: "El servidor de IA no está disponible ahora"}
 			if errors.Is(err, pgx.ErrNoRows) {
 				return plazaIA{}, noDisponible
@@ -122,7 +125,7 @@ func nuevosCasosPlazas(m *Modulo, k *CasosServidorIA) {
 				return plazaIA{}, err
 			}
 			_, err = q.ReservarPlazaIA(ctx, mensajeriabd.ReservarPlazaIAParams{PlazaID: id, MotorID: f.ID, EmpresaID: in.Empresa,
-				VenceEn: m.ahora().Add(in.Plazo + 30*time.Second)})
+				Ahora: m.ahora(), VenceEn: m.ahora().Add(in.Plazo + 30*time.Second)})
 			if errors.Is(err, pgx.ErrNoRows) {
 				// Sin plaza: se anota el rechazo en otra transacción (esta termina en error).
 				t.AlFallar(func(ctx context.Context, tx pgx.Tx) error {

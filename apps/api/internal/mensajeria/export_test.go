@@ -177,3 +177,8 @@ func (m *Modulo) ReservarVerificacion(ctx context.Context, empresa, cliente, con
 		m.ahora().Add(-24*time.Hour))
 	return id, err
 }
+
+// ProveedorPara arma el proveedor del asistente de una configuración (el mismo que usa el módulo).
+func (m *Modulo) ProveedorPara(cfg ConfigProveedor, plazo time.Duration) (Proveedor, error) {
+	return m.proveedorDe(cfg, plazo)
+}

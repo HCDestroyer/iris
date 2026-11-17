@@ -1452,6 +1452,11 @@ certificado: corte en el saludo TLS.
    `HKDF-SHA256(codigo, info = "iris-voz/token/v1" + nonceIris + nonceServidor + huellas)`. La
    puerta **fija la huella del certificado de cliente** de ese intercambio y anota la IP que
    observó (§4.2); Iris fija la huella del servidor. La ventana se cierra.
+   **`conectar` responde 502 `motor_no_responde` para cualquier falla**: servidor apagado, puerto
+   cerrado, ventana sin abrir, certificado que cambió o **código mal escrito**. No es un descuido:
+   las pruebas van derivadas del código y atadas a los certificados, así que Iris no puede
+   distinguir «código equivocado» de «no hay nadie», y una respuesta distinta sería un oráculo
+   para adivinar el código o para escanear la red. No se «arregla» devolviendo el motivo.
 5. El panel muestra la **huella del certificado del servidor** que vio Iris para que el admin la
    compare con la que imprimió el instalador, y confirma con `POST /voz/motores/{id}/activar`.
    **Hasta activar, Iris no manda nada más a ese servidor** (ni `/salud`, ni `/version`, ni
@@ -1608,7 +1613,8 @@ sin `Authorization`.
   encendido): una empresa que ya tiene alguna en curso solo toma otra plaza si, después, quedan
   libres al menos tantas como empresas activas sin ninguna en curso. Si hay más empresas activas
   que plazas, la garantía no puede cumplirse para todas y la tarjeta lo avisa.
-- Mensajería reserva la plaza en la misma sentencia en que decide llamar y la suelta al terminar o
+- Mensajería reserva la plaza en la misma transacción en que decide llamar, con el candado de la fila
+  del servidor tomado antes de contar (así dos reservas a la vez no ven la misma foto), y la suelta al terminar o
   al vencer el plazo. **Toda** llamada al modelo cuenta, también `/asistente/probar`, resumen y
   categoría.
 - **No hay cola** (decisión: una cola con plazos de 20–40 s por petición solo esconde la espera).
@@ -1679,7 +1685,7 @@ firmada como `/version`):
 - GPU por tarjeta. **No la lee la puerta** (no ve la GPU): la lee un contenedor **medidor**, sin
   ningún puerto y sin red, que ejecuta `nvidia-smi` con argumentos fijos (plazo 2 s) y deja el
   resultado en un volumen `tmpfs` que la puerta monta en solo lectura; una lectura de más de 15 s
-  se da por perdida. Sin GPU (`--no-gpu`) o sin lectura, `"gpus": { "estado": "omitido", "lista": [] }`. Un dato que la tarjeta no da va `null`, no inventado.
+  se da por perdida. Sin GPU (`--sin-gpu`) o sin lectura, `"gpus": { "estado": "omitido", "lista": [] }`. Un dato que la tarjeta no da va `null`, no inventado.
 - `disco` es el del volumen de modelos. `modelos` sale de la lista de instalados y de los cargados
   en memoria que declara Ollama; `cargadoHasta` es hasta cuándo queda residente.
 - **Seguridad de la ruta:** no acepta parámetros ni cuerpo; **no ejecuta ningún comando con
@@ -1797,9 +1803,9 @@ temperaturaMinutos, saturacionRechazos, saturacionMinutos, retencionDetalleDias,
   enlace: los 15 min del código antes de «Conectar», o las 24 h para «Activar» después; `null` si
   no hay nada pendiente. Un paso vencido responde 409 `enlace_vencido` (un solo código para los dos).
 - **«Desenlazar» en el panel es `POST /voz/motores/{id}/desactivar`**: Iris deja de usarlo en el
-  acto. El borrado real de las credenciales en el servidor es `iris-voz unpair`, allá.
+  acto. El borrado real de las credenciales en el servidor es `iris-voz desenlazar`, allá.
 - **Modelos permitidos: dos niveles.** El servidor declara en `catalogo.llm` los que **su**
-  administrador deja usar a Iris (`iris-voz model allow`); Iris no puede ampliarlos. Dentro de esos,
+  administrador deja usar a Iris (`iris-voz modelo permitir`); Iris no puede ampliarlos. Dentro de esos,
   el admin de la instalación elige **desde el panel** los que las empresas pueden escoger:
   `modelosPermitidos` en la tarjeta (`null` = todos los del catálogo) y
   `POST /voz/motores/{id}/modelos/actualizar { modelos: [ids] | null, version }`

@@ -40,7 +40,7 @@ sudo bash install-voz.sh --version $V
 El instalador:
 
 1. Comprueba Docker, la GPU (`nvidia-smi` y el runtime de NVIDIA), el reloj y el intercambio. Sin
-   GPU se detiene (`--no-gpu` existe solo para pruebas).
+   GPU se detiene (`--sin-gpu` existe solo para pruebas).
 2. Baja el paquete y **verifica su firma sin red**: bundle de Sigstore, raíz de confianza embebida
    en el propio instalador y prueba de inclusión en el registro de transparencia, que es
    obligatoria. Comprueba que lo firmó el workflow `voz-release.yml` de este repositorio en la
@@ -59,12 +59,12 @@ versión a una carpeta y usa `IRIS_VOZ_SOURCE=/esa/carpeta`. La firma se verific
 1. Panel de Iris → Administración → Integraciones → **Servidor de IA** → «Enlazar servidor de IA».
    Escribe la dirección (`https://<servidor>:8443`). El panel muestra **una vez** un código de un
    solo uso (`voz-…`, 160 bits) que vale 15 minutos.
-2. En el servidor: `sudo iris-voz pair` y escribe el código cuando lo pide (no se ve al teclear; no
+2. En el servidor: `sudo iris-voz enlazar` y escribe el código cuando lo pide (no se ve al teclear; no
    se acepta como argumento). Eso abre la ventana de enlace durante 15 minutos.
 3. En el panel: «Conectar». Iris y el servidor se demuestran mutuamente que conocen el código, cada
    uno atado al certificado del otro; el código no viaja.
 4. El panel muestra la huella del certificado que vio Iris. **Compárala con la que imprimió el
-   servidor** (`sudo iris-voz status` la repite). Si coincide, «Activar». Si no coincide, no actives:
+   servidor** (`sudo iris-voz estado` la repite). Si coincide, «Activar». Si no coincide, no actives:
    hay alguien en medio.
 
 Al activar, Iris cambia de inmediato el secreto del canal por uno aleatorio. Hasta activar, Iris no
@@ -74,11 +74,11 @@ frecuencia); la ventana se cierra con el primer enlace correcto o a los 15 minut
 ## 4. Modelos
 
 ```sh
-sudo iris-voz model pull qwen2.5:7b    # descarga; ese contenedor solo llega al registro de modelos
-sudo iris-voz model allow qwen2.5:7b   # deja que Iris lo use
-sudo iris-voz model list
-sudo iris-voz model disallow NOMBRE    # Iris deja de poder usarlo
-sudo iris-voz model remove NOMBRE
+sudo iris-voz modelo descargar qwen2.5:7b    # descarga; ese contenedor solo llega al registro de modelos
+sudo iris-voz modelo permitir qwen2.5:7b   # deja que Iris lo use
+sudo iris-voz modelo lista
+sudo iris-voz modelo retirar NOMBRE    # Iris deja de poder usarlo
+sudo iris-voz modelo quitar NOMBRE
 ```
 
 Desde Iris solo se **listan** los modelos permitidos: Iris no puede bajar, borrar ni crear modelos.
@@ -90,15 +90,15 @@ modelos permitidos (`IRIS_VOZ_LLM_SIMULTANEAS` en `/opt/iris-voz/.env` lo fija a
 
 | Qué | Cómo |
 | --- | --- |
-| Estado | `sudo iris-voz status`, y el tablero del panel |
-| Logs | `sudo iris-voz logs puerta` (ruta, tamaño, duración y código; **nunca** prompts ni respuestas) |
-| Actualizar | `sudo iris-voz upgrade` (misma verificación de firma; nunca baja de versión) |
+| Estado | `sudo iris-voz estado`, y el tablero del panel |
+| Logs | `sudo iris-voz registros puerta` (ruta, tamaño, duración y código; **nunca** prompts ni respuestas) |
+| Actualizar | `sudo iris-voz actualizar` (misma verificación de firma; nunca baja de versión) |
 | Rotar credenciales | Desde el panel («Rotar credenciales»; «Revocar ahora» sin convivencia) |
-| Renovar el certificado | `sudo iris-voz renew-cert`: la huella nueva se anuncia a Iris por el canal vigente y Iris la fija sola. Nunca se acepta una huella nueva con un clic |
-| Se perdió el certificado (reinstalación) | `sudo iris-voz renew-cert --no-channel` y enlazar de nuevo con código |
-| Iris comprometido | `sudo iris-voz unpair` en el servidor y enlazar de nuevo: el token y la clave del certificado de cliente viven los dos en Iris y caen juntos |
-| El registro cambió de almacén y `model pull` falla | El proxy de descarga solo admite hosts exactos y registra el rechazado (`sudo iris-voz logs proxy-descarga`). Revisa que sea del registro de modelos y añádelo a `IRIS_VOZ_DESCARGA_HOSTS` en `/opt/iris-voz/.env` |
-| Limitar por IP | `sudo iris-voz ip restrict` (solo la IP de Iris vista al enlazar; apagado de fábrica) y `ip release` |
+| Renovar el certificado | `sudo iris-voz renovar-certificado`: la huella nueva se anuncia a Iris por el canal vigente y Iris la fija sola. Nunca se acepta una huella nueva con un clic |
+| Se perdió el certificado (reinstalación) | `sudo iris-voz renovar-certificado --sin-canal` y enlazar de nuevo con código |
+| Iris comprometido | `sudo iris-voz desenlazar` en el servidor y enlazar de nuevo: el token y la clave del certificado de cliente viven los dos en Iris y caen juntos |
+| El registro cambió de almacén y `model pull` falla | El proxy de descarga solo admite hosts exactos y registra el rechazado (`sudo iris-voz registros proxy-descarga`). Revisa que sea del registro de modelos y añádelo a `IRIS_VOZ_DESCARGA_HOSTS` en `/opt/iris-voz/.env` |
+| Limitar por IP | `sudo iris-voz ip restringir` (solo la IP de Iris vista al enlazar; apagado de fábrica) y `ip liberar` |
 
 Si el servidor se cae, el asistente de las empresas que lo usan no queda colgado: las sugerencias
 fallan al instante con «Reintentar» y el modo autónomo pasa la conversación a una persona. Cuando

@@ -15,7 +15,7 @@ import (
 )
 
 // TestCompose prueba el paquete instalado de verdad (infra/voz/prueba.sh lo levanta con Docker
-// Compose): empareja con `iris-voz pair`, usa el modelo por el canal autenticado y desenlaza.
+// Compose): empareja con `iris-voz enlazar`, usa el modelo por el canal autenticado y desenlaza.
 //
 //	IRIS_VOZ_URL      https://127.0.0.1:8443
 //	IRIS_VOZ_CLI      ruta de install-voz.sh
@@ -46,8 +46,8 @@ func TestCompose(t *testing.T) {
 		t.Fatal("sin ventana de enlace debía fallar")
 	}
 
-	// `iris-voz pair` lee el código por la entrada (nunca como argumento) y muestra la huella.
-	salida := irisVoz(codigo+"\n", "pair")
+	// `iris-voz enlazar` lee el código por la entrada (nunca como argumento) y muestra la huella.
+	salida := irisVoz(codigo+"\n", "enlazar")
 	r, err := voz.Enlazar(ctx, voz.OpcionesEnlace{URL: url, Codigo: codigo, Cert: cert})
 	if err != nil {
 		t.Fatalf("enlazar: %v\n%s", err, salida)
@@ -108,8 +108,8 @@ func TestCompose(t *testing.T) {
 		t.Fatalf("keep_alive debía rechazarse: %v", err)
 	}
 
-	// `iris-voz unpair`: nada vale hasta un enlace nuevo.
-	irisVoz("", "unpair")
+	// `iris-voz desenlazar`: nada vale hasta un enlace nuevo.
+	irisVoz("", "desenlazar")
 	c.Cerrar()
 	if _, err := c.Salud(ctx); err == nil {
 		t.Fatal("tras desenlazar no debía aceptar nada")

@@ -373,7 +373,7 @@ type EntradaEnlazarMotor struct {
 // EnlaceMotor lleva el código de un solo uso (se muestra una vez).
 type EnlaceMotor struct {
 	Motor   MotorIA   `json:"motor"`
-	Codigo  string    `json:"codigo" doc:"Código de un solo uso (160 bits): se escribe en el servidor con «iris-voz pair». No se vuelve a mostrar"`
+	Codigo  string    `json:"codigo" doc:"Código de un solo uso (160 bits): se escribe en el servidor con «iris-voz enlazar». No se vuelve a mostrar"`
 	VenceEn time.Time `json:"venceEn"`
 }
 
@@ -406,7 +406,7 @@ type entradaFijarToken struct {
 func nuevosCasosServidorIA(m *Modulo) *CasosServidorIA {
 	k := &CasosServidorIA{}
 	enCurso := func(ctx context.Context, q *mensajeriabd.Queries, id int64) int64 {
-		n, _ := q.PlazasEnCursoIA(ctx, id)
+		n, _ := q.PlazasEnCursoIA(ctx, mensajeriabd.PlazasEnCursoIAParams{MotorID: id, Ahora: m.ahora()})
 		return n
 	}
 	motorDe := func(ctx context.Context, q *mensajeriabd.Queries, id int64, bloquear bool) (mensajeriabd.MensajeriaVozMotor, error) {

@@ -2,7 +2,7 @@
 # End-to-end test of the Iris Voz package with Docker Compose and no GPU (CI, voz.yml). Run as root
 # from the repository root, with Go in PATH:
 #
-#   infra/voz/prueba.sh falso   fake Ollama (cmd/voz-ollama-falso): install, pair, chat, unpair
+#   infra/voz/prueba.sh falso   Ollama falso (cmd/voz-ollama-falso): instalar, enlazar, chat y desenlazar
 #   infra/voz/prueba.sh real    real Ollama on CPU with a tiny model: also the model download
 #                               through the registry-only proxy and its digest check
 #
@@ -72,7 +72,7 @@ if curl -fsS -m 3 "http://127.0.0.1:11434/api/tags" > /dev/null 2>&1; then die "
 if [ "$modo" = real ]; then
     log "A model with the wrong digest is removed"
     if (model_pull "$MODELO" "sha256:$(printf '0%.0s' $(seq 1 64))") 2> "$DIR/err"; then die "a wrong digest was accepted"; fi
-    grep -q "does not match the digest" "$DIR/err" || { cat "$DIR/err" >&2; die "unexpected failure of the digest check"; }
+    grep -q "no coincide con el digest" "$DIR/err" || { cat "$DIR/err" >&2; die "unexpected failure of the digest check"; }
     if puerta modelo digest "$MODELO" > /dev/null 2>&1 < /dev/null; then die "the model with the wrong digest was kept"; fi
     model_pull "$MODELO" "$MODELO_DIGEST"
     log "The download container reaches nothing but the model registry"
