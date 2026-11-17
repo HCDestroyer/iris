@@ -30,7 +30,7 @@ type casosVoz struct {
 	resultadoMeta     *auditoria.Caso[resultadoMeta, bool]
 	Anotar            *auditoria.Caso[EntradaAnotarLlamada, Llamada]
 	Ver               *auditoria.Caso[EntradaLlamada, Llamada]
-	Activa            *auditoria.Caso[struct{}, *Llamada]
+	Activa            *auditoria.Caso[EntradaActiva, *Llamada]
 	Listar            *auditoria.Caso[EntradaListarLlamadas, nucleo.Pagina[Llamada]]
 	Recibir           *auditoria.Caso[EntradaRecibir, RecibirLlamadas]
 	VerRecibir        *auditoria.Caso[EntradaVerRecibir, RecibirLlamadas]
@@ -73,6 +73,8 @@ type EntradaLlamada struct {
 	// Navegador: el id de «Recibir llamadas» de este navegador (cabecera X-Iris-Navegador). La reserva
 	// de reclamar queda atada a él.
 	Navegador string `json:"navegador,omitempty"`
+	// Pestana: el id de la pestaña (X-Iris-Pestana), en respuesta-sdp.
+	Pestana string `json:"pestana,omitempty"`
 	// SoloPropia (colgar): solo si la llamada es de quien lo pide; no vale supervisar. Es lo que manda
 	// el panel al cerrarse la pestaña, para no colgar la llamada de un compañero.
 	SoloPropia bool `json:"soloPropia,omitempty"`

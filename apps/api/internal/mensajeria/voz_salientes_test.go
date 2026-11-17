@@ -221,6 +221,11 @@ func TestLlamadaSaliente(t *testing.T) {
 	if r := x.exigir(x.llamar(sinNav, conv, nil), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "navegador_requerido") {
 		t.Fatalf("llamar sin navegador: %s", crudo(r))
 	}
+	sinPestana := x.supervisor
+	sinPestana.pestana = ""
+	if r := x.exigir(x.llamar(sinPestana, conv, nil), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "pestana_requerida") || x.g.cuenta("connect:+"+num) != 0 {
+		t.Fatalf("llamar sin pestaña: %s", crudo(r))
+	}
 	if r := x.exigir(x.llamar(x.supervisor, conv, map[string]any{"sdpOferta": ofertaNavegador() + "m=video 9 UDP/TLS/RTP/SAVPF 96\r\na=rtpmap:96 VP8/90000\r\n"}),
 		http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "sdp_invalido") || x.g.cuenta("connect:+"+num) != 0 {
 		t.Fatalf("oferta inválida: %s", crudo(r))
@@ -240,8 +245,17 @@ func TestLlamadaSaliente(t *testing.T) {
 	if r := x.exigir(x.llamar(x.supervisor, conv, nil), http.StatusConflict); !strings.Contains(crudo(r), "llamada_en_curso") {
 		t.Fatalf("segunda llamada: %s", crudo(r))
 	}
-	if a := x.exigir(x.api(x.supervisor, http.MethodGet, "/llamadas/activa", nil), http.StatusOK); a.cuerpo["id"] != id || a.cuerpo["puede"].(map[string]any)["colgar"] != true {
+	if a := x.exigir(x.api(x.supervisor, http.MethodGet, "/llamadas/activa", nil), http.StatusOK); a.cuerpo["id"] != id || a.cuerpo["puede"].(map[string]any)["colgar"] != true ||
+		a.cuerpo["deEstaPestana"] != true {
 		t.Fatalf("llamada activa: %s", crudo(a))
+	}
+	// Desde otra pestaña del mismo navegador (o sin decir cuál): es su llamada, pero no de esta pestaña.
+	otraPestana := x.supervisor
+	otraPestana.pestana = "pestana-otra-del-mismo-navegador"
+	for _, p := range []persona{otraPestana, sinPestana} {
+		if a := x.exigir(x.api(p, http.MethodGet, "/llamadas/activa", nil), http.StatusOK); a.cuerpo["id"] != id || a.cuerpo["deEstaPestana"] != false {
+			t.Fatalf("llamada activa desde otra pestaña: %s", crudo(a))
+		}
 	}
 	// La respuesta SDP: todavía no; después, solo a quien llamó y desde su navegador.
 	if r := x.exigir(x.api(x.supervisor, http.MethodGet, "/llamadas/"+id+"/respuesta-sdp", nil), http.StatusConflict); !strings.Contains(crudo(r), "sin_respuesta") {
@@ -255,6 +269,10 @@ func TestLlamadaSaliente(t *testing.T) {
 	otroNav.navegador = "navegador-otro-de-supervisor"
 	if r := x.exigir(x.api(otroNav, http.MethodGet, "/llamadas/"+id+"/respuesta-sdp", nil), http.StatusConflict); !strings.Contains(crudo(r), "otro_navegador") {
 		t.Fatalf("respuesta desde otro navegador: %s", crudo(r))
+	}
+	if r := x.exigir(x.api(otraPestana, http.MethodGet, "/llamadas/"+id+"/respuesta-sdp", nil), http.StatusConflict); !strings.Contains(crudo(r), "otra_pestana") ||
+		strings.Contains(crudo(r), "fingerprint") {
+		t.Fatalf("respuesta desde otra pestaña del mismo navegador: %s", crudo(r))
 	}
 	sup2 := x.persona([]int64{1}, rolBase("supervisor"))
 	sup2.navegador = x.supervisor.navegador
@@ -348,6 +366,12 @@ func TestLlamadaSaliente(t *testing.T) {
 		t.Fatalf("Meta rechaza el connect: %s", crudo(r))
 	}
 	x.exigir(x.api(x.supervisor, http.MethodGet, "/llamadas/activa", nil), http.StatusNoContent)
+	// Un permiso temporal cuya fecha pasó se ve «vencido» y se puede volver a pedir.
+	x.pasa(8 * 24 * time.Hour)
+	if p := x.exigir(x.api(x.supervisor, http.MethodGet, ruta+"/permiso-llamada", nil), http.StatusOK); p.cuerpo["estado"] != "vencido" || p.cuerpo["puedeLlamar"] != false ||
+		p.cuerpo["puedeSolicitar"] != true || p.cuerpo["venceEn"] == nil {
+		t.Fatalf("permiso vencido: %s", crudo(p))
+	}
 }
 
 // Devolver la llamada, sin contestar (revocación a la cuarta) y la respuesta de Meta inválida.
@@ -540,7 +564,7 @@ func TestLlamadaSalienteLimitesYEmpresas(t *testing.T) {
 	// Número prestado: la empresa prestataria no llama ni pide permiso con el número de otra, y la
 	// dueña no toca la conversación de la prestataria.
 	sup2 := x.persona([]int64{2}, rolBase("supervisor"))
-	sup2.navegador = "navegador-de-la-empresa-2"
+	sup2.navegador, sup2.pestana = "navegador-de-la-empresa-2", "pestana-de-la-empresa-2"
 	rc := x.exigir(x.api(sup2, http.MethodPost, "/colas", map[string]any{"nombre": "Norte " + numeroCliente()}), http.StatusCreated)
 	x.exigir(x.api(x.supervisor, http.MethodPost, x.rutaCanal("/prestamos"), map[string]any{"empresaId": 2, "usos": []string{"soporte"}, "colaId": rc.cuerpo["id"]}), http.StatusOK)
 	numP := numeroCliente()
@@ -743,6 +767,7 @@ func (x *bandejaVoz) supervisores(n int) []persona {
 	for i := range ps {
 		ps[i] = x.persona([]int64{1}, rolBase("supervisor"))
 		ps[i].navegador = fmt.Sprintf("navegador-sup-%d", ps[i].id)
+		ps[i].pestana = fmt.Sprintf("pestana-sup-%d", ps[i].id)
 	}
 	return ps
 }
@@ -853,15 +878,21 @@ func (x *bandejaVoz) flujoDe(p persona, porQuery bool) {
 	ctx, cancelar := context.WithTimeout(x.ctx, 5*time.Second)
 	defer cancelar()
 	url := srv.URL + rutaMsj + "/conversaciones/eventos"
-	if porQuery && p.navegador != "" {
+	if porQuery {
 		url += "?navegador=" + p.navegador
+		if p.pestana != "" {
+			url += "&pestana=" + p.pestana
+		}
 	}
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	// El flujo es de una sesión del panel (cookie), no de un token.
 	req.AddCookie(&http.Cookie{Name: identidad.CookieSesion, Value: x.sesion(p).cookie})
 	req.Header.Set("Accept", "text/event-stream")
-	if !porQuery && p.navegador != "" {
+	if !porQuery {
 		req.Header.Set(mensajeria.CabeceraNavegador, p.navegador)
+		if p.pestana != "" {
+			req.Header.Set(mensajeria.CabeceraPestana, p.pestana)
+		}
 	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -879,11 +910,15 @@ func (x *bandejaVoz) flujoDe(p persona, porQuery bool) {
 	time.Sleep(300 * time.Millisecond) // el latido del flujo toca la fila justo después de abrir
 }
 
-// M1: el latido que mantiene viva una saliente es el del navegador desde el que se llamó.
-func TestLlamadaSalienteLatidoDelNavegador(t *testing.T) {
+// El latido que mantiene viva una saliente es el del flujo de eventos de la PESTAÑA que llamó: el id
+// de navegador es el mismo en todas las pestañas, así que otra pestaña con la bandeja abierta no la
+// sostiene (la pestaña que llamó se cerró, se recargó o murió y nadie tiene el audio).
+func TestLlamadaSalienteLatidoDeLaPestana(t *testing.T) {
 	x := nuevaBandejaVoz(t)
 	x.limitesVoz(1000, 100000)
 	num, conv := x.convConPermiso()
+	// El navegador además recibe llamadas (su latido de «Recibir llamadas» no cuenta para la saliente).
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/llamadas/recibir/encender", map[string]any{"navegador": x.supervisor.navegador}), http.StatusOK)
 	enCurso := func() (id, call string) {
 		t.Helper()
 		id, call = x.saliente(x.supervisor, conv, nil)
@@ -891,52 +926,78 @@ func TestLlamadaSalienteLatidoDelNavegador(t *testing.T) {
 		x.estadoSaliente(num, call, "ACCEPTED")
 		return id, call
 	}
-	visto := func(nav string) time.Time {
+	visto := func(call string) time.Time {
 		t.Helper()
 		var v time.Time
-		if err := x.bd.QueryRow(x.ctx, `SELECT visto_en FROM mensajeria.llamada_receptores WHERE usuario_id = $1 AND navegador = $2`, x.supervisor.id, nav).Scan(&v); err != nil {
+		if err := x.bd.QueryRow(x.ctx, `SELECT pestana_vista_en FROM mensajeria.llamadas WHERE canal_id = $1 AND id_externo = $2`, x.canal.ID, call).Scan(&v); err != nil {
 			t.Fatal(err)
 		}
 		return v
 	}
-	// El navegador que llama además recibe llamadas: aun así un flujo sin navegador no lo sostiene.
-	x.exigir(x.api(x.supervisor, http.MethodPost, "/llamadas/recibir/encender", map[string]any{"navegador": x.supervisor.navegador}), http.StatusOK)
 	_, call := enCurso()
-	inicio := visto(x.supervisor.navegador)
+	inicio := visto(call)
 	x.pasa(50 * time.Second)
-	// Otra pestaña u otro equipo de la misma persona (otro navegador, o un panel viejo sin navegador)
-	// no mantiene viva la llamada.
-	otroNav := x.supervisor
-	otroNav.navegador = "navegador-de-otro-equipo"
-	x.exigir(x.api(otroNav, http.MethodPost, "/llamadas/recibir/encender", map[string]any{"navegador": otroNav.navegador}), http.StatusOK)
-	x.flujoDe(otroNav, true)
-	sinNav := x.supervisor
-	sinNav.navegador = ""
-	x.flujoDe(sinNav, true)
-	if v := visto(x.supervisor.navegador); !v.Equal(inicio) {
-		t.Fatalf("el flujo de otro navegador tocó el navegador de la llamada: %s → %s", inicio, v)
-	}
-	if v := visto(otroNav.navegador); !v.Equal(*x.reloj) {
-		t.Fatalf("el flujo debía tocar su propio navegador: %s", v)
+	// Otra pestaña del MISMO navegador, un panel que no dice su pestaña y otro equipo: ninguno la sostiene.
+	otraPestana := x.supervisor
+	otraPestana.pestana = "pestana-otra-del-mismo-navegador"
+	x.flujoDe(otraPestana, true)
+	sinPestana := x.supervisor
+	sinPestana.pestana = ""
+	x.flujoDe(sinPestana, true)
+	otroEquipo := x.supervisor
+	otroEquipo.navegador, otroEquipo.pestana = "navegador-de-otro-equipo", "pestana-de-otro-equipo"
+	x.flujoDe(otroEquipo, false)
+	if v := visto(call); !v.Equal(inicio) {
+		t.Fatalf("el flujo de otra pestaña tocó el latido de la llamada: %s → %s", inicio, v)
 	}
 	x.pasa(10 * time.Second)
 	x.mantener()
-	if _, estado, motivo := x.llamada(call); estado != "terminada" || motivo != "error_medio" {
-		t.Fatalf("sin el latido de su navegador se corta: %s %s", estado, motivo)
+	if _, estado, motivo := x.llamada(call); estado != "terminada" || motivo != "error_medio" || x.g.cuenta("terminate:"+call) != 1 {
+		t.Fatalf("sin el latido de su pestaña se corta: %s %s", estado, motivo)
 	}
-	// Con el flujo del navegador que llamó (por parámetro o por cabecera) sigue viva.
+	// Con el flujo de la pestaña que llamó (por parámetro o por cabecera) sigue viva.
 	for _, porQuery := range []bool{true, false} {
 		x.pasa(61 * time.Second)
 		_, call2 := enCurso()
 		x.pasa(50 * time.Second)
 		x.flujoDe(x.supervisor, porQuery)
+		if v := visto(call2); !v.Equal(*x.reloj) {
+			t.Fatalf("el flujo de su pestaña debía tocar el latido (por query: %v): %s", porQuery, v)
+		}
 		x.pasa(10 * time.Second)
 		x.mantener()
 		if _, estado, _ := x.llamada(call2); estado != "en_curso" {
-			t.Fatalf("con el latido de su navegador (por query: %v) sigue en curso: %s", porQuery, estado)
+			t.Fatalf("con el latido de su pestaña (por query: %v) sigue en curso: %s", porQuery, estado)
 		}
 		x.exigir(x.api(x.supervisor, http.MethodPost, "/llamadas/"+x.idDe(call2)+"/colgar", nil), http.StatusOK)
 	}
+	// También mientras marca: si la pestaña que llamó muere, se cancela antes de que el cliente
+	// conteste (no suena hasta los 60 s, no se cobra sin audio y no cuenta como sin contestar).
+	x.pasa(61 * time.Second)
+	_, call3 := x.saliente(x.supervisor, conv, nil)
+	x.pasa(40 * time.Second)
+	x.flujoDe(otraPestana, true)
+	x.mantener()
+	if _, estado, _ := x.llamada(call3); estado != "marcando" {
+		t.Fatalf("a los 40 s sigue marcando: %s", estado)
+	}
+	x.pasa(16 * time.Second)
+	x.flujoDe(otraPestana, true)
+	x.mantener()
+	if _, estado, motivo := x.llamada(call3); estado != "terminada" || motivo != "error_medio" || x.g.cuenta("terminate:"+call3) != 1 {
+		t.Fatalf("marcando sin la pestaña que llamó: %s %s", estado, motivo)
+	}
+	if n := x.contar(`SELECT sin_contestar FROM mensajeria.llamada_permisos WHERE canal_id = $1 AND numero = $2`, x.canal.ID, "+"+num); n != 0 {
+		t.Fatalf("no cuenta como sin contestar: %d", n)
+	}
+	// La huérfana se ve en /llamadas/activa desde otra pestaña, con deEstaPestana: false.
+	x.pasa(61 * time.Second)
+	id4, _ := x.saliente(x.supervisor, conv, nil)
+	if a := x.exigir(x.api(otraPestana, http.MethodGet, "/llamadas/activa", nil), http.StatusOK); a.cuerpo["id"] != id4 || a.cuerpo["deEstaPestana"] != false ||
+		a.cuerpo["puede"].(map[string]any)["colgar"] != true {
+		t.Fatalf("saliente huérfana vista desde otra pestaña: %s", crudo(a))
+	}
+	x.exigir(x.api(otraPestana, http.MethodPost, "/llamadas/"+id4+"/colgar?propia=true", nil), http.StatusOK)
 }
 
 func (x *bandejaVoz) idDe(callID string) string {

@@ -204,6 +204,28 @@ técnica (§9)**; los que más pesan están listados en §10.
     navegador desde el que se llamó: otra pestaña sin ese id, u otro equipo de la misma persona, no
     la sostiene (a los 55 s, `error_medio`). Sin el parámetro (paneles viejos) el latido vale para
     los navegadores del usuario que reciben llamadas y para ninguna saliente.
+  - **El latido de una saliente va por pestaña** (el id de navegador vive en `localStorage` y es el
+    mismo en todas las pestañas: con él, otra pestaña con la bandeja abierta sostenía una saliente
+    huérfana). `llamar` exige además **`X-Iris-Pestana`**: un id aleatorio por pestaña, con el
+    mismo formato que el del navegador (422 **`pestana_requerida`**). Se guarda en la llamada y
+    **solo el flujo de eventos abierto con esa misma pestaña** (`GET
+    /conversaciones/eventos?pestana=<id>` o la cabecera) la sostiene. Si la pestaña que llamó se
+    cierra, se recarga o muere, a los 55 s el servidor la cancela (`terminada`, `error_medio`,
+    `terminate` en Meta): también mientras marca, antes de que el cliente conteste, y sin sumar
+    `sin_contestar`. `GET /llamadas/{id}/respuesta-sdp` exige la misma pestaña (409
+    `llamada_ya_contestada` con `errors[0].rule = "otra_pestana"`). Las entrantes siguen por
+    navegador, como antes.
+  - **`GET /llamadas/activa`** (`llamadas.ver`; no hace falta «Recibir llamadas» ni
+    `llamadas.contestar`) devuelve también la saliente propia viva, con **`deEstaPestana`**
+    (calculado con `X-Iris-Pestana`): `false` = es huérfana para esta pestaña (no tiene el audio);
+    solo puede colgarla (`colgar?propia=true`).
+  - **Plazos de `llamar`.** La llamada queda creada en el servidor **como mucho 6 s** después de
+    recibir la petición (la lectura del permiso en Meta, 4 s, más margen) y la respuesta HTTP
+    tarda **como mucho 10 s** (dos llamadas a Meta de 4 s más margen). Si la respuesta se pierde,
+    el panel busca la llamada con `GET /llamadas/activa` hasta 10 s después de enviar.
+  - **Formas menores.** `llamada_respuesta` está en el enum de tipos del feed; `automatico` admite
+    `permiso_llamada`; `LlamadaEnMensaje` y `Llamada` traen `devolucionId`; el permiso tiene el
+    estado **`vencido`** (un temporal cuya fecha pasó: se puede volver a pedir; solo se muestra).
   - **Nada queda colgado en Meta.** `mensajeria.llamadas_huerfanas` guarda los `call_id` que
     existen en Meta y no en Iris, y el job `mensajeria.voz_meta` les manda `terminate` con
     reintentos (6, apartados 20 s). Entran ahí: la saliente que se colgó mientras el `connect`
@@ -865,6 +887,7 @@ Un supervisor puede **oír** una llamada en curso sin participar.
 | `llamada_en_curso` | 409 | El usuario o el contacto ya tienen una llamada viva |
 | `navegador_requerido` | 422 | `reclamar` o `GET /llamadas/recibir` sin el id del navegador (`X-Iris-Navegador`) |
 | `plantilla_permiso_invalida` | 422 | `llamadas/configurar` con una plantilla de permiso que la cuenta de WhatsApp no tiene aprobada en ese idioma |
+| `pestana_requerida` | 422 | `llamar` sin la cabecera `X-Iris-Pestana` |
 | `confirmar_riesgo` | 422 | `llamar` a un contacto con tres salientes seguidas sin contestar, sin `confirmarRiesgo: true` |
 | `sin_respuesta` | 409 | `GET /llamadas/{id}/respuesta-sdp` antes de que WhatsApp mande la respuesta |
 | `accion_en_curso` | 409 | `soltar` o `reclamar` mientras WhatsApp no ha respondido a un `pre_accept` o `accept` de esa llamada |

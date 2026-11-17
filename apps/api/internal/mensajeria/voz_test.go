@@ -156,6 +156,7 @@ func nuevaBandejaVoz(t *testing.T) *bandejaVoz {
 	x := &bandejaVoz{bandeja: nuevaBandeja(t, func(c *mensajeria.Config) { c.Llamadas = g }), g: g}
 	// Cada persona en su navegador (el mismo id que usa recibe()).
 	x.agente.navegador, x.supervisor.navegador = fmt.Sprintf("navegador-%d", x.agente.id), fmt.Sprintf("navegador-%d", x.supervisor.id)
+	x.agente.pestana, x.supervisor.pestana = fmt.Sprintf("pestana-%d", x.agente.id), fmt.Sprintf("pestana-%d", x.supervisor.id)
 	c := x.exigir(x.api(x.supervisor, http.MethodPost, x.rutaCanal("/llamadas/comprobar"), nil), http.StatusOK)
 	x.exigir(x.configurar(int(c.cuerpo["version"].(float64)), nil), http.StatusOK)
 	// El supervisor también atiende la cola (x.otro no: nunca es candidato).
@@ -258,6 +259,10 @@ func (x *bandejaVoz) pasa(d time.Duration, vivos ...persona) {
 	*x.reloj = x.reloj.Add(d)
 	for _, p := range vivos {
 		x.exigir(x.api(p, http.MethodPost, "/llamadas/recibir/encender", map[string]any{"navegador": fmt.Sprintf("navegador-%d", p.id)}), http.StatusOK)
+		// Y el latido de su pestaña (lo que hace su flujo de eventos) para la saliente que tenga viva.
+		if p.pestana != "" {
+			x.sql(`UPDATE mensajeria.llamadas SET pestana_vista_en = $3 WHERE usuario_id = $1 AND pestana = $2 AND estado IN ('marcando', 'en_curso')`, p.id, p.pestana, *x.reloj)
+		}
 	}
 }
 

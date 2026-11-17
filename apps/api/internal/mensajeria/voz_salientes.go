@@ -32,6 +32,15 @@ const (
 	PermisoPermanente = "permanente"
 	PermisoNegado     = "negado"
 	PermisoRevocado   = "revocado"
+	// PermisoVencido: solo se muestra (un temporal cuya fecha ya pasó); no se guarda.
+	PermisoVencido = "vencido"
+	// CabeceraPestana: el id de la pestaña del panel (aleatorio por pestaña) en llamar, respuesta-sdp,
+	// llamadas/activa y el flujo de eventos.
+	CabeceraPestana = "X-Iris-Pestana"
+	// PlazoCrearSaliente: lo más que tarda llamar en dejar creada la llamada en el servidor (la
+	// lectura del permiso en Meta más un margen). PlazoResponderLlamar: lo más que tarda en responder.
+	PlazoCrearSaliente   = PlazoMeta + 2*time.Second
+	PlazoResponderLlamar = 2*PlazoMeta + 2*time.Second
 
 	// AutomaticoPermisoLlamada marca el mensaje con que se pide el permiso de llamada.
 	AutomaticoPermisoLlamada = "permiso_llamada"
@@ -71,7 +80,7 @@ type PermisoMeta struct {
 
 // PermisoLlamada es el permiso del contacto para que lo llamemos.
 type PermisoLlamada struct {
-	Estado             string     `json:"estado" enum:"sin_pedir,pedido,temporal,permanente,negado,revocado"`
+	Estado             string     `json:"estado" enum:"sin_pedir,pedido,temporal,permanente,negado,revocado,vencido" doc:"vencido: tuvo un permiso temporal que ya pasó (se le puede volver a pedir)"`
 	VenceEn            *time.Time `json:"venceEn,omitempty" doc:"Con temporal: hasta cuándo vale"`
 	PuedeSolicitar     bool       `json:"puedeSolicitar" doc:"Se le puede pedir el permiso ahora (1 solicitud por 24 h y 2 por 7 días)"`
 	ProximaSolicitudEn *time.Time `json:"proximaSolicitudEn,omitempty" doc:"Desde cuándo se le puede volver a pedir"`
@@ -144,7 +153,7 @@ func (m *Modulo) aPermiso(ctx context.Context, f mensajeriabd.MensajeriaLlamadaP
 		if vigente {
 			p.VenceEn = f.VenceEn
 		} else {
-			p.Estado = PermisoSinPedir
+			p.Estado, p.VenceEn = PermisoVencido, f.VenceEn
 		}
 	}
 	if prox := proximaSolicitud(delContacto, ahora); prox != nil {
@@ -390,8 +399,10 @@ func (m *Modulo) recibirPermisoLlamada(ctx context.Context, t *auditoria.Tx, can
 
 // EntradaLlamar es POST /conversaciones/{id}/llamar.
 type EntradaLlamar struct {
-	ID              int64  `json:"id"`
-	Navegador       string `json:"navegador,omitempty"`
+	ID        int64  `json:"id"`
+	Navegador string `json:"navegador,omitempty"`
+	// Pestana: el id de la pestaña que llama (X-Iris-Pestana). Solo su flujo de eventos sostiene la llamada.
+	Pestana         string `json:"pestana,omitempty"`
 	DevolucionID    *int64 `json:"devolucionId,omitempty"`
 	ConfirmarRiesgo bool   `json:"confirmarRiesgo,omitempty"`
 	SDPOferta       string `json:"-"`
@@ -431,6 +442,9 @@ func nuevoPrevioLlamar(m *Modulo) *auditoria.Caso[EntradaLlamar, previoLlamar] {
 			}
 			if in.Navegador == "" {
 				return previoLlamar{}, reglaVoz("navegador_requerido", "Falta la cabecera X-Iris-Navegador con el id de este navegador")
+			}
+			if in.Pestana == "" {
+				return previoLlamar{}, reglaVoz("pestana_requerida", "Falta la cabecera X-Iris-Pestana con el id de esta pestaña")
 			}
 			if in.saneado == "" {
 				return previoLlamar{}, sdpInvalido("sdpOferta", "la oferta SDP no es válida")
@@ -495,6 +509,9 @@ func nuevoLlamar(m *Modulo) *auditoria.Caso[EntradaLlamar, Llamada] {
 			}
 			if in.Navegador == "" || in.saneado == "" || in.meta == nil {
 				return Llamada{}, reglaVoz("navegador_requerido", "Falta la cabecera X-Iris-Navegador con el id de este navegador")
+			}
+			if in.Pestana == "" {
+				return Llamada{}, reglaVoz("pestana_requerida", "Falta la cabecera X-Iris-Pestana con el id de esta pestaña")
 			}
 			canal, _, activas, err := canalParaSalientes(ctx, q, a, c)
 			if err != nil {
@@ -582,10 +599,6 @@ func nuevoLlamar(m *Modulo) *auditoria.Caso[EntradaLlamar, Llamada] {
 					return Llamada{}, err
 				}
 			}
-			if err := q.TocarNavegadorDeLlamada(ctx, mensajeriabd.TocarNavegadorDeLlamadaParams{EmpresaID: a.empresaPtr(), UsuarioID: a.usuario,
-				Navegador: in.Navegador, Ahora: ahora}); err != nil {
-				return Llamada{}, err
-			}
 			id, err := uuid.NewV7()
 			if err != nil {
 				return Llamada{}, err
@@ -593,7 +606,7 @@ func nuevoLlamar(m *Modulo) *auditoria.Caso[EntradaLlamar, Llamada] {
 			t.FijarEntidad("llamada", id)
 			l, err := q.InsertarLlamadaSaliente(ctx, mensajeriabd.InsertarLlamadaSalienteParams{LlamadaID: id, EmpresaID: c.EmpresaID, CanalID: &canal.ID, ConversacionID: &c.ID,
 				Externo: "pendiente:" + id.String(), Numero: c.Numero, ClienteID: c.ClienteID, Servicio: c.ServicioID, ColaID: c.ColaID, UsuarioID: &a.usuario,
-				Navegador: &in.Navegador, DevolucionID: in.DevolucionID, SonoEn: ahora, SuenaHasta: ahora.Add(SegundosMarcando * time.Second)})
+				Navegador: &in.Navegador, Pestana: &in.Pestana, PestanaVistaEn: &ahora, DevolucionID: in.DevolucionID, SonoEn: ahora, SuenaHasta: ahora.Add(SegundosMarcando * time.Second)})
 			if err != nil {
 				return Llamada{}, err
 			}
@@ -806,6 +819,11 @@ func nuevoRespuestaSDP(*Modulo) *auditoria.Caso[EntradaLlamada, RespuestaSDP] {
 			}
 			if l.Navegador == nil || *l.Navegador != in.Navegador {
 				return RespuestaSDP{}, otroNavegador()
+			}
+			// La respuesta es para la pestaña que tiene el audio: otra pestaña del mismo navegador no la recibe.
+			if l.Pestana == nil || *l.Pestana != in.Pestana {
+				return RespuestaSDP{}, nucleo.NuevoProblema(http.StatusConflict, "llamada_ya_contestada", "Conflicto", "Esta llamada se hizo desde otra pestaña",
+					nucleo.ErrorCampo{Field: "pestana", Message: "true", Rule: "otra_pestana"})
 			}
 			// Lo que trajo un webhook adelantado no se entrega hasta saber que es de esta llamada.
 			if l.SdpRespuesta == nil || l.ExternoWebhook != nil {

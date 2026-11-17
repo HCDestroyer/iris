@@ -1675,6 +1675,8 @@ type MensajeriaLlamada struct {
 	SdpRespuesta       *string
 	DevolucionID       *int64
 	Navegador          *string
+	Pestana            *string
+	PestanaVistaEn     *time.Time
 	ExternoWebhook     *string
 }
 
