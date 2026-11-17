@@ -113,6 +113,10 @@ Además, con un número real:
   Manager, esperar la aprobación y guardarla en los ajustes de llamadas del número. Si la categoría
   real es otra, `llamadas/configurar` responde 422 `plantilla_permiso_invalida` con la plantilla
   buena: anotar la categoría que devuelve Meta y ampliar la lista en `ConfigurarLlamadas`.
+  La plantilla **solo se valida al guardarla** y Iris no puede comprobar que sea de permiso de
+  llamada: probar a guardar una plantilla aprobada cualquiera y solicitar el permiso fuera de la
+  ventana. Esperado: Meta la rechaza, el mensaje queda fallido en el hilo (`rechazado_por_canal`), la
+  solicitud no cuenta para el límite y se puede volver a pedir. Guardar la respuesta de Meta.
 - Si el número también hace salientes desde otro sistema: comprobar que Iris no las corta (quedan
   en `mensajeria.llamadas_huerfanas` con estado `ajena`).
 

@@ -220,15 +220,25 @@ técnica (§9)**; los que más pesan están listados en §10.
   - **SDP.** La oferta del navegador no se guarda (va de la petición a Meta en memoria). El SDP del
     `connect` de una saliente huérfana o ya cerrada se tapa (`***`) en `entrantes`.
   - **Timbrar y colgar.** Las salientes colgadas mientras marcaban cuentan por contacto y día:
-    a la tercera (`maxColgadasMarcandoDia` en `/voz/ajustes`, 3 de fábrica, 0–20) `llamar`
-    responde 422 `limite_llamadas` con `errors[0].rule = "colgadas_marcando"`.
+    a la tercera (`maxColgadasMarcandoDia` en `/voz/ajustes`, 3 de fábrica, 1–20; **0 = sin
+    límite**) `llamar` responde 422 `limite_llamadas` con `errors[0].rule = "colgadas_marcando"`.
   - **Plantilla de permiso.** Al guardarla en `llamadas/configurar` se comprueba en la cuenta de
     WhatsApp (`GET /{waba_id}/message_templates`): tiene que existir en ese idioma, estar aprobada
     y ser de categoría `UTILITY` o `MARKETING`. Si no, 422 **`plantilla_permiso_invalida`**; si
-    Meta no responde, 502 `meta_rechazo`. (Iris no sincroniza plantillas: la comprobación es en
-    vivo al guardar.)
+    Meta no responde, 502 `meta_rechazo`. Iris no sincroniza plantillas: la comprobación es
+    **solo al guardar** y **no puede saber si la plantilla es de permiso de llamada** (Meta no lo
+    dice en esos campos): si se guarda una plantilla aprobada que no lo es, o si después se borra o
+    se pausa, Meta la rechaza al enviar. En ese caso el mensaje de la solicitud queda `fallido` en
+    el hilo con `motivoFalla: "rechazado_por_canal"` (como cualquier mensaje que Meta rechaza), **la solicitud no cuenta para el límite**
+    y el permiso vuelve a `sin_pedir`.
   - **Solicitudes por contacto.** El límite de 1 por 24 h y 2 por 7 días cuenta las solicitudes a
-    ese contacto desde **todos los números de la empresa**, no por número.
+    ese contacto desde **todos los números de la empresa**, no por número, y se decide con un
+    candado por empresa y número (dos a la vez desde dos números: sale una).
+  - **Una saliente viva por persona, en cualquier empresa:** quien opera en varias recibe 409
+    `llamada_en_curso` si tiene una viva en otra.
+  - **`respuesta-sdp`** responde 409 `sin_respuesta` mientras la respuesta venga de un webhook
+    adelantado sin confirmar. Un flujo de eventos sin `?navegador=` nunca toca el navegador de una
+    saliente viva, aunque ese navegador también reciba llamadas.
 - **E1c (grabación, pendiente de la prueba real):** la grabación de Meta **no forma parte de E1**.
   No se ofrece ni se acepta: `grabar` es siempre `nunca` (cualquier otro valor en
   `POST /voz/ajustes/actualizar` responde **422 `grabacion_no_disponible`**), Iris **nunca pide** la

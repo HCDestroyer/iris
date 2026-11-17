@@ -8145,7 +8145,7 @@ export interface components {
             grabar: "nunca";
             /**
              * Format: int32
-             * @description Cuántas salientes a un mismo contacto se pueden colgar mientras marcan en un día antes de dejar de llamarlo (0–20)
+             * @description Cuántas salientes a un mismo contacto se pueden colgar mientras marcan en un día antes de dejar de llamarlo (1–20; 0 = sin límite)
              */
             maxColgadasMarcandoDia: number;
             /**

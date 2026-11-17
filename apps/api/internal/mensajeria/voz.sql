@@ -123,7 +123,11 @@ SELECT EXISTS (SELECT 1 FROM mensajeria.llamada_receptores
 -- usuario no mantiene viva esa fila. Sin navegador (paneles viejos), las que reciben llamadas.
 UPDATE mensajeria.llamada_receptores r SET visto_en = @ahora
 WHERE coalesce(r.empresa_id, 0) = @empresa::bigint AND r.usuario_id = @usuario_id
-  AND ((sqlc.narg('navegador')::text IS NULL AND r.recibe) OR r.navegador = sqlc.narg('navegador')::text);
+  AND ((sqlc.narg('navegador')::text IS NULL AND r.recibe
+        -- (un flujo sin navegador nunca sostiene una saliente, aunque ese navegador también reciba llamadas)
+        AND NOT EXISTS (SELECT 1 FROM mensajeria.llamadas l WHERE l.usuario_id = r.usuario_id AND l.navegador = r.navegador
+            AND l.direccion = 'saliente' AND l.estado IN ('marcando', 'en_curso')))
+       OR r.navegador = sqlc.narg('navegador')::text);
 
 -- name: TocarNavegadorDeLlamada :exec
 -- El navegador desde el que se llama queda anotado (sin cambiar si recibe llamadas): su latido dice
@@ -443,6 +447,10 @@ SELECT (coalesce(sum(duracion_seg) FILTER (WHERE estado <> 'en_curso'), 0)
 FROM mensajeria.llamadas
 WHERE coalesce(empresa_id, 0) = @empresa::bigint AND direccion = 'saliente' AND contestada_en IS NOT NULL
   AND sono_en >= @desde AND sono_en < @hasta AND id <> @menos;
+
+-- name: SalienteVivaDeUsuario :one
+-- En cualquier empresa: una persona hace una sola saliente a la vez (es lo que impone el índice único).
+SELECT EXISTS (SELECT 1 FROM mensajeria.llamadas WHERE usuario_id = @usuario_id AND direccion = 'saliente' AND estado IN ('marcando', 'en_curso'))::boolean;
 
 -- name: LlamadaVivaDeNumero :one
 SELECT EXISTS (SELECT 1 FROM mensajeria.llamadas WHERE canal_id = @canal_id AND numero = @numero

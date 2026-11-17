@@ -1082,7 +1082,7 @@
             "type": "string"
           },
           "maxColgadasMarcandoDia": {
-            "description": "Cuántas salientes a un mismo contacto se pueden colgar mientras marcan en un día antes de dejar de llamarlo (0–20)",
+            "description": "Cuántas salientes a un mismo contacto se pueden colgar mientras marcan en un día antes de dejar de llamarlo (1–20; 0 = sin límite)",
             "format": "int32",
             "type": "integer"
           },

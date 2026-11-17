@@ -291,11 +291,6 @@ func nuevoProcesarMeta(m *Modulo) *auditoria.Caso[int64, struct{}] {
 						}
 					}
 					for _, msg := range ch.Value.Messages {
-						if msg.Interactive != nil && msg.Interactive.CallPermissionReply != nil {
-							if err := m.recibirPermisoLlamada(ctx, t, fila, msg, ahora); err != nil {
-								return struct{}{}, err
-							}
-						}
 						// La baja primero: así el mensaje ya llega con el número dado de baja (sin
 						// respuestas automáticas a quien pide no recibir mensajes).
 						if msg.Type == "text" && palabrasBaja[palabraDe(msg.Text.Body)] {
@@ -305,6 +300,13 @@ func nuevoProcesarMeta(m *Modulo) *auditoria.Caso[int64, struct{}] {
 						}
 						if err := m.recibirMensaje(ctx, t, fila, msg, perfiles[msg.From], ahora); err != nil {
 							return struct{}{}, err
+						}
+						// La respuesta al permiso de llamada, después del mensaje: mismo orden de candados que
+						// llamar y solicitar (conversación → permiso).
+						if msg.Interactive != nil && msg.Interactive.CallPermissionReply != nil {
+							if err := m.recibirPermisoLlamada(ctx, t, fila, msg, ahora); err != nil {
+								return struct{}{}, err
+							}
 						}
 					}
 					// Coexistencia: lo mandado desde el teléfono, el historial y los contactos (§15.2).

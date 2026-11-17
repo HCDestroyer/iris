@@ -311,8 +311,19 @@ func TestLlamadaSaliente(t *testing.T) {
 	x.g.proximaSaliente = adelantado
 	x.g.mu.Unlock()
 	x.gancho(func(accion string) {
-		if accion == "connect" {
-			x.respuestaSaliente(num, adelantado)
+		if accion != "connect" {
+			return
+		}
+		x.respuestaSaliente(num, adelantado)
+		// Mientras no se sepa que ese call_id es el de esta llamada, la respuesta apartada no se entrega.
+		var enVuelo string
+		if err := x.bd.QueryRow(x.ctx, `SELECT id::text FROM mensajeria.llamadas WHERE conversacion_id = $1 AND estado = 'marcando' AND externo_webhook = $2
+			AND sdp_respuesta IS NOT NULL`, conv, adelantado).Scan(&enVuelo); err != nil {
+			t.Errorf("la respuesta adelantada debía quedar apartada: %v", err)
+			return
+		}
+		if r := x.api(x.supervisor, http.MethodGet, "/llamadas/"+enVuelo+"/respuesta-sdp", nil); r.status != http.StatusConflict || !strings.Contains(crudo(r), "sin_respuesta") {
+			t.Errorf("respuesta-sdp con el webhook adelantado sin confirmar: %d %s", r.status, crudo(r))
 		}
 	})
 	id2, call2 := x.saliente(x.supervisor, conv, nil)
@@ -320,6 +331,7 @@ func TestLlamadaSaliente(t *testing.T) {
 	if n := x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id = $1::uuid AND id_externo = $2 AND sdp_respuesta IS NOT NULL AND estado = 'marcando'`, id2, adelantado); n != 1 || call2 != adelantado {
 		t.Fatal("el webhook adelantado debía vincularse a la saliente")
 	}
+	x.exigir(x.api(x.supervisor, http.MethodGet, "/llamadas/"+id2+"/respuesta-sdp", nil), http.StatusOK) // confirmado: ya se entrega
 	// Colgar mientras marca: se cancela en Meta y no cuenta como sin contestar.
 	if r := x.exigir(x.api(x.supervisor, http.MethodPost, "/llamadas/"+id2+"/colgar", nil), http.StatusOK); r.cuerpo["estado"] != "terminada" || x.g.cuenta("terminate:"+adelantado) != 1 {
 		t.Fatalf("cancelada: %s", crudo(r))
@@ -633,16 +645,21 @@ func TestSolicitarPermisoConPlantilla(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE id = $1::uuid AND estado_entrega = 'fallido' AND motivo_falla IS NOT NULL`, msg2); n != 1 {
-		t.Fatal("la solicitud rechazada por Meta debía quedar fallida")
+	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE id = $1::uuid AND estado_entrega = 'fallido' AND motivo_falla = 'rechazado_por_canal'`, msg2); n != 1 {
+		t.Fatal("la solicitud rechazada por Meta debía quedar fallida, con su motivo")
 	}
 	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'conversacion.mensaje_fallido' AND payload->>'mensaje_id' = $1 AND payload::text NOT LIKE '%' || $2 || '%'`, msg2, num2); n != 1 {
 		t.Fatalf("conversacion.mensaje_fallido de la solicitud: %d", n)
 	}
+	// La solicitud que no salió no cuenta para el límite: el permiso vuelve a «sin pedir» y se puede volver a pedir.
 	p := x.exigir(x.api(x.agente, http.MethodGet, "/conversaciones/"+conv2+"/permiso-llamada", nil), http.StatusOK)
-	if p.cuerpo["estado"] != "pedido" || p.cuerpo["puedeSolicitar"] != false || p.cuerpo["puedeLlamar"] != false {
+	if p.cuerpo["estado"] != "sin_pedir" || p.cuerpo["puedeSolicitar"] != true || p.cuerpo["proximaSolicitudEn"] != nil || p.cuerpo["puedeLlamar"] != false {
 		t.Fatalf("tras el rechazo de Meta: %s", crudo(p))
 	}
+	if n := x.contar(`SELECT jsonb_array_length(solicitudes) FROM mensajeria.llamada_permisos WHERE canal_id = $1 AND numero = $2`, x.canal.ID, "+"+num2); n != 0 {
+		t.Fatalf("solicitudes contadas tras el rechazo: %d", n)
+	}
+	x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv2+"/solicitar-permiso-llamada", nil), http.StatusOK)
 	// Si alguien quita la plantilla antes de que salga el mensaje, no se manda como interactivo fuera de ventana.
 	num3, conv3 := cliente()
 	x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv3+"/solicitar-permiso-llamada", nil), http.StatusOK)
@@ -882,6 +899,8 @@ func TestLlamadaSalienteLatidoDelNavegador(t *testing.T) {
 		}
 		return v
 	}
+	// El navegador que llama además recibe llamadas: aun así un flujo sin navegador no lo sostiene.
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/llamadas/recibir/encender", map[string]any{"navegador": x.supervisor.navegador}), http.StatusOK)
 	_, call := enCurso()
 	inicio := visto(x.supervisor.navegador)
 	x.pasa(50 * time.Second)
@@ -1074,6 +1093,27 @@ func TestLlamadaSalienteAbusoYPlantilla(t *testing.T) {
 	x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": v.cuerpo["version"], "duracionMaxPersonaMin": v.cuerpo["duracionMaxPersonaMin"],
 		"segundosAsignado": v.cuerpo["segundosAsignado"], "maxColgadasMarcandoDia": 3}), http.StatusOK)
 
+	// Con 0 no hay límite (no «ninguna saliente»).
+	fijar := func(n int) {
+		t.Helper()
+		v := x.exigir(x.api(admin, http.MethodGet, "/voz/ajustes", nil), http.StatusOK)
+		x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": v.cuerpo["version"], "duracionMaxPersonaMin": v.cuerpo["duracionMaxPersonaMin"],
+			"segundosAsignado": v.cuerpo["segundosAsignado"], "maxColgadasMarcandoDia": n}), http.StatusOK)
+	}
+	if r := x.exigir(x.llamar(x.supervisor, conv, nil), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "colgadas_marcando") {
+		t.Fatalf("con el límite en 3 y cuatro colgadas: %s", crudo(r))
+	}
+	fijar(0)
+	id0, _ := x.saliente(x.supervisor, conv, nil)
+	// Una saliente viva en otra empresa (quien opera en varias): 409, no un error interno.
+	x.sql(`UPDATE mensajeria.llamadas SET empresa_id = 2 WHERE id = $1::uuid`, id0)
+	if r := x.exigir(x.llamar(x.supervisor, conv2, nil), http.StatusConflict); !strings.Contains(crudo(r), "llamada_en_curso") {
+		t.Fatalf("con una saliente viva en otra empresa: %s", crudo(r))
+	}
+	x.sql(`UPDATE mensajeria.llamadas SET empresa_id = 1 WHERE id = $1::uuid`, id0)
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/llamadas/"+id0+"/colgar", nil), http.StatusOK)
+	fijar(3)
+
 	// La plantilla de permiso se comprueba en la cuenta de WhatsApp al guardarla.
 	for nombre, plantilla := range map[string]string{"no existe": "inventada", "sin aprobar": "permiso_en_revision", "de otra categoría": "codigo_de_acceso"} {
 		if r := x.exigir(x.configurar(x.versionLlamadas(), map[string]any{"plantillaPermiso": plantilla}), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "plantilla_permiso_invalida") {
@@ -1110,6 +1150,41 @@ func TestLlamadaSalienteAbusoYPlantilla(t *testing.T) {
 	}
 	if r := x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv3+"/solicitar-permiso-llamada", nil), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "limite_solicitudes") {
 		t.Fatalf("solicitar desde este número: %s", crudo(r))
+	}
+	// Dos solicitudes a la vez al mismo contacto desde dos números de la empresa: sale una sola.
+	x.sql(`INSERT INTO mensajeria.voz_ajustes_canal (canal_id, empresa_id, llamadas_activas) VALUES ($1, 1, true)`, otro.ID)
+	numD := numeroCliente()
+	x.texto(numD, "wamid.dos"+numD, "Hola")
+	convA := cid(x.conv(numD))
+	var convB string
+	if err := x.bd.QueryRow(x.ctx, `INSERT INTO mensajeria.conversaciones (empresa_id, canal_id, numero, cola_id, estado, ultimo_entrante_en, ultima_actividad)
+		SELECT empresa_id, $2, numero, cola_id, estado, ultimo_entrante_en, ultima_actividad FROM mensajeria.conversaciones WHERE id = $1 RETURNING id::text`,
+		convA, otro.ID).Scan(&convB); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	rs := make([]respuesta, 2)
+	for i, c := range []string{convA, convB} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rs[i] = x.api(x.agente, http.MethodPost, "/conversaciones/"+c+"/solicitar-permiso-llamada", nil)
+		}()
+	}
+	wg.Wait()
+	hechas, limite := 0, 0
+	for _, r := range rs {
+		switch {
+		case r.status == http.StatusOK:
+			hechas++
+		case r.status == http.StatusUnprocessableEntity && strings.Contains(crudo(r), "limite_solicitudes"):
+			limite++
+		default:
+			t.Errorf("solicitud en paralelo: %d %s", r.status, crudo(r))
+		}
+	}
+	if hechas != 1 || limite != 1 {
+		t.Fatalf("dos solicitudes a la vez desde dos números: %d hechas, %d por límite", hechas, limite)
 	}
 	// Pasadas 24 h sí; y con dos en la semana (una por número), ya no hasta que pasen 7 días.
 	x.pasa(23 * time.Hour)

@@ -580,7 +580,7 @@ type AjustesVoz struct {
 	// Límites de las llamadas salientes (cuestan dinero).
 	MaxSalientesPorDia      int32 `json:"maxSalientesPorDia" doc:"Llamadas salientes de la empresa por día (0–1000; 0 = ninguna)"`
 	TopeMinutosSalientesMes int32 `json:"topeMinutosSalientesMes" doc:"Minutos de llamadas salientes por mes (0–100000; 0 = ninguna)"`
-	MaxColgadasMarcandoDia  int32 `json:"maxColgadasMarcandoDia" doc:"Cuántas salientes a un mismo contacto se pueden colgar mientras marcan en un día antes de dejar de llamarlo (0–20)"`
+	MaxColgadasMarcandoDia  int32 `json:"maxColgadasMarcandoDia" doc:"Cuántas salientes a un mismo contacto se pueden colgar mientras marcan en un día antes de dejar de llamarlo (1–20; 0 = sin límite)"`
 }
 
 // EntradaAjustesVoz es POST /voz/ajustes/actualizar.

@@ -276,6 +276,12 @@ func nuevoSolicitarPermisoLlamada(m *Modulo) *auditoria.Caso[EntradaConvVoz, Per
 				return PermisoLlamada{}, llamadasInactivas()
 			}
 			ahora := m.ahora()
+			// El límite es por contacto entre todos los números de la empresa: se decide de una en una
+			// (dos solicitudes a la vez desde dos números no lo burlan). Orden de candados, igual en
+			// llamar, aquí y en el webhook de la respuesta: conversación → permiso.
+			if err := q.CandadoChat(ctx, "voz:permiso:"+strconv.FormatInt(a.empresa, 10)+":"+c.Numero); err != nil {
+				return PermisoLlamada{}, err
+			}
 			f, err := permisoDe(ctx, q, a.empresa, canal.ID, c.Numero, true)
 			if err != nil {
 				return PermisoLlamada{}, err
@@ -522,7 +528,13 @@ func nuevoLlamar(m *Modulo) *auditoria.Caso[EntradaLlamar, Llamada] {
 				return Llamada{}, reglaVoz("confirmar_riesgo", "Lleva tres llamadas seguidas sin contestar: si no contesta esta, WhatsApp revoca el permiso. Confirma para llamar",
 					nucleo.ErrorCampo{Field: "confirmarRiesgo", Message: "true", Rule: "confirmar_riesgo"})
 			}
-			// Una llamada a la vez por persona y por contacto.
+			// Una llamada a la vez por persona y por contacto. La saliente viva cuenta en cualquier empresa
+			// (quien opera en varias): es lo mismo que impone el índice único, pero con su 409.
+			if viva, err := q.SalienteVivaDeUsuario(ctx, &a.usuario); err != nil {
+				return Llamada{}, err
+			} else if viva {
+				return Llamada{}, nucleo.Conflicto("llamada_en_curso", "Ya tienes una llamada: termínala antes de hacer otra")
+			}
 			if _, err := q.LlamadaActivaDeUsuario(ctx, mensajeriabd.LlamadaActivaDeUsuarioParams{Empresa: a.empresa, UsuarioID: &a.usuario}); err == nil {
 				return Llamada{}, nucleo.Conflicto("llamada_en_curso", "Ya tienes una llamada: termínala antes de hacer otra")
 			} else if !errors.Is(err, pgx.ErrNoRows) {
@@ -556,10 +568,10 @@ func nuevoLlamar(m *Modulo) *auditoria.Caso[EntradaLlamar, Llamada] {
 			if seg >= int64(voz.TopeMinutosSalientesMes)*60 {
 				return Llamada{}, reglaVoz("tope_alcanzado", "La empresa llegó a su tope de minutos de llamadas salientes de este mes")
 			}
-			// Timbrar y colgar: las que se colgaron mientras marcaban a este contacto hoy.
+			// Timbrar y colgar: las que se colgaron mientras marcaban a este contacto hoy (0 = sin límite).
 			if n, err := q.ColgadasMarcandoDesde(ctx, mensajeriabd.ColgadasMarcandoDesdeParams{Empresa: a.empresa, Numero: c.Numero, Desde: inicioDia(ahora)}); err != nil {
 				return Llamada{}, err
-			} else if n >= int64(voz.MaxColgadasMarcandoDia) {
+			} else if voz.MaxColgadasMarcandoDia > 0 && n >= int64(voz.MaxColgadasMarcandoDia) {
 				return Llamada{}, reglaVoz("limite_llamadas", "Hoy ya se colgaron varias llamadas a este contacto antes de que contestara: no se le puede volver a llamar hasta mañana",
 					nucleo.ErrorCampo{Field: "contacto", Message: "true", Rule: "colgadas_marcando"})
 			}
@@ -795,7 +807,8 @@ func nuevoRespuestaSDP(*Modulo) *auditoria.Caso[EntradaLlamada, RespuestaSDP] {
 			if l.Navegador == nil || *l.Navegador != in.Navegador {
 				return RespuestaSDP{}, otroNavegador()
 			}
-			if l.SdpRespuesta == nil {
+			// Lo que trajo un webhook adelantado no se entrega hasta saber que es de esta llamada.
+			if l.SdpRespuesta == nil || l.ExternoWebhook != nil {
 				return RespuestaSDP{}, nucleo.Conflicto("sin_respuesta", "WhatsApp todavía no mandó la respuesta de esta llamada")
 			}
 			return RespuestaSDP{SDPRespuesta: *l.SdpRespuesta}, nil
@@ -1163,4 +1176,37 @@ func (m *Modulo) despacharHuerfanas(ctx context.Context, bd nucleo.BD) error {
 		}
 	}
 	return nil
+}
+
+// solicitudDePermisoFallida deshace una solicitud de permiso cuyo mensaje no salió (Meta lo rechazó,
+// la plantilla ya no está, el número se desactivó…): no cuenta para el límite de 1 por 24 h y 2 por
+// 7 días, y el permiso vuelve a «sin pedir». El motivo de la falla queda en el mensaje.
+func (m *Modulo) solicitudDePermisoFallida(ctx context.Context, t *auditoria.Tx, f mensajeriabd.MensajeriaConversacionMensaje, c mensajeriabd.MensajeriaConversacion) error {
+	q := mensajeriabd.New(t)
+	p, err := q.PermisoLlamadaParaActualizar(ctx, mensajeriabd.PermisoLlamadaParaActualizarParams{Empresa: empresaDeConv(c), CanalID: c.CanalID, Numero: c.Numero})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if id := uuidDe(p.UltimaSolicitudMensajeID); id == nil || *id != f.ID {
+		return nil
+	}
+	solicitudes := solicitudesDe(p.Solicitudes)
+	if n := len(solicitudes); n > 0 {
+		slices.SortFunc(solicitudes, func(a, b time.Time) int { return a.Compare(b) })
+		solicitudes = solicitudes[:n-1]
+	}
+	if solicitudes == nil {
+		solicitudes = []time.Time{}
+	}
+	p.Solicitudes, _ = json.Marshal(solicitudes)
+	p.UltimaSolicitudMensajeID = pgUUID(nil)
+	estado := p.Estado
+	if estado == PermisoPedido {
+		estado = PermisoSinPedir
+	}
+	_, err = cambiarPermiso(ctx, t, p, estado, p.VenceEn, &c.ID)
+	return err
 }

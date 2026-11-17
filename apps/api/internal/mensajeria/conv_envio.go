@@ -631,6 +631,12 @@ func (m *Modulo) fallarMensaje(ctx context.Context, t *auditoria.Tx, f mensajeri
 	}
 	t.FijarEntidad("mensaje_conversacion", f.ID)
 	t.RegistrarCambios("mensaje_conversacion", f.ID, map[string]any{"estado_entrega": f.EstadoEntrega}, map[string]any{"estado_entrega": g.EstadoEntrega, "motivo": motivo})
+	// Una solicitud de permiso de llamada que no salió no cuenta para su límite.
+	if f.Automatico != nil && *f.Automatico == AutomaticoPermisoLlamada {
+		if err := m.solicitudDePermisoFallida(ctx, t, f, c); err != nil {
+			return err
+		}
+	}
 	if err := m.emitirEventoConv(ctx, t, c, EventoConvMensajeActualizad, &f.ID, nil); err != nil {
 		return err
 	}

@@ -2621,6 +2621,18 @@ func (q *Queries) SalienteSinCallID(ctx context.Context, arg SalienteSinCallIDPa
 	return i, err
 }
 
+const salienteVivaDeUsuario = `-- name: SalienteVivaDeUsuario :one
+SELECT EXISTS (SELECT 1 FROM mensajeria.llamadas WHERE usuario_id = $1 AND direccion = 'saliente' AND estado IN ('marcando', 'en_curso'))::boolean
+`
+
+// En cualquier empresa: una persona hace una sola saliente a la vez (es lo que impone el índice único).
+func (q *Queries) SalienteVivaDeUsuario(ctx context.Context, usuarioID *int64) (bool, error) {
+	row := q.db.QueryRow(ctx, salienteVivaDeUsuario, usuarioID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const salientesDesde = `-- name: SalientesDesde :one
 SELECT count(*)::bigint FROM mensajeria.llamadas
 WHERE coalesce(empresa_id, 0) = $1::bigint AND direccion = 'saliente' AND sono_en >= $2 AND estado <> 'fallida'
@@ -2761,7 +2773,11 @@ func (q *Queries) TocarNavegadorDeLlamada(ctx context.Context, arg TocarNavegado
 const tocarReceptores = `-- name: TocarReceptores :exec
 UPDATE mensajeria.llamada_receptores r SET visto_en = $1
 WHERE coalesce(r.empresa_id, 0) = $2::bigint AND r.usuario_id = $3
-  AND (($4::text IS NULL AND r.recibe) OR r.navegador = $4::text)
+  AND (($4::text IS NULL AND r.recibe
+        -- (un flujo sin navegador nunca sostiene una saliente, aunque ese navegador también reciba llamadas)
+        AND NOT EXISTS (SELECT 1 FROM mensajeria.llamadas l WHERE l.usuario_id = r.usuario_id AND l.navegador = r.navegador
+            AND l.direccion = 'saliente' AND l.estado IN ('marcando', 'en_curso')))
+       OR r.navegador = $4::text)
 `
 
 type TocarReceptoresParams struct {
