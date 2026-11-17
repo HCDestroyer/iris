@@ -211,8 +211,11 @@ técnica (§9)**; los que más pesan están listados en §10.
     **solo el flujo de eventos abierto con esa misma pestaña** (`GET
     /conversaciones/eventos?pestana=<id>` o la cabecera) la sostiene. Si la pestaña que llamó se
     cierra, se recarga o muere, a los 55 s el servidor la cancela (`terminada`, `error_medio`,
-    `terminate` en Meta): también mientras marca, antes de que el cliente conteste, y sin sumar
-    `sin_contestar`. `GET /llamadas/{id}/respuesta-sdp` exige la misma pestaña (409
+    `terminate` en Meta): también mientras marca, antes de que el cliente conteste. Esa
+    llamada cortada mientras marcaba **sí cuenta**: para el límite de «timbrar y colgar»
+    (`colgadas_marcando`) y, si llegó a sonar en Meta (el `connect` se aceptó), **suma
+    `sin_contestar`** igual que una `perdida`, porque Meta también la cuenta y `confirmarRiesgo` no
+    puede ir por detrás de su cuenta. `GET /llamadas/{id}/respuesta-sdp` exige la misma pestaña (409
     `llamada_ya_contestada` con `errors[0].rule = "otra_pestana"`). Las entrantes siguen por
     navegador, como antes.
   - **`GET /llamadas/activa`** (`llamadas.ver`; no hace falta «Recibir llamadas» ni
@@ -241,7 +244,9 @@ técnica (§9)**; los que más pesan están listados en §10.
     `call_id`; si trae otro, se descarta y el discrepante se termina en Meta.
   - **SDP.** La oferta del navegador no se guarda (va de la petición a Meta en memoria). El SDP del
     `connect` de una saliente huérfana o ya cerrada se tapa (`***`) en `entrantes`.
-  - **Timbrar y colgar.** Las salientes colgadas mientras marcaban cuentan por contacto y día:
+  - **Timbrar y colgar.** Las salientes que terminan mientras marcan sin que el cliente conteste
+    (las cuelga el agente, o las corta el servidor porque la pestaña que llamó murió) cuentan por
+    contacto y día:
     a la tercera (`maxColgadasMarcandoDia` en `/voz/ajustes`, 3 de fábrica, 1–20; **0 = sin
     límite**) `llamar` responde 422 `limite_llamadas` con `errors[0].rule = "colgadas_marcando"`.
   - **Plantilla de permiso.** Al guardarla en `llamadas/configurar` se comprueba en la cuenta de

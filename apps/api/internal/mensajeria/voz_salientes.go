@@ -1025,7 +1025,12 @@ func (m *Modulo) trasSaliente(ctx context.Context, t *auditoria.Tx, l *mensajeri
 		}
 	}
 	empresa := derefEmpresa(l.EmpresaID)
-	if l.Estado == LlamadaPerdida && l.CanalID != nil {
+	// También cuenta como sin contestar la que el servidor cortó mientras marcaba (la pestaña que llamó
+	// murió) si llegó a sonar en Meta (el connect se aceptó): Meta sí la cuenta, y confirmarRiesgo no
+	// puede ir por detrás de esa cuenta.
+	cortada := l.Estado == LlamadaTerminada && l.ContestadaEn == nil && l.MotivoFin != nil && *l.MotivoFin == "error_medio" &&
+		!strings.HasPrefix(l.IDExterno, "pendiente:")
+	if (l.Estado == LlamadaPerdida || cortada) && l.CanalID != nil {
 		f, err := q.PermisoLlamadaParaActualizar(ctx, mensajeriabd.PermisoLlamadaParaActualizarParams{Empresa: empresa, CanalID: *l.CanalID, Numero: l.Numero})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil

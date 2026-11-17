@@ -987,8 +987,9 @@ func TestLlamadaSalienteLatidoDeLaPestana(t *testing.T) {
 	if _, estado, motivo := x.llamada(call3); estado != "terminada" || motivo != "error_medio" || x.g.cuenta("terminate:"+call3) != 1 {
 		t.Fatalf("marcando sin la pestaña que llamó: %s %s", estado, motivo)
 	}
-	if n := x.contar(`SELECT sin_contestar FROM mensajeria.llamada_permisos WHERE canal_id = $1 AND numero = $2`, x.canal.ID, "+"+num); n != 0 {
-		t.Fatalf("no cuenta como sin contestar: %d", n)
+	// Sonó en Meta y nadie contestó: cuenta como sin contestar, igual que la cuenta Meta.
+	if n := x.contar(`SELECT sin_contestar FROM mensajeria.llamada_permisos WHERE canal_id = $1 AND numero = $2`, x.canal.ID, "+"+num); n != 1 {
+		t.Fatalf("la cortada mientras marcaba cuenta como sin contestar: %d", n)
 	}
 	// La huérfana se ve en /llamadas/activa desde otra pestaña, con deEstaPestana: false.
 	x.pasa(61 * time.Second)
@@ -1255,5 +1256,45 @@ func TestLlamadaSalienteAbusoYPlantilla(t *testing.T) {
 	x.texto(num, "wamid.contacto3"+num, "¿Y?")
 	if r := x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv3+"/solicitar-permiso-llamada", nil), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "limite_solicitudes") {
 		t.Fatalf("tercera en la semana contando los dos números: %s", crudo(r))
+	}
+}
+
+// Timbrar y cerrar la pestaña, repetido: no burla el límite de «colgadas marcando» ni deja atrás la
+// cuenta de sin contestar (confirmarRiesgo).
+func TestLlamadaSalienteTimbrarYCerrarPestana(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	x.limitesVoz(1000, 100000)
+	num, conv := x.convConPermiso()
+	sinContestar := func() int {
+		return x.contar(`SELECT sin_contestar FROM mensajeria.llamada_permisos WHERE canal_id = $1 AND numero = $2`, x.canal.ID, "+"+num)
+	}
+	for i := range 3 {
+		// Llama y cierra la pestaña: ningún flujo de eventos de esa pestaña; a los 55 s el servidor corta.
+		_, call := x.saliente(x.supervisor, conv, nil)
+		x.pasa(56 * time.Second)
+		x.mantener()
+		if _, estado, motivo := x.llamada(call); estado != "terminada" || motivo != "error_medio" || x.g.cuenta("terminate:"+call) != 1 || sinContestar() != i+1 {
+			t.Fatalf("timbrar y cerrar %d: %s %s, sin contestar %d", i+1, estado, motivo, sinContestar())
+		}
+		x.pasa(10 * time.Second)
+	}
+	// A la cuarta: primero hay que confirmar el riesgo (lleva tres sin contestar, como cuenta Meta)…
+	if r := x.exigir(x.llamar(x.supervisor, conv, nil), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "confirmar_riesgo") {
+		t.Fatalf("la cuarta sin confirmar: %s", crudo(r))
+	}
+	// … y aun confirmándolo, el límite de colgadas mientras marcaban a ese contacto la para.
+	antes := x.g.cuenta("connect:+" + num)
+	if r := x.exigir(x.llamar(x.supervisor, conv, map[string]any{"confirmarRiesgo": true}), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "limite_llamadas") ||
+		!strings.Contains(crudo(r), "colgadas_marcando") || x.g.cuenta("connect:+"+num) != antes {
+		t.Fatalf("la cuarta, confirmada: %s", crudo(r))
+	}
+	// Una que no llegó a sonar en Meta (el connect falló) y se cortó no suma sin contestar.
+	_, conv2 := x.convConPermiso()
+	x.g.falla("connect", &mensajeria.ErrMetaLlamada{Status: 400})
+	x.exigir(x.llamar(x.supervisor, conv2, nil), http.StatusBadGateway)
+	x.g.falla("connect", nil)
+	if n := x.contar(`SELECT coalesce(max(sin_contestar), 0) FROM mensajeria.llamada_permisos p JOIN mensajeria.conversaciones c ON c.numero = p.numero AND c.canal_id = p.canal_id
+		WHERE c.id = $1`, conv2); n != 0 {
+		t.Fatalf("un connect rechazado no cuenta como sin contestar: %d", n)
 	}
 }

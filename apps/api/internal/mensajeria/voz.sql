@@ -408,10 +408,12 @@ RETURNING id, canal_id, call_id, intentos;
 UPDATE mensajeria.llamadas_huerfanas SET estado = @estado, updated_at = now() WHERE id = @id;
 
 -- name: ColgadasMarcandoDesde :one
--- Salientes a ese contacto que se colgaron mientras marcaban (timbrar y colgar).
+-- Salientes a ese contacto que terminaron mientras marcaban sin que el cliente contestara: las que
+-- colgó el agente y las que cortó el servidor porque la pestaña que llamó murió (timbrar y colgar, o
+-- timbrar y cerrar la pestaña).
 SELECT count(*)::bigint FROM mensajeria.llamadas
 WHERE coalesce(empresa_id, 0) = @empresa::bigint AND numero = @numero AND direccion = 'saliente' AND estado = 'terminada'
-  AND motivo_fin = 'agente_colgo' AND contestada_en IS NULL AND sono_en >= @desde;
+  AND motivo_fin IN ('agente_colgo', 'error_medio') AND contestada_en IS NULL AND sono_en >= @desde;
 
 -- name: SolicitudesDeNumero :many
 -- Las solicitudes de permiso a ese contacto desde cualquier número de la empresa.
