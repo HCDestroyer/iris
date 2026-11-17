@@ -16,8 +16,8 @@ export function guardarCorreo(ambito: Ambito, entrada: EntradaCorreo, clave: str
 }
 
 /** Manda un correo de prueba con lo que hay en el formulario, sin guardar. Responde 200 con el resultado. */
-export function probarCorreo(ambito: Ambito, entrada: EntradaPrueba) {
-    return resolver(api().POST(`${BASE}/probar`, { params: { path: ruta(ambito) }, body: entrada }));
+export function probarCorreo(ambito: Ambito, entrada: EntradaPrueba, signal?: AbortSignal) {
+    return resolver(api().POST(`${BASE}/probar`, { params: { path: ruta(ambito) }, body: entrada, signal }));
 }
 
 export function activarCorreo(ambito: Ambito, activo: boolean, version: number, clave: string) {

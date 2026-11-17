@@ -351,6 +351,57 @@ test.describe("Administración › Correo: ámbito y permisos", () => {
         await expect(page.getByTestId("prueba-espera")).toContainText("Demasiados intentos con servidores no permitidos. Inténtalo en 10 min.");
     });
 
+    test("si Iris no contesta la prueba, a los 45 s se corta y lo dice", async ({ page }) => {
+        // Reloj de Playwright: los 45 s se adelantan, no se esperan.
+        await page.clock.install();
+        const api = await simularApi(page, { correo: { guardados: { global: CORREO_GLOBAL }, prueba: "cuelga" }, empresas: UNA });
+        await conSesion(page.context(), test.info().project.use.baseURL ?? "", ADMIN.correo);
+        await page.goto(RUTA);
+        await formulario(page).getByRole("button", { name: "Enviar correo de prueba" }).click();
+        const dialogo = page.getByRole("dialog", { name: "Enviar correo de prueba" });
+        await dialogo.getByRole("button", { name: "Enviar prueba" }).click();
+        await expect(dialogo.locator('[data-slot="probando"]')).toBeVisible();
+        await expect.poll(() => api.correo.pruebas.length).toBe(1);
+        // A los 30 s sigue probando (no se corta antes).
+        await page.clock.fastForward(30_000);
+        await expect(dialogo.locator('[data-slot="probando"]')).toBeVisible();
+        await page.clock.fastForward(16_000);
+        await expect(page.getByTestId("prueba-error")).toContainText("No hubo respuesta. Inténtalo otra vez.");
+        await expect(dialogo.getByRole("button", { name: "Enviar otra vez" })).toBeEnabled();
+    });
+
+    test("tras probar, «la última prueba» de la pantalla se actualiza sin perder lo escrito", async ({ page }) => {
+        await abrir(page, { guardados: { global: CORREO_GLOBAL }, prueba: "credenciales" });
+        const f = formulario(page);
+        await expect(f.locator('[data-slot="ultima-prueba"]')).toHaveAttribute("data-estado", "ok");
+        await f.getByRole("textbox", { name: "Nombre" }).fill("Sin guardar");
+        await f.getByRole("button", { name: "Enviar correo de prueba" }).click();
+        const dialogo = page.getByRole("dialog", { name: "Enviar correo de prueba" });
+        await dialogo.getByRole("button", { name: "Enviar prueba" }).click();
+        await expect(dialogo.locator('[data-slot="resultado-prueba"]')).toHaveAttribute("data-estado", "error");
+        await dialogo.getByRole("button", { name: "Cerrar" }).last().click();
+        await expect(f.locator('[data-slot="ultima-prueba"]')).toHaveAttribute("data-estado", "error");
+        await expect(f.locator('[data-slot="ultima-prueba"]')).toContainText("La última prueba falló. El usuario o la contraseña no son correctos.");
+        await expect(f.getByRole("textbox", { name: "Nombre" })).toHaveValue("Sin guardar");
+    });
+
+    test("instalación sin empresas: quien tiene el permiso configura el general; sin empresa asignada, «Sin permiso» claro", async ({ page }) => {
+        // Sin conector con Argos no hay empresas: el único correo es el general, también para quien no opera «en todas».
+        const api = await abrir(page, { guardados: { global: CORREO_GLOBAL } }, SUPERVISOR_ZONA, []);
+        await expect(formulario(page).getByRole("textbox", { name: "Servidor" })).toHaveValue("smtp.proveedor.example");
+        await expect(page.getByTestId("correo-sin-empresa")).toHaveCount(0);
+        await expect(page.locator('[data-slot="ambito-correo"]')).toHaveCount(0);
+        expect(api.peticiones.some((p) => p.ruta === "/api/v1/correo-sistema/global")).toBe(true);
+        // Hay empresas, pero esta persona no tiene ninguna: no hay correo que pueda ver, y se le dice.
+        const otra = await simularApi(page, { correo: {}, sinEmpresa: true });
+        await conSesion(page.context(), test.info().project.use.baseURL ?? "", SUPERVISOR_ZONA.correo);
+        await page.goto(RUTA);
+        await expect(page.getByTestId("correo-sin-permiso")).toContainText("Sin permiso para ver este correo");
+        await expect(page.getByRole("form")).toHaveCount(0);
+        expect(otra.peticiones.some((p) => p.ruta.startsWith("/api/v1/correo-sistema/"))).toBe(false);
+        await esperarSinDesbordes(page);
+    });
+
     test("una prueba lenta dice «Probando…» y espera el resultado sin cortar", async ({ page }) => {
         await abrir(page, { guardados: { global: CORREO_GLOBAL }, prueba: "no_conecta", demoraPrueba: 2500 });
         await formulario(page).getByRole("button", { name: "Enviar correo de prueba" }).click();

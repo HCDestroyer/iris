@@ -56,6 +56,11 @@ describe("correo del sistema (contratos/correo-sistema.md)", () => {
         expect(ambitoDe({ todasLasEmpresas: false, empresaActiva }, null)).toBe(10);
         expect(ambitoDe({ todasLasEmpresas: false, empresaActiva }, "global")).toBe(10);
         expect(ambitoDe({ todasLasEmpresas: false }, null)).toBeNull();
+        expect(ambitoDe({ todasLasEmpresas: false, modoEmpresa: "sin_empresa" }, null)).toBeNull();
+        expect(ambitoDe({ todasLasEmpresas: false, modoEmpresa: "por_elegir" }, null)).toBeNull();
+        // Instalación sin empresas (sin conector): solo existe el general y lo ve quien tenga el permiso.
+        expect(ambitoDe({ todasLasEmpresas: false, modoEmpresa: "sin_conector" }, null)).toBe("global");
+        expect(ambitoDe({ todasLasEmpresas: false, modoEmpresa: "sin_conector" }, "empresa")).toBe("global");
     });
 
     it("lo guardado llega al formulario sin contraseña y vuelve igual si no se toca", () => {

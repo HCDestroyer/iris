@@ -25,7 +25,7 @@ export type OpcionesCorreo = {
     /** El primer `guardar` responde 422 con ese código de regla (y ese campo, si lo trae). */
     rechaza?: { codigo: string; field?: string; message?: string };
     /** Resultado de `probar`: `ok` (por defecto), una causa de error o 429 con `Retry-After`. */
-    prueba?: "ok" | CausaPrueba | "429" | "causa_nueva" | "demasiados_rechazos";
+    prueba?: "ok" | CausaPrueba | "429" | "causa_nueva" | "demasiados_rechazos" | "cuelga";
     /** Milisegundos que tarda `probar` en responder (un servidor que no contesta tarda unos 11 s). */
     demoraPrueba?: number;
     /** El primer `guardar` responde 429 `demasiados_rechazos` con `Retry-After`. */
@@ -156,6 +156,8 @@ export function apiCorreo(opciones: OpcionesCorreo | undefined) {
             if (rechazo) return (await rechazo, true);
             const prueba = opciones?.prueba ?? "ok";
             if (opciones?.demoraPrueba) await new Promise((r) => setTimeout(r, opciones.demoraPrueba));
+            // El servidor de Iris nunca contesta: la petición queda abierta hasta que el panel la corta.
+            if (prueba === "cuelga") return true;
             if (prueba === "demasiados_rechazos") return (await problema(route, P("demasiados_rechazos", 429, "Demasiados intentos"), { "Retry-After": "600" }), true);
             if (prueba === "429") return (await problema(route, P("demasiadas_pruebas", 429, "Demasiadas pruebas"), { "Retry-After": "720" }), true);
             const resultado: ResultadoPrueba =
@@ -164,6 +166,8 @@ export function apiCorreo(opciones: OpcionesCorreo | undefined) {
                     : prueba === "causa_nueva"
                       ? { estado: "error", causa: "causa_nueva" as CausaPrueba, detalle: "" }
                       : { estado: "error", causa: prueba, detalle: DETALLE_CAUSA[prueba] };
+            // La última prueba del ámbito queda registrada (la devuelve el `GET`).
+            if (actual) filas.set(ambito, { ...actual, ultimaPrueba: { estado: resultado.estado, en: "2026-11-17T00:30:00Z", causa: prueba === "ok" || prueba === "causa_nueva" ? null : (resultado.causa ?? null) } });
             return (await json(route, resultado), true);
         }
         if (conflicto || (accion !== "guardar" && cuerpo.version !== actual?.version) || (accion === "guardar" && cuerpo.version !== (actual?.version ?? 0))) {

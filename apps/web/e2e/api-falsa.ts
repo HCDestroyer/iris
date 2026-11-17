@@ -788,7 +788,8 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
                 idempotencia: cabeceras["idempotency-key"],
                 puedeVer: puede(PERMISO_VER_CORREO),
                 puedeConfigurar: puede(PERMISO_CONFIGURAR_CORREO),
-                sinLimiteDeEmpresa: puede("empresas.todas"),
+                // Como el servidor: el global lo ve quien opera en todas las empresas, o cualquiera en una instalación sin empresas.
+                sinLimiteDeEmpresa: puede("empresas.todas") || modo === "sin_conector",
                 empresaActiva: empresaId,
             }))
         ) {

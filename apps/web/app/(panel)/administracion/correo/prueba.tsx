@@ -7,7 +7,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { probarCorreo } from "@/lib/correo/api";
-import { entradaPrueba, esquemaPrueba, reglaDeCorreo, textoDemasiados, textoResultado, type Ambito, type ValoresCorreo, type ValoresPrueba } from "@/lib/correo/correo";
+import { entradaPrueba, esquemaPrueba, LIMITE_PRUEBA_MS, reglaDeCorreo, textoDemasiados, textoResultado, type Ambito, type ValoresCorreo, type ValoresPrueba } from "@/lib/correo/correo";
 import type { AjusteCorreo, ResultadoPrueba } from "@/lib/correo/tipos";
 import { useSesion } from "@/lib/sesion";
 
@@ -20,18 +20,42 @@ type Estado = { tipo: "nada" } | { tipo: "hecho"; resultado: ResultadoPrueba; pa
  * en llano; el servidor nunca devuelve la respuesta cruda del servidor de correo. Con 429, cuánto
  * esperar.
  */
-export function DialogoPrueba({ ambito, ajuste, valores, cerrar }: { ambito: Ambito; ajuste: Pick<AjusteCorreo, "tieneContrasena">; valores: ValoresCorreo; cerrar: () => void }) {
+export function DialogoPrueba({
+    ambito,
+    ajuste,
+    valores,
+    cerrar,
+    alProbar,
+}: {
+    ambito: Ambito;
+    ajuste: Pick<AjusteCorreo, "tieneContrasena">;
+    valores: ValoresCorreo;
+    cerrar: () => void;
+    /** Tras cada prueba con respuesta: la pantalla relee «la última prueba». */
+    alProbar: () => void;
+}) {
     const { yo } = useSesion();
     const [estado, setEstado] = useState<Estado>({ tipo: "nada" });
     const form = useForm<ValoresPrueba>({ resolver: zodResolver(esquemaPrueba), defaultValues: { para: yo.usuario.correo ?? "" } });
 
     async function enviar(d: ValoresPrueba) {
         setEstado({ tipo: "nada" });
+        // Tiempo límite propio (con `setTimeout`): si el servidor de Iris no contesta, no se queda «Probando…» para siempre.
+        const control = new AbortController();
+        let vencio = false;
+        const limite = setTimeout(() => {
+            vencio = true;
+            control.abort();
+        }, LIMITE_PRUEBA_MS);
         try {
             const para = d.para.trim();
-            setEstado({ tipo: "hecho", resultado: await probarCorreo(ambito, entradaPrueba(valores, para)), para });
+            const resultado = await probarCorreo(ambito, entradaPrueba(valores, para), control.signal);
+            setEstado({ tipo: "hecho", resultado, para });
+            alProbar();
         } catch (e) {
-            if (e instanceof ErrorApi && e.estado === 429) {
+            if (vencio) {
+                setEstado({ tipo: "error", texto: "No hubo respuesta. Inténtalo otra vez." });
+            } else if (e instanceof ErrorApi && e.estado === 429) {
                 setEstado({ tipo: "espera", texto: textoDemasiados(e.codigo, e.reintentarEn) });
             } else if (e instanceof ErrorApi && e.estado === 422 && e.errores.some((x) => x.field.endsWith("para"))) {
                 form.setError("para", { message: e.errores.find((x) => x.field.endsWith("para"))?.message ?? "Revisa el correo de destino" }, { shouldFocus: true });
@@ -42,6 +66,8 @@ export function DialogoPrueba({ ambito, ajuste, valores, cerrar }: { ambito: Amb
                 // Un dato del formulario que el servidor no acepta: se dice cuál, tal como lo explica.
                 setEstado({ tipo: "error", texto: `Revisa el formulario: ${e.errores.map((x) => x.message).join(" ")}` });
             } else setEstado({ tipo: "error", texto: `${mensajeDeError(e).titulo}. Vuelve a intentarlo.` });
+        } finally {
+            clearTimeout(limite);
         }
     }
 

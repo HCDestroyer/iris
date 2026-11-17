@@ -63,9 +63,14 @@ export function CorreoDelSistema() {
     const elegido = useSearchParams().get("ambito");
     const ambito = ambitoDe(yo, elegido);
     if (ambito === null) {
-        return (
+        // Con empresas por elegir, falta elegir una; sin ninguna asignada, no hay correo que esta persona pueda ver.
+        return yo.modoEmpresa === "por_elegir" ? (
             <Aviso tono="info" titulo="Elige una empresa" data-testid="correo-sin-empresa">
                 El correo se configura por empresa: elige una arriba para ver el suyo.
+            </Aviso>
+        ) : (
+            <Aviso tono="warning" titulo="Sin permiso para ver este correo" data-testid="correo-sin-permiso">
+                No tienes una empresa asignada, y el correo general lo configura quien opera en todas las empresas. Pídeselo a un administrador.
             </Aviso>
         );
     }
@@ -211,7 +216,25 @@ function Formulario({ ambito, ajuste, alCambiar, recargar }: { ambito: Ambito; a
                     ) : null}
                 </>
             }
-            despues={probando ? <DialogoPrueba ambito={ambito} ajuste={ajuste} valores={form.getValues()} cerrar={() => setProbando(false)} /> : null}
+            despues={
+                probando ? (
+                    <DialogoPrueba
+                        ambito={ambito}
+                        ajuste={ajuste}
+                        valores={form.getValues()}
+                        cerrar={() => setProbando(false)}
+                        // «La última prueba» se relee del servidor; el formulario (misma versión) conserva lo escrito.
+                        alProbar={() =>
+                            void leerCorreo(ambito).then(
+                                (a) => {
+                                    if (a.version === ajuste.version) alCambiar(a);
+                                },
+                                () => undefined,
+                            )
+                        }
+                    />
+                ) : null
+            }
         >
             <SeccionFormulario titulo="¿De quién es el correo?" descripcion="Rellena el servidor por ti. Después puedes cambiar lo que haga falta.">
                 <div role="group" aria-label="Proveedor de correo" className="flex flex-wrap gap-2">

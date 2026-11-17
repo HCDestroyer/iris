@@ -14,14 +14,20 @@ export type Ambito = "global" | number;
 
 /**
  * El ámbito que edita la pantalla. Quien tiene el permiso sin límite de empresa elige entre
- * «General» y «Solo esta empresa» (`?ambito=empresa`); los demás, siempre su empresa. Sin empresa
- * activa solo queda el general (y solo para quien puede).
+ * «General» y «Solo esta empresa» (`?ambito=empresa`); los demás, siempre su empresa. Una
+ * instalación sin empresas (sin conector con Argos) solo tiene el general, y ahí lo configura
+ * cualquiera con el permiso (así lo resuelve el servidor). `null`: no hay ámbito que esta persona
+ * pueda ver (le falta elegir empresa, o no tiene ninguna).
  */
-export function ambitoDe(yo: { todasLasEmpresas: boolean; empresaActiva?: { id: number } | undefined }, elegido: string | null): Ambito | null {
+export function ambitoDe(yo: { todasLasEmpresas: boolean; modoEmpresa?: string | undefined; empresaActiva?: { id: number } | undefined }, elegido: string | null): Ambito | null {
     const empresa = yo.empresaActiva?.id;
+    if (yo.modoEmpresa === "sin_conector") return "global";
     if (!yo.todasLasEmpresas) return empresa ?? null;
     return elegido === "empresa" && empresa !== undefined ? empresa : "global";
 }
+
+/** Tiempo límite del correo de prueba: un servidor que no contesta tarda unos 11 s en fallar; pasado esto, se corta. */
+export const LIMITE_PRUEBA_MS = 45_000;
 
 // --- Formulario --------------------------------------------------------------------------------
 
