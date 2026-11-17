@@ -60,12 +60,14 @@ const (
 	TurnosPorHoraEmpresa = 600
 	// TurnosPorDiaSinCliente: turnos por día de un número que no es de ningún cliente.
 	TurnosPorDiaSinCliente = 10
-	// TicketsPorDiaConv, BoletasPorDiaConv y VerificacionesPorDiaConv: topes por conversación y día.
+	// TicketsPorDiaConv y BoletasPorDiaConv: topes por conversación y día. VerificacionesPorDiaCliente:
+	// intentos del desafío de identidad por cliente (y empresa) y día, sumando todas sus conversaciones
+	// y canales (§17.8.2).
 	TicketsPorDiaConv = 3
 	// TicketsPorDiaSinCliente: un número sin cliente asociado crea como mucho uno al día.
-	TicketsPorDiaSinCliente  = 1
-	BoletasPorDiaConv        = 3
-	VerificacionesPorDiaConv = 3
+	TicketsPorDiaSinCliente     = 1
+	BoletasPorDiaConv           = 3
+	VerificacionesPorDiaCliente = 3
 	// MaxTextoAutonomo: caracteres de un mensaje del asistente al cliente.
 	MaxTextoAutonomo = 1500
 	// SalidaTurnoIA: tokens de salida por llamada del turno.

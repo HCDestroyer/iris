@@ -2346,7 +2346,9 @@ a Argos (§7.5, método `documento`) y **no lo guarda**: el texto del mensaje qu
 `***` y así lo ve también el modelo, que solo recibe la marca «(el cliente envió un documento: ***)».
 Se tapan **todas** las coincidencias del mensaje, también en el payload crudo de Meta
 (`mensajeria.entrantes`), y también si la herramienta no llega a correr en ese turno. Máximo 3
-intentos por conversación y día; al fallar el tercero pasa a una persona. Si Argos responde `429
+intentos por **`cliente_id` y día, sumando chat y voz** (`contratos/voz.md` §5.5; antes era por
+conversación: **pendiente de código**, el chat hoy aún cuenta por conversación); al fallar el
+tercero pasa a una persona. Si Argos responde `429
 demasiados_intentos`, `422 metodo_no_disponible` o `503`, pasa a una persona sin reintentar. La
 verificación vale para el cliente con el que se hizo: si la conversación cambió de cliente mientras
 Argos respondía, no cuenta. Cada intento queda en `mensajeria.asistente_verificaciones` (sin el dato), en la
@@ -2440,7 +2442,7 @@ validaciones: verificación, acción encendida, categoría al día) y `pasar_a_p
 cambie algo: ni ticket, ni boleta, ni promesa, ni reconexión, ni verificación de identidad.
 
 **Límites.** Además de los de §17.8.1: número sin cliente asociado, 10 turnos y **1 ticket** por día;
-3 tickets, 3 boletas y 3 verificaciones por conversación y día. Una promesa cuya respuesta de Argos
+3 tickets y 3 boletas por conversación y día, y 3 verificaciones por cliente y día (chat y voz). Una promesa cuya respuesta de Argos
 se pierde (o `409 idempotencia_en_curso`) se repite en el mismo turno con la misma clave: Argos
 devuelve la que ya guardó. El código de regla del simulador de Argos nunca viaja al modelo: se
 traduce a un texto fijo. Si el cierre de un turno falla, su arriendo se suelta para que el reintento

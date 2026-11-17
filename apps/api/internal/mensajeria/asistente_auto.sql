@@ -148,14 +148,27 @@ FOR UPDATE;
 -- name: FijarPayloadEntrante :exec
 UPDATE mensajeria.entrantes SET payload = @payload WHERE id = @id;
 
--- name: InsertarVerificacion :exec
+-- name: BloquearVerificacionesCliente :exec
+-- Serializa el conteo y la reserva de un intento por cliente y empresa (dos conversaciones a la vez).
+SELECT pg_advisory_xact_lock(hashtextextended('mensajeria.verificaciones:' || @empresa::bigint || ':' || @cliente_id::bigint, 0));
+
+-- name: ReservarVerificacion :one
+-- El intento se reserva antes de llamar a Argos: cuenta desde ya para el máximo del cliente.
 INSERT INTO mensajeria.asistente_verificaciones (empresa_id, conversacion_id, cliente_id, resultado, creada_en)
-VALUES (sqlc.narg('empresa_id'), @conversacion_id, @cliente_id, @resultado, @creada_en);
+VALUES (sqlc.narg('empresa_id'), @conversacion_id, @cliente_id, 'en_curso', @creada_en)
+RETURNING id;
+
+-- name: CerrarVerificacion :execrows
+-- El resultado del intento reservado (para el cliente con el que se hizo).
+UPDATE mensajeria.asistente_verificaciones SET resultado = @resultado
+WHERE id = @id AND cliente_id = @cliente_id AND resultado = 'en_curso';
 
 -- name: VerificacionesRecientes :one
--- Intentos del desafío que cuentan para el máximo (los que Argos evaluó).
+-- Intentos del desafío que cuentan para el máximo del cliente en la empresa, sumando todas sus
+-- conversaciones y canales: los que Argos evaluó y los que están en curso (reservados).
 SELECT count(*)::bigint FROM mensajeria.asistente_verificaciones
-WHERE conversacion_id = @conversacion_id AND creada_en >= @desde AND resultado IN ('coincide', 'no_coincide');
+WHERE coalesce(empresa_id, 0) = @empresa::bigint AND cliente_id = @cliente_id AND creada_en >= @desde
+  AND resultado IN ('coincide', 'no_coincide', 'en_curso');
 
 -- name: UltimosEntrantesTexto :many
 SELECT id, texto, proveedor_id FROM mensajeria.conversacion_mensajes
