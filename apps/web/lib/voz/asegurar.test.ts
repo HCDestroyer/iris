@@ -32,15 +32,47 @@ describe("colgarSeguro (solo si es mía): nunca una llamada viva sin audio", () 
         colgarLlamada.mockReset();
     });
 
-    it("con `confirmar-medio` en vuelo (`conectando` a mi nombre) espera y relee; cuando el `accept` llega tarde, cuelga con `propia`", async () => {
+    it("`conectando` a mi nombre: `colgar?propia=true` responde 200 con la llamada `perdida` (o `terminada`): es el final", async () => {
+        for (const estado of ["perdida", "terminada"] as const) {
+            leerLlamada.mockReset();
+            colgarLlamada.mockReset();
+            leerLlamada.mockResolvedValue(llamada({}));
+            colgarLlamada.mockResolvedValue(llamada({ estado, motivoFin: "agente_salio" }));
+            const fin = await colgarSeguro("x", ctx, true);
+            expect(fin).toMatchObject({ tipo: "colgada", llamada: { estado } });
+            expect(leerLlamada).toHaveBeenCalledTimes(1);
+            expect(colgarLlamada).toHaveBeenCalledTimes(1);
+            expect(colgarLlamada.mock.calls[0]?.[3]).toBe(true);
+        }
+    });
+
+    it("un 200 de `colgar?propia=true` con la llamada aún viva no es el final: se sigue releyendo hasta que de verdad termina", async () => {
+        // Mientras conecta: 200 pero sigue `conectando`; a la siguiente, ya `perdida`.
+        leerLlamada.mockResolvedValue(llamada({}));
+        colgarLlamada.mockResolvedValueOnce(llamada({ estado: "conectando" })).mockResolvedValue(llamada({ estado: "perdida", motivoFin: "agente_salio" }));
+        expect(await colgarSeguro("x", ctx, true)).toMatchObject({ tipo: "colgada", llamada: { estado: "perdida" } });
+        expect(leerLlamada).toHaveBeenCalledTimes(2);
+        expect(colgarLlamada).toHaveBeenCalledTimes(2);
+        // Ya en curso: 200 pero sigue `en_curso`; se reintenta y, si nunca termina, es un fallo (no «colgada»).
+        leerLlamada.mockReset();
+        colgarLlamada.mockReset();
+        leerLlamada.mockResolvedValue(llamada({ estado: "en_curso" }));
+        colgarLlamada.mockResolvedValueOnce(llamada({ estado: "en_curso" })).mockResolvedValue(llamada({ estado: "terminada" }));
+        expect((await colgarSeguro("x", ctx, true)).tipo).toBe("colgada");
+        expect(colgarLlamada).toHaveBeenCalledTimes(2);
+        colgarLlamada.mockReset();
+        colgarLlamada.mockResolvedValue(llamada({ estado: "en_curso" }));
+        expect((await colgarSeguro("x", ctx, true)).tipo).toBe("fallo");
+    });
+
+    it("contra un servidor anterior (404 a `propia` mientras conecta): ese 404 no es el final; se relee y, cuando el `accept` llega tarde, se cuelga", async () => {
         leerLlamada.mockResolvedValueOnce(llamada({})).mockResolvedValueOnce(llamada({})).mockResolvedValue(llamada({ estado: "en_curso" }));
-        colgarLlamada.mockResolvedValue(llamada({ estado: "terminada" }));
+        colgarLlamada.mockRejectedValueOnce(problema(404, "no_encontrado")).mockRejectedValueOnce(problema(404, "no_encontrado")).mockResolvedValue(llamada({ estado: "terminada" }));
         const fin = await colgarSeguro("x", ctx, true);
         expect(fin.tipo).toBe("colgada");
-        // Mientras conectaba no se mandó `colgar` (el servidor respondería 404 a `propia` y no es el final).
         expect(leerLlamada).toHaveBeenCalledTimes(3);
-        expect(colgarLlamada).toHaveBeenCalledTimes(1);
-        expect(colgarLlamada.mock.calls[0]?.[3]).toBe(true);
+        expect(colgarLlamada).toHaveBeenCalledTimes(3);
+        expect(colgarLlamada.mock.calls.every((c) => c[3] === true)).toBe(true);
     });
 
     it("un 404 de `colgar` no es el final si la lectura dice que sigue viva a mi nombre: se reintenta", async () => {
@@ -62,6 +94,7 @@ describe("colgarSeguro (solo si es mía): nunca una llamada viva sin audio", () 
 
     it("si no sale nunca de `conectando`, o colgar falla siempre, no se da por hecho: fallo (se avisa y se ofrece reintentar)", async () => {
         leerLlamada.mockResolvedValue(llamada({}));
+        colgarLlamada.mockRejectedValue(problema(404, "no_encontrado"));
         expect((await colgarSeguro("x", ctx, true)).tipo).toBe("fallo");
         expect(leerLlamada).toHaveBeenCalledTimes(LECTURAS_CONECTANDO);
         leerLlamada.mockResolvedValue(llamada({ estado: "en_curso" }));

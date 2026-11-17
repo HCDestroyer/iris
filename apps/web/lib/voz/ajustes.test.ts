@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { entradaDeAjustes, entradaDeCanal, esquemaAjustesVoz, esquemaLlamadasCanal, motivoNoEncender, resumenSalientes, valoresDeAjustes, valoresDeCanal } from "./ajustes";
+import { consumoSalientes, entradaDeAjustes, entradaDeCanal, esquemaAjustesVoz, esquemaLlamadasCanal, motivoNoEncender, resumenSalientes, valoresDeAjustes, valoresDeCanal } from "./ajustes";
 import type { AjustesVoz, LlamadasCanal } from "./tipos";
 
 const CANAL: LlamadasCanal = {
@@ -79,6 +79,24 @@ describe("ajustes de llamadas de la empresa (campos de E1)", () => {
         expect(error({ maxColgadasMarcandoDia: "0" })).toBeUndefined();
         expect(resumenSalientes(valoresDeAjustes(AJUSTES))).toBe("Hasta 50 llamadas salientes al día · 300 minutos al mes");
         expect(resumenSalientes({ ...valoresDeAjustes(AJUSTES), topeMinutosSalientesMes: "0" })).toBe("Las llamadas salientes están apagadas");
+    });
+});
+
+describe("consumo junto a los topes de salientes", () => {
+    it("dice lo que se lleva; cerca desde el 80 % y tope al llegar; sin dato o con el tope en 0 no inventa nada", () => {
+        expect(consumoSalientes({ ...AJUSTES, minutosSalientesMes: 120, salientesHoy: 8 })).toEqual({
+            mes: { texto: "Llevas 120 de 300 minutos este mes", nivel: "normal" },
+            hoy: { texto: "8 de 50 llamadas hoy", nivel: "normal" },
+        });
+        expect(consumoSalientes({ ...AJUSTES, minutosSalientesMes: 239.6, salientesHoy: 40 })).toMatchObject({ mes: { texto: "Llevas 239 de 300 minutos este mes", nivel: "normal" }, hoy: { nivel: "cerca" } });
+        expect(consumoSalientes({ ...AJUSTES, minutosSalientesMes: 240, salientesHoy: 50 })).toMatchObject({ mes: { nivel: "cerca" }, hoy: { nivel: "tope" } });
+        expect(consumoSalientes({ ...AJUSTES, minutosSalientesMes: 310 }).mes?.nivel).toBe("tope");
+        // Salientes apagadas (tope 0) o un servidor que no manda el dato.
+        expect(consumoSalientes({ ...AJUSTES, topeMinutosSalientesMes: 0, maxSalientesPorDia: 0 })).toEqual({ mes: null, hoy: null });
+        expect(consumoSalientes({ topeMinutosSalientesMes: 300, maxSalientesPorDia: 50 })).toEqual({ mes: null, hoy: null });
+        // Ni el tope ni el consumo pueden ser infinitos o NaN.
+        expect(consumoSalientes({ ...AJUSTES, topeMinutosSalientesMes: Infinity, maxSalientesPorDia: NaN, minutosSalientesMes: 10, salientesHoy: 1 })).toEqual({ mes: null, hoy: null });
+        expect(consumoSalientes({ ...AJUSTES, minutosSalientesMes: Infinity, salientesHoy: NaN })).toEqual({ mes: null, hoy: null });
     });
 });
 

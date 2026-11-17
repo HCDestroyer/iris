@@ -287,7 +287,10 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
                 estadoRef.current = { ...e, llamada: fin.llamada };
                 setEstado(estadoRef.current);
             }
-            if (!hablaba) avisar({ tono: "warning", titulo: "La llamada se conectó sin audio y se colgó", descripcion: "Escríbele al cliente para seguir por mensaje.", duracion: 12_000 });
+            // Se dejó mientras conectaba y el servidor la cerró sin llegar a tener audio: para el cliente
+            // es una llamada perdida (`agente_salio`), con su devolución pendiente.
+            if (!hablaba && fin.llamada.estado === "perdida") avisar({ tono: "warning", titulo: "La llamada no llegó a conectar", descripcion: "Quedó como llamada perdida, por devolver.", duracion: 12_000 });
+            else if (!hablaba) avisar({ tono: "warning", titulo: "La llamada se conectó sin audio y se colgó", descripcion: "Escríbele al cliente para seguir por mensaje.", duracion: 12_000 });
         } else if (fin.tipo === "fallo") {
             const e = estadoRef.current;
             if (e.fase === "terminada" && e.llamada.id === id) setErrorColgar(fin.error);
@@ -318,18 +321,6 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
         else if (i >= 0) buscandoRef.current.splice(i, 1);
         setBuscando([...buscandoRef.current]);
     }, []);
-    const colgarPerdida = useCallback(
-        async (conversacionId: number, desde: number): Promise<Fin | null> => {
-            marcarBusqueda(conversacionId, true);
-            try {
-                return await buscarYColgar(conversacionId, desde);
-            } finally {
-                marcarBusqueda(conversacionId, false);
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- `buscarYColgar` se declara justo debajo y depende de lo mismo.
-        [marcarBusqueda, empresaMontada, yoId],
-    );
     const buscarYColgar = useCallback(
         async (conversacionId: number, desde: number): Promise<Fin | null> => {
             const ctx = { empresa: empresaMontada, yoId };
@@ -360,6 +351,18 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
             return fin;
         },
         [empresaMontada, yoId, trasAsegurar],
+    );
+
+    const colgarPerdida = useCallback(
+        async (conversacionId: number, desde: number): Promise<Fin | null> => {
+            marcarBusqueda(conversacionId, true);
+            try {
+                return await buscarYColgar(conversacionId, desde);
+            } finally {
+                marcarBusqueda(conversacionId, false);
+            }
+        },
+        [marcarBusqueda, buscarYColgar],
     );
 
     const despachar = useCallback(

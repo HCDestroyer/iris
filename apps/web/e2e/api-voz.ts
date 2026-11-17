@@ -51,6 +51,10 @@ export type OpcionesVoz = {
     salientes?: boolean;
     /** E1b: el permiso de llamada de cada conversación al empezar (por defecto, sin pedir). */
     permisos?: Record<number, Partial<PermisoLlamada>>;
+    /** Lo que lleva la empresa de sus topes de salientes (por defecto, 0 y 0). */
+    consumo?: { minutosSalientesMes: number; salientesHoy: number };
+    /** Topes de salientes guardados al empezar (por defecto, 50 al día y 300 minutos al mes). */
+    topes?: { maxSalientesPorDia?: number; topeMinutosSalientesMes?: number };
     /** E1b: Ana llama pero no contesta (sin `llamadas.contestar`). */
     soloLlama?: boolean;
 };
@@ -94,7 +98,7 @@ export function apiVoz(
     let idDevolucion = 70;
     const devoluciones: Devolucion[] = [];
     const canales = new Map<number, LlamadasCanal>();
-    let ajustes: AjustesVoz = { version: 3, grabar: "nunca", duracionMaxPersonaMin: 60, segundosAsignado: 10, maxSalientesPorDia: 50, topeMinutosSalientesMes: 300, maxColgadasMarcandoDia: 3, minutosSalientesMes: 0, salientesHoy: 0 };
+    let ajustes: AjustesVoz = { version: 3, grabar: "nunca", duracionMaxPersonaMin: 60, segundosAsignado: 10, maxSalientesPorDia: 50, topeMinutosSalientesMes: 300, maxColgadasMarcandoDia: 3, minutosSalientesMes: 0, salientesHoy: 0, ...opciones.consumo, ...opciones.topes };
     /** E1b: el permiso de llamada por conversación y lo que hace falta de cada saliente. */
     const permisos = new Map<number, PermisoLlamada>();
     for (const [id, p] of Object.entries(opciones.permisos ?? {})) permisos.set(Number(id), { estado: "sin_pedir", puedeLlamar: false, puedeSolicitar: true, sinContestar: 0, ...p });
@@ -135,6 +139,8 @@ export function apiVoz(
         soltar?: "error";
         anotar?: "error";
         descartar?: "cerrada";
+        /** `colgar?propia=true` en `conectando` responde 404, como el servidor anterior al seguimiento de E1b. */
+        propiaAntigua?: boolean;
         /** E1b: el 422 de «Pedir permiso». */
         solicitar?: "permiso_ya_vigente" | "limite_solicitudes" | "sin_plantilla_permiso" | "baja";
         /**
@@ -829,8 +835,17 @@ export function apiVoz(
         if (accion === "colgar") {
             if (!puede("llamadas.colgar")) return prohibido();
             // `?propia=true`: solo cuelga quien tiene la llamada (aunque supervise).
-            // …y una reservada aún sin aceptar (`conectando`) todavía no es de nadie: 404 a `propia`.
-            if (query.get("propia") === "true" && (l.usuario?.id !== yo.id || l.estado === "conectando")) return noExiste();
+            if (query.get("propia") === "true" && l.usuario?.id !== yo.id) return noExiste();
+            if (query.get("propia") === "true" && l.estado === "conectando") {
+                // Servidor anterior: una reservada aún sin aceptar no era de nadie (404 a `propia`).
+                if (forzar.propiaAntigua) return noExiste();
+                // Ahora la termina: una entrante que no llegó a tener audio es una perdida
+                // (`agente_salio`), con su devolución; el `accept` que llegue después ya no se aplica.
+                terminar(l, "perdida", "agente_salio");
+                pendiente(l.conversacionId ?? 0, l.id);
+                emitir({ tipo: "devolucion_actualizada", conversacionId: l.conversacionId ?? 0 });
+                return (await json(route, vista(l)), true);
+            }
             if (forzar.colgar) {
                 forzar.colgar -= 1;
                 return (await problema(route, P("error_interno", 500, "Error del servidor")), true);

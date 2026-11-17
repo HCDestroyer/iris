@@ -150,6 +150,8 @@ export function llamadaEnHilo(l: LlamadaEnMensaje): { icono: IconoLlamada; tono:
         case "terminada":
             return { icono: "contestada", tono: "ok", titulo: "Llamada de WhatsApp", detalle: [quien ? `La atendió ${quien}` : null, duracion].filter(Boolean).join(" · ") || null };
         case "perdida":
+            // Alguien empezó a contestarla y la dejó (cerró la pestaña) antes de tener audio.
+            if (l.motivoFin === "agente_salio") return { icono: "perdida", tono: "error", titulo: "Llamada perdida de WhatsApp", detalle: quien ? `${quien} empezó a contestarla y se cortó antes de conectar` : "Se empezó a contestar y se cortó antes de conectar" };
             return { icono: "perdida", tono: "error", titulo: "Llamada perdida de WhatsApp", detalle: duracion ? `Sonó ${duracion} y nadie contestó` : "Nadie contestó" };
         case "rechazada":
             return { icono: "rechazada", tono: "neutro", titulo: "Llamada rechazada", detalle: quien ? `La rechazó ${quien}` : null };

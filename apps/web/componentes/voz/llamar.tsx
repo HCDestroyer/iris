@@ -173,7 +173,13 @@ function PanelPermiso({ conv, cerrar }: { conv: Destino; cerrar: () => void }) {
             ) : null}
             {puedeLlamar && permiso.puedeLlamar && voz && ocupada ? <p className="text-xs text-muted-foreground">Ya tienes una llamada: termínala para hacer otra.</p> : null}
             {puedeLlamar && permiso.puedeLlamar && voz && !voz.admite ? <p className="text-xs text-warning">Este navegador no puede hacer llamadas (hace falta micrófono y una conexión segura).</p> : null}
-            {puedePedir && permiso.puedeSolicitar ? (
+            {permiso.solicitudSinConfirmar ? (
+                // El envío agotó sus intentos sin respuesta de WhatsApp: pudo llegar, así que sigue contando.
+                <p className="text-[0.8125rem] font-medium text-warning" data-slot="solicitud-sin-confirmar">
+                    Se envió la solicitud, pero WhatsApp aún no confirma que la recibió. Iris lo sigue comprobando; mientras tanto no se puede pedir otra.
+                </p>
+            ) : null}
+            {puedePedir && permiso.puedeSolicitar && !permiso.solicitudSinConfirmar ? (
                 <Boton variante={permiso.puedeLlamar ? "contorno" : "primario"} disabled={pidiendo} onClick={() => void pedir()}>
                     <Phone />
                     {pidiendo ? "Pidiendo…" : "Pedir permiso para llamarle"}
