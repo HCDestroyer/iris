@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.27.0](https://github.com/HCDestroyer/iris/compare/v0.26.0...v0.27.0) (2026-11-17)
+
+
+### Funcionalidades
+
+* **mensajeria:** voz E1b: llamadas salientes y permiso de llamada ([#187](https://github.com/HCDestroyer/iris/issues/187)) ([2f321c4](https://github.com/HCDestroyer/iris/commit/2f321c4a04134f4597e029c40478523fc57e2a2f))
+* **panel:** consumo de salientes, solicitud sin confirmar y agente_salio (seguimiento de E1b) ([#193](https://github.com/HCDestroyer/iris/issues/193)) ([1c431a8](https://github.com/HCDestroyer/iris/commit/1c431a829e20bc097e533cc0366e87741b792c47))
+* **panel:** llamadas salientes de WhatsApp en el panel (voz E1b) ([#189](https://github.com/HCDestroyer/iris/issues/189)) ([2f46fde](https://github.com/HCDestroyer/iris/commit/2f46fdee2e7613bcbb8e2c04cb6f6d9ccde524ac))
+
+
+### Correcciones
+
+* **mensajeria:** seguimiento de voz E1b: colgar la llamada reservada, solicitud sin confirmar y consumo ([#191](https://github.com/HCDestroyer/iris/issues/191)) ([e9980eb](https://github.com/HCDestroyer/iris/commit/e9980eb9773dc223822bb17003a720fd734cdcc5))
+
 ## [0.26.0](https://github.com/HCDestroyer/iris/compare/v0.25.0...v0.26.0) (2026-11-17)
 
 
