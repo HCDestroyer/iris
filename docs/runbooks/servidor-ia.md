@@ -134,7 +134,9 @@ Anota los resultados de la primera instalación en `voz.md` §4.9.
    y mergea a `main`.
 2. Crea la etiqueta `voz-vX.Y.Z` sobre ese commit. El workflow `voz-release.yml` publica la imagen,
    arma el paquete, lo firma con cosign sin clave y lo verifica sin red antes de crear la release.
-3. El job `publicar` espera una aprobación en el entorno `voz-release`.
+3. Los jobs `firmar` y `publicar` esperan una aprobación en el entorno `voz-release`: nada se firma
+   (ni queda en el registro de transparencia) sin ella. Si el entorno no existe o no tiene revisores
+   obligatorios, el workflow falla antes de construir.
 
 **Antes de la primera versión hay que preparar el repositorio** (lo gestiona el líder con el dueño;
 no lo hace ningún agente):
@@ -144,6 +146,7 @@ no lo hace ningún agente):
 - El **entorno `voz-release`** (Settings → Environments) con revisores obligatorios y limitado a las
   etiquetas `voz-v*`.
 
-El workflow tiene tres jobs con permisos mínimos: `construir` (publica la imagen), `firmar` (solo
-`id-token: write`; no hace checkout ni ejecuta nada del repositorio) y `publicar` (verifica sin red
-y crea la release). Todas las acciones van fijadas por SHA.
+El workflow comprueba primero el entorno y después corre tres jobs con permisos mínimos:
+`construir` (publica la imagen y exporta las sumas), `firmar` (solo `id-token: write`; no hace
+checkout ni ejecuta nada del repositorio, y comprueba las sumas antes de firmar) y `publicar`
+(verifica sin red y crea la release). Todas las acciones van fijadas por SHA.

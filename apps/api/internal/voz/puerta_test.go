@@ -418,12 +418,21 @@ func TestRenovarCertificadoPorElCanal(t *testing.T) {
 	}
 	// Confirmar una huella que no es la anunciada no cambia nada.
 	esperar(t, "409 sin_huella_siguiente", c.Credencial(ctx, voz.PeticionCredencial{ConfirmaHuellaServidor: "sha256:" + strings.Repeat("a", 64)}))
-	// Iris fija las dos y confirma; la puerta empieza a usar la nueva.
+	// Hay una rotación de token en convivencia: confirmar la huella del servidor (una petición que
+	// no trae convivenciaSeg) no debe revocar el token anterior ni cortar esa convivencia.
+	nuevo, _ := voz.NuevoToken()
+	if err := c.Credencial(ctx, voz.PeticionCredencial{Token: nuevo, ConvivenciaSeg: 3600}); err != nil {
+		t.Fatal(err)
+	}
+	// Iris fija las dos y confirma (firmando con el token anterior); la puerta empieza a usar la nueva.
 	ambas := b.Cliente(cert, r.Token, versionIris, r.HuellaServidor, siguiente)
 	if err := ambas.Credencial(ctx, voz.PeticionCredencial{ConfirmaHuellaServidor: siguiente}); err != nil {
 		t.Fatal(err)
 	}
 	ambas.Cerrar()
+	if e, _ := b.Almacen.Leer(); len(e.TokenAnterior) != voz.LargoToken || e.TokenAnteriorVence.IsZero() {
+		t.Fatal("confirmar la huella del servidor cortó la convivencia del token")
+	}
 	if _, err := ambas.Salud(ctx); err != nil || ambas.HuellaVista() != siguiente {
 		t.Fatalf("tras confirmar debía verse la huella nueva: %v %s", err, ambas.HuellaVista())
 	}

@@ -38,6 +38,11 @@ if ! grep -qF "COSIGN_VERSION: $COSIGN_VERSION" "$flujo" || ! grep -qF "COSIGN_S
     echo "voz-release.yml does not pin the same cosign as install-voz.sh" >&2
     exit 1
 fi
+# Nothing is signed or published without the approval of the voz-release environment.
+for trabajo in firmar publicar; do
+    sed -n "/^  $trabajo:/,/^  [a-z]*:\$/p" "$flujo" | grep -q '^    environment: voz-release$' ||
+        { echo "voz-release.yml: the job $trabajo must run in the voz-release environment" >&2; exit 1; }
+done
 # Every action of the voz workflows is pinned by commit SHA.
 if grep -hE '^\s*-?\s*uses:' "$aqui/../../.github/workflows/voz.yml" "$flujo" | grep -qvE '@[0-9a-f]{40}( |$)'; then
     echo "a GitHub action of the voz workflows is not pinned by SHA" >&2

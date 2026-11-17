@@ -391,6 +391,7 @@ type PeticionCredencial struct {
 	HuellaCliente string `json:"huellaCliente,omitempty"`
 	// ConvivenciaSeg: cuánto siguen valiendo el token y la huella anteriores. 0 = revocar ahora:
 	// lo anterior deja de valer en el acto, también si la petición no trae token ni huella nuevos.
+	// (Salvo en una petición que solo confirma la huella siguiente del servidor.)
 	ConvivenciaSeg int `json:"convivenciaSeg"`
 	// ConfirmaHuellaServidor: Iris ya fijó esta huella siguiente; la puerta puede empezar a usarla.
 	ConfirmaHuellaServidor string `json:"confirmaHuellaServidor,omitempty"`
@@ -421,7 +422,8 @@ func (p *Puerta) credencial(o respuesta, cuerpo []byte, ahora time.Time) int {
 		}
 		p.cfg.Log.Info("certificado del servidor renovado")
 	}
-	if len(in.Token) != 0 || in.HuellaCliente != "" || conv == 0 {
+	// Una petición que solo confirma la huella siguiente del servidor no toca las credenciales de Iris.
+	if len(in.Token) != 0 || in.HuellaCliente != "" || (conv == 0 && in.ConfirmaHuellaServidor == "") {
 		err := p.cfg.Almacen.Cambiar(func(e *Estado) error {
 			aplicarCredencial(e, in, conv, ahora)
 			return nil
