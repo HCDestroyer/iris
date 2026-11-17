@@ -2,6 +2,7 @@ package mensajeria
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -35,19 +36,21 @@ type enlaceLeido struct {
 }
 
 type enlaceHecho struct {
-	ID        int64
-	Resultado voz.ResultadoEnlace
+	ID        int64               `json:"id"`
+	Version   int32               `json:"-"`
+	Resultado voz.ResultadoEnlace `json:"-"`
 }
 
 // ConectarMotor hace el intercambio de enlace con el código guardado.
 type ConectarMotor struct {
 	m       *Modulo
+	k       *CasosServidorIA
 	leer    *auditoria.Caso[int64, enlaceLeido]
 	guardar *auditoria.Caso[enlaceHecho, MotorIA]
 }
 
-func nuevoConectarMotor(m *Modulo, _ *CasosServidorIA) *ConectarMotor {
-	return &ConectarMotor{m: m,
+func nuevoConectarMotor(m *Modulo, k *CasosServidorIA) *ConectarMotor {
+	return &ConectarMotor{m: m, k: k,
 		leer: auditoria.Nuevo(auditoria.Caso[int64, enlaceLeido]{
 			Accion: "servidor_ia.conectar", Permiso: nucleo.PermServidorIAAdministrar, SinEmpresa: true, AuditarExito: sinAuditar[enlaceLeido],
 			Logica: func(ctx context.Context, t *auditoria.Tx, id int64) (enlaceLeido, error) {
@@ -90,9 +93,13 @@ func nuevoConectarMotor(m *Modulo, _ *CasosServidorIA) *ConectarMotor {
 					ok, motivo = false, "protocolo"
 					man = voz.Manifiesto{}
 				}
-				f, err := mensajeriabd.New(t).GuardarEnlaceMotorIA(ctx, mensajeriabd.GuardarEnlaceMotorIAParams{ID: in.ID, Token: token,
+				f, err := mensajeriabd.New(t).GuardarEnlaceMotorIA(ctx, mensajeriabd.GuardarEnlaceMotorIAParams{ID: in.ID, Version: in.Version, Token: token,
 					HuellaTls: &in.Resultado.HuellaServidor, VersionMotor: ptrSi(man.Version), VersionProtocolo: ptrSi(man.Protocolo),
 					IrisMin: ptrSi(man.IrisMin), IrisMax: ptrSi(man.IrisMax), Compatible: ok, MotivoIncompatible: ptrSi(motivo)})
+				if errors.Is(err, pgx.ErrNoRows) {
+					// Reenlazaron mientras se conectaba: este token ya no corresponde al certificado guardado.
+					return MotorIA{}, reglaMotor(http.StatusConflict, "enlace_vencido", "El enlace cambió mientras se conectaba: pide otro código")
+				}
 				if err != nil {
 					return MotorIA{}, err
 				}
@@ -115,85 +122,139 @@ func (k *ConectarMotor) Ejecutar(ctx context.Context, id int64) (MotorIA, error)
 	defer cancelar()
 	r, err := voz.Enlazar(cctx, voz.OpcionesEnlace{URL: e.fila.Url, Codigo: e.codigo, Cert: e.cert, Control: controlIA(k.m.cfg.PermitirLoopbackIA)})
 	if err != nil {
+		// Queda en la auditoría (sin el código): un intento fallido también es un hecho.
+		_, _ = k.k.conectarFallido.Ejecutar(ctx, id)
 		return MotorIA{}, motorNoResponde()
 	}
-	return k.guardar.Ejecutar(ctx, enlaceHecho{ID: id, Resultado: r})
+	return k.guardar.Ejecutar(ctx, enlaceHecho{ID: id, Version: e.fila.Version, Resultado: r})
 }
 
 // --- Canal vivo -----------------------------------------------------------------------------------
 
-// tokenVivo devuelve el token con el que el servidor contesta: el vigente o, si una rotación quedó
-// a medias (el servidor la aplicó y la respuesta se perdió), el siguiente.
-func (m *Modulo) tokenVivo(ctx context.Context, c conexionMotor) ([]byte, voz.Salud, error) {
-	ultimo := errors.New("servidor de IA sin credenciales")
-	for _, token := range [][]byte{c.token, c.tokenSiguiente} {
-		if len(token) != voz.LargoToken {
-			continue
-		}
-		cli, err := m.clienteMotor(c, token)
-		if err != nil {
-			return nil, voz.Salud{}, err
-		}
-		cctx, cancelar := context.WithTimeout(ctx, plazoLatidoIA)
-		s, err := cli.Salud(cctx)
-		cancelar()
-		cli.Cerrar()
-		if err == nil {
-			return token, s, nil
-		}
-		ultimo = err
-		var ep *voz.ErrorPuerta
-		if !errors.As(err, &ep) || ep.Estado != http.StatusUnauthorized {
-			break // no es cosa del token: no tiene sentido probar el otro
+// canalVivo: las credenciales con las que el servidor contesta ahora.
+type canalVivo struct {
+	token []byte
+	cert  tls.Certificate
+	// siguiente: contesta con lo «siguiente»: una rotación quedó a medias (el servidor la aplicó y la
+	// respuesta se perdió) y solo falta promoverla en Iris.
+	siguiente bool
+}
+
+func (m *Modulo) probarCanal(ctx context.Context, c conexionMotor, cert tls.Certificate, token []byte) error {
+	cli, err := m.clienteCon(c, cert, token)
+	if err != nil {
+		return err
+	}
+	defer cli.Cerrar()
+	cctx, cancelar := context.WithTimeout(ctx, plazoLatidoIA)
+	defer cancelar()
+	_, err = cli.Salud(cctx)
+	return err
+}
+
+// canalSiguiente: las credenciales que se estaban entregando (el certificado nuevo, si lo había).
+func (c conexionMotor) canalSiguiente() (canalVivo, bool) {
+	if len(c.tokenSiguiente) != voz.LargoToken {
+		return canalVivo{}, false
+	}
+	v := canalVivo{token: c.tokenSiguiente, cert: c.cert, siguiente: true}
+	if c.certSiguiente != nil {
+		v.cert = *c.certSiguiente
+	}
+	return v, true
+}
+
+// canalVivo prueba el canal con lo vigente y, si no contesta, con lo «siguiente».
+func (m *Modulo) canalVivo(ctx context.Context, c conexionMotor) (canalVivo, error) {
+	err := errors.New("servidor de IA sin credenciales")
+	if len(c.token) == voz.LargoToken {
+		if err = m.probarCanal(ctx, c, c.cert, c.token); err == nil {
+			return canalVivo{token: c.token, cert: c.cert}, nil
 		}
 	}
-	return nil, voz.Salud{}, ultimo
+	if sig, hay := c.canalSiguiente(); hay {
+		if errSig := m.probarCanal(ctx, c, sig.cert, sig.token); errSig == nil {
+			return sig, nil
+		}
+	}
+	return canalVivo{}, err
 }
 
+// plazoRotacionIA: lo que dura apartada una rotación (más que entregarla y comprobarla). Mientras
+// tanto nadie más rota ni termina esa rotación: ni otra persona, ni otra réplica, ni el latido.
+const plazoRotacionIA = 30 * time.Second
+
+func rotacionEnCurso() *nucleo.Problema {
+	return nucleo.Conflicto("rotacion_en_curso", "Hay otra rotación de credenciales en curso: vuelve a intentarlo en unos segundos")
+}
+
+// rotacionEnVuelo: otra rotación está apartada y todavía dentro de su plazo.
+func (m *Modulo) rotacionEnVuelo(f mensajeriabd.MensajeriaVozMotor) bool {
+	return f.RotacionDesde != nil && m.ahora().Sub(*f.RotacionDesde) < plazoRotacionIA
+}
+
+// credencialEntregada: el servidor ya tiene lo «siguiente»; se promueve en Iris. No lleva ningún
+// secreto: el token y la clave del certificado nuevo ya están guardados (cifrados) en la fila.
 type credencialEntregada struct {
-	ID      int64
-	Origen  string
-	Activar bool
-	// cert nuevo (rotación del certificado de cliente), ya cifrada su clave.
-	Cert      *string
-	CertClave []byte
-	CertVence *time.Time
+	ID      int64  `json:"id"`
+	Origen  string `json:"origen"`
+	Activar bool   `json:"activar"`
 }
 
-// entregarCredencial genera un token aleatorio, lo deja como «siguiente» (para no perder el canal
-// si la respuesta se pierde) y lo entrega al servidor firmando con el vigente.
-func (m *Modulo) entregarCredencial(ctx context.Context, k *CasosServidorIA, c conexionMotor, vigente []byte, convivencia time.Duration, huellaCliente string) error {
+// entregarCredencial genera un token aleatorio (y, si se pide, un certificado de cliente nuevo), lo
+// guarda como «siguiente» ANTES de entregarlo (si la respuesta se pierde, Iris reintenta con lo
+// guardado en vez de quedarse sin canal) y lo entrega firmando con el canal vigente.
+func (m *Modulo) entregarCredencial(ctx context.Context, k *CasosServidorIA, c conexionMotor, vigente canalVivo, convivencia time.Duration, renovarCert bool) error {
 	nuevo, err := voz.NuevoToken()
 	if err != nil {
 		return err
 	}
-	if _, err := k.fijarToken.Ejecutar(ctx, entradaFijarToken{ID: c.fila.ID, Token: nuevo}); err != nil {
+	fijar := entradaFijarSiguiente{ID: c.fila.ID, Version: c.fila.Version, Token: nuevo}
+	huella, sig := "", conexionMotor{fila: c.fila, cert: c.cert, tokenSiguiente: nuevo}
+	if renovarCert {
+		cert, clave, err := voz.GenerarCertificado("iris", vidaCertCliente)
+		if err != nil {
+			return err
+		}
+		if huella, _, err = voz.HuellaDePEM(cert); err != nil {
+			return err
+		}
+		cifrada, err := m.cifrarMotor(c.fila.ID, "cert_cliente_clave", clave)
+		if err != nil {
+			return err
+		}
+		par, err := tls.X509KeyPair(cert, clave)
+		if err != nil {
+			return err
+		}
+		pem, vence := string(cert), m.ahora().Add(vidaCertCliente)
+		fijar.Cert, fijar.CertClave, fijar.CertVence, sig.certSiguiente = &pem, cifrada, &vence, &par
+	}
+	if _, err := k.fijarSiguiente.Ejecutar(ctx, fijar); err != nil {
 		return err
 	}
-	cli, err := m.clienteMotor(c, vigente)
+	cli, err := m.clienteCon(c, vigente.cert, vigente.token)
 	if err != nil {
 		return err
 	}
 	defer cli.Cerrar()
 	cctx, cancelar := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelar()
-	err = cli.Credencial(cctx, voz.PeticionCredencial{Token: nuevo, HuellaCliente: huellaCliente, ConvivenciaSeg: int(convivencia.Seconds())})
+	err = cli.Credencial(cctx, voz.PeticionCredencial{Token: nuevo, HuellaCliente: huella, ConvivenciaSeg: int(convivencia.Seconds())})
 	if err == nil {
 		return nil
 	}
-	// ¿La aplicó y se perdió la respuesta? Si el servidor ya contesta con el nuevo, está entregada.
-	con := c
-	con.token, con.tokenSiguiente = nil, nuevo
-	if _, _, errVivo := m.tokenVivo(ctx, con); errVivo == nil {
+	// ¿La aplicó y se perdió la respuesta? Si el servidor ya contesta con lo nuevo, está entregada.
+	if v, hay := sig.canalSiguiente(); hay && m.probarCanal(ctx, c, v.cert, v.token) == nil {
 		return nil
 	}
-	return err
+	return motorNoResponde()
 }
 
 // --- Activar --------------------------------------------------------------------------------------
 
-// ActivarMotor: el administrador ya comparó la huella. Lo primero es rotar a un token aleatorio,
-// sin convivencia: el derivado del código deja de valer en ese momento.
+// ActivarMotor: el administrador ya comparó la huella. Lo primero que hace Iris es rotar a un token
+// aleatorio, sin convivencia: el derivado del código deja de valer en ese momento.
 type ActivarMotor struct {
 	m       *Modulo
 	k       *CasosServidorIA
@@ -204,6 +265,8 @@ func nuevoActivarMotor(m *Modulo, k *CasosServidorIA) *ActivarMotor {
 	return &ActivarMotor{m: m, k: k, guardar: nuevoGuardarCredencial(m, "servidor_ia.activar")}
 }
 
+// nuevoGuardarCredencial: promueve lo «siguiente». Siempre va detrás de k.admin (personas) o del
+// latido (sistema), que son los que autorizan.
 func nuevoGuardarCredencial(m *Modulo, accion string) *auditoria.Caso[credencialEntregada, MotorIA] {
 	return auditoria.Nuevo(auditoria.Caso[credencialEntregada, MotorIA]{
 		Accion: accion, Acceso: auditoria.Autenticado, SinEmpresa: true,
@@ -211,10 +274,13 @@ func nuevoGuardarCredencial(m *Modulo, accion string) *auditoria.Caso[credencial
 			t.FijarEmpresa(0)
 			t.FijarEntidad("voz_motor", in.ID)
 			q := mensajeriabd.New(t)
-			f, err := q.PromoverTokenMotorIA(ctx, mensajeriabd.PromoverTokenMotorIAParams{ID: in.ID, CertCliente: in.Cert,
-				CertClienteClave: in.CertClave, CertClienteVenceEn: in.CertVence})
+			antes, err := q.MotorIAParaActualizar(ctx, in.ID)
+			if err != nil {
+				return MotorIA{}, err
+			}
+			f, err := q.PromoverTokenMotorIA(ctx, in.ID)
 			if errors.Is(err, pgx.ErrNoRows) {
-				return MotorIA{}, nucleo.Conflicto("rotacion_en_curso", "Otra rotación terminó antes: vuelve a intentarlo")
+				return MotorIA{}, rotacionEnCurso()
 			}
 			if err != nil {
 				return MotorIA{}, err
@@ -229,7 +295,7 @@ func nuevoGuardarCredencial(m *Modulo, accion string) *auditoria.Caso[credencial
 					return MotorIA{}, err
 				}
 			}
-			t.Anotar(map[string]any{"origen": in.Origen, "cert_cliente_renovado": in.Cert != nil})
+			t.Anotar(map[string]any{"origen": in.Origen, "cert_cliente_renovado": antes.CertClienteSiguiente != nil})
 			// Nunca el token.
 			return aMotorIA(f, 0), t.EmitirEnEmpresa("voz.motor_token_rotado", nil, map[string]any{"motor_id": f.ID, "origen": in.Origen})
 		},
@@ -238,7 +304,7 @@ func nuevoGuardarCredencial(m *Modulo, accion string) *auditoria.Caso[credencial
 
 // Ejecutar activa el servidor.
 func (a *ActivarMotor) Ejecutar(ctx context.Context, id int64) (MotorIA, error) {
-	c, err := a.k.leer.Ejecutar(ctx, entradaLeerMotor{ID: id, Permiso: nucleo.PermServidorIAAdministrar})
+	c, err := a.k.admin.Ejecutar(ctx, id)
 	if err != nil {
 		return MotorIA{}, err
 	}
@@ -251,14 +317,22 @@ func (a *ActivarMotor) Ejecutar(ctx context.Context, id int64) (MotorIA, error) 
 	case f.ActivadoEn == nil && a.m.ahora().Sub(*f.EnlazadoEn) > vidaEnlaceSinActivar:
 		return MotorIA{}, reglaMotor(http.StatusConflict, "enlace_vencido", "El enlace caducó sin activarse: enlaza de nuevo con otro código")
 	}
-	vigente, _, err := a.m.tokenVivo(ctx, c)
-	if err != nil {
-		return MotorIA{}, motorNoResponde()
+	if a.m.rotacionEnVuelo(f) {
+		return MotorIA{}, rotacionEnCurso()
 	}
-	// Si lo que contesta ya es el «siguiente» (rotación a medias), basta con promoverlo.
-	if string(vigente) != string(c.tokenSiguiente) || len(c.tokenSiguiente) == 0 {
-		if err := a.m.entregarCredencial(ctx, a.k, c, vigente, 0, ""); err != nil {
+	// Lo primero es rotar (antes de cualquier otra petición al servidor). Solo si un intento anterior
+	// dejó algo «siguiente» guardado hay que mirar antes con qué contesta.
+	entregado := false
+	if _, hay := c.canalSiguiente(); hay {
+		v, err := a.m.canalVivo(ctx, c)
+		if err != nil {
 			return MotorIA{}, motorNoResponde()
+		}
+		entregado = v.siguiente
+	}
+	if !entregado {
+		if err := a.m.entregarCredencial(ctx, a.k, c, canalVivo{token: c.token, cert: c.cert}, 0, false); err != nil {
+			return MotorIA{}, err
 		}
 	}
 	m, err := a.guardar.Ejecutar(ctx, credencialEntregada{ID: id, Origen: "enlace", Activar: true})
@@ -293,7 +367,7 @@ func nuevoRotarMotor(m *Modulo, k *CasosServidorIA) *RotarMotor {
 
 // Ejecutar rota desde el panel.
 func (r *RotarMotor) Ejecutar(ctx context.Context, in EntradaRotarMotor) (MotorIA, error) {
-	c, err := r.k.leer.Ejecutar(ctx, entradaLeerMotor{ID: in.ID, Permiso: nucleo.PermServidorIAAdministrar})
+	c, err := r.k.admin.Ejecutar(ctx, in.ID)
 	if err != nil {
 		return MotorIA{}, err
 	}
@@ -304,41 +378,35 @@ func (r *RotarMotor) rotar(ctx context.Context, c conexionMotor, origen string, 
 	if c.fila.ActivadoEn == nil || len(c.token) != voz.LargoToken {
 		return MotorIA{}, reglaMotor(http.StatusConflict, "motor_sin_enlazar", "El servidor de IA no está activado")
 	}
-	vigente, _, err := r.m.tokenVivo(ctx, c)
+	if r.m.rotacionEnVuelo(c.fila) {
+		return MotorIA{}, rotacionEnCurso()
+	}
+	vivo, err := r.m.canalVivo(ctx, c)
 	if err != nil {
 		return MotorIA{}, motorNoResponde()
 	}
-	hecho := credencialEntregada{ID: c.fila.ID, Origen: origen}
-	convivencia, huella := convivenciaRotacion, ""
+	if vivo.siguiente {
+		// Una rotación anterior llegó al servidor y no se terminó en Iris: primero se termina esa.
+		m, err := r.guardar.Ejecutar(ctx, credencialEntregada{ID: c.fila.ID, Origen: origen})
+		if err != nil || !revocar {
+			return m, err
+		}
+		if c, err = r.k.leer.Ejecutar(ctx, c.fila.ID); err != nil {
+			return MotorIA{}, err
+		}
+		vivo = canalVivo{token: c.token, cert: c.cert}
+	}
+	convivencia := convivenciaRotacion
 	if revocar {
 		convivencia = 0
 	}
 	// El certificado de cliente se renueva en la misma operación si vence pronto o si se revoca
 	// (token y clave privada caen juntos).
-	if revocar || c.fila.CertClienteVenceEn == nil || c.fila.CertClienteVenceEn.Sub(r.m.ahora()) < margenCertCliente {
-		cert, clave, err := voz.GenerarCertificado("iris", vidaCertCliente)
-		if err != nil {
-			return MotorIA{}, err
-		}
-		h, _, err := voz.HuellaDePEM(cert)
-		if err != nil {
-			return MotorIA{}, err
-		}
-		cifrada, err := r.m.cifrarMotor(c.fila.ID, "cert_cliente_clave", clave)
-		if err != nil {
-			return MotorIA{}, err
-		}
-		pem, vence := string(cert), r.m.ahora().Add(vidaCertCliente)
-		hecho.Cert, hecho.CertClave, hecho.CertVence, huella = &pem, cifrada, &vence, h
+	renovar := revocar || c.fila.CertClienteVenceEn == nil || c.fila.CertClienteVenceEn.Sub(r.m.ahora()) < margenCertCliente
+	if err := r.m.entregarCredencial(ctx, r.k, c, vivo, convivencia, renovar); err != nil {
+		return MotorIA{}, err
 	}
-	if string(vigente) != string(c.tokenSiguiente) || len(c.tokenSiguiente) == 0 {
-		if err := r.m.entregarCredencial(ctx, r.k, c, vigente, convivencia, huella); err != nil {
-			return MotorIA{}, motorNoResponde()
-		}
-	} else {
-		hecho.Cert, hecho.CertClave, hecho.CertVence = nil, nil, nil // solo se termina la rotación a medias
-	}
-	return r.guardar.Ejecutar(ctx, hecho)
+	return r.guardar.Ejecutar(ctx, credencialEntregada{ID: c.fila.ID, Origen: origen})
 }
 
 // --- Probar ---------------------------------------------------------------------------------------
@@ -377,7 +445,7 @@ func nuevoProbarMotor(m *Modulo, k *CasosServidorIA) *ProbarMotor {
 
 // Ejecutar prueba el canal, la compatibilidad y el modelo con una frase fija de ida y vuelta.
 func (p *ProbarMotor) Ejecutar(ctx context.Context, id int64) (MotorIA, error) {
-	c, err := p.k.leer.Ejecutar(ctx, entradaLeerMotor{ID: id, Permiso: nucleo.PermServidorIAAdministrar})
+	c, err := p.k.admin.Ejecutar(ctx, id)
 	if err != nil {
 		return MotorIA{}, err
 	}
@@ -398,11 +466,11 @@ func (p *ProbarMotor) Ejecutar(ctx context.Context, id int64) (MotorIA, error) {
 		pr.Pasos = append(pr.Pasos, PasoPrueba{Codigo: codigo, Estado: "omitido", Detalle: "Esta instalación no lo trae"})
 	}
 	inicio := time.Now()
-	token, _, err := p.m.tokenVivo(ctx, c)
+	vivo, err := p.m.canalVivo(ctx, c)
 	if !paso("conexion", inicio, err, map[bool]string{true: "TLS, huella y firma correctas", false: "No se pudo hablar con el servidor de IA"}[err == nil]) {
 		return p.guardar.Ejecutar(ctx, pruebaHecha{ID: id, Prueba: pr})
 	}
-	cli, err := p.m.clienteMotor(c, token)
+	cli, err := p.m.clienteCon(c, vivo.cert, vivo.token)
 	if err != nil {
 		return MotorIA{}, err
 	}
@@ -467,10 +535,12 @@ func catalogoValido(ms []voz.ModeloCatalogo) []string {
 // --- Latido ---------------------------------------------------------------------------------------
 
 type resultadoLatido struct {
-	ID       int64
-	Salud    *voz.Salud
-	Version  *voz.Version
-	Vista    string // huella que presentó el servidor en este latido
+	ID      int64
+	Salud   *voz.Salud
+	Version *voz.Version
+	Vista   string // huella que presentó el servidor en este latido
+	// Metricas: la lectura de /metricas de este latido (nil si no se pudo leer).
+	Metricas *voz.Metricas
 	Confirmo string // huella siguiente que Iris acaba de confirmar
 }
 
@@ -493,8 +563,10 @@ func nuevosCasosLatido(m *Modulo, k *CasosServidorIA) {
 			if _, err := q.BorrarCodigosEnlaceVencidos(ctx, ptrT(m.ahora())); err != nil {
 				return struct{}{}, err
 			}
-			_, err := q.BorrarPlazasVencidasIA(ctx, m.ahora())
-			return struct{}{}, err
+			if _, err := q.BorrarPlazasVencidasIA(ctx, m.ahora()); err != nil {
+				return struct{}{}, err
+			}
+			return struct{}{}, m.mantenerMuestras(ctx, q)
 		},
 	})
 	k.latido = auditoria.Nuevo(auditoria.Caso[resultadoLatido, mensajeriabd.MensajeriaVozMotor]{
@@ -583,7 +655,11 @@ func nuevosCasosLatido(m *Modulo, k *CasosServidorIA) {
 				}
 				slog.InfoContext(ctx, "servidor de IA: huella del certificado renovada por el canal vigente", "motor_id", f.ID)
 			}
-			return f, emitirEstadoMotor(t, f, de)
+			if err := emitirEstadoMotor(t, f, de); err != nil {
+				return f, err
+			}
+			// La muestra del tablero (buena o fallida) y los episodios de aviso.
+			return f, m.guardarMuestra(ctx, t, q, f, in.Metricas)
 		},
 	})
 }
@@ -591,7 +667,7 @@ func nuevosCasosLatido(m *Modulo, k *CasosServidorIA) {
 // latirMotor consulta /salud (y /version si cambió) y guarda el resultado.
 func (m *Modulo) latirMotor(ctx context.Context, id int64) (mensajeriabd.MensajeriaVozMotor, error) {
 	k := m.ServidorIA
-	c, err := k.leer.Ejecutar(ctx, entradaLeerMotor{ID: id, sistema: true})
+	c, err := k.leer.Ejecutar(ctx, id)
 	if err != nil {
 		return c.fila, err
 	}
@@ -600,9 +676,17 @@ func (m *Modulo) latirMotor(ctx context.Context, id int64) (mensajeriabd.Mensaje
 		return f, nil
 	}
 	r := resultadoLatido{ID: id}
-	token, _, err := m.tokenVivo(ctx, c)
+	vivo, err := m.canalVivo(ctx, c)
+	if err == nil && vivo.siguiente && !m.rotacionEnVuelo(f) {
+		// Una rotación quedó a medias (el servidor la aplicó): se termina sola, sin perder el canal.
+		// Si todavía está en vuelo, la termina quien la empezó.
+		if _, errP := k.Rotar.guardar.Ejecutar(ctx, credencialEntregada{ID: id, Origen: "automatica"}); errP != nil {
+			slog.WarnContext(ctx, "servidor de IA: terminar una rotación a medias", "err", errP)
+		}
+	}
+	token := vivo.token
 	if err == nil {
-		cli, errCli := m.clienteMotor(c, token)
+		cli, errCli := m.clienteCon(c, vivo.cert, token)
 		if errCli != nil {
 			return f, errCli
 		}
@@ -612,6 +696,12 @@ func (m *Modulo) latirMotor(ctx context.Context, id int64) (mensajeriabd.Mensaje
 		cancelar()
 		if errS == nil {
 			r.Salud, r.Vista = &s, cli.HuellaVista()
+			// La muestra del tablero, en la misma pasada. Si falla o no valida, cuenta como lectura fallida.
+			mctx, cancelarM := context.WithTimeout(ctx, plazoLatidoIA)
+			if mt, errM := cli.Metricas(mctx); errM == nil {
+				r.Metricas = &mt
+			}
+			cancelarM()
 			if f.VersionMotor == nil || *f.VersionMotor != s.Version || catalogoDe(f).GPU == nil {
 				cctx, cancelar := context.WithTimeout(ctx, plazoLatidoIA)
 				if v, errV := cli.Version(cctx); errV == nil {
@@ -624,7 +714,7 @@ func (m *Modulo) latirMotor(ctx context.Context, id int64) (mensajeriabd.Mensaje
 				cctx, cancelar := context.WithTimeout(ctx, plazoLatidoIA)
 				con := c
 				con.fila.HuellaTlsSiguiente = &h
-				if cli2, errC := m.clienteMotor(con, token); errC == nil {
+				if cli2, errC := m.clienteCon(con, vivo.cert, token); errC == nil {
 					if cli2.Credencial(cctx, voz.PeticionCredencial{ConfirmaHuellaServidor: h}) == nil {
 						r.Confirmo = h
 					}
@@ -654,7 +744,7 @@ func (m *Modulo) MantenerServidorIA(ctx context.Context, bd nucleo.BD) error {
 		return err
 	}
 	if motorUtilizable(f2) && f2.TokenRotadoEn != nil && m.ahora().Sub(*f2.TokenRotadoEn) > vidaToken {
-		c, err := k.leer.Ejecutar(ctx, entradaLeerMotor{ID: f2.ID, sistema: true})
+		c, err := k.leer.Ejecutar(ctx, f2.ID)
 		if err == nil {
 			if _, err := k.Rotar.rotar(ctx, c, "automatica", false); err != nil {
 				slog.WarnContext(ctx, "servidor de IA: rotación automática", "err", err)

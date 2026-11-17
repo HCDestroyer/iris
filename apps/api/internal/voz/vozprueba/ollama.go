@@ -31,6 +31,8 @@ type Ollama struct {
 	// Respuesta del chat (por defecto, una respuesta corta válida) y su estado (200).
 	Respuesta []byte
 	Estado    int
+	// Responder: si no es nil, decide la respuesta de cada chat por su cuerpo (nil = la de siempre).
+	Responder func(cuerpo []byte) []byte
 	// Caido: toda petición responde 503.
 	Caido bool
 	// Redirigir: el chat responde 307 hacia esta dirección.
@@ -79,7 +81,7 @@ func (o *Ollama) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	cuerpo, _ := io.ReadAll(io.LimitReader(r.Body, 8<<20))
 	o.mu.Lock()
 	o.peticiones = append(o.peticiones, Peticion{Metodo: r.Method, Ruta: r.URL.Path, Cabeceras: r.Header.Clone(), Cuerpo: cuerpo})
-	caido, demora, resp, estado, redirigir := o.Caido, o.Demora, o.Respuesta, o.Estado, o.Redirigir
+	caido, demora, resp, estado, redirigir, responder := o.Caido, o.Demora, o.Respuesta, o.Estado, o.Redirigir, o.Responder
 	type m struct {
 		Name      string    `json:"name"`
 		Model     string    `json:"model"`
@@ -119,6 +121,11 @@ func (o *Ollama) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			case <-time.After(demora):
 			case <-r.Context().Done():
 				return
+			}
+		}
+		if responder != nil {
+			if propia := responder(cuerpo); propia != nil {
+				resp = propia
 			}
 		}
 		if resp == nil {

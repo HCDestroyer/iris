@@ -28,7 +28,13 @@ type bancoIA struct {
 
 func nuevoBancoIA(t *testing.T, o vozprueba.Opciones) *bancoIA {
 	t.Helper()
-	x := &bancoIA{bandeja: nuevaBandeja(t, func(c *mensajeria.Config) { c.PermitirLoopbackIA = true })}
+	return bancoIASobre(t, nuevaBandeja(t, func(c *mensajeria.Config) { c.PermitirLoopbackIA = true }), o)
+}
+
+// bancoIASobre monta el servidor de IA de prueba sobre una bandeja ya armada.
+func bancoIASobre(t *testing.T, b *bandeja, o vozprueba.Opciones) *bancoIA {
+	t.Helper()
+	x := &bancoIA{bandeja: b}
 	// La puerta usa el mismo reloj (fijo) que Iris: las peticiones van firmadas con la hora.
 	o.Ahora = func() time.Time { return *x.reloj }
 	x.banco = vozprueba.NuevoBanco(t, o)

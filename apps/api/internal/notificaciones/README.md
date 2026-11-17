@@ -47,6 +47,12 @@ al log ni a la auditoría. La auditoría del dispositivo lleva `fin_fcm` (últim
   `asistente_tope:<empresa>:<mes>:<80|100>:<tope>`: una sola vez por umbral, mes y valor del tope
   aunque el evento llegue dos veces; si suben el tope y lo vuelven a cruzar, avisa de nuevo. El
   `enlace` de un aviso solo puede ser una ruta interna del panel (CHECK en la tabla).
+- **Servidor de IA** (`avisos_servidor_ia.go`, `contratos/voz.md` §4.12): el worker consume
+  `voz.motor_estado_cambiado` (solo `no_disponible` e `incompatible`) y `servidor_ia.umbral_superado`
+  y crea aviso y correo para cada persona activa con `servidor_ia.ver` y `empresas.todas` sin
+  límite. Tipos `servidor_ia_caido`, `servidor_ia_incompatible` y `servidor_ia_umbral`; uno por
+  episodio (la clave lleva el id del evento que lo abrió). Son de la instalación: se ven en la
+  campana con cualquier empresa activa. Los datos solo llevan números y un tipo de lista cerrada.
 - **Correo del sistema** (`correo.go`): un job `notificaciones.enviar_correo` por correo (6 intentos
   con espera exponencial), con el cliente SMTP de los buzones (`IRIS_CORREO_REDES_PERMITIDAS`,
   `IRIS_CORREO_CA`). En cada envío se lee por dónde sale (sin reiniciar): el ajuste de la **empresa**

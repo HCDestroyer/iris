@@ -1151,6 +1151,18 @@ no guarda ninguna credencial de Iris.
   renueva en la misma operación cuando le quedan menos de 30 días o si el admin lo pide: la puerta
   acepta las dos huellas durante la misma ventana. Cada rotación audita y emite
   `voz.motor_token_rotado` (sin el token).
+  - **Lo nuevo se guarda antes de entregarlo.** Iris guarda el token «siguiente» (y, si lo hay, el
+    certificado de cliente «siguiente», con su clave cifrada) **antes** de mandarlo. Si la respuesta
+    del servidor se pierde, Iris prueba con lo guardado y termina la rotación sola (el panel, o el
+    latido siguiente): no se queda sin canal ni con «Revocar ahora».
+  - **Una rotación a la vez.** Quien empieza una la aparta 30 s (y se compara la versión de la
+    fila): otra que llegue mientras tanto recibe 409 `rotacion_en_curso` y no pisa nada.
+  - **Activar, rotar y probar son acciones sensibles** (`servidor_ia.administrar`): sin el permiso
+    responden 403, y una sesión de autologin sin re-autenticar recibe 403
+    `reautenticacion_requerida` **antes** de cualquier llamada de red. Al activar, lo primero que
+    recibe el servidor es la rotación del token derivado (antes que `/salud`).
+  - En la auditoría no queda ningún secreto, ni cifrado: ni tokens ni la clave del certificado. Un
+    «Conectar» fallido deja su fila (`servidor_ia.conectar_fallido`), sin el código ni el motivo.
 - **«Revocar ahora»** (`POST /voz/motores/{id}/rotar-token { revocar: true }`): la misma rotación
   con **convivencia 0** (token y certificado de cliente anteriores dejan de valer en el acto). En
   el servidor, **`iris-voz desenlazar`** borra token y huella fijada y deja la puerta sin aceptar

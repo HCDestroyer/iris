@@ -28,6 +28,7 @@ type Banco struct {
 	inicio time.Time
 	reloj  func() time.Time
 	srv    *http.Server
+	rutas  []string
 }
 
 // Opciones del banco.
@@ -103,6 +104,14 @@ func NuevoBanco(t testing.TB, o Opciones) *Banco {
 		t.Fatal(err)
 	}
 	srv := voz.Servidor(b.Puerta)
+	// Lo que llega a la puerta, en orden (para comprobar qué se pide primero).
+	puerta := srv.Handler
+	srv.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b.mu.Lock()
+		b.rutas = append(b.rutas, r.Method+" "+r.URL.Path)
+		b.mu.Unlock()
+		puerta.ServeHTTP(w, r)
+	})
 	b.srv = srv
 	go func() { _ = voz.Escuchar(srv, l) }()
 	t.Cleanup(func() { _ = srv.Close() })
@@ -162,3 +171,10 @@ func (b *Banco) Cliente(cert tls.Certificate, token []byte, versionIris string, 
 
 // Apagar tira el servidor (como si la máquina se cayera).
 func (b *Banco) Apagar() { _ = b.srv.Close() }
+
+// Rutas devuelve, en orden, las peticiones que recibió la puerta («MÉTODO /ruta»).
+func (b *Banco) Rutas() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]string(nil), b.rutas...)
+}

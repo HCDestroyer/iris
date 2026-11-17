@@ -336,6 +336,7 @@ func (m *Modulo) nuevoAvisarTope() *auditoria.Caso[EntradaAvisarTope, ResultadoA
 // SuscribirAvisos registra el suscriptor de los avisos del panel (cmd/worker). Corre aunque el push
 // esté apagado: la campana y el correo no dependen de FCM.
 func (m *Modulo) SuscribirAvisos(bus *integracion.Bus, bd nucleo.BD) {
+	m.suscribirServidorIA(bus, bd)
 	bus.Suscribir("notificaciones.avisos", "asistente.tope_alcanzado", func(ctx context.Context, e integracion.Evento) error {
 		var in EntradaAvisarTope
 		if err := json.Unmarshal(e.Payload, &in); err != nil {

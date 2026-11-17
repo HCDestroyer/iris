@@ -19,7 +19,8 @@ INSERT INTO mensajeria.voz_motores (nombre, url) VALUES ($1, $2) RETURNING *;
 -- Un enlace nuevo invalida todo lo anterior: token, huellas y certificado de cliente.
 UPDATE mensajeria.voz_motores SET nombre = @nombre, url = @url, estado = 'sin_enlazar', detalle = NULL,
     enlace_codigo = @enlace_codigo, enlace_vence_en = @enlace_vence_en, enlace_usado_en = NULL,
-    token = NULL, token_siguiente = NULL, token_rotado_en = NULL,
+    token = NULL, token_siguiente = NULL, token_rotado_en = NULL, rotacion_desde = NULL,
+    cert_cliente_siguiente = NULL, cert_cliente_clave_siguiente = NULL, cert_cliente_vence_siguiente = NULL,
     cert_cliente = @cert_cliente, cert_cliente_clave = @cert_cliente_clave, cert_cliente_vence_en = @cert_cliente_vence_en,
     huella_tls = NULL, huella_tls_siguiente = NULL, ip_observada = NULL, restringe_ip = false,
     enlazado_en = NULL, activado_en = NULL, compatible = false, motivo_incompatible = NULL, catalogo = '{}', max_simultaneas = 0,
@@ -38,17 +39,27 @@ UPDATE mensajeria.voz_motores SET enlace_codigo = NULL, enlace_vence_en = NULL, 
     token = @token, huella_tls = @huella_tls, version_motor = @version_motor, version_protocolo = @version_protocolo,
     iris_min = @iris_min, iris_max = @iris_max, compatible = @compatible, motivo_incompatible = @motivo_incompatible,
     version = version + 1, updated_at = now()
-WHERE id = @id RETURNING *;
+-- Solo si el código sigue ahí y nadie reenlazó entretanto (si no, se mezclaría un token viejo con
+-- un certificado nuevo): sin filas = el enlace ya no vale.
+WHERE id = @id AND enlace_codigo IS NOT NULL AND version = @version RETURNING *;
 
--- name: FijarTokenSiguienteMotorIA :exec
-UPDATE mensajeria.voz_motores SET token_siguiente = @token_siguiente, updated_at = now() WHERE id = @id;
+-- name: FijarSiguienteMotorIA :one
+-- Guarda lo que se va a entregar al servidor (token y, si se renueva, certificado de cliente) ANTES
+-- de entregarlo. Compara la versión y aparta la rotación (rotacion_desde): dos a la vez no se pisan
+-- ni se cruzan en el servidor (sin filas = otra ganó o sigue en vuelo). Un apartado viejo (una
+-- rotación que murió a medias) no bloquea: @vencida es «ahora menos el plazo de una rotación».
+UPDATE mensajeria.voz_motores SET token_siguiente = @token_siguiente, rotacion_desde = @ahora::timestamptz,
+    cert_cliente_siguiente = sqlc.narg(cert_cliente_siguiente), cert_cliente_clave_siguiente = sqlc.narg(cert_cliente_clave_siguiente),
+    cert_cliente_vence_siguiente = sqlc.narg(cert_cliente_vence_siguiente), version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version AND (rotacion_desde IS NULL OR rotacion_desde <= @vencida::timestamptz) RETURNING version;
 
 -- name: PromoverTokenMotorIA :one
--- El servidor ya tiene el token nuevo (y, si se renovó, el certificado de cliente nuevo).
+-- El servidor ya tiene lo «siguiente»: pasa a vigente (token y, si lo había, certificado de cliente).
 UPDATE mensajeria.voz_motores SET token = token_siguiente, token_siguiente = NULL, token_rotado_en = now(),
-    cert_cliente = coalesce(sqlc.narg(cert_cliente), cert_cliente),
-    cert_cliente_clave = coalesce(sqlc.narg(cert_cliente_clave), cert_cliente_clave),
-    cert_cliente_vence_en = coalesce(sqlc.narg(cert_cliente_vence_en), cert_cliente_vence_en),
+    cert_cliente = coalesce(cert_cliente_siguiente, cert_cliente),
+    cert_cliente_clave = coalesce(cert_cliente_clave_siguiente, cert_cliente_clave),
+    cert_cliente_vence_en = coalesce(cert_cliente_vence_siguiente, cert_cliente_vence_en),
+    cert_cliente_siguiente = NULL, cert_cliente_clave_siguiente = NULL, cert_cliente_vence_siguiente = NULL, rotacion_desde = NULL,
     version = version + 1, updated_at = now()
 WHERE id = @id AND token_siguiente IS NOT NULL RETURNING *;
 
@@ -173,3 +184,82 @@ GROUP BY v.clave ORDER BY cuenta DESC;
 SELECT coalesce(a.empresa_id, 0)::bigint AS empresa_id, coalesce(e.nombre, '')::text AS nombre
 FROM mensajeria.asistente_ajustes a LEFT JOIN nucleo.empresas e ON e.id = a.empresa_id
 WHERE a.proveedor = 'servidor_ia' AND a.activo ORDER BY 1;
+
+-- Tablero: muestras, agregados y episodios de aviso (contratos/voz.md §4.12) ----------------------
+
+-- name: InsertarMuestraIA :exec
+INSERT INTO mensajeria.servidor_ia_muestras (motor_id, tomada_en, ok, uso_pct, vram_pct, temperatura_c, disco_pct, en_curso, datos)
+VALUES (@motor_id, @tomada_en, @ok, sqlc.narg(uso_pct), sqlc.narg(vram_pct), sqlc.narg(temperatura_c), sqlc.narg(disco_pct), sqlc.narg(en_curso), sqlc.narg(datos))
+ON CONFLICT DO NOTHING;
+
+-- name: UltimaMuestraIA :one
+-- La última, buena o fallida.
+SELECT * FROM mensajeria.servidor_ia_muestras WHERE motor_id = @motor_id ORDER BY tomada_en DESC LIMIT 1;
+
+-- name: UltimaMuestraBuenaIA :one
+SELECT * FROM mensajeria.servidor_ia_muestras WHERE motor_id = @motor_id AND ok AND datos IS NOT NULL ORDER BY tomada_en DESC LIMIT 1;
+
+-- name: SerieMuestrasIA :many
+-- Media por paso (segundos) de las muestras buenas desde @desde.
+SELECT (floor(extract(epoch FROM tomada_en) / @paso::int) * @paso::int)::bigint AS t,
+    coalesce(avg(uso_pct), 0)::float8 AS uso_pct, coalesce(avg(vram_pct), 0)::float8 AS vram_pct, count(uso_pct)::bigint AS con_uso, count(vram_pct)::bigint AS con_vram
+FROM mensajeria.servidor_ia_muestras
+WHERE motor_id = @motor_id AND tomada_en >= @desde AND ok
+GROUP BY 1 ORDER BY 1;
+
+-- name: SerieMuestrasHoraIA :many
+SELECT hora, uso_pct, vram_pct FROM mensajeria.servidor_ia_muestras_hora WHERE motor_id = @motor_id AND hora >= @desde ORDER BY hora;
+
+-- name: VentanaMuestrasIA :one
+-- Lo mínimo de la ventana (un umbral «durante N minutos» exige que toda la ventana lo supere).
+SELECT count(*)::bigint AS total, count(vram_pct)::bigint AS con_vram, coalesce(min(vram_pct), 0)::float8 AS vram_min,
+    count(temperatura_c)::bigint AS con_temperatura, coalesce(min(temperatura_c), 0)::float8 AS temperatura_min
+FROM mensajeria.servidor_ia_muestras WHERE motor_id = @motor_id AND tomada_en > @desde AND ok;
+
+-- name: AgregarMuestrasHoraIA :exec
+INSERT INTO mensajeria.servidor_ia_muestras_hora (motor_id, hora, muestras, fallidas, uso_pct, vram_pct, temperatura_c)
+SELECT motor_id, date_trunc('hour', tomada_en), count(*)::integer, (count(*) FILTER (WHERE NOT ok))::integer,
+    avg(uso_pct)::real, avg(vram_pct)::real, max(temperatura_c)::real
+FROM mensajeria.servidor_ia_muestras
+WHERE tomada_en >= @desde AND tomada_en < @hasta
+GROUP BY 1, 2
+ON CONFLICT (motor_id, hora) DO UPDATE SET muestras = excluded.muestras, fallidas = excluded.fallidas, uso_pct = excluded.uso_pct,
+    vram_pct = excluded.vram_pct, temperatura_c = excluded.temperatura_c;
+
+-- name: BorrarMuestrasIA :execrows
+DELETE FROM mensajeria.servidor_ia_muestras m USING mensajeria.voz_motores v
+WHERE v.id = m.motor_id AND m.tomada_en < sqlc.arg(ahora)::timestamptz - make_interval(0, 0, 0, v.retencion_detalle_dias);
+
+-- name: BorrarMuestrasHoraIA :execrows
+DELETE FROM mensajeria.servidor_ia_muestras_hora m USING mensajeria.voz_motores v
+WHERE v.id = m.motor_id AND m.hora < sqlc.arg(ahora)::timestamptz - make_interval(0, 0, 0, v.retencion_hora_dias);
+
+-- name: BorrarUsoIA :execrows
+DELETE FROM mensajeria.servidor_ia_uso u USING mensajeria.voz_motores v
+WHERE v.id = u.motor_id AND u.hora < sqlc.arg(ahora)::timestamptz - make_interval(0, 0, 0, v.retencion_hora_dias);
+
+-- name: BorrarAvisosIA :execrows
+DELETE FROM mensajeria.servidor_ia_avisos a USING mensajeria.voz_motores v
+WHERE v.id = a.motor_id AND a.hasta IS NOT NULL AND a.hasta < sqlc.arg(ahora)::timestamptz - make_interval(0, 0, 0, v.retencion_hora_dias);
+
+-- name: UsoIAFilas :many
+-- Las filas de uso (por minuto, empresa y modelo) del rango, para armar las series.
+SELECT hora, peticiones, latencia_ms_suma, latencia_cubetas FROM mensajeria.servidor_ia_uso
+WHERE motor_id = @motor_id AND hora >= @desde AND (@empresa_id::bigint < 0 OR empresa_id = @empresa_id)
+ORDER BY hora;
+
+-- name: RechazosIADesde :one
+SELECT coalesce(sum(rechazos), 0)::bigint FROM mensajeria.servidor_ia_uso WHERE motor_id = @motor_id AND hora >= @desde;
+
+-- name: AbrirAvisoIA :one
+-- Abre el episodio si no hay uno abierto de ese tipo (sin filas = ya estaba abierto).
+INSERT INTO mensajeria.servidor_ia_avisos (motor_id, tipo, desde, valor, umbral)
+VALUES (@motor_id, @tipo, @desde, sqlc.narg(valor), sqlc.narg(umbral))
+ON CONFLICT (motor_id, tipo) WHERE hasta IS NULL DO NOTHING
+RETURNING id;
+
+-- name: CerrarAvisoIA :one
+UPDATE mensajeria.servidor_ia_avisos SET hasta = @hasta WHERE motor_id = @motor_id AND tipo = @tipo AND hasta IS NULL RETURNING id;
+
+-- name: AvisosIAEnRango :many
+SELECT * FROM mensajeria.servidor_ia_avisos WHERE motor_id = @motor_id AND (hasta IS NULL OR hasta >= @desde) ORDER BY desde DESC LIMIT 200;
