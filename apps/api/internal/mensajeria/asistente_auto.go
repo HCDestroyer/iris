@@ -60,12 +60,21 @@ const (
 	TurnosPorHoraEmpresa = 600
 	// TurnosPorDiaSinCliente: turnos por día de un número que no es de ningún cliente.
 	TurnosPorDiaSinCliente = 10
-	// TicketsPorDiaConv, BoletasPorDiaConv y VerificacionesPorDiaConv: topes por conversación y día.
+	// TicketsPorDiaConv y BoletasPorDiaConv: topes por conversación y día. VerificacionesPorDiaCliente:
+	// intentos del desafío de identidad por cliente (y empresa) y día, sumando todas sus conversaciones
+	// y canales desde números verificados como suyos (§17.8.2).
 	TicketsPorDiaConv = 3
 	// TicketsPorDiaSinCliente: un número sin cliente asociado crea como mucho uno al día.
-	TicketsPorDiaSinCliente  = 1
-	BoletasPorDiaConv        = 3
-	VerificacionesPorDiaConv = 3
+	TicketsPorDiaSinCliente     = 1
+	BoletasPorDiaConv           = 3
+	VerificacionesPorDiaCliente = 3
+	// Desde un número asociado a mano y sin verificar, los intentos van aparte (no gastan los del
+	// titular): 3 por conversación y día, 3 por cliente y día entre todos esos números, y como mucho 2
+	// en media hora. Así, en media hora Argos recibe a lo sumo 3 + 2 = 5 intentos de un cliente (su
+	// límite antes del 429) y el titular conserva siempre sus 3.
+	VerificacionesSinVerificarPorDiaConv    = 3
+	VerificacionesSinVerificarPorDiaCliente = 3
+	VerificacionesSinVerificarPorMediaHora  = 2
 	// MaxTextoAutonomo: caracteres de un mensaje del asistente al cliente.
 	MaxTextoAutonomo = 1500
 	// SalidaTurnoIA: tokens de salida por llamada del turno.
@@ -154,6 +163,9 @@ type turnoIA struct {
 	// La conversación al preparar (los argumentos de las herramientas nunca los cambian).
 	clienteID  int64
 	verificado bool
+	// numeroVerificado: el número de la conversación está verificado como del cliente (asociación
+	// automática o confirmada); si no (asociada a mano), sus intentos de identidad se cuentan aparte.
+	numeroVerificado bool
 	// fuerte: verificación fuerte (una persona la confirmó o pasó el desafío de Argos). saldoFuerte: el
 	// perfil exige la fuerte para dar el saldo. desde: cuándo empezó este periodo de la conversación.
 	fuerte      bool
@@ -805,6 +817,7 @@ func (m *Modulo) prepararTurno(ctx context.Context, t *auditoria.Tx, in entradaT
 	if c.ClienteID != nil {
 		tu.clienteID = *c.ClienteID
 	}
+	tu.numeroVerificado = c.ClienteVerificado
 	tu.preguntaSiEsPersona = rePreguntaPersona.MatchString(texto)
 	tu.enlaces = append(ctxIA.enlaces, enlaces...)
 	// Lo que ya hizo en esta conversación (un turno anterior pudo crear algo sin llegar a contestar).

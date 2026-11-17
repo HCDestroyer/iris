@@ -353,6 +353,8 @@ type verificacionHecha struct {
 	Detalle string `json:"detalle"`
 	// desde: inicio del periodo de la conversación (los mensajes del cliente a enmascarar).
 	desde time.Time
+	// reserva: el intento ya reservado en asistente_verificaciones (cuenta para el tope del cliente).
+	reserva int64
 }
 
 // nuevoRegistrarVerificacion guarda el intento, deja el dato del cliente como *** en su mensaje y, si
@@ -377,15 +379,15 @@ func nuevoRegistrarVerificacion(m *Modulo) *auditoria.Caso[verificacionHecha, bo
 			if err := m.taparDocumentos(ctx, q, c, in.desde); err != nil {
 				return false, err
 			}
+			// El intento reservado queda con su resultado, para el cliente con el que se hizo (cuenta
+			// para su tope aunque la conversación haya cambiado de cliente).
+			if _, err := q.CerrarVerificacion(ctx, mensajeriabd.CerrarVerificacionParams{ID: in.reserva, ClienteID: in.ClienteID, Resultado: in.Resultado}); err != nil {
+				return false, err
+			}
 			// El desafío vale para el cliente con el que se hizo: si la conversación ya es de otro
 			// (la reasociaron mientras Argos respondía), no cuenta.
 			if c.ClienteID == nil || *c.ClienteID != in.ClienteID {
 				return false, nil
-			}
-			ahora := m.ahora()
-			if err := q.InsertarVerificacion(ctx, mensajeriabd.InsertarVerificacionParams{EmpresaID: c.EmpresaID, ConversacionID: c.ID, ClienteID: *c.ClienteID,
-				Resultado: in.Resultado, CreadaEn: ahora}); err != nil {
-				return false, err
 			}
 			if in.Resultado == "coincide" {
 				if err := m.fijarVerificacionFuerte(ctx, q, &c); err != nil {
