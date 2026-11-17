@@ -415,6 +415,7 @@ claves ni el número del cliente. Todos llevan `empresa_id`, salvo los del servi
 | `voz.motor_activado` | `motor_id`, `usuario_id`, `version` | El admin comparó la huella y activó; el token ya es el aleatorio. |
 | `voz.motor_desactivado` | `motor_id`, `usuario_id`, `motivo` (o null) | Desactivado en el panel: deja de usarse en el acto. |
 | `voz.motor_empresas_cambiadas` | `motor_id`, `usuario_id`, `empresas` (ids o null = todas), `simultaneas_por_empresa` | Empresas permitidas o reparto cambiados. |
+| `voz.motor_modelos_cambiados` | `motor_id`, `usuario_id`, `modelos` (ids o null = todos los del catálogo) | Modelos que las empresas pueden elegir. |
 | `servidor_ia.umbral_superado` | `motor_id`, `tipo` (`vram`, `disco`, `temperatura`, `saturacion`), `valor`, `umbral` | Una vez por episodio (voz.md §4.12). `empresa_id: null`. |
 | `servidor_ia.umbral_normalizado` | `motor_id`, `tipo`, `valor`, `umbral` | Cierre del episodio. |
 | `servidor_ia.ajustes_cambiados` | `motor_id`, `campos[]` | Umbrales o retención del tablero. |

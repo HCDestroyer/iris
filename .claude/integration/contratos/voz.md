@@ -1738,10 +1738,84 @@ evento `servidor_ia.ajustes_cambiados`), de fábrica:
 | Saturación | 10 rechazos por `servidor_ia_ocupado` en 5 min | 1–1000; 1–60 min |
 | Caído / incompatible | siempre (no se apaga) | — |
 
+**Formas fijadas con el panel (17 nov 2026).** Son las que supuso I3 en `.claude/integration/i3.md`,
+salvo lo marcado con «(cambia)».
+
+`GET /servidor-ia/tablero?rango=ahora|1h|24h|7d` → 200:
+
+```json
+{ "estado": { "motorId": 1, "estado": "listo", "detalle": null, "version": "0.1.0", "compatible": true,
+              "motivoIncompatible": null, "encendidoSeg": 86400, "tomadoEn": "…", "lecturaOk": true,
+              "modelosDisponibles": ["…"], "empresasQueLoUsan": ["Empresa 1"],
+              "empresasActivas": 3, "plazasInsuficientes": false },
+  "servidor": { "gpus": { "estado": "ok", "lista": [{ "indice": 0, "nombre": "…", "usoPct": 37,
+                  "vramUsadaMb": 0, "vramTotalMb": 0, "temperaturaC": 61, "potenciaW": 180 }] },
+                "cpu": { "nucleos": 16, "usoPct": 12 }, "memoria": { "usadoMb": 0, "totalMb": 0 },
+                "disco": { "usadoMb": 0, "totalMb": 0 },
+                "modelos": [{ "id": "…", "tamanoMb": 0, "permitido": true, "cargado": true, "vramMb": 0, "cargadoHasta": "…" }],
+                "llm": { "enCurso": 1, "maxSimultaneas": 4 }, "rechazadas": 0 },
+  "series": [{ "t": "…", "usoPct": 37, "vramPct": 40, "peticionesMin": 3, "latenciaMediaMs": 900, "latenciaP95Ms": 2000 }],
+  "uso": { "empresas": [{ "empresaId": 1, "nombre": "…", "peticiones": 0, "tokensEntrada": 0, "tokensSalida": 0,
+                          "latenciaMediaMs": 900, "errores": 0, "rechazadas": 0 }],
+           "errores": [{ "motivo": "tiempo_agotado", "cuenta": 2, "ultimoEn": "…" }] },
+  "avisos": [{ "tipo": "vram", "activo": true, "desde": "…", "hasta": null, "valor": 97, "umbral": 95 }] }
+```
+
+- `estado.lecturaOk` es `false` cuando la última lectura del servidor falló: entonces `servidor`
+  es lo de `estado.tomadoEn` (la última muestra buena) o `null`, y **no se muestra como actual**.
+  `estado.motorId` es `null` si no hay ningún servidor enlazado.
+- `servidor.gpus` es **siempre un objeto** `{ estado: "ok" | "omitido", lista: [] }` **(cambia:** el
+  panel supuso una lista o `{estado:"omitido"}`; una unión así no sale bien en los tipos
+  generados**)**. `disco` (el volumen de modelos) y `potenciaW` por tarjeta sí llegan; `cpu` y
+  `memoria` también. Un dato que la tarjeta no da es `null`.
+- `series`: un punto cada 10 s en `ahora` (últimos 10 min), por minuto hasta `24h` y por hora en
+  `7d`. Un valor `null` = en ese instante no hubo lectura (o no hay GPU).
+- `uso` y `servidor.rechazadas` son del rango pedido. `uso.errores[].motivo` es la lista cerrada de
+  `servidor_ia_uso` (`tiempo_agotado`, `no_disponible`, `ocupado`, `respuesta_invalida`,
+  `modelo_no_instalado`, `otro`).
+- `avisos[].tipo`: `caido`, `incompatible`, `vram`, `disco`, `temperatura`, `saturacion`. Los
+  activos y los cerrados dentro del rango.
+- **«Más empresas activas que plazas»** llega en `estado.plazasInsuficientes` (con
+  `estado.empresasActivas`) y, en la tarjeta, en `capacidad.plazasInsuficientes` y
+  `capacidad.empresasActivas` de `GET /voz/motores`.
+- **Admin de empresa (`servidor_ia.ver_uso`):** el mismo cuerpo con `servidor: null`, `avisos: []`,
+  `estado` sin `empresasQueLoUsan`, `empresasActivas` ni `plazasInsuficientes`, `series` solo con
+  `peticionesMin`, `latenciaMediaMs` y `latenciaP95Ms` de **su** empresa (`usoPct` y `vramPct` en
+  `null`) y `uso.empresas` con una sola fila, la suya.
+
+`GET /servidor-ia/umbrales` (`servidor_ia.ver`) y `POST /servidor-ia/umbrales/actualizar`
+(`servidor_ia.administrar`): `{ version, vramPct, vramMinutos, discoPct, temperaturaC,
+temperaturaMinutos, saturacionRechazos, saturacionMinutos, retencionDetalleDias, retencionHoraDias }`
+(los dos de retención son nuevos respecto a lo que supuso el panel; opcionales al actualizar).
+
+**Tarjeta (`GET /voz/motores`).** Además de lo de §4.8:
+
+- `paquete.motivoIncompatible` es una **lista cerrada**: `protocolo`, `iris_antiguo`, `iris_nuevo`,
+  `paquete_antiguo`. `iris_antiguo` = hay que actualizar Iris; cualquier otro = hay que actualizar
+  el servidor de IA. `paquete.versionDisponible` existe y es `null` (Iris no consulta versiones nuevas).
+- `enlazado` y `activado` (booleanos) y `enlaceVenceEn`: hasta cuándo vale el **paso pendiente** del
+  enlace: los 15 min del código antes de «Conectar», o las 24 h para «Activar» después; `null` si
+  no hay nada pendiente. Un paso vencido responde 409 `enlace_vencido` (un solo código para los dos).
+- **«Desenlazar» en el panel es `POST /voz/motores/{id}/desactivar`**: Iris deja de usarlo en el
+  acto. El borrado real de las credenciales en el servidor es `iris-voz unpair`, allá.
+- **Modelos permitidos: dos niveles.** El servidor declara en `catalogo.llm` los que **su**
+  administrador deja usar a Iris (`iris-voz model allow`); Iris no puede ampliarlos. Dentro de esos,
+  el admin de la instalación elige **desde el panel** los que las empresas pueden escoger:
+  `modelosPermitidos` en la tarjeta (`null` = todos los del catálogo) y
+  `POST /voz/motores/{id}/modelos/actualizar { modelos: [ids] | null, version }`
+  (`servidor_ia.administrar`; 422 si alguno no está en `catalogo.llm`; evento
+  `voz.motor_modelos_cambiados`). Las empresas ven la intersección.
+- Permisos: sin `servidor_ia.ver`/`administrar`, 403; con el permiso pero sin `empresas.todas`, 404.
+
+**Campana.** Tres tipos nuevos de aviso (`notificaciones.avisos`), a quienes tienen
+`servidor_ia.ver` y `empresas.todas`: `servidor_ia_caido`, `servidor_ia_incompatible` y
+`servidor_ia_umbral` (`datos: { tipo: vram | disco | temperatura | saturacion, valor, umbral }`).
+Uno por episodio; enlazan a Administración → Servidor de IA.
+
 Eventos nuevos, con `empresa_id: null`, que se añaden al catálogo al implementar:
 `servidor_ia.umbral_superado` / `servidor_ia.umbral_normalizado` (motor_id, tipo, valor, umbral),
 `servidor_ia.ajustes_cambiados` (motor_id, campos[]) y `voz.motor_activado` /
-`voz.motor_desactivado` / `voz.motor_empresas_cambiadas`. Caído e incompatible siguen saliendo como
+`voz.motor_desactivado` / `voz.motor_empresas_cambiadas` / `voz.motor_modelos_cambiados`. Caído e incompatible siguen saliendo como
 `voz.motor_estado_cambiado`.
 
 ## 5. El asistente en voz

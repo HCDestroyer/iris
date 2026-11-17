@@ -143,8 +143,9 @@ no lo hace ningún agente):
 
 - Una **regla de etiquetas** que proteja `voz-v*`: solo quien publica puede crearlas, sin borrado ni
   reescritura. La identidad que acepta el instalador es ese workflow en esa etiqueta.
-- El **entorno `voz-release`** (Settings → Environments) con revisores obligatorios y limitado a las
-  etiquetas `voz-v*`.
+- El **entorno `voz-release`** (Settings → Environments) con revisores obligatorios, con «impedir
+  autoaprobación» activado, sin permitir que los administradores se salten la regla y limitado a
+  las etiquetas `voz-v*`.
 
 El workflow comprueba primero el entorno y después corre tres jobs con permisos mínimos:
 `construir` (publica la imagen y exporta las sumas), `firmar` (solo `id-token: write`; no hace
