@@ -2200,7 +2200,7 @@ export interface paths {
         put?: never;
         /**
          * Configurar las llamadas de un número
-         * @description Permiso: `llamadas.configurar`. 422 `llamadas_no_disponibles_qr` al encender en un número por QR; 422 `requisitos_sin_cumplir` (con `errors[]` por requisito) si la última comprobación no cumple; 422 `asistente_voz_no_disponible` con `fueraDeHorario: asistente` (llega en otra etapa). Emite `canal_mensajeria.llamadas_cambiadas`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         * @description Permiso: `llamadas.configurar`. 422 `llamadas_no_disponibles_qr` al encender en un número por QR; 422 `requisitos_sin_cumplir` (con `errors[]` por requisito) si la última comprobación no cumple; 422 `asistente_voz_no_disponible` con `fueraDeHorario: asistente` (llega en otra etapa); 422 `plantilla_permiso_invalida` si la cuenta de WhatsApp no tiene esa plantilla aprobada en ese idioma (se comprueba en Meta al guardarla; 502 `meta_rechazo` si Meta no responde). Emite `canal_mensajeria.llamadas_cambiadas`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
          */
         post: operations["configurarLlamadasCanal"];
         delete?: never;
@@ -3266,7 +3266,7 @@ export interface paths {
         };
         /**
          * Tiempo real de la bandeja (Server-Sent Events)
-         * @description Permiso: `conversaciones.ver`. Igual que el flujo del chat: `id` (cursor), `event` (mensaje_nuevo, mensaje_actualizado, conversacion_actualizada, mencion, guardia, aviso_sin_atender, sugerencia), `data` (un EventoConversacion). Last-Event-ID o ?desde=; latido cada 25 s; cierre a los 30 min; revalidación de la sesión.
+         * @description Permiso: `conversaciones.ver`. Igual que el flujo del chat: `id` (cursor), `event` (mensaje_nuevo, mensaje_actualizado, conversacion_actualizada, mencion, guardia, aviso_sin_atender, sugerencia), `data` (un EventoConversacion). Last-Event-ID o ?desde=; latido cada 25 s; cierre a los 30 min; revalidación de la sesión. `?navegador=` (o la cabecera `X-Iris-Navegador`): el id de «Recibir llamadas» de este navegador. Con él, el latido del flujo vale solo para ese navegador (es lo que mantiene viva una llamada saliente hecha desde él y su «Recibir llamadas»); sin él, para todos los navegadores del usuario que reciben llamadas y para ninguna saliente.
          */
         get: operations["eventosConversaciones"];
         put?: never;
@@ -8145,6 +8145,11 @@ export interface components {
             grabar: "nunca";
             /**
              * Format: int32
+             * @description Cuántas salientes a un mismo contacto se pueden colgar mientras marcan en un día antes de dejar de llamarlo (0–20)
+             */
+            maxColgadasMarcandoDia: number;
+            /**
+             * Format: int32
              * @description Llamadas salientes de la empresa por día (0–1000; 0 = ninguna)
              */
             maxSalientesPorDia: number;
@@ -10495,6 +10500,8 @@ export interface components {
             duracionMaxPersonaMin: number;
             /** @description Opcional. Solo se acepta nunca: cualquier otro valor, 422 grabacion_no_disponible */
             grabar?: string;
+            /** Format: int32 */
+            maxColgadasMarcandoDia?: number;
             /** Format: int32 */
             maxSalientesPorDia?: number;
             /** Format: int32 */
@@ -30615,10 +30622,14 @@ export interface operations {
             query?: {
                 /** @description Igual que Last-Event-ID, para clientes que no pueden fijar cabeceras. Sin los dos: desde ahora */
                 desde?: string;
+                /** @description El id de «Recibir llamadas» de este navegador (EventSource no puede mandar cabeceras) */
+                navegador?: string;
             };
             header?: {
                 /** @description El id del último evento recibido (lo manda EventSource al reconectar) */
                 "Last-Event-ID"?: string;
+                /** @description Lo mismo, para clientes que sí pueden mandar cabeceras */
+                "X-Iris-Navegador"?: string;
             };
             path?: never;
             cookie?: never;

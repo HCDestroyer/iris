@@ -1081,6 +1081,11 @@
             ],
             "type": "string"
           },
+          "maxColgadasMarcandoDia": {
+            "description": "Cuántas salientes a un mismo contacto se pueden colgar mientras marcan en un día antes de dejar de llamarlo (0–20)",
+            "format": "int32",
+            "type": "integer"
+          },
           "maxSalientesPorDia": {
             "description": "Llamadas salientes de la empresa por día (0–1000; 0 = ninguna)",
             "format": "int32",
@@ -1108,7 +1113,8 @@
           "duracionMaxPersonaMin",
           "segundosAsignado",
           "maxSalientesPorDia",
-          "topeMinutosSalientesMes"
+          "topeMinutosSalientesMes",
+          "maxColgadasMarcandoDia"
         ],
         "type": "object"
       },
@@ -7956,6 +7962,12 @@
           "grabar": {
             "description": "Opcional. Solo se acepta nunca: cualquier otro valor, 422 grabacion_no_disponible",
             "type": "string"
+          },
+          "maxColgadasMarcandoDia": {
+            "format": "int32",
+            "maximum": 20,
+            "minimum": 0,
+            "type": "integer"
           },
           "maxSalientesPorDia": {
             "format": "int32",
@@ -41552,7 +41564,7 @@
     },
     "/api/v1/mensajeria/canales/{id}/llamadas/configurar": {
       "post": {
-        "description": "Permiso: `llamadas.configurar`. 422 `llamadas_no_disponibles_qr` al encender en un número por QR; 422 `requisitos_sin_cumplir` (con `errors[]` por requisito) si la última comprobación no cumple; 422 `asistente_voz_no_disponible` con `fueraDeHorario: asistente` (llega en otra etapa). Emite `canal_mensajeria.llamadas_cambiadas`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.",
+        "description": "Permiso: `llamadas.configurar`. 422 `llamadas_no_disponibles_qr` al encender en un número por QR; 422 `requisitos_sin_cumplir` (con `errors[]` por requisito) si la última comprobación no cumple; 422 `asistente_voz_no_disponible` con `fueraDeHorario: asistente` (llega en otra etapa); 422 `plantilla_permiso_invalida` si la cuenta de WhatsApp no tiene esa plantilla aprobada en ese idioma (se comprueba en Meta al guardarla; 502 `meta_rechazo` si Meta no responde). Emite `canal_mensajeria.llamadas_cambiadas`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.",
         "operationId": "configurarLlamadasCanal",
         "parameters": [
           {
@@ -47748,7 +47760,7 @@
     },
     "/api/v1/mensajeria/conversaciones/eventos": {
       "get": {
-        "description": "Permiso: `conversaciones.ver`. Igual que el flujo del chat: `id` (cursor), `event` (mensaje_nuevo, mensaje_actualizado, conversacion_actualizada, mencion, guardia, aviso_sin_atender, sugerencia), `data` (un EventoConversacion). Last-Event-ID o ?desde=; latido cada 25 s; cierre a los 30 min; revalidación de la sesión.",
+        "description": "Permiso: `conversaciones.ver`. Igual que el flujo del chat: `id` (cursor), `event` (mensaje_nuevo, mensaje_actualizado, conversacion_actualizada, mencion, guardia, aviso_sin_atender, sugerencia), `data` (un EventoConversacion). Last-Event-ID o ?desde=; latido cada 25 s; cierre a los 30 min; revalidación de la sesión. `?navegador=` (o la cabecera `X-Iris-Navegador`): el id de «Recibir llamadas» de este navegador. Con él, el latido del flujo vale solo para ese navegador (es lo que mantiene viva una llamada saliente hecha desde él y su «Recibir llamadas»); sin él, para todos los navegadores del usuario que reciben llamadas y para ninguna saliente.",
         "operationId": "eventosConversaciones",
         "parameters": [
           {
@@ -47769,6 +47781,29 @@
             "schema": {
               "description": "Igual que Last-Event-ID, para clientes que no pueden fijar cabeceras. Sin los dos: desde ahora",
               "maxLength": 20,
+              "type": "string"
+            }
+          },
+          {
+            "description": "El id de «Recibir llamadas» de este navegador (EventSource no puede mandar cabeceras)",
+            "explode": false,
+            "in": "query",
+            "name": "navegador",
+            "schema": {
+              "description": "El id de «Recibir llamadas» de este navegador (EventSource no puede mandar cabeceras)",
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9_-]{8,64}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Lo mismo, para clientes que sí pueden mandar cabeceras",
+            "in": "header",
+            "name": "X-Iris-Navegador",
+            "schema": {
+              "description": "Lo mismo, para clientes que sí pueden mandar cabeceras",
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9_-]{8,64}$",
               "type": "string"
             }
           }

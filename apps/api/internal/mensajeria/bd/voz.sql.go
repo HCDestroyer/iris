@@ -16,9 +16,10 @@ import (
 const actualizarVozAjustes = `-- name: ActualizarVozAjustes :one
 UPDATE mensajeria.voz_ajustes SET grabar = $1, duracion_max_persona_min = $2,
     segundos_asignado = $3, retencion_grabaciones_dias = $4,
-    max_salientes_por_dia = $5, tope_minutos_salientes_mes = $6, version = version + 1, updated_at = now()
-WHERE id = $7
-RETURNING id, empresa_id, grabar, duracion_max_persona_min, segundos_asignado, retencion_grabaciones_dias, version, created_at, updated_at, max_salientes_por_dia, tope_minutos_salientes_mes
+    max_salientes_por_dia = $5, tope_minutos_salientes_mes = $6,
+    max_colgadas_marcando_dia = $7, version = version + 1, updated_at = now()
+WHERE id = $8
+RETURNING id, empresa_id, grabar, duracion_max_persona_min, segundos_asignado, retencion_grabaciones_dias, version, created_at, updated_at, max_salientes_por_dia, tope_minutos_salientes_mes, max_colgadas_marcando_dia
 `
 
 type ActualizarVozAjustesParams struct {
@@ -28,6 +29,7 @@ type ActualizarVozAjustesParams struct {
 	RetencionGrabacionesDias int32
 	MaxSalientesPorDia       int32
 	TopeMinutosSalientesMes  int32
+	MaxColgadasMarcandoDia   int32
 	ID                       int64
 }
 
@@ -39,6 +41,7 @@ func (q *Queries) ActualizarVozAjustes(ctx context.Context, arg ActualizarVozAju
 		arg.RetencionGrabacionesDias,
 		arg.MaxSalientesPorDia,
 		arg.TopeMinutosSalientesMes,
+		arg.MaxColgadasMarcandoDia,
 		arg.ID,
 	)
 	var i MensajeriaVozAjuste
@@ -54,6 +57,7 @@ func (q *Queries) ActualizarVozAjustes(ctx context.Context, arg ActualizarVozAju
 		&i.UpdatedAt,
 		&i.MaxSalientesPorDia,
 		&i.TopeMinutosSalientesMes,
+		&i.MaxColgadasMarcandoDia,
 	)
 	return i, err
 }
@@ -216,6 +220,20 @@ func (q *Queries) CerrarDevolucion(ctx context.Context, arg CerrarDevolucionPara
 	return i, err
 }
 
+const cerrarHuerfana = `-- name: CerrarHuerfana :exec
+UPDATE mensajeria.llamadas_huerfanas SET estado = $1, updated_at = now() WHERE id = $2
+`
+
+type CerrarHuerfanaParams struct {
+	Estado string
+	ID     int64
+}
+
+func (q *Queries) CerrarHuerfana(ctx context.Context, arg CerrarHuerfanaParams) error {
+	_, err := q.db.Exec(ctx, cerrarHuerfana, arg.Estado, arg.ID)
+	return err
+}
+
 const cerrarTramos = `-- name: CerrarTramos :exec
 UPDATE mensajeria.llamada_tramos t SET fin = $1::timestamptz,
     duracion_seg = GREATEST(0, floor(extract(epoch FROM ($1::timestamptz - t.inicio))))::int, motivo_fin = $2
@@ -231,6 +249,26 @@ type CerrarTramosParams struct {
 func (q *Queries) CerrarTramos(ctx context.Context, arg CerrarTramosParams) error {
 	_, err := q.db.Exec(ctx, cerrarTramos, arg.Cierre, arg.Motivo, arg.LlamadaID)
 	return err
+}
+
+const colgadasMarcandoDesde = `-- name: ColgadasMarcandoDesde :one
+SELECT count(*)::bigint FROM mensajeria.llamadas
+WHERE coalesce(empresa_id, 0) = $1::bigint AND numero = $2 AND direccion = 'saliente' AND estado = 'terminada'
+  AND motivo_fin = 'agente_colgo' AND contestada_en IS NULL AND sono_en >= $3
+`
+
+type ColgadasMarcandoDesdeParams struct {
+	Empresa int64
+	Numero  string
+	Desde   time.Time
+}
+
+// Salientes a ese contacto que se colgaron mientras marcaban (timbrar y colgar).
+func (q *Queries) ColgadasMarcandoDesde(ctx context.Context, arg ColgadasMarcandoDesdeParams) (int64, error) {
+	row := q.db.QueryRow(ctx, colgadasMarcandoDesde, arg.Empresa, arg.Numero, arg.Desde)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const conectadasDelCanalDesde = `-- name: ConectadasDelCanalDesde :one
@@ -443,7 +481,7 @@ func (q *Queries) EsCandidato(ctx context.Context, arg EsCandidatoParams) (bool,
 const fijarExternoLlamada = `-- name: FijarExternoLlamada :one
 UPDATE mensajeria.llamadas SET id_externo = $1, accion_meta_estado = 'hecha', sdp_oferta = NULL, updated_at = now()
 WHERE id = $2 AND estado = 'marcando' AND accion_meta = 'connect' AND accion_meta_estado = 'pendiente'
-RETURNING id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador
+RETURNING id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, externo_webhook
 `
 
 type FijarExternoLlamadaParams struct {
@@ -451,7 +489,7 @@ type FijarExternoLlamadaParams struct {
 	ID      uuid.UUID
 }
 
-// Meta aceptó el connect: la llamada toma su call_id y la oferta ya no hace falta.
+// Meta aceptó el connect: la llamada toma el call_id de esa respuesta (es el que manda).
 func (q *Queries) FijarExternoLlamada(ctx context.Context, arg FijarExternoLlamadaParams) (MensajeriaLlamada, error) {
 	row := q.db.QueryRow(ctx, fijarExternoLlamada, arg.Externo, arg.ID)
 	var i MensajeriaLlamada
@@ -495,6 +533,7 @@ func (q *Queries) FijarExternoLlamada(ctx context.Context, arg FijarExternoLlama
 		&i.SdpRespuesta,
 		&i.DevolucionID,
 		&i.Navegador,
+		&i.ExternoWebhook,
 	)
 	return i, err
 }
@@ -650,6 +689,22 @@ type FijarRespuestaSDPParams struct {
 
 func (q *Queries) FijarRespuestaSDP(ctx context.Context, arg FijarRespuestaSDPParams) error {
 	_, err := q.db.Exec(ctx, fijarRespuestaSDP, arg.Sdp, arg.ID)
+	return err
+}
+
+const fijarWebhookAdelantado = `-- name: FijarWebhookAdelantado :exec
+UPDATE mensajeria.llamadas SET externo_webhook = $1, sdp_respuesta = $2, updated_at = now() WHERE id = $3
+`
+
+type FijarWebhookAdelantadoParams struct {
+	Externo *string
+	Sdp     *string
+	ID      uuid.UUID
+}
+
+// Lo que trajo ese webhook queda apartado: solo vale si la respuesta del connect da el mismo call_id.
+func (q *Queries) FijarWebhookAdelantado(ctx context.Context, arg FijarWebhookAdelantadoParams) error {
+	_, err := q.db.Exec(ctx, fijarWebhookAdelantado, arg.Externo, arg.Sdp, arg.ID)
 	return err
 }
 
@@ -856,7 +911,7 @@ SET estado = $1, atendida_por = $2, usuario_id = $3,
     accion_meta_por = $17,
     pre_aceptada_en = $18, aviso_perdida = $19, updated_at = now()
 WHERE id = $20
-RETURNING id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador
+RETURNING id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, externo_webhook
 `
 
 type GuardarLlamadaParams struct {
@@ -947,6 +1002,7 @@ func (q *Queries) GuardarLlamada(ctx context.Context, arg GuardarLlamadaParams) 
 		&i.SdpRespuesta,
 		&i.DevolucionID,
 		&i.Navegador,
+		&i.ExternoWebhook,
 	)
 	return i, err
 }
@@ -1183,7 +1239,7 @@ INSERT INTO mensajeria.llamadas (id, empresa_id, origen, canal_id, conversacion_
 VALUES ($1, $2, 'whatsapp', $3, $4, $5, 'entrante', $6,
     $7, $8, $9, 'sonando', $10, $11, $12, $13)
 ON CONFLICT (origen, canal_id, id_externo) DO NOTHING
-RETURNING id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador
+RETURNING id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, externo_webhook
 `
 
 type InsertarLlamadaParams struct {
@@ -1261,6 +1317,7 @@ func (q *Queries) InsertarLlamada(ctx context.Context, arg InsertarLlamadaParams
 		&i.SdpRespuesta,
 		&i.DevolucionID,
 		&i.Navegador,
+		&i.ExternoWebhook,
 	)
 	return i, err
 }
@@ -1268,11 +1325,11 @@ func (q *Queries) InsertarLlamada(ctx context.Context, arg InsertarLlamadaParams
 const insertarLlamadaSaliente = `-- name: InsertarLlamadaSaliente :one
 
 INSERT INTO mensajeria.llamadas (id, empresa_id, origen, canal_id, conversacion_id, id_externo, direccion, numero, cliente_id, servicio_id,
-    cola_id, estado, usuario_id, navegador, devolucion_id, sono_en, suena_hasta, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en)
+    cola_id, estado, usuario_id, navegador, devolucion_id, sono_en, suena_hasta, accion_meta, accion_meta_estado, accion_meta_en)
 VALUES ($1, $2, 'whatsapp', $3, $4, $5, 'saliente', $6,
     $7, $8, $9, 'marcando', $10, $11, $12,
-    $13, $14, $15, 'connect', 'pendiente', $13)
-RETURNING id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador
+    $13, $14, 'connect', 'pendiente', $13)
+RETURNING id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, externo_webhook
 `
 
 type InsertarLlamadaSalienteParams struct {
@@ -1290,11 +1347,11 @@ type InsertarLlamadaSalienteParams struct {
 	DevolucionID   *int64
 	SonoEn         time.Time
 	SuenaHasta     time.Time
-	SdpOferta      *string
 }
 
 // Salientes y permiso de llamada (E1b, §3.7) ---------------------------------------------------------
 // Nace marcando, con la intención connect pendiente y un id externo provisional hasta que Meta da el suyo.
+// La oferta SDP no se guarda: va de la petición a Meta en memoria.
 func (q *Queries) InsertarLlamadaSaliente(ctx context.Context, arg InsertarLlamadaSalienteParams) (MensajeriaLlamada, error) {
 	row := q.db.QueryRow(ctx, insertarLlamadaSaliente,
 		arg.LlamadaID,
@@ -1311,7 +1368,6 @@ func (q *Queries) InsertarLlamadaSaliente(ctx context.Context, arg InsertarLlama
 		arg.DevolucionID,
 		arg.SonoEn,
 		arg.SuenaHasta,
-		arg.SdpOferta,
 	)
 	var i MensajeriaLlamada
 	err := row.Scan(
@@ -1354,6 +1410,7 @@ func (q *Queries) InsertarLlamadaSaliente(ctx context.Context, arg InsertarLlama
 		&i.SdpRespuesta,
 		&i.DevolucionID,
 		&i.Navegador,
+		&i.ExternoWebhook,
 	)
 	return i, err
 }
@@ -1378,11 +1435,11 @@ func (q *Queries) InsertarTramo(ctx context.Context, arg InsertarTramoParams) er
 
 const insertarVozAjustes = `-- name: InsertarVozAjustes :one
 INSERT INTO mensajeria.voz_ajustes (empresa_id, grabar, duracion_max_persona_min, segundos_asignado, retencion_grabaciones_dias,
-    max_salientes_por_dia, tope_minutos_salientes_mes)
+    max_salientes_por_dia, tope_minutos_salientes_mes, max_colgadas_marcando_dia)
 VALUES ($1, $2, $3, $4, $5,
-    $6, $7)
+    $6, $7, $8)
 ON CONFLICT DO NOTHING
-RETURNING id, empresa_id, grabar, duracion_max_persona_min, segundos_asignado, retencion_grabaciones_dias, version, created_at, updated_at, max_salientes_por_dia, tope_minutos_salientes_mes
+RETURNING id, empresa_id, grabar, duracion_max_persona_min, segundos_asignado, retencion_grabaciones_dias, version, created_at, updated_at, max_salientes_por_dia, tope_minutos_salientes_mes, max_colgadas_marcando_dia
 `
 
 type InsertarVozAjustesParams struct {
@@ -1393,6 +1450,7 @@ type InsertarVozAjustesParams struct {
 	RetencionGrabacionesDias int32
 	MaxSalientesPorDia       int32
 	TopeMinutosSalientesMes  int32
+	MaxColgadasMarcandoDia   int32
 }
 
 func (q *Queries) InsertarVozAjustes(ctx context.Context, arg InsertarVozAjustesParams) (MensajeriaVozAjuste, error) {
@@ -1404,6 +1462,7 @@ func (q *Queries) InsertarVozAjustes(ctx context.Context, arg InsertarVozAjustes
 		arg.RetencionGrabacionesDias,
 		arg.MaxSalientesPorDia,
 		arg.TopeMinutosSalientesMes,
+		arg.MaxColgadasMarcandoDia,
 	)
 	var i MensajeriaVozAjuste
 	err := row.Scan(
@@ -1418,6 +1477,7 @@ func (q *Queries) InsertarVozAjustes(ctx context.Context, arg InsertarVozAjustes
 		&i.UpdatedAt,
 		&i.MaxSalientesPorDia,
 		&i.TopeMinutosSalientesMes,
+		&i.MaxColgadasMarcandoDia,
 	)
 	return i, err
 }
@@ -1482,7 +1542,7 @@ func (q *Queries) ListarDevoluciones(ctx context.Context, arg ListarDevoluciones
 }
 
 const listarLlamadas = `-- name: ListarLlamadas :many
-SELECT l.id, l.empresa_id, l.origen, l.canal_id, l.conversacion_id, l.mensaje_id, l.id_externo, l.direccion, l.numero, l.cliente_id, l.servicio_id, l.cola_id, l.estado, l.atendida_por, l.usuario_id, l.reclamada_por, l.reclamada_hasta, l.motivo_fin, l.sono_en, l.suena_hasta, l.contestada_en, l.terminada_en, l.duracion_seg, l.nota, l.resultado, l.grabada, l.sdp_oferta, l.accion_meta, l.accion_meta_estado, l.accion_meta_en, l.pre_aceptada_en, l.aviso_perdida, l.created_at, l.updated_at, l.accion_meta_por, l.reclamada_navegador, l.sdp_respuesta, l.devolucion_id, l.navegador FROM mensajeria.llamadas l
+SELECT l.id, l.empresa_id, l.origen, l.canal_id, l.conversacion_id, l.mensaje_id, l.id_externo, l.direccion, l.numero, l.cliente_id, l.servicio_id, l.cola_id, l.estado, l.atendida_por, l.usuario_id, l.reclamada_por, l.reclamada_hasta, l.motivo_fin, l.sono_en, l.suena_hasta, l.contestada_en, l.terminada_en, l.duracion_seg, l.nota, l.resultado, l.grabada, l.sdp_oferta, l.accion_meta, l.accion_meta_estado, l.accion_meta_en, l.pre_aceptada_en, l.aviso_perdida, l.created_at, l.updated_at, l.accion_meta_por, l.reclamada_navegador, l.sdp_respuesta, l.devolucion_id, l.navegador, l.externo_webhook FROM mensajeria.llamadas l
 JOIN mensajeria.conversaciones c ON c.id = l.conversacion_id
 WHERE coalesce(l.empresa_id, 0) = $1::bigint AND coalesce(c.empresa_id, 0) = $1::bigint
   AND mensajeria.conv_visible($2::bigint, $3::boolean, c.id, c.cola_id, c.asignado_a)
@@ -1572,6 +1632,7 @@ func (q *Queries) ListarLlamadas(ctx context.Context, arg ListarLlamadasParams) 
 			&i.SdpRespuesta,
 			&i.DevolucionID,
 			&i.Navegador,
+			&i.ExternoWebhook,
 		); err != nil {
 			return nil, err
 		}
@@ -1584,7 +1645,7 @@ func (q *Queries) ListarLlamadas(ctx context.Context, arg ListarLlamadasParams) 
 }
 
 const llamadaActivaDeUsuario = `-- name: LlamadaActivaDeUsuario :one
-SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador FROM mensajeria.llamadas
+SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, externo_webhook FROM mensajeria.llamadas
 WHERE coalesce(empresa_id, 0) = $1::bigint AND estado IN ('conectando', 'en_curso', 'marcando')
   AND (usuario_id = $2 OR reclamada_por = $2)
 ORDER BY sono_en DESC LIMIT 1
@@ -1638,6 +1699,7 @@ func (q *Queries) LlamadaActivaDeUsuario(ctx context.Context, arg LlamadaActivaD
 		&i.SdpRespuesta,
 		&i.DevolucionID,
 		&i.Navegador,
+		&i.ExternoWebhook,
 	)
 	return i, err
 }
@@ -1663,7 +1725,7 @@ func (q *Queries) LlamadaAlBuzonReciente(ctx context.Context, arg LlamadaAlBuzon
 }
 
 const llamadaParaActualizar = `-- name: LlamadaParaActualizar :one
-SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador FROM mensajeria.llamadas WHERE id = $1 FOR UPDATE
+SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, externo_webhook FROM mensajeria.llamadas WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) LlamadaParaActualizar(ctx context.Context, id uuid.UUID) (MensajeriaLlamada, error) {
@@ -1709,12 +1771,13 @@ func (q *Queries) LlamadaParaActualizar(ctx context.Context, id uuid.UUID) (Mens
 		&i.SdpRespuesta,
 		&i.DevolucionID,
 		&i.Navegador,
+		&i.ExternoWebhook,
 	)
 	return i, err
 }
 
 const llamadaPorExterno = `-- name: LlamadaPorExterno :one
-SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador FROM mensajeria.llamadas WHERE origen = 'whatsapp' AND canal_id = $1 AND id_externo = $2 FOR UPDATE
+SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, externo_webhook FROM mensajeria.llamadas WHERE origen = 'whatsapp' AND canal_id = $1 AND id_externo = $2 FOR UPDATE
 `
 
 type LlamadaPorExternoParams struct {
@@ -1765,12 +1828,13 @@ func (q *Queries) LlamadaPorExterno(ctx context.Context, arg LlamadaPorExternoPa
 		&i.SdpRespuesta,
 		&i.DevolucionID,
 		&i.Navegador,
+		&i.ExternoWebhook,
 	)
 	return i, err
 }
 
 const llamadaPorID = `-- name: LlamadaPorID :one
-SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador FROM mensajeria.llamadas WHERE id = $1
+SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, externo_webhook FROM mensajeria.llamadas WHERE id = $1
 `
 
 func (q *Queries) LlamadaPorID(ctx context.Context, id uuid.UUID) (MensajeriaLlamada, error) {
@@ -1816,6 +1880,7 @@ func (q *Queries) LlamadaPorID(ctx context.Context, id uuid.UUID) (MensajeriaLla
 		&i.SdpRespuesta,
 		&i.DevolucionID,
 		&i.Navegador,
+		&i.ExternoWebhook,
 	)
 	return i, err
 }
@@ -1838,7 +1903,7 @@ func (q *Queries) LlamadaVivaDeNumero(ctx context.Context, arg LlamadaVivaDeNume
 }
 
 const llamadasConAccionPendiente = `-- name: LlamadasConAccionPendiente :many
-SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador FROM mensajeria.llamadas WHERE accion_meta_estado = 'pendiente' AND accion_meta_en < $1
+SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, externo_webhook FROM mensajeria.llamadas WHERE accion_meta_estado = 'pendiente' AND accion_meta_en < $1
   AND estado IN ('sonando', 'marcando', 'conectando', 'en_curso') ORDER BY accion_meta_en LIMIT 100
 `
 
@@ -1893,6 +1958,7 @@ func (q *Queries) LlamadasConAccionPendiente(ctx context.Context, antes *time.Ti
 			&i.SdpRespuesta,
 			&i.DevolucionID,
 			&i.Navegador,
+			&i.ExternoWebhook,
 		); err != nil {
 			return nil, err
 		}
@@ -1905,7 +1971,7 @@ func (q *Queries) LlamadasConAccionPendiente(ctx context.Context, antes *time.Ti
 }
 
 const llamadasPorIDs = `-- name: LlamadasPorIDs :many
-SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador FROM mensajeria.llamadas WHERE id = ANY ($1::uuid[])
+SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, externo_webhook FROM mensajeria.llamadas WHERE id = ANY ($1::uuid[])
 `
 
 func (q *Queries) LlamadasPorIDs(ctx context.Context, ids []uuid.UUID) ([]MensajeriaLlamada, error) {
@@ -1957,6 +2023,7 @@ func (q *Queries) LlamadasPorIDs(ctx context.Context, ids []uuid.UUID) ([]Mensaj
 			&i.SdpRespuesta,
 			&i.DevolucionID,
 			&i.Navegador,
+			&i.ExternoWebhook,
 		); err != nil {
 			return nil, err
 		}
@@ -1987,7 +2054,7 @@ func (q *Queries) LlamadasRecientesDeNumero(ctx context.Context, arg LlamadasRec
 }
 
 const llamadasVivas = `-- name: LlamadasVivas :many
-SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador FROM mensajeria.llamadas WHERE estado IN ('sonando', 'marcando', 'conectando', 'en_curso') ORDER BY sono_en LIMIT 200
+SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, externo_webhook FROM mensajeria.llamadas WHERE estado IN ('sonando', 'marcando', 'conectando', 'en_curso') ORDER BY sono_en LIMIT 200
 `
 
 // Para el mantenimiento (cada 5 s): todo lo que no terminó.
@@ -2040,6 +2107,7 @@ func (q *Queries) LlamadasVivas(ctx context.Context) ([]MensajeriaLlamada, error
 			&i.SdpRespuesta,
 			&i.DevolucionID,
 			&i.Navegador,
+			&i.ExternoWebhook,
 		); err != nil {
 			return nil, err
 		}
@@ -2219,6 +2287,20 @@ func (q *Queries) PermisosDeNumero(ctx context.Context, arg PermisosDeNumeroPara
 	return items, nil
 }
 
+const quitarWebhookAdelantado = `-- name: QuitarWebhookAdelantado :exec
+UPDATE mensajeria.llamadas SET externo_webhook = NULL, sdp_respuesta = CASE WHEN $1::boolean THEN sdp_respuesta END, updated_at = now() WHERE id = $2
+`
+
+type QuitarWebhookAdelantadoParams struct {
+	Conservar bool
+	ID        uuid.UUID
+}
+
+func (q *Queries) QuitarWebhookAdelantado(ctx context.Context, arg QuitarWebhookAdelantadoParams) error {
+	_, err := q.db.Exec(ctx, quitarWebhookAdelantado, arg.Conservar, arg.ID)
+	return err
+}
+
 const receptorDe = `-- name: ReceptorDe :one
 SELECT id, empresa_id, usuario_id, navegador, recibe, visto_en, created_at, updated_at, apagado_motivo FROM mensajeria.llamada_receptores
 WHERE coalesce(empresa_id, 0) = $1::bigint AND usuario_id = $2 AND navegador = $3
@@ -2318,7 +2400,7 @@ WHERE l.id = $4 AND coalesce(l.empresa_id, 0) = $5::bigint AND l.estado = 'sonan
   -- Quien ya tiene una llamada viva no reclama otra.
   AND NOT EXISTS (SELECT 1 FROM mensajeria.llamadas o WHERE o.id <> l.id AND o.estado IN ('conectando', 'en_curso', 'marcando')
       AND (o.usuario_id = $1 OR o.reclamada_por = $1))
-RETURNING id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador
+RETURNING id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, externo_webhook
 `
 
 type ReclamarLlamadaParams struct {
@@ -2381,8 +2463,25 @@ func (q *Queries) ReclamarLlamada(ctx context.Context, arg ReclamarLlamadaParams
 		&i.SdpRespuesta,
 		&i.DevolucionID,
 		&i.Navegador,
+		&i.ExternoWebhook,
 	)
 	return i, err
+}
+
+const registrarHuerfana = `-- name: RegistrarHuerfana :exec
+INSERT INTO mensajeria.llamadas_huerfanas (canal_id, call_id, proximo_en) VALUES ($1, $2, $3)
+ON CONFLICT (canal_id, call_id) DO NOTHING
+`
+
+type RegistrarHuerfanaParams struct {
+	CanalID   int64
+	CallID    string
+	ProximoEn time.Time
+}
+
+func (q *Queries) RegistrarHuerfana(ctx context.Context, arg RegistrarHuerfanaParams) error {
+	_, err := q.db.Exec(ctx, registrarHuerfana, arg.CanalID, arg.CallID, arg.ProximoEn)
+	return err
 }
 
 const retirarCandidato = `-- name: RetirarCandidato :execrows
@@ -2424,20 +2523,20 @@ func (q *Queries) RetirarCandidatos(ctx context.Context, arg RetirarCandidatosPa
 	return err
 }
 
-const salientePorVincular = `-- name: SalientePorVincular :one
-SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador FROM mensajeria.llamadas
+const salienteSinCallID = `-- name: SalienteSinCallID :one
+SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, externo_webhook FROM mensajeria.llamadas
 WHERE canal_id = $1 AND numero = $2 AND direccion = 'saliente' AND estado = 'marcando' AND id_externo LIKE 'pendiente:%'
 ORDER BY sono_en DESC LIMIT 1 FOR UPDATE
 `
 
-type SalientePorVincularParams struct {
+type SalienteSinCallIDParams struct {
 	CanalID *int64
 	Numero  string
 }
 
-// Un webhook de una saliente cuyo call_id todavía no se guardó (llegó antes que la respuesta del connect).
-func (q *Queries) SalientePorVincular(ctx context.Context, arg SalientePorVincularParams) (MensajeriaLlamada, error) {
-	row := q.db.QueryRow(ctx, salientePorVincular, arg.CanalID, arg.Numero)
+// La saliente a ese número que todavía espera la respuesta del connect (un webhook pudo adelantarse).
+func (q *Queries) SalienteSinCallID(ctx context.Context, arg SalienteSinCallIDParams) (MensajeriaLlamada, error) {
+	row := q.db.QueryRow(ctx, salienteSinCallID, arg.CanalID, arg.Numero)
 	var i MensajeriaLlamada
 	err := row.Scan(
 		&i.ID,
@@ -2479,6 +2578,7 @@ func (q *Queries) SalientePorVincular(ctx context.Context, arg SalientePorVincul
 		&i.SdpRespuesta,
 		&i.DevolucionID,
 		&i.Navegador,
+		&i.ExternoWebhook,
 	)
 	return i, err
 }
@@ -2502,21 +2602,26 @@ func (q *Queries) SalientesDesde(ctx context.Context, arg SalientesDesdeParams) 
 }
 
 const segundosSalientes = `-- name: SegundosSalientes :one
-SELECT coalesce(sum(duracion_seg), 0)::bigint FROM mensajeria.llamadas
-WHERE coalesce(empresa_id, 0) = $1::bigint AND direccion = 'saliente' AND contestada_en IS NOT NULL
-  AND sono_en >= $2 AND sono_en < $3 AND id <> $4
+SELECT (coalesce(sum(duracion_seg) FILTER (WHERE estado <> 'en_curso'), 0)
+    + coalesce(sum(GREATEST(0, floor(extract(epoch FROM ($1::timestamptz - contestada_en))))) FILTER (WHERE estado = 'en_curso'), 0))::bigint
+FROM mensajeria.llamadas
+WHERE coalesce(empresa_id, 0) = $2::bigint AND direccion = 'saliente' AND contestada_en IS NOT NULL
+  AND sono_en >= $3 AND sono_en < $4 AND id <> $5
 `
 
 type SegundosSalientesParams struct {
+	Ahora   time.Time
 	Empresa int64
 	Desde   time.Time
 	Hasta   time.Time
 	Menos   uuid.UUID
 }
 
-// Segundos de salientes contestadas de la empresa en un periodo (tope de minutos del mes).
+// Segundos de salientes contestadas de la empresa en un periodo (tope de minutos del mes). Las que
+// siguen en curso cuentan lo que llevan.
 func (q *Queries) SegundosSalientes(ctx context.Context, arg SegundosSalientesParams) (int64, error) {
 	row := q.db.QueryRow(ctx, segundosSalientes,
+		arg.Ahora,
 		arg.Empresa,
 		arg.Desde,
 		arg.Hasta,
@@ -2560,6 +2665,36 @@ func (q *Queries) ServicioPrincipal(ctx context.Context, arg ServicioPrincipalPa
 	return i, err
 }
 
+const solicitudesDeNumero = `-- name: SolicitudesDeNumero :many
+SELECT solicitudes FROM mensajeria.llamada_permisos WHERE coalesce(empresa_id, 0) = $1::bigint AND numero = $2
+`
+
+type SolicitudesDeNumeroParams struct {
+	Empresa int64
+	Numero  string
+}
+
+// Las solicitudes de permiso a ese contacto desde cualquier número de la empresa.
+func (q *Queries) SolicitudesDeNumero(ctx context.Context, arg SolicitudesDeNumeroParams) ([][]byte, error) {
+	rows, err := q.db.Query(ctx, solicitudesDeNumero, arg.Empresa, arg.Numero)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items [][]byte
+	for rows.Next() {
+		var solicitudes []byte
+		if err := rows.Scan(&solicitudes); err != nil {
+			return nil, err
+		}
+		items = append(items, solicitudes)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const tocarNavegadorDeLlamada = `-- name: TocarNavegadorDeLlamada :exec
 INSERT INTO mensajeria.llamada_receptores (empresa_id, usuario_id, navegador, recibe, visto_en)
 VALUES ($1, $2, $3, false, $4)
@@ -2588,20 +2723,27 @@ func (q *Queries) TocarNavegadorDeLlamada(ctx context.Context, arg TocarNavegado
 const tocarReceptores = `-- name: TocarReceptores :exec
 UPDATE mensajeria.llamada_receptores r SET visto_en = $1
 WHERE coalesce(r.empresa_id, 0) = $2::bigint AND r.usuario_id = $3
-  AND (r.recibe OR EXISTS (SELECT 1 FROM mensajeria.llamadas l WHERE l.usuario_id = r.usuario_id AND l.navegador = r.navegador
-        AND l.direccion = 'saliente' AND l.estado IN ('marcando', 'en_curso')))
+  AND (($4::text IS NULL AND r.recibe) OR r.navegador = $4::text)
 `
 
 type TocarReceptoresParams struct {
 	Ahora     time.Time
 	Empresa   int64
 	UsuarioID int64
+	Navegador *string
 }
 
 // Latido del flujo SSE del usuario.
-// También el navegador desde el que tiene una saliente viva, aunque no reciba llamadas.
+// Si el flujo dice de qué navegador es, toca solo esa fila (reciba llamadas o no: también es el
+// latido del navegador desde el que se hace una saliente). Otra pestaña u otro equipo del mismo
+// usuario no mantiene viva esa fila. Sin navegador (paneles viejos), las que reciben llamadas.
 func (q *Queries) TocarReceptores(ctx context.Context, arg TocarReceptoresParams) error {
-	_, err := q.db.Exec(ctx, tocarReceptores, arg.Ahora, arg.Empresa, arg.UsuarioID)
+	_, err := q.db.Exec(ctx, tocarReceptores,
+		arg.Ahora,
+		arg.Empresa,
+		arg.UsuarioID,
+		arg.Navegador,
+	)
 	return err
 }
 
@@ -2682,6 +2824,52 @@ func (q *Queries) TomarCanalesMetaPendiente(ctx context.Context, arg TomarCanale
 	return items, nil
 }
 
+const tomarHuerfanas = `-- name: TomarHuerfanas :many
+UPDATE mensajeria.llamadas_huerfanas SET intentos = intentos + 1, proximo_en = $1::timestamptz, updated_at = now()
+WHERE id IN (SELECT h.id FROM mensajeria.llamadas_huerfanas h WHERE h.estado = 'pendiente' AND h.proximo_en <= $2
+    ORDER BY h.proximo_en LIMIT $3 FOR UPDATE SKIP LOCKED)
+RETURNING id, canal_id, call_id, intentos
+`
+
+type TomarHuerfanasParams struct {
+	Aparte time.Time
+	Ahora  time.Time
+	Lote   int32
+}
+
+type TomarHuerfanasRow struct {
+	ID       int64
+	CanalID  int64
+	CallID   string
+	Intentos int32
+}
+
+// El job de escrituras a Meta toma las que toca terminar y las aparta lote × plazo (SKIP LOCKED).
+func (q *Queries) TomarHuerfanas(ctx context.Context, arg TomarHuerfanasParams) ([]TomarHuerfanasRow, error) {
+	rows, err := q.db.Query(ctx, tomarHuerfanas, arg.Aparte, arg.Ahora, arg.Lote)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TomarHuerfanasRow
+	for rows.Next() {
+		var i TomarHuerfanasRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.CanalID,
+			&i.CallID,
+			&i.Intentos,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const tramosDeLlamadas = `-- name: TramosDeLlamadas :many
 SELECT t.id, t.llamada_id, t.empresa_id, t.orden, t.tipo, t.usuario_id, t.motor_id, t.inicio, t.fin, t.duracion_seg, t.motivo_fin, t.turnos, t.puente, coalesce(u.nombre, '')::text AS usuario_nombre FROM mensajeria.llamada_tramos t
 LEFT JOIN nucleo.usuarios u ON u.id = t.usuario_id
@@ -2741,7 +2929,7 @@ func (q *Queries) TramosDeLlamadas(ctx context.Context, ids []uuid.UUID) ([]Tram
 }
 
 const vozAjustes = `-- name: VozAjustes :one
-SELECT id, empresa_id, grabar, duracion_max_persona_min, segundos_asignado, retencion_grabaciones_dias, version, created_at, updated_at, max_salientes_por_dia, tope_minutos_salientes_mes FROM mensajeria.voz_ajustes WHERE coalesce(empresa_id, 0) = $1::bigint
+SELECT id, empresa_id, grabar, duracion_max_persona_min, segundos_asignado, retencion_grabaciones_dias, version, created_at, updated_at, max_salientes_por_dia, tope_minutos_salientes_mes, max_colgadas_marcando_dia FROM mensajeria.voz_ajustes WHERE coalesce(empresa_id, 0) = $1::bigint
 `
 
 func (q *Queries) VozAjustes(ctx context.Context, empresa int64) (MensajeriaVozAjuste, error) {
@@ -2759,6 +2947,7 @@ func (q *Queries) VozAjustes(ctx context.Context, empresa int64) (MensajeriaVozA
 		&i.UpdatedAt,
 		&i.MaxSalientesPorDia,
 		&i.TopeMinutosSalientesMes,
+		&i.MaxColgadasMarcandoDia,
 	)
 	return i, err
 }
@@ -2834,7 +3023,7 @@ func (q *Queries) VozAjustesCanalParaActualizar(ctx context.Context, canalID int
 }
 
 const vozAjustesParaActualizar = `-- name: VozAjustesParaActualizar :one
-SELECT id, empresa_id, grabar, duracion_max_persona_min, segundos_asignado, retencion_grabaciones_dias, version, created_at, updated_at, max_salientes_por_dia, tope_minutos_salientes_mes FROM mensajeria.voz_ajustes WHERE coalesce(empresa_id, 0) = $1::bigint FOR UPDATE
+SELECT id, empresa_id, grabar, duracion_max_persona_min, segundos_asignado, retencion_grabaciones_dias, version, created_at, updated_at, max_salientes_por_dia, tope_minutos_salientes_mes, max_colgadas_marcando_dia FROM mensajeria.voz_ajustes WHERE coalesce(empresa_id, 0) = $1::bigint FOR UPDATE
 `
 
 func (q *Queries) VozAjustesParaActualizar(ctx context.Context, empresa int64) (MensajeriaVozAjuste, error) {
@@ -2852,6 +3041,7 @@ func (q *Queries) VozAjustesParaActualizar(ctx context.Context, empresa int64) (
 		&i.UpdatedAt,
 		&i.MaxSalientesPorDia,
 		&i.TopeMinutosSalientesMes,
+		&i.MaxColgadasMarcandoDia,
 	)
 	return i, err
 }

@@ -261,10 +261,11 @@ func (m *Modulo) registrarVoz(api huma.API) {
 	huma.Register(api, voz(op("configurarLlamadasCanal", http.MethodPost, "/canales/{id}/llamadas/configurar", "Configurar las llamadas de un número", conf,
 		http.StatusOK, http.StatusNotFound, http.StatusConflict),
 		"422 `llamadas_no_disponibles_qr` al encender en un número por QR; 422 `requisitos_sin_cumplir` (con `errors[]` por requisito) si la última "+
-			"comprobación no cumple; 422 `asistente_voz_no_disponible` con `fueraDeHorario: asistente` (llega en otra etapa). Emite `canal_mensajeria.llamadas_cambiadas`."),
+			"comprobación no cumple; 422 `asistente_voz_no_disponible` con `fueraDeHorario: asistente` (llega en otra etapa); 422 `plantilla_permiso_invalida` si la cuenta de WhatsApp no tiene "+
+			"esa plantilla aprobada en ese idioma (se comprueba en Meta al guardarla; 502 `meta_rechazo` si Meta no responde). Emite `canal_mensajeria.llamadas_cambiadas`."),
 		func(ctx context.Context, in *idCuerpoHTTP[EntradaLlamadasCanal]) (*cuerpo[LlamadasCanal], error) {
 			in.Body.ID = in.ID
-			return responder(k.ConfigCanal.Ejecutar(ctx, in.Body))
+			return responder(m.ConfigurarLlamadas(ctx, in.Body))
 		})
 	for _, r := range []struct {
 		id, ruta, resumen, detalle string

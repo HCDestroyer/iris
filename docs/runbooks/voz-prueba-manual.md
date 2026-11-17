@@ -100,6 +100,16 @@ Supuestos de E1b por confirmar (si alguno no se cumple, las salientes no funcion
 | 19 | La respuesta SDP real de Meta a una saliente pasa la lista cerrada (si no, la llamada queda `fallida` y se ve en `llamada.fallida`) | `ValidarSDP` |
 | 20 | ¿Meta manda `ACCEPTED` siempre? Si no, la llamada se ve `marcando` mientras hay audio; al llegar el `terminate` con duración queda `terminada` y cuenta para el tope, pero a los 60 s el mantenimiento la habría cortado antes: habría que pasar a `en_curso` al llegar la respuesta SDP | `eventoSaliente`, `terminarPorMeta` |
 
+Además, con un número real:
+
+- Abrir el panel en dos navegadores con el mismo usuario, llamar desde uno y cerrar ese: la llamada
+  debe cortarse a los 55 s aunque el otro siga abierto.
+- Colgar desde el panel justo al pulsar «Llamar» (mientras Meta responde al `connect`): el teléfono
+  no debe quedarse sonando (mirar `mensajeria.llamadas_huerfanas`).
+- Supuesto 21: `GET /{waba_id}/message_templates?name=` devuelve `data[] { name, status, category,
+  language }` y la plantilla de permiso es `UTILITY` o `MARKETING` (`graphHTTP.Plantilla`). Si la
+  categoría real es otra, `llamadas/configurar` rechazará la plantilla buena.
+
 ## 5. Qué entregar
 
 Un informe corto con: lo que difiere de cada supuesto, los cuerpos reales de `connect` y `terminate`

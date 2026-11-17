@@ -45,6 +45,8 @@ type graphFalso struct {
 	ofertas         []string
 	permiso         mensajeria.PermisoMeta
 	permisosLeidos  int
+	// plantillas de la cuenta de WhatsApp, por «nombre|idioma».
+	plantillas map[string]mensajeria.PlantillaMetaInfo
 }
 
 func (g *graphFalso) Accion(_ context.Context, canal mensajeria.CanalGraph, callID, accion, sdp string, _ bool) error {
@@ -145,7 +147,12 @@ type bandejaVoz struct {
 func nuevaBandejaVoz(t *testing.T) *bandejaVoz {
 	t.Helper()
 	g := &graphFalso{fallar: map[string]error{}, ajustes: mensajeria.AjustesMetaLlamadas{Habilitadas: true, IconoVisible: true, LimiteMensajeria: 10000},
-		permiso: mensajeria.PermisoMeta{Estado: "sin_pedir"}}
+		permiso: mensajeria.PermisoMeta{Estado: "sin_pedir"},
+		plantillas: map[string]mensajeria.PlantillaMetaInfo{
+			"permiso_de_llamada|es":    {Existe: true, Aprobada: true, Categoria: "UTILITY"},
+			"permiso_de_llamada|es_MX": {Existe: true, Aprobada: true, Categoria: "MARKETING"},
+			"permiso_en_revision|es":   {Existe: true, Aprobada: false, Categoria: "UTILITY"},
+			"codigo_de_acceso|es":      {Existe: true, Aprobada: true, Categoria: "AUTHENTICATION"}}}
 	x := &bandejaVoz{bandeja: nuevaBandeja(t, func(c *mensajeria.Config) { c.Llamadas = g }), g: g}
 	// Cada persona en su navegador (el mismo id que usa recibe()).
 	x.agente.navegador, x.supervisor.navegador = fmt.Sprintf("navegador-%d", x.agente.id), fmt.Sprintf("navegador-%d", x.supervisor.id)

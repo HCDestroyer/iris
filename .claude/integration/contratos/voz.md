@@ -190,6 +190,41 @@ técnica (§9)**; los que más pesan están listados en §10.
   - **Permisos.** `llamadas.llamar` (sensible): `supervisor` y `admin`. `llamadas.solicitar_permiso`:
     `soporte`, `ventas`, `supervisor`, `admin`.
   - **Fuera de E1b:** el botón «Llámanos» (`tipo: "llamanos"`) y el asistente pidiendo permiso.
+- **Revisión de seguridad de E1b (17 nov 2026):**
+  - **Límites atómicos.** `llamar` toma un candado por empresa antes de contar (una por persona y
+    por contacto, por día, 100 por número en 24 h y tope del mes): N peticiones en paralelo no los
+    burlan. Además hay un índice único de saliente viva por usuario.
+  - **Tope de minutos en vivo.** Los minutos del mes cuentan también lo que llevan las salientes
+    `en_curso`. El mantenimiento corta una saliente al cruzar el tope: queda `terminada` con
+    `motivoFin: "tope_alcanzado"` (el panel lo dice al agente) y `terminate` en Meta. Con 299 de
+    300 minutos, la llamada dura lo que queda (más un ciclo de 5 s).
+  - **El latido es del navegador.** `GET /conversaciones/eventos` acepta **`?navegador=<id>`** (o
+    la cabecera `X-Iris-Navegador`; `EventSource` no manda cabeceras): con él, el latido del flujo
+    toca solo la fila de ese navegador. La saliente se mantiene viva **solo** con el flujo del
+    navegador desde el que se llamó: otra pestaña sin ese id, u otro equipo de la misma persona, no
+    la sostiene (a los 55 s, `error_medio`). Sin el parámetro (paneles viejos) el latido vale para
+    los navegadores del usuario que reciben llamadas y para ninguna saliente.
+  - **Nada queda colgado en Meta.** `mensajeria.llamadas_huerfanas` guarda los `call_id` que
+    existen en Meta y no en Iris, y el job `mensajeria.voz_meta` les manda `terminate` con
+    reintentos (6, apartados 20 s). Entran ahí: la saliente que se colgó mientras el `connect`
+    estaba en vuelo; un `connect` / `RINGING` / `ACCEPTED` saliente de un `call_id` sin llamada
+    viva; y el de una llamada ya cerrada a la que Iris no le había pedido terminar.
+  - **El `call_id` lo da la respuesta del `connect`.** Un webhook no se vincula a una llamada por
+    el número. Si llega antes que esa respuesta, lo que trae queda apartado
+    (`llamadas.externo_webhook`) y solo se aplica si la respuesta del `connect` trae ese mismo
+    `call_id`; si trae otro, se descarta y el discrepante se termina en Meta.
+  - **SDP.** La oferta del navegador no se guarda (va de la petición a Meta en memoria). El SDP del
+    `connect` de una saliente huérfana o ya cerrada se tapa (`***`) en `entrantes`.
+  - **Timbrar y colgar.** Las salientes colgadas mientras marcaban cuentan por contacto y día:
+    a la tercera (`maxColgadasMarcandoDia` en `/voz/ajustes`, 3 de fábrica, 0–20) `llamar`
+    responde 422 `limite_llamadas` con `errors[0].rule = "colgadas_marcando"`.
+  - **Plantilla de permiso.** Al guardarla en `llamadas/configurar` se comprueba en la cuenta de
+    WhatsApp (`GET /{waba_id}/message_templates`): tiene que existir en ese idioma, estar aprobada
+    y ser de categoría `UTILITY` o `MARKETING`. Si no, 422 **`plantilla_permiso_invalida`**; si
+    Meta no responde, 502 `meta_rechazo`. (Iris no sincroniza plantillas: la comprobación es en
+    vivo al guardar.)
+  - **Solicitudes por contacto.** El límite de 1 por 24 h y 2 por 7 días cuenta las solicitudes a
+    ese contacto desde **todos los números de la empresa**, no por número.
 - **E1c (grabación, pendiente de la prueba real):** la grabación de Meta **no forma parte de E1**.
   No se ofrece ni se acepta: `grabar` es siempre `nunca` (cualquier otro valor en
   `POST /voz/ajustes/actualizar` responde **422 `grabacion_no_disponible`**), Iris **nunca pide** la
@@ -815,6 +850,7 @@ Un supervisor puede **oír** una llamada en curso sin participar.
 | `llamada_terminada` | 409 | Acción sobre una llamada en estado final |
 | `llamada_en_curso` | 409 | El usuario o el contacto ya tienen una llamada viva |
 | `navegador_requerido` | 422 | `reclamar` o `GET /llamadas/recibir` sin el id del navegador (`X-Iris-Navegador`) |
+| `plantilla_permiso_invalida` | 422 | `llamadas/configurar` con una plantilla de permiso que la cuenta de WhatsApp no tiene aprobada en ese idioma |
 | `confirmar_riesgo` | 422 | `llamar` a un contacto con tres salientes seguidas sin contestar, sin `confirmarRiesgo: true` |
 | `sin_respuesta` | 409 | `GET /llamadas/{id}/respuesta-sdp` antes de que WhatsApp mande la respuesta |
 | `accion_en_curso` | 409 | `soltar` o `reclamar` mientras WhatsApp no ha respondido a un `pre_accept` o `accept` de esa llamada |

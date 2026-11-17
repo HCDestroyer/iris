@@ -1675,6 +1675,7 @@ type MensajeriaLlamada struct {
 	SdpRespuesta       *string
 	DevolucionID       *int64
 	Navegador          *string
+	ExternoWebhook     *string
 }
 
 type MensajeriaLlamadaCandidato struct {
@@ -1761,6 +1762,17 @@ type MensajeriaLlamadaTramo struct {
 	MotivoFin   *string
 	Turnos      *int32
 	Puente      bool
+}
+
+type MensajeriaLlamadasHuerfana struct {
+	ID        int64
+	CanalID   int64
+	CallID    string
+	Estado    string
+	Intentos  int32
+	ProximoEn time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 type MensajeriaManualEnlace struct {
@@ -1890,6 +1902,7 @@ type MensajeriaVozAjuste struct {
 	UpdatedAt                time.Time
 	MaxSalientesPorDia       int32
 	TopeMinutosSalientesMes  int32
+	MaxColgadasMarcandoDia   int32
 }
 
 type MensajeriaVozAjustesCanal struct {

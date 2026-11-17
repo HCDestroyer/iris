@@ -274,6 +274,8 @@ func (m *Modulo) EscucharConversaciones(ctx context.Context, pool *pgxpool.Pool,
 type flujoConv struct {
 	alcance alcanceConv
 	desde   int64
+	// navegador: el id de «Recibir llamadas» del navegador que abrió el flujo (vacío en paneles viejos).
+	navegador string
 }
 
 func nuevoAbrirFlujoConv(*Modulo) *auditoria.Caso[entradaFlujo, flujoConv] {
@@ -352,7 +354,13 @@ func (m *Modulo) transmitirConv(ctx context.Context, w http.ResponseWriter, f fl
 			return
 		}
 		// Este flujo es el «panel abierto» de quien recibe llamadas (contratos/voz.md §3.4).
-		_ = q.TocarReceptores(ctx, mensajeriabd.TocarReceptoresParams{Empresa: a.empresa, UsuarioID: a.usuario, Ahora: m.ahora()})
+		// Con su navegador, el latido es solo de ese navegador: otra pestaña u otro equipo de la misma
+		// persona no lo mantiene vivo (ni su «Recibir llamadas» ni la saliente que hizo desde él).
+		toque := mensajeriabd.TocarReceptoresParams{Empresa: a.empresa, UsuarioID: a.usuario, Ahora: m.ahora()}
+		if f.navegador != "" {
+			toque.Navegador = &f.navegador
+		}
+		_ = q.TocarReceptores(ctx, toque)
 		for {
 			plazo()
 			evs, hayMas, siguiente, err := m.leerFeedConvLimitado(ctx, q, a, desde)

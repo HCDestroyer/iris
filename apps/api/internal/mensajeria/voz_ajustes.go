@@ -520,6 +520,39 @@ func nuevoGuardarComprobacion(m *Modulo) *auditoria.Caso[entradaComprobado, Llam
 	})
 }
 
+// ConfigurarLlamadas guarda los ajustes de llamadas del número. Si traen una plantilla de permiso,
+// antes se comprueba en Meta (fuera de la transacción) que la cuenta la tiene, aprobada, en ese
+// idioma y de una categoría que sirve para pedir permiso: una plantilla cualquiera no vale.
+func (m *Modulo) ConfigurarLlamadas(ctx context.Context, in EntradaLlamadasCanal) (LlamadasCanal, error) {
+	if in.PlantillaPermiso != nil && *in.PlantillaPermiso != "" {
+		p, err := m.Voz.prepararCanal.Ejecutar(ctx, EntradaIDConv{ID: in.ID})
+		if err != nil {
+			return LlamadasCanal{}, err
+		}
+		if in.PlantillaPermisoIdioma == "" {
+			in.PlantillaPermisoIdioma = "es"
+		}
+		info, err := m.graph().Plantilla(ctx, p.graph, *in.PlantillaPermiso, in.PlantillaPermisoIdioma)
+		if err != nil {
+			return LlamadasCanal{}, metaRechazo()
+		}
+		motivo := ""
+		switch {
+		case !info.Existe:
+			motivo = "La cuenta de WhatsApp no tiene una plantilla con ese nombre en ese idioma"
+		case !info.Aprobada:
+			motivo = "Esa plantilla todavía no está aprobada por WhatsApp"
+		case info.Categoria != "UTILITY" && info.Categoria != "MARKETING":
+			motivo = "Esa plantilla no es de una categoría que sirva para pedir permiso de llamada"
+		}
+		if motivo != "" {
+			return LlamadasCanal{}, reglaVoz("plantilla_permiso_invalida", motivo,
+				nucleo.ErrorCampo{Field: "plantillaPermiso", Message: motivo, Rule: "plantilla_permiso_invalida"})
+		}
+	}
+	return m.Voz.ConfigCanal.Ejecutar(ctx, in)
+}
+
 // ComprobarLlamadas pregunta a Meta si el número cumple los requisitos y guarda el resultado.
 // Con sincronizar, además copia a Iris el icono y la devolución que tiene Meta.
 func (m *Modulo) ComprobarLlamadas(ctx context.Context, id int64, sincronizar bool) (LlamadasCanal, error) {
@@ -547,6 +580,7 @@ type AjustesVoz struct {
 	// Límites de las llamadas salientes (cuestan dinero).
 	MaxSalientesPorDia      int32 `json:"maxSalientesPorDia" doc:"Llamadas salientes de la empresa por día (0–1000; 0 = ninguna)"`
 	TopeMinutosSalientesMes int32 `json:"topeMinutosSalientesMes" doc:"Minutos de llamadas salientes por mes (0–100000; 0 = ninguna)"`
+	MaxColgadasMarcandoDia  int32 `json:"maxColgadasMarcandoDia" doc:"Cuántas salientes a un mismo contacto se pueden colgar mientras marcan en un día antes de dejar de llamarlo (0–20)"`
 }
 
 // EntradaAjustesVoz es POST /voz/ajustes/actualizar.
@@ -558,11 +592,12 @@ type EntradaAjustesVoz struct {
 	// Opcionales: ausentes, se conservan los que hay.
 	MaxSalientesPorDia      *int32 `json:"maxSalientesPorDia,omitempty" minimum:"0" maximum:"1000"`
 	TopeMinutosSalientesMes *int32 `json:"topeMinutosSalientesMes,omitempty" minimum:"0" maximum:"100000"`
+	MaxColgadasMarcandoDia  *int32 `json:"maxColgadasMarcandoDia,omitempty" minimum:"0" maximum:"20"`
 }
 
 func aAjustesVoz(f mensajeriabd.MensajeriaVozAjuste) AjustesVoz {
 	return AjustesVoz{Version: f.Version, Grabar: "nunca", DuracionMaxPersonaMin: f.DuracionMaxPersonaMin, SegundosAsignado: f.SegundosAsignado,
-		MaxSalientesPorDia: f.MaxSalientesPorDia, TopeMinutosSalientesMes: f.TopeMinutosSalientesMes}
+		MaxSalientesPorDia: f.MaxSalientesPorDia, TopeMinutosSalientesMes: f.TopeMinutosSalientesMes, MaxColgadasMarcandoDia: f.MaxColgadasMarcandoDia}
 }
 
 func nuevoVerAjustesVoz(*Modulo) *auditoria.Caso[struct{}, AjustesVoz] {
@@ -601,6 +636,8 @@ func nuevoFijarAjustesVoz(*Modulo) *auditoria.Caso[EntradaAjustesVoz, AjustesVoz
 				return AjustesVoz{}, campoConv("maxSalientesPorDia", "Entre 0 y 1000 llamadas", "rango")
 			case in.TopeMinutosSalientesMes != nil && (*in.TopeMinutosSalientesMes < 0 || *in.TopeMinutosSalientesMes > 100000):
 				return AjustesVoz{}, campoConv("topeMinutosSalientesMes", "Entre 0 y 100 000 minutos", "rango")
+			case in.MaxColgadasMarcandoDia != nil && (*in.MaxColgadasMarcandoDia < 0 || *in.MaxColgadasMarcandoDia > 20):
+				return AjustesVoz{}, campoConv("maxColgadasMarcandoDia", "Entre 0 y 20", "rango")
 			}
 			q := mensajeriabd.New(t)
 			antes, err := q.VozAjustesParaActualizar(ctx, a.empresa)
@@ -622,17 +659,21 @@ func nuevoFijarAjustesVoz(*Modulo) *auditoria.Caso[EntradaAjustesVoz, AjustesVoz
 			if in.TopeMinutosSalientesMes != nil {
 				tope = *in.TopeMinutosSalientesMes
 			}
+			colgadas := antes.MaxColgadasMarcandoDia
+			if in.MaxColgadasMarcandoDia != nil {
+				colgadas = *in.MaxColgadasMarcandoDia
+			}
 			if nuevo {
 				f, err = q.InsertarVozAjustes(ctx, mensajeriabd.InsertarVozAjustesParams{EmpresaID: a.empresaPtr(), Grabar: "nunca",
 					DuracionMaxPersonaMin: in.DuracionMaxPersonaMin, SegundosAsignado: in.SegundosAsignado, RetencionGrabacionesDias: 30,
-					MaxSalientesPorDia: salientes, TopeMinutosSalientesMes: tope})
+					MaxSalientesPorDia: salientes, TopeMinutosSalientesMes: tope, MaxColgadasMarcandoDia: colgadas})
 				if errors.Is(err, pgx.ErrNoRows) {
 					return AjustesVoz{}, nucleo.ConflictoVersion("voz_ajustes", a.empresa)
 				}
 			} else {
 				f, err = q.ActualizarVozAjustes(ctx, mensajeriabd.ActualizarVozAjustesParams{ID: antes.ID, Grabar: "nunca",
 					DuracionMaxPersonaMin: in.DuracionMaxPersonaMin, SegundosAsignado: in.SegundosAsignado, RetencionGrabacionesDias: antes.RetencionGrabacionesDias,
-					MaxSalientesPorDia: salientes, TopeMinutosSalientesMes: tope})
+					MaxSalientesPorDia: salientes, TopeMinutosSalientesMes: tope, MaxColgadasMarcandoDia: colgadas})
 			}
 			if err != nil {
 				return AjustesVoz{}, err
@@ -640,7 +681,8 @@ func nuevoFijarAjustesVoz(*Modulo) *auditoria.Caso[EntradaAjustesVoz, AjustesVoz
 			t.FijarEntidad("voz_ajustes", f.ID)
 			vista := func(x mensajeriabd.MensajeriaVozAjuste) map[string]any {
 				return map[string]any{"duracion_max_persona_min": x.DuracionMaxPersonaMin, "segundos_asignado": x.SegundosAsignado,
-					"max_salientes_por_dia": x.MaxSalientesPorDia, "tope_minutos_salientes_mes": x.TopeMinutosSalientesMes}
+					"max_salientes_por_dia": x.MaxSalientesPorDia, "tope_minutos_salientes_mes": x.TopeMinutosSalientesMes,
+					"max_colgadas_marcando_dia": x.MaxColgadasMarcandoDia}
 			}
 			campos := t.RegistrarCambios("voz_ajustes", f.ID, vista(antes), vista(f))
 			if campos == nil {
@@ -727,6 +769,18 @@ func nuevoMantenerLlamada(m *Modulo) *auditoria.Caso[uuid.UUID, mantenimientoLla
 					return cerrar(LlamadaPerdida, "nadie_contesto", MetaTerminar)
 				}
 			case LlamadaEnCurso:
+				// Una saliente se corta al llegar la empresa a su tope de minutos del mes (cuenta lo que
+				// lleva esta y las demás en curso): con 299 de 300 minutos dura, como mucho, lo que queda.
+				if l.Direccion == "saliente" && l.ContestadaEn != nil {
+					usados, err := q.SegundosSalientes(ctx, mensajeriabd.SegundosSalientesParams{Empresa: derefEmpresa(l.EmpresaID), Desde: inicioMes(ahora),
+						Hasta: ahora.Add(time.Hour), Menos: uuid.Nil, Ahora: ahora})
+					if err != nil {
+						return nada, err
+					}
+					if usados >= int64(voz.TopeMinutosSalientesMes)*60 {
+						return cerrar(LlamadaTerminada, "tope_alcanzado", MetaTerminar)
+					}
+				}
 				if l.ContestadaEn != nil && ahora.Sub(*l.ContestadaEn) >= time.Duration(voz.DuracionMaxPersonaMin)*time.Minute {
 					return cerrar(LlamadaTerminada, "duracion_maxima", MetaTerminar)
 				}
@@ -819,6 +873,10 @@ func (m *Modulo) DespacharMetaVoz(ctx context.Context, bd nucleo.BD) error {
 		if len(acciones) < LoteMetaVoz || time.Since(inicio) >= PresupuestoMetaVoz {
 			break
 		}
+	}
+	// Llamadas que existen en Meta y no en Iris: se terminan.
+	if err := m.despacharHuerfanas(ctx, bd); err != nil {
+		return err
 	}
 	// Aplicar los ajustes de un número son dos llamadas a Meta (leer y escribir).
 	canales, err := q.TomarCanalesMetaPendiente(ctx, mensajeriabd.TomarCanalesMetaPendienteParams{Ahora: &ahora, Lote: LoteMetaVoz,

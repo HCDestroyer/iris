@@ -118,11 +118,12 @@ SELECT EXISTS (SELECT 1 FROM mensajeria.llamada_receptores
 
 -- name: TocarReceptores :exec
 -- Latido del flujo SSE del usuario.
--- También el navegador desde el que tiene una saliente viva, aunque no reciba llamadas.
+-- Si el flujo dice de qué navegador es, toca solo esa fila (reciba llamadas o no: también es el
+-- latido del navegador desde el que se hace una saliente). Otra pestaña u otro equipo del mismo
+-- usuario no mantiene viva esa fila. Sin navegador (paneles viejos), las que reciben llamadas.
 UPDATE mensajeria.llamada_receptores r SET visto_en = @ahora
 WHERE coalesce(r.empresa_id, 0) = @empresa::bigint AND r.usuario_id = @usuario_id
-  AND (r.recibe OR EXISTS (SELECT 1 FROM mensajeria.llamadas l WHERE l.usuario_id = r.usuario_id AND l.navegador = r.navegador
-        AND l.direccion = 'saliente' AND l.estado IN ('marcando', 'en_curso')));
+  AND ((sqlc.narg('navegador')::text IS NULL AND r.recibe) OR r.navegador = sqlc.narg('navegador')::text);
 
 -- name: TocarNavegadorDeLlamada :exec
 -- El navegador desde el que se llama queda anotado (sin cambiar si recibe llamadas): su latido dice
@@ -256,16 +257,17 @@ SELECT * FROM mensajeria.voz_ajustes WHERE coalesce(empresa_id, 0) = @empresa::b
 
 -- name: InsertarVozAjustes :one
 INSERT INTO mensajeria.voz_ajustes (empresa_id, grabar, duracion_max_persona_min, segundos_asignado, retencion_grabaciones_dias,
-    max_salientes_por_dia, tope_minutos_salientes_mes)
+    max_salientes_por_dia, tope_minutos_salientes_mes, max_colgadas_marcando_dia)
 VALUES (sqlc.narg('empresa_id'), @grabar, @duracion_max_persona_min, @segundos_asignado, @retencion_grabaciones_dias,
-    @max_salientes_por_dia, @tope_minutos_salientes_mes)
+    @max_salientes_por_dia, @tope_minutos_salientes_mes, @max_colgadas_marcando_dia)
 ON CONFLICT DO NOTHING
 RETURNING *;
 
 -- name: ActualizarVozAjustes :one
 UPDATE mensajeria.voz_ajustes SET grabar = @grabar, duracion_max_persona_min = @duracion_max_persona_min,
     segundos_asignado = @segundos_asignado, retencion_grabaciones_dias = @retencion_grabaciones_dias,
-    max_salientes_por_dia = @max_salientes_por_dia, tope_minutos_salientes_mes = @tope_minutos_salientes_mes, version = version + 1, updated_at = now()
+    max_salientes_por_dia = @max_salientes_por_dia, tope_minutos_salientes_mes = @tope_minutos_salientes_mes,
+    max_colgadas_marcando_dia = @max_colgadas_marcando_dia, version = version + 1, updated_at = now()
 WHERE id = @id
 RETURNING *;
 
@@ -359,24 +361,56 @@ SELECT EXISTS (SELECT 1 FROM mensajeria.llamadas l JOIN mensajeria.voz_ajustes_c
 
 -- name: InsertarLlamadaSaliente :one
 -- Nace marcando, con la intención connect pendiente y un id externo provisional hasta que Meta da el suyo.
+-- La oferta SDP no se guarda: va de la petición a Meta en memoria.
 INSERT INTO mensajeria.llamadas (id, empresa_id, origen, canal_id, conversacion_id, id_externo, direccion, numero, cliente_id, servicio_id,
-    cola_id, estado, usuario_id, navegador, devolucion_id, sono_en, suena_hasta, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en)
+    cola_id, estado, usuario_id, navegador, devolucion_id, sono_en, suena_hasta, accion_meta, accion_meta_estado, accion_meta_en)
 VALUES (sqlc.arg('llamada_id'), sqlc.narg('empresa_id'), 'whatsapp', sqlc.arg('canal_id'), sqlc.arg('conversacion_id'), sqlc.arg('externo'), 'saliente', sqlc.arg('numero'),
     sqlc.narg('cliente_id'), sqlc.narg('servicio'), sqlc.narg('cola_id'), 'marcando', sqlc.arg('usuario_id'), sqlc.arg('navegador'), sqlc.narg('devolucion_id'),
-    sqlc.arg('sono_en'), sqlc.arg('suena_hasta'), sqlc.arg('sdp_oferta'), 'connect', 'pendiente', sqlc.arg('sono_en'))
+    sqlc.arg('sono_en'), sqlc.arg('suena_hasta'), 'connect', 'pendiente', sqlc.arg('sono_en'))
 RETURNING *;
 
 -- name: FijarExternoLlamada :one
--- Meta aceptó el connect: la llamada toma su call_id y la oferta ya no hace falta.
+-- Meta aceptó el connect: la llamada toma el call_id de esa respuesta (es el que manda).
 UPDATE mensajeria.llamadas SET id_externo = @externo, accion_meta_estado = 'hecha', sdp_oferta = NULL, updated_at = now()
 WHERE id = @id AND estado = 'marcando' AND accion_meta = 'connect' AND accion_meta_estado = 'pendiente'
 RETURNING *;
 
--- name: SalientePorVincular :one
--- Un webhook de una saliente cuyo call_id todavía no se guardó (llegó antes que la respuesta del connect).
+-- name: SalienteSinCallID :one
+-- La saliente a ese número que todavía espera la respuesta del connect (un webhook pudo adelantarse).
 SELECT * FROM mensajeria.llamadas
 WHERE canal_id = @canal_id AND numero = @numero AND direccion = 'saliente' AND estado = 'marcando' AND id_externo LIKE 'pendiente:%'
 ORDER BY sono_en DESC LIMIT 1 FOR UPDATE;
+
+-- name: FijarWebhookAdelantado :exec
+-- Lo que trajo ese webhook queda apartado: solo vale si la respuesta del connect da el mismo call_id.
+UPDATE mensajeria.llamadas SET externo_webhook = @externo, sdp_respuesta = sqlc.narg('sdp'), updated_at = now() WHERE id = @id;
+
+-- name: QuitarWebhookAdelantado :exec
+UPDATE mensajeria.llamadas SET externo_webhook = NULL, sdp_respuesta = CASE WHEN @conservar::boolean THEN sdp_respuesta END, updated_at = now() WHERE id = @id;
+
+-- name: RegistrarHuerfana :exec
+INSERT INTO mensajeria.llamadas_huerfanas (canal_id, call_id, proximo_en) VALUES (@canal_id, @call_id, @proximo_en)
+ON CONFLICT (canal_id, call_id) DO NOTHING;
+
+-- name: TomarHuerfanas :many
+-- El job de escrituras a Meta toma las que toca terminar y las aparta lote × plazo (SKIP LOCKED).
+UPDATE mensajeria.llamadas_huerfanas SET intentos = intentos + 1, proximo_en = @aparte::timestamptz, updated_at = now()
+WHERE id IN (SELECT h.id FROM mensajeria.llamadas_huerfanas h WHERE h.estado = 'pendiente' AND h.proximo_en <= @ahora
+    ORDER BY h.proximo_en LIMIT @lote FOR UPDATE SKIP LOCKED)
+RETURNING id, canal_id, call_id, intentos;
+
+-- name: CerrarHuerfana :exec
+UPDATE mensajeria.llamadas_huerfanas SET estado = @estado, updated_at = now() WHERE id = @id;
+
+-- name: ColgadasMarcandoDesde :one
+-- Salientes a ese contacto que se colgaron mientras marcaban (timbrar y colgar).
+SELECT count(*)::bigint FROM mensajeria.llamadas
+WHERE coalesce(empresa_id, 0) = @empresa::bigint AND numero = @numero AND direccion = 'saliente' AND estado = 'terminada'
+  AND motivo_fin = 'agente_colgo' AND contestada_en IS NULL AND sono_en >= @desde;
+
+-- name: SolicitudesDeNumero :many
+-- Las solicitudes de permiso a ese contacto desde cualquier número de la empresa.
+SELECT solicitudes FROM mensajeria.llamada_permisos WHERE coalesce(empresa_id, 0) = @empresa::bigint AND numero = @numero;
 
 -- name: FijarRespuestaSDP :exec
 UPDATE mensajeria.llamadas SET sdp_respuesta = sqlc.narg('sdp'), updated_at = now() WHERE id = @id;
@@ -392,8 +426,11 @@ SELECT count(*)::bigint FROM mensajeria.llamadas
 WHERE canal_id = @canal_id AND direccion = 'saliente' AND contestada_en IS NOT NULL AND sono_en >= @desde;
 
 -- name: SegundosSalientes :one
--- Segundos de salientes contestadas de la empresa en un periodo (tope de minutos del mes).
-SELECT coalesce(sum(duracion_seg), 0)::bigint FROM mensajeria.llamadas
+-- Segundos de salientes contestadas de la empresa en un periodo (tope de minutos del mes). Las que
+-- siguen en curso cuentan lo que llevan.
+SELECT (coalesce(sum(duracion_seg) FILTER (WHERE estado <> 'en_curso'), 0)
+    + coalesce(sum(GREATEST(0, floor(extract(epoch FROM (sqlc.arg('ahora')::timestamptz - contestada_en))))) FILTER (WHERE estado = 'en_curso'), 0))::bigint
+FROM mensajeria.llamadas
 WHERE coalesce(empresa_id, 0) = @empresa::bigint AND direccion = 'saliente' AND contestada_en IS NOT NULL
   AND sono_en >= @desde AND sono_en < @hasta AND id <> @menos;
 

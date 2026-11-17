@@ -3,14 +3,18 @@ package mensajeria_test
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 )
 
 // Voz E1b (contratos/voz.md §2.5 y §3.7): llamadas salientes y permiso de llamada, contra Postgres
@@ -46,6 +50,12 @@ func (g *graphFalso) Permiso(context.Context, mensajeria.CanalGraph, string) (me
 	defer g.mu.Unlock()
 	g.permisosLeidos++
 	return g.permiso, g.fallar["permiso"]
+}
+
+func (g *graphFalso) Plantilla(_ context.Context, _ mensajeria.CanalGraph, nombre, idioma string) (mensajeria.PlantillaMetaInfo, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.plantillas[nombre+"|"+idioma], g.fallar["plantilla"]
 }
 
 func (g *graphFalso) ultima() string {
@@ -707,5 +717,383 @@ func TestLlamadaSalienteSinAccepted(t *testing.T) {
 	x.estadoSaliente(num, call, "ACCEPTED")
 	if _, estado, _ := x.llamada(call); estado != "terminada" || x.eventos("llamada.contestada", id) != 1 {
 		t.Fatalf("ACCEPTED tardío: %s", estado)
+	}
+}
+
+// supervisores: n personas con llamadas.llamar, cada una en su navegador.
+func (x *bandejaVoz) supervisores(n int) []persona {
+	ps := make([]persona, n)
+	for i := range ps {
+		ps[i] = x.persona([]int64{1}, rolBase("supervisor"))
+		ps[i].navegador = fmt.Sprintf("navegador-sup-%d", ps[i].id)
+	}
+	return ps
+}
+
+// A1: los límites de las salientes no se burlan con peticiones en paralelo.
+func TestLlamadaSalienteEnParalelo(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	x.limitesVoz(1000, 100000)
+	t.Cleanup(func() { x.limitesVoz(1000, 100000) })
+	const n = 8
+	convs := make([]string, n)
+	for i := range convs {
+		_, convs[i] = x.convConPermiso()
+	}
+	enParalelo := func(quien func(i int) persona) (hechas, conflicto, limite int) {
+		var wg sync.WaitGroup
+		rs := make([]respuesta, n)
+		for i := range n {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				rs[i] = x.llamar(quien(i), convs[i], nil)
+			}()
+		}
+		wg.Wait()
+		for _, r := range rs {
+			switch {
+			case r.status == http.StatusCreated:
+				hechas++
+			case r.status == http.StatusConflict && strings.Contains(crudo(r), "llamada_en_curso"):
+				conflicto++
+			case r.status == http.StatusUnprocessableEntity && strings.Contains(crudo(r), "limite_llamadas"):
+				limite++
+			default:
+				t.Errorf("respuesta inesperada en paralelo: %d %s", r.status, crudo(r))
+			}
+		}
+		return hechas, conflicto, limite
+	}
+	// La misma persona llama a 8 conversaciones a la vez: sale una sola.
+	if hechas, conflicto, _ := enParalelo(func(int) persona { return x.supervisor }); hechas != 1 || conflicto != n-1 {
+		t.Fatalf("una por persona en paralelo: %d hechas, %d en conflicto", hechas, conflicto)
+	}
+	if v := x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE usuario_id = $1 AND direccion = 'saliente' AND estado IN ('marcando', 'en_curso')`, x.supervisor.id); v != 1 {
+		t.Fatalf("salientes vivas de la misma persona: %d", v)
+	}
+	x.sql(`UPDATE mensajeria.llamadas SET estado = 'terminada', terminada_en = sono_en, motivo_fin = 'agente_colgo', contestada_en = sono_en, duracion_seg = 0
+		WHERE usuario_id = $1 AND estado = 'marcando'`, x.supervisor.id)
+	// Ocho personas distintas a la vez con sitio para dos más hoy: salen dos.
+	hoy := x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE empresa_id = 1 AND direccion = 'saliente' AND estado <> 'fallida' AND sono_en >= $1`, x.reloj.Add(-10*time.Hour))
+	x.limitesVoz(hoy+2, 100000)
+	x.pasa(61 * time.Second)
+	sups := x.supervisores(n)
+	if hechas, _, limite := enParalelo(func(i int) persona { return sups[i] }); hechas != 2 || limite != n-2 {
+		t.Fatalf("máximo diario en paralelo: %d hechas, %d por límite", hechas, limite)
+	}
+	// El índice único es la segunda barrera: dos salientes vivas de la misma persona no caben.
+	if _, err := x.bd.Exec(x.ctx, `INSERT INTO mensajeria.llamadas (id, empresa_id, origen, canal_id, id_externo, direccion, numero, estado, usuario_id, sono_en, suena_hasta)
+		SELECT gen_random_uuid(), 1, 'whatsapp', $1, 'wacid.doble' || n, 'saliente', '+50255550000', 'marcando', $2, now(), now() FROM generate_series(1, 2) n`,
+		x.canal.ID, x.agente.id); err == nil || !strings.Contains(err.Error(), "llamadas_saliente_viva_uq") {
+		t.Fatalf("el índice único de saliente viva debía impedirlo: %v", err)
+	}
+}
+
+// A2: el tope cuenta lo que llevan las llamadas en curso y el mantenimiento corta al cruzarlo.
+func TestLlamadaSalienteTopeEnCurso(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	x.limitesVoz(1000, 100000)
+	t.Cleanup(func() { x.limitesVoz(1000, 100000) })
+	num, conv := x.convConPermiso()
+	_, conv2 := x.convConPermiso()
+	usados := x.contar(`SELECT coalesce(sum(duracion_seg), 0)::int FROM mensajeria.llamadas WHERE empresa_id = 1 AND direccion = 'saliente' AND contestada_en IS NOT NULL`)
+	tope := usados/60 + 2
+	queda := tope*60 - usados // entre 61 y 120 segundos
+	x.limitesVoz(1000, tope)
+	id, call := x.saliente(x.supervisor, conv, nil)
+	x.respuestaSaliente(num, call)
+	x.estadoSaliente(num, call, "ACCEPTED")
+	x.pasa(time.Duration(queda-10)*time.Second, x.supervisor)
+	x.mantener()
+	if _, estado, _ := x.llamada(call); estado != "en_curso" {
+		t.Fatalf("antes del tope sigue en curso: %s", estado)
+	}
+	// Cruzó el tope con la llamada todavía en curso: nadie más llama, aunque el mantenimiento no haya corrido.
+	x.pasa(11*time.Second, x.supervisor)
+	otro := x.supervisores(1)[0]
+	if r := x.exigir(x.llamar(otro, conv2, nil), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "tope_alcanzado") {
+		t.Fatalf("llamar con el tope cruzado por una llamada en curso: %s", crudo(r))
+	}
+	// Y el mantenimiento la corta: dura, como mucho, lo que quedaba (más un ciclo).
+	x.mantener()
+	v := x.exigir(x.api(x.supervisor, http.MethodGet, "/llamadas/"+id, nil), http.StatusOK)
+	if v.cuerpo["estado"] != "terminada" || v.cuerpo["motivoFin"] != "tope_alcanzado" || v.cuerpo["duracionSeg"] != float64(queda+1) || x.g.cuenta("terminate:"+call) != 1 {
+		t.Fatalf("cortada por el tope: %s %v", crudo(v), x.g.hechas())
+	}
+	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'voz.tope_alcanzado' AND payload->>'tipo' = 'salientes' AND (payload->>'porcentaje')::int = 100
+		AND (payload->>'tope')::int = $1`, tope); n != 1 {
+		t.Fatalf("voz.tope_alcanzado al 100 %%: %d", n)
+	}
+}
+
+// flujoDe abre el flujo de eventos de la bandeja como p (con su navegador, si tiene) y espera a que
+// el servidor lo haya atendido; lo cierra antes de volver.
+func (x *bandejaVoz) flujoDe(p persona, porQuery bool) {
+	x.t.Helper()
+	srv := httptest.NewServer(x.h)
+	defer srv.Close()
+	ctx, cancelar := context.WithTimeout(x.ctx, 5*time.Second)
+	defer cancelar()
+	url := srv.URL + rutaMsj + "/conversaciones/eventos"
+	if porQuery && p.navegador != "" {
+		url += "?navegador=" + p.navegador
+	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	// El flujo es de una sesión del panel (cookie), no de un token.
+	req.AddCookie(&http.Cookie{Name: identidad.CookieSesion, Value: x.sesion(p).cookie})
+	req.Header.Set("Accept", "text/event-stream")
+	if !porQuery && p.navegador != "" {
+		req.Header.Set(mensajeria.CabeceraNavegador, p.navegador)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		x.t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		cuerpo, _ := io.ReadAll(res.Body)
+		x.t.Fatalf("flujo de eventos: %d %s (%s)", res.StatusCode, cuerpo, url)
+	}
+	b := make([]byte, 64)
+	if _, err := res.Body.Read(b); err != nil {
+		x.t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond) // el latido del flujo toca la fila justo después de abrir
+}
+
+// M1: el latido que mantiene viva una saliente es el del navegador desde el que se llamó.
+func TestLlamadaSalienteLatidoDelNavegador(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	x.limitesVoz(1000, 100000)
+	num, conv := x.convConPermiso()
+	enCurso := func() (id, call string) {
+		t.Helper()
+		id, call = x.saliente(x.supervisor, conv, nil)
+		x.respuestaSaliente(num, call)
+		x.estadoSaliente(num, call, "ACCEPTED")
+		return id, call
+	}
+	visto := func(nav string) time.Time {
+		t.Helper()
+		var v time.Time
+		if err := x.bd.QueryRow(x.ctx, `SELECT visto_en FROM mensajeria.llamada_receptores WHERE usuario_id = $1 AND navegador = $2`, x.supervisor.id, nav).Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	_, call := enCurso()
+	inicio := visto(x.supervisor.navegador)
+	x.pasa(50 * time.Second)
+	// Otra pestaña u otro equipo de la misma persona (otro navegador, o un panel viejo sin navegador)
+	// no mantiene viva la llamada.
+	otroNav := x.supervisor
+	otroNav.navegador = "navegador-de-otro-equipo"
+	x.exigir(x.api(otroNav, http.MethodPost, "/llamadas/recibir/encender", map[string]any{"navegador": otroNav.navegador}), http.StatusOK)
+	x.flujoDe(otroNav, true)
+	sinNav := x.supervisor
+	sinNav.navegador = ""
+	x.flujoDe(sinNav, true)
+	if v := visto(x.supervisor.navegador); !v.Equal(inicio) {
+		t.Fatalf("el flujo de otro navegador tocó el navegador de la llamada: %s → %s", inicio, v)
+	}
+	if v := visto(otroNav.navegador); !v.Equal(*x.reloj) {
+		t.Fatalf("el flujo debía tocar su propio navegador: %s", v)
+	}
+	x.pasa(10 * time.Second)
+	x.mantener()
+	if _, estado, motivo := x.llamada(call); estado != "terminada" || motivo != "error_medio" {
+		t.Fatalf("sin el latido de su navegador se corta: %s %s", estado, motivo)
+	}
+	// Con el flujo del navegador que llamó (por parámetro o por cabecera) sigue viva.
+	for _, porQuery := range []bool{true, false} {
+		x.pasa(61 * time.Second)
+		_, call2 := enCurso()
+		x.pasa(50 * time.Second)
+		x.flujoDe(x.supervisor, porQuery)
+		x.pasa(10 * time.Second)
+		x.mantener()
+		if _, estado, _ := x.llamada(call2); estado != "en_curso" {
+			t.Fatalf("con el latido de su navegador (por query: %v) sigue en curso: %s", porQuery, estado)
+		}
+		x.exigir(x.api(x.supervisor, http.MethodPost, "/llamadas/"+x.idDe(call2)+"/colgar", nil), http.StatusOK)
+	}
+}
+
+func (x *bandejaVoz) idDe(callID string) string {
+	id, _, _ := x.llamada(callID)
+	return id
+}
+
+// M2 y M3: ninguna llamada queda colgada en Meta, y un webhook con otro call_id no se pega a la llamada nueva.
+func TestLlamadaSalienteHuerfanasYCallID(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	x.limitesVoz(1000, 100000)
+	num, conv := x.convConPermiso()
+	huerfanas := func(call, estado string) int {
+		return x.contar(`SELECT count(*) FROM mensajeria.llamadas_huerfanas WHERE canal_id = $1 AND call_id = $2 AND estado = $3`, x.canal.ID, call, estado)
+	}
+	sdpGuardado := func(call string) int {
+		return x.contar(`SELECT count(*) FROM mensajeria.entrantes WHERE canal_id = $1 AND payload::text LIKE '%' || $2 || '%' AND payload::text LIKE '%fingerprint%'`, x.canal.ID, call)
+	}
+
+	// Un connect saliente de un call_id que no es de ninguna llamada viva: se termina en Meta (con
+	// reintentos) y su SDP no queda guardado.
+	ajena := "wacid.ajena" + num
+	x.g.falla("terminate", &mensajeria.ErrMetaLlamada{Status: 500})
+	x.respuestaSaliente(num, ajena)
+	if huerfanas(ajena, "pendiente") != 1 || sdpGuardado(ajena) != 0 {
+		t.Fatalf("call_id sin llamada: %d huérfanas, %d webhooks con SDP", huerfanas(ajena, "pendiente"), sdpGuardado(ajena))
+	}
+	x.despachar()
+	x.despachar() // apartada: el segundo ciclo no la repite
+	if x.g.cuenta("terminate:"+ajena) != 1 || huerfanas(ajena, "pendiente") != 1 {
+		t.Fatalf("primer intento fallido: %v", x.g.hechas())
+	}
+	x.g.falla("terminate", nil)
+	x.pasa(21 * time.Second)
+	x.despachar()
+	if x.g.cuenta("terminate:"+ajena) != 2 || huerfanas(ajena, "hecha") != 1 {
+		t.Fatalf("reintento: %v", x.g.hechas())
+	}
+	x.estadoSaliente(num, "wacid.rechazada"+num, "REJECTED") // ya no vive en Meta: nada que terminar
+	if huerfanas("wacid.rechazada"+num, "pendiente") != 0 {
+		t.Fatal("un REJECTED sin llamada no deja nada por terminar")
+	}
+
+	// Se cuelga mientras el connect está en vuelo: la llamada existe en Meta y hay que terminarla. La
+	// oferta SDP nunca se guardó.
+	x.gancho(func(accion string) {
+		if accion != "connect" {
+			return
+		}
+		var id string
+		if err := x.bd.QueryRow(x.ctx, `SELECT id::text FROM mensajeria.llamadas WHERE conversacion_id = $1 AND estado = 'marcando' AND sdp_oferta IS NULL`, conv).Scan(&id); err != nil {
+			t.Errorf("la llamada que marca (sin oferta guardada): %v", err)
+			return
+		}
+		if r := x.api(x.supervisor, http.MethodPost, "/llamadas/"+id+"/colgar?propia=true", nil); r.status != http.StatusOK {
+			t.Errorf("colgar con el connect en vuelo: %d %s", r.status, crudo(r))
+		}
+	})
+	r := x.exigir(x.llamar(x.supervisor, conv, nil), http.StatusCreated)
+	x.gancho(nil)
+	enVuelo := x.g.ultima()
+	if r.cuerpo["estado"] != "terminada" || x.g.cuenta("terminate:"+enVuelo) != 1 || huerfanas(enVuelo, "hecha") != 1 {
+		t.Fatalf("colgada con el connect en vuelo: %s %v", crudo(r), x.g.hechas())
+	}
+	// Su webhook llega después: ni la reabre ni deja su SDP guardado.
+	x.respuestaSaliente(num, enVuelo)
+	if sdpGuardado(enVuelo) != 0 || x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE conversacion_id = $1 AND estado IN ('marcando', 'en_curso')`, conv) != 0 {
+		t.Fatal("el webhook de una llamada ya colgada no debía dejar nada")
+	}
+
+	// M3: un webhook con OTRO call_id llega mientras el connect está en vuelo. No se pega a la llamada
+	// nueva: manda el call_id de la respuesta del connect, y el otro se termina.
+	x.pasa(61 * time.Second)
+	intruso := "wacid.intruso" + num
+	x.gancho(func(accion string) {
+		if accion == "connect" {
+			x.respuestaSaliente(num, intruso)
+			x.estadoSaliente(num, intruso, "ACCEPTED")
+		}
+	})
+	id, call := x.saliente(x.supervisor, conv, nil)
+	x.gancho(nil)
+	if n := x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id = $1::uuid AND id_externo = $2 AND estado = 'marcando' AND sdp_respuesta IS NULL AND externo_webhook IS NULL`, id, call); n != 1 {
+		t.Fatal("la llamada debía quedarse con el call_id del connect, sin la respuesta del otro")
+	}
+	if x.g.cuenta("terminate:"+intruso) != 1 || huerfanas(intruso, "hecha") != 1 || sdpGuardado(intruso) != 0 || x.g.cuenta("terminate:"+call) != 0 {
+		t.Fatalf("el call_id discrepante debía terminarse: %v", x.g.hechas())
+	}
+	x.exigir(x.api(x.supervisor, http.MethodGet, "/llamadas/"+id+"/respuesta-sdp", nil), http.StatusConflict)
+	if n := x.contar(`SELECT count(*) FROM mensajeria.conv_eventos WHERE llamada_id = $1::uuid AND tipo = 'llamada_respuesta'`, id); n != 0 {
+		t.Fatal("no debía avisarse la respuesta de otra llamada")
+	}
+	// La suya, con su call_id, sí.
+	x.respuestaSaliente(num, call)
+	x.exigir(x.api(x.supervisor, http.MethodGet, "/llamadas/"+id+"/respuesta-sdp", nil), http.StatusOK)
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/llamadas/"+id+"/colgar", nil), http.StatusOK)
+}
+
+// Timbrar y colgar, la plantilla de permiso contra la cuenta de WhatsApp y el límite de solicitudes
+// por contacto en todos los números de la empresa.
+func TestLlamadaSalienteAbusoYPlantilla(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	x.limitesVoz(1000, 100000)
+	_, conv := x.convConPermiso()
+	// Tres salientes colgadas mientras marcaban al mismo contacto: hoy ya no se le llama.
+	for range 3 {
+		id, _ := x.saliente(x.supervisor, conv, nil)
+		x.exigir(x.api(x.supervisor, http.MethodPost, "/llamadas/"+id+"/colgar", nil), http.StatusOK)
+		x.pasa(61 * time.Second)
+	}
+	if r := x.exigir(x.llamar(x.supervisor, conv, nil), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "limite_llamadas") || !strings.Contains(crudo(r), "colgadas_marcando") {
+		t.Fatalf("timbrar y colgar: %s", crudo(r))
+	}
+	// Es por contacto: a otro sí se le llama. Y es configurable.
+	_, conv2 := x.convConPermiso()
+	id2, _ := x.saliente(x.supervisor, conv2, nil)
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/llamadas/"+id2+"/colgar", nil), http.StatusOK)
+	admin := x.persona([]int64{1}, rolBase("admin"))
+	admin.empresa = 1
+	v := x.exigir(x.api(admin, http.MethodGet, "/voz/ajustes", nil), http.StatusOK)
+	if v.cuerpo["maxColgadasMarcandoDia"] != float64(3) {
+		t.Fatalf("de fábrica: %s", crudo(v))
+	}
+	x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": v.cuerpo["version"], "duracionMaxPersonaMin": v.cuerpo["duracionMaxPersonaMin"],
+		"segundosAsignado": v.cuerpo["segundosAsignado"], "maxColgadasMarcandoDia": 5}), http.StatusOK)
+	x.pasa(61 * time.Second)
+	id3, _ := x.saliente(x.supervisor, conv, nil)
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/llamadas/"+id3+"/colgar", nil), http.StatusOK)
+	v = x.exigir(x.api(admin, http.MethodGet, "/voz/ajustes", nil), http.StatusOK)
+	x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": v.cuerpo["version"], "duracionMaxPersonaMin": v.cuerpo["duracionMaxPersonaMin"],
+		"segundosAsignado": v.cuerpo["segundosAsignado"], "maxColgadasMarcandoDia": 3}), http.StatusOK)
+
+	// La plantilla de permiso se comprueba en la cuenta de WhatsApp al guardarla.
+	for nombre, plantilla := range map[string]string{"no existe": "inventada", "sin aprobar": "permiso_en_revision", "de otra categoría": "codigo_de_acceso"} {
+		if r := x.exigir(x.configurar(x.versionLlamadas(), map[string]any{"plantillaPermiso": plantilla}), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "plantilla_permiso_invalida") {
+			t.Fatalf("plantilla %s: %s", nombre, crudo(r))
+		}
+	}
+	if r := x.exigir(x.configurar(x.versionLlamadas(), map[string]any{"plantillaPermiso": "permiso_de_llamada", "plantillaPermisoIdioma": "fr"}), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "plantilla_permiso_invalida") {
+		t.Fatalf("plantilla en otro idioma: %s", crudo(r))
+	}
+	x.g.falla("plantilla", &mensajeria.ErrMetaLlamada{SinRespuesta: true})
+	x.exigir(x.configurar(x.versionLlamadas(), map[string]any{"plantillaPermiso": "permiso_de_llamada"}), http.StatusBadGateway)
+	x.g.falla("plantilla", nil)
+	if c := x.exigir(x.api(x.supervisor, http.MethodGet, x.rutaCanal("/llamadas"), nil), http.StatusOK); c.cuerpo["plantillaPermiso"] != nil {
+		t.Fatalf("ninguna de esas debía guardarse: %s", crudo(c))
+	}
+	x.exigir(x.configurar(x.versionLlamadas(), map[string]any{"plantillaPermiso": "permiso_de_llamada"}), http.StatusOK)
+
+	// El límite de solicitudes es por contacto: cuenta las hechas desde otro número de la empresa.
+	empresa := int64(1)
+	otro, err := x.m.CrearCanal.Ejecutar(x.ctx, mensajeria.EntradaCrearCanal{EmpresaID: &empresa, Nombre: "Ventas", Numero: "+50222000099",
+		PhoneNumberID: fmt.Sprint(time.Now().UnixNano()%1e12 + 7), Token: "token-de-meta-0123456789abcdef", AppSecret: secretoWA, VerifyToken: "verify-token-0123456789",
+		Usos: []string{"soporte"}, ColaID: &x.cola})
+	if err != nil {
+		t.Fatal(err)
+	}
+	num := numeroCliente()
+	x.texto(num, "wamid.contacto"+num, "Hola")
+	conv3 := cid(x.conv(num))
+	x.sql(`INSERT INTO mensajeria.llamada_permisos (empresa_id, canal_id, numero, estado, solicitudes) VALUES (1, $1, $2, 'pedido', jsonb_build_array($3::timestamptz))`,
+		otro.ID, "+"+num, x.reloj.Add(-2*time.Hour))
+	p := x.exigir(x.api(x.agente, http.MethodGet, "/conversaciones/"+conv3+"/permiso-llamada", nil), http.StatusOK)
+	if p.cuerpo["puedeSolicitar"] != false || p.cuerpo["proximaSolicitudEn"] == nil {
+		t.Fatalf("pedido hace 2 h desde otro número: %s", crudo(p))
+	}
+	if r := x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv3+"/solicitar-permiso-llamada", nil), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "limite_solicitudes") {
+		t.Fatalf("solicitar desde este número: %s", crudo(r))
+	}
+	// Pasadas 24 h sí; y con dos en la semana (una por número), ya no hasta que pasen 7 días.
+	x.pasa(23 * time.Hour)
+	x.texto(num, "wamid.contacto2"+num, "Sigo aquí")
+	x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv3+"/solicitar-permiso-llamada", nil), http.StatusOK)
+	x.pasa(25 * time.Hour)
+	x.texto(num, "wamid.contacto3"+num, "¿Y?")
+	if r := x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv3+"/solicitar-permiso-llamada", nil), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "limite_solicitudes") {
+		t.Fatalf("tercera en la semana contando los dos números: %s", crudo(r))
 	}
 }

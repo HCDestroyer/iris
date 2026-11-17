@@ -104,6 +104,8 @@ const (
 type CanalGraph struct {
 	PhoneNumberID string
 	Token         string
+	// WabaID: la cuenta de WhatsApp Business del número (para consultar sus plantillas).
+	WabaID string
 }
 
 // AjustesMetaLlamadas son los ajustes de llamadas del número en Meta (lo que E1 lee y escribe).
@@ -197,6 +199,8 @@ type GraphLlamadas interface {
 	Llamar(ctx context.Context, canal CanalGraph, numero, sdpOferta string) (string, error)
 	// Permiso lee de Meta el permiso de llamada de un número (call_permissions).
 	Permiso(ctx context.Context, canal CanalGraph, numero string) (PermisoMeta, error)
+	// Plantilla dice si la cuenta tiene esa plantilla, si está aprobada y su categoría.
+	Plantilla(ctx context.Context, canal CanalGraph, nombre, idioma string) (PlantillaMetaInfo, error)
 }
 
 // ErrMetaLlamada: Meta rechazó la acción o no respondió. Nunca lleva el mensaje crudo de Meta.

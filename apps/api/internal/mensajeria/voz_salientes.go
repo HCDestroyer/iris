@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -114,7 +116,21 @@ func permisoVigente(f mensajeriabd.MensajeriaLlamadaPermiso, ahora time.Time) bo
 	return f.Estado == PermisoPermanente || (f.Estado == PermisoTemporal && (f.VenceEn == nil || ahora.Before(*f.VenceEn)))
 }
 
-func (m *Modulo) aPermiso(ctx context.Context, f mensajeriabd.MensajeriaLlamadaPermiso, activas bool) PermisoLlamada {
+// solicitudesDelContacto: las solicitudes de permiso a ese contacto desde cualquier número de la
+// empresa. El límite (1 por 24 h y 2 por 7 días) es por contacto, no por número del negocio.
+func solicitudesDelContacto(ctx context.Context, q *mensajeriabd.Queries, empresa int64, numero string) ([]time.Time, error) {
+	filas, err := q.SolicitudesDeNumero(ctx, mensajeriabd.SolicitudesDeNumeroParams{Empresa: empresa, Numero: numero})
+	if err != nil {
+		return nil, err
+	}
+	var todas []time.Time
+	for _, f := range filas {
+		todas = append(todas, solicitudesDe(f)...)
+	}
+	return todas, nil
+}
+
+func (m *Modulo) aPermiso(ctx context.Context, f mensajeriabd.MensajeriaLlamadaPermiso, activas bool, delContacto []time.Time) PermisoLlamada {
 	ahora := m.ahora()
 	p := PermisoLlamada{Estado: f.Estado, SinContestar: f.SinContestar}
 	if f.Estado == "" {
@@ -128,7 +144,7 @@ func (m *Modulo) aPermiso(ctx context.Context, f mensajeriabd.MensajeriaLlamadaP
 			p.Estado = PermisoSinPedir
 		}
 	}
-	if prox := proximaSolicitud(solicitudesDe(f.Solicitudes), ahora); prox != nil {
+	if prox := proximaSolicitud(delContacto, ahora); prox != nil {
 		p.ProximaSolicitudEn = prox
 	}
 	p.PuedeSolicitar = activas && !vigente && p.ProximaSolicitudEn == nil
@@ -225,7 +241,11 @@ func nuevoVerPermisoLlamada(m *Modulo) *auditoria.Caso[EntradaConvVoz, PermisoLl
 			if err != nil {
 				return PermisoLlamada{}, err
 			}
-			return m.aPermiso(ctx, f, activas), nil
+			delContacto, err := solicitudesDelContacto(ctx, q, a.empresa, c.Numero)
+			if err != nil {
+				return PermisoLlamada{}, err
+			}
+			return m.aPermiso(ctx, f, activas, delContacto), nil
 		},
 	})
 }
@@ -261,7 +281,11 @@ func nuevoSolicitarPermisoLlamada(m *Modulo) *auditoria.Caso[EntradaConvVoz, Per
 				return PermisoLlamada{}, reglaVoz("permiso_ya_vigente", "Este contacto ya dio permiso para que lo llamen")
 			}
 			solicitudes := solicitudesDe(f.Solicitudes)
-			if prox := proximaSolicitud(solicitudes, ahora); prox != nil {
+			delContacto, err := solicitudesDelContacto(ctx, q, a.empresa, c.Numero)
+			if err != nil {
+				return PermisoLlamada{}, err
+			}
+			if prox := proximaSolicitud(delContacto, ahora); prox != nil {
 				return PermisoLlamada{}, reglaVoz("limite_solicitudes", "WhatsApp deja pedir el permiso una vez cada 24 horas y dos veces cada 7 días",
 					nucleo.ErrorCampo{Field: "proximaSolicitudEn", Message: prox.UTC().Format(time.RFC3339), Rule: "limite_solicitudes"})
 			}
@@ -303,7 +327,7 @@ func nuevoSolicitarPermisoLlamada(m *Modulo) *auditoria.Caso[EntradaConvVoz, Per
 				"usuario_id": a.usuario, "mensaje_id": msg.ID}); err != nil {
 				return PermisoLlamada{}, err
 			}
-			return m.aPermiso(ctx, f, true), nil
+			return m.aPermiso(ctx, f, true, append(delContacto, ahora)), nil
 		},
 	})
 }
@@ -450,6 +474,12 @@ func nuevoLlamar(m *Modulo) *auditoria.Caso[EntradaLlamar, Llamada] {
 			}
 			t.FijarEmpresa(a.empresa)
 			q := mensajeriabd.New(t)
+			// Las salientes de una empresa se deciden de una en una: los conteos de abajo (una por
+			// persona y por contacto, por día, por número y el tope del mes) no se burlan con peticiones
+			// en paralelo. El índice único de saliente viva por usuario es la segunda barrera.
+			if err := q.CandadoChat(ctx, "voz:salientes:"+strconv.FormatInt(a.empresa, 10)); err != nil {
+				return Llamada{}, err
+			}
 			c, err := convVisible(ctx, q, a, in.ID, true)
 			if err != nil {
 				return Llamada{}, err
@@ -515,12 +545,20 @@ func nuevoLlamar(m *Modulo) *auditoria.Caso[EntradaLlamar, Llamada] {
 			} else if n >= int64(voz.MaxSalientesPorDia) {
 				return Llamada{}, reglaVoz("limite_llamadas", "La empresa llegó a su límite de llamadas salientes de hoy")
 			}
-			seg, err := q.SegundosSalientes(ctx, mensajeriabd.SegundosSalientesParams{Empresa: a.empresa, Desde: inicioMes(ahora), Hasta: ahora.Add(time.Hour), Menos: uuid.Nil})
+			seg, err := q.SegundosSalientes(ctx, mensajeriabd.SegundosSalientesParams{Empresa: a.empresa, Desde: inicioMes(ahora), Hasta: ahora.Add(time.Hour), Menos: uuid.Nil,
+				Ahora: ahora})
 			if err != nil {
 				return Llamada{}, err
 			}
 			if seg >= int64(voz.TopeMinutosSalientesMes)*60 {
 				return Llamada{}, reglaVoz("tope_alcanzado", "La empresa llegó a su tope de minutos de llamadas salientes de este mes")
+			}
+			// Timbrar y colgar: las que se colgaron mientras marcaban a este contacto hoy.
+			if n, err := q.ColgadasMarcandoDesde(ctx, mensajeriabd.ColgadasMarcandoDesdeParams{Empresa: a.empresa, Numero: c.Numero, Desde: inicioDia(ahora)}); err != nil {
+				return Llamada{}, err
+			} else if n >= int64(voz.MaxColgadasMarcandoDia) {
+				return Llamada{}, reglaVoz("limite_llamadas", "Hoy ya se colgaron varias llamadas a este contacto antes de que contestara: no se le puede volver a llamar hasta mañana",
+					nucleo.ErrorCampo{Field: "contacto", Message: "true", Rule: "colgadas_marcando"})
 			}
 			if in.DevolucionID != nil {
 				if _, err := q.DevolucionPendiente(ctx, mensajeriabd.DevolucionPendienteParams{ID: *in.DevolucionID, ConversacionID: c.ID}); errors.Is(err, pgx.ErrNoRows) {
@@ -540,7 +578,7 @@ func nuevoLlamar(m *Modulo) *auditoria.Caso[EntradaLlamar, Llamada] {
 			t.FijarEntidad("llamada", id)
 			l, err := q.InsertarLlamadaSaliente(ctx, mensajeriabd.InsertarLlamadaSalienteParams{LlamadaID: id, EmpresaID: c.EmpresaID, CanalID: &canal.ID, ConversacionID: &c.ID,
 				Externo: "pendiente:" + id.String(), Numero: c.Numero, ClienteID: c.ClienteID, Servicio: c.ServicioID, ColaID: c.ColaID, UsuarioID: &a.usuario,
-				Navegador: &in.Navegador, DevolucionID: in.DevolucionID, SonoEn: ahora, SuenaHasta: ahora.Add(SegundosMarcando * time.Second), SdpOferta: &in.saneado})
+				Navegador: &in.Navegador, DevolucionID: in.DevolucionID, SonoEn: ahora, SuenaHasta: ahora.Add(SegundosMarcando * time.Second)})
 			if err != nil {
 				return Llamada{}, err
 			}
@@ -578,8 +616,22 @@ type resultadoLlamar struct {
 	callID string
 }
 
-// nuevoResultadoLlamar guarda el call_id que dio Meta, o deja la llamada fallida. Devuelve true si la
-// llamada ya no estaba marcando (se colgó mientras Meta respondía): hay que terminarla en Meta.
+// registrarHuerfana anota un call_id que existe en Meta y no es de ninguna llamada viva de Iris, para
+// que el job de escrituras lo termine (con reintentos), y tapa su SDP en los webhooks guardados.
+func registrarHuerfana(ctx context.Context, q *mensajeriabd.Queries, canal int64, callID string, ahora time.Time) error {
+	if callID == "" || len(callID) > 200 || strings.HasPrefix(callID, "pendiente:") {
+		return nil
+	}
+	if err := q.RegistrarHuerfana(ctx, mensajeriabd.RegistrarHuerfanaParams{CanalID: canal, CallID: callID, ProximoEn: ahora}); err != nil {
+		return err
+	}
+	return taparSDPDeLlamada(ctx, q, canal, callID, ahora.Add(-10*time.Minute))
+}
+
+// nuevoResultadoLlamar guarda el call_id que dio Meta al connect (es el que manda), o deja la llamada
+// fallida. Si la llamada ya no estaba marcando (se colgó mientras Meta respondía), ese call_id queda
+// como huérfana para terminarla en Meta. Si un webhook se adelantó con otro call_id, no era de esta
+// llamada: lo que trajo se descarta y ese otro se termina. Devuelve true si dejó algo por terminar.
 func nuevoResultadoLlamar(m *Modulo) *auditoria.Caso[resultadoLlamar, bool] {
 	return auditoria.Nuevo(auditoria.Caso[resultadoLlamar, bool]{
 		Accion: "llamadas.resultado_llamar", Acceso: auditoria.Autenticado, SinEmpresa: true,
@@ -589,32 +641,82 @@ func nuevoResultadoLlamar(m *Modulo) *auditoria.Caso[resultadoLlamar, bool] {
 			}
 			q := mensajeriabd.New(t)
 			l, err := q.LlamadaParaActualizar(ctx, in.ID)
-			if err != nil {
+			if err != nil || l.CanalID == nil {
 				return false, err
 			}
 			t.FijarEmpresa(derefEmpresa(l.EmpresaID))
 			t.FijarEntidad("llamada", l.ID)
+			ahora := m.ahora()
+			var c *mensajeriabd.MensajeriaConversacion
+			if l.ConversacionID != nil {
+				f, err := q.ConversacionClienteParaActualizar(ctx, *l.ConversacionID)
+				if err != nil {
+					return false, err
+				}
+				c = &f
+			}
+			adelantado := l.ExternoWebhook
 			if llamadaFinal(l.Estado) {
-				return !in.Fallo, nil
+				// Se colgó mientras el connect estaba en vuelo: en Meta la llamada existe.
+				pendientes := false
+				for _, id := range []string{in.callID, derefTexto(adelantado)} {
+					if !in.Fallo || id != in.callID {
+						if err := registrarHuerfana(ctx, q, *l.CanalID, id, ahora); err != nil {
+							return false, err
+						}
+						pendientes = pendientes || id != ""
+					}
+				}
+				return pendientes, nil
 			}
 			if in.Fallo {
-				var c *mensajeriabd.MensajeriaConversacion
-				if l.ConversacionID != nil {
-					f, err := q.ConversacionClienteParaActualizar(ctx, *l.ConversacionID)
-					if err != nil {
-						return false, err
-					}
-					c = &f
+				if err := registrarHuerfana(ctx, q, *l.CanalID, derefTexto(adelantado), ahora); err != nil {
+					return false, err
 				}
-				return false, m.cerrarLlamada(ctx, t, &l, c, LlamadaFallida, "error_meta", m.ahora(), "")
+				return adelantado != nil, m.cerrarLlamada(ctx, t, &l, c, LlamadaFallida, "error_meta", ahora, "")
 			}
-			// Un webhook pudo adelantarse y ya dejó puesto el call_id.
-			if _, err := q.FijarExternoLlamada(ctx, mensajeriabd.FijarExternoLlamadaParams{ID: l.ID, Externo: in.callID}); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			g, err := q.FijarExternoLlamada(ctx, mensajeriabd.FijarExternoLlamadaParams{ID: l.ID, Externo: in.callID})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return false, nil
+			}
+			if err != nil {
 				return false, err
 			}
-			return false, nil
+			l = g
+			if adelantado == nil {
+				return false, nil
+			}
+			// Un webhook llegó antes que esta respuesta. Solo vale si traía este mismo call_id.
+			if *adelantado != in.callID {
+				if err := q.QuitarWebhookAdelantado(ctx, mensajeriabd.QuitarWebhookAdelantadoParams{ID: l.ID, Conservar: false}); err != nil {
+					return false, err
+				}
+				t.Anotar(map[string]any{"webhook_de_otra_llamada": true})
+				return true, registrarHuerfana(ctx, q, *l.CanalID, *adelantado, ahora)
+			}
+			if err := q.QuitarWebhookAdelantado(ctx, mensajeriabd.QuitarWebhookAdelantadoParams{ID: l.ID, Conservar: true}); err != nil {
+				return false, err
+			}
+			if l.SdpRespuesta == nil {
+				// Era de esta llamada, pero su respuesta SDP no pasó la validación.
+				if err := m.cerrarLlamada(ctx, t, &l, c, LlamadaFallida, "error_meta", ahora, MetaTerminar); err != nil {
+					return false, err
+				}
+				if c != nil {
+					_, err = guardarConv(ctx, q, *c, false)
+				}
+				return false, err
+			}
+			return false, m.emitirEventoLlamada(ctx, t, l, EventoLlamadaRespuesta, l.UsuarioID)
 		},
 	})
+}
+
+func derefTexto(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // Llamar hace la saliente en fases, sin llamar a Meta dentro de una transacción: lee (permiso del
@@ -650,12 +752,15 @@ func (m *Modulo) Llamar(ctx context.Context, in EntradaLlamar) (Llamada, error) 
 	if errMeta == nil && (callID == "" || len(callID) > 200 || strings.HasPrefix(callID, "pendiente:")) {
 		errMeta = &ErrMetaLlamada{SinRespuesta: true}
 	}
-	huerfana, err := m.Voz.resultadoLlamar.Ejecutar(sctx, resultadoLlamar{ID: l.ID, Fallo: errMeta != nil, callID: callID})
+	porTerminar, err := m.Voz.resultadoLlamar.Ejecutar(sctx, resultadoLlamar{ID: l.ID, Fallo: errMeta != nil, callID: callID})
 	if err != nil {
 		return Llamada{}, err
 	}
-	if huerfana {
-		_ = m.graph().Accion(sctx, pre.canal, callID, MetaTerminar, "", false)
+	// Lo que quedó por terminar en Meta se intenta ya; si falla, lo repite el job de escrituras.
+	if porTerminar {
+		if err := m.despacharHuerfanas(sctx, bd); err != nil {
+			slog.WarnContext(ctx, "voz: terminar en Meta una llamada sin dueño", "err", err)
+		}
 	}
 	if errMeta != nil {
 		return Llamada{}, metaRechazo()
@@ -697,39 +802,65 @@ func nuevoRespuestaSDP(*Modulo) *auditoria.Caso[EntradaLlamada, RespuestaSDP] {
 
 // Webhooks de una saliente --------------------------------------------------------------------------------
 
-// salienteDeWebhook busca la saliente de ese call_id. Si el webhook llegó antes de que se guardara
-// la respuesta del connect, la vincula por número (la única que está marcando sin call_id).
-func salienteDeWebhook(ctx context.Context, q *mensajeriabd.Queries, canal int64, callID, destino string) (mensajeriabd.MensajeriaLlamada, bool, error) {
-	l, err := q.LlamadaPorExterno(ctx, mensajeriabd.LlamadaPorExternoParams{CanalID: &canal, IDExterno: callID})
-	if err == nil {
-		l, err = q.LlamadaParaActualizar(ctx, l.ID)
-		return l, err == nil && l.Direccion == "saliente", err
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return l, false, err
-	}
-	numero := "+" + strings.TrimPrefix(destino, "+")
-	if !numeroWA.MatchString(numero) {
-		return l, false, nil
-	}
-	l, err = q.SalientePorVincular(ctx, mensajeriabd.SalientePorVincularParams{CanalID: &canal, Numero: numero})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return l, false, nil
-	}
-	if err != nil {
-		return l, false, err
-	}
-	l, err = q.FijarExternoLlamada(ctx, mensajeriabd.FijarExternoLlamadaParams{ID: l.ID, Externo: callID})
-	return l, err == nil, err
-}
-
 // eventoSaliente aplica a una saliente el connect de Meta (la respuesta SDP del cliente) y sus
 // estados (RINGING, ACCEPTED, REJECTED). El terminate lo aplica terminarPorMeta, como en las entrantes.
+//
+// La llamada se busca solo por su call_id. Si no hay ninguna con ese call_id:
+//   - y hay una saliente a ese número que todavía espera la respuesta del connect, el webhook pudo
+//     adelantarse: lo que trae queda apartado en esa llamada, sin aplicarse, hasta que la respuesta
+//     del connect diga su call_id (resultadoLlamar). No se vincula por número;
+//   - si no, es una llamada del negocio que Iris no tiene viva: se termina en Meta (huérfana).
 func (m *Modulo) eventoSaliente(ctx context.Context, t *auditoria.Tx, canal mensajeriabd.MensajeriaCanal, ev metaLlamada, ahora time.Time) error {
 	q := mensajeriabd.New(t)
-	l, ok, err := salienteDeWebhook(ctx, q, canal.ID, ev.ID, ev.To)
-	if err != nil || !ok || llamadaFinal(l.Estado) {
+	esConnect := strings.EqualFold(ev.Event, "connect")
+	estado := strings.ToUpper(ev.Status)
+	l, err := q.LlamadaPorExterno(ctx, mensajeriabd.LlamadaPorExternoParams{CanalID: &canal.ID, IDExterno: ev.ID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		numero := "+" + strings.TrimPrefix(ev.To, "+")
+		if numeroWA.MatchString(numero) {
+			p, err := q.SalienteSinCallID(ctx, mensajeriabd.SalienteSinCallIDParams{CanalID: &canal.ID, Numero: numero})
+			if err == nil {
+				if !esConnect || p.ExternoWebhook != nil {
+					return nil // un estado, o un segundo connect, antes de saber el call_id: no se aplica
+				}
+				var sdp *string
+				if ev.Session != nil && ev.Session.SDP != "" && ValidarSDP(ev.Session.SDP) == nil {
+					sdp = &ev.Session.SDP
+				}
+				return q.FijarWebhookAdelantado(ctx, mensajeriabd.FijarWebhookAdelantadoParams{ID: p.ID, Externo: &ev.ID, Sdp: sdp})
+			}
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+		}
+		// Sin llamada viva para ese call_id: si la llamada sigue en Meta (suena o se contestó), se termina.
+		if esConnect || estado == "RINGING" || estado == "ACCEPTED" {
+			t.Anotar(map[string]any{"saliente_sin_llamada": true})
+			return registrarHuerfana(ctx, q, canal.ID, ev.ID, ahora)
+		}
+		return nil
+	}
+	if err != nil {
 		return err
+	}
+	if l.Direccion != "saliente" {
+		return nil
+	}
+	if l, err = q.LlamadaParaActualizar(ctx, l.ID); err != nil {
+		return err
+	}
+	if llamadaFinal(l.Estado) {
+		// Ya está cerrada en Iris: el SDP que traiga no se queda guardado y, si Meta la da por viva
+		// sin que Iris le haya pedido terminarla, se termina.
+		if esConnect {
+			if err := taparSDPDeLlamada(ctx, q, canal.ID, ev.ID, ahora.Add(-10*time.Minute)); err != nil {
+				return err
+			}
+		}
+		if (esConnect || estado == "RINGING" || estado == "ACCEPTED") && (l.AccionMeta == nil || *l.AccionMeta != MetaTerminar) {
+			return registrarHuerfana(ctx, q, canal.ID, ev.ID, ahora)
+		}
+		return nil
 	}
 	t.FijarEmpresa(derefEmpresa(l.EmpresaID))
 	var c *mensajeriabd.MensajeriaConversacion
@@ -763,7 +894,7 @@ func (m *Modulo) eventoSaliente(ctx context.Context, t *auditoria.Tx, canal mens
 		}
 		return m.emitirEventoLlamada(ctx, t, l, EventoLlamadaRespuesta, l.UsuarioID)
 	}
-	switch strings.ToUpper(ev.Status) {
+	switch estado {
 	case "ACCEPTED":
 		return m.salienteContestada(ctx, t, &l, ahora)
 	case "REJECTED":
@@ -828,6 +959,11 @@ func (m *Modulo) trasSaliente(ctx context.Context, t *auditoria.Tx, l *mensajeri
 		return err
 	}
 	l.SdpRespuesta = nil
+	if l.ExternoWebhook != nil && l.CanalID != nil {
+		if err := taparSDPDeLlamada(ctx, q, *l.CanalID, *l.ExternoWebhook, ahora.Add(-10*time.Minute)); err != nil {
+			return err
+		}
+	}
 	empresa := derefEmpresa(l.EmpresaID)
 	if l.Estado == LlamadaPerdida && l.CanalID != nil {
 		f, err := q.PermisoLlamadaParaActualizar(ctx, mensajeriabd.PermisoLlamadaParaActualizarParams{Empresa: empresa, CanalID: *l.CanalID, Numero: l.Numero})
@@ -856,7 +992,8 @@ func (m *Modulo) trasSaliente(ctx context.Context, t *auditoria.Tx, l *mensajeri
 	if tope <= 0 {
 		return nil
 	}
-	antes, err := q.SegundosSalientes(ctx, mensajeriabd.SegundosSalientesParams{Empresa: empresa, Desde: inicioMes(ahora), Hasta: ahora.Add(time.Hour), Menos: l.ID})
+	antes, err := q.SegundosSalientes(ctx, mensajeriabd.SegundosSalientesParams{Empresa: empresa, Desde: inicioMes(ahora), Hasta: ahora.Add(time.Hour), Menos: l.ID,
+		Ahora: ahora})
 	if err != nil {
 		return err
 	}
@@ -931,4 +1068,70 @@ func (g graphHTTP) Permiso(ctx context.Context, canal CanalGraph, numero string)
 	// Sin permiso no se llama, diga lo que diga la lista de acciones.
 	p.PuedeLlamar = p.PuedeLlamar && p.Estado != PermisoSinPedir
 	return p, nil
+}
+
+// PlantillaMetaInfo es lo que dice Meta de una plantilla de la cuenta.
+type PlantillaMetaInfo struct {
+	Existe    bool
+	Aprobada  bool
+	Categoria string
+}
+
+// Plantilla busca en la cuenta de WhatsApp (WABA) una plantilla por nombre e idioma (supuesto de
+// §10.1: GET /{waba_id}/message_templates?name=…).
+func (g graphHTTP) Plantilla(ctx context.Context, canal CanalGraph, nombre, idioma string) (PlantillaMetaInfo, error) {
+	if canal.WabaID == "" {
+		return PlantillaMetaInfo{}, &ErrMetaLlamada{Status: http.StatusNotFound}
+	}
+	b, err := g.pedir(ctx, http.MethodGet, CanalGraph{PhoneNumberID: canal.WabaID, Token: canal.Token},
+		"/message_templates?fields=name,status,category,language&limit=50&name="+url.QueryEscape(nombre), nil)
+	if err != nil {
+		return PlantillaMetaInfo{}, err
+	}
+	var r struct {
+		Data []struct {
+			Name     string `json:"name"`
+			Status   string `json:"status"`
+			Category string `json:"category"`
+			Language string `json:"language"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(b, &r) != nil {
+		return PlantillaMetaInfo{}, &ErrMetaLlamada{SinRespuesta: true}
+	}
+	for _, d := range r.Data {
+		if d.Name == nombre && d.Language == idioma {
+			return PlantillaMetaInfo{Existe: true, Aprobada: strings.EqualFold(d.Status, "APPROVED"), Categoria: strings.ToUpper(d.Category)}, nil
+		}
+	}
+	return PlantillaMetaInfo{}, nil
+}
+
+// despacharHuerfanas termina en Meta las llamadas que existen allá y no en Iris. terminate es
+// idempotente por call_id; se reintenta (apartadas lote × plazo) hasta 2 minutos y 6 intentos.
+func (m *Modulo) despacharHuerfanas(ctx context.Context, bd nucleo.BD) error {
+	q := mensajeriabd.New(bd)
+	ahora := m.ahora()
+	filas, err := q.TomarHuerfanas(ctx, mensajeriabd.TomarHuerfanasParams{Ahora: ahora, Lote: LoteMetaVoz, Aparte: ahora.Add(LoteMetaVoz * PlazoMeta)})
+	if err != nil {
+		return err
+	}
+	for _, h := range filas {
+		estado := "hecha"
+		cg, err := m.canalGraphDe(ctx, q, h.CanalID)
+		if err == nil {
+			err = m.graph().Accion(ctx, cg, h.CallID, MetaTerminar, "", false)
+		}
+		if err != nil {
+			if h.Intentos < 6 {
+				slog.WarnContext(ctx, "voz: terminar en Meta una llamada sin dueño; se reintenta", "huerfana_id", h.ID, "intento", h.Intentos)
+				continue
+			}
+			estado = "agotada"
+		}
+		if err := q.CerrarHuerfana(ctx, mensajeriabd.CerrarHuerfanaParams{ID: h.ID, Estado: estado}); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -124,7 +124,7 @@ func (m *Modulo) canalGraphDe(ctx context.Context, q *mensajeriabd.Queries, cana
 	if err != nil {
 		return CanalGraph{}, err
 	}
-	return CanalGraph{PhoneNumberID: c.PhoneNumberID, Token: cr.Token}, nil
+	return CanalGraph{PhoneNumberID: c.PhoneNumberID, Token: cr.Token, WabaID: c.WabaID}, nil
 }
 
 // ajustesVoz: los de la empresa (sin fila, los de fábrica).
@@ -132,7 +132,7 @@ func ajustesVoz(ctx context.Context, q *mensajeriabd.Queries, empresa int64) (me
 	f, err := q.VozAjustes(ctx, empresa)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return mensajeriabd.MensajeriaVozAjuste{Grabar: "nunca", DuracionMaxPersonaMin: 60, SegundosAsignado: 10, RetencionGrabacionesDias: 30,
-			MaxSalientesPorDia: 50, TopeMinutosSalientesMes: 300}, nil
+			MaxSalientesPorDia: 50, TopeMinutosSalientesMes: 300, MaxColgadasMarcandoDia: 3}, nil
 	}
 	return f, err
 }
