@@ -129,6 +129,9 @@ export const MENU: readonly EntradaMenu[] = [
             "conversaciones.configurar",
             "canales.configurar",
             "manuales.ver",
+            // El admin de una empresa con solo `servidor_ia.ver_uso` llega por aquí a su tablero de uso.
+            "servidor_ia.ver",
+            "servidor_ia.ver_uso",
             PERMISO_CONFIGURAR_ASISTENTE,
         ],
     },

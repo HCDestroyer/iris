@@ -1,8 +1,8 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { ADMIN, conSesion, EMPRESAS, simularApi, SUPERVISOR_ZONA, type OpcionesApi } from "./api-falsa";
+import { ADMIN, conSesion, EMPRESAS, LECTOR, simularApi, SUPERVISOR_ZONA, type OpcionesApi } from "./api-falsa";
 import { AHORA_SIA, CODIGO_ENLACE, HUELLA, HUELLA_OTRA, MODELOS_SIA, type OpcionesServidorIa } from "./api-servidor-ia";
-import { confirmacion, esTelefono } from "./ayudas";
+import { confirmacion, esTelefono, irA } from "./ayudas";
 import { elegirOpcion, textosOpciones } from "./controles";
 import { esperarSinDesbordes } from "./desbordes";
 import type { AjustesAsistente } from "../lib/asistente/tipos";
@@ -395,7 +395,7 @@ test.describe("Servidor de IA › enlazar", () => {
         await expect(pasos(page)).toHaveAttribute("data-paso-actual", "huella");
         // El código ya no está en pantalla.
         await expect(page.getByText(CODIGO_ENLACE)).toHaveCount(0);
-        await expect(slot(page, "huella")).toContainText("3FA9");
+        await expect(slot(page, "huella")).toContainText("sha256:3fa91c07");
         await expect(slot(page, "enlace-caduca")).toContainText("caduca el");
         await expect(pasos(page)).toContainText("no actives");
         const activar = page.getByRole("button", { name: "Activar", exact: true });
@@ -415,7 +415,7 @@ test.describe("Servidor de IA › enlazar", () => {
 
     test("si el servidor cambió después de comparar (409 `huella_cambiada`): lo dice, desmarca y enseña la huella nueva; no reintenta solo", async ({ page }) => {
         const api = await abrir(page, `${RUTA}/enlazar`, { motor: "con_huella", activar: ["huella_cambiada", "ok"] });
-        await expect(slot(page, "huella")).toContainText("3FA9");
+        await expect(slot(page, "huella")).toContainText("sha256:3fa91c07");
         const coincide = page.getByRole("checkbox", { name: "Coincide con la del instalador" });
         await coincide.check();
         await page.getByRole("button", { name: "Activar", exact: true }).click();
@@ -425,8 +425,8 @@ test.describe("Servidor de IA › enlazar", () => {
         // Se vuelve a comparar: la casilla queda sin marcar, con la huella de ahora, y «Activar» apagado.
         await expect(pasos(page)).toHaveAttribute("data-paso-actual", "huella");
         await expect(coincide).not.toBeChecked();
-        await expect(slot(page, "huella")).toContainText("9B04");
-        await expect(slot(page, "huella")).not.toContainText("3FA9");
+        await expect(slot(page, "huella")).toContainText("sha256:9b04e2a1");
+        await expect(slot(page, "huella")).not.toContainText("sha256:3fa91c07");
         await expect(page.getByRole("button", { name: "Activar", exact: true })).toBeDisabled();
         await page.clock.fastForward(30_000);
         expect(api.servidorIa.recibido.activaciones).toHaveLength(1);
@@ -443,7 +443,7 @@ test.describe("Servidor de IA › enlazar", () => {
         const api = await abrir(page, `${RUTA}/enlazar`, { motor: "con_huella", activar: ["huella_cambiada"] });
         const coincide = page.getByRole("checkbox", { name: "Coincide con la del instalador" });
         const activar = page.getByRole("button", { name: "Activar", exact: true });
-        await expect(slot(page, "huella")).toContainText("3FA9");
+        await expect(slot(page, "huella")).toContainText("sha256:3fa91c07");
         // A partir de aquí, la relectura de la tarjeta se queda esperando.
         let soltar: () => void = () => undefined;
         const espera = new Promise<void>((resolver) => (soltar = resolver));
@@ -455,7 +455,7 @@ test.describe("Servidor de IA › enlazar", () => {
         await activar.click();
         await expect(slot(page, "error-enlace")).toHaveAttribute("data-codigo", "huella_cambiada");
         // La huella vieja sigue en pantalla mientras llega la nueva: la casilla está apagada y un clic no la marca.
-        await expect(slot(page, "huella")).toContainText("3FA9");
+        await expect(slot(page, "huella")).toContainText("sha256:3fa91c07");
         await expect(coincide).toBeDisabled();
         await expect(coincide).not.toBeChecked();
         await coincide.click({ force: true, timeout: 2_000 }).catch(() => undefined);
@@ -463,11 +463,55 @@ test.describe("Servidor de IA › enlazar", () => {
         // (El botón dice «Activando…» mientras tanto.)
         await expect(page.getByRole("button", { name: /^Activ/ })).toBeDisabled();
         soltar();
-        await expect(slot(page, "huella")).toContainText("9B04");
+        await expect(slot(page, "huella")).toContainText("sha256:9b04e2a1");
         await expect(coincide).toBeEnabled();
         await expect(coincide).not.toBeChecked();
         await expect(activar).toBeDisabled();
         expect(api.servidorIa.recibido.activaciones).toEqual([{ huellaTls: HUELLA }]);
+    });
+
+    test("«Conectar» dice que el servidor pide un Iris más nuevo: se avisa en la huella y no se deja activar", async ({ page }) => {
+        const api = await abrir(page, `${RUTA}/enlazar`, { motor: "ninguno", conectar: ["incompatible_iris"] });
+        await page.getByLabel("Dirección").fill("https://10.0.0.5:8443");
+        await page.getByRole("button", { name: "Generar el código" }).click();
+        await page.getByRole("button", { name: "Ya lo escribieron: conectar" }).click();
+        const aviso = slot(page, "enlace-incompatible");
+        await expect(aviso).toContainText("Este servidor pide una versión de Iris más nueva; actualiza Iris");
+        await expect(aviso.locator('[data-slot="comando"]')).toHaveCount(0);
+        await page.getByRole("checkbox", { name: "Coincide con la del instalador" }).check();
+        await expect(page.getByRole("button", { name: "Activar", exact: true })).toBeDisabled();
+        expect(api.servidorIa.recibido.activaciones).toHaveLength(0);
+        await esperarSinDesbordes(page);
+        await captura(page, "enlazar-incompatible");
+    });
+
+    test("«Conectar» dice que el servidor es antiguo: avisa con el comando para actualizarlo y no deja activar", async ({ page }) => {
+        await abrir(page, `${RUTA}/enlazar`, { motor: "ninguno", conectar: ["incompatible_servidor"] });
+        await page.getByLabel("Dirección").fill("https://10.0.0.5:8443");
+        await page.getByRole("button", { name: "Generar el código" }).click();
+        await page.getByRole("button", { name: "Ya lo escribieron: conectar" }).click();
+        const aviso = slot(page, "enlace-incompatible");
+        await expect(aviso).toContainText("actualiza el servidor");
+        await expect(aviso.locator('[data-slot="comando"]')).toContainText("sudo iris-voz upgrade");
+        await page.getByRole("checkbox", { name: "Coincide con la del instalador" }).check();
+        await expect(page.getByRole("button", { name: "Activar", exact: true })).toBeDisabled();
+    });
+
+    test("si la API rechaza «Activar» por incompatible (409), lo dice en llano", async ({ page }) => {
+        await abrir(page, `${RUTA}/enlazar`, { motor: "con_huella", activar: ["incompatible"] });
+        await page.getByRole("checkbox", { name: "Coincide con la del instalador" }).check();
+        await page.getByRole("button", { name: "Activar", exact: true }).click();
+        await expect(slot(page, "error-enlace")).toHaveAttribute("data-codigo", "incompatible");
+        await expect(slot(page, "error-enlace")).toContainText("no son compatibles");
+        await expect(page).toHaveURL(new RegExp(`${RUTA}/enlazar$`));
+    });
+
+    test("la huella se muestra como la imprime el servidor (`sha256:` y minúsculas seguidas), y aparte en grupos", async ({ page }) => {
+        await abrir(page, `${RUTA}/enlazar`, { motor: "con_huella" });
+        await expect(slot(page, "huella")).toHaveText(HUELLA);
+        await expect(slot(page, "huella-grupos")).toContainText("3fa9");
+        await expect(slot(page, "pasos-enlace")).toContainText("los espacios y las mayúsculas no cuentan");
+        await expect(slot(page, "pasos-enlace")).not.toContainText("letra por letra");
     });
 
     test("activar con un cambio de llave en curso (409): pide esperar y deja reintentar a mano", async ({ page }) => {
@@ -617,10 +661,9 @@ test.describe("Servidor de IA › mantenimiento", () => {
         await expect(modelos.getByRole("radio", { name: /Todos los del servidor/ })).toBeChecked();
         await expect(modelos.getByRole("button", { name: "Guardar" })).toBeDisabled();
         await modelos.getByRole("radio", { name: /Solo algunos/ }).click();
-        // Empiezan todos marcados: se quita el que sobra.
-        await expect(modelos.getByRole("checkbox", { name: "llama3.1:8b" })).toBeChecked();
-        await modelos.getByRole("checkbox", { name: "llama3.1:8b" }).uncheck();
-        await modelos.getByRole("checkbox", { name: "qwen2.5:14b" }).uncheck();
+        // «Solo algunos» empieza con ninguno marcado, y no deja guardar vacío sin avisar.
+        await expect(modelos.getByRole("checkbox", { name: "llama3.1:8b" })).not.toBeChecked();
+        await expect(modelos.getByRole("checkbox", { name: "qwen2.5:14b" })).not.toBeChecked();
         await modelos.getByRole("button", { name: "Guardar" }).click();
         await expect(modelos).toContainText("Elige al menos un modelo");
         expect(api.servidorIa.recibido.modelos).toHaveLength(0);
@@ -716,7 +759,8 @@ test.describe("Servidor de IA › mantenimiento", () => {
         const api = await abrir(page, `${RUTA}/mantenimiento`);
         const cred = slot(page, "credenciales");
         await expect(cred).toContainText("Mientras tanto");
-        await expect(slot(page, "ultima-rotacion")).toContainText("Última rotación");
+        // Con fecha y hora.
+        await expect(slot(page, "ultima-rotacion")).toHaveText("Última rotación: 2 de noviembre, 09:00.");
         await cred.getByRole("button", { name: "Rotar credenciales" }).click();
         await expect(confirmacion(page)).toContainText("La anterior sigue valiendo 24 horas");
         await confirmacion(page).getByRole("button", { name: "Rotar", exact: true }).click();
@@ -729,18 +773,69 @@ test.describe("Servidor de IA › mantenimiento", () => {
         expect(api.servidorIa.recibido.rotaciones).toEqual([{}, { revocar: true }]);
     });
 
-    test("desenlazar pide confirmación, dice qué pasa con el asistente y vuelve a «Sin servidor»", async ({ page }) => {
+    test("ciclo completo: activo → desactivar → «Enlazar de nuevo» → activo; desactivado tiene salida en el tablero y en Mantenimiento", async ({ page }) => {
         const api = await abrir(page, `${RUTA}/mantenimiento`);
-        await slot(page, "desenlazar").getByRole("button", { name: "Desenlazar…" }).click();
+        const seccion = slot(page, "desactivar");
+        // Dice la verdad: Iris deja de usarlo; el enlace del lado del servidor se borra allá.
+        await expect(seccion).toContainText("Iris deja de usarlo en el acto");
+        await expect(seccion.locator('[data-slot="comando"]')).toContainText("sudo iris-voz unpair");
+        await expect(page.getByRole("button", { name: /Desenlazar/ })).toHaveCount(0);
+        await seccion.getByRole("button", { name: "Desactivar…" }).click();
         await expect(confirmacion(page)).toContainText("lo que atendía solo pasa a personas");
-        await captura(page, "mantenimiento-desenlazar");
-        await confirmacion(page).getByRole("button", { name: "Dejarlo enlazado" }).click();
+        await captura(page, "mantenimiento-desactivar");
+        await confirmacion(page).getByRole("button", { name: "Dejarlo activo" }).click();
         expect(api.servidorIa.recibido.desactivaciones).toHaveLength(0);
-        await slot(page, "desenlazar").getByRole("button", { name: "Desenlazar…" }).click();
-        await confirmacion(page).getByRole("button", { name: "Desenlazar", exact: true }).click();
+        await seccion.getByRole("button", { name: "Desactivar…" }).click();
+        await confirmacion(page).getByRole("button", { name: "Desactivar", exact: true }).click();
+        await expect.poll(() => api.servidorIa.recibido.desactivaciones.length).toBe(1);
+        expect(api.servidorIa.recibido.desactivaciones[0]).toMatchObject({ motivo: "desactivado_desde_el_panel" });
+
+        // Tablero: el estado dicho con claridad, sin «Probar», y una salida.
         await expect(page).toHaveURL(new RegExp(`${RUTA}$`));
-        await expect(slot(page, "sin-servidor")).toBeVisible();
-        expect(api.servidorIa.recibido.desactivaciones[0]).toMatchObject({ motivo: "desenlazado_desde_el_panel" });
+        const fuera = slot(page, "servidor-fuera");
+        await expect(fuera).toHaveAttribute("data-estado", "desactivado");
+        await expect(fuera).toContainText("Desactivado");
+        await expect(fuera).toContainText("Para volver a usarlo hay que enlazarlo de nuevo");
+        await expect(page.getByRole("button", { name: /^Probar/ })).toHaveCount(0);
+        await expect(slot(page, "cifras")).toHaveAttribute("data-vigentes", "no");
+        await esperarSinDesbordes(page);
+        await captura(page, "desactivado");
+
+        // Mantenimiento ya no ofrece desactivar otra vez: ofrece enlazar de nuevo.
+        await page.getByRole("link", { name: "Mantenimiento" }).click();
+        await expect(slot(page, "servidor-desactivado")).toContainText("El servidor está desactivado");
+        await expect(slot(page, "desactivar")).toHaveCount(0);
+        await slot(page, "servidor-desactivado").getByRole("link", { name: "Enlazar de nuevo" }).click();
+
+        // `/enlazar` acepta el servidor desactivado y recuerda su dirección.
+        await expect(slot(page, "pasos-enlace")).toHaveAttribute("data-paso-actual", "direccion");
+        await expect(slot(page, "reenlace")).toContainText("sudo iris-voz unpair");
+        await expect(page.getByText("Ya hay un servidor de IA enlazado")).toHaveCount(0);
+        await expect(page.getByLabel("Dirección")).toHaveValue("https://10.0.0.5:8443");
+        await page.getByRole("button", { name: "Generar el código" }).click();
+        await expect(slot(page, "codigo-enlace")).toContainText(CODIGO_ENLACE);
+        await page.getByRole("button", { name: "Ya lo escribieron: conectar" }).click();
+        await expect(slot(page, "huella")).toContainText("sha256:3fa91c07");
+        await page.getByRole("checkbox", { name: "Coincide con la del instalador" }).check();
+        await page.getByRole("button", { name: "Activar", exact: true }).click();
+        await expect(estado(page)).toHaveAttribute("data-estado", "listo");
+        await expect(slot(page, "cifra-uso")).toContainText("63");
+        expect(api.servidorIa.recibido.enlaces).toHaveLength(1);
+        expect(api.servidorIa.recibido.activaciones).toHaveLength(1);
+    });
+
+    test("desactivado: el tablero lleva a «Enlazar de nuevo» y, si la API rechaza «Probar» (409), el texto es llano", async ({ page }) => {
+        const api = await abrir(page, RUTA);
+        await expect(estado(page)).toHaveAttribute("data-estado", "listo");
+        // Otra persona lo desactiva mientras tanto: «Probar» sigue en pantalla hasta la siguiente lectura.
+        api.servidorIa.desactivar();
+        await page.getByRole("button", { name: "Probar", exact: true }).click();
+        await expect(slot(page, "error-prueba")).toContainText("El servidor está desactivado: Iris no lo usa.");
+        const leidas = api.servidorIa.lecturas();
+        await adelantarHasta(page, () => api.servidorIa.lecturas() > leidas);
+        await expect(slot(page, "servidor-fuera")).toHaveAttribute("data-estado", "desactivado");
+        await slot(page, "servidor-fuera").getByRole("link", { name: "Enlazar de nuevo" }).click();
+        await expect(page).toHaveURL(new RegExp(`${RUTA}/enlazar$`));
     });
 });
 
@@ -831,6 +926,17 @@ test.describe("Servidor de IA › quién lo ve", () => {
         expect(api.peticiones.filter((p) => p.ruta.includes("/voz/motores") || p.ruta.includes("/servidor-ia/"))).toHaveLength(0);
     });
 
+    test("con solo `servidor_ia.ver_uso` hay un camino visible: Administración → Servidor de IA → su tablero de uso", async ({ page }) => {
+        await abrir(page, "/", { soloUso: true }, LECTOR);
+        await irA(page, "Administración");
+        await expect(page.getByText("No tienes permiso para ver esta sección")).toHaveCount(0);
+        await page.getByRole("link", { name: /Servidor de IA/ }).click();
+        await expect(page).toHaveURL(new RegExp(`${RUTA}$`));
+        await expect(estado(page)).toContainText("En línea");
+        await expect(slot(page, "uso-empresa")).toBeVisible();
+        await expect(slot(page, "nota-admin-empresa")).toBeVisible();
+    });
+
     test("en Integraciones, la tarjeta del servidor solo la ve quien administra la instalación", async ({ page }) => {
         await abrir(page, "/administracion/integraciones");
         const tarjeta = slot(page, "tarjeta-servidor-ia");
@@ -895,6 +1001,51 @@ test.describe("Servidor de IA › en el asistente de cada empresa", () => {
         await expect(page.getByText("Conexión con la IA guardada")).toBeVisible();
         expect(guardados(api)[0]).toMatchObject({ proveedor: "servidor_ia", modelo: "llama3.1:8b" });
         expect(guardados(api)[0]).not.toHaveProperty("clave");
+    });
+
+    test("recorrido real: Conexión → guardar «Servidor de IA» → pantalla principal sin «Falta conectar la IA» → encender → «Pruébalo»", async ({ page }) => {
+        // Como lo deja la API real: con `servidor_ia` la dirección queda `""` y no hay clave.
+        const api = await abrir(page, CONEXION, {}, ADMIN, con({ activo: false, proveedor: "anthropic", url: "", modelo: "", claveGuardadaEn: null }, { disponible: true, modelos: MODELOS_SIA }));
+        await f(page).locator('[data-opcion="servidor_ia"]').click();
+        await elegirOpcion(f(page).getByLabel("Modelo que usa el asistente"), "qwen2.5:14b");
+        await f(page).getByRole("button", { name: "Guardar" }).click();
+        expect(guardados(api)[0]).toMatchObject({ proveedor: "servidor_ia", url: "", modelo: "qwen2.5:14b" });
+        expect(guardados(api)[0]).not.toHaveProperty("clave");
+
+        // De vuelta en la pantalla principal: conectado, nada apagado.
+        const principal = page.getByRole("form", { name: "Asistente", exact: true });
+        await expect(principal).toBeVisible();
+        await expect(page.getByText("Falta conectar la IA")).toHaveCount(0);
+        const encendido = page.getByRole("switch", { name: "Asistente encendido" });
+        await expect(encendido).toBeEnabled();
+        await expect(encendido).not.toBeChecked();
+        await encendido.click();
+        await expect(encendido).toBeChecked();
+
+        const caja = principal.getByRole("textbox", { name: "Mensaje de prueba" });
+        await expect(caja).toBeEnabled();
+        await caja.fill("No tengo internet desde la mañana");
+        await principal.locator('[data-slot="pruebalo"]').getByRole("button", { name: "Probar" }).click();
+        await expect(principal.getByRole("status", { name: "Resultado de la prueba" })).toBeVisible();
+
+        await principal.getByRole("button", { name: "Guardar" }).click();
+        await expect.poll(() => guardados(api).length).toBe(2);
+        expect(guardados(api)[1]).toMatchObject({ activo: true, proveedor: "servidor_ia", url: "", modelo: "qwen2.5:14b" });
+        await captura(page, "asistente-principal-servidor-ia");
+    });
+
+    test("«Pruébalo» con el Servidor de IA caído: texto llano propio, con «Reintentar»", async ({ page }) => {
+        const api = await abrir(page, "/administracion/asistente", {}, ADMIN, con({ proveedor: "servidor_ia", url: "", modelo: "qwen2.5:14b", claveGuardadaEn: null }, { disponible: false, modelos: [] }));
+        const principal = page.getByRole("form", { name: "Asistente", exact: true });
+        await expect(page.getByText("Falta conectar la IA")).toHaveCount(0);
+        api.responderProblema("/api/v1/mensajeria/asistente/probar-mensaje", { type: "urn:iris:problema:servidor_ia_no_disponible", title: "servidor_ia_no_disponible", status: 422, detail: "servidor_ia_no_disponible" }, 1);
+        await principal.getByRole("textbox", { name: "Mensaje de prueba" }).fill("Hola");
+        const zona = principal.locator('[data-slot="pruebalo"]');
+        await zona.getByRole("button", { name: "Probar" }).click();
+        await expect(zona).toContainText("El Servidor de IA no está disponible");
+        await expect(zona).toContainText("Avisa a quien administra la instalación");
+        await expect(zona).not.toContainText("servidor_ia_no_disponible");
+        await expect(zona.getByRole("button", { name: "Reintentar" })).toBeVisible();
     });
 
     test("si no está enlazado o la empresa no está permitida, lo dice en llano antes de guardar", async ({ page }) => {

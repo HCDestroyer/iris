@@ -248,12 +248,16 @@ export function GraficaSerie({ titulo, descripcion, series, instantes, marcas, f
                             {/* Rejilla y eje: discretos. */}
                             {[0, 0.5, 1].map((parte) => {
                                 const yy = MARGEN.arriba + altoTrazo * (1 - parte);
+                                // La marca del medio no se escribe si diría lo mismo que la de arriba o la de abajo («0, 1, 1»).
+                                const repetida = parte === 0.5 && (formato(tope * 0.5) === formato(tope) || formato(tope * 0.5) === formato(0));
                                 return (
                                     <g key={parte}>
                                         <line x1={MARGEN.izquierda} x2={ancho - MARGEN.derecha} y1={yy} y2={yy} stroke="var(--hx-border)" strokeWidth={1} strokeDasharray={parte === 0 ? undefined : "2 4"} />
-                                        <text x={MARGEN.izquierda - 8} y={yy + 4} textAnchor="end" fontSize={11} fill="var(--hx-text-muted)">
-                                            {formato(tope * parte)}
-                                        </text>
+                                        {repetida ? null : (
+                                            <text x={MARGEN.izquierda - 8} y={yy + 4} textAnchor="end" fontSize={11} fill="var(--hx-text-muted)" data-slot="marca-eje">
+                                                {formato(tope * parte)}
+                                            </text>
+                                        )}
                                     </g>
                                 );
                             })}

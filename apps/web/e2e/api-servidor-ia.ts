@@ -23,8 +23,9 @@ export const PERMISO_SIA_ADMINISTRAR: Permiso = "servidor_ia.administrar";
 /** El «ahora» del escenario: martes 17 de noviembre de 2026, 11:02 en Guatemala. Las pruebas ponen el reloj aquí. */
 export const AHORA_SIA = Date.parse("2026-11-17T17:02:00Z");
 export const CODIGO_ENLACE = "iv1_7Kq2mXw9Rt4Lp8Zc3Ns6Vb1Yh5Df0GjAe";
-export const HUELLA = "3fa91c07b2de4418905ae6d17c33f0428be15a996c0d7e2413f8a05bd6e27c91";
-export const HUELLA_OTRA = "9b04e2a17f3c5d6681aa0c42e7b913d05f6c2e8847a1b3c9d0e5f61728394a5b";
+// Como las imprime el servidor: `sha256:` y 64 letras en minúscula, seguidas.
+export const HUELLA = "sha256:3fa91c07b2de4418905ae6d17c33f0428be15a996c0d7e2413f8a05bd6e27c91";
+export const HUELLA_OTRA = "sha256:9b04e2a17f3c5d6681aa0c42e7b913d05f6c2e8847a1b3c9d0e5f61728394a5b";
 export const MODELOS_SIA = ["qwen2.5:14b", "llama3.1:8b"];
 
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -32,6 +33,8 @@ const iso = (ms: number) => new Date(ms).toISOString();
 export type OpcionesServidorIa = {
     /** Zoe (sin `empresas.todas`) recibe `servidor_ia.ver` y `.administrar` en vez de `ver_uso`: la API le responde 404. */
     zonaAdministra?: boolean;
+    /** Lucía (sin ningún otro permiso de Administración) recibe solo `servidor_ia.ver_uso`. */
+    soloUso?: boolean;
     /**
      * Cómo está al abrir: `ninguno` (sin enlazar nada), `a_medias` (enlace creado, sin conectar),
      * `con_huella` (conectado, falta activar), `listo` (por defecto), `no_disponible` (caído hace 20
@@ -43,11 +46,11 @@ export type OpcionesServidorIa = {
     /** Con `gpus: 0`: el servidor afirma que no tiene tarjeta (`sin_gpu`) en vez de no haberla leído (`omitido`). */
     sinGpu?: boolean;
     /** Respuestas de «activar», en orden (por defecto, `ok`). */
-    activar?: ("ok" | "huella_cambiada" | "rotacion_en_curso")[];
+    activar?: ("ok" | "huella_cambiada" | "rotacion_en_curso" | "incompatible")[];
     /** Las primeras `n` rotaciones responden 409 `rotacion_en_curso`. */
     rotarEnCurso?: number;
     /** Respuestas de «conectar», en orden (por defecto, `ok`). */
-    conectar?: ("ok" | "fallo" | "429" | "vencido")[];
+    conectar?: ("ok" | "fallo" | "429" | "vencido" | "incompatible_iris" | "incompatible_servidor")[];
     /** Hay más empresas activas que plazas (§4.11). */
     plazasInsuficientes?: boolean;
     /** Lo que el admin de la instalación dejó elegir a las empresas (`null`, por defecto: todos). */
@@ -115,6 +118,8 @@ function motorInicial(o: OpcionesServidorIa): Motor | null {
             enlazadoEn: null,
             ...SIN_CONOCER,
             enlazado: como === "con_huella",
+            // Ya conectado, el paquete del servidor se conoce (y aquí es compatible).
+            ...(como === "con_huella" ? { paquete: paquete("0.1.0", "1") } : {}),
             tokenRotadoEn: null,
             huellaTls: como === "con_huella" ? HUELLA : null,
             enlaceVenceEn: iso(o.enlaceCaducado ? AHORA_SIA - 60_000 : AHORA_SIA + 23 * 3_600_000),
@@ -337,7 +342,8 @@ export function apiServidorIa(opciones: OpcionesServidorIa = {}) {
         if (!administra) return prohibido(PERMISO_SIA_ADMINISTRAR);
         if (ruta === `${MOTORES}/enlazar` && metodo === "POST") {
             recibido.enlaces.push({ cuerpo, idempotencia: x.idempotencia });
-            if (motor && motor.estado !== "sin_enlazar") return (await problema(route, P("motor_ya_enlazado", 409, "Ya hay un servidor enlazado")), true);
+            // Uno desactivado se puede enlazar de nuevo (201).
+            if (motor && motor.estado !== "sin_enlazar" && motor.estado !== "desactivado") return (await problema(route, P("motor_ya_enlazado", 409, "Ya hay un servidor enlazado")), true);
             if (String(cuerpo.url).includes("127.0.0.1")) return (await problema(route, P("url_no_permitida", 422, "Dirección no permitida", { errors: [{ field: "body.url", message: "Esa dirección no se puede usar" }] })), true);
             if (String(cuerpo.url).includes("10.9.9.9")) return (await problema(route, P("motor_no_responde", 502, "El servidor no responde")), true);
             motor = { ...motorBase("sin_enlazar"), version: 1, nombre: String(cuerpo.nombre), url: String(cuerpo.url), enlazadoEn: null, ...SIN_CONOCER, enlazado: false, tokenRotadoEn: null, huellaTls: null, enlaceVenceEn: iso(AHORA_SIA + 15 * 60_000) };
@@ -356,7 +362,9 @@ export function apiServidorIa(opciones: OpcionesServidorIa = {}) {
                 // La ventana de 15 minutos del código se cerró.
                 if (como === "vencido") return (await problema(route, P("enlace_vencido", 409, "El enlace venció")), true);
                 // Conectado: ahora hay 24 horas para activar.
-                motor = { ...motor, enlazado: true, huellaTls: HUELLA, version: motor.version + 1, enlaceVenceEn: iso(AHORA_SIA + 24 * 3_600_000) };
+                // «Conectar» ya dice si el servidor y esta versión de Iris son compatibles.
+                const visto = como === "incompatible_iris" ? paquete("0.3.0", "3", "iris_antiguo") : como === "incompatible_servidor" ? paquete("0.0.9", "0", "paquete_antiguo") : paquete("0.1.0", "1");
+                motor = { ...motor, enlazado: true, paquete: visto, huellaTls: HUELLA, version: motor.version + 1, enlaceVenceEn: iso(AHORA_SIA + 24 * 3_600_000) };
                 return (await json(route, motor), true);
             }
             case "activar": {
@@ -364,6 +372,7 @@ export function apiServidorIa(opciones: OpcionesServidorIa = {}) {
                 if (!motor.huellaTls) return (await problema(route, P("motor_sin_enlazar", 409, "Falta conectar")), true);
                 if (typeof cuerpo.huellaTls !== "string" || cuerpo.huellaTls === "") return (await problema(route, P("validacion", 422, "Falta la huella", { errors: [{ field: "body.huellaTls", message: "Falta la huella comparada" }] })), true);
                 const comoActivar = activar.shift() ?? "ok";
+                if (comoActivar === "incompatible" || !motor.paquete.compatible) return (await problema(route, P("incompatible", 409, "No son compatibles")), true);
                 if (comoActivar === "rotacion_en_curso") return (await problema(route, P("rotacion_en_curso", 409, "Hay un cambio de llave en curso")), true);
                 // El servidor enlazado ya no es el que se comparó: su huella es otra.
                 if (comoActivar === "huella_cambiada") motor = { ...motor, huellaTls: HUELLA_OTRA, version: motor.version + 1 };
@@ -374,6 +383,7 @@ export function apiServidorIa(opciones: OpcionesServidorIa = {}) {
             }
             case "probar": {
                 recibido.pruebas++;
+                if (motor.estado === "desactivado") return (await problema(route, P("servidor_desactivado", 409, "El servidor está desactivado")), true);
                 const ok = motor.estado === "listo";
                 const paso = (codigo: PasoPrueba["codigo"], estado: PasoPrueba["estado"], ms = 0, detalle = ""): PasoPrueba => ({ codigo, estado, ms, detalle });
                 const ultimaPrueba: ResultadoPrueba = ok
@@ -422,11 +432,9 @@ export function apiServidorIa(opciones: OpcionesServidorIa = {}) {
             }
             case "desactivar": {
                 recibido.desactivaciones.push(cuerpo);
-                motor = { ...motor, estado: "desactivado", version: motor.version + 1 };
-                const respuesta = motor;
-                // Desenlazado: para el panel ya no hay servidor.
-                motor = null;
-                return (await json(route, respuesta), true);
+                // Como la API real: queda `desactivado` (no desaparece) hasta que se enlace de nuevo.
+                motor = { ...motor, estado: "desactivado", activado: false, version: motor.version + 1 };
+                return (await json(route, motor), true);
             }
             default:
                 return (await problema(route, P("no_encontrado", 404, "No existe")), true);
@@ -439,6 +447,10 @@ export function apiServidorIa(opciones: OpcionesServidorIa = {}) {
         motor: () => motor,
         umbrales: () => umbrales,
         lecturas: () => lecturas,
+        /** Otra persona lo desactiva. */
+        desactivar: () => {
+            if (motor) motor = { ...motor, estado: "desactivado", activado: false, version: motor.version + 1 };
+        },
         /** El servidor deja de responder ahora. */
         caer: () => {
             if (motor) motor = { ...motor, estado: "no_disponible", detalle: "No responde" };

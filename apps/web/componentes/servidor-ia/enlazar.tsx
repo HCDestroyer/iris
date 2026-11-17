@@ -17,7 +17,7 @@ import { ZONA } from "@/lib/fechas";
 import { erroresACampos } from "@/lib/formularios";
 import { useLectura } from "@/lib/lectura";
 import { activarMotor, conectarMotor, enlazarMotor, leerMotor } from "@/lib/servidor-ia/api";
-import { COMANDO, huellaLegible, textoErrorEnlace } from "@/lib/servidor-ia/presentacion";
+import { avisoIncompatibleAlEnlazar, COMANDO, huellaComoElServidor, huellaLegible, textoErrorEnlace } from "@/lib/servidor-ia/presentacion";
 import type { EnlaceCreado, Motor } from "@/lib/servidor-ia/tipos";
 import { esquemaEnlace, type ValoresEnlace } from "@/lib/servidor-ia/umbrales";
 import { Comando, RUTA } from "./comun";
@@ -71,7 +71,7 @@ export function EnlazarServidorIa() {
                 </div>
             ) : lectura.estado === "error" ? (
                 <ErrorLectura error={lectura.error} reintentar={lectura.reintentar} que="el servidor de IA" />
-            ) : lectura.datos && lectura.datos.estado !== "sin_enlazar" ? (
+            ) : lectura.datos && lectura.datos.estado !== "sin_enlazar" && lectura.datos.estado !== "desactivado" ? (
                 <Aviso
                     tono="info"
                     titulo="Ya hay un servidor de IA enlazado"
@@ -81,16 +81,18 @@ export function EnlazarServidorIa() {
                         </Boton>
                     }
                 >
-                    {lectura.datos.nombre} ({lectura.datos.url}). Para enlazar otro, primero desenlaza este en Mantenimiento.
+                    {lectura.datos.nombre} ({lectura.datos.url}). Para enlazar otro, primero desactiva este en Mantenimiento.
                 </Aviso>
             ) : (
-                <Pasos pendiente={lectura.datos} />
+                // Uno desactivado se enlaza de nuevo desde el principio (su huella de antes no vale): solo se
+                // recuerdan su dirección y su nombre.
+                <Pasos pendiente={lectura.datos?.estado === "sin_enlazar" ? lectura.datos : null} previo={lectura.datos} />
             )}
         </>
     );
 }
 
-function Pasos({ pendiente }: { pendiente: Motor | null }) {
+function Pasos({ pendiente, previo }: { pendiente: Motor | null; previo: Motor | null }) {
     const router = useRouter();
     // Si quedó un enlace a medias: con huella, falta compararla y activar; sin huella, el código ya
     // no se puede volver a mostrar (se enseña una sola vez) y hay que generar otro.
@@ -102,7 +104,8 @@ function Pasos({ pendiente }: { pendiente: Motor | null }) {
     const [huellaMarcada, setHuellaMarcada] = useState<string | null>(null);
     const coincide = Boolean(motor?.huellaTls) && huellaMarcada === motor?.huellaTls;
     const [ahora, setAhora] = useState(() => Date.now());
-    const form = useForm<ValoresEnlace>({ resolver: zodResolver(esquemaEnlace), defaultValues: { nombre: pendiente?.nombre ?? "Servidor de IA", url: pendiente?.url ?? "" } });
+    const form = useForm<ValoresEnlace>({ resolver: zodResolver(esquemaEnlace), defaultValues: { nombre: previo?.nombre ?? "Servidor de IA", url: previo?.url ?? "" } });
+    const reenlace = previo?.estado === "desactivado";
 
     useEffect(() => {
         const id = window.setInterval(() => setAhora(Date.now()), 1000);
@@ -173,6 +176,8 @@ function Pasos({ pendiente }: { pendiente: Motor | null }) {
     }
 
     const codigoError = error instanceof ErrorApi ? error.codigo : "";
+    // «Conectar» ya dice si son compatibles: si no, se avisa aquí y no se deja activar.
+    const incompatible = motor ? avisoIncompatibleAlEnlazar(motor.paquete) : null;
     const enCurso = codigoError === "rotacion_en_curso";
     const aviso = error && !vencidoAlla ? (
         <Aviso
@@ -203,6 +208,11 @@ function Pasos({ pendiente }: { pendiente: Motor | null }) {
                             void form.handleSubmit(generar)(ev);
                         }}
                     >
+                        {reenlace ? (
+                            <Aviso tono="info" titulo="Este servidor está desactivado" data-slot="reenlace">
+                                Para volver a usarlo se enlaza de nuevo, con un código nuevo. En el servidor, primero borra el enlace anterior con «{COMANDO.desenlazar}» y luego ejecuta «{COMANDO.enlazar}».
+                            </Aviso>
+                        ) : null}
                         {pendiente && !pendiente.huellaTls ? (
                             <Aviso tono="info" titulo="Quedó un enlace a medias">
                                 El código de un solo uso solo se muestra una vez y ya no se puede volver a ver. Genera otro para seguir.
@@ -270,12 +280,24 @@ function Pasos({ pendiente }: { pendiente: Motor | null }) {
             <Paso numero={3} titulo="Compara la huella" estado={paso === "huella" ? (coincide ? "hecho" : "actual") : "despues"}>
                 {paso === "huella" && motor?.huellaTls ? (
                     <>
-                        <p className="text-sm text-muted-foreground">Tiene que ser idéntica, letra por letra, a la que imprimió el instalador en el servidor.</p>
-                        <p aria-label="Huella del servidor" data-slot="huella" className="grid grid-cols-4 gap-x-3 gap-y-1 rounded-lg bg-elevated p-3 font-mono text-sm font-semibold tracking-wide sm:grid-cols-8">
+                        <p className="text-sm text-muted-foreground">Tiene que ser la misma que imprimió el instalador en el servidor (también la muestra «{COMANDO.estado}»). Aquí va escrita igual que allá:</p>
+                        <p aria-label="Huella del servidor" data-slot="huella" className="rounded-lg bg-elevated p-3 font-mono text-sm font-semibold [overflow-wrap:anywhere]">
+                            {huellaComoElServidor(motor.huellaTls)}
+                        </p>
+                        <p className="text-[0.8125rem] text-muted-foreground">La misma, en grupos de cuatro para leerla más fácil (los espacios y las mayúsculas no cuentan):</p>
+                        <p aria-hidden data-slot="huella-grupos" className="grid grid-cols-4 gap-x-3 gap-y-1 rounded-lg bg-elevated p-3 font-mono text-[0.8125rem] tracking-wide text-muted-foreground sm:grid-cols-8">
                             {huellaLegible(motor.huellaTls).map((grupo, i) => (
                                 <span key={i}>{grupo}</span>
                             ))}
                         </p>
+                        {incompatible ? (
+                            <Aviso tono="warning" titulo={incompatible.titulo} data-slot="enlace-incompatible">
+                                <span className="grid gap-2">
+                                    <span>{incompatible.detalle}</span>
+                                    {incompatible.comando ? <Comando texto={incompatible.comando} /> : null}
+                                </span>
+                            </Aviso>
+                        ) : null}
                         <Casilla etiqueta="Coincide con la del instalador" checked={coincide} disabled={ocupado !== null} onChange={(ev) => setHuellaMarcada(ev.target.checked ? motor.huellaTls : null)} />
                         <p className="flex items-start gap-2 rounded-lg bg-elevated p-2.5 text-[0.8125rem] text-muted-foreground">
                             <ShieldAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
@@ -314,7 +336,7 @@ function Pasos({ pendiente }: { pendiente: Motor | null }) {
                         ) : null}
                         {aviso}
                         <div>
-                            <Boton disabled={!coincide || ocupado !== null || enlaceCaducado} onClick={() => void activar()}>
+                            <Boton disabled={!coincide || ocupado !== null || enlaceCaducado || incompatible !== null} onClick={() => void activar()}>
                                 <Link2 />
                                 {ocupado === "activar" ? "Activando…" : "Activar"}
                             </Boton>

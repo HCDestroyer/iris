@@ -19,6 +19,16 @@ describe("GraficaSerie", () => {
         expect(ultimoConDato([null, null])).toBeNull();
     });
 
+    it("las marcas del eje no se repiten: con valores pequeños y formato entero no sale «0, 1, 1»", () => {
+        const entero = (v: number) => String(Math.round(v));
+        const marcas = (html: string) => [...html.matchAll(/data-slot="marca-eje"[^>]*>([^<]*)</g)].map((m) => m[1]);
+        const pocas = renderToStaticMarkup(<GraficaSerie titulo="Peticiones por minuto" {...base} formato={entero} series={[{ nombre: "Peticiones", color: 1, valores: [0, 1, 1, 0] }]} />);
+        expect(marcas(pocas)).toEqual(["0", "1"]);
+        const muchas = renderToStaticMarkup(<GraficaSerie titulo="Peticiones por minuto" {...base} formato={entero} series={[{ nombre: "Peticiones", color: 1, valores: [4, 18, 12, 7] }]} />);
+        expect(new Set(marcas(muchas)).size).toBe(marcas(muchas).length);
+        expect(marcas(muchas)).toHaveLength(3);
+    });
+
     it("con dos series hay leyenda y cada una dice su último valor; el texto no usa el color de la serie", () => {
         const html = renderToStaticMarkup(
             <GraficaSerie titulo="Uso y memoria de video" {...base} maximo={100} series={[{ nombre: "Uso", color: 1, valores: [40, 50, 60, 64] }, { nombre: "Memoria de video", color: 2, valores: [50, 52, 53, 54] }]} />,

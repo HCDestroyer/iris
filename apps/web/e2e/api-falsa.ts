@@ -696,6 +696,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             ...(opciones.correo && (actual.correo === ADMIN.correo || actual.correo === SUPERVISOR_ZONA.correo) ? PERMISOS_CORREO : []),
             ...(opciones.correo && actual.correo === CONSULTA.correo ? PERMISOS_CORREO.slice(0, 1) : []),
             ...(opciones.servidorIa && actual.correo === ADMIN.correo ? [PERMISO_SIA_VER, PERMISO_SIA_ADMINISTRAR] : []),
+            ...(opciones.servidorIa?.soloUso && actual.correo === LECTOR.correo ? [PERMISO_SIA_VER_USO] : []),
             ...(opciones.servidorIa && actual.correo === SUPERVISOR_ZONA.correo ? (opciones.servidorIa.zonaAdministra ? [PERMISO_SIA_VER, PERMISO_SIA_ADMINISTRAR] : [PERMISO_SIA_VER_USO]) : []),
         ];
         if (await sso.manejar({ route, metodo, ruta, actual, puede: (p) => permisos.includes(p), cuerpo, cookies, idempotencia: cabeceras["idempotency-key"] })) {

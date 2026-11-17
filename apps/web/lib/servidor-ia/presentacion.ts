@@ -303,10 +303,28 @@ export const NOMBRE_PASO: Record<PasoPrueba["codigo"], string> = {
 /** Qué pasa con el asistente mientras el servidor no está (§4.11), dicho tal cual. */
 export const MIENTRAS_TANTO = ["Las sugerencias muestran error con «Reintentar».", "Lo que el asistente atendía solo pasa a una persona.", "No se pierde nada: las conversaciones siguen en la bandeja."] as const;
 
-/** «7F3A 91C2 0B5E …»: la huella en grupos de cuatro, para compararla letra por letra. */
+/**
+ * La huella **tal como la imprime el servidor** (`sha256:` + 64 letras en minúscula, seguidas): es
+ * lo que se compara con lo que mostró el instalador o `iris-voz status`.
+ */
+export function huellaComoElServidor(huella: string): string {
+    const limpia = huella.replace(/^sha256:/i, "").replace(/[^0-9a-f]/gi, "").toLowerCase();
+    return `sha256:${limpia}`;
+}
+
+/** «3fa9 1c07 b2de …»: la misma huella en grupos de cuatro, solo para leerla más fácil (los espacios no cuentan). */
 export function huellaLegible(huella: string): string[] {
-    const limpia = huella.replace(/^sha256:/i, "").replace(/[^0-9a-f]/gi, "").toUpperCase();
+    const limpia = huella.replace(/^sha256:/i, "").replace(/[^0-9a-f]/gi, "").toLowerCase();
     return limpia.match(/.{1,4}/g) ?? [];
+}
+
+/** Lo que se avisa en el paso de la huella si «Conectar» ya dijo que no son compatibles (no se deja activar). */
+export function avisoIncompatibleAlEnlazar(p: Pick<Paquete, "compatible" | "motivoIncompatible" | "version" | "versionDisponible">): { titulo: string; detalle: string; comando: string | null } | null {
+    if (p.compatible || p.motivoIncompatible === null) return null;
+    const q = queActualizar({ version: p.version ?? "", motivoIncompatible: p.motivoIncompatible, versionDisponible: p.versionDisponible });
+    return p.motivoIncompatible === "iris_antiguo"
+        ? { titulo: "Este servidor pide una versión de Iris más nueva; actualiza Iris", detalle: "Hasta actualizar Iris no se puede activar. En el servidor no hay que hacer nada.", comando: null }
+        : { titulo: "Esta versión de Iris pide una versión más nueva de Iris Voz; actualiza el servidor", detalle: "Hasta actualizarlo no se puede activar. Se actualiza en el servidor, con este comando:", comando: q.comando };
 }
 
 /** Los errores de enlazar, conectar y activar, en llano. `null`: uno que no se conoce (se usa el del servidor). */
@@ -326,6 +344,10 @@ export function textoErrorEnlace(codigo: string, estado: number, alConectar = fa
             return "Iris no pudo llegar al servidor en esa dirección. Revisa que esté encendido, que la dirección sea la que mostró el instalador y que la ventana de enlace siga abierta.";
         case "motor_incompatible":
             return `La versión de Iris Voz del servidor no es compatible con esta versión de Iris. Actualiza el servidor (${COMANDO.actualizar}) y vuelve a enlazar.`;
+        case "incompatible":
+            return "El servidor y esta versión de Iris no son compatibles: no se puede activar hasta actualizar el que se indica arriba.";
+        case "servidor_desactivado":
+            return TEXTO_DESACTIVADO;
         case "huella_cambiada":
             return TEXTO_HUELLA_CAMBIADA;
         case "rotacion_en_curso":
@@ -346,6 +368,15 @@ export const TEXTO_HUELLA_CAMBIADA = "El servidor cambió desde que lo comparast
 export const TEXTO_ROTACION_EN_CURSO = "Ya hay un cambio de llave en curso; espera unos segundos.";
 /** Rotar sin respuesta o con 5xx (§4.2: se aplica entera o nada, e Iris se recupera sola). */
 export const TEXTO_ROTACION_SIN_CONFIRMAR = "No se pudo confirmar el cambio. Iris recupera la conexión sola; no hace falta enlazar de nuevo.";
+
+/** 409 `servidor_desactivado` (probar con el servidor desactivado). */
+export const TEXTO_DESACTIVADO = "El servidor está desactivado: Iris no lo usa. Para volver a usarlo hay que enlazarlo de nuevo.";
+
+/** «2 de noviembre, 09:00». */
+export const fechaHora = (iso: string): string => {
+    const ms = Date.parse(iso);
+    return Number.isNaN(ms) ? "" : `${dia.format(ms)}, ${hora.format(ms)}`;
+};
 
 /** «310 W». */
 export const potencia = (w: number): string => `${Math.round(w)} W`;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cantidad, cifrasVigentes, COMANDO, LECTURA_VIEJA_SIN_HORA_MS, duracionLlana, lecturaReciente, lineaTarjeta, enServicio, huellaLegible, lineaEstado, queActualizar, seriesDe, tamano, tarjetaGpu, textoAviso, textoError, textoErrorEnlace, textoPlazas, tiempoRespuesta, tonoFrente, ultimaVez } from "./presentacion";
+import { avisoIncompatibleAlEnlazar, cantidad, cifrasVigentes, COMANDO, fechaHora, huellaComoElServidor, LECTURA_VIEJA_SIN_HORA_MS, duracionLlana, lecturaReciente, lineaTarjeta, enServicio, huellaLegible, lineaEstado, queActualizar, seriesDe, tamano, tarjetaGpu, textoAviso, textoError, textoErrorEnlace, textoPlazas, tiempoRespuesta, tonoFrente, ultimaVez } from "./presentacion";
 import type { AvisoServidor, Tablero } from "./tipos";
 import { DE_FABRICA, entradaDeUmbrales, esDeFabrica, esquemaEmpresas, esquemaEnlace, esquemaUmbrales, valoresDeUmbrales } from "./umbrales";
 
@@ -141,7 +141,21 @@ describe("textos del Servidor de IA", () => {
         expect(titulos).not.toContain("Aviso del servidor de IA");
         expect(textoPlazas(6, 4)).toContain("más empresas usando el servidor que turnos disponibles (6 empresas y 4 turnos)");
         expect(textoPlazas(undefined, null)).not.toContain("(");
-        expect(huellaLegible("3fa91c07b2de")).toEqual(["3FA9", "1C07", "B2DE"]);
+        // La huella, escrita como la imprime el servidor; los grupos son solo una ayuda para leer.
+        expect(huellaComoElServidor("sha256:3FA91C07b2de")).toBe("sha256:3fa91c07b2de");
+        expect(huellaComoElServidor("3fa9 1c07 b2de")).toBe("sha256:3fa91c07b2de");
+        expect(huellaLegible("sha256:3fa91c07b2de")).toEqual(["3fa9", "1c07", "b2de"]);
+        expect(fechaHora("2026-11-02T15:00:00Z")).toBe("2 de noviembre, 09:00");
+        // «Conectar» ya dice si son compatibles: se avisa en el paso de la huella.
+        expect(avisoIncompatibleAlEnlazar({ compatible: true, motivoIncompatible: null, version: "0.1.0", versionDisponible: null })).toBeNull();
+        const pideIris = avisoIncompatibleAlEnlazar({ compatible: false, motivoIncompatible: "iris_antiguo", version: "0.3.0", versionDisponible: null });
+        expect(pideIris?.titulo).toBe("Este servidor pide una versión de Iris más nueva; actualiza Iris");
+        expect(pideIris?.comando).toBeNull();
+        const pideServidor = avisoIncompatibleAlEnlazar({ compatible: false, motivoIncompatible: "paquete_antiguo", version: "0.0.9", versionDisponible: null });
+        expect(pideServidor?.titulo).toContain("actualiza el servidor");
+        expect(pideServidor?.comando).toBe("sudo iris-voz upgrade");
+        expect(textoErrorEnlace("incompatible", 409)).toContain("no son compatibles");
+        expect(textoErrorEnlace("servidor_desactivado", 409)).toContain("está desactivado");
     });
 });
 

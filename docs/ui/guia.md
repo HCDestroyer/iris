@@ -839,13 +839,19 @@ tarjeta en Integraciones (junto a Argos y Horus). Código en `componentes/servid
   tanto, qué revisar en el servidor y «Probar ahora». Incompatible dice **qué** actualizar según
   `motivoIncompatible`: Iris (`iris_antiguo`) o el servidor, con su comando y su porqué
   (`protocolo`, `iris_nuevo`, `paquete_antiguo`). Sin `versionDisponible` no se nombra versión.
+- **Desactivado.** «Desactivar» (antes «Desenlazar») dice la verdad: Iris deja de usarlo; el enlace
+  del lado del servidor se borra allá con `sudo iris-voz unpair`. En ese estado el tablero y
+  Mantenimiento ofrecen «Enlazar de nuevo», `/enlazar` lo acepta y no hay «Probar».
 - **Enlazar** (`/enlazar`): cuatro pasos en una pantalla. Dirección → código de un solo uso (se
   muestra una vez, vence a los 15 minutos, se escribe en el servidor sin eco) → huella con la
   casilla «Coincide con la del instalador» → «Activar» con esa misma huella (un enlace sin activar
   caduca a las 24 h). Si el servidor cambió entretanto (409 `huella_cambiada`) se desmarca la
   casilla y se enseña la huella de ahora; nunca se reintenta solo. La marca guarda **qué huella**
   se comparó (no un sí/no) y la casilla se apaga mientras hay una petición en curso. 409 `rotacion_en_curso`, aquí y
-  al rotar, es un aviso de «espera unos segundos», no un error.
+  al rotar, es un aviso de «espera unos segundos», no un error. La huella se escribe **como la
+  imprime el servidor** (`sha256:` y minúsculas seguidas) y, aparte, en grupos de cuatro para
+  leerla. Si «Conectar» ya dijo que no son compatibles, se avisa en ese paso qué actualizar y
+  «Activar» queda apagado.
   Si «conectar» falla, el servidor responde lo mismo (502) para un código usado o mal escrito que
   para un servidor fuera de alcance: el texto lo dice así, sin afirmar cuál fue. Un paso
   vencido (409 `enlace_vencido`, el mismo para el código y para activar) ofrece empezar de nuevo.
@@ -863,11 +869,14 @@ tarjeta en Integraciones (junto a Argos y Horus). Código en `componentes/servid
   «Rotar credenciales» y «Revocar ahora» (cada confirmación dice qué pasa mientras tanto; si no
   llega respuesta: «No se pudo confirmar el cambio. Iris recupera la conexión sola…», se relee la tarjeta y el reintento repite la misma clave) y
   «Desenlazar» con confirmación.
+- **Camino para `ver_uso`.** `servidor_ia.ver` y `.ver_uso` abren «Administración» en el menú: quien
+  solo tiene `ver_uso` llega por ahí a su tablero de uso.
 - **En el asistente de cada empresa** (`/administracion/asistente/conexion`): el proveedor
   «Servidor de IA» aparece si los ajustes traen `servidorIa`; se elige un modelo de los permitidos,
   sin dirección ni clave, con «Pruébalo antes de guardar». Si había una clave guardada de otro
   proveedor se avisa que se borra y se manda `clave: ""`. Si no está disponible, lo dice antes de
-  guardar y ante el 422 `servidor_ia_no_disponible`.
+  guardar y ante el 422 `servidor_ia_no_disponible`. Con `servidor_ia` la API guarda `url: ""` y
+  sin clave: «conectado» es proveedor + modelo (`proveedorConectado`), y los fixtures lo reflejan.
 - **Campana.** `servidor_ia_caido`, `servidor_ia_incompatible` y `servidor_ia_umbral` tienen su
   icono y su segunda línea en `lib/campana.ts`; el título lo pone el servidor.
 - **Tipos.** Todo sale de `packages/contratos` (`lib/servidor-ia/tipos.ts` son solo alias).

@@ -60,6 +60,13 @@ describe("explicarError", () => {
             reintentar: true,
         });
         expect(explicarError("proveedor_error", null, "resumen").titulo).toBe("No se pudo resumir");
+        // El Servidor de IA caído o lleno: texto llano propio, nunca el código.
+        const caido = explicarError("servidor_ia_no_disponible", "servidor_ia_no_disponible", "prueba");
+        expect(caido.titulo).toBe("El Servidor de IA no está disponible");
+        expect(caido.texto).toContain("Avisa a quien administra la instalación");
+        expect(caido.texto).not.toContain("servidor_ia");
+        expect(caido.reintentar).toBe(true);
+        expect(explicarError("servidor_ia_ocupado", null, "sugerencia")).toMatchObject({ titulo: "El Servidor de IA está lleno ahora", reintentar: true });
         expect(explicarError("sin_mensaje", null, "resumen").titulo).toBe("Todavía no hay qué resumir");
     });
     it("429: cuánto esperar (Retry-After o 30 s) y «Reintentar» deshabilitado hasta entonces", () => {

@@ -8,7 +8,7 @@ import { useState, type ReactNode } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { nuevaClaveIdempotencia } from "@/lib/api/cliente";
-import { mensajeDeError } from "@/lib/api/errores";
+import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { haceCuanto } from "@/lib/fechas";
 import { probarMotor } from "@/lib/servidor-ia/api";
 import {
@@ -25,6 +25,7 @@ import {
     seriesDe,
     tamano,
     tarjetaGpu,
+    TEXTO_DESACTIVADO,
     TEXTO_RANGO,
     textoError,
     textoPlazas,
@@ -140,7 +141,18 @@ function Vista({ tablero, rango, alRango, ahora, tolerancia, global, administra,
             setPrueba({ estado: "error", error });
         }
     }
-    const botonProbar = administra ? (
+    const desactivado = e.estado === "desactivado";
+    // Desactivado no se prueba: la salida es enlazarlo de nuevo.
+    const botonProbar = desactivado ? (
+        administra ? (
+            <Boton asChild>
+                <Link href={`${RUTA}/enlazar` as Route}>
+                    <Link2 />
+                    Enlazar de nuevo
+                </Link>
+            </Boton>
+        ) : null
+    ) : administra ? (
         <Boton variante={fuera ? "primario" : "contorno"} tamano={fuera ? "md" : "sm"} disabled={prueba.estado === "probando"} onClick={() => void probar()}>
             <RefreshCw />
             {prueba.estado === "probando" ? "Probando…" : fuera ? "Probar ahora" : "Probar"}
@@ -177,8 +189,8 @@ function Vista({ tablero, rango, alRango, ahora, tolerancia, global, administra,
             ) : null}
             {prueba.estado === "hecha" ? <ResultadoDePrueba resultado={prueba.resultado} /> : null}
             {prueba.estado === "error" ? (
-                <Aviso tono="error" titulo="No se pudo hacer la prueba">
-                    {mensajeDeError(prueba.error).titulo}
+                <Aviso tono="error" titulo="No se pudo hacer la prueba" data-slot="error-prueba">
+                    {prueba.error instanceof ErrorApi && prueba.error.codigo === "servidor_desactivado" ? TEXTO_DESACTIVADO : mensajeDeError(prueba.error).titulo}
                 </Aviso>
             ) : null}
             {!fuera && global && !vigentes ? (
@@ -223,7 +235,7 @@ function Fuera({ tablero, ahora, accion, global }: { tablero: Tablero; ahora: nu
                         {actualizar.comando && global ? <Comando texto={actualizar.comando} /> : null}
                     </span>
                 ) : e.estado === "desactivado" ? (
-                    "Alguien lo desactivó desde Iris: el asistente no lo usa hasta que se vuelva a enlazar."
+                    "Se desactivó desde Iris: Iris no lo usa y el asistente de las empresas que lo tenían elegido no responde con él. Para volver a usarlo hay que enlazarlo de nuevo."
                 ) : (
                     <>
                         {e.tomadoEn ? `Visto por última vez ${ultimaVez(e.tomadoEn, ahora)}. ` : "Todavía no ha respondido ninguna vez. "}

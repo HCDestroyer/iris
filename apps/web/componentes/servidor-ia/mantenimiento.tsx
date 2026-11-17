@@ -15,7 +15,7 @@ import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
 import { desactivarMotor, guardarEmpresasPermitidas, guardarModelosPermitidos, leerMotor, rotarCredenciales } from "@/lib/servidor-ia/api";
-import { COMANDO, fechaDia, TEXTO_ROTACION_EN_CURSO, TEXTO_ROTACION_SIN_CONFIRMAR, textoPlazas } from "@/lib/servidor-ia/presentacion";
+import { COMANDO, fechaHora, TEXTO_ROTACION_EN_CURSO, TEXTO_ROTACION_SIN_CONFIRMAR, textoPlazas } from "@/lib/servidor-ia/presentacion";
 import type { Motor } from "@/lib/servidor-ia/tipos";
 import { esquemaEmpresas, type ValoresEmpresas } from "@/lib/servidor-ia/umbrales";
 import { useSesion } from "@/lib/sesion";
@@ -43,7 +43,23 @@ export function MantenimientoServidorIa() {
             <NavServidorIa />
             <CargaRegistro lectura={lectura} que="el servidor de IA" noEncontrado="Sin servidor de IA">
                 {(motor) =>
-                    motor === null || motor.estado === "sin_enlazar" ? (
+                    motor !== null && motor.estado === "desactivado" ? (
+                        <Tarjeta data-slot="servidor-desactivado">
+                            <EstadoVacio
+                                icono={Unlink}
+                                titulo="El servidor está desactivado"
+                                descripcion="Iris no lo usa. Para volver a usarlo hay que enlazarlo de nuevo, con un código nuevo."
+                                accion={
+                                    <Boton asChild>
+                                        <Link href={`${RUTA}/enlazar` as Route}>
+                                            <Link2 />
+                                            Enlazar de nuevo
+                                        </Link>
+                                    </Boton>
+                                }
+                            />
+                        </Tarjeta>
+                    ) : motor === null || motor.estado === "sin_enlazar" ? (
                         <Tarjeta>
                             <EstadoVacio
                                 icono={Link2}
@@ -158,7 +174,8 @@ function ModelosPermitidos({ motor, alGuardar }: { motor: Motor; alGuardar: (m: 
     const catalogo = (motor.catalogo.llm ?? []).map((m) => m.id);
     const clave = useClaveIdempotencia();
     const [cuales, setCuales] = useState<"todos" | "algunos">(motor.modelosPermitidos === null ? "todos" : "algunos");
-    const [elegidos, setElegidos] = useState<string[]>(motor.modelosPermitidos ?? catalogo);
+    // «Solo algunos» empieza con los que ya estaban elegidos, o con ninguno: nunca con todos marcados de más.
+    const [elegidos, setElegidos] = useState<string[]>(motor.modelosPermitidos ?? []);
     const [guardando, setGuardando] = useState(false);
     const [error, setError] = useState<unknown>(null);
     const [falta, setFalta] = useState(false);
@@ -325,7 +342,7 @@ function Credenciales({ motor, alCambiar }: { motor: Motor; alCambiar: (m: Motor
                 </Boton>
             </div>
             <p className="text-[0.8125rem] text-muted-foreground" data-slot="ultima-rotacion">
-                {motor.tokenRotadoEn ? `Última rotación: ${fechaDia(motor.tokenRotadoEn)}.` : "Todavía no se han rotado."}
+                {motor.tokenRotadoEn ? `Última rotación: ${fechaHora(motor.tokenRotadoEn)}.` : "Todavía no se han rotado."}
             </p>
             <DialogoConfirmar
                 open={dialogo === "rotar"}
@@ -352,38 +369,41 @@ function Credenciales({ motor, alCambiar }: { motor: Motor; alCambiar: (m: Motor
     );
 }
 
+/** «Desactivar»: Iris deja de usar el servidor. El enlace del lado del servidor se borra allá, con un comando. */
 function Desenlazar({ motor }: { motor: Motor }) {
     const router = useRouter();
     const [abierto, setAbierto] = useState(false);
     const [error, setError] = useState<unknown>(null);
     return (
-        <Seccion icono={Unlink} titulo="Desenlazar el servidor" slot="desenlazar">
-            <p className="text-sm text-muted-foreground">Iris deja de conectarse al servidor. El servidor y sus modelos no se borran; para volver a usarlo hay que enlazarlo de nuevo con un código.</p>
+        <Seccion icono={Unlink} titulo="Desactivar el servidor" slot="desactivar">
+            <p className="text-sm text-muted-foreground">Iris deja de usarlo en el acto. El servidor y sus modelos no se tocan, y el enlace sigue guardado del lado del servidor: para borrarlo también allá se ejecuta este comando en el servidor.</p>
+            <Comando texto={COMANDO.desenlazar} />
+            <p className="text-sm text-muted-foreground">Para volver a usarlo después hay que enlazarlo de nuevo con un código.</p>
             {error ? (
-                <Aviso tono="error" titulo="No se pudo desenlazar">
+                <Aviso tono="error" titulo="No se pudo desactivar">
                     {error instanceof ErrorApi && error.estado === 409 ? "Alguien más lo cambió. Recarga la página." : mensajeDeError(error).titulo}
                 </Aviso>
             ) : null}
             <div>
                 <Boton variante="contorno" className="border-error/50 text-error" onClick={() => setAbierto(true)}>
                     <Unlink />
-                    Desenlazar…
+                    Desactivar…
                 </Boton>
             </div>
             <DialogoConfirmar
                 open={abierto}
                 onOpenChange={setAbierto}
-                titulo={`¿Desenlazar ${motor.nombre}?`}
+                titulo={`¿Desactivar ${motor.nombre}?`}
                 descripcion="El asistente de las empresas que lo usan deja de usarlo al instante: lo que atendía solo pasa a personas y las sugerencias muestran error hasta que cada empresa elija otro proveedor o se vuelva a enlazar. No se borra ninguna conversación."
-                textoConfirmar="Desenlazar"
-                textoCancelar="Dejarlo enlazado"
-                textoOcupado="Desenlazando…"
+                textoConfirmar="Desactivar"
+                textoCancelar="Dejarlo activo"
+                textoOcupado="Desactivando…"
                 peligro
                 alConfirmar={async () => {
                     setError(null);
                     try {
-                        await desactivarMotor(motor.id, "desenlazado_desde_el_panel", nuevaClaveIdempotencia());
-                        avisar({ titulo: "Servidor de IA desenlazado" });
+                        await desactivarMotor(motor.id, "desactivado_desde_el_panel", nuevaClaveIdempotencia());
+                        avisar({ titulo: "Servidor de IA desactivado", descripcion: "Iris ya no lo usa." });
                         router.replace(RUTA as Route);
                     } catch (e) {
                         setError(e);
