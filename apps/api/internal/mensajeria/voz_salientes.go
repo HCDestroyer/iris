@@ -541,10 +541,6 @@ func nuevoLlamar(m *Modulo) *auditoria.Caso[EntradaLlamar, Llamada] {
 			if !permisoVigente(f, ahora) || !in.meta.PuedeLlamar {
 				return Llamada{}, reglaVoz("sin_permiso_llamada", "Este contacto no ha dado permiso para que lo llamen por WhatsApp (o WhatsApp no deja llamarlo ahora)")
 			}
-			if f.SinContestar >= SinContestarRevoca-1 && !in.ConfirmarRiesgo {
-				return Llamada{}, reglaVoz("confirmar_riesgo", "Lleva tres llamadas seguidas sin contestar: si no contesta esta, WhatsApp revoca el permiso. Confirma para llamar",
-					nucleo.ErrorCampo{Field: "confirmarRiesgo", Message: "true", Rule: "confirmar_riesgo"})
-			}
 			// Una llamada a la vez por persona y por contacto. La saliente viva cuenta en cualquier empresa
 			// (quien opera en varias): es lo mismo que impone el índice único, pero con su 409.
 			if viva, err := q.SalienteVivaDeUsuario(ctx, &a.usuario); err != nil {
@@ -598,6 +594,12 @@ func nuevoLlamar(m *Modulo) *auditoria.Caso[EntradaLlamar, Llamada] {
 				} else if err != nil {
 					return Llamada{}, err
 				}
+			}
+			// Lo último, cuando ya se sabe que la llamada puede salir (ningún límite la para): el aviso de
+			// que, si no contesta, WhatsApp revoca el permiso.
+			if f.SinContestar >= SinContestarRevoca-1 && !in.ConfirmarRiesgo {
+				return Llamada{}, reglaVoz("confirmar_riesgo", "Lleva tres llamadas seguidas sin contestar: si no contesta esta, WhatsApp revoca el permiso. Confirma para llamar",
+					nucleo.ErrorCampo{Field: "confirmarRiesgo", Message: "true", Rule: "confirmar_riesgo"})
 			}
 			id, err := uuid.NewV7()
 			if err != nil {
@@ -1025,7 +1027,12 @@ func (m *Modulo) trasSaliente(ctx context.Context, t *auditoria.Tx, l *mensajeri
 		}
 	}
 	empresa := derefEmpresa(l.EmpresaID)
-	if l.Estado == LlamadaPerdida && l.CanalID != nil {
+	// También cuenta como sin contestar la que el servidor cortó mientras marcaba (la pestaña que llamó
+	// murió) si llegó a sonar en Meta (el connect se aceptó): Meta sí la cuenta, y confirmarRiesgo no
+	// puede ir por detrás de esa cuenta.
+	cortada := l.Estado == LlamadaTerminada && l.ContestadaEn == nil && l.MotivoFin != nil && *l.MotivoFin == "error_medio" &&
+		!strings.HasPrefix(l.IDExterno, "pendiente:")
+	if (l.Estado == LlamadaPerdida || cortada) && l.CanalID != nil {
 		f, err := q.PermisoLlamadaParaActualizar(ctx, mensajeriabd.PermisoLlamadaParaActualizarParams{Empresa: empresa, CanalID: *l.CanalID, Numero: l.Numero})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil

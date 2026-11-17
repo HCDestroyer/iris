@@ -769,7 +769,7 @@ func nuevoMantenerLlamada(m *Modulo) *auditoria.Caso[uuid.UUID, mantenimientoLla
 					return cerrar(LlamadaPerdida, "nadie_contesto", MetaTerminar)
 				}
 				// La pestaña que llamó se cerró, se recargó o murió: nadie oiría al cliente si contesta. Se
-				// cancela ya (no cuenta como sin contestar: no fue el cliente quien no contestó).
+				// cancela ya. Cuenta para «timbrar y colgar» y, si llegó a sonar en Meta, como sin contestar.
 				if l.Direccion == "saliente" && ahora.Sub(l.SonoEn) > GraciaSinFlujo &&
 					(l.PestanaVistaEn == nil || !l.PestanaVistaEn.After(ahora.Add(-FlujoVivo-GraciaSinFlujo))) {
 					return cerrar(LlamadaTerminada, "error_medio", MetaTerminar)

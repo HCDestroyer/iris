@@ -117,6 +117,12 @@ Además, con un número real:
   llamada: probar a guardar una plantilla aprobada cualquiera y solicitar el permiso fuera de la
   ventana. Esperado: Meta la rechaza, el mensaje queda fallido en el hilo (`rechazado_por_canal`), la
   solicitud no cuenta para el límite y se puede volver a pedir. Guardar la respuesta de Meta.
+- **Supuesto 22 (duda a validar con Meta):** ¿una saliente que **el negocio cuelga mientras timbra**
+  cuenta para la revocación del permiso (las cuatro seguidas sin contestar)? Hoy Iris **no** la suma
+  a `sin_contestar` (sí cuenta para el límite de «colgadas marcando»). Cómo probarlo: con un permiso
+  temporal, llamar y colgar desde el panel antes de que conteste, cuatro veces seguidas, y leer
+  `call_permissions`. Si Meta la cuenta, hay que sumarla también en Iris (`trasSaliente`), o
+  `confirmarRiesgo` irá por detrás de la cuenta de Meta.
 - Si el número también hace salientes desde otro sistema: comprobar que Iris no las corta (quedan
   en `mensajeria.llamadas_huerfanas` con estado `ajena`).
 

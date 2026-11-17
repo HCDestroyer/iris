@@ -987,8 +987,9 @@ func TestLlamadaSalienteLatidoDeLaPestana(t *testing.T) {
 	if _, estado, motivo := x.llamada(call3); estado != "terminada" || motivo != "error_medio" || x.g.cuenta("terminate:"+call3) != 1 {
 		t.Fatalf("marcando sin la pestaña que llamó: %s %s", estado, motivo)
 	}
-	if n := x.contar(`SELECT sin_contestar FROM mensajeria.llamada_permisos WHERE canal_id = $1 AND numero = $2`, x.canal.ID, "+"+num); n != 0 {
-		t.Fatalf("no cuenta como sin contestar: %d", n)
+	// Sonó en Meta y nadie contestó: cuenta como sin contestar, igual que la cuenta Meta.
+	if n := x.contar(`SELECT sin_contestar FROM mensajeria.llamada_permisos WHERE canal_id = $1 AND numero = $2`, x.canal.ID, "+"+num); n != 1 {
+		t.Fatalf("la cortada mientras marcaba cuenta como sin contestar: %d", n)
 	}
 	// La huérfana se ve en /llamadas/activa desde otra pestaña, con deEstaPestana: false.
 	x.pasa(61 * time.Second)
@@ -1255,5 +1256,68 @@ func TestLlamadaSalienteAbusoYPlantilla(t *testing.T) {
 	x.texto(num, "wamid.contacto3"+num, "¿Y?")
 	if r := x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv3+"/solicitar-permiso-llamada", nil), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "limite_solicitudes") {
 		t.Fatalf("tercera en la semana contando los dos números: %s", crudo(r))
+	}
+}
+
+// Timbrar y cerrar la pestaña, repetido: no burla el límite de «colgadas marcando» ni deja atrás la
+// cuenta de sin contestar (confirmarRiesgo).
+func TestLlamadaSalienteTimbrarYCerrarPestana(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	x.limitesVoz(1000, 100000)
+	num, conv := x.convConPermiso()
+	sinContestar := func() int {
+		return x.contar(`SELECT sin_contestar FROM mensajeria.llamada_permisos WHERE canal_id = $1 AND numero = $2`, x.canal.ID, "+"+num)
+	}
+	for i := range 3 {
+		// Llama y cierra la pestaña: ningún flujo de eventos de esa pestaña; a los 55 s el servidor corta.
+		_, call := x.saliente(x.supervisor, conv, nil)
+		x.pasa(56 * time.Second)
+		x.mantener()
+		if _, estado, motivo := x.llamada(call); estado != "terminada" || motivo != "error_medio" || x.g.cuenta("terminate:"+call) != 1 || sinContestar() != i+1 {
+			t.Fatalf("timbrar y cerrar %d: %s %s, sin contestar %d", i+1, estado, motivo, sinContestar())
+		}
+		x.pasa(10 * time.Second)
+	}
+	// A la cuarta la para el límite de colgadas mientras marcaban a ese contacto. Los límites van
+	// antes que el aviso de riesgo: no se le pide al agente confirmar una llamada que no puede salir.
+	antes := x.g.cuenta("connect:+" + num)
+	for _, extra := range []map[string]any{nil, {"confirmarRiesgo": true}} {
+		if r := x.exigir(x.llamar(x.supervisor, conv, extra), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "limite_llamadas") ||
+			!strings.Contains(crudo(r), "colgadas_marcando") || strings.Contains(crudo(r), "confirmar_riesgo") || x.g.cuenta("connect:+"+num) != antes {
+			t.Fatalf("la cuarta (%v): %s", extra, crudo(r))
+		}
+	}
+	// Sin ese límite la llamada sí puede salir: entonces, y solo entonces, se pide confirmar el riesgo
+	// (lleva tres sin contestar, como cuenta Meta).
+	admin := x.persona([]int64{1}, rolBase("admin"))
+	admin.empresa = 1
+	fijar := func(n int) {
+		t.Helper()
+		v := x.exigir(x.api(admin, http.MethodGet, "/voz/ajustes", nil), http.StatusOK)
+		x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": v.cuerpo["version"], "duracionMaxPersonaMin": v.cuerpo["duracionMaxPersonaMin"],
+			"segundosAsignado": v.cuerpo["segundosAsignado"], "maxColgadasMarcandoDia": n}), http.StatusOK)
+	}
+	fijar(0)
+	t.Cleanup(func() { fijar(3) })
+	if r := x.exigir(x.llamar(x.supervisor, conv, nil), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "confirmar_riesgo") || x.g.cuenta("connect:+"+num) != antes {
+		t.Fatalf("la cuarta sin confirmar, ya sin límite: %s", crudo(r))
+	}
+	id4, _ := x.saliente(x.supervisor, conv, map[string]any{"confirmarRiesgo": true})
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/llamadas/"+id4+"/colgar", nil), http.StatusOK)
+	// Con el tope del mes alcanzado tampoco se pide confirmar: manda el límite.
+	x.pasa(61 * time.Second)
+	x.limitesVoz(1000, 0)
+	if r := x.exigir(x.llamar(x.supervisor, conv, nil), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "tope_alcanzado") {
+		t.Fatalf("con el tope alcanzado: %s", crudo(r))
+	}
+	x.limitesVoz(1000, 100000)
+	// Una que no llegó a sonar en Meta (el connect falló) y se cortó no suma sin contestar.
+	_, conv2 := x.convConPermiso()
+	x.g.falla("connect", &mensajeria.ErrMetaLlamada{Status: 400})
+	x.exigir(x.llamar(x.supervisor, conv2, nil), http.StatusBadGateway)
+	x.g.falla("connect", nil)
+	if n := x.contar(`SELECT coalesce(max(sin_contestar), 0) FROM mensajeria.llamada_permisos p JOIN mensajeria.conversaciones c ON c.numero = p.numero AND c.canal_id = p.canal_id
+		WHERE c.id = $1`, conv2); n != 0 {
+		t.Fatalf("un connect rechazado no cuenta como sin contestar: %d", n)
 	}
 }

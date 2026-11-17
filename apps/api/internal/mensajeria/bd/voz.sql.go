@@ -254,7 +254,7 @@ func (q *Queries) CerrarTramos(ctx context.Context, arg CerrarTramosParams) erro
 const colgadasMarcandoDesde = `-- name: ColgadasMarcandoDesde :one
 SELECT count(*)::bigint FROM mensajeria.llamadas
 WHERE coalesce(empresa_id, 0) = $1::bigint AND numero = $2 AND direccion = 'saliente' AND estado = 'terminada'
-  AND motivo_fin = 'agente_colgo' AND contestada_en IS NULL AND sono_en >= $3
+  AND motivo_fin IN ('agente_colgo', 'error_medio') AND contestada_en IS NULL AND sono_en >= $3
 `
 
 type ColgadasMarcandoDesdeParams struct {
@@ -263,7 +263,9 @@ type ColgadasMarcandoDesdeParams struct {
 	Desde   time.Time
 }
 
-// Salientes a ese contacto que se colgaron mientras marcaban (timbrar y colgar).
+// Salientes a ese contacto que terminaron mientras marcaban sin que el cliente contestara: las que
+// colgó el agente y las que cortó el servidor porque la pestaña que llamó murió (timbrar y colgar, o
+// timbrar y cerrar la pestaña).
 func (q *Queries) ColgadasMarcandoDesde(ctx context.Context, arg ColgadasMarcandoDesdeParams) (int64, error) {
 	row := q.db.QueryRow(ctx, colgadasMarcandoDesde, arg.Empresa, arg.Numero, arg.Desde)
 	var column_1 int64
