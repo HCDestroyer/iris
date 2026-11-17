@@ -34,10 +34,12 @@ type ErrorPuerta struct {
 
 func (e *ErrorPuerta) Error() string { return fmt.Sprintf("voz: %d %s", e.Estado, e.Codigo) }
 
-// ErrorRechazoTLS: el servidor cortó con una alerta TLS DESPUÉS de un saludo en el que presentó el
-// certificado fijado y firmó con él (lo que llega después va cifrado con claves que solo él tiene:
-// nadie en el camino puede falsificarlo). Es como rechaza la puerta un certificado de cliente que no
-// conoce. Una alerta durante el saludo (en claro, falsificable) NO es esto: es un fallo de red.
+// ErrorRechazoTLS: el servidor cortó con una alerta TLS DESPUÉS de terminar el saludo, es decir,
+// después de que Iris comprobara la huella fijada, la firma del servidor sobre el saludo
+// (CertificateVerify: prueba de que tiene la clave de ese certificado) y su Finished. Lo que llega
+// después va cifrado con claves que solo él tiene: nadie en el camino puede falsificarlo. Es como
+// rechaza la puerta un certificado de cliente que no conoce. Una alerta durante el saludo NO es
+// esto, aunque llegue después de presentar el certificado (que es público): es un fallo de red.
 type ErrorRechazoTLS struct{ Causa error }
 
 func (e *ErrorRechazoTLS) Error() string {
@@ -82,8 +84,21 @@ type Cliente struct {
 	http  *http.Client
 	mu    sync.Mutex
 	vista string
-	// saludos: saludos TLS en los que el servidor ya presentó y probó el certificado fijado.
-	saludos int
+}
+
+// conSaludada es una conexión cuyo saludo TLS terminó bien (huella fijada, firma del servidor y
+// Finished comprobados). Solo en una conexión así una alerta del otro lado es un rechazo del
+// servidor. El estado va por conexión: dos peticiones a la vez no se cruzan.
+type conSaludada struct{ *tls.Conn }
+
+func (c conSaludada) Read(b []byte) (int, error) {
+	n, err := c.Conn.Read(b)
+	var op *net.OpError
+	// crypto/tls entrega las alertas del otro lado como un net.OpError con Op «remote error».
+	if err != nil && errors.As(err, &op) && op.Op == "remote error" {
+		return n, &ErrorRechazoTLS{Causa: err}
+	}
+	return n, err
 }
 
 func validarBase(crudo string) error {
@@ -125,31 +140,31 @@ func NuevoCliente(o OpcionesCliente) (*Cliente, error) {
 			}
 			c.mu.Lock()
 			c.vista = h
-			c.saludos++
 			c.mu.Unlock()
 			return nil
 		},
 	}
+	// El saludo lo hace Iris (no el transporte) para saber, por conexión, que terminó de verdad.
+	saludar := func(ctx context.Context, red, direccion string) (net.Conn, error) {
+		cruda, err := marcador(o.Control).DialContext(ctx, red, direccion)
+		if err != nil {
+			return nil, err
+		}
+		con := tls.Client(cruda, cfg)
+		sctx, cancelar := context.WithTimeout(ctx, 5*time.Second)
+		defer cancelar()
+		if err := con.HandshakeContext(sctx); err != nil {
+			_ = cruda.Close()
+			return nil, err // durante el saludo todo es un fallo de red, también una alerta
+		}
+		return conSaludada{con}, nil
+	}
 	c.http = &http.Client{
-		Transport: &http.Transport{Proxy: nil, TLSClientConfig: cfg, DialContext: marcador(o.Control).DialContext,
-			TLSHandshakeTimeout: 5 * time.Second, MaxIdleConns: 4, IdleConnTimeout: 60 * time.Second, ForceAttemptHTTP2: false},
+		Transport: &http.Transport{Proxy: nil, DialTLSContext: saludar,
+			MaxIdleConns: 4, IdleConnTimeout: 60 * time.Second, ForceAttemptHTTP2: false},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	return c, nil
-}
-
-// clasificar convierte en *ErrorRechazoTLS una alerta TLS del servidor recibida en una conexión
-// cuyo saludo (de esta misma petición) ya autenticó al servidor. Cualquier otra cosa se deja igual.
-func (c *Cliente) clasificar(err error, saludosAntes int) error {
-	c.mu.Lock()
-	saludado := c.saludos > saludosAntes
-	c.mu.Unlock()
-	var op *net.OpError
-	// crypto/tls entrega las alertas del otro lado como un net.OpError con Op «remote error».
-	if saludado && errors.As(err, &op) && op.Op == "remote error" {
-		return &ErrorRechazoTLS{Causa: err}
-	}
-	return err
 }
 
 // Cerrar suelta las conexiones.
@@ -182,17 +197,14 @@ func (c *Cliente) Hacer(ctx context.Context, metodo, ruta string, cuerpo []byte,
 	if len(cuerpo) > 0 {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	c.mu.Lock()
-	antes := c.saludos
-	c.mu.Unlock()
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, c.clasificar(err, antes)
+		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	b, err := io.ReadAll(io.LimitReader(resp.Body, tope+1))
 	if err != nil {
-		return nil, c.clasificar(err, antes)
+		return nil, err
 	}
 	if int64(len(b)) > tope {
 		return nil, &ErrorPuerta{Estado: resp.StatusCode, Codigo: "respuesta_demasiado_grande"}
