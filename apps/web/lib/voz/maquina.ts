@@ -45,6 +45,8 @@ export type MotivoAviso =
     | "devolucion_cerrada"
     /** El servidor (u otra persona) terminó la saliente mientras marcaba. */
     | "cortada"
+    /** El servidor la cortó porque dejó de recibir el latido de esta pestaña (`error_medio`, 55 s). */
+    | "sin_latido"
     | "error";
 
 export type EstadoVoz =
@@ -117,7 +119,7 @@ function finDeSaliente(l: Llamada): EstadoVoz {
     if (l.estado === "fallida") return deSaliente(aviso("meta_rechazo", l.titulo));
     // `terminada` mientras marcaba y sin haberla colgado aquí (si se cuelga aquí, esta pestaña ya
     // está libre cuando llega el aviso): la cortó el servidor, o alguien más. Se explica.
-    return deSaliente(aviso("cortada", l.titulo));
+    return deSaliente(aviso(l.motivoFin === "error_medio" ? "sin_latido" : "cortada", l.titulo));
 }
 
 /** Marca el aviso como de una saliente: los textos hablan de llamar, no de contestar. */
@@ -300,13 +302,13 @@ export function alCerrarPestana(e: EstadoVoz, etapa: Etapa, reservaSegura: boole
  */
 export const MARCANDO_MAX_MS = 70_000;
 /**
- * Cuánto puede tardar el servidor en crear la llamada tras recibir `llamar` (habla con WhatsApp
- * antes de guardarla). Si la respuesta se pierde, se sigue buscando la saliente hasta pasar este
- * plazo. PROVISIONAL: I1 publicará el valor en el contrato (revisión de seguridad de E1b).
+ * Plazos de `llamar` (voz.md, «Plazos de `llamar`»): la llamada queda creada en el servidor como
+ * mucho 6 s después de la petición y la respuesta tarda como mucho 10 s. Si la respuesta se pierde,
+ * se busca la saliente con `GET /llamadas/activa` hasta 10 s después de enviar.
  */
-export const PLAZO_LLAMAR_SERVIDOR_MS = 30_000;
+export const PLAZO_LLAMAR_SERVIDOR_MS = 10_000;
 /** Cada cuánto se relee `GET /llamadas/activa` mientras se busca una saliente perdida. */
-export const RELEER_PERDIDA_MS = 3_000;
+export const RELEER_PERDIDA_MS = 2_000;
 /** Saliente contestada: cuánto se espera a que conecte el audio antes de colgarla (nunca `en_curso` sin audio). */
 export const MEDIO_SALIENTE_MS = 15_000;
 

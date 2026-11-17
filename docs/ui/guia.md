@@ -752,8 +752,7 @@ la marca «En pruebas». El proveedor se monta también para quien solo llama (`
 - **Acceso:** el teléfono de la cabecera de la conversación (`BotonLlamada`, panel emergente
   «Llamar por WhatsApp»), solo con `llamadas.llamar` o `llamadas.solicitar_permiso`. El permiso se
   lee al abrir y se relee cuando el flujo trae algo de esa conversación.
-- **Permiso del contacto, en llano (icono + texto + color):** «Sin permiso todavía» (también un
-  temporal vencido: el servidor lo manda como `sin_pedir`), «Permiso pedido», «Permiso concedido
+- **Permiso del contacto, en llano (icono + texto + color):** «Sin permiso todavía», «El permiso venció el 10 de noviembre», «Permiso pedido», «Permiso concedido
   hasta el 24 de noviembre», «El cliente dijo que no», «WhatsApp quitó el permiso». Abajo, una
   línea fija: «WhatsApp solo deja que una empresa llame a quien aceptó recibir sus llamadas.»
   `motivo` se dice aparte (`llamadas_inactivas`, `no_autorizado`). Si la lectura falla: error con
@@ -780,7 +779,8 @@ la marca «En pruebas». El proveedor se monta también para quien solo llama (`
   llamó, otra pestaña abierta no la sostiene. Al abrir el panel se lee siempre la llamada activa:
   una saliente propia que quedó viva en otra parte se dice («Tenías una llamada con…») y se ofrece
   colgarla. Si la pestaña se cierra con `llamar` en vuelo deja una marca y otra pestaña, o la carga
-  siguiente, busca esa saliente y la cuelga. Si el servidor la corta marcando, se explica.
+  siguiente, busca esa saliente y la cuelga. Si el servidor la corta marcando (55 s sin el latido
+  de su pestaña), se explica: «La llamada se cortó: se perdió la conexión con Iris».
 - **«Devolver la llamada»:** en «N llamadas por devolver» y en la tarjeta de la perdida, junto a
   «Escribirle», solo para quien puede llamar. Lee el permiso **antes** de pedir el micrófono: sin
   permiso lo dice y no llama. Si el cliente contesta, deja de estar pendiente.

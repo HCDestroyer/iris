@@ -1,7 +1,7 @@
 "use client";
 
 import { avisar, Aviso, Boton, cn, Esqueleto, PanelEmergente } from "@iris/ui";
-import { CircleDashed, Clock, Phone, PhoneCall, PhoneOff, RotateCw, ShieldCheck, ShieldX, type LucideIcon } from "lucide-react";
+import { CircleDashed, Clock, History, Phone, PhoneCall, PhoneOff, RotateCw, ShieldCheck, ShieldX, type LucideIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
@@ -27,6 +27,7 @@ const ICONO: Record<PermisoLlamada["estado"], LucideIcon> = {
     permanente: ShieldCheck,
     negado: PhoneOff,
     revocado: ShieldX,
+    vencido: History,
 };
 
 const COLOR: Record<TonoLlamada, string> = {

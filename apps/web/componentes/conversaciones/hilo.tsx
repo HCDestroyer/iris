@@ -178,9 +178,9 @@ function Burbuja({ m }: { m: Mensaje }) {
     const propia = m.direccion === "saliente";
     const nota = m.direccion === "nota";
     // Fase 1.1: mensajes del bot (`automatico: "bot"`) con su etiqueta y borde punteado de información.
-    const automatico: string | null = m.automatico ?? null;
+    const automatico = m.automatico ?? null;
     const delBot = propia && automatico === "bot";
-    // Voz E1b: la solicitud de permiso para llamar (el valor aún no está en el tipo generado: i3.md).
+    // Voz E1b: la solicitud de permiso para llamar.
     const pidePermiso = propia && automatico === "permiso_llamada";
     // Fase 3 (§17): el asistente de IA respondió solo, o dejó una nota al pasar a una persona.
     const delAsistente = (propia || nota) && esDelAsistente(m);

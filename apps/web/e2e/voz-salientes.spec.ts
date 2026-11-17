@@ -202,6 +202,18 @@ test.describe("voz salientes › permiso de llamada", () => {
         expect(claves[1]).not.toBe(claves[0]);
     });
 
+    test("un permiso temporal que venció tiene su texto, con la fecha, y se puede volver a pedir", async ({ page }) => {
+        await abrir(page, "/conversaciones?c=41", { voz: { salientes: true, permisos: { 41: { estado: "vencido", venceEn: "2026-11-10T18:00:00Z", puedeSolicitar: true } } } });
+        const panel = await abrirPermiso(page);
+        await expect(panel.locator('[data-slot="permiso-llamada"]')).toHaveAttribute("data-estado", "vencido");
+        await expect(panel).toContainText("El permiso venció el 10 de noviembre");
+        await expect(panel).toContainText("Hay que pedírselo de nuevo.");
+        await expect(panel.getByRole("button", { name: "Llamar", exact: true })).toHaveCount(0);
+        await expect(panel.getByRole("button", { name: "Pedir permiso para llamarle" })).toBeVisible();
+        await sinDesbordes(page);
+        await captura(page, "permiso-vencido");
+    });
+
     test("si el permiso no se pudo leer: error con «Reintentar», sin ofrecer llamar ni pedir", async ({ page }) => {
         await abrir(page, "/conversaciones?c=41");
         let fallar = true;
@@ -565,9 +577,9 @@ test.describe("voz salientes › nunca una llamada viva sin audio ni sin colgar"
         const panel = await abrirPermiso(page);
         await panel.getByRole("button", { name: "Llamar", exact: true }).click();
         await expect(aviso(page)).toHaveAttribute("data-motivo", "sin_red");
-        // Se busca durante todo el plazo del servidor (30 s) y `activa` siempre devuelve la de María.
-        await adelantarHasta(page, () => api.voz.recibido.activas.length >= alAbrir + 4, 5_000);
-        await page.clock.fastForward(40_000);
+        // Se busca durante todo el plazo del servidor (10 s) y `activa` siempre devuelve la de María.
+        await adelantarHasta(page, () => api.voz.recibido.activas.length >= alAbrir + 4);
+        await page.clock.fastForward(15_000);
         expect(colgadas(api)).toHaveLength(0);
         expect(api.voz.llamadas.get(ajena.id)?.estado).toBe("marcando");
     });
@@ -587,6 +599,8 @@ test.describe("voz salientes › nunca una llamada viva sin audio ni sin colgar"
         await captura(page, "huerfana");
         await page.getByRole("button", { name: "Colgar" }).click();
         await expect.poll(() => api.voz.llamadas.get(ajena.id)?.estado).toBe("terminada");
+        // No es de esta pestaña: se cuelga con `?propia=true`.
+        expect(api.peticiones.find((p) => p.ruta.endsWith(`/${ajena.id}/colgar`))?.query.get("propia")).toBe("true");
     });
 
     test("se cierra la pestaña con `llamar` en vuelo: deja una marca y la carga siguiente busca esa saliente y la cuelga", async ({ page }) => {
@@ -651,8 +665,15 @@ test.describe("voz salientes › nunca una llamada viva sin audio ni sin colgar"
         const l = await llamar(page, api);
         await feedListo(page, api);
         api.voz.cortaServidor(l.id);
-        await expect(aviso(page)).toHaveAttribute("data-motivo", "cortada");
-        await expect(aviso(page)).toContainText("La llamada se cortó antes de que contestara");
+        // 55 s sin el latido de esta pestaña: `terminada` con `error_medio`. Se dice en llano.
+        await expect(aviso(page)).toHaveAttribute("data-motivo", "sin_latido");
+        await expect(aviso(page)).toContainText("La llamada se cortó: se perdió la conexión con Iris");
+        await expect(aviso(page)).toContainText("No cuenta como llamada sin contestar");
+        const tarjeta = page.getByRole("log", { name: "Mensajes" }).locator('[data-slot="llamada-hilo"][data-direccion="saliente"]');
+        await expect(tarjeta).toContainText("La llamada al cliente se cortó");
+        await expect(tarjeta).toHaveAttribute("data-tono", "aviso");
+        await sinDesbordes(page);
+        await captura(page, "cortada");
         await expect(llamando(page)).toHaveCount(0);
         expect(await microfonoAbierto(page)).toBe(false);
     });

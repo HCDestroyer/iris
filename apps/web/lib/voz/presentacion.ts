@@ -43,6 +43,8 @@ export function textoAviso(motivo: MotivoAviso, quien?: string, saliente = false
                 return { titulo: "No se pudo conectar el audio", detalle: "La llamada quedó atada a otra pestaña o navegador y se colgó. Vuelve a llamar desde aquí." };
             case "cortada":
                 return { titulo: "La llamada se cortó antes de que contestara", detalle: "Se terminó desde el servidor. Vuelve a intentarlo." };
+            case "sin_latido":
+                return { titulo: "La llamada se cortó: se perdió la conexión con Iris", detalle: "Esta pestaña estuvo casi un minuto sin conexión y la llamada se canceló. No cuenta como llamada sin contestar: revisa tu red y vuelve a llamar." };
             case "error":
                 return { titulo: "No se pudo hacer la llamada", detalle: "Vuelve a intentarlo." };
             default:
@@ -125,6 +127,8 @@ export function llamadaEnHilo(l: LlamadaEnMensaje): { icono: IconoLlamada; tono:
         const por = quien ? `La hizo ${quien}` : null;
         switch (l.estado) {
             case "terminada":
+                // Cortada por el servidor antes de hablarse (la pestaña que llamaba se cerró o perdió la conexión).
+                if (l.motivoFin === "error_medio" && !l.duracionSeg) return { icono: "fallida", tono: "aviso", titulo: "La llamada al cliente se cortó", detalle: [por, "se perdió la conexión antes de que contestara"].filter(Boolean).join(" · ") };
                 return {
                     icono: "saliente",
                     tono: "ok",
@@ -211,8 +215,12 @@ export function textoPermiso(p: Pick<PermisoLlamada, "estado" | "venceEn">): { t
             return { tono: "aviso", titulo: "El cliente dijo que no", detalle: "No aceptó que lo llamen. Se le puede volver a pedir más adelante." };
         case "revocado":
             return { tono: "error", titulo: "WhatsApp quitó el permiso", detalle: "Fueron cuatro llamadas seguidas sin contestar. Hay que pedírselo de nuevo." };
+        case "vencido": {
+            const hasta = p.venceEn ? Date.parse(p.venceEn) : NaN;
+            return { tono: "aviso", titulo: Number.isNaN(hasta) ? "El permiso venció" : `El permiso venció el ${fechaCorta.format(hasta)}`, detalle: "El cliente lo había dado por unos días. Hay que pedírselo de nuevo." };
+        }
         default:
-            return { tono: "neutro", titulo: "Sin permiso todavía", detalle: "Aún no se le ha pedido, o el que tenía ya venció." };
+            return { tono: "neutro", titulo: "Sin permiso todavía", detalle: "Aún no se le ha pedido." };
     }
 }
 

@@ -81,10 +81,12 @@ describe("máquina de la llamada saliente (E1b)", () => {
     });
 
     it("el servidor (u otra persona) la termina mientras marca: se le explica a quien llamaba", () => {
-        for (const motivoFin of ["error_medio", "agente_colgo"]) {
-            const fin = correr([...hastaMarcar, { tipo: "actualizada", llamada: saliente({ estado: "terminada", motivoFin }) }]);
-            expect(fin).toMatchObject({ fase: "aviso", motivo: "cortada", titulo: "Carlos Ruiz", saliente: true });
-        }
+        // 55 s sin el latido de la pestaña que llamó (`error_medio`): se dice que fue la conexión.
+        expect(correr([...hastaMarcar, { tipo: "actualizada", llamada: saliente({ estado: "terminada", motivoFin: "error_medio" }) }])).toMatchObject({ fase: "aviso", motivo: "sin_latido", titulo: "Carlos Ruiz", saliente: true });
+        expect(textoAviso("sin_latido", undefined, true).titulo).toBe("La llamada se cortó: se perdió la conexión con Iris");
+        expect(textoAviso("sin_latido", undefined, true).detalle).toContain("No cuenta como llamada sin contestar");
+        // La colgó otra persona (quien supervisa).
+        expect(correr([...hastaMarcar, { tipo: "actualizada", llamada: saliente({ estado: "terminada", motivoFin: "agente_colgo" }) }])).toMatchObject({ fase: "aviso", motivo: "cortada", saliente: true });
         expect(textoAviso("cortada", undefined, true).titulo).toBe("La llamada se cortó antes de que contestara");
         // Si la colgué yo, esta pestaña ya está libre cuando llega el aviso: no se dice nada.
         const colgada = correr([...hastaMarcar, { tipo: "colgar", ahora: T0 }]);
@@ -162,6 +164,7 @@ describe("textos de las salientes y del permiso de llamada", () => {
         expect(llamadaEnHilo({ ...base, estado: "terminada", duracionSeg: 125 })).toEqual({ icono: "saliente", tono: "ok", titulo: "Llamada al cliente", detalle: "La hizo Ana López · 2 min 5 s" });
         expect(llamadaEnHilo({ ...base, estado: "perdida" })).toMatchObject({ icono: "saliente", tono: "aviso", titulo: "Se le llamó y no contestó" });
         expect(llamadaEnHilo({ ...base, estado: "terminada", duracionSeg: 60, motivoFin: "tope_alcanzado" }).detalle).toContain("tope de minutos");
+        expect(llamadaEnHilo({ ...base, estado: "terminada", motivoFin: "error_medio" })).toMatchObject({ tono: "aviso", titulo: "La llamada al cliente se cortó" });
         expect(llamadaEnHilo({ ...base, estado: "fallida" })).toMatchObject({ tono: "aviso", titulo: "La llamada al cliente no se pudo conectar" });
         // La entrante perdida sigue siendo la única en rojo.
         expect(llamadaEnHilo({ ...base, direccion: "entrante", estado: "perdida" }).tono).toBe("error");
@@ -169,7 +172,9 @@ describe("textos de las salientes y del permiso de llamada", () => {
 
     it("el permiso en llano: sin pedir, pedido, concedido hasta…, negado y revocado", () => {
         expect(textoPermiso({ estado: "sin_pedir" })).toMatchObject({ tono: "neutro", titulo: "Sin permiso todavía" });
-        expect(textoPermiso({ estado: "sin_pedir" }).detalle).toContain("ya venció");
+        // Un temporal vencido tiene texto propio, con la fecha.
+        expect(textoPermiso({ estado: "vencido", venceEn: "2026-11-10T18:00:00Z" })).toMatchObject({ tono: "aviso", titulo: "El permiso venció el 10 de noviembre" });
+        expect(textoPermiso({ estado: "vencido" }).titulo).toBe("El permiso venció");
         expect(textoPermiso({ estado: "pedido" })).toMatchObject({ tono: "info", titulo: "Permiso pedido" });
         expect(textoPermiso({ estado: "temporal", venceEn: "2026-11-24T18:00:00Z" })).toMatchObject({ tono: "ok", titulo: "Permiso concedido hasta el 24 de noviembre" });
         expect(textoPermiso({ estado: "permanente" })).toMatchObject({ tono: "ok", titulo: "Permiso concedido" });

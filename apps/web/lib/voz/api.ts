@@ -65,8 +65,9 @@ export function soltarLlamada(id: string, motivo: string, empresa?: number) {
     return resolver(api().POST(`${BASE}/{id}/soltar`, { params: { path: { id }, header: { ...idem(), ...navegador() } }, body: { motivo }, ...de(empresa) }));
 }
 
-export function colgarLlamada(id: string, clave: string, empresa?: number) {
-    return resolver(api().POST(`${BASE}/{id}/colgar`, { params: { path: { id }, header: idem(clave) }, ...de(empresa) }));
+/** `propia`: solo cuelga si la llamada es mía (`?propia=true`): para una saliente que no es de esta pestaña. */
+export function colgarLlamada(id: string, clave: string, empresa?: number, propia = false) {
+    return resolver(api().POST(`${BASE}/{id}/colgar`, { params: { path: { id }, header: idem(clave), ...(propia ? { query: { propia: true } } : {}) }, ...de(empresa) }));
 }
 
 /** Deja de sonarle a este usuario. Con `paraTodos` (quien supervisa), la rechaza para todos. */

@@ -426,9 +426,10 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
                         return;
                     }
                     const viva = activa.estado === "en_curso" || activa.estado === "conectando" || activa.estado === "marcando";
-                    // `deEstaPestana` (lo manda el servidor en la saliente propia): si es de esta pestaña
-                    // y aquí hay un intento, es la que se está haciendo ahora.
-                    if (viva && activa.usuario?.id === yoId && activa.puede.colgar && !intento.current) avisarHuerfana(activa);
+                    // `deEstaPestana` (lo dice el servidor en una saliente propia): `true` con un intento
+                    // aquí es la que se está haciendo ahora; cualquier otra no tiene audio en esta pestaña.
+                    const esLaDeAhora = activa.deEstaPestana === true && intento.current !== null;
+                    if (viva && activa.usuario?.id === yoId && activa.puede.colgar && !esLaDeAhora) avisarHuerfana(activa);
                 };
                 if (!contesta) {
                     // Solo llama: «Recibir llamadas» no es para esta persona.
@@ -572,8 +573,7 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
             escucharEventos((evento) => {
                 if (!evento.llamada) return;
                 const llamada = evento.llamada;
-                // `llamada_respuesta` todavía no está en el tipo generado del feed (i3.md): se compara como texto.
-                const tipo: string = evento.tipo;
+                const tipo = evento.tipo;
                 if (tipo === "llamada_entrante") {
                     // Solo suena en un navegador que tiene «Recibir llamadas» encendido.
                     if (recibeRef.current) despachar({ tipo: "entrante", llamada });
@@ -1097,7 +1097,8 @@ function avisarHuerfana(llamada: Llamada) {
         accion: {
             texto: "Colgar",
             alPresionar: () => {
-                colgarLlamada(llamada.id, nuevaClaveIdempotencia()).then(
+                // Una saliente que no es de esta pestaña solo se cuelga con `propia` (voz.md).
+                colgarLlamada(llamada.id, nuevaClaveIdempotencia(), undefined, llamada.direccion === "saliente").then(
                     () => avisar({ titulo: "Llamada terminada" }),
                     (error: unknown) => {
                         if (error instanceof ErrorApi && error.codigo === "llamada_terminada") return;

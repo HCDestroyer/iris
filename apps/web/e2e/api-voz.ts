@@ -199,8 +199,7 @@ export function apiVoz(
     function avisar(tipo: "llamada_entrante" | "llamada_actualizada" | "llamada_terminada" | "llamada_respuesta", l: Llamada) {
         alHilo(l);
         const m = mensajeDe(l);
-        // `llamada_respuesta` (E1b) aún no está en el enum generado del feed; el servidor sí lo emite.
-        emitir({ tipo: tipo as Evento["tipo"], conversacionId: l.conversacionId ?? 0, llamada: vista(l), ...(m && tipo !== "llamada_entrante" && tipo !== "llamada_respuesta" ? { mensaje: structuredClone(m) } : {}) });
+        emitir({ tipo, conversacionId: l.conversacionId ?? 0, llamada: vista(l), ...(m && tipo !== "llamada_entrante" && tipo !== "llamada_respuesta" ? { mensaje: structuredClone(m) } : {}) });
     }
 
     // --- E1b: salientes y permiso de llamada ---------------------------------------------------
@@ -590,7 +589,7 @@ export function apiVoz(
                     estadoEntrega: "enviado",
                     motivoFalla: null,
                     menciones: [],
-                } as unknown as Mensaje;
+                } satisfies Partial<Mensaje> as Mensaje;
                 lista.push(m);
                 mensajes.set(conversacionId, lista);
                 emitir({ tipo: "mensaje_nuevo", conversacionId, mensaje: structuredClone(m) });
@@ -605,7 +604,7 @@ export function apiVoz(
             if (forzar.llamar === "sin_red") return (await route.abort("internetdisconnected"), true);
             if (!nav) return (await regla("navegador_requerido", "Falta el id del navegador"), true);
             // El latido de la saliente es de la pestaña que llama (128 bits al azar).
-            if (!/^[0-9a-f]{32}$/.test(pestana)) return (await regla("pestana_requerida", "Falta el id de la pestaña"), true);
+            if (!/^[A-Za-z0-9_-]{8,64}$/.test(pestana)) return (await regla("pestana_requerida", "Falta el id de la pestaña"), true);
             if (forzar.llamar === "llamadas_inactivas") return (await regla("llamadas_inactivas", "El número no tiene las llamadas encendidas"), true);
             if (forzar.llamar === "sin_permiso_llamada" || !vigente(p)) return (await regla("sin_permiso_llamada", "El contacto no ha dado permiso para que lo llamen"), true);
             if (forzar.llamar === "limite_llamadas") return (await regla("limite_llamadas", "Se llegó al límite de llamadas de hoy"), true);
@@ -646,7 +645,9 @@ export function apiVoz(
             const pestana = cabeceras["x-iris-pestana"] ?? "";
             recibido.respuestas.push({ llamadaId: l.id, navegador: nav, pestana });
             if (s.navegador !== nav) return (await problema(route, P("otro_navegador", 409, "La llamada se hizo desde otro navegador")), true);
-            if (s.pestana !== pestana || forzar.respuesta === "otra_pestana") return (await problema(route, P("otra_pestana", 409, "La llamada se hizo desde otra pestaña")), true);
+            if (s.pestana !== pestana || forzar.respuesta === "otra_pestana") {
+                return (await problema(route, P("llamada_ya_contestada", 409, "La llamada se hizo desde otra pestaña", { errors: [{ field: "", message: "La llamada se hizo desde otra pestaña", rule: "otra_pestana" }] })), true);
+            }
             if (forzar.sinRespuesta) {
                 forzar.sinRespuesta -= 1;
                 return (await problema(route, P("sin_respuesta", 409, "WhatsApp aún no manda la respuesta")), true);

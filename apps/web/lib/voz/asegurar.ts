@@ -39,7 +39,8 @@ export const ESPERA_SOLTAR_MS = 2000;
 
 /**
  * Cuelga con reintentos. `soloSiEsMia`: antes comprueba que la llamada sigue viva **a mi nombre**
- * (quien supervisa puede colgar la de otra persona: nunca se cuelga a ciegas la de un compañero).
+ * (quien supervisa puede colgar la de otra persona: nunca se cuelga a ciegas la de un compañero) y
+ * la cuelga con `?propia=true`, que el servidor solo acepta de quien la tiene.
  */
 export async function colgarSeguro(id: string, ctx: Contexto, soloSiEsMia: boolean): Promise<Fin> {
     const esperar = ctx.esperar ?? pausa;
@@ -51,7 +52,7 @@ export async function colgarSeguro(id: string, ctx: Contexto, soloSiEsMia: boole
                 const l = await leerLlamada(id, undefined, ctx.empresa);
                 if (esFinal(l) || l.estado === "sonando" || l.usuario?.id !== ctx.yoId) return { tipo: "nada" };
             }
-            return { tipo: "colgada", llamada: await colgarLlamada(id, nuevaClaveIdempotencia(), ctx.empresa) };
+            return { tipo: "colgada", llamada: await colgarLlamada(id, nuevaClaveIdempotencia(), ctx.empresa, soloSiEsMia) };
         } catch (e) {
             if (yaNoEsta(e)) return { tipo: "nada" };
             ultimo = e;
