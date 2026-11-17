@@ -3,6 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, CONSULTA, conSesion, EMPRESAS, LECTOR, simularApi, SUPERVISOR_ZONA } from "./api-falsa";
 import { CORREO_GLOBAL, type OpcionesCorreo } from "./api-correo";
 import { esperarOpcion } from "./controles";
+import type { Locator } from "@playwright/test";
 import { buscarDesbordes, esperarSinDesbordes } from "./desbordes";
 
 /*
@@ -24,6 +25,14 @@ async function abrir(page: Page, correo: OpcionesCorreo = {}, usuario = ADMIN, e
     return api;
 }
 
+/** Elige la seguridad en su selector (un `Select` de React Aria: botón que abre una lista). */
+async function elegirSeguridad(control: Locator, valor: string) {
+    const disparador = control.and(control.page().locator('[data-slot="select-trigger"]'));
+    await disparador.click();
+    await control.page().locator('[role="listbox"]').filter({ visible: true }).last().locator(`[role="option"][data-valor="${valor}"]`).click();
+    await esperarOpcion(control, valor);
+}
+
 const formulario = (page: Page) => page.getByRole("form", { name: "Correo", exact: true });
 const origen = (page: Page) => page.getByTestId("origen-correo");
 const captura = (page: Page, nombre: string, completa = true) => page.screenshot({ path: path.join(carpeta, `${nombre}-${test.info().project.name}.png`), fullPage: completa });
@@ -34,7 +43,8 @@ test.describe("Administración › Correo", () => {
         const f = formulario(page);
         await expect(origen(page)).toHaveAttribute("data-origen", "ninguno");
         await expect(origen(page)).toContainText("Iris no envía correos todavía");
-        await expect(origen(page)).toContainText("Los avisos llegan por la campana");
+        // El detalle es la frase del servidor (`origenDetalle`), tal cual.
+        await expect(origen(page)).toContainText("No hay correo configurado: los avisos llegan solo por la campana.");
         // Sin ajuste guardado todavía no hay nada que encender o apagar.
         await expect(page.locator('[data-slot="encendido-correo"]')).toHaveCount(0);
 
@@ -107,18 +117,74 @@ test.describe("Administración › Correo", () => {
         expect(api.correo.guardados[0]?.cuerpo).not.toHaveProperty("contrasena");
         expect(api.correo.filas.get("global")?.contrasena).toBe("secreta-guardada");
 
-        // «Quitar la contraseña guardada» manda la contraseña vacía.
-        await formulario(page).getByRole("checkbox", { name: /Quitar la contraseña guardada/ }).click();
+        // Quitar la contraseña dejando el usuario no vale: con usuario hace falta una. No se manda nada.
+        const g = formulario(page);
+        await g.getByRole("checkbox", { name: /Quitar la contraseña guardada/ }).click();
+        await page.getByRole("button", { name: "Guardar" }).click();
+        await expect(g.getByText("Con usuario hace falta la contraseña: escríbela.")).toBeVisible();
+        expect(api.correo.guardados).toHaveLength(1);
+        // Sin usuario la contraseña guardada se borra al guardar: se avisa junto al campo, antes.
+        await g.getByRole("textbox", { name: "Usuario" }).fill("");
+        await expect(g.locator('[data-slot="aviso-borra-contrasena"]')).toHaveText("Sin usuario, la contraseña guardada se borra al guardar.");
+        await expect(g.getByRole("checkbox", { name: /Quitar la contraseña guardada/ })).toHaveCount(0);
+        await esperarSinDesbordes(page);
         await page.getByRole("button", { name: "Guardar" }).click();
         await expect.poll(() => api.correo.guardados.length).toBe(2);
-        expect(api.correo.guardados[1]?.cuerpo).toMatchObject({ version: 4, contrasena: "" });
-        await expect(formulario(page).getByRole("checkbox", { name: /Quitar la contraseña guardada/ })).toHaveCount(0);
+        expect(api.correo.guardados[1]?.cuerpo).toMatchObject({ version: 4, usuario: "" });
+        expect(api.correo.filas.get("global")?.contrasena).toBe("");
+        await expect(formulario(page).getByText("Se guarda cifrada y nunca se vuelve a mostrar.")).toBeVisible();
+        await expect(formulario(page).locator('[data-slot="aviso-borra-contrasena"]')).toHaveCount(0);
+    });
+
+    test("la contraseña guardada no va a otro servidor: al cambiar el servidor hay que escribirla (panel y servidor)", async ({ page }) => {
+        const api = await abrir(page, { guardados: { global: CORREO_GLOBAL }, rechaza: { codigo: "contrasena_requerida", field: "contrasena", message: "Vuelve a escribir la contraseña" } });
+        const f = formulario(page);
+        const TEXTO = "Cambiaste el servidor, el puerto o el usuario: escribe la contraseña otra vez.";
+        await f.getByRole("textbox", { name: "Servidor" }).fill("smtp.otro.example");
+        // Ni guardar ni probar mandan nada: el panel lo pide antes.
+        await page.getByRole("button", { name: "Guardar" }).click();
+        await expect(f.getByText(TEXTO)).toBeVisible();
+        await f.getByRole("button", { name: "Enviar correo de prueba" }).click();
+        await expect(page.getByRole("dialog", { name: "Enviar correo de prueba" })).toHaveCount(0);
+        expect(api.correo.guardados).toHaveLength(0);
+        expect(api.correo.pruebas).toHaveLength(0);
+        await esperarSinDesbordes(page);
+        // Si aun así el servidor lo rechaza (422 `contrasena_requerida`), el mismo texto llano junto al campo.
+        await f.getByRole("textbox", { name: "Servidor" }).fill("smtp.proveedor.example");
+        await f.getByRole("textbox", { name: "Nombre" }).fill("Iris · Avisos");
+        await page.getByRole("button", { name: "Guardar" }).click();
+        await expect.poll(() => api.correo.guardados.length).toBe(1);
+        await expect(f.getByText(TEXTO)).toBeVisible();
+        await expect(f.getByText("Vuelve a escribir la contraseña", { exact: true })).toHaveCount(0);
+        await expect(page.getByTestId("error-correo")).toHaveCount(0);
+        // Escrita, guarda.
+        await f.getByLabel("Contraseña", { exact: true }).fill("otra-clave");
+        await page.getByRole("button", { name: "Guardar" }).click();
+        await expect(page.getByText("Correo guardado")).toBeVisible();
+        expect(api.correo.guardados[1]?.cuerpo).toMatchObject({ contrasena: "otra-clave", remitenteNombre: "Iris · Avisos" });
+    });
+
+    test("sin cifrado no hay credenciales, y la falta de la clave de cifrado del servidor se dice en llano", async ({ page }) => {
+        const api = await abrir(page, { guardados: { global: CORREO_GLOBAL }, rechaza: { codigo: "cifrado_no_configurado", message: "Falta IRIS_CLAVE_CIFRADO: no se puede guardar la contraseña" } });
+        const f = formulario(page);
+        await elegirSeguridad(f.getByLabel("Seguridad"), "ninguna");
+        await page.getByRole("button", { name: "Guardar" }).click();
+        await expect(f.getByText("Sin cifrado no se mandan usuario ni contraseña: elige STARTTLS o TLS, o deja el usuario vacío.")).toBeVisible();
+        expect(api.correo.guardados).toHaveLength(0);
+        await elegirSeguridad(f.getByLabel("Seguridad"), "tls");
+        await page.getByRole("button", { name: "Guardar" }).click();
+        const aviso = page.getByTestId("error-correo");
+        await expect(aviso).toContainText("Al servidor de Iris le falta su clave de cifrado");
+        // Nunca el nombre de la variable del servidor.
+        await expect(aviso).not.toContainText("IRIS_CLAVE_CIFRADO");
+        await esperarSinDesbordes(page);
     });
 
     test("correo de prueba: usa lo del formulario sin guardar, propone mi correo y dice el resultado", async ({ page }) => {
         const api = await abrir(page, { guardados: { global: CORREO_GLOBAL } });
         const f = formulario(page);
         await f.getByRole("textbox", { name: "Servidor" }).fill("smtp.otro.example");
+        await f.getByLabel("Contraseña", { exact: true }).fill("clave-del-otro");
         await f.getByRole("button", { name: "Enviar correo de prueba" }).click();
         const dialogo = page.getByRole("dialog", { name: "Enviar correo de prueba" });
         await expect(dialogo).toContainText("Sale por smtp.otro.example con lo que hay en el formulario");
@@ -136,8 +202,8 @@ test.describe("Administración › Correo", () => {
         await expect(resultado).toContainText("Revisa la bandeja de ana@isp.example.");
         await expect.poll(() => buscarDesbordes(page)).toEqual([]);
         await captura(page, "correo-prueba-ok", false);
-        // Lo que viajó: el servidor nuevo (sin guardar), sin contraseña (usa la guardada), sin `version`.
-        expect(api.correo.pruebas[0]?.cuerpo).toEqual({ host: "smtp.otro.example", puerto: 587, seguridad: "starttls", usuario: "avisos@isp.example", remitenteNombre: "Iris", remitenteCorreo: "no-responder@isp.example", para: "ana@isp.example" });
+        // Lo que viajó: el servidor nuevo (sin guardar) con su contraseña, sin `version` ni `activo`.
+        expect(api.correo.pruebas[0]?.cuerpo).toEqual({ host: "smtp.otro.example", puerto: 587, seguridad: "starttls", usuario: "avisos@isp.example", contrasena: "clave-del-otro", remitenteNombre: "Iris", remitenteCorreo: "no-responder@isp.example", para: "ana@isp.example" });
         expect(api.correo.guardados).toHaveLength(0);
         await dialogo.getByRole("button", { name: "Cerrar" }).last().click();
         await expect(dialogo).toHaveCount(0);
@@ -225,11 +291,12 @@ test.describe("Administración › Correo", () => {
     });
 
     test("422 del servidor junto al campo; y si no se pudo leer, «Reintentar» y ningún dato inventado", async ({ page }) => {
-        const api = await abrir(page, { guardados: { global: CORREO_GLOBAL }, rechaza: { field: "host", message: "Ese servidor no se puede usar desde Iris" } });
+        const api = await abrir(page, { guardados: { global: CORREO_GLOBAL }, rechaza: { codigo: "destino_no_permitido", field: "host", message: "Destino no permitido" } });
         const f = formulario(page);
         await f.getByRole("textbox", { name: "Servidor" }).fill("10.0.0.5");
+        await f.getByLabel("Contraseña", { exact: true }).fill("clave");
         await page.getByRole("button", { name: "Guardar" }).click();
-        await expect(f.getByText("Ese servidor no se puede usar desde Iris")).toBeVisible();
+        await expect(f.getByText("Ese servidor no se puede usar desde Iris (es de una red interna o no permitida).")).toBeVisible();
         await expect(page.getByTestId("error-correo")).toHaveCount(0);
         expect(api.correo.guardados).toHaveLength(1);
         await esperarSinDesbordes(page);
@@ -254,7 +321,8 @@ test.describe("Administración › Correo: ámbito y permisos", () => {
         // La empresa no tiene uno propio: el formulario va vacío y hoy usa el general.
         await expect(formulario(page).getByRole("textbox", { name: "Servidor" })).toHaveValue("");
         await expect(origen(page)).toHaveAttribute("data-origen", "global");
-        await expect(origen(page)).toContainText("Esta empresa no tiene uno propio encendido");
+        await expect(origen(page)).toContainText("Hoy los correos salen por el correo general");
+        await expect(origen(page)).toContainText("Los correos de esta instalación salen por el ajuste global.");
         await esperarSinDesbordes(page);
         await captura(page, "correo-empresa");
 

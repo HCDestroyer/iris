@@ -7,8 +7,8 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { probarCorreo } from "@/lib/correo/api";
-import { entradaPrueba, esquemaPrueba, textoEspera, textoResultado, type Ambito, type ValoresCorreo, type ValoresPrueba } from "@/lib/correo/correo";
-import type { ResultadoPrueba } from "@/lib/correo/tipos";
+import { entradaPrueba, esquemaPrueba, reglaDeCorreo, textoEspera, textoResultado, type Ambito, type ValoresCorreo, type ValoresPrueba } from "@/lib/correo/correo";
+import type { AjusteCorreo, ResultadoPrueba } from "@/lib/correo/tipos";
 import { useSesion } from "@/lib/sesion";
 
 type Estado = { tipo: "nada" } | { tipo: "hecho"; resultado: ResultadoPrueba; para: string } | { tipo: "espera"; texto: string } | { tipo: "error"; texto: string };
@@ -20,7 +20,7 @@ type Estado = { tipo: "nada" } | { tipo: "hecho"; resultado: ResultadoPrueba; pa
  * en llano; el servidor nunca devuelve la respuesta cruda del servidor de correo. Con 429, cuánto
  * esperar.
  */
-export function DialogoPrueba({ ambito, valores, cerrar }: { ambito: Ambito; valores: ValoresCorreo; cerrar: () => void }) {
+export function DialogoPrueba({ ambito, ajuste, valores, cerrar }: { ambito: Ambito; ajuste: Pick<AjusteCorreo, "tieneContrasena">; valores: ValoresCorreo; cerrar: () => void }) {
     const { yo } = useSesion();
     const [estado, setEstado] = useState<Estado>({ tipo: "nada" });
     const form = useForm<ValoresPrueba>({ resolver: zodResolver(esquemaPrueba), defaultValues: { para: yo.usuario.correo ?? "" } });
@@ -35,6 +35,9 @@ export function DialogoPrueba({ ambito, valores, cerrar }: { ambito: Ambito; val
                 setEstado({ tipo: "espera", texto: `Ya se hicieron muchas pruebas seguidas. ${textoEspera(e.reintentarEn)}` });
             } else if (e instanceof ErrorApi && e.estado === 422 && e.errores.some((x) => x.field.endsWith("para"))) {
                 form.setError("para", { message: e.errores.find((x) => x.field.endsWith("para"))?.message ?? "Revisa el correo de destino" }, { shouldFocus: true });
+            } else if (e instanceof ErrorApi && e.estado === 422 && reglaDeCorreo(e.codigo, ajuste)) {
+                // Una regla del servidor sobre lo del formulario: en llano, para corregirlo ahí.
+                setEstado({ tipo: "error", texto: `${reglaDeCorreo(e.codigo, ajuste)?.mensaje ?? ""} Cierra y corrígelo en el formulario.` });
             } else if (e instanceof ErrorApi && e.estado === 422 && e.errores.length > 0) {
                 // Un dato del formulario que el servidor no acepta: se dice cuál, tal como lo explica.
                 setEstado({ tipo: "error", texto: `Revisa el formulario: ${e.errores.map((x) => x.message).join(" ")}` });

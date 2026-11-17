@@ -4,9 +4,11 @@ import type { AjusteCorreo, CausaPrueba, EntradaCorreo, EntradaPrueba, OrigenCor
 
 /*
  * Correo del sistema en la API falsa (`.claude/integration/contratos/correo-sistema.md` §2 y §3),
- * tipada con las formas provisionales de `lib/correo/tipos.ts` (el servidor todavía no publica el
- * OpenAPI). Guarda un ajuste por ámbito (`global` o el id de la empresa), calcula `origen` con la
- * precedencia del contrato y nunca devuelve la contraseña: solo `tieneContrasena`.
+ * tipada con `packages/contratos`. Guarda un ajuste por ámbito (`global` o el id de la empresa),
+ * calcula `origen` y `enUso` con la precedencia del contrato, nunca devuelve la contraseña (solo
+ * `tieneContrasena`) y aplica las reglas del servidor: `global` exige operar sin límite de empresa
+ * (403), otra empresa responde 404, la contraseña guardada no se manda a otro servidor
+ * (`contrasena_requerida`), sin usuario se borra, y sin cifrado no hay credenciales.
  */
 
 type Problema = Schema<"Problema">;
@@ -20,20 +22,20 @@ export type OpcionesCorreo = {
     fallaLeer?: boolean;
     /** El primer `guardar` (o activar/desactivar) responde 409. */
     conflicto?: boolean;
-    /** El primer `guardar` responde 422 con ese campo. */
-    rechaza?: { field: string; message: string };
+    /** El primer `guardar` responde 422 con ese código de regla (y ese campo, si lo trae). */
+    rechaza?: { codigo: string; field?: string; message?: string };
     /** Resultado de `probar`: `ok` (por defecto), una causa de error o 429 con `Retry-After`. */
     prueba?: "ok" | CausaPrueba | "429" | "causa_nueva";
 };
 
-type Guardado = Omit<AjusteCorreo, "ambito" | "empresaId" | "configurado" | "tieneContrasena" | "origen" | "origenDetalle" | "entorno"> & { contrasena: string };
+type Guardado = Omit<AjusteCorreo, "ambito" | "empresaId" | "configurado" | "tieneContrasena" | "origen" | "origenDetalle" | "entorno" | "enUso"> & { contrasena: string };
 
 const P = (codigo: string, status: number, title: string, extra: Partial<Problema> = {}): Problema => ({ type: `urn:iris:problema:${codigo}`, title, status, ...extra });
 const json = (route: Route, cuerpo: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(cuerpo) });
 const problema = (route: Route, p: Problema, cabeceras: Record<string, string> = {}) =>
     route.fulfill({ status: p.status, headers: { "Content-Type": "application/problem+json", ...cabeceras }, body: JSON.stringify(p) });
 
-const VACIO: Guardado = { host: "", puerto: 587, seguridad: "starttls", usuario: "", contrasena: "", remitenteNombre: "", remitenteCorreo: "", activo: false, version: 0, actualizadoEn: null, ultimaPrueba: null };
+const VACIO: Guardado = { host: "", puerto: 587, seguridad: "starttls", usuario: "", contrasena: "", remitenteNombre: "", remitenteCorreo: "", activo: false, version: 0, actualizadoEn: null };
 
 /** Un ajuste global completo, para los escenarios que parten de algo guardado. */
 export const CORREO_GLOBAL: Partial<Guardado> = {
@@ -72,14 +74,22 @@ export function apiCorreo(opciones: OpcionesCorreo | undefined) {
     let fallaLeer = opciones?.fallaLeer ?? false;
     let conflicto = opciones?.conflicto ?? false;
     let rechaza = opciones?.rechaza;
-    const entorno = opciones?.entorno ? { configurado: true, host: "localhost", remitenteCorreo: "no-responder@iris.example" } : null;
+    const entorno = opciones?.entorno ? { configurado: true, host: "localhost", remitenteCorreo: "no-responder@iris.example" } : { configurado: false, host: "", remitenteCorreo: "" };
 
     /** Precedencia de §2: empresa activa → global activo → entorno → ninguno. */
     function origenDe(ambito: string): OrigenCorreo {
         if (ambito !== "global" && filas.get(ambito)?.activo) return "empresa";
         if (filas.get("global")?.activo) return "global";
-        return entorno ? "entorno" : "ninguno";
+        return entorno.configurado ? "entorno" : "ninguno";
     }
+
+    /** La frase lista del servidor (`origenDetalle`). */
+    const DETALLE_ORIGEN: Record<OrigenCorreo, string> = {
+        empresa: "Los correos de esta empresa salen por su propio ajuste.",
+        global: "Los correos de esta instalación salen por el ajuste global.",
+        entorno: "Los correos salen por la configuración del servidor (.env).",
+        ninguno: "No hay correo configurado: los avisos llegan solo por la campana.",
+    };
 
     function ver(ambito: string): AjusteCorreo {
         const g = filas.get(ambito);
@@ -92,7 +102,9 @@ export function apiCorreo(opciones: OpcionesCorreo | undefined) {
             configurado: g !== undefined,
             tieneContrasena: contrasena !== "",
             origen,
-            origenDetalle: `Origen: ${origen}`,
+            origenDetalle: DETALLE_ORIGEN[origen],
+            // Este ajuste es el que se usa hoy.
+            enUso: g !== undefined && g.activo && origen === (ambito === "global" ? "global" : "empresa"),
             entorno,
         };
     }
@@ -104,8 +116,9 @@ export function apiCorreo(opciones: OpcionesCorreo | undefined) {
         const ambito = m[1] ?? "";
         const accion = m[2];
         const prohibido = () => problema(route, P("prohibido", 403, "Sin permiso"));
-        // §3: el ámbito de una empresa exige operar en ella; `global`, el permiso sin límite de empresa.
-        if (ambito === "global" ? !x.sinLimiteDeEmpresa : String(x.empresaActiva) !== ambito) return (await prohibido(), true);
+        // `global` exige operar sin límite de empresa (403); el de otra empresa no existe para ti (404).
+        if (ambito === "global" && !x.sinLimiteDeEmpresa) return (await prohibido(), true);
+        if (ambito !== "global" && String(x.empresaActiva) !== ambito) return (await problema(route, P("no_encontrado", 404, "No encontrado")), true);
         if (!accion && metodo === "GET") {
             if (!x.puedeVer && !x.puedeConfigurar) return (await prohibido(), true);
             if (fallaLeer) {
@@ -117,8 +130,22 @@ export function apiCorreo(opciones: OpcionesCorreo | undefined) {
         if (metodo !== "POST" || !accion) return false;
         if (!x.puedeConfigurar) return (await prohibido(), true);
         const actual = filas.get(ambito);
+        const regla = (codigo: string, field: string, message: string) => problema(route, P(codigo, 422, message, { errors: [{ field, message, rule: codigo }] }));
+        /** Las reglas de `guardar` y `probar` sobre las credenciales; devuelve la respuesta 422 o `null`. */
+        const reglaDeCredenciales = () => {
+            const e = cuerpo as unknown as EntradaPrueba;
+            const usuario = e.usuario ?? "";
+            if (e.seguridad === "ninguna" && usuario !== "") return regla("sin_cifrado_sin_credenciales", "usuario", "Sin cifrado, el usuario va vacío");
+            if (e.seguridad === "ninguna" && (e.contrasena ?? "") !== "") return regla("sin_cifrado_sin_credenciales", "contrasena", "Sin cifrado no se guarda contraseña");
+            if (usuario === "" || (e.contrasena ?? "") !== "") return null;
+            if (e.contrasena === "" || !actual || actual.contrasena === "") return regla("contrasena_requerida", "contrasena", "Escribe la contraseña");
+            const otroDestino = e.host !== actual.host || e.puerto !== actual.puerto || usuario !== (actual.usuario ?? "");
+            return otroDestino ? regla("contrasena_requerida", "contrasena", "Vuelve a escribir la contraseña") : null;
+        };
         if (accion === "probar") {
             pruebas.push({ ambito, cuerpo: cuerpo as unknown as EntradaPrueba });
+            const rechazo = reglaDeCredenciales();
+            if (rechazo) return (await rechazo, true);
             const prueba = opciones?.prueba ?? "ok";
             if (prueba === "429") return (await problema(route, P("demasiadas_pruebas", 429, "Demasiadas pruebas"), { "Retry-After": "720" }), true);
             const resultado: ResultadoPrueba =
@@ -139,15 +166,20 @@ export function apiCorreo(opciones: OpcionesCorreo | undefined) {
             if (rechaza) {
                 const r = rechaza;
                 rechaza = undefined;
-                return (await problema(route, P("validacion", 422, "Datos inválidos", { errors: [{ field: r.field, message: r.message }] })), true);
+                const errors = r.field ? [{ field: r.field, message: r.message ?? "Dato inválido", rule: r.codigo }] : [];
+                return (await problema(route, P(r.codigo, 422, r.message ?? "Datos inválidos", { errors })), true);
             }
+            const rechazo = reglaDeCredenciales();
+            if (rechazo) return (await rechazo, true);
             const { contrasena, version: _version, ...resto } = entrada;
             void _version;
             filas.set(ambito, {
                 ...(actual ?? VACIO),
                 ...resto,
-                // Ausente = se conserva la guardada; "" = se borra; un valor = la reemplaza.
-                contrasena: contrasena === undefined ? (actual?.contrasena ?? "") : contrasena,
+                usuario: entrada.usuario ?? "",
+                remitenteNombre: entrada.remitenteNombre ?? "",
+                // Ausente = se conserva la guardada; "" = se borra; un valor = la reemplaza. Sin usuario se borra sola.
+                contrasena: (entrada.usuario ?? "") === "" ? "" : contrasena === undefined ? (actual?.contrasena ?? "") : contrasena,
                 version: (actual?.version ?? 0) + 1,
                 actualizadoEn: "2026-11-16T19:00:00Z",
             });

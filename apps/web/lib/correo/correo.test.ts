@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { ambitoDe, atajoDe, ATAJOS, camposDeValores, entradaCorreo, entradaPrueba, esquemaCorreo, esquemaPrueba, textoCausa, textoEspera, textoOrigen, textoResultado, valoresCorreo } from "./correo";
+import {
+    ambitoDe,
+    atajoDe,
+    ATAJOS,
+    camposDeValores,
+    entradaCorreo,
+    entradaPrueba,
+    esquemaCorreo,
+    esquemaPrueba,
+    faltaContrasena,
+    reglaDeCorreo,
+    seBorraLaContrasena,
+    TEXTO_CONTRASENA_OTRA_VEZ,
+    textoCausa,
+    textoEspera,
+    textoOrigen,
+    textoResultado,
+    valoresCorreo,
+} from "./correo";
 import type { AjusteCorreo } from "./tipos";
 
 const GLOBAL: AjusteCorreo = {
@@ -18,10 +36,11 @@ const GLOBAL: AjusteCorreo = {
     actualizadoEn: "2026-11-16T18:00:00Z",
     origen: "global",
     origenDetalle: "",
+    enUso: true,
     entorno: { configurado: true, host: "localhost", remitenteCorreo: "no-responder@iris.example" },
-    ultimaPrueba: null,
 };
-const VACIO: AjusteCorreo = { ...GLOBAL, configurado: false, host: "", usuario: "", tieneContrasena: false, remitenteNombre: "", remitenteCorreo: "", activo: false, version: 0, actualizadoEn: null, origen: "ninguno", entorno: null };
+const SIN_ENTORNO = { configurado: false, host: "", remitenteCorreo: "" };
+const VACIO: AjusteCorreo = { ...GLOBAL, configurado: false, host: "", usuario: "", tieneContrasena: false, remitenteNombre: "", remitenteCorreo: "", activo: false, version: 0, actualizadoEn: null, origen: "ninguno", enUso: false, entorno: SIN_ENTORNO };
 
 describe("correo del sistema (contratos/correo-sistema.md)", () => {
     it("ámbito: sin límite de empresa elige; los demás, solo su empresa", () => {
@@ -96,19 +115,65 @@ describe("correo del sistema (contratos/correo-sistema.md)", () => {
         expect(atajoDe({ host: "", puerto: "587", seguridad: "starttls" })).toBeNull();
     });
 
-    it("la línea de arriba dice en llano por dónde salen hoy los correos", () => {
-        expect(textoOrigen({ origen: "empresa", entorno: null }, 10)).toMatchObject({ tono: "ok", titulo: "Hoy los correos salen por el correo de esta empresa" });
-        expect(textoOrigen({ origen: "global", entorno: null }, "global")).toMatchObject({ tono: "ok", titulo: "Hoy los correos salen por el correo general" });
-        // Desde una empresa sin correo propio encendido: usa el general, y se dice.
-        expect(textoOrigen({ origen: "global", entorno: null }, 10).detalle).toContain("no tiene uno propio encendido");
-        const entorno = textoOrigen({ origen: "entorno", entorno: { configurado: true, host: "localhost", remitenteCorreo: "no-responder@iris.example" } }, "global");
-        expect(entorno).toMatchObject({ tono: "info", titulo: "Hoy los correos salen por el correo del servidor" });
-        expect(entorno.detalle).toContain("no-responder@iris.example");
-        // Nunca el host ni un usuario del servidor.
-        expect(entorno.detalle).not.toContain("localhost");
-        expect(textoOrigen({ origen: "ninguno", entorno: null }, "global")).toEqual({ tono: "aviso", titulo: "Iris no envía correos todavía", detalle: "Los avisos llegan por la campana. Configura un correo aquí para que también lleguen al buzón." });
+    it("la línea de arriba: el título por origen y, de detalle, la frase del servidor tal cual", () => {
+        const con = (origen: AjusteCorreo["origen"], origenDetalle = "") => ({ origen, origenDetalle });
+        expect(textoOrigen(con("empresa", "Los correos de esta empresa salen por su propio ajuste."), 10)).toEqual({ tono: "ok", titulo: "Hoy los correos salen por el correo de esta empresa", detalle: "Los correos de esta empresa salen por su propio ajuste." });
+        expect(textoOrigen(con("global", "Frase del servidor."), "global")).toEqual({ tono: "ok", titulo: "Hoy los correos salen por el correo general", detalle: "Frase del servidor." });
+        // Desde una empresa sin correo propio encendido: usa el general (información, no éxito).
+        expect(textoOrigen(con("global", "Frase del servidor."), 10).tono).toBe("info");
+        expect(textoOrigen(con("entorno", "Frase del servidor."), "global")).toMatchObject({ tono: "info", titulo: "Hoy los correos salen por el correo del servidor" });
+        expect(textoOrigen(con("ninguno", "Frase del servidor."), "global")).toMatchObject({ tono: "aviso", titulo: "Iris no envía correos todavía", detalle: "Frase del servidor." });
+        // Sin frase del servidor queda la de respaldo.
+        expect(textoOrigen(con("ninguno"), "global").detalle).toBe("Los avisos llegan por la campana. Configura un correo aquí para que también lleguen al buzón.");
+        expect(textoOrigen(con("global"), 10).detalle).toContain("no tiene uno propio encendido");
         // Un origen que el panel no conoce no afirma que hay correo.
-        expect(textoOrigen({ origen: "otro" as never, entorno: null }, "global").tono).toBe("aviso");
+        expect(textoOrigen(con("otro" as never), "global").tono).toBe("aviso");
+    });
+
+    it("la contraseña guardada no se manda a otro servidor: si cambia el servidor, el puerto o el usuario hay que escribirla", () => {
+        const v = valoresCorreo(GLOBAL);
+        expect(faltaContrasena(GLOBAL, v)).toBeNull();
+        for (const cambio of [{ host: "smtp.otro.example" }, { puerto: "465" }, { usuario: "otro@isp.example" }]) expect(faltaContrasena(GLOBAL, { ...v, ...cambio })).toBe(TEXTO_CONTRASENA_OTRA_VEZ);
+        expect(TEXTO_CONTRASENA_OTRA_VEZ).toBe("Cambiaste el servidor, el puerto o el usuario: escribe la contraseña otra vez.");
+        // Mayúsculas o espacios en el servidor no son un cambio; escribirla lo resuelve.
+        expect(faltaContrasena(GLOBAL, { ...v, host: " SMTP.proveedor.example " })).toBeNull();
+        expect(faltaContrasena(GLOBAL, { ...v, host: "smtp.otro.example", contrasena: "nueva" })).toBeNull();
+        // Cambiar el remitente o la seguridad no la pide.
+        expect(faltaContrasena(GLOBAL, { ...v, remitenteNombre: "Otro", seguridad: "tls" })).toBeNull();
+        // Con usuario y sin ninguna (nueva, o guardada que se quita): hace falta.
+        expect(faltaContrasena(VACIO, { ...valoresCorreo(VACIO), usuario: "ana@isp.example" })).toBe("Con usuario hace falta la contraseña: escríbela.");
+        expect(faltaContrasena(GLOBAL, { ...v, quitarContrasena: true })).toBe("Con usuario hace falta la contraseña: escríbela.");
+        // Sin usuario no hace falta contraseña…
+        expect(faltaContrasena(GLOBAL, { ...v, usuario: "", host: "smtp.otro.example" })).toBeNull();
+        // …pero la guardada se borra al guardar: se avisa.
+        expect(seBorraLaContrasena(GLOBAL, { usuario: "  " })).toBe(true);
+        expect(seBorraLaContrasena(GLOBAL, { usuario: "ana@isp.example" })).toBe(false);
+        expect(seBorraLaContrasena(VACIO, { usuario: "" })).toBe(false);
+    });
+
+    it("reglas del servidor (422) en llano y con su campo; sin cifrado no hay credenciales", () => {
+        expect(reglaDeCorreo("contrasena_requerida", GLOBAL)).toEqual({ campo: "contrasena", mensaje: TEXTO_CONTRASENA_OTRA_VEZ });
+        expect(reglaDeCorreo("contrasena_requerida", VACIO)).toEqual({ campo: "contrasena", mensaje: "Con usuario hace falta la contraseña: escríbela." });
+        expect(reglaDeCorreo("destino_no_permitido", GLOBAL)).toMatchObject({ campo: "host" });
+        expect(reglaDeCorreo("sin_cifrado_solo_red_interna", GLOBAL)).toMatchObject({ campo: "seguridad" });
+        expect(reglaDeCorreo("sin_cifrado_sin_credenciales", GLOBAL)).toMatchObject({ campo: "usuario" });
+        expect(reglaDeCorreo("sin_cifrado_sin_credenciales", GLOBAL, "contrasena")).toMatchObject({ campo: "contrasena" });
+        // Falta la clave de cifrado de la instalación: no es de ningún campo.
+        expect(reglaDeCorreo("cifrado_no_configurado", GLOBAL)).toMatchObject({ campo: null });
+        expect(reglaDeCorreo("cifrado_no_configurado", GLOBAL)?.mensaje).not.toContain("IRIS_");
+        for (const c of ["validacion", "regla_nueva", "toString", ""]) expect(reglaDeCorreo(c, GLOBAL)).toBeNull();
+        // Espejo en el formulario: con «Ninguna» no se aceptan usuario ni contraseña.
+        const v = valoresCorreo(GLOBAL);
+        expect(esquemaCorreo.safeParse({ ...v, seguridad: "ninguna" }).success).toBe(false);
+        expect(esquemaCorreo.safeParse({ ...v, seguridad: "ninguna", usuario: "", contrasena: "x" }).success).toBe(false);
+        expect(esquemaCorreo.safeParse({ ...v, seguridad: "ninguna", usuario: "" }).success).toBe(true);
+    });
+
+    it("un servidor que no manda `usuario` o `ultimaPrueba` no rompe el formulario", () => {
+        const { ultimaPrueba: _u, ...sin } = { ...GLOBAL, ultimaPrueba: undefined };
+        void _u;
+        expect(valoresCorreo(sin).usuario).toBe("avisos@isp.example");
+        expect(entradaCorreo(VACIO, { ...valoresCorreo(VACIO), host: "relay-interno", seguridad: "ninguna", remitenteCorreo: "a@b.example" })).toMatchObject({ usuario: "", version: 0, activo: true });
     });
 
     it("resultado de la prueba: icono, texto y causa en llano; una causa desconocida, el texto genérico", () => {

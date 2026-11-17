@@ -78,6 +78,7 @@ export const BLOQUEADO = "bloqueado@iris.test";
 
 const PERMISOS_CHAT: Permiso[] = ["chat.ver", "chat.enviar", "chat.supervisar"];
 
+const PERMISOS_CORREO: Permiso[] = [PERMISO_VER_CORREO, PERMISO_CONFIGURAR_CORREO];
 const PERMISOS_BUZONES: Permiso[] = ["buzones.activar", "buzones.crear", "buzones.desactivar", "buzones.editar", "buzones.ver"];
 
 const PERMISOS_TICKETS: Permiso[] = [
@@ -654,8 +655,8 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             ...(opciones.chat && actual.correo === ADMIN.correo ? PERMISOS_CHAT : []),
             ...(opciones.pagos && actual.correo === ADMIN.correo ? PERMISOS_PAGOS.filter((p) => !pagos.sinPermisos.includes(p)) : []),
             ...(opciones.pagos && actual.correo === AGENTE_CONV.correo ? PERMISOS_ABRIR_ARGOS : []),
-            ...(opciones.correo && (actual.correo === ADMIN.correo || actual.correo === SUPERVISOR_ZONA.correo) ? [PERMISO_VER_CORREO, PERMISO_CONFIGURAR_CORREO] : []),
-            ...(opciones.correo && actual.correo === CONSULTA.correo ? [PERMISO_VER_CORREO] : []),
+            ...(opciones.correo && (actual.correo === ADMIN.correo || actual.correo === SUPERVISOR_ZONA.correo) ? PERMISOS_CORREO : []),
+            ...(opciones.correo && actual.correo === CONSULTA.correo ? PERMISOS_CORREO.slice(0, 1) : []),
         ];
         if (await sso.manejar({ route, metodo, ruta, actual, puede: (p) => permisos.includes(p), cuerpo, cookies, idempotencia: cabeceras["idempotency-key"] })) {
             return;

@@ -1,37 +1,26 @@
 import { api, resolver } from "@/lib/api/cliente";
 import type { Ambito } from "./correo";
-import type { AjusteCorreo, EntradaCorreo, EntradaPrueba, ResultadoPrueba } from "./tipos";
+import type { EntradaCorreo, EntradaPrueba } from "./tipos";
 
-/*
- * Llamadas del correo del sistema (contratos/correo-sistema.md §3).
- *
- * PROVISIONAL: estas rutas todavía no están en `packages/contratos`, así que el cliente tipado no
- * las conoce. Se usa el mismo cliente del panel (cookies, CSRF, empresa activa, re-autenticación)
- * con una firma suelta, y las formas de `./tipos`. Cuando el servidor publique el OpenAPI, cada
- * función pasa a `api().GET("/api/v1/correo-sistema/{ambito}", …)` con los tipos generados.
- */
+/* Llamadas del correo del sistema (contratos/correo-sistema.md §3), con el cliente tipado. */
 
-type Respuesta = { data?: unknown; error?: unknown; response: Response };
-type Opciones = { body?: unknown; headers?: Record<string, string>; signal?: AbortSignal };
-type ClienteSuelto = { GET: (ruta: string, o?: Opciones) => Promise<Respuesta>; POST: (ruta: string, o?: Opciones) => Promise<Respuesta> };
+const BASE = "/api/v1/correo-sistema/{ambito}";
+const ruta = (ambito: Ambito) => ({ ambito: String(ambito) });
 
-const suelto = () => api() as unknown as ClienteSuelto;
-const ruta = (ambito: Ambito, accion?: string) => `/api/v1/correo-sistema/${ambito}${accion ? `/${accion}` : ""}`;
-const idem = (clave: string) => ({ "Idempotency-Key": clave });
-
-export function leerCorreo(ambito: Ambito, signal?: AbortSignal): Promise<AjusteCorreo> {
-    return resolver(suelto().GET(ruta(ambito), signal ? { signal } : {})) as Promise<AjusteCorreo>;
+export function leerCorreo(ambito: Ambito, signal?: AbortSignal) {
+    return resolver(api().GET(BASE, { params: { path: ruta(ambito) }, signal }));
 }
 
-export function guardarCorreo(ambito: Ambito, entrada: EntradaCorreo, clave: string): Promise<AjusteCorreo> {
-    return resolver(suelto().POST(ruta(ambito, "guardar"), { body: entrada, headers: idem(clave) })) as Promise<AjusteCorreo>;
+export function guardarCorreo(ambito: Ambito, entrada: EntradaCorreo, clave: string) {
+    return resolver(api().POST(`${BASE}/guardar`, { params: { path: ruta(ambito), header: { "Idempotency-Key": clave } }, body: entrada }));
 }
 
 /** Manda un correo de prueba con lo que hay en el formulario, sin guardar. Responde 200 con el resultado. */
-export function probarCorreo(ambito: Ambito, entrada: EntradaPrueba): Promise<ResultadoPrueba> {
-    return resolver(suelto().POST(ruta(ambito, "probar"), { body: entrada })) as Promise<ResultadoPrueba>;
+export function probarCorreo(ambito: Ambito, entrada: EntradaPrueba) {
+    return resolver(api().POST(`${BASE}/probar`, { params: { path: ruta(ambito) }, body: entrada }));
 }
 
-export function activarCorreo(ambito: Ambito, activo: boolean, version: number, clave: string): Promise<AjusteCorreo> {
-    return resolver(suelto().POST(ruta(ambito, activo ? "activar" : "desactivar"), { body: { version }, headers: idem(clave) })) as Promise<AjusteCorreo>;
+export function activarCorreo(ambito: Ambito, activo: boolean, version: number, clave: string) {
+    const params = { path: ruta(ambito), header: { "Idempotency-Key": clave } };
+    return resolver(activo ? api().POST(`${BASE}/activar`, { params, body: { version } }) : api().POST(`${BASE}/desactivar`, { params, body: { version } }));
 }

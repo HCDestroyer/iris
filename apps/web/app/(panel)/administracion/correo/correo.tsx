@@ -31,8 +31,11 @@ import {
     CAMPOS_CORREO,
     entradaCorreo,
     esquemaCorreo,
+    faltaContrasena,
     NOMBRE_SEGURIDAD,
     PUERTOS,
+    reglaDeCorreo,
+    seBorraLaContrasena,
     SEGURIDADES,
     textoCausa,
     textoOrigen,
@@ -71,7 +74,7 @@ export function CorreoDelSistema() {
 function Carga({ ambito }: { ambito: Ambito }) {
     const lectura = useLectura((signal) => leerCorreo(ambito, signal));
     return (
-        <CargaRegistro lectura={lectura} que="el correo" noEncontrado="Sin ajustes de correo">
+        <CargaRegistro lectura={lectura} que="el correo" noEncontrado="Ese correo no existe o no es de la empresa en la que estás">
             {(ajuste) => <Formulario key={ajuste.version} ambito={ambito} ajuste={ajuste} alCambiar={lectura.reemplazar} recargar={lectura.reintentar} />}
         </CargaRegistro>
     );
@@ -89,7 +92,8 @@ function Formulario({ ambito, ajuste, alCambiar, recargar }: { ambito: Ambito; a
     const [error, setError] = useState<unknown>(null);
     const [probando, setProbando] = useState(false);
     const form = useForm<ValoresCorreo>({ resolver: zodResolver(esquemaCorreo), defaultValues: valoresCorreo(ajuste) });
-    const [host, puerto, seguridad, contrasena] = useWatch({ control: form.control, name: ["host", "puerto", "seguridad", "contrasena"] });
+    const [host, puerto, seguridad, contrasena, usuario] = useWatch({ control: form.control, name: ["host", "puerto", "seguridad", "contrasena", "usuario"] });
+    const borraContrasena = seBorraLaContrasena(ajuste, { usuario });
     const errores = form.formState.errors;
     const sucio = form.formState.isDirty;
     const conflicto = error instanceof ErrorApi && error.estado === 409;
@@ -98,8 +102,16 @@ function Formulario({ ambito, ajuste, alCambiar, recargar }: { ambito: Ambito; a
     const empresa = yo.empresaActiva;
     const eligeAmbito = yo.todasLasEmpresas && empresa !== undefined;
 
+    /** La contraseña que falta escribir (espejo de `contrasena_requerida`): se marca el campo y no se manda nada. */
+    function pideContrasena(d: ValoresCorreo): boolean {
+        const falta = faltaContrasena(ajuste, d);
+        if (falta) form.setError("contrasena", { message: falta }, { shouldFocus: true });
+        return falta !== null;
+    }
+
     async function guardar(d: ValoresCorreo) {
         setError(null);
+        if (pideContrasena(d)) return;
         try {
             const guardado = await guardarCorreo(ambito, entradaCorreo(ajuste, d), clave.actual());
             clave.renovar();
@@ -108,14 +120,18 @@ function Formulario({ ambito, ajuste, alCambiar, recargar }: { ambito: Ambito; a
             alCambiar(guardado);
         } catch (e) {
             clave.trasError(e);
-            // El 422 trae el nombre del campo del formulario (§6): va junto a él.
-            if (!erroresACampos(e, CAMPOS_CORREO, form.setError)) setError(e);
+            // Las reglas del servidor que el panel conoce, con sus palabras y junto a su campo…
+            const regla = e instanceof ErrorApi && e.estado === 422 ? reglaDeCorreo(e.codigo, ajuste, e.errores[0]?.field) : null;
+            if (regla?.campo) form.setError(regla.campo, { message: regla.mensaje }, { shouldFocus: true });
+            else if (regla) setError(new ErrorApi({ estado: 422, codigo: e instanceof ErrorApi ? e.codigo : "regla", titulo: regla.mensaje }));
+            // …y cualquier otro 422, con el campo que nombra (`errors[].field`).
+            else if (!erroresACampos(e, CAMPOS_CORREO, form.setError)) setError(e);
         }
     }
 
     async function abrirPrueba() {
         // La prueba usa lo que hay en el formulario, sin guardar: primero tiene que ser válido.
-        if (await form.trigger(undefined, { shouldFocus: true })) setProbando(true);
+        if ((await form.trigger(undefined, { shouldFocus: true })) && !pideContrasena(form.getValues())) setProbando(true);
     }
 
     return (
@@ -180,12 +196,16 @@ function Formulario({ ambito, ajuste, alCambiar, recargar }: { ambito: Ambito; a
                                 ) : undefined
                             }
                         >
-                            {conflicto ? "Recarga para ver lo que quedó guardado; lo que escribiste aquí se pierde." : `${mensajeDeError(error).titulo}${error instanceof ErrorApi && error.detalle ? `: ${error.detalle}` : ""}. Vuelve a tocar «Guardar».`}
+                            {conflicto
+                                ? "Recarga para ver lo que quedó guardado; lo que escribiste aquí se pierde."
+                                : error instanceof ErrorApi && error.estado === 422
+                                  ? mensajeDeError(error).titulo
+                                  : `${mensajeDeError(error).titulo}${error instanceof ErrorApi && error.detalle ? `: ${error.detalle}` : ""}. Vuelve a tocar «Guardar».`}
                         </Aviso>
                     ) : null}
                 </>
             }
-            despues={probando ? <DialogoPrueba ambito={ambito} valores={form.getValues()} cerrar={() => setProbando(false)} /> : null}
+            despues={probando ? <DialogoPrueba ambito={ambito} ajuste={ajuste} valores={form.getValues()} cerrar={() => setProbando(false)} /> : null}
         >
             <SeccionFormulario titulo="¿De quién es el correo?" descripcion="Rellena el servidor por ti. Después puedes cambiar lo que haga falta.">
                 <div role="group" aria-label="Proveedor de correo" className="flex flex-wrap gap-2">
@@ -243,7 +263,14 @@ function Formulario({ ambito, ajuste, alCambiar, recargar }: { ambito: Ambito; a
                     error={errores.contrasena?.message}
                     {...form.register("contrasena")}
                 />
-                {ajuste.tieneContrasena && contrasena === "" ? <Casilla etiqueta="Quitar la contraseña guardada" ayuda="Para un servidor que ya no la pide." disabled={!configura} {...form.register("quitarContrasena")} /> : null}
+                {borraContrasena ? (
+                    <p role="status" className="flex items-start gap-1.5 text-sm font-medium text-warning" data-slot="aviso-borra-contrasena">
+                        <CircleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
+                        Sin usuario, la contraseña guardada se borra al guardar.
+                    </p>
+                ) : ajuste.tieneContrasena && contrasena === "" ? (
+                    <Casilla etiqueta="Quitar la contraseña guardada" ayuda="Para un servidor que ya no la pide." disabled={!configura} {...form.register("quitarContrasena")} />
+                ) : null}
             </SeccionFormulario>
 
             <SeccionFormulario titulo="Remitente" descripcion="Quién aparece como autor de los correos.">
@@ -321,7 +348,7 @@ function Encendido({ ambito, ajuste, configura, sucio, alCambiar, recargar }: { 
 
     return (
         <span className="flex flex-wrap items-center gap-2" data-slot="encendido-correo">
-            <InsigniaEstado tono={ajuste.activo ? "success" : "neutral"} texto={ajuste.activo ? "Encendido" : "Apagado"} data-activo={ajuste.activo} />
+            <InsigniaEstado tono={ajuste.activo ? "success" : "neutral"} texto={ajuste.activo ? "Encendido" : "Apagado"} data-activo={ajuste.activo} data-en-uso={ajuste.enUso} />
             {configura ? (
                 <Boton variante="contorno" tamano="sm" disabled={sucio} title={sucio ? "Guarda o cancela los cambios primero" : undefined} onClick={() => setConfirmar(true)}>
                     <Power />
