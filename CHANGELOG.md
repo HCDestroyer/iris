@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.26.0](https://github.com/HCDestroyer/iris/compare/v0.25.0...v0.26.0) (2026-11-17)
+
+
+### Funcionalidades
+
+* **mensajeria:** seguimiento de voz E1: reserva por navegador y señales del cliente ([#186](https://github.com/HCDestroyer/iris/issues/186)) ([4a76991](https://github.com/HCDestroyer/iris/commit/4a76991579c6329e39dce892fa5e8077dd67ccdc))
+* **mensajeria:** voz E1, llamadas entrantes de WhatsApp contestadas en el panel ([#183](https://github.com/HCDestroyer/iris/issues/183)) ([8ed9a4a](https://github.com/HCDestroyer/iris/commit/8ed9a4a6fd7998caec26a2b97a59af85740c27b6))
+* **panel:** llamadas «En pruebas» y salida segura al cerrar sesión ([#188](https://github.com/HCDestroyer/iris/issues/188)) ([43da5c0](https://github.com/HCDestroyer/iris/commit/43da5c03b68901604e261cb41d3c723ff4b51750))
+* **panel:** voz E1, personas contestan llamadas de WhatsApp en el panel ([#184](https://github.com/HCDestroyer/iris/issues/184)) ([5088555](https://github.com/HCDestroyer/iris/commit/5088555f2d411820d2f60a0ce8b145c39a98d4b8))
+
 ## [0.25.0](https://github.com/HCDestroyer/iris/compare/v0.24.0...v0.25.0) (2026-11-17)
 
 
