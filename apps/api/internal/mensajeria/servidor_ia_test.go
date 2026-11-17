@@ -478,6 +478,43 @@ func TestServidorIAIncompatible(t *testing.T) {
 	}
 }
 
+// N1: la compatibilidad de un enlace sin activar se reevalúa con la versión de Iris de ahora. Un
+// servidor conectado cuando Iris era 0.27.0 (incompatible) deja de pedir «actualiza Iris» y se
+// puede activar en cuanto Iris es 0.28.0 o un binario de desarrollo, sin enlazar de nuevo.
+func TestServidorIACompatibilidadReevaluada(t *testing.T) {
+	man := voz.Manifiesto{Version: "0.1.0", Protocolo: voz.Protocolo, IrisMin: "0.28.0", IrisMax: "0.99.0"}
+	for _, nueva := range []string{"0.28.0", "v0.27.0-36-g1a2b3c4"} {
+		x := bancoIAConVersion(t, "0.27.0", vozprueba.Opciones{Manifiesto: &man})
+		if p := x.enlazar().cuerpo["paquete"].(map[string]any); p["compatible"] != false || p["motivoIncompatible"] != "iris_antiguo" {
+			t.Fatalf("con Iris 0.27.0: %v", p)
+		}
+		x.exigir(x.api(x.admin, http.MethodPost, x.ruta("/activar"), map[string]any{"huellaTls": x.banco.Huella}), http.StatusConflict, "type", "urn:iris:problema:incompatible")
+		tarjeta := func(y *bancoIA) map[string]any {
+			return y.exigir(y.api(y.admin, http.MethodGet, "/voz/motores", nil), http.StatusOK).cuerpo["data"].([]any)[0].(map[string]any)["paquete"].(map[string]any)
+		}
+		if p := tarjeta(x); p["compatible"] != false {
+			t.Fatalf("leído con Iris 0.27.0 sigue incompatible: %v", p)
+		}
+		// Iris se actualiza (otro proceso, la misma base y el mismo servidor de IA).
+		yb := nuevaBandeja(t, func(c *mensajeria.Config) { c.PermitirLoopbackIA = true; c.Version = nueva })
+		*yb.reloj = *x.reloj
+		y := &bancoIA{bandeja: yb, banco: x.banco, motor: x.motor}
+		y.admin = y.persona([]int64{1}, rolBase("admin"))
+		y.admin.empresa = 1
+		antes := len(x.banco.Rutas())
+		if p := tarjeta(y); p["compatible"] != true || p["motivoIncompatible"] != nil || len(x.banco.Rutas()) != antes {
+			t.Fatalf("leído con Iris %s debía ser compatible, sin llamar al servidor: %v", nueva, p)
+		}
+		a := y.exigir(y.api(y.admin, http.MethodPost, y.ruta("/activar"), map[string]any{"huellaTls": x.banco.Huella}), http.StatusOK)
+		if a.cuerpo["estado"] != "listo" || a.cuerpo["paquete"].(map[string]any)["compatible"] != true {
+			t.Fatalf("activar con Iris %s: %v", nueva, a.cuerpo)
+		}
+		if err := y.generar(); err != nil {
+			t.Fatalf("tras activar con Iris %s: %v", nueva, err)
+		}
+	}
+}
+
 // F4: un binario de desarrollo (sin versión, o construido con commits después de la etiqueta) no se
 // compara con el rango del paquete: enlaza, activa y se usa.
 func TestServidorIAVersionDeDesarrollo(t *testing.T) {
