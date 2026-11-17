@@ -677,6 +677,9 @@ Contrato: `.claude/integration/contratos/correo-sistema.md`. Pantalla: `/adminis
 - **Reglas del servidor (422) en llano** (`reglaDeCorreo`): cada código conocido va con las palabras
   del panel junto a su campo; lo que no es de un campo (falta la clave de cifrado de la instalación)
   va como aviso general, sin nombres de variables del servidor.
+- **Contrato 1.1.0:** «Sin cifrado» solo se ofrece en el correo general (`seguridadesDe`); un 429
+  al guardar o al probar dice por qué y cuánto esperar (`textoDemasiados`); mientras una prueba
+  tarda (un servidor que no contesta), el diálogo dice «Probando…» y no se corta.
 - **Detalles que escribe el servidor se muestran tal cual:** `origenDetalle` bajo el título del
   origen y `detalle` del resultado de la prueba.
 - **Correo de prueba:** un diálogo corto (un campo: el destinatario, por defecto el correo de quien

@@ -357,7 +357,7 @@ test.describe("Administración › Correo: ámbito y permisos", () => {
         const dialogo = page.getByRole("dialog", { name: "Enviar correo de prueba" });
         await dialogo.getByRole("button", { name: "Enviar prueba" }).click();
         await expect(dialogo.locator('[data-slot="probando"]')).toContainText("Probando…");
-        await expect(dialogo.getByRole("button", { name: "Probando…" })).toBeDisabled();
+        await expect(dialogo.locator('button[type="submit"]')).toBeDisabled();
         const resultado = dialogo.locator('[data-slot="resultado-prueba"]');
         await expect(resultado).toHaveAttribute("data-causa", "no_conecta", { timeout: 10_000 });
         await expect(resultado).toContainText("No se pudo conectar: revisa el servidor y el puerto.");
