@@ -541,10 +541,6 @@ func nuevoLlamar(m *Modulo) *auditoria.Caso[EntradaLlamar, Llamada] {
 			if !permisoVigente(f, ahora) || !in.meta.PuedeLlamar {
 				return Llamada{}, reglaVoz("sin_permiso_llamada", "Este contacto no ha dado permiso para que lo llamen por WhatsApp (o WhatsApp no deja llamarlo ahora)")
 			}
-			if f.SinContestar >= SinContestarRevoca-1 && !in.ConfirmarRiesgo {
-				return Llamada{}, reglaVoz("confirmar_riesgo", "Lleva tres llamadas seguidas sin contestar: si no contesta esta, WhatsApp revoca el permiso. Confirma para llamar",
-					nucleo.ErrorCampo{Field: "confirmarRiesgo", Message: "true", Rule: "confirmar_riesgo"})
-			}
 			// Una llamada a la vez por persona y por contacto. La saliente viva cuenta en cualquier empresa
 			// (quien opera en varias): es lo mismo que impone el índice único, pero con su 409.
 			if viva, err := q.SalienteVivaDeUsuario(ctx, &a.usuario); err != nil {
@@ -598,6 +594,12 @@ func nuevoLlamar(m *Modulo) *auditoria.Caso[EntradaLlamar, Llamada] {
 				} else if err != nil {
 					return Llamada{}, err
 				}
+			}
+			// Lo último, cuando ya se sabe que la llamada puede salir (ningún límite la para): el aviso de
+			// que, si no contesta, WhatsApp revoca el permiso.
+			if f.SinContestar >= SinContestarRevoca-1 && !in.ConfirmarRiesgo {
+				return Llamada{}, reglaVoz("confirmar_riesgo", "Lleva tres llamadas seguidas sin contestar: si no contesta esta, WhatsApp revoca el permiso. Confirma para llamar",
+					nucleo.ErrorCampo{Field: "confirmarRiesgo", Message: "true", Rule: "confirmar_riesgo"})
 			}
 			id, err := uuid.NewV7()
 			if err != nil {

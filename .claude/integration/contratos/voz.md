@@ -158,6 +158,9 @@ técnica (§9)**; los que más pesan están listados en §10.
     → `connect` → guardar el `call_id`. Si Meta rechaza el `connect`: 502 `meta_rechazo` y la
     llamada queda `fallida` (`error_meta`). Errores nuevos: 422 **`confirmar_riesgo`** (lleva tres
     seguidas sin contestar y no vino `confirmarRiesgo: true`), 409 `devolucion_cerrada`.
+    `confirmar_riesgo` es lo **último** que se comprueba: primero van todos los límites
+    (`limite_llamadas`, incluido `colgadas_marcando`, y `tope_alcanzado`); solo si la llamada puede
+    salir se pide confirmar.
   - **Estados de una saliente.** `marcando` → la respuesta SDP de Meta llega por el webhook
     `connect` (`direction: BUSINESS_INITIATED`), pasa la **validación estricta** y se guarda; el
     feed avisa `llamada_respuesta` **solo a quien llamó** (sin SDP) y se lee con

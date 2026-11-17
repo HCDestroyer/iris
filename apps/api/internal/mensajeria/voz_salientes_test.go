@@ -1278,16 +1278,39 @@ func TestLlamadaSalienteTimbrarYCerrarPestana(t *testing.T) {
 		}
 		x.pasa(10 * time.Second)
 	}
-	// A la cuarta: primero hay que confirmar el riesgo (lleva tres sin contestar, como cuenta Meta)…
-	if r := x.exigir(x.llamar(x.supervisor, conv, nil), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "confirmar_riesgo") {
-		t.Fatalf("la cuarta sin confirmar: %s", crudo(r))
-	}
-	// … y aun confirmándolo, el límite de colgadas mientras marcaban a ese contacto la para.
+	// A la cuarta la para el límite de colgadas mientras marcaban a ese contacto. Los límites van
+	// antes que el aviso de riesgo: no se le pide al agente confirmar una llamada que no puede salir.
 	antes := x.g.cuenta("connect:+" + num)
-	if r := x.exigir(x.llamar(x.supervisor, conv, map[string]any{"confirmarRiesgo": true}), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "limite_llamadas") ||
-		!strings.Contains(crudo(r), "colgadas_marcando") || x.g.cuenta("connect:+"+num) != antes {
-		t.Fatalf("la cuarta, confirmada: %s", crudo(r))
+	for _, extra := range []map[string]any{nil, {"confirmarRiesgo": true}} {
+		if r := x.exigir(x.llamar(x.supervisor, conv, extra), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "limite_llamadas") ||
+			!strings.Contains(crudo(r), "colgadas_marcando") || strings.Contains(crudo(r), "confirmar_riesgo") || x.g.cuenta("connect:+"+num) != antes {
+			t.Fatalf("la cuarta (%v): %s", extra, crudo(r))
+		}
 	}
+	// Sin ese límite la llamada sí puede salir: entonces, y solo entonces, se pide confirmar el riesgo
+	// (lleva tres sin contestar, como cuenta Meta).
+	admin := x.persona([]int64{1}, rolBase("admin"))
+	admin.empresa = 1
+	fijar := func(n int) {
+		t.Helper()
+		v := x.exigir(x.api(admin, http.MethodGet, "/voz/ajustes", nil), http.StatusOK)
+		x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": v.cuerpo["version"], "duracionMaxPersonaMin": v.cuerpo["duracionMaxPersonaMin"],
+			"segundosAsignado": v.cuerpo["segundosAsignado"], "maxColgadasMarcandoDia": n}), http.StatusOK)
+	}
+	fijar(0)
+	t.Cleanup(func() { fijar(3) })
+	if r := x.exigir(x.llamar(x.supervisor, conv, nil), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "confirmar_riesgo") || x.g.cuenta("connect:+"+num) != antes {
+		t.Fatalf("la cuarta sin confirmar, ya sin límite: %s", crudo(r))
+	}
+	id4, _ := x.saliente(x.supervisor, conv, map[string]any{"confirmarRiesgo": true})
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/llamadas/"+id4+"/colgar", nil), http.StatusOK)
+	// Con el tope del mes alcanzado tampoco se pide confirmar: manda el límite.
+	x.pasa(61 * time.Second)
+	x.limitesVoz(1000, 0)
+	if r := x.exigir(x.llamar(x.supervisor, conv, nil), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "tope_alcanzado") {
+		t.Fatalf("con el tope alcanzado: %s", crudo(r))
+	}
+	x.limitesVoz(1000, 100000)
 	// Una que no llegó a sonar en Meta (el connect falló) y se cortó no suma sin contestar.
 	_, conv2 := x.convConPermiso()
 	x.g.falla("connect", &mensajeria.ErrMetaLlamada{Status: 400})
