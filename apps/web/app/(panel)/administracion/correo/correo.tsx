@@ -36,7 +36,8 @@ import {
     PUERTOS,
     reglaDeCorreo,
     seBorraLaContrasena,
-    SEGURIDADES,
+    seguridadesDe,
+    textoDemasiados,
     textoCausa,
     textoOrigen,
     valoresCorreo,
@@ -120,6 +121,11 @@ function Formulario({ ambito, ajuste, alCambiar, recargar }: { ambito: Ambito; a
             alCambiar(guardado);
         } catch (e) {
             clave.trasError(e);
+            // 429 `demasiados_rechazos`: muchos intentos con servidores que Iris no puede usar.
+            if (e instanceof ErrorApi && e.estado === 429) {
+                setError(new ErrorApi({ estado: 429, codigo: e.codigo, titulo: textoDemasiados(e.codigo, e.reintentarEn) }));
+                return;
+            }
             // Las reglas del servidor que el panel conoce, con sus palabras y junto a su campo…
             const regla = e instanceof ErrorApi && e.estado === 422 ? reglaDeCorreo(e.codigo, ajuste, e.errores[0]?.field) : null;
             if (regla?.campo) form.setError(regla.campo, { message: regla.mensaje }, { shouldFocus: true });
@@ -198,8 +204,8 @@ function Formulario({ ambito, ajuste, alCambiar, recargar }: { ambito: Ambito; a
                         >
                             {conflicto
                                 ? "Recarga para ver lo que quedó guardado; lo que escribiste aquí se pierde."
-                                : error instanceof ErrorApi && error.estado === 422
-                                  ? mensajeDeError(error).titulo
+                                : error instanceof ErrorApi && (error.estado === 422 || error.estado === 429)
+                                  ? error.titulo
                                   : `${mensajeDeError(error).titulo}${error instanceof ErrorApi && error.detalle ? `: ${error.detalle}` : ""}. Vuelve a tocar «Guardar».`}
                         </Aviso>
                     ) : null}
@@ -243,7 +249,7 @@ function Formulario({ ambito, ajuste, alCambiar, recargar }: { ambito: Ambito; a
                         ))}
                     </CampoSelector>
                     <CampoSelector etiqueta="Seguridad" disabled={!configura} error={errores.seguridad?.message} {...form.register("seguridad")}>
-                        {SEGURIDADES.map((s) => (
+                        {seguridadesDe(ambito, ajuste.seguridad).map((s) => (
                             <option key={s} value={s}>
                                 {NOMBRE_SEGURIDAD[s]}
                             </option>

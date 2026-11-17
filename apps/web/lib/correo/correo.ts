@@ -125,6 +125,7 @@ const TEXTO_REGLA = {
     contrasena_requerida: { campo: "contrasena", mensaje: TEXTO_CONTRASENA_OTRA_VEZ },
     destino_no_permitido: { campo: "host", mensaje: "Ese servidor no se puede usar desde Iris (es de una red interna o no permitida)." },
     sin_cifrado_solo_red_interna: { campo: "seguridad", mensaje: "Sin cifrado solo vale para un servidor de tu red interna: elige STARTTLS o TLS." },
+    sin_cifrado_solo_global: { campo: "seguridad", mensaje: "«Sin cifrado» solo se puede usar en el correo general: elige STARTTLS o TLS." },
     sin_cifrado_sin_credenciales: { campo: "usuario", mensaje: "Sin cifrado no se mandan usuario ni contraseña: elige STARTTLS o TLS, o deja el usuario vacío." },
     cifrado_no_configurado: { campo: null, mensaje: "Al servidor de Iris le falta su clave de cifrado, así que no puede guardar la contraseña. Avisa a quien administra la instalación." },
 } as const satisfies Record<string, { campo: CampoRegla | null; mensaje: string }>;
@@ -205,6 +206,23 @@ export const textoCausa = (causa: string | null | undefined): string => (causa &
 export function textoResultado(r: ResultadoPrueba, para: string): { ok: boolean; titulo: string; detalle: string } {
     if (r.estado === "ok") return { ok: true, titulo: "El correo de prueba salió", detalle: r.detalle.trim() || `Revisa la bandeja de ${para}.` };
     return { ok: false, titulo: "No se pudo enviar", detalle: r.detalle.trim() || textoCausa(r.causa) };
+}
+
+/**
+ * «Sin cifrado» solo se ofrece en el correo general (contrato 1.1.0: en una empresa, 422
+ * `sin_cifrado_solo_global`). Si una empresa ya lo tenía guardado se sigue viendo, para poder cambiarlo.
+ */
+export function seguridadesDe(ambito: Ambito, guardada: SeguridadCorreo): readonly SeguridadCorreo[] {
+    return SEGURIDADES.filter((s) => s !== "ninguna" || ambito === "global" || guardada === "ninguna");
+}
+
+/**
+ * Qué decir con un 429 al guardar o al probar: `demasiados_rechazos` (muchos intentos con servidores
+ * que Iris no puede usar) o el tope de pruebas por hora; siempre con cuánto esperar.
+ */
+export function textoDemasiados(codigo: string, reintentarEn: number | undefined): string {
+    const que = codigo === "demasiados_rechazos" ? "Demasiados intentos con servidores no permitidos." : "Ya se hicieron muchas pruebas seguidas.";
+    return `${que} ${textoEspera(reintentarEn)}`;
 }
 
 /** «Inténtalo en 12 min», «Inténtalo en 40 s», «Inténtalo más tarde». */

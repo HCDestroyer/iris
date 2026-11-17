@@ -311,6 +311,59 @@ test.describe("Administración › Correo", () => {
 });
 
 test.describe("Administración › Correo: ámbito y permisos", () => {
+    test("contrato 1.1.0: «Sin cifrado» solo se ofrece en el general; en una empresa, el 422 va junto al campo", async ({ page }) => {
+        const api = await abrir(page, { guardados: { global: CORREO_GLOBAL, "10": { ...CORREO_GLOBAL, version: 1 } }, rechaza: { codigo: "sin_cifrado_solo_global", field: "seguridad", message: "Sin cifrado solo en el ajuste global" } });
+        const opciones = async () => {
+            const control = formulario(page).getByLabel("Seguridad");
+            const disparador = control.and(page.locator('[data-slot="select-trigger"]'));
+            await disparador.click();
+            const lista = page.locator('[role="listbox"]').filter({ visible: true }).last();
+            await expect(lista).toBeVisible();
+            const valores = await lista.locator('[role="option"]').evaluateAll((os) => os.map((o) => o.getAttribute("data-valor")));
+            await page.keyboard.press("Escape");
+            await expect(lista).toBeHidden();
+            return valores;
+        };
+        expect(await opciones()).toEqual(["starttls", "tls", "ninguna"]);
+        await page.locator('[data-slot="ambito-correo"]').getByRole("radio", { name: "Solo Cable Norte" }).click();
+        await expect(page).toHaveURL(/\?ambito=empresa$/);
+        await expect(formulario(page).getByRole("textbox", { name: "Servidor" })).toHaveValue("smtp.proveedor.example");
+        expect(await opciones()).toEqual(["starttls", "tls"]);
+        // Si aun así el servidor lo rechaza, el texto llano junto a «Seguridad».
+        const f = formulario(page);
+        await f.getByRole("textbox", { name: "Nombre" }).fill("Cable Norte");
+        await page.getByRole("button", { name: "Guardar" }).click();
+        await expect(f.getByText("«Sin cifrado» solo se puede usar en el correo general: elige STARTTLS o TLS.")).toBeVisible();
+        await expect(page.getByTestId("error-correo")).toHaveCount(0);
+        expect(api.correo.guardados).toHaveLength(1);
+        await esperarSinDesbordes(page);
+    });
+
+    test("429 `demasiados_rechazos` al guardar y al probar: lo dice en llano con cuánto esperar", async ({ page }) => {
+        await abrir(page, { guardados: { global: CORREO_GLOBAL }, demasiadosRechazos: true, prueba: "demasiados_rechazos" });
+        const f = formulario(page);
+        await f.getByRole("textbox", { name: "Nombre" }).fill("Otro nombre");
+        await page.getByRole("button", { name: "Guardar" }).click();
+        await expect(page.getByTestId("error-correo")).toContainText("Demasiados intentos con servidores no permitidos. Inténtalo en 10 min.");
+        await esperarSinDesbordes(page);
+        await f.getByRole("button", { name: "Enviar correo de prueba" }).click();
+        await page.getByRole("dialog", { name: "Enviar correo de prueba" }).getByRole("button", { name: "Enviar prueba" }).click();
+        await expect(page.getByTestId("prueba-espera")).toContainText("Demasiados intentos con servidores no permitidos. Inténtalo en 10 min.");
+    });
+
+    test("una prueba lenta dice «Probando…» y espera el resultado sin cortar", async ({ page }) => {
+        await abrir(page, { guardados: { global: CORREO_GLOBAL }, prueba: "no_conecta", demoraPrueba: 2500 });
+        await formulario(page).getByRole("button", { name: "Enviar correo de prueba" }).click();
+        const dialogo = page.getByRole("dialog", { name: "Enviar correo de prueba" });
+        await dialogo.getByRole("button", { name: "Enviar prueba" }).click();
+        await expect(dialogo.locator('[data-slot="probando"]')).toContainText("Probando…");
+        await expect(dialogo.getByRole("button", { name: "Probando…" })).toBeDisabled();
+        const resultado = dialogo.locator('[data-slot="resultado-prueba"]');
+        await expect(resultado).toHaveAttribute("data-causa", "no_conecta", { timeout: 10_000 });
+        await expect(resultado).toContainText("No se pudo conectar: revisa el servidor y el puerto.");
+        await expect(dialogo.locator('[data-slot="probando"]')).toHaveCount(0);
+    });
+
     test("sin límite de empresa: elige entre «General» y «Solo esta empresa», cada uno con su ajuste", async ({ page }) => {
         const api = await abrir(page, { guardados: { global: CORREO_GLOBAL } });
         const ambito = page.locator('[data-slot="ambito-correo"]');

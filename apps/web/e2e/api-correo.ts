@@ -25,7 +25,11 @@ export type OpcionesCorreo = {
     /** El primer `guardar` responde 422 con ese código de regla (y ese campo, si lo trae). */
     rechaza?: { codigo: string; field?: string; message?: string };
     /** Resultado de `probar`: `ok` (por defecto), una causa de error o 429 con `Retry-After`. */
-    prueba?: "ok" | CausaPrueba | "429" | "causa_nueva";
+    prueba?: "ok" | CausaPrueba | "429" | "causa_nueva" | "demasiados_rechazos";
+    /** Milisegundos que tarda `probar` en responder (un servidor que no contesta tarda unos 11 s). */
+    demoraPrueba?: number;
+    /** El primer `guardar` responde 429 `demasiados_rechazos` con `Retry-After`. */
+    demasiadosRechazos?: boolean;
 };
 
 type Guardado = Omit<AjusteCorreo, "ambito" | "empresaId" | "configurado" | "tieneContrasena" | "origen" | "origenDetalle" | "entorno" | "enUso"> & { contrasena: string };
@@ -74,6 +78,7 @@ export function apiCorreo(opciones: OpcionesCorreo | undefined) {
     let fallaLeer = opciones?.fallaLeer ?? false;
     let conflicto = opciones?.conflicto ?? false;
     let rechaza = opciones?.rechaza;
+    let demasiadosRechazos = opciones?.demasiadosRechazos ?? false;
     const entorno = opciones?.entorno ? { configurado: true, host: "localhost", remitenteCorreo: "no-responder@iris.example" } : { configurado: false, host: "", remitenteCorreo: "" };
 
     /** Precedencia de §2: empresa activa → global activo → entorno → ninguno. */
@@ -105,7 +110,8 @@ export function apiCorreo(opciones: OpcionesCorreo | undefined) {
             origenDetalle: DETALLE_ORIGEN[origen],
             // Este ajuste es el que se usa hoy.
             enUso: g !== undefined && g.activo && origen === (ambito === "global" ? "global" : "empresa"),
-            entorno,
+            // 1.1.0: el host y el remitente del servidor solo se dicen en el ámbito global.
+            entorno: ambito === "global" ? entorno : { configurado: entorno.configurado },
         };
     }
 
@@ -135,6 +141,8 @@ export function apiCorreo(opciones: OpcionesCorreo | undefined) {
         const reglaDeCredenciales = () => {
             const e = cuerpo as unknown as EntradaPrueba;
             const usuario = e.usuario ?? "";
+            // 1.1.0: «sin cifrado» solo en el ámbito global.
+            if (e.seguridad === "ninguna" && ambito !== "global") return regla("sin_cifrado_solo_global", "seguridad", "Sin cifrado solo en el ajuste global");
             if (e.seguridad === "ninguna" && usuario !== "") return regla("sin_cifrado_sin_credenciales", "usuario", "Sin cifrado, el usuario va vacío");
             if (e.seguridad === "ninguna" && (e.contrasena ?? "") !== "") return regla("sin_cifrado_sin_credenciales", "contrasena", "Sin cifrado no se guarda contraseña");
             if (usuario === "" || (e.contrasena ?? "") !== "") return null;
@@ -147,6 +155,8 @@ export function apiCorreo(opciones: OpcionesCorreo | undefined) {
             const rechazo = reglaDeCredenciales();
             if (rechazo) return (await rechazo, true);
             const prueba = opciones?.prueba ?? "ok";
+            if (opciones?.demoraPrueba) await new Promise((r) => setTimeout(r, opciones.demoraPrueba));
+            if (prueba === "demasiados_rechazos") return (await problema(route, P("demasiados_rechazos", 429, "Demasiados intentos"), { "Retry-After": "600" }), true);
             if (prueba === "429") return (await problema(route, P("demasiadas_pruebas", 429, "Demasiadas pruebas"), { "Retry-After": "720" }), true);
             const resultado: ResultadoPrueba =
                 prueba === "ok"
@@ -163,6 +173,10 @@ export function apiCorreo(opciones: OpcionesCorreo | undefined) {
         if (accion === "guardar") {
             const entrada = cuerpo as unknown as EntradaCorreo;
             guardados.push({ ambito, cuerpo: entrada, idempotencia: x.idempotencia });
+            if (demasiadosRechazos) {
+                demasiadosRechazos = false;
+                return (await problema(route, P("demasiados_rechazos", 429, "Demasiados intentos"), { "Retry-After": "600" }), true);
+            }
             if (rechaza) {
                 const r = rechaza;
                 rechaza = undefined;

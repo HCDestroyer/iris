@@ -7,7 +7,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { probarCorreo } from "@/lib/correo/api";
-import { entradaPrueba, esquemaPrueba, reglaDeCorreo, textoEspera, textoResultado, type Ambito, type ValoresCorreo, type ValoresPrueba } from "@/lib/correo/correo";
+import { entradaPrueba, esquemaPrueba, reglaDeCorreo, textoDemasiados, textoResultado, type Ambito, type ValoresCorreo, type ValoresPrueba } from "@/lib/correo/correo";
 import type { AjusteCorreo, ResultadoPrueba } from "@/lib/correo/tipos";
 import { useSesion } from "@/lib/sesion";
 
@@ -32,7 +32,7 @@ export function DialogoPrueba({ ambito, ajuste, valores, cerrar }: { ambito: Amb
             setEstado({ tipo: "hecho", resultado: await probarCorreo(ambito, entradaPrueba(valores, para)), para });
         } catch (e) {
             if (e instanceof ErrorApi && e.estado === 429) {
-                setEstado({ tipo: "espera", texto: `Ya se hicieron muchas pruebas seguidas. ${textoEspera(e.reintentarEn)}` });
+                setEstado({ tipo: "espera", texto: textoDemasiados(e.codigo, e.reintentarEn) });
             } else if (e instanceof ErrorApi && e.estado === 422 && e.errores.some((x) => x.field.endsWith("para"))) {
                 form.setError("para", { message: e.errores.find((x) => x.field.endsWith("para"))?.message ?? "Revisa el correo de destino" }, { shouldFocus: true });
             } else if (e instanceof ErrorApi && e.estado === 422 && reglaDeCorreo(e.codigo, ajuste)) {
@@ -63,8 +63,9 @@ export function DialogoPrueba({ ambito, ajuste, valores, cerrar }: { ambito: Amb
                         {...form.register("para")}
                     />
                     {enviando ? (
-                        <p role="status" className="text-sm text-muted-foreground">
-                            Conectando con el servidor de correo…
+                        // Un servidor que no contesta tarda en fallar (unos 11 s): se dice que sigue probando y no se corta.
+                        <p role="status" className="text-sm text-muted-foreground" data-slot="probando">
+                            Probando… Si el servidor no contesta, puede tardar hasta medio minuto.
                         </p>
                     ) : resultado ? (
                         <div
@@ -94,7 +95,7 @@ export function DialogoPrueba({ ambito, ajuste, valores, cerrar }: { ambito: Amb
                             <Boton variante="contorno">Cerrar</Boton>
                         </DialogoCerrar>
                         <Boton type="submit" disabled={enviando}>
-                            {enviando ? <Cargando texto="Enviando…" /> : <Send />}
+                            {enviando ? <Cargando texto="Probando…" /> : <Send />}
                             {enviando ? null : estado.tipo === "nada" ? "Enviar prueba" : "Enviar otra vez"}
                         </Boton>
                     </DialogoPie>

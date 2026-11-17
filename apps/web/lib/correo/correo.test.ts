@@ -11,7 +11,9 @@ import {
     faltaContrasena,
     reglaDeCorreo,
     seBorraLaContrasena,
+    seguridadesDe,
     TEXTO_CONTRASENA_OTRA_VEZ,
+    textoDemasiados,
     textoCausa,
     textoEspera,
     textoOrigen,
@@ -167,6 +169,19 @@ describe("correo del sistema (contratos/correo-sistema.md)", () => {
         expect(esquemaCorreo.safeParse({ ...v, seguridad: "ninguna" }).success).toBe(false);
         expect(esquemaCorreo.safeParse({ ...v, seguridad: "ninguna", usuario: "", contrasena: "x" }).success).toBe(false);
         expect(esquemaCorreo.safeParse({ ...v, seguridad: "ninguna", usuario: "" }).success).toBe(true);
+    });
+
+    it("contrato 1.1.0: «sin cifrado» solo en el general, y los 429 con cuánto esperar", () => {
+        expect(seguridadesDe("global", "starttls")).toEqual(["starttls", "tls", "ninguna"]);
+        expect(seguridadesDe(10, "starttls")).toEqual(["starttls", "tls"]);
+        // Una empresa que ya lo tenía guardado lo sigue viendo, para poder cambiarlo.
+        expect(seguridadesDe(10, "ninguna")).toEqual(["starttls", "tls", "ninguna"]);
+        expect(reglaDeCorreo("sin_cifrado_solo_global", GLOBAL)).toEqual({ campo: "seguridad", mensaje: "«Sin cifrado» solo se puede usar en el correo general: elige STARTTLS o TLS." });
+        expect(textoDemasiados("demasiados_rechazos", 600)).toBe("Demasiados intentos con servidores no permitidos. Inténtalo en 10 min.");
+        expect(textoDemasiados("demasiados_rechazos", undefined)).toBe("Demasiados intentos con servidores no permitidos. Inténtalo más tarde.");
+        expect(textoDemasiados("demasiadas_pruebas", 720)).toBe("Ya se hicieron muchas pruebas seguidas. Inténtalo en 12 min.");
+        // `entorno` sin host ni remitente (ámbito de empresa) no rompe nada.
+        expect(textoOrigen({ origen: "entorno", origenDetalle: "" }, 10).titulo).toBe("Hoy los correos salen por el correo del servidor");
     });
 
     it("un servidor que no manda `usuario` o `ultimaPrueba` no rompe el formulario", () => {
