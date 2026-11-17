@@ -1131,10 +1131,13 @@ no guarda ninguna credencial de Iris.
 - **Dónde vive el token.** Es un secreto compartido (hace falta en los dos lados para el HMAC), así
   que **ninguno guarda «solo el hash»**: en Iris va cifrado con `IRIS_CLAVE_CIFRADO`
   (`voz_motores.token`); en el servidor de voz, como secreto de Docker en un archivo con permisos
-  mínimos (nunca en el repo, ni en una variable visible en `docker inspect`, ni en logs). Lo único
-  que se guarda como hash es el **código de enlace**.
-- **El token nunca lo copia una persona ni viaja al enlazar:** se deriva en los dos lados en el
-  emparejamiento (§4.8). **Rotación:** automática cada 30 días y manual **desde el panel**
+  mínimos (nunca en el repo, ni en una variable visible en `docker inspect`, ni en logs). **Nada
+  se guarda como hash**: el código de enlace va cifrado en Iris y se borra al enlazar o al vencer
+  (§4.8).
+- **El token nunca lo copia una persona.** El **derivado** del código (§4.8) **no viaja nunca**: se
+  calcula en los dos lados y solo vive hasta activar. El **aleatorio** que lo sustituye al activar,
+  y los de cada rotación, **sí viajan**, de Iris al servidor por `/credencial`, dentro del mTLS ya
+  fijado y firmados con el vigente. **Rotación:** automática cada 30 días y manual **desde el panel**
   («Rotar credenciales», `POST /voz/motores/{id}/rotar-token`, `servidor_ia.administrar`);
   mensajería genera el token nuevo y lo entrega por el canal ya autenticado
   (`POST /voz/v1/credencial`, con mTLS y firmado con el vigente). **Ventana de convivencia:** los
@@ -1269,10 +1272,13 @@ Cualquier otra ruta o método responde 404 **en la puerta**, sin llegar a Ollama
   con `//`, `.` o `..`: 404 sin normalizar.
 - **Decodifica y reserializa.** La petición debe ser JSON de **1 MB** como máximo. La puerta la
   decodifica con una **lista cerrada de campos** (`model`, `messages`, `stream`, `temperature`,
-  `max_tokens` ≤ tope del servidor, `response_format`, `tools`; cualquier otro campo, también
-  dentro de `messages` y `tools` fuera de su esquema, → 422 `campo_no_permitido`) y **arma una
-  petición nueva** hacia Ollama con solo esos campos, en la que **fija ella** `keep_alive` y el
-  tamaño de contexto. Lo que escribió el cliente nunca se reenvía tal cual.
+  `max_tokens` ≤ tope del servidor, `response_format`, `tools`, `tool_choice` —solo `"auto"` o
+  `"none"`—; cualquier otro campo, también dentro de `messages` y `tools` fuera de su esquema,
+  → 422 `campo_no_permitido`) y **arma una petición nueva** hacia Ollama con solo esos campos.
+  `keep_alive` y el tamaño de contexto **no los decide el cliente**: los fija el paquete en el
+  contenedor `llm` (`OLLAMA_KEEP_ALIVE`, `OLLAMA_CONTEXT_LENGTH`) y la puerta rechaza esos campos.
+  En esta entrega `stream` solo admite `false` (422 `flujo_no_disponible`): la respuesta se lee
+  entera, con tope, y va firmada. Lo que escribió el cliente nunca se reenvía tal cual.
 - `model` debe estar instalado **y** en `modelosPermitidos` (si no, 422 `modelo_no_instalado`; la
   puerta nunca dispara una descarga). `modelosPermitidos` lo define el admin de la instalación en
   el servidor (`iris-voz modelo permitir <nombre>`); `maxSimultaneas` se calcula **para ese
@@ -1377,9 +1383,18 @@ instalable aparte, construido solo para ese servidor.
   el manifiesto con **cosign keyless**: la identidad es la OIDC del workflow de release de este
   repositorio, sin claves ni secretos que aprovisionar, y el **bundle** (`.sigstore.json`) se
   publica junto al paquete. `install-voz.sh` e `iris-voz actualizar` **verifican firma e
-  identidad** (emisor OIDC de GitHub Actions, repositorio y ruta del workflow exactos) antes de
-  desempaquetar nada, y **fallan cerrado**: sin cosign, sin bundle o con otra identidad no se
-  instala. La suma `.sha256` sigue publicándose, pero no sustituye a la firma. Las **imágenes van
+  identidad** antes de desempaquetar nada, y **fallan cerrado**: sin cosign, sin bundle o con otra
+  identidad no se instala. **Identidad exacta:** emisor `https://token.actions.githubusercontent.com`
+  y SAN igual a
+  `https://github.com/HCDestroyer/iris/.github/workflows/voz-release.yml@refs/tags/voz-v<semver>`:
+  el workflow de release de voz, **solo en una etiqueta protegida `voz-v<semver>`, nunca en una
+  rama**. Además se comprueba que la **versión del manifiesto firmado coincide** con la del paquete
+  y con la etiqueta del SAN, y `actualizar` **no baja de versión**.
+- **Verificación sin internet.** Se verifica con el **bundle** y sin red. La **prueba de inclusión
+  en el registro de transparencia es obligatoria** (nunca se ignora ni se desactiva). La **raíz de
+  confianza de Sigstore va dentro del instalador** y de cada versión instalada (si caducó, falla
+  cerrado: se instala una versión más nueva del instalador). El binario de **cosign se fija por
+  sha256**. El README da el comando para verificar `install-voz.sh` antes de ejecutarlo. La suma `.sha256` sigue publicándose, pero no sustituye a la firma. Las **imágenes van
   por digest** en el compose (nunca por etiqueta) y los modelos por defecto, por digest en el
   manifiesto. La acción y la versión de cosign se fijan por SHA, con al menos dos semanas de
   antigüedad, y la dependencia se anota en la PR.
@@ -1528,7 +1543,8 @@ más.
 - **Logs:** ids, duraciones, códigos y métricas. Sin texto de turnos, sin SDP, sin claves y sin
   números de teléfono (no los recibe). Rotación local de 7 días.
 - **Contenedores:** sin `privileged`, sistema de archivos de solo lectura, usuario sin privilegios,
-  `no-new-privileges`, sin red compartida con nada más; solo `stt`, `tts` y `llm` ven la GPU.
+  `no-new-privileges`, sin red compartida con nada más; solo `stt`, `tts`, `llm` y el `medidor` (sin red ni puertos,
+  §4.12) ven la GPU.
 - **Credenciales:** una sola de Iris, el token de servicio, que solo sirve para **recibir**
   peticiones de mensajería: con él no se puede llamar a Iris. Rotación automática cada 30 días y al
   volver a enlazar. Certificado TLS propio, generado en la instalación y renovado con
@@ -2019,7 +2035,10 @@ todos modos a ese cliente.
 | STT, TTS, LLM locales | HTTP | **Solo** la red interna de Docker; Iris usa el LLM a través del 8443 (§4.4), nunca directo | Modelos |
 
 - Salida permitida: Meta (medios), los proveedores externos de STT/TTS configurados y los
-  repositorios de actualización. Todo lo demás, denegado.
+  repositorios de actualización. Todo lo demás, denegado. En la primera entrega (§4.11) la **única
+  salida de un contenedor es el registro de modelos**, y solo desde el contenedor de descarga de un
+  solo uso (§4.4); `puerta`, `llm` y `medidor` no tienen salida. **Sigstore no se necesita en el
+  servidor**: la firma se verifica sin red (§4.7).
 - Sin panel web, sin base, sin Redis expuesto. Logs sin audio, sin texto de turnos (solo ids,
   duraciones y códigos) y sin dígitos.
 - El compose del motor no comparte red, volúmenes ni secretos con el de Iris.
