@@ -694,6 +694,55 @@ Contrato: `.claude/integration/contratos/correo-sistema.md`. Pantalla: `/adminis
 - **Errores:** 409 con «Recargar» (trae lo guardado), 422 junto al campo, lectura fallida con
   «Reintentar» y sin formulario. Con solo `correo_sistema.ver`, todo deshabilitado y sin prueba.
 
+## Llamadas de WhatsApp en el panel (voz E1, nov. 2026)
+
+Contrato: `.claude/integration/contratos/voz.md` §3. Código: `apps/web/lib/voz` (máquina de estados,
+API, WebRTC) y `apps/web/componentes/voz`. El proveedor (`ProveedorVoz`) va en el layout del panel,
+solo para quien tiene `llamadas.contestar`: el aviso y la barra aparecen en cualquier pantalla.
+
+- **«Recibir llamadas»** es un interruptor por persona **y navegador**: en escritorio, el teléfono
+  de la barra superior (un punto verde si está encendido; crece en ámbar solo si hay que actuar);
+  en el teléfono, arriba de «Más». Al encenderlo, Iris explica **antes** para qué es el micrófono y
+  después el navegador pregunta. Estados que se dicen en llano: micrófono bloqueado (cómo
+  permitirlo), sin micrófono, sin conexión en vivo, «No disponible» y «este navegador dejó de
+  recibir» (el servidor guarda 10 por persona) con «Volver a encender».
+- **Llamada entrante:** tarjeta flotante bajo la barra superior (ancho completo en 390 px) con el
+  cliente o «Número desconocido» (nunca un nombre inventado), el número al que llaman, su servicio
+  el ticket abierto y «Saldo vencido» solo si el servidor lo dice (ausente no se muestra nada,
+  nunca «al día»), «Rechazar» y «Contestar». Quien supervisa ve además «Rechazar para todos» (con
+  confirmación) y, en el hilo, «Colgar la llamada» de otra persona. Suena un
+  timbre (WebAudio). «Contestar» abre la conversación del cliente, salvo que estés en un
+  formulario (no se pierde lo escrito: queda «Ver cliente» en la barra).
+- **Si no se pudo contestar** (otra persona la tomó, venció el tiempo, micrófono, red, ya tienes
+  otra llamada): un mensaje llano que se va solo a los 8 s. Si la tienes en otra pestaña, el aviso
+  solo se cierra. Nunca un código ni un error técnico.
+- **Nunca una llamada viva sin audio:** si esta pestaña deja una llamada que el servidor pudo
+  aceptar, la cuelga (con reintentos) y se lo dice al agente («La llamada se conectó sin audio y se
+  colgó»); si no logra colgarla, deja un aviso fijo con «Reintentar».
+- **Irse con una llamada:** cerrar sesión o cambiar de empresa con una llamada viva o sonando
+  pregunta antes («Tienes una llamada con…» · «Quedarme» / «Colgar y seguir») y la termina primero.
+- **Llamada en curso:** barra bajo la barra superior (`data-slot="barra-llamada"`), en todas las
+  pantallas: punto, nombre, tiempo, «Silenciar» y «Colgar» (rojo). Las pantallas de alto completo
+  le ceden su alto (`--alto-llamada`).
+- **Al terminar:** diálogo corto con la nota (opcional, queda como nota interna), «¿Cómo quedó?» y
+  los accesos «Crear ticket» y «Agendar visita». «Ahora no» cierra. Si se cortó, lo dice.
+- **En el hilo:** la llamada es una tarjeta centrada con icono + texto + color: contestada (verde),
+  rechazada (neutro), fuera de horario y fallida (ámbar), perdida (rojo, la única que pide actuar:
+  «Escribirle» y, si sigue pendiente, «Descartar»). El audio del buzón lleva «Mensaje de voz del
+  buzón». No hay «Devolver la llamada» hasta que existan las salientes (E1b).
+- **En la lista:** la fila con una llamada por devolver lleva el chip rojo «Llamada perdida ·
+  escríbele», y arriba se juntan como «N llamadas por devolver» (plegado es una línea).
+- **Ajustes:** `/administracion/numeros/[id]/llamadas` (requisitos de Meta como «Listo / Falta /
+  Recomendado / Sin comprobar», «pendiente de aplicar en WhatsApp» con «Reintentar», a quién le
+  suena, horario y llamadas perdidas; un número por QR solo muestra por qué no puede) y
+  `/administracion/llamadas` (de la empresa). **La grabación no se ofrece.**
+- **«En pruebas»:** hasta validar las llamadas con Meta, los ajustes llevan arriba la franja «En
+  pruebas» y los interruptores, la etiqueta. Se quita con una sola constante:
+  `LLAMADAS_EN_PRUEBAS` en `componentes/voz/en-pruebas.tsx`.
+- **Pruebas:** `lib/voz/*.test.ts` (máquina, textos, ajustes) y `e2e/voz.spec.ts` con
+  `e2e/api-voz.ts`, `e2e/doble-webrtc.ts` (micrófono y `RTCPeerConnection` de mentira) y
+  `page.clock` para los plazos de 12 s y 5 s.
+
 ## Navegación del panel (fase 1, hecha)
 
 - **Barra lateral por grupos:**
@@ -907,6 +956,7 @@ Cada fase:
 | 3 · Fichas con pestañas (hecha) | Ticket, orden, técnico, prospecto y usuario; acciones en un panel lateral; Argos 0.5.0 en el panel | I3 |
 | 4 · App de campo en el navegador (hecha) | Barra inferior, pasos independientes, firma y cierre como paso final, barra de estado discreta, botones grandes, «Por recibir» y «Mi bodega» | I3 |
 | 5 · App nativa | Las pantallas de la fase 4 con HeroUI Native | I4 |
+| Voz E1 (hecha) | Llamadas de WhatsApp contestadas en el panel: recibir, contestar, barra en curso, nota, hilo, perdidas y ajustes | I3 |
 | 6 · Portal de clientes | Mis casos, nuevo caso y conversación con el mismo estilo | I3 |
 
 ## Uso rápido

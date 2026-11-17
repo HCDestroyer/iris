@@ -17,6 +17,7 @@ import { AvisoAtencion, esperaDe, LineaDisponibles } from "./atencion";
 import { FiltroCategorias, LineaCategoria } from "./categoria";
 import { useAhora } from "./reloj";
 import { BotonFiltros } from "./filtros";
+import { ChipPerdida, PendientesDevolver } from "../voz/devoluciones";
 
 type EstadoLista = { estado: "cargando" } | { estado: "error"; error: unknown } | { estado: "listo"; items: Conversacion[]; cursor: string | null };
 
@@ -85,6 +86,7 @@ export function ListaConversaciones({ className, filtros, abierta, lista, contad
                     opciones={vistas}
                 />
                 <FiltroCategorias filtros={filtros} contadores={c} alCambiar={alFiltrar} />
+                <PendientesDevolver conversaciones={lista.estado === "listo" ? lista.items : []} hrefDe={hrefDe} ahora={ahora} />
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-slot="lista-conversaciones">
                 {lista.estado === "cargando" ? (
@@ -172,6 +174,7 @@ function FilaConversacion({ conv, href, actual, ahora }: { conv: Conversacion; h
                 ) : null}
             </span>
             <LineaCategoria conv={conv} />
+            <ChipPerdida conversacionId={conv.id} />
         </Link>
     );
 }
