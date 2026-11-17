@@ -735,21 +735,29 @@ func (m *Modulo) DespacharMetaVoz(ctx context.Context, bd nucleo.BD) error {
 	ahora := m.ahora()
 	// Se toman pocas y quedan apartadas lote × plazo (lo que tarda este ciclo, en el peor caso, en
 	// atenderlas todas): otro ciclo no retoma las mismas mientras tanto.
+	// Mientras quede presupuesto se toma otro lote: con muchas pendientes, un terminate (p. ej. por
+	// duración máxima) no espera varios ciclos. Lo ya tomado queda apartado: no se repite en el ciclo.
 	gracia := 2 * PlazoMeta
-	acciones, err := q.TomarAccionesMeta(ctx, mensajeriabd.TomarAccionesMetaParams{Antes: ptrT(ahora.Add(-gracia)), Lote: LoteMetaVoz,
-		Aparte: ahora.Add(LoteMetaVoz*PlazoMeta - gracia)})
-	if err != nil {
-		return err
-	}
-	for _, a := range acciones {
-		if a.TerminadaEn != nil && ahora.Sub(*a.TerminadaEn) > 2*time.Minute {
-			if err := q.AgotarAccionMeta(ctx, a.ID); err != nil {
-				return err
-			}
-			continue
+	inicio := time.Now()
+	for {
+		acciones, err := q.TomarAccionesMeta(ctx, mensajeriabd.TomarAccionesMetaParams{Antes: ptrT(ahora.Add(-gracia)), Lote: LoteMetaVoz,
+			Aparte: ahora.Add(LoteMetaVoz*PlazoMeta - gracia)})
+		if err != nil {
+			return err
 		}
-		if err := m.cumplirMeta(ctx, bd, a.ID, ""); err != nil {
-			slog.WarnContext(ctx, "voz: acción pendiente con Meta", "llamada_id", a.ID, "err", err)
+		for _, a := range acciones {
+			if a.TerminadaEn != nil && ahora.Sub(*a.TerminadaEn) > 2*time.Minute {
+				if err := q.AgotarAccionMeta(ctx, a.ID); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := m.cumplirMeta(ctx, bd, a.ID, ""); err != nil {
+				slog.WarnContext(ctx, "voz: acción pendiente con Meta", "llamada_id", a.ID, "err", err)
+			}
+		}
+		if len(acciones) < LoteMetaVoz || time.Since(inicio) >= PresupuestoMetaVoz {
+			break
 		}
 	}
 	// Aplicar los ajustes de un número son dos llamadas a Meta (leer y escribir).

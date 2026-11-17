@@ -4222,7 +4222,7 @@ export interface paths {
         };
         /**
          * ¿Este navegador recibe llamadas?
-         * @description Permiso: `llamadas.contestar`. `recibe`: el interruptor de este navegador; `vivo`: hay un flujo de eventos abierto con latido reciente (sin él no suena nada). Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         * @description Permiso: `llamadas.contestar`. `recibe`: el interruptor de este navegador; `vivo`: hay un flujo de eventos abierto con latido reciente (sin él no suena nada); `motivo`: por qué lo apagó el servidor (`tope`: pasaste de 10 navegadores; `inactivo`: 30 días sin abrirlo). El id va en la cabecera `X-Iris-Navegador` (preferida: no queda en los registros de acceso) o en `?navegador=`; sin ninguno, 422. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
          */
         get: operations["verRecibirLlamadas"];
         put?: never;
@@ -4404,7 +4404,7 @@ export interface paths {
         put?: never;
         /**
          * Reclamar una llamada que suena
-         * @description Permiso: `llamadas.contestar`. Atómico: gana uno solo. Responde `{ llamada, sdpOferta, ice, venceEn }`: aplica `sdpOferta` a un `RTCPeerConnection` y manda `contestar` antes de `venceEn` (12 s). Solo un candidato de **esa** llamada puede reclamarla (si no, 404). 409 `llamada_ya_contestada` si otro se adelantó o ya no suena (`errors[0].rule = misma_persona` si fuiste tú en otra pestaña: solo cierra el aviso). 422 `no_recibe_llamadas` sin «Recibir llamadas» o sin el flujo de eventos abierto. La respuesta no se guarda por `Idempotency-Key` (lleva el SDP): repetir, mientras dure la reserva, devuelve la misma, releída de la llamada. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         * @description Permiso: `llamadas.contestar`. Atómico: gana uno solo. Responde `{ llamada, sdpOferta, ice, venceEn }`: aplica `sdpOferta` a un `RTCPeerConnection` y manda `contestar` antes de `venceEn` (12 s). Solo un candidato de **esa** llamada puede reclamarla (si no, 404). 409 `llamada_ya_contestada` si otro se adelantó o ya no suena (`errors[0].rule = misma_persona` si fuiste tú en otro navegador: solo cierra el aviso). La reserva queda atada al navegador de la cabecera `X-Iris-Navegador` (sin ella, 422 `navegador_requerido`): `contestar`, `confirmar-medio` y `soltar` desde otro navegador tuyo responden 409 `llamada_ya_contestada` con `errors[0].rule = otro_navegador` y no tocan la reserva. 422 `no_recibe_llamadas` sin «Recibir llamadas» o sin el flujo de eventos abierto. La respuesta no se guarda por `Idempotency-Key` (lleva el SDP): repetir, mientras dure la reserva, devuelve la misma, releída de la llamada. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
          */
         post: operations["reclamarLlamada"];
         delete?: never;
@@ -9920,8 +9920,12 @@ export interface components {
             /** Format: int64 */
             id: number;
             llamadaId: string;
+            /** @description Teléfono del contacto en E.164 */
+            numero: string;
             /** @enum {string} */
             pedidaPor: "sistema" | "asistente" | "cliente";
+            /** @description Nombre del contacto de la conversación o, si no se conoce, el número */
+            titulo: string;
             /** Format: date-time */
             venceEn: string;
         };
@@ -13563,6 +13567,8 @@ export interface components {
             puede: components["schemas"]["PuedeLlamada"];
             /** @enum {string} */
             resultado?: "resuelto" | "ticket_creado" | "devolver" | "equivocado" | "otro";
+            /** @description Señales del cliente para decidir al contestar. Solo en llamadas vivas (sonando, conectando, en curso) de un cliente identificado */
+            senales?: components["schemas"]["SenalesLlamada"];
             /** Format: date-time */
             sonoEn: string;
             /**
@@ -15820,6 +15826,11 @@ export interface components {
             validaHasta: string;
         };
         RecibirLlamadas: {
+            /**
+             * @description Por qué el servidor apagó «Recibir llamadas» en este navegador: tope (pasaste de 10 navegadores) o inactivo (30 días sin abrirlo)
+             * @enum {string}
+             */
+            motivo?: "tope" | "inactivo";
             /** @description Este navegador tiene «Recibir llamadas» encendido */
             recibe: boolean;
             vivo: boolean;
@@ -16480,6 +16491,14 @@ export interface components {
             /** Format: date-time */
             venceEn: string | null;
         };
+        SenalesLlamada: {
+            /** @description true: el cliente tiene saldo vencido. Solo en GET /llamadas/{id} y solo con clientes.estado_cuenta; ausente si no se sabe. Nunca montos */
+            saldoVencido?: boolean;
+            /** @description El servicio de la conversación o, si no tiene, uno activo del cliente (instantánea de Argos). Solo con clientes.ver */
+            servicio?: components["schemas"]["ServicioDeLlamada"];
+            /** @description El ticket abierto más reciente del cliente. Solo con tickets.ver */
+            ticketAbierto?: components["schemas"]["TicketDeLlamada"];
+        };
         Servicio: {
             /** Format: int64 */
             clienteId: number;
@@ -16546,6 +16565,13 @@ export interface components {
             router: string;
             /** Format: date-time */
             sincronizadoEn: string;
+        };
+        ServicioDeLlamada: {
+            codigo: string;
+            estado: string;
+            /** Format: int64 */
+            id: number;
+            plan: string;
         };
         ServicioEliminado: {
             /** Format: int64 */
@@ -16966,6 +16992,12 @@ export interface components {
         TicketConMensaje: {
             mensaje: components["schemas"]["Mensaje"];
             ticket: components["schemas"]["Ticket"];
+        };
+        TicketDeLlamada: {
+            asunto: string;
+            /** Format: int64 */
+            id: number;
+            numero: string;
         };
         TicketPortal: {
             /** Format: date-time */
@@ -34311,9 +34343,13 @@ export interface operations {
     verRecibirLlamadas: {
         parameters: {
             query?: {
+                /** @description El id de este navegador, si no va en la cabecera */
                 navegador?: string;
             };
-            header?: never;
+            header?: {
+                /** @description El id de este navegador (preferido: no queda en los registros de acceso) */
+                "X-Iris-Navegador"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -34565,6 +34601,8 @@ export interface operations {
             header?: {
                 /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
                 "Idempotency-Key"?: string;
+                /** @description El id de «Recibir llamadas» de este navegador. Obligatorio en reclamar, contestar, confirmar-medio y soltar: la reserva es de un usuario en un navegador */
+                "X-Iris-Navegador"?: string;
             };
             path: {
                 id: string;
@@ -34648,6 +34686,8 @@ export interface operations {
             header?: {
                 /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
                 "Idempotency-Key"?: string;
+                /** @description El id de «Recibir llamadas» de este navegador. Obligatorio en reclamar, contestar, confirmar-medio y soltar: la reserva es de un usuario en un navegador */
+                "X-Iris-Navegador"?: string;
             };
             path: {
                 id: string;
@@ -34727,6 +34767,8 @@ export interface operations {
             header?: {
                 /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
                 "Idempotency-Key"?: string;
+                /** @description El id de «Recibir llamadas» de este navegador. Obligatorio en reclamar, contestar, confirmar-medio y soltar: la reserva es de un usuario en un navegador */
+                "X-Iris-Navegador"?: string;
             };
             path: {
                 id: string;
@@ -34815,6 +34857,8 @@ export interface operations {
             header?: {
                 /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
                 "Idempotency-Key"?: string;
+                /** @description El id de «Recibir llamadas» de este navegador. Obligatorio en reclamar, contestar, confirmar-medio y soltar: la reserva es de un usuario en un navegador */
+                "X-Iris-Navegador"?: string;
             };
             path: {
                 id: string;
@@ -34907,6 +34951,8 @@ export interface operations {
             header?: {
                 /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
                 "Idempotency-Key"?: string;
+                /** @description El id de «Recibir llamadas» de este navegador. Obligatorio en reclamar, contestar, confirmar-medio y soltar: la reserva es de un usuario en un navegador */
+                "X-Iris-Navegador"?: string;
             };
             path: {
                 id: string;
@@ -34990,6 +35036,8 @@ export interface operations {
             header?: {
                 /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
                 "Idempotency-Key"?: string;
+                /** @description El id de «Recibir llamadas» de este navegador. Obligatorio en reclamar, contestar, confirmar-medio y soltar: la reserva es de un usuario en un navegador */
+                "X-Iris-Navegador"?: string;
             };
             path: {
                 id: string;
@@ -35069,6 +35117,8 @@ export interface operations {
             header?: {
                 /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
                 "Idempotency-Key"?: string;
+                /** @description El id de «Recibir llamadas» de este navegador. Obligatorio en reclamar, contestar, confirmar-medio y soltar: la reserva es de un usuario en un navegador */
+                "X-Iris-Navegador"?: string;
             };
             path: {
                 id: string;

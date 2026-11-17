@@ -30,7 +30,7 @@ UPDATE mensajeria.conversacion_mensajes SET llamada_id = @llamada_id WHERE id = 
 -- name: ReclamarLlamada :one
 -- Reserva atómica (§3.3): gana quien actualiza la fila, y solo un candidato vivo de esa llamada.
 UPDATE mensajeria.llamadas l
-SET estado = 'conectando', reclamada_por = @usuario_id, reclamada_hasta = @hasta, updated_at = now()
+SET estado = 'conectando', reclamada_por = @usuario_id, reclamada_hasta = @hasta, reclamada_navegador = @navegador::text, updated_at = now()
 WHERE l.id = @id AND coalesce(l.empresa_id, 0) = @empresa::bigint AND l.estado = 'sonando'
   -- Todavía suena, y no hay una acción con Meta a medias (un pre_accept o accept de la reserva anterior).
   AND l.suena_hasta > @ahora::timestamptz AND l.accion_meta_estado IS DISTINCT FROM 'pendiente'
@@ -53,7 +53,7 @@ SELECT EXISTS (SELECT 1 FROM mensajeria.llamada_candidatos c JOIN mensajeria.lla
 -- Escribe el estado que calculó el caso de uso (la fila se leyó con FOR UPDATE).
 UPDATE mensajeria.llamadas
 SET estado = @estado, atendida_por = sqlc.narg('atendida_por'), usuario_id = sqlc.narg('usuario_id'),
-    reclamada_por = sqlc.narg('reclamada_por'), reclamada_hasta = sqlc.narg('reclamada_hasta'), motivo_fin = sqlc.narg('motivo_fin'),
+    reclamada_por = sqlc.narg('reclamada_por'), reclamada_hasta = sqlc.narg('reclamada_hasta'), reclamada_navegador = sqlc.narg('reclamada_navegador'), motivo_fin = sqlc.narg('motivo_fin'),
     contestada_en = sqlc.narg('contestada_en'), terminada_en = sqlc.narg('terminada_en'), duracion_seg = sqlc.narg('duracion_seg'),
     nota = sqlc.narg('nota'), resultado = sqlc.narg('resultado'), sdp_oferta = sqlc.narg('sdp_oferta'),
     accion_meta = sqlc.narg('accion_meta'), accion_meta_estado = sqlc.narg('accion_meta_estado'), accion_meta_en = sqlc.narg('accion_meta_en'),
@@ -105,7 +105,7 @@ ORDER BY d.usuario_id;
 INSERT INTO mensajeria.llamada_receptores (empresa_id, usuario_id, navegador, recibe, visto_en)
 VALUES (sqlc.narg('empresa_id'), @usuario_id, @navegador, @recibe, @ahora)
 ON CONFLICT ((coalesce(empresa_id, 0)), usuario_id, navegador)
-DO UPDATE SET recibe = EXCLUDED.recibe, visto_en = EXCLUDED.visto_en, updated_at = now()
+DO UPDATE SET recibe = EXCLUDED.recibe, visto_en = EXCLUDED.visto_en, apagado_motivo = NULL, updated_at = now()
 RETURNING *;
 
 -- name: ReceptorDe :one
@@ -172,14 +172,32 @@ SELECT id, payload FROM mensajeria.entrantes
 WHERE canal_id = @canal_id AND created_at >= @desde AND payload::text LIKE '%' || @marca::text || '%'
 ORDER BY id LIMIT 50;
 
--- name: LimpiarReceptores :exec
--- Tope de navegadores por usuario en «Recibir llamadas»: se quitan los que llevan 30 días sin verse
--- y, de los demás, los más viejos que pasen del tope.
-DELETE FROM mensajeria.llamada_receptores r
-WHERE coalesce(r.empresa_id, 0) = @empresa::bigint AND r.usuario_id = @usuario_id AND r.navegador <> @navegador
-  AND (r.visto_en < @viejo OR r.id IN (SELECT x.id FROM mensajeria.llamada_receptores x
-        WHERE coalesce(x.empresa_id, 0) = @empresa::bigint AND x.usuario_id = @usuario_id AND x.navegador <> @navegador
+-- name: ApagarReceptoresDeMas :exec
+-- Tope de navegadores por usuario en «Recibir llamadas»: se apagan (con su motivo, para que ese
+-- navegador sepa por qué) los que llevan 30 días sin verse y, de los demás, los más viejos que pasen
+-- del tope.
+UPDATE mensajeria.llamada_receptores r
+SET recibe = false, updated_at = now(),
+    apagado_motivo = CASE WHEN r.visto_en < sqlc.arg('viejo')::timestamptz THEN 'inactivo' ELSE 'tope' END
+WHERE coalesce(r.empresa_id, 0) = @empresa::bigint AND r.usuario_id = @usuario_id AND r.navegador <> @navegador AND r.recibe
+  AND (r.visto_en < sqlc.arg('viejo')::timestamptz OR r.id IN (SELECT x.id FROM mensajeria.llamada_receptores x
+        WHERE coalesce(x.empresa_id, 0) = @empresa::bigint AND x.usuario_id = @usuario_id AND x.navegador <> @navegador AND x.recibe
         ORDER BY x.visto_en DESC, x.id DESC OFFSET @conservar));
+
+-- name: BorrarReceptoresSobrantes :exec
+-- De los apagados solo se guardan los más recientes: la tabla no crece sin límite.
+DELETE FROM mensajeria.llamada_receptores r
+WHERE coalesce(r.empresa_id, 0) = @empresa::bigint AND r.usuario_id = @usuario_id AND r.navegador <> @navegador AND NOT r.recibe
+  AND r.id IN (SELECT x.id FROM mensajeria.llamada_receptores x
+        WHERE coalesce(x.empresa_id, 0) = @empresa::bigint AND x.usuario_id = @usuario_id AND x.navegador <> @navegador AND NOT x.recibe
+        ORDER BY x.visto_en DESC, x.id DESC OFFSET @conservar);
+
+-- name: ServicioPrincipal :one
+-- El servicio que se muestra con la llamada: el de la conversación; si no, uno activo del cliente.
+SELECT s.id, s.codigo, s.plan_nombre, s.estado FROM integracion.argos_servicios s
+WHERE s.cliente_id = @cliente_id AND s.empresa_id = @empresa::bigint
+ORDER BY (s.id = coalesce(sqlc.narg('servicio_id')::bigint, 0)) DESC, (s.estado = 'activo') DESC, s.id
+LIMIT 1;
 
 -- name: CanalRecibioLlamadas :one
 -- ¿Ha llegado alguna vez un webhook de llamada a este número? (prueba de que el campo calls está suscrito)

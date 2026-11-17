@@ -1636,41 +1636,42 @@ type MensajeriaHorario struct {
 }
 
 type MensajeriaLlamada struct {
-	ID               uuid.UUID
-	EmpresaID        *int64
-	Origen           string
-	CanalID          *int64
-	ConversacionID   *int64
-	MensajeID        *uuid.UUID
-	IDExterno        string
-	Direccion        string
-	Numero           string
-	ClienteID        *int64
-	ServicioID       *int64
-	ColaID           *int64
-	Estado           string
-	AtendidaPor      *string
-	UsuarioID        *int64
-	ReclamadaPor     *int64
-	ReclamadaHasta   *time.Time
-	MotivoFin        *string
-	SonoEn           time.Time
-	SuenaHasta       time.Time
-	ContestadaEn     *time.Time
-	TerminadaEn      *time.Time
-	DuracionSeg      *int32
-	Nota             *string
-	Resultado        *string
-	Grabada          bool
-	SdpOferta        *string
-	AccionMeta       *string
-	AccionMetaEstado *string
-	AccionMetaEn     *time.Time
-	PreAceptadaEn    *time.Time
-	AvisoPerdida     bool
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	AccionMetaPor    *int64
+	ID                 uuid.UUID
+	EmpresaID          *int64
+	Origen             string
+	CanalID            *int64
+	ConversacionID     *int64
+	MensajeID          *uuid.UUID
+	IDExterno          string
+	Direccion          string
+	Numero             string
+	ClienteID          *int64
+	ServicioID         *int64
+	ColaID             *int64
+	Estado             string
+	AtendidaPor        *string
+	UsuarioID          *int64
+	ReclamadaPor       *int64
+	ReclamadaHasta     *time.Time
+	MotivoFin          *string
+	SonoEn             time.Time
+	SuenaHasta         time.Time
+	ContestadaEn       *time.Time
+	TerminadaEn        *time.Time
+	DuracionSeg        *int32
+	Nota               *string
+	Resultado          *string
+	Grabada            bool
+	SdpOferta          *string
+	AccionMeta         *string
+	AccionMetaEstado   *string
+	AccionMetaEn       *time.Time
+	PreAceptadaEn      *time.Time
+	AvisoPerdida       bool
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	AccionMetaPor      *int64
+	ReclamadaNavegador *string
 }
 
 type MensajeriaLlamadaCandidato struct {
@@ -1717,14 +1718,15 @@ type MensajeriaLlamadaGrabacione struct {
 }
 
 type MensajeriaLlamadaReceptore struct {
-	ID        int64
-	EmpresaID *int64
-	UsuarioID int64
-	Navegador string
-	Recibe    bool
-	VistoEn   time.Time
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID            int64
+	EmpresaID     *int64
+	UsuarioID     int64
+	Navegador     string
+	Recibe        bool
+	VistoEn       time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	ApagadoMotivo *string
 }
 
 type MensajeriaLlamadaTramo struct {

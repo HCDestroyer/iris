@@ -60,6 +60,38 @@ func (q *Queries) AgotarAccionMeta(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+const apagarReceptoresDeMas = `-- name: ApagarReceptoresDeMas :exec
+UPDATE mensajeria.llamada_receptores r
+SET recibe = false, updated_at = now(),
+    apagado_motivo = CASE WHEN r.visto_en < $1::timestamptz THEN 'inactivo' ELSE 'tope' END
+WHERE coalesce(r.empresa_id, 0) = $2::bigint AND r.usuario_id = $3 AND r.navegador <> $4 AND r.recibe
+  AND (r.visto_en < $1::timestamptz OR r.id IN (SELECT x.id FROM mensajeria.llamada_receptores x
+        WHERE coalesce(x.empresa_id, 0) = $2::bigint AND x.usuario_id = $3 AND x.navegador <> $4 AND x.recibe
+        ORDER BY x.visto_en DESC, x.id DESC OFFSET $5))
+`
+
+type ApagarReceptoresDeMasParams struct {
+	Viejo     time.Time
+	Empresa   int64
+	UsuarioID int64
+	Navegador string
+	Conservar int32
+}
+
+// Tope de navegadores por usuario en «Recibir llamadas»: se apagan (con su motivo, para que ese
+// navegador sepa por qué) los que llevan 30 días sin verse y, de los demás, los más viejos que pasen
+// del tope.
+func (q *Queries) ApagarReceptoresDeMas(ctx context.Context, arg ApagarReceptoresDeMasParams) error {
+	_, err := q.db.Exec(ctx, apagarReceptoresDeMas,
+		arg.Viejo,
+		arg.Empresa,
+		arg.UsuarioID,
+		arg.Navegador,
+		arg.Conservar,
+	)
+	return err
+}
+
 const avisoPerdidaReciente = `-- name: AvisoPerdidaReciente :one
 SELECT EXISTS (SELECT 1 FROM mensajeria.llamadas
     WHERE conversacion_id = $1 AND aviso_perdida AND sono_en > $2)::boolean
@@ -75,6 +107,32 @@ func (q *Queries) AvisoPerdidaReciente(ctx context.Context, arg AvisoPerdidaReci
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const borrarReceptoresSobrantes = `-- name: BorrarReceptoresSobrantes :exec
+DELETE FROM mensajeria.llamada_receptores r
+WHERE coalesce(r.empresa_id, 0) = $1::bigint AND r.usuario_id = $2 AND r.navegador <> $3 AND NOT r.recibe
+  AND r.id IN (SELECT x.id FROM mensajeria.llamada_receptores x
+        WHERE coalesce(x.empresa_id, 0) = $1::bigint AND x.usuario_id = $2 AND x.navegador <> $3 AND NOT x.recibe
+        ORDER BY x.visto_en DESC, x.id DESC OFFSET $4)
+`
+
+type BorrarReceptoresSobrantesParams struct {
+	Empresa   int64
+	UsuarioID int64
+	Navegador string
+	Conservar int32
+}
+
+// De los apagados solo se guardan los más recientes: la tabla no crece sin límite.
+func (q *Queries) BorrarReceptoresSobrantes(ctx context.Context, arg BorrarReceptoresSobrantesParams) error {
+	_, err := q.db.Exec(ctx, borrarReceptoresSobrantes,
+		arg.Empresa,
+		arg.UsuarioID,
+		arg.Navegador,
+		arg.Conservar,
+	)
+	return err
 }
 
 const canalRecibioLlamadas = `-- name: CanalRecibioLlamadas :one
@@ -400,8 +458,8 @@ const fijarReceptor = `-- name: FijarReceptor :one
 INSERT INTO mensajeria.llamada_receptores (empresa_id, usuario_id, navegador, recibe, visto_en)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT ((coalesce(empresa_id, 0)), usuario_id, navegador)
-DO UPDATE SET recibe = EXCLUDED.recibe, visto_en = EXCLUDED.visto_en, updated_at = now()
-RETURNING id, empresa_id, usuario_id, navegador, recibe, visto_en, created_at, updated_at
+DO UPDATE SET recibe = EXCLUDED.recibe, visto_en = EXCLUDED.visto_en, apagado_motivo = NULL, updated_at = now()
+RETURNING id, empresa_id, usuario_id, navegador, recibe, visto_en, created_at, updated_at, apagado_motivo
 `
 
 type FijarReceptorParams struct {
@@ -430,6 +488,7 @@ func (q *Queries) FijarReceptor(ctx context.Context, arg FijarReceptorParams) (M
 		&i.VistoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ApagadoMotivo,
 	)
 	return i, err
 }
@@ -630,36 +689,37 @@ func (q *Queries) GuardarGrabacion(ctx context.Context, arg GuardarGrabacionPara
 const guardarLlamada = `-- name: GuardarLlamada :one
 UPDATE mensajeria.llamadas
 SET estado = $1, atendida_por = $2, usuario_id = $3,
-    reclamada_por = $4, reclamada_hasta = $5, motivo_fin = $6,
-    contestada_en = $7, terminada_en = $8, duracion_seg = $9,
-    nota = $10, resultado = $11, sdp_oferta = $12,
-    accion_meta = $13, accion_meta_estado = $14, accion_meta_en = $15,
-    accion_meta_por = $16,
-    pre_aceptada_en = $17, aviso_perdida = $18, updated_at = now()
-WHERE id = $19
-RETURNING id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por
+    reclamada_por = $4, reclamada_hasta = $5, reclamada_navegador = $6, motivo_fin = $7,
+    contestada_en = $8, terminada_en = $9, duracion_seg = $10,
+    nota = $11, resultado = $12, sdp_oferta = $13,
+    accion_meta = $14, accion_meta_estado = $15, accion_meta_en = $16,
+    accion_meta_por = $17,
+    pre_aceptada_en = $18, aviso_perdida = $19, updated_at = now()
+WHERE id = $20
+RETURNING id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador
 `
 
 type GuardarLlamadaParams struct {
-	Estado           string
-	AtendidaPor      *string
-	UsuarioID        *int64
-	ReclamadaPor     *int64
-	ReclamadaHasta   *time.Time
-	MotivoFin        *string
-	ContestadaEn     *time.Time
-	TerminadaEn      *time.Time
-	DuracionSeg      *int32
-	Nota             *string
-	Resultado        *string
-	SdpOferta        *string
-	AccionMeta       *string
-	AccionMetaEstado *string
-	AccionMetaEn     *time.Time
-	AccionMetaPor    *int64
-	PreAceptadaEn    *time.Time
-	AvisoPerdida     bool
-	ID               uuid.UUID
+	Estado             string
+	AtendidaPor        *string
+	UsuarioID          *int64
+	ReclamadaPor       *int64
+	ReclamadaHasta     *time.Time
+	ReclamadaNavegador *string
+	MotivoFin          *string
+	ContestadaEn       *time.Time
+	TerminadaEn        *time.Time
+	DuracionSeg        *int32
+	Nota               *string
+	Resultado          *string
+	SdpOferta          *string
+	AccionMeta         *string
+	AccionMetaEstado   *string
+	AccionMetaEn       *time.Time
+	AccionMetaPor      *int64
+	PreAceptadaEn      *time.Time
+	AvisoPerdida       bool
+	ID                 uuid.UUID
 }
 
 // Escribe el estado que calculó el caso de uso (la fila se leyó con FOR UPDATE).
@@ -670,6 +730,7 @@ func (q *Queries) GuardarLlamada(ctx context.Context, arg GuardarLlamadaParams) 
 		arg.UsuarioID,
 		arg.ReclamadaPor,
 		arg.ReclamadaHasta,
+		arg.ReclamadaNavegador,
 		arg.MotivoFin,
 		arg.ContestadaEn,
 		arg.TerminadaEn,
@@ -722,6 +783,7 @@ func (q *Queries) GuardarLlamada(ctx context.Context, arg GuardarLlamadaParams) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.AccionMetaPor,
+		&i.ReclamadaNavegador,
 	)
 	return i, err
 }
@@ -911,7 +973,7 @@ INSERT INTO mensajeria.llamadas (id, empresa_id, origen, canal_id, conversacion_
 VALUES ($1, $2, 'whatsapp', $3, $4, $5, 'entrante', $6,
     $7, $8, $9, 'sonando', $10, $11, $12, $13)
 ON CONFLICT (origen, canal_id, id_externo) DO NOTHING
-RETURNING id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por
+RETURNING id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador
 `
 
 type InsertarLlamadaParams struct {
@@ -985,6 +1047,7 @@ func (q *Queries) InsertarLlamada(ctx context.Context, arg InsertarLlamadaParams
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.AccionMetaPor,
+		&i.ReclamadaNavegador,
 	)
 	return i, err
 }
@@ -1043,35 +1106,6 @@ func (q *Queries) InsertarVozAjustes(ctx context.Context, arg InsertarVozAjustes
 		&i.UpdatedAt,
 	)
 	return i, err
-}
-
-const limpiarReceptores = `-- name: LimpiarReceptores :exec
-DELETE FROM mensajeria.llamada_receptores r
-WHERE coalesce(r.empresa_id, 0) = $1::bigint AND r.usuario_id = $2 AND r.navegador <> $3
-  AND (r.visto_en < $4 OR r.id IN (SELECT x.id FROM mensajeria.llamada_receptores x
-        WHERE coalesce(x.empresa_id, 0) = $1::bigint AND x.usuario_id = $2 AND x.navegador <> $3
-        ORDER BY x.visto_en DESC, x.id DESC OFFSET $5))
-`
-
-type LimpiarReceptoresParams struct {
-	Empresa   int64
-	UsuarioID int64
-	Navegador string
-	Viejo     time.Time
-	Conservar int32
-}
-
-// Tope de navegadores por usuario en «Recibir llamadas»: se quitan los que llevan 30 días sin verse
-// y, de los demás, los más viejos que pasen del tope.
-func (q *Queries) LimpiarReceptores(ctx context.Context, arg LimpiarReceptoresParams) error {
-	_, err := q.db.Exec(ctx, limpiarReceptores,
-		arg.Empresa,
-		arg.UsuarioID,
-		arg.Navegador,
-		arg.Viejo,
-		arg.Conservar,
-	)
-	return err
 }
 
 const listarDevoluciones = `-- name: ListarDevoluciones :many
@@ -1134,7 +1168,7 @@ func (q *Queries) ListarDevoluciones(ctx context.Context, arg ListarDevoluciones
 }
 
 const listarLlamadas = `-- name: ListarLlamadas :many
-SELECT l.id, l.empresa_id, l.origen, l.canal_id, l.conversacion_id, l.mensaje_id, l.id_externo, l.direccion, l.numero, l.cliente_id, l.servicio_id, l.cola_id, l.estado, l.atendida_por, l.usuario_id, l.reclamada_por, l.reclamada_hasta, l.motivo_fin, l.sono_en, l.suena_hasta, l.contestada_en, l.terminada_en, l.duracion_seg, l.nota, l.resultado, l.grabada, l.sdp_oferta, l.accion_meta, l.accion_meta_estado, l.accion_meta_en, l.pre_aceptada_en, l.aviso_perdida, l.created_at, l.updated_at, l.accion_meta_por FROM mensajeria.llamadas l
+SELECT l.id, l.empresa_id, l.origen, l.canal_id, l.conversacion_id, l.mensaje_id, l.id_externo, l.direccion, l.numero, l.cliente_id, l.servicio_id, l.cola_id, l.estado, l.atendida_por, l.usuario_id, l.reclamada_por, l.reclamada_hasta, l.motivo_fin, l.sono_en, l.suena_hasta, l.contestada_en, l.terminada_en, l.duracion_seg, l.nota, l.resultado, l.grabada, l.sdp_oferta, l.accion_meta, l.accion_meta_estado, l.accion_meta_en, l.pre_aceptada_en, l.aviso_perdida, l.created_at, l.updated_at, l.accion_meta_por, l.reclamada_navegador FROM mensajeria.llamadas l
 JOIN mensajeria.conversaciones c ON c.id = l.conversacion_id
 WHERE coalesce(l.empresa_id, 0) = $1::bigint AND coalesce(c.empresa_id, 0) = $1::bigint
   AND mensajeria.conv_visible($2::bigint, $3::boolean, c.id, c.cola_id, c.asignado_a)
@@ -1220,6 +1254,7 @@ func (q *Queries) ListarLlamadas(ctx context.Context, arg ListarLlamadasParams) 
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.AccionMetaPor,
+			&i.ReclamadaNavegador,
 		); err != nil {
 			return nil, err
 		}
@@ -1232,7 +1267,7 @@ func (q *Queries) ListarLlamadas(ctx context.Context, arg ListarLlamadasParams) 
 }
 
 const llamadaActivaDeUsuario = `-- name: LlamadaActivaDeUsuario :one
-SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por FROM mensajeria.llamadas
+SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador FROM mensajeria.llamadas
 WHERE coalesce(empresa_id, 0) = $1::bigint AND estado IN ('conectando', 'en_curso')
   AND (usuario_id = $2 OR reclamada_por = $2)
 ORDER BY sono_en DESC LIMIT 1
@@ -1282,6 +1317,7 @@ func (q *Queries) LlamadaActivaDeUsuario(ctx context.Context, arg LlamadaActivaD
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.AccionMetaPor,
+		&i.ReclamadaNavegador,
 	)
 	return i, err
 }
@@ -1307,7 +1343,7 @@ func (q *Queries) LlamadaAlBuzonReciente(ctx context.Context, arg LlamadaAlBuzon
 }
 
 const llamadaParaActualizar = `-- name: LlamadaParaActualizar :one
-SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por FROM mensajeria.llamadas WHERE id = $1 FOR UPDATE
+SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador FROM mensajeria.llamadas WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) LlamadaParaActualizar(ctx context.Context, id uuid.UUID) (MensajeriaLlamada, error) {
@@ -1349,12 +1385,13 @@ func (q *Queries) LlamadaParaActualizar(ctx context.Context, id uuid.UUID) (Mens
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.AccionMetaPor,
+		&i.ReclamadaNavegador,
 	)
 	return i, err
 }
 
 const llamadaPorExterno = `-- name: LlamadaPorExterno :one
-SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por FROM mensajeria.llamadas WHERE origen = 'whatsapp' AND canal_id = $1 AND id_externo = $2 FOR UPDATE
+SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador FROM mensajeria.llamadas WHERE origen = 'whatsapp' AND canal_id = $1 AND id_externo = $2 FOR UPDATE
 `
 
 type LlamadaPorExternoParams struct {
@@ -1401,12 +1438,13 @@ func (q *Queries) LlamadaPorExterno(ctx context.Context, arg LlamadaPorExternoPa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.AccionMetaPor,
+		&i.ReclamadaNavegador,
 	)
 	return i, err
 }
 
 const llamadaPorID = `-- name: LlamadaPorID :one
-SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por FROM mensajeria.llamadas WHERE id = $1
+SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador FROM mensajeria.llamadas WHERE id = $1
 `
 
 func (q *Queries) LlamadaPorID(ctx context.Context, id uuid.UUID) (MensajeriaLlamada, error) {
@@ -1448,12 +1486,13 @@ func (q *Queries) LlamadaPorID(ctx context.Context, id uuid.UUID) (MensajeriaLla
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.AccionMetaPor,
+		&i.ReclamadaNavegador,
 	)
 	return i, err
 }
 
 const llamadasConAccionPendiente = `-- name: LlamadasConAccionPendiente :many
-SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por FROM mensajeria.llamadas WHERE accion_meta_estado = 'pendiente' AND accion_meta_en < $1
+SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador FROM mensajeria.llamadas WHERE accion_meta_estado = 'pendiente' AND accion_meta_en < $1
   AND estado IN ('sonando', 'marcando', 'conectando', 'en_curso') ORDER BY accion_meta_en LIMIT 100
 `
 
@@ -1504,6 +1543,7 @@ func (q *Queries) LlamadasConAccionPendiente(ctx context.Context, antes *time.Ti
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.AccionMetaPor,
+			&i.ReclamadaNavegador,
 		); err != nil {
 			return nil, err
 		}
@@ -1516,7 +1556,7 @@ func (q *Queries) LlamadasConAccionPendiente(ctx context.Context, antes *time.Ti
 }
 
 const llamadasPorIDs = `-- name: LlamadasPorIDs :many
-SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por FROM mensajeria.llamadas WHERE id = ANY ($1::uuid[])
+SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador FROM mensajeria.llamadas WHERE id = ANY ($1::uuid[])
 `
 
 func (q *Queries) LlamadasPorIDs(ctx context.Context, ids []uuid.UUID) ([]MensajeriaLlamada, error) {
@@ -1564,6 +1604,7 @@ func (q *Queries) LlamadasPorIDs(ctx context.Context, ids []uuid.UUID) ([]Mensaj
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.AccionMetaPor,
+			&i.ReclamadaNavegador,
 		); err != nil {
 			return nil, err
 		}
@@ -1594,7 +1635,7 @@ func (q *Queries) LlamadasRecientesDeNumero(ctx context.Context, arg LlamadasRec
 }
 
 const llamadasVivas = `-- name: LlamadasVivas :many
-SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por FROM mensajeria.llamadas WHERE estado IN ('sonando', 'marcando', 'conectando', 'en_curso') ORDER BY sono_en LIMIT 200
+SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador FROM mensajeria.llamadas WHERE estado IN ('sonando', 'marcando', 'conectando', 'en_curso') ORDER BY sono_en LIMIT 200
 `
 
 // Para el mantenimiento (cada 5 s): todo lo que no terminó.
@@ -1643,6 +1684,7 @@ func (q *Queries) LlamadasVivas(ctx context.Context) ([]MensajeriaLlamada, error
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.AccionMetaPor,
+			&i.ReclamadaNavegador,
 		); err != nil {
 			return nil, err
 		}
@@ -1664,7 +1706,7 @@ func (q *Queries) MarcarBuzonDeVoz(ctx context.Context, id uuid.UUID) error {
 }
 
 const receptorDe = `-- name: ReceptorDe :one
-SELECT id, empresa_id, usuario_id, navegador, recibe, visto_en, created_at, updated_at FROM mensajeria.llamada_receptores
+SELECT id, empresa_id, usuario_id, navegador, recibe, visto_en, created_at, updated_at, apagado_motivo FROM mensajeria.llamada_receptores
 WHERE coalesce(empresa_id, 0) = $1::bigint AND usuario_id = $2 AND navegador = $3
 `
 
@@ -1686,6 +1728,7 @@ func (q *Queries) ReceptorDe(ctx context.Context, arg ReceptorDeParams) (Mensaje
 		&i.VistoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ApagadoMotivo,
 	)
 	return i, err
 }
@@ -1753,20 +1796,21 @@ func (q *Queries) ReceptoresParaLlamada(ctx context.Context, arg ReceptoresParaL
 
 const reclamarLlamada = `-- name: ReclamarLlamada :one
 UPDATE mensajeria.llamadas l
-SET estado = 'conectando', reclamada_por = $1, reclamada_hasta = $2, updated_at = now()
-WHERE l.id = $3 AND coalesce(l.empresa_id, 0) = $4::bigint AND l.estado = 'sonando'
+SET estado = 'conectando', reclamada_por = $1, reclamada_hasta = $2, reclamada_navegador = $3::text, updated_at = now()
+WHERE l.id = $4 AND coalesce(l.empresa_id, 0) = $5::bigint AND l.estado = 'sonando'
   -- Todavía suena, y no hay una acción con Meta a medias (un pre_accept o accept de la reserva anterior).
-  AND l.suena_hasta > $5::timestamptz AND l.accion_meta_estado IS DISTINCT FROM 'pendiente'
+  AND l.suena_hasta > $6::timestamptz AND l.accion_meta_estado IS DISTINCT FROM 'pendiente'
   AND EXISTS (SELECT 1 FROM mensajeria.llamada_candidatos c WHERE c.llamada_id = l.id AND c.usuario_id = $1 AND c.retirado_en IS NULL)
   -- Quien ya tiene una llamada viva no reclama otra.
   AND NOT EXISTS (SELECT 1 FROM mensajeria.llamadas o WHERE o.id <> l.id AND o.estado IN ('conectando', 'en_curso')
       AND (o.usuario_id = $1 OR o.reclamada_por = $1))
-RETURNING id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por
+RETURNING id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador
 `
 
 type ReclamarLlamadaParams struct {
 	UsuarioID *int64
 	Hasta     *time.Time
+	Navegador string
 	ID        uuid.UUID
 	Empresa   int64
 	Ahora     time.Time
@@ -1777,6 +1821,7 @@ func (q *Queries) ReclamarLlamada(ctx context.Context, arg ReclamarLlamadaParams
 	row := q.db.QueryRow(ctx, reclamarLlamada,
 		arg.UsuarioID,
 		arg.Hasta,
+		arg.Navegador,
 		arg.ID,
 		arg.Empresa,
 		arg.Ahora,
@@ -1818,6 +1863,7 @@ func (q *Queries) ReclamarLlamada(ctx context.Context, arg ReclamarLlamadaParams
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.AccionMetaPor,
+		&i.ReclamadaNavegador,
 	)
 	return i, err
 }
@@ -1859,6 +1905,39 @@ type RetirarCandidatosParams struct {
 func (q *Queries) RetirarCandidatos(ctx context.Context, arg RetirarCandidatosParams) error {
 	_, err := q.db.Exec(ctx, retirarCandidatos, arg.Ahora, arg.LlamadaID)
 	return err
+}
+
+const servicioPrincipal = `-- name: ServicioPrincipal :one
+SELECT s.id, s.codigo, s.plan_nombre, s.estado FROM integracion.argos_servicios s
+WHERE s.cliente_id = $1 AND s.empresa_id = $2::bigint
+ORDER BY (s.id = coalesce($3::bigint, 0)) DESC, (s.estado = 'activo') DESC, s.id
+LIMIT 1
+`
+
+type ServicioPrincipalParams struct {
+	ClienteID  int64
+	Empresa    int64
+	ServicioID *int64
+}
+
+type ServicioPrincipalRow struct {
+	ID         int64
+	Codigo     string
+	PlanNombre string
+	Estado     string
+}
+
+// El servicio que se muestra con la llamada: el de la conversación; si no, uno activo del cliente.
+func (q *Queries) ServicioPrincipal(ctx context.Context, arg ServicioPrincipalParams) (ServicioPrincipalRow, error) {
+	row := q.db.QueryRow(ctx, servicioPrincipal, arg.ClienteID, arg.Empresa, arg.ServicioID)
+	var i ServicioPrincipalRow
+	err := row.Scan(
+		&i.ID,
+		&i.Codigo,
+		&i.PlanNombre,
+		&i.Estado,
+	)
+	return i, err
 }
 
 const tocarReceptores = `-- name: TocarReceptores :exec
