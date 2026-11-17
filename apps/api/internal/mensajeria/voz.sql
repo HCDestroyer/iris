@@ -147,12 +147,13 @@ SELECT * FROM mensajeria.llamadas WHERE accion_meta_estado = 'pendiente' AND acc
 
 -- name: TomarAccionesMeta :many
 -- El job de escrituras a Meta toma las reject y terminate pendientes de llamadas ya cerradas cuyo
--- intento ya toca (SKIP LOCKED: dos réplicas no toman la misma) y las deja apartadas un rato.
-UPDATE mensajeria.llamadas SET accion_meta_en = @ahora::timestamptz
+-- intento ya toca (SKIP LOCKED: dos réplicas no toman la misma) y las deja apartadas lote × plazo
+-- (aparte), para que otro ciclo no las retome mientras este las atiende.
+UPDATE mensajeria.llamadas SET accion_meta_en = @aparte::timestamptz
 WHERE id IN (SELECT l.id FROM mensajeria.llamadas l
     WHERE l.accion_meta_estado = 'pendiente' AND l.accion_meta IN ('reject', 'terminate') AND l.accion_meta_en <= @antes
       AND l.estado IN ('terminada', 'perdida', 'rechazada', 'fuera_de_horario', 'fallida')
-    ORDER BY l.accion_meta_en LIMIT 50 FOR UPDATE SKIP LOCKED)
+    ORDER BY l.accion_meta_en LIMIT @lote FOR UPDATE SKIP LOCKED)
 RETURNING id, terminada_en;
 
 -- name: AgotarAccionMeta :exec
@@ -162,7 +163,7 @@ UPDATE mensajeria.llamadas SET accion_meta_estado = 'fallida' WHERE id = @id AND
 -- Lo mismo para los ajustes de número pendientes de aplicar en WhatsApp.
 UPDATE mensajeria.voz_ajustes_canal SET meta_proximo_en = @aparte::timestamptz
 WHERE canal_id IN (SELECT a.canal_id FROM mensajeria.voz_ajustes_canal a WHERE a.meta_estado = 'pendiente' AND a.meta_proximo_en <= @ahora
-    ORDER BY a.meta_proximo_en LIMIT 20 FOR UPDATE SKIP LOCKED)
+    ORDER BY a.meta_proximo_en LIMIT @lote FOR UPDATE SKIP LOCKED)
 RETURNING canal_id;
 
 -- name: EntrantesDeLlamada :many

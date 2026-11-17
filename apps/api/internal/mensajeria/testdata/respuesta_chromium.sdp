@@ -1,0 +1,25 @@
+v=0
+o=- 3469184361408537279 2 IN IP4 127.0.0.1
+s=-
+t=0 0
+a=group:BUNDLE audio
+a=msid-semantic: WMS e5c6ef16-7a20-4235-8666-679d16df93d2
+m=audio 33630 UDP/TLS/RTP/SAVPF 111 126
+c=IN IP4 192.0.2.2
+a=rtcp:9 IN IP4 0.0.0.0
+a=candidate:426629173 1 udp 2122260223 192.0.2.2 33630 typ host generation 0 network-id 1
+a=candidate:3888581793 1 tcp 1518280447 192.0.2.2 9 typ host tcptype active generation 0 network-id 1
+a=ice-ufrag:YLOI
+a=ice-pwd:cBoA5l58DN4m9H/VPskQQKTF
+a=ice-options:trickle
+a=fingerprint:sha-256 7A:7C:01:7C:A0:99:B4:F3:B9:D3:A8:BB:4A:F9:82:71:A3:2B:B9:FC:AD:BA:9C:6E:80:23:A0:4B:65:97:3F:85
+a=setup:active
+a=mid:audio
+a=sendrecv
+a=rtcp-mux
+a=rtpmap:111 opus/48000/2
+a=rtcp-fb:111 transport-cc
+a=fmtp:111 minptime=10;useinbandfec=1
+a=rtpmap:126 telephone-event/8000
+a=ssrc:4286148181 cname:VuSkH44B4TSjlWbn
+a=ssrc:4286148181 msid:e5c6ef16-7a20-4235-8666-679d16df93d2 1ea29ee0-21c6-4cc0-be17-44a93aaa0a98

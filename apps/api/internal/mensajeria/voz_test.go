@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -97,14 +99,27 @@ func (g *graphFalso) cuenta(accion string) int {
 	return n
 }
 
-const sdpOfertaMeta = "v=0\r\no=- 7 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=audio 3480 UDP/TLS/RTP/SAVPF 111 126\r\nc=IN IP4 157.240.19.130\r\n" +
-	"a=rtpmap:111 opus/48000/2\r\na=rtpmap:126 telephone-event/8000\r\na=setup:actpass\r\na=fingerprint:sha-256 AA:BB:CC\r\n" +
-	"a=candidate:1 1 udp 2122260223 157.240.19.130 3480 typ host\r\n"
+// sdpOfertaMeta: una oferta con la forma de la de Meta (ICE-lite, Opus, DTLS, una dirección pública).
+// Chromium la acepta: con ella se generó testdata/respuesta_chromium.sdp.
+var sdpOfertaMeta = leerSDP("oferta_meta.sdp")
+
+// sdpChromium: la respuesta real de Chromium 153 (Playwright, micrófono concedido con
+// --use-fake-ui-for-media-stream) a esa oferta, con la recolección ICE terminada. Sus candidatos host
+// llevan la dirección de la red local de la máquina donde se generó.
+var sdpChromium = leerSDP("respuesta_chromium.sdp")
+
+func leerSDP(nombre string) string {
+	b, err := os.ReadFile(filepath.Join("testdata", nombre))
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
+}
 
 func sdpNavegador(extra string) string {
 	return "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111 126\r\nc=IN IP4 0.0.0.0\r\n" +
 		"a=rtpmap:111 opus/48000/2\r\na=rtpmap:126 telephone-event/8000\r\na=setup:active\r\na=fingerprint:sha-256 0F:1E:2D\r\n" +
-		"a=candidate:1 1 udp 2113937151 203.0.113.7 54400 typ srflx\r\n" + extra
+		"a=candidate:1 1 udp 2113937151 190.56.10.7 54400 typ srflx\r\n" + extra
 }
 
 type bandejaVoz struct {
@@ -296,14 +311,11 @@ func TestLlamadaEntranteContestadaEnElPanel(t *testing.T) {
 
 	// Contestar: el SDP se valida antes de mandarlo a Meta.
 	for nombre, malo := range map[string]string{
-		"con video":          sdpNavegador("m=video 9 UDP/TLS/RTP/SAVPF 96\r\na=rtpmap:96 VP8/90000\r\n"),
-		"con datos":          sdpNavegador("m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n"),
-		"candidato loopback": sdpNavegador("a=candidate:2 1 udp 1 127.0.0.1 9 typ host\r\n"),
-		"candidato metadata": sdpNavegador("a=candidate:2 1 udp 1 169.254.169.254 9 typ host\r\n"),
-		"candidato privado":  sdpNavegador("a=candidate:2 1 udp 1 10.0.0.8 9 typ host\r\n"),
-		"otro códec":         strings.Replace(sdpNavegador(""), "opus/48000/2", "PCMU/8000", 1),
-		"sin huella":         strings.Replace(sdpNavegador(""), "a=fingerprint:sha-256 0F:1E:2D\r\n", "", 1),
-		"enorme":             sdpNavegador(strings.Repeat("a=x:"+strings.Repeat("y", 90)+"\r\n", 90)),
+		"con video":  sdpNavegador("m=video 9 UDP/TLS/RTP/SAVPF 96\r\na=rtpmap:96 VP8/90000\r\n"),
+		"con datos":  sdpNavegador("m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n"),
+		"otro códec": strings.Replace(sdpNavegador(""), "opus/48000/2", "PCMU/8000", 1),
+		"sin huella": strings.Replace(sdpNavegador(""), "a=fingerprint:sha-256 0F:1E:2D\r\n", "", 1),
+		"enorme":     sdpNavegador(strings.Repeat("a=x:"+strings.Repeat("y", 90)+"\r\n", 90)),
 	} {
 		if r := x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/contestar", map[string]any{"sdpRespuesta": malo}); r.status != http.StatusUnprocessableEntity {
 			t.Fatalf("SDP %s: %d %s", nombre, r.status, crudo(r))
@@ -313,9 +325,15 @@ func TestLlamadaEntranteContestadaEnElPanel(t *testing.T) {
 		t.Fatalf("un SDP inválido no llega a Meta: %v", x.g.hechas())
 	}
 	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/confirmar-medio", nil), http.StatusConflict) // aún sin pre_accept
-	c := x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/contestar", map[string]any{"sdpRespuesta": sdpNavegador("")}), http.StatusOK)
-	if c.cuerpo["estado"] != "conectando" || x.g.cuenta("pre_accept:"+call) != 1 || len(x.g.sdps) != 1 || x.g.sdps[0] != sdpNavegador("") || strings.Contains(crudo(c), "fingerprint") {
+	// Contesta con la respuesta real de Chromium: trae direcciones de la red local, que no se rechazan:
+	// a Meta llega el SDP saneado (sin ellas), con la huella y las credenciales ICE intactas.
+	c := x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/contestar", map[string]any{"sdpRespuesta": sdpChromium}), http.StatusOK)
+	if c.cuerpo["estado"] != "conectando" || x.g.cuenta("pre_accept:"+call) != 1 || len(x.g.sdps) != 1 || strings.Contains(crudo(c), "fingerprint") {
 		t.Fatalf("contestar: %s %v", crudo(c), x.g.hechas())
+	}
+	if aMeta := x.g.sdps[0]; strings.Contains(aMeta, "a=candidate") || !strings.Contains(aMeta, "c=IN IP4 0.0.0.0\r\n") || !strings.Contains(aMeta, "a=fingerprint:sha-256 7A:7C:01") ||
+		!strings.Contains(aMeta, "a=ice-ufrag:YLOI\r\n") || mensajeria.ValidarSDP(aMeta) != nil {
+		t.Fatalf("SDP que llegó a Meta: %q", aMeta)
 	}
 	c = x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/confirmar-medio", nil), http.StatusOK)
 	if c.cuerpo["estado"] != "en_curso" || c.cuerpo["atendidaPor"] != "persona" || x.g.cuenta("accept:"+call) != 1 || len(c.cuerpo["tramos"].([]any)) != 1 ||
@@ -562,6 +580,13 @@ func TestLlamadaLimitesYWebhook(t *testing.T) {
 	if x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id_externo = $1`, apagado) != 0 || x.g.cuenta("reject:"+apagado) != 1 {
 		t.Fatalf("número con las llamadas apagadas: %v", x.g.hechas())
 	}
+	// Tampoco queda su SDP en el webhook guardado.
+	if n := x.contar(`SELECT count(*) FROM mensajeria.entrantes WHERE canal_id = $1 AND payload::text LIKE '%' || $2 || '%' AND payload::text LIKE '%fingerprint%'`, x.canal.ID, apagado); n != 0 {
+		t.Fatal("quedó el SDP de una llamada rechazada sin registro")
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.entrantes WHERE canal_id = $1 AND payload::text LIKE '%' || $2 || '%' AND payload::text LIKE '%"sdp": "***"%'`, x.canal.ID, apagado); n != 1 {
+		t.Fatalf("webhook de la llamada rechazada sin registro, con el SDP tapado: %d", n)
+	}
 }
 
 func TestLlamadasAjustesDelNumero(t *testing.T) {
@@ -637,22 +662,106 @@ func TestLlamadasAjustesDelNumero(t *testing.T) {
 	}
 }
 
+// SanearSDP: la respuesta del navegador no se rechaza por traer direcciones locales; se limpian.
+func TestSanearSDP(t *testing.T) {
+	// La respuesta real de Chromium, tal cual: estricta no pasa (direcciones de la red local); saneada sí.
+	if !strings.Contains(sdpChromium, "typ host") || mensajeria.ValidarSDP(sdpChromium) == nil {
+		t.Fatal("el fixture de Chromium debía traer candidatos host con direcciones locales")
+	}
+	san, err := mensajeria.SanearSDP(sdpChromium)
+	if err != nil {
+		t.Fatalf("la respuesta real de Chromium debe aceptarse: %v", err)
+	}
+	if err := mensajeria.ValidarSDP(san); err != nil {
+		t.Fatalf("el SDP saneado debe pasar la validación estricta: %v\n%s", err, san)
+	}
+	if strings.Contains(san, "192.0.2.") || strings.Contains(san, "a=candidate") || !strings.Contains(san, "c=IN IP4 0.0.0.0\r\n") {
+		t.Fatalf("quedaron direcciones locales:\n%s", san)
+	}
+	// Todo lo demás llega intacto y en el mismo orden.
+	sin := func(sdp string) (r []string) {
+		for _, l := range strings.Split(strings.TrimSpace(strings.ReplaceAll(sdp, "\r\n", "\n")), "\n") {
+			if !strings.HasPrefix(l, "a=candidate:") && !strings.HasPrefix(l, "c=") {
+				r = append(r, l)
+			}
+		}
+		return r
+	}
+	if a, b := sin(sdpChromium), sin(san); strings.Join(a, "|") != strings.Join(b, "|") {
+		t.Fatalf("el saneado cambió otras líneas:\n%v\n%v", a, b)
+	}
+	// La misma respuesta en una red de casa u oficina: host privado, mDNS, IPv6 local, srflx con raddr,
+	// CGNAT y NAT64. Solo queda el candidato público, sin raddr ni rport.
+	casa := strings.Replace(strings.ReplaceAll(sdpChromium, "192.0.2.2", "192.168.1.23"), "a=ice-ufrag:",
+		"a=candidate:1 1 udp 2122194687 4f6e1a2b-0c3d-4e5f-8a9b-1c2d3e4f5a6b.local 51000 typ host generation 0\r\n"+
+			"a=candidate:2 1 udp 2122129151 fe80::1c2d:3e4f:5a6b:7c8d 51001 typ host generation 0\r\n"+
+			"a=candidate:3 1 udp 1685987071 190.56.10.7 51002 typ srflx raddr 192.168.1.23 rport 33630 generation 0 network-id 1\r\n"+
+			"a=candidate:4 1 udp 1685987070 100.72.3.4 51003 typ srflx raddr 10.0.0.2 rport 9 generation 0\r\n"+
+			"a=candidate:5 1 udp 1685987069 64:ff9b::c0a8:117 51004 typ host generation 0\r\n"+
+			"a=candidate:6 1 udp 1685987068 127.0.0.1 51005 typ host generation 0\r\na=ice-ufrag:", 1)
+	san, err = mensajeria.SanearSDP(casa)
+	if err != nil {
+		t.Fatalf("respuesta desde una red de casa: %v", err)
+	}
+	var quedan []string
+	for _, l := range strings.Split(san, "\r\n") {
+		if strings.HasPrefix(l, "a=candidate:") {
+			quedan = append(quedan, l)
+		}
+	}
+	if len(quedan) != 1 || quedan[0] != "a=candidate:3 1 udp 1685987071 190.56.10.7 51002 typ srflx generation 0 network-id 1" {
+		t.Fatalf("candidatos tras sanear: %q", quedan)
+	}
+	for _, malo := range []string{"192.168.", "10.0.0.", ".local", "fe80", "100.72.", "64:ff9b", "127.0.0.1 51005", "raddr", "rport"} {
+		if strings.Contains(san, malo) {
+			t.Fatalf("quedó %q:\n%s", malo, san)
+		}
+	}
+	if err := mensajeria.ValidarSDP(san); err != nil {
+		t.Fatalf("saneado: %v", err)
+	}
+	// Candidatos de más: se quedan los primeros 32.
+	if san, err = mensajeria.SanearSDP(sdpNavegador(strings.Repeat("a=candidate:2 1 udp 1 190.56.10.9 9 typ host\r\n", 40))); err != nil ||
+		strings.Count(san, "a=candidate:") != mensajeria.MaxCandidatosSDP {
+		t.Fatalf("tope de candidatos: %v, %d", err, strings.Count(san, "a=candidate:"))
+	}
+	// Lo estructuralmente inválido o fuera de la lista cerrada se sigue rechazando.
+	for nombre, malo := range map[string]string{
+		"vacío":                "",
+		"con video":            sdpChromium + "m=video 9 UDP/TLS/RTP/SAVPF 96\r\na=rtpmap:96 VP8/90000\r\n",
+		"con datos":            sdpChromium + "m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n",
+		"atributo desconocido": sdpChromium + "a=x-google-flag:conference\r\n",
+		"línea desconocida":    sdpChromium + "u=http://interno.ejemplo/\r\n",
+		"otro códec":           strings.Replace(sdpChromium, "opus/48000/2", "PCMU/8000", 1),
+		"sin huella":           strings.Replace(sdpChromium, "a=fingerprint:", "a=mid:", 1),
+		"RTP sin cifrar":       strings.Replace(sdpChromium, "UDP/TLS/RTP/SAVPF", "RTP/AVP", 1),
+		"candidato corto":      sdpChromium + "a=candidate:9 1 udp 1 190.56.10.7\r\n",
+		"c= mal formada":       strings.Replace(sdpChromium, "c=IN IP4 192.0.2.2", "c=IN IP4", 1),
+		"a=rtcp mal formado":   strings.Replace(sdpChromium, "a=rtcp:9 IN IP4 0.0.0.0", "a=rtcp:9 IN", 1),
+		"enorme":               sdpChromium + strings.Repeat("a=mid:"+strings.Repeat("y", 90)+"\r\n", 90),
+	} {
+		if _, err := mensajeria.SanearSDP(malo); err == nil {
+			t.Errorf("%s: debía rechazarse", nombre)
+		}
+	}
+}
+
 func TestValidarSDP(t *testing.T) {
 	if err := mensajeria.ValidarSDP(sdpNavegador("")); err != nil {
 		t.Fatalf("SDP de navegador válido: %v", err)
 	}
-	if err := mensajeria.ValidarSDP(sdpNavegador("a=candidate:3 1 udp 1 abcd1234-0000.local 9 typ host\r\n")); err != nil {
-		t.Fatalf("candidato mDNS del navegador: %v", err)
-	}
 	for nombre, malo := range map[string]string{
-		"vacío":              "",
-		"línea de control":   sdpNavegador("a=x:\x00\r\n"),
-		"candidato IPv6 ::1": sdpNavegador("a=candidate:2 1 udp 1 ::1 9 typ host\r\n"),
-		"candidato fe80":     sdpNavegador("a=candidate:2 1 udp 1 fe80::1 9 typ host\r\n"),
-		"nombre arbitrario":  sdpNavegador("a=candidate:2 1 udp 1 interno.ejemplo 9 typ host\r\n"),
-		"sin audio":          "v=0\r\ns=-\r\na=setup:active\r\na=fingerprint:sha-256 AA\r\n",
-		"sin setup":          strings.Replace(sdpNavegador(""), "a=setup:active\r\n", "", 1),
-		"RTP sin cifrar":     strings.Replace(sdpNavegador(""), "UDP/TLS/RTP/SAVPF", "RTP/AVP", 1),
+		"vacío":                            "",
+		"línea de control":                 sdpNavegador("a=x:\x00\r\n"),
+		"candidato IPv6 ::1":               sdpNavegador("a=candidate:2 1 udp 1 ::1 9 typ host\r\n"),
+		"candidato fe80":                   sdpNavegador("a=candidate:2 1 udp 1 fe80::1 9 typ host\r\n"),
+		"nombre arbitrario":                sdpNavegador("a=candidate:2 1 udp 1 interno.ejemplo 9 typ host\r\n"),
+		"candidato mDNS":                   sdpNavegador("a=candidate:3 1 udp 1 abcd1234-0000.local 9 typ host\r\n"),
+		"rango de documentación":           sdpNavegador("a=candidate:2 1 udp 1 203.0.113.7 9 typ host\r\n"),
+		"respuesta de Chromium sin sanear": sdpChromium,
+		"sin audio":                        "v=0\r\ns=-\r\na=setup:active\r\na=fingerprint:sha-256 AA\r\n",
+		"sin setup":                        strings.Replace(sdpNavegador(""), "a=setup:active\r\n", "", 1),
+		"RTP sin cifrar":                   strings.Replace(sdpNavegador(""), "UDP/TLS/RTP/SAVPF", "RTP/AVP", 1),
 		// Lista cerrada (B1): líneas y atributos desconocidos, y toda dirección del SDP.
 		"atributo desconocido": sdpNavegador("a=x-google-flag:conference\r\n"),
 		"línea desconocida":    sdpNavegador("u=http://interno.ejemplo/\r\n"),
@@ -660,11 +769,11 @@ func TestValidarSDP(t *testing.T) {
 		"c= metadata":          strings.Replace(sdpNavegador(""), "c=IN IP4 0.0.0.0", "c=IN IP4 169.254.169.254", 1),
 		"c= con nombre":        strings.Replace(sdpNavegador(""), "c=IN IP4 0.0.0.0", "c=IN IP4 interno.ejemplo", 1),
 		"a=rtcp privada":       sdpNavegador("a=rtcp:9 IN IP4 10.1.2.3\r\n"),
-		"raddr privada":        sdpNavegador("a=candidate:2 1 udp 1 203.0.113.9 9 typ srflx raddr 10.0.0.5 rport 9\r\n"),
+		"raddr privada":        sdpNavegador("a=candidate:2 1 udp 1 190.56.10.9 9 typ srflx raddr 10.0.0.5 rport 9\r\n"),
 		"candidato CGNAT":      sdpNavegador("a=candidate:2 1 udp 1 100.64.1.1 9 typ host\r\n"),
 		"candidato NAT64":      sdpNavegador("a=candidate:2 1 udp 1 64:ff9b::a00:1 9 typ host\r\n"),
 		"IPv4 en IPv6":         sdpNavegador("a=candidate:2 1 udp 1 ::ffff:10.0.0.1 9 typ host\r\n"),
-		"candidatos de más":    sdpNavegador(strings.Repeat("a=candidate:2 1 udp 1 203.0.113.9 9 typ host\r\n", mensajeria.MaxCandidatosSDP)),
+		"candidatos de más":    sdpNavegador(strings.Repeat("a=candidate:2 1 udp 1 190.56.10.9 9 typ host\r\n", mensajeria.MaxCandidatosSDP)),
 		"dos audios":           sdpNavegador("m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n"),
 	} {
 		if err := mensajeria.ValidarSDP(malo); err == nil {
@@ -673,7 +782,7 @@ func TestValidarSDP(t *testing.T) {
 	}
 	for nombre, bueno := range map[string]string{
 		"oferta de Meta":       sdpOfertaMeta,
-		"rtcp y raddr al cero": sdpNavegador("a=rtcp:9 IN IP4 0.0.0.0\r\na=candidate:2 1 udp 1 203.0.113.9 9 typ srflx raddr 0.0.0.0 rport 0\r\na=rtcp-mux\r\na=mid:0\r\na=sendrecv\r\n"),
+		"rtcp y raddr al cero": sdpNavegador("a=rtcp:9 IN IP4 0.0.0.0\r\na=candidate:2 1 udp 1 190.56.10.9 9 typ srflx raddr 0.0.0.0 rport 0\r\na=rtcp-mux\r\na=mid:0\r\na=sendrecv\r\n"),
 	} {
 		if err := mensajeria.ValidarSDP(bueno); err != nil {
 			t.Errorf("%s: %v", nombre, err)
@@ -805,6 +914,20 @@ func TestLlamadaEnNumeroPrestado(t *testing.T) {
 	if n := x.contar(`SELECT count(*) FROM mensajeria.llamada_devoluciones WHERE llamada_id = $1::uuid AND empresa_id = 2`, id); n != 1 {
 		t.Fatalf("devolución en la prestataria: %d", n)
 	}
+	// La ráfaga vale también aquí: de la cuarta llamada en 10 minutos no sale ni mensaje ni devolución ni aviso.
+	var ultima string
+	for i := range 3 {
+		ultima = fmt.Sprintf("wacid.prestado%d%s", i, num)
+		x.pasa(time.Second)
+		x.connect(num, ultima)
+	}
+	idU, estado, motivo := x.llamada(ultima)
+	if estado != "rechazada" || motivo != "limite" || x.eventos("llamada.perdida", idU) != 0 {
+		t.Fatalf("cuarta llamada de la prestataria: %s %s", estado, motivo)
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND direccion = 'saliente' AND texto = $2`, conv, mensajeria.MensajePerdidaNeutro); n != 1 {
+		t.Fatalf("mensajes neutros tras la ráfaga: %d", n)
+	}
 	// Un cliente desconocido en el mismo número sigue sonando a la dueña.
 	call3 := "wacid.propia" + numeroCliente()
 	x.connect(numeroCliente(), call3)
@@ -820,7 +943,7 @@ func TestLlamadaRevisionE1(t *testing.T) {
 	// B1: una oferta de Meta que no pasa la validación no llega al navegador: la llamada no suena.
 	mala := "wacid.ofertamala" + numeroCliente()
 	x.webhook(x.eventoLlamada(numeroCliente(), mala, "connect", fmt.Sprintf(`,"session":{"sdp_type":"offer","sdp":%q}`,
-		strings.Replace(sdpOfertaMeta, "a=candidate:1 1 udp 2122260223 157.240.19.130", "a=candidate:1 1 udp 2122260223 10.0.0.9", 1)), 0))
+		strings.Replace(sdpOfertaMeta, "2113937151 157.240.19.130", "2113937151 10.0.0.9", 1)), 0))
 	idMala, estado, _ := x.llamada(mala)
 	if estado != "perdida" || x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id = $1::uuid AND sdp_oferta IS NOT NULL`, idMala) != 0 ||
 		x.contar(`SELECT count(*) FROM mensajeria.llamada_candidatos WHERE llamada_id = $1::uuid`, idMala) != 0 {
@@ -866,8 +989,14 @@ func TestLlamadaRevisionE1(t *testing.T) {
 	if x.g.cuenta("reject:"+callB) != 1 || pendiente() != 1 {
 		t.Fatalf("primer intento fallido: %v, pendiente %d", x.g.hechas(), pendiente())
 	}
-	x.g.falla("reject", nil)
+	// Quedó apartada lote × plazo (20 s): a los 9 s ningún ciclo la retoma.
 	x.pasa(9*time.Second, x.agente)
+	x.despachar()
+	if x.g.cuenta("reject:"+callB) != 1 {
+		t.Fatalf("retomada antes de tiempo: %v", x.g.hechas())
+	}
+	x.g.falla("reject", nil)
+	x.pasa(12*time.Second, x.agente)
 	x.despachar()
 	if x.g.cuenta("reject:"+callB) != 2 || pendiente() != 0 {
 		t.Fatalf("reintento: %v, pendiente %d", x.g.hechas(), pendiente())

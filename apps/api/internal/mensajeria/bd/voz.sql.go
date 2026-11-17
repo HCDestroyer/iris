@@ -1883,13 +1883,14 @@ UPDATE mensajeria.llamadas SET accion_meta_en = $1::timestamptz
 WHERE id IN (SELECT l.id FROM mensajeria.llamadas l
     WHERE l.accion_meta_estado = 'pendiente' AND l.accion_meta IN ('reject', 'terminate') AND l.accion_meta_en <= $2
       AND l.estado IN ('terminada', 'perdida', 'rechazada', 'fuera_de_horario', 'fallida')
-    ORDER BY l.accion_meta_en LIMIT 50 FOR UPDATE SKIP LOCKED)
+    ORDER BY l.accion_meta_en LIMIT $3 FOR UPDATE SKIP LOCKED)
 RETURNING id, terminada_en
 `
 
 type TomarAccionesMetaParams struct {
-	Ahora time.Time
-	Antes *time.Time
+	Aparte time.Time
+	Antes  *time.Time
+	Lote   int32
 }
 
 type TomarAccionesMetaRow struct {
@@ -1898,9 +1899,10 @@ type TomarAccionesMetaRow struct {
 }
 
 // El job de escrituras a Meta toma las reject y terminate pendientes de llamadas ya cerradas cuyo
-// intento ya toca (SKIP LOCKED: dos réplicas no toman la misma) y las deja apartadas un rato.
+// intento ya toca (SKIP LOCKED: dos réplicas no toman la misma) y las deja apartadas lote × plazo
+// (aparte), para que otro ciclo no las retome mientras este las atiende.
 func (q *Queries) TomarAccionesMeta(ctx context.Context, arg TomarAccionesMetaParams) ([]TomarAccionesMetaRow, error) {
-	rows, err := q.db.Query(ctx, tomarAccionesMeta, arg.Ahora, arg.Antes)
+	rows, err := q.db.Query(ctx, tomarAccionesMeta, arg.Aparte, arg.Antes, arg.Lote)
 	if err != nil {
 		return nil, err
 	}
@@ -1922,18 +1924,19 @@ func (q *Queries) TomarAccionesMeta(ctx context.Context, arg TomarAccionesMetaPa
 const tomarCanalesMetaPendiente = `-- name: TomarCanalesMetaPendiente :many
 UPDATE mensajeria.voz_ajustes_canal SET meta_proximo_en = $1::timestamptz
 WHERE canal_id IN (SELECT a.canal_id FROM mensajeria.voz_ajustes_canal a WHERE a.meta_estado = 'pendiente' AND a.meta_proximo_en <= $2
-    ORDER BY a.meta_proximo_en LIMIT 20 FOR UPDATE SKIP LOCKED)
+    ORDER BY a.meta_proximo_en LIMIT $3 FOR UPDATE SKIP LOCKED)
 RETURNING canal_id
 `
 
 type TomarCanalesMetaPendienteParams struct {
 	Aparte time.Time
 	Ahora  *time.Time
+	Lote   int32
 }
 
 // Lo mismo para los ajustes de número pendientes de aplicar en WhatsApp.
 func (q *Queries) TomarCanalesMetaPendiente(ctx context.Context, arg TomarCanalesMetaPendienteParams) ([]int64, error) {
-	rows, err := q.db.Query(ctx, tomarCanalesMetaPendiente, arg.Aparte, arg.Ahora)
+	rows, err := q.db.Query(ctx, tomarCanalesMetaPendiente, arg.Aparte, arg.Ahora, arg.Lote)
 	if err != nil {
 		return nil, err
 	}

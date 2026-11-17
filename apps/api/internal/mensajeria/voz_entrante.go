@@ -59,7 +59,13 @@ func taparSDPEntrantes(ctx context.Context, q *mensajeriabd.Queries, l mensajeri
 	if l.CanalID == nil {
 		return nil
 	}
-	filas, err := q.EntrantesDeLlamada(ctx, mensajeriabd.EntrantesDeLlamadaParams{CanalID: *l.CanalID, Desde: l.SonoEn.Add(-10 * time.Minute), Marca: l.IDExterno})
+	return taparSDPDeLlamada(ctx, q, *l.CanalID, l.IDExterno, l.SonoEn.Add(-10*time.Minute))
+}
+
+// taparSDPDeLlamada: lo mismo por call_id (también para un connect que no llega a ser una llamada).
+func taparSDPDeLlamada(ctx context.Context, q *mensajeriabd.Queries, canalID int64, callID string, desde time.Time) error {
+	l := struct{ IDExterno string }{callID}
+	filas, err := q.EntrantesDeLlamada(ctx, mensajeriabd.EntrantesDeLlamadaParams{CanalID: canalID, Desde: desde, Marca: callID})
 	if err != nil {
 		return err
 	}
@@ -156,7 +162,8 @@ func (m *Modulo) recibirLlamada(ctx context.Context, t *auditoria.Tx, canal mens
 	// 1. Número sin llamadas encendidas (o por QR): no debería llegar. Se rechaza sin registrar nada.
 	if sinAjustes || !aj.LlamadasActivas || canal.TipoConexion != ConexionAPI {
 		m.rechazarSinRegistro(ctx, t, canal.ID, ev.ID)
-		return nil
+		// No queda llamada, pero el webhook guardado trae la oferta: se tapa igual.
+		return taparSDPDeLlamada(ctx, q, canal.ID, ev.ID, ahora.Add(-10*time.Minute))
 	}
 	d, err := m.rutearEntrante(ctx, q, canal, numero)
 	if err != nil {
@@ -240,12 +247,6 @@ func (m *Modulo) recibirLlamada(ctx context.Context, t *auditoria.Tx, canal mens
 	if ahora.Sub(sono) > ConnectViejo || sdp == nil {
 		return m.cerrarLlamada(ctx, t, &l, &c, LlamadaPerdida, "nadie_contesto", ahora, "")
 	}
-	// En un número prestado, las llamadas de la empresa prestataria todavía no suenan (E1: los ajustes de
-	// llamadas son de la dueña del número). Queda como perdida en la prestataria, con su devolución
-	// pendiente y un mensaje neutro.
-	if ajena {
-		return m.cerrarLlamada(ctx, t, &l, &c, LlamadaPerdida, "nadie_contesto", ahora, MetaRechazar)
-	}
 	// 2. Ráfaga: la cuarta llamada del número en 10 minutos se rechaza, sin mensaje.
 	recientes, err := q.LlamadasRecientesDeNumero(ctx, mensajeriabd.LlamadasRecientesDeNumeroParams{CanalID: &canal.ID, Numero: numero, Desde: ahora.Add(-RafagaVentana)})
 	if err != nil {
@@ -253,6 +254,12 @@ func (m *Modulo) recibirLlamada(ctx context.Context, t *auditoria.Tx, canal mens
 	}
 	if recientes > RafagaLlamadas {
 		return m.cerrarLlamada(ctx, t, &l, &c, LlamadaRechazada, "limite", ahora, MetaRechazar)
+	}
+	// En un número prestado, las llamadas de la empresa prestataria todavía no suenan (E1: los ajustes de
+	// llamadas son de la dueña del número). Queda como perdida en la prestataria, con su devolución
+	// pendiente y un mensaje neutro. Va después de la ráfaga: tampoco aquí hay mensajes ni avisos sin límite.
+	if ajena {
+		return m.cerrarLlamada(ctx, t, &l, &c, LlamadaPerdida, "nadie_contesto", ahora, MetaRechazar)
 	}
 	// 3. Fuera del horario de Iris (el de los ajustes del número; si no, el de la cola; si no, el del número).
 	horario := aj.HorarioID
