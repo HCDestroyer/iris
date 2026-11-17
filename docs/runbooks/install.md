@@ -180,7 +180,7 @@ TLS is always verified ([buzones](buzones.md)). Relevant variables in `/opt/iris
 | `IRIS_CORREO_REDES_PERMITIDAS` | Empty when the mail server has a public IP. If it is on an internal network, its CIDR |
 | `IRIS_CORREO_CA` | **Optional.** Only for a mail server with a private certificate: copy its CA (PEM) to `/opt/iris/certs/` and set `IRIS_CORREO_CA=/run/iris/certs/<file>.pem`. Empty = public CAs |
 | `IRIS_CORREO_TIMEOUT` | Time limit per mail connection (30s) |
-| `IRIS_SMTP_HOST`, `IRIS_SMTP_PORT`, `IRIS_SMTP_USUARIO`, `IRIS_SMTP_CONTRASENA`, `IRIS_SMTP_TLS`, `IRIS_SMTP_REMITENTE` | System mail. Reserved: today Iris only sends mail through the mailboxes |
+| `IRIS_SMTP_HOST`, `IRIS_SMTP_PORT`, `IRIS_SMTP_USUARIO`, `IRIS_SMTP_CONTRASENA`, `IRIS_SMTP_TLS`, `IRIS_SMTP_REMITENTE` | System mail (notices to Iris users, e.g. the AI assistant's monthly limit). **Configure it in the panel: Settings › System mail**, with "test before saving", globally or per company; it applies without a restart. These variables are only a fallback, used when there is no active setting in the panel (order: company → global → these variables → no mail). Leave them empty unless you need the fallback |
 
 After editing the `.env`: `irisctl start`.
 

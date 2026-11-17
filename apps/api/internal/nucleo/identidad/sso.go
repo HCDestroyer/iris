@@ -477,8 +477,8 @@ func crearVinculo(ctx context.Context, t *auditoria.Tx, q *identidadbd.Queries, 
 	}
 	t.FijarEntidad("usuario", usuario)
 	t.Anotar(map[string]any{"vinculo_id": v.ID, "conector_id": conector, "usuario_externo": externo})
-	// Aviso por correo al usuario: pendiente (Iris aún no tiene correo saliente del sistema;
-	// IRIS_SMTP_* reservadas). Lo podrá enviar un consumidor de este evento.
+	// Aviso por correo al usuario: pendiente. Lo podrá enviar un consumidor de este evento con el
+	// correo del sistema (internal/notificaciones; contratos/correo-sistema.md).
 	if err := t.Emitir("usuario.sso_vinculado", map[string]any{
 		"usuario_id": usuario, "vinculo_id": v.ID, "conector_id": conector, "sistema": sistemaSSO,
 		"usuario_externo": externo, "origen": origen,

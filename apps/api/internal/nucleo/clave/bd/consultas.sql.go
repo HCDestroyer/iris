@@ -204,6 +204,39 @@ func (q *Queries) ConexionMetaCifrada(ctx context.Context) ([]ConexionMetaCifrad
 	return items, nil
 }
 
+const correosSistemaCifrados = `-- name: CorreosSistemaCifrados :many
+SELECT id, contrasena_cifrada FROM notificaciones.correo_ajustes
+WHERE contrasena_cifrada IS NOT NULL
+ORDER BY id
+FOR UPDATE
+`
+
+type CorreosSistemaCifradosRow struct {
+	ID                int64
+	ContrasenaCifrada []byte
+}
+
+// Contraseña del SMTP del correo del sistema (global y por empresa).
+func (q *Queries) CorreosSistemaCifrados(ctx context.Context) ([]CorreosSistemaCifradosRow, error) {
+	rows, err := q.db.Query(ctx, correosSistemaCifrados)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CorreosSistemaCifradosRow
+	for rows.Next() {
+		var i CorreosSistemaCifradosRow
+		if err := rows.Scan(&i.ID, &i.ContrasenaCifrada); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const recifrarAsistente = `-- name: RecifrarAsistente :exec
 UPDATE mensajeria.asistente_ajustes SET clave_cifrada = $1 WHERE id = $2
 `
@@ -286,6 +319,20 @@ UPDATE mensajeria.conexion_meta SET secretos_cifrados = $1 WHERE id = 1
 
 func (q *Queries) RecifrarConexionMeta(ctx context.Context, secretosCifrados []byte) error {
 	_, err := q.db.Exec(ctx, recifrarConexionMeta, secretosCifrados)
+	return err
+}
+
+const recifrarCorreoSistema = `-- name: RecifrarCorreoSistema :exec
+UPDATE notificaciones.correo_ajustes SET contrasena_cifrada = $1 WHERE id = $2
+`
+
+type RecifrarCorreoSistemaParams struct {
+	ContrasenaCifrada []byte
+	ID                int64
+}
+
+func (q *Queries) RecifrarCorreoSistema(ctx context.Context, arg RecifrarCorreoSistemaParams) error {
+	_, err := q.db.Exec(ctx, recifrarCorreoSistema, arg.ContrasenaCifrada, arg.ID)
 	return err
 }
 

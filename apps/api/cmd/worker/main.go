@@ -179,15 +179,17 @@ func correr() error {
 	// órdenes; un job por envío y la purga de cada hora. Sin IRIS_FCM_* no manda nada.
 	fcm, estPush := notificaciones.ConfigDesdeEntorno()
 	notificaciones.AvisarEstado(log, estPush)
-	// Correo saliente del sistema (IRIS_SMTP_*, con la protección de red de los buzones): avisos a
-	// usuarios de Iris. Sin host ni remitente, los avisos por correo quedan «omitido».
+	// Correo saliente del sistema: avisos a usuarios de Iris. Se configura en el panel
+	// (Configuración › Correo del sistema) y se lee en cada envío; IRIS_SMTP_* queda de respaldo.
+	// Los dos con la protección de red de los buzones.
 	correoSistema, err := notificaciones.CorreoDesdeEntorno(ccfg.Red)
 	if err != nil {
-		log.Error("correo del sistema apagado: la configuración no sirve", "motivo", err.Error())
+		log.Error("correo del sistema del entorno apagado: IRIS_SMTP_* no sirve (vale el que se configure en el panel)", "motivo", err.Error())
 	} else if correoSistema == nil {
-		log.Info("correo del sistema sin configurar (IRIS_SMTP_HOST e IRIS_SMTP_REMITENTE vacías): los avisos solo salen en la campana")
+		log.Info("correo del sistema sin respaldo en el entorno (IRIS_SMTP_HOST e IRIS_SMTP_REMITENTE vacías): vale el que se configure en el panel")
 	}
 	notif := notificaciones.Nuevo(notificaciones.Config{FCM: fcm, Estado: estPush, Log: log, Correo: correoSistema, BaseURL: cfg.BaseURL,
+		Cifrador: acfg.Cifrador, RedCorreo: ccfg.Red,
 		Encolar: func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
 			return integracion.Encolar(cliente)(ctx, tx, args)
 		}})

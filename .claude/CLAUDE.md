@@ -267,6 +267,8 @@ Una tarea está terminada solo si:
 | `asistente.paso_a_persona` | mensajeria (asistente de IA, fase 3b) | conversacion_id, empresa_id, motivo (cliente_lo_pidio, enojo, sin_respuesta, herramienta_fallo, max_turnos, persona_presente, tope), cola_id (o null), turnos |
 | `notificaciones.avisos_creados` | notificaciones (avisos del panel) | tipo (asistente_tope), clave, empresa_id (o null), usuarios[], correo (enviar, omitido) |
 | `notificaciones.correo_enviado` / `notificaciones.correo_fallido` | notificaciones (correo del sistema) | correo_id, usuario_id, tipo, clave, motivo (o null) |
+| `correo_sistema.ajustes_cambiados` | notificaciones (correo del sistema) | empresa_id (o null = global), campos[], activo; nunca la contraseña |
+| `correo_sistema.probado` | notificaciones (correo del sistema) | empresa_id (o null), estado (ok, error), causa (o null), usuario_id; nunca el host, el destino ni credenciales |
 | `dispositivo.registrado` / `dispositivo.quitado` | notificaciones | dispositivo_id, usuario_id, empresa_id, token_fin; plataforma, app_version, nuevo (registrado); motivo (usuario, sesion_cerrada, token_invalido, otro_usuario, sin_acceso) (quitado); nunca el token |
 | `notificaciones.preferencias_cambiadas` | notificaciones | usuario_id, campos[], version |
 

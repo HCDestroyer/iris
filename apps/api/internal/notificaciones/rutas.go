@@ -68,6 +68,7 @@ func operacionAviso(id, metodo, ruta, resumen, detalle string, status int, error
 // Registrar publica las rutas en la API.
 func (m *Modulo) Registrar(api huma.API) {
 	m.registrarAvisos(api)
+	m.registrarCorreoSistema(api)
 
 	reg := operacion("registrarDispositivo", http.MethodPost, "/api/v1/dispositivos", "Registrar el teléfono para recibir push",
 		"Idempotente por token: 201 la primera vez, 200 después (renueva la versión de la app y la sesión). El dispositivo queda en la "+

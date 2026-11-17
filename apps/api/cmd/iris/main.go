@@ -285,7 +285,13 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	// worker manda. Aquí solo se lee la configuración para informar su estado (/salud).
 	_, estPush := notificaciones.ConfigDesdeEntorno()
 	notificaciones.AvisarEstado(log, estPush)
-	notif := notificaciones.Nuevo(notificaciones.Config{Estado: estPush, Log: log})
+	// Correo del sistema (contratos/correo-sistema.md): la API lo configura y lo prueba; el worker
+	// lo usa. IRIS_SMTP_* queda de respaldo: aquí solo se lee para decir «hoy se usa el del servidor».
+	correoEntorno, err := notificaciones.CorreoDesdeEntorno(ccfg.Red)
+	if err != nil {
+		log.Error("correo del sistema del entorno apagado: IRIS_SMTP_* no sirve (vale el que se configure en el panel)", "motivo", err.Error())
+	}
+	notif := notificaciones.Nuevo(notificaciones.Config{Estado: estPush, Log: log, Correo: correoEntorno, Cifrador: acfg.Cifrador, RedCorreo: ccfg.Red})
 	handler, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Log: log, Version: cfg.Version, Identidad: id,
 		NotificacionesPush: func() string { return estPush.Estado },
