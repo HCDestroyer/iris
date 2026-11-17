@@ -488,9 +488,10 @@ test.describe("voz › plazos, red y cierre", () => {
         const llamada = await suena(page, api);
         await aviso(page).getByRole("button", { name: "Contestar" }).click();
         await expect(barra(page)).toBeVisible();
-        // Recarga sin avisar (se cayó el navegador): el servidor aún la tiene en curso.
-        await page.route("**/llamadas/*/colgar", (r) => r.abort(), { times: 1 });
+        // Se cayó el navegador (no alcanzó a avisar al cerrarse): el servidor aún la tiene en curso.
+        await page.evaluate(() => window.addEventListener("pagehide", (e) => e.stopImmediatePropagation(), true));
         await page.reload();
+        expect(acciones(api, "colgar")).toHaveLength(0);
         await expect(page.getByText("Tenías una llamada con Carlos Ruiz")).toBeVisible();
         await expect(barra(page)).toHaveCount(0);
         await page.getByRole("button", { name: "Colgar" }).click();
@@ -524,7 +525,8 @@ test.describe("voz › en el hilo y en la lista", () => {
         // «Devolver la llamada» llega con las salientes: aquí se le escribe.
         await expect(hilo.getByRole("button", { name: /Devolver/ })).toHaveCount(0);
         await tarjeta("perdida").getByRole("button", { name: "Escribirle" }).click();
-        await expect(page.getByLabel("Mensaje para Carlos Ruiz")).toBeFocused();
+        // El cliente no escribe hace más de 24 h (una llamada no abre la ventana): el foco va a la plantilla.
+        expect(await page.evaluate(() => Boolean(document.activeElement?.closest('[data-slot="compositor"] [data-slot="solo-plantilla"]')))).toBe(true);
         expect(perdida.estado).toBe("perdida");
         await tarjeta("perdida").scrollIntoViewIfNeeded();
         await esperarSinDesbordes(page);
@@ -650,16 +652,16 @@ test.describe("voz › ajustes", () => {
     test("por número: validación espejo, 422 de requisitos del servidor, 409 de versión y leer de Meta", async ({ page }) => {
         const api = await abrir(page, "/administracion/numeros/3/llamadas");
         const f = page.getByRole("form", { name: "Llamadas de Soporte" });
+        const mensaje = f.getByRole("textbox", { name: "Mensaje", exact: true });
+        // El campo no deja pasar de 45 s (el servidor tampoco).
         await f.getByLabel("Segundos que suena").fill("90");
         await f.getByLabel("Segundos que suena").blur();
-        await f.getByLabel("Mensaje").fill("");
+        await expect(f.getByLabel("Segundos que suena")).toHaveValue("45");
+        await mensaje.fill("");
         await f.getByRole("button", { name: "Guardar" }).click();
-        await expect(f).toContainText("Entre 15 y 45 segundos");
         await expect(f).toContainText("Escribe el mensaje");
         expect(api.voz.recibido.configurados).toHaveLength(0);
-        await f.getByLabel("Segundos que suena").fill("30");
-        await f.getByLabel("Segundos que suena").blur();
-        await f.getByLabel("Mensaje").fill("Te devolvemos el mensaje pronto.");
+        await mensaje.fill("Te devolvemos el mensaje pronto.");
 
         // Meta dejó de cumplir entre que se abrió y se guardó: el servidor lo dice con cada requisito.
         const canal = api.voz.canal(3);
@@ -707,11 +709,10 @@ test.describe("voz › ajustes", () => {
         await expect(f.getByLabel("Segundos que suena solo a quien tiene la conversación")).toHaveValue("10");
         await expect(f.locator('[data-slot="grabacion-no-disponible"]')).toContainText("La grabación todavía no está disponible.");
         await expect(f.getByRole("switch")).toHaveCount(0);
+        // El campo no deja pasar del máximo de fábrica (120 min).
         await f.getByLabel("Minutos que puede durar una llamada, como mucho").fill("500");
         await f.getByLabel("Minutos que puede durar una llamada, como mucho").blur();
-        await f.getByRole("button", { name: "Guardar" }).click();
-        await expect(f).toContainText("Entre 10 y 120 minutos");
-        expect(api.voz.recibido.ajustes).toHaveLength(0);
+        await expect(f.getByLabel("Minutos que puede durar una llamada, como mucho")).toHaveValue("120");
         await f.getByLabel("Minutos que puede durar una llamada, como mucho").fill("45");
         await f.getByLabel("Minutos que puede durar una llamada, como mucho").blur();
         await f.getByLabel("Segundos que suena solo a quien tiene la conversación").fill("0");

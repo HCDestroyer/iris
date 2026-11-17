@@ -20,17 +20,23 @@ import { erroresACampos } from "@/lib/formularios";
 import { resumirFranjas } from "@/lib/horarios/franjas";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
+import { leerCanales } from "@/lib/numeros/api";
 import { idDeParametro } from "@/lib/parametros";
+import { useSesion } from "@/lib/sesion";
 import { entradaDeCanal, esquemaLlamadasCanal, motivoNoEncender, valoresDeCanal, type ValoresLlamadasCanal } from "@/lib/voz/ajustes";
 import { comprobarLlamadasCanal, configurarLlamadasCanal, leerLlamadasCanal, sincronizarLlamadasCanal } from "@/lib/voz/api";
 import { textoRequisito } from "@/lib/voz/presentacion";
 import type { LlamadasCanal } from "@/lib/voz/tipos";
 
-type Datos = { numero: Numero; llamadas: LlamadasCanal; colas: Schema<"ColaConversaciones">[]; horarios: Schema<"Horario">[] };
+/** Lo que hace falta del número para titular la pantalla. */
+type NumeroCorto = Pick<Numero, "id" | "nombre" | "numero">;
+type Datos = { numero: NumeroCorto; llamadas: LlamadasCanal; colas: Schema<"ColaConversaciones">[]; horarios: Schema<"Horario">[] };
 
 /** `/administracion/numeros/[id]/llamadas`: llamadas de WhatsApp de un número (contratos/voz.md §3.9). */
 export function LlamadasDelNumero() {
     const id = idDeParametro(useParams<{ id: string }>().id);
+    const { puede } = useSesion();
+    const conCredenciales = puede(["mensajeria.configurar"]);
     const lectura = useLectura<Datos | null>(async (signal) => {
         if (id === null) return null;
         const [numeros, llamadas, colas, horarios] = await Promise.all([
@@ -39,7 +45,8 @@ export function LlamadasDelNumero() {
             resolver(api().GET("/api/v1/mensajeria/colas", { signal })),
             resolver(api().GET("/api/v1/mensajeria/horarios", { signal })),
         ]);
-        const numero = numeros.find((n) => n.id === id);
+        // Los números de la bandeja; uno que aún no está en ella sale de la lista de números de Meta.
+        const numero: NumeroCorto | undefined = numeros.find((n) => n.id === id) ?? (conCredenciales ? (await leerCanales(signal)).find((n) => n.id === id) : undefined);
         return numero ? { numero, llamadas, colas: colas.data ?? [], horarios: horarios.data ?? [] } : null;
     });
     useNombreEnMigas(lectura.estado === "listo" ? lectura.datos?.numero.nombre : null);
@@ -59,7 +66,7 @@ export function LlamadasDelNumero() {
 }
 
 /** Regla de fábrica: llamadas solo en números por API; nunca en uno por QR. */
-function NumeroPorQr({ numero }: { numero: Numero }) {
+function NumeroPorQr({ numero }: { numero: NumeroCorto }) {
     return (
         <div className="mx-auto grid max-w-2xl gap-4" data-slot="llamadas-qr">
             <div className="grid gap-1">

@@ -24,9 +24,12 @@ const CLASE: Record<TonoLlamada, { caja: string; icono: string }> = {
     neutro: { caja: "border-border bg-card", icono: "bg-elevated text-muted-foreground" },
 };
 
-/** Lleva el cursor al compositor de la conversación abierta («Escribirle»). */
+/**
+ * «Escribirle»: lleva el cursor a donde se le escribe al cliente. Con la ventana de 24 h cerrada
+ * (una llamada sola no la abre) solo se puede mandar una plantilla: el foco va a ese botón.
+ */
 function irAlCompositor(conversacionId: number) {
-    const campo = document.getElementById(`compositor-${conversacionId}`);
+    const campo = document.getElementById(`compositor-${conversacionId}`) ?? document.querySelector<HTMLElement>('[data-slot="compositor"] [data-slot="solo-plantilla"] button');
     campo?.scrollIntoView({ block: "nearest" });
     campo?.focus();
 }
