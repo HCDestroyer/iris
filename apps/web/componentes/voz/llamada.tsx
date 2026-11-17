@@ -50,8 +50,8 @@ function Senales({ llamada, saldoVencido }: { llamada: Llamada; saldoVencido: bo
                 </li>
             ) : null}
             {saldoVencido ? (
-                <li>
-                    <InsigniaEstado tono="warning" icono={Banknote} texto="Saldo vencido" data-slot="saldo-vencido" />
+                <li data-slot="saldo-vencido">
+                    <InsigniaEstado tono="warning" icono={Banknote} texto="Saldo vencido" />
                 </li>
             ) : null}
             {ticket ? (
