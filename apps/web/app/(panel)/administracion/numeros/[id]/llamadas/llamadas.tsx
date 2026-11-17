@@ -9,6 +9,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { CargaRegistro } from "@/componentes/carga-registro";
+import { EtiquetaEnPruebas, FranjaEnPruebas } from "@/componentes/voz/en-pruebas";
 import { useNombreEnMigas } from "@/componentes/migas-panel";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
@@ -73,6 +74,7 @@ function NumeroPorQr({ numero }: { numero: NumeroCorto }) {
                 <h1 className="text-xl font-bold">Llamadas de {numero.nombre}</h1>
                 <p className="text-sm text-muted-foreground">{formatearNumero(numero.numero)}</p>
             </div>
+            <FranjaEnPruebas />
             <Aviso tono="info" titulo="Este número no puede recibir llamadas">
                 Está conectado por QR (la app WhatsApp Business del teléfono). Meta solo permite llamadas en los números conectados por la API de WhatsApp. Los mensajes siguen funcionando igual.
             </Aviso>
@@ -209,6 +211,7 @@ function Formulario({ numero, llamadas, colas, horarios, alCambiar }: Datos & { 
                 ) : null
             }
         >
+            <FranjaEnPruebas />
             <EnWhatsApp llamadas={llamadas} ahora={ahora} ocupado={meta.accion !== null || sucio} aplicando={meta.accion === "aplicar"} alReintentar={() => void conMeta("aplicar")} />
             <SeccionFormulario titulo="Requisitos de Meta" descripcion="Meta solo deja recibir llamadas en los números que cumplen esto.">
                 <ul className="grid gap-2" aria-label="Requisitos" data-slot="requisitos" data-cumple={llamadas.requisitos.cumple ? "si" : "no"}>
@@ -253,6 +256,7 @@ function Formulario({ numero, llamadas, colas, horarios, alCambiar }: Datos & { 
             </SeccionFormulario>
 
             <SeccionFormulario titulo="Recibir llamadas">
+                <EtiquetaEnPruebas />
                 <Interruptor
                     etiqueta="Este número recibe llamadas de WhatsApp"
                     ayuda={noEncender && !v.llamadasActivas ? noEncender : "Los clientes ven el botón de llamar en el chat de WhatsApp."}

@@ -48,6 +48,9 @@ import type { Llamada } from "@/lib/voz/tipos";
  *   esa empresa, y cambiar de empresa o cerrar sesión con una llamada viva pregunta antes.
  */
 
+/** Cuánto se espera, al irse, a que el servidor termine la llamada antes de decir que no se pudo. */
+const TOPE_SALIDA_MS = 6000;
+
 /** Tiempo límite propio de `reclamar` y de `confirmar-medio` (peticiones que no pueden quedarse colgadas). */
 const LIMITE_PETICION_MS = 8000;
 
@@ -160,7 +163,7 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
     }, []);
 
     /** Lo último que se mandó a terminar en el servidor (para esperarlo antes de irse). */
-    const salida = useRef<Promise<unknown>>(Promise.resolve());
+    const salida = useRef<Promise<Fin | null>>(Promise.resolve(null));
 
     /** «Reintentar» del aviso de una llamada que no se pudo colgar (se asigna más abajo). */
     const reintentarAbierta = useRef<(id: string) => void>(() => undefined);
@@ -212,8 +215,8 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
                 salida.current =
                     accion === "colgar"
                         ? // Con la llamada en curso es mía seguro; si solo pudo aceptarse, se comprueba antes.
-                          colgarSeguro(id, ctx, !hablaba).then((fin) => trasAsegurar(id, fin, hablaba))
-                        : soltarSeguro(id, despues.fase === "aviso" ? despues.motivo : "abandonada", ctx).then((fin) => trasAsegurar(id, fin, false));
+                          colgarSeguro(id, ctx, !hablaba).then((fin) => (trasAsegurar(id, fin, hablaba), fin))
+                        : soltarSeguro(id, despues.fase === "aviso" ? despues.motivo : "abandonada", ctx).then((fin) => (trasAsegurar(id, fin, false), fin));
             }
             return despues;
         },
@@ -554,7 +557,7 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
         const alIrse = () => {
             const i = intento.current;
             const que = alCerrarPestana(estadoRef.current, i?.etapa ?? "en_curso", i?.reservaSegura ?? false);
-            if (que) avisarAlCerrar(que.id, que.accion, empresaMontada);
+            if (que) avisarAlCerrar(que.id, que.accion, empresaMontada, que.propia === true);
         };
         window.addEventListener("pagehide", alIrse);
         return () => {
@@ -567,21 +570,61 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
     }, [limpiar, empresaMontada]);
 
     // --- Irse con una llamada viva o sonando: se pregunta antes -------------------------------
-    const [pregunta, setPregunta] = useState<{ resolver: (seguir: boolean) => void; hablando: boolean; titulo: string } | null>(null);
+    type Pregunta = {
+        resolver: (seguir: boolean) => void;
+        hablando: boolean;
+        titulo: string;
+        /** La llamada que no se logró terminar a tiempo: se elige «Reintentar» o «Salir de todos modos». */
+        sinTerminar: string | null;
+        reintentando: boolean;
+    };
+    const [pregunta, setPregunta] = useState<Pregunta | null>(null);
+    const preguntaRef = useRef<Pregunta | null>(null);
+    useEffect(() => {
+        preguntaRef.current = pregunta;
+    });
+    // Si el proveedor se desmonta con la pregunta abierta, quien la esperaba recibe «quedarme».
+    useEffect(() => () => preguntaRef.current?.resolver(false), []);
+
     const antesDeSalir = useCallback(() => {
         const e = estadoRef.current;
         const l = e.fase === "sonando" || ocupada(e) ? llamadaDe(e) : null;
         if (!l) return Promise.resolve(true);
-        return new Promise<boolean>((resolver) => setPregunta({ resolver, hablando: e.fase === "en_curso", titulo: l.titulo }));
+        return new Promise<boolean>((resolver) => setPregunta({ resolver, hablando: e.fase === "en_curso", titulo: l.titulo, sinTerminar: null, reintentando: false }));
     }, []);
-    const dejarLlamada = useCallback(async () => {
+
+    /** ¿El servidor terminó (o no tenía) la llamada dentro del tope? Sin respuesta a tiempo, o con fallo: no. */
+    const terminoATiempo = useCallback(async (asegurado: Promise<Fin | null>): Promise<boolean> => {
+        const fin = await Promise.race([asegurado.catch((): Fin => ({ tipo: "fallo", error: null })), esperar(TOPE_SALIDA_MS).then(() => "tarde" as const)]);
+        return fin !== "tarde" && fin?.tipo !== "fallo";
+    }, []);
+
+    /** Deja la llamada y espera a que el servidor la termine. Devuelve el id si no se logró a tiempo. */
+    const dejarLlamada = useCallback(async (): Promise<string | null> => {
         const e = estadoRef.current;
-        const sonaba = e.fase === "sonando" ? e.llamada.id : null;
+        const id = llamadaDe(e)?.id ?? null;
+        const sonaba = e.fase === "sonando";
+        salida.current = Promise.resolve(null);
         despachar({ tipo: "abandonar" });
-        // Se espera a que el servidor la termine (o a un tope): después ya no habrá sesión o será otra empresa.
-        await Promise.race([salida.current.catch(() => undefined), esperar(6000)]);
-        if (sonaba) await Promise.race([rechazarLlamada(sonaba, empresaMontada).catch(() => undefined), esperar(2000)]);
-    }, [despachar, empresaMontada]);
+        // Después ya no habrá sesión, o será otra empresa: hay que terminarla antes.
+        const logrado = await terminoATiempo(salida.current);
+        if (sonaba && id) await Promise.race([rechazarLlamada(id, empresaMontada).catch(() => undefined), esperar(2000)]);
+        return logrado ? null : id;
+    }, [despachar, empresaMontada, terminoATiempo]);
+
+    const reintentarSalida = useCallback(async () => {
+        const p = preguntaRef.current;
+        if (!p?.sinTerminar || p.reintentando) return;
+        const id = p.sinTerminar;
+        setPregunta({ ...p, reintentando: true });
+        const logrado = await terminoATiempo(colgarSeguro(id, { empresa: empresaMontada, yoId }, true));
+        if (logrado) {
+            p.resolver(true);
+            setPregunta(null);
+        } else {
+            setPregunta({ ...p, reintentando: false });
+        }
+    }, [empresaMontada, yoId, terminoATiempo]);
 
     const reintentarRecibir = useCallback(() => {
         setRecibir({ estado: "cargando" });
@@ -595,26 +638,50 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
     return (
         <Contexto value={valor}>
             {children}
-            <DialogoConfirmar
-                open={pregunta !== null}
-                onOpenChange={(abierto) => {
-                    if (abierto || !pregunta) return;
-                    pregunta.resolver(false);
-                    setPregunta(null);
-                }}
-                titulo={pregunta?.hablando ? `Tienes una llamada con ${pregunta.titulo}` : "Tienes una llamada entrando"}
-                descripcion={pregunta?.hablando ? "Si sigues, la llamada se cuelga." : "Si sigues, deja de sonarte aquí y les sigue sonando a los demás."}
-                textoConfirmar={pregunta?.hablando ? "Colgar y seguir" : "Seguir"}
-                textoCancelar="Quedarme"
-                textoOcupado="Terminando la llamada…"
-                peligro={pregunta?.hablando ?? false}
-                alConfirmar={async () => {
-                    if (!pregunta) return;
-                    await dejarLlamada();
-                    pregunta.resolver(true);
-                    setPregunta(null);
-                }}
-            />
+            {pregunta?.sinTerminar ? (
+                // No se logró terminar la llamada a tiempo: no se sigue en silencio.
+                <DialogoConfirmar
+                    open
+                    onOpenChange={(abierto) => {
+                        // «Reintentar» (y Escape): se queda en el diálogo mientras lo intenta.
+                        if (!abierto) void reintentarSalida();
+                    }}
+                    titulo="No se pudo colgar la llamada"
+                    descripcion={pregunta.reintentando ? "Reintentando…" : `Para ${pregunta.titulo} la llamada puede seguir en línea. Reintenta o, si no hay manera, sal de todos modos: el servidor la corta solo al poco tiempo.`}
+                    textoConfirmar="Salir de todos modos"
+                    textoCancelar={pregunta.reintentando ? "Reintentando…" : "Reintentar"}
+                    peligro
+                    alConfirmar={() => {
+                        pregunta.resolver(true);
+                        setPregunta(null);
+                    }}
+                />
+            ) : (
+                <DialogoConfirmar
+                    open={pregunta !== null}
+                    onOpenChange={(abierto) => {
+                        if (abierto || !pregunta) return;
+                        pregunta.resolver(false);
+                        setPregunta(null);
+                    }}
+                    titulo={pregunta?.hablando ? `Tienes una llamada con ${pregunta.titulo}` : "Tienes una llamada entrando"}
+                    descripcion={pregunta?.hablando ? "Si sigues, la llamada se cuelga." : "Si sigues, deja de sonarte aquí y les sigue sonando a los demás."}
+                    textoConfirmar={pregunta?.hablando ? "Colgar y seguir" : "Seguir"}
+                    textoCancelar="Quedarme"
+                    textoOcupado="Terminando la llamada…"
+                    peligro={pregunta?.hablando ?? false}
+                    alConfirmar={async () => {
+                        if (!pregunta) return;
+                        const sinTerminar = await dejarLlamada();
+                        if (sinTerminar) {
+                            setPregunta({ ...pregunta, sinTerminar });
+                            return;
+                        }
+                        pregunta.resolver(true);
+                        setPregunta(null);
+                    }}
+                />
+            )}
         </Contexto>
     );
 }
