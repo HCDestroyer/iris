@@ -152,6 +152,23 @@ func catalogoDe(f mensajeriabd.MensajeriaVozMotor) catalogoGuardado {
 	return c
 }
 
+// compatibilidadActual vuelve a evaluar la compatibilidad de un servidor que no está en uso
+// (enlazado sin activar, o desactivado) con la versión de Iris de AHORA y lo que el paquete declaró
+// al enlazar, sin llamar al servidor. Lo guardado al conectar pudo quedar viejo: si Iris se
+// actualizó después, ya no hay que «actualizar Iris». De un servidor activo se encarga el latido.
+func (m *Modulo) compatibilidadActual(f mensajeriabd.MensajeriaVozMotor) mensajeriabd.MensajeriaVozMotor {
+	if f.EnlazadoEn == nil || (f.ActivadoEn != nil && f.Estado != MotorDesactivado) {
+		return f
+	}
+	man := voz.Manifiesto{Version: derefTexto(f.VersionMotor), Protocolo: derefTexto(f.VersionProtocolo), IrisMin: derefTexto(f.IrisMin), IrisMax: derefTexto(f.IrisMax)}
+	if man.Validar() != nil {
+		return f // sin un manifiesto válido guardado no hay con qué reevaluar
+	}
+	ok, motivo := voz.Compatible(man, m.versionIris(), VozMin)
+	f.Compatible, f.MotivoIncompatible = ok, ptrSi(motivo)
+	return f
+}
+
 func aMotorIA(f mensajeriabd.MensajeriaVozMotor, enCurso int64) MotorIA {
 	c := catalogoDe(f)
 	m := MotorIA{ID: f.ID, Nombre: f.Nombre, URL: f.Url, Version: f.Version, Estado: f.Estado, Detalle: f.Detalle,
@@ -471,7 +488,7 @@ func nuevosCasosServidorIA(m *Modulo) *CasosServidorIA {
 			if err != nil {
 				return r, err
 			}
-			mo := aMotorIA(f, enCurso(ctx, q, f.ID))
+			mo := aMotorIA(m.compatibilidadActual(f), enCurso(ctx, q, f.ID))
 			activas, err := q.EmpresasActivasIA(ctx)
 			if err != nil {
 				return r, err
@@ -551,6 +568,7 @@ func nuevosCasosServidorIA(m *Modulo) *CasosServidorIA {
 		if err != nil {
 			return conexionMotor{}, err
 		}
+		f = m.compatibilidadActual(f)
 		c, err := m.conexionDeMotor(f)
 		if err != nil {
 			// Sin credenciales legibles no hay canal: se trata como un servidor que no responde.

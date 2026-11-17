@@ -1431,6 +1431,9 @@ instalable aparte, construido solo para ese servidor.
   en `errors[0].rule`: `iris_antiguo`, `iris_nuevo`, `paquete_antiguo` o `protocolo`): no se activa
   algo que Iris no va a usar. Si deja de ser compatible ya activado (se actualizó uno de los dos),
   el latido lo deja en `incompatible`.
+  La compatibilidad de un servidor **enlazado sin activar** (o desactivado) se **reevalúa al leerlo
+  y al activar** con la versión de Iris de ese momento y lo que el paquete declaró al enlazar, sin
+  llamar al servidor: si Iris se actualizó después de «Conectar», deja de pedir «actualiza Iris».
 - **Comprobación de compatibilidad:** `GET /voz/v1/version` →
   `{ version, protocolo, irisMin, irisMax, gpu: { modelo, vramMb }, catalogo }`. Se comprueba
   **al enlazar** (el manifiesto va en la respuesta de `/enlazar`), **en cada latido** (`/salud`) y
