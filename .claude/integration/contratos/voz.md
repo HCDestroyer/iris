@@ -219,6 +219,7 @@ aparecen como `(el cliente marcó en el teclado: ***)`.
 **Dónde se transcribe.** Siempre en el **servidor de voz**, por el mismo canal autenticado (§4.2):
 mensajería envía el audio de la grabación en flujo a `POST /voz/v1/transcribir` y recibe los
 segmentos; el motor **no guarda** ni el audio ni el texto (memoria, y se descarta al responder).
+Se silencian las capturas antes de enviarla (§5.5).
 Nunca se manda una grabación a otro servicio desde mensajería.
 
 **`transcribir: false` no evita los turnos del asistente.** Para funcionar, el asistente guarda el
@@ -318,12 +319,17 @@ responde **404**.
   "sonoEn": "…", "contestadaEn": "…", "terminadaEn": null, "duracionSeg": null,
   "motivoFin": null, "nota": null, "resultado": null,
   "grabacion": { "estado": "pendiente" }, "transcripcion": { "estado": "pendiente" },
+  "verificacionLlamada": null, "verificacionLlamadaVenceEn": null,
   "puede": { "contestar": false, "rechazar": false, "colgar": true, "tomar": false,
              "transferir": true, "anotar": true, "escucharGrabacion": false } }
 ```
 
 - Objetos opcionales **ausentes** cuando no aplican; listas siempre `[]` (misma regla del chat).
 - `puede` lo calcula el servidor para **este** usuario: el panel no deduce permisos.
+- `verificacionLlamada`: `"fuerte"` \| `null`. Es la verificación ligada a **esta** llamada
+  (§5.5), distinta de `contacto.verificacion` (la de la conversación, que una llamada no cambia).
+  `verificacionLlamadaVenceEn`: cuándo vence dentro de la llamada (o `null`); al colgar las dos
+  vuelven a `null`.
 - En un mensaje del hilo: `tipo: "llamada"`, `texto: null` y
   `llamada: { id, direccion, estado, atendidaPor, duracionSeg, motivoFin, usuario?, tieneNota, grabacion?, devolucion? }`.
 - **Nunca** viajan al navegador: el SDP fuera de `reclamar`/`contestar`/`llamar`, el `call_id` de
@@ -659,7 +665,12 @@ un cliente con la misma regla de §3.4 del chat (una sola coincidencia; si no, s
 
 - **El destino lo resuelve el servidor**: `telefono` es `principal` \| `movil` \| `contacto` y el
   número sale de la instantánea de Argos del cliente (o del cliente del ticket) en la empresa
-  activa. **No existe un campo de número libre.** Un cliente o ticket que el usuario no ve: 404.
+  activa. La instantánea **sí incluye los teléfonos** (`contratos/argosisp.md` §2.2: `telefono`
+  y `movil` del cliente y `contacto_telefono` del servicio, que Argos guarda normalizados; son
+  los mismos que usa la asociación automática de §3.4 del chat), así que no hace falta una
+  lectura nueva a Argos: si la fila tiene más de 24 h se refresca antes de marcar, como en los
+  avisos. El número no se copia a ninguna tabla nueva: queda solo en `llamadas.numero` de esa
+  llamada. Sin teléfono de ese tipo en la instantánea: 422 `sin_contacto`. **No existe un campo de número libre.** Un cliente o ticket que el usuario no ve: 404.
 - **Solo nacional de fábrica:** el número debe ser `+502` y 8 dígitos; otros países, números cortos,
   de tarificación especial y los que empiezan por códigos de servicio se rechazan
   (422 `destino_no_permitido`). Una empresa puede añadir prefijos a una lista explícita
@@ -720,6 +731,7 @@ de voz:
 - **Puede falsificar turnos y teclas**: inventar que el cliente dijo «sí», que marcó 1 o que tecleó
   un documento. Es decir, **equivale al cliente de cada llamada viva, con su nivel de
   verificación**, y puede hacer lo que ese cliente podría hacer por voz.
+- Con `transcribir` encendido, también oye las grabaciones que se le envían a transcribir.
 - Si la empresa usa el LLM del servidor de voz (§4.4), además ve los prompts y los resultados de
   herramientas de esas llamadas (nunca documentos ni montos: no se le dan al modelo, §17.9).
 - **No puede:** crear llamadas ni hacer que una exista (nacen del webhook firmado de Meta), elegir
@@ -852,7 +864,8 @@ tiene ruta de red hacia el LLM.
 Ollama (u otro compatible con OpenAI) **como un proveedor compatible más**, por el mismo puerto y el
 mismo canal autenticado de §4.2. La terminación TLS del servidor de voz enruta
 `/voz/v1/llm/v1/chat/completions` y `/voz/v1/llm/v1/models` **directamente al contenedor `llm`**,
-sin pasar por `cmd/voz`. Para mensajería es el adaptador `openai_compatible` de siempre con otra
+sin pasar por `cmd/voz`. La terminación TLS verifica mTLS, firma y nonce de toda ruta, también
+`/llm/`. El contenedor `llm` no tiene salida a red ni guarda prompts. Para mensajería es el adaptador `openai_compatible` de siempre con otra
 forma de autenticarse; no hay URL ni clave que escribir y Ollama no se expone a ninguna red.
 
 **Por qué se mantiene `llmVoz: motor` y qué riesgo deja.** Razones: la latencia (el LLM está junto
@@ -1176,6 +1189,8 @@ Vale para toda herramienta que **crea o cambia** algo (`crear_ticket`, `agendar_
    Además, **una sola ejecución con éxito por herramienta con efecto y llamada**: un ticket, una
    visita, una promesa y una reconexión como mucho en la misma llamada. La segunda petición no se
    pregunta: pasa a una persona. (Acota lo que puede hacer un motor que falsifique confirmaciones.)
+   Reprogramar esa misma orden sin programar no cuenta como segunda ejecución (§17.10 del chat:
+   la ventana se quedó sin espacio y el siguiente `agendar_visita` programa la orden ya creada).
 4. **La confirmación solo vale si empezó después de que la pregunta terminó de decirse completa.**
    El motor informa `dicho { fraseId, completo: true, terminoEn }` de la frase de confirmación y
    cada `turno_cliente` y `tecla` trae `empezoEn` (reloj del motor, mismo origen). El servidor
@@ -1239,8 +1254,9 @@ grabación**:
    solo el resultado, en `asistente_verificaciones`, la auditoría y
    `conversacion.identidad_verificada` (`canal: voz`, `llamada_id`).
 4. El modelo solo recibe «(el cliente marcó un documento: ***) resultado: coincide | no_coincide».
-5. **Intentos: 3 por `cliente_id` y día, sumando todos los canales** (chat y voz) **y todos los
-   números** desde los que se intente verificar a ese cliente. No es por conversación: cambiar de
+5. **Intentos: 3 por `cliente_id` y día, sumando chat y voz** (y todos los números desde los que
+   se intente verificar a ese cliente; es la misma regla de §17.8.2 del chat, que cambia con este
+   contrato: ver la nota de §10.2). No es por conversación: cambiar de
    número o de canal no da intentos nuevos. Al tercero fallido pasa a una persona y queda un intento
    de mal uso `verificacion_fallida`. Si Argos responde **429 `demasiados_intentos`, 422
    `metodo_no_disponible` o 503**, pasa a una persona **sin reintentar** (como en el chat).
@@ -1650,6 +1666,11 @@ un TURN.
 - Issabel permite AMI sobre TLS y un usuario con permisos mínimos; el CDR trae `linkedid` y el
   nombre del archivo de la grabación.
 - El resumen y la clasificación del chat sirven tal cual sobre turnos transcritos.
+
+**Pendiente de código (no está implementado).** El límite de verificación pasa a 3 intentos por
+`cliente_id` y día sumando chat y voz (§5.5 y `conversaciones.md` §17.8.2). **El chat hoy cuenta
+por conversación**; se cambia en la PR de E3 o antes. Hasta entonces el texto de §17.8.2 describe
+el comportamiento acordado, no el del código.
 
 ### 10.3 Decisiones del líder (17 nov 2026)
 
