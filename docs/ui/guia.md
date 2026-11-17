@@ -819,7 +819,8 @@ tarjeta en Integraciones (junto a Argos y Horus). Código en `componentes/servid
   junto al nombre de cada tarjeta), tres `GraficaSerie`, modelos, uso por empresa y errores
   recientes. Con varias tarjetas gráficas, un bloque por tarjeta. Con `gpus.estado: "omitido"`
   («sin tarjeta o sin lectura», no se sabe cuál) las cifras de GPU van en «Sin datos» con el texto
-  neutro «El servidor no reportó la tarjeta gráfica en esta lectura»: no se afirma que no hay tarjeta. Modelos y uso son listas, no tablas: caben en
+  neutro «El servidor no reportó la tarjeta gráfica en esta lectura»; «No hay tarjeta gráfica
+  detectada» solo se dice con `gpus.estado: "sin_gpu"`. Modelos y uso son listas, no tablas: caben en
   390 px sin desplazarse a lo ancho. Si hay más empresas activas que turnos
   (`estado.plazasInsuficientes`), un aviso llano con enlace a Mantenimiento.
 - **Quién entra.** Cada página pasa por `PuertaServidorIa` (permiso **y** `empresas.todas`, como la
@@ -838,12 +839,17 @@ tarjeta en Integraciones (junto a Argos y Horus). Código en `componentes/servid
   (`protocolo`, `iris_nuevo`, `paquete_antiguo`). Sin `versionDisponible` no se nombra versión.
 - **Enlazar** (`/enlazar`): cuatro pasos en una pantalla. Dirección → código de un solo uso (se
   muestra una vez, vence a los 15 minutos, se escribe en el servidor sin eco) → huella con la
-  casilla «Coincide con la del instalador» → «Activar» (un enlace sin activar caduca a las 24 h).
+  casilla «Coincide con la del instalador» → «Activar» con esa misma huella (un enlace sin activar
+  caduca a las 24 h). Si el servidor cambió entretanto (409 `huella_cambiada`) se desmarca la
+  casilla y se enseña la huella de ahora; nunca se reintenta solo. 409 `rotacion_en_curso`, aquí y
+  al rotar, es un aviso de «espera unos segundos», no un error.
   Si «conectar» falla, el servidor responde lo mismo (502) para un código usado o mal escrito que
   para un servidor fuera de alcance: el texto lo dice así, sin afirmar cuál fue. Un paso
   vencido (409 `enlace_vencido`, el mismo para el código y para activar) ofrece empezar de nuevo.
-- **Comandos del servidor.** Los que se copian son los del instalador (`infra/voz/install-voz.sh`):
-  `iris-voz enlazar`, `estado`, `actualizar`, `desenlazar` y `modelo descargar|permitir|quitar <nombre>`.
+- **Comandos del servidor: siempre en inglés** (regla del PM; nunca en español). Viven en un solo
+  sitio, `COMANDO` de `lib/servidor-ia/presentacion.ts`: `iris-voz pair`, `unpair`, `status`,
+  `upgrade` y `model pull|allow|remove <nombre>`. Solo el texto que se copia; los rótulos y las
+  explicaciones del panel siguen en español.
 - **Avisos** (`/avisos`, `FormularioPagina`): los de la semana y, plegado en «Avanzado», los
   umbrales y cuántos días de historial se guardan, con «Valores de fábrica». «Servidor caído» y
   «Versión incompatible» no tienen umbral. «Ninguno en los últimos 7 días» solo se dice si la lista
@@ -852,7 +858,7 @@ tarjeta en Integraciones (junto a Argos y Horus). Código en `componentes/servid
   permitidos en dos niveles (el servidor declara los suyos; aquí se eligen «Todos los del servidor»
   o «Solo algunos»; descargar uno nuevo es un comando en el servidor, que se puede copiar),
   «Rotar credenciales» y «Revocar ahora» (cada confirmación dice qué pasa mientras tanto; si no
-  llega respuesta se dice que no se sabe, se relee la tarjeta y el reintento repite la misma clave) y
+  llega respuesta: «No se pudo confirmar el cambio. Iris recupera la conexión sola…», se relee la tarjeta y el reintento repite la misma clave) y
   «Desenlazar» con confirmación.
 - **En el asistente de cada empresa** (`/administracion/asistente/conexion`): el proveedor
   «Servidor de IA» aparece si los ajustes traen `servidorIa`; se elige un modelo de los permitidos,

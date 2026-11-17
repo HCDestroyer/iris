@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, conSesion, EMPRESAS, simularApi, SUPERVISOR_ZONA, type OpcionesApi } from "./api-falsa";
-import { AHORA_SIA, CODIGO_ENLACE, MODELOS_SIA, type OpcionesServidorIa } from "./api-servidor-ia";
+import { AHORA_SIA, CODIGO_ENLACE, HUELLA, HUELLA_OTRA, MODELOS_SIA, type OpcionesServidorIa } from "./api-servidor-ia";
 import { confirmacion, esTelefono } from "./ayudas";
 import { elegirOpcion, textosOpciones } from "./controles";
 import { esperarSinDesbordes } from "./desbordes";
@@ -156,6 +156,7 @@ test.describe("Servidor de IA › tablero", () => {
             await expect(slot(page, cifra)).toContainText("Sin datos");
             await expect(slot(page, cifra)).not.toContainText(/\d/);
         }
+        await expect(slot(page, "sin-tarjeta-grafica")).toHaveCount(0);
         await expect(slot(page, "tablero-servidor-ia")).not.toContainText(/No hay tarjeta gráfica|sin tarjeta gráfica/i);
         // Lo que sí se leyó se sigue mostrando.
         await expect(slot(page, "cifra-peticiones")).toContainText("de 4 a la vez");
@@ -164,6 +165,17 @@ test.describe("Servidor de IA › tablero", () => {
         await expect(slot(page, "series").getByRole("heading", { name: "Peticiones por minuto" })).toBeVisible();
         await expect(slot(page, "series").getByRole("heading", { name: "Uso y memoria de video" })).toHaveCount(0);
         await captura(page, "tablero-sin-tarjeta");
+    });
+
+    test("`sin_gpu`: el servidor respondió que no tiene tarjeta y entonces sí se dice", async ({ page }) => {
+        await abrir(page, RUTA, { gpus: 0, sinGpu: true });
+        await expect(slot(page, "sin-tarjeta-grafica")).toContainText("No hay tarjeta gráfica detectada");
+        await expect(slot(page, "gpu-sin-lectura")).toHaveCount(0);
+        await expect(slot(page, "cifra-uso")).toHaveCount(0);
+        await expect(slot(page, "cifra-peticiones")).toContainText("de 4 a la vez");
+        await expect(slot(page, "cifra-cpu")).toContainText("12");
+        await esperarSinDesbordes(page);
+        await captura(page, "tablero-sin-gpu");
     });
 
     test("saturación: rechazadas en la tarjeta, en el uso y en los avisos (no hay cola)", async ({ page }) => {
@@ -214,7 +226,7 @@ test.describe("Servidor de IA › caído o incompatible", () => {
         await expect(slot(page, "modelos")).toHaveCount(0);
         await expect(slot(page, "mientras-tanto")).toContainText("Qué pasa con el asistente mientras tanto");
         await expect(slot(page, "mientras-tanto")).toContainText("Cable Norte");
-        await expect(slot(page, "que-revisar")).toContainText("sudo iris-voz estado");
+        await expect(slot(page, "que-revisar")).toContainText("sudo iris-voz status");
 
         await page.getByRole("button", { name: "Probar ahora" }).click();
         await expect(slot(page, "resultado-prueba")).toHaveAttribute("data-estado", "error");
@@ -240,7 +252,7 @@ test.describe("Servidor de IA › caído o incompatible", () => {
         const fuera = slot(page, "servidor-fuera");
         await expect(fuera).toContainText("Versión incompatible");
         await expect(fuera).toContainText("Hay que actualizar Iris Voz en el servidor");
-        await expect(fuera.locator('[data-slot="comando"]')).toContainText("sudo iris-voz actualizar");
+        await expect(fuera.locator('[data-slot="comando"]')).toContainText("sudo iris-voz upgrade");
         await expect(slot(page, "cifras")).toHaveAttribute("data-vigentes", "no");
         await captura(page, "incompatible");
     });
@@ -248,7 +260,7 @@ test.describe("Servidor de IA › caído o incompatible", () => {
     test("incompatible por el protocolo o porque Iris es más nuevo: también se actualiza el servidor, con su porqué", async ({ page }) => {
         await abrir(page, RUTA, { motor: "incompatible_protocolo" });
         await expect(slot(page, "servidor-fuera")).toContainText("no hablan la misma versión del protocolo");
-        await expect(slot(page, "servidor-fuera").locator('[data-slot="comando"]')).toContainText("sudo iris-voz actualizar");
+        await expect(slot(page, "servidor-fuera").locator('[data-slot="comando"]')).toContainText("sudo iris-voz upgrade");
         // Sin `versionDisponible` no se dice a qué versión.
         await expect(slot(page, "servidor-fuera")).not.toContainText("o una más nueva");
     });
@@ -338,7 +350,9 @@ test.describe("Servidor de IA › enlazar", () => {
         await captura(page, "sin-servidor");
         await page.getByRole("link", { name: "Enlazar servidor" }).click();
         await expect(pasos(page)).toHaveAttribute("data-paso-actual", "direccion");
-        await expect(pasos(page)).toContainText("sudo iris-voz enlazar");
+        await expect(pasos(page)).toContainText("sudo iris-voz pair");
+        // Los comandos van en inglés, como el instalador: ninguno en español.
+        await expect(pasos(page)).not.toContainText(/iris-voz (enlazar|desenlazar|estado|actualizar|modelo)/);
 
         // La dirección tiene que ser https.
         await page.getByLabel("Dirección").fill("http://10.0.0.5:8443");
@@ -379,7 +393,47 @@ test.describe("Servidor de IA › enlazar", () => {
         await expect(page.getByText("Servidor de IA activado")).toBeVisible();
         await expect(estado(page)).toHaveAttribute("data-estado", "listo");
         expect(api.servidorIa.recibido.conexiones).toBe(2);
+        // Va la huella que estaba en pantalla cuando se marcó «Coincide».
+        expect(api.servidorIa.recibido.activaciones).toEqual([{ huellaTls: HUELLA }]);
+    });
+
+    test("si el servidor cambió después de comparar (409 `huella_cambiada`): lo dice, desmarca y enseña la huella nueva; no reintenta solo", async ({ page }) => {
+        const api = await abrir(page, `${RUTA}/enlazar`, { motor: "con_huella", activar: ["huella_cambiada", "ok"] });
+        await expect(slot(page, "huella")).toContainText("3FA9");
+        const coincide = page.getByRole("checkbox", { name: "Coincide con la del instalador" });
+        await coincide.check();
+        await page.getByRole("button", { name: "Activar", exact: true }).click();
+        const error = slot(page, "error-enlace");
+        await expect(error).toHaveAttribute("data-codigo", "huella_cambiada");
+        await expect(error).toContainText("El servidor cambió desde que lo comparaste; vuelve a conectar y compara de nuevo.");
+        // Se vuelve a comparar: la casilla queda sin marcar, con la huella de ahora, y «Activar» apagado.
+        await expect(pasos(page)).toHaveAttribute("data-paso-actual", "huella");
+        await expect(coincide).not.toBeChecked();
+        await expect(slot(page, "huella")).toContainText("9B04");
+        await expect(slot(page, "huella")).not.toContainText("3FA9");
+        await expect(page.getByRole("button", { name: "Activar", exact: true })).toBeDisabled();
+        await page.clock.fastForward(30_000);
         expect(api.servidorIa.recibido.activaciones).toHaveLength(1);
+        await captura(page, "enlazar-huella-cambiada");
+
+        // Comparada la nueva, se activa con esa.
+        await coincide.check();
+        await page.getByRole("button", { name: "Activar", exact: true }).click();
+        await expect(estado(page)).toHaveAttribute("data-estado", "listo");
+        expect(api.servidorIa.recibido.activaciones).toEqual([{ huellaTls: HUELLA }, { huellaTls: HUELLA_OTRA }]);
+    });
+
+    test("activar con un cambio de llave en curso (409): pide esperar y deja reintentar a mano", async ({ page }) => {
+        const api = await abrir(page, `${RUTA}/enlazar`, { motor: "con_huella", activar: ["rotacion_en_curso", "ok"] });
+        await page.getByRole("checkbox", { name: "Coincide con la del instalador" }).check();
+        await page.getByRole("button", { name: "Activar", exact: true }).click();
+        await expect(slot(page, "error-enlace")).toHaveAttribute("data-codigo", "rotacion_en_curso");
+        await expect(slot(page, "error-enlace")).toContainText("Ya hay un cambio de llave en curso; espera unos segundos.");
+        // Sigue en el mismo paso, con la casilla marcada.
+        await expect(page.getByRole("checkbox", { name: "Coincide con la del instalador" })).toBeChecked();
+        await page.getByRole("button", { name: "Activar", exact: true }).click();
+        await expect(estado(page)).toHaveAttribute("data-estado", "listo");
+        expect(api.servidorIa.recibido.activaciones).toHaveLength(2);
     });
 
     test("la ventana del código vence a los 15 minutos: no deja conectar y ofrece generar otro", async ({ page }) => {
@@ -564,10 +618,27 @@ test.describe("Servidor de IA › mantenimiento", () => {
 
         const modelos = slot(page, "modelos-permitidos");
         for (const m of MODELOS_SIA) await expect(modelos).toContainText(m);
-        await expect(modelos).toContainText("sudo iris-voz modelo descargar");
-        await expect(modelos).toContainText("sudo iris-voz modelo permitir");
+        await expect(modelos).toContainText("sudo iris-voz model pull <nombre>");
+        await expect(modelos).toContainText("sudo iris-voz model allow <nombre>");
+        await expect(modelos).toContainText("sudo iris-voz model remove <nombre>");
+        await expect(page.locator("main")).not.toContainText(/iris-voz (enlazar|desenlazar|estado|actualizar|modelo)/);
         await esperarSinDesbordes(page);
         await captura(page, "mantenimiento");
+    });
+
+    test("rotar con otro cambio de llave en curso (409): pide esperar, sin error grave", async ({ page }) => {
+        const api = await abrir(page, `${RUTA}/mantenimiento`, { rotarEnCurso: 1 });
+        const cred = slot(page, "credenciales");
+        await cred.getByRole("button", { name: "Rotar credenciales" }).click();
+        await confirmacion(page).getByRole("button", { name: "Rotar", exact: true }).click();
+        await expect(slot(page, "rotacion-en-curso")).toContainText("Ya hay un cambio de llave en curso; espera unos segundos.");
+        await expect(slot(page, "error-credenciales")).toHaveCount(0);
+        await expect(slot(page, "ultima-rotacion")).toContainText("2 de noviembre");
+        await cred.getByRole("button", { name: "Rotar credenciales" }).click();
+        await confirmacion(page).getByRole("button", { name: "Rotar", exact: true }).click();
+        await expect(page.getByText("Credenciales rotadas")).toBeVisible();
+        await expect(slot(page, "rotacion-en-curso")).toHaveCount(0);
+        expect(api.servidorIa.recibido.rotaciones).toHaveLength(2);
     });
 
     test("rotar sin respuesta: no afirma si se cambió, relee la tarjeta y el reintento repite la misma clave", async ({ page }) => {
@@ -577,8 +648,8 @@ test.describe("Servidor de IA › mantenimiento", () => {
         await cred.getByRole("button", { name: "Rotar credenciales" }).click();
         await confirmacion(page).getByRole("button", { name: "Rotar", exact: true }).click();
         const error = slot(page, "error-credenciales");
-        await expect(error).toHaveAttribute("data-sin-respuesta", "true");
-        await expect(error).toContainText("No se sabe si las credenciales se cambiaron");
+        await expect(error).toHaveAttribute("data-sin-confirmar", "true");
+        await expect(error).toContainText("No se pudo confirmar el cambio. Iris recupera la conexión sola; no hace falta enlazar de nuevo.");
         await expect(error).not.toContainText(/no se cambió nada|sigue valiendo la llave actual/i);
         // Lo releído: el servidor sí la había rotado.
         await expect(slot(page, "ultima-rotacion")).toContainText("17 de noviembre");

@@ -106,8 +106,23 @@ export function ultimaVez(iso: string, ahora: number): string {
     return `${mismoDia ? "hoy" : `el ${dia.format(ms)}`} a las ${hora.format(ms)} (${haceCuanto(iso, ahora)})`;
 }
 
+/**
+ * Los comandos de `iris-voz` que el panel deja copiar. **Siempre en inglés** (regla del PM): son
+ * los del instalador (`infra/voz/install-voz.sh`), sin alias en español. Los rótulos y las
+ * explicaciones de alrededor sí van en español.
+ */
+export const COMANDO = {
+    enlazar: "sudo iris-voz pair",
+    desenlazar: "sudo iris-voz unpair",
+    estado: "sudo iris-voz status",
+    actualizar: "sudo iris-voz upgrade",
+    modeloDescargar: "sudo iris-voz model pull <nombre>",
+    modeloPermitir: "sudo iris-voz model allow <nombre>",
+    modeloQuitar: "sudo iris-voz model remove <nombre>",
+} as const;
+
 /** El comando que actualiza Iris Voz, en el servidor. */
-export const COMANDO_ACTUALIZAR = "sudo iris-voz actualizar";
+export const COMANDO_ACTUALIZAR = COMANDO.actualizar;
 
 /** Qué hay que actualizar cuando no son compatibles (se comprueba en los dos sentidos, §4.7): solo `iris_antiguo` pide actualizar Iris. */
 export function queActualizar(p: Pick<Paquete, "version" | "motivoIncompatible" | "versionDisponible">): { titulo: string; detalle: string; comando: string | null } {
@@ -293,9 +308,9 @@ export function huellaLegible(huella: string): string[] {
 export function textoErrorEnlace(codigo: string, estado: number, alConectar = false): string | null {
     // Al conectar, el servidor responde lo mismo para cualquier falla (no delata si el código era bueno).
     if (alConectar && codigo === "motor_no_responde") {
-        return "Iris no pudo conectarse con el servidor. Puede que el código esté mal escrito allá o ya se haya usado, que la ventana de 15 minutos se haya cerrado o que el servidor no esté al alcance. Vuelve a ejecutar «sudo iris-voz enlazar» en el servidor y escribe el código de nuevo.";
+        return `Iris no pudo conectarse con el servidor. Puede que el código esté mal escrito allá o ya se haya usado, que la ventana de 15 minutos se haya cerrado o que el servidor no esté al alcance. Vuelve a ejecutar «${COMANDO.enlazar}» en el servidor y escribe el código de nuevo.`;
     }
-    if (estado === 401) return "El servidor no aceptó el código. Puede que esté mal escrito allá o que ya se haya usado. Vuelve a ejecutar «sudo iris-voz enlazar» en el servidor y escribe el código de nuevo.";
+    if (estado === 401) return `El servidor no aceptó el código. Puede que esté mal escrito allá o que ya se haya usado. Vuelve a ejecutar «${COMANDO.enlazar}» en el servidor y escribe el código de nuevo.`;
     if (estado === 429) return "Demasiados intentos seguidos. Espera unos segundos y vuelve a probar.";
     switch (codigo) {
         case "motor_ya_enlazado":
@@ -305,7 +320,11 @@ export function textoErrorEnlace(codigo: string, estado: number, alConectar = fa
         case "motor_no_responde":
             return "Iris no pudo llegar al servidor en esa dirección. Revisa que esté encendido, que la dirección sea la que mostró el instalador y que la ventana de enlace siga abierta.";
         case "motor_incompatible":
-            return "La versión de Iris Voz del servidor no es compatible con esta versión de Iris. Actualiza el servidor (sudo iris-voz actualizar) y vuelve a enlazar.";
+            return `La versión de Iris Voz del servidor no es compatible con esta versión de Iris. Actualiza el servidor (${COMANDO.actualizar}) y vuelve a enlazar.`;
+        case "huella_cambiada":
+            return TEXTO_HUELLA_CAMBIADA;
+        case "rotacion_en_curso":
+            return TEXTO_ROTACION_EN_CURSO;
         case "enlace_vencido":
             return "Ese paso del enlace ya venció: el código vale 15 minutos y, una vez conectado, hay 24 horas para activar. Hay que empezar de nuevo.";
         default:
@@ -315,6 +334,13 @@ export function textoErrorEnlace(codigo: string, estado: number, alConectar = fa
 
 /** El 422 al guardar `servidor_ia` en el asistente de una empresa (§4.11). */
 export const TEXTO_NO_DISPONIBLE = "El Servidor de IA no está disponible para esta empresa ahora: no está enlazado y en línea, la empresa no está entre las permitidas o ese modelo ya no está instalado. Pídele a quien administra la instalación que lo revise, o elige otro proveedor.";
+
+/** 409 `huella_cambiada` al activar: lo que se comparó ya no es lo que hay. */
+export const TEXTO_HUELLA_CAMBIADA = "El servidor cambió desde que lo comparaste; vuelve a conectar y compara de nuevo.";
+/** 409 `rotacion_en_curso` (activar o rotar): no es un fallo, hay que esperar. */
+export const TEXTO_ROTACION_EN_CURSO = "Ya hay un cambio de llave en curso; espera unos segundos.";
+/** Rotar sin respuesta o con 5xx (§4.2: se aplica entera o nada, e Iris se recupera sola). */
+export const TEXTO_ROTACION_SIN_CONFIRMAR = "No se pudo confirmar el cambio. Iris recupera la conexión sola; no hace falta enlazar de nuevo.";
 
 /** «310 W». */
 export const potencia = (w: number): string => `${Math.round(w)} W`;

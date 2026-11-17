@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cantidad, cifrasVigentes, duracionLlana, lecturaReciente, lineaTarjeta, enServicio, huellaLegible, lineaEstado, queActualizar, seriesDe, tamano, tarjetaGpu, textoAviso, textoError, textoErrorEnlace, textoPlazas, tiempoRespuesta, tonoFrente, ultimaVez } from "./presentacion";
+import { cantidad, cifrasVigentes, COMANDO, duracionLlana, lecturaReciente, lineaTarjeta, enServicio, huellaLegible, lineaEstado, queActualizar, seriesDe, tamano, tarjetaGpu, textoAviso, textoError, textoErrorEnlace, textoPlazas, tiempoRespuesta, tonoFrente, ultimaVez } from "./presentacion";
 import type { AvisoServidor, Tablero } from "./tipos";
 import { DE_FABRICA, entradaDeUmbrales, esDeFabrica, esquemaEmpresas, esquemaEnlace, esquemaUmbrales, valoresDeUmbrales } from "./umbrales";
 
@@ -75,7 +75,7 @@ describe("textos del Servidor de IA", () => {
         ] as const) {
             const servidor = queActualizar({ version: "0.0.9", motivoIncompatible: motivo, versionDisponible: null });
             expect(servidor.titulo).toBe("Hay que actualizar Iris Voz en el servidor");
-            expect(servidor.comando).toBe("sudo iris-voz actualizar");
+            expect(servidor.comando).toBe("sudo iris-voz upgrade");
             expect(servidor.detalle).toContain(texto);
             // Sin `versionDisponible` no se dice a cuál versión.
             expect(servidor.detalle).not.toContain("o una más nueva");
@@ -124,10 +124,38 @@ describe("textos del Servidor de IA", () => {
         // Al conectar, la misma respuesta vale para un código malo: el texto no afirma cuál fue.
         expect(textoErrorEnlace("motor_no_responde", 502, true)).toContain("Puede que el código esté mal escrito allá");
         expect(textoErrorEnlace("enlace_vencido", 409)).toContain("ya venció");
+        expect(textoErrorEnlace("huella_cambiada", 409)).toBe("El servidor cambió desde que lo comparaste; vuelve a conectar y compara de nuevo.");
+        expect(textoErrorEnlace("rotacion_en_curso", 409)).toBe("Ya hay un cambio de llave en curso; espera unos segundos.");
         expect(textoErrorEnlace("otro", 500)).toBeNull();
+        // Los seis tipos de episodio tienen su título propio.
+        const tipos = ["caido", "incompatible", "vram", "disco", "temperatura", "saturacion"] as const;
+        const titulos = tipos.map((tipo) => textoAviso({ tipo, activo: true, desde: "", hasta: null, valor: null, umbral: null }).titulo);
+        expect(new Set(titulos).size).toBe(6);
+        expect(titulos).not.toContain("Aviso del servidor de IA");
         expect(textoPlazas(6, 4)).toContain("más empresas usando el servidor que turnos disponibles (6 empresas y 4 turnos)");
         expect(textoPlazas(undefined, null)).not.toContain("(");
         expect(huellaLegible("3fa91c07b2de")).toEqual(["3FA9", "1C07", "B2DE"]);
+    });
+});
+
+describe("comandos de iris-voz que se copian", () => {
+    it("van siempre en inglés, como el instalador: nunca en español", () => {
+        expect(COMANDO).toEqual({
+            enlazar: "sudo iris-voz pair",
+            desenlazar: "sudo iris-voz unpair",
+            estado: "sudo iris-voz status",
+            actualizar: "sudo iris-voz upgrade",
+            modeloDescargar: "sudo iris-voz model pull <nombre>",
+            modeloPermitir: "sudo iris-voz model allow <nombre>",
+            modeloQuitar: "sudo iris-voz model remove <nombre>",
+        });
+        const enEspanol = /iris-voz (instalar|actualizar|enlazar|desenlazar|estado|renovar-certificado|modelo|registros|parar|arrancar|ayuda)\b/;
+        for (const comando of Object.values(COMANDO)) expect(comando).not.toMatch(enEspanol);
+        // También dentro de los textos de error que nombran un comando.
+        for (const texto of [textoErrorEnlace("x", 401), textoErrorEnlace("motor_no_responde", 502, true), textoErrorEnlace("motor_incompatible", 422)]) {
+            expect(texto).not.toMatch(enEspanol);
+            expect(texto).toMatch(/iris-voz (pair|upgrade)/);
+        }
     });
 });
 

@@ -24,6 +24,7 @@ export const PERMISO_SIA_ADMINISTRAR: Permiso = "servidor_ia.administrar";
 export const AHORA_SIA = Date.parse("2026-11-17T17:02:00Z");
 export const CODIGO_ENLACE = "iv1_7Kq2mXw9Rt4Lp8Zc3Ns6Vb1Yh5Df0GjAe";
 export const HUELLA = "3fa91c07b2de4418905ae6d17c33f0428be15a996c0d7e2413f8a05bd6e27c91";
+export const HUELLA_OTRA = "9b04e2a17f3c5d6681aa0c42e7b913d05f6c2e8847a1b3c9d0e5f61728394a5b";
 export const MODELOS_SIA = ["qwen2.5:14b", "llama3.1:8b"];
 
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -39,6 +40,12 @@ export type OpcionesServidorIa = {
     motor?: "ninguno" | "a_medias" | "con_huella" | "listo" | "degradado" | "no_disponible" | "incompatible" | "incompatible_iris" | "incompatible_protocolo" | "incompatible_iris_nuevo";
     /** Tarjetas gráficas que reporta (por defecto, 1). */
     gpus?: 0 | 1 | 2;
+    /** Con `gpus: 0`: el servidor afirma que no tiene tarjeta (`sin_gpu`) en vez de no haberla leído (`omitido`). */
+    sinGpu?: boolean;
+    /** Respuestas de «activar», en orden (por defecto, `ok`). */
+    activar?: ("ok" | "huella_cambiada" | "rotacion_en_curso")[];
+    /** Las primeras `n` rotaciones responden 409 `rotacion_en_curso`. */
+    rotarEnCurso?: number;
     /** Respuestas de «conectar», en orden (por defecto, `ok`). */
     conectar?: ("ok" | "fallo" | "429" | "vencido")[];
     /** Hay más empresas activas que plazas (§4.11). */
@@ -157,6 +164,8 @@ export function apiServidorIa(opciones: OpcionesServidorIa = {}) {
     let sinRespuesta = opciones.rotarSinRespuesta ?? 0;
     let fallaTablero = 0;
     const conectar = [...(opciones.conectar ?? [])];
+    const activar = [...(opciones.activar ?? [])];
+    let rotarEnCurso = opciones.rotarEnCurso ?? 0;
     /** Lo que recibió el servidor, para comprobarlo en la prueba. */
     const recibido = {
         enlaces: [] as { cuerpo: unknown; idempotencia: string | undefined }[],
@@ -229,7 +238,7 @@ export function apiServidorIa(opciones: OpcionesServidorIa = {}) {
             estado,
             servidor: lecturaOk
                 ? {
-                      gpus: nGpus === 0 ? { estado: "omitido", lista: [] } : { estado: "ok", lista: nGpus === 2 ? [GPU_1, GPU_2] : [GPU_1] },
+                      gpus: nGpus === 0 ? { estado: opciones.sinGpu ? "sin_gpu" : "omitido", lista: [] } : { estado: "ok", lista: nGpus === 2 ? [GPU_1, GPU_2] : [GPU_1] },
                       cpu: { nucleos: 16, usoPct: 12 },
                       memoria: { usadoMb: 21_504, totalMb: 65_536 },
                       disco: { usadoMb: 61_440, totalMb: 204_800 },
@@ -346,6 +355,12 @@ export function apiServidorIa(opciones: OpcionesServidorIa = {}) {
             case "activar": {
                 recibido.activaciones.push(cuerpo);
                 if (!motor.huellaTls) return (await problema(route, P("motor_sin_enlazar", 409, "Falta conectar")), true);
+                if (typeof cuerpo.huellaTls !== "string" || cuerpo.huellaTls === "") return (await problema(route, P("validacion", 422, "Falta la huella", { errors: [{ field: "body.huellaTls", message: "Falta la huella comparada" }] })), true);
+                const comoActivar = activar.shift() ?? "ok";
+                if (comoActivar === "rotacion_en_curso") return (await problema(route, P("rotacion_en_curso", 409, "Hay un cambio de llave en curso")), true);
+                // El servidor enlazado ya no es el que se comparó: su huella es otra.
+                if (comoActivar === "huella_cambiada") motor = { ...motor, huellaTls: HUELLA_OTRA, version: motor.version + 1 };
+                if (cuerpo.huellaTls !== motor.huellaTls) return (await problema(route, P("huella_cambiada", 409, "La huella cambió")), true);
                 if (motor.enlaceVenceEn && Date.parse(motor.enlaceVenceEn) < AHORA_SIA) return (await problema(route, P("enlace_vencido", 409, "El enlace venció")), true);
                 motor = { ...motorBase("listo"), nombre: motor.nombre, url: motor.url, version: motor.version + 1, enlazadoEn: iso(AHORA_SIA), tokenRotadoEn: iso(AHORA_SIA) };
                 return (await json(route, motor), true);
@@ -367,6 +382,10 @@ export function apiServidorIa(opciones: OpcionesServidorIa = {}) {
                 // La misma clave no rota dos veces: devuelve lo que ya se hizo.
                 const repetida = x.idempotencia !== undefined && recibido.clavesRotar.indexOf(x.idempotencia) < recibido.clavesRotar.length - 1;
                 if (repetida) return (await json(route, motor), true);
+                if (rotarEnCurso > 0) {
+                    rotarEnCurso--;
+                    return (await problema(route, P("rotacion_en_curso", 409, "Hay un cambio de llave en curso")), true);
+                }
                 if (sinRespuesta > 0) {
                     sinRespuesta--;
                     motor = { ...motor, tokenRotadoEn: iso(AHORA_SIA), version: motor.version + 1 };

@@ -15,7 +15,7 @@ import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
 import { desactivarMotor, guardarEmpresasPermitidas, guardarModelosPermitidos, leerMotor, rotarCredenciales } from "@/lib/servidor-ia/api";
-import { fechaDia, textoPlazas } from "@/lib/servidor-ia/presentacion";
+import { COMANDO, fechaDia, TEXTO_ROTACION_EN_CURSO, TEXTO_ROTACION_SIN_CONFIRMAR, textoPlazas } from "@/lib/servidor-ia/presentacion";
 import type { Motor } from "@/lib/servidor-ia/tipos";
 import { esquemaEmpresas, type ValoresEmpresas } from "@/lib/servidor-ia/umbrales";
 import { useSesion } from "@/lib/sesion";
@@ -251,10 +251,10 @@ function ModelosPermitidos({ motor, alGuardar }: { motor: Motor; alGuardar: (m: 
                 </form>
             )}
             <p className="text-sm text-muted-foreground">Iris solo puede elegir entre los modelos que el servidor ya tiene y deja usar. Para sumar uno, se descarga y se permite en el propio servidor:</p>
-            <Comando texto="sudo iris-voz modelo descargar <nombre>" />
-            <Comando texto="sudo iris-voz modelo permitir <nombre>" />
+            <Comando texto={COMANDO.modeloDescargar} />
+            <Comando texto={COMANDO.modeloPermitir} />
             <p className="text-sm text-muted-foreground">Y para borrar del servidor uno que ya no se usa:</p>
-            <Comando texto="sudo iris-voz modelo quitar <nombre>" />
+            <Comando texto={COMANDO.modeloQuitar} />
         </Seccion>
     );
 }
@@ -274,7 +274,13 @@ function Credenciales({ motor, alCambiar }: { motor: Motor; alCambiar: (m: Motor
             avisar({ titulo: revocar ? "Credenciales revocadas y cambiadas" : "Credenciales rotadas", ...(revocar ? {} : { descripcion: "La anterior sigue valiendo 24 horas." }) });
         } catch (e) {
             clave.trasError(e);
-            // No se sabe si llegó a hacerse: se vuelve a leer la tarjeta para enseñar lo que hay ahora.
+            // Otro cambio de llave está en marcha: no es un fallo, solo hay que esperar.
+            if (e instanceof ErrorApi && e.codigo === "rotacion_en_curso") {
+                setError({ error: e, releido: false });
+                setDialogo(null);
+                return;
+            }
+            // Sin confirmación: se vuelve a leer la tarjeta para enseñar lo que hay ahora.
             let releido = false;
             try {
                 const actual = await leerMotor();
@@ -289,17 +295,22 @@ function Credenciales({ motor, alCambiar }: { motor: Motor; alCambiar: (m: Motor
         }
         setDialogo(null);
     }
-    const sinRespuesta = error !== null && (!(error.error instanceof ErrorApi) || error.error.estado === 0 || error.error.estado >= 500);
+    const enCurso = error !== null && error.error instanceof ErrorApi && error.error.codigo === "rotacion_en_curso";
+    const sinConfirmar = error !== null && !enCurso && (!(error.error instanceof ErrorApi) || error.error.estado === 0 || error.error.estado >= 500);
     return (
         <Seccion icono={KeyRound} titulo="Credenciales" slot="credenciales">
             <p className="text-sm text-muted-foreground">Es la llave secreta con la que Iris y el servidor se reconocen. Iris la cambia sola cada 30 días; conviene cambiarla a mano si alguien que tenía acceso al servidor ya no trabaja contigo.</p>
             <Aviso tono="info" titulo="Mientras tanto">
                 Las respuestas no se interrumpen: durante 24 horas valen la llave nueva y la anterior.
             </Aviso>
-            {error ? (
-                <Aviso tono="error" titulo={sinRespuesta ? "No se sabe si las credenciales se cambiaron" : "No se pudieron cambiar las credenciales"} data-slot="error-credenciales" data-sin-respuesta={sinRespuesta}>
-                    {sinRespuesta
-                        ? `No llegó una respuesta clara, así que el cambio pudo hacerse o no. ${error.releido ? "Abajo está la última rotación que Iris tiene registrada ahora" : "Tampoco se pudo volver a leer el servidor"}: si no cambió, vuelve a intentarlo (repetirlo no rota dos veces).`
+            {enCurso ? (
+                <Aviso tono="warning" titulo="Espera unos segundos" data-slot="rotacion-en-curso">
+                    {TEXTO_ROTACION_EN_CURSO}
+                </Aviso>
+            ) : error ? (
+                <Aviso tono="error" titulo={sinConfirmar ? "No se pudo confirmar el cambio" : "No se pudieron cambiar las credenciales"} data-slot="error-credenciales" data-sin-confirmar={sinConfirmar}>
+                    {sinConfirmar
+                        ? `${TEXTO_ROTACION_SIN_CONFIRMAR} ${error.releido ? "Abajo está la última rotación que Iris tiene registrada ahora." : "Tampoco se pudo volver a leer el servidor; recarga la página en un momento."}`
                         : mensajeDeError(error.error).titulo}
                 </Aviso>
             ) : null}
@@ -330,7 +341,7 @@ function Credenciales({ motor, alCambiar }: { motor: Motor; alCambiar: (m: Motor
                 open={dialogo === "revocar"}
                 onOpenChange={(a) => !a && setDialogo(null)}
                 titulo="¿Revocar las credenciales ahora?"
-                descripcion="La llave y el certificado anteriores dejan de valer en el acto y se cambian por unos nuevos. Úsalo si crees que alguien los copió. Las respuestas que estén en camino en ese instante pueden fallar. Si lo que estuvo en riesgo fue el propio Iris, esto no basta: ejecuta «sudo iris-voz desenlazar» en el servidor y vuelve a enlazar."
+                descripcion="La llave y el certificado anteriores dejan de valer en el acto y se cambian por unos nuevos. Úsalo si crees que alguien los copió. Las respuestas que estén en camino en ese instante pueden fallar. Si lo que estuvo en riesgo fue el propio Iris, esto no basta: ejecuta «sudo iris-voz unpair» en el servidor y vuelve a enlazar."
                 textoConfirmar="Revocar ahora"
                 textoCancelar="Cancelar"
                 textoOcupado="Revocando…"

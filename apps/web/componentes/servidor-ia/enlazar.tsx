@@ -17,7 +17,7 @@ import { ZONA } from "@/lib/fechas";
 import { erroresACampos } from "@/lib/formularios";
 import { useLectura } from "@/lib/lectura";
 import { activarMotor, conectarMotor, enlazarMotor, leerMotor } from "@/lib/servidor-ia/api";
-import { huellaLegible, textoErrorEnlace } from "@/lib/servidor-ia/presentacion";
+import { COMANDO, huellaLegible, textoErrorEnlace } from "@/lib/servidor-ia/presentacion";
 import type { EnlaceCreado, Motor } from "@/lib/servidor-ia/tipos";
 import { esquemaEnlace, type ValoresEnlace } from "@/lib/servidor-ia/umbrales";
 import { Comando, RUTA } from "./comun";
@@ -138,15 +138,27 @@ function Pasos({ pendiente }: { pendiente: Motor | null }) {
         }
     }
     async function activar() {
-        if (!motor || !coincide) return;
+        if (!motor?.huellaTls || !coincide) return;
         setError(null);
         setOcupado("activar");
         try {
-            await activarMotor(motor.id, nuevaClaveIdempotencia());
+            // Va la huella que está en pantalla y que se marcó como «Coincide»: el servidor activa solo si sigue siendo esa.
+            await activarMotor(motor.id, motor.huellaTls, nuevaClaveIdempotencia());
             avisar({ titulo: "Servidor de IA activado", descripcion: "Cada empresa ya puede elegirlo en los ajustes de su asistente." });
             router.replace(RUTA as Route);
         } catch (e) {
             setError(e);
+            if (e instanceof ErrorApi && e.codigo === "huella_cambiada") {
+                // Lo comparado ya no vale: se desmarca y se enseña la huella de ahora para compararla otra vez.
+                // Nunca se reintenta solo.
+                setCoincide(false);
+                try {
+                    const actual = await leerMotor();
+                    setMotor(actual?.huellaTls && actual.estado === "sin_enlazar" ? actual : null);
+                } catch {
+                    setMotor(null);
+                }
+            }
         } finally {
             setOcupado(null);
         }
@@ -158,8 +170,15 @@ function Pasos({ pendiente }: { pendiente: Motor | null }) {
         setError(null);
     }
 
+    const codigoError = error instanceof ErrorApi ? error.codigo : "";
+    const enCurso = codigoError === "rotacion_en_curso";
     const aviso = error && !vencidoAlla ? (
-        <Aviso tono="error" titulo={paso === "huella" ? "No se pudo activar" : paso === "codigo" ? "No se pudo conectar" : "No se pudo empezar el enlace"} data-slot="error-enlace">
+        <Aviso
+            tono={enCurso ? "warning" : "error"}
+            titulo={enCurso ? "Espera unos segundos" : codigoError === "huella_cambiada" ? "La huella ya no es la que comparaste" : paso === "huella" ? "No se pudo activar" : paso === "codigo" ? "No se pudo conectar" : "No se pudo empezar el enlace"}
+            data-slot="error-enlace"
+            data-codigo={codigoError}
+        >
             {textoDe(error, paso === "codigo")}
         </Aviso>
     ) : null;
@@ -169,7 +188,7 @@ function Pasos({ pendiente }: { pendiente: Motor | null }) {
             <Paso numero={1} titulo="Instala Iris Voz en tu servidor" estado="hecho">
                 <p className="text-sm text-muted-foreground">Pide a quien cuida el servidor que ejecute el instalador de Iris Voz. Al terminar muestra dos cosas que vas a necesitar aquí: la dirección del servidor y su huella.</p>
                 <p className="text-sm text-muted-foreground">Si ya estaba instalado, este comando abre de nuevo la ventana para enlazar (dura 15 minutos):</p>
-                <Comando texto="sudo iris-voz enlazar" />
+                <Comando texto={COMANDO.enlazar} />
             </Paso>
 
             <Paso numero={2} titulo={paso === "direccion" ? "Escribe la dirección del servidor" : "Escribe el código en el servidor"} estado={paso === "huella" ? "hecho" : "actual"}>
@@ -200,7 +219,7 @@ function Pasos({ pendiente }: { pendiente: Motor | null }) {
                 ) : paso === "codigo" && enlace ? (
                     <>
                         <p className="text-sm text-muted-foreground">
-                            Este código sirve una sola vez y solo se muestra ahora. En el servidor, <span className="font-medium text-foreground">iris-voz enlazar</span> lo pide: escríbelo o pégalo allá (no se ve mientras se escribe, es normal).
+                            Este código sirve una sola vez y solo se muestra ahora. En el servidor, <span className="font-medium text-foreground">iris-voz pair</span> lo pide: escríbelo o pégalo allá (no se ve mientras se escribe, es normal).
                         </p>
                         <div className="flex min-w-0 items-center gap-2 rounded-lg bg-elevated py-2 pr-2 pl-3" data-slot="codigo-enlace">
                             <code className="min-w-0 flex-1 font-mono text-sm font-semibold [overflow-wrap:anywhere]">{enlace.codigo}</code>
@@ -218,7 +237,7 @@ function Pasos({ pendiente }: { pendiente: Motor | null }) {
                                     </Boton>
                                 }
                             >
-                                Pasaron los 15 minutos. Genera otro y vuelve a ejecutar «sudo iris-voz enlazar» en el servidor.
+                                Pasaron los 15 minutos. Genera otro y vuelve a ejecutar «{COMANDO.enlazar}» en el servidor.
                             </Aviso>
                         ) : (
                             <p className="text-[0.8125rem] text-muted-foreground" data-slot="codigo-vence">

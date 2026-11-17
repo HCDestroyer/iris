@@ -22,7 +22,8 @@ export async function leerMotor(signal?: AbortSignal): Promise<Motor | null> {
 export const enlazarMotor = (entrada: Schema<"EntradaEnlazarMotor">, clave: string) => resolver(api().POST(`${MOTORES}/enlazar`, { params: { header: cabeceraIdem(clave) }, body: entrada }));
 /** Iris se presenta al servidor con el código ya escrito allá. Cualquier falla: 502 `motor_no_responde`; ventana vencida: 409 `enlace_vencido`. */
 export const conectarMotor = (id: number, clave: string) => resolver(api().POST(`${MOTORES}/{id}/conectar`, { params: accion(id, clave) }));
-export const activarMotor = (id: number, clave: string) => resolver(api().POST(`${MOTORES}/{id}/activar`, { params: accion(id, clave) }));
+/** «Activar», con la huella que el administrador comparó en pantalla: si el servidor ya no es ese, 409 `huella_cambiada`. */
+export const activarMotor = (id: number, huellaTls: string, clave: string) => resolver(api().POST(`${MOTORES}/{id}/activar`, { params: accion(id, clave), body: { huellaTls } }));
 export const desactivarMotor = (id: number, motivo: string, clave: string) => resolver(api().POST(`${MOTORES}/{id}/desactivar`, { params: accion(id, clave), body: { motivo } }));
 /** «Probar»: el resultado queda en `ultimaPrueba` de la tarjeta que devuelve. */
 export const probarMotor = (id: number, clave: string) => resolver(api().POST(`${MOTORES}/{id}/probar`, { params: accion(id, clave) }));

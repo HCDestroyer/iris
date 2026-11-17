@@ -14,6 +14,7 @@ import { probarMotor } from "@/lib/servidor-ia/api";
 import {
     cantidad,
     cifrasVigentes,
+    COMANDO,
     enServicio,
     lineaEstado,
     MIENTRAS_TANTO,
@@ -269,7 +270,7 @@ function Fuera({ tablero, ahora, accion, global }: { tablero: Tablero; ahora: nu
                             Que Iris Voz esté corriendo. Este comando lo dice:
                         </li>
                     </ul>
-                    <Comando texto="sudo iris-voz estado" />
+                    <Comando texto={COMANDO.estado} />
                     <p className="text-[0.8125rem] text-muted-foreground">Si lo acabas de reiniciar, tarda cerca de un minuto en volver.</p>
                 </Tarjeta>
             ) : null}
@@ -350,6 +351,18 @@ function Cifras({ tablero, vigentes, rango, limites }: { tablero: Tablero; vigen
             slot="cifra-peticiones"
         />
     );
+    if (s.gpus.estado === "sin_gpu") {
+        // El servidor respondió y dice que no tiene tarjeta: esto sí se puede afirmar.
+        return (
+            <section aria-label="Cifras de ahora" className="grid gap-3" data-slot="cifras" data-vigentes="si">
+                <Aviso tono="warning" titulo="No hay tarjeta gráfica detectada" data-slot="sin-tarjeta-grafica">
+                    El servidor responde, pero no tiene ninguna tarjeta gráfica: sin ella los modelos trabajan con el procesador y contestan mucho más lento. Revisa que la tarjeta esté instalada y con sus controladores.
+                </Aviso>
+                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{peticiones}</div>
+                <Equipo tablero={tablero} limites={limites} />
+            </section>
+        );
+    }
     if (gpus.length === 0) {
         // `omitido` es «sin tarjeta gráfica o sin lectura»: no se afirma ninguna de las dos.
         return (
