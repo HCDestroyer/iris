@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -26,7 +27,7 @@ func guardarLlamada(ctx context.Context, q *mensajeriabd.Queries, l mensajeriabd
 	return q.GuardarLlamada(ctx, mensajeriabd.GuardarLlamadaParams{ID: l.ID, Estado: l.Estado, AtendidaPor: l.AtendidaPor, UsuarioID: l.UsuarioID,
 		ReclamadaPor: l.ReclamadaPor, ReclamadaHasta: l.ReclamadaHasta, MotivoFin: l.MotivoFin, ContestadaEn: l.ContestadaEn, TerminadaEn: l.TerminadaEn,
 		DuracionSeg: l.DuracionSeg, Nota: l.Nota, Resultado: l.Resultado, SdpOferta: l.SdpOferta, AccionMeta: l.AccionMeta,
-		AccionMetaEstado: l.AccionMetaEstado, AccionMetaEn: l.AccionMetaEn, AccionMetaPor: l.AccionMetaPor, PreAceptadaEn: l.PreAceptadaEn, ReclamadaNavegador: navegadorDeReserva(l),
+		AccionMetaEstado: l.AccionMetaEstado, AccionMetaEn: l.AccionMetaEn, AccionMetaPor: l.AccionMetaPor, AccionMetaNoExiste: l.AccionMetaNoExiste, PreAceptadaEn: l.PreAceptadaEn, ReclamadaNavegador: navegadorDeReserva(l),
 		AvisoPerdida: l.AvisoPerdida})
 }
 
@@ -35,7 +36,7 @@ func guardarLlamada(ctx context.Context, q *mensajeriabd.Queries, l mensajeriabd
 // sigue en manos de esa persona (M1).
 func intencionMeta(l *mensajeriabd.MensajeriaLlamada, accion string, ahora time.Time) {
 	p := "pendiente"
-	l.AccionMeta, l.AccionMetaEstado, l.AccionMetaEn, l.AccionMetaPor = &accion, &p, &ahora, nil
+	l.AccionMeta, l.AccionMetaEstado, l.AccionMetaEn, l.AccionMetaPor, l.AccionMetaNoExiste = &accion, &p, &ahora, nil, false
 	if accion == MetaPreAceptar || accion == MetaAceptar {
 		l.AccionMetaPor = l.ReclamadaPor
 	}
@@ -631,6 +632,12 @@ func (m *Modulo) terminarPorMeta(ctx context.Context, t *auditoria.Tx, canal men
 // cumplirMeta es la segunda y la tercera fase de una acción con Meta (§3.3): llama a la Graph API
 // fuera de toda transacción y anota el resultado. Devuelve el error de Meta (nil si la aplicó).
 func (m *Modulo) cumplirMeta(ctx context.Context, bd nucleo.BD, id uuid.UUID, sdp string) error {
+	return m.cumplirMetaCon(ctx, bd, id, sdp, 1)
+}
+
+// cumplirMetaCon: cambios es cuántas veces puede, en esta misma pasada, probar enseguida la otra
+// acción cuando Meta responde que la pedida no aplica (las siguientes alternancias las hace el job).
+func (m *Modulo) cumplirMetaCon(ctx context.Context, bd nucleo.BD, id uuid.UUID, sdp string, cambios int) error {
 	ctx = context.WithoutCancel(ctx)
 	q := mensajeriabd.New(bd)
 	l, err := q.LlamadaPorID(ctx, id)
@@ -642,8 +649,17 @@ func (m *Modulo) cumplirMeta(ctx context.Context, bd nucleo.BD, id uuid.UUID, sd
 		return err
 	}
 	errMeta := m.graph().Accion(ctx, cg, l.IDExterno, *l.AccionMeta, sdp, l.Grabada)
-	if _, err := m.Voz.resultadoMeta.Ejecutar(ctxSistema(ctx, bd), resultadoMeta{ID: id, Accion: *l.AccionMeta, Fallo: errMeta != nil}); err != nil {
+	// «No aplica» es solo un 400 o un 404 de Meta. 401, 403, 429, 5xx o la red reintentan la misma acción.
+	var em *ErrMetaLlamada
+	noAplica := errors.As(errMeta, &em) && !em.SinRespuesta && (em.Status == http.StatusBadRequest || em.Status == http.StatusNotFound)
+	noExiste := noAplica && em.Status == http.StatusNotFound
+	cambio, err := m.Voz.resultadoMeta.Ejecutar(ctxSistema(ctx, bd), resultadoMeta{ID: id, Accion: *l.AccionMeta, Fallo: errMeta != nil, NoAplica: noAplica, NoExiste: noExiste})
+	if err != nil {
 		return err
+	}
+	// La intención pasó a la otra acción (resultadoMeta): se manda ya, una vez.
+	if cambio && noAplica && cambios > 0 && (*l.AccionMeta == MetaTerminar || *l.AccionMeta == MetaRechazar) {
+		return m.cumplirMetaCon(ctx, bd, id, "", cambios-1)
 	}
 	return errMeta
 }

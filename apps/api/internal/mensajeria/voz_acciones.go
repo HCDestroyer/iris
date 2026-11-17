@@ -50,6 +50,8 @@ type casosVoz struct {
 	llamar            *auditoria.Caso[EntradaLlamar, Llamada]
 	resultadoLlamar   *auditoria.Caso[resultadoLlamar, bool]
 	RespuestaSDP      *auditoria.Caso[EntradaLlamada, RespuestaSDP]
+	resolverSolicitud *auditoria.Caso[solicitudResuelta, bool]
+	agotarAccion      *auditoria.Caso[uuid.UUID, bool]
 	mantener          *auditoria.Caso[uuid.UUID, mantenimientoLlamada]
 	vencer            *auditoria.Caso[struct{}, int]
 }
@@ -62,7 +64,7 @@ func nuevosCasosVoz(m *Modulo) casosVoz {
 		VerCanal: nuevoVerLlamadasCanal(m), ConfigCanal: nuevoConfigurarLlamadasCanal(m), comprobar: nuevoGuardarComprobacion(m),
 		prepararCanal: nuevoPrepararComprobacion(m), VerAjustes: nuevoVerAjustesVoz(m), FijarAjustes: nuevoFijarAjustesVoz(m),
 		VerPermiso: nuevoVerPermisoLlamada(m), SolicitarPermiso: nuevoSolicitarPermisoLlamada(m), previoLlamar: nuevoPrevioLlamar(m),
-		llamar: nuevoLlamar(m), resultadoLlamar: nuevoResultadoLlamar(m), RespuestaSDP: nuevoRespuestaSDP(m),
+		llamar: nuevoLlamar(m), resultadoLlamar: nuevoResultadoLlamar(m), RespuestaSDP: nuevoRespuestaSDP(m), resolverSolicitud: nuevoResolverSolicitud(m), agotarAccion: nuevoAgotarAccionMeta(m),
 		mantener: nuevoMantenerLlamada(m), vencer: nuevoVencerDevoluciones(m), resultadoAjustes: nuevoResultadoAjustesMeta(m),
 		reintentarAjustes: nuevoReintentarAjustesMeta(m)}
 }
@@ -121,6 +123,11 @@ type resultadoMeta struct {
 	ID     uuid.UUID `json:"id"`
 	Accion string    `json:"accion"`
 	Fallo  bool      `json:"fallo"`
+	// NoAplica: Meta respondió 400 o 404: esa acción no vale para el estado en que tiene la llamada
+	// (no es un fallo de credenciales, de límite ni de red: esos se reintentan igual).
+	NoAplica bool `json:"no_aplica,omitempty"`
+	// NoExiste: fue un 404 (Meta no tiene esa llamada).
+	NoExiste bool `json:"no_existe,omitempty"`
 }
 
 // llamadaDeQuienLaReclamo: después de reclamar la llamada es de quien la reclamó (M1), en el
@@ -417,6 +424,30 @@ func nuevoResultadoMeta(m *Modulo) *auditoria.Caso[resultadoMeta, bool] {
 			case llamadaFinal(l.Estado):
 				// reject o terminate de una llamada ya cerrada: solo queda anotado. Si Meta no
 				// respondió, la intención sigue pendiente y el job de escrituras a Meta la repite (son idempotentes).
+				// Una entrante que en Iris no llegó a tener audio puede estar en Meta timbrando (la corta
+				// reject) o ya conectada por un accept tardío (la corta terminate). Si Meta dice que la
+				// acción no aplica (400 o 404), se prueba la otra; y se alterna mientras lo siga diciendo.
+				// Cualquier otro fallo (401, 403, 429, 5xx, red) reintenta la misma acción.
+				if in.Fallo && in.NoAplica && l.Direccion == "entrante" && l.ContestadaEn == nil && (in.Accion == MetaTerminar || in.Accion == MetaRechazar) {
+					// Las dos acciones respondieron 404: la llamada ya no existe en Meta (terminó por su
+					// cuenta). Está cerrada: sin más intentos, sin huérfana y sin aviso.
+					if in.NoExiste && l.AccionMetaNoExiste {
+						hecha := "hecha"
+						l.AccionMetaEstado = &hecha
+						t.Anotar(map[string]any{"no_existe_en_meta": true})
+						_, err = guardarLlamada(ctx, q, l)
+						return true, err
+					}
+					otra := MetaRechazar
+					if in.Accion == MetaRechazar {
+						otra = MetaTerminar
+					}
+					intencionMeta(&l, otra, ahora)
+					l.AccionMetaNoExiste = in.NoExiste
+					t.Anotar(map[string]any{"no_aplica": in.Accion, "se_prueba": otra})
+					_, err = guardarLlamada(ctx, q, l)
+					return true, err
+				}
 				if in.Fallo {
 					return false, nil
 				}
@@ -549,9 +580,12 @@ func nuevoColgarLlamada(m *Modulo) *auditoria.Caso[EntradaLlamada, Llamada] {
 			if err != nil {
 				return Llamada{}, err
 			}
-			// Quien la tiene, o un supervisor. Con soloPropia (cierre de pestaña) supervisar no cuenta: si
-			// la reserva propia venció y la llamada ya es de otra persona, no se le cuelga.
-			if (l.UsuarioID == nil || *l.UsuarioID != a.usuario) && (!a.supervisa || in.SoloPropia) {
+			// Quien la tiene (en curso, o reservada a su nombre mientras conecta), o un supervisor. Con
+			// soloPropia (cierre de pestaña) supervisar no cuenta: si la reserva propia venció y la
+			// llamada ya es de otra persona, no se le cuelga.
+			reservada := l.ReclamadaPor != nil && *l.ReclamadaPor == a.usuario
+			duena := (l.UsuarioID != nil && *l.UsuarioID == a.usuario) || reservada
+			if !duena && (!a.supervisa || in.SoloPropia) {
 				return Llamada{}, llamadaNoEncontrada()
 			}
 			if llamadaFinal(l.Estado) {
@@ -559,14 +593,32 @@ func nuevoColgarLlamada(m *Modulo) *auditoria.Caso[EntradaLlamada, Llamada] {
 			}
 			// Una saliente se puede colgar mientras marca (se cancela: no cuenta como sin contestar).
 			marcando := l.Direccion == "saliente" && l.Estado == LlamadaMarcando
-			if l.Estado != LlamadaEnCurso && !marcando {
+			// La pestaña que la estaba contestando se cierra (propia=true) con la llamada conectando a su
+			// nombre, quizá con el pre_accept o el accept en vuelo: se termina. cerrarLlamada cambia la
+			// intención con Meta a terminate, así que el resultado del accept que llegue después ya no se
+			// aplica: no queda «en curso» sin audio ni en un estado intermedio.
+			conectandoMia := in.SoloPropia && l.Estado == LlamadaConectando && reservada
+			if l.Estado != LlamadaEnCurso && !marcando && !conectandoMia {
 				return Llamada{}, nucleo.Conflicto("llamada_sin_contestar", "La llamada todavía no está en curso: usa rechazar o soltar")
 			}
 			c, err := q.ConversacionClienteParaActualizar(ctx, *l.ConversacionID)
 			if err != nil {
 				return Llamada{}, err
 			}
-			if err := m.cerrarLlamada(ctx, t, &l, &c, LlamadaTerminada, "agente_colgo", m.ahora(), MetaTerminar); err != nil {
+			// Qué se le pide a Meta: si nunca se mandó accept (solo reservada o pre-aceptada), la llamada
+			// sigue timbrando allá y lo que la corta es reject; con el accept mandado o en vuelo, terminate
+			// (y si Meta responde que no aplica, reject: lo cambia resultadoMeta).
+			accion := MetaTerminar
+			if conectandoMia && (l.AccionMeta == nil || *l.AccionMeta != MetaAceptar) {
+				accion = MetaRechazar
+			}
+			estado, motivo := LlamadaTerminada, "agente_colgo"
+			if conectandoMia && l.Direccion != "saliente" {
+				// Una entrante que no llegó a tener audio: para el cliente es una llamada perdida. Deja su
+				// devolución pendiente, el mensaje automático si aplica y el aviso, como cualquier perdida.
+				estado, motivo = LlamadaPerdida, "agente_salio"
+			}
+			if err := m.cerrarLlamada(ctx, t, &l, &c, estado, motivo, m.ahora(), accion); err != nil {
 				return Llamada{}, err
 			}
 			if _, err := guardarConv(ctx, q, c, false); err != nil {
@@ -580,12 +632,8 @@ func nuevoColgarLlamada(m *Modulo) *auditoria.Caso[EntradaLlamada, Llamada] {
 // Colgar termina la llamada en Iris y se lo pide a Meta (terminate es idempotente: si Meta no
 // responde, el mantenimiento lo repite).
 func (m *Modulo) Colgar(ctx context.Context, in EntradaLlamada) (Llamada, error) {
-	l, err := m.Voz.colgar.Ejecutar(ctx, in)
-	if err != nil {
-		return Llamada{}, err
-	}
-	_ = m.cumplirMeta(ctx, nucleo.BDDe(ctx), in.ID, "")
-	return l, nil
+	// La acción con Meta la manda el propio cierre, después del COMMIT (trasCommitMeta): una sola pasada.
+	return m.Voz.colgar.Ejecutar(ctx, in)
 }
 
 func nuevoRechazarLlamada(m *Modulo) *auditoria.Caso[EntradaRechazar, Llamada] {
@@ -646,4 +694,33 @@ func (m *Modulo) Rechazar(ctx context.Context, in EntradaRechazar) (Llamada, err
 		_ = m.cumplirMeta(ctx, nucleo.BDDe(ctx), in.ID, "")
 	}
 	return l, nil
+}
+
+// nuevoAgotarAccionMeta: pasaron 2 minutos y Meta no aceptó ni reject ni terminate para una llamada
+// que Iris ya cerró. No se da por cerrada en silencio: el call_id pasa a llamadas_huerfanas (el job
+// la sigue intentando terminar) y queda una línea de auditoría para diagnóstico.
+func nuevoAgotarAccionMeta(m *Modulo) *auditoria.Caso[uuid.UUID, bool] {
+	return auditoria.Nuevo(auditoria.Caso[uuid.UUID, bool]{
+		Accion: "llamadas.accion_meta_agotada", Acceso: auditoria.Autenticado, SinEmpresa: true,
+		Logica: func(ctx context.Context, t *auditoria.Tx, id uuid.UUID) (bool, error) {
+			if err := soloSistemaVoz(ctx); err != nil {
+				return false, err
+			}
+			q := mensajeriabd.New(t)
+			l, err := q.LlamadaParaActualizar(ctx, id)
+			if err != nil || !accionPendiente(l) {
+				return false, err
+			}
+			t.FijarEmpresa(derefEmpresa(l.EmpresaID))
+			t.FijarEntidad("llamada", l.ID)
+			t.Anotar(map[string]any{"accion": l.AccionMeta, "puede_seguir_viva_en_meta": true})
+			if err := q.AgotarAccionMeta(ctx, id); err != nil {
+				return false, err
+			}
+			if l.CanalID == nil {
+				return true, nil
+			}
+			return true, registrarHuerfana(ctx, q, *l.CanalID, l.IDExterno, m.ahora())
+		},
+	})
 }

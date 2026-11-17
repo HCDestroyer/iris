@@ -1091,6 +1091,16 @@
             "format": "int32",
             "type": "integer"
           },
+          "minutosSalientesMes": {
+            "description": "Minutos de llamadas salientes contestadas este mes (cuenta lo que llevan las que están en curso), para comparar con topeMinutosSalientesMes",
+            "format": "int32",
+            "type": "integer"
+          },
+          "salientesHoy": {
+            "description": "Llamadas salientes hechas hoy, para comparar con maxSalientesPorDia",
+            "format": "int32",
+            "type": "integer"
+          },
           "segundosAsignado": {
             "description": "Cuánto suena primero solo a quien tiene la conversación (0–20)",
             "format": "int32",
@@ -1114,6 +1124,8 @@
           "segundosAsignado",
           "maxSalientesPorDia",
           "topeMinutosSalientesMes",
+          "minutosSalientesMes",
+          "salientesHoy",
           "maxColgadasMarcandoDia"
         ],
         "type": "object"
@@ -22017,6 +22029,10 @@
             "description": "Llamadas seguidas sin contestar: a la cuarta WhatsApp revoca el permiso",
             "format": "int32",
             "type": "integer"
+          },
+          "solicitudSinConfirmar": {
+            "description": "La última solicitud se envió pero WhatsApp no confirmó si la recibió: cuenta para el límite hasta que se sepa (lo resuelve el servidor en un par de minutos, o la respuesta del cliente)",
+            "type": "boolean"
           },
           "venceEn": {
             "description": "Con temporal: hasta cuándo vale",
@@ -54485,7 +54501,7 @@
     },
     "/api/v1/mensajeria/llamadas/{id}/colgar": {
       "post": {
-        "description": "Permiso: `llamadas.colgar`. Quien la tiene, o quien supervisa. Con `?propia=true` solo quien la tiene (supervisar no cuenta): es lo que debe mandar el panel al cerrarse la pestaña, para no colgar la llamada de otra persona si la reserva propia ya venció (404 en ese caso). Una saliente también se cuelga mientras marca. 409 `llamada_terminada` si ya terminó. Emite `llamada.terminada`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.",
+        "description": "Permiso: `llamadas.colgar`. Quien la tiene, o quien supervisa. Con `?propia=true` solo quien la tiene (supervisar no cuenta): es lo que debe mandar el panel al cerrarse la pestaña, para no colgar la llamada de otra persona si la reserva propia ya venció (404 en ese caso). Con `propia=true` también termina la llamada que estás contestando (`conectando` a tu nombre), aunque WhatsApp no haya respondido todavía al `accept`: nunca queda `en_curso` sin audio. Si era una entrante queda `perdida` con `motivoFin: agente_salio` (devolución pendiente y lo demás de una perdida). Una saliente también se cuelga mientras marca. 409 `llamada_terminada` si ya terminó. Emite `llamada.terminada`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.",
         "operationId": "colgarLlamada",
         "parameters": [
           {

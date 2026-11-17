@@ -1678,6 +1678,7 @@ type MensajeriaLlamada struct {
 	Pestana            *string
 	PestanaVistaEn     *time.Time
 	ExternoWebhook     *string
+	AccionMetaNoExiste bool
 }
 
 type MensajeriaLlamadaCandidato struct {
@@ -1736,6 +1737,9 @@ type MensajeriaLlamadaPermiso struct {
 	SincronizadoEn           *time.Time
 	CreatedAt                time.Time
 	UpdatedAt                time.Time
+	SolicitudSinConfirmar    bool
+	SolicitudIntentos        int32
+	SolicitudProximoEn       *time.Time
 }
 
 type MensajeriaLlamadaReceptore struct {

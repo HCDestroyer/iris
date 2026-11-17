@@ -94,7 +94,7 @@ export function apiVoz(
     let idDevolucion = 70;
     const devoluciones: Devolucion[] = [];
     const canales = new Map<number, LlamadasCanal>();
-    let ajustes: AjustesVoz = { version: 3, grabar: "nunca", duracionMaxPersonaMin: 60, segundosAsignado: 10, maxSalientesPorDia: 50, topeMinutosSalientesMes: 300, maxColgadasMarcandoDia: 3 };
+    let ajustes: AjustesVoz = { version: 3, grabar: "nunca", duracionMaxPersonaMin: 60, segundosAsignado: 10, maxSalientesPorDia: 50, topeMinutosSalientesMes: 300, maxColgadasMarcandoDia: 3, minutosSalientesMes: 0, salientesHoy: 0 };
     /** E1b: el permiso de llamada por conversación y lo que hace falta de cada saliente. */
     const permisos = new Map<number, PermisoLlamada>();
     for (const [id, p] of Object.entries(opciones.permisos ?? {})) permisos.set(Number(id), { estado: "sin_pedir", puedeLlamar: false, puedeSolicitar: true, sinContestar: 0, ...p });
@@ -480,6 +480,8 @@ export function apiVoz(
                 maxSalientesPorDia: opcional("maxSalientesPorDia"),
                 topeMinutosSalientesMes: opcional("topeMinutosSalientesMes"),
                 maxColgadasMarcandoDia: opcional("maxColgadasMarcandoDia"),
+                minutosSalientesMes: ajustes.minutosSalientesMes,
+                salientesHoy: ajustes.salientesHoy,
                 version: ajustes.version + 1,
             };
             return (await json(route, ajustes), true);

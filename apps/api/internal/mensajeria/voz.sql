@@ -57,7 +57,7 @@ SET estado = @estado, atendida_por = sqlc.narg('atendida_por'), usuario_id = sql
     contestada_en = sqlc.narg('contestada_en'), terminada_en = sqlc.narg('terminada_en'), duracion_seg = sqlc.narg('duracion_seg'),
     nota = sqlc.narg('nota'), resultado = sqlc.narg('resultado'), sdp_oferta = sqlc.narg('sdp_oferta'),
     accion_meta = sqlc.narg('accion_meta'), accion_meta_estado = sqlc.narg('accion_meta_estado'), accion_meta_en = sqlc.narg('accion_meta_en'),
-    accion_meta_por = sqlc.narg('accion_meta_por'),
+    accion_meta_por = sqlc.narg('accion_meta_por'), accion_meta_no_existe = @accion_meta_no_existe,
     pre_aceptada_en = sqlc.narg('pre_aceptada_en'), aviso_perdida = @aviso_perdida, updated_at = now()
 WHERE id = @id
 RETURNING *;
@@ -461,9 +461,28 @@ ON CONFLICT DO NOTHING;
 
 -- name: GuardarPermisoLlamada :one
 UPDATE mensajeria.llamada_permisos SET estado = @estado, vence_en = sqlc.narg('vence_en'), solicitudes = @solicitudes, sin_contestar = @sin_contestar,
-    ultima_solicitud_mensaje_id = sqlc.narg('ultima_solicitud_mensaje_id'), sincronizado_en = sqlc.narg('sincronizado_en'), updated_at = now()
+    ultima_solicitud_mensaje_id = sqlc.narg('ultima_solicitud_mensaje_id'), sincronizado_en = sqlc.narg('sincronizado_en'),
+    solicitud_sin_confirmar = @solicitud_sin_confirmar, updated_at = now()
 WHERE id = @id
 RETURNING *;
+
+-- name: TomarSolicitudesSinConfirmar :many
+-- Solicitudes de permiso cuyo envío quedó sin respuesta de Meta: el job de escrituras las resuelve
+-- preguntando a Meta, con espera creciente entre intentos (1, 2, 5, 15 y después 60 minutos; SKIP
+-- LOCKED). No toca sincronizado_en: un intento no es una lectura buena.
+UPDATE mensajeria.llamada_permisos p SET solicitud_intentos = p.solicitud_intentos + 1,
+    solicitud_proximo_en = sqlc.arg('ahora')::timestamptz
+        + (CASE p.solicitud_intentos WHEN 0 THEN 1 WHEN 1 THEN 2 WHEN 2 THEN 5 WHEN 3 THEN 15 ELSE 60 END) * interval '1 minute'
+WHERE p.id IN (SELECT x.id FROM mensajeria.llamada_permisos x
+    WHERE x.solicitud_sin_confirmar AND (x.solicitud_proximo_en IS NULL OR x.solicitud_proximo_en <= sqlc.arg('ahora')::timestamptz)
+    ORDER BY x.solicitud_proximo_en NULLS FIRST LIMIT @lote FOR UPDATE SKIP LOCKED)
+RETURNING p.*;
+
+-- name: MarcarSolicitudSinConfirmar :exec
+UPDATE mensajeria.llamada_permisos SET solicitud_sin_confirmar = true, solicitud_intentos = 0, solicitud_proximo_en = NULL, updated_at = now() WHERE id = @id;
+
+-- name: PermisoLlamadaPorID :one
+SELECT * FROM mensajeria.llamada_permisos WHERE id = @id FOR UPDATE;
 
 -- name: PermisosDeNumero :many
 -- Las filas de permiso de ese número en ese canal (la respuesta del cliente vale para todas).

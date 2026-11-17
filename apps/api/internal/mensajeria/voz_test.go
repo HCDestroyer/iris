@@ -1637,3 +1637,212 @@ func TestLlamadaMetaApartadoPorLote(t *testing.T) {
 		t.Fatalf("apartado por lote: primero %s, último %s (reloj %s)", primero, ultimo, x.reloj)
 	}
 }
+
+// La pestaña que está contestando se cierra con el accept en vuelo: colgar?propia=true reconoce como
+// dueño a quien tiene la llamada reservada y la termina; el resultado del accept que llega después
+// no la deja «en curso» sin audio.
+func TestLlamadaColgarPropiaConElAcceptEnVuelo(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	x.recibe(x.agente, x.supervisor)
+	num, call := numeroCliente(), "wacid.cierre"+numeroCliente()
+	x.texto(num, "wamid.cierre"+num, "Hola, los llamo")
+	x.connect(num, call)
+	id, _, _ := x.llamada(call)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/reclamar", nil), http.StatusOK)
+	// Reservada a nombre del agente: sin propia sigue sin poder colgarse (aún no está en curso), y
+	// otra persona con propia=true no la toca, ni siquiera quien supervisa.
+	if r := x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/colgar", nil), http.StatusConflict); !strings.Contains(crudo(r), "llamada_sin_contestar") {
+		t.Fatalf("colgar sin propia mientras conecta: %s", crudo(r))
+	}
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/llamadas/"+id+"/colgar?propia=true", nil), http.StatusNotFound)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/contestar", map[string]any{"sdpRespuesta": sdpNavegador("")}), http.StatusOK)
+	var una sync.Once
+	x.gancho(func(accion string) {
+		if accion != "accept" {
+			return
+		}
+		una.Do(func() {
+			// La pestaña se cierra mientras Meta atiende el accept.
+			if r := x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/colgar?propia=true", nil); r.status != http.StatusOK || r.cuerpo["estado"] != "perdida" ||
+				r.cuerpo["motivoFin"] != "agente_salio" {
+				t.Errorf("colgar propia con el accept en vuelo: %d %s", r.status, crudo(r))
+			}
+		})
+	})
+	rc := x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/confirmar-medio", nil)
+	x.gancho(nil)
+	_, estado, motivo := x.llamada(call)
+	if estado != "perdida" || motivo != "agente_salio" || x.g.cuenta("terminate:"+call) != 1 || rc.status >= 500 {
+		t.Fatalf("tras el accept tardío: %s %s, confirmar-medio %d, Meta %v", estado, motivo, rc.status, x.g.hechas())
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id = $1::uuid AND (usuario_id IS NOT NULL OR contestada_en IS NOT NULL OR reclamada_por IS NOT NULL
+		OR accion_meta_estado = 'pendiente')`, id); n != 0 {
+		t.Fatal("la llamada no debía quedar a nombre de nadie ni con una acción a medias")
+	}
+	if x.contar(`SELECT count(*) FROM mensajeria.llamada_tramos WHERE llamada_id = $1::uuid`, id) != 0 || x.eventos("llamada.contestada", id) != 0 ||
+		x.eventos("llamada.terminada", id) != 0 || x.eventos("llamada.perdida", id) != 1 {
+		t.Fatal("ni tramo ni contestada ni terminada; una sola perdida")
+	}
+	// Para el cliente fue una llamada perdida: devolución pendiente, el evento llamada.perdida (con
+	// sus destinatarios del aviso, como cualquier perdida) y el mensaje automático (la ventana está
+	// abierta: escribió antes de llamar).
+	conv := cid(x.conv(num))
+	if n := x.contar(`SELECT count(*) FROM mensajeria.llamada_devoluciones WHERE llamada_id = $1::uuid AND estado = 'pendiente' AND pedida_por = 'sistema'`, id); n != 1 ||
+		x.eventos("llamada.devolucion_pedida", id) != 1 {
+		t.Fatalf("devolución pendiente de la llamada que el agente dejó: %d", n)
+	}
+	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'llamada.perdida' AND payload->>'llamada_id' = $1 AND payload->>'devolucion_id' IS NOT NULL
+		AND payload ? 'usuarios' AND payload->>'direccion' = 'entrante'`, id); n != 1 {
+		t.Fatal("llamada.perdida con su devolución y sus destinatarios")
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND direccion = 'saliente' AND texto = 'No pudimos contestarte. Escríbenos por aquí.'`, conv); n != 1 {
+		t.Fatalf("mensaje automático de llamada perdida: %d", n)
+	}
+	x.exigir(x.api(x.agente, http.MethodGet, "/llamadas/activa", nil), http.StatusNoContent)
+	// Lo mismo sin acción en vuelo (reservada, antes de contestar).
+	num2, call2 := numeroCliente(), "wacid.cierre2"+numeroCliente()
+	x.pasa(time.Second, x.agente, x.supervisor)
+	x.connect(num2, call2)
+	id2, _, _ := x.llamada(call2)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id2+"/reclamar", nil), http.StatusOK)
+	// Nunca se mandó accept: la llamada sigue timbrando en Meta y lo que la corta es reject, no terminate.
+	if r := x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id2+"/colgar?propia=true", nil), http.StatusOK); r.cuerpo["estado"] != "perdida" ||
+		r.cuerpo["motivoFin"] != "agente_salio" || x.g.cuenta("reject:"+call2) != 1 || x.g.cuenta("terminate:"+call2) != 0 {
+		t.Fatalf("colgar propia con la llamada reservada: %s %v", crudo(r), x.g.hechas())
+	}
+	// Lo mismo ya pre-aceptada (contestó, pero el audio no llegó a conectar).
+	num3, call3 := numeroCliente(), "wacid.cierre3"+numeroCliente()
+	x.pasa(time.Second, x.agente, x.supervisor)
+	x.connect(num3, call3)
+	id3, _, _ := x.llamada(call3)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id3+"/reclamar", nil), http.StatusOK)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id3+"/contestar", map[string]any{"sdpRespuesta": sdpNavegador("")}), http.StatusOK)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id3+"/colgar?propia=true", nil), http.StatusOK)
+	if x.g.cuenta("reject:"+call3) != 1 || x.g.cuenta("terminate:"+call3) != 0 {
+		t.Fatalf("pre-aceptada: reject y no terminate: %v", x.g.hechas())
+	}
+	// Con el accept en vuelo se manda terminate. Si Meta responde que no aplica (400), se prueba
+	// reject; si reject tampoco aplica (el accept sí llegó a conectar), se vuelve a terminate; y así
+	// hasta que una entra. El cliente no se queda con la llamada viva.
+	num4, call4 := numeroCliente(), "wacid.cierre4"+numeroCliente()
+	x.pasa(time.Second, x.agente, x.supervisor)
+	x.connect(num4, call4)
+	id4, _, _ := x.llamada(call4)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id4+"/reclamar", nil), http.StatusOK)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id4+"/contestar", map[string]any{"sdpRespuesta": sdpNavegador("")}), http.StatusOK)
+	x.g.falla("terminate", &mensajeria.ErrMetaLlamada{Status: 400})
+	x.g.falla("reject", &mensajeria.ErrMetaLlamada{Status: 400})
+	var otra sync.Once
+	x.gancho(func(accion string) {
+		if accion == "accept" {
+			otra.Do(func() {
+				if r := x.api(x.agente, http.MethodPost, "/llamadas/"+id4+"/colgar?propia=true", nil); r.status != http.StatusOK {
+					t.Errorf("colgar propia con el accept en vuelo y Meta rechazando el terminate: %d %s", r.status, crudo(r))
+				}
+			})
+		}
+	})
+	x.api(x.agente, http.MethodPost, "/llamadas/"+id4+"/confirmar-medio", nil)
+	x.gancho(nil)
+	deLaLlamada := func(call string) []string {
+		var out []string
+		for _, a := range x.g.hechas() {
+			if strings.HasSuffix(a, ":"+call) && !strings.HasPrefix(a, "pre_accept") && !strings.HasPrefix(a, "accept") {
+				out = append(out, strings.TrimSuffix(a, ":"+call))
+			}
+		}
+		return out
+	}
+	// terminate (400) → reject (400) → terminate (400)…: alterna, y sigue pendiente (no se rinde ni se
+	// queda en una sola acción).
+	h := deLaLlamada(call4)
+	alterna := len(h) >= 2 && h[0] == "terminate"
+	for i := 1; i < len(h); i++ {
+		alterna = alterna && h[i] != h[i-1]
+	}
+	if !alterna || x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id = $1::uuid AND estado = 'perdida' AND accion_meta IN ('terminate', 'reject')
+		AND accion_meta_estado = 'pendiente'`, id4) != 1 {
+		t.Fatalf("terminate 400 → reject 400 → vuelve a terminate: %v", h)
+	}
+	// El accept sí había conectado: ahora terminate entra.
+	x.g.falla("terminate", nil)
+	x.pasa(9 * time.Second)
+	x.despachar()
+	if h := deLaLlamada(call4); h[len(h)-1] != "terminate" ||
+		x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id = $1::uuid AND accion_meta = 'terminate' AND accion_meta_estado = 'hecha'`, id4) != 1 {
+		t.Fatalf("el job vuelve a terminate y entra: %v", h)
+	}
+	x.g.falla("reject", nil)
+	// Un 429 (o 401, 403, 5xx) no cambia de acción: se reintenta la misma. Y si en 2 minutos no entra,
+	// no se da por cerrada en silencio: pasa a las huérfanas y queda auditado.
+	num5, call5 := numeroCliente(), "wacid.cierre5"+numeroCliente()
+	x.pasa(time.Second, x.agente, x.supervisor)
+	x.connect(num5, call5)
+	id5, _, _ := x.llamada(call5)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id5+"/reclamar", nil), http.StatusOK)
+	x.g.falla("reject", &mensajeria.ErrMetaLlamada{Status: 429})
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id5+"/colgar?propia=true", nil), http.StatusOK)
+	x.pasa(9 * time.Second)
+	x.despachar()
+	if h := deLaLlamada(call5); len(h) < 2 || strings.Join(h, ",") != strings.TrimSuffix(strings.Repeat("reject,", len(h)), ",") {
+		t.Fatalf("un 429 reintenta la misma acción: %v", h)
+	}
+	x.pasa(3 * time.Minute)
+	x.g.falla("terminate", &mensajeria.ErrMetaLlamada{Status: 429})
+	x.despachar()
+	x.g.falla("reject", nil)
+	x.g.falla("terminate", nil)
+	if x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id = $1::uuid AND accion_meta_estado = 'fallida'`, id5) != 1 ||
+		x.contar(`SELECT count(*) FROM mensajeria.llamadas_huerfanas WHERE canal_id = $1 AND call_id = $2 AND estado = 'pendiente'`, x.canal.ID, call5) != 1 ||
+		x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'llamadas.accion_meta_agotada' AND entidad_id = $1`, id5) != 1 {
+		t.Fatalf("agotada a los 2 minutos: huérfana y auditoría (%v)", deLaLlamada(call5))
+	}
+	// Y el job de huérfanas la sigue intentando terminar.
+	x.pasa(21 * time.Second)
+	x.despachar()
+	if x.contar(`SELECT count(*) FROM mensajeria.llamadas_huerfanas WHERE canal_id = $1 AND call_id = $2 AND estado = 'hecha'`, x.canal.ID, call5) != 1 {
+		t.Fatalf("la huérfana debía terminarse: %v", deLaLlamada(call5))
+	}
+	// La llamada ya terminó en Meta por su cuenta: reject y terminate responden 404. Está cerrada: un
+	// intento de cada una y nada más (ni dos minutos alternando, ni huérfana, ni aviso de agotada).
+	num6, call6 := numeroCliente(), "wacid.cierre6"+numeroCliente()
+	x.pasa(time.Second, x.agente, x.supervisor)
+	x.connect(num6, call6)
+	id6, _, _ := x.llamada(call6)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id6+"/reclamar", nil), http.StatusOK)
+	x.g.falla("reject", &mensajeria.ErrMetaLlamada{Status: 404})
+	x.g.falla("terminate", &mensajeria.ErrMetaLlamada{Status: 404})
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id6+"/colgar?propia=true", nil), http.StatusOK)
+	for range 3 {
+		x.pasa(30 * time.Second)
+		x.despachar()
+	}
+	x.pasa(3 * time.Minute)
+	x.despachar()
+	x.g.falla("reject", nil)
+	x.g.falla("terminate", nil)
+	if h := deLaLlamada(call6); len(h) != 2 || h[0] != "reject" || h[1] != "terminate" {
+		t.Fatalf("404 a las dos acciones: un intento de cada una: %v", h)
+	}
+	if x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id = $1::uuid AND estado = 'perdida' AND accion_meta_estado = 'hecha'`, id6) != 1 ||
+		x.contar(`SELECT count(*) FROM mensajeria.llamadas_huerfanas WHERE canal_id = $1 AND call_id = $2`, x.canal.ID, call6) != 0 ||
+		x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'llamadas.accion_meta_agotada' AND entidad_id = $1`, id6) != 0 {
+		t.Fatal("la llamada que no existe en Meta queda cerrada, sin huérfana ni aviso de agotada")
+	}
+	// Con 400 en una y 404 en la otra sigue alternando (un 404 solo no basta).
+	num7, call7 := numeroCliente(), "wacid.cierre7"+numeroCliente()
+	x.pasa(time.Second, x.agente, x.supervisor)
+	x.connect(num7, call7)
+	id7, _, _ := x.llamada(call7)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id7+"/reclamar", nil), http.StatusOK)
+	x.g.falla("reject", &mensajeria.ErrMetaLlamada{Status: 400})
+	x.g.falla("terminate", &mensajeria.ErrMetaLlamada{Status: 404})
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id7+"/colgar?propia=true", nil), http.StatusOK)
+	x.pasa(9 * time.Second)
+	x.despachar()
+	x.g.falla("reject", nil)
+	x.g.falla("terminate", nil)
+	if h := deLaLlamada(call7); len(h) < 4 || x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id = $1::uuid AND accion_meta_estado = 'pendiente'`, id7) != 1 {
+		t.Fatalf("400 y 404 alternados siguen intentando: %v", h)
+	}
+}

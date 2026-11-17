@@ -633,7 +633,8 @@ func (m *Modulo) fallarMensaje(ctx context.Context, t *auditoria.Tx, f mensajeri
 	t.RegistrarCambios("mensaje_conversacion", f.ID, map[string]any{"estado_entrega": f.EstadoEntrega}, map[string]any{"estado_entrega": g.EstadoEntrega, "motivo": motivo})
 	// Una solicitud de permiso de llamada que no salió no cuenta para su límite.
 	if f.Automatico != nil && *f.Automatico == AutomaticoPermisoLlamada {
-		if err := m.solicitudDePermisoFallida(ctx, t, f, c); err != nil {
+		// (agotados los intentos sin respuesta de Meta, pudo llegar: no se descuenta a ciegas)
+		if err := m.solicitudDePermisoFallida(ctx, t, f, c, motivo == MotivoAgotado); err != nil {
 			return err
 		}
 	}

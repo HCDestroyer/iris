@@ -123,6 +123,17 @@ Además, con un número real:
   temporal, llamar y colgar desde el panel antes de que conteste, cuatro veces seguidas, y leer
   `call_permissions`. Si Meta la cuenta, hay que sumarla también en Iris (`trasSaliente`), o
   `confirmarRiesgo` irá por detrás de la cuenta de Meta.
+- **Supuesto 24 (comprobar con una llamada real):** cuando el agente deja una entrante antes de
+  que haya audio, Iris manda **`reject`** si nunca mandó `accept` (solo reservada o pre-aceptada) y
+  **`terminate`** si el `accept` ya salió o estaba en vuelo; si Meta responde 400 o 404 a una, prueba
+  la otra, y alterna. Probar las tres: cerrar la pestaña justo al pulsar «Contestar», después del
+  `pre_accept` y durante el `accept`. En las tres el teléfono del cliente debe dejar de timbrar; si
+  en alguna sigue sonando, anotar qué respondió Meta a cada acción.
+- **Supuesto 23:** `call_permissions` trae, en la acción `send_call_permission_request`,
+  `limits[] { time_period: "PT24H", current_usage }`. Iris lo usa para saber si una solicitud cuyo
+  envío se quedó sin respuesta llegó a salir (`graphHTTP.Permiso`, `resolverSolicitudes`). Si Meta
+  no trae ese dato, la solicitud dudosa sigue contando para el límite hasta que pase un día: mirar
+  la respuesta real y ajustar.
 - Si el número también hace salientes desde otro sistema: comprobar que Iris no las corta (quedan
   en `mensajeria.llamadas_huerfanas` con estado `ajena`).
 
