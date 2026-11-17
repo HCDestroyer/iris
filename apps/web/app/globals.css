@@ -28,12 +28,12 @@ body:has([data-slot="formulario-pagina"]) #contenido {
  */
 [data-slot="bandeja"],
 [data-slot="equipo"] {
-    height: calc(100dvh - 3.5rem - 3.5rem - 1px - env(safe-area-inset-bottom));
+    height: calc(100dvh - 3.5rem - 3.5rem - 1px - env(safe-area-inset-bottom) - var(--alto-llamada, 0px));
 }
 @media (min-width: 1024px) {
     [data-slot="bandeja"],
     [data-slot="equipo"] {
-        height: calc(100dvh - 3.5rem);
+        height: calc(100dvh - 3.5rem - var(--alto-llamada, 0px));
     }
 }
 @media (max-width: 1023.98px) {
@@ -43,8 +43,16 @@ body:has([data-slot="formulario-pagina"]) #contenido {
     }
     [data-slot="bandeja"][data-vista="conversacion"],
     [data-slot="equipo"][data-vista="conversacion"] {
-        height: calc(100dvh - 3.5rem);
+        height: calc(100dvh - 3.5rem - var(--alto-llamada, 0px));
     }
+}
+
+/*
+ * Barra de la llamada en curso (voz E1): va bajo la barra superior y sigue al navegar. Mientras
+ * está, las pantallas de alto completo le ceden su alto.
+ */
+body:has([data-slot="barra-llamada"]) {
+    --alto-llamada: 3.25rem;
 }
 
 /*

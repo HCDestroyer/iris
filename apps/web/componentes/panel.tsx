@@ -29,6 +29,9 @@ import { MisVistas, Navegacion } from "./navegacion";
 import { AvisoDatosSinEmpresa, ElegirEmpresa, SelectorEmpresa } from "./selector-empresa";
 import { SelectorTema } from "./selector-tema";
 import { DialogoReautenticar } from "@/componentes/cuenta/dialogo-reautenticar";
+import { AvisoLlamada, BarraLlamada, NotaLlamada } from "./voz/llamada";
+import { ProveedorVoz, useVoz } from "./voz/proveedor";
+import { BotonRecibir, ControlRecibir } from "./voz/recibir";
 
 /**
  * Layout autenticado: lee `GET /yo` y, solo si salió bien, arma el menú con sus permisos.
@@ -179,9 +182,11 @@ function Estructura({ children }: { children: ReactNode }) {
             <ProveedorMigas>
                 <ProveedorCuenta>
                     <DisponibilidadSiAplica>
-                        <ProveedorChatEquipo>
-                            <EstructuraPanel>{children}</EstructuraPanel>
-                        </ProveedorChatEquipo>
+                        <VozSiAplica>
+                            <ProveedorChatEquipo>
+                                <EstructuraPanel>{children}</EstructuraPanel>
+                            </ProveedorChatEquipo>
+                        </VozSiAplica>
                     </DisponibilidadSiAplica>
                 </ProveedorCuenta>
             </ProveedorMigas>
@@ -199,6 +204,18 @@ function DisponibilidadSiAplica({ children }: { children: ReactNode }) {
     const activa = puede(["conversaciones.ver"]) && (yo.modoEmpresa === "sin_conector" || yo.empresaActiva !== undefined);
     if (!activa) return children;
     return <ProveedorDisponibilidad key={yo.empresaActiva?.id ?? 0}>{children}</ProveedorDisponibilidad>;
+}
+
+/**
+ * Voz (E1): solo para quien contesta llamadas (`llamadas.contestar`) y ve conversaciones, con la
+ * empresa activa resuelta. Va en el layout: el aviso de una llamada y la barra de la llamada en
+ * curso siguen al navegar.
+ */
+function VozSiAplica({ children }: { children: ReactNode }) {
+    const { yo, puede } = useSesion();
+    const activa = puede(["llamadas.contestar"]) && puede(["conversaciones.ver"]) && (yo.modoEmpresa === "sin_conector" || yo.empresaActiva !== undefined);
+    if (!activa) return children;
+    return <ProveedorVoz key={yo.empresaActiva?.id ?? 0}>{children}</ProveedorVoz>;
 }
 
 const CONSULTA_ESCRITORIO = "(min-width: 1024px)";
@@ -265,6 +282,7 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
     const idBarra = useId();
     const disponibilidad = useDisponibilidad();
     const chat = useChatEquipo();
+    const voz = useVoz();
 
     function alternarContraida() {
         if (anchoCompleto) {
@@ -360,11 +378,21 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
                 <div className="ml-auto flex min-w-0 items-center justify-end gap-2 lg:ml-0 lg:flex-[0_1_21.25rem]">
                     <BuscadorGlobal />
                 </div>
+                <BotonRecibir />
                 <BotonChatEquipo />
                 <BotonAvisos />
                 <BotonCrear />
             </header>
             {ruta !== "/equipo" ? <PanelChatEquipo /> : null}
+            {voz ? (
+                <>
+                    <Suspense>
+                        <BarraLlamada />
+                    </Suspense>
+                    <AvisoLlamada />
+                    <NotaLlamada />
+                </>
+            ) : null}
 
             <main
                 id="contenido"
@@ -406,6 +434,12 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
                         <section aria-label="Tu disponibilidad" className="grid gap-2 rounded-xl border border-border bg-card p-3">
                             <span className="text-xs font-medium text-dimmed">Conversaciones</span>
                             <ControlDisponibilidad />
+                        </section>
+                    ) : null}
+                    {voz ? (
+                        <section aria-label="Llamadas" className="grid gap-2 rounded-xl border border-border bg-card p-3">
+                            <span className="text-xs font-medium text-dimmed">Llamadas</span>
+                            <ControlRecibir />
                         </section>
                     ) : null}
                     <Navegacion grupos={grupos} contadores={contadores} alNavegar={() => setMasAbierto(false)} />

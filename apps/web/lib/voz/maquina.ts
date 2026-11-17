@@ -34,7 +34,7 @@ export type EstadoVoz =
     /** Terminó una llamada que sí se habló: se ofrece la nota. `corte`: se cayó el medio. */
     | { fase: "terminada"; llamada: Llamada; duracionSeg: number; corte: boolean }
     /** No se llegó a hablar: un mensaje llano y se cierra. */
-    | { fase: "aviso"; motivo: MotivoAviso; quien?: string | undefined; titulo: string };
+    | { fase: "aviso"; motivo: MotivoAviso; quien?: string | undefined; titulo: string; detalle?: string | undefined };
 
 export type EventoVoz =
     /** Feed `llamada_entrante`, o la llamada sigue sonando al abrir el panel. */
@@ -49,7 +49,8 @@ export type EventoVoz =
     | { tipo: "medio_confirmado"; llamada: Llamada; ahora: number }
     /** Pasó `venceEn` (12 s de reserva, o los 5 s para confirmar) sin llegar a `en_curso`. */
     | { tipo: "plazo_vencido" }
-    | { tipo: "fallo"; motivo: MotivoAviso; quien?: string | undefined }
+    /** `detalle`: lo que dijo el servidor en llano (p. ej. quién la tiene), si lo dijo. */
+    | { tipo: "fallo"; motivo: MotivoAviso; quien?: string | undefined; detalle?: string | undefined }
     /** El 409 `misma_persona`: otra pestaña mía la tiene; aquí solo se cierra el aviso. */
     | { tipo: "otra_pestana" }
     | { tipo: "silenciar"; silenciada: boolean }
@@ -64,7 +65,7 @@ export const LIBRE: EstadoVoz = { fase: "libre" };
 const FINALES: ReadonlySet<Llamada["estado"]> = new Set(["terminada", "perdida", "rechazada", "fuera_de_horario", "fallida"]);
 export const esFinal = (l: Pick<Llamada, "estado">): boolean => FINALES.has(l.estado);
 
-const aviso = (motivo: MotivoAviso, titulo: string, quien?: string): EstadoVoz => ({ fase: "aviso", motivo, titulo, quien });
+const aviso = (motivo: MotivoAviso, titulo: string, quien?: string, detalle?: string): EstadoVoz => ({ fase: "aviso", motivo, titulo, quien, detalle });
 const segundos = (desde: number, ahora: number) => Math.max(0, Math.round((ahora - desde) / 1000));
 
 /** La llamada en la que está esta pestaña, si hay una. */
@@ -125,7 +126,7 @@ export function siguiente(e: EstadoVoz, ev: EventoVoz, yo: number): EstadoVoz {
         case "plazo_vencido":
             return e.fase === "contestando" ? aviso("reserva_vencida", e.llamada.titulo) : e;
         case "fallo":
-            if (e.fase === "contestando" || e.fase === "sonando") return aviso(ev.motivo, e.llamada.titulo, ev.quien);
+            if (e.fase === "contestando" || e.fase === "sonando") return aviso(ev.motivo, e.llamada.titulo, ev.quien, ev.detalle);
             return e;
         case "otra_pestana":
             return e.fase === "contestando" || e.fase === "sonando" ? LIBRE : e;

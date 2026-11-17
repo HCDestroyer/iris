@@ -10,6 +10,7 @@ import { iniciarFeed, type EstadoFeed } from "@/lib/conversaciones/tiempo-real";
 import type { Contadores, Conversacion, EventoBandeja } from "@/lib/conversaciones/tipos";
 import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
+import { anunciarFuente, publicarEvento } from "@/lib/voz/canal";
 import { ProveedorCatalogos } from "./catalogos";
 import { PanelConversacion } from "./conversacion";
 import { ListaConversaciones } from "./lista";
@@ -142,6 +143,8 @@ export function Bandeja() {
 
     useEffect(() => {
         let primera = true;
+        // Un solo flujo por pestaña: la voz (llamadas entrantes) escucha este mismo feed.
+        const fuente = anunciarFuente();
         const cerrar = iniciarFeed<EventoBandeja>(
             {
                 abrirFlujo,
@@ -164,8 +167,12 @@ export function Bandeja() {
                         avisar({ titulo: evento.tipo === "mencion" ? `Te mencionaron en ${titulo}` : `Guardia: te avisaron por ${titulo}` });
                     }
                     for (const o of oyentes.current) o({ tipo: "evento", evento });
+                    publicarEvento(evento);
                 },
-                alEstado: setEstadoFeed,
+                alEstado: (e) => {
+                    setEstadoFeed(e);
+                    fuente.estado(e);
+                },
                 alCursorVencido: () => {
                     void refrescarLista();
                     for (const o of oyentes.current) o({ tipo: "recargar" });
@@ -179,7 +186,10 @@ export function Bandeja() {
                 void refrescarLista();
             },
         );
-        return cerrar;
+        return () => {
+            cerrar();
+            fuente.retirar();
+        };
     }, [identidad, refrescarLista]);
 
     const listaVisible = abierta === null;
