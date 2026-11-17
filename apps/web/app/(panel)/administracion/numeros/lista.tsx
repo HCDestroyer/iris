@@ -2,7 +2,7 @@
 
 import type { Schema } from "@iris/contratos";
 import { avisar, Aviso, Boton, cn, Esqueleto, EstadoVacio, Tarjeta } from "@iris/ui";
-import { BookOpen, Building2, CalendarClock, Cloud, Code, Eye, History, KeyRound, MessageCircle, Plus, Power, QrCode, Share2, SlidersHorizontal, Smartphone } from "lucide-react";
+import { BookOpen, Building2, CalendarClock, Cloud, Code, Eye, History, KeyRound, MessageCircle, Phone, Plus, Power, QrCode, Share2, SlidersHorizontal, Smartphone } from "lucide-react";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
@@ -55,6 +55,8 @@ export function ListaNumeros() {
     const { yo, puede } = useSesion();
     const credenciales = puede(["mensajeria.configurar"]);
     const configurar = puede(["canales.configurar"]);
+    // Voz E1: llamadas de WhatsApp por número (solo los conectados por la API).
+    const llamadas = puede(["llamadas.configurar"]);
     const conexionMeta = puede([PERMISO_CONEXION_META]);
     // Colas y horarios se leen con `conversaciones.ver`; sin él, esas columnas dicen «—».
     const verBandeja = puede(["conversaciones.ver"]);
@@ -197,7 +199,7 @@ export function ListaNumeros() {
                                 colas={colas}
                                 horarios={horarios}
                                 conConexion={conConexion}
-                                permisos={{ credenciales, configurar }}
+                                permisos={{ credenciales, configurar, llamadas }}
                                 activando={activando === n.id}
                                 activar={() => void activar(n)}
                             />
@@ -254,7 +256,7 @@ function FilaNumero({
     colas: Schema<"ColaConversaciones">[] | null;
     horarios: Schema<"Horario">[] | null;
     conConexion: boolean;
-    permisos: { credenciales: boolean; configurar: boolean };
+    permisos: { credenciales: boolean; configurar: boolean; llamadas: boolean };
     activando: boolean;
     activar: () => void;
 }) {
@@ -350,6 +352,14 @@ function FilaNumero({
                                 <Link href={`/administracion/numeros/${n.id}/configurar`} aria-label={`Configurar ${n.nombre}`}>
                                     <SlidersHorizontal aria-hidden />
                                     Configurar
+                                </Link>
+                            </Boton>
+                        ) : null}
+                        {permisos.llamadas && n.activo ? (
+                            <Boton asChild variante="contorno" tamano="sm">
+                                <Link href={`/administracion/numeros/${n.id}/llamadas`} aria-label={`Llamadas de ${n.nombre}`}>
+                                    <Phone aria-hidden />
+                                    Llamadas
                                 </Link>
                             </Boton>
                         ) : null}
