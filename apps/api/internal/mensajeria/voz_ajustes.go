@@ -768,6 +768,12 @@ func nuevoMantenerLlamada(m *Modulo) *auditoria.Caso[uuid.UUID, mantenimientoLla
 				if !ahora.Before(l.SuenaHasta) {
 					return cerrar(LlamadaPerdida, "nadie_contesto", MetaTerminar)
 				}
+				// La pestaña que llamó se cerró, se recargó o murió: nadie oiría al cliente si contesta. Se
+				// cancela ya (no cuenta como sin contestar: no fue el cliente quien no contestó).
+				if l.Direccion == "saliente" && ahora.Sub(l.SonoEn) > GraciaSinFlujo &&
+					(l.PestanaVistaEn == nil || !l.PestanaVistaEn.After(ahora.Add(-FlujoVivo-GraciaSinFlujo))) {
+					return cerrar(LlamadaTerminada, "error_medio", MetaTerminar)
+				}
 			case LlamadaEnCurso:
 				// Una saliente se corta al llegar la empresa a su tope de minutos del mes (cuenta lo que
 				// lleva esta y las demás en curso): con 299 de 300 minutos dura, como mucho, lo que queda.
@@ -788,10 +794,9 @@ func nuevoMantenerLlamada(m *Modulo) *auditoria.Caso[uuid.UUID, mantenimientoLla
 				if l.UsuarioID != nil && l.ContestadaEn != nil && ahora.Sub(*l.ContestadaEn) > FlujoVivo {
 					var vivo bool
 					var err error
-					if l.Direccion == "saliente" && l.Navegador != nil {
-						// Quien llama puede no tener «Recibir llamadas»: cuenta el latido del navegador desde el que llamó.
-						vivo, err = q.NavegadorVivo(ctx, mensajeriabd.NavegadorVivoParams{Empresa: derefEmpresa(l.EmpresaID), UsuarioID: *l.UsuarioID,
-							Navegador: *l.Navegador, VivoDesde: ahora.Add(-FlujoVivo - GraciaSinFlujo)})
+					if l.Direccion == "saliente" {
+						// El latido de una saliente es el del flujo de eventos de la pestaña que llamó.
+						vivo = l.PestanaVistaEn != nil && l.PestanaVistaEn.After(ahora.Add(-FlujoVivo-GraciaSinFlujo))
 					} else {
 						vivo, err = q.ReceptorVivo(ctx, mensajeriabd.ReceptorVivoParams{Empresa: derefEmpresa(l.EmpresaID), UsuarioID: *l.UsuarioID,
 							VivoDesde: ahora.Add(-FlujoVivo - GraciaSinFlujo)})

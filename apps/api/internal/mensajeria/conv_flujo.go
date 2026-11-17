@@ -27,7 +27,7 @@ import (
 // EventoConversacion es un cambio del feed: el mismo cuerpo en SSE (data) y en /cambios.
 type EventoConversacion struct {
 	ID             string               `json:"id" doc:"Cursor del feed (el id de SSE / Last-Event-ID)"`
-	Tipo           string               `json:"tipo" enum:"mensaje_nuevo,mensaje_actualizado,conversacion_actualizada,mencion,guardia,aviso_sin_atender,sugerencia,llamada_entrante,llamada_actualizada,llamada_terminada,devolucion_actualizada"`
+	Tipo           string               `json:"tipo" enum:"mensaje_nuevo,mensaje_actualizado,conversacion_actualizada,mencion,guardia,aviso_sin_atender,sugerencia,llamada_entrante,llamada_actualizada,llamada_terminada,devolucion_actualizada,llamada_respuesta"`
 	Llamada        *Llamada             `json:"llamada,omitempty" doc:"llamada_entrante (solo a quien le suena), llamada_actualizada, llamada_terminada y devolucion_actualizada: la llamada como la ves ahora, sin SDP"`
 	ConversacionID int64                `json:"conversacionId"`
 	OcurridoEn     time.Time            `json:"ocurridoEn"`
@@ -276,6 +276,8 @@ type flujoConv struct {
 	desde   int64
 	// navegador: el id de «Recibir llamadas» del navegador que abrió el flujo (vacío en paneles viejos).
 	navegador string
+	// pestana: el id de la pestaña que abrió el flujo (aleatorio por pestaña).
+	pestana string
 }
 
 func nuevoAbrirFlujoConv(*Modulo) *auditoria.Caso[entradaFlujo, flujoConv] {
@@ -361,6 +363,10 @@ func (m *Modulo) transmitirConv(ctx context.Context, w http.ResponseWriter, f fl
 			toque.Navegador = &f.navegador
 		}
 		_ = q.TocarReceptores(ctx, toque)
+		// Y el de la saliente que se hizo desde esta misma pestaña (solo ella la sostiene).
+		if f.pestana != "" {
+			_ = q.TocarPestanaDeLlamada(ctx, mensajeriabd.TocarPestanaDeLlamadaParams{UsuarioID: &a.usuario, Pestana: f.pestana, Ahora: ptrT(m.ahora())})
+		}
 		for {
 			plazo()
 			evs, hayMas, siguiente, err := m.leerFeedConvLimitado(ctx, q, a, desde)

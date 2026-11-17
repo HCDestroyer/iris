@@ -118,27 +118,18 @@ SELECT EXISTS (SELECT 1 FROM mensajeria.llamada_receptores
 
 -- name: TocarReceptores :exec
 -- Latido del flujo SSE del usuario.
--- Si el flujo dice de qué navegador es, toca solo esa fila (reciba llamadas o no: también es el
--- latido del navegador desde el que se hace una saliente). Otra pestaña u otro equipo del mismo
--- usuario no mantiene viva esa fila. Sin navegador (paneles viejos), las que reciben llamadas.
+-- El latido de «Recibir llamadas» (entrantes), por navegador: si el flujo dice de qué navegador es,
+-- toca solo esa fila; sin navegador (paneles viejos), las que reciben llamadas. Una saliente no se
+-- sostiene con esto: su latido va por pestaña (TocarPestanaDeLlamada).
 UPDATE mensajeria.llamada_receptores r SET visto_en = @ahora
 WHERE coalesce(r.empresa_id, 0) = @empresa::bigint AND r.usuario_id = @usuario_id
-  AND ((sqlc.narg('navegador')::text IS NULL AND r.recibe
-        -- (un flujo sin navegador nunca sostiene una saliente, aunque ese navegador también reciba llamadas)
-        AND NOT EXISTS (SELECT 1 FROM mensajeria.llamadas l WHERE l.usuario_id = r.usuario_id AND l.navegador = r.navegador
-            AND l.direccion = 'saliente' AND l.estado IN ('marcando', 'en_curso')))
-       OR r.navegador = sqlc.narg('navegador')::text);
+  AND ((sqlc.narg('navegador')::text IS NULL AND r.recibe) OR r.navegador = sqlc.narg('navegador')::text);
 
--- name: TocarNavegadorDeLlamada :exec
--- El navegador desde el que se llama queda anotado (sin cambiar si recibe llamadas): su latido dice
--- si el panel sigue abierto mientras dura la saliente.
-INSERT INTO mensajeria.llamada_receptores (empresa_id, usuario_id, navegador, recibe, visto_en)
-VALUES (sqlc.narg('empresa_id'), @usuario_id, @navegador, false, @ahora)
-ON CONFLICT ((coalesce(empresa_id, 0)), usuario_id, navegador) DO UPDATE SET visto_en = EXCLUDED.visto_en;
-
--- name: NavegadorVivo :one
-SELECT EXISTS (SELECT 1 FROM mensajeria.llamada_receptores
-    WHERE coalesce(empresa_id, 0) = @empresa::bigint AND usuario_id = @usuario_id AND navegador = @navegador AND visto_en > @vivo_desde)::boolean;
+-- name: TocarPestanaDeLlamada :exec
+-- El latido de una saliente: solo el flujo de eventos de la pestaña desde la que se llamó. Otra
+-- pestaña del mismo navegador (mismo id de navegador) u otro equipo no la sostienen.
+UPDATE mensajeria.llamadas SET pestana_vista_en = @ahora
+WHERE usuario_id = @usuario_id AND pestana = @pestana::text AND direccion = 'saliente' AND estado IN ('marcando', 'en_curso');
 
 -- name: LlamadaActivaDeUsuario :one
 SELECT * FROM mensajeria.llamadas
@@ -367,9 +358,9 @@ SELECT EXISTS (SELECT 1 FROM mensajeria.llamadas l JOIN mensajeria.voz_ajustes_c
 -- Nace marcando, con la intención connect pendiente y un id externo provisional hasta que Meta da el suyo.
 -- La oferta SDP no se guarda: va de la petición a Meta en memoria.
 INSERT INTO mensajeria.llamadas (id, empresa_id, origen, canal_id, conversacion_id, id_externo, direccion, numero, cliente_id, servicio_id,
-    cola_id, estado, usuario_id, navegador, devolucion_id, sono_en, suena_hasta, accion_meta, accion_meta_estado, accion_meta_en)
+    cola_id, estado, usuario_id, navegador, pestana, pestana_vista_en, devolucion_id, sono_en, suena_hasta, accion_meta, accion_meta_estado, accion_meta_en)
 VALUES (sqlc.arg('llamada_id'), sqlc.narg('empresa_id'), 'whatsapp', sqlc.arg('canal_id'), sqlc.arg('conversacion_id'), sqlc.arg('externo'), 'saliente', sqlc.arg('numero'),
-    sqlc.narg('cliente_id'), sqlc.narg('servicio'), sqlc.narg('cola_id'), 'marcando', sqlc.arg('usuario_id'), sqlc.arg('navegador'), sqlc.narg('devolucion_id'),
+    sqlc.narg('cliente_id'), sqlc.narg('servicio'), sqlc.narg('cola_id'), 'marcando', sqlc.arg('usuario_id'), sqlc.arg('navegador'), sqlc.narg('pestana'), sqlc.narg('pestana_vista_en'), sqlc.narg('devolucion_id'),
     sqlc.arg('sono_en'), sqlc.arg('suena_hasta'), 'connect', 'pendiente', sqlc.arg('sono_en'))
 RETURNING *;
 

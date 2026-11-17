@@ -3266,7 +3266,7 @@ export interface paths {
         };
         /**
          * Tiempo real de la bandeja (Server-Sent Events)
-         * @description Permiso: `conversaciones.ver`. Igual que el flujo del chat: `id` (cursor), `event` (mensaje_nuevo, mensaje_actualizado, conversacion_actualizada, mencion, guardia, aviso_sin_atender, sugerencia), `data` (un EventoConversacion). Last-Event-ID o ?desde=; latido cada 25 s; cierre a los 30 min; revalidación de la sesión. `?navegador=` (o la cabecera `X-Iris-Navegador`): el id de «Recibir llamadas» de este navegador. Con él, el latido del flujo vale solo para ese navegador (es lo que mantiene viva una llamada saliente hecha desde él y su «Recibir llamadas»); sin él, para todos los navegadores del usuario que reciben llamadas y para ninguna saliente.
+         * @description Permiso: `conversaciones.ver`. Igual que el flujo del chat: `id` (cursor), `event` (mensaje_nuevo, mensaje_actualizado, conversacion_actualizada, mencion, guardia, aviso_sin_atender, sugerencia), `data` (un EventoConversacion). Last-Event-ID o ?desde=; latido cada 25 s; cierre a los 30 min; revalidación de la sesión. `?navegador=` (o la cabecera `X-Iris-Navegador`): el id de «Recibir llamadas» de este navegador. Con él, el latido del flujo vale solo para ese navegador (es lo que mantiene viva una llamada saliente hecha desde él y su «Recibir llamadas»); sin él, para todos los navegadores del usuario que reciben llamadas. `?pestana=` (o `X-Iris-Pestana`): el id aleatorio de esta pestaña; una llamada **saliente** solo se mantiene viva con el flujo de la pestaña que la hizo (otra pestaña del mismo navegador no la sostiene: a los 55 s se corta).
          */
         get: operations["eventosConversaciones"];
         put?: never;
@@ -3652,7 +3652,7 @@ export interface paths {
         put?: never;
         /**
          * Llamar por WhatsApp al contacto de la conversación
-         * @description Permiso: `llamadas.llamar`. Saliente con coste: `llamadas.llamar` (sensible). El destino es siempre el contacto de la conversación. El navegador crea la oferta SDP; el servidor la sanea, comprueba el permiso del contacto en WhatsApp y los límites, y responde 201 `{ llamada }` en `marcando`. La respuesta SDP llega después: el feed avisa con `llamada_respuesta` (solo a ti) y se lee con `GET /llamadas/{id}/respuesta-sdp`. Pasa a `en_curso` cuando el cliente contesta; sin contestar en 60 s queda `perdida`. Exige `X-Iris-Navegador`. 422 `sin_permiso_llamada`, `confirmar_riesgo` (lleva tres sin contestar: repite con `confirmarRiesgo`), `limite_llamadas`, `tope_alcanzado`, `llamadas_inactivas`, `sdp_invalido`; 409 `llamada_en_curso`, `devolucion_cerrada`; 502 `meta_rechazo`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         * @description Permiso: `llamadas.llamar`. Saliente con coste: `llamadas.llamar` (sensible). El destino es siempre el contacto de la conversación. El navegador crea la oferta SDP; el servidor la sanea, comprueba el permiso del contacto en WhatsApp y los límites, y responde 201 `{ llamada }` en `marcando`. La respuesta SDP llega después: el feed avisa con `llamada_respuesta` (solo a ti) y se lee con `GET /llamadas/{id}/respuesta-sdp`. Pasa a `en_curso` cuando el cliente contesta; sin contestar en 60 s queda `perdida`. Exige `X-Iris-Navegador` y `X-Iris-Pestana` (422 `navegador_requerido`, `pestana_requerida`): la llamada vive mientras esté abierto el flujo de eventos de **esa pestaña** (`?pestana=`); si se cierra o se recarga, a los 55 s el servidor la cancela. Plazos: la llamada queda creada en el servidor como mucho 6 s después de enviar la petición y la respuesta tarda como mucho 10 s; si la respuesta se pierde, búscala con `GET /llamadas/activa`. 422 `sin_permiso_llamada`, `confirmar_riesgo` (lleva tres sin contestar: repite con `confirmarRiesgo`), `limite_llamadas`, `tope_alcanzado`, `llamadas_inactivas`, `sdp_invalido`; 409 `llamada_en_curso`, `devolucion_cerrada`; 502 `meta_rechazo`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
          */
         post: operations["llamarContacto"];
         delete?: never;
@@ -4222,7 +4222,7 @@ export interface paths {
         };
         /**
          * La llamada que tienes ahora
-         * @description Permiso: `llamadas.ver`. La que reclamaste o tienes en curso, o 204 si no tienes ninguna. El audio no se puede retomar desde otra pestaña. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         * @description Permiso: `llamadas.ver`. La que reclamaste, tienes en curso o estás haciendo (una saliente que marca), o 204 si no tienes ninguna. No hace falta «Recibir llamadas» ni `llamadas.contestar`. En una saliente, `deEstaPestana` dice si se hizo desde la pestaña de `X-Iris-Pestana`: si es `false`, esta pestaña no tiene el audio (la que llamó se cerró o se recargó) y solo puede colgarla. El audio no se puede retomar desde otra pestaña. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
          */
         get: operations["llamadaActiva"];
         put?: never;
@@ -4482,7 +4482,7 @@ export interface paths {
         };
         /**
          * La respuesta SDP de una saliente
-         * @description Permiso: `llamadas.llamar`. Solo quien llamó y desde el mismo navegador (`X-Iris-Navegador`). 409 `sin_respuesta` si WhatsApp aún no la mandó; 409 `llamada_terminada` después. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         * @description Permiso: `llamadas.llamar`. Solo quien llamó, desde el mismo navegador (`X-Iris-Navegador`) y la misma pestaña (`X-Iris-Pestana`; desde otra, 409 con `errors[0].rule = otra_pestana`). 409 `sin_respuesta` si WhatsApp aún no la mandó; 409 `llamada_terminada` después. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
          */
         get: operations["verRespuestaSDP"];
         put?: never;
@@ -12858,7 +12858,7 @@ export interface components {
             /** @description sugerencia: la sugerencia del asistente como está ahora (§16.2) */
             sugerencia?: components["schemas"]["Sugerencia"];
             /** @enum {string} */
-            tipo: "mensaje_nuevo" | "mensaje_actualizado" | "conversacion_actualizada" | "mencion" | "guardia" | "aviso_sin_atender" | "sugerencia" | "llamada_entrante" | "llamada_actualizada" | "llamada_terminada" | "devolucion_actualizada";
+            tipo: "mensaje_nuevo" | "mensaje_actualizado" | "conversacion_actualizada" | "mencion" | "guardia" | "aviso_sin_atender" | "sugerencia" | "llamada_entrante" | "llamada_actualizada" | "llamada_terminada" | "devolucion_actualizada" | "llamada_respuesta";
         };
         EventoOrden: {
             a: string | null;
@@ -13663,7 +13663,14 @@ export interface components {
             contestadaEn?: string;
             /** Format: int64 */
             conversacionId?: number;
+            /** @description Solo en GET /llamadas/activa, para una saliente: true si se hizo desde la pestaña de la cabecera X-Iris-Pestana. false: es de otra pestaña (o de una que ya no existe): esta no tiene el audio */
+            deEstaPestana?: boolean;
             devolucion?: components["schemas"]["DevolucionLlamada"];
+            /**
+             * Format: int64
+             * @description La devolución que atiende esta saliente
+             */
+            devolucionId?: number;
             /** @enum {string} */
             direccion: "entrante" | "saliente";
             /** Format: int32 */
@@ -13703,6 +13710,8 @@ export interface components {
         LlamadaEnMensaje: {
             /** @enum {string} */
             atendidaPor?: "persona" | "asistente";
+            /** Format: int64 */
+            devolucionId?: number;
             /** @enum {string} */
             direccion: "entrante" | "saliente";
             /** Format: int32 */
@@ -13936,10 +13945,10 @@ export interface components {
         MensajeConversacion: {
             adjunto?: components["schemas"]["AdjuntoMensaje"];
             /**
-             * @description Saliente sin autor: el bot, la respuesta de fuera de horario o (3b) el asistente de IA
+             * @description Saliente automático: el bot, la respuesta de fuera de horario, (3b) el asistente de IA o la solicitud de permiso de llamada (esta sí tiene autor)
              * @enum {string|null}
              */
-            automatico: "bot" | "fuera_de_horario" | "asistente" | null;
+            automatico: "bot" | "fuera_de_horario" | "asistente" | "permiso_llamada" | null;
             /** @description Saliente y nota; ausente en entrante, sistema y respuestas automáticas */
             autor?: components["schemas"]["UsuarioRef"];
             /**
@@ -15366,8 +15375,11 @@ export interface components {
             sensible: boolean;
         };
         PermisoLlamada: {
-            /** @enum {string} */
-            estado: "sin_pedir" | "pedido" | "temporal" | "permanente" | "negado" | "revocado";
+            /**
+             * @description vencido: tuvo un permiso temporal que ya pasó (se le puede volver a pedir)
+             * @enum {string}
+             */
+            estado: "sin_pedir" | "pedido" | "temporal" | "permanente" | "negado" | "revocado" | "vencido";
             /**
              * @description Por qué no se puede llamar
              * @enum {string}
@@ -17334,10 +17346,10 @@ export interface components {
         };
         UltimoMensajeResumen: {
             /**
-             * @description Saliente sin autor: el bot, la respuesta de fuera de horario o (3b) el asistente de IA
+             * @description Saliente automático: el bot, la respuesta de fuera de horario, (3b) el asistente de IA o la solicitud de permiso de llamada (esta sí tiene autor)
              * @enum {string|null}
              */
-            automatico: "bot" | "fuera_de_horario" | "asistente" | null;
+            automatico: "bot" | "fuera_de_horario" | "asistente" | "permiso_llamada" | null;
             /** Format: date-time */
             creadoEn: string;
             /** @enum {string} */
@@ -30624,12 +30636,16 @@ export interface operations {
                 desde?: string;
                 /** @description El id de «Recibir llamadas» de este navegador (EventSource no puede mandar cabeceras) */
                 navegador?: string;
+                /** @description El id de esta pestaña (aleatorio por pestaña): el latido de una llamada saliente es el del flujo de la pestaña que llamó */
+                pestana?: string;
             };
             header?: {
                 /** @description El id del último evento recibido (lo manda EventSource al reconectar) */
                 "Last-Event-ID"?: string;
                 /** @description Lo mismo, para clientes que sí pueden mandar cabeceras */
                 "X-Iris-Navegador"?: string;
+                /** @description Lo mismo, por cabecera */
+                "X-Iris-Pestana"?: string;
             };
             path?: never;
             cookie?: never;
@@ -32184,6 +32200,8 @@ export interface operations {
                 "Idempotency-Key"?: string;
                 /** @description El id de «Recibir llamadas» de este navegador */
                 "X-Iris-Navegador"?: string;
+                /** @description El id de esta pestaña (aleatorio por pestaña, no el del navegador). Obligatorio: solo el flujo de eventos de esta pestaña sostiene la llamada */
+                "X-Iris-Pestana"?: string;
             };
             path: {
                 id: number;
@@ -34522,7 +34540,10 @@ export interface operations {
     llamadaActiva: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description El id de esta pestaña (aleatorio por pestaña) */
+                "X-Iris-Pestana"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -35502,6 +35523,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-Iris-Navegador"?: string;
+                "X-Iris-Pestana"?: string;
             };
             path: {
                 id: string;

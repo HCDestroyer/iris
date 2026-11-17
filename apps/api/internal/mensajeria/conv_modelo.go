@@ -139,7 +139,7 @@ type UltimoMensajeResumen struct {
 	Texto     *string `json:"texto" nullable:"true" doc:"Primeros 140 caracteres (texto plano)"`
 	Evento    *string `json:"evento" nullable:"true" doc:"Mensaje de sistema: su tipo"`
 	// Automatico: el mismo valor que en MensajeConversacion (la lista muestra «Bot: …»).
-	Automatico *string   `json:"automatico" nullable:"true" enum:"bot,fuera_de_horario,asistente" doc:"Saliente sin autor: el bot, la respuesta de fuera de horario o (3b) el asistente de IA"`
+	Automatico *string   `json:"automatico" nullable:"true" enum:"bot,fuera_de_horario,asistente,permiso_llamada" doc:"Saliente automático: el bot, la respuesta de fuera de horario, (3b) el asistente de IA o la solicitud de permiso de llamada (esta sí tiene autor)"`
 	CreadoEn   time.Time `json:"creadoEn"`
 }
 
@@ -299,7 +299,7 @@ type MensajeConversacion struct {
 	EnviadoEn      *time.Time        `json:"enviadoEn" nullable:"true"`
 	EntregadoEn    *time.Time        `json:"entregadoEn" nullable:"true"`
 	LeidoEn        *time.Time        `json:"leidoEn" nullable:"true"`
-	Automatico     *string           `json:"automatico" nullable:"true" enum:"bot,fuera_de_horario,asistente" doc:"Saliente sin autor: el bot, la respuesta de fuera de horario o (3b) el asistente de IA"`
+	Automatico     *string           `json:"automatico" nullable:"true" enum:"bot,fuera_de_horario,asistente,permiso_llamada" doc:"Saliente automático: el bot, la respuesta de fuera de horario, (3b) el asistente de IA o la solicitud de permiso de llamada (esta sí tiene autor)"`
 	AutorTipo      string            `json:"autorTipo" required:"false" enum:"cliente,persona,asistente_ia,sistema" doc:"Quién lo escribió (§17.4)"`
 	Origen         *string           `json:"origen,omitempty" enum:"telefono,historial" doc:"No salió de Iris: telefono (mandado desde la app WhatsApp Business, «Desde el teléfono») o historial (traído de la app). Ausente = Iris (§15.2)"`
 }
