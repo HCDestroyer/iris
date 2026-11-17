@@ -14,19 +14,22 @@ describe("id de pestaña y marca de «llamar en vuelo» (revisión de seguridad 
     });
 
     it("la marca la toma una sola vez quien la atiende, solo en su empresa y mientras siga vigente", () => {
-        marcarLlamarEnVuelo({ empresa: 1, conversacionId: 41, desde: 1_000 });
+        marcarLlamarEnVuelo({ usuarioId: 7, empresa: 1, conversacionId: 41, desde: 1_000 });
         expect(esMarcaEnVuelo("iris-llamar-en-vuelo")).toBe(true);
-        // Otra empresa no la toca (la llamada no es suya) y la deja para quien sí.
-        expect(tomarLlamarEnVuelo(2, 100_000, 2_000)).toBeNull();
-        expect(tomarLlamarEnVuelo(1, 100_000, 2_000)).toMatchObject({ empresa: 1, conversacionId: 41, desde: 1_000, pestana: idPestana() });
-        expect(tomarLlamarEnVuelo(1, 100_000, 2_000)).toBeNull();
+        // No lleva el id de la pestaña (es lo que ata el latido).
+        expect(window.localStorage.getItem("iris-llamar-en-vuelo")).not.toContain(idPestana());
+        // Otro usuario (otra sesión en este navegador) u otra empresa no la toca y la deja para quien sí.
+        expect(tomarLlamarEnVuelo(8, 1, 100_000, 2_000)).toBeNull();
+        expect(tomarLlamarEnVuelo(7, 2, 100_000, 2_000)).toBeNull();
+        expect(tomarLlamarEnVuelo(7, 1, 100_000, 2_000)).toEqual({ usuarioId: 7, empresa: 1, conversacionId: 41, desde: 1_000 });
+        expect(tomarLlamarEnVuelo(7, 1, 100_000, 2_000)).toBeNull();
         // Vencida (el servidor ya la cortó o nunca existió): se borra sin hacer nada.
-        marcarLlamarEnVuelo({ empresa: null, conversacionId: 41, desde: 1_000 });
-        expect(tomarLlamarEnVuelo(undefined, 100_000, 200_000)).toBeNull();
+        marcarLlamarEnVuelo({ usuarioId: 7, empresa: null, conversacionId: 41, desde: 1_000 });
+        expect(tomarLlamarEnVuelo(7, undefined, 100_000, 200_000)).toBeNull();
         expect(window.localStorage.length).toBe(0);
         // Basura en la clave: se ignora y se limpia.
         window.localStorage.setItem("iris-llamar-en-vuelo", JSON.stringify({ x: 1 }));
-        expect(tomarLlamarEnVuelo(1, 100_000, 2_000)).toBeNull();
+        expect(tomarLlamarEnVuelo(7, 1, 100_000, 2_000)).toBeNull();
         expect(window.localStorage.length).toBe(0);
     });
 });

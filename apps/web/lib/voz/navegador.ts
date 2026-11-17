@@ -58,28 +58,32 @@ export const CABECERA_PESTANA = "X-Iris-Pestana";
  */
 const CLAVE_EN_VUELO = "iris-llamar-en-vuelo";
 
-export type LlamarEnVuelo = { empresa: number | null; conversacionId: number; desde: number; pestana: string };
+/** Sin el id de la pestaña (no hace falta y es lo que ata el latido): quién llamaba, en qué empresa y a quién. */
+export type LlamarEnVuelo = { usuarioId: number; empresa: number | null; conversacionId: number; desde: number };
 
-export function marcarLlamarEnVuelo(marca: Omit<LlamarEnVuelo, "pestana">): void {
+export function marcarLlamarEnVuelo(marca: LlamarEnVuelo): void {
     try {
-        window.localStorage.setItem(CLAVE_EN_VUELO, JSON.stringify({ ...marca, pestana: idPestana() } satisfies LlamarEnVuelo));
+        window.localStorage.setItem(CLAVE_EN_VUELO, JSON.stringify(marca satisfies LlamarEnVuelo));
     } catch {
         // Sin almacenamiento no hay a quién avisar: el servidor la corta sin el latido de esta pestaña.
     }
 }
 
-/** Toma la marca (la borra) si es de esta empresa y sigue vigente; `null` si no hay nada que hacer. */
-export function tomarLlamarEnVuelo(empresa: number | undefined, vigenciaMs: number, ahora = Date.now()): LlamarEnVuelo | null {
+/**
+ * Toma la marca (la borra) si es de este usuario en esta empresa y sigue vigente; `null` si no hay
+ * nada que hacer. La de otro usuario (otra sesión en este navegador) no se toca ni se consume.
+ */
+export function tomarLlamarEnVuelo(usuarioId: number, empresa: number | undefined, vigenciaMs: number, ahora = Date.now()): LlamarEnVuelo | null {
     try {
         const cruda = window.localStorage.getItem(CLAVE_EN_VUELO);
         if (!cruda) return null;
         const m = JSON.parse(cruda) as Partial<LlamarEnVuelo>;
-        const valida = typeof m.conversacionId === "number" && typeof m.desde === "number" && typeof m.pestana === "string";
+        const valida = typeof m.conversacionId === "number" && typeof m.desde === "number" && typeof m.usuarioId === "number";
         if (!valida || ahora - (m.desde ?? 0) > vigenciaMs) {
             window.localStorage.removeItem(CLAVE_EN_VUELO);
             return null;
         }
-        if ((m.empresa ?? null) !== (empresa ?? null)) return null;
+        if (m.usuarioId !== usuarioId || (m.empresa ?? null) !== (empresa ?? null)) return null;
         window.localStorage.removeItem(CLAVE_EN_VUELO);
         return m as LlamarEnVuelo;
     } catch {

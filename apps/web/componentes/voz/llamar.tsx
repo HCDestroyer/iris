@@ -116,6 +116,8 @@ function PanelPermiso({ conv, cerrar }: { conv: Destino; cerrar: () => void }) {
     const puedeLlamar = puede([PERMISO_LLAMAR]);
     const puedePedir = puede([PERMISO_SOLICITAR_PERMISO]);
     const ocupada = voz ? voz.estado.fase !== "libre" && voz.estado.fase !== "aviso" : false;
+    // Se perdió la respuesta de la llamada anterior a este contacto y se está viendo si quedó viva.
+    const comprobando = voz?.comprobando(conv.id) ?? false;
     const proxima = desdeCuando(permiso.proximaSolicitudEn);
     const enRiesgo = permiso.puedeLlamar && permiso.sinContestar >= SIN_CONTESTAR_RIESGO;
 
@@ -158,14 +160,14 @@ function PanelPermiso({ conv, cerrar }: { conv: Destino; cerrar: () => void }) {
             {puedeLlamar && permiso.puedeLlamar ? (
                 voz ? (
                     <Boton
-                        disabled={ocupada || !voz.admite}
+                        disabled={ocupada || comprobando || !voz.admite}
                         onClick={() => {
                             voz.llamar(conv, { sinContestar: permiso.sinContestar });
                             cerrar();
                         }}
                     >
                         <PhoneCall />
-                        Llamar
+                        {comprobando ? "Comprobando la llamada anterior…" : "Llamar"}
                     </Boton>
                 ) : null
             ) : null}

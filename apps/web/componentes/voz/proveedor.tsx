@@ -102,6 +102,11 @@ type ContextoVoz = {
     estado: EstadoVoz;
     /** ¿Esta persona contesta llamadas? (`llamadas.contestar`); si no, solo llama. */
     contesta: boolean;
+    /**
+     * ¿Se está comprobando si quedó viva una llamada anterior a ese contacto (se perdió la respuesta
+     * de `llamar`)? Mientras tanto no se le llama otra vez: la búsqueda colgaría el reintento.
+     */
+    comprobando: (conversacionId: number) => boolean;
     /** Llama al contacto de una conversación (E1b). Con tres sin contestar, confirma antes. */
     llamar: (destino: DestinoLlamada, opciones?: OpcionesLlamar) => void;
     contestar: () => void;
@@ -258,14 +263,19 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
         [seguir],
     );
     /** Vuelve a intentar lo que falló; lo que sigue en vuelo se deja correr. */
-    const reintentarSalidas = useCallback(() => {
-        for (const s of [...salidas.current]) if (s.fallo) seguir(s, s.hacer());
-    }, [seguir]);
+    const reintentarSalidas = useCallback(
+        (todas = false) => {
+            // `todas`: la persona está esperando para irse; no se aguarda a la pausa entre reintentos
+            // de un intento en vuelo, se lanza otro ya (colgar dos veces no hace daño).
+            for (const s of [...salidas.current]) if (s.fallo || todas) seguir(s, s.hacer());
+        },
+        [seguir],
+    );
 
     /** «Reintentar» del aviso de una llamada que no se pudo colgar. */
     const reintentarAbierta = useRef<() => void>(() => undefined);
     useEffect(() => {
-        reintentarAbierta.current = reintentarSalidas;
+        reintentarAbierta.current = () => reintentarSalidas();
     }, [reintentarSalidas]);
 
     /** Dice a la persona cómo acabó asegurar el final de una llamada que se dejó. `hablaba`: no hay nada raro que contar si se colgó. */
@@ -300,7 +310,27 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
      * antes de eso, «no hay ninguna» no es una respuesta. Una saliente mía a otra conversación (la
      * de otra pestaña) no se toca.
      */
+    const [buscando, setBuscando] = useState<readonly number[]>([]);
+    const buscandoRef = useRef<number[]>([]);
+    const marcarBusqueda = useCallback((conversacionId: number, activa: boolean) => {
+        const i = buscandoRef.current.indexOf(conversacionId);
+        if (activa) buscandoRef.current.push(conversacionId);
+        else if (i >= 0) buscandoRef.current.splice(i, 1);
+        setBuscando([...buscandoRef.current]);
+    }, []);
     const colgarPerdida = useCallback(
+        async (conversacionId: number, desde: number): Promise<Fin | null> => {
+            marcarBusqueda(conversacionId, true);
+            try {
+                return await buscarYColgar(conversacionId, desde);
+            } finally {
+                marcarBusqueda(conversacionId, false);
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- `buscarYColgar` se declara justo debajo y depende de lo mismo.
+        [marcarBusqueda, empresaMontada, yoId],
+    );
+    const buscarYColgar = useCallback(
         async (conversacionId: number, desde: number): Promise<Fin | null> => {
             const ctx = { empresa: empresaMontada, yoId };
             let ultimo: unknown = null;
@@ -369,6 +399,9 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
         [yoId, limpiar, empresaMontada, trasAsegurar, registrar, colgarPerdida],
     );
 
+    /** La llamada propia que quedó viva en otra parte y se pidió colgar: se confirma antes. */
+    const [huerfana, setHuerfana] = useState<Llamada | null>(null);
+
     // --- «Recibir llamadas» -------------------------------------------------------------------
     const [recibir, setRecibir] = useState<EstadoRecibir>({ estado: "cargando" });
     const [intentoRecibir, setIntentoRecibir] = useState(0);
@@ -429,7 +462,7 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
                     // `deEstaPestana` (lo dice el servidor en una saliente propia): `true` con un intento
                     // aquí es la que se está haciendo ahora; cualquier otra no tiene audio en esta pestaña.
                     const esLaDeAhora = activa.deEstaPestana === true && intento.current !== null;
-                    if (viva && activa.usuario?.id === yoId && activa.puede.colgar && !esLaDeAhora) avisarHuerfana(activa);
+                    if (viva && activa.usuario?.id === yoId && activa.puede.colgar && !esLaDeAhora) avisarHuerfana(activa, setHuerfana);
                 };
                 if (!contesta) {
                     // Solo llama: «Recibir llamadas» no es para esta persona.
@@ -716,7 +749,8 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
     const marcar = useCallback(
         (destino: DestinoLlamada, opciones: OpcionesLlamar, confirmarRiesgo: boolean) => {
             const libre = estadoRef.current.fase === "libre" || estadoRef.current.fase === "aviso";
-            if (!libre || intento.current) return;
+            // Con una búsqueda pendiente de la llamada anterior a este contacto no se llama otra vez.
+            if (!libre || intento.current || buscandoRef.current.includes(destino.id)) return;
             const ctx = { empresa: empresaMontada, yoId };
             const mio: Intento = { conexion: null, microfono: null, plazo: 0, liberar: null, etapa: "preparando", reservaSegura: false, conversacionId: destino.id };
             const vivo = () => intento.current === mio;
@@ -921,7 +955,7 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
             if (que) avisarAlCerrar(que.id, que.accion, empresaMontada, que.propia === true);
             // `llamar` salió y no ha respondido: no hay id que colgar. Se deja una marca para que
             // otra pestaña, o la carga siguiente, busque esa saliente y la cuelgue.
-            else if (e.fase === "llamando" && !e.llamada && i?.etapa === "llamando") marcarLlamarEnVuelo({ empresa: empresaMontada ?? null, conversacionId: e.conversacionId, desde: i.enVueloDesde ?? Date.now() });
+            else if (e.fase === "llamando" && !e.llamada && i?.etapa === "llamando") marcarLlamarEnVuelo({ usuarioId: yoId, empresa: empresaMontada ?? null, conversacionId: e.conversacionId, desde: i.enVueloDesde ?? Date.now() });
         };
         window.addEventListener("pagehide", alIrse);
         return () => {
@@ -931,21 +965,21 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
             alIrse();
             limpiar();
         };
-    }, [limpiar, empresaMontada]);
+    }, [limpiar, empresaMontada, yoId]);
 
     // Una pestaña que se cerró con `llamar` en vuelo dejó su marca: al cargar, y cuando otra pestaña
     // la deja (evento `storage`), se busca esa saliente y se cuelga.
     useEffect(() => {
         const atender = () => {
             // Vigente mientras el servidor pueda crearla y, creada, mientras pueda seguir marcando.
-            const marca = tomarLlamarEnVuelo(empresaMontada, PLAZO_LLAMAR_SERVIDOR_MS + MARCANDO_MAX_MS);
+            const marca = tomarLlamarEnVuelo(yoId, empresaMontada, PLAZO_LLAMAR_SERVIDOR_MS + MARCANDO_MAX_MS);
             if (marca) void registrar(() => colgarPerdida(marca.conversacionId, marca.desde));
         };
         atender();
         const alCambiar = (ev: StorageEvent) => esMarcaEnVuelo(ev.key) && ev.newValue !== null && atender();
         window.addEventListener("storage", alCambiar);
         return () => window.removeEventListener("storage", alCambiar);
-    }, [empresaMontada, registrar, colgarPerdida]);
+    }, [empresaMontada, yoId, registrar, colgarPerdida]);
 
     // --- Irse con una llamada viva o sonando: se pregunta antes -------------------------------
     type Pregunta = {
@@ -1003,12 +1037,14 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
         const p = preguntaRef.current;
         if (!p?.sinTerminar || p.reintentando) return;
         setPregunta({ ...p, reintentando: true });
-        reintentarSalidas();
+        reintentarSalidas(true);
         const logrado = await terminoATiempo();
         // Si mientras tanto eligió «Salir de todos modos» (o se cerró), el diálogo no se reabre.
         if (logrado) p.resolver(true);
         setPregunta((actual) => (actual?.resolver !== p.resolver ? actual : logrado ? null : { ...actual, reintentando: false }));
     }, [reintentarSalidas, terminoATiempo]);
+
+    const comprobando = useCallback((conversacionId: number) => buscando.includes(conversacionId), [buscando]);
 
     const reintentarRecibir = useCallback(() => {
         setRecibir({ estado: "cargando" });
@@ -1016,8 +1052,8 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
     }, []);
 
     const valor = useMemo<ContextoVoz>(
-        () => ({ estado, contesta, llamar, contestar, rechazar, colgar, silenciar, cerrar, errorColgar, reintentarColgar, recibir, desplazado, microfono, admite, cambiando, errorCambio, encender, apagar, reintentarRecibir, feed, timbre: suena, antesDeSalir, rechazarParaTodos }),
-        [estado, contesta, llamar, contestar, rechazar, colgar, silenciar, cerrar, errorColgar, reintentarColgar, recibir, desplazado, microfono, admite, cambiando, errorCambio, encender, apagar, reintentarRecibir, feed, suena, antesDeSalir, rechazarParaTodos],
+        () => ({ estado, contesta, comprobando, llamar, contestar, rechazar, colgar, silenciar, cerrar, errorColgar, reintentarColgar, recibir, desplazado, microfono, admite, cambiando, errorCambio, encender, apagar, reintentarRecibir, feed, timbre: suena, antesDeSalir, rechazarParaTodos }),
+        [estado, contesta, comprobando, llamar, contestar, rechazar, colgar, silenciar, cerrar, errorColgar, reintentarColgar, recibir, desplazado, microfono, admite, cambiando, errorCambio, encender, apagar, reintentarRecibir, feed, suena, antesDeSalir, rechazarParaTodos],
     );
     return (
         <Contexto value={valor}>
@@ -1066,6 +1102,27 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
                 />
             )}
             <DialogoConfirmar
+                open={huerfana !== null}
+                onOpenChange={(abierto) => !abierto && setHuerfana(null)}
+                titulo={`¿Colgar la llamada con ${huerfana?.titulo ?? "el cliente"}?`}
+                descripcion="Si estás hablando en otra pestaña, se cortará."
+                textoConfirmar="Colgar"
+                textoCancelar="Dejarla"
+                peligro
+                alConfirmar={async () => {
+                    if (!huerfana) return;
+                    try {
+                        // Solo si es mía (`propia`); una reserva aún sin aceptar no admite `propia`.
+                        await colgarLlamada(huerfana.id, nuevaClaveIdempotencia(), empresaMontada, huerfana.estado !== "conectando");
+                        avisar({ titulo: "Llamada terminada" });
+                    } catch (error) {
+                        const yaTermino = error instanceof ErrorApi && (error.codigo === "llamada_terminada" || error.estado === 404);
+                        avisar(yaTermino ? { tono: "info", titulo: "La llamada ya había terminado" } : { tono: "error", titulo: "No se pudo colgar", descripcion: mensajeDeError(error).titulo });
+                    }
+                    setHuerfana(null);
+                }}
+            />
+            <DialogoConfirmar
                 open={riesgo !== null}
                 onOpenChange={(abierto) => !abierto && setRiesgo(null)}
                 titulo="Ya van tres llamadas sin contestar"
@@ -1087,25 +1144,17 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
 const admiteAhora = () => navegadorAdmiteLlamadas();
 
 /**
- * Al abrir el panel había una llamada mía viva (se recargó la pestaña): el audio no se puede
- * retomar (el SDP ya se usó). Se dice y se ofrece colgarla; si no, el servidor la termina solo.
+ * Al abrir el panel hay una llamada mía viva que no es de esta pestaña: puede ser una que quedó sin
+ * audio (se recargó o se cerró la pestaña: el SDP ya se usó y no se retoma) **o una sana en otra
+ * pestaña**. No se sabe cuál, así que se dice tal cual y «Colgar» pide confirmación; si se deja y
+ * estaba huérfana, el servidor la termina solo.
  */
-function avisarHuerfana(llamada: Llamada) {
+function avisarHuerfana(llamada: Llamada, pedirColgar: (l: Llamada) => void) {
     avisar({
-        titulo: `Tenías una llamada con ${llamada.titulo}`,
-        descripcion: "El audio no se puede retomar en esta pestaña.",
-        accion: {
-            texto: "Colgar",
-            alPresionar: () => {
-                // Una saliente que no es de esta pestaña solo se cuelga con `propia` (voz.md).
-                colgarLlamada(llamada.id, nuevaClaveIdempotencia(), undefined, llamada.direccion === "saliente").then(
-                    () => avisar({ titulo: "Llamada terminada" }),
-                    (error: unknown) => {
-                        if (error instanceof ErrorApi && error.codigo === "llamada_terminada") return;
-                        avisar({ titulo: "No se pudo colgar", descripcion: mensajeDeError(error).titulo });
-                    },
-                );
-            },
-        },
+        tono: "warning",
+        titulo: "Tienes una llamada abierta en otra pestaña, o que quedó sin audio",
+        descripcion: `Con ${llamada.titulo}. Aquí no se puede retomar el audio.`,
+        duracion: 20_000,
+        accion: { texto: "Colgar", alPresionar: () => pedirColgar(llamada) },
     });
 }

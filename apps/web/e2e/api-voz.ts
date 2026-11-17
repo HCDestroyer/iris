@@ -827,7 +827,8 @@ export function apiVoz(
         if (accion === "colgar") {
             if (!puede("llamadas.colgar")) return prohibido();
             // `?propia=true`: solo cuelga quien tiene la llamada (aunque supervise).
-            if (query.get("propia") === "true" && l.usuario?.id !== yo.id) return noExiste();
+            // …y una reservada aún sin aceptar (`conectando`) todavía no es de nadie: 404 a `propia`.
+            if (query.get("propia") === "true" && (l.usuario?.id !== yo.id || l.estado === "conectando")) return noExiste();
             if (forzar.colgar) {
                 forzar.colgar -= 1;
                 return (await problema(route, P("error_interno", 500, "Error del servidor")), true);

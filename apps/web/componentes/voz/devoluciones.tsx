@@ -222,7 +222,7 @@ export function PendientesDevolver({ conversaciones, hrefDe, ahora }: { conversa
                                         <Boton
                                             tamano="sm"
                                             className="h-7 px-2 text-xs"
-                                            disabled={vozOcupada}
+                                            disabled={vozOcupada || voz.comprobando(d.conversacionId)}
                                             onClick={() => {
                                                 voz.llamar({ id: d.conversacionId, titulo: d.titulo || conv?.titulo || d.numero }, { devolucionId: d.id });
                                                 // La ficha del cliente a la vista mientras suena.

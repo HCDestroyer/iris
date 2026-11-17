@@ -119,7 +119,7 @@ export function LlamadaEnHilo({ m }: { m: Mensaje }) {
             {l.estado === "perdida" ? (
                 <div className="flex flex-wrap gap-1.5">
                     {pendiente && voz && puede([PERMISO_LLAMAR]) ? (
-                        <Boton tamano="sm" disabled={voz.estado.fase !== "libre" && voz.estado.fase !== "aviso"} onClick={() => voz.llamar({ id: m.conversacionId, titulo: pendiente.titulo || pendiente.numero }, { devolucionId: l.devolucionId ?? pendiente.id })}>
+                        <Boton tamano="sm" disabled={(voz.estado.fase !== "libre" && voz.estado.fase !== "aviso") || voz.comprobando(m.conversacionId)} onClick={() => voz.llamar({ id: m.conversacionId, titulo: pendiente.titulo || pendiente.numero }, { devolucionId: l.devolucionId ?? pendiente.id })}>
                             <PhoneOutgoing />
                             Devolver la llamada
                         </Boton>

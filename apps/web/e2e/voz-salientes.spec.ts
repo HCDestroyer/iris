@@ -559,12 +559,21 @@ test.describe("voz salientes › nunca una llamada viva sin audio ni sin colgar"
         const panel = await abrirPermiso(page);
         await panel.getByRole("button", { name: "Llamar", exact: true }).click();
         await expect(aviso(page)).toHaveAttribute("data-motivo", "sin_red");
+        // Mientras se comprueba no se le puede llamar otra vez: la búsqueda colgaría el reintento.
+        await aviso(page).getByRole("button", { name: "Cerrar" }).click();
+        const otra = await abrirPermiso(page);
+        const boton = otra.getByRole("button", { name: "Comprobando la llamada anterior…" });
+        await expect(boton).toBeDisabled();
+        await captura(page, "comprobando");
         // Las dos primeras lecturas dicen «no hay ninguna»: no basta, el servidor aún puede crearla.
         await adelantarHasta(page, () => api.voz.recibido.activas.length >= alAbrir + 2);
         expect(api.voz.llamadas.size).toBe(0);
         await adelantarHasta(page, () => ultima(api)?.estado === "terminada");
         expect(ultima(api)?.motivoFin).toBe("agente_colgo");
         expect(colgadas(api)).toHaveLength(1);
+        expect(api.voz.recibido.llamar).toHaveLength(1);
+        // Terminada la búsqueda, se puede volver a llamar.
+        await expect(otra.getByRole("button", { name: "Llamar", exact: true })).toBeEnabled();
     });
 
     test("al buscar la saliente perdida no se cuelga la de otra pestaña: es de otra conversación", async ({ page }) => {
@@ -589,15 +598,25 @@ test.describe("voz salientes › nunca una llamada viva sin audio ni sin colgar"
         const api = await abrir(page, "/cuenta", { voz: { ...CON_PERMISO, soloLlama: true } });
         await expect.poll(() => api.voz.recibido.activas.length).toBeGreaterThan(0);
         expect(api.voz.recibido.activas.every((p) => /^[0-9a-f]{32}$/.test(p))).toBe(true);
-        await expect(page.getByText(/Tenías una llamada/)).toHaveCount(0);
+        await expect(page.getByText(/Tienes una llamada abierta/)).toHaveCount(0);
         // La dejé marcando en otra pestaña (o recargué): al volver a cargar, se lee y se avisa.
         const ajena = api.voz.salienteAjena(41);
         await page.reload();
-        await expect(page.getByText("Tenías una llamada con Carlos Ruiz")).toBeVisible();
+        await expect(page.getByText("Tienes una llamada abierta en otra pestaña, o que quedó sin audio")).toBeVisible();
         await expect(llamando(page)).toHaveCount(0);
         await sinDesbordes(page);
         await captura(page, "huerfana");
+        // Puede ser una sana de otra pestaña: «Colgar» pide confirmación y «Dejarla» no toca nada.
         await page.getByRole("button", { name: "Colgar" }).click();
+        const confirmar = page.getByRole("alertdialog", { name: "¿Colgar la llamada con Carlos Ruiz?" });
+        await expect(confirmar).toContainText("Si estás hablando en otra pestaña, se cortará.");
+        await confirmar.getByRole("button", { name: "Dejarla" }).click();
+        expect(colgadas(api)).toHaveLength(0);
+        expect(api.voz.llamadas.get(ajena.id)?.estado).toBe("marcando");
+        // El aviso se fue con la decisión; al volver a abrir el panel se ofrece otra vez.
+        await page.reload();
+        await page.getByRole("button", { name: "Colgar" }).click();
+        await confirmar.getByRole("button", { name: "Colgar" }).click();
         await expect.poll(() => api.voz.llamadas.get(ajena.id)?.estado).toBe("terminada");
         // No es de esta pestaña: se cuelga con `?propia=true`.
         expect(api.peticiones.find((p) => p.ruta.endsWith(`/${ajena.id}/colgar`))?.query.get("propia")).toBe("true");
@@ -612,7 +631,9 @@ test.describe("voz salientes › nunca una llamada viva sin audio ni sin colgar"
         // Se cierra ya: no hay id que colgar; queda la marca con la conversación.
         await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
         const marca = await page.evaluate(() => window.localStorage.getItem("iris-llamar-en-vuelo"));
-        expect(JSON.parse(marca ?? "{}")).toMatchObject({ conversacionId: 41, pestana: api.voz.recibido.llamar[0]?.pestana });
+        // La marca dice quién llamaba y a quién; no lleva el id de la pestaña.
+        expect(JSON.parse(marca ?? "{}")).toMatchObject({ conversacionId: 41, usuarioId: ADMIN.id });
+        expect(marca).not.toContain(api.voz.recibido.llamar[0]?.pestana ?? "sin-pestana");
         expect(colgadas(api)).toHaveLength(0);
         await page.goto("about:blank");
         // El servidor sí la creó, después de que la pestaña ya no estaba.
@@ -632,10 +653,16 @@ test.describe("voz salientes › nunca una llamada viva sin audio ni sin colgar"
         // La pestaña que llamaba se cerró con `llamar` en vuelo y dejó su marca.
         const empresa = api.peticiones.find((p) => p.empresa)?.empresa;
         await page.evaluate((empresaId) => {
-            const valor = JSON.stringify({ empresa: empresaId, conversacionId: 41, desde: Date.now(), pestana: "0".repeat(32) });
-            window.localStorage.setItem("iris-llamar-en-vuelo", valor);
-            window.dispatchEvent(new StorageEvent("storage", { key: "iris-llamar-en-vuelo", newValue: valor }));
-        }, empresa ? Number(empresa) : null);
+            const marca = (usuarioId: number) => {
+                const valor = JSON.stringify({ usuarioId, empresa: empresaId.empresa, conversacionId: 41, desde: Date.now() });
+                window.localStorage.setItem("iris-llamar-en-vuelo", valor);
+                window.dispatchEvent(new StorageEvent("storage", { key: "iris-llamar-en-vuelo", newValue: valor }));
+            };
+            // La de otro usuario (otra sesión en este navegador) no se consume ni se actúa sobre ella.
+            marca(empresaId.yo + 1000);
+            if (window.localStorage.getItem("iris-llamar-en-vuelo") === null) throw new Error("La marca de otro usuario se consumió");
+            marca(empresaId.yo);
+        }, { empresa: empresa ? Number(empresa) : null, yo: ADMIN.id });
         await adelantarHasta(page, () => api.voz.llamadas.get(perdida.id)?.estado === "terminada");
         expect(await page.evaluate(() => window.localStorage.getItem("iris-llamar-en-vuelo"))).toBeNull();
     });

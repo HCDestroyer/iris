@@ -777,8 +777,10 @@ la marca «En pruebas». El proveedor se monta también para quien solo llama (`
   El flujo de eventos va siempre con el id del navegador **y el de la pestaña** (`X-Iris-Pestana`,
   128 bits en memoria) y sigue abierto mientras dure la saliente: el latido es de la pestaña que
   llamó, otra pestaña abierta no la sostiene. Al abrir el panel se lee siempre la llamada activa:
-  una saliente propia que quedó viva en otra parte se dice («Tenías una llamada con…») y se ofrece
-  colgarla. Si la pestaña se cierra con `llamar` en vuelo deja una marca y otra pestaña, o la carga
+  una llamada propia viva que no es de esta pestaña se dice («Tienes una llamada abierta en otra
+  pestaña, o que quedó sin audio») y «Colgar» pide confirmación («Si estás hablando en otra
+  pestaña, se cortará» · «Dejarla»). Mientras se comprueba si quedó viva una llamada cuya respuesta
+  se perdió, «Llamar» a ese contacto dice «Comprobando la llamada anterior…» y no deja llamar. Si la pestaña se cierra con `llamar` en vuelo deja una marca y otra pestaña, o la carga
   siguiente, busca esa saliente y la cuelga. Si el servidor la corta marcando (55 s sin el latido
   de su pestaña), se explica: «La llamada se cortó: se perdió la conexión con Iris».
 - **«Devolver la llamada»:** en «N llamadas por devolver» y en la tarjeta de la perdida, junto a

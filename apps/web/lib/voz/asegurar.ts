@@ -37,25 +37,66 @@ const yaNoEsta = (e: unknown) => e instanceof ErrorApi && (e.estado === 404 || e
 export const ESPERAS_COLGAR = [0, 1000, 2000, 4000, 8000, 8000] as const;
 export const ESPERA_SOLTAR_MS = 2000;
 
+/** Mientras la llamada sigue `conectando` a mi nombre se relee cada segundo, como mucho este número de veces. */
+export const ESPERA_ACEPTAR_MS = 1000;
+export const LECTURAS_CONECTANDO = 30;
+
 /**
  * Cuelga con reintentos. `soloSiEsMia`: antes comprueba que la llamada sigue viva **a mi nombre**
  * (quien supervisa puede colgar la de otra persona: nunca se cuelga a ciegas la de un compañero) y
  * la cuelga con `?propia=true`, que el servidor solo acepta de quien la tiene.
+ *
+ * Con `confirmar-medio` en vuelo la llamada está `conectando`: reservada a mi nombre pero todavía
+ * de nadie (el servidor responde 404 a `propia`). Ese 404 **no es el final**: si el `accept`
+ * termina después, queda `en_curso` sin audio. Mientras la lectura diga que sigue reservada a mi
+ * nombre se espera y se relee, hasta que pase a `en_curso` (y entonces se cuelga) o termine o
+ * vuelva a sonar (la reserva venció: no hay nada mío).
  */
 export async function colgarSeguro(id: string, ctx: Contexto, soloSiEsMia: boolean): Promise<Fin> {
     const esperar = ctx.esperar ?? pausa;
     let ultimo: unknown = null;
-    for (const espera of ESPERAS_COLGAR) {
-        if (espera) await esperar(espera);
-        try {
-            if (soloSiEsMia) {
-                const l = await leerLlamada(id, undefined, ctx.empresa);
-                if (esFinal(l) || l.estado === "sonando" || l.usuario?.id !== ctx.yoId) return { tipo: "nada" };
+    if (!soloSiEsMia) {
+        for (const espera of ESPERAS_COLGAR) {
+            if (espera) await esperar(espera);
+            try {
+                return { tipo: "colgada", llamada: await colgarLlamada(id, nuevaClaveIdempotencia(), ctx.empresa) };
+            } catch (e) {
+                if (yaNoEsta(e)) return { tipo: "nada" };
+                ultimo = e;
             }
-            return { tipo: "colgada", llamada: await colgarLlamada(id, nuevaClaveIdempotencia(), ctx.empresa, soloSiEsMia) };
+        }
+        return { tipo: "fallo", error: ultimo };
+    }
+    let fallos = 0;
+    let conectando = 0;
+    while (fallos < ESPERAS_COLGAR.length && conectando < LECTURAS_CONECTANDO) {
+        let l: Llamada;
+        try {
+            l = await leerLlamada(id, undefined, ctx.empresa);
         } catch (e) {
+            // No existe (o no la veo): no hay nada mío.
             if (yaNoEsta(e)) return { tipo: "nada" };
             ultimo = e;
+            fallos += 1;
+            await esperar(ESPERAS_COLGAR[fallos] ?? 8000);
+            continue;
+        }
+        if (esFinal(l) || l.estado === "sonando" || l.usuario?.id !== ctx.yoId) return { tipo: "nada" };
+        if (l.estado === "conectando") {
+            // Reservada a mi nombre y aún sin aceptar: puede aceptarse en cualquier momento.
+            conectando += 1;
+            ultimo = new Error("La llamada sigue conectando");
+            await esperar(ESPERA_ACEPTAR_MS);
+            continue;
+        }
+        try {
+            return { tipo: "colgada", llamada: await colgarLlamada(id, nuevaClaveIdempotencia(), ctx.empresa, true) };
+        } catch (e) {
+            if (e instanceof ErrorApi && e.codigo === "llamada_terminada") return { tipo: "nada" };
+            // Un 404 aquí no es final: la lectura acaba de decir que sigue viva a mi nombre.
+            ultimo = e;
+            fallos += 1;
+            await esperar(ESPERAS_COLGAR[fallos] ?? 8000);
         }
     }
     return { tipo: "fallo", error: ultimo };
