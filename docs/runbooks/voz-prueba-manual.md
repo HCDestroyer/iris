@@ -106,9 +106,15 @@ Además, con un número real:
   debe cortarse a los 55 s aunque el otro siga abierto.
 - Colgar desde el panel justo al pulsar «Llamar» (mientras Meta responde al `connect`): el teléfono
   no debe quedarse sonando (mirar `mensajeria.llamadas_huerfanas`).
-- Supuesto 21: `GET /{waba_id}/message_templates?name=` devuelve `data[] { name, status, category,
-  language }` y la plantilla de permiso es `UTILITY` o `MARKETING` (`graphHTTP.Plantilla`). Si la
-  categoría real es otra, `llamadas/configurar` rechazará la plantilla buena.
+- **Supuesto 21, categoría de la plantilla de permiso (sin confirmar).** Iris supone que
+  `GET /{waba_id}/message_templates?name=` devuelve `data[] { name, status, category, language }`
+  y que una plantilla de permiso de llamada aprobada es de categoría `UTILITY` o `MARKETING`
+  (`graphHTTP.Plantilla` y `ConfigurarLlamadas`). Cómo probarlo: crear la plantilla en WhatsApp
+  Manager, esperar la aprobación y guardarla en los ajustes de llamadas del número. Si la categoría
+  real es otra, `llamadas/configurar` responde 422 `plantilla_permiso_invalida` con la plantilla
+  buena: anotar la categoría que devuelve Meta y ampliar la lista en `ConfigurarLlamadas`.
+- Si el número también hace salientes desde otro sistema: comprobar que Iris no las corta (quedan
+  en `mensajeria.llamadas_huerfanas` con estado `ajena`).
 
 ## 5. Qué entregar
 

@@ -52,6 +52,9 @@ const (
 	SinContestarRevoca = 4
 	// VigenciaPermisoMeta: cuánto vale una lectura de call_permissions.
 	VigenciaPermisoMeta = 60 * time.Second
+	// VentanaSalienteNuestra: un call_id saliente desconocido solo se considera de Iris si Iris mandó
+	// un connect a ese número en este tiempo.
+	VentanaSalienteNuestra = 2 * time.Minute
 	// PermisoTemporalDias: lo que dura un permiso temporal si Meta no dice cuándo vence.
 	PermisoTemporalDias = 7
 )
@@ -833,11 +836,37 @@ func (m *Modulo) eventoSaliente(ctx context.Context, t *auditoria.Tx, canal mens
 				return err
 			}
 		}
-		// Sin llamada viva para ese call_id: si la llamada sigue en Meta (suena o se contestó), se termina.
-		if esConnect || estado == "RINGING" || estado == "ACCEPTED" {
-			t.Anotar(map[string]any{"saliente_sin_llamada": true})
+		// Sin llamada viva para ese call_id. Solo se termina en Meta si hay rastro de que es de Iris: un
+		// connect de Iris a ese mismo número en los últimos 2 minutos (pendiente, cerrada o fallida).
+		// Si no lo hay, el número puede estar haciendo salientes desde otro sistema: no se toca; queda
+		// anotada (sin el número) y se avisa para diagnóstico.
+		if !esConnect && estado != "RINGING" && estado != "ACCEPTED" {
+			return nil
+		}
+		nuestra := false
+		if numeroWA.MatchString(numero) {
+			if nuestra, err = q.SalienteRecienteANumero(ctx, mensajeriabd.SalienteRecienteANumeroParams{CanalID: &canal.ID, Numero: numero, Desde: ahora.Add(-VentanaSalienteNuestra)}); err != nil {
+				return err
+			}
+		}
+		if nuestra {
+			t.Anotar(map[string]any{"saliente_sin_llamada": "terminada"})
 			return registrarHuerfana(ctx, q, canal.ID, ev.ID, ahora)
 		}
+		if esConnect {
+			if err := taparSDPDeLlamada(ctx, q, canal.ID, ev.ID, ahora.Add(-10*time.Minute)); err != nil {
+				return err
+			}
+		}
+		id, err := q.RegistrarAjena(ctx, mensajeriabd.RegistrarAjenaParams{CanalID: canal.ID, CallID: ev.ID, Ahora: ahora})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil // ya estaba anotada: un aviso por llamada
+		}
+		if err != nil {
+			return err
+		}
+		t.Anotar(map[string]any{"saliente_sin_llamada": "ajena", "huerfana_id": id})
+		slog.WarnContext(ctx, "voz: llamada saliente del número que no es de Iris; no se toca", "canal_id", canal.ID, "huerfana_id", id)
 		return nil
 	}
 	if err != nil {

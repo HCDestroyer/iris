@@ -937,24 +937,48 @@ func TestLlamadaSalienteHuerfanasYCallID(t *testing.T) {
 		return x.contar(`SELECT count(*) FROM mensajeria.entrantes WHERE canal_id = $1 AND payload::text LIKE '%' || $2 || '%' AND payload::text LIKE '%fingerprint%'`, x.canal.ID, call)
 	}
 
-	// Un connect saliente de un call_id que no es de ninguna llamada viva: se termina en Meta (con
-	// reintentos) y su SDP no queda guardado.
+	// Un connect saliente de un call_id desconocido SIN rastro de ser de Iris (ningún connect de Iris a
+	// ese número en los últimos 2 minutos): puede ser de otro sistema que usa el mismo número. No se
+	// termina: queda anotada (sin el número) y su SDP no se guarda.
 	ajena := "wacid.ajena" + num
-	x.g.falla("terminate", &mensajeria.ErrMetaLlamada{Status: 500})
 	x.respuestaSaliente(num, ajena)
-	if huerfanas(ajena, "pendiente") != 1 || sdpGuardado(ajena) != 0 {
-		t.Fatalf("call_id sin llamada: %d huérfanas, %d webhooks con SDP", huerfanas(ajena, "pendiente"), sdpGuardado(ajena))
+	x.estadoSaliente(num, ajena, "ACCEPTED")
+	x.despachar()
+	if huerfanas(ajena, "ajena") != 1 || x.g.cuenta("terminate:"+ajena) != 0 || sdpGuardado(ajena) != 0 {
+		t.Fatalf("call_id ajeno: %d anotadas, terminate %d, %d webhooks con SDP", huerfanas(ajena, "ajena"), x.g.cuenta("terminate:"+ajena), sdpGuardado(ajena))
+	}
+	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE entrada::text LIKE '%' || $1 || '%' OR resultado::text LIKE '%' || $1 || '%'`, num); n != 0 {
+		t.Fatalf("el número no debía quedar en la auditoría: %d", n)
+	}
+	// Con rastro (Iris llamó a ese número hace menos de 2 minutos y la llamada ya está cerrada): un
+	// call_id desconocido sí se termina en Meta, con reintentos, y su SDP no queda guardado.
+	idR, _ := x.saliente(x.supervisor, conv, nil)
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/llamadas/"+idR+"/colgar", nil), http.StatusOK)
+	x.pasa(30 * time.Second)
+	rastro := "wacid.rastro" + num
+	x.g.falla("terminate", &mensajeria.ErrMetaLlamada{Status: 500})
+	x.respuestaSaliente(num, rastro)
+	if huerfanas(rastro, "pendiente") != 1 || sdpGuardado(rastro) != 0 {
+		t.Fatalf("call_id con rastro: %d huérfanas, %d webhooks con SDP", huerfanas(rastro, "pendiente"), sdpGuardado(rastro))
 	}
 	x.despachar()
 	x.despachar() // apartada: el segundo ciclo no la repite
-	if x.g.cuenta("terminate:"+ajena) != 1 || huerfanas(ajena, "pendiente") != 1 {
+	if x.g.cuenta("terminate:"+rastro) != 1 || huerfanas(rastro, "pendiente") != 1 {
 		t.Fatalf("primer intento fallido: %v", x.g.hechas())
 	}
 	x.g.falla("terminate", nil)
 	x.pasa(21 * time.Second)
 	x.despachar()
-	if x.g.cuenta("terminate:"+ajena) != 2 || huerfanas(ajena, "hecha") != 1 {
+	if x.g.cuenta("terminate:"+rastro) != 2 || huerfanas(rastro, "hecha") != 1 {
 		t.Fatalf("reintento: %v", x.g.hechas())
+	}
+	// Pasados los 2 minutos desde el connect de Iris, otro desconocido ya no se toca.
+	x.pasa(2 * time.Minute)
+	tarde := "wacid.tarde" + num
+	x.respuestaSaliente(num, tarde)
+	x.despachar()
+	if huerfanas(tarde, "ajena") != 1 || x.g.cuenta("terminate:"+tarde) != 0 {
+		t.Fatalf("desconocido fuera de la ventana: %v", x.g.hechas())
 	}
 	x.estadoSaliente(num, "wacid.rechazada"+num, "REJECTED") // ya no vive en Meta: nada que terminar
 	if huerfanas("wacid.rechazada"+num, "pendiente") != 0 {

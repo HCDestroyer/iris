@@ -208,7 +208,11 @@ técnica (§9)**; los que más pesan están listados en §10.
     existen en Meta y no en Iris, y el job `mensajeria.voz_meta` les manda `terminate` con
     reintentos (6, apartados 20 s). Entran ahí: la saliente que se colgó mientras el `connect`
     estaba en vuelo; un `connect` / `RINGING` / `ACCEPTED` saliente de un `call_id` sin llamada
-    viva; y el de una llamada ya cerrada a la que Iris no le había pedido terminar.
+    viva; y el de una llamada ya cerrada a la que Iris no le había pedido terminar. Un `call_id`
+    saliente **desconocido** solo se termina si Iris mandó un `connect` a ese mismo número desde
+    ese canal en los últimos 2 minutos (pendiente, cerrada o fallida). Sin ese rastro puede ser de
+    otro sistema que usa el mismo número: Iris **no la toca**; queda anotada con estado `ajena`
+    (sin el número del cliente), con una línea de auditoría y un aviso en el log del servidor.
   - **El `call_id` lo da la respuesta del `connect`.** Un webhook no se vincula a una llamada por
     el número. Si llega antes que esa respuesta, lo que trae queda apartado
     (`llamadas.externo_webhook`) y solo se aplica si la respuesta del `connect` trae ese mismo

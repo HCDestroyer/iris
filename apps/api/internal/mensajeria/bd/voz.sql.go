@@ -2468,6 +2468,26 @@ func (q *Queries) ReclamarLlamada(ctx context.Context, arg ReclamarLlamadaParams
 	return i, err
 }
 
+const registrarAjena = `-- name: RegistrarAjena :one
+INSERT INTO mensajeria.llamadas_huerfanas (canal_id, call_id, estado, proximo_en) VALUES ($1, $2, 'ajena', $3)
+ON CONFLICT (canal_id, call_id) DO NOTHING
+RETURNING id
+`
+
+type RegistrarAjenaParams struct {
+	CanalID int64
+	CallID  string
+	Ahora   time.Time
+}
+
+// Un call_id saliente que no es de Iris: se anota para diagnóstico y no se termina.
+func (q *Queries) RegistrarAjena(ctx context.Context, arg RegistrarAjenaParams) (int64, error) {
+	row := q.db.QueryRow(ctx, registrarAjena, arg.CanalID, arg.CallID, arg.Ahora)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const registrarHuerfana = `-- name: RegistrarHuerfana :exec
 INSERT INTO mensajeria.llamadas_huerfanas (canal_id, call_id, proximo_en) VALUES ($1, $2, $3)
 ON CONFLICT (canal_id, call_id) DO NOTHING
@@ -2521,6 +2541,24 @@ type RetirarCandidatosParams struct {
 func (q *Queries) RetirarCandidatos(ctx context.Context, arg RetirarCandidatosParams) error {
 	_, err := q.db.Exec(ctx, retirarCandidatos, arg.Ahora, arg.LlamadaID)
 	return err
+}
+
+const salienteRecienteANumero = `-- name: SalienteRecienteANumero :one
+SELECT EXISTS (SELECT 1 FROM mensajeria.llamadas WHERE canal_id = $1 AND numero = $2 AND direccion = 'saliente' AND sono_en >= $3)::boolean
+`
+
+type SalienteRecienteANumeroParams struct {
+	CanalID *int64
+	Numero  string
+	Desde   time.Time
+}
+
+// ¿Iris mandó un connect a ese número desde ese canal hace poco? (cualquier estado: pendiente, cerrada o fallida)
+func (q *Queries) SalienteRecienteANumero(ctx context.Context, arg SalienteRecienteANumeroParams) (bool, error) {
+	row := q.db.QueryRow(ctx, salienteRecienteANumero, arg.CanalID, arg.Numero, arg.Desde)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const salienteSinCallID = `-- name: SalienteSinCallID :one

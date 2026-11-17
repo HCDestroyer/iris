@@ -15,12 +15,14 @@ ALTER TABLE mensajeria.llamadas ADD CONSTRAINT llamadas_motivo_fin_check CHECK (
 ALTER TABLE mensajeria.llamadas ADD COLUMN externo_webhook text;
 
 -- Llamadas que existen en Meta y no en Iris (una saliente cerrada mientras el connect estaba en
--- vuelo, o un call_id saliente que no es de ninguna llamada viva): el job de escrituras las termina.
+-- vuelo, o un call_id saliente sin llamada viva pero con rastro de ser de Iris): el job de
+-- escrituras las termina. Las que no tienen rastro de ser de Iris quedan anotadas como «ajena»
+-- (el número puede hacer salientes desde otro sistema) y no se tocan. Nunca el número del cliente.
 CREATE TABLE mensajeria.llamadas_huerfanas (
     id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     canal_id   bigint      NOT NULL REFERENCES mensajeria.canales (id),
     call_id    text        NOT NULL CHECK (char_length(call_id) BETWEEN 1 AND 200),
-    estado     text        NOT NULL DEFAULT 'pendiente' CHECK (estado IN ('pendiente', 'hecha', 'agotada')),
+    estado     text        NOT NULL DEFAULT 'pendiente' CHECK (estado IN ('pendiente', 'hecha', 'agotada', 'ajena')),
     intentos   integer     NOT NULL DEFAULT 0,
     proximo_en timestamptz NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),

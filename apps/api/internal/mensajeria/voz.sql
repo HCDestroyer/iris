@@ -392,6 +392,16 @@ UPDATE mensajeria.llamadas SET externo_webhook = NULL, sdp_respuesta = CASE WHEN
 INSERT INTO mensajeria.llamadas_huerfanas (canal_id, call_id, proximo_en) VALUES (@canal_id, @call_id, @proximo_en)
 ON CONFLICT (canal_id, call_id) DO NOTHING;
 
+-- name: RegistrarAjena :one
+-- Un call_id saliente que no es de Iris: se anota para diagnóstico y no se termina.
+INSERT INTO mensajeria.llamadas_huerfanas (canal_id, call_id, estado, proximo_en) VALUES (@canal_id, @call_id, 'ajena', @ahora)
+ON CONFLICT (canal_id, call_id) DO NOTHING
+RETURNING id;
+
+-- name: SalienteRecienteANumero :one
+-- ¿Iris mandó un connect a ese número desde ese canal hace poco? (cualquier estado: pendiente, cerrada o fallida)
+SELECT EXISTS (SELECT 1 FROM mensajeria.llamadas WHERE canal_id = @canal_id AND numero = @numero AND direccion = 'saliente' AND sono_en >= @desde)::boolean;
+
 -- name: TomarHuerfanas :many
 -- El job de escrituras a Meta toma las que toca terminar y las aparta lote × plazo (SKIP LOCKED).
 UPDATE mensajeria.llamadas_huerfanas SET intentos = intentos + 1, proximo_en = @aparte::timestamptz, updated_at = now()
