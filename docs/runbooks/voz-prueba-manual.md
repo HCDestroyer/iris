@@ -47,6 +47,8 @@ solo sitio (`graphHTTP`, `apps/api/internal/mensajeria/voz_modelo.go`) y la form
 | 7 | Una llamada **no** abre la ventana de 24 h | Llamar desde un número que no ha escrito y ver si sale el mensaje de llamada perdida | Si la abre, quitar la condición |
 | 8 | Cómo se pide la grabación y qué trae `call_recording_available` | Con una página de prueba aparte (Iris no la pide: la grabación es E1c) | Define E1c |
 | 9 | La forma de `call_hours` en `POST /{phone_number_id}/settings` | Configurar un horario que quepa y mirar WhatsApp Manager | Ajustar `graphHTTP.FijarAjustes` |
+| 11 | `accept` no necesita el SDP otra vez (Iris lo manda solo en `pre_accept`; `confirmar-medio` manda `accept` sin `session`) | Contestar normal y mirar la respuesta de Meta al `accept`; repetir mandando el SDP en los dos | Guardar el SDP de la respuesta hasta el `accept` y mandarlo también ahí |
+| 12 | Qué hace Meta con un **segundo `pre_accept`** de la misma llamada (después de soltar, otra persona contesta con otro SDP) | Reclamar y contestar con A, soltar, reclamar y contestar con B: ¿B oye al cliente? | Quien hace `pre_accept` se queda con la llamada: `soltar` después de `contestar` pasa a terminar la llamada |
 | 10 | Qué distingue el recado del buzón de un audio normal | Dejar un recado con `fueraDeHorario: buzon` y mirar el webhook `messages` | Cambiar la regla de los 5 minutos por la marca de Meta |
 
 ## 4. Fuera de horario, perdida y límites

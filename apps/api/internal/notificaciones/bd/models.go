@@ -1669,6 +1669,7 @@ type MensajeriaLlamada struct {
 	AvisoPerdida     bool
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+	AccionMetaPor    *int64
 }
 
 type MensajeriaLlamadaCandidato struct {

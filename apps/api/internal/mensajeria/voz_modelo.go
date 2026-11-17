@@ -79,6 +79,11 @@ const (
 	AvisoPerdidaCada = time.Hour
 	// VentanaBuzon: un audio que llega en este tiempo tras una llamada dejada al buzón es su recado.
 	VentanaBuzon = 5 * time.Minute
+	// MensajePerdidaNeutro: lo que se le escribe a quien llamó a un número prestado y era de la empresa
+	// prestataria (no se usa el texto de la dueña del número).
+	MensajePerdidaNeutro = "No pudimos contestar tu llamada. Escríbenos por aquí y te atendemos."
+	// MaxNavegadoresRecibir: navegadores por usuario con «Recibir llamadas» (los más viejos se quitan).
+	MaxNavegadoresRecibir = 10
 	// MaxSDP: tamaño máximo de un SDP.
 	MaxSDP = 8 << 10
 )
@@ -96,8 +101,6 @@ type AjustesMetaLlamadas struct {
 	Devolucion   bool `json:"devolucion"`
 	// LimiteMensajeria: destinatarios por día del número (≥ 2 000 para tener llamadas).
 	LimiteMensajeria int64 `json:"limiteMensajeria"`
-	// WebhookCalls: la app está suscrita al campo calls.
-	WebhookCalls bool `json:"webhookCalls"`
 	// Horas: el espejo de call_hours (nil = abierto siempre: Iris aplica su horario de su lado).
 	Horas *HorasMeta `json:"horas,omitempty"`
 }
@@ -257,8 +260,8 @@ func (g graphHTTP) Ajustes(ctx context.Context, canal CanalGraph) (AjustesMetaLl
 	}
 	a := AjustesMetaLlamadas{Habilitadas: strings.EqualFold(r.Calling.Status, "ENABLED"), IconoVisible: !strings.EqualFold(r.Calling.CallIconVisibility, "DISABLE_ALL"),
 		Devolucion: strings.EqualFold(r.Calling.CallbackPermissionStatus, "ENABLED")}
-	// El límite de mensajería y la suscripción al campo calls no vienen en /settings: se leen aparte y,
-	// si no se pueden leer, quedan sin cumplir (falla cerrado).
+	// El límite de mensajería no viene en /settings: se lee aparte y, si no se puede leer, queda sin
+	// cumplir (falla cerrado). La suscripción al campo calls no se puede leer con el token del número.
 	if b, err := g.pedir(ctx, http.MethodGet, canal, "?fields=messaging_limit_tier", nil); err == nil {
 		var n struct {
 			Tier string `json:"messaging_limit_tier"`
@@ -266,7 +269,6 @@ func (g graphHTTP) Ajustes(ctx context.Context, canal CanalGraph) (AjustesMetaLl
 		_ = json.Unmarshal(b, &n)
 		a.LimiteMensajeria = limiteDeTier(n.Tier)
 	}
-	a.WebhookCalls = a.Habilitadas
 	return a, nil
 }
 
@@ -541,14 +543,50 @@ func huellaSDP(sdp string) string {
 	return hex.EncodeToString(h[:])
 }
 
-// ValidarSDP aplica las reglas de §6.2 (fila 11) antes de reenviar un SDP a Meta: tamaño, una sola
-// sección de audio, solo Opus y telephone-event, a=setup y huella DTLS presentes y ningún candidato a
-// una IP privada, de loopback o de enlace local.
+// atributosSDP: los únicos atributos (a=) que se aceptan en un SDP. Todo lo demás se rechaza.
+var atributosSDP = map[string]bool{"rtpmap": true, "fmtp": true, "rtcp-fb": true, "extmap": true, "extmap-allow-mixed": true, "mid": true, "msid": true,
+	"msid-semantic": true, "group": true, "ice-ufrag": true, "ice-pwd": true, "ice-options": true, "ice-lite": true, "fingerprint": true, "setup": true,
+	"candidate": true, "end-of-candidates": true, "sendrecv": true, "sendonly": true, "recvonly": true, "inactive": true, "rtcp-mux": true,
+	"rtcp-rsize": true, "rtcp": true, "ssrc": true, "ssrc-group": true, "ptime": true, "maxptime": true}
+
+// redesSDPBloqueadas: además de loopback, privadas y enlace local: CGNAT, NAT64, protocolo y reservadas.
+var redesSDPBloqueadas = []netip.Prefix{netip.MustParsePrefix("100.64.0.0/10"), netip.MustParsePrefix("64:ff9b::/96"), netip.MustParsePrefix("64:ff9b:1::/48"),
+	netip.MustParsePrefix("192.0.0.0/24"), netip.MustParsePrefix("198.18.0.0/15"), netip.MustParsePrefix("240.0.0.0/4"), netip.MustParsePrefix("0.0.0.0/8")}
+
+// MaxCandidatosSDP: candidatos ICE que se aceptan en un SDP.
+const MaxCandidatosSDP = 32
+
+// ipDeMedio: la dirección es pública (o, con admiteCero, 0.0.0.0 / ::, el marcador de «la dirá ICE»).
+func ipDeMedio(texto string, admiteCero bool) bool {
+	ip, err := netip.ParseAddr(texto)
+	if err != nil || ip.Zone() != "" {
+		return false
+	}
+	ip = ip.Unmap()
+	if ip.IsUnspecified() {
+		return admiteCero
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() || ip.IsMulticast() {
+		return false
+	}
+	for _, p := range redesSDPBloqueadas {
+		if p.Contains(ip) {
+			return false
+		}
+	}
+	return true
+}
+
+// ValidarSDP aplica las reglas de §6.2 (fila 11) antes de reenviar un SDP (el del navegador hacia
+// Meta y la oferta de Meta hacia el navegador). Es una lista cerrada: solo las líneas y los atributos
+// conocidos, una sola sección de audio segura, solo Opus y telephone-event, a=setup y huella DTLS, y
+// ninguna dirección (c=, a=rtcp, candidatos y su raddr) hacia loopback, redes privadas, enlace local,
+// CGNAT o NAT64. Máximo 8 KB y 32 candidatos.
 func ValidarSDP(sdp string) error {
 	if len(sdp) == 0 || len(sdp) > MaxSDP {
 		return errors.New("tamaño fuera de rango")
 	}
-	medios, setup, huella := 0, false, false
+	medios, candidatos, setup, huella := 0, 0, false, false
 	var formatos []string
 	codecs := map[string]string{}
 	for _, l := range strings.Split(strings.ReplaceAll(sdp, "\r\n", "\n"), "\n") {
@@ -556,42 +594,62 @@ func ValidarSDP(sdp string) error {
 		if l == "" {
 			continue
 		}
-		if len(l) < 2 || l[1] != '=' || strings.ContainsFunc(l, func(r rune) bool { return r < 0x20 && r != '\t' || r == 0x7f }) {
+		if len(l) < 2 || l[1] != '=' || strings.ContainsFunc(l, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
 			return errors.New("línea mal formada")
 		}
-		switch {
-		case strings.HasPrefix(l, "m="):
+		valor := l[2:]
+		switch l[0] {
+		case 'v', 'o', 's', 't', 'b':
+		case 'c':
+			p := strings.Fields(valor)
+			if len(p) != 3 || p[0] != "IN" || (p[1] != "IP4" && p[1] != "IP6") || !ipDeMedio(p[2], true) {
+				return errors.New("dirección de conexión no permitida")
+			}
+		case 'm':
 			medios++
-			p := strings.Fields(l[2:])
+			p := strings.Fields(valor)
 			if len(p) < 4 || p[0] != "audio" || !strings.Contains(p[2], "SAVPF") {
 				return errors.New("solo se admite una sección de audio segura")
 			}
 			formatos = p[3:]
-		case strings.HasPrefix(l, "a=rtpmap:"):
-			pt, resto, _ := strings.Cut(l[len("a=rtpmap:"):], " ")
-			nombre, _, _ := strings.Cut(resto, "/")
-			codecs[pt] = strings.ToLower(nombre)
-		case strings.HasPrefix(l, "a=setup:"):
-			setup = true
-		case strings.HasPrefix(l, "a=fingerprint:"):
-			huella = true
-		case strings.HasPrefix(l, "a=candidate:"):
-			p := strings.Fields(l)
-			if len(p) < 6 {
-				return errors.New("candidato mal formado")
+		case 'a':
+			nombre, resto, _ := strings.Cut(valor, ":")
+			if !atributosSDP[nombre] {
+				return errors.New("atributo no permitido")
 			}
-			ip, err := netip.ParseAddr(p[4])
-			if err != nil {
-				// Un nombre (mDNS .local del navegador) no dice nada de la red; cualquier otro, no.
-				if !strings.HasSuffix(strings.ToLower(p[4]), ".local") {
-					return errors.New("candidato con un nombre que no es una dirección")
+			switch nombre {
+			case "rtpmap":
+				pt, codec, _ := strings.Cut(resto, " ")
+				n, _, _ := strings.Cut(codec, "/")
+				codecs[pt] = strings.ToLower(n)
+			case "setup":
+				setup = true
+			case "fingerprint":
+				huella = true
+			case "rtcp":
+				// a=rtcp:<puerto> [IN IP4 <dirección>]
+				if p := strings.Fields(resto); len(p) != 1 && (len(p) != 4 || p[1] != "IN" || !ipDeMedio(p[3], true)) {
+					return errors.New("dirección de RTCP no permitida")
 				}
-				continue
+			case "candidate":
+				candidatos++
+				p := strings.Fields(resto)
+				if candidatos > MaxCandidatosSDP || len(p) < 8 {
+					return errors.New("candidatos de más o mal formados")
+				}
+				// Un nombre mDNS (.local) del navegador no dice nada de la red; cualquier otro nombre, no.
+				mdns := strings.HasSuffix(strings.ToLower(p[4]), ".local") && !strings.ContainsAny(p[4], ":/")
+				if !ipDeMedio(p[4], false) && !mdns {
+					return errors.New("candidato a una red interna o con un nombre que no es una dirección")
+				}
+				for k := 8; k+1 < len(p); k += 2 {
+					if p[k] == "raddr" && !ipDeMedio(p[k+1], true) {
+						return errors.New("candidato con una dirección relacionada interna")
+					}
+				}
 			}
-			ip = ip.Unmap()
-			if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
-				return errors.New("candidato a una red interna")
-			}
+		default:
+			return errors.New("línea no permitida")
 		}
 	}
 	if medios != 1 {

@@ -51,6 +51,37 @@ técnica (§9)**; los que más pesan están listados en §10.
 - **Límites de E1:** un `connect` de más de 60 s no hace sonar nada (queda `perdida`); duración
   máxima por llamada (`duracionMaxPersonaMin`); ráfaga: la cuarta llamada de un número al mismo
   canal en 10 minutos se rechaza (`motivo_fin: limite`), sin mensaje. `voz_bloqueos` queda en E2.
+- **Revisión de seguridad de E1 (17 nov 2026):**
+  - **Acción con Meta en vuelo.** Mientras un `pre_accept` o un `accept` no ha respondido, `soltar`
+    y `reclamar` responden **409 `accion_en_curso`** (el panel reintenta en unos segundos). El
+    resultado de esas acciones solo se aplica si la llamada sigue `conectando` en manos de quien
+    tenía la reserva al pedirlas (`llamadas.accion_meta_por`); si no, la llamada queda `fallida`
+    (`error_meta`) y se manda `terminate`: nunca queda `en_curso` a nombre de quien no tiene el audio.
+  - **`reclamar`** exige además que la llamada siga dentro de `suena_hasta` (si no, 409
+    `llamada_ya_contestada`) y que quien reclama no tenga otra llamada viva, reservada o en curso
+    (409 **`llamada_en_curso`**).
+  - **Número prestado (§15.3 del chat).** En E1 los ajustes de llamadas son de la dueña del número
+    y **no cruzan de empresa**. Una llamada de un cliente de la dueña, o de un desconocido, suena a
+    la dueña como siempre. Si corresponde a la empresa prestataria, **no suena**: se rechaza en
+    Meta y queda `perdida` en la prestataria, con la cola del préstamo, su devolución pendiente y
+    un mensaje neutro fijo («No pudimos contestar tu llamada. Escríbenos por aquí y te
+    atendemos.»), con las mismas reglas del mensaje de llamada perdida. No se usan la cola, el
+    horario, los candidatos ni los textos de la dueña. Que suene a la prestataria con ajustes
+    propios queda para más adelante.
+  - **`webhook_calls`.** Meta no deja leer con el token del número si la app está suscrita al campo
+    `calls`. El requisito lleva `sinComprobar: true` y `aviso: true` (no impide encender) hasta que
+    llega la primera llamada al número; entonces `cumple: true`. El panel lo muestra como «sin
+    comprobar», nunca como cumplido.
+  - **Navegadores.** «Recibir llamadas» guarda como mucho 10 navegadores por usuario; al encender se
+    quitan los que llevan 30 días sin verse y los más viejos que pasen del tope.
+  - **Escrituras a Meta.** El mantenimiento (cada 5 s) no llama a Meta: los `reject` y `terminate`
+    que decide, sus reintentos (hasta 2 minutos) y los ajustes de número pendientes los hace el job
+    `mensajeria.voz_meta`, que toma las filas con `SKIP LOCKED`.
+  - **SDP.** La validación es una lista cerrada de líneas y atributos, revisa `c=`, `a=rtcp` y el
+    `raddr` de los candidatos, bloquea también CGNAT (100.64.0.0/10) y NAT64, admite 32 candidatos
+    y se aplica igual a la oferta de Meta (si no pasa, la llamada no suena y queda `perdida`). Al
+    terminar la llamada el SDP se tapa (`***`) también en `mensajeria.entrantes.payload`.
+  - **`despacho`** no tiene `llamadas.descartar_devolucion` (§8.2).
 - **E1c (grabación, pendiente de la prueba real):** la grabación de Meta **no forma parte de E1**.
   No se ofrece ni se acepta: `grabar` es siempre `nunca` (cualquier otro valor en
   `POST /voz/ajustes/actualizar` responde **422 `grabacion_no_disponible`**), Iris **nunca pide** la
@@ -605,8 +636,9 @@ Un supervisor puede **oír** una llamada en curso sin participar.
   (`llamadas.configurar`). Encender en un número `tipoConexion: "qr"` → **422
   `llamadas_no_disponibles_qr`**. Encender exige `requisitos.cumple`.
 - `POST /canales/{id}/llamadas/comprobar` (`llamadas.configurar`) →
-  `{ cumple, requisitos: [{ codigo, cumple, detalle }] }` con `conexion_api`,
-  `limite_mensajeria` (≥ 2 000 destinatarios/día), `webhook_calls` (campo `calls` suscrito),
+  `{ cumple, requisitos: [{ codigo, cumple, detalle, aviso, sinComprobar? }] }` con `conexion_api`,
+  `limite_mensajeria` (≥ 2 000 destinatarios/día), `webhook_calls` (campo `calls` suscrito; Iris no
+  lo puede leer: `sinComprobar` hasta que llega la primera llamada),
   `calling_habilitado`, `plantilla_permiso` (solo aviso: sin ella no hay solicitud fuera de ventana).
   Mismo trato de errores que `probar` del número: nunca el mensaje crudo de Meta.
 - `POST /canales/{id}/llamadas/sincronizar`: lee de Meta los ajustes del número y copia a Iris el
@@ -674,6 +706,7 @@ Un supervisor puede **oír** una llamada en curso sin participar.
 | `llamada_ya_contestada` | 409 | Otro la reclamó antes, o ya no está `sonando` |
 | `llamada_terminada` | 409 | Acción sobre una llamada en estado final |
 | `llamada_en_curso` | 409 | El usuario o el contacto ya tienen una llamada viva |
+| `accion_en_curso` | 409 | `soltar` o `reclamar` mientras WhatsApp no ha respondido a un `pre_accept` o `accept` de esa llamada |
 | `reserva_vencida` | 409 | `contestar` o `confirmar-medio` después de `reclamadaHasta` |
 | `sdp_invalido` | 422 | El SDP no pasa la validación (campo `sdpRespuesta` / `sdpOferta`) |
 | `llamadas_inactivas` | 422 | El número no tiene llamadas encendidas |
@@ -1422,7 +1455,7 @@ todos modos a ese cliente.
 | 8 | **Abuso de coste y denegación de servicio** (LLM10): llamadas largas, en bucle, muchas a la vez, silencio | Duración máxima por llamada; corte por silencio; simultáneas por empresa y por motor (reserva atómica); llamadas al asistente por número y día; turnos por llamada; presupuesto de **minutos** del mes junto al de tokens (80 % avisa, 100 % deja de contestar el asistente: suenan a personas); límite de ráfaga por número (3 llamadas en 10 min → bloqueo temporal de 1 h); **sin cliente asociado**: 180 s por llamada, 2 llamadas al día por número y, entre todas, como máximo el 20 % del tope mensual de minutos, y después esas llamadas **suenan a personas** (§7.2); los minutos los mide mensajería, no el motor | F (máximos duros) / C (valores dentro del rango) | Llamada que no cuelga: corte a `duracionMaxSeg`. N+1 llamadas simultáneas: la última va a personas o `reject`. Tope al 100 %: el asistente no contesta y sale `voz.tope_alcanzado`. 4.ª llamada en 10 min: `rechazada` |
 | 9 | **Salida del modelo usada sin validar** (LLM05) | `decir` solo tras el validador; el texto para TTS se normaliza (sin SSML del modelo, sin caracteres de control, sin etiquetas); el motor ignora cualquier marca en el texto | F | Salida con `<speak>`, `<break>`, URLs, caracteres de control: el TTS recibe texto plano o nada |
 | 10 | **Webhook de Meta falso o repetido** | Firma `X-Hub-Signature-256` con el `app_secret` del número (ya existe), comparación en tiempo constante, deduplicación en `entrantes` y por `id_externo`; un `connect` de otro `phone_number_id` se descarta con la regla de §1 del chat; un `connect` con más de 60 s de antigüedad no hace sonar nada | F | Webhook sin firma, con firma de otro número, repetido y viejo: ninguno crea una segunda llamada ni hace sonar |
-| 11 | **SDP malicioso** (del navegador, de Meta o del motor) | Validación estricta antes de reenviar: tamaño ≤ 8 KB, una sola sección `m=audio`, solo Opus y `telephone-event`, sin candidatos a IP privadas, loopback o link-local cuando el destino es Meta, `a=setup` y huella DTLS presentes; el SDP no se guarda después de terminar ni va a logs | F | SDP con video, con `m=application`, con candidato `127.0.0.1` / `169.254.x`, de 100 KB: 422 `sdp_invalido` |
+| 11 | **SDP malicioso** (del navegador, de Meta o del motor) | Validación estricta antes de reenviar: tamaño ≤ 8 KB, una sola sección `m=audio`, solo Opus y `telephone-event`, lista cerrada de líneas y atributos, ninguna dirección (`c=`, `a=rtcp`, candidatos y su `raddr`) a IP privadas, loopback, link-local, CGNAT o NAT64, máximo 32 candidatos, `a=setup` y huella DTLS presentes; vale igual para la oferta de Meta antes de entregarla al navegador; el SDP no se guarda después de terminar (tampoco en `entrantes.payload`, donde queda `***`) ni va a logs | F | SDP con video, con `m=application`, con candidato `127.0.0.1` / `169.254.x`, de 100 KB: 422 `sdp_invalido` |
 | 12 | **SSRF y fuga de claves de STT/TTS/LLM** | Iris **no guarda** URL ni claves de STT/TTS: los proveedores externos se instalan en el servidor de voz, por instalación, y nunca viajan por llamada (§4.3); el servidor de voz aplica las reglas de URL de §16.1 del chat al configurarlos y en cada conexión (sin redirecciones, `https` con clave). El LLM de §16.1 conserva sus reglas. La URL del servidor de voz y la de la centralita pasan las mismas reglas en mensajería; `probar` con error único (no sirve para escanear) | F | `POST /voz/v1/llamadas` con un campo `url` o `clave`: el motor lo rechaza (esquema cerrado). Las pruebas de URL del asistente repetidas para `voz_motores.url`, `centralitas.host` y `grabacionesUrl`. Volcado de logs del motor: sin claves |
 | 13 | **Grabaciones** | **Apagadas de fábrica.** Solo la grabación de Meta (con su anuncio hablado a las dos partes); si Meta no anuncia, Iris no graba. `cmd/voz` no escribe audio en disco jamás. Permiso propio y sensible para escuchar (`llamadas.escuchar_grabacion`), cada escucha auditada, sin URL pública, `no-store`, retención con borrado automático, borrado manual con motivo, cifrado en reposo. Descarga desde Meta solo a una lista cerrada de hosts, sin redirecciones, token solo a esos hosts, tope de tamaño y validación de Ogg/Opus (§2.7); ventanas de captura silenciadas antes de guardar (§5.5) | F (anuncio, permiso, auditoría, sin disco en el motor) / C (encender, retención) | Usuario con `conversaciones.supervisar` pero sin el permiso: 404. Escucha deja fila de auditoría. Job de retención borra el adjunto y marca `borrada`. Inspección del contenedor del motor: sin archivos de audio |
 | 14 | **Transcripciones** | **Apagadas de fábrica.** Se guardan **ya redactadas** (documento, NIT, tarjetas, teléfonos, correos, contraseñas, montos); las capturas de teclado como `***`; permiso propio (`llamadas.ver_transcripcion`); retención; no van a eventos ni a auditoría (solo ids). Se transcribe en el servidor de voz, sin guardar allí (§2.7). `transcribir: false` **no** evita los turnos del asistente: se guardan redactados como en el chat, con su propia retención (`retencionTurnosVozDias`) y el mismo permiso para leerlos | F (redacción, permiso) / C (encender, retención) | Llamada en la que se dice un DPI, una tarjeta y una clave: la fila guardada tiene `***`; búsqueda de los valores en toda la base y en logs |

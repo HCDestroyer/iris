@@ -15994,6 +15994,7 @@ export interface components {
             cumple: boolean;
             /** @description Texto llano, listo para mostrar (nunca el mensaje crudo de Meta) */
             detalle: string;
+            sinComprobar?: boolean;
         };
         RequisitosLlamadas: {
             /** Format: date-time */

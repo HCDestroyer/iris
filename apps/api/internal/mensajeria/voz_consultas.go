@@ -347,6 +347,11 @@ func nuevoRecibirLlamadas(m *Modulo) *auditoria.Caso[EntradaRecibir, RecibirLlam
 			}
 			t.FijarEmpresa(a.empresa)
 			t.Anotar(map[string]any{"recibe": in.recibe})
+			// Tope de navegadores por usuario: se quitan los que llevan 30 días sin verse y los más viejos.
+			if err := mensajeriabd.New(t).LimpiarReceptores(ctx, mensajeriabd.LimpiarReceptoresParams{Empresa: a.empresa, UsuarioID: a.usuario,
+				Navegador: in.Navegador, Viejo: m.ahora().Add(-30 * 24 * time.Hour), Conservar: MaxNavegadoresRecibir - 1}); err != nil {
+				return RecibirLlamadas{}, err
+			}
 			f, err := mensajeriabd.New(t).FijarReceptor(ctx, mensajeriabd.FijarReceptorParams{EmpresaID: a.empresaPtr(), UsuarioID: a.usuario,
 				Navegador: in.Navegador, Recibe: in.recibe, Ahora: m.ahora()})
 			if err != nil {

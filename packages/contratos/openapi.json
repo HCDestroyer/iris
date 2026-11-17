@@ -24185,6 +24185,9 @@
           "detalle": {
             "description": "Texto llano, listo para mostrar (nunca el mensaje crudo de Meta)",
             "type": "string"
+          },
+          "sinComprobar": {
+            "type": "boolean"
           }
         },
         "required": [
