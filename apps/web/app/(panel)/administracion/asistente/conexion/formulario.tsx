@@ -24,13 +24,15 @@ import { CargaRegistro } from "@/componentes/carga-registro";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { SecretoCambiable } from "@/componentes/numeros/secreto-guardado";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
-import { cambiaDestino, ejemploUrl, entradaDe, esNube, esquemaAjustesAsistente, FUENTES, NUNCA, PROVEEDORES, TEXTO_CLAVE_REQUERIDA, urlValida, valoresDe, type ValoresAjustes } from "@/lib/asistente/ajustes";
+import { cambiaDestino, ejemploUrl, entradaDe, esNube, esquemaAjustesAsistente, FUENTES, NUNCA, PROVEEDORES, SERVIDOR_IA, TEXTO_CLAVE_REQUERIDA, urlValida, valoresDe, type ValoresAjustes } from "@/lib/asistente/ajustes";
 import { consultarModelos, guardarAjustesAsistente, leerAjustesAsistente, leerModelosGuardados, leerUso, probarAsistente } from "@/lib/asistente/api";
 import { formatearTokens, nombreMes, porcentajeUsadas, textoPausado, textoPrueba } from "@/lib/asistente/presentacion";
 import type { AjustesAsistente as Ajustes, ModeloIA, PruebaAsistente, UsoAsistente } from "@/lib/asistente/tipos";
 import { erroresACampos } from "@/lib/formularios";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
+import { TEXTO_NO_DISPONIBLE } from "@/lib/servidor-ia/presentacion";
+import type { ServidorIaEnAsistente } from "@/lib/servidor-ia/tipos";
 
 const CAMPOS_SERVIDOR = ["url", "clave", "modelo", "topeTokensMes", "precioEntradaMillon", "precioSalidaMillon"] as const;
 
@@ -59,11 +61,15 @@ function Formulario({ ajustes }: { ajustes: Ajustes }) {
     const [proveedor, url, cambiarClave, quitarClave, modo] = useWatch({ control: form.control, name: ["proveedor", "url", "cambiarClave", "quitarClave", "modo"] });
     const errores = form.formState.errors;
     const guardada = ajustes.claveGuardadaEn !== null;
+    // PROVISIONAL: `servidorIa` (voz.md §4.11) aún no está en el tipo generado. Sin el campo, la opción no se ofrece.
+    const servidorIa = (ajustes as Ajustes & { servidorIa?: ServidorIaEnAsistente }).servidorIa ?? null;
+    const propio = proveedor === SERVIDOR_IA;
+    const noDisponible = error instanceof ErrorApi && error.codigo === "servidor_ia_no_disponible";
     // La clave guardada no viaja a otro servidor (§16.1): con otro proveedor o dirección hay que escribirla.
-    const destinoCambiado = guardada && cambiaDestino({ proveedor, url, proveedorGuardado: ajustes.proveedor, urlGuardada: ajustes.url });
+    const destinoCambiado = guardada && !propio && cambiaDestino({ proveedor, url, proveedorGuardado: ajustes.proveedor, urlGuardada: ajustes.url });
     function abrirClaveSiCambia() {
         const d = form.getValues();
-        if (guardada && !d.quitarClave && !d.cambiarClave && cambiaDestino(d)) form.setValue("cambiarClave", true);
+        if (guardada && d.proveedor !== SERVIDOR_IA && !d.quitarClave && !d.cambiarClave && cambiaDestino(d)) form.setValue("cambiarClave", true);
     }
     const cargarModelos = useRef<(() => void) | null>(null);
     // La lista de modelos se pide al salir de «Dirección», no con cada tecla.
@@ -107,8 +113,8 @@ function Formulario({ ajustes }: { ajustes: Ajustes }) {
             }}
             error={
                 error ? (
-                    <Aviso tono="error" titulo={conflicto ? "Alguien más cambió los ajustes" : "No se pudo guardar"}>
-                        {conflicto ? "Recarga la página para ver el cambio." : mensajeDeError(error).titulo}
+                    <Aviso tono="error" titulo={conflicto ? "Alguien más cambió los ajustes" : noDisponible ? "El Servidor de IA no está disponible" : "No se pudo guardar"} data-slot="error-guardar">
+                        {conflicto ? "Recarga la página para ver el cambio." : noDisponible ? TEXTO_NO_DISPONIBLE : mensajeDeError(error).titulo}
                     </Aviso>
                 ) : null
             }
@@ -121,9 +127,11 @@ function Formulario({ ajustes }: { ajustes: Ajustes }) {
                     valor={proveedor}
                     alCambiar={(v) => {
                         form.setValue("proveedor", v as ValoresAjustes["proveedor"], { shouldDirty: true });
+                        // Con el Servidor de IA solo vale un modelo de los suyos.
+                        if (v === SERVIDOR_IA && !(servidorIa?.modelos ?? []).includes(form.getValues("modelo"))) form.setValue("modelo", "", { shouldDirty: true });
                         abrirClaveSiCambia();
                     }}
-                    opciones={PROVEEDORES.map((p) => ({
+                    opciones={PROVEEDORES.filter((p) => p.valor !== SERVIDOR_IA || servidorIa !== null || ajustes.proveedor === (SERVIDOR_IA as string)).map((p) => ({
                         valor: p.valor,
                         texto: p.titulo,
                         contenido: (
@@ -133,79 +141,91 @@ function Formulario({ ajustes }: { ajustes: Ajustes }) {
                                     {p.recomendado ? <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">Recomendado</span> : null}
                                 </span>
                                 <span className="text-sm text-muted-foreground">{p.detalle}</span>
+                                {p.valor === SERVIDOR_IA ? (
+                                    <span className={cn("flex items-center gap-1.5 text-[0.8125rem] font-medium", servidorIa?.disponible ? "text-success" : "text-warning")} data-slot="servidor-ia-disponible">
+                                        <span aria-hidden className="size-2 rounded-full bg-current" />
+                                        {servidorIa?.disponible ? "Disponible" : "No disponible ahora"}
+                                    </span>
+                                ) : null}
                             </span>
                         ),
                     }))}
                 />
-                <Campo
-                    etiqueta="Dirección"
-                    inputMode="url"
-                    autoComplete="off"
-                    spellCheck={false}
-                    placeholder={ejemploUrl(proveedor)}
-                    ayuda={proveedor === "anthropic" ? "Déjala vacía para usar la de Anthropic." : proveedor === "ollama" ? "La del servidor de Ollama en tu red, con su puerto." : "La URL base del servicio (termina en /v1 o sin él)."}
-                    error={errores.url?.message}
-                    {...regUrl}
-                    onBlur={(e) => {
-                        void regUrl.onBlur(e);
-                        alSalirDeUrl(e);
-                    }}
-                />
-                {ajustes.claveGuardadaEn && quitarClave ? (
-                    <div className="grid gap-1" data-slot="clave-quitada">
-                        <p className="text-sm font-medium">Clave</p>
-                        <p className="text-sm text-muted-foreground">
-                            La clave guardada se quitará al guardar.{" "}
-                            <Boton variante="enlace" tamano="sm" className="h-auto px-0 align-baseline" onClick={() => form.setValue("quitarClave", false, { shouldDirty: true })}>
-                                Deshacer
-                            </Boton>
-                        </p>
-                    </div>
-                ) : ajustes.claveGuardadaEn ? (
-                    <div className="grid gap-1.5">
-                        {destinoCambiado ? (
-                            <p className="text-sm text-warning" data-slot="clave-requerida">
-                                {TEXTO_CLAVE_REQUERIDA}
-                                {proveedor === "ollama" ? " o quitarla" : ""}.
-                            </p>
-                        ) : null}
-                        <SecretoCambiable
-                            etiqueta="Clave"
-                            femenino
-                            guardadoEn={ajustes.claveGuardadaEn}
-                            abierto={cambiarClave}
-                            abrir={() => form.setValue("cambiarClave", true)}
-                            cerrar={() => {
-                                form.setValue("clave", "");
-                                form.clearErrors("clave");
-                                // Con otro destino la guardada no sirve: el campo sigue abierto.
-                                if (!destinoCambiado) form.setValue("cambiarClave", false);
+                {propio ? (
+                    <ConServidorIa form={form} servidorIa={servidorIa} claveGuardada={guardada} />
+                ) : (
+                    <>
+                        <Campo
+                            etiqueta="Dirección"
+                            inputMode="url"
+                            autoComplete="off"
+                            spellCheck={false}
+                            placeholder={ejemploUrl(proveedor)}
+                            ayuda={proveedor === "anthropic" ? "Déjala vacía para usar la de Anthropic." : proveedor === "ollama" ? "La del servidor de Ollama en tu red, con su puerto." : "La URL base del servicio (termina en /v1 o sin él)."}
+                            error={errores.url?.message}
+                            {...regUrl}
+                            onBlur={(e) => {
+                                void regUrl.onBlur(e);
+                                alSalirDeUrl(e);
                             }}
-                            campo={<CampoClave form={form} proveedor={proveedor} />}
                         />
-                        {proveedor === "ollama" ? (
-                            <div>
-                                <Boton
-                                    variante="enlace"
-                                    tamano="sm"
-                                    className="h-auto px-0"
-                                    onClick={() => {
-                                        form.setValue("quitarClave", true, { shouldDirty: true });
-                                        form.setValue("cambiarClave", false);
+                        {ajustes.claveGuardadaEn && quitarClave ? (
+                            <div className="grid gap-1" data-slot="clave-quitada">
+                                <p className="text-sm font-medium">Clave</p>
+                                <p className="text-sm text-muted-foreground">
+                                    La clave guardada se quitará al guardar.{" "}
+                                    <Boton variante="enlace" tamano="sm" className="h-auto px-0 align-baseline" onClick={() => form.setValue("quitarClave", false, { shouldDirty: true })}>
+                                        Deshacer
+                                    </Boton>
+                                </p>
+                            </div>
+                        ) : ajustes.claveGuardadaEn ? (
+                            <div className="grid gap-1.5">
+                                {destinoCambiado ? (
+                                    <p className="text-sm text-warning" data-slot="clave-requerida">
+                                        {TEXTO_CLAVE_REQUERIDA}
+                                        {proveedor === "ollama" ? " o quitarla" : ""}.
+                                    </p>
+                                ) : null}
+                                <SecretoCambiable
+                                    etiqueta="Clave"
+                                    femenino
+                                    guardadoEn={ajustes.claveGuardadaEn}
+                                    abierto={cambiarClave}
+                                    abrir={() => form.setValue("cambiarClave", true)}
+                                    cerrar={() => {
                                         form.setValue("clave", "");
                                         form.clearErrors("clave");
+                                        // Con otro destino la guardada no sirve: el campo sigue abierto.
+                                        if (!destinoCambiado) form.setValue("cambiarClave", false);
                                     }}
-                                >
-                                    Quitar clave
-                                </Boton>
+                                    campo={<CampoClave form={form} proveedor={proveedor} />}
+                                />
+                                {proveedor === "ollama" ? (
+                                    <div>
+                                        <Boton
+                                            variante="enlace"
+                                            tamano="sm"
+                                            className="h-auto px-0"
+                                            onClick={() => {
+                                                form.setValue("quitarClave", true, { shouldDirty: true });
+                                                form.setValue("cambiarClave", false);
+                                                form.setValue("clave", "");
+                                                form.clearErrors("clave");
+                                            }}
+                                        >
+                                            Quitar clave
+                                        </Boton>
+                                    </div>
+                                ) : null}
                             </div>
-                        ) : null}
-                    </div>
-                ) : (
-                    <CampoClave form={form} proveedor={proveedor} />
+                        ) : (
+                            <CampoClave form={form} proveedor={proveedor} />
+                        )}
+                        <SelectorModelo form={form} ajustes={ajustes} registrarCargar={(f) => (cargarModelos.current = f)} />
+                        <Prueba form={form} destinoCambiado={destinoCambiado} />
+                    </>
                 )}
-                <SelectorModelo form={form} ajustes={ajustes} registrarCargar={(f) => (cargarModelos.current = f)} />
-                <Prueba form={form} destinoCambiado={destinoCambiado} />
                 {esNube(proveedor) ? (
                     <Aviso tono="info" icono={Cloud} titulo="Los mensajes salen hacia el proveedor">
                         Con un proveedor en la nube, los mensajes del cliente salen de tu servidor hacia ese proveedor. Contraseñas, documentos y códigos nunca salen: llegan como ***.
@@ -267,6 +287,44 @@ function Formulario({ ajustes }: { ajustes: Ajustes }) {
                 <p className="text-sm text-muted-foreground">Con un proveedor que cobra, pon sus dos precios por millón de tokens y el uso se muestra también en dinero.</p>
             </SeccionFormulario>
         </FormularioPagina>
+    );
+}
+
+/** Con el Servidor de IA no hay dirección ni clave: un modelo de los permitidos y la prueba (voz.md §4.11). */
+function ConServidorIa({ form, servidorIa, claveGuardada }: { form: UseFormReturn<ValoresAjustes>; servidorIa: ServidorIaEnAsistente | null; claveGuardada: boolean }) {
+    const modelo = useWatch({ control: form.control, name: "modelo" });
+    const modelos = servidorIa?.modelos ?? [];
+    return (
+        <div className="grid gap-4" data-slot="con-servidor-ia">
+            {servidorIa?.disponible ? null : (
+                <Aviso tono="warning" titulo="El Servidor de IA no está disponible" data-slot="servidor-ia-no-disponible">
+                    {TEXTO_NO_DISPONIBLE}
+                </Aviso>
+            )}
+            <CampoSelector
+                etiqueta="Modelo que usa el asistente"
+                error={form.formState.errors.modelo?.message}
+                ayuda="Solo aparecen los modelos permitidos que ya están descargados en el servidor. Si falta uno, lo descarga quien administra la instalación."
+                {...form.register("modelo")}
+            >
+                <option value="">Elegir…</option>
+                {modelos.map((m) => (
+                    <option key={m} value={m}>
+                        {m}
+                    </option>
+                ))}
+            </CampoSelector>
+            {claveGuardada ? (
+                <p className="text-sm text-muted-foreground" data-slot="clave-se-borra">
+                    La clave guardada del proveedor anterior se borra al guardar: con el Servidor de IA no hace falta.
+                </p>
+            ) : null}
+            <div className="grid gap-2">
+                <h3 className="text-sm font-semibold">Pruébalo antes de guardar</h3>
+                <p className="text-sm text-muted-foreground">Le manda una pregunta corta al modelo elegido y te dice cuánto tardó.</p>
+                {modelo ? <Prueba form={form} destinoCambiado={false} /> : <p className="text-sm text-muted-foreground">Elige un modelo para probarlo.</p>}
+            </div>
+        </div>
     );
 }
 
@@ -333,7 +391,7 @@ function SelectorModelo({ form, ajustes, registrarCargar }: { form: UseFormRetur
         setLista({ estado: "cargando" });
         // Lo guardado, por GET; otro destino o una clave nueva, por POST (la clave no va en la URL).
         if (!clave && !cambiaDestino(d)) pedir((signal) => leerModelosGuardados(signal));
-        else pedir((signal) => consultarModelos({ proveedor: d.proveedor, url, ...(clave ? { clave } : {}) }, signal));
+        else pedir((signal) => consultarModelos({ proveedor: d.proveedor as Ajustes["proveedor"], url, ...(clave ? { clave } : {}) }, signal));
     }
 
     useEffect(() => {
@@ -415,6 +473,16 @@ function Prueba({ form, destinoCambiado }: { form: UseFormReturn<ValoresAjustes>
     const [estado, setEstado] = useState<{ tipo: "nada" } | { tipo: "probando" } | { tipo: "hecho"; prueba: PruebaAsistente } | { tipo: "fallo"; error: unknown }>({ tipo: "nada" });
     async function probar() {
         const d = form.getValues();
+        if (d.proveedor === SERVIDOR_IA) {
+            setEstado({ tipo: "probando" });
+            try {
+                // PROVISIONAL: el tipo generado aún no conoce `servidor_ia`.
+                setEstado({ tipo: "hecho", prueba: await probarAsistente({ proveedor: d.proveedor as Ajustes["proveedor"], url: "", modelo: d.modelo.trim() }) });
+            } catch (e) {
+                setEstado({ tipo: "fallo", error: e });
+            }
+            return;
+        }
         if (d.url.trim() && !urlValida(d.url.trim())) {
             await form.trigger("url");
             return;
@@ -427,24 +495,25 @@ function Prueba({ form, destinoCambiado }: { form: UseFormReturn<ValoresAjustes>
         }
         setEstado({ tipo: "probando" });
         try {
-            const p = await probarAsistente({ proveedor: d.proveedor, url: d.url.trim(), modelo: d.modelo.trim(), ...(clave ? { clave } : {}) });
+            const p = await probarAsistente({ proveedor: d.proveedor as Ajustes["proveedor"], url: d.url.trim(), modelo: d.modelo.trim(), ...(clave ? { clave } : {}) });
             setEstado({ tipo: "hecho", prueba: p });
         } catch (e) {
             setEstado({ tipo: "fallo", error: e });
         }
     }
+    const propio = useWatch({ control: form.control, name: "proveedor" }) === SERVIDOR_IA;
     const ok = estado.tipo === "hecho" && estado.prueba.estado === "ok";
     return (
         <div className="grid gap-2">
             <Boton variante="secundario" onClick={() => void probar()} disabled={estado.tipo === "probando"} className="w-full sm:w-auto sm:justify-self-start">
                 <RefreshCw className={cn(estado.tipo === "probando" && "motion-safe:animate-spin")} />
-                {estado.tipo === "probando" ? "Probando…" : "Probar conexión"}
+                {estado.tipo === "probando" ? "Probando…" : !propio ? "Probar conexión" : estado.tipo === "nada" ? "Probar" : "Probar otra vez"}
             </Boton>
             {estado.tipo === "hecho" || estado.tipo === "fallo" ? (
                 <p role="status" data-prueba={ok ? "ok" : "error"} className={cn("flex items-start gap-1.5 text-sm font-medium", ok ? "text-success" : "text-error")}>
                     {ok ? <CircleCheck aria-hidden className="mt-0.5 size-4 shrink-0" /> : <CircleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />}
                     <span className="min-w-0 break-words">
-                        {estado.tipo === "hecho" ? (ok ? textoPrueba(estado.prueba) : `No respondió: ${textoPrueba(estado.prueba)}`) : `No se pudo probar: ${motivoModelos(estado.error)}`}
+                        {estado.tipo === "hecho" ? (ok ? textoPrueba(estado.prueba) : `No respondió: ${textoPrueba(estado.prueba)}`) : estado.error instanceof ErrorApi && estado.error.codigo === "servidor_ia_no_disponible" ? TEXTO_NO_DISPONIBLE : `No se pudo probar: ${motivoModelos(estado.error)}`}
                     </span>
                 </p>
             ) : null}

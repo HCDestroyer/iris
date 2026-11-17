@@ -104,7 +104,7 @@ export type Tablero = {
         /** Rechazadas por saturación (`servidor_ia_ocupado`) en el rango. */
         rechazadas: number;
     } | null;
-    /** Solo con `servidor_ia.ver`. */
+    /** Con `ver_uso`, solo las peticiones y los tiempos de la empresa activa (`usoPct` y `vramPct` en `null`). */
     series: PuntoSerie[] | null;
     uso: {
         /** Con `ver_uso`, una sola fila: la de la empresa activa. */

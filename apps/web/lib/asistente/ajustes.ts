@@ -8,7 +8,21 @@ import type { AjustesAsistente, EntradaAjustesAsistente, ProveedorIA } from "./t
  * contraseña; el tope va de 1 000 a 1 000 000 000 tokens; los precios son decimales como texto.
  */
 
-export const PROVEEDORES: readonly { valor: ProveedorIA; titulo: string; detalle: string; recomendado?: boolean; nube: boolean }[] = [
+/**
+ * PROVISIONAL: `servidor_ia` (contratos/voz.md §4.11) todavía no está en el tipo generado. Cuando
+ * `packages/contratos` lo traiga, `ProveedorForm` es `ProveedorIA` y sobran los `as` de este archivo.
+ */
+export type ProveedorForm = ProveedorIA | "servidor_ia";
+export const SERVIDOR_IA = "servidor_ia" satisfies ProveedorForm;
+const PROVEEDOR_ZOD = z.enum(["ollama", "openai_compatible", "anthropic", "servidor_ia"]);
+
+export const PROVEEDORES: readonly { valor: ProveedorForm; titulo: string; detalle: string; recomendado?: boolean; nube: boolean }[] = [
+    {
+        valor: "servidor_ia",
+        titulo: "Servidor de IA",
+        detalle: "El servidor propio de la instalación. Las conversaciones no salen a servicios de fuera y no se paga por uso.",
+        nube: false,
+    },
     {
         valor: "ollama",
         titulo: "Ollama · servidor propio",
@@ -58,7 +72,7 @@ export function urlValida(texto: string): boolean {
  * La dirección como la compara el servidor (§16.1): sin barra final; en OpenAI y Ollama sin `/v1`;
  * Anthropic vacía es la oficial.
  */
-export function urlNormalizada(proveedor: ProveedorIA, url: string): string {
+export function urlNormalizada(proveedor: ProveedorForm, url: string): string {
     let u = url.trim().replace(/\/+$/, "");
     if (proveedor !== "anthropic") u = u.replace(/\/v1$/, "");
     if (proveedor === "anthropic" && u === "") u = "https://api.anthropic.com";
@@ -75,7 +89,7 @@ export const TEXTO_CLAVE_REQUERIDA = "Con otro proveedor u otra dirección hay q
 export const esquemaAjustesAsistente = z
     .object({
         activo: z.boolean(),
-        proveedor: z.enum(["ollama", "openai_compatible", "anthropic"]),
+        proveedor: PROVEEDOR_ZOD,
         url: z.string().trim().max(500, "Hasta 500 caracteres"),
         /** Vacío con una clave guardada: se queda la guardada. */
         clave: z.string().max(500, "Hasta 500 caracteres"),
@@ -86,7 +100,7 @@ export const esquemaAjustesAsistente = z
         /** «Quitar clave» (Ollama): al guardar se manda `clave: ""`. */
         quitarClave: z.boolean(),
         /** Proveedor y dirección guardados (no son campos: la clave guardada solo sirve para ellos). */
-        proveedorGuardado: z.enum(["ollama", "openai_compatible", "anthropic"]),
+        proveedorGuardado: PROVEEDOR_ZOD,
         urlGuardada: z.string(),
         modelo: z.string().trim().max(200, "Hasta 200 caracteres"),
         modo: z.enum(["automatico", "boton"]),
@@ -97,12 +111,14 @@ export const esquemaAjustesAsistente = z
     })
     .superRefine((d, ctx) => {
         const anthropic = d.proveedor === "anthropic";
-        if (d.url && !urlValida(d.url)) ctx.addIssue({ code: "custom", path: ["url"], message: "Una dirección http:// o https:// sin usuario, contraseña ni parámetros" });
-        if (d.activo && !anthropic && !d.url) ctx.addIssue({ code: "custom", path: ["url"], message: "Falta la dirección para activar el asistente" });
+        // Con el Servidor de IA no hay dirección ni clave: solo un modelo de los permitidos (voz.md §4.11).
+        const propio = d.proveedor === SERVIDOR_IA;
+        if (!propio && d.url && !urlValida(d.url)) ctx.addIssue({ code: "custom", path: ["url"], message: "Una dirección http:// o https:// sin usuario, contraseña ni parámetros" });
+        if (d.activo && !anthropic && !propio && !d.url) ctx.addIssue({ code: "custom", path: ["url"], message: "Falta la dirección para activar el asistente" });
         if (d.activo && !anthropic && !d.modelo) ctx.addIssue({ code: "custom", path: ["modelo"], message: "Falta el modelo para activar el asistente" });
         const nueva = d.cambiarClave && d.clave.trim() !== "";
         // El servidor responde 422 `clave_requerida`: la clave guardada no viaja a otro servidor.
-        if (d.claveGuardada && !d.quitarClave && !nueva && cambiaDestino(d)) ctx.addIssue({ code: "custom", path: ["clave"], message: TEXTO_CLAVE_REQUERIDA });
+        if (!propio && d.claveGuardada && !d.quitarClave && !nueva && cambiaDestino(d)) ctx.addIssue({ code: "custom", path: ["clave"], message: TEXTO_CLAVE_REQUERIDA });
         const conClave = nueva || (d.claveGuardada && !d.quitarClave);
         if (d.activo && anthropic && !conClave) ctx.addIssue({ code: "custom", path: ["clave"], message: "Anthropic necesita una clave para activar el asistente" });
         const tope = Number(d.topeTokensMes);
@@ -141,11 +157,14 @@ export function valoresDe(a: AjustesAsistente): ValoresAjustes {
  * borra); ausente deja la guardada.
  */
 export function entradaDe(d: ValoresAjustes, version: number): EntradaAjustesAsistente {
-    const escrita = d.cambiarClave ? d.clave.trim() : "";
+    const propio = d.proveedor === SERVIDOR_IA;
+    const escrita = !propio && d.cambiarClave ? d.clave.trim() : "";
+    // Al pasar al Servidor de IA con una clave guardada, el servidor exige `clave: ""` (la borra).
+    const clave = propio ? (d.claveGuardada ? { clave: "" } : {}) : escrita ? { clave: escrita } : d.quitarClave ? { clave: "" } : {};
     return {
         activo: d.activo,
-        proveedor: d.proveedor,
-        url: d.url.trim(),
+        proveedor: d.proveedor as ProveedorIA,
+        url: propio ? "" : d.url.trim(),
         modelo: d.modelo.trim(),
         modo: d.modo,
         fuentes: { ...d.fuentes },
@@ -153,15 +172,15 @@ export function entradaDe(d: ValoresAjustes, version: number): EntradaAjustesAsi
         precioEntradaMillon: d.precioEntradaMillon || null,
         precioSalidaMillon: d.precioSalidaMillon || null,
         version,
-        ...(escrita ? { clave: escrita } : d.quitarClave ? { clave: "" } : {}),
+        ...clave,
     };
 }
 
 /** El proveedor manda los mensajes fuera de la red de la empresa. */
-export const esNube = (p: ProveedorIA) => PROVEEDORES.find((x) => x.valor === p)?.nube ?? true;
+export const esNube = (p: ProveedorForm) => PROVEEDORES.find((x) => x.valor === p)?.nube ?? true;
 
 /** Ejemplo de dirección por proveedor (texto de ayuda del campo). */
-export function ejemploUrl(p: ProveedorIA): string {
+export function ejemploUrl(p: ProveedorForm): string {
     if (p === "ollama") return "http://10.0.0.20:11434";
     if (p === "anthropic") return "Vacía: https://api.anthropic.com";
     return "https://openrouter.ai/api/v1";

@@ -1,7 +1,7 @@
 "use client";
 
 import { avisar, Aviso, Boton, cn, Esqueleto, EstadoVacio, GraficaSerie, GrupoSegmentado, InsigniaEstado, Medidor, Tabla, TablaCelda, TablaCuerpo, TablaEncabezado, TablaFila, TablaTitulo, Tarjeta } from "@iris/ui";
-import { Building2, Check, CircleCheck, Cpu, Layers, Link2, MemoryStick, MessageCircle, RefreshCw, Server, Sparkles, Thermometer, TriangleAlert, Users, Wrench, type LucideIcon } from "lucide-react";
+import { Building2, Check, CircleCheck, Clock, Cpu, Info, Layers, Link2, MemoryStick, MessageCircle, RefreshCw, Server, Sparkles, Thermometer, TriangleAlert, Users, Wrench, type LucideIcon } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
@@ -166,10 +166,17 @@ function Vista({ tablero, rango, alRango, ahora, global, administra, umbrales, r
             <GrupoSegmentado etiqueta="Periodo" valor={rango} alCambiar={alRango} opciones={RANGOS.map((r) => ({ valor: r, etiqueta: NOMBRE_RANGO[r] }))} className="w-full sm:w-fit" />
 
             {global ? <Cifras tablero={tablero} vigentes={vigentes} rango={rango} limites={limites} /> : <EstadoGeneral tablero={tablero} />}
-            {global && tablero.series ? <Series tablero={tablero} rango={rango} /> : null}
+            {global ? null : <CifrasEmpresa tablero={tablero} rango={rango} />}
+            {tablero.series ? <Series tablero={tablero} rango={rango} global={global} /> : null}
             {global && vigentes && tablero.servidor ? <Modelos tablero={tablero} administra={administra} /> : null}
-            <Uso tablero={tablero} rango={rango} global={global} />
+            {global ? <Uso tablero={tablero} rango={rango} /> : null}
             <Errores tablero={tablero} rango={rango} ahora={ahora} />
+            {global ? null : (
+                <p className="flex items-start gap-2 rounded-lg bg-elevated p-3 text-[0.8125rem] text-muted-foreground" data-slot="nota-admin-empresa">
+                    <Info aria-hidden className="mt-0.5 size-4 shrink-0" />
+                    Como administrador de una empresa ves el estado general y el uso de tu empresa. La tarjeta gráfica, los modelos y las otras empresas los ve quien administra toda la instalación.
+                </p>
+            )}
         </div>
     );
 }
@@ -385,13 +392,32 @@ function EstadoGeneral({ tablero }: { tablero: Tablero }) {
     );
 }
 
-function Series({ tablero, rango }: { tablero: Tablero; rango: Rango }) {
+/** El uso de la empresa activa en el periodo. Sin lectura: «Sin datos», nunca ceros. */
+function CifrasEmpresa({ tablero, rango }: { tablero: Tablero; rango: Rango }) {
+    const u = tablero.uso?.empresas[0] ?? null;
+    // Leído y sin fila: la empresa no lo usó. Sin leer: no se sabe.
+    const cero = tablero.uso !== null && u === null;
+    const numero = (v: number | undefined) => (v !== undefined ? cantidad(v) : cero ? "0" : null);
+    return (
+        <section aria-label="Uso de tu empresa" className="grid gap-2" data-slot="uso-empresa">
+            <h2 className="text-sm text-muted-foreground">Uso de tu empresa {TEXTO_RANGO[rango]}</h2>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <Cifra icono={MessageCircle} nombre="Peticiones" valor={numero(u?.peticiones)} detalle="de su asistente" slot="cifra-peticiones" />
+                <Cifra icono={Layers} nombre="Tokens" valor={numero(u ? u.tokensEntrada + u.tokensSalida : undefined)} detalle="texto leído y escrito" slot="cifra-tokens" />
+                <Cifra icono={Clock} nombre="Tiempo medio de respuesta" valor={u && u.latenciaMediaMs !== null ? tiempoRespuesta(u.latenciaMediaMs) : cero || u ? "—" : null} detalle="por petición" slot="cifra-tiempo" />
+                <Cifra icono={TriangleAlert} nombre="Errores" valor={numero(u?.errores)} detalle={u && u.errores > 0 ? "ver motivos abajo" : "en este periodo"} slot="cifra-errores" />
+            </div>
+        </section>
+    );
+}
+
+function Series({ tablero, rango, global }: { tablero: Tablero; rango: Rango; global: boolean }) {
     const s = seriesDe(tablero.series ?? [], rango);
     const porcentaje = (v: number) => `${Math.round(v)} %`;
     const segundos = (v: number) => `${v >= 10 ? Math.round(v) : v.toFixed(1)} s`;
     return (
         <div className="grid min-w-0 gap-4 lg:grid-cols-2" data-slot="series">
-            {s.hayGpu ? (
+            {global && s.hayGpu ? (
                 <GraficaSerie
                     className="lg:col-span-2"
                     titulo="Uso y memoria de video"
@@ -406,7 +432,7 @@ function Series({ tablero, rango }: { tablero: Tablero; rango: Rango }) {
                     maximo={100}
                 />
             ) : null}
-            <GraficaSerie titulo="Peticiones por minuto" series={[{ nombre: "Peticiones", color: 1, valores: s.peticiones }]} instantes={s.instantes} marcas={s.marcas} formato={(v) => String(Math.round(v))} area />
+            <GraficaSerie titulo="Peticiones por minuto" {...(global ? {} : { descripcion: "De tu empresa" })} series={[{ nombre: "Peticiones", color: 1, valores: s.peticiones }]} instantes={s.instantes} marcas={s.marcas} formato={(v) => String(Math.round(v))} area />
             <GraficaSerie
                 titulo="Tiempo de respuesta"
                 descripcion="En segundos. Más bajo es mejor."
@@ -485,10 +511,10 @@ function Modelos({ tablero, administra }: { tablero: Tablero; administra: boolea
     );
 }
 
-function Uso({ tablero, rango, global }: { tablero: Tablero; rango: Rango; global: boolean }) {
+function Uso({ tablero, rango }: { tablero: Tablero; rango: Rango }) {
     const uso = tablero.uso;
-    const titulo = global ? "Uso por empresa" : "Uso de tu empresa";
-    const marco = { titulo, rango, global };
+    const global = true;
+    const marco = { titulo: "Uso por empresa", rango, global };
     if (!uso) {
         return (
             <MarcoUso {...marco}>
