@@ -1168,8 +1168,11 @@ no guarda ninguna credencial de Iris.
     tiempo agotado o un corte de red no son un rechazo: se conserva y se vuelve a probar.
   - **Qué es un rechazo explícito:** solo lo que nadie en el camino puede falsificar. El 401 llega
     por TLS con la huella del servidor fijada. El rechazo del certificado de cliente es una alerta
-    TLS que la puerta manda **después** del saludo (cifrada, con el servidor ya autenticado); una
-    alerta **durante** el saludo va en claro y cualquiera puede inventarla: cuenta como fallo de red.
+    TLS que la puerta manda **después** de terminar el saludo, cuando Iris ya comprobó la huella
+    fijada, la firma del servidor (que prueba que tiene la clave de ese certificado) y su
+    `Finished`. Una alerta **durante** el saludo cuenta como fallo de red, también si llega después
+    de presentar el certificado: el certificado es público y cualquiera en el camino puede
+    presentarlo. El estado se lleva por conexión.
   - **Límite de tiempo:** si pasaron 25 h (la convivencia de 24 h más un margen) desde que se
     apartó la rotación, lo vigente sigue contestando y lo «siguiente» no, se descarta aunque no
     haya habido rechazo explícito: de haberse aplicado, lo vigente ya no valdría. Así una
