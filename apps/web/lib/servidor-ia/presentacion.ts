@@ -30,10 +30,10 @@ export function tamano(mb: number): string {
     return `${Math.round(mb)} MB`;
 }
 
-/** «17 K», «2,883»: tokens y peticiones sin ruido. */
+/** «3.4 M», «170 K», «10,613»: tokens y peticiones sin ruido. */
 export function cantidad(n: number): string {
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)} M`;
-    if (n >= 10_000) return `${Math.round(n / 1000)} K`;
+    if (n >= 100_000) return `${Math.round(n / 1000)} K`;
     return entero.format(n);
 }
 

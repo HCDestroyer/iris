@@ -145,6 +145,7 @@ dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`avis
 | `AreaTexto`, `CampoArea` | `TextArea` | |
 | `Etiqueta` | `Label` | |
 | `ProveedorRutas` | `RouterProvider` de React Aria | |
+| `GraficaSerie`, `Medidor` | — | Propios de Iris (SVG, sin librería). `GraficaSerie`: una a dos series en un solo eje, con leyenda si hay dos, el último valor rotulado, el tramo sin datos en gris (nunca una línea en cero), cursor al pasar o con las flechas y «Ver tabla». Colores `--hx-grafico-1` y `--hx-grafico-2` (validados para daltonismo en claro y oscuro); el texto va en color de texto, no de la serie. `Medidor`: barra `role="meter"` con tono `normal`, `aviso` o `error`; con `parte: null` no dibuja nada. |
 | `BarraGuardar`, `FormularioPagina`, `SeccionFormulario` | — | Composición propia de Iris con `Boton`. `BarraGuardar` acepta `nota` (una línea a la izquierda: «Al guardar, Iris prueba la conexión con Meta.»). `FormularioPagina` acepta `accionTitulo` (a la derecha del título: el interruptor que enciende lo que la pantalla configura) |
 
 `useCambiosSinGuardar(isDirty, isSubmitting)` sirve igual dentro de `DialogoProtegido` que dentro de
@@ -799,6 +800,49 @@ la marca «En pruebas». El proveedor se monta también para quien solo llama (`
   hilo dice «… empezó a contestarla y se cortó antes de conectar» y en la lista «Se cortó al
   contestar · escríbele» (esto último solo mientras se sabe por el flujo en vivo).
 - **Pruebas:** `lib/voz/saliente.test.ts` y `e2e/voz-salientes.spec.ts` (mismos dobles y reloj).
+
+## Servidor de IA (nov. 2026)
+
+`/administracion/servidor-ia` (contratos/voz.md §4.8, §4.11 y §4.12). Entrada en Administración y
+tarjeta en Integraciones (junto a Argos y Horus). Código en `componentes/servidor-ia/` y
+`lib/servidor-ia/`.
+
+- **Quién ve qué.** Quien administra la instalación (`servidor_ia.ver` con `empresas.todas`) ve
+  todo; con `servidor_ia.administrar`, además «Probar», Avisos y Mantenimiento. El admin de una
+  empresa (`servidor_ia.ver_uso`) ve la línea de estado y **solo el uso de su empresa** (cuatro
+  cifras, peticiones por minuto, tiempos y errores): nada de la tarjeta gráfica, los modelos, la
+  saturación ni las otras empresas, y una nota que lo dice.
+- **Tablero.** Línea de estado en llano («En línea · versión… · compatible… · encendido hace 6
+  días»), periodos Ahora / 1 hora / 24 horas / 7 días, cuatro cifras con `Medidor` (uso, memoria de
+  video, temperatura, peticiones en curso con las **rechazadas por saturación**: no hay cola),
+  tres `GraficaSerie`, modelos, uso por empresa y errores recientes. Con varias tarjetas gráficas,
+  un bloque por tarjeta; sin ninguna, «No hay tarjeta gráfica detectada». Modelos y uso son listas,
+  no tablas: caben en 390 px sin desplazarse a lo ancho.
+- **Refresco.** `useTablero` relee cada 10 s en «Ahora» (30 s, 60 s y 5 min en los otros), sin
+  pasar por «cargando», en pausa con la pestaña oculta y al instante al volver.
+- **Nunca cifras viejas.** Si una relectura falla, las cifras se quitan y queda el error con
+  «Reintentar». Caído, incompatible o con la última lectura fallida: las cifras de ahora dicen «Sin
+  datos», «Visto por última vez hoy a las 10:42 (hace 20 min)», qué pasa con el asistente mientras
+  tanto, qué revisar en el servidor y «Probar ahora». Incompatible dice **qué** actualizar: el
+  servidor (con su comando) o Iris.
+- **Enlazar** (`/enlazar`): cuatro pasos en una pantalla. Dirección → código de un solo uso (se
+  muestra una vez, vence a los 15 minutos, se escribe en el servidor sin eco) → huella con la
+  casilla «Coincide con la del instalador» → «Activar» (un enlace sin activar caduca a las 24 h).
+  El 401 de «conectar» no distingue código vencido, usado o mal escrito: el texto lo dice así.
+- **Avisos** (`/avisos`, `FormularioPagina`): los de la semana y, plegado en «Avanzado», los
+  umbrales con «Valores de fábrica». «Servidor caído» y «Versión incompatible» no tienen umbral.
+- **Mantenimiento** (`/mantenimiento`): quién puede usarlo y simultáneas por empresa, modelos
+  permitidos (solo lectura: se descargan en el servidor con un comando, que se puede copiar),
+  «Rotar credenciales» y «Revocar ahora» (cada confirmación dice qué pasa mientras tanto) y
+  «Desenlazar» con confirmación.
+- **En el asistente de cada empresa** (`/administracion/asistente/conexion`): el proveedor
+  «Servidor de IA» aparece si los ajustes traen `servidorIa`; se elige un modelo de los permitidos,
+  sin dirección ni clave, con «Pruébalo antes de guardar». Si había una clave guardada de otro
+  proveedor se avisa que se borra y se manda `clave: ""`. Si no está disponible, lo dice antes de
+  guardar y ante el 422 `servidor_ia_no_disponible`.
+- **Provisional.** Los tipos de `lib/servidor-ia/tipos.ts` y el cliente de `lib/servidor-ia/api.ts`
+  están escritos según el contrato hasta que el OpenAPI traiga estas rutas (ver
+  `.claude/integration/i3.md`).
 
 ## Navegación del panel (fase 1, hecha)
 

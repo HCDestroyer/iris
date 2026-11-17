@@ -1,6 +1,6 @@
 "use client";
 
-import { avisar, Aviso, Boton, cn, Esqueleto, EstadoVacio, GraficaSerie, GrupoSegmentado, InsigniaEstado, Medidor, Tabla, TablaCelda, TablaCuerpo, TablaEncabezado, TablaFila, TablaTitulo, Tarjeta } from "@iris/ui";
+import { avisar, Aviso, Boton, cn, Esqueleto, EstadoVacio, GraficaSerie, GrupoSegmentado, InsigniaEstado, Medidor, Tarjeta } from "@iris/ui";
 import { Building2, Check, CircleCheck, Clock, Cpu, Info, Layers, Link2, MemoryStick, MessageCircle, RefreshCw, Server, Sparkles, Thermometer, TriangleAlert, Users, Wrench, type LucideIcon } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
@@ -462,35 +462,24 @@ function Modelos({ tablero, administra }: { tablero: Tablero; administra: boolea
             {modelos.length === 0 ? (
                 <p className="text-sm text-muted-foreground">El servidor no tiene ningún modelo instalado.</p>
             ) : (
-                <Tabla>
-                    <TablaEncabezado>
-                        <TablaFila>
-                            <TablaTitulo>Nombre</TablaTitulo>
-                            <TablaTitulo className="text-right">Tamaño</TablaTitulo>
-                            <TablaTitulo>En memoria</TablaTitulo>
-                            <TablaTitulo className="text-right">Ocupa</TablaTitulo>
-                        </TablaFila>
-                    </TablaEncabezado>
-                    <TablaCuerpo>
-                        {modelos.map((m) => (
-                            <TablaFila key={m.id} data-modelo={m.id}>
-                                <TablaCelda className="font-mono text-[0.8125rem]">{m.id}</TablaCelda>
-                                <TablaCelda className="text-right whitespace-nowrap">{m.tamanoMb === null ? "—" : tamano(m.tamanoMb)}</TablaCelda>
-                                <TablaCelda>
-                                    {m.cargado ? (
-                                        <span className="inline-flex items-center gap-1 font-medium text-success">
-                                            <Check aria-hidden className="size-3.5" />
-                                            Sí
-                                        </span>
-                                    ) : (
-                                        "No"
-                                    )}
-                                </TablaCelda>
-                                <TablaCelda className="text-right whitespace-nowrap">{m.cargado && m.vramMb !== null ? tamano(m.vramMb) : "—"}</TablaCelda>
-                            </TablaFila>
-                        ))}
-                    </TablaCuerpo>
-                </Tabla>
+                <ul className="grid gap-0 divide-y divide-border" aria-label="Modelos instalados">
+                    {modelos.map((m) => (
+                        <li key={m.id} className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 py-2" data-modelo={m.id}>
+                            <span className="min-w-0">
+                                <span className="font-mono text-[0.8125rem] font-medium [overflow-wrap:anywhere]">{m.id}</span>
+                                <span className="ml-2 text-[0.8125rem] whitespace-nowrap text-muted-foreground">{m.tamanoMb === null ? "" : `${tamano(m.tamanoMb)} en disco`}</span>
+                            </span>
+                            {m.cargado ? (
+                                <span className="inline-flex items-center gap-1 text-[0.8125rem] font-medium whitespace-nowrap text-success">
+                                    <Check aria-hidden className="size-3.5" />
+                                    En memoria{m.vramMb !== null ? ` · ocupa ${tamano(m.vramMb)}` : ""}
+                                </span>
+                            ) : (
+                                <span className="text-[0.8125rem] whitespace-nowrap text-muted-foreground">Sin cargar</span>
+                            )}
+                        </li>
+                    ))}
+                </ul>
             )}
             <p className="text-[0.8125rem] text-muted-foreground">
                 Un modelo cargado responde de inmediato; uno sin cargar tarda unos segundos la primera vez. Los modelos se descargan en el servidor
@@ -531,31 +520,30 @@ function Uso({ tablero, rango }: { tablero: Tablero; rango: Rango }) {
     }
     return (
         <MarcoUso {...marco}>
-            <Tabla>
-                <TablaEncabezado>
-                    <TablaFila>
-                        {global ? <TablaTitulo>Empresa</TablaTitulo> : null}
-                        <TablaTitulo className="text-right">Peticiones</TablaTitulo>
-                        <TablaTitulo className="text-right">Tokens</TablaTitulo>
-                        <TablaTitulo className="text-right">Tiempo medio</TablaTitulo>
-                        <TablaTitulo className="text-right">Errores</TablaTitulo>
-                        <TablaTitulo className="text-right">Rechazadas</TablaTitulo>
-                    </TablaFila>
-                </TablaEncabezado>
-                <TablaCuerpo>
-                    {uso.empresas.map((u) => (
-                        <TablaFila key={u.empresaId} data-empresa={u.empresaId}>
-                            {global ? <TablaCelda>{u.nombre}</TablaCelda> : null}
-                            <TablaCelda className="text-right">{cantidad(u.peticiones)}</TablaCelda>
-                            <TablaCelda className="text-right">{cantidad(u.tokensEntrada + u.tokensSalida)}</TablaCelda>
-                            <TablaCelda className="text-right whitespace-nowrap">{u.latenciaMediaMs === null ? "—" : tiempoRespuesta(u.latenciaMediaMs)}</TablaCelda>
-                            <TablaCelda className={cn("text-right", u.errores > 0 && "font-semibold text-error")}>{cantidad(u.errores)}</TablaCelda>
-                            <TablaCelda className={cn("text-right", u.rechazadas > 0 && "font-semibold text-warning")}>{cantidad(u.rechazadas)}</TablaCelda>
-                        </TablaFila>
-                    ))}
-                </TablaCuerpo>
-            </Tabla>
+            <ul className="grid gap-0 divide-y divide-border" aria-label="Uso por empresa">
+                {uso.empresas.map((u) => (
+                    <li key={u.empresaId} className="grid min-w-0 gap-1.5 py-2.5" data-empresa={u.empresaId}>
+                        <p className="text-sm font-semibold [overflow-wrap:anywhere]">{u.nombre}</p>
+                        <dl className="grid grid-cols-3 gap-x-3 gap-y-1.5 text-[0.8125rem] sm:grid-cols-5">
+                            <Dato nombre="Peticiones" valor={cantidad(u.peticiones)} />
+                            <Dato nombre="Tokens" valor={cantidad(u.tokensEntrada + u.tokensSalida)} />
+                            <Dato nombre="Tiempo medio" valor={u.latenciaMediaMs === null ? "—" : tiempoRespuesta(u.latenciaMediaMs)} />
+                            <Dato nombre="Errores" valor={cantidad(u.errores)} tono={u.errores > 0 ? "error" : undefined} />
+                            <Dato nombre="Rechazadas" valor={cantidad(u.rechazadas)} tono={u.rechazadas > 0 ? "aviso" : undefined} />
+                        </dl>
+                    </li>
+                ))}
+            </ul>
         </MarcoUso>
+    );
+}
+
+function Dato({ nombre, valor, tono }: { nombre: string; valor: string; tono?: "error" | "aviso" | undefined }) {
+    return (
+        <div className="min-w-0" data-dato={nombre}>
+            <dt className="text-xs text-muted-foreground">{nombre}</dt>
+            <dd className={cn("font-medium tabular-nums", tono === "error" && "text-error", tono === "aviso" && "text-warning")}>{valor}</dd>
+        </div>
     );
 }
 
