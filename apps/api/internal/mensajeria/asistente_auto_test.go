@@ -358,7 +358,7 @@ func TestAutonomoSaldo(t *testing.T) {
 	const dpi, dpiEscrito, dpiTramo = "8391726480101", "8391 72648 0101", "72648 0101"
 	x := nuevaBandejaIA(t)
 	x.autonomo("siempre_primero", nil)
-	x.cuenta(&argos.EstadoCuenta{Saldo: texto("350.75"), Moneda: "GTQ", FacturasVencidas: vencidas(2), MontoVencido: texto("350.75")})
+	x.cuenta(&argos.EstadoCuenta{Saldo: texto("987654.32"), Moneda: "GTQ", FacturasVencidas: vencidas(2), MontoVencido: texto("987654.32")})
 	x.argos.mu.Lock()
 	x.argos.documento = dpi
 	x.argos.mu.Unlock()
@@ -391,13 +391,13 @@ func TestAutonomoSaldo(t *testing.T) {
 	c := x.turno(num, "wamid.sal1", "Claro, mi DPI es "+dpiEscrito, "Pagos y saldo", llama("verificar_identidad", `{}`), llama("consultar_saldo", `{}`),
 		dice("Tienes 2 facturas vencidas. Tu saldo pendiente es de {{saldo}}."))
 	ms := x.delAsistente(conv)
-	if len(ms) != 2 || !strings.Contains(textoDe(ms[1]), "Tu saldo pendiente es de Q 350.75.") {
+	if len(ms) != 2 || !strings.Contains(textoDe(ms[1]), "Tu saldo pendiente es de Q 987654.32.") {
 		t.Fatalf("saldo con verificación fuerte: %v (acciones %v)", ms, x.acciones(conv))
 	}
 	if v := c["contacto"].(map[string]any)["verificacion"]; v != "fuerte" {
 		t.Fatalf("tras el desafío: %v", v)
 	}
-	if a := c["actividadAsistente"].(map[string]any); a["tipo"] != "saldo_informado" || strings.Contains(fmt.Sprint(a), "350") {
+	if a := c["actividadAsistente"].(map[string]any); a["tipo"] != "saldo_informado" || strings.Contains(fmt.Sprint(a), "987654") {
 		t.Fatalf("actividad: %v", a)
 	}
 	x.argos.mu.Lock()
@@ -409,7 +409,7 @@ func TestAutonomoSaldo(t *testing.T) {
 	// En auditoria.acciones se busca en la entrada, el resultado y el detalle del error.
 	// El dato de identidad no se guarda (el mensaje queda con ***) ni está en auditoría o eventos; el
 	// monto tampoco. Y nada de eso llegó al modelo.
-	for _, dato := range []string{"350.75", dpi, dpiEscrito, dpiTramo} {
+	for _, dato := range []string{"987654.32", dpi, dpiEscrito, dpiTramo} {
 		for _, sql := range []string{`SELECT count(*) FROM auditoria.acciones WHERE (entrada::text || ' ' || resultado || ' ' || coalesce(error::text, '')) LIKE '%' || $1 || '%'`,
 			`SELECT count(*) FROM auditoria.cambios WHERE (antes::text LIKE '%' || $1 || '%' OR despues::text LIKE '%' || $1 || '%')`,
 			`SELECT count(*) FROM integracion.outbox WHERE payload::text LIKE '%' || $1 || '%'`} {
@@ -451,7 +451,7 @@ func TestAutonomoSaldo(t *testing.T) {
 	// M2: en el turno siguiente el historial que ve el modelo lleva el monto enmascarado.
 	x.turno(num, "wamid.sal1b", "Gracias, ¿algo más que deba saber?", "Pagos y saldo", dice("Por ahora eso es todo."))
 	for _, cuerpo := range x.ia.cuerposAutonomos() {
-		if strings.Contains(cuerpo, "350.75") || strings.Contains(cuerpo, dpi) || strings.Contains(cuerpo, "72648") {
+		if strings.Contains(cuerpo, "987654.32") || strings.Contains(cuerpo, dpi) || strings.Contains(cuerpo, "72648") {
 			t.Fatal("el monto o el documento llegaron al modelo")
 		}
 	}
@@ -502,7 +502,7 @@ func TestAutonomoSaldo(t *testing.T) {
 	*x.reloj = x.reloj.Add(21 * time.Second)
 	x.guion(llama("consultar_saldo", `{}`), dice("Tu saldo pendiente es de {{saldo}}."))
 	x.correr(conv4)
-	if ms := x.delAsistente(conv4); len(ms) != 1 || !strings.Contains(textoDe(ms[0]), "Q 350.75") {
+	if ms := x.delAsistente(conv4); len(ms) != 1 || !strings.Contains(textoDe(ms[0]), "Q 987654.32") {
 		t.Fatalf("saldo con el número (configurado): %v", ms)
 	}
 	r := x.api(x.admin, http.MethodGet, "/asistente/ajustes", nil)
@@ -528,7 +528,7 @@ func TestAutonomoSaldo(t *testing.T) {
 		t.Fatal("leyó el estado de cuenta de un cliente sin verificar")
 	}
 	for _, m := range x.delAsistente(conv5) {
-		if strings.Contains(textoDe(m), "350") || strings.Contains(textoDe(m), "{{") {
+		if strings.Contains(textoDe(m), "987654") || strings.Contains(textoDe(m), "{{") {
 			t.Fatalf("saldo a un cliente sin verificar: %v", m)
 		}
 	}
