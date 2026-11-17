@@ -125,8 +125,8 @@ Además, con un número real:
   `confirmarRiesgo` irá por detrás de la cuenta de Meta.
 - **Supuesto 24 (comprobar con una llamada real):** cuando el agente deja una entrante antes de
   que haya audio, Iris manda **`reject`** si nunca mandó `accept` (solo reservada o pre-aceptada) y
-  **`terminate`** si el `accept` ya salió o estaba en vuelo; si Meta rechaza ese `terminate`, manda
-  `reject`. Probar las tres: cerrar la pestaña justo al pulsar «Contestar», después del
+  **`terminate`** si el `accept` ya salió o estaba en vuelo; si Meta responde 400 o 404 a una, prueba
+  la otra, y alterna. Probar las tres: cerrar la pestaña justo al pulsar «Contestar», después del
   `pre_accept` y durante el `accept`. En las tres el teléfono del cliente debe dejar de timbrar; si
   en alguna sigue sonando, anotar qué respondió Meta a cada acción.
 - **Supuesto 23:** `call_permissions` trae, en la acción `send_call_permission_request`,

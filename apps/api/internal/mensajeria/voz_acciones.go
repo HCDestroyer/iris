@@ -51,6 +51,7 @@ type casosVoz struct {
 	resultadoLlamar   *auditoria.Caso[resultadoLlamar, bool]
 	RespuestaSDP      *auditoria.Caso[EntradaLlamada, RespuestaSDP]
 	resolverSolicitud *auditoria.Caso[solicitudResuelta, bool]
+	agotarAccion      *auditoria.Caso[uuid.UUID, bool]
 	mantener          *auditoria.Caso[uuid.UUID, mantenimientoLlamada]
 	vencer            *auditoria.Caso[struct{}, int]
 }
@@ -63,7 +64,7 @@ func nuevosCasosVoz(m *Modulo) casosVoz {
 		VerCanal: nuevoVerLlamadasCanal(m), ConfigCanal: nuevoConfigurarLlamadasCanal(m), comprobar: nuevoGuardarComprobacion(m),
 		prepararCanal: nuevoPrepararComprobacion(m), VerAjustes: nuevoVerAjustesVoz(m), FijarAjustes: nuevoFijarAjustesVoz(m),
 		VerPermiso: nuevoVerPermisoLlamada(m), SolicitarPermiso: nuevoSolicitarPermisoLlamada(m), previoLlamar: nuevoPrevioLlamar(m),
-		llamar: nuevoLlamar(m), resultadoLlamar: nuevoResultadoLlamar(m), RespuestaSDP: nuevoRespuestaSDP(m), resolverSolicitud: nuevoResolverSolicitud(m),
+		llamar: nuevoLlamar(m), resultadoLlamar: nuevoResultadoLlamar(m), RespuestaSDP: nuevoRespuestaSDP(m), resolverSolicitud: nuevoResolverSolicitud(m), agotarAccion: nuevoAgotarAccionMeta(m),
 		mantener: nuevoMantenerLlamada(m), vencer: nuevoVencerDevoluciones(m), resultadoAjustes: nuevoResultadoAjustesMeta(m),
 		reintentarAjustes: nuevoReintentarAjustesMeta(m)}
 }
@@ -122,8 +123,9 @@ type resultadoMeta struct {
 	ID     uuid.UUID `json:"id"`
 	Accion string    `json:"accion"`
 	Fallo  bool      `json:"fallo"`
-	// Rechazada: Meta respondió que no (no es que no respondiera).
-	Rechazada bool `json:"rechazada,omitempty"`
+	// NoAplica: Meta respondió 400 o 404: esa acción no vale para el estado en que tiene la llamada
+	// (no es un fallo de credenciales, de límite ni de red: esos se reintentan igual).
+	NoAplica bool `json:"no_aplica,omitempty"`
 }
 
 // llamadaDeQuienLaReclamo: después de reclamar la llamada es de quien la reclamó (M1), en el
@@ -420,10 +422,17 @@ func nuevoResultadoMeta(m *Modulo) *auditoria.Caso[resultadoMeta, bool] {
 			case llamadaFinal(l.Estado):
 				// reject o terminate de una llamada ya cerrada: solo queda anotado. Si Meta no
 				// respondió, la intención sigue pendiente y el job de escrituras a Meta la repite (son idempotentes).
-				// Meta dice que el terminate no aplica a una entrante que nunca llegó a tener audio (no
-				// se había aceptado todavía): lo que corta el timbre del cliente es reject.
-				if in.Fallo && in.Rechazada && in.Accion == MetaTerminar && l.Direccion == "entrante" && l.ContestadaEn == nil {
-					intencionMeta(&l, MetaRechazar, ahora)
+				// Una entrante que en Iris no llegó a tener audio puede estar en Meta timbrando (la corta
+				// reject) o ya conectada por un accept tardío (la corta terminate). Si Meta dice que la
+				// acción no aplica (400 o 404), se prueba la otra; y se alterna mientras lo siga diciendo.
+				// Cualquier otro fallo (401, 403, 429, 5xx, red) reintenta la misma acción.
+				if in.Fallo && in.NoAplica && l.Direccion == "entrante" && l.ContestadaEn == nil && (in.Accion == MetaTerminar || in.Accion == MetaRechazar) {
+					otra := MetaRechazar
+					if in.Accion == MetaRechazar {
+						otra = MetaTerminar
+					}
+					intencionMeta(&l, otra, ahora)
+					t.Anotar(map[string]any{"no_aplica": in.Accion, "se_prueba": otra})
 					_, err = guardarLlamada(ctx, q, l)
 					return true, err
 				}
@@ -677,4 +686,33 @@ func (m *Modulo) Rechazar(ctx context.Context, in EntradaRechazar) (Llamada, err
 		_ = m.cumplirMeta(ctx, nucleo.BDDe(ctx), in.ID, "")
 	}
 	return l, nil
+}
+
+// nuevoAgotarAccionMeta: pasaron 2 minutos y Meta no aceptó ni reject ni terminate para una llamada
+// que Iris ya cerró. No se da por cerrada en silencio: el call_id pasa a llamadas_huerfanas (el job
+// la sigue intentando terminar) y queda una línea de auditoría para diagnóstico.
+func nuevoAgotarAccionMeta(m *Modulo) *auditoria.Caso[uuid.UUID, bool] {
+	return auditoria.Nuevo(auditoria.Caso[uuid.UUID, bool]{
+		Accion: "llamadas.accion_meta_agotada", Acceso: auditoria.Autenticado, SinEmpresa: true,
+		Logica: func(ctx context.Context, t *auditoria.Tx, id uuid.UUID) (bool, error) {
+			if err := soloSistemaVoz(ctx); err != nil {
+				return false, err
+			}
+			q := mensajeriabd.New(t)
+			l, err := q.LlamadaParaActualizar(ctx, id)
+			if err != nil || !accionPendiente(l) {
+				return false, err
+			}
+			t.FijarEmpresa(derefEmpresa(l.EmpresaID))
+			t.FijarEntidad("llamada", l.ID)
+			t.Anotar(map[string]any{"accion": l.AccionMeta, "puede_seguir_viva_en_meta": true})
+			if err := q.AgotarAccionMeta(ctx, id); err != nil {
+				return false, err
+			}
+			if l.CanalID == nil {
+				return true, nil
+			}
+			return true, registrarHuerfana(ctx, q, *l.CanalID, l.IDExterno, m.ahora())
+		},
+	})
 }

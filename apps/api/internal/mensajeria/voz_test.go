@@ -1721,8 +1721,9 @@ func TestLlamadaColgarPropiaConElAcceptEnVuelo(t *testing.T) {
 	if x.g.cuenta("reject:"+call3) != 1 || x.g.cuenta("terminate:"+call3) != 0 {
 		t.Fatalf("pre-aceptada: reject y no terminate: %v", x.g.hechas())
 	}
-	// Con el accept en vuelo se manda terminate; si Meta responde que no aplica (todavía no la había
-	// aceptado), se manda reject: el cliente no se queda oyendo el timbre.
+	// Con el accept en vuelo se manda terminate. Si Meta responde que no aplica (400), se prueba
+	// reject; si reject tampoco aplica (el accept sí llegó a conectar), se vuelve a terminate; y así
+	// hasta que una entra. El cliente no se queda con la llamada viva.
 	num4, call4 := numeroCliente(), "wacid.cierre4"+numeroCliente()
 	x.pasa(time.Second, x.agente, x.supervisor)
 	x.connect(num4, call4)
@@ -1730,6 +1731,7 @@ func TestLlamadaColgarPropiaConElAcceptEnVuelo(t *testing.T) {
 	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id4+"/reclamar", nil), http.StatusOK)
 	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id4+"/contestar", map[string]any{"sdpRespuesta": sdpNavegador("")}), http.StatusOK)
 	x.g.falla("terminate", &mensajeria.ErrMetaLlamada{Status: 400})
+	x.g.falla("reject", &mensajeria.ErrMetaLlamada{Status: 400})
 	var otra sync.Once
 	x.gancho(func(accion string) {
 		if accion == "accept" {
@@ -1742,11 +1744,63 @@ func TestLlamadaColgarPropiaConElAcceptEnVuelo(t *testing.T) {
 	})
 	x.api(x.agente, http.MethodPost, "/llamadas/"+id4+"/confirmar-medio", nil)
 	x.gancho(nil)
-	x.g.falla("terminate", nil)
-	if _, estado, _ := x.llamada(call4); estado != "perdida" || x.g.cuenta("terminate:"+call4) != 1 || x.g.cuenta("reject:"+call4) != 1 {
-		t.Fatalf("terminate rechazado por Meta → reject: %s %v", estado, x.g.hechas())
+	deLaLlamada := func(call string) []string {
+		var out []string
+		for _, a := range x.g.hechas() {
+			if strings.HasSuffix(a, ":"+call) && !strings.HasPrefix(a, "pre_accept") && !strings.HasPrefix(a, "accept") {
+				out = append(out, strings.TrimSuffix(a, ":"+call))
+			}
+		}
+		return out
 	}
-	if n := x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id = $1::uuid AND accion_meta = 'reject' AND accion_meta_estado = 'hecha'`, id4); n != 1 {
-		t.Fatal("la acción con Meta debía quedar hecha con reject")
+	// terminate (400) → reject (400) → terminate (400)…: alterna, y sigue pendiente (no se rinde ni se
+	// queda en una sola acción).
+	h := deLaLlamada(call4)
+	alterna := len(h) >= 2 && h[0] == "terminate"
+	for i := 1; i < len(h); i++ {
+		alterna = alterna && h[i] != h[i-1]
+	}
+	if !alterna || x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id = $1::uuid AND estado = 'perdida' AND accion_meta IN ('terminate', 'reject')
+		AND accion_meta_estado = 'pendiente'`, id4) != 1 {
+		t.Fatalf("terminate 400 → reject 400 → vuelve a terminate: %v", h)
+	}
+	// El accept sí había conectado: ahora terminate entra.
+	x.g.falla("terminate", nil)
+	x.pasa(9 * time.Second)
+	x.despachar()
+	if h := deLaLlamada(call4); h[len(h)-1] != "terminate" ||
+		x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id = $1::uuid AND accion_meta = 'terminate' AND accion_meta_estado = 'hecha'`, id4) != 1 {
+		t.Fatalf("el job vuelve a terminate y entra: %v", h)
+	}
+	x.g.falla("reject", nil)
+	// Un 429 (o 401, 403, 5xx) no cambia de acción: se reintenta la misma. Y si en 2 minutos no entra,
+	// no se da por cerrada en silencio: pasa a las huérfanas y queda auditado.
+	num5, call5 := numeroCliente(), "wacid.cierre5"+numeroCliente()
+	x.pasa(time.Second, x.agente, x.supervisor)
+	x.connect(num5, call5)
+	id5, _, _ := x.llamada(call5)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id5+"/reclamar", nil), http.StatusOK)
+	x.g.falla("reject", &mensajeria.ErrMetaLlamada{Status: 429})
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id5+"/colgar?propia=true", nil), http.StatusOK)
+	x.pasa(9 * time.Second)
+	x.despachar()
+	if h := deLaLlamada(call5); len(h) < 2 || strings.Join(h, ",") != strings.TrimSuffix(strings.Repeat("reject,", len(h)), ",") {
+		t.Fatalf("un 429 reintenta la misma acción: %v", h)
+	}
+	x.pasa(3 * time.Minute)
+	x.g.falla("terminate", &mensajeria.ErrMetaLlamada{Status: 429})
+	x.despachar()
+	x.g.falla("reject", nil)
+	x.g.falla("terminate", nil)
+	if x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id = $1::uuid AND accion_meta_estado = 'fallida'`, id5) != 1 ||
+		x.contar(`SELECT count(*) FROM mensajeria.llamadas_huerfanas WHERE canal_id = $1 AND call_id = $2 AND estado = 'pendiente'`, x.canal.ID, call5) != 1 ||
+		x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'llamadas.accion_meta_agotada' AND entidad_id = $1`, id5) != 1 {
+		t.Fatalf("agotada a los 2 minutos: huérfana y auditoría (%v)", deLaLlamada(call5))
+	}
+	// Y el job de huérfanas la sigue intentando terminar.
+	x.pasa(21 * time.Second)
+	x.despachar()
+	if x.contar(`SELECT count(*) FROM mensajeria.llamadas_huerfanas WHERE canal_id = $1 AND call_id = $2 AND estado = 'hecha'`, x.canal.ID, call5) != 1 {
+		t.Fatalf("la huérfana debía terminarse: %v", deLaLlamada(call5))
 	}
 }

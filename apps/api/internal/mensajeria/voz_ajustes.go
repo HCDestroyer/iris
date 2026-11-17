@@ -891,9 +891,11 @@ func (m *Modulo) DespacharMetaVoz(ctx context.Context, bd nucleo.BD) error {
 		}
 		for _, a := range acciones {
 			if a.TerminadaEn != nil && ahora.Sub(*a.TerminadaEn) > 2*time.Minute {
-				if err := q.AgotarAccionMeta(ctx, a.ID); err != nil {
+				// No se da por cerrada en silencio: pasa a las huérfanas y queda auditado.
+				if _, err := m.Voz.agotarAccion.Ejecutar(ctx, a.ID); err != nil {
 					return err
 				}
+				slog.WarnContext(ctx, "voz: Meta no aceptó cerrar una llamada en 2 minutos; pasa a las huérfanas", "llamada_id", a.ID)
 				continue
 			}
 			if err := m.cumplirMeta(ctx, bd, a.ID, ""); err != nil {

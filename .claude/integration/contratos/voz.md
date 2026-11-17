@@ -279,8 +279,12 @@ técnica (§9)**; los que más pesan están listados en §10.
     `motivoFin: "agente_salio"`** y recibe el mismo trato que cualquier perdida: devolución
     pendiente, mensaje automático si aplica y `llamada.perdida` con su aviso. A Meta se le
     manda **`reject`** si nunca se envió `accept` (solo reservada o pre-aceptada: la llamada sigue
-    timbrando allá) y **`terminate`** si el `accept` ya salió o estaba en vuelo; si Meta responde
-    que ese `terminate` no aplica, se manda `reject`. Sin `propia`, colgar una llamada que aún conecta sigue respondiendo 409
+    timbrando allá) y **`terminate`** si el `accept` ya salió o estaba en vuelo. Si Meta responde
+    que la acción **no aplica (400 o 404)** se prueba la otra, y se alterna mientras lo siga
+    diciendo (un `accept` tardío pudo conectar: entonces vale `terminate`). Cualquier otro fallo
+    (401, 403, 429, 5xx, red) reintenta la misma acción. Si en 2 minutos no entra ninguna, la
+    llamada no se da por cerrada en silencio: su `call_id` pasa a `llamadas_huerfanas` (el job la
+    sigue intentando terminar) y queda una línea de auditoría (`llamadas.accion_meta_agotada`). Sin `propia`, colgar una llamada que aún conecta sigue respondiendo 409
     `llamada_sin_contestar` (para eso está `soltar`).
   - **Solicitud de permiso sin confirmar.** Si el envío de la solicitud agota sus intentos **sin
     respuesta de Meta** (pudo llegar al cliente), no se descuenta a ciegas: el permiso sigue
