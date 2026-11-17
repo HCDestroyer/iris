@@ -11,6 +11,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
+	"github.com/HCDestroyer/iris/apps/api/internal/notificaciones"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	clavebd "github.com/HCDestroyer/iris/apps/api/internal/nucleo/clave/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
@@ -38,11 +39,13 @@ const (
 	// ColumnaAsistente: clave del proveedor de IA del asistente de cada empresa
 	// (contratos/conversaciones.md §16.1).
 	ColumnaAsistente = "mensajeria.asistente_ajustes.clave_cifrada"
+	// ColumnaCorreoSistema: contraseña del SMTP del correo del sistema (contratos/correo-sistema.md).
+	ColumnaCorreoSistema = "notificaciones.correo_ajustes.contrasena_cifrada"
 )
 
 // Columnas en el orden en que se rotan y se informan.
 var Columnas = []string{ColumnaTOTP, ColumnaTokenConector, ColumnaSecretoWebhook, ColumnaIMAP, ColumnaSMTP, ColumnaVerificador,
-	ColumnaWebhookSalida, ColumnaCanalMensajeria, ColumnaConexionMeta, ColumnaAsistente}
+	ColumnaWebhookSalida, ColumnaCanalMensajeria, ColumnaConexionMeta, ColumnaAsistente, ColumnaCorreoSistema}
 
 // datoAsociadoBuzon es el de internal/soporte (buzones.go, de I2): "soporte.buzon:<id>:imap|smtp".
 // La prueba de la rotación lo verifica leyendo el buzón con el módulo de soporte.
@@ -143,6 +146,9 @@ func nuevoRotar(c *nucleo.Cifrador) *auditoria.Caso[EntradaRotar, Resultado] {
 				return Resultado{}, err
 			}
 			if err := r.asistentes(ctx, q, in.Simular); err != nil {
+				return Resultado{}, err
+			}
+			if err := r.correosSistema(ctx, q, in.Simular); err != nil {
 				return Resultado{}, err
 			}
 			for _, col := range Columnas {
@@ -345,6 +351,25 @@ func (r *rotador) conexionMeta(ctx context.Context, q *clavebd.Queries, simular 
 		}
 		if cambio && !simular {
 			if err := q.RecifrarConexionMeta(ctx, nuevo); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (r *rotador) correosSistema(ctx context.Context, q *clavebd.Queries, simular bool) error {
+	filas, err := q.CorreosSistemaCifrados(ctx)
+	if err != nil {
+		return err
+	}
+	for _, f := range filas {
+		nuevo, cambio, err := r.valor(ColumnaCorreoSistema, f.ID, f.ContrasenaCifrada, notificaciones.DatosAsociadosCorreo(f.ID))
+		if err != nil {
+			return err
+		}
+		if cambio && !simular {
+			if err := q.RecifrarCorreoSistema(ctx, clavebd.RecifrarCorreoSistemaParams{ID: f.ID, ContrasenaCifrada: nuevo}); err != nil {
 				return err
 			}
 		}

@@ -134,6 +134,10 @@ func (m *Modulo) nuevoPurgarCaducos() *auditoria.Caso[struct{}, ResultadoPurga] 
 			if r.Avisos, err = q.PurgarAvisos(ctx, m.ahora().Add(-RetencionAvisos)); err != nil {
 				return r, err
 			}
+			// Pruebas del correo del sistema: solo sirven para el tope por hora y la última de cada ámbito.
+			if _, err = q.PurgarPruebasCorreo(ctx, m.ahora().Add(-RetencionAvisos)); err != nil {
+				return r, err
+			}
 			return r, nil
 		},
 	})

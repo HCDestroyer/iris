@@ -258,3 +258,63 @@ DELETE FROM notificaciones.avisos WHERE creado_en < @antes;
 
 -- name: PurgarCorreos :execrows
 DELETE FROM notificaciones.correos WHERE creado_en < @antes AND estado <> 'pendiente';
+
+-- Correo del sistema configurable (contratos/correo-sistema.md).
+
+-- name: CorreoAjustesDeAmbito :one
+SELECT * FROM notificaciones.correo_ajustes WHERE coalesce(empresa_id, 0) = @empresa::bigint;
+
+-- name: CorreoAjustesParaActualizar :one
+SELECT * FROM notificaciones.correo_ajustes WHERE coalesce(empresa_id, 0) = @empresa::bigint FOR UPDATE;
+
+-- name: CorreoAjustesVigentes :many
+-- Los ajustes activos que aplican a una empresa: el suyo primero y después el global. Un ajuste
+-- apagado no aparece (no bloquea al siguiente).
+SELECT * FROM notificaciones.correo_ajustes
+WHERE activo AND (empresa_id IS NULL OR empresa_id = @empresa::bigint)
+ORDER BY (empresa_id IS NULL), id;
+
+-- name: InsertarCorreoAjustes :one
+INSERT INTO notificaciones.correo_ajustes (empresa_id, host, puerto, seguridad, usuario, remitente_nombre, remitente_correo, activo)
+VALUES (sqlc.narg('empresa_id'), @host, @puerto, @seguridad, @usuario, @remitente_nombre, @remitente_correo, @activo)
+ON CONFLICT DO NOTHING
+RETURNING *;
+
+-- name: ActualizarCorreoAjustes :one
+UPDATE notificaciones.correo_ajustes
+SET host = @host, puerto = @puerto, seguridad = @seguridad, usuario = @usuario, remitente_nombre = @remitente_nombre,
+    remitente_correo = @remitente_correo, activo = @activo, version = version + 1, updated_at = now()
+WHERE id = @id
+RETURNING *;
+
+-- name: FijarContrasenaCorreoAjustes :one
+UPDATE notificaciones.correo_ajustes SET contrasena_cifrada = @contrasena_cifrada WHERE id = @id RETURNING *;
+
+-- name: ActivarCorreoAjustes :one
+UPDATE notificaciones.correo_ajustes SET activo = @activo, version = version + 1, updated_at = now() WHERE id = @id RETURNING *;
+
+-- name: BloquearPruebasCorreo :exec
+-- Serializa el conteo del tope de pruebas (por instalación).
+SELECT pg_advisory_xact_lock(hashtext('notificaciones.correo_pruebas'));
+
+-- name: PruebasCorreoDesde :many
+-- Las pruebas de la última hora (pocas: el tope es 20 por instalación).
+SELECT usuario_id, creado_en FROM notificaciones.correo_pruebas WHERE creado_en > @desde ORDER BY creado_en;
+
+-- name: InsertarPruebaCorreo :one
+INSERT INTO notificaciones.correo_pruebas (empresa_id, usuario_id, estado, creado_en)
+VALUES (sqlc.narg('empresa_id'), @usuario_id, 'en_curso', @ahora)
+RETURNING *;
+
+-- name: CerrarPruebaCorreo :one
+UPDATE notificaciones.correo_pruebas SET estado = @estado, causa = sqlc.narg('causa')
+WHERE id = @id AND usuario_id = @usuario_id AND estado = 'en_curso'
+RETURNING *;
+
+-- name: UltimaPruebaCorreo :one
+SELECT * FROM notificaciones.correo_pruebas
+WHERE coalesce(empresa_id, 0) = @empresa::bigint AND estado <> 'en_curso'
+ORDER BY id DESC LIMIT 1;
+
+-- name: PurgarPruebasCorreo :execrows
+DELETE FROM notificaciones.correo_pruebas WHERE creado_en < @antes;

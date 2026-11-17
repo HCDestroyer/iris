@@ -27,10 +27,14 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 )
 
-// Modos de TLS. No hay modo «sin TLS».
+// Modos de TLS. Los buzones (IMAP y SMTP) no tienen modo «sin TLS».
 const (
 	TLSImplicito = "tls"
 	TLSStartTLS  = "starttls"
+	// TLSNinguna: SMTP en claro, solo para el correo del sistema hacia un relay de la red interna
+	// (contratos/correo-sistema.md §4). Exige que la IP conectada esté dentro de RedesPermitidas y
+	// nunca lleva usuario ni contraseña. IMAP y los buzones no lo aceptan (conectar lo rechaza).
+	TLSNinguna = "ninguna"
 )
 
 // ErrDestinoBloqueado: el servidor resuelve a una red interna no permitida.
@@ -38,6 +42,9 @@ var ErrDestinoBloqueado = errors.New("correo: destino no permitido (red interna)
 
 // ErrSinTLS: el servidor no ofrece STARTTLS (no se sigue en claro).
 var ErrSinTLS = errors.New("correo: el servidor no ofrece STARTTLS")
+
+// ErrClaroNoPermitido: se pidió SMTP en claro fuera de las redes permitidas o con credenciales.
+var ErrClaroNoPermitido = errors.New("correo: sin cifrado solo hacia la red interna permitida y sin credenciales")
 
 // Opciones de red comunes a IMAP y SMTP.
 type Opciones struct {
@@ -136,11 +143,45 @@ func (o Opciones) conectar(ctx context.Context, s Servidor) (net.Conn, error) {
 	return nil, fmt.Errorf("correo: modo TLS desconocido %q", s.TLS)
 }
 
+// conectarEnClaro abre la conexión TCP de un SMTP sin TLS: la IP ya conectada debe estar dentro de
+// RedesPermitidas (no basta con que sea pública) y el servidor no lleva credenciales.
+func (o Opciones) conectarEnClaro(ctx context.Context, s Servidor) (net.Conn, error) {
+	if s.Usuario != "" || s.Contrasena != "" {
+		return nil, ErrClaroNoPermitido
+	}
+	ctx, cancelar := context.WithTimeout(ctx, o.timeout())
+	defer cancelar()
+	conn, err := o.dialer().DialContext(ctx, "tcp", s.direccion())
+	if err != nil {
+		return nil, err
+	}
+	dentro := false
+	if tcp, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
+		if ip, ok := netip.AddrFromSlice(tcp.IP); ok {
+			ip = ip.Unmap()
+			for _, p := range o.RedesPermitidas {
+				dentro = dentro || p.Contains(ip)
+			}
+		}
+	}
+	if !dentro {
+		_ = conn.Close()
+		return nil, ErrClaroNoPermitido
+	}
+	if err := conn.SetDeadline(o.limite(ctx)); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return conn, nil
+}
+
 // Error resumido para guardar o mostrar: nunca lleva credenciales ni la respuesta cruda.
 type Error struct {
-	Codigo  string // destino_no_permitido, dns, conexion, tls, sin_tls, autenticacion, carpeta, protocolo
+	Codigo  string // destino_no_permitido, dns, conexion, tls, sin_tls, claro_no_permitido, autenticacion, carpeta, protocolo
 	Detalle string
-	causa   error
+	// Paso del envío SMTP que rechazó el servidor (remitente, destinatario, mensaje); vacío en lo demás.
+	Paso  string
+	causa error
 }
 
 func (e *Error) Error() string { return e.Codigo + ": " + e.Detalle }
@@ -167,6 +208,8 @@ func Resumir(err error) *Error {
 	switch {
 	case errors.Is(err, ErrDestinoBloqueado):
 		return nuevoError("destino_no_permitido", "El servidor está en una red interna no permitida", err)
+	case errors.Is(err, ErrClaroNoPermitido):
+		return nuevoError("claro_no_permitido", "Sin cifrado solo se puede usar un servidor de la red interna permitida y sin usuario ni contraseña", err)
 	case errors.Is(err, ErrSinTLS):
 		return nuevoError("sin_tls", "El servidor no ofrece STARTTLS; Iris no envía credenciales en claro", err)
 	case errors.As(err, &dns):

@@ -26,6 +26,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	conectorbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/conector/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
+	"github.com/HCDestroyer/iris/apps/api/internal/notificaciones"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/clave"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
@@ -518,5 +519,59 @@ func TestTodasLasColumnasCifradasSeRotan(t *testing.T) {
 	}
 	if len(sinRotar) > 0 {
 		t.Fatalf("columnas bytea sin clasificar (¿cifradas con IRIS_CLAVE_CIFRADO? súmalas a internal/nucleo/clave): %v", sinRotar)
+	}
+}
+
+// La contraseña del correo del sistema (notificaciones.correo_ajustes) también se rota. Va después de
+// TestRotarClave, que cuenta las filas de auditoría de clave.rotar.
+func TestRotarClaveCorreoSistema(t *testing.T) {
+	pool := pruebas.Pool(t)
+	ctx := context.Background()
+	limpiar := func() {
+		if _, err := pool.Exec(ctx, `DELETE FROM notificaciones.correo_ajustes`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	limpiar()
+	t.Cleanup(limpiar)
+	limpiarCifrados(t) // lo que dejó TestRotarClave está cifrado con otras claves
+	vieja, nueva := claveNueva(t), claveNueva(t)
+	cViejo, cNuevo, cTransicion := cifrador(t, vieja), cifrador(t, nueva), cifrador(t, nueva, vieja)
+
+	var id int64
+	if err := pool.QueryRow(ctx, `INSERT INTO notificaciones.correo_ajustes (host, puerto, seguridad, usuario, remitente_correo)
+		VALUES ('smtp.ejemplo.gt', 587, 'starttls', 'avisos', 'avisos@ejemplo.gt') RETURNING id`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	const secreto = "clave-del-smtp-del-sistema"
+	cifrada, err := cViejo.Cifrar([]byte(secreto), notificaciones.DatosAsociadosCorreo(id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE notificaciones.correo_ajustes SET contrasena_cifrada = $1 WHERE id = $2`, cifrada, id); err != nil {
+		t.Fatal(err)
+	}
+	leer := func() []byte {
+		var b []byte
+		if err := pool.QueryRow(ctx, `SELECT contrasena_cifrada FROM notificaciones.correo_ajustes WHERE id = $1`, id).Scan(&b); err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	if _, err := cNuevo.Descifrar(leer(), notificaciones.DatosAsociadosCorreo(id)); err == nil {
+		t.Fatal("se leyó con la clave nueva antes de rotar")
+	}
+	r, err := clave.Nuevo(cTransicion).Rotar.Ejecutar(pruebas.ContextoSistema(pool), clave.EntradaRotar{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exigirConteos(t, r, map[string][3]int{clave.ColumnaCorreoSistema: {1, 1, 0}})
+	plano, err := cNuevo.Descifrar(leer(), notificaciones.DatosAsociadosCorreo(id))
+	if err != nil || string(plano) != secreto {
+		t.Fatalf("tras rotar: %q %v", plano, err)
+	}
+	// Atada a su fila: con los datos de otra no abre.
+	if _, err := cNuevo.Descifrar(leer(), notificaciones.DatosAsociadosCorreo(id+1)); err == nil {
+		t.Fatal("la contraseña abrió con los datos asociados de otra fila")
 	}
 }

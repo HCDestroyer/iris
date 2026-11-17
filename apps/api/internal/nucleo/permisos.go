@@ -253,6 +253,14 @@ const (
 	PermMensajeriaAsistenteConfigurar Permiso = "mensajeria.asistente_configurar"
 )
 
+// Correo del sistema configurable desde el panel (contratos/correo-sistema.md).
+const (
+	// PermCorreoSistemaVer: ver el SMTP del correo del sistema (nunca la contraseña) y por dónde sale.
+	PermCorreoSistemaVer Permiso = "correo_sistema.ver"
+	// PermCorreoSistemaConfigurar: guardar, probar, activar y desactivar el correo del sistema.
+	PermCorreoSistemaConfigurar Permiso = "correo_sistema.configurar"
+)
+
 // Chat interno del equipo (servicio cmd/mensajeria; contratos/chat.md).
 const (
 	// PermChatVer: ver las conversaciones de las que eres miembro (y las de tu alcance con
@@ -345,6 +353,8 @@ var PermisosSensibles = map[Permiso]bool{
 	PermConversacionesRegistrarPromesa: true, PermConversacionesRegistrarBoleta: true, PermConversacionesSupervisar: true,
 	PermConversacionesPedirReconexion: true,
 	PermConversacionesIniciar:         true, PermCampoConfigurar: true,
+	// El SMTP con el que Iris escribe a sus usuarios (servidor, credenciales y remitente).
+	PermCorreoSistemaConfigurar: true,
 	// Aprobar una boleta registra un pago en Argos: de administración (MFA y re-autenticación en una
 	// sesión abierta por el autologin).
 	PermBoletasAprobar: true, PermBoletasRechazar: true,
@@ -425,6 +435,8 @@ var Catalogo = []DefPermiso{
 	{PermConversacionesTomar, "Tomar (asignarse) una conversación sin asignar"},
 	{PermConversacionesTransferir, "Pasar una conversación a otra cola con un resumen"},
 	{PermConversacionesVer, "Ver las conversaciones con clientes de tus colas, las asignadas a ti y las que te mencionan"},
+	{PermCorreoSistemaConfigurar, "Configurar el correo del sistema (servidor SMTP, credenciales y remitente), probarlo, activarlo y desactivarlo"},
+	{PermCorreoSistemaVer, "Ver la configuración del correo del sistema (nunca la contraseña) y por dónde salen hoy los correos"},
 	{PermCotizacionesAceptar, "Marcar como aceptada por el cliente una cotización vigente"},
 	{PermCotizacionesCrear, "Crear cotizaciones (y versiones nuevas) de un prospecto con los planes de Argos"},
 	{PermEmpresasAdoptar, "Asignar una empresa a los datos operativos guardados sin empresa (modo sin conector); solo admin global"},

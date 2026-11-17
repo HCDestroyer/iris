@@ -33,7 +33,7 @@ const RetencionAvisos = 180 * 24 * time.Hour
 
 // Motivos de un correo omitido o fallido.
 const (
-	CorreoSinSistema = "sin_correo_sistema" // no hay IRIS_SMTP_HOST / IRIS_SMTP_REMITENTE
+	CorreoSinSistema = "sin_correo_sistema" // ni ajuste activo en el panel ni IRIS_SMTP_* en el entorno
 	CorreoSinCorreo  = "sin_correo"         // el usuario no tiene correo
 )
 
@@ -264,6 +264,16 @@ func (m *Modulo) nuevoAvisarTope() *auditoria.Caso[EntradaAvisarTope, ResultadoA
 			enlace := EnlaceAsistente
 			evento := pgtype.UUID{Bytes: in.EventoID, Valid: in.EventoID != uuid.Nil}
 			usuarios := []int64{}
+			// ¿Hay por dónde mandar el correo de esta empresa? (su ajuste, el global o el entorno)
+			var empresaCorreo int64
+			if in.EmpresaID != nil {
+				empresaCorreo = *in.EmpresaID
+			}
+			origen, _, err := m.origenCorreo(ctx, q, empresaCorreo)
+			if err != nil {
+				return r, err
+			}
+			hayCorreo := origen != OrigenNinguno
 			for _, u := range us {
 				av, err := q.InsertarAviso(ctx, notificacionesbd.InsertarAvisoParams{UsuarioID: u.ID, EmpresaID: in.EmpresaID, Tipo: TipoAvisoAsistenteTope,
 					Clave: clave, Nivel: nivel, Titulo: titulo, Enlace: &enlace, Datos: datos, EventoID: evento})
@@ -277,7 +287,7 @@ func (m *Modulo) nuevoAvisarTope() *auditoria.Caso[EntradaAvisarTope, ResultadoA
 				usuarios = append(usuarios, u.ID)
 				estado, motivo := "pendiente", (*string)(nil)
 				switch {
-				case m.cfg.Correo == nil:
+				case !hayCorreo:
 					estado, motivo = "omitido", ptr(CorreoSinSistema)
 				case u.Correo == "":
 					estado, motivo = "omitido", ptr(CorreoSinCorreo)
@@ -306,7 +316,7 @@ func (m *Modulo) nuevoAvisarTope() *auditoria.Caso[EntradaAvisarTope, ResultadoA
 			}
 			t.Anotar(map[string]any{"clave": clave, "avisos": r.Avisos, "correos_pendientes": r.CorreosPendientes, "correos_omitidos": r.CorreosOmitidos})
 			correo := "enviar"
-			if m.cfg.Correo == nil {
+			if !hayCorreo {
 				correo = "omitido"
 			}
 			return r, t.Emitir("notificaciones.avisos_creados", map[string]any{"tipo": TipoAvisoAsistenteTope, "clave": clave,
