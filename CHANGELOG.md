@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.25.0](https://github.com/HCDestroyer/iris/compare/v0.24.0...v0.25.0) (2026-11-17)
+
+
+### Funcionalidades
+
+* **notificaciones:** correo del sistema configurable desde el panel ([#179](https://github.com/HCDestroyer/iris/issues/179)) ([b5dce51](https://github.com/HCDestroyer/iris/commit/b5dce515def17ed3543d4682c140f6e1934cfb16))
+* **panel:** correo del sistema configurable desde el panel ([#178](https://github.com/HCDestroyer/iris/issues/178)) ([f0b7735](https://github.com/HCDestroyer/iris/commit/f0b7735013a800cf819d3721a60d745178662148))
+
+
+### Correcciones
+
+* **mensajeria:** el tope de verificación de identidad se cuenta por cliente ([#182](https://github.com/HCDestroyer/iris/issues/182)) ([aff95ad](https://github.com/HCDestroyer/iris/commit/aff95ad63788aa53cd8d85e5644a006f89caeda2))
+
 ## [0.24.0](https://github.com/HCDestroyer/iris/compare/v0.23.0...v0.24.0) (2026-11-16)
 
 
