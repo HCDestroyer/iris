@@ -759,7 +759,7 @@ export interface paths {
         put?: never;
         /**
          * Guardar el correo del sistema
-         * @description Permiso `correo_sistema.configurar`. `{ambito}` es `global` (exige operar sin límite de empresa) o el id de la empresa (exige estar operando en ella; si no, 404). Crea o reemplaza el ajuste. `version` la que leíste (0 al crear): distinta, 409. `contrasena` ausente = se conserva; `""` = se borra; si cambias el servidor, el puerto o el usuario hay que volver a escribirla (422 `contrasena_requerida`). Puertos 25, 465, 587 o 2525. `seguridad: ninguna` solo con un servidor de la red interna permitida y sin usuario ni contraseña (422 `sin_cifrado_solo_red_interna`, `sin_cifrado_sin_credenciales`). Un servidor en una red no permitida: 422 `destino_no_permitido`. No prueba la conexión (usa `probar`). Emite `correo_sistema.ajustes_cambiados`. Contrato: `.claude/integration/contratos/correo-sistema.md`.
+         * @description Permiso `correo_sistema.configurar`. `{ambito}` es `global` (exige operar sin límite de empresa) o el id de la empresa (exige estar operando en ella; si no, 404). Crea o reemplaza el ajuste. `version` la que leíste (0 al crear): distinta, 409. `contrasena` ausente = se conserva; `""` = se borra; si cambias el servidor, el puerto o el usuario hay que volver a escribirla (422 `contrasena_requerida`). Puertos 25, 465, 587 o 2525. `seguridad: ninguna` solo en el ámbito global, con un servidor de la red interna permitida y sin usuario ni contraseña (422 `sin_cifrado_solo_global`, `sin_cifrado_solo_red_interna`, `sin_cifrado_sin_credenciales`). Un servidor en una red no permitida: 422 `destino_no_permitido`; tras 10 servidores rechazados en una hora, 429 `demasiados_rechazos`. No prueba la conexión (usa `probar`). Emite `correo_sistema.ajustes_cambiados`. Contrato: `.claude/integration/contratos/correo-sistema.md`.
          */
         post: operations["guardarCorreoSistema"];
         delete?: never;
@@ -779,7 +779,7 @@ export interface paths {
         put?: never;
         /**
          * Probar el correo del sistema sin guardar
-         * @description Permiso `correo_sistema.configurar`. `{ambito}` es `global` (exige operar sin límite de empresa) o el id de la empresa (exige estar operando en ella; si no, 404). Manda un correo de asunto y cuerpo fijos a `para` (una sola dirección) con los valores del formulario, sin guardarlos. Sin `contrasena` usa la guardada de ese ámbito, solo si el servidor, el puerto y el usuario son los guardados. Responde siempre 200 con `estado` (`ok` o `error`), `causa` (lista cerrada) y `detalle` en lenguaje llano; nunca la respuesta cruda del servidor. Tope: 5 pruebas por usuario y 20 por instalación cada hora (429 `demasiadas_pruebas` con `Retry-After`). Emite `correo_sistema.probado`. Contrato: `.claude/integration/contratos/correo-sistema.md`.
+         * @description Permiso `correo_sistema.configurar`. `{ambito}` es `global` (exige operar sin límite de empresa) o el id de la empresa (exige estar operando en ella; si no, 404). Manda un correo de asunto y cuerpo fijos a `para` (una sola dirección) con los valores del formulario, sin guardarlos. Sin `contrasena` usa la guardada de ese ámbito, solo si el servidor, el puerto y el usuario son los guardados. Responde siempre 200 con `estado` (`ok` o `error`), `causa` (lista cerrada) y `detalle` en lenguaje llano; nunca la respuesta cruda del servidor. Tope: 5 pruebas por usuario y 20 por instalación cada hora (429 `demasiadas_pruebas` con `Retry-After`); los servidores rechazados por la guarda de red cuentan aparte (429 `demasiados_rechazos`). Si no se pudo abrir la conexión (`no_conecta`) la respuesta tarda siempre unos 11 s. Emite `correo_sistema.probado`. Contrato: `.claude/integration/contratos/correo-sistema.md`.
          */
         post: operations["probarCorreoSistema"];
         delete?: never;
@@ -9266,7 +9266,7 @@ export interface components {
             remitenteCorreo: string;
             remitenteNombre?: string;
             /**
-             * @description ninguna: solo un relay de la red interna permitida y sin usuario ni contraseña
+             * @description ninguna: solo en el ámbito global, hacia un relay de la red interna permitida y sin usuario ni contraseña
              * @enum {string}
              */
             seguridad: "starttls" | "tls" | "ninguna";
@@ -9301,7 +9301,7 @@ export interface components {
             remitenteCorreo: string;
             remitenteNombre?: string;
             /**
-             * @description ninguna: solo un relay de la red interna permitida y sin usuario ni contraseña
+             * @description ninguna: solo en el ámbito global, hacia un relay de la red interna permitida y sin usuario ni contraseña
              * @enum {string}
              */
             seguridad: "starttls" | "tls" | "ninguna";
@@ -9663,8 +9663,10 @@ export interface components {
         };
         EntornoCorreo: {
             configurado: boolean;
-            host: string;
-            remitenteCorreo: string;
+            /** @description Solo en el ámbito global */
+            host?: string;
+            /** @description Solo en el ámbito global */
+            remitenteCorreo?: string;
         };
         EntradaAbrirArgos: {
             /** @description Sin destino, la persona llega al inicio del panel de Argos: es «Vincular mi usuario de Argos» */
@@ -19899,6 +19901,15 @@ export interface operations {
             };
             /** @description Unprocessable Entity */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

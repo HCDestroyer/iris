@@ -40,6 +40,9 @@ import (
 
 const claveSMTP = "clave-smtp-muy-secreta"
 
+// esperaNoConecta: el tiempo mínimo de «probar» ante un fallo de conexión (11 s en producción).
+const esperaNoConecta = 300 * time.Millisecond
+
 // tlsCorreo genera una CA y un certificado de servidor para 127.0.0.1.
 func tlsCorreo(t *testing.T) (*tls.Config, *x509.CertPool) {
 	t.Helper()
@@ -276,7 +279,7 @@ func nuevoEntornoCorreo(t *testing.T, conEntorno bool) *entornoCorreo {
 	}
 	x.reloj = time.Now().UTC()
 	cfg := notificaciones.Config{BaseURL: "https://iris.prueba/", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Reloj: func() time.Time { return x.reloj }, Cifrador: cif,
+		Reloj: func() time.Time { return x.reloj }, Cifrador: cif, EsperaNoConecta: esperaNoConecta,
 		RedCorreo:     correo.Opciones{RedesPermitidas: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}, Raices: raices, Timeout: 5 * time.Second},
 		PuertosCorreo: []int{x.tls.puerto, x.starttls.puerto, x.claro.puerto, x.otro.puerto, x.cerrado, 587},
 		Encolar: func(_ context.Context, _ pgx.Tx, a river.JobArgs) error {
@@ -492,8 +495,12 @@ func TestCorreoSistemaValidaciones(t *testing.T) {
 			t.Errorf("para %q: %d %s", para, r.status, r.crudo)
 		}
 	}
-	if n := x.contar(`SELECT count(*) FROM notificaciones.correo_ajustes`) + x.contar(`SELECT count(*) FROM notificaciones.correo_pruebas`); n != 0 {
+	if n := x.contar(`SELECT count(*) FROM notificaciones.correo_ajustes`) + x.contar(`SELECT count(*) FROM notificaciones.correo_pruebas WHERE estado <> 'rechazado'`); n != 0 {
 		t.Fatalf("nada debió guardarse ni probarse: %d", n)
+	}
+	// Los cuatro servidores que rechazó la guarda de red (al guardar y al probar) quedaron contados.
+	if n := x.contar(`SELECT count(*) FROM notificaciones.correo_pruebas WHERE estado = 'rechazado' AND usuario_id = $1`, admin.id); n != 8 {
+		t.Fatalf("rechazos de host contados: %d", n)
 	}
 	if len(x.starttls.recibidos()) != 0 || x.starttls.vio("EHLO") {
 		t.Fatal("una entrada inválida no debe llegar al servidor")
@@ -597,7 +604,7 @@ func nuevoEntornoCorreoCon(t *testing.T, x *entornoCorreo, puerto int) *entornoC
 	y := *x
 	y.notif = notificaciones.Nuevo(notificaciones.Config{Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Reloj: func() time.Time { return x.reloj },
 		RedCorreo:     correo.Opciones{RedesPermitidas: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}, Raices: raices, Timeout: 5 * time.Second},
-		PuertosCorreo: []int{puerto}})
+		PuertosCorreo: []int{puerto}, EsperaNoConecta: esperaNoConecta})
 	y.h, _ = servidor.Nuevo(servidor.Deps{BD: x.bd, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Version: "prueba", Identidad: ident,
 		Modulos: []func(huma.API){y.notif.Registrar}})
 	return &y
@@ -880,5 +887,107 @@ func TestCorreoSinCifradoSoloRedInternaYSinCredenciales(t *testing.T) {
 	}
 	if len(s.recibidos()) != 1 || len(s.credenciales()) != 0 {
 		t.Fatal("solo debió salir el primero y sin credenciales")
+	}
+}
+
+// Los servidores que rechaza la guarda de red cuentan para un tope por usuario y hora, al guardar y
+// al probar: el rechazo no sirve para sondear la red interna (ni su DNS).
+func TestCorreoSistemaTopeDeRechazosDeHost(t *testing.T) {
+	x := nuevoEntornoCorreo(t, false)
+	admin := x.persona([]int64{1}, "admin")
+	otra := x.persona([]int64{1}, "admin")
+	for i := range notificaciones.TopeRechazosHost {
+		extra := map[string]any{"host": fmt.Sprintf("10.9.8.%d", i+1)}
+		var r respuesta
+		if i%2 == 0 {
+			r = x.guardar(admin, "global", 0, x.starttls, "starttls", extra)
+		} else {
+			r = x.probar(admin, "global", x.starttls, "starttls", "ana@isp.example", extra)
+		}
+		if r.status != http.StatusUnprocessableEntity || !strings.Contains(r.crudo, "destino_no_permitido") {
+			t.Fatalf("rechazo %d: %d %s", i, r.status, r.crudo)
+		}
+		x.reloj = x.reloj.Add(time.Minute)
+	}
+	// Con el tope alcanzado ya no se valida ningún servidor, ni uno bueno, ni al guardar ni al probar.
+	for nombre, r := range map[string]respuesta{
+		"guardar otro interno": x.guardar(admin, "global", 0, x.starttls, "starttls", map[string]any{"host": "10.9.8.99"}),
+		"probar otro interno":  x.probar(admin, "global", x.starttls, "starttls", "ana@isp.example", map[string]any{"host": "10.9.8.98"}),
+		"guardar uno bueno":    x.guardar(admin, "global", 0, x.starttls, "starttls", nil),
+	} {
+		if r.status != http.StatusTooManyRequests || !strings.Contains(r.crudo, "demasiados_rechazos") {
+			t.Fatalf("%s: %d %s", nombre, r.status, r.crudo)
+		}
+	}
+	if n := x.contar(`SELECT count(*) FROM notificaciones.correo_pruebas WHERE estado = 'rechazado' AND usuario_id = $1`, admin.id); n != notificaciones.TopeRechazosHost {
+		t.Fatalf("rechazos contados: %d", n)
+	}
+	if x.starttls.vio("EHLO") || x.contar(`SELECT count(*) FROM notificaciones.correo_ajustes`) != 0 {
+		t.Fatal("con el tope alcanzado no debió conectarse ni guardar")
+	}
+	// El tope es por persona, no gasta el de las pruebas y se libera al pasar la hora.
+	x.esperar(x.probar(otra, "global", x.starttls, "starttls", "ana@isp.example", nil), http.StatusOK)
+	x.reloj = x.reloj.Add(52 * time.Minute)
+	x.esperar(x.guardar(admin, "global", 0, x.starttls, "starttls", nil), http.StatusOK)
+	if v := x.esperar(x.api(admin, http.MethodGet, "/api/v1/correo-sistema/global", nil), http.StatusOK).cuerpo; v["ultimaPrueba"].(map[string]any)["estado"] != "ok" {
+		t.Fatalf("un rechazo no es la última prueba: %v", v)
+	}
+}
+
+// Sin cifrado solo en el ajuste global; y del .env, el host y el remitente solo se ven en el global.
+func TestCorreoSistemaSinCifradoYEntornoSoloEnGlobal(t *testing.T) {
+	x := nuevoEntornoCorreo(t, true)
+	admin := x.persona([]int64{1}, "admin")
+	deEmpresa := x.conPermisos([]int64{1}, "correo_sistema.ver", "correo_sistema.configurar")
+	relay := map[string]any{"usuario": "", "contrasena": nil}
+	for _, p := range []persona{admin, deEmpresa} {
+		for nombre, r := range map[string]respuesta{
+			"guardar": x.guardar(p, "1", 0, x.claro, "ninguna", relay),
+			"probar":  x.probar(p, "1", x.claro, "ninguna", "ana@isp.example", relay),
+		} {
+			if r.status != http.StatusUnprocessableEntity || !strings.Contains(r.crudo, "sin_cifrado_solo_global") {
+				t.Fatalf("%s sin cifrado en una empresa: %d %s", nombre, r.status, r.crudo)
+			}
+		}
+	}
+	if x.claro.vio("EHLO") || x.contar(`SELECT count(*) FROM notificaciones.correo_ajustes`)+x.contar(`SELECT count(*) FROM notificaciones.correo_pruebas`) != 0 {
+		t.Fatal("sin cifrado en una empresa no debió conectarse, guardar ni contar")
+	}
+	// Ni escribiendo en la tabla.
+	if _, err := x.bd.Exec(x.ctx, `INSERT INTO notificaciones.correo_ajustes (empresa_id, host, puerto, seguridad, remitente_correo)
+		VALUES (1, '127.0.0.1', 25, 'ninguna', 'a@isp.example')`); err == nil {
+		t.Fatal("la tabla aceptó un ajuste de empresa sin cifrado")
+	}
+	x.esperar(x.guardar(admin, "global", 0, x.claro, "ninguna", relay), http.StatusOK)
+
+	// Entorno: en el global, host y remitente; en el de una empresa, solo que existe.
+	g := x.esperar(x.api(admin, http.MethodGet, "/api/v1/correo-sistema/global", nil), http.StatusOK).cuerpo["entorno"].(map[string]any)
+	if g["configurado"] != true || g["host"] != "smtp.entorno.example" || g["remitenteCorreo"] != "entorno@iris.prueba" {
+		t.Fatalf("entorno en el global: %v", g)
+	}
+	for _, p := range []persona{admin, deEmpresa} {
+		r := x.esperar(x.api(p, http.MethodGet, "/api/v1/correo-sistema/1", nil), http.StatusOK)
+		e := r.cuerpo["entorno"].(map[string]any)
+		if e["configurado"] != true || len(e) != 1 || strings.Contains(r.crudo, "smtp.entorno.example") || strings.Contains(r.crudo, "entorno@iris.prueba") {
+			t.Fatalf("entorno en el ámbito de la empresa: %s", r.crudo)
+		}
+	}
+}
+
+// Un puerto cerrado contesta al instante y uno filtrado tarda el plazo de conexión: «no conecta»
+// tarda siempre lo mismo, y las demás respuestas no esperan.
+func TestCorreoSistemaNoConectaTardaLoMismo(t *testing.T) {
+	x := nuevoEntornoCorreo(t, false)
+	admin := x.persona([]int64{1}, "admin")
+	inicio := time.Now()
+	r := x.esperar(x.probar(admin, "global", x.starttls, "starttls", "ana@isp.example", map[string]any{"puerto": x.cerrado}), http.StatusOK)
+	if d := time.Since(inicio); r.cuerpo["causa"] != "no_conecta" || d < esperaNoConecta {
+		t.Fatalf("puerto cerrado: %v en %s (mínimo %s)", r.cuerpo, d, esperaNoConecta)
+	}
+	x.starttls.rechazar(true, false, false)
+	inicio = time.Now()
+	r = x.esperar(x.probar(admin, "global", x.starttls, "starttls", "ana@isp.example", nil), http.StatusOK)
+	if d := time.Since(inicio); r.cuerpo["causa"] != "credenciales" || d >= esperaNoConecta {
+		t.Fatalf("credenciales: %v en %s", r.cuerpo, d)
 	}
 }

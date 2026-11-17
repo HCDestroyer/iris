@@ -1,4 +1,4 @@
-Versión: 1.0.0 (17 nov 2026) · Correo del sistema configurable desde el panel
+Versión: 1.1.0 (17 nov 2026) · Correo del sistema configurable desde el panel
 
 # Correo del sistema
 
@@ -23,7 +23,7 @@ Tabla `notificaciones.correo_ajustes`, una fila por ámbito:
 | --- | --- | --- |
 | `host` | texto, 1–253 | Nombre DNS o IP. Sin esquema, ruta ni puerto. |
 | `puerto` | entero | Solo `25`, `465`, `587` o `2525`. |
-| `seguridad` | `starttls` \| `tls` \| `ninguna` | `ninguna` (sin cifrado) solo si el host resuelve dentro de `IRIS_CORREO_REDES_PERMITIDAS` (un relay interno) **y sin usuario ni contraseña**: las credenciales nunca viajan en claro. Si no, 422 (`sin_cifrado_solo_red_interna`, `sin_cifrado_sin_credenciales`). |
+| `seguridad` | `starttls` \| `tls` \| `ninguna` | `ninguna` (sin cifrado) **solo en el ajuste global** (en el de una empresa, 422 `sin_cifrado_solo_global`), solo si el host resuelve dentro de `IRIS_CORREO_REDES_PERMITIDAS` (un relay interno) **y sin usuario ni contraseña**: las credenciales nunca viajan en claro. Si no, 422 (`sin_cifrado_solo_red_interna`, `sin_cifrado_sin_credenciales`). |
 | `usuario` | texto, 0–254 | Vacío = sin autenticación (y la contraseña guardada se borra). Con usuario hace falta contraseña. |
 | `contrasena` | secreto | Cifrada en reposo con el cifrador de la instalación (`IRIS_CLAVE_CIFRADO`, el mismo mecanismo que la clave del asistente, con datos asociados a la fila). **Nunca se devuelve.** |
 | `remitenteNombre` | texto, 0–80 | Sin CR, LF ni caracteres de control. |
@@ -92,7 +92,9 @@ El ámbito de una empresa exige operar en esa empresa; `global` exige el permiso
   (`puerto` 587, `seguridad` `starttls`, `activo` true).
 - `ultimaPrueba`: la última prueba de ese ámbito; **ausente** si nunca se probó.
 - `entorno`: si hay `IRIS_SMTP_*`, para que el panel pueda decir «hoy se usa el del servidor»; nunca
-  el usuario ni la contraseña.
+  el usuario ni la contraseña. `entorno.host` y `entorno.remitenteCorreo` vienen **solo en el ámbito
+  `global`** (que exige `empresas.todas`): en el ámbito de una empresa `entorno` trae solo
+  `configurado` (los otros dos campos van ausentes).
 - `tieneContrasena`: lo único que se sabe de la contraseña.
 
 ### 3.2 `guardar`
@@ -120,8 +122,9 @@ viene `contrasena`, 422 `contrasena_requerida` (con `errors[].field = "contrasen
 a escribirla. Así la guardada nunca viaja a otro servidor.
 
 Errores: 409 `conflicto_version`; 422 `validacion` (campo en `errors[].field`), `contrasena_requerida`,
-`destino_no_permitido`, `sin_cifrado_solo_red_interna`, `sin_cifrado_sin_credenciales`,
-`cifrado_no_configurado` (falta `IRIS_CLAVE_CIFRADO`).
+`destino_no_permitido`, `sin_cifrado_solo_global`, `sin_cifrado_solo_red_interna`,
+`sin_cifrado_sin_credenciales`, `cifrado_no_configurado` (falta `IRIS_CLAVE_CIFRADO`); 429
+`demasiados_rechazos` con `Retry-After` (§4).
 
 `activar` y `desactivar`: `{ "version": n }`; responden la forma del `GET`. Sin ajuste guardado, 404.
 
@@ -152,7 +155,9 @@ respuesta cruda del servidor):
 | `tiempo_agotado` | El servidor no respondió a tiempo. |
 | `otro` | El servidor rechazó el envío. |
 
-Los 422 de validación son los de `guardar`. Tope: 429 `demasiadas_pruebas` con `Retry-After` (§4).
+Los 422 de validación son los de `guardar`. Topes: 429 `demasiadas_pruebas` o `demasiados_rechazos`,
+con `Retry-After` (§4). Cuando la causa es `no_conecta` la respuesta tarda siempre unos 11 s (§4): el
+panel debe mostrar «Probando…» y no cortar antes de 30 s.
 Las pruebas fallidas también cuentan. No lleva `Idempotency-Key`: cada llamada es una prueba.
 
 ## 4. Seguridad
@@ -172,7 +177,17 @@ Las pruebas fallidas también cuentan. No lleva `Idempotency-Key`: cada llamada 
   la IP a la que de verdad se conectó) y un CHECK de la tabla.
 - **La prueba no es un escáner ni un relay:** un solo destinatario, cuerpo y asunto fijos, la misma
   guarda de red y los mismos puertos, 5 pruebas por usuario y hora (429 con `Retry-After`) y 20 por
-  instalación y hora. Las causas son de lista cerrada: no distinguen «puerto cerrado» de «filtrado».
+  instalación y hora. Las causas son de lista cerrada: «puerto cerrado», «filtrado» y «el nombre no
+  existe» son la misma causa (`no_conecta`) **y tardan lo mismo**: toda respuesta `no_conecta` espera
+  hasta un tiempo fijo (11 s, algo más que el plazo de conexión de 10 s), así que tampoco se
+  distinguen por el tiempo de respuesta.
+- **El rechazo de host no es un oráculo de la red interna:** cada servidor que rechaza la guarda de red
+  (`destino_no_permitido` o `sin_cifrado_solo_red_interna`, al guardar o al probar, y también cuando la
+  guarda corta al conectar) cuenta para un tope de 10 por usuario y hora. Alcanzado, `guardar` y
+  `probar` responden 429 `demasiados_rechazos` con `Retry-After` **antes** de resolver ningún nombre.
+- **Sin cifrado, solo el global:** `seguridad: ninguna` no se acepta en el ajuste de una empresa (422
+  `sin_cifrado_solo_global`; también lo impide un CHECK de la tabla): usar un relay interno en claro
+  lo decide quien opera toda la instalación.
 - **Contraseña:** `***` en `auditoria.acciones` y `auditoria.cambios`; nunca en eventos, logs ni
   respuestas. Entra en la rotación de `IRIS_CLAVE_CIFRADO` (`iris clave rotar`).
 - **Inyección de cabeceras:** `remitenteNombre`, `remitenteCorreo`, `usuario`, `host` y `para` se
@@ -201,9 +216,13 @@ Las pruebas fallidas también cuentan. No lleva `Idempotency-Key`: cada llamada 
 2. Un ajuste apagado no bloquea al siguiente, y el `GET` dice cuál se usa de verdad (`origen`, `enUso`).
 3. `guardar` no prueba la conexión; `probar` no guarda.
 4. Puertos 25, 465, 587 y 2525.
-5. `seguridad: ninguna` solo con el host dentro de `IRIS_CORREO_REDES_PERMITIDAS` y nunca con usuario
-   ni contraseña.
+5. `seguridad: ninguna` solo en el ajuste global, con el host dentro de `IRIS_CORREO_REDES_PERMITIDAS`
+   y nunca con usuario ni contraseña.
 6. Tope de pruebas: 5 por usuario y 20 por instalación cada hora.
 7. Causas de lista cerrada, en lenguaje llano.
 8. Dos permisos (`ver`, `configurar`), de fábrica solo `admin`.
-9. Del `.env` el `GET` solo muestra el host y el remitente.
+9. Del `.env` el `GET` solo muestra el host y el remitente, y solo en el ámbito `global`
+   (`empresas.todas`); en el de una empresa, solo `entorno.configurado`.
+
+Revisión de seguridad de la PR #179 (17 nov 2026, 1.1.0): tope de rechazos de host, `entorno` recortado
+en el ámbito de empresa, `ninguna` solo global y tiempo fijo de `no_conecta`.

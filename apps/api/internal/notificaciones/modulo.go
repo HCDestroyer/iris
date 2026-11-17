@@ -83,6 +83,10 @@ type Config struct {
 	RedCorreo correo.Opciones
 	// PuertosCorreo permitidos (pruebas; vacío = 25, 465, 587 y 2525).
 	PuertosCorreo []int
+	// EsperaNoConecta: tiempo mínimo de respuesta de «probar» cuando no se pudo abrir la conexión,
+	// para que un puerto cerrado y uno filtrado tarden lo mismo (11 s por defecto: algo más que el
+	// plazo de conexión).
+	EsperaNoConecta time.Duration
 	// BaseURL del panel para los enlaces de los correos (IRIS_BASE_URL).
 	BaseURL string
 	Log     *slog.Logger
@@ -123,6 +127,9 @@ type Modulo struct {
 func Nuevo(cfg Config) *Modulo {
 	if cfg.Reloj == nil {
 		cfg.Reloj = time.Now
+	}
+	if cfg.EsperaNoConecta <= 0 {
+		cfg.EsperaNoConecta = 11 * time.Second
 	}
 	if cfg.RetencionEnvios <= 0 {
 		cfg.RetencionEnvios = 30 * 24 * time.Hour

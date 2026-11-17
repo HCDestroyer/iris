@@ -1166,6 +1166,28 @@ func (q *Queries) InsertarPruebaCorreo(ctx context.Context, arg InsertarPruebaCo
 	return i, err
 }
 
+const insertarRechazoCorreo = `-- name: InsertarRechazoCorreo :exec
+INSERT INTO notificaciones.correo_pruebas (empresa_id, usuario_id, estado, causa, creado_en)
+VALUES ($1, $2, 'rechazado', $3, $4)
+`
+
+type InsertarRechazoCorreoParams struct {
+	EmpresaID *int64
+	UsuarioID int64
+	Causa     *string
+	Ahora     time.Time
+}
+
+func (q *Queries) InsertarRechazoCorreo(ctx context.Context, arg InsertarRechazoCorreoParams) error {
+	_, err := q.db.Exec(ctx, insertarRechazoCorreo,
+		arg.EmpresaID,
+		arg.UsuarioID,
+		arg.Causa,
+		arg.Ahora,
+	)
+	return err
+}
+
 const leerAviso = `-- name: LeerAviso :one
 UPDATE notificaciones.avisos SET leido_en = coalesce(leido_en, $1)
 WHERE id = $2 AND usuario_id = $3 AND coalesce(empresa_id, 0) = coalesce($4::bigint, 0)
@@ -1566,7 +1588,9 @@ func (q *Queries) PreferenciasParaActualizar(ctx context.Context, usuarioID int6
 }
 
 const pruebasCorreoDesde = `-- name: PruebasCorreoDesde :many
-SELECT usuario_id, creado_en FROM notificaciones.correo_pruebas WHERE creado_en > $1 ORDER BY creado_en
+SELECT usuario_id, creado_en FROM notificaciones.correo_pruebas
+WHERE creado_en > $1 AND estado <> 'rechazado'
+ORDER BY creado_en
 `
 
 type PruebasCorreoDesdeRow struct {
@@ -1691,6 +1715,38 @@ func (q *Queries) QuitarTokenDeOtros(ctx context.Context, arg QuitarTokenDeOtros
 	return items, nil
 }
 
+const rechazosCorreoDesde = `-- name: RechazosCorreoDesde :many
+SELECT creado_en FROM notificaciones.correo_pruebas
+WHERE usuario_id = $1 AND creado_en > $2 AND estado = 'rechazado'
+ORDER BY creado_en
+`
+
+type RechazosCorreoDesdeParams struct {
+	UsuarioID int64
+	Desde     time.Time
+}
+
+// Los rechazos de host de un usuario en la última hora (guardar y probar).
+func (q *Queries) RechazosCorreoDesde(ctx context.Context, arg RechazosCorreoDesdeParams) ([]time.Time, error) {
+	rows, err := q.db.Query(ctx, rechazosCorreoDesde, arg.UsuarioID, arg.Desde)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []time.Time
+	for rows.Next() {
+		var creado_en time.Time
+		if err := rows.Scan(&creado_en); err != nil {
+			return nil, err
+		}
+		items = append(items, creado_en)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const reintentoCorreo = `-- name: ReintentoCorreo :exec
 UPDATE notificaciones.correos SET intentos = intentos + 1, motivo = $1, updated_at = now() WHERE id = $2
 `
@@ -1755,7 +1811,7 @@ func (q *Queries) SobrantesDeUsuario(ctx context.Context, arg SobrantesDeUsuario
 
 const ultimaPruebaCorreo = `-- name: UltimaPruebaCorreo :one
 SELECT id, empresa_id, usuario_id, estado, causa, creado_en FROM notificaciones.correo_pruebas
-WHERE coalesce(empresa_id, 0) = $1::bigint AND estado <> 'en_curso'
+WHERE coalesce(empresa_id, 0) = $1::bigint AND estado IN ('ok', 'error')
 ORDER BY id DESC LIMIT 1
 `
 

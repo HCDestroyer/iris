@@ -299,7 +299,19 @@ SELECT pg_advisory_xact_lock(hashtext('notificaciones.correo_pruebas'));
 
 -- name: PruebasCorreoDesde :many
 -- Las pruebas de la última hora (pocas: el tope es 20 por instalación).
-SELECT usuario_id, creado_en FROM notificaciones.correo_pruebas WHERE creado_en > @desde ORDER BY creado_en;
+SELECT usuario_id, creado_en FROM notificaciones.correo_pruebas
+WHERE creado_en > @desde AND estado <> 'rechazado'
+ORDER BY creado_en;
+
+-- name: RechazosCorreoDesde :many
+-- Los rechazos de host de un usuario en la última hora (guardar y probar).
+SELECT creado_en FROM notificaciones.correo_pruebas
+WHERE usuario_id = @usuario_id AND creado_en > @desde AND estado = 'rechazado'
+ORDER BY creado_en;
+
+-- name: InsertarRechazoCorreo :exec
+INSERT INTO notificaciones.correo_pruebas (empresa_id, usuario_id, estado, causa, creado_en)
+VALUES (sqlc.narg('empresa_id'), @usuario_id, 'rechazado', @causa, @ahora);
 
 -- name: InsertarPruebaCorreo :one
 INSERT INTO notificaciones.correo_pruebas (empresa_id, usuario_id, estado, creado_en)
@@ -313,7 +325,7 @@ RETURNING *;
 
 -- name: UltimaPruebaCorreo :one
 SELECT * FROM notificaciones.correo_pruebas
-WHERE coalesce(empresa_id, 0) = @empresa::bigint AND estado <> 'en_curso'
+WHERE coalesce(empresa_id, 0) = @empresa::bigint AND estado IN ('ok', 'error')
 ORDER BY id DESC LIMIT 1;
 
 -- name: PurgarPruebasCorreo :execrows

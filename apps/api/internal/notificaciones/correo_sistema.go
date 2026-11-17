@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
@@ -59,7 +60,10 @@ const (
 const (
 	TopePruebasUsuario     = 5
 	TopePruebasInstalacion = 20
-	ventanaPruebas         = time.Hour
+	// TopeRechazosHost: servidores rechazados por la guarda de red (al guardar o al probar) por
+	// usuario y hora. Con el tope, el rechazo no sirve para sondear nombres o IPs de la red interna.
+	TopeRechazosHost = 10
+	ventanaPruebas   = time.Hour
 	// plazoPrueba: tiempo total de una prueba (conexión, TLS, AUTH y envío).
 	plazoPrueba = 20 * time.Second
 )
@@ -77,8 +81,8 @@ func DatosAsociadosCorreo(id int64) []byte {
 // EntornoCorreo: lo que se sabe de IRIS_SMTP_* (nunca el usuario ni la contraseña).
 type EntornoCorreo struct {
 	Configurado     bool   `json:"configurado"`
-	Host            string `json:"host"`
-	RemitenteCorreo string `json:"remitenteCorreo"`
+	Host            string `json:"host,omitempty" doc:"Solo en el ámbito global"`
+	RemitenteCorreo string `json:"remitenteCorreo,omitempty" doc:"Solo en el ámbito global"`
 }
 
 // PruebaCorreo es la última prueba de un ámbito.
@@ -114,7 +118,7 @@ type CorreoSistema struct {
 type CamposCorreo struct {
 	Host            string  `json:"host" minLength:"1" maxLength:"253" doc:"Nombre DNS o IP, sin esquema ni puerto"`
 	Puerto          int32   `json:"puerto" doc:"25, 465, 587 o 2525"`
-	Seguridad       string  `json:"seguridad" enum:"starttls,tls,ninguna" doc:"ninguna: solo un relay de la red interna permitida y sin usuario ni contraseña"`
+	Seguridad       string  `json:"seguridad" enum:"starttls,tls,ninguna" doc:"ninguna: solo en el ámbito global, hacia un relay de la red interna permitida y sin usuario ni contraseña"`
 	Usuario         string  `json:"usuario,omitempty" maxLength:"254" doc:"Vacío = sin autenticación"`
 	Contrasena      *string `json:"contrasena,omitempty" maxLength:"512" auditoria:"sensible" doc:"Solo escritura. Ausente = se conserva la guardada; \"\" = se borra"`
 	RemitenteNombre string  `json:"remitenteNombre,omitempty" maxLength:"80"`
@@ -228,6 +232,57 @@ func ambitoCorreo(ctx context.Context, ambito string) (int64, error) {
 	return id, nil
 }
 
+// Códigos de los rechazos de host (la guarda de red): cuentan para TopeRechazosHost.
+const (
+	codigoSoloRedInterna = "sin_cifrado_solo_red_interna"
+	codigoSoloGlobal     = "sin_cifrado_solo_global"
+)
+
+// esRechazoDeHost: el error dice algo de la red a la que resuelve el servidor.
+func esRechazoDeHost(err error) bool {
+	var p *nucleo.Problema
+	if !errors.As(err, &p) {
+		return false
+	}
+	return strings.HasSuffix(p.Type, ":"+CausaDestinoNoPermitido) || strings.HasSuffix(p.Type, ":"+codigoSoloRedInterna)
+}
+
+// topeRechazos: 429 si esa persona ya acumuló demasiados servidores rechazados en la última hora.
+// Va antes de resolver el nombre: con el tope alcanzado no se consulta el DNS.
+func (m *Modulo) topeRechazos(ctx context.Context, q *notificacionesbd.Queries, usuario int64) error {
+	ahora := m.ahora()
+	rs, err := q.RechazosCorreoDesde(ctx, notificacionesbd.RechazosCorreoDesdeParams{UsuarioID: usuario, Desde: ahora.Add(-ventanaPruebas)})
+	if err != nil {
+		return err
+	}
+	if len(rs) >= TopeRechazosHost {
+		return nucleo.DemasiadosIntentos("demasiados_rechazos", "Probaste demasiados servidores que Iris no puede usar. Espera un poco antes de intentar otra vez",
+			rs[len(rs)-TopeRechazosHost].Add(ventanaPruebas).Sub(ahora))
+	}
+	return nil
+}
+
+// contarRechazo deja escrito el rechazo de host aunque la acción falle (transacción de la auditoría).
+func (m *Modulo) contarRechazo(t *auditoria.Tx, empresa, usuario int64, err error) {
+	if !esRechazoDeHost(err) {
+		return
+	}
+	ahora := m.ahora()
+	t.AlFallar(func(ctx context.Context, tx pgx.Tx) error {
+		return notificacionesbd.New(tx).InsertarRechazoCorreo(ctx, notificacionesbd.InsertarRechazoCorreoParams{EmpresaID: empresaPtr(empresa),
+			UsuarioID: usuario, Causa: ptr(CausaDestinoNoPermitido), Ahora: ahora})
+	})
+}
+
+// soloGlobal: sin cifrado solo se configura en el ajuste global (lo decide quien opera toda la instalación).
+func soloGlobal(empresa int64, seguridad string) error {
+	if empresa != 0 && seguridad == correo.TLSNinguna {
+		return reglaCorreo(codigoSoloGlobal, "Sin cifrado solo se puede usar en el correo global de la instalación. Elige STARTTLS o TLS",
+			nucleo.ErrorCampo{Field: "seguridad", Message: "Elige STARTTLS o TLS", Rule: codigoSoloGlobal})
+	}
+	return nil
+}
+
 func empresaPtr(e int64) *int64 {
 	if e == 0 {
 		return nil
@@ -292,8 +347,8 @@ func (m *Modulo) validarHost(ctx context.Context, host, seguridad string) error 
 			nucleo.ErrorCampo{Field: "host", Message: "Ese servidor no se puede usar desde Iris", Rule: CausaDestinoNoPermitido})
 	}
 	soloInterno := func() error {
-		return reglaCorreo("sin_cifrado_solo_red_interna", "Sin cifrado solo se puede usar un servidor de la red interna permitida (IRIS_CORREO_REDES_PERMITIDAS)",
-			nucleo.ErrorCampo{Field: "seguridad", Message: "Elige STARTTLS o TLS para este servidor", Rule: "sin_cifrado_solo_red_interna"})
+		return reglaCorreo(codigoSoloRedInterna, "Sin cifrado solo se puede usar un servidor de la red interna permitida (IRIS_CORREO_REDES_PERMITIDAS)",
+			nucleo.ErrorCampo{Field: "seguridad", Message: "Elige STARTTLS o TLS para este servidor", Rule: codigoSoloRedInterna})
 	}
 	redes := m.cfg.RedCorreo.RedesPermitidas
 	dentro := func(ip netip.Addr) bool {
@@ -454,6 +509,10 @@ func (m *Modulo) vistaCorreo(ctx context.Context, q *notificacionesbd.Queries, a
 		r.TieneContrasena, r.RemitenteNombre, r.RemitenteCorreo = f.ContrasenaCifrada != nil, f.RemitenteNombre, f.RemitenteCorreo
 		r.Activo, r.Version, r.ActualizadoEn = f.Activo, f.Version, &f.UpdatedAt
 	}
+	if empresa != 0 {
+		// El host y el remitente del .env son de la instalación: solo se ven en el ámbito global.
+		r.Entorno = EntornoCorreo{Configurado: r.Entorno.Configurado}
+	}
 	origen, vigente, err := m.origenCorreo(ctx, q, empresa)
 	if err != nil {
 		return r, err
@@ -531,7 +590,15 @@ func (m *Modulo) nuevoGuardarCorreoSistema() *auditoria.Caso[EntradaGuardarCorre
 			if c.Contrasena != nil {
 				conContrasena = *c.Contrasena != ""
 			}
+			usuario := contexto.ActorDe(ctx).ID
+			if err := soloGlobal(empresa, c.Seguridad); err != nil {
+				return CorreoSistema{}, err
+			}
+			if err := m.topeRechazos(ctx, q, usuario); err != nil {
+				return CorreoSistema{}, err
+			}
 			if err := m.validarCampos(ctx, &c, conContrasena); err != nil {
+				m.contarRechazo(t, empresa, usuario, err)
 				return CorreoSistema{}, err
 			}
 			// La contraseña guardada nunca viaja a otro servidor ni con otro usuario.
@@ -675,7 +742,14 @@ func (m *Modulo) nuevoPrepararPruebaCorreo() *auditoria.Caso[EntradaProbarCorreo
 			}
 			conContrasena := c.Contrasena != nil && *c.Contrasena != ""
 			usarGuardada := c.Contrasena == nil && hayGuardada && strings.TrimSpace(c.Usuario) != "" && c.Seguridad != correo.TLSNinguna
+			if err := soloGlobal(empresa, c.Seguridad); err != nil {
+				return nil, err
+			}
+			if err := m.topeRechazos(ctx, q, usuario); err != nil {
+				return nil, err
+			}
 			if err := m.validarCampos(ctx, &c, conContrasena || usarGuardada); err != nil {
+				m.contarRechazo(t, empresa, usuario, err)
 				return nil, err
 			}
 			switch {
@@ -729,12 +803,20 @@ func (m *Modulo) nuevoCerrarPruebaCorreo() *auditoria.Caso[cierrePrueba, bool] {
 			usuario := contexto.ActorDe(ctx).ID
 			t.FijarEmpresa(in.Empresa)
 			t.FijarEntidad("correo_prueba", in.ID)
-			if _, err := notificacionesbd.New(t).CerrarPruebaCorreo(ctx, notificacionesbd.CerrarPruebaCorreoParams{ID: in.ID, UsuarioID: usuario,
+			q := notificacionesbd.New(t)
+			if _, err := q.CerrarPruebaCorreo(ctx, notificacionesbd.CerrarPruebaCorreoParams{ID: in.ID, UsuarioID: usuario,
 				Estado: in.Estado, Causa: in.Causa}); err != nil {
 				if esSinFilas(err) {
 					return false, nil
 				}
 				return false, err
+			}
+			// La guarda de red cortó al conectar (el nombre resolvió a una red interna): cuenta como rechazo de host.
+			if in.Causa != nil && *in.Causa == CausaDestinoNoPermitido {
+				if err := q.InsertarRechazoCorreo(ctx, notificacionesbd.InsertarRechazoCorreoParams{EmpresaID: empresaPtr(in.Empresa),
+					UsuarioID: usuario, Causa: in.Causa, Ahora: m.ahora()}); err != nil {
+					return false, err
+				}
 			}
 			return true, t.Emitir("correo_sistema.probado", map[string]any{"empresa_id": empresaPtr(in.Empresa), "estado": in.Estado,
 				"causa": in.Causa, "usuario_id": usuario})
@@ -756,6 +838,7 @@ func (m *Modulo) ProbarCorreoSistema(ctx context.Context, in EntradaProbarCorreo
 	if err != nil {
 		return ResultadoPruebaCorreo{}, err
 	}
+	inicio := time.Now()
 	ctxEnvio, cancelar := context.WithTimeout(ctx, plazoPrueba)
 	errEnvio := p.emisor.Enviar(ctxEnvio, p.para, asuntoPrueba, textoPrueba,
 		fmt.Sprintf("iris.prueba.%d.%s@%s", p.ID, uuid.NewString()[:8], p.emisor.Dominio()))
@@ -764,6 +847,14 @@ func (m *Modulo) ProbarCorreoSistema(ctx context.Context, in EntradaProbarCorreo
 	if errEnvio != nil {
 		causa := CausaDeCorreo(errEnvio)
 		r = ResultadoPruebaCorreo{Estado: "error", Causa: &causa, Detalle: detalleCausa[causa]}
+		// Un puerto cerrado contesta al instante y uno filtrado agota el plazo de conexión: toda
+		// respuesta «no conecta» tarda lo mismo, para que la prueba no los distinga por el tiempo.
+		if causa == CausaNoConecta {
+			select {
+			case <-time.After(time.Until(inicio.Add(m.cfg.EsperaNoConecta))):
+			case <-ctx.Done():
+			}
+		}
 	}
 	if _, err := m.cerrarPruebaCorreo.Ejecutar(context.WithoutCancel(ctx), cierrePrueba{ID: p.ID, Empresa: p.Empresa, Estado: r.Estado, Causa: r.Causa}); err != nil {
 		return ResultadoPruebaCorreo{}, err
