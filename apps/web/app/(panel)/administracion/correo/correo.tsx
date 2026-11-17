@@ -122,7 +122,6 @@ function Formulario({ ambito, ajuste, alCambiar, recargar }: { ambito: Ambito; a
         <FormularioPagina
             titulo="Correo"
             descripcion="El correo con que Iris manda avisos a tu equipo (por ejemplo, cuando el asistente llega a su tope). No es el de los buzones de soporte."
-            accionTitulo={ajuste.configurado ? <Encendido ambito={ambito} ajuste={ajuste} configura={configura} sucio={sucio} alCambiar={alCambiar} recargar={recargar} /> : null}
             alEnviar={form.handleSubmit(guardar)}
             navegar={router.push}
             volverA="/administracion"
@@ -156,7 +155,15 @@ function Formulario({ ambito, ajuste, alCambiar, recargar }: { ambito: Ambito; a
                             </p>
                         </div>
                     ) : null}
-                    <Aviso tono={TONO[origen.tono]} icono={ICONO[origen.tono]} titulo={origen.titulo} data-testid="origen-correo" data-origen={ajuste.origen}>
+                    <Aviso
+                        tono={TONO[origen.tono]}
+                        icono={ICONO[origen.tono]}
+                        titulo={origen.titulo}
+                        data-testid="origen-correo"
+                        data-origen={ajuste.origen}
+                        // En su propia fila (no junto al título): en el teléfono el título no se aprieta.
+                        accion={ajuste.configurado ? <Encendido ambito={ambito} ajuste={ajuste} configura={configura} sucio={sucio} alCambiar={alCambiar} recargar={recargar} /> : undefined}
+                    >
                         {origen.detalle}
                     </Aviso>
                     {error ? (
@@ -230,7 +237,7 @@ function Formulario({ ambito, ajuste, alCambiar, recargar }: { ambito: Ambito; a
                 <CampoSecreto
                     etiqueta="Contraseña"
                     nombre="la contraseña"
-                    placeholder={ajuste.tieneContrasena ? "Guardada. Escribe otra para cambiarla" : "Escribe la contraseña"}
+                    placeholder={ajuste.tieneContrasena ? "Guardada" : "Escribe la contraseña"}
                     ayuda={ajuste.tieneContrasena ? "Guardada. Escribe otra para cambiarla. Nunca se vuelve a mostrar." : "Se guarda cifrada y nunca se vuelve a mostrar."}
                     disabled={!configura}
                     error={errores.contrasena?.message}
@@ -313,7 +320,7 @@ function Encendido({ ambito, ajuste, configura, sucio, alCambiar, recargar }: { 
     }
 
     return (
-        <span className="flex shrink-0 flex-wrap items-center justify-end gap-2" data-slot="encendido-correo">
+        <span className="flex flex-wrap items-center gap-2" data-slot="encendido-correo">
             <InsigniaEstado tono={ajuste.activo ? "success" : "neutral"} texto={ajuste.activo ? "Encendido" : "Apagado"} data-activo={ajuste.activo} />
             {configura ? (
                 <Boton variante="contorno" tamano="sm" disabled={sucio} title={sucio ? "Guarda o cancela los cambios primero" : undefined} onClick={() => setConfirmar(true)}>

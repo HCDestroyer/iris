@@ -92,7 +92,8 @@ test.describe("Administración › Correo", () => {
         await expect(f.getByRole("textbox", { name: "Servidor" })).toHaveValue("smtp.proveedor.example");
         const clave = f.getByLabel("Contraseña", { exact: true });
         await expect(clave).toHaveValue("");
-        await expect(clave).toHaveAttribute("placeholder", "Guardada. Escribe otra para cambiarla");
+        await expect(clave).toHaveAttribute("placeholder", "Guardada");
+        await expect(f.getByText("Guardada. Escribe otra para cambiarla. Nunca se vuelve a mostrar.")).toBeVisible();
         // Ninguna respuesta de la API trae la contraseña.
         await expect(page.locator("body")).not.toContainText("secreta-guardada");
         await expect(f.locator('[data-slot="ultima-prueba"]')).toContainText("La última prueba salió bien.");

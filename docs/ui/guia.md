@@ -657,6 +657,32 @@ Contrato: `.claude/integration/contratos/conversaciones.md` §17.10. Lógica pur
   mensaje de sistema «Asistente de IA creó OT-…» y el vínculo a la orden en la ficha; en la lista,
   la actividad «Agendó la visita OT-…» (texto del servidor: nunca el técnico).
 
+## Correo del sistema (nov. 2026)
+
+Contrato: `.claude/integration/contratos/correo-sistema.md`. Pantalla: `/administracion/correo`
+(`correo_sistema.ver` / `.configurar`). Lógica pura en `apps/web/lib/correo/correo.ts`.
+
+- **Arriba, qué se usa hoy** (`textoOrigen`): un `Aviso` con el origen en llano (el de esta
+  empresa, el general, el del servidor o «Iris no envía correos todavía; los avisos llegan por la
+  campana»). «Ninguno» es un aviso, no un error. En el mismo aviso van «Encendido / Apagado» y su
+  botón, en su propia fila para que el título no se apriete en el teléfono.
+- **Atajos de proveedor** (Google Workspace, Microsoft 365, Otro): botones que **solo rellenan**
+  servidor, puerto y seguridad; se marca el que coincide con lo escrito y debajo va una nota corta
+  (p. ej. «usa una contraseña de aplicación»).
+- **Contraseña:** nunca viene del servidor. Con `tieneContrasena`, el campo va vacío con «Guardada.
+  Escribe otra para cambiarla» y una casilla «Quitar la contraseña guardada». Sin tocarla no viaja.
+- **Correo de prueba:** un diálogo corto (un campo: el destinatario, por defecto el correo de quien
+  prueba) que manda lo del formulario **sin guardar**. Si el formulario no es válido, el diálogo no
+  se abre y se marcan los campos. El resultado va con icono + texto + color y la causa en llano
+  (`textoResultado`); con 429, cuánto esperar.
+- **Encender y apagar** piden confirmación y dicen qué pasa después (por dónde saldrán los avisos).
+  Con cambios sin guardar el botón queda deshabilitado.
+- **Ámbito:** quien no tiene límite de empresa ve un `GrupoSegmentado` «General» / «Solo <empresa>»
+  (`?ambito=empresa`), deshabilitado mientras haya cambios sin guardar; los demás ven solo el de su
+  empresa, diga lo que diga la URL.
+- **Errores:** 409 con «Recargar» (trae lo guardado), 422 junto al campo, lectura fallida con
+  «Reintentar» y sin formulario. Con solo `correo_sistema.ver`, todo deshabilitado y sin prueba.
+
 ## Navegación del panel (fase 1, hecha)
 
 - **Barra lateral por grupos:**
