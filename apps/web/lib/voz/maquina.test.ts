@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { alCerrarPestana, debeSoltar, debeSonar, LIBRE, llamadaDe, ocupada, plazoReserva, siguiente, type EstadoVoz, type EventoVoz } from "./maquina";
+import { alCerrarPestana, alSalir, debeSonar, LIBRE, llamadaDe, ocupada, plazoReserva, plazoTimbre, siguiente, type EstadoVoz, type Etapa, type EventoVoz } from "./maquina";
 import { duracionCorta, llamadaEnHilo, motivoDeCodigo, quienLlama, reloj, textoAviso, textoRequisito } from "./presentacion";
 import type { Llamada } from "./tipos";
 
@@ -68,7 +68,7 @@ describe("máquina de la llamada entrante (contratos/voz.md §3.3)", () => {
         const e = siguiente(reclamando, { tipo: "fallo", motivo: "otro_la_contesto", quien: "Andrea Castillo" }, YO);
         expect(e).toMatchObject({ fase: "aviso", motivo: "otro_la_contesto" });
         // No hay reserva mía que soltar.
-        expect(debeSoltar(reclamando, e)).toBeNull();
+        expect(alSalir(reclamando, e, "reclamando", true)).toBeNull();
         expect(siguiente(e, { tipo: "cerrar" }, YO)).toBe(LIBRE);
     });
 
@@ -88,7 +88,7 @@ describe("máquina de la llamada entrante (contratos/voz.md §3.3)", () => {
             const antes = correr(hastaHablar.slice(0, n));
             const e = siguiente(antes, { tipo: "plazo_vencido" }, YO);
             expect(e).toMatchObject({ fase: "aviso", motivo: "reserva_vencida" });
-            expect(debeSoltar(antes, e)).toBe(llamada().id);
+            expect(alSalir(antes, e, "reservada", true)).toBe("soltar");
         }
         // El servidor la devolvió a `sonando` por su cuenta (soltó mi reserva).
         const negociando = correr(hastaHablar.slice(0, 4));
@@ -104,11 +104,11 @@ describe("máquina de la llamada entrante (contratos/voz.md §3.3)", () => {
         const negociando = correr(hastaHablar.slice(0, 4));
         const colgo = siguiente(negociando, { tipo: "actualizada", llamada: llamada({ estado: "terminada" }) }, YO);
         expect(colgo).toMatchObject({ fase: "aviso", motivo: "termino_antes" });
-        expect(debeSoltar(negociando, colgo)).toBeNull();
+        expect(alSalir(negociando, colgo, "respondida", true)).toBeNull();
         for (const motivo of ["microfono_denegado", "sin_microfono", "medio_fallido", "sin_red", "meta_rechazo", "error"] as const) {
             const e = siguiente(negociando, { tipo: "fallo", motivo }, YO);
             expect(e).toMatchObject({ fase: "aviso", motivo });
-            expect(debeSoltar(negociando, e)).toBe(llamada().id);
+            expect(alSalir(negociando, e, "respondida", true)).toBe("soltar");
             expect(textoAviso(motivo).titulo).not.toBe("");
         }
         // Mientras suena y nadie contesta: se pierde y deja de sonar, sin aviso.
@@ -168,14 +168,66 @@ describe("máquina de la llamada entrante (contratos/voz.md §3.3)", () => {
         expect(plazoReserva("no es una fecha", T0)).toBe(12_000);
     });
 
-    it("al cerrar la pestaña: nada si solo suena, `soltar` si la reclamé, `colgar` si hablo", () => {
-        const en = (n: number) => alCerrarPestana(correr(hastaHablar.slice(0, n)));
-        expect(en(0)).toBeNull();
-        expect(en(1)).toBeNull();
-        // Reclamando todavía no es mía (la respuesta no llegó): no se suelta nada.
-        expect(en(2)).toBeNull();
-        expect([en(3), en(4), en(5)]).toEqual(Array(3).fill({ accion: "soltar", id: llamada().id }));
-        expect(en(6)).toEqual({ accion: "colgar", id: llamada().id });
+    it("nunca se cierra el audio sin asegurar el final en el servidor: qué mandar al dejar la llamada", () => {
+        const en = (n: number) => correr(hastaHablar.slice(0, n));
+        const vencida = (antes: EstadoVoz) => siguiente(antes, { tipo: "plazo_vencido" }, YO);
+        // `confirmar-medio` ya salió: el servidor pudo aceptar. Aunque venza un plazo, falle la red,
+        // el feed diga que terminó o la persona se vaya, se cuelga (soltar ya no serviría: 409).
+        const confirmando = en(5);
+        expect(alSalir(confirmando, vencida(confirmando), "confirmando", true)).toBe("colgar");
+        expect(alSalir(confirmando, siguiente(confirmando, { tipo: "fallo", motivo: "sin_red" }, YO), "confirmando", true)).toBe("colgar");
+        expect(alSalir(confirmando, siguiente(confirmando, { tipo: "abandonar" }, YO), "confirmando", false)).toBe("colgar");
+        expect(alSalir(confirmando, siguiente(confirmando, { tipo: "actualizada", llamada: llamada({ estado: "terminada" }) }, YO), "confirmando", true)).toBe("colgar");
+        // Mientras la pantalla aún dice «confirmando» pero la petición no ha salido (el medio no conecta): se suelta.
+        expect(alSalir(confirmando, vencida(confirmando), "respondida", true)).toBe("soltar");
+        // Reservada o respondida: soltar. Sin candado del navegador no se sabe si mi `reclamar` ganó: no se suelta.
+        for (const etapa of ["reservada", "respondida"] as Etapa[]) {
+            expect(alSalir(en(4), vencida(en(4)), etapa, true)).toBe("soltar");
+            expect(alSalir(en(4), vencida(en(4)), etapa, false)).toBeNull();
+            expect(alSalir(en(4), siguiente(en(4), { tipo: "abandonar" }, YO), etapa, true)).toBe("soltar");
+        }
+        // `reclamar` en vuelo: nada todavía (se suelta cuando llegue su 200, si llega).
+        expect(alSalir(en(2), vencida(en(2)), "reclamando", true)).toBeNull();
+        // Otra persona la tiene: no es mía.
+        const deOtra = siguiente(en(4), { tipo: "actualizada", llamada: llamada({ estado: "en_curso", usuario: { id: 7, nombre: "Andrea Castillo" } }) }, YO);
+        expect(alSalir(en(4), deOtra, "respondida", true)).toBeNull();
+        // En curso: colgar yo, corte del medio o irme → colgar; si el servidor ya la terminó, nada.
+        const hablando = en(6);
+        expect(alSalir(hablando, siguiente(hablando, { tipo: "colgar", ahora: T0 }, YO), "en_curso", true)).toBe("colgar");
+        expect(alSalir(hablando, siguiente(hablando, { tipo: "medio_caido", ahora: T0 }, YO), "en_curso", true)).toBe("colgar");
+        expect(alSalir(hablando, siguiente(hablando, { tipo: "abandonar" }, YO), "en_curso", false)).toBe("colgar");
+        expect(alSalir(hablando, siguiente(hablando, { tipo: "actualizada", llamada: llamada({ estado: "terminada", duracionSeg: 9 }) }, YO), "en_curso", true)).toBeNull();
+        // Seguir ocupada (un paso más) no manda nada.
+        expect(alSalir(en(3), en(4), "reservada", true)).toBeNull();
+        expect(alSalir(LIBRE, LIBRE, "reclamando", true)).toBeNull();
+    });
+
+    it("irse (cerrar sesión, cambiar de empresa) deja la llamada; el timbre caduca sin noticias", () => {
+        for (const n of [1, 2, 4, 6]) expect(siguiente(correr(hastaHablar.slice(0, n)), { tipo: "abandonar" }, YO)).toBe(LIBRE);
+        expect(siguiente(LIBRE, { tipo: "abandonar" }, YO)).toBe(LIBRE);
+        expect(siguiente(correr(hastaHablar.slice(0, 1)), { tipo: "caducar" }, YO)).toBe(LIBRE);
+        // Caducar no toca una llamada que ya se está contestando o en curso.
+        const hablando = correr(hastaHablar);
+        expect(siguiente(hablando, { tipo: "caducar" }, YO)).toBe(hablando);
+        // Hasta `suenaHasta` si es creíble; nunca más de 60 s ni con un reloj desfasado.
+        expect(plazoTimbre("2026-11-17T16:00:35Z", T0)).toBe(25_000);
+        expect(plazoTimbre("2026-11-17T16:30:00Z", T0)).toBe(60_000);
+        expect(plazoTimbre("2026-11-17T15:00:00Z", T0)).toBe(60_000);
+        expect(plazoTimbre(undefined, T0)).toBe(60_000);
+    });
+
+    it("al cerrar la pestaña (keepalive): nada si solo suena; `soltar` si la reserva es o puede ser mía; `colgar` si pudo aceptarse", () => {
+        const en = (n: number, etapa: Etapa, segura = true) => alCerrarPestana(correr(hastaHablar.slice(0, n)), etapa, segura);
+        expect(en(0, "reclamando")).toBeNull();
+        expect(en(1, "reclamando")).toBeNull();
+        // Con `reclamar` en vuelo también: si no llegó a reservarse, el servidor responde 404.
+        expect(en(2, "reclamando")).toEqual({ accion: "soltar", id: llamada().id });
+        expect([en(3, "reservada"), en(4, "respondida"), en(5, "respondida")]).toEqual(Array(3).fill({ accion: "soltar", id: llamada().id }));
+        // Sin candado no se suelta a ciegas.
+        expect(en(4, "respondida", false)).toBeNull();
+        // `confirmar-medio` ya salió: colgar, con o sin candado.
+        expect(en(5, "confirmando", false)).toEqual({ accion: "colgar", id: llamada().id });
+        expect(en(6, "en_curso", false)).toEqual({ accion: "colgar", id: llamada().id });
     });
 });
 

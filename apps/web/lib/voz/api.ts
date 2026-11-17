@@ -6,6 +6,11 @@ import type { EntradaAjustesVoz, EntradaLlamadasCanal, ResultadoLlamada } from "
 
 const BASE = "/api/v1/mensajeria/llamadas";
 const idem = (clave = nuevaClaveIdempotencia()) => ({ "Idempotency-Key": clave });
+/**
+ * La llamada es de una empresa: `soltar`, `colgar` y compañía van con **esa** empresa aunque la
+ * activa del panel ya haya cambiado (si no, el servidor responde 404 y la llamada queda viva).
+ */
+const de = (empresa: number | undefined) => (empresa === undefined ? {} : { headers: { [CABECERA_EMPRESA]: String(empresa) } });
 
 // --- «Recibir llamadas» (por usuario y navegador) ----------------------------------------------
 
@@ -28,8 +33,8 @@ export async function leerLlamadaActiva(signal?: AbortSignal) {
     return (await resolver(api().GET(`${BASE}/activa`, { signal }))) ?? null;
 }
 
-export function leerLlamada(id: string, signal?: AbortSignal) {
-    return resolver(api().GET(`${BASE}/{id}`, { params: { path: { id } }, signal }));
+export function leerLlamada(id: string, signal?: AbortSignal, empresa?: number) {
+    return resolver(api().GET(`${BASE}/{id}`, { params: { path: { id } }, signal, ...de(empresa) }));
 }
 
 /** Atómico: gana quien actualiza la fila. Es idempotente por naturaleza (no lleva `Idempotency-Key`). */
@@ -45,17 +50,17 @@ export function confirmarMedio(id: string, clave: string, signal?: AbortSignal) 
     return resolver(api().POST(`${BASE}/{id}/confirmar-medio`, { params: { path: { id }, header: idem(clave) }, signal }));
 }
 
-export function soltarLlamada(id: string, motivo: string) {
-    return resolver(api().POST(`${BASE}/{id}/soltar`, { params: { path: { id }, header: idem() }, body: { motivo } }));
+export function soltarLlamada(id: string, motivo: string, empresa?: number) {
+    return resolver(api().POST(`${BASE}/{id}/soltar`, { params: { path: { id }, header: idem() }, body: { motivo }, ...de(empresa) }));
 }
 
-export function colgarLlamada(id: string, clave: string) {
-    return resolver(api().POST(`${BASE}/{id}/colgar`, { params: { path: { id }, header: idem(clave) } }));
+export function colgarLlamada(id: string, clave: string, empresa?: number) {
+    return resolver(api().POST(`${BASE}/{id}/colgar`, { params: { path: { id }, header: idem(clave) }, ...de(empresa) }));
 }
 
 /** Deja de sonarle a este usuario (no la rechaza para todos). */
-export function rechazarLlamada(id: string) {
-    return resolver(api().POST(`${BASE}/{id}/rechazar`, { params: { path: { id }, header: idem() }, body: {} }));
+export function rechazarLlamada(id: string, empresa?: number) {
+    return resolver(api().POST(`${BASE}/{id}/rechazar`, { params: { path: { id }, header: idem() }, body: {}, ...de(empresa) }));
 }
 
 export function anotarLlamada(id: string, nota: string, resultado: ResultadoLlamada | undefined, clave: string) {
@@ -67,12 +72,13 @@ export function anotarLlamada(id: string, nota: string, resultado: ResultadoLlam
  * `colgar` (ya en curso) salen con `fetch` y `keepalive`, que el navegador termina de mandar aunque
  * la página ya no exista. Lleva a mano lo que el cliente pone solo (CSRF y empresa activa).
  */
-export function avisarAlCerrar(id: string, accion: "soltar" | "colgar"): void {
+export function avisarAlCerrar(id: string, accion: "soltar" | "colgar", empresaDeLaLlamada?: number): void {
     if (typeof fetch === "undefined" || typeof document === "undefined") return;
     const cabeceras: Record<string, string> = { "Content-Type": "application/json", "Idempotency-Key": nuevaClaveIdempotencia() };
     const csrf = leerCookie(COOKIE_CSRF, document.cookie);
     if (csrf) cabeceras[CABECERA_CSRF] = csrf;
-    const empresa = empresaGuardada();
+    // La empresa de la llamada, no la activa: al cambiar de empresa la activa ya es otra.
+    const empresa = empresaDeLaLlamada ?? empresaGuardada();
     if (empresa !== undefined) cabeceras[CABECERA_EMPRESA] = String(empresa);
     try {
         void fetch(`${BASE}/${encodeURIComponent(id)}/${accion}`, {

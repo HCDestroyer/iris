@@ -296,6 +296,9 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
     }
 
     async function cerrarSesion() {
+        // Con una llamada viva o sonando se pregunta, y se cuelga o suelta ANTES de cerrar la sesión
+        // (después el servidor respondería 401 y la llamada quedaría viva).
+        if (voz && !(await voz.antesDeSalir())) return;
         setCerrando(true);
         setErrorCerrar(null);
         // Al cerrar sesión dejas de estar disponible en la bandeja (lo dice el servidor; si no

@@ -4,8 +4,6 @@
  * respuesta SDP para `contestar`.
  */
 
-import { respuestaSinRedInterna } from "./sdp";
-
 export type EstadoMicrofono = "concedido" | "denegado" | "sin_microfono" | "no_disponible";
 
 /** ¿Este navegador puede contestar llamadas? (contexto seguro, micrófono y WebRTC) */
@@ -118,11 +116,10 @@ export async function conectar(sdpOferta: string, servidores: readonly string[],
 
         await pc.setRemoteDescription({ type: "offer", sdp: sdpOferta });
         await pc.setLocalDescription(await pc.createAnswer());
-        // No se espera a juntar candidatos: Meta (ICE-lite) aprende la dirección del navegador de sus
-        // comprobaciones, y los candidatos con la red interna no deben viajar (ver `sdp.ts`).
-        const local = pc.localDescription?.sdp;
-        if (!local) throw new Error("medio_fallido");
-        const sdpRespuesta = respuestaSinRedInterna(local);
+        // La respuesta del navegador va tal cual: el servidor la sanea antes de mandarla a Meta
+        // (voz.md, revisión de seguridad de E1). No se espera a juntar candidatos: Meta es ICE-lite.
+        const sdpRespuesta = pc.localDescription?.sdp;
+        if (!sdpRespuesta) throw new Error("medio_fallido");
         return {
             sdpRespuesta,
             conectado,

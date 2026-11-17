@@ -23,6 +23,8 @@ export type ControlVoz = {
     microfonoAbierto: () => boolean;
     /** Tira el medio de la conexión abierta (red caída). */
     cortar: () => void;
+    /** La respuesta SDP que da el «navegador» (con su IP privada, como uno real). */
+    respuesta: string;
 };
 
 declare global {
@@ -49,6 +51,7 @@ function instalar(inicial: Partial<Pick<ControlVoz, "microfono" | "permiso" | "m
         cortar: () => {
             for (const c of abiertas) c.cambiar("failed");
         },
+        respuesta: "",
     };
     window.__voz = control;
 
@@ -103,6 +106,7 @@ function instalar(inicial: Partial<Pick<ControlVoz, "microfono" | "permiso" | "m
         "a=rtpmap:111 opus/48000/2",
         "",
     ].join("\r\n");
+    control.respuesta = RESPUESTA;
     class Doble {
         iceConnectionState = "new";
         iceGatheringState = "complete";

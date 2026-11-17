@@ -95,11 +95,27 @@ export function apiVoz(
         /** Qué pasa al reintentar la escritura en WhatsApp (por defecto, se aplica). */
         aplicar?: "error";
         contestar?: "sdp_invalido" | "reserva_vencida" | "meta_rechazo";
-        confirmar?: "reserva_vencida";
-        colgar?: "error";
+        /** `perdida`: el servidor acepta la llamada pero la respuesta no llega al navegador. */
+        confirmar?: "reserva_vencida" | "perdida";
+        /** Cuántas veces más `colgar` responde 500. */
+        colgar?: number;
+        /** `soltar` responde 500 (no es `accion_en_curso`). */
+        soltar?: "error";
         anotar?: "error";
         descartar?: "cerrada";
     } = {};
+
+    /** Peticiones que el «servidor» deja esperando hasta que la prueba las suelte (para las carreras). */
+    const retenidas = new Map<string, Promise<void>>();
+    /** Retiene la próxima petición de esa acción (ya recibida y anotada) hasta llamar a lo que devuelve. */
+    function retener(accion: "reclamar" | "confirmar-medio" | "contestar"): () => void {
+        let liberar: () => void = () => undefined;
+        retenidas.set(accion, new Promise<void>((resolver) => (liberar = resolver)));
+        return () => {
+            retenidas.delete(accion);
+            liberar();
+        };
+    }
 
     const puedePara = (l: Llamada): Llamada["puede"] => {
         const yo = actor().id;
@@ -405,6 +421,8 @@ export function apiVoz(
         const accion = una[2];
         const yo = actor();
         recibido.acciones.push({ accion, llamadaId: l.id, cuerpo, usuarioId: yo.id });
+        // La petición llegó; el «servidor» tarda en atenderla lo que diga la prueba.
+        await retenidas.get(accion);
         const reserva = reservas.get(l.id);
         const final = ["terminada", "perdida", "rechazada", "fuera_de_horario", "fallida"].includes(l.estado);
         const yaContestada = (detalle: string, regla?: string) =>
@@ -450,6 +468,9 @@ export function apiVoz(
                     forzar.enCurso.soltar -= 1;
                     return (await problema(route, P("accion_en_curso", 409, "WhatsApp aún no responde")), true);
                 }
+                if (forzar.soltar === "error") return (await problema(route, P("error_interno", 500, "Error del servidor")), true);
+                // Ya aceptada (confirmar-medio ganó la carrera): no se puede soltar.
+                if (l.estado === "en_curso") return (await problema(route, P("llamada_en_curso", 409, "La llamada ya está en curso")), true);
                 l.estado = "sonando";
                 delete l.usuario;
                 reservas.delete(l.id);
@@ -461,10 +482,9 @@ export function apiVoz(
                 if (forzar.contestar === "reserva_vencida" || reserva.hasta < Date.now()) return (await vencida(), true);
                 if (forzar.contestar === "meta_rechazo") return (await problema(route, P("meta_rechazo", 502, "WhatsApp no aceptó la llamada")), true);
                 const sdp = String(cuerpo.sdpRespuesta ?? "");
-                // Como el servidor (§6.2-11): audio, `a=setup`, huella DTLS y ninguna dirección de una red interna.
-                const interna = /(^|\s)(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|127\.|169\.254\.|f[cd][0-9a-f]{2}:|fe80:)/im;
-                const direcciones = sdp.split(/\r?\n/).filter((l) => /^(c=|a=rtcp:|a=candidate:)/.test(l));
-                if (forzar.contestar === "sdp_invalido" || !sdp.includes("m=audio") || !sdp.includes("a=setup:") || !sdp.includes("a=fingerprint:") || direcciones.some((l) => interna.test(l))) {
+                // Como el servidor (§6.2-11): audio, `a=setup` y huella DTLS. Las direcciones locales
+                // del navegador no se rechazan: el servidor las sanea antes de mandar el SDP a Meta.
+                if (forzar.contestar === "sdp_invalido" || !sdp.includes("m=audio") || !sdp.includes("a=setup:") || !sdp.includes("a=fingerprint:")) {
                     return (await problema(route, P("sdp_invalido", 422, "SDP inválido", { errors: [{ field: "body.sdpRespuesta", message: "Solo audio Opus", rule: "sdp" }] })), true);
                 }
                 // Desde aquí corren los 5 s para `confirmar-medio`.
@@ -477,12 +497,14 @@ export function apiVoz(
             l.contestadaEn = new Date().toISOString();
             l.tramos = [{ tipo: "persona", usuario: { id: yo.id, nombre: yo.nombre }, inicio: l.contestadaEn }] as Llamada["tramos"];
             avisar("llamada_actualizada", l);
+            // Aceptada en el servidor, pero la respuesta se pierde por el camino.
+            if (forzar.confirmar === "perdida") return (await route.abort("connectionreset"), true);
             return (await json(route, vista(l)), true);
         }
         if (accion === "colgar") {
             if (!puede("llamadas.colgar")) return prohibido();
-            if (forzar.colgar === "error") {
-                delete forzar.colgar;
+            if (forzar.colgar) {
+                forzar.colgar -= 1;
                 return (await problema(route, P("error_interno", 500, "Error del servidor")), true);
             }
             if (final) return (await problema(route, P("llamada_terminada", 409, "La llamada ya terminó")), true);
@@ -503,7 +525,7 @@ export function apiVoz(
         return (await json(route, vista(l)), true);
     }
 
-    return { manejar, llamadas, devoluciones, recibido, forzar, entrante, historica, perder, contestaOtro, cuelgaCliente, canal, ajustes: () => ajustes };
+    return { manejar, llamadas, devoluciones, recibido, forzar, retener, entrante, historica, perder, contestaOtro, cuelgaCliente, canal, ajustes: () => ajustes };
 }
 
 export type ApiVoz = ReturnType<typeof apiVoz>;

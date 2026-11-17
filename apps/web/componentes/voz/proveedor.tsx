@@ -1,6 +1,6 @@
 "use client";
 
-import { avisar } from "@iris/ui";
+import { avisar, DialogoConfirmar } from "@iris/ui";
 import { createContext, use, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { nuevaClaveIdempotencia } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
@@ -20,10 +20,10 @@ import {
     leerRecibir,
     rechazarLlamada,
     reclamarLlamada,
-    soltarLlamada,
 } from "@/lib/voz/api";
+import { colgarSeguro, soltarSeguro, type Fin } from "@/lib/voz/asegurar";
 import { escucharEventos, escucharFuente, fuenteAjena, publicarEvento } from "@/lib/voz/canal";
-import { alCerrarPestana, CONFIRMAR_MS, debeSoltar, debeSonar, LIBRE, llamadaDe, ocupada, plazoReserva, siguiente, type EstadoVoz, type EventoVoz } from "@/lib/voz/maquina";
+import { alCerrarPestana, alSalir, CONFIRMAR_MS, debeSonar, LIBRE, llamadaDe, ocupada, plazoReserva, plazoTimbre, siguiente, type EstadoVoz, type Etapa, type EventoVoz } from "@/lib/voz/maquina";
 import { conectar, ErrorMicrofono, navegadorAdmiteLlamadas, pedirMicrofono, permisoMicrofono, soltarMicrofono, type Conexion, type EstadoMicrofono } from "@/lib/voz/medios";
 import { idNavegador } from "@/lib/voz/navegador";
 import { motivoDeCodigo } from "@/lib/voz/presentacion";
@@ -38,10 +38,19 @@ import type { Llamada } from "@/lib/voz/tipos";
  * - Contestar: `reclamar` → micrófono → `RTCPeerConnection` con la oferta → `contestar` →
  *   medio conectado → `confirmar-medio`. La reserva dura 12 s y confirmar, 5 s: si se pasan, se
  *   suelta y se dice en llano.
+ * - **Nunca se cierra el audio local sin asegurar que el servidor termina la llamada** (`alSalir`
+ *   y `lib/voz/asegurar.ts`): si `confirmar-medio` ya salió, se cuelga (pudo aceptarse); si solo
+ *   estaba reservada, se suelta, y si soltar no sale, se comprueba y se cuelga.
  * - Varias pestañas: suena en todas; un candado del navegador (`navigator.locks`) deja contestar
- *   solo a una, y el servidor avisa a las demás.
- * - Al cerrar la pestaña: `soltar` (aún sin aceptar) o `colgar` (en curso), con `keepalive`.
+ *   solo a una, y el servidor avisa a las demás. Sin candado no se manda `soltar` (podría liberar
+ *   la reserva de otra pestaña): la reserva vence sola.
+ * - Al cerrar la pestaña: `soltar` (aún sin aceptar) o `colgar` (pudo aceptarse), con `keepalive`.
+ * - La llamada es de la empresa con la que se montó el proveedor: todo lo que la termina viaja con
+ *   esa empresa, y cambiar de empresa o cerrar sesión con una llamada viva pregunta antes.
  */
+
+/** Tiempo límite propio de `reclamar` y de `confirmar-medio` (peticiones que no pueden quedarse colgadas). */
+const LIMITE_PETICION_MS = 8000;
 
 export type EstadoRecibir =
     | { estado: "cargando" }
@@ -74,6 +83,11 @@ type ContextoVoz = {
     feed: EstadoFeed | null;
     /** ¿Está sonando el timbre? (para pruebas y lectores de pantalla) */
     timbre: boolean;
+    /**
+     * Antes de cambiar de empresa o cerrar sesión: con una llamada viva o sonando pregunta y, si la
+     * persona sigue, la cuelga o suelta **antes** de irse. `false`: se queda.
+     */
+    antesDeSalir: () => Promise<boolean>;
 };
 
 const Contexto = createContext<ContextoVoz | null>(null);
@@ -83,9 +97,13 @@ export function useVoz(): ContextoVoz | null {
     return use(Contexto);
 }
 
-/** Candado entre pestañas del mismo navegador: `null` si otra pestaña ya está contestando esa llamada. */
-function tomarCandado(nombre: string): Promise<(() => void) | null> {
-    if (typeof navigator === "undefined" || !navigator.locks) return Promise.resolve(() => undefined);
+/**
+ * Candado entre pestañas del mismo navegador: `null` si otra pestaña ya está contestando esa llamada.
+ * `seguro`: el candado es de verdad (`navigator.locks`); sin él no se sabe si el `reclamar` que ganó
+ * fue el de esta pestaña.
+ */
+function tomarCandado(nombre: string): Promise<{ liberar: () => void; seguro: boolean } | null> {
+    if (typeof navigator === "undefined" || !navigator.locks) return Promise.resolve({ liberar: () => undefined, seguro: false });
     return new Promise((resolver) => {
         navigator.locks
             .request(nombre, { ifAvailable: true }, (candado) => {
@@ -93,40 +111,26 @@ function tomarCandado(nombre: string): Promise<(() => void) | null> {
                     resolver(null);
                     return undefined;
                 }
-                return new Promise<void>((soltar) => resolver(soltar));
+                return new Promise<void>((soltar) => resolver({ liberar: soltar, seguro: true }));
             })
-            .catch(() => resolver(() => undefined));
+            .catch(() => resolver({ liberar: () => undefined, seguro: false }));
     });
 }
 
 const esperar = (ms: number) => new Promise<void>((resolver) => window.setTimeout(resolver, ms));
 const accionEnCurso = (e: unknown) => e instanceof ErrorApi && e.codigo === "accion_en_curso";
 
-/**
- * `soltar` responde 409 `accion_en_curso` mientras WhatsApp no ha contestado a un `pre_accept` o
- * `accept` de esa llamada: se reintenta a los pocos segundos, sin alarmar a nadie.
- */
-async function soltarConReintento(id: string, motivo: string) {
-    for (let intento = 0; intento < 4; intento++) {
-        try {
-            await soltarLlamada(id, motivo);
-            return;
-        } catch (e) {
-            if (!accionEnCurso(e)) return;
-            await esperar(2000);
-        }
-    }
-}
-
 /** Cada cuánto se relee si este navegador sigue recibiendo (el servidor guarda como mucho 10 por persona). */
 const RELEER_RECIBIR_MS = 60_000;
 
-type Intento = { conexion: Conexion | null; microfono: MediaStream | null; plazo: number; liberar: (() => void) | null };
+type Intento = { conexion: Conexion | null; microfono: MediaStream | null; plazo: number; liberar: (() => void) | null; etapa: Etapa; reservaSegura: boolean };
 
 export function ProveedorVoz({ children }: { children: ReactNode }) {
     const { yo } = useSesion();
     const yoId = yo.usuario.id;
     const empresaId = yo.empresaActiva?.id;
+    // La empresa con la que se montó (el proveedor se remonta al cambiarla): la de sus llamadas.
+    const [empresaMontada] = useState(empresaId);
     const admite = useSyncExternalStore(
         () => () => undefined,
         navegadorAdmiteLlamadas,
@@ -149,6 +153,40 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
         i.liberar?.();
     }, []);
 
+    /** Lo último que se mandó a terminar en el servidor (para esperarlo antes de irse). */
+    const salida = useRef<Promise<unknown>>(Promise.resolve());
+
+    /** «Reintentar» del aviso de una llamada que no se pudo colgar (se asigna más abajo). */
+    const reintentarAbierta = useRef<(id: string) => void>(() => undefined);
+
+    /** Dice a la persona cómo acabó asegurar el final de una llamada que se dejó. */
+    const trasAsegurar = useCallback((id: string, fin: Fin, hablaba: boolean) => {
+        if (fin.tipo === "colgada") {
+            const e = estadoRef.current;
+            if (e.fase === "terminada" && e.llamada.id === id) {
+                // Para la nota: la llamada como quedó en el servidor.
+                estadoRef.current = { ...e, llamada: fin.llamada };
+                setEstado(estadoRef.current);
+            }
+            if (!hablaba) avisar({ tono: "warning", titulo: "La llamada se conectó sin audio y se colgó", descripcion: "Escríbele al cliente para seguir por mensaje.", duracion: 12_000 });
+        } else if (fin.tipo === "fallo") {
+            const e = estadoRef.current;
+            if (e.fase === "terminada" && e.llamada.id === id) setErrorColgar(fin.error);
+            else {
+                avisar({
+                    tono: "error",
+                    titulo: "No se pudo colgar una llamada que quedó abierta",
+                    descripcion: "Para el cliente puede seguir en línea.",
+                    duracion: 0,
+                    accion: { texto: "Reintentar", alPresionar: () => reintentarAbierta.current(id) },
+                });
+            }
+        }
+    }, []);
+    useEffect(() => {
+        reintentarAbierta.current = (id) => void colgarSeguro(id, { empresa: empresaMontada, yoId }, true).then((f) => trasAsegurar(id, f, false));
+    }, [empresaMontada, yoId, trasAsegurar]);
+
     const despachar = useCallback(
         (ev: EventoVoz): EstadoVoz => {
             const antes = estadoRef.current;
@@ -156,12 +194,24 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
             if (despues === antes) return antes;
             estadoRef.current = despues;
             setEstado(despues);
-            const soltar = debeSoltar(antes, despues);
-            if (soltar) void soltarConReintento(soltar, despues.fase === "aviso" ? despues.motivo : "error");
-            if (!ocupada(despues)) limpiar();
+            if (ocupada(despues)) return despues;
+            // Se deja la llamada: antes de cerrar el audio se decide qué asegurar en el servidor.
+            const i = intento.current;
+            const id = llamadaDe(antes)?.id;
+            const accion = alSalir(antes, despues, i?.etapa ?? "en_curso", i?.reservaSegura ?? false);
+            limpiar();
+            if (accion && id) {
+                const ctx = { empresa: empresaMontada, yoId };
+                const hablaba = antes.fase === "en_curso";
+                salida.current =
+                    accion === "colgar"
+                        ? // Con la llamada en curso es mía seguro; si solo pudo aceptarse, se comprueba antes.
+                          colgarSeguro(id, ctx, !hablaba).then((fin) => trasAsegurar(id, fin, hablaba))
+                        : soltarSeguro(id, despues.fase === "aviso" ? despues.motivo : "abandonada", ctx).then((fin) => trasAsegurar(id, fin, false));
+            }
             return despues;
         },
-        [yoId, limpiar],
+        [yoId, limpiar, empresaMontada, trasAsegurar],
     );
 
     // --- «Recibir llamadas» -------------------------------------------------------------------
@@ -319,18 +369,19 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
         if (e.fase !== "sonando" || contestando.current) return;
         contestando.current = true;
         const id = e.llamada.id;
+        const ctx = { empresa: empresaMontada, yoId };
         void (async () => {
-            const liberar = await tomarCandado(`iris-llamada-${id}`);
+            const candado = await tomarCandado(`iris-llamada-${id}`);
             contestando.current = false;
-            if (!liberar) {
+            if (!candado) {
                 despachar({ tipo: "otra_pestana" });
                 return;
             }
             if (estadoRef.current.fase !== "sonando" || llamadaDe(estadoRef.current)?.id !== id) {
-                liberar();
+                candado.liberar();
                 return;
             }
-            const mio: Intento = { conexion: null, microfono: null, plazo: 0, liberar };
+            const mio: Intento = { conexion: null, microfono: null, plazo: 0, liberar: candado.liberar, etapa: "reclamando", reservaSegura: candado.seguro };
             intento.current = mio;
             const vivo = () => intento.current === mio;
             const plazoDe = (ms: number) => {
@@ -338,6 +389,8 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
                 mio.plazo = window.setTimeout(() => vivo() && despachar({ tipo: "plazo_vencido" }), ms);
             };
             despachar({ tipo: "contestar" });
+            // `reclamar` no puede quedarse colgado: pasado el límite se deja de esperar en pantalla.
+            plazoDe(LIMITE_PETICION_MS);
             try {
                 // 409 `accion_en_curso`: WhatsApp aún responde a otra acción de esta llamada; se reintenta.
                 let r: Awaited<ReturnType<typeof reclamarLlamada>> | null = null;
@@ -345,12 +398,17 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
                     try {
                         r = await reclamarLlamada(id);
                     } catch (e) {
-                        if (!accionEnCurso(e) || vez >= 3) throw e;
+                        if (!accionEnCurso(e) || vez >= 3 || !vivo()) throw e;
                         await esperar(1500);
-                        if (!vivo()) return;
                     }
                 }
-                if (!vivo()) return;
+                if (!vivo()) {
+                    // Respondió 200 cuando ya no se esperaba (se venció el límite, se cerró el aviso,
+                    // cambió de empresa): la reserva quedó a mi nombre y hay que soltarla.
+                    if (mio.reservaSegura) void soltarSeguro(id, "abandonada", ctx).then((fin) => trasAsegurar(id, fin, false));
+                    return;
+                }
+                mio.etapa = "reservada";
                 despachar({ tipo: "reclamada", llamada: r.llamada, venceEn: Date.parse(r.venceEn) });
                 if (!vivo()) return;
                 plazoDe(plazoReserva(r.venceEn, Date.now()));
@@ -360,6 +418,7 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
                     return;
                 }
                 mio.microfono = mic;
+                setMicrofono("concedido");
                 despachar({ tipo: "microfono_listo" });
                 const conexion = await conectar(r.sdpOferta, r.ice.servidores ?? [], mic);
                 if (!vivo()) {
@@ -367,22 +426,31 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
                     return;
                 }
                 mio.conexion = conexion;
+                // Desde que sale `contestar`, WhatsApp puede estar aceptando: la etapa cambia antes.
+                mio.etapa = "respondida";
                 const respondida = await contestarLlamada(id, conexion.sdpRespuesta, nuevaClaveIdempotencia());
                 if (!vivo()) return;
                 despachar({ tipo: "respuesta_enviada", llamada: respondida });
                 if (!vivo()) return;
                 plazoDe(CONFIRMAR_MS);
-                await conexion.conectado;
-                if (!vivo()) return;
-                const enCurso = await confirmarMedio(id, nuevaClaveIdempotencia());
-                if (!vivo()) return;
-                window.clearTimeout(mio.plazo);
+                // Si el medio se cae desde ya (también mientras se confirma), se deja la llamada.
                 conexion.alCaer(() => {
                     if (!vivo()) return;
-                    despachar({ tipo: "medio_caido", ahora: Date.now() });
-                    // El servidor aún la cree viva (el flujo sigue abierto): se le avisa.
-                    void colgarLlamada(id, nuevaClaveIdempotencia()).catch(() => undefined);
+                    if (estadoRef.current.fase === "en_curso") despachar({ tipo: "medio_caido", ahora: Date.now() });
+                    else despachar({ tipo: "fallo", motivo: "medio_fallido" });
                 });
+                await conexion.conectado;
+                if (!vivo()) return;
+                // El medio conectó: el plazo de 5 s deja de correr. Desde que sale `confirmar-medio`
+                // el servidor puede aceptar la llamada; si esta pestaña la deja, hay que colgarla.
+                mio.etapa = "confirmando";
+                plazoDe(LIMITE_PETICION_MS);
+                const enCurso = await confirmarMedio(id, nuevaClaveIdempotencia());
+                // Respondió 200 pero la pestaña ya la había dejado (y cerrado el audio): `alSalir` ya
+                // mandó colgar con la etapa «confirmando»; nada más que hacer aquí.
+                if (!vivo()) return;
+                window.clearTimeout(mio.plazo);
+                mio.etapa = "en_curso";
                 despachar({ tipo: "medio_confirmado", llamada: enCurso, ahora: Date.now() });
             } catch (error) {
                 if (!vivo()) return;
@@ -399,45 +467,32 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
                 }
             }
         })();
-    }, [despachar]);
+    }, [despachar, empresaMontada, yoId, trasAsegurar]);
 
     const rechazar = useCallback(() => {
         const e = estadoRef.current;
         if (e.fase !== "sonando") return;
         despachar({ tipo: "rechazar" });
-        rechazarLlamada(e.llamada.id).catch((error: unknown) => {
+        rechazarLlamada(e.llamada.id, empresaMontada).catch((error: unknown) => {
             // Ya terminó o la tomó otro: para quien rechaza es lo mismo.
             if (error instanceof ErrorApi && (error.estado === 409 || error.estado === 404)) return;
             avisar({ titulo: "No se pudo rechazar la llamada", descripcion: mensajeDeError(error).titulo });
         });
-    }, [despachar]);
+    }, [despachar, empresaMontada]);
 
-    const avisarColgar = useCallback(
-        (id: string) => {
-            setErrorColgar(null);
-            colgarLlamada(id, nuevaClaveIdempotencia()).then(
-                (l) => despachar({ tipo: "actualizada", llamada: l }),
-                (error: unknown) => {
-                    // Ya había terminado (colgó el cliente a la vez): no hay nada que reintentar.
-                    if (error instanceof ErrorApi && (error.codigo === "llamada_terminada" || error.estado === 404)) return;
-                    setErrorColgar(error);
-                },
-            );
-        },
-        [despachar],
-    );
-
+    /** «Colgar»: se cierra el audio y `despachar` asegura (con reintentos) que el servidor la termine. */
     const colgar = useCallback(() => {
-        const e = estadoRef.current;
-        if (e.fase !== "en_curso") return;
+        if (estadoRef.current.fase !== "en_curso") return;
+        setErrorColgar(null);
         despachar({ tipo: "colgar", ahora: Date.now() });
-        avisarColgar(e.llamada.id);
-    }, [despachar, avisarColgar]);
+    }, [despachar]);
 
     const reintentarColgar = useCallback(() => {
         const l = llamadaDe(estadoRef.current);
-        if (l) avisarColgar(l.id);
-    }, [avisarColgar]);
+        if (!l) return;
+        setErrorColgar(null);
+        void colgarSeguro(l.id, { empresa: empresaMontada, yoId }, false).then((fin) => trasAsegurar(l.id, fin, true));
+    }, [empresaMontada, yoId, trasAsegurar]);
 
     const silenciar = useCallback(
         (silenciada: boolean) => {
@@ -453,27 +508,56 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
     }, [despachar]);
 
     // --- Timbre ----------------------------------------------------------------------------------
-    const suena = debeSonar(estado);
+    // Suena solo mientras llegan noticias: si el flujo se cae, calla (no se sabe si sigue sonando).
+    const suena = debeSonar(estado) && feed !== "sin_conexion" && feed !== "detenido";
     useEffect(() => {
         if (!suena) return;
         const timbre = sonarTimbre();
         return () => timbre.detener();
     }, [suena]);
+    // Tope propio: sin noticias de la llamada, deja de sonar aquí (como mucho 60 s).
+    const sonando = estado.fase === "sonando" ? estado.llamada : null;
+    const idSonando = sonando?.id;
+    const suenaHasta = sonando?.suenaHasta;
+    useEffect(() => {
+        if (idSonando === undefined) return;
+        const t = window.setTimeout(() => despachar({ tipo: "caducar" }), plazoTimbre(suenaHasta, Date.now()));
+        return () => window.clearTimeout(t);
+    }, [idSonando, suenaHasta, despachar]);
 
-    // --- Cierre de la pestaña, del proveedor o pérdida de red ---------------------------------
+    // --- Cierre de la pestaña o del proveedor -------------------------------------------------
     useEffect(() => {
         const alIrse = () => {
-            const que = alCerrarPestana(estadoRef.current);
-            if (que) avisarAlCerrar(que.id, que.accion);
+            const i = intento.current;
+            const que = alCerrarPestana(estadoRef.current, i?.etapa ?? "en_curso", i?.reservaSegura ?? false);
+            if (que) avisarAlCerrar(que.id, que.accion, empresaMontada);
         };
         window.addEventListener("pagehide", alIrse);
         return () => {
             window.removeEventListener("pagehide", alIrse);
-            // Cambio de empresa o cierre de sesión con una llamada viva: se suelta o se cuelga.
+            // El proveedor se desmonta con una llamada viva (no debería: `antesDeSalir` pregunta
+            // antes): se suelta o se cuelga igual, con la empresa de la llamada.
             alIrse();
             limpiar();
         };
-    }, [limpiar]);
+    }, [limpiar, empresaMontada]);
+
+    // --- Irse con una llamada viva o sonando: se pregunta antes -------------------------------
+    const [pregunta, setPregunta] = useState<{ resolver: (seguir: boolean) => void; hablando: boolean; titulo: string } | null>(null);
+    const antesDeSalir = useCallback(() => {
+        const e = estadoRef.current;
+        const l = e.fase === "sonando" || ocupada(e) ? llamadaDe(e) : null;
+        if (!l) return Promise.resolve(true);
+        return new Promise<boolean>((resolver) => setPregunta({ resolver, hablando: e.fase === "en_curso", titulo: l.titulo }));
+    }, []);
+    const dejarLlamada = useCallback(async () => {
+        const e = estadoRef.current;
+        const sonaba = e.fase === "sonando" ? e.llamada.id : null;
+        despachar({ tipo: "abandonar" });
+        // Se espera a que el servidor la termine (o a un tope): después ya no habrá sesión o será otra empresa.
+        await Promise.race([salida.current.catch(() => undefined), esperar(6000)]);
+        if (sonaba) await Promise.race([rechazarLlamada(sonaba, empresaMontada).catch(() => undefined), esperar(2000)]);
+    }, [despachar, empresaMontada]);
 
     const reintentarRecibir = useCallback(() => {
         setRecibir({ estado: "cargando" });
@@ -481,10 +565,34 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
     }, []);
 
     const valor = useMemo<ContextoVoz>(
-        () => ({ estado, contestar, rechazar, colgar, silenciar, cerrar, errorColgar, reintentarColgar, recibir, desplazado, microfono, admite, cambiando, errorCambio, encender, apagar, reintentarRecibir, feed, timbre: suena }),
-        [estado, contestar, rechazar, colgar, silenciar, cerrar, errorColgar, reintentarColgar, recibir, desplazado, microfono, admite, cambiando, errorCambio, encender, apagar, reintentarRecibir, feed, suena],
+        () => ({ estado, contestar, rechazar, colgar, silenciar, cerrar, errorColgar, reintentarColgar, recibir, desplazado, microfono, admite, cambiando, errorCambio, encender, apagar, reintentarRecibir, feed, timbre: suena, antesDeSalir }),
+        [estado, contestar, rechazar, colgar, silenciar, cerrar, errorColgar, reintentarColgar, recibir, desplazado, microfono, admite, cambiando, errorCambio, encender, apagar, reintentarRecibir, feed, suena, antesDeSalir],
     );
-    return <Contexto value={valor}>{children}</Contexto>;
+    return (
+        <Contexto value={valor}>
+            {children}
+            <DialogoConfirmar
+                open={pregunta !== null}
+                onOpenChange={(abierto) => {
+                    if (abierto || !pregunta) return;
+                    pregunta.resolver(false);
+                    setPregunta(null);
+                }}
+                titulo={pregunta?.hablando ? `Tienes una llamada con ${pregunta.titulo}` : "Tienes una llamada entrando"}
+                descripcion={pregunta?.hablando ? "Si sigues, la llamada se cuelga." : "Si sigues, deja de sonarte aquí y les sigue sonando a los demás."}
+                textoConfirmar={pregunta?.hablando ? "Colgar y seguir" : "Seguir"}
+                textoCancelar="Quedarme"
+                textoOcupado="Terminando la llamada…"
+                peligro={pregunta?.hablando ?? false}
+                alConfirmar={async () => {
+                    if (!pregunta) return;
+                    await dejarLlamada();
+                    pregunta.resolver(true);
+                    setPregunta(null);
+                }}
+            />
+        </Contexto>
+    );
 }
 
 const admiteAhora = () => navegadorAdmiteLlamadas();

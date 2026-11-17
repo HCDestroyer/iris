@@ -130,6 +130,13 @@ export function AvisoLlamada() {
                 </div>
             </div>
             <Senales llamada={llamada} detalle={detalle} />
+            {sonando && voz.microfono !== "concedido" ? (
+                // El permiso aún no está dado en este navegador: que la pregunta no tome por sorpresa.
+                <p className="flex items-start gap-1.5 text-xs text-muted-foreground" data-slot="aviso-permiso">
+                    <Mic aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+                    Al contestar, el navegador te va a pedir permiso para usar el micrófono: acéptalo para poder hablar.
+                </p>
+            ) : null}
             {sonando ? (
                 <div className="grid grid-cols-2 gap-2">
                     <Boton variante="peligro" onClick={voz.rechazar} disabled={!llamada.puede.rechazar}>

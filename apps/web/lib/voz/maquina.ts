@@ -59,6 +59,10 @@ export type EventoVoz =
     | { tipo: "colgar"; ahora: number }
     /** El medio se cayó a mitad de la llamada (red, pestaña suspendida). */
     | { tipo: "medio_caido"; ahora: number }
+    /** El timbre llegó a su tope sin noticias de la llamada: deja de sonar aquí. */
+    | { tipo: "caducar" }
+    /** La persona se va (cierra sesión, cambia de empresa) con una llamada viva o sonando: se deja. */
+    | { tipo: "abandonar" }
     /** Se cerró el aviso o la nota. */
     | { tipo: "cerrar" };
 
@@ -138,6 +142,10 @@ export function siguiente(e: EstadoVoz, ev: EventoVoz, yo: number): EstadoVoz {
             return e.fase === "en_curso" ? { fase: "terminada", llamada: e.llamada, duracionSeg: segundos(e.desde, ev.ahora), corte: false } : e;
         case "medio_caido":
             return e.fase === "en_curso" ? { fase: "terminada", llamada: e.llamada, duracionSeg: segundos(e.desde, ev.ahora), corte: true } : e;
+        case "caducar":
+            return e.fase === "sonando" ? LIBRE : e;
+        case "abandonar":
+            return e.fase === "sonando" || ocupada(e) ? LIBRE : e;
         case "cerrar":
             return e.fase === "aviso" || e.fase === "terminada" ? LIBRE : e;
     }
@@ -164,18 +172,63 @@ export function plazoReserva(venceEn: string, ahora: number): number {
 export const debeSonar = (e: EstadoVoz): boolean => e.fase === "sonando";
 
 /**
- * Qué avisarle al servidor si la pestaña se cierra ahora (§3.4): `soltar` si ya la reclamé y no
- * llegué a hablar; `colgar` si estoy hablando; nada si solo suena (seguirá sonándoles a los demás).
+ * Hasta dónde pudo llegar el servidor con este intento de contestar. No es lo que se ve en pantalla
+ * (`paso`): cambia **antes** de mandar cada petición, porque con la petición en vuelo el servidor
+ * puede haberla aplicado ya aunque la respuesta no haya llegado.
  */
-export function alCerrarPestana(e: EstadoVoz): { accion: "soltar" | "colgar"; id: string } | null {
-    if (e.fase === "contestando" && e.paso !== "reclamando") return { accion: "soltar", id: e.llamada.id };
-    if (e.fase === "en_curso") return { accion: "colgar", id: e.llamada.id };
-    return null;
+export type Etapa =
+    /** `reclamar` salió y no ha respondido: puede que la reserva ya sea mía. */
+    | "reclamando"
+    /** `reclamar` respondió 200: la reserva es mía. */
+    | "reservada"
+    /** `contestar` salió: WhatsApp puede estar en `pre_accept`. */
+    | "respondida"
+    /** `confirmar-medio` salió: el servidor puede haber aceptado ya (llamada `en_curso`). */
+    | "confirmando"
+    | "en_curso";
+
+/**
+ * Al dejar de atender una llamada en esta pestaña (se cierra el audio local), qué hay que asegurar
+ * en el servidor. Regla: **nunca se cierra el audio sin asegurar que el servidor termina la
+ * llamada** si pudo haberla aceptado.
+ *
+ * - `colgar`: estaba en curso, o `confirmar-medio` ya había salido (pudo aceptarse sin audio).
+ * - `soltar`: la reserva es mía y no llegó a aceptarse. Solo con `reservaSegura` (el candado del
+ *   navegador garantiza que el `reclamar` que ganó fue el de esta pestaña): sin él, soltar podría
+ *   liberar la reserva de otra pestaña o navegador de la misma persona; se deja vencer sola.
+ * - `null`: nada mío que terminar (el servidor ya la terminó, la tiene otra persona, o `reclamar`
+ *   sigue en vuelo: se suelta cuando llegue su respuesta).
+ */
+export function alSalir(antes: EstadoVoz, despues: EstadoVoz, etapa: Etapa, reservaSegura: boolean): "soltar" | "colgar" | null {
+    if (ocupada(despues)) return null;
+    if (antes.fase === "en_curso") {
+        // Llegó por el feed ya terminada: no hay nada que colgar.
+        return despues.fase === "terminada" && esFinal(despues.llamada) ? null : "colgar";
+    }
+    if (antes.fase !== "contestando") return null;
+    if (etapa === "confirmando" || etapa === "en_curso") return "colgar";
+    const ajena = despues.fase === "aviso" && (despues.motivo === "otro_la_contesto" || despues.motivo === "termino_antes");
+    if (ajena || !reservaSegura || etapa === "reclamando") return null;
+    return "soltar";
 }
 
-/** ¿Hay que soltar la reserva al llegar a este aviso? (la reclamé y no se pudo seguir) */
-export function debeSoltar(antes: EstadoVoz, despues: EstadoVoz): string | null {
-    if (antes.fase !== "contestando" || antes.paso === "reclamando" || despues.fase !== "aviso") return null;
-    // Si otro ya la tiene o ya terminó, no hay reserva mía que soltar.
-    return despues.motivo === "otro_la_contesto" || despues.motivo === "termino_antes" ? null : antes.llamada.id;
+/**
+ * Qué avisarle al servidor si la pestaña se cierra ahora (§3.4), con `keepalive`: `colgar` si hablo
+ * o pudo aceptarse; `soltar` si la reserva es (o puede ser) mía; nada si solo suena.
+ */
+export function alCerrarPestana(e: EstadoVoz, etapa: Etapa, reservaSegura: boolean): { accion: "soltar" | "colgar"; id: string } | null {
+    if (e.fase === "en_curso") return { accion: "colgar", id: e.llamada.id };
+    if (e.fase !== "contestando") return null;
+    if (etapa === "confirmando" || etapa === "en_curso") return { accion: "colgar", id: e.llamada.id };
+    // También con `reclamar` en vuelo: si no llegó a reservarse, el servidor responde 404 y no pasa nada.
+    return reservaSegura ? { accion: "soltar", id: e.llamada.id } : null;
+}
+
+/** Tope del timbre: sin noticias de la llamada en este tiempo, deja de sonar aquí. */
+export const TIMBRE_MAX_MS = 60_000;
+
+/** Cuánto puede sonar aquí: hasta `suenaHasta` si es creíble (reloj del equipo), y nunca más del tope. */
+export function plazoTimbre(suenaHasta: string | undefined, ahora: number): number {
+    const resto = suenaHasta ? Date.parse(suenaHasta) - ahora : NaN;
+    return resto > 0 && resto <= TIMBRE_MAX_MS ? resto : TIMBRE_MAX_MS;
 }

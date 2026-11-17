@@ -1,8 +1,8 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { ADMIN, AGENTE_CONV, CONSULTA, conSesion, simularApi } from "./api-falsa";
+import { ADMIN, AGENTE_CONV, CONSULTA, EMPRESAS, conSesion, simularApi } from "./api-falsa";
 import type { OpcionesVoz } from "./api-voz";
-import { abrirMenu, esTelefono, hojaMas } from "./ayudas";
+import { abrirMenu, esTelefono, hojaMas, selectorEmpresa } from "./ayudas";
 import { elegirOpcion } from "./controles";
 import { mensaje } from "./datos-conversaciones";
 import { buscarDesbordes, esperarSinDesbordes } from "./desbordes";
@@ -41,7 +41,8 @@ async function feedListo(page: Page, api: Api) {
         .poll(
             async () => {
                 if (api.flujoAbierto()) return true;
-                await page.clock.fastForward(31_000);
+                // De a poco: un salto largo dejaría caducar el timbre de una llamada que suena.
+                await page.clock.fastForward(7_000);
                 return api.flujoAbierto();
             },
             { timeout: 20_000, intervals: [200, 400, 800] },
@@ -212,12 +213,9 @@ test.describe("voz › llamada entrante", () => {
         await expect(tarjeta).toHaveCount(0);
         // reclamar → contestar (con la respuesta SDP) → confirmar-medio, una vez cada uno.
         expect(api.voz.recibido.acciones.map((a) => a.accion)).toEqual(["reclamar", "contestar", "confirmar-medio"]);
-        // La respuesta SDP viaja sin la red interna de quien contesta (el servidor la rechazaría).
+        // La respuesta SDP del navegador viaja tal cual: quien la sanea es el servidor.
         const sdp = String(acciones(api, "contestar")[0]?.cuerpo.sdpRespuesta);
-        expect(sdp).toContain("m=audio");
-        expect(sdp).toContain("c=IN IP4 0.0.0.0");
-        expect(sdp).not.toContain("192.168.");
-        expect(sdp).not.toContain("a=candidate:");
+        expect(sdp).toBe(await page.evaluate(() => window.__voz.respuesta));
         expect(await page.evaluate(() => window.__voz.conexiones.map((c) => c.oferta?.includes("m=audio")))).toEqual([true]);
         expect(api.voz.llamadas.get(llamada.id)?.estado).toBe("en_curso");
         // La ficha del cliente a la vista: se abrió su conversación.
@@ -529,16 +527,37 @@ test.describe("voz › plazos, red y cierre", () => {
         expect(acciones(api, "colgar")).toHaveLength(0);
         await nota(page).getByRole("button", { name: "Ahora no" }).click();
 
-        // Otra: cuelgo yo y el servidor falla la primera vez.
+        // Otra: cuelgo yo y el servidor falla. Se reintenta solo (1, 2, 4, 8 y 8 s) sin decir nada…
         await suena(page, api, 42);
         await aviso(page).getByRole("button", { name: "Contestar" }).click();
         await expect(barra(page)).toBeVisible();
-        api.voz.forzar.colgar = "error";
+        api.voz.forzar.colgar = 2;
         await barra(page).getByRole("button", { name: "Colgar" }).click();
+        await expect(nota(page)).toBeVisible();
+        await expect.poll(() => acciones(api, "colgar").length).toBe(1);
+        await page.clock.fastForward(1_100);
+        await expect.poll(() => acciones(api, "colgar").length).toBe(2);
+        await page.clock.fastForward(2_100);
+        await expect.poll(() => api.voz.llamadas.get([...api.voz.llamadas.keys()].at(-1) ?? "")?.estado).toBe("terminada");
+        await expect(nota(page)).not.toContainText("No se pudo avisar que colgaste");
+        await nota(page).getByRole("button", { name: "Ahora no" }).click();
+
+        // …y si no hay manera (6 intentos), lo dice con «Reintentar».
+        await suena(page, api, 43);
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect(barra(page)).toBeVisible();
+        api.voz.forzar.colgar = 6;
+        await barra(page).getByRole("button", { name: "Colgar" }).click();
+        await expect(nota(page)).toBeVisible();
+        for (const espera of [1_100, 2_100, 4_100, 8_100, 8_100]) {
+            const antes = acciones(api, "colgar").length;
+            await page.clock.fastForward(espera);
+            await expect.poll(() => acciones(api, "colgar").length).toBe(antes + 1);
+        }
         await expect(nota(page)).toContainText("No se pudo avisar que colgaste");
         await nota(page).getByRole("button", { name: "Reintentar" }).click();
         await expect(nota(page)).not.toContainText("No se pudo avisar que colgaste");
-        expect(acciones(api, "colgar")).toHaveLength(2);
+        await expect.poll(() => api.voz.llamadas.get([...api.voz.llamadas.keys()].at(-1) ?? "")?.estado).toBe("terminada");
     });
 
     test("al cerrarse la pestaña: `colgar` si estoy hablando y `soltar` si aún no conectaba (con keepalive)", async ({ page }) => {
@@ -573,6 +592,293 @@ test.describe("voz › plazos, red y cierre", () => {
         await expect(barra(page)).toHaveCount(0);
         await page.getByRole("button", { name: "Colgar" }).click();
         await expect.poll(() => api.voz.llamadas.get(llamada.id)?.estado).toBe("terminada");
+    });
+});
+
+test.describe("voz › nunca una llamada viva sin audio (revisión de seguridad)", () => {
+    const ultima = (api: Api) => api.voz.llamadas.get([...api.voz.llamadas.keys()].at(-1) ?? "");
+    const medios = (page: Page) => page.evaluate(() => ({ abiertas: window.__voz.conexiones.filter((c) => !c.cerrada).length, microfono: window.__voz.microfonoAbierto() }));
+
+    test("con el medio conectado, el plazo de 5 s ya no corta `confirmar-medio` en vuelo: al responder, la llamada queda en curso con audio", async ({ page }) => {
+        const api = await abrir(page, "/cuenta");
+        await suena(page, api);
+        const liberar = api.voz.retener("confirmar-medio");
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect.poll(() => acciones(api, "confirmar-medio").length).toBe(1);
+        // Pasan los 5 s (y algo más) con la confirmación sin responder: no se cierra nada.
+        await page.clock.fastForward(6_000);
+        await expect(aviso(page)).toHaveAttribute("data-fase", "contestando");
+        expect(await medios(page)).toEqual({ abiertas: 1, microfono: true });
+        expect(acciones(api, "soltar")).toHaveLength(0);
+        liberar();
+        await expect(barra(page)).toBeVisible();
+        expect(ultima(api)?.estado).toBe("en_curso");
+        expect(await medios(page)).toEqual({ abiertas: 1, microfono: true });
+    });
+
+    test("`confirmar-medio` no responde (límite propio de 8 s): se cierra el audio y se CUELGA en el servidor; si el 200 llega después, la llamada ya no queda viva", async ({ page }) => {
+        const api = await abrir(page, "/cuenta");
+        await suena(page, api);
+        const liberar = api.voz.retener("confirmar-medio");
+        // El primer `colgar` falla: el servidor aún no la había aceptado del todo.
+        api.voz.forzar.colgar = 1;
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect.poll(() => acciones(api, "confirmar-medio").length).toBe(1);
+        await page.clock.fastForward(8_200);
+        await expect(aviso(page)).toHaveAttribute("data-fase", "aviso");
+        expect(await medios(page)).toEqual({ abiertas: 0, microfono: false });
+        // No se manda `soltar` (el servidor lo rechazaría con la llamada ya aceptada): se cuelga.
+        await expect.poll(() => acciones(api, "colgar").length).toBe(1);
+        expect(acciones(api, "soltar")).toHaveLength(0);
+        // Ahora sí responde el 200 de la confirmación: la llamada queda `en_curso` sin nadie al audio…
+        liberar();
+        await expect.poll(() => ultima(api)?.estado).toBe("en_curso");
+        // …y el reintento de colgar la termina. Se le dice al agente.
+        await page.clock.fastForward(1_100);
+        await expect.poll(() => ultima(api)?.estado).toBe("terminada");
+        await expect(page.getByText("La llamada se conectó sin audio y se colgó")).toBeVisible();
+        await expect(barra(page)).toHaveCount(0);
+    });
+
+    test("se pierde la respuesta de `confirmar-medio` (el servidor sí aceptó): se cuelga y se dice", async ({ page }) => {
+        const api = await abrir(page, "/cuenta");
+        await suena(page, api);
+        api.voz.forzar.confirmar = "perdida";
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect(aviso(page)).toHaveAttribute("data-fase", "aviso");
+        await expect.poll(() => ultima(api)?.estado).toBe("terminada");
+        expect(acciones(api, "colgar")).toHaveLength(1);
+        expect(acciones(api, "soltar")).toHaveLength(0);
+        expect(await medios(page)).toEqual({ abiertas: 0, microfono: false });
+        await expect(page.getByText("La llamada se conectó sin audio y se colgó")).toBeVisible();
+    });
+
+    test("`soltar` falla sin ser `accion_en_curso`: se comprueba que la llamada sigue a mi nombre y se cuelga; si no se logra, aviso fijo con «Reintentar»", async ({ page }) => {
+        const api = await abrir(page, "/cuenta", { doble: { permiso: "granted", medio: "falla" } });
+        await suena(page, api);
+        api.voz.forzar.soltar = "error";
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect(aviso(page)).toHaveAttribute("data-motivo", "medio_fallido");
+        await expect.poll(() => ultima(api)?.estado).toBe("terminada");
+        expect(acciones(api, "soltar")).toHaveLength(1);
+        expect(acciones(api, "colgar")).toHaveLength(1);
+        await aviso(page).getByRole("button", { name: "Cerrar" }).click();
+
+        // Ni soltar ni colgar salen: no se calla.
+        await suena(page, api, 42);
+        api.voz.forzar.colgar = 99;
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect(aviso(page)).toHaveAttribute("data-motivo", "medio_fallido");
+        await expect.poll(() => acciones(api, "colgar").length).toBe(2);
+        for (const espera of [1_100, 2_100, 4_100, 8_100, 8_100]) {
+            const antes = acciones(api, "colgar").length;
+            await page.clock.fastForward(espera);
+            await expect.poll(() => acciones(api, "colgar").length).toBe(antes + 1);
+        }
+        const fijo = page.getByText("No se pudo colgar una llamada que quedó abierta");
+        await expect(fijo).toBeVisible();
+        api.voz.forzar.colgar = 0;
+        await page.getByRole("button", { name: "Reintentar" }).click();
+        await expect.poll(() => ultima(api)?.estado).toBe("terminada");
+    });
+
+    test("`soltar` de una reserva que ya tomó otra persona no cuelga la llamada de un compañero (aunque yo supervise)", async ({ page }) => {
+        const api = await abrir(page, "/cuenta", { doble: { permiso: "granted", medio: "falla" } });
+        const llamada = await suena(page, api);
+        api.voz.forzar.soltar = "error";
+        // Entre mi reserva y mi `soltar`, la reserva venció y la contestó Rosa.
+        const liberar = api.voz.retener("contestar");
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect.poll(() => acciones(api, "contestar").length).toBe(1);
+        const real = api.voz.llamadas.get(llamada.id);
+        if (real) Object.assign(real, { estado: "en_curso", usuario: { id: 9, nombre: "Rosa Sánchez" }, contestadaEn: new Date().toISOString() });
+        liberar();
+        await expect(aviso(page)).toHaveAttribute("data-fase", "aviso");
+        await page.clock.fastForward(30_000);
+        await page.waitForTimeout(300);
+        expect(acciones(api, "colgar")).toHaveLength(0);
+        expect(api.voz.llamadas.get(llamada.id)?.estado).toBe("en_curso");
+    });
+
+    test("`reclamar` no responde (límite de 8 s): se deja de esperar; si después responde 200, se suelta la reserva. Y al cerrar la pestaña con `reclamar` en vuelo, `soltar`", async ({ page }) => {
+        const api = await abrir(page, "/cuenta");
+        const llamada = await suena(page, api);
+        const liberar = api.voz.retener("reclamar");
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect.poll(() => acciones(api, "reclamar").length).toBe(1);
+        await page.clock.fastForward(7_000);
+        await expect(aviso(page)).toContainText("Contestando…");
+        await page.clock.fastForward(1_200);
+        await expect(aviso(page)).toHaveAttribute("data-fase", "aviso");
+        expect(acciones(api, "soltar")).toHaveLength(0);
+        // El 200 llega tarde: la reserva quedó a mi nombre sin nadie esperándola → se suelta.
+        liberar();
+        await expect.poll(() => acciones(api, "soltar").length).toBe(1);
+        await expect.poll(() => api.voz.llamadas.get(llamada.id)?.estado).toBe("sonando");
+        expect(await page.evaluate(() => window.__voz.pedidos)).toBe(0);
+
+        // Cierre de pestaña con `reclamar` en vuelo.
+        await aviso(page).getByRole("button", { name: "Cerrar" }).click();
+        await suena(page, api, 42);
+        api.voz.retener("reclamar");
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect.poll(() => acciones(api, "reclamar").length).toBe(2);
+        await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+        await expect.poll(() => acciones(api, "soltar").at(-1)?.cuerpo).toEqual({ motivo: "pestana_cerrada" });
+        expect(acciones(api, "soltar")).toHaveLength(2);
+    });
+
+    test("al cerrar la pestaña con `confirmar-medio` en vuelo se manda `colgar`, no `soltar`", async ({ page }) => {
+        const api = await abrir(page, "/cuenta");
+        await suena(page, api);
+        api.voz.retener("confirmar-medio");
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect.poll(() => acciones(api, "confirmar-medio").length).toBe(1);
+        await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+        await expect.poll(() => acciones(api, "colgar").length).toBe(1);
+        expect(acciones(api, "soltar")).toHaveLength(0);
+    });
+
+    test("sin candado del navegador (`navigator.locks`) no se manda `soltar`: no se sabe si mi `reclamar` fue el que ganó", async ({ page }) => {
+        await page.addInitScript(() => Object.defineProperty(navigator, "locks", { configurable: true, value: undefined }));
+        const api = await abrir(page, "/cuenta", { doble: { permiso: "granted", medio: "falla" } });
+        await suena(page, api);
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect(aviso(page)).toHaveAttribute("data-motivo", "medio_fallido");
+        await page.clock.fastForward(10_000);
+        await page.waitForTimeout(300);
+        expect(acciones(api, "soltar")).toHaveLength(0);
+        expect(acciones(api, "colgar")).toHaveLength(0);
+        expect(await medios(page)).toEqual({ abiertas: 0, microfono: false });
+    });
+
+    test("el medio se cae mientras se confirma: se deja la llamada y se cuelga", async ({ page }) => {
+        const api = await abrir(page, "/cuenta");
+        await suena(page, api);
+        const liberar = api.voz.retener("confirmar-medio");
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect.poll(() => acciones(api, "confirmar-medio").length).toBe(1);
+        await page.evaluate(() => window.__voz.cortar());
+        await expect(aviso(page)).toHaveAttribute("data-motivo", "medio_fallido");
+        liberar();
+        await page.clock.fastForward(1_100);
+        await expect.poll(() => ultima(api)?.estado).toBe("terminada");
+        expect(acciones(api, "soltar")).toHaveLength(0);
+    });
+
+    test("cerrar sesión con una llamada sonando: pregunta antes; «Quedarme» no hace nada y «Seguir» deja de sonarme ANTES de cerrar la sesión", async ({ page }) => {
+        const api = await abrir(page, "/cuenta");
+        const cerrarSesion = async () => {
+            if (esTelefono(page)) {
+                await abrirMenu(page);
+                await hojaMas(page).getByRole("menuitem", { name: "Cerrar sesión" }).click();
+            } else {
+                await page.getByRole("button", { name: /^Tu cuenta/ }).click();
+                await page.getByRole("menuitem", { name: "Cerrar sesión" }).click();
+            }
+        };
+        // Sonando: deja de sonarme a mí (rechazar) antes de salir… pero primero «Quedarme».
+        const llamada = await suena(page, api);
+        await cerrarSesion();
+        const sonando = page.getByRole("alertdialog", { name: "Tienes una llamada entrando" });
+        await sinDesbordes(page);
+        await captura(page, "salir-con-llamada");
+        await sonando.getByRole("button", { name: "Quedarme" }).click();
+        await expect(sonando).toHaveCount(0);
+        await expect(aviso(page)).toHaveAttribute("data-fase", "sonando");
+        expect(api.peticiones.some((p) => p.metodo === "DELETE" && p.ruta === "/api/v1/sesion")).toBe(false);
+        // Ahora sí: deja de sonarme (rechazar) y después se cierra la sesión.
+        await cerrarSesion();
+        await sonando.getByRole("button", { name: "Seguir" }).click();
+        await expect(page).toHaveURL(/\/entrar/);
+        const rutas = api.peticiones.map((p) => `${p.metodo} ${p.ruta}`);
+        const rechazo = rutas.findIndex((r) => r.endsWith(`/llamadas/${llamada.id}/rechazar`));
+        expect(rechazo).toBeGreaterThan(-1);
+        expect(rutas.indexOf("DELETE /api/v1/sesion")).toBeGreaterThan(rechazo);
+        // Solo dejó de sonarme a mí: la llamada sigue para los demás.
+        expect(api.voz.llamadas.get(llamada.id)?.estado).toBe("sonando");
+    });
+
+    test("cerrar sesión hablando: «Colgar y seguir» manda `colgar` antes del `DELETE /sesion`", async ({ page }) => {
+        const api = await abrir(page, "/cuenta");
+        const llamada = await suena(page, api);
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect(barra(page)).toBeVisible();
+        if (esTelefono(page)) {
+            await abrirMenu(page);
+            await hojaMas(page).getByRole("menuitem", { name: "Cerrar sesión" }).click();
+        } else {
+            await page.getByRole("button", { name: /^Tu cuenta/ }).click();
+            await page.getByRole("menuitem", { name: "Cerrar sesión" }).click();
+        }
+        const dialogo = page.getByRole("alertdialog", { name: "Tienes una llamada con Carlos Ruiz" });
+        await expect(dialogo).toContainText("Si sigues, la llamada se cuelga.");
+        await dialogo.getByRole("button", { name: "Colgar y seguir" }).click();
+        await expect(page).toHaveURL(/\/entrar/);
+        expect(api.voz.llamadas.get(llamada.id)?.estado).toBe("terminada");
+        const rutas = api.peticiones.map((p) => `${p.metodo} ${p.ruta}`);
+        const colgar = rutas.findIndex((r) => r.startsWith("POST") && r.endsWith("/colgar"));
+        const salir = rutas.indexOf("DELETE /api/v1/sesion");
+        expect(colgar).toBeGreaterThan(-1);
+        expect(salir).toBeGreaterThan(colgar);
+    });
+
+    test("cambiar de empresa hablando: pregunta antes y `colgar` viaja con la empresa de la llamada, no con la nueva", async ({ page }) => {
+        const api = await abrir(page, "/tickets", { opciones: { empresas: EMPRESAS } });
+        await page.getByRole("list", { name: "Empresas" }).getByRole("button", { name: "Cable Norte" }).click();
+        await expect(page.getByText("Sin internet desde la mañana").filter({ visible: true })).toBeVisible();
+        const llamada = await suena(page, api);
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect(barra(page)).toBeVisible();
+        expect(api.peticiones.find((p) => p.ruta.endsWith("/reclamar"))?.empresa).toBe("10");
+        // Al contestar se abrió la conversación; se vuelve al inicio (en el teléfono, ahí está «Más»).
+        await page.getByRole("link", { name: "Iris, inicio" }).click();
+        await expect(page).toHaveURL(/\/$/);
+        await expect(barra(page)).toBeVisible();
+
+        await elegirOpcion(await selectorEmpresa(page), { label: "Fibra Sur" });
+        const dialogo = page.getByRole("alertdialog", { name: "Tienes una llamada con Carlos Ruiz" });
+        await dialogo.getByRole("button", { name: "Quedarme" }).click();
+        await expect(barra(page)).toBeVisible();
+        expect(api.voz.llamadas.get(llamada.id)?.estado).toBe("en_curso");
+        expect(api.peticiones.some((p) => p.empresa === "20")).toBe(false);
+
+        await elegirOpcion(await selectorEmpresa(page), { label: "Fibra Sur" });
+        await dialogo.getByRole("button", { name: "Colgar y seguir" }).click();
+        await expect(barra(page)).toHaveCount(0);
+        await expect.poll(() => api.peticiones.some((p) => p.empresa === "20")).toBe(true);
+        expect(api.voz.llamadas.get(llamada.id)?.estado).toBe("terminada");
+        const colgar = api.peticiones.findIndex((p) => p.ruta.endsWith("/colgar"));
+        expect(api.peticiones[colgar]?.empresa).toBe("10");
+        expect(colgar).toBeLessThan(api.peticiones.findIndex((p) => p.empresa === "20"));
+    });
+
+    test("el timbre tiene tope: sin noticias de la llamada, a los 60 s deja de sonar aquí", async ({ page }) => {
+        const api = await abrir(page, "/cuenta");
+        await feedListo(page, api);
+        // Una llamada sin `suenaHasta` creíble (reloj del equipo): vale el tope de 60 s.
+        api.voz.entrante(41, { suenaHasta: new Date(Date.now() + 3_600_000).toISOString() });
+        await expect(aviso(page)).toHaveAttribute("data-timbre", "sonando");
+        await page.clock.fastForward(59_000);
+        await expect(aviso(page)).toHaveAttribute("data-fase", "sonando");
+        await page.clock.fastForward(1_500);
+        await expect(aviso(page)).toHaveCount(0);
+        expect(acciones(api, "reclamar")).toHaveLength(0);
+    });
+
+    test("con el permiso del micrófono en «preguntar», el aviso de la llamada lo anticipa", async ({ page }) => {
+        const api = await abrir(page, "/cuenta", { doble: { permiso: "prompt" } });
+        await suena(page, api);
+        await expect(aviso(page).locator('[data-slot="aviso-permiso"]')).toContainText("el navegador te va a pedir permiso para usar el micrófono");
+        await sinDesbordes(page);
+        await captura(page, "entrante-permiso");
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect(barra(page)).toBeVisible();
+        await barra(page).getByRole("button", { name: "Colgar" }).click();
+        await nota(page).getByRole("button", { name: "Ahora no" }).click();
+        // Ya concedido: la siguiente llamada no lo repite.
+        await suena(page, api, 42);
+        await expect(aviso(page).locator('[data-slot="aviso-permiso"]')).toHaveCount(0);
     });
 });
 
