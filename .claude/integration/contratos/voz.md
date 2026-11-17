@@ -551,7 +551,8 @@ servidor al enlazar; informativa: Iris no guarda ni impone una lista de IP, §4.
 `capacidad_declarada`, `en_curso`, `estado` (`sin_enlazar` \| `listo` \| `degradado` \|
 `no_disponible` \| `incompatible` \| `desactivado`), `ultimo_latido_en`, `version_motor`,
 `version_protocolo`, `compatible` (bool) y `motivo_incompatible`, `catalogo` (jsonb: STT, TTS y LLM
-locales que declara, GPU), `enlace_codigo_hash`, `enlace_vence_en`, `enlace_usado_en`.
+locales que declara, GPU), `enlace_codigo` (cifrado; se borra al enlazar o al vencer, §4.8), `enlace_vence_en`,
+`enlace_usado_en`, `huella_tls_siguiente` (§4.10).
 
 ### 2.9 Devoluciones de llamada
 
@@ -1107,11 +1108,15 @@ no guarda ninguna credencial de Iris.
      mientras la ventana de enlace está abierta (§4.8); fuera de esa ventana la ruta no existe y el
      saludo exige el certificado fijado.
   2. **Firma por petición**, sin `Authorization: Bearer` (el token nunca viaja):
-     `X-Iris-Firma: HMAC-SHA256(K, método + "\n" + ruta_con_query + "\n" + marca + "\n" + nonce + "\n" + sha256(cuerpo))`,
+     `X-Iris-Firma: HMAC-SHA256(K, método + "\n" + ruta_con_query + "\n" + marca + "\n" + nonce + "\n" + versión_de_Iris + "\n" + sha256(cuerpo))`
+     (`versión_de_Iris` es el valor de `X-Iris-Version`, que así queda **dentro de la cadena firmada**),
      con `K = HKDF-SHA256(token, info = "iris-voz/firma/v1")`, `X-Iris-Marca` (segundos Unix;
      ventana de ±30 s) y `X-Iris-Nonce` (128 bits aleatorios; el motor rechaza un nonce repetido
      durante 90 s, más que la ventana). Comparación en tiempo constante. Cubre método y ruta: una
-     petición capturada no sirve para otro endpoint. El WebSocket firma su petición de apertura y,
+     petición capturada no sirve para otro endpoint. Una marca fuera de ventana responde 401
+     `reloj_desfasado` con la hora del servidor (único 401 con detalle: no revela nada del secreto);
+     Iris lo muestra como «el reloj de uno de los dos servidores está mal» y el instalador comprueba
+     que NTP está sincronizado. El WebSocket firma su petición de apertura y,
      dentro, cada mensaje lleva `seq` y un HMAC con una clave de sesión
      (`HKDF(token, info = "iris-voz/canal/v1" + llamadaId + nonce de apertura)`).
   3. **Lista de IP, opcional y apagada de fábrica** (la IP de Iris puede cambiar). Iris no declara
@@ -1119,8 +1124,9 @@ no guarda ninguna credencial de Iris.
      tarjeta del panel como dato). Restringir el puerto de control a esa IP se enciende **en el
      servidor** (`iris-voz ip restringir`, cortafuegos y puerta), nunca desde Iris: un Iris
      comprometido no puede abrirla ni cambiarla. La seguridad no depende de esta capa.
-  4. Las respuestas del motor que importan (`sdpRespuesta`, `/version`) van firmadas igual, con
-     `info = "iris-voz/respuesta/v1"`, para que una terminación TLS intermedia no pueda alterarlas.
+  4. Las respuestas del motor que importan (`sdpRespuesta`, `/version`, `/salud`, `/metricas`) van
+     firmadas igual, con `info = "iris-voz/respuesta/v1"`, y la cadena firmada **incluye el nonce
+     de la petición** (una respuesta vieja no sirve para otra petición).
   Un túnel WireGuard entre los dos servidores es opcional y se suma; no sustituye nada.
 - **Dónde vive el token.** Es un secreto compartido (hace falta en los dos lados para el HMAC), así
   que **ninguno guarda «solo el hash»**: en Iris va cifrado con `IRIS_CLAVE_CIFRADO`
@@ -1137,6 +1143,14 @@ no guarda ninguna credencial de Iris.
   renueva en la misma operación cuando le quedan menos de 30 días o si el admin lo pide: la puerta
   acepta las dos huellas durante la misma ventana. Cada rotación audita y emite
   `voz.motor_token_rotado` (sin el token).
+- **«Revocar ahora»** (`POST /voz/motores/{id}/rotar-token { revocar: true }`): la misma rotación
+  con **convivencia 0** (token y certificado de cliente anteriores dejan de valer en el acto). En
+  el servidor, **`iris-voz desenlazar`** borra token y huella fijada y deja la puerta sin aceptar
+  nada hasta un enlace nuevo.
+- **Token y clave privada del cliente caen juntos**: los dos viven en Iris (cifrados con
+  `IRIS_CLAVE_CIFRADO`). Si Iris se ve comprometido, rotar por el canal no basta, porque el
+  atacante puede rotar también: la recuperación es `iris-voz desenlazar` en el servidor y **volver
+  a enlazar con código**.
 - Sin `voz_motores` activo o sin token: todo lo que necesita el motor responde 503
   `motor_no_disponible` y el asistente de voz aparece como «sin configurar».
 
@@ -1251,20 +1265,39 @@ Cualquier otra ruta o método responde 404 **en la puerta**, sin llegar a Ollama
 `/api/pull`, `/api/delete`, `/api/create`, `/api/copy`, `/api/push`, `/api/blobs`, `/api/generate`,
 `/api/embed` ni ninguna ruta de administración. Además:
 
-- La petición debe ser JSON, de **1 MB** como máximo, con un `model` que esté en la lista de
-  instalados (si no, 422 `modelo_no_instalado`; la puerta nunca dispara una descarga).
+- **Ruta literal exacta**: la ruta cruda debe ser byte a byte una de las dos; con query, con `%`,
+  con `//`, `.` o `..`: 404 sin normalizar.
+- **Decodifica y reserializa.** La petición debe ser JSON de **1 MB** como máximo. La puerta la
+  decodifica con una **lista cerrada de campos** (`model`, `messages`, `stream`, `temperature`,
+  `max_tokens` ≤ tope del servidor, `response_format`, `tools`; cualquier otro campo, también
+  dentro de `messages` y `tools` fuera de su esquema, → 422 `campo_no_permitido`) y **arma una
+  petición nueva** hacia Ollama con solo esos campos, en la que **fija ella** `keep_alive` y el
+  tamaño de contexto. Lo que escribió el cliente nunca se reenvía tal cual.
+- `model` debe estar instalado **y** en `modelosPermitidos` (si no, 422 `modelo_no_instalado`; la
+  puerta nunca dispara una descarga). `modelosPermitidos` lo define el admin de la instalación en
+  el servidor (`iris-voz modelo permitir <nombre>`); `maxSimultaneas` se calcula **para ese
+  conjunto** (el peor caso de VRAM), no para todo lo instalado.
+- La petición hacia Ollama es **nueva**: `Content-Length` propio, sin `Transfer-Encoding` del
+  cliente y sin ninguna cabecera suya. Tras un corte (plazo, tamaño, cliente que se va) la
+  **conexión con Ollama se descarta**, nunca vuelve al grupo de conexiones.
 - **Duración máxima por petición: 120 s** (mensajería corta antes, a su `PlazoIA` de 90 s); la
   respuesta, **4 MB** como máximo. Al pasarse, la puerta corta la conexión con Ollama y responde
   504/502.
-- Se reenvían solo el cuerpo y `Content-Type`: ninguna cabecera de Iris llega a Ollama y ninguna
-  de Ollama vuelve salvo `Content-Type`.
+- Ninguna cabecera de Iris llega a Ollama y ninguna de Ollama vuelve salvo `Content-Type`.
 - Tope de peticiones simultáneas del servidor (lo declara en `/salud`, `llm.maxSimultaneas`); por
-  encima, 503 `sin_capacidad`. El reparto por empresa lo lleva mensajería (§4.11).
+  encima, 503 `sin_capacidad`. **No hay cola**: ni en la puerta ni en Iris (§4.11). El reparto por
+  empresa lo lleva mensajería.
+- **Iris tampoco se fía de la respuesta**: aplica sus propios topes de lectura a `/llm/` (4 MB y
+  `PlazoIA`), la valida como la de cualquier proveedor y, para el tope de tokens, cuenta
+  `max(usage que declara el servidor, estimación propia)`: un servidor que declare 0 no regala
+  tokens.
 
 **Modelos.** El contenedor `llm` **no tiene salida a red**, así que no puede descargar nada. Los
 modelos se instalan con un comando explícito en el servidor, `iris-voz modelo descargar <nombre>`
-(y `iris-voz modelo quitar <nombre>`), que usa un **contenedor de un solo uso con salida**, escribe
-en el volumen de modelos y termina; el contenedor `llm` monta ese volumen en **solo lectura**. Desde
+(y `iris-voz modelo quitar <nombre>`), que usa un **contenedor de un solo uso cuya única salida
+es el registro de modelos** (regla de salida por host), escribe en el volumen de modelos y
+termina. Los modelos por defecto están **fijados por digest en el manifiesto** (§4.7) y la descarga
+se verifica contra él; el contenedor `llm` monta ese volumen en **solo lectura**. Desde
 el panel solo se **listan** los instalados: Iris no puede pedir, borrar ni crear modelos.
 
 ### 4.5 Salud y capacidad
@@ -1340,7 +1373,17 @@ instalable aparte, construido solo para ese servidor.
   asistente de chat, §4.11), el panel dice qué
   versión hace falta de qué lado y sale `voz.motor_estado_cambiado`. Nunca se intenta «a ver si
   funciona».
-- **Actualización:** `iris-voz actualizar` en el servidor: descarga, verifica la suma y cambia de
+- **Paquete y manifiesto firmados (cosign sin clave).** El flujo de release firma el `.tar.gz` y
+  el manifiesto con **cosign keyless**: la identidad es la OIDC del workflow de release de este
+  repositorio, sin claves ni secretos que aprovisionar, y el **bundle** (`.sigstore.json`) se
+  publica junto al paquete. `install-voz.sh` e `iris-voz actualizar` **verifican firma e
+  identidad** (emisor OIDC de GitHub Actions, repositorio y ruta del workflow exactos) antes de
+  desempaquetar nada, y **fallan cerrado**: sin cosign, sin bundle o con otra identidad no se
+  instala. La suma `.sha256` sigue publicándose, pero no sustituye a la firma. Las **imágenes van
+  por digest** en el compose (nunca por etiqueta) y los modelos por defecto, por digest en el
+  manifiesto. La acción y la versión de cosign se fijan por SHA, con al menos dos semanas de
+  antigüedad, y la dependencia se anota en la PR.
+- **Actualización:** `iris-voz actualizar` en el servidor: descarga, verifica la firma y la suma y cambia de
   versión cuando no hay llamadas en curso (deja de aceptar nuevas —`aceptaNuevas: false` en
   `/salud`— y espera como mucho la duración máxima de una llamada). Iris no actualiza el servidor de
   voz a distancia: no puede ejecutar nada ahí, y eso es parte del aislamiento. El panel avisa cuando
@@ -1355,8 +1398,10 @@ servidor es **de la instalación**, no de una empresa: los dos permisos solo val
 **Ventana de enlace.** `POST /voz/v1/enlazar` es la **única** ruta que la puerta atiende antes de
 tener mTLS, y solo existe mientras la ventana está abierta. La abre el instalador al terminar o
 `iris-voz enlazar` en el servidor (nunca Iris ni nada por red), dura **15 min** y es de **un solo
-uso**: se cierra con el primer enlace correcto, al vencer o tras 5 intentos fallidos (y entonces no
-se puede reabrir en 15 min). Con la ventana cerrada la ruta responde como cualquier otra sin
+uso**: se cierra con el primer enlace correcto o al vencer. **Los intentos fallidos no la
+cierran** (cualquiera que alcance el puerto podría impedir el enlace): `/enlazar` tiene **límite de
+frecuencia** (1 intento cada 2 s en total y 5 por IP en la ventana; por encima 429), y con un
+código de 160 bits adivinarlo no es viable. Con la ventana cerrada la ruta responde como cualquier otra sin
 certificado: corte en el saludo TLS.
 
 **Enlazar** (una vez):
@@ -1364,12 +1409,18 @@ certificado: corte en el saludo TLS.
 1. En el servidor, el instalador muestra la **dirección** (`https://<ip>:8443`) y la **huella** de
    su certificado.
 2. En el panel, «Enlazar servidor de voz»: `POST /voz/motores/enlazar { nombre, url }` → 201
-   `{ motor, codigo, venceEn }`. El `codigo` (`voz-` + 160 bits en base32) es de **un solo uso**,
-   vence a los **15 min**, se muestra **una vez** y en la base queda solo su hash. Con
+   `{ motor, codigo, venceEn }`. El `codigo` (`voz-` + **160 bits** aleatorios en base32) es de
+   **un solo uso**, vence a los **15 min** y se muestra **una vez**. Iris lo necesita en claro para
+   el paso 4, así que lo guarda **cifrado con `IRIS_CLAVE_CIFRADO`** (`enlace_codigo`) hasta que el
+   enlace se completa o pasan los 15 min, y entonces lo **borra** (también lo borra el
+   mantenimiento); nunca va a logs, auditoría ni eventos. Con
    `Idempotency-Key` la respuesta no se guarda (409 `idempotencia_no_repetible` al repetir, como el
    verify token de §1.1 del chat).
-3. En el servidor: `iris-voz enlazar` y se pega el código.
-4. Mensajería llama `POST {url}/voz/v1/enlazar` **presentando ya su certificado de cliente** en el
+3. En el servidor: `iris-voz enlazar` abre la ventana y pide el código, que lee **sin eco** de la
+   terminal; **nunca** se acepta como argumento ni por variable de entorno (quedaría en el
+   historial y en la lista de procesos).
+4. En el panel, «Conectar»: `POST /voz/motores/{id}/conectar` (`servidor_ia.administrar`). Entonces
+   mensajería llama `POST {url}/voz/v1/enlazar` **presentando ya su certificado de cliente** en el
    saludo TLS, con una prueba de que conoce el código **atada a los dos certificados**:
    `HMAC(codigo, "iris" + nonceIris + huella_del_servidor_que_ve + huella_de_su_certificado)`. La
    puerta la comprueba contra **su** certificado y contra el de cliente que recibió en el saludo
@@ -1383,11 +1434,13 @@ certificado: corte en el saludo TLS.
    compare con la que imprimió el instalador, y confirma con `POST /voz/motores/{id}/activar`.
    **Hasta activar, Iris no manda nada más a ese servidor** (ni `/salud`, ni `/version`, ni
    `/llm/`): queda `sin_enlazar`, no recibe llamadas y ninguna empresa puede elegirlo. Un enlace
-   sin activar caduca a las 24 h y hay que repetirlo. Al activar, mensajería hace el primer
-   `/salud` ya con mTLS y firma.
+   sin activar caduca a las 24 h y hay que repetirlo. **Al activar, lo primero que hace Iris es
+   rotar a un token aleatorio** (`POST /voz/v1/credencial`, firmado con el derivado y **sin
+   convivencia**): el token derivado del código deja de valer en ese momento y, si esa rotación
+   falla, la activación falla. Después hace el primer `/salud`.
 
-Un código vencido, usado o equivocado recibe siempre la misma respuesta (401, sin detalle), y el
-motor bloquea el enlace 15 min tras 5 intentos. Volver a enlazar un servidor (reinstalación, cambio
+Un código vencido, usado o equivocado recibe siempre la misma respuesta (401, sin detalle).
+Volver a enlazar un servidor (reinstalación, cambio
 de certificado) invalida el token anterior.
 
 **Lo que muestra la tarjeta** (`GET /voz/motores`, `GET /voz/motores/{id}`):
@@ -1416,8 +1469,10 @@ cada uno), `medios` (el motor comprueba que su puerto UDP se alcanza por su IP p
 `capacidad`. Guarda el resultado en la tarjeta y audita. No cuenta para los topes. En la primera
 entrega (§4.11) `stt`, `tts` y `medios` salen `omitido`; `llm` es obligatorio.
 
-**Empresas permitidas:** `POST /voz/motores/{id}/empresas { empresas: [ids] | null, simultaneasPorEmpresa, version }`
-(`servidor_ia.administrar`). De fábrica `null`: lo pueden usar todas.
+**Empresas permitidas:** `POST /voz/motores/{id}/empresas/actualizar { empresas: [ids] | null, simultaneasPorEmpresa, version }`
+(`servidor_ia.administrar`; evento `voz.motor_empresas_cambiadas`). De fábrica `null`: lo pueden
+usar todas. `activar` y `desactivar` emiten `voz.motor_activado` y `voz.motor_desactivado`;
+`voz.motor_enlazado` sale al completarse el intercambio del paso 4.
 
 Eventos: `voz.motor_enlazado`, `voz.motor_estado_cambiado`, `voz.motor_token_rotado` (§8.1).
 Errores: 409 `motor_ya_enlazado`, 422 `url_no_permitida` (reglas de §16.1 del chat; aquí se permite
@@ -1477,7 +1532,12 @@ más.
 - **Credenciales:** una sola de Iris, el token de servicio, que solo sirve para **recibir**
   peticiones de mensajería: con él no se puede llamar a Iris. Rotación automática cada 30 días y al
   volver a enlazar. Certificado TLS propio, generado en la instalación y renovado con
-  `iris-voz renovar-certificado` (cambia la huella: el panel pide confirmarla otra vez). Las claves de
+  `iris-voz renovar-certificado`. **Nunca se acepta una huella nueva con un clic en el panel.** La
+  puerta genera el certificado siguiente y **anuncia su huella por el canal vigente**
+  (`huellaSiguiente` en `/salud`, respuesta firmada, sobre el mTLS con el certificado actual); Iris
+  la fija **sola** junto a la actual, lo confirma en `/credencial` y la puerta cambia; Iris suelta
+  la anterior al ver la nueva en uso (audita y avisa en la tarjeta). Si el certificado anterior se
+  perdió (reinstalación, disco), no hay canal vigente: **se enlaza de nuevo con código** (§4.8). Las claves de
   proveedores externos de STT/TTS, si se instalan, viven **solo aquí**, como secretos de Docker,
   por instalación; Iris no las conoce (§4.3).
 - **Actualización:** paquetes con suma verificada (§4.7); sistema operativo con actualizaciones de
@@ -1507,8 +1567,9 @@ proveedor nuevo del asistente.
 
 **Proveedor `servidor_ia`.** Se añade a `asistente_ajustes.proveedor` (migración del `CHECK`:
 `ollama`, `openai_compatible`, `anthropic`, `servidor_ia`). Cada empresa lo elige en sus ajustes del
-asistente junto con **un modelo de los instalados**; no escribe URL ni clave (se rechazan con ese
-proveedor) y las reglas de URL de §16.1 no aplican porque el destino no lo escribe la empresa. Los
+asistente junto con **un modelo de los permitidos**; no escribe URL ni clave (se rechazan con ese
+proveedor; si la empresa tenía una clave guardada de otro proveedor, el cambio exige `clave: ""`
+explícito, que la borra: nunca queda una clave sin uso guardada en silencio) y las reglas de URL de §16.1 no aplican porque el destino no lo escribe la empresa. Los
 ajustes del asistente devuelven `servidorIa: { disponible, modelos[] }`, **sin** URL, huella ni
 versión (eso es de la tarjeta). Guardar `servidor_ia` responde 422 `servidor_ia_no_disponible` si
 no hay servidor activo y compatible, si la empresa no está entre las permitidas o si el modelo no
@@ -1520,9 +1581,16 @@ sin `Authorization`.
 - El **tope de tokens del mes** por empresa sigue aplicando igual que con cualquier proveedor.
 - **Peticiones simultáneas por empresa** (`simultaneasPorEmpresa`, de fábrica 2, lo fija el admin
   de la instalación en la tarjeta, no la empresa) y total del servidor (`llm.maxSimultaneas`).
-  Mensajería reserva la plaza en la misma sentencia en que decide llamar y la suelta al terminar o
-  al vencer el plazo. Sin plaza: `servidor_ia_ocupado`, que se trata como un fallo del proveedor
-  (abajo), sin esperar en cola.
+  Además, **una plaza garantizada por empresa activa** (con `servidor_ia` y el asistente
+  encendido): una empresa que ya tiene alguna en curso solo toma otra plaza si, después, quedan
+  libres al menos tantas como empresas activas sin ninguna en curso. Si hay más empresas activas
+  que plazas, la garantía no puede cumplirse para todas y la tarjeta lo avisa.
+- Mensajería reserva la plaza en la misma sentencia en que decide llamar y la suelta al terminar o
+  al vencer el plazo. **Toda** llamada al modelo cuenta, también `/asistente/probar`, resumen y
+  categoría.
+- **No hay cola** (decisión: una cola con plazos de 20–40 s por petición solo esconde la espera).
+  Sin plaza: `servidor_ia_ocupado` al instante, que se trata como un fallo del proveedor (abajo);
+  se cuenta como rechazo en el tablero.
 - Quitar una empresa de las permitidas no borra sus ajustes: su asistente queda «sin configurar»
   hasta que elija otro proveedor.
 
@@ -1582,11 +1650,13 @@ firmada como `/version`):
   "cpu": { "nucleos": 16, "usoPct": 12 }, "memoria": { "usadaMb": 0, "totalMb": 0 },
   "disco": { "usadoMb": 0, "totalMb": 0 },
   "modelos": [{ "id": "…", "tamanoMb": 0, "cargado": true, "vramMb": 0, "cargadoHasta": "…" }],
-  "llm": { "enCurso": 1, "enCola": 0, "maxSimultaneas": 4 } }
+  "llm": { "enCurso": 1, "maxSimultaneas": 4 } }
 ```
 
-- GPU por tarjeta, leída de NVML (o `nvidia-smi` con argumentos fijos); sin GPU (`--sin-gpu`),
-  `"gpus": { "estado": "omitido" }`. Un dato que la tarjeta no da va `null`, no inventado.
+- GPU por tarjeta. **No la lee la puerta** (no ve la GPU): la lee un contenedor **medidor**, sin
+  ningún puerto y sin red, que ejecuta `nvidia-smi` con argumentos fijos (plazo 2 s) y deja el
+  resultado en un volumen `tmpfs` que la puerta monta en solo lectura; una lectura de más de 15 s
+  se da por perdida. Sin GPU (`--sin-gpu`) o sin lectura, `"gpus": { "estado": "omitido" }`. Un dato que la tarjeta no da va `null`, no inventado.
 - `disco` es el del volumen de modelos. `modelos` sale de la lista de instalados y de los cargados
   en memoria que declara Ollama; `cargadoHasta` es hasta cuándo queda residente.
 - **Seguridad de la ruta:** no acepta parámetros ni cuerpo; **no ejecuta ningún comando con
@@ -1595,12 +1665,17 @@ firmada como `/version`):
   tarjetas, 256 modelos); **límite de frecuencia** (1 petición por segundo, ráfaga de 5; por
   encima, 429) y lectura cacheada 2 s para que consultarla no cargue la GPU. **No lleva prompts,
   respuestas, nombres de clientes ni números**: la puerta no los tiene.
+- **Iris revalida todo lo que devuelve `/metricas`** antes de guardarlo o mostrarlo: esquema
+  cerrado, tope de 256 KB, longitudes (nombres ≤ 128), rangos (porcentajes 0–100, temperatura
+  0–150, megas y vatios no negativos y acotados), el mismo patrón de nombres de modelo y de GPU, y
+  escape en el panel y en los **correos** de aviso. Lo que no valida se descarta y cuenta como
+  lectura fallida.
 
 **Lo que guarda Iris** (schema `mensajeria`, tablas propias, **sin texto de prompts ni de
 respuestas**):
 
 - `servidor_ia_muestras`: una fila por muestreo (cada 10 s, con el latido de §4.5; `/metricas` se
-  pide en la misma pasada) con estado, GPU por tarjeta, CPU, memoria, disco, en curso y en cola.
+  pide en la misma pasada) con estado, GPU por tarjeta, CPU, memoria, disco y en curso.
 - `servidor_ia_muestras_hora`: agregados por hora (mínimo, media y máximo).
 - `servidor_ia_uso`: por hora, **empresa** y **modelo**, medido por **mensajería** con su propio
   reloj y con el `usage` que ya contabiliza para el tope (nunca con lo que diga el servidor):
@@ -1619,29 +1694,31 @@ hasta 24 h; por hora en 7 d) y el uso.
 
 | Quién | Qué ve |
 | --- | --- |
-| `servidor_ia.ver` (admin con `empresas.todas`) | Todo: GPU, CPU, memoria, disco, modelos, cola, y el uso de todas las empresas con desglose por empresa y por modelo |
-| `servidor_ia.ver_uso` (admin de una empresa) | El **estado general** (listo o no, versión, modelos disponibles) y **solo el uso de su empresa** activa. Ningún dato de otras: ni su desglose, ni totales de los que se pueda restar el suyo, ni series de GPU o cola (delatan la actividad ajena) |
+| `servidor_ia.ver` (admin con `empresas.todas`) | Todo: GPU, CPU, memoria, disco, modelos, ocupación, y el uso de todas las empresas con desglose por empresa y por modelo |
+| `servidor_ia.ver_uso` (admin de una empresa) | El **estado general** (listo o no, versión, modelos disponibles) y **solo el uso de su empresa** activa. Ningún dato de otras: ni su desglose, ni totales de los que se pueda restar el suyo, ni series de GPU u ocupación (delatan la actividad ajena) |
 | Cualquier otro | 404 |
 
 El filtro por empresa lo aplica el servidor desde la empresa activa; la ruta no acepta `empresa_id`.
 
 **Avisos** (campana y correo, con las preferencias de notificaciones existentes; a quienes tienen
 `servidor_ia.ver`): servidor **caído** o **incompatible**; **memoria de video** o **disco** por
-encima del umbral; **temperatura alta**; **cola larga sostenida**. Cada aviso se abre una vez por
+encima del umbral; **temperatura alta**; **saturación sostenida** (rechazos por falta de plaza). Cada aviso se abre una vez por
 episodio y se cierra solo al volver a la normalidad (no uno por muestra). Umbrales por instalación
-(`POST /servidor-ia/umbrales { …, version }`, `servidor_ia.administrar`, auditado), de fábrica:
+(`POST /servidor-ia/umbrales/actualizar { …, version }`, `servidor_ia.administrar`, auditado,
+evento `servidor_ia.ajustes_cambiados`), de fábrica:
 
 | Umbral | De fábrica | Rango |
 | --- | --- | --- |
 | Memoria de video | 95 % durante 5 min | 50–100 % |
 | Disco | 90 % | 50–99 % |
 | Temperatura | 85 °C durante 5 min | 60–100 °C |
-| Cola | más de 5 en espera durante 2 min | 1–100; 1–30 min |
+| Saturación | 10 rechazos por `servidor_ia_ocupado` en 5 min | 1–1000; 1–60 min |
 | Caído / incompatible | siempre (no se apaga) | — |
 
 Eventos nuevos, con `empresa_id: null`, que se añaden al catálogo al implementar:
-`servidor_ia.umbral_superado` / `servidor_ia.umbral_normalizado` (motor_id, tipo, valor, umbral) y
-`servidor_ia.ajustes_cambiados` (motor_id, campos[]). Caído e incompatible siguen saliendo como
+`servidor_ia.umbral_superado` / `servidor_ia.umbral_normalizado` (motor_id, tipo, valor, umbral),
+`servidor_ia.ajustes_cambiados` (motor_id, campos[]) y `voz.motor_activado` /
+`voz.motor_desactivado` / `voz.motor_empresas_cambiadas`. Caído e incompatible siguen saliendo como
 `voz.motor_estado_cambiado`.
 
 ## 5. El asistente en voz
@@ -2264,7 +2341,7 @@ por revisión de seguridad de diseño antes de implementarse.
 | Tema | Decisión |
 | --- | --- |
 | Quién termina TLS | Un binario propio, la **puerta** (`cmd/voz-puerta`): mTLS, firma y nonce de toda ruta, también `/llm/`. Sin nginx delante (§4.1) |
-| `/enlazar` | Única ruta antes del mTLS; solo con la ventana abierta desde el servidor (15 min, un uso), código de un solo uso, límite de intentos y bloqueo; el admin compara la huella antes de «Activar» y hasta entonces no se manda nada más; Iris presenta su certificado en ese intercambio y el servidor fija su huella (§4.8) |
+| `/enlazar` | Única ruta antes del mTLS; solo con la ventana abierta desde el servidor (15 min, un uso), código de un solo uso de 160 bits, límite de frecuencia (los fallos no cierran la ventana); el admin compara la huella antes de «Activar» y hasta entonces no se manda nada más; Iris presenta su certificado en ese intercambio y el servidor fija su huella (§4.8) |
 | IP de Iris | El servidor registra la que observa al enlazar. Restringir por IP es opcional, apagado de fábrica, y se enciende en el servidor (§4.2) |
 | Componentes ausentes | `/salud` y «Probar» admiten `omitido` (stt, tts, medios); solo `llm` es obligatorio (§4.5, §4.8) |
 | Modelos | `llm` sin salida a red; se descargan con `iris-voz modelo descargar` (contenedor de un solo uso); el panel solo lista (§4.4) |
@@ -2274,6 +2351,8 @@ por revisión de seguridad de diseño antes de implementarse.
 | Rotación | Desde el panel, con convivencia de 24 h (§4.2) |
 | Proxy `/llm/` | Solo inferencia y lista de modelos; topes de tamaño y duración (§4.4) |
 | Registro | Nunca prompts ni respuestas en el servidor de IA; en Iris como hoy (§4.11) |
+| Revisión de diseño (A1–A4) | Código cifrado en Iris hasta enlazar y token aleatorio al activar; huella nueva solo por el canal vigente o re-enlace; paquete firmado con cosign sin clave e imágenes y modelos por digest; la puerta reserializa con lista cerrada y `modelosPermitidos` |
+| Cola | **No hay**: sin plaza se rechaza al instante; plaza garantizada por empresa activa (§4.11) |
 | Tablero (petición del dueño) | En el panel de Iris, no en una web del servidor: `/metricas` en la puerta, series y uso en Iris, `GET /servidor-ia/tablero`, avisos con umbrales (§4.12) |
 
 ### 10.4 Preguntas que siguen abiertas
@@ -2295,8 +2374,7 @@ por revisión de seguridad de diseño antes de implementarse.
    *Cerrada:* el rango lo fija cada versión de Iris Voz en su manifiesto (§10.3).
 9. **Varias empresas en un servidor de voz:** uno por instalación sirve a todas (aislamiento por
    llamada). ¿Alguna exigirá servidor propio?
-10. **Para la revisión de seguridad del Servidor de IA** (propuestas de I1, no decididas): que el
-    token inicial se **derive** del código en vez de enviarse (§4.8, paso 4); los topes del proxy
+10. **Valores propuestos por I1, a confirmar en la reverificación:** los topes del proxy
     (1 MB, 4 MB, 120 s) y `simultaneasPorEmpresa` de fábrica en 2 (§4.4, §4.11); que un enlace sin
     activar caduque a las 24 h; el permiso `servidor_ia.ver_uso` para el admin de empresa, que no
     vea series de GPU ni de cola, y los umbrales de fábrica de los avisos (§4.12).
