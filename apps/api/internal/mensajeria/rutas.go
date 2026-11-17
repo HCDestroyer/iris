@@ -240,7 +240,7 @@ func (m *Modulo) Registrar(api huma.API) {
 		"Firmado con el app secret del canal (`X-Hub-Signature-256: sha256=<hex>`; 401 `firma_invalida`, sin auditar). Se guarda deduplicado y se procesa en un job."
 	huma.Register(api, webhook, func(ctx context.Context, in *entradaMetaHTTP) (*cuerpo[MetaRecibido], error) {
 		ctx = contexto.ConCanal(ctx, contexto.CanalWebhook)
-		return responder(m.RecibirMeta.Ejecutar(ctx, EntradaMeta{CanalID: in.ID, Firma: in.Firma, Cuerpo: in.RawBody}))
+		return responder(m.RecibirWebhookMeta(ctx, EntradaMeta{CanalID: in.ID, Firma: in.Firma, Cuerpo: in.RawBody}))
 	})
 	verif := op("verificarWebhookMeta", http.MethodGet, "/canales/{id}/webhook", "Verificación de la suscripción del webhook de Meta", "",
 		http.StatusOK, http.StatusForbidden)

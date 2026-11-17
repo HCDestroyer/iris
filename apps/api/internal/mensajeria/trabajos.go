@@ -24,6 +24,7 @@ func (m *Modulo) RegistrarWorkers(w *river.Workers, bd nucleo.BD) {
 	river.AddWorker(w, &trabajadorEntrante{m: m, bd: bd})
 	river.AddWorker(w, &trabajadorDespacho{m: m, bd: bd})
 	river.AddWorker(w, &trabajadorMantenimiento{m: m, bd: bd})
+	river.AddWorker(w, &trabajadorMantenimientoVoz{m: m, bd: bd})
 	river.AddWorker(w, &trabajadorMensaje{m: m, bd: bd})
 	river.AddWorker(w, &trabajadorMedio{m: m, bd: bd})
 	river.AddWorker(w, &trabajadorAsistenteSugerir{m: m, bd: bd})
@@ -104,8 +105,13 @@ func Reloj(ctx context.Context, cliente *river.Client[pgx.Tx], log *slog.Logger)
 	despacho, mant := time.NewTicker(10*time.Second), time.NewTicker(time.Minute)
 	defer despacho.Stop()
 	defer mant.Stop()
+	// Las llamadas vivas se revisan cada 5 s (contratos/voz.md §3.3).
+	voz := time.NewTicker(5 * time.Second)
+	defer voz.Stop()
 	for {
 		select {
+		case <-voz.C:
+			encolar(ArgsMantenimientoVoz{})
 		case <-ctx.Done():
 			return
 		case <-despacho.C:

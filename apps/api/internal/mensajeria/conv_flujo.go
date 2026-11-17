@@ -27,7 +27,8 @@ import (
 // EventoConversacion es un cambio del feed: el mismo cuerpo en SSE (data) y en /cambios.
 type EventoConversacion struct {
 	ID             string               `json:"id" doc:"Cursor del feed (el id de SSE / Last-Event-ID)"`
-	Tipo           string               `json:"tipo" enum:"mensaje_nuevo,mensaje_actualizado,conversacion_actualizada,mencion,guardia,aviso_sin_atender,sugerencia"`
+	Tipo           string               `json:"tipo" enum:"mensaje_nuevo,mensaje_actualizado,conversacion_actualizada,mencion,guardia,aviso_sin_atender,sugerencia,llamada_entrante,llamada_actualizada,llamada_terminada,devolucion_actualizada"`
+	Llamada        *Llamada             `json:"llamada,omitempty" doc:"llamada_entrante (solo a quien le suena), llamada_actualizada, llamada_terminada y devolucion_actualizada: la llamada como la ves ahora, sin SDP"`
 	ConversacionID int64                `json:"conversacionId"`
 	OcurridoEn     time.Time            `json:"ocurridoEn"`
 	NoLeidos       int64                `json:"noLeidos" doc:"Tus no leídos de la conversación al leer el evento"`
@@ -142,6 +143,26 @@ func (m *Modulo) eventosConvPara(ctx context.Context, q *mensajeriabd.Queries, a
 			sugerencias[f.ID] = aSugerencia(f)
 		}
 	}
+	llamadas := map[uuid.UUID]Llamada{}
+	var llIDs []uuid.UUID
+	for _, f := range filas {
+		if id := uuidDe(f.LlamadaID); id != nil {
+			llIDs = append(llIDs, *id)
+		}
+	}
+	if len(llIDs) > 0 {
+		fs, err := q.LlamadasPorIDs(ctx, llIDs)
+		if err != nil {
+			return nil, err
+		}
+		ls, err := m.aLlamadas(ctx, q, a, fs)
+		if err != nil {
+			return nil, err
+		}
+		for _, l := range ls {
+			llamadas[l.ID] = l
+		}
+	}
 	cs, err := m.resumirConvs(ctx, q, a.usuario, convs)
 	if err != nil {
 		return nil, err
@@ -162,6 +183,11 @@ func (m *Modulo) eventosConvPara(ctx context.Context, q *mensajeriabd.Queries, a
 		if id := uuidDe(f.SugerenciaID); id != nil {
 			if x, ok := sugerencias[*id]; ok {
 				e.Sugerencia = &x
+			}
+		}
+		if id := uuidDe(f.LlamadaID); id != nil {
+			if x, ok := llamadas[*id]; ok {
+				e.Llamada = &x
 			}
 		}
 		if f.Tipo != EventoConvMensajeNuevo && f.Tipo != EventoConvMensajeActualizad && f.Tipo != EventoConvSugerencia {
@@ -325,6 +351,8 @@ func (m *Modulo) transmitirConv(ctx context.Context, w http.ResponseWriter, f fl
 		if !ok {
 			return
 		}
+		// Este flujo es el «panel abierto» de quien recibe llamadas (contratos/voz.md §3.4).
+		_ = q.TocarReceptores(ctx, mensajeriabd.TocarReceptoresParams{Empresa: a.empresa, UsuarioID: a.usuario, Ahora: m.ahora()})
 		for {
 			plazo()
 			evs, hayMas, siguiente, err := m.leerFeedConvLimitado(ctx, q, a, desde)

@@ -70,6 +70,8 @@ type Config struct {
 	Zona *time.Location
 	// MetaURL de la Graph API (pruebas: un servidor falso).
 	MetaURL string
+	// Llamadas: la Graph API de llamadas de WhatsApp (voz E1). nil = el cliente real sobre MetaURL.
+	Llamadas GraphLlamadas
 	// HTTPMeta hacia Meta; HTTPArgos hacia el receptor de Argos (con la protección contra SSRF).
 	HTTPMeta  *http.Client
 	HTTPArgos *http.Client
@@ -167,6 +169,8 @@ type Modulo struct {
 	Chat casosChat
 	// Bandeja de conversaciones con clientes.
 	Conv casosConv
+	// Voz: llamadas de WhatsApp contestadas en el panel (contratos/voz.md, E1).
+	Voz casosVoz
 	// Horarios y manuales (PR B).
 	Horarios casosHorarios
 	// Conexión con Meta, QR y préstamo de números (§15).
@@ -319,6 +323,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.Chat = nuevosCasosChat(m)
 	m.retirarFoto = nuevoRetirarFotoSinEnviar(m)
 	m.Conv = nuevosCasosConv(m)
+	m.Voz = nuevosCasosVoz(m)
 	m.abrirFlujoConv = nuevoAbrirFlujoConv(m)
 	m.prepararMedio = nuevoPrepararMedio(m)
 	m.guardarMedio = nuevoGuardarMedio(m)

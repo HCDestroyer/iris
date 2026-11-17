@@ -253,6 +253,22 @@ const (
 	PermMensajeriaAsistenteConfigurar Permiso = "mensajeria.asistente_configurar"
 )
 
+// Voz, etapa E1 (contratos/voz.md §8.2): llamadas entrantes de WhatsApp contestadas en el panel.
+const (
+	PermLlamadasVer                 Permiso = "llamadas.ver"
+	PermLlamadasContestar           Permiso = "llamadas.contestar"
+	PermLlamadasRechazar            Permiso = "llamadas.rechazar"
+	PermLlamadasColgar              Permiso = "llamadas.colgar"
+	PermLlamadasAnotar              Permiso = "llamadas.anotar"
+	PermLlamadasDescartarDevolucion Permiso = "llamadas.descartar_devolucion"
+	// Sensibles: oír o borrar la grabación de una llamada.
+	PermLlamadasEscucharGrabacion Permiso = "llamadas.escuchar_grabacion"
+	PermLlamadasBorrarGrabacion   Permiso = "llamadas.borrar_grabacion"
+	PermLlamadasConfigurar        Permiso = "llamadas.configurar"
+	// PermVozConfigurar: ajustes de voz de la empresa (grabación, límites). Sensible.
+	PermVozConfigurar Permiso = "voz.configurar"
+)
+
 // Correo del sistema configurable desde el panel (contratos/correo-sistema.md).
 const (
 	// PermCorreoSistemaVer: ver el SMTP del correo del sistema (nunca la contraseña) y por dónde sale.
@@ -355,6 +371,8 @@ var PermisosSensibles = map[Permiso]bool{
 	PermConversacionesIniciar:         true, PermCampoConfigurar: true,
 	// El SMTP con el que Iris escribe a sus usuarios (servidor, credenciales y remitente).
 	PermCorreoSistemaConfigurar: true,
+	// Voz: las grabaciones (oír y borrar) y los ajustes de voz de la empresa.
+	PermLlamadasEscucharGrabacion: true, PermLlamadasBorrarGrabacion: true, PermVozConfigurar: true,
 	// Aprobar una boleta registra un pago en Argos: de administración (MFA y re-autenticación en una
 	// sesión abierta por el autologin).
 	PermBoletasAprobar: true, PermBoletasRechazar: true,
@@ -458,6 +476,15 @@ var Catalogo = []DefPermiso{
 	{PermIntegracionesRevisarVersion, "Releer ya la versión de Argos en un conector (diagnóstico: la URL base y el status de la última lectura)"},
 	{PermIntegracionesVer, "Ver los conectores y su estado (nunca el token ni el secreto)"},
 	{PermIntegracionesVerPendientes, "Ver la cola de acciones pendientes hacia Argos y su último error"},
+	{PermLlamadasAnotar, "Dejar la nota y el resultado de una llamada que atendiste (o de cualquiera, si supervisas)"},
+	{PermLlamadasBorrarGrabacion, "Borrar la grabación de una llamada, con motivo"},
+	{PermLlamadasColgar, "Terminar la llamada que tienes (o cualquiera, si supervisas)"},
+	{PermLlamadasConfigurar, "Encender y configurar las llamadas de WhatsApp de un número (cola, horario, cuánto suena, fuera de horario)"},
+	{PermLlamadasContestar, "Recibir el timbre de las llamadas de WhatsApp en el panel y contestarlas"},
+	{PermLlamadasDescartarDevolucion, "Cerrar una llamada «por devolver» sin llamar, con motivo"},
+	{PermLlamadasEscucharGrabacion, "Escuchar las grabaciones de las llamadas que ves (cada escucha queda auditada)"},
+	{PermLlamadasRechazar, "Dejar de recibir una llamada que suena; si supervisas, rechazarla para todos"},
+	{PermLlamadasVer, "Ver las llamadas de las conversaciones que ves y la lista «Por devolver»"},
 	{PermManualesEditar, "Crear, editar, activar y desactivar artículos de la biblioteca de manuales"},
 	{PermManualesRevocarEnlace, "Revocar el enlace público de un manual enviado a un cliente"},
 	{PermManualesVer, "Buscar y leer la biblioteca de manuales y sus sugerencias para una conversación"},
@@ -540,6 +567,7 @@ var Catalogo = []DefPermiso{
 	{PermUsuariosQuitarRol, "Quitar un rol (o una asignación con alcance) a un usuario"},
 	{PermUsuariosReiniciarMFA, "Reiniciar el MFA de otro usuario (borra su TOTP y cierra sus sesiones)"},
 	{PermUsuariosVer, "Ver y buscar usuarios"},
+	{PermVozConfigurar, "Configurar la voz de la empresa: grabación de llamadas, duración máxima y a quién le suena primero"},
 }
 
 // DefRol es un rol base. Permisos nil = todos los del catálogo (admin).
@@ -585,7 +613,9 @@ var permisosRutas = []Permiso{PermRutasVer, PermRutasProponer, PermRutasPublicar
 // permisosAtencion son los de atender conversaciones con clientes (despacho, ventas, soporte y
 // supervisor); cada rol suma los suyos (contratos/conversaciones.md §4).
 var permisosAtencion = []Permiso{PermConversacionesVer, PermConversacionesResponder, PermConversacionesTomar, PermConversacionesPasar,
-	PermConversacionesEtiquetar, PermConversacionesCategorizar, PermConversacionesResolver, PermManualesVer, PermConversacionesSugerencias, PermIntegracionesAbrirArgos}
+	PermConversacionesEtiquetar, PermConversacionesCategorizar, PermConversacionesResolver, PermManualesVer, PermConversacionesSugerencias, PermIntegracionesAbrirArgos,
+	// Llamadas de WhatsApp en el panel (contratos/voz.md §8.2).
+	PermLlamadasVer, PermLlamadasContestar, PermLlamadasRechazar, PermLlamadasColgar, PermLlamadasAnotar, PermLlamadasDescartarDevolucion}
 
 // permisosComercial son todos los del seguimiento comercial (ventas, supervisor) salvo
 // factibilidad.configurar (umbrales de la empresa: supervisor y admin).
@@ -605,6 +635,7 @@ var RolesBase = []DefRol{
 			PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesReintentar, PermIntegracionesResolverPendiente, PermIntegracionesVerPendientes,
 			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar,
 			PermChatVer, PermChatEnviar, PermChatSupervisar,
+			PermLlamadasEscucharGrabacion, PermLlamadasConfigurar,
 			PermConversacionesSupervisar, PermConversacionesAsignar, PermConversacionesTransferir, PermConversacionesAsociar,
 			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesConfigurar, PermCanalesConfigurar, PermManualesEditar, PermManualesRevocarEnlace,
 			PermConversacionesIniciar},
@@ -612,6 +643,7 @@ var RolesBase = []DefRol{
 				[]Permiso{PermFactibilidadConfigurar, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer, PermEncuestasCompartir})...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
 		Permisos: append([]Permiso{PermUsuariosVer,
+			PermLlamadasVer, PermLlamadasContestar, PermLlamadasRechazar, PermLlamadasColgar, PermLlamadasAnotar,
 			PermClientesVer, PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesVerPendientes,
 			PermTicketsVer, PermTicketsCrear, PermTicketsAsignar, PermTicketsNotaInterna, PermTicketsVerNotas,
 			PermAgendaVer, PermAgendaFijarTurnos, PermAgendaRegistrarAusencia, PermAgendaAnularAusencia,
@@ -636,7 +668,7 @@ var RolesBase = []DefRol{
 	{Codigo: "lectura", Nombre: "Lectura", Descripcion: "Solo consulta",
 		Permisos: []Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer,
 			PermClientesVer, PermTicketsVer, PermOrdenesVer, PermAgendaVer, PermRutasVer, PermProspectosVer,
-			PermReportesVer, PermChatVer, PermConversacionesVer, PermManualesVer}},
+			PermReportesVer, PermChatVer, PermConversacionesVer, PermManualesVer, PermLlamadasVer}},
 	// Caja (contrato argosisp.md 0.7.0 §7.7, pedido B3): aprueba y rechaza las boletas de las
 	// conversaciones que ve (las de sus colas o donde la mencionan). El permiso real lo decide Argos
 	// con su usuario de Argos vinculado. Es el único rol base, además de admin, con boletas.aprobar y

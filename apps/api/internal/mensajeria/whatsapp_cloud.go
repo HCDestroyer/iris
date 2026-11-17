@@ -287,6 +287,8 @@ type metaWebhook struct {
 				Statuses []metaEstado   `json:"statuses"`
 				Messages []metaMensaje  `json:"messages"`
 				Contacts []metaContacto `json:"contacts"`
+				// Campo calls: llamadas de WhatsApp (contratos/voz.md §3.3).
+				Calls []metaLlamada `json:"calls"`
 				// phone_number_quality_update y account_update.
 				Event string `json:"event"`
 				// Coexistencia (contratos/conversaciones.md §15.2): lo que se manda desde el teléfono,
