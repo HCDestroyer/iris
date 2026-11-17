@@ -1,4 +1,4 @@
-Versión: 1.0.0 (17 nov 2026) · Páginas legales públicas y datos legales del titular
+Versión: 1.1.0 (18 nov 2026) · Páginas legales públicas y datos legales del titular
 
 # Legal: páginas públicas que pide Meta
 
@@ -109,9 +109,16 @@ esta tabla es público por definición.
 re-autenticación en una sesión abierta por el autologin): quien lo cambia decide a qué correo
 escriben los clientes para ejercer sus derechos. Son datos de la instalación: exigen operar sin
 límite de empresa (`empresas.todas`, o una instalación sin empresas); si no, 403. Solo personas.
-La lectura pública no se audita (la repiten los rastreadores) y no tiene límite de peticiones propio
-(el repositorio no tiene uno general): la protegen la caché de un minuto de la respuesta y la del
-servidor web, que es quien la consulta.
+La lectura pública no se audita (la repiten los rastreadores). Es anónima y sin límite de
+peticiones, así que **no va a la base en cada petición**: el módulo guarda la respuesta en memoria
+60 s (`VigenciaCachePublica`) y `guardar` la invalida al confirmar (con varias réplicas, las demás
+la renuevan al vencer). El servidor web guarda además su copia un minuto.
+
+- **Correo:** la parte local solo admite letras, dígitos y `. _ + -` (nada de `?`, `&`, `=`, `%`),
+  y la página arma el `mailto:` con la dirección codificada: no se le pueden agregar `cc` ni `body`.
+- **Texto:** se rechazan (422) los caracteres de control, los de formato Unicode (`Cf`: U+200B–200F,
+  U+202A–202E, U+2066–2069…) y los separadores de línea y de párrafo (`Zl`, `Zp`): los datos se
+  pintan tal cual en la página pública y en su título.
 
 ## 5. Evento (outbox)
 
@@ -129,11 +136,15 @@ debe hacerlo revisar. Se escribió a partir de lo que Iris hace:
 | Baja con `BAJA` o `ALTO` | `mensajeria/entrantes.go` (`palabrasBaja`), `argosisp.md` |
 | El asistente se presenta como virtual, dice la verdad si le preguntan y pasa a una persona si se lo piden | `mensajeria/asistente_auto.go` (instrucciones; «pasar a una persona» no se puede apagar) |
 | El proveedor de IA lo elige la empresa (propio o de terceros) | `conversaciones.md` §16 |
-| Grabación y transcripción apagadas de fábrica, con anuncio, 30 y 90 días, transcripción redactada | `voz.md` §7 |
+| Las llamadas no se graban ni se transcriben | En el código no hay grabación ni transcripción todavía (`voz.md` las deja para una entrega posterior). Cuando existan, se actualiza el texto |
 | Permiso previo para llamar por WhatsApp | `voz.md` (solicitud de permiso) |
 | El asistente no aprueba pagos; la boleta la revisa caja | `mensajeria/asistente_auto.go`, `conversaciones.md` (boletas) |
 | Contraseñas con argon2id, credenciales cifradas, auditoría, usuarios propios con permisos | `nucleo/identidad`, `auditoria` |
 | Los datos del servicio vienen de ArgosISP; alertas de Horus | `argosisp.md`, `horus.md` |
+
+**Regla del texto:** no afirma como automático lo que hoy hace una persona ni promete funciones que
+Iris no tiene (lo fija una prueba en `apps/web/lib/legal/legal.test.ts`). La eliminación se describe
+como lo que es: la atiende una persona de la empresa, que elimina o anonimiza dentro del plazo.
 
 **Sin respaldo en el código** (compromisos del titular, a confirmar con su asesor): los plazos de
 respuesta (5 días hábiles de acuse y 30 días), la conservación «por los plazos que exige la ley», el

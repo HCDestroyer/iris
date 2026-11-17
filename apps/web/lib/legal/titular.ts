@@ -49,7 +49,7 @@ export function titularDe(datos: Partial<DatosPublicos> | null, idioma: Idioma):
 
 /** Fecha en que se revisó por última vez el texto de las páginas (cambia con cada versión del texto). */
 // Al mediodía UTC: el mismo día en la zona en que se muestra (America/Guatemala).
-export const TEXTO_REVISADO_EN = "2026-11-17T12:00:00Z";
+export const TEXTO_REVISADO_EN = "2026-11-18T12:00:00Z";
 
 /** «Última actualización»: lo más reciente entre el texto y los datos del titular. */
 export function ultimaActualizacion(t: Pick<Titular, "actualizadoEn">): Date {

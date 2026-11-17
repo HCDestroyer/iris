@@ -35,6 +35,7 @@ var (
 )
 
 type entorno struct {
+	m     *legal.Modulo
 	t     *testing.T
 	bd    nucleo.BD
 	ctx   context.Context
@@ -69,6 +70,7 @@ func nuevoEntorno(t *testing.T) *entorno {
 	e := &entorno{t: t, bd: pool, ctx: ctx, reloj: time.Date(2026, 11, 17, 15, 0, 0, 0, time.UTC)}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	m := legal.Nuevo(legal.Config{Reloj: func() time.Time { return e.reloj }})
+	e.m = m
 	e.h, _ = servidor.Nuevo(servidor.Deps{BD: pool, Log: log, Version: "prueba", Identidad: ident, Modulos: []func(huma.API){m.Registrar}})
 	limpiar := func() {
 		if _, err := pool.Exec(context.Background(), `DELETE FROM nucleo.datos_legales`); err != nil {
@@ -278,6 +280,17 @@ func TestDatosLegalesValidaciones(t *testing.T) {
 		{"correoPrivacidad", "a@b.example, c@d.example"},
 		{"correoPrivacidad", "Ana <ana@isp.example>"},
 		{"correoPrivacidad", "ana@localhost"},
+		// Nada que agregue campos al enlace mailto: de la página pública.
+		{"correoPrivacidad", "a?subject=x@d.com"},
+		{"correoPrivacidad", "ayuda?cc=x&body=texto@empresa.com"},
+		{"correoPrivacidad", "a%0Ab@d.com"},
+		{"correoPrivacidad", "\"a b\"@d.com"},
+		// Caracteres invisibles o que cambian el sentido del texto (formato y separadores Unicode).
+		{"razonSocial", "Redes\u202Edel Sur"},
+		{"nombreComercial", "Red\u200BSur"},
+		{"nombreComercial", "\u2066RedSur\u2069"},
+		{"direccion", "línea 1\u2028línea 2"},
+		{"pais", "Guate\u2029mala"},
 		{"telefono", "llámame"},
 		{"telefono", "123"},
 		{"direccion", "línea 1\nlínea 2"},
@@ -327,4 +340,73 @@ func TestDatosLegalesAlcance(t *testing.T) {
 	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'datos_legales.ver_publico'`); n != 0 {
 		t.Fatalf("la lectura pública se auditó: %d", n)
 	}
+}
+
+// La lectura pública es anónima y sin límite: la sirve una caché del proceso, que Guardar renueva.
+func TestDatosLegalesCachePublica(t *testing.T) {
+	x := nuevoEntorno(t)
+	admin := x.persona([]int64{1}, "admin")
+	x.esperar(x.api(admin, http.MethodPost, rutaGuardar, completos(0)), http.StatusOK)
+
+	antes := x.m.LecturasPublicasEnBase()
+	for range 50 {
+		if r := x.esperar(x.api(persona{}, http.MethodGet, rutaPublica, nil), http.StatusOK); r.cuerpo["nombreComercial"] != "RedSur" {
+			t.Fatalf("público: %s", r.crudo)
+		}
+	}
+	if n := x.m.LecturasPublicasEnBase() - antes; n != 1 {
+		t.Fatalf("50 lecturas seguidas consultaron la base %d veces; esperaba 1", n)
+	}
+
+	// Tras guardar, la siguiente lectura ya trae el dato nuevo (sin esperar a que venza).
+	cuerpo := completos(1)
+	cuerpo["nombreComercial"] = "RedSur Fibra"
+	x.esperar(x.api(admin, http.MethodPost, rutaGuardar, cuerpo), http.StatusOK)
+	if r := x.esperar(x.api(persona{}, http.MethodGet, rutaPublica, nil), http.StatusOK); r.cuerpo["nombreComercial"] != "RedSur Fibra" {
+		t.Fatalf("tras guardar sigue el dato viejo: %s", r.crudo)
+	}
+	x.esperar(x.api(persona{}, http.MethodGet, rutaPublica, nil), http.StatusOK)
+	if n := x.m.LecturasPublicasEnBase() - antes; n != 2 {
+		t.Fatalf("tras guardar: %d consultas; esperaba 2", n)
+	}
+
+	// Un guardado que falla (409) no la invalida; al vencer, se vuelve a leer una vez.
+	x.esperar(x.api(admin, http.MethodPost, rutaGuardar, completos(1)), http.StatusConflict)
+	x.esperar(x.api(persona{}, http.MethodGet, rutaPublica, nil), http.StatusOK)
+	if n := x.m.LecturasPublicasEnBase() - antes; n != 2 {
+		t.Fatalf("un 409 invalidó la caché: %d consultas", n)
+	}
+	x.reloj = x.reloj.Add(legal.VigenciaCachePublica + time.Second)
+	x.esperar(x.api(persona{}, http.MethodGet, rutaPublica, nil), http.StatusOK)
+	x.esperar(x.api(persona{}, http.MethodGet, rutaPublica, nil), http.StatusOK)
+	if n := x.m.LecturasPublicasEnBase() - antes; n != 3 {
+		t.Fatalf("al vencer: %d consultas; esperaba 3", n)
+	}
+}
+
+// Configurar es sensible: en una sesión abierta por el autologin desde Argos pide la contraseña.
+func TestDatosLegalesReautenticacionEnSesionSSO(t *testing.T) {
+	x := nuevoEntorno(t)
+	admin := x.persona([]int64{1}, "admin")
+	x.esperar(x.api(admin, http.MethodPost, rutaGuardar, completos(0)), http.StatusOK)
+
+	if _, err := x.bd.Exec(x.ctx, `UPDATE nucleo.sesiones SET origen = 'sso', reautenticada_en = NULL WHERE usuario_id = $1`, admin.id); err != nil {
+		t.Fatal(err)
+	}
+	// Ver no es sensible: pasa.
+	x.esperar(x.api(admin, http.MethodGet, rutaPanel, nil), http.StatusOK)
+	cuerpo := completos(1)
+	cuerpo["correoPrivacidad"] = "otro@redsur.example"
+	r := x.esperar(x.api(admin, http.MethodPost, rutaGuardar, cuerpo), http.StatusForbidden)
+	if !strings.Contains(r.crudo, "reautenticacion_requerida") {
+		t.Fatalf("esperaba reautenticacion_requerida: %s", r.crudo)
+	}
+	if n := x.contar(`SELECT count(*) FROM nucleo.datos_legales WHERE version = 1 AND correo_privacidad = 'privacidad@redsur.example'`); n != 1 {
+		t.Fatalf("la sesión sin reautenticar cambió los datos: %d", n)
+	}
+	// Reautenticada, guarda.
+	if _, err := x.bd.Exec(x.ctx, `UPDATE nucleo.sesiones SET reautenticada_en = now() WHERE usuario_id = $1`, admin.id); err != nil {
+		t.Fatal(err)
+	}
+	x.esperar(x.api(admin, http.MethodPost, rutaGuardar, cuerpo), http.StatusOK)
 }

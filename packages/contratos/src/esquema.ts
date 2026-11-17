@@ -6106,7 +6106,7 @@ export interface paths {
         };
         /**
          * Datos legales públicos del titular
-         * @description Sin sesión. Lo que el titular publica en las páginas de privacidad, términos y eliminación de datos: nombre comercial, razón social, correo de privacidad, teléfono, dirección, país y la fecha del último cambio. Sin datos guardados responde 200 con los campos vacíos, `actualizadoEn: null` y `completo: false` (las páginas no muestran huecos). Respuesta con `Cache-Control: public, max-age=60`. Contrato: `.claude/integration/contratos/legal.md`.
+         * @description Sin sesión. Lo que el titular publica en las páginas de privacidad, términos y eliminación de datos: nombre comercial, razón social, correo de privacidad, teléfono, dirección, país y la fecha del último cambio. Sin datos guardados responde 200 con los campos vacíos, `actualizadoEn: null` y `completo: false` (las páginas no muestran huecos). La API guarda la respuesta en memoria hasta un minuto (un cambio la renueva). Respuesta con `Cache-Control: public, max-age=60`. Contrato: `.claude/integration/contratos/legal.md`.
          */
         get: operations["verDatosLegalesPublicos"];
         put?: never;

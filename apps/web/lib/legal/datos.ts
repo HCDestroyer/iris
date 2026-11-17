@@ -29,12 +29,16 @@ export function guardarDatosLegales(entrada: EntradaLegal, clave: string) {
 
 // --- Formulario ---------------------------------------------------------------------------------
 
-/** Una sola línea: sin saltos ni caracteres de control. */
-const unaLinea = (v: string) => ![...v].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127);
-const CORREO = /^[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;"]+$/;
+/**
+ * Una sola línea y sin caracteres invisibles: ni de control, ni de formato (U+200B–200F, U+202A–202E,
+ * U+2066–2069…), ni separadores de línea o de párrafo. Se pintan tal cual en la página pública.
+ */
+const unaLinea = (v: string) => !/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(v);
+/** La parte local solo con letras, dígitos y . _ + -: nada que agregue campos (cc, body) a un enlace `mailto:`. */
+const CORREO = /^[A-Za-z0-9._+-]+@[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$/;
 const TELEFONO = /^\+?[0-9][0-9 ().-]{5,38}$/;
 
-const texto = (max: number) => z.string().trim().max(max, `Hasta ${max} caracteres`).refine(unaLinea, "Escríbelo en una sola línea");
+const texto = (max: number) => z.string().trim().max(max, `Hasta ${max} caracteres`).refine(unaLinea, "Escríbelo en una sola línea, sin caracteres invisibles");
 
 /** Todo puede ir vacío (se guarda lo que haya); lo que falta para estar listo lo dice `faltan`. */
 export const esquemaLegal = z.object({

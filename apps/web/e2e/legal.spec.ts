@@ -93,6 +93,7 @@ test.describe("Páginas legales públicas", () => {
         await page.getByRole("navigation", { name: "Legal documents" }).getByRole("link", { name: "Data Deletion" }).click();
         await expect(page).toHaveURL(RUTAS.eliminacion.en);
         await expect(page.getByRole("heading", { level: 2, name: /How to request deletion/ })).toBeVisible();
+        await expect(page.getByText("Deletion is not automatic: your request is handled by a member of our team")).toBeVisible();
         await esperarSinDesbordes(page);
         await page.getByRole("link", { name: "Leer esta página en español" }).click();
         await expect(page).toHaveURL(RUTAS.eliminacion.es);

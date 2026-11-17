@@ -10,7 +10,9 @@ Contrato: `.claude/integration/contratos/legal.md`.
     - `Ver` (`datos_legales.ver`): los datos, `completo` y `faltan[]`.
     - `Guardar` (`datos_legales.configurar`, sensible): crea o reemplaza con `version` (409). Guarda
       aunque falten datos. Si nada cambió, no sube la versión ni la fecha.
-    - `Publico` (sin sesión): lo que leen las páginas públicas. No se audita.
+    - `Publico` (sin sesión): lo que leen las páginas públicas. No se audita. La ruta lo sirve con
+      `LeerPublico`: una caché en memoria de 60 s que `Guardar` invalida al confirmar, para que un
+      bucle de peticiones anónimas no llegue a la base.
 - **Rutas** (`rutas.go`): `GET /api/v1/datos-legales`, `POST /api/v1/datos-legales/guardar` y
   `GET /api/v1/publico/datos-legales` (`Cache-Control: public, max-age=60`).
 - **Alcance:** son de la instalación; exigen operar sin límite de empresa (`empresas.todas`, o una

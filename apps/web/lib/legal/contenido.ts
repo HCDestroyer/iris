@@ -7,6 +7,10 @@ import type { Titular } from "./titular";
  * titular debe hacerlo revisar. Los datos del titular llegan por parámetro: aquí no hay nombres,
  * correos ni países escritos.
  *
+ * Regla del texto: no afirma como automático lo que hoy hace una persona, ni promete funciones que
+ * Iris no tiene. La eliminación de datos la atiende una persona de la empresa (no hay una acción
+ * del sistema que borre), y las llamadas hoy no se graban ni se transcriben.
+ *
  * Si cambias el texto, sube `TEXTO_REVISADO_EN` (titular.ts): es parte de la «última actualización».
  */
 
@@ -20,9 +24,6 @@ export const PALABRAS_BAJA = ["BAJA", "ALTO"] as const;
 /** Plazos que el texto promete (días). Son compromisos del titular: revisarlos con su asesor. */
 export const DIAS_ACUSE = 5;
 export const DIAS_RESPUESTA = 30;
-/** Retenciones de fábrica de las llamadas (contratos/voz.md): la empresa puede cambiarlas entre 1 y 365 días. */
-export const DIAS_GRABACIONES = 30;
-export const DIAS_TRANSCRIPCIONES = 90;
 
 const mayuscula = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -79,7 +80,7 @@ function privacidadEs(t: Titular): Documento {
                             "Identificación y contacto: tu nombre, tu número de teléfono (el de WhatsApp) y tu correo electrónico.",
                             "Datos de tu servicio, si eres cliente: dirección y ubicación de la instalación, plan contratado y estado del servicio. Vienen de nuestro sistema de gestión y facturación.",
                             "Mensajes: lo que nos escribes por WhatsApp o por correo y lo que te respondemos, incluidos los archivos que envías (fotos, audios, documentos y ubicaciones).",
-                            "Llamadas por WhatsApp: fecha, duración y resultado de la llamada. La grabación y la transcripción están apagadas de fábrica; solo existen si las activamos, y en ese caso la llamada lo anuncia a las dos partes.",
+                            "Llamadas por WhatsApp: fecha, duración y resultado de la llamada. No grabamos ni transcribimos las llamadas.",
                             "Casos de soporte y visitas técnicas: el historial de tus tickets y órdenes de trabajo, las fotos de la instalación, los materiales y equipos usados y la firma con que recibes el trabajo.",
                             "Pagos: los comprobantes (boletas) que nos envías y las promesas de pago que registras. El sistema de atención no procesa pagos con tarjeta ni guarda datos de tarjetas.",
                             "Encuestas de satisfacción: la calificación y el comentario que decidas dejar.",
@@ -151,9 +152,7 @@ function privacidadEs(t: Titular): Documento {
                 bloques: [
                     {
                         lista: [
-                            "Conversaciones, tickets y órdenes de trabajo: mientras exista la relación contigo y, después, el tiempo que haga falta para atender reclamos y cumplir obligaciones legales. No se borran solos: se eliminan o anonimizan cuando lo pides o cuando dejan de ser necesarios.",
-                            `Grabaciones de llamadas, si están activadas: se borran automáticamente; el plazo de fábrica es de ${DIAS_GRABACIONES} días.`,
-                            `Transcripciones de llamadas, si están activadas: se guardan sin números de documento, tarjetas ni contraseñas y se borran automáticamente; el plazo de fábrica es de ${DIAS_TRANSCRIPCIONES} días.`,
+                            "Conversaciones, tickets y órdenes de trabajo: mientras exista la relación contigo y, después, el tiempo que haga falta para atender reclamos y cumplir obligaciones legales. No tienen un borrado automático: cuando lo pides, una persona de nuestro equipo los elimina o anonimiza, como explica la página «Eliminación de datos».",
                             "Registros de facturación y pagos: los plazos que exige la ley.",
                         ],
                     },
@@ -202,7 +201,7 @@ function privacidadEs(t: Titular): Documento {
                 id: "menores",
                 titulo: "Menores de edad",
                 bloques: [
-                    "Nuestros servicios se contratan por personas mayores de edad. No recopilamos a sabiendas datos de menores; si crees que tenemos datos de un menor, escríbenos y los eliminamos.",
+                    "Nuestros servicios se contratan por personas mayores de edad. No recopilamos a sabiendas datos de menores; si crees que tenemos datos de un menor, escríbenos y una persona de nuestro equipo los eliminará.",
                 ],
             },
             {
@@ -250,7 +249,7 @@ function terminosEs(t: Titular): Documento {
                 id: "horarios",
                 titulo: "Horarios y tiempos de respuesta",
                 bloques: [
-                    "Atendemos en el horario que informamos por nuestros canales. Fuera de ese horario puedes escribirnos igual: recibirás una respuesta automática y una persona te atenderá cuando vuelva a haber atención.",
+                    "Atendemos en el horario que informamos por nuestros canales. Fuera de ese horario puedes escribirnos igual: puedes recibir una respuesta automática, y una persona te atenderá cuando vuelva a haber atención.",
                     "Hacemos lo posible por responder pronto, pero los tiempos de respuesta no son una garantía.",
                 ],
             },
@@ -276,14 +275,14 @@ function terminosEs(t: Titular): Documento {
                 titulo: "Llamadas",
                 bloques: [
                     "Para llamarte por WhatsApp te pedimos permiso antes; puedes negarlo o retirarlo desde WhatsApp.",
-                    "Las llamadas no se graban salvo que lo tengamos activado; en ese caso, la llamada lo anuncia a las dos partes.",
+                    "No grabamos las llamadas.",
                 ],
             },
             {
                 id: "pagos",
                 titulo: "Comprobantes de pago",
                 bloques: [
-                    "Si envías un comprobante de pago por el chat, queda registrado para revisión. El pago se considera aplicado cuando lo confirma nuestro equipo o el sistema de facturación, y te avisamos el resultado.",
+                    "Si envías un comprobante de pago por el chat, queda registrado para revisión. El pago se considera aplicado cuando lo confirma nuestro equipo o el sistema de facturación, y te informamos el resultado.",
                 ],
             },
             {
@@ -332,6 +331,7 @@ function eliminacionEs(t: Titular): Documento {
     return {
         resumen: [
             `Puedes pedir en cualquier momento que ${a.n} elimine los datos personales que tiene de ti por haber usado sus canales de atención (WhatsApp, correo, portal de soporte y visitas técnicas). No tiene costo.`,
+            "La eliminación no es automática: tu solicitud la atiende una persona de nuestro equipo, que elimina o anonimiza tus datos dentro del plazo que se indica abajo.",
         ],
         secciones: [
             {
@@ -358,17 +358,17 @@ function eliminacionEs(t: Titular): Documento {
             },
             {
                 id: "que-se-borra",
-                titulo: "Qué eliminamos",
+                titulo: "Qué se elimina",
                 bloques: [
+                    "La persona que atiende tu solicitud elimina o anonimiza:",
                     {
                         lista: [
                             "Tus conversaciones por WhatsApp y por correo con nosotros y los archivos que enviaste.",
                             "Tu ficha de contacto (nombre, teléfono y correo), si no eres cliente.",
-                            "Las grabaciones y transcripciones de tus llamadas, si existen.",
                             "Tus respuestas a encuestas de satisfacción.",
                         ],
                     },
-                    "Cuando un dato no se puede borrar sin romper un registro que debemos conservar, lo anonimizamos: queda sin tu nombre ni tus datos de contacto.",
+                    "Cuando un dato no se puede borrar sin romper un registro que debemos conservar, se anonimiza: queda sin tu nombre ni tus datos de contacto.",
                 ],
             },
             {
@@ -383,14 +383,14 @@ function eliminacionEs(t: Titular): Documento {
                             "Lo que haga falta para atender un reclamo o un proceso legal en curso.",
                         ],
                     },
-                    "Las copias de seguridad se sobrescriben solas con el tiempo; mientras tanto no se usan para nada más.",
+                    "Los datos que estén en copias de seguridad permanecen hasta que esas copias se reemplacen; mientras tanto no se usan para nada más.",
                 ],
             },
             {
                 id: "plazos",
                 titulo: "Plazos",
                 bloques: [
-                    `Confirmamos que recibimos tu solicitud en un máximo de ${DIAS_ACUSE} días hábiles y la completamos en un máximo de ${DIAS_RESPUESTA} días. Te avisamos cuando esté hecha y, si algo no se pudo borrar, te decimos qué y por qué.`,
+                    `Una persona de nuestro equipo te confirma que recibió tu solicitud en un máximo de ${DIAS_ACUSE} días hábiles y la completa en un máximo de ${DIAS_RESPUESTA} días. Te avisa cuando esté hecha y, si algo no se pudo borrar, te dice qué y por qué.`,
                 ],
             },
             {
@@ -430,7 +430,7 @@ function privacidadEn(t: Titular): Documento {
                             "Identification and contact details: your name, your phone number (your WhatsApp number) and your email address.",
                             "Service details, if you are a customer: installation address and location, plan and service status. They come from our management and billing system.",
                             "Messages: what you write to us on WhatsApp or by email and what we reply, including the files you send (photos, audio, documents and locations).",
-                            "WhatsApp calls: date, duration and outcome of the call. Recording and transcription are off by default; they only exist if we turn them on, and in that case the call announces it to both parties.",
+                            "WhatsApp calls: date, duration and outcome of the call. We do not record or transcribe calls.",
                             "Support cases and technical visits: the history of your tickets and work orders, photos of the installation, materials and equipment used, and the signature you give when the work is done.",
                             "Payments: the payment receipts you send us and the payment promises you register. The customer service system does not process card payments or store card details.",
                             "Satisfaction surveys: the rating and comment you choose to leave.",
@@ -502,9 +502,7 @@ function privacidadEn(t: Titular): Documento {
                 bloques: [
                     {
                         lista: [
-                            "Conversations, tickets and work orders: for as long as our relationship with you lasts and, afterwards, for as long as needed to handle claims and meet legal obligations. They are not deleted automatically: they are deleted or anonymized when you ask or when they are no longer needed.",
-                            `Call recordings, if enabled: deleted automatically; the default period is ${DIAS_GRABACIONES} days.`,
-                            `Call transcripts, if enabled: stored without ID numbers, card numbers or passwords, and deleted automatically; the default period is ${DIAS_TRANSCRIPCIONES} days.`,
+                            'Conversations, tickets and work orders: for as long as our relationship with you lasts and, afterwards, for as long as needed to handle claims and meet legal obligations. They are not deleted automatically: when you ask, a member of our team deletes or anonymizes them, as explained on the "Data Deletion" page.',
                             "Billing and payment records: for the periods required by law.",
                         ],
                     },
@@ -550,7 +548,7 @@ function privacidadEn(t: Titular): Documento {
             {
                 id: "menores",
                 titulo: "Minors",
-                bloques: ["Our services are contracted by adults. We do not knowingly collect data from minors; if you believe we hold data about a minor, write to us and we will delete it."],
+                bloques: ["Our services are contracted by adults. We do not knowingly collect data from minors; if you believe we hold data about a minor, write to us and a member of our team will delete it."],
             },
             {
                 id: "cambios",
@@ -595,7 +593,7 @@ function terminosEn(t: Titular): Documento {
                 id: "horarios",
                 titulo: "Hours and response times",
                 bloques: [
-                    "We assist you during the hours we announce on our channels. Outside those hours you can still write to us: you will receive an automatic reply and a person will assist you when service resumes.",
+                    "We assist you during the hours we announce on our channels. Outside those hours you can still write to us: you may receive an automatic reply, and a person will assist you when service resumes.",
                     "We do our best to reply quickly, but response times are not guaranteed.",
                 ],
             },
@@ -621,7 +619,7 @@ function terminosEn(t: Titular): Documento {
                 titulo: "Calls",
                 bloques: [
                     "Before calling you on WhatsApp we ask for your permission; you can deny or withdraw it from WhatsApp.",
-                    "Calls are not recorded unless we have recording turned on; in that case, the call announces it to both parties.",
+                    "We do not record calls.",
                 ],
             },
             {
@@ -673,6 +671,7 @@ function eliminacionEn(t: Titular): Documento {
     return {
         resumen: [
             `You can ask at any time that ${a.n} delete the personal data it holds about you from your use of its customer service channels (WhatsApp, email, support portal and technical visits). It is free of charge.`,
+            "Deletion is not automatic: your request is handled by a member of our team, who deletes or anonymizes your data within the timeframe stated below.",
         ],
         secciones: [
             {
@@ -697,17 +696,17 @@ function eliminacionEn(t: Titular): Documento {
             },
             {
                 id: "que-se-borra",
-                titulo: "What we delete",
+                titulo: "What is deleted",
                 bloques: [
+                    "The person handling your request deletes or anonymizes:",
                     {
                         lista: [
                             "Your WhatsApp and email conversations with us and the files you sent.",
                             "Your contact record (name, phone and email), if you are not a customer.",
-                            "Recordings and transcripts of your calls, if any.",
                             "Your answers to satisfaction surveys.",
                         ],
                     },
-                    "When a piece of data cannot be deleted without breaking a record we must keep, we anonymize it: it is left without your name or contact details.",
+                    "When a piece of data cannot be deleted without breaking a record we must keep, it is anonymized: it is left without your name or contact details.",
                 ],
             },
             {
@@ -722,14 +721,14 @@ function eliminacionEn(t: Titular): Documento {
                             "Whatever is needed to handle an ongoing claim or legal proceeding.",
                         ],
                     },
-                    "Backups are overwritten over time; meanwhile they are not used for anything else.",
+                    "Data held in backups remains until those backups are replaced; meanwhile it is not used for anything else.",
                 ],
             },
             {
                 id: "plazos",
                 titulo: "Timeframes",
                 bloques: [
-                    `We acknowledge your request within ${DIAS_ACUSE} business days at most and complete it within ${DIAS_RESPUESTA} days at most. We let you know when it is done and, if something could not be deleted, we tell you what and why.`,
+                    `A member of our team acknowledges your request within ${DIAS_ACUSE} business days at most and completes it within ${DIAS_RESPUESTA} days at most. They let you know when it is done and, if something could not be deleted, they tell you what and why.`,
                 ],
             },
             {

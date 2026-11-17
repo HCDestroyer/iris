@@ -79,12 +79,19 @@ describe("PaginaLegal (HTML del servidor)", () => {
                     expect(pagina).not.toContain("mailto:");
                     expect(pagina.toLowerCase()).toContain(idioma === "es" ? "el proveedor de este servicio" : "the provider of this service");
                     // La fecha es la del texto, y el atributo dice el mismo día que se lee.
-                    expect(pagina).toContain('dateTime="2026-11-17"');
-                    expect(pagina).toContain(idioma === "es" ? "17 de noviembre de 2026" : "November 17, 2026");
+                    expect(pagina).toContain('dateTime="2026-11-18"');
+                    expect(pagina).toContain(idioma === "es" ? "18 de noviembre de 2026" : "November 18, 2026");
                     expect(pagina).toContain(idioma === "es" ? "escríbenos por el mismo canal" : "write to us through the same channel");
                 }
             }
         }
+    });
+
+    it("un correo con caracteres de consulta (si llegara de la API) no agrega campos al enlace", () => {
+        const pagina = html("privacidad", "es", { ...COMPLETO, correo: "ayuda?cc=x&body=texto@empresa.com" });
+        const href = /href="(mailto:[^"]*)"/.exec(pagina)?.[1] ?? "";
+        expect(href).toBe("mailto:ayuda%3Fcc%3Dx%26body%3Dtexto@empresa.com");
+        expect(href).not.toMatch(/[?&=]/);
     });
 
     it("con solo el nombre comercial: lo usa y no inventa lo demás", () => {

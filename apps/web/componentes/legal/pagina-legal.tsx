@@ -53,6 +53,9 @@ function Bloques({ bloques }: { bloques: readonly Bloque[] }) {
     );
 }
 
+/** `mailto:` con la dirección codificada: un correo con `?` o `&` no le agrega campos al enlace. */
+export const enlaceCorreo = (correo: string): string => `mailto:${encodeURIComponent(correo).replaceAll("%40", "@")}`;
+
 function Contacto({ titular, idioma }: { titular: Titular; idioma: Idioma }) {
     const t = TEXTOS[idioma];
     const hayContacto = titular.correo !== null || titular.telefono !== null || titular.direccion !== null;
@@ -74,7 +77,7 @@ function Contacto({ titular, idioma }: { titular: Titular; idioma: Idioma }) {
                     {titular.correo ? (
                         <li className="flex items-start gap-2">
                             <Mail aria-hidden className="mt-1 size-4 shrink-0 text-muted-foreground" />
-                            <a href={`mailto:${titular.correo}`} className={`${ENLACE} [overflow-wrap:anywhere]`}>
+                            <a href={enlaceCorreo(titular.correo)} className={`${ENLACE} [overflow-wrap:anywhere]`}>
                                 {titular.correo}
                             </a>
                         </li>

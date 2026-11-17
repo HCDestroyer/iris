@@ -13,6 +13,8 @@ import (
 	"net/mail"
 	"regexp"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -29,10 +31,24 @@ import (
 // le piden a la persona. El teléfono es opcional.
 var obligatorios = []string{"razonSocial", "nombreComercial", "correoPrivacidad", "direccion", "pais"}
 
+// VigenciaCachePublica: cuánto guarda el proceso la respuesta pública. La lectura es anónima y sin
+// límite de peticiones: con la caché, un bucle de peticiones no llega a la base ni ocupa el pool.
+// Guardar la invalida en este proceso; en otras réplicas vence sola.
+const VigenciaCachePublica = 60 * time.Second
+
 // Config del módulo.
 type Config struct {
 	// Reloj (pruebas).
 	Reloj func() time.Time
+}
+
+// cachePublica guarda la última respuesta pública. `generacion` sube con cada Guardar: una lectura
+// que empezó antes de un cambio no deja en la caché el dato viejo.
+type cachePublica struct {
+	mu         sync.Mutex
+	datos      DatosPublicos
+	hasta      time.Time
+	generacion uint64
 }
 
 // Modulo reúne los casos de uso de los datos legales.
@@ -41,7 +57,45 @@ type Modulo struct {
 	Ver     *auditoria.Caso[struct{}, DatosLegales]
 	Guardar *auditoria.Caso[CuerpoGuardar, DatosLegales]
 	Publico *auditoria.Caso[struct{}, DatosPublicos]
+
+	cache    cachePublica
+	lecturas atomic.Int64
 }
+
+// LeerPublico devuelve los datos públicos desde la caché del proceso y solo va a la base (caso
+// Publico) cuando venció o Guardar la invalidó.
+func (m *Modulo) LeerPublico(ctx context.Context) (DatosPublicos, error) {
+	ahora := m.cfg.Reloj()
+	m.cache.mu.Lock()
+	if ahora.Before(m.cache.hasta) {
+		d := m.cache.datos
+		m.cache.mu.Unlock()
+		return d, nil
+	}
+	generacion := m.cache.generacion
+	m.cache.mu.Unlock()
+
+	d, err := m.Publico.Ejecutar(ctx, struct{}{})
+	if err != nil {
+		return DatosPublicos{}, err
+	}
+	m.cache.mu.Lock()
+	if m.cache.generacion == generacion {
+		m.cache.datos, m.cache.hasta = d, ahora.Add(VigenciaCachePublica)
+	}
+	m.cache.mu.Unlock()
+	return d, nil
+}
+
+func (m *Modulo) invalidarCache() {
+	m.cache.mu.Lock()
+	m.cache.generacion++
+	m.cache.hasta = time.Time{}
+	m.cache.mu.Unlock()
+}
+
+// LecturasPublicasEnBase cuenta las veces que la lectura pública consultó la base (pruebas).
+func (m *Modulo) LecturasPublicasEnBase() int64 { return m.lecturas.Load() }
 
 // Nuevo arma el módulo.
 func Nuevo(cfg Config) *Modulo {
@@ -99,17 +153,28 @@ func campo(nombre, mensaje, regla string) *nucleo.Problema {
 	return nucleo.Validacion(nucleo.ErrorCampo{Field: nombre, Message: mensaje, Rule: regla})
 }
 
-// conControl: saltos de línea u otros caracteres de control (los datos van en una línea).
+// conControl: saltos de línea, caracteres de control, de formato (invisibles o que cambian el
+// sentido del texto: U+200B–200F, U+202A–202E, U+2066–2069…) o separadores de línea y de párrafo.
+// Los datos van en una línea y se pintan tal cual en la página pública y en su título.
 func conControl(s string) bool {
-	return !utf8.ValidString(s) || strings.ContainsFunc(s, unicode.IsControl)
+	return !utf8.ValidString(s) || strings.ContainsFunc(s, func(r rune) bool {
+		return unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp)
+	})
 }
 
 var reTelefono = regexp.MustCompile(`^\+?[0-9][0-9 ().-]{5,38}$`)
 
+// reCorreo: la parte local solo con letras, dígitos y . _ + -. Nada de ?, &, =, % ni comillas: el
+// correo va en un enlace mailto: de la página pública y esos caracteres le agregarían campos (cc, body).
+var reCorreo = regexp.MustCompile(`^[A-Za-z0-9._+-]+@[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$`)
+
 // unaDireccion: una sola dirección de correo, sin nombre.
 func unaDireccion(s string) bool {
+	if !reCorreo.MatchString(s) {
+		return false
+	}
 	a, err := mail.ParseAddress(s)
-	return err == nil && a.Address == s && a.Name == "" && strings.Contains(s[strings.LastIndex(s, "@")+1:], ".")
+	return err == nil && a.Address == s && a.Name == ""
 }
 
 // validar normaliza (espacios) y valida el formato. Todos los campos pueden ir vacíos: se guarda lo
@@ -257,6 +322,8 @@ func (m *Modulo) nuevoGuardar() *auditoria.Caso[CuerpoGuardar, DatosLegales] {
 				campos = []string{}
 			}
 			v := vista(&f)
+			// Con el cambio confirmado, la próxima lectura pública de este proceso va a la base.
+			t.AlConfirmar(func(context.Context) { m.invalidarCache() })
 			if err := t.Emitir("datos_legales.cambiados", map[string]any{"campos": campos, "completo": v.Completo, "faltan": v.Faltan}); err != nil {
 				return DatosLegales{}, err
 			}
@@ -270,6 +337,7 @@ func (m *Modulo) nuevoPublico() *auditoria.Caso[struct{}, DatosPublicos] {
 		// Lectura pública y repetida (rastreadores): no deja fila de auditoría.
 		Accion: "datos_legales.ver_publico", Acceso: auditoria.Publico, AuditarExito: func(DatosPublicos) bool { return false },
 		Logica: func(ctx context.Context, t *auditoria.Tx, _ struct{}) (DatosPublicos, error) {
+			m.lecturas.Add(1)
 			f, err := legalbd.New(t).DatosLegalesGlobales(ctx)
 			if sinFilas(err) {
 				return DatosPublicos{}, nil

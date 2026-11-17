@@ -70,9 +70,23 @@ describe("contenido", () => {
         }
         expect(texto("terminos")).toContain("the laws of Guatemala");
         expect(texto("terminos")).toContain("virtual assistant");
-        for (const frase of ["write to privacidad@redsur.example", "What we delete", "What we must keep", "30 days"]) {
+        for (const frase of ["write to privacidad@redsur.example", "What is deleted", "What we must keep", "30 days", "Deletion is not automatic", "handled by a member of our team"]) {
             expect(texto("eliminacion"), frase).toContain(frase);
         }
+    });
+    it("no promete como automático lo que hace una persona, ni funciones que Iris no tiene", () => {
+        const t = titularDe(null, "es");
+        for (const clave of CLAVES) {
+            for (const idioma of IDIOMAS) {
+                const texto = JSON.stringify(documentoDe(clave, idioma, t));
+                // Ni borrado automático, ni «el sistema borra», ni grabaciones o transcripciones (hoy no existen).
+                expect(texto, `${clave} ${idioma}`).not.toMatch(/se borran? autom|deleted automatically;|el sistema (borra|elimina)|the system deletes|se sobrescriben solas|overwritten over time/i);
+                expect(texto, `${clave} ${idioma}`).not.toMatch(/transcripciones de|grabaciones de|call recordings|call transcripts/i);
+            }
+        }
+        const es = JSON.stringify(documentoDe("eliminacion", "es", t));
+        expect(es).toContain("La eliminación no es automática: tu solicitud la atiende una persona de nuestro equipo");
+        expect(JSON.stringify(documentoDe("privacidad", "es", t))).toContain("No grabamos ni transcribimos las llamadas");
     });
     it("no trae datos de ningún titular escritos en el texto", () => {
         const t = titularDe(null, "es");
@@ -94,6 +108,17 @@ describe("formulario del panel", () => {
         const error = (cambio: Partial<typeof base>) => esquemaLegal.safeParse({ ...base, ...cambio }).error?.issues[0]?.path[0];
         expect(error({ correoPrivacidad: "a@b.example, c@d.example" })).toBe("correoPrivacidad");
         expect(error({ correoPrivacidad: "sin-arroba" })).toBe("correoPrivacidad");
+        // Nada que agregue campos al enlace mailto: de la página pública.
+        expect(error({ correoPrivacidad: "a?subject=x@d.com" })).toBe("correoPrivacidad");
+        expect(error({ correoPrivacidad: "ayuda?cc=x&body=texto@empresa.com" })).toBe("correoPrivacidad");
+        expect(error({ correoPrivacidad: "a%0Ab@d.com" })).toBe("correoPrivacidad");
+        expect(error({ correoPrivacidad: "ana.perez+privacidad@sub.isp-norte.example" })).toBeUndefined();
+        // Caracteres invisibles o que cambian el sentido del texto.
+        expect(error({ razonSocial: "Redes\u202Edel Sur" })).toBe("razonSocial");
+        expect(error({ nombreComercial: "Red\u200BSur" })).toBe("nombreComercial");
+        expect(error({ nombreComercial: "\u2066RedSur\u2069" })).toBe("nombreComercial");
+        expect(error({ direccion: "línea 1\u2028línea 2" })).toBe("direccion");
+        expect(error({ razonSocial: "Compañía Ñandú & Hijos, S. A. (Petén)" })).toBeUndefined();
         expect(error({ telefono: "llámame" })).toBe("telefono");
         expect(error({ telefono: "+502 2222-3333" })).toBeUndefined();
         expect(error({ direccion: "línea 1\nlínea 2" })).toBe("direccion");
