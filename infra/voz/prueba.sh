@@ -55,7 +55,14 @@ mv "$DIR/releases/iris-voz-$VERSION" "$DIR/releases/$VERSION"
 env_set IRIS_VOZ_PUERTO "$PUERTO"
 env_set IRIS_VOZ_ESCUCHA 127.0.0.1
 env_set IRIS_VOZ_GPU 0
+BIN="$DIR/bin/iris-voz"
+mkdir -p "$DIR/bin"
 activate_release "$VERSION"
+cmp -s "$BIN" "$DIR/current/install-voz.sh" || die "install did not leave the iris-voz wrapper"
+# An upgrade activates a release again: the wrapper of the old version must be replaced.
+printf '#!/bin/sh\necho old wrapper\n' > "$BIN"
+activate_release "$VERSION"
+cmp -s "$BIN" "$DIR/current/install-voz.sh" || die "upgrade did not replace the iris-voz wrapper"
 start
 
 log "Hardening of the running containers"

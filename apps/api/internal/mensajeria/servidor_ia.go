@@ -378,11 +378,15 @@ type CasosServidorIA struct {
 	conectarFallido *auditoria.Caso[int64, struct{}]
 	// descartarSiguiente: el latido borra lo «siguiente» de una entrega que nunca llegó.
 	descartarSiguiente *auditoria.Caso[int64, int64]
-	latido             *auditoria.Caso[resultadoLatido, mensajeriabd.MensajeriaVozMotor]
-	reservar           *auditoria.Caso[entradaPlaza, plazaIA]
-	terminar           *auditoria.Caso[usoPeticionIA, struct{}]
-	mantener           *auditoria.Caso[struct{}, struct{}]
-	motorActual        *auditoria.Caso[struct{}, *mensajeriabd.MensajeriaVozMotor]
+	// rechazoSiguiente: anota un sondeo fallido de lo «siguiente» (explícito o no) y devuelve la cuenta.
+	rechazoSiguiente *auditoria.Caso[entradaRechazoSiguiente, int32]
+	// rotacionFallida: la rotación automática falló; no se reintenta hasta dentro de una hora.
+	rotacionFallida *auditoria.Caso[int64, struct{}]
+	latido          *auditoria.Caso[resultadoLatido, mensajeriabd.MensajeriaVozMotor]
+	reservar        *auditoria.Caso[entradaPlaza, plazaIA]
+	terminar        *auditoria.Caso[usoPeticionIA, struct{}]
+	mantener        *auditoria.Caso[struct{}, struct{}]
+	motorActual     *auditoria.Caso[struct{}, *mensajeriabd.MensajeriaVozMotor]
 }
 
 // ListaMotoresIA es GET /voz/motores.
@@ -415,6 +419,11 @@ type EntradaEmpresasMotor struct {
 	Version               int32   `json:"version" minimum:"1"`
 	Empresas              []int64 `json:"empresas" nullable:"true" maxItems:"500" doc:"Las empresas que pueden usarlo; null = todas"`
 	SimultaneasPorEmpresa int32   `json:"simultaneasPorEmpresa" minimum:"1" maximum:"64" doc:"Peticiones al modelo a la vez por empresa"`
+}
+
+type entradaRechazoSiguiente struct {
+	ID        int64
+	Explicito bool
 }
 
 // entradaFijarSiguiente: lo que se guarda antes de entregarlo al servidor. Nada de esto se audita.
@@ -587,6 +596,24 @@ func nuevosCasosServidorIA(m *Modulo) *CasosServidorIA {
 			t.FijarEmpresa(0)
 			t.FijarEntidad("voz_motor", id)
 			return mensajeriabd.New(t).DescartarSiguienteMotorIA(ctx, mensajeriabd.DescartarSiguienteMotorIAParams{ID: id, Vencida: m.ahora().Add(-plazoRotacionIA)})
+		},
+	})
+	k.rechazoSiguiente = auditoria.Nuevo(auditoria.Caso[entradaRechazoSiguiente, int32]{
+		Accion: "servidor_ia.latido", Acceso: auditoria.Autenticado, SinEmpresa: true, AuditarExito: sinAuditar[int32],
+		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaRechazoSiguiente) (int32, error) {
+			n, err := mensajeriabd.New(t).AnotarRechazoSiguienteMotorIA(ctx, mensajeriabd.AnotarRechazoSiguienteMotorIAParams{ID: in.ID, Explicito: in.Explicito})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return 0, nil
+			}
+			return n, err
+		},
+	})
+	k.rotacionFallida = auditoria.Nuevo(auditoria.Caso[int64, struct{}]{
+		Accion: "servidor_ia.rotacion_automatica_fallida", Acceso: auditoria.Autenticado, SinEmpresa: true,
+		Logica: func(ctx context.Context, t *auditoria.Tx, id int64) (struct{}, error) {
+			t.FijarEmpresa(0)
+			t.FijarEntidad("voz_motor", id)
+			return struct{}{}, mensajeriabd.New(t).MarcarRotacionFallidaMotorIA(ctx, mensajeriabd.MarcarRotacionFallidaMotorIAParams{ID: id, Ahora: m.ahora()})
 		},
 	})
 	k.conectarFallido = auditoria.Nuevo(auditoria.Caso[int64, struct{}]{

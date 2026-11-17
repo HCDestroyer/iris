@@ -2,6 +2,7 @@ package mensajeria
 
 import (
 	"context"
+	"errors"
 	"net/netip"
 	"time"
 
@@ -215,9 +216,18 @@ func MetricasValidas(mt voz.Metricas) bool {
 	return ok
 }
 
+// ModelosDeMuestra: cuántos modelos se guardan de una lectura y si la lista quedó cortada.
+func ModelosDeMuestra(mt voz.Metricas) (int, bool, bool) {
+	g, _, ok := muestraDe(mt)
+	return len(g.Servidor.Modelos), g.ModelosTruncados, ok
+}
+
+// FijarSondeoSiguienteIA hace fallar (o no) el sondeo de lo «siguiente» en el latido.
+func (m *Modulo) FijarSondeoSiguienteIA(f func() error) { m.sondeoSiguienteIA = f }
+
 // SiguienteSinEntregar deja guardado lo «siguiente» de una rotación cuya entrega nunca llegó al
 // servidor (Iris lo guardó y la petición se perdió antes de aplicarse).
-func (m *Modulo) SiguienteSinEntregar(ctx context.Context, bd nucleo.BD, id int64) error {
+func (m *Modulo) SiguienteSinEntregar(ctx context.Context, bd nucleo.BD, id int64, conCertificado bool) error {
 	ctx = ctxSistema(ctx, bd)
 	c, err := m.ServidorIA.leer.Ejecutar(ctx, id)
 	if err != nil {
@@ -227,7 +237,21 @@ func (m *Modulo) SiguienteSinEntregar(ctx context.Context, bd nucleo.BD, id int6
 	if err != nil {
 		return err
 	}
-	_, err = m.ServidorIA.fijarSiguiente.Ejecutar(ctx, entradaFijarSiguiente{ID: id, Version: c.fila.Version, Token: nuevo})
+	fijar := entradaFijarSiguiente{ID: id, Version: c.fila.Version, Token: nuevo}
+	if conCertificado {
+		// Como «Revocar ahora»: también un certificado de cliente nuevo, que el servidor no conoce.
+		cert, clave, err := voz.GenerarCertificado("iris", vidaCertCliente)
+		if err != nil {
+			return err
+		}
+		cifrada, err := m.cifrarMotor(id, "cert_cliente_clave", clave)
+		if err != nil {
+			return err
+		}
+		pem, vence := string(cert), m.ahora().Add(vidaCertCliente)
+		fijar.Cert, fijar.CertClave, fijar.CertVence = &pem, cifrada, &vence
+	}
+	_, err = m.ServidorIA.fijarSiguiente.Ejecutar(ctx, fijar)
 	return err
 }
 
@@ -235,4 +259,26 @@ func (m *Modulo) SiguienteSinEntregar(ctx context.Context, bd nucleo.BD, id int6
 func (m *Modulo) TokenDeMotor(ctx context.Context, bd nucleo.BD, id int64) ([]byte, error) {
 	c, err := m.ServidorIA.leer.Ejecutar(ctxSistema(ctx, bd), id)
 	return c.token, err
+}
+
+// CredencialConLoVigente manda a /credencial una petición de solo confirmar firmada con el token que
+// Iris tiene como vigente (durante la convivencia de una rotación a medias, el anterior del servidor).
+func (m *Modulo) CredencialConLoVigente(ctx context.Context, bd nucleo.BD, id int64) error {
+	c, err := m.ServidorIA.leer.Ejecutar(ctxSistema(ctx, bd), id)
+	if err != nil {
+		return err
+	}
+	cli, err := m.clienteCon(c, c.cert, c.token)
+	if err != nil {
+		return err
+	}
+	defer cli.Cerrar()
+	err = cli.Credencial(ctx, voz.PeticionCredencial{ConfirmaHuellaServidor: *c.fila.HuellaTls})
+	// 409 sin_huella_siguiente: la puerta autenticó la petición y la atendió (no hay nada que
+	// confirmar). Lo que se comprueba es que no la rechaza con 401.
+	var ep *voz.ErrorPuerta
+	if errors.As(err, &ep) && ep.Estado == 409 {
+		return nil
+	}
+	return err
 }

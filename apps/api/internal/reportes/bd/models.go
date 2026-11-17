@@ -2044,6 +2044,8 @@ type MensajeriaVozMotore struct {
 	CertClienteClaveSiguiente []byte
 	CertClienteVenceSiguiente *time.Time
 	RotacionDesde             *time.Time
+	SiguienteRechazos         int32
+	RotacionFallidaEn         *time.Time
 }
 
 type MensajeriaWebhooksSalida struct {

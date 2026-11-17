@@ -20,12 +20,15 @@ const vidaLecturaIA = 45 * time.Second
 
 // muestraGuardada es lo que queda en servidor_ia_muestras.datos: la lectura ya validada.
 type muestraGuardada struct {
-	EncendidoSeg int64           `json:"encendidoSeg"`
-	Servidor     ServidorTablero `json:"servidor"`
+	EncendidoSeg int64 `json:"encendidoSeg"`
+	// ModelosTruncados: el servidor tenía más modelos de los que se guardan (dato interno).
+	ModelosTruncados bool            `json:"modelosTruncados,omitempty"`
+	Servidor         ServidorTablero `json:"servidor"`
 }
 
 const (
-	// Lo más que se acepta (y se guarda) de una lectura: una lectura con más se descarta entera.
+	// Lo más que se guarda de una lectura: con más tarjetas se descarta entera; con más modelos se
+	// guardan los primeros (un servidor con muchos modelos no deja ciego al tablero).
 	maxGPUMuestra     = 16
 	maxModelosMuestra = 64
 	// lecturasParaCerrar: un episodio «caído» o «incompatible» solo se cierra tras estas lecturas
@@ -57,7 +60,7 @@ func muestraDe(mt voz.Metricas) (muestraGuardada, mensajeriabd.InsertarMuestraIA
 	default:
 		return g, p, false
 	}
-	if mt.EncendidoSeg < 0 || mt.EncendidoSeg > 100*365*86400 || len(mt.GPUs.Lista) > maxGPUMuestra || len(mt.Modelos) > maxModelosMuestra ||
+	if mt.EncendidoSeg < 0 || mt.EncendidoSeg > 100*365*86400 || len(mt.GPUs.Lista) > maxGPUMuestra ||
 		mt.CPU.Nucleos < 0 || mt.CPU.Nucleos > 4096 || !enRango(mt.CPU.UsoPct, 0, 100) ||
 		!megas(mt.Memoria.UsadoMb) || !megas(mt.Memoria.TotalMb) || mt.Memoria.UsadoMb > mt.Memoria.TotalMb ||
 		!megas(mt.Disco.UsadoMb) || !megas(mt.Disco.TotalMb) || mt.Disco.UsadoMb > mt.Disco.TotalMb ||
@@ -105,7 +108,13 @@ func muestraDe(mt voz.Metricas) (muestraGuardada, mensajeriabd.InsertarMuestraIA
 			p.TemperaturaC = ptrF32(temp)
 		}
 	}
-	for _, x := range mt.Modelos {
+	// Más modelos instalados que el máximo no deja ciego al tablero: se guardan los primeros y se
+	// anota que la lista está cortada. Los que se guardan se validan igual.
+	modelos := mt.Modelos
+	if len(modelos) > maxModelosMuestra {
+		modelos, g.ModelosTruncados = modelos[:maxModelosMuestra], true
+	}
+	for _, x := range modelos {
 		if !voz.ReNombreModelo.MatchString(x.ID) || x.TamanoMb < 0 || x.TamanoMb > 1<<24 || x.VRAMMb < 0 || x.VRAMMb > 1<<22 {
 			return g, p, false
 		}

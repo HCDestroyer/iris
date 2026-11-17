@@ -44,7 +44,7 @@ func (q *Queries) AbrirAvisoIA(ctx context.Context, arg AbrirAvisoIAParams) (int
 const activarMotorIA = `-- name: ActivarMotorIA :one
 UPDATE mensajeria.voz_motores SET activado_en = now(), estado = $1, detalle = NULL, fallos_seguidos = 0,
     version = version + 1, updated_at = now()
-WHERE id = $2 RETURNING id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde
+WHERE id = $2 RETURNING id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde, siguiente_rechazos, rotacion_fallida_en
 `
 
 type ActivarMotorIAParams struct {
@@ -107,6 +107,8 @@ func (q *Queries) ActivarMotorIA(ctx context.Context, arg ActivarMotorIAParams) 
 		&i.CertClienteClaveSiguiente,
 		&i.CertClienteVenceSiguiente,
 		&i.RotacionDesde,
+		&i.SiguienteRechazos,
+		&i.RotacionFallidaEn,
 	)
 	return i, err
 }
@@ -114,7 +116,7 @@ func (q *Queries) ActivarMotorIA(ctx context.Context, arg ActivarMotorIAParams) 
 const actualizarEmpresasMotorIA = `-- name: ActualizarEmpresasMotorIA :one
 UPDATE mensajeria.voz_motores SET empresas_permitidas = $1, simultaneas_por_empresa = $2,
     version = version + 1, updated_at = now()
-WHERE id = $3 RETURNING id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde
+WHERE id = $3 RETURNING id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde, siguiente_rechazos, rotacion_fallida_en
 `
 
 type ActualizarEmpresasMotorIAParams struct {
@@ -178,13 +180,15 @@ func (q *Queries) ActualizarEmpresasMotorIA(ctx context.Context, arg ActualizarE
 		&i.CertClienteClaveSiguiente,
 		&i.CertClienteVenceSiguiente,
 		&i.RotacionDesde,
+		&i.SiguienteRechazos,
+		&i.RotacionFallidaEn,
 	)
 	return i, err
 }
 
 const actualizarModelosMotorIA = `-- name: ActualizarModelosMotorIA :one
 UPDATE mensajeria.voz_motores SET modelos_permitidos = $1, version = version + 1, updated_at = now()
-WHERE id = $2 RETURNING id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde
+WHERE id = $2 RETURNING id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde, siguiente_rechazos, rotacion_fallida_en
 `
 
 type ActualizarModelosMotorIAParams struct {
@@ -247,6 +251,8 @@ func (q *Queries) ActualizarModelosMotorIA(ctx context.Context, arg ActualizarMo
 		&i.CertClienteClaveSiguiente,
 		&i.CertClienteVenceSiguiente,
 		&i.RotacionDesde,
+		&i.SiguienteRechazos,
+		&i.RotacionFallidaEn,
 	)
 	return i, err
 }
@@ -256,7 +262,7 @@ UPDATE mensajeria.voz_motores SET vram_pct = $1, vram_minutos = $2, disco_pct = 
     temperatura_c = $4, temperatura_minutos = $5, saturacion_rechazos = $6,
     saturacion_minutos = $7, retencion_detalle_dias = $8,
     retencion_hora_dias = $9, umbrales_version = umbrales_version + 1, updated_at = now()
-WHERE id = $10 RETURNING id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde
+WHERE id = $10 RETURNING id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde, siguiente_rechazos, rotacion_fallida_en
 `
 
 type ActualizarUmbralesMotorIAParams struct {
@@ -338,6 +344,8 @@ func (q *Queries) ActualizarUmbralesMotorIA(ctx context.Context, arg ActualizarU
 		&i.CertClienteClaveSiguiente,
 		&i.CertClienteVenceSiguiente,
 		&i.RotacionDesde,
+		&i.SiguienteRechazos,
+		&i.RotacionFallidaEn,
 	)
 	return i, err
 }
@@ -361,6 +369,25 @@ type AgregarMuestrasHoraIAParams struct {
 func (q *Queries) AgregarMuestrasHoraIA(ctx context.Context, arg AgregarMuestrasHoraIAParams) error {
 	_, err := q.db.Exec(ctx, agregarMuestrasHoraIA, arg.Desde, arg.Hasta)
 	return err
+}
+
+const anotarRechazoSiguienteMotorIA = `-- name: AnotarRechazoSiguienteMotorIA :one
+UPDATE mensajeria.voz_motores SET siguiente_rechazos = CASE WHEN $1::boolean THEN siguiente_rechazos + 1 ELSE 0 END
+WHERE id = $2 AND token_siguiente IS NOT NULL RETURNING siguiente_rechazos
+`
+
+type AnotarRechazoSiguienteMotorIAParams struct {
+	Explicito bool
+	ID        int64
+}
+
+// Un sondeo de lo «siguiente»: si el servidor lo rechazó de forma explícita suma uno; cualquier otra
+// cosa (tiempo agotado, corte de red) vuelve la cuenta a cero. Devuelve cuántos seguidos lleva.
+func (q *Queries) AnotarRechazoSiguienteMotorIA(ctx context.Context, arg AnotarRechazoSiguienteMotorIAParams) (int32, error) {
+	row := q.db.QueryRow(ctx, anotarRechazoSiguienteMotorIA, arg.Explicito, arg.ID)
+	var siguiente_rechazos int32
+	err := row.Scan(&siguiente_rechazos)
+	return siguiente_rechazos, err
 }
 
 const asegurarUsoIA = `-- name: AsegurarUsoIA :exec
@@ -520,7 +547,7 @@ func (q *Queries) CerrarAvisoIA(ctx context.Context, arg CerrarAvisoIAParams) (i
 
 const desactivarMotorIA = `-- name: DesactivarMotorIA :one
 UPDATE mensajeria.voz_motores SET estado = 'desactivado', detalle = $1, version = version + 1, updated_at = now()
-WHERE id = $2 RETURNING id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde
+WHERE id = $2 RETURNING id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde, siguiente_rechazos, rotacion_fallida_en
 `
 
 type DesactivarMotorIAParams struct {
@@ -583,13 +610,15 @@ func (q *Queries) DesactivarMotorIA(ctx context.Context, arg DesactivarMotorIAPa
 		&i.CertClienteClaveSiguiente,
 		&i.CertClienteVenceSiguiente,
 		&i.RotacionDesde,
+		&i.SiguienteRechazos,
+		&i.RotacionFallidaEn,
 	)
 	return i, err
 }
 
 const descartarSiguienteMotorIA = `-- name: DescartarSiguienteMotorIA :execrows
 UPDATE mensajeria.voz_motores SET token_siguiente = NULL, cert_cliente_siguiente = NULL, cert_cliente_clave_siguiente = NULL,
-    cert_cliente_vence_siguiente = NULL, rotacion_desde = NULL, version = version + 1, updated_at = now()
+    cert_cliente_vence_siguiente = NULL, rotacion_desde = NULL, siguiente_rechazos = 0, version = version + 1, updated_at = now()
 WHERE id = $1 AND token_siguiente IS NOT NULL AND (rotacion_desde IS NULL OR rotacion_desde <= $2::timestamptz)
 `
 
@@ -598,8 +627,9 @@ type DescartarSiguienteMotorIAParams struct {
 	Vencida time.Time
 }
 
-// Lo «siguiente» de una entrega que nunca llegó al servidor (lo vigente contesta, lo siguiente no, y
-// el apartado ya venció): no se queda guardado hasta la próxima rotación.
+// Lo «siguiente» de una entrega que nunca llegó al servidor (lo vigente contesta, el servidor rechaza
+// lo siguiente de forma explícita varias veces seguidas, y el apartado ya venció): no se queda
+// guardado hasta la próxima rotación.
 func (q *Queries) DescartarSiguienteMotorIA(ctx context.Context, arg DescartarSiguienteMotorIAParams) (int64, error) {
 	result, err := q.db.Exec(ctx, descartarSiguienteMotorIA, arg.ID, arg.Vencida)
 	if err != nil {
@@ -710,7 +740,7 @@ func (q *Queries) ErroresIAEnRango(ctx context.Context, arg ErroresIAEnRangoPara
 }
 
 const fijarSiguienteMotorIA = `-- name: FijarSiguienteMotorIA :one
-UPDATE mensajeria.voz_motores SET token_siguiente = $1, rotacion_desde = $2::timestamptz,
+UPDATE mensajeria.voz_motores SET token_siguiente = $1, rotacion_desde = $2::timestamptz, siguiente_rechazos = 0,
     cert_cliente_siguiente = $3, cert_cliente_clave_siguiente = $4,
     cert_cliente_vence_siguiente = $5, version = version + 1, updated_at = now()
 WHERE id = $6 AND version = $7 AND (rotacion_desde IS NULL OR rotacion_desde <= $8::timestamptz) RETURNING version
@@ -752,7 +782,7 @@ UPDATE mensajeria.voz_motores SET enlace_codigo = NULL, enlace_vence_en = NULL, 
     token = $1, huella_tls = $2, version_motor = $3, version_protocolo = $4,
     iris_min = $5, iris_max = $6, compatible = $7, motivo_incompatible = $8,
     version = version + 1, updated_at = now()
-WHERE id = $9 AND enlace_codigo IS NOT NULL AND version = $10 RETURNING id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde
+WHERE id = $9 AND enlace_codigo IS NOT NULL AND version = $10 RETURNING id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde, siguiente_rechazos, rotacion_fallida_en
 `
 
 type GuardarEnlaceMotorIAParams struct {
@@ -837,6 +867,8 @@ func (q *Queries) GuardarEnlaceMotorIA(ctx context.Context, arg GuardarEnlaceMot
 		&i.CertClienteClaveSiguiente,
 		&i.CertClienteVenceSiguiente,
 		&i.RotacionDesde,
+		&i.SiguienteRechazos,
+		&i.RotacionFallidaEn,
 	)
 	return i, err
 }
@@ -851,7 +883,7 @@ UPDATE mensajeria.voz_motores SET estado = $1, detalle = $2, fallos_seguidos = $
     catalogo = coalesce($11, catalogo), max_simultaneas = $12,
     ip_observada = coalesce($13, ip_observada), restringe_ip = $14,
     huella_tls_siguiente = $15, updated_at = now()
-WHERE id = $16 RETURNING id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde
+WHERE id = $16 RETURNING id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde, siguiente_rechazos, rotacion_fallida_en
 `
 
 type GuardarLatidoMotorIAParams struct {
@@ -945,12 +977,14 @@ func (q *Queries) GuardarLatidoMotorIA(ctx context.Context, arg GuardarLatidoMot
 		&i.CertClienteClaveSiguiente,
 		&i.CertClienteVenceSiguiente,
 		&i.RotacionDesde,
+		&i.SiguienteRechazos,
+		&i.RotacionFallidaEn,
 	)
 	return i, err
 }
 
 const guardarPruebaMotorIA = `-- name: GuardarPruebaMotorIA :one
-UPDATE mensajeria.voz_motores SET ultima_prueba = $1, updated_at = now() WHERE id = $2 RETURNING id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde
+UPDATE mensajeria.voz_motores SET ultima_prueba = $1, updated_at = now() WHERE id = $2 RETURNING id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde, siguiente_rechazos, rotacion_fallida_en
 `
 
 type GuardarPruebaMotorIAParams struct {
@@ -1013,12 +1047,14 @@ func (q *Queries) GuardarPruebaMotorIA(ctx context.Context, arg GuardarPruebaMot
 		&i.CertClienteClaveSiguiente,
 		&i.CertClienteVenceSiguiente,
 		&i.RotacionDesde,
+		&i.SiguienteRechazos,
+		&i.RotacionFallidaEn,
 	)
 	return i, err
 }
 
 const insertarMotorIA = `-- name: InsertarMotorIA :one
-INSERT INTO mensajeria.voz_motores (nombre, url) VALUES ($1, $2) RETURNING id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde
+INSERT INTO mensajeria.voz_motores (nombre, url) VALUES ($1, $2) RETURNING id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde, siguiente_rechazos, rotacion_fallida_en
 `
 
 type InsertarMotorIAParams struct {
@@ -1081,6 +1117,8 @@ func (q *Queries) InsertarMotorIA(ctx context.Context, arg InsertarMotorIAParams
 		&i.CertClienteClaveSiguiente,
 		&i.CertClienteVenceSiguiente,
 		&i.RotacionDesde,
+		&i.SiguienteRechazos,
+		&i.RotacionFallidaEn,
 	)
 	return i, err
 }
@@ -1123,9 +1161,23 @@ func (q *Queries) InsertarMuestraIA(ctx context.Context, arg InsertarMuestraIAPa
 	return err
 }
 
+const marcarRotacionFallidaMotorIA = `-- name: MarcarRotacionFallidaMotorIA :exec
+UPDATE mensajeria.voz_motores SET rotacion_fallida_en = $1::timestamptz WHERE id = $2
+`
+
+type MarcarRotacionFallidaMotorIAParams struct {
+	Ahora time.Time
+	ID    int64
+}
+
+func (q *Queries) MarcarRotacionFallidaMotorIA(ctx context.Context, arg MarcarRotacionFallidaMotorIAParams) error {
+	_, err := q.db.Exec(ctx, marcarRotacionFallidaMotorIA, arg.Ahora, arg.ID)
+	return err
+}
+
 const motorIA = `-- name: MotorIA :one
 
-SELECT id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde FROM mensajeria.voz_motores ORDER BY id LIMIT 1
+SELECT id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde, siguiente_rechazos, rotacion_fallida_en FROM mensajeria.voz_motores ORDER BY id LIMIT 1
 `
 
 // Servidor de IA («Iris Voz», contratos/voz.md §4). Uno por instalación.
@@ -1184,12 +1236,14 @@ func (q *Queries) MotorIA(ctx context.Context) (MensajeriaVozMotor, error) {
 		&i.CertClienteClaveSiguiente,
 		&i.CertClienteVenceSiguiente,
 		&i.RotacionDesde,
+		&i.SiguienteRechazos,
+		&i.RotacionFallidaEn,
 	)
 	return i, err
 }
 
 const motorIAParaActualizar = `-- name: MotorIAParaActualizar :one
-SELECT id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde FROM mensajeria.voz_motores WHERE id = $1 FOR UPDATE
+SELECT id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde, siguiente_rechazos, rotacion_fallida_en FROM mensajeria.voz_motores WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) MotorIAParaActualizar(ctx context.Context, id int64) (MensajeriaVozMotor, error) {
@@ -1247,12 +1301,14 @@ func (q *Queries) MotorIAParaActualizar(ctx context.Context, id int64) (Mensajer
 		&i.CertClienteClaveSiguiente,
 		&i.CertClienteVenceSiguiente,
 		&i.RotacionDesde,
+		&i.SiguienteRechazos,
+		&i.RotacionFallidaEn,
 	)
 	return i, err
 }
 
 const motorIAPorID = `-- name: MotorIAPorID :one
-SELECT id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde FROM mensajeria.voz_motores WHERE id = $1
+SELECT id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde, siguiente_rechazos, rotacion_fallida_en FROM mensajeria.voz_motores WHERE id = $1
 `
 
 func (q *Queries) MotorIAPorID(ctx context.Context, id int64) (MensajeriaVozMotor, error) {
@@ -1310,12 +1366,14 @@ func (q *Queries) MotorIAPorID(ctx context.Context, id int64) (MensajeriaVozMoto
 		&i.CertClienteClaveSiguiente,
 		&i.CertClienteVenceSiguiente,
 		&i.RotacionDesde,
+		&i.SiguienteRechazos,
+		&i.RotacionFallidaEn,
 	)
 	return i, err
 }
 
 const motorIAUnicoParaActualizar = `-- name: MotorIAUnicoParaActualizar :one
-SELECT id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde FROM mensajeria.voz_motores ORDER BY id LIMIT 1 FOR UPDATE
+SELECT id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde, siguiente_rechazos, rotacion_fallida_en FROM mensajeria.voz_motores ORDER BY id LIMIT 1 FOR UPDATE
 `
 
 func (q *Queries) MotorIAUnicoParaActualizar(ctx context.Context) (MensajeriaVozMotor, error) {
@@ -1373,6 +1431,8 @@ func (q *Queries) MotorIAUnicoParaActualizar(ctx context.Context) (MensajeriaVoz
 		&i.CertClienteClaveSiguiente,
 		&i.CertClienteVenceSiguiente,
 		&i.RotacionDesde,
+		&i.SiguienteRechazos,
+		&i.RotacionFallidaEn,
 	)
 	return i, err
 }
@@ -1396,14 +1456,14 @@ func (q *Queries) PlazasEnCursoIA(ctx context.Context, arg PlazasEnCursoIAParams
 const prepararEnlaceMotorIA = `-- name: PrepararEnlaceMotorIA :one
 UPDATE mensajeria.voz_motores SET nombre = $1, url = $2, estado = 'sin_enlazar', detalle = NULL,
     enlace_codigo = $3, enlace_vence_en = $4, enlace_usado_en = NULL,
-    token = NULL, token_siguiente = NULL, token_rotado_en = NULL, rotacion_desde = NULL,
+    token = NULL, token_siguiente = NULL, token_rotado_en = NULL, rotacion_desde = NULL, siguiente_rechazos = 0, rotacion_fallida_en = NULL,
     cert_cliente_siguiente = NULL, cert_cliente_clave_siguiente = NULL, cert_cliente_vence_siguiente = NULL,
     cert_cliente = $5, cert_cliente_clave = $6, cert_cliente_vence_en = $7,
     huella_tls = NULL, huella_tls_siguiente = NULL, ip_observada = NULL, restringe_ip = false,
     enlazado_en = NULL, activado_en = NULL, compatible = false, motivo_incompatible = NULL, catalogo = '{}', max_simultaneas = 0,
     version_motor = NULL, version_protocolo = NULL, iris_min = NULL, iris_max = NULL,
     fallos_seguidos = 0, ultimo_latido_en = NULL, ultima_prueba = NULL, version = version + 1, updated_at = now()
-WHERE id = $8 RETURNING id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde
+WHERE id = $8 RETURNING id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde, siguiente_rechazos, rotacion_fallida_en
 `
 
 type PrepararEnlaceMotorIAParams struct {
@@ -1482,6 +1542,8 @@ func (q *Queries) PrepararEnlaceMotorIA(ctx context.Context, arg PrepararEnlaceM
 		&i.CertClienteClaveSiguiente,
 		&i.CertClienteVenceSiguiente,
 		&i.RotacionDesde,
+		&i.SiguienteRechazos,
+		&i.RotacionFallidaEn,
 	)
 	return i, err
 }
@@ -1508,8 +1570,8 @@ UPDATE mensajeria.voz_motores SET token = token_siguiente, token_siguiente = NUL
     cert_cliente_clave = coalesce(cert_cliente_clave_siguiente, cert_cliente_clave),
     cert_cliente_vence_en = coalesce(cert_cliente_vence_siguiente, cert_cliente_vence_en),
     cert_cliente_siguiente = NULL, cert_cliente_clave_siguiente = NULL, cert_cliente_vence_siguiente = NULL, rotacion_desde = NULL,
-    version = version + 1, updated_at = now()
-WHERE id = $1 AND token_siguiente IS NOT NULL RETURNING id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde
+    siguiente_rechazos = 0, rotacion_fallida_en = NULL, version = version + 1, updated_at = now()
+WHERE id = $1 AND token_siguiente IS NOT NULL RETURNING id, nombre, url, estado, enlazado_en, activado_en, enlace_codigo, enlace_vence_en, enlace_usado_en, token, token_siguiente, token_rotado_en, cert_cliente, cert_cliente_clave, cert_cliente_vence_en, huella_tls, huella_tls_siguiente, ip_observada, restringe_ip, empresas_permitidas, simultaneas_por_empresa, modelos_permitidos, vram_pct, vram_minutos, disco_pct, temperatura_c, temperatura_minutos, saturacion_rechazos, saturacion_minutos, retencion_detalle_dias, retencion_hora_dias, umbrales_version, max_simultaneas, version_motor, version_protocolo, iris_min, iris_max, compatible, motivo_incompatible, catalogo, detalle, fallos_seguidos, ultimo_latido_en, ultima_prueba, version, created_at, updated_at, cert_cliente_siguiente, cert_cliente_clave_siguiente, cert_cliente_vence_siguiente, rotacion_desde, siguiente_rechazos, rotacion_fallida_en
 `
 
 // El servidor ya tiene lo «siguiente»: pasa a vigente (token y, si lo había, certificado de cliente).
@@ -1568,6 +1630,8 @@ func (q *Queries) PromoverTokenMotorIA(ctx context.Context, id int64) (Mensajeri
 		&i.CertClienteClaveSiguiente,
 		&i.CertClienteVenceSiguiente,
 		&i.RotacionDesde,
+		&i.SiguienteRechazos,
+		&i.RotacionFallidaEn,
 	)
 	return i, err
 }
