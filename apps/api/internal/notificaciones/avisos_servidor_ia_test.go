@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -116,14 +117,62 @@ func TestAvisoServidorIACampanaYCorreo(t *testing.T) {
 	if len(c) != 3 || !strings.Contains(c[2].texto, "Valor medido: 97. Umbral: 95.") {
 		t.Fatalf("correo del umbral: %+v", c)
 	}
-	// Otro episodio del mismo tipo (otro evento): otro aviso.
-	x.avisarIA(notificaciones.EntradaAvisarServidorIA{MotorID: motor, Tipo: "vram", Valor: &valor, Umbral: &umbral})
+	// Otro episodio del mismo tipo en la misma hora: no avisa otra vez. Otro umbral, sí.
+	if r := x.avisarIA(notificaciones.EntradaAvisarServidorIA{MotorID: motor, Tipo: "vram", Valor: &valor, Umbral: &umbral}); r.Avisos != 0 {
+		t.Fatalf("otro episodio en la misma hora no debía avisar: %+v", r)
+	}
+	x.avisarIA(notificaciones.EntradaAvisarServidorIA{MotorID: motor, Tipo: "disco", Valor: &valor, Umbral: &umbral})
 	if um := x.avisosDe(admin, "servidor_ia_umbral"); len(um) != 2 {
-		t.Fatalf("un episodio nuevo debía avisar otra vez: %d", len(um))
+		t.Fatalf("avisos de umbral (VRAM y disco): %d", len(um))
 	}
 	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'notificaciones.avisos_creados' AND payload->>'tipo' = 'servidor_ia_umbral'
 		AND payload->'usuarios' @> to_jsonb($1::bigint) AND payload->>'empresa_id' IS NULL`, admin.id); n != 2 {
 		t.Fatalf("notificaciones.avisos_creados: %d", n)
+	}
+}
+
+// N1 (enfriamiento): un servidor que va y viene (o uno hostil) no inunda la campana ni el correo:
+// como mucho un aviso y un correo por tipo y servidor por hora.
+func TestAvisoServidorIAEnfriamiento(t *testing.T) {
+	x := nuevoEntornoAvisos(t, true)
+	admin := x.persona([]int64{1}, "admin")
+	const motor = 987656
+	valor, umbral := 96.0, 95.0
+	// Diez vueltas en cinco minutos: caído ↔ listo, incompatible ↔ listo y el disco cruzando el umbral.
+	for range 10 {
+		x.reloj = x.reloj.Add(30 * time.Second)
+		for _, a := range []string{"no_disponible", "listo", "incompatible", "listo"} {
+			x.avisarIA(notificaciones.EntradaAvisarServidorIA{MotorID: motor, A: a})
+		}
+		x.avisarIA(notificaciones.EntradaAvisarServidorIA{MotorID: motor, Tipo: "disco", Valor: &valor, Umbral: &umbral})
+	}
+	x.mandarCorreos(false)
+	propios := func(tipo string) int {
+		n := 0
+		for _, a := range x.avisosDe(admin, tipo) {
+			if a["datos"].(map[string]any)["motor_id"] == float64(motor) {
+				n++
+			}
+		}
+		return n
+	}
+	for _, tipo := range []string{"servidor_ia_caido", "servidor_ia_incompatible", "servidor_ia_umbral"} {
+		if n := propios(tipo); n != 1 {
+			t.Fatalf("%s: %d avisos tras diez vueltas (debía ser 1)", tipo, n)
+		}
+		if n := x.contar(`SELECT count(*) FROM notificaciones.correos WHERE usuario_id = $1 AND tipo = $2 AND (datos->>'motor_id')::bigint = $3`, admin.id, tipo, motor); n != 1 {
+			t.Fatalf("%s: %d correos tras diez vueltas (debía ser 1)", tipo, n)
+		}
+	}
+	if c := x.correo.para(admin.correo); len(c) != 3 {
+		t.Fatalf("correos enviados al admin: %d", len(c))
+	}
+	// Pasada la hora, si sigue pasando, avisa otra vez (una).
+	x.reloj = x.reloj.Add(time.Hour)
+	x.avisarIA(notificaciones.EntradaAvisarServidorIA{MotorID: motor, A: "no_disponible"})
+	x.avisarIA(notificaciones.EntradaAvisarServidorIA{MotorID: motor, A: "no_disponible"})
+	if n := propios("servidor_ia_caido"); n != 2 {
+		t.Fatalf("a la hora siguiente debía avisar una vez más: %d", n)
 	}
 }
 

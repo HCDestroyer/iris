@@ -395,6 +395,11 @@ func (r *RotarMotor) rotar(ctx context.Context, c conexionMotor, origen string, 
 	}
 	vivo, err := r.m.canalVivo(ctx, c)
 	if err != nil {
+		// ¿No contesta, o es que otra rotación cambió las credenciales mientras se probaba con las
+		// que se leyeron? Lo segundo no es una falla del servidor.
+		if c2, errL := r.k.leer.Ejecutar(ctx, c.fila.ID); errL == nil && (c2.fila.Version != c.fila.Version || r.m.rotacionEnVuelo(c2.fila)) {
+			return MotorIA{}, rotacionEnCurso()
+		}
 		return MotorIA{}, motorNoResponde()
 	}
 	if vivo.siguiente {
@@ -689,11 +694,21 @@ func (m *Modulo) latirMotor(ctx context.Context, id int64) (mensajeriabd.Mensaje
 	}
 	r := resultadoLatido{ID: id}
 	vivo, err := m.canalVivo(ctx, c)
-	if err == nil && vivo.siguiente && !m.rotacionEnVuelo(f) {
-		// Una rotación quedó a medias (el servidor la aplicó): se termina sola, sin perder el canal.
-		// Si todavía está en vuelo, la termina quien la empezó.
-		if _, errP := k.Rotar.guardar.Ejecutar(ctx, credencialEntregada{ID: id, Origen: "automatica"}); errP != nil {
-			slog.WarnContext(ctx, "servidor de IA: terminar una rotación a medias", "err", errP)
+	if sig, hay := c.canalSiguiente(); hay && !m.rotacionEnVuelo(f) {
+		// Quedó algo «siguiente» de una rotación que ya no está en vuelo (si lo está, la termina
+		// quien la empezó). Se mira qué tiene el servidor:
+		switch {
+		case (err == nil && vivo.siguiente) || m.probarCanal(ctx, c, sig.cert, sig.token) == nil:
+			// La aplicó (la respuesta se perdió): se termina sola, sin perder el canal. Con convivencia
+			// lo vigente también contesta todavía; se promueve igual, antes de que deje de valer.
+			if _, errP := k.Rotar.guardar.Ejecutar(ctx, credencialEntregada{ID: id, Origen: "automatica"}); errP != nil {
+				slog.WarnContext(ctx, "servidor de IA: terminar una rotación a medias", "err", errP)
+			}
+		case err == nil:
+			// Lo vigente contesta y lo siguiente no: la entrega nunca llegó. No se queda guardado.
+			if _, errD := k.descartarSiguiente.Ejecutar(ctx, id); errD != nil {
+				slog.WarnContext(ctx, "servidor de IA: descartar una entrega que no llegó", "err", errD)
+			}
 		}
 	}
 	token := vivo.token

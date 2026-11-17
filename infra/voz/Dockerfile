@@ -3,8 +3,8 @@
 #   docker build -f infra/voz/Dockerfile --build-arg VERSION=0.1.0 -t iris-voz .
 #   docker build -f infra/voz/Dockerfile --target ollama-falso -t iris-voz-ollama-falso .   (solo CI)
 #
-# Un solo binario, voz-puerta, con las órdenes `servir` (la puerta), `medidor` (lee la GPU, sin red)
-# y `proxy-descarga` (única salida, solo al registro de modelos). No trae Postgres, Redis ni nada de
+# Un solo binario, voz-puerta, con las órdenes `serve` (la puerta), `meter` (el medidor: lee la GPU, sin red)
+# y `pull-proxy` (única salida, solo al registro de modelos). No trae Postgres, Redis ni nada de
 # Iris: el paquete internal/voz no importa mensajería ni la base (lo comprueba su prueba).
 #
 # La imagen final es distroless con glibc (base-debian12:nonroot, uid 65532, sin shell): el medidor
@@ -44,5 +44,5 @@ USER nonroot:nonroot
 WORKDIR /home/nonroot
 EXPOSE 8443
 ENTRYPOINT ["/usr/local/bin/voz-puerta"]
-CMD ["servir"]
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["/usr/local/bin/voz-puerta", "salud"]
+CMD ["serve"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["/usr/local/bin/voz-puerta", "health"]

@@ -70,7 +70,7 @@ func (x *bancoIA) enlazar() respuesta {
 	if !voz.CodigoValido(codigo) {
 		x.t.Fatalf("código: %q", codigo)
 	}
-	// En el servidor: `iris-voz enlazar`.
+	// En el servidor: `iris-voz pair`.
 	if err := x.banco.Almacen.AbrirVentana(codigo, x.banco.Ahora()); err != nil {
 		x.t.Fatal(err)
 	}

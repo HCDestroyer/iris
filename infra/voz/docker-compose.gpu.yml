@@ -24,7 +24,7 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     image: ${IRIS_VOZ_REGISTRY:-ghcr.io/hcdestroyer}/iris-voz:${IRIS_VOZ_VERSION:?IRIS_VOZ_VERSION is required}
-    command: [medidor]
+    command: [meter]
     user: "65532:65532"
     pids_limit: 64
     mem_limit: 128m

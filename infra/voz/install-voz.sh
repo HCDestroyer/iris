@@ -18,36 +18,36 @@
 # Uso: install-voz.sh [orden] [opciones]
 #
 # Órdenes:
-#   instalar            instala o reconfigura (por defecto)
-#   actualizar          pasa a una versión más nueva (--version X.Y.Z o la última); nunca baja
-#   enlazar             abre la ventana de enlace; pide el código de un solo uso del panel de Iris
+#   install             instala o reconfigura (por defecto)
+#   upgrade             pasa a una versión más nueva (--version X.Y.Z o la última); nunca baja
+#   pair                abre la ventana de enlace; pide el código de un solo uso del panel de Iris
 #                       (no se ve al escribirlo; el código nunca se acepta como argumento)
-#   desenlazar          olvida a Iris: no se acepta nada hasta un enlace nuevo
-#   estado              versión, contenedores, huella, IP de Iris observada y modelos permitidos
-#   renovar-certificado certificado nuevo, que se anuncia a Iris por el canal vigente
-#                       (--sin-canal: el anterior se perdió; desenlaza y hay que enlazar con código)
-#   ip restringir|liberar    aceptar el puerto de control solo desde la IP de Iris vista al enlazar
+#   unpair              olvida a Iris: no se acepta nada hasta un enlace nuevo
+#   status              versión, contenedores, huella, IP de Iris observada y modelos permitidos
+#   renew-cert          certificado nuevo, que se anuncia a Iris por el canal vigente
+#                       (--no-channel: el anterior se perdió; desenlaza y hay que enlazar con código)
+#   ip restrict|release      aceptar el puerto de control solo desde la IP de Iris vista al enlazar
 #                            (apagado de fábrica)
-#   modelo descargar NOMBRE  baja un modelo (contenedor de un solo uso; solo llega al registro de modelos)
-#   modelo quitar NOMBRE     borra un modelo
-#   modelo permitir NOMBRE   deja que Iris use un modelo instalado   (modelo retirar NOMBRE: lo contrario)
-#   modelo lista             modelos instalados y permitidos
-#   registros [servicio]     sigue los registros (puerta, llm, medidor)
-#   parar | arrancar         para o arranca todos los contenedores
+#   model pull NOMBRE        baja un modelo (contenedor de un solo uso; solo llega al registro de modelos)
+#   model remove NOMBRE      borra un modelo
+#   model allow NOMBRE       deja que Iris use un modelo instalado   (model revoke NOMBRE: lo contrario)
+#   model list               modelos instalados y permitidos
+#   logs [servicio]          sigue los registros (puerta, llm, medidor)
+#   stop | start             para o arranca todos los contenedores
 #   compose ARGS             ejecuta docker compose sobre la instalación
 #   version                  muestra la versión instalada
-#   ayuda                    esta ayuda
+#   help                     esta ayuda
 #
-# Opciones de instalar:
+# Opciones de install:
 #   --version X.Y.Z     versión a instalar (por defecto, la última voz-v*)
 #   --dir RUTA          carpeta de instalación (por defecto /opt/iris-voz)
-#   --puerto N          puerto de control (por defecto 8443)
-#   --escucha DIRECCION dirección en la que escucha el puerto de control (por defecto 0.0.0.0)
-#   --sin-gpu           sin GPU (solo pruebas: en CPU es demasiado lento para uso real)
-#   --sin-modelos       no bajar los modelos por defecto
-#   --permitir-intercambio      no detenerse si hay intercambio a disco sin cifrar
-#   --permitir-reloj-sin-ntp    no detenerse si el reloj no está sincronizado por NTP
-#   -s, --si            no preguntar nunca
+#   --port N            puerto de control (por defecto 8443)
+#   --listen DIRECCION  dirección en la que escucha el puerto de control (por defecto 0.0.0.0)
+#   --no-gpu            sin GPU (solo pruebas: en CPU es demasiado lento para uso real)
+#   --no-models         no bajar los modelos por defecto
+#   --allow-swap                no detenerse si hay intercambio a disco sin cifrar
+#   --allow-unsynced-clock      no detenerse si el reloj no está sincronizado por NTP
+#   -y, --yes           no preguntar nunca
 #
 # Entorno (pruebas y servidores sin internet): IRIS_VOZ_DIR, IRIS_VOZ_REPO (HCDestroyer/iris),
 # IRIS_VOZ_SOURCE (carpeta local con iris-voz-<v>.tar.gz, su .sigstore.json y un archivo `latest`,
@@ -313,7 +313,7 @@ check_docker() {
 }
 
 check_gpu() {
-    command -v nvidia-smi > /dev/null || die "no está nvidia-smi: instala el controlador de NVIDIA (o usa --sin-gpu para una prueba)"
+    command -v nvidia-smi > /dev/null || die "no está nvidia-smi: instala el controlador de NVIDIA (o usa --no-gpu para una prueba)"
     nvidia-smi --query-gpu=name,memory.total --format=csv,noheader < /dev/null >&2 || die "nvidia-smi no ve ninguna GPU"
     docker info --format '{{json .Runtimes}}' 2> /dev/null | grep -q nvidia ||
         die "docker no tiene el runtime de NVIDIA: instala nvidia-container-toolkit y ejecuta 'nvidia-ctk runtime configure --runtime=docker'"
@@ -323,13 +323,13 @@ check_clock() {
     command -v timedatectl > /dev/null || { warn "no se puede comprobar el reloj (no hay timedatectl): asegúrate de que NTP está activo"; return 0; }
     [ "$(timedatectl show -p NTPSynchronized --value 2> /dev/null)" = yes ] && return 0
     $ALLOW_CLOCK && { warn "el reloj no está sincronizado por NTP: Iris rechaza peticiones con más de 30 s de desfase"; return 0; }
-    die "el reloj no está sincronizado por NTP (las peticiones van firmadas con la hora; más de 30 s de desfase se rechaza). Activa NTP o usa --permitir-reloj-sin-ntp"
+    die "el reloj no está sincronizado por NTP (las peticiones van firmadas con la hora; más de 30 s de desfase se rechaza). Activa NTP o usa --allow-unsynced-clock"
 }
 
 check_swap() {
     [ -z "$(swapon --noheadings 2> /dev/null || true)" ] && return 0
     $ALLOW_SWAP && { warn "hay intercambio a disco: lo que el modelo tiene en memoria podría llegar al disco"; return 0; }
-    die "hay intercambio a disco (lo que el modelo tiene en memoria podría llegar al disco sin cifrar). Apágalo (swapoff -a) o usa --permitir-intercambio si está cifrado"
+    die "hay intercambio a disco (lo que el modelo tiene en memoria podría llegar al disco sin cifrar). Apágalo (swapoff -a) o usa --allow-swap si está cifrado"
 }
 
 latest_version() {
@@ -406,10 +406,10 @@ start() {
     log "Arrancando"
     dc up -d --remove-orphans < /dev/null
     for _ in $(seq 1 60); do
-        if puerta salud > /dev/null 2>&1 < /dev/null; then return 0; fi
+        if puerta health > /dev/null 2>&1 < /dev/null; then return 0; fi
         sleep 2
     done
-    die "el servidor no llegó a estar sano (mira: iris-voz registros puerta)"
+    die "el servidor no llegó a estar sano (mira: iris-voz logs puerta)"
 }
 
 model_name() {
@@ -424,7 +424,7 @@ model_pull() { # model_pull NOMBRE [DIGEST]
     dc --profile descarga run --rm descarga pull "$name" < /dev/null || { dc --profile descarga rm -sf proxy-descarga > /dev/null 2>&1 || true; die "no se pudo bajar $name"; }
     dc --profile descarga rm -sf proxy-descarga > /dev/null 2>&1 || true
     if [ -n "$want" ]; then
-        got="$(puerta modelo digest "$name" < /dev/null || true)"
+        got="$(puerta model digest "$name" < /dev/null || true)"
         if [ "$got" != "$want" ]; then
             dc --profile descarga run --rm --no-deps descarga rm "$name" < /dev/null > /dev/null 2>&1 || true
             die "el modelo $name no coincide con el digest fijado en el manifiesto (llegó '${got:-ninguno}', se esperaba $want). Se borró"
@@ -435,7 +435,7 @@ model_pull() { # model_pull NOMBRE [DIGEST]
 
 show_fingerprint() {
     local fp
-    fp="$(puerta huella < /dev/null)"
+    fp="$(puerta fingerprint < /dev/null)"
     cat >&2 << EOF
 
 Iris Voz $(installed_version) está en marcha en el puerto $(env_get IRIS_VOZ_PUERTO).
@@ -445,7 +445,7 @@ Iris Voz $(installed_version) está en marcha en el puerto $(env_get IRIS_VOZ_PU
 
 Ahora, en el panel de Iris (Administración → Integraciones → Servidor de IA):
   1. «Enlazar servidor de IA», con la dirección de este servidor (https://<este servidor>:$(env_get IRIS_VOZ_PUERTO)).
-  2. Aquí: sudo iris-voz enlazar     (escribe el código de un solo uso que muestra el panel; no se ve al teclear)
+  2. Aquí: sudo iris-voz pair     (escribe el código de un solo uso que muestra el panel; no se ve al teclear)
   3. En el panel: «Conectar», compara la huella de arriba con la que muestra el panel y «Activar».
 EOF
 }
@@ -477,7 +477,7 @@ cmd_install() {
         while read -r name digest; do
             [ -n "$name" ] || continue
             model_pull "$name" "$digest"
-            puerta modelo permitir "$name" < /dev/null >&2
+            puerta model allow "$name" < /dev/null >&2
         done < <(manifest_models "$DIR/current/manifiesto.json")
     fi
     show_fingerprint
@@ -511,7 +511,7 @@ cmd_pair() {
         IFS= read -r code || true # por la entrada (automatización); nunca como argumento
     fi
     [ -n "$code" ] || die "no se escribió ningún código"
-    printf '%s\n' "$code" | puerta enlazar
+    printf '%s\n' "$code" | puerta pair
     unset code
 }
 
@@ -519,7 +519,7 @@ cmd_status() {
     need_install
     echo "versión: $(installed_version)"
     dc ps
-    puerta estado < /dev/null
+    puerta status < /dev/null
     echo "modelos instalados:"
     dc exec -T llm ollama list < /dev/null 2> /dev/null || true
 }
@@ -529,51 +529,51 @@ cmd_model() {
     need_install
     local sub="${1:-}" name="${2:-}"
     case "$sub" in
-        descargar) [ -n "$name" ] || die "uso: modelo descargar NOMBRE"; model_pull "$name" ;;
-        quitar)
-            [ -n "$name" ] || die "uso: modelo quitar NOMBRE"
+        pull) [ -n "$name" ] || die "uso: model pull NOMBRE"; model_pull "$name" ;;
+        remove)
+            [ -n "$name" ] || die "uso: model remove NOMBRE"
             name="$(model_name "$name")"
-            puerta modelo retirar "$name" < /dev/null
+            puerta model revoke "$name" < /dev/null
             dc --profile descarga run --rm --no-deps descarga rm "$name" < /dev/null
             ;;
-        permitir) [ -n "$name" ] || die "uso: modelo permitir NOMBRE"; puerta modelo permitir "$(model_name "$name")" < /dev/null ;;
-        retirar) [ -n "$name" ] || die "uso: modelo retirar NOMBRE"; puerta modelo retirar "$(model_name "$name")" < /dev/null ;;
-        lista)
+        allow) [ -n "$name" ] || die "uso: model allow NOMBRE"; puerta model allow "$(model_name "$name")" < /dev/null ;;
+        revoke) [ -n "$name" ] || die "uso: model revoke NOMBRE"; puerta model revoke "$(model_name "$name")" < /dev/null ;;
+        list)
             echo "permitidos:"
-            puerta modelo lista < /dev/null
+            puerta model list < /dev/null
             echo "instalados:"
             dc exec -T llm ollama list < /dev/null 2> /dev/null || true
             ;;
-        *) die "uso: modelo descargar|quitar|permitir|retirar NOMBRE | modelo lista" ;;
+        *) die "uso: model pull|remove|allow|revoke NOMBRE | model list" ;;
     esac
 }
 
 main() {
-    CMD=instalar
+    CMD=install
     case "${1:-}" in
-        instalar | actualizar | enlazar | desenlazar | estado | renovar-certificado | ip | modelo | registros | parar | arrancar | compose | version) CMD="$1"; shift ;;
-        ayuda | -h | --ayuda) usage 0 ;;
+        install | upgrade | pair | unpair | status | renew-cert | ip | model | logs | stop | start | compose | version) CMD="$1"; shift ;;
+        help | -h | --help) usage 0 ;;
         '' | -*) ;;
-        *) die "orden desconocida: $1 (mira: iris-voz ayuda)" ;;
+        *) die "orden desconocida: $1 (mira: iris-voz help)" ;;
     esac
     VERSION="" PORT="" LISTEN="" NO_GPU=false NO_MODELS=false ALLOW_SWAP=false ALLOW_CLOCK=false
     REST=()
     case "$CMD" in
-        compose | registros | modelo | ip | renovar-certificado) REST=("$@"); set -- ;;
+        compose | logs | model | ip | renew-cert) REST=("$@"); set -- ;;
     esac
     while [ $# -gt 0 ]; do
         case "$1" in
             --version) [ $# -ge 2 ] || die "--version necesita un valor"; VERSION="${2#v}"; shift 2 ;;
             --dir) [ $# -ge 2 ] || die "--dir necesita un valor"; DIR="$2"; shift 2 ;;
-            --puerto) [ $# -ge 2 ] || die "--puerto necesita un valor"; PORT="$2"; shift 2 ;;
-            --escucha) [ $# -ge 2 ] || die "--escucha necesita un valor"; LISTEN="$2"; shift 2 ;;
-            --sin-gpu) NO_GPU=true; shift ;;
-            --sin-modelos) NO_MODELS=true; shift ;;
-            --permitir-intercambio) ALLOW_SWAP=true; shift ;;
-            --permitir-reloj-sin-ntp) ALLOW_CLOCK=true; shift ;;
-            -s | --si) shift ;;
-            -h | --ayuda) usage 0 ;;
-            *) die "opción desconocida: $1 (mira: iris-voz ayuda)" ;;
+            --port) [ $# -ge 2 ] || die "--port necesita un valor"; PORT="$2"; shift 2 ;;
+            --listen) [ $# -ge 2 ] || die "--listen necesita un valor"; LISTEN="$2"; shift 2 ;;
+            --no-gpu) NO_GPU=true; shift ;;
+            --no-models) NO_MODELS=true; shift ;;
+            --allow-swap) ALLOW_SWAP=true; shift ;;
+            --allow-unsynced-clock) ALLOW_CLOCK=true; shift ;;
+            -y | --yes) shift ;;
+            -h | --help) usage 0 ;;
+            *) die "opción desconocida: $1 (mira: iris-voz help)" ;;
         esac
     done
     case "$DIR" in /*) ;; *) DIR="$(pwd)/$DIR" ;; esac
@@ -582,29 +582,29 @@ main() {
     [ -z "$PORT" ] || [[ "$PORT" =~ ^[0-9]{1,5}$ ]] || die "puerto inválido: $PORT"
 
     case "$CMD" in
-        instalar) cmd_install ;;
-        actualizar) cmd_upgrade ;;
-        enlazar) cmd_pair ;;
-        desenlazar) need_root; need_install; puerta desenlazar < /dev/null ;;
-        estado) cmd_status ;;
-        renovar-certificado)
+        install) cmd_install ;;
+        upgrade) cmd_upgrade ;;
+        pair) cmd_pair ;;
+        unpair) need_root; need_install; puerta unpair < /dev/null ;;
+        status) cmd_status ;;
+        renew-cert)
             need_root
             need_install
-            if [ "${REST[0]:-}" = --sin-canal ]; then puerta renovar-certificado --sin-canal < /dev/null; else puerta renovar-certificado < /dev/null; fi
+            if [ "${REST[0]:-}" = --no-channel ]; then puerta renew-cert --no-channel < /dev/null; else puerta renew-cert < /dev/null; fi
             ;;
         ip)
             need_root
             need_install
             case "${REST[0]:-}" in
-                restringir) puerta ip restringir < /dev/null ;;
-                liberar) puerta ip liberar < /dev/null ;;
-                *) die "uso: ip restringir|liberar" ;;
+                restrict) puerta ip restrict < /dev/null ;;
+                release) puerta ip release < /dev/null ;;
+                *) die "uso: ip restrict|release" ;;
             esac
             ;;
-        modelo) cmd_model "${REST[@]}" ;;
-        registros) need_install; dc logs -f --tail 100 "${REST[@]}" ;;
-        parar) need_root; need_install; dc --profile descarga down ;;
-        arrancar) need_root; need_install; IRIS_VOZ_SKIP_PULL=1 start ;;
+        model) cmd_model "${REST[@]}" ;;
+        logs) need_install; dc logs -f --tail 100 "${REST[@]}" ;;
+        stop) need_root; need_install; dc --profile descarga down ;;
+        start) need_root; need_install; IRIS_VOZ_SKIP_PULL=1 start ;;
         compose) need_install; dc "${REST[@]}" ;;
         version) need_install; installed_version ;;
     esac

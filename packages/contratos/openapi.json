@@ -7536,7 +7536,7 @@
         "additionalProperties": false,
         "properties": {
           "codigo": {
-            "description": "Código de un solo uso (160 bits): se escribe en el servidor con «iris-voz enlazar». No se vuelve a mostrar",
+            "description": "Código de un solo uso (160 bits): se escribe en el servidor con «iris-voz pair». No se vuelve a mostrar",
             "type": "string"
           },
           "motor": {
@@ -14388,6 +14388,7 @@
             ]
           },
           "encendidoSeg": {
+            "description": "Solo con servidor_ia.ver; null para el admin de empresa",
             "format": "int64",
             "type": [
               "integer",
@@ -59230,7 +59231,7 @@
     },
     "/api/v1/mensajeria/voz/motores/enlazar": {
       "post": {
-        "description": "Permiso: `servidor_ia.administrar`. Devuelve **una vez** un código de un solo uso (160 bits) que vale 15 minutos y se escribe en el servidor con `iris-voz enlazar`. Iris lo guarda cifrado hasta enlazar o hasta que vence, y lo borra. Enlazar de nuevo invalida el canal anterior. 409 `motor_ya_enlazado` si hay uno activo (desactívalo antes); 422 `url_no_permitida`. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`; cualquier otro recibe 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "description": "Permiso: `servidor_ia.administrar`. Devuelve **una vez** un código de un solo uso (160 bits) que vale 15 minutos y se escribe en el servidor con `iris-voz pair`. Iris lo guarda cifrado hasta enlazar o hasta que vence, y lo borra. Enlazar de nuevo invalida el canal anterior. 409 `motor_ya_enlazado` si hay uno activo (desactívalo antes); 422 `url_no_permitida`. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`; cualquier otro recibe 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
         "operationId": "enlazarMotorIA",
         "parameters": [
           {
@@ -60061,7 +60062,7 @@
     },
     "/api/v1/mensajeria/voz/motores/{id}/rotar-token": {
       "post": {
-        "description": "Permiso: `servidor_ia.administrar`. Las anteriores siguen valiendo 24 h; con `revocar: true` dejan de valer en el acto y también se cambia el certificado de cliente. Si Iris se vio comprometido, rotar no basta: `iris-voz desenlazar` en el servidor y enlazar de nuevo. Emite `voz.motor_token_rotado`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`; cualquier otro recibe 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
+        "description": "Permiso: `servidor_ia.administrar`. Las anteriores siguen valiendo 24 h; con `revocar: true` dejan de valer en el acto y también se cambia el certificado de cliente. Si Iris se vio comprometido, rotar no basta: `iris-voz unpair` en el servidor y enlazar de nuevo. Emite `voz.motor_token_rotado`. El servidor de IA es de la instalación: solo personas con sesión del panel y `empresas.todas`; cualquier otro recibe 404. Nunca se devuelven el token, el código de enlace ni claves. Contrato: `.claude/integration/contratos/voz.md` §4.8.",
         "operationId": "rotarTokenMotorIA",
         "parameters": [
           {

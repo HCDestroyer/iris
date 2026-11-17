@@ -73,7 +73,7 @@ if [ "$modo" = real ]; then
     log "A model with the wrong digest is removed"
     if (model_pull "$MODELO" "sha256:$(printf '0%.0s' $(seq 1 64))") 2> "$DIR/err"; then die "a wrong digest was accepted"; fi
     grep -q "no coincide con el digest" "$DIR/err" || { cat "$DIR/err" >&2; die "unexpected failure of the digest check"; }
-    if puerta modelo digest "$MODELO" > /dev/null 2>&1 < /dev/null; then die "the model with the wrong digest was kept"; fi
+    if puerta model digest "$MODELO" > /dev/null 2>&1 < /dev/null; then die "the model with the wrong digest was kept"; fi
     model_pull "$MODELO" "$MODELO_DIGEST"
     log "The download container reaches nothing but the model registry"
     respuesta="$(dc --profile descarga run --rm --entrypoint /bin/bash descarga -c \
@@ -86,7 +86,7 @@ if [ "$modo" = real ]; then
     fi
     dc --profile descarga rm -sf proxy-descarga > /dev/null 2>&1 || true
 fi
-puerta modelo permitir "$MODELO" < /dev/null
+puerta model allow "$MODELO" < /dev/null
 
 log "Pairing, chat and unpairing through the real control port"
 real=0

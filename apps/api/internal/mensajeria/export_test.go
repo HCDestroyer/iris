@@ -214,3 +214,25 @@ func MetricasValidas(mt voz.Metricas) bool {
 	_, _, ok := muestraDe(mt)
 	return ok
 }
+
+// SiguienteSinEntregar deja guardado lo «siguiente» de una rotación cuya entrega nunca llegó al
+// servidor (Iris lo guardó y la petición se perdió antes de aplicarse).
+func (m *Modulo) SiguienteSinEntregar(ctx context.Context, bd nucleo.BD, id int64) error {
+	ctx = ctxSistema(ctx, bd)
+	c, err := m.ServidorIA.leer.Ejecutar(ctx, id)
+	if err != nil {
+		return err
+	}
+	nuevo, err := voz.NuevoToken()
+	if err != nil {
+		return err
+	}
+	_, err = m.ServidorIA.fijarSiguiente.Ejecutar(ctx, entradaFijarSiguiente{ID: id, Version: c.fila.Version, Token: nuevo})
+	return err
+}
+
+// TokenDeMotor: el token vigente que Iris tiene guardado, descifrado (para compararlo con el del servidor).
+func (m *Modulo) TokenDeMotor(ctx context.Context, bd nucleo.BD, id int64) ([]byte, error) {
+	c, err := m.ServidorIA.leer.Ejecutar(ctxSistema(ctx, bd), id)
+	return c.token, err
+}

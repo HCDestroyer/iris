@@ -72,7 +72,7 @@ type EstadoTableroIA struct {
 	Version            *string    `json:"version" nullable:"true"`
 	Compatible         *bool      `json:"compatible" nullable:"true"`
 	MotivoIncompatible *string    `json:"motivoIncompatible" nullable:"true" enum:"protocolo,iris_antiguo,iris_nuevo,paquete_antiguo"`
-	EncendidoSeg       *int64     `json:"encendidoSeg" nullable:"true"`
+	EncendidoSeg       *int64     `json:"encendidoSeg" nullable:"true" doc:"Solo con servidor_ia.ver; null para el admin de empresa"`
 	TomadoEn           *time.Time `json:"tomadoEn" nullable:"true" doc:"Cuándo se tomó la última muestra que sí se pudo leer"`
 	LecturaOk          bool       `json:"lecturaOk" doc:"false: la última lectura falló; lo de servidor no es de ahora y no se muestra como actual"`
 	ModelosDisponibles []string   `json:"modelosDisponibles"`
@@ -386,7 +386,11 @@ func nuevosCasosTablero(m *Modulo, k *CasosServidorIA) {
 				var g muestraGuardada
 				if json.Unmarshal(b.Datos, &g) == nil {
 					buena = &g
-					r.Estado.TomadoEn, r.Estado.EncendidoSeg = &b.TomadaEn, &g.EncendidoSeg
+					r.Estado.TomadoEn = &b.TomadaEn
+					if todo {
+						// El tiempo encendido es del servidor, no del «estado general» (§4.12).
+						r.Estado.EncendidoSeg = &g.EncendidoSeg
+					}
 				}
 			} else if !errors.Is(err, pgx.ErrNoRows) {
 				return r, err

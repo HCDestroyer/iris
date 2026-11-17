@@ -13,7 +13,7 @@ import (
 
 // ProxyDescarga es la única salida a red del paquete: un proxy CONNECT que solo deja pasar hacia
 // los hosts del registro de modelos, puerto 443. Lo usa el contenedor de un solo uso de
-// `iris-voz modelo descargar`, que no tiene otra ruta (voz.md §4.4 y §6.3).
+// `iris-voz model pull`, que no tiene otra ruta (voz.md §4.4 y §6.3).
 type ProxyDescarga struct {
 	// Hosts permitidos: nombres exactos (sin comodines ni sufijos: un sufijo como el de un
 	// almacenamiento de objetos admitiría el bucket de cualquiera).

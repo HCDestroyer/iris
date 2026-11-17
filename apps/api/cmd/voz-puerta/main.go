@@ -3,8 +3,8 @@
 // /llm/ al contenedor de Ollama. No tiene base de datos ni credenciales de Iris y nunca abre
 // conexiones hacia Iris.
 //
-// Órdenes: servir (por defecto), enlazar, estado, huella, desenlazar, renovar-certificado,
-// ip restringir|liberar, modelo permitir|retirar|lista|digest, medidor, proxy-descarga, salud, version.
+// Órdenes (en inglés, como las de iris-voz): serve (por defecto), pair, status, fingerprint, unpair, renew-cert,
+// ip restrict|release, model allow|revoke|list|digest, meter, pull-proxy, health, version.
 // Las usa `iris-voz` (infra/voz/install-voz.sh) con `docker compose exec`.
 package main
 
@@ -70,7 +70,7 @@ func manifiesto() (voz.Manifiesto, error) {
 }
 
 func main() {
-	orden := "servir"
+	orden := "serve"
 	args := os.Args[1:]
 	if len(args) > 0 {
 		orden, args = args[0], args[1:]
@@ -83,13 +83,13 @@ func main() {
 
 func ejecutar(orden string, args []string) error {
 	switch orden {
-	case "servir":
+	case "serve":
 		return servir()
-	case "medidor":
+	case "meter":
 		return medidor()
-	case "proxy-descarga":
+	case "pull-proxy":
 		return proxyDescarga()
-	case "salud":
+	case "health":
 		return salud()
 	case "version":
 		fmt.Println(version)
@@ -101,13 +101,13 @@ func ejecutar(orden string, args []string) error {
 	}
 	ahora := time.Now()
 	switch orden {
-	case "huella":
+	case "fingerprint":
 		h, err := alm.AsegurarCertificado(nombreCert())
 		if err == nil {
 			fmt.Println(h)
 		}
 		return err
-	case "enlazar":
+	case "pair":
 		// El código llega por la entrada estándar (iris-voz lo lee sin eco); nunca como argumento
 		// ni por variable de entorno, que quedarían en el historial y en la lista de procesos.
 		if len(args) != 0 {
@@ -131,7 +131,7 @@ func ejecutar(orden string, args []string) error {
 		fmt.Printf("Ventana de enlace abierta durante %d minutos.\nHuella del certificado de este servidor (compárala con la del panel antes de «Activar»):\n  %s\n",
 			int(voz.VidaCodigo.Minutes()), h)
 		return nil
-	case "estado":
+	case "status":
 		e, err := alm.Leer()
 		if err != nil {
 			return err
@@ -155,7 +155,7 @@ func ejecutar(orden string, args []string) error {
 			fmt.Println("ventana de enlace abierta hasta:", vence.Format(time.RFC3339))
 		}
 		return nil
-	case "desenlazar":
+	case "unpair":
 		if err := alm.CerrarVentana(); err != nil {
 			return err
 		}
@@ -164,12 +164,12 @@ func ejecutar(orden string, args []string) error {
 		}
 		fmt.Println("Desenlazado: este servidor no acepta nada hasta un enlace nuevo con código.")
 		return nil
-	case "renovar-certificado":
+	case "renew-cert":
 		e, err := alm.Leer()
 		if err != nil {
 			return err
 		}
-		if slices.Contains(args, "--sin-canal") || !e.Enlazado() {
+		if slices.Contains(args, "--no-channel") || !e.Enlazado() {
 			h, err := alm.RegenerarCertificado(nombreCert())
 			if err != nil {
 				return err
@@ -184,18 +184,18 @@ func ejecutar(orden string, args []string) error {
 		fmt.Printf("Certificado siguiente preparado. Se anuncia a Iris por el canal vigente y se usa cuando Iris lo confirme.\nHuella siguiente: %s\n", h)
 		return nil
 	case "ip":
-		if len(args) != 1 || (args[0] != "restringir" && args[0] != "liberar") {
-			return errors.New("uso: ip restringir|liberar")
+		if len(args) != 1 || (args[0] != "restrict" && args[0] != "release") {
+			return errors.New("uso: ip restrict|release")
 		}
 		return alm.Cambiar(func(e *voz.Estado) error {
-			if args[0] == "restringir" && e.IPObservada == "" {
+			if args[0] == "restrict" && e.IPObservada == "" {
 				return errors.New("todavía no hay una IP observada: enlaza primero")
 			}
-			e.RestringirIP = args[0] == "restringir"
+			e.RestringirIP = args[0] == "restrict"
 			fmt.Println("restringir por IP:", e.RestringirIP, e.IPObservada)
 			return nil
 		})
-	case "modelo":
+	case "model":
 		return modelo(alm, args)
 	}
 	return fmt.Errorf("orden desconocida: %s", orden)
@@ -242,7 +242,7 @@ func modelo(alm *voz.Almacen, args []string) error {
 		}
 		return digestModelo(nombre)
 	}
-	if len(args) == 1 && args[0] == "lista" {
+	if len(args) == 1 && args[0] == "list" {
 		e, err := alm.Leer()
 		if err != nil {
 			return err
@@ -253,7 +253,7 @@ func modelo(alm *voz.Almacen, args []string) error {
 		return nil
 	}
 	if len(args) != 2 || !voz.ReNombreModelo.MatchString(args[1]) {
-		return errors.New("uso: modelo permitir|retirar <nombre> | modelo lista")
+		return errors.New("uso: model allow|revoke <nombre> | model list")
 	}
 	nombre := args[1]
 	if !strings.Contains(nombre, ":") {
@@ -262,16 +262,16 @@ func modelo(alm *voz.Almacen, args []string) error {
 	return alm.Cambiar(func(e *voz.Estado) error {
 		i := slices.Index(e.ModelosPermitidos, nombre)
 		switch args[0] {
-		case "permitir":
+		case "allow":
 			if i < 0 {
 				e.ModelosPermitidos = append(e.ModelosPermitidos, nombre)
 			}
-		case "retirar":
+		case "revoke":
 			if i >= 0 {
 				e.ModelosPermitidos = slices.Delete(e.ModelosPermitidos, i, i+1)
 			}
 		default:
-			return errors.New("uso: modelo permitir|retirar <nombre>")
+			return errors.New("uso: model allow|revoke <nombre>")
 		}
 		slices.Sort(e.ModelosPermitidos)
 		fmt.Println("modelos permitidos:", strings.Join(e.ModelosPermitidos, ", "))

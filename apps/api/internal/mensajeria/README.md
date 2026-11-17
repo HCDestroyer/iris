@@ -627,7 +627,10 @@ Un servidor dedicado con GPU, de la instalación, que el asistente de chat usa c
   `servidor_ia.ver_uso` ve el estado sin detalle y el uso de su empresa, nada del servidor.
 - **Avisos**: `notificaciones` escucha `voz.motor_estado_cambiado` (caído, incompatible) y
   `servidor_ia.umbral_superado` y avisa por campana y correo a quienes tienen `servidor_ia.ver` y
-  todas las empresas, uno por episodio.
+  todas las empresas, como mucho uno por tipo, servidor y hora. Los episodios tienen histéresis
+  (se abren con toda la ventana por encima y se cierran con toda por debajo; caído e incompatible,
+  tras 6 lecturas seguidas fuera de ese estado) y la muestra completa solo se guarda de la última
+  lectura buena.
 
 Eventos (todos con `empresa_id: null`): `voz.motor_enlazado`, `voz.motor_activado`,
 `voz.motor_desactivado`, `voz.motor_estado_cambiado`, `voz.motor_token_rotado`,

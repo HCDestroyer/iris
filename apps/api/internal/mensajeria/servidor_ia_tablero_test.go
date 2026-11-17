@@ -137,8 +137,32 @@ func TestServidorIATableroMuestrasYAvisos(t *testing.T) {
 		t.Fatalf("un instante sin muestra va en null: %v", p)
 	}
 
-	// Vuelve a la normalidad: el episodio se cierra solo, con su evento.
+	// N1 (histéresis): la GPU oscila alrededor del umbral diez veces. Es el mismo episodio: ni se
+	// cierra ni se abre otro, ni sale otro evento.
+	for range 10 {
+		x.medir(ruta, normal)
+		x.medir(ruta, caliente)
+	}
+	for _, tipo := range []string{"vram", "temperatura"} {
+		if a := avisoIA(x.tablero("1h"), tipo); a == nil || a["activo"] != true || x.umbralEventos("servidor_ia.umbral_superado", tipo) != 1 ||
+			x.umbralEventos("servidor_ia.umbral_normalizado", tipo) != 0 ||
+			x.contar(`SELECT count(*) FROM mensajeria.servidor_ia_avisos WHERE motor_id = $1 AND tipo = $2`, x.motor, tipo) != 1 {
+			t.Fatalf("oscilar alrededor del umbral debía ser un solo episodio de %s: %v", tipo, a)
+		}
+	}
+	// N2: la muestra completa solo queda en la última lectura buena.
+	if n := x.contar(`SELECT count(*) FROM mensajeria.servidor_ia_muestras WHERE motor_id = $1 AND datos IS NOT NULL`, x.motor); n != 1 {
+		t.Fatalf("filas con la muestra completa: %d", n)
+	}
+	// Vuelve a la normalidad durante toda la ventana (1 minuto): el episodio se cierra solo, con su
+	// evento. Una sola lectura por debajo no basta.
 	x.medir(ruta, normal)
+	if a := avisoIA(x.tablero("ahora"), "vram"); a == nil || a["activo"] != true {
+		t.Fatalf("una lectura por debajo no cierra el episodio: %v", a)
+	}
+	for range 5 {
+		x.medir(ruta, normal)
+	}
 	tab = x.tablero("ahora")
 	for _, tipo := range []string{"vram", "temperatura"} {
 		if a := avisoIA(tab, tipo); a == nil || a["activo"] != false || a["hasta"] != x.reloj.Format(time.RFC3339) {
@@ -175,6 +199,10 @@ func TestServidorIATableroMuestrasYAvisos(t *testing.T) {
 
 	// Saturación: un rechazo por falta de plaza en el último minuto abre el episodio.
 	x.banco.Ollama.Cambiar(func(o *vozprueba.Ollama) { o.Demora = 300 * time.Millisecond })
+	if x.reloj.Second() >= 40 {
+		*x.reloj = x.reloj.Truncate(time.Minute).Add(time.Minute) // que el latido siguiente caiga en el mismo minuto
+	}
+	minutoUso := x.reloj.Truncate(time.Minute)
 	var wg sync.WaitGroup
 	for range 3 {
 		wg.Add(1)
@@ -194,18 +222,25 @@ func TestServidorIATableroMuestrasYAvisos(t *testing.T) {
 		t.Fatalf("rechazadas del rango: %v", tab["servidor"])
 	}
 	// Las peticiones y los tiempos van en la serie por minuto.
-	if p := puntoEn(tab, x.reloj.Truncate(time.Minute)); p == nil || p["peticionesMin"] != float64(2) || p["latenciaMediaMs"].(float64) < 250 || p["latenciaP95Ms"] == nil {
+	if p := puntoEn(tab, minutoUso); p == nil || p["peticionesMin"] != float64(2) || p["latenciaMediaMs"].(float64) < 250 || p["latenciaP95Ms"] == nil {
 		t.Fatalf("punto de uso de la serie: %v", p)
 	}
-	// Disco: el umbral es instantáneo (depende del disco de la máquina de pruebas).
+	// Disco: también exige su ventana (5 minutos), para abrir y para cerrar. Depende del disco de la
+	// máquina de pruebas: con una sola lectura no se abre nunca.
 	disco := tab["servidor"].(map[string]any)["disco"].(map[string]any)
 	lleno := 100*disco["usadoMb"].(float64)/disco["totalMb"].(float64) >= 50
 	um = x.exigir(x.api(x.admin, http.MethodGet, "/servidor-ia/umbrales", nil), http.StatusOK)
 	x.exigir(x.api(x.admin, http.MethodPost, "/servidor-ia/umbrales/actualizar", map[string]any{"version": um.cuerpo["version"], "vramPct": 90, "vramMinutos": 1,
 		"discoPct": 50, "temperaturaC": 80, "temperaturaMinutos": 1, "saturacionRechazos": 1, "saturacionMinutos": 1}), http.StatusOK)
+	// El disco de fábrica (90 %) pudo abrir un episodio al arrancar: con el umbral nuevo se decide
+	// otra vez, pero solo cuando toda la ventana está de un lado.
 	x.medir(ruta, normal)
+	antesDeVentana := avisoIA(x.tablero("1h"), "disco")
+	for range 31 {
+		x.medir(ruta, normal)
+	}
 	if a := avisoIA(x.tablero("1h"), "disco"); (a != nil && a["activo"] == true) != lleno {
-		t.Fatalf("episodio de disco (lleno=%v): %v", lleno, a)
+		t.Fatalf("episodio de disco (lleno=%v): %v (antes de la ventana: %v)", lleno, a, antesDeVentana)
 	}
 
 	// B6: quien solo ve el uso de su empresa no recibe el detalle del estado, ni el servidor, ni las
@@ -266,7 +301,7 @@ func TestServidorIATableroMuestrasYAvisos(t *testing.T) {
 	var muestras, fallidas int
 	var uso *float32
 	if err := x.bd.QueryRow(x.ctx, `SELECT muestras, fallidas, uso_pct FROM mensajeria.servidor_ia_muestras_hora WHERE motor_id = $1 AND hora = $2`, x.motor, hora).Scan(&muestras, &fallidas, &uso); err != nil ||
-		muestras < 10 || fallidas != 4 || uso == nil || *uso < 20 || *uso > 70 {
+		muestras < 10 || fallidas < 4 || uso == nil || *uso < 20 || *uso > 70 {
 		t.Fatalf("agregado de la hora: %d muestras, %d fallidas, uso %v: %v", muestras, fallidas, uso, err)
 	}
 	// El rango de 7 días usa el agregado por hora.
@@ -290,7 +325,8 @@ func TestServidorIAMetricasRevalidadas(t *testing.T) {
 		"temperatura imposible":         func(m *voz.Metricas) { m.GPUs.Lista[0].TemperaturaC = pf(-5) },
 		"memoria usada mayor que total": func(m *voz.Metricas) { m.Memoria.UsadoMb = m.Memoria.TotalMb + 1 },
 		"disco negativo":                func(m *voz.Metricas) { m.Disco.UsadoMb = -1 },
-		"demasiadas GPU":                func(m *voz.Metricas) { m.GPUs.Lista = make([]voz.GPU, 65) },
+		"demasiadas GPU":                func(m *voz.Metricas) { m.GPUs.Lista = make([]voz.GPU, 17) },
+		"demasiados modelos":            func(m *voz.Metricas) { m.Modelos = make([]voz.ModeloMetricas, 65) },
 		"modelo con nombre raro":        func(m *voz.Metricas) { m.Modelos[0].ID = "modelo a; rm -rf /" },
 		"peticiones en curso absurdas":  func(m *voz.Metricas) { m.LLM.EnCurso = 100000 },
 		"tiempo encendido negativo":     func(m *voz.Metricas) { m.EncendidoSeg = -1 },

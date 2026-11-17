@@ -24,6 +24,17 @@ type muestraGuardada struct {
 	Servidor     ServidorTablero `json:"servidor"`
 }
 
+const (
+	// Lo más que se acepta (y se guarda) de una lectura: una lectura con más se descarta entera.
+	maxGPUMuestra     = 16
+	maxModelosMuestra = 64
+	// lecturasParaCerrar: un episodio «caído» o «incompatible» solo se cierra tras estas lecturas
+	// seguidas fuera de ese estado (1 minuto): un servidor que va y viene es un solo episodio.
+	lecturasParaCerrar = 6
+	// ventanaDiscoMin: el disco también exige una ventana sostenida, para abrir y para cerrar.
+	ventanaDiscoMin = 5
+)
+
 func enRango(v *float64, lo, hi float64) bool { return v == nil || (*v >= lo && *v <= hi) }
 
 func ptrF32(v float64) *float32 {
@@ -46,7 +57,7 @@ func muestraDe(mt voz.Metricas) (muestraGuardada, mensajeriabd.InsertarMuestraIA
 	default:
 		return g, p, false
 	}
-	if mt.EncendidoSeg < 0 || mt.EncendidoSeg > 100*365*86400 || len(mt.GPUs.Lista) > 64 || len(mt.Modelos) > 256 ||
+	if mt.EncendidoSeg < 0 || mt.EncendidoSeg > 100*365*86400 || len(mt.GPUs.Lista) > maxGPUMuestra || len(mt.Modelos) > maxModelosMuestra ||
 		mt.CPU.Nucleos < 0 || mt.CPU.Nucleos > 4096 || !enRango(mt.CPU.UsoPct, 0, 100) ||
 		!megas(mt.Memoria.UsadoMb) || !megas(mt.Memoria.TotalMb) || mt.Memoria.UsadoMb > mt.Memoria.TotalMb ||
 		!megas(mt.Disco.UsadoMb) || !megas(mt.Disco.TotalMb) || mt.Disco.UsadoMb > mt.Disco.TotalMb ||
@@ -107,7 +118,7 @@ func muestraDe(mt voz.Metricas) (muestraGuardada, mensajeriabd.InsertarMuestraIA
 // aviso. Corre dentro de la transacción del latido.
 func (m *Modulo) guardarMuestra(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Queries, f mensajeriabd.MensajeriaVozMotor, mt *voz.Metricas) error {
 	ahora := m.ahora()
-	p := mensajeriabd.InsertarMuestraIAParams{MotorID: f.ID, TomadaEn: ahora}
+	p := mensajeriabd.InsertarMuestraIAParams{MotorID: f.ID, TomadaEn: ahora, Estado: &f.Estado}
 	if mt != nil {
 		if g, escalares, ok := muestraDe(*mt); ok {
 			datos, err := json.Marshal(g)
@@ -115,47 +126,62 @@ func (m *Modulo) guardarMuestra(ctx context.Context, t *auditoria.Tx, q *mensaje
 				return err
 			}
 			p = escalares
-			p.MotorID, p.TomadaEn, p.Ok, p.Datos = f.ID, ahora, true, datos
+			p.MotorID, p.TomadaEn, p.Ok, p.Datos, p.Estado = f.ID, ahora, true, datos, &f.Estado
 		}
 	}
 	if err := q.InsertarMuestraIA(ctx, p); err != nil {
 		return err
 	}
-	// Episodios: se abren una vez y se cierran solos al volver a la normalidad.
-	episodio := func(tipo string, activo bool, valor, umbral float64, conValor bool) error {
-		if !activo {
+	if p.Ok {
+		// La muestra completa solo queda en la última lectura buena.
+		if err := q.QuitarDatosAnterioresIA(ctx, mensajeriabd.QuitarDatosAnterioresIAParams{MotorID: f.ID, TomadaEn: ahora}); err != nil {
+			return err
+		}
+	}
+	// Episodios: se abren una vez y se cierran solos al volver a la normalidad. Abrir y cerrar tienen
+	// condiciones distintas (histéresis): entre las dos, el episodio se queda como está. Un servidor
+	// que va y viene alrededor de un umbral es un solo episodio, no uno por oscilación.
+	episodio := func(tipo string, abrir, cerrar bool, valor, umbral float64, conValor bool) error {
+		switch {
+		case abrir:
+			ab := mensajeriabd.AbrirAvisoIAParams{MotorID: f.ID, Tipo: tipo, Desde: ahora}
+			if conValor {
+				ab.Valor, ab.Umbral = ptrF32(valor), ptrF32(umbral)
+			}
+			_, err := q.AbrirAvisoIA(ctx, ab)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil // ya estaba abierto
+			}
+			if err != nil || !conValor {
+				return err // caído e incompatible avisan con voz.motor_estado_cambiado
+			}
+			return t.EmitirEnEmpresa("servidor_ia.umbral_superado", nil, map[string]any{"motor_id": f.ID, "tipo": tipo, "valor": valor, "umbral": umbral})
+		case cerrar:
 			_, err := q.CerrarAvisoIA(ctx, mensajeriabd.CerrarAvisoIAParams{MotorID: f.ID, Tipo: tipo, Hasta: &ahora})
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil
 			}
-			if err != nil || tipo == "caido" || tipo == "incompatible" {
+			if err != nil || !conValor {
 				return err
 			}
 			return t.EmitirEnEmpresa("servidor_ia.umbral_normalizado", nil, map[string]any{"motor_id": f.ID, "tipo": tipo, "valor": valor, "umbral": umbral})
 		}
-		ab := mensajeriabd.AbrirAvisoIAParams{MotorID: f.ID, Tipo: tipo, Desde: ahora}
-		if conValor {
-			ab.Valor, ab.Umbral = ptrF32(valor), ptrF32(umbral)
-		}
-		_, err := q.AbrirAvisoIA(ctx, ab)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil // ya estaba abierto
-		}
-		if err != nil || !conValor {
-			return err // caído e incompatible avisan con voz.motor_estado_cambiado
-		}
-		return t.EmitirEnEmpresa("servidor_ia.umbral_superado", nil, map[string]any{"motor_id": f.ID, "tipo": tipo, "valor": valor, "umbral": umbral})
+		return nil
 	}
-	if err := episodio("caido", f.Estado == MotorNoDisponible, 0, 0, false); err != nil {
-		return err
-	}
-	if err := episodio("incompatible", f.Estado == MotorIncompatible, 0, 0, false); err != nil {
-		return err
+	for tipo, estado := range map[string]string{"caido": MotorNoDisponible, "incompatible": MotorIncompatible} {
+		u, err := q.UltimosEstadosIA(ctx, mensajeriabd.UltimosEstadosIAParams{MotorID: f.ID, Estado: estado, N: lecturasParaCerrar})
+		if err != nil {
+			return err
+		}
+		if err := episodio(tipo, f.Estado == estado, u.Total >= lecturasParaCerrar && u.EnEstado == 0, 0, 0, false); err != nil {
+			return err
+		}
 	}
 	if !p.Ok {
 		return nil // sin lectura no se decide nada de los umbrales (ni se abren ni se cierran)
 	}
-	// «Durante N minutos»: toda la ventana por encima, con al menos la mitad de las muestras esperadas.
+	// «Durante N minutos»: toda la ventana por encima para abrir y toda por debajo para cerrar, con
+	// al menos la mitad de las muestras esperadas.
 	sostenido := func(minutos int32) (mensajeriabd.VentanaMuestrasIARow, int64, error) {
 		v, err := q.VentanaMuestrasIA(ctx, mensajeriabd.VentanaMuestrasIAParams{MotorID: f.ID, Desde: ahora.Add(-time.Duration(minutos) * time.Minute)})
 		return v, int64(minutos) * 3, err
@@ -165,7 +191,8 @@ func (m *Modulo) guardarMuestra(ctx context.Context, t *auditoria.Tx, q *mensaje
 		return err
 	}
 	if p.VramPct != nil {
-		if err := episodio("vram", v.ConVram >= minimo && v.VramMin >= float64(f.VramPct), float64(*p.VramPct), float64(f.VramPct), true); err != nil {
+		u, basta := float64(f.VramPct), v.ConVram >= minimo
+		if err := episodio("vram", basta && v.VramMin >= u, basta && v.VramMax < u, float64(*p.VramPct), u, true); err != nil {
 			return err
 		}
 	}
@@ -173,20 +200,26 @@ func (m *Modulo) guardarMuestra(ctx context.Context, t *auditoria.Tx, q *mensaje
 		return err
 	}
 	if p.TemperaturaC != nil {
-		if err := episodio("temperatura", v.ConTemperatura >= minimo && v.TemperaturaMin >= float64(f.TemperaturaC), float64(*p.TemperaturaC), float64(f.TemperaturaC), true); err != nil {
+		u, basta := float64(f.TemperaturaC), v.ConTemperatura >= minimo
+		if err := episodio("temperatura", basta && v.TemperaturaMin >= u, basta && v.TemperaturaMax < u, float64(*p.TemperaturaC), u, true); err != nil {
 			return err
 		}
+	}
+	if v, minimo, err = sostenido(ventanaDiscoMin); err != nil {
+		return err
 	}
 	if p.DiscoPct != nil {
-		if err := episodio("disco", float64(*p.DiscoPct) >= float64(f.DiscoPct), float64(*p.DiscoPct), float64(f.DiscoPct), true); err != nil {
+		u, basta := float64(f.DiscoPct), v.ConDisco >= minimo
+		if err := episodio("disco", basta && v.DiscoMin >= u, basta && v.DiscoMax < u, float64(*p.DiscoPct), u, true); err != nil {
 			return err
 		}
 	}
+	// Saturación: se abre al llegar al umbral de rechazos en la ventana y se cierra con la ventana limpia.
 	rechazos, err := q.RechazosIADesde(ctx, mensajeriabd.RechazosIADesdeParams{MotorID: f.ID, Desde: ahora.Add(-time.Duration(f.SaturacionMinutos) * time.Minute).Truncate(time.Minute)})
 	if err != nil {
 		return err
 	}
-	return episodio("saturacion", rechazos >= int64(f.SaturacionRechazos), float64(rechazos), float64(f.SaturacionRechazos), true)
+	return episodio("saturacion", rechazos >= int64(f.SaturacionRechazos), rechazos == 0, float64(rechazos), float64(f.SaturacionRechazos), true)
 }
 
 // mantenerMuestras agrega por hora y aplica la retención (cada pocos minutos basta).

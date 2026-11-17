@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
@@ -78,6 +79,7 @@ func nuevoEntornoAvisos(t *testing.T, conCorreo bool) *entornoAvisos {
 	base := nuevoEntorno(t, false)
 	x := &entornoAvisos{entorno: base}
 	cfg := notificaciones.Config{BaseURL: "https://iris.prueba/", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Reloj: func() time.Time { return base.reloj },
 		Encolar: func(_ context.Context, _ pgx.Tx, a river.JobArgs) error {
 			x.mu.Lock()
 			defer x.mu.Unlock()

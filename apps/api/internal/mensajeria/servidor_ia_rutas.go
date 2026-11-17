@@ -30,7 +30,7 @@ func (m *Modulo) registrarServidorIA(api huma.API) {
 		})
 	enl := ia(op("enlazarMotorIA", http.MethodPost, "/voz/motores/enlazar", "Pedir un código para enlazar el servidor de IA", adm,
 		http.StatusCreated, http.StatusConflict, http.StatusUnprocessableEntity),
-		"Devuelve **una vez** un código de un solo uso (160 bits) que vale 15 minutos y se escribe en el servidor con `iris-voz enlazar`. Iris lo guarda cifrado "+
+		"Devuelve **una vez** un código de un solo uso (160 bits) que vale 15 minutos y se escribe en el servidor con `iris-voz pair`. Iris lo guarda cifrado "+
 			"hasta enlazar o hasta que vence, y lo borra. Enlazar de nuevo invalida el canal anterior. 409 `motor_ya_enlazado` si hay uno activo (desactívalo antes); "+
 			"422 `url_no_permitida`. "+descNoRepetibleIA)
 	huma.Register(api, enl, func(ctx context.Context, in *cuerpoHTTP[EntradaEnlazarMotor]) (*cuerpo[EnlaceMotor], error) {
@@ -76,7 +76,7 @@ func (m *Modulo) registrarServidorIA(api huma.API) {
 	huma.Register(api, ia(op("rotarTokenMotorIA", http.MethodPost, "/voz/motores/{id}/rotar-token", "Rotar las credenciales del canal con el servidor de IA", adm,
 		http.StatusOK, http.StatusNotFound, http.StatusConflict, http.StatusBadGateway),
 		"Las anteriores siguen valiendo 24 h; con `revocar: true` dejan de valer en el acto y también se cambia el certificado de cliente. Si Iris se vio "+
-			"comprometido, rotar no basta: `iris-voz desenlazar` en el servidor y enlazar de nuevo. Emite `voz.motor_token_rotado`."),
+			"comprometido, rotar no basta: `iris-voz unpair` en el servidor y enlazar de nuevo. Emite `voz.motor_token_rotado`."),
 		func(ctx context.Context, in *idCuerpoHTTP[cuerpoRotarMotor]) (*cuerpo[MotorIA], error) {
 			return responder(k.Rotar.Ejecutar(ctx, EntradaRotarMotor{ID: in.ID, Revocar: in.Body.Revocar}))
 		})

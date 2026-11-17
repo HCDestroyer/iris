@@ -118,6 +118,32 @@ func TestServidorIAModoAutonomoDePuntaAPunta(t *testing.T) {
 		t.Fatalf("plazas sin soltar: %d", n)
 	}
 
+	// N4, el modelo hostil: pide una herramienta que no existe y una de dinero que la empresa no
+	// encendió (y sin identidad verificada). Ninguna se ejecuta: «herramienta_no_permitida», sin efecto.
+	numH := numeroCliente()
+	xi.clienteDeNumero(numH)
+	convH := xi.llega(numH, "wamid.siah", "Hola, quiero pagar después", "Planes y precios")
+	modelo.fijar(llama("borrar_cliente", `{"id": 1}`), llama("pedir_promesa", `{"servicio_id": 10, "fecha": "2026-11-20"}`),
+		llama("consultar_saldo", `{}`), dice("No puedo hacer eso por aquí."))
+	xi.correr(convH)
+	// Las dos que no se ofrecieron ni se miran; el saldo sí se ofrece, pero sin identidad verificada se rechaza.
+	if a := strings.Join(xi.acciones(convH), ","); a != "herramienta_no_permitida:rechazada,herramienta_no_permitida:rechazada,dar_saldo:rechazada,responder:ok" {
+		t.Fatalf("herramientas del modelo hostil: %s", a)
+	}
+	if n := xi.contar(`SELECT count(*) FROM mensajeria.conversacion_vinculos WHERE conversacion_id = $1`, convH); n != 0 {
+		t.Fatalf("una herramienta no permitida no debía tener efecto: %d vínculos", n)
+	}
+	if n := xi.contar(`SELECT count(*) FROM auditoria.acciones WHERE actor_tipo = 'asistente_ia' AND entidad_id = $1 AND resultado = 'ok'
+		AND accion NOT IN ('conversaciones.responder', 'mensajeria.asistente_turno', 'mensajeria.asistente_accion')`, convH); n != 0 {
+		t.Fatalf("el asistente ejecutó algo que no debía: %d acciones", n)
+	}
+	for _, m := range xi.delAsistente(convH) {
+		if strings.Contains(textoDe(m), "Q ") {
+			t.Fatalf("salió un monto sin verificar: %q", textoDe(m))
+		}
+	}
+	pedidosAntes := len(modelo.pedidos())
+
 	// Turno 2: el servidor se cae. La conversación no se queda colgada: pasa a una persona con
 	// «sin_respuesta» y al cliente solo le llega el aviso de que lo atiende una persona.
 	x.banco.Apagar()
@@ -156,7 +182,7 @@ func TestServidorIAModoAutonomoDePuntaAPunta(t *testing.T) {
 	if c2["asistente"] != nil || c2["cola"] == nil || c2["asignado"] != nil || c2["estado"] != "abierta" || len(xi.delAsistente(conv2)) != 0 {
 		t.Fatalf("con el servidor caído la conversación nueva sigue en la cola: asistente %v, cola %v, estado %v", c2["asistente"], c2["cola"], c2["estado"])
 	}
-	if len(modelo.pedidos()) != 2 {
+	if len(modelo.pedidos()) != pedidosAntes {
 		t.Fatalf("con el servidor caído no debía llegar nada más al modelo: %d", len(modelo.pedidos()))
 	}
 }

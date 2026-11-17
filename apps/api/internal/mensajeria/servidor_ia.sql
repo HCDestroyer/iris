@@ -63,6 +63,13 @@ UPDATE mensajeria.voz_motores SET token = token_siguiente, token_siguiente = NUL
     version = version + 1, updated_at = now()
 WHERE id = @id AND token_siguiente IS NOT NULL RETURNING *;
 
+-- name: DescartarSiguienteMotorIA :execrows
+-- Lo «siguiente» de una entrega que nunca llegó al servidor (lo vigente contesta, lo siguiente no, y
+-- el apartado ya venció): no se queda guardado hasta la próxima rotación.
+UPDATE mensajeria.voz_motores SET token_siguiente = NULL, cert_cliente_siguiente = NULL, cert_cliente_clave_siguiente = NULL,
+    cert_cliente_vence_siguiente = NULL, rotacion_desde = NULL, version = version + 1, updated_at = now()
+WHERE id = @id AND token_siguiente IS NOT NULL AND (rotacion_desde IS NULL OR rotacion_desde <= @vencida::timestamptz);
+
 -- name: ActivarMotorIA :one
 UPDATE mensajeria.voz_motores SET activado_en = now(), estado = @estado, detalle = NULL, fallos_seguidos = 0,
     version = version + 1, updated_at = now()
@@ -188,9 +195,20 @@ WHERE a.proveedor = 'servidor_ia' AND a.activo ORDER BY 1;
 -- Tablero: muestras, agregados y episodios de aviso (contratos/voz.md §4.12) ----------------------
 
 -- name: InsertarMuestraIA :exec
-INSERT INTO mensajeria.servidor_ia_muestras (motor_id, tomada_en, ok, uso_pct, vram_pct, temperatura_c, disco_pct, en_curso, datos)
-VALUES (@motor_id, @tomada_en, @ok, sqlc.narg(uso_pct), sqlc.narg(vram_pct), sqlc.narg(temperatura_c), sqlc.narg(disco_pct), sqlc.narg(en_curso), sqlc.narg(datos))
+INSERT INTO mensajeria.servidor_ia_muestras (motor_id, tomada_en, ok, uso_pct, vram_pct, temperatura_c, disco_pct, en_curso, datos, estado)
+VALUES (@motor_id, @tomada_en, @ok, sqlc.narg(uso_pct), sqlc.narg(vram_pct), sqlc.narg(temperatura_c), sqlc.narg(disco_pct), sqlc.narg(en_curso), sqlc.narg(datos),
+    sqlc.narg(estado))
 ON CONFLICT DO NOTHING;
+
+-- name: QuitarDatosAnterioresIA :exec
+-- La muestra completa (datos) solo se conserva en la última lectura buena: las anteriores se quedan
+-- con sus escalares (un servidor hostil no llena la base con JSON cada 10 s).
+UPDATE mensajeria.servidor_ia_muestras SET datos = NULL WHERE motor_id = @motor_id AND datos IS NOT NULL AND tomada_en < @tomada_en;
+
+-- name: UltimosEstadosIA :one
+-- De las últimas @n muestras, cuántas hay y cuántas quedaron en ese estado.
+SELECT count(*)::bigint AS total, (count(*) FILTER (WHERE u.estado = @estado::text))::bigint AS en_estado
+FROM (SELECT mu.estado FROM mensajeria.servidor_ia_muestras mu WHERE mu.motor_id = @motor_id ORDER BY mu.tomada_en DESC LIMIT @n) u;
 
 -- name: UltimaMuestraIA :one
 -- La última, buena o fallida.
@@ -213,7 +231,10 @@ SELECT hora, uso_pct, vram_pct FROM mensajeria.servidor_ia_muestras_hora WHERE m
 -- name: VentanaMuestrasIA :one
 -- Lo mínimo de la ventana (un umbral «durante N minutos» exige que toda la ventana lo supere).
 SELECT count(*)::bigint AS total, count(vram_pct)::bigint AS con_vram, coalesce(min(vram_pct), 0)::float8 AS vram_min,
-    count(temperatura_c)::bigint AS con_temperatura, coalesce(min(temperatura_c), 0)::float8 AS temperatura_min
+    coalesce(max(vram_pct), 0)::float8 AS vram_max,
+    count(temperatura_c)::bigint AS con_temperatura, coalesce(min(temperatura_c), 0)::float8 AS temperatura_min,
+    coalesce(max(temperatura_c), 0)::float8 AS temperatura_max,
+    count(disco_pct)::bigint AS con_disco, coalesce(min(disco_pct), 0)::float8 AS disco_min, coalesce(max(disco_pct), 0)::float8 AS disco_max
 FROM mensajeria.servidor_ia_muestras WHERE motor_id = @motor_id AND tomada_en > @desde AND ok;
 
 -- name: AgregarMuestrasHoraIA :exec

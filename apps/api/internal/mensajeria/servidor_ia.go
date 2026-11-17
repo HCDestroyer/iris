@@ -376,11 +376,13 @@ type CasosServidorIA struct {
 	leer            *auditoria.Caso[int64, conexionMotor]
 	fijarSiguiente  *auditoria.Caso[entradaFijarSiguiente, struct{}]
 	conectarFallido *auditoria.Caso[int64, struct{}]
-	latido          *auditoria.Caso[resultadoLatido, mensajeriabd.MensajeriaVozMotor]
-	reservar        *auditoria.Caso[entradaPlaza, plazaIA]
-	terminar        *auditoria.Caso[usoPeticionIA, struct{}]
-	mantener        *auditoria.Caso[struct{}, struct{}]
-	motorActual     *auditoria.Caso[struct{}, *mensajeriabd.MensajeriaVozMotor]
+	// descartarSiguiente: el latido borra lo «siguiente» de una entrega que nunca llegó.
+	descartarSiguiente *auditoria.Caso[int64, int64]
+	latido             *auditoria.Caso[resultadoLatido, mensajeriabd.MensajeriaVozMotor]
+	reservar           *auditoria.Caso[entradaPlaza, plazaIA]
+	terminar           *auditoria.Caso[usoPeticionIA, struct{}]
+	mantener           *auditoria.Caso[struct{}, struct{}]
+	motorActual        *auditoria.Caso[struct{}, *mensajeriabd.MensajeriaVozMotor]
 }
 
 // ListaMotoresIA es GET /voz/motores.
@@ -397,7 +399,7 @@ type EntradaEnlazarMotor struct {
 // EnlaceMotor lleva el código de un solo uso (se muestra una vez).
 type EnlaceMotor struct {
 	Motor   MotorIA   `json:"motor"`
-	Codigo  string    `json:"codigo" doc:"Código de un solo uso (160 bits): se escribe en el servidor con «iris-voz enlazar». No se vuelve a mostrar"`
+	Codigo  string    `json:"codigo" doc:"Código de un solo uso (160 bits): se escribe en el servidor con «iris-voz pair». No se vuelve a mostrar"`
 	VenceEn time.Time `json:"venceEn"`
 }
 
@@ -576,6 +578,15 @@ func nuevosCasosServidorIA(m *Modulo) *CasosServidorIA {
 				return struct{}{}, rotacionEnCurso()
 			}
 			return struct{}{}, err
+		},
+	})
+	k.descartarSiguiente = auditoria.Nuevo(auditoria.Caso[int64, int64]{
+		Accion: "servidor_ia.rotacion_descartada", Acceso: auditoria.Autenticado, SinEmpresa: true,
+		AuditarExito: func(n int64) bool { return n > 0 },
+		Logica: func(ctx context.Context, t *auditoria.Tx, id int64) (int64, error) {
+			t.FijarEmpresa(0)
+			t.FijarEntidad("voz_motor", id)
+			return mensajeriabd.New(t).DescartarSiguienteMotorIA(ctx, mensajeriabd.DescartarSiguienteMotorIAParams{ID: id, Vencida: m.ahora().Add(-plazoRotacionIA)})
 		},
 	})
 	k.conectarFallido = auditoria.Nuevo(auditoria.Caso[int64, struct{}]{
