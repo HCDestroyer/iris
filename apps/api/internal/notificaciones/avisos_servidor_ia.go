@@ -16,8 +16,8 @@ import (
 )
 
 // Avisos del servidor de IA de la instalación (contratos/voz.md §4.12): campana y correo a quienes
-// tienen servidor_ia.ver y todas las empresas. Uno por episodio (la clave es la del evento que lo
-// abre). Son de la instalación: se ven con cualquier empresa activa.
+// tienen servidor_ia.ver y todas las empresas. Como mucho uno por tipo, servidor y hora. Son de la
+// instalación: se ven con cualquier empresa activa.
 
 // EnlaceServidorIA es la pantalla del servidor de IA en el panel.
 const EnlaceServidorIA = "/administracion/servidor-ia"
@@ -88,8 +88,13 @@ func (m *Modulo) nuevoAvisarServidorIA() *auditoria.Caso[EntradaAvisarServidorIA
 			if err != nil {
 				return r, err
 			}
-			// Un aviso por episodio: la clave es la del evento que lo abrió (un evento repetido no duplica).
-			clave := fmt.Sprintf("%s:%d:%s", tipo, in.MotorID, in.EventoID)
+			// Enfriamiento: como mucho un aviso (y un correo) por tipo, servidor y hora, por más
+			// episodios que se abran (un servidor inestable u hostil no inunda la campana ni el
+			// correo). La clave lleva la hora, no el evento; el episodio sigue en el tablero.
+			clave := fmt.Sprintf("%s:%d:%s", tipo, in.MotorID, m.ahora().Format("2006-01-02T15"))
+			if tipo == TipoAvisoServidorIAUmbral {
+				clave = fmt.Sprintf("%s:%d:%s:%s", tipo, in.MotorID, in.Tipo, m.ahora().Format("2006-01-02T15"))
+			}
 			titulo := TituloServidorIA(tipo, in.Tipo)
 			datosMapa := map[string]any{"motor_id": in.MotorID}
 			if tipo == TipoAvisoServidorIAUmbral {

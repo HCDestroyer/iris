@@ -2,7 +2,7 @@
 # comparte red, volúmenes ni secretos con el de Iris. Sin Postgres, sin Redis, sin panel.
 #
 # Este archivo es la base (sin GPU). La instalación normal le suma docker-compose.gpu.yml (runtime de
-# NVIDIA y el medidor); `--sin-gpu` usa solo este, para pruebas.
+# NVIDIA y el medidor); `--no-gpu` usa solo este, para pruebas.
 #
 # Único puerto publicado: el de control (la puerta: TLS 1.3, mTLS con huellas fijadas y firma en
 # toda ruta). Ollama solo escucha en la red interna, que no tiene salida.
@@ -21,7 +21,7 @@ services:
   puerta:
     <<: *endurecido
     image: ${IRIS_VOZ_REGISTRY:-ghcr.io/hcdestroyer}/iris-voz:${IRIS_VOZ_VERSION:?IRIS_VOZ_VERSION is required}
-    command: [servir]
+    command: [serve]
     user: "65532:65532"
     pids_limit: 256
     mem_limit: 512m

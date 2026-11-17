@@ -1,4 +1,4 @@
-# Descarga de modelos (`iris-voz modelo descargar <name>`): la única salida a red del paquete. Un
+# Descarga de modelos (`iris-voz model pull <name>`): la única salida a red del paquete. Un
 # contenedor de un solo uso baja el modelo al volumen y termina; no tiene ruta a internet salvo por
 # el proxy, que solo deja pasar hacia el registro de modelos (puerto 443).
 services:
@@ -11,7 +11,7 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     image: ${IRIS_VOZ_REGISTRY:-ghcr.io/hcdestroyer}/iris-voz:${IRIS_VOZ_VERSION:?IRIS_VOZ_VERSION is required}
-    command: [proxy-descarga]
+    command: [pull-proxy]
     user: "65532:65532"
     pids_limit: 128
     mem_limit: 256m

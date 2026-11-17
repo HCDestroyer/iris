@@ -393,7 +393,7 @@ func TestRotacion(t *testing.T) {
 	esperar(t, "422 credencial_invalida", c3.Credencial(ctx, voz.PeticionCredencial{Token: []byte("corto")}))
 	esperar(t, "422 credencial_invalida", c3.Credencial(ctx, voz.PeticionCredencial{Token: t3, ConvivenciaSeg: 90000}))
 
-	// `iris-voz desenlazar`: nada vale hasta un enlace nuevo.
+	// `iris-voz unpair`: nada vale hasta un enlace nuevo.
 	if err := b.Almacen.Desenlazar(); err != nil {
 		t.Fatal(err)
 	}

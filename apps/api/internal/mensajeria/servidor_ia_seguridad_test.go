@@ -258,6 +258,42 @@ func TestServidorIARotacionAMediasYConcurrente(t *testing.T) {
 		t.Fatalf("tras una entrega que no llegó: %v", err)
 	}
 
+	// N3: lo «siguiente» de una entrega que nunca llegó no se queda guardado. Mientras está en vuelo
+	// no se toca; vencido el apartado, y con lo vigente contestando, el latido lo borra.
+	if err := x.m.SiguienteSinEntregar(x.ctx, x.bd, x.motor); err != nil {
+		t.Fatal(err)
+	}
+	vigente := string(x.columna("token"))
+	x.latir()
+	if !siguiente() {
+		t.Fatal("en vuelo no debía borrarse")
+	}
+	pasar()
+	x.latir()
+	if siguiente() || x.columna("rotacion_desde") != nil || string(x.columna("token")) != vigente {
+		t.Fatal("el latido debía borrar lo siguiente de una entrega que no llegó, sin tocar lo vigente")
+	}
+	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'servidor_ia.rotacion_descartada' AND entidad_id = $1`, fmt.Sprint(x.motor)); n != 1 {
+		t.Fatalf("auditoría del descarte: %d", n)
+	}
+	if err := x.generar(); err != nil {
+		t.Fatalf("tras descartar, el canal sigue con lo vigente: %v", err)
+	}
+	// Y al revés: una rotación con convivencia que sí llegó (lo vigente todavía contesta) no se
+	// descarta: el latido la termina antes de que lo anterior deje de valer.
+	if err := x.m.RotacionAMedias(x.ctx, x.bd, x.motor, false); err != nil {
+		t.Fatal(err)
+	}
+	enServidor, _ := x.banco.Almacen.Leer()
+	pasar()
+	x.latir()
+	if siguiente() || string(x.columna("token")) == vigente {
+		t.Fatal("el latido debía promover la rotación que sí llegó al servidor")
+	}
+	if c, err := x.m.TokenDeMotor(x.ctx, x.bd, x.motor); err != nil || string(c) != string(enServidor.Token) {
+		t.Fatalf("Iris debía quedar con el token que tiene el servidor: %v", err)
+	}
+
 	// B2: varias a la vez. Ninguna pisa a otra: las que no ganan reciben 409 y el canal sigue vivo.
 	pasar()
 	var wg sync.WaitGroup
@@ -460,5 +496,47 @@ func TestServidorIAActivarLigaLaHuella(t *testing.T) {
 	x.exigir(activar(b.Huella), http.StatusOK, "activado", "true", "huellaTls", b.Huella)
 	if len(b.Rutas()) == enB || len(a.Rutas()) != enA {
 		t.Fatal("la activación debía ir al servidor B y solo a él")
+	}
+}
+
+// Dos «Activar» a la vez: el servidor se activa una sola vez y el canal queda vivo.
+func TestServidorIAActivarALaVez(t *testing.T) {
+	x := nuevoBancoIA(t, vozprueba.Opciones{})
+	x.enlazar()
+	var wg sync.WaitGroup
+	estados := make([]int, 4)
+	for i := range estados {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			estados[i] = x.api(x.admin, http.MethodPost, x.ruta("/activar"), map[string]any{"huellaTls": x.banco.Huella}).status
+		}()
+	}
+	wg.Wait()
+	slices.Sort(estados)
+	t.Logf("activar a la vez: %v", estados)
+	if estados[0] != http.StatusOK {
+		t.Fatalf("ninguna activó: %v", estados)
+	}
+	for _, e := range estados {
+		// 200: la que activó, o una que llegó cuando ya estaba activo. 409: otra rotación en curso.
+		if e != http.StatusOK && e != http.StatusConflict {
+			t.Fatalf("activar a la vez: %v", estados)
+		}
+	}
+	if x.eventosIA("voz.motor_activado") != 1 || x.eventosIA("voz.motor_token_rotado") != 1 {
+		t.Fatalf("debía activarse una sola vez: %d activaciones, %d rotaciones", x.eventosIA("voz.motor_activado"), x.eventosIA("voz.motor_token_rotado"))
+	}
+	*x.reloj = x.reloj.Add(mensajeria.PlazoRotacionIA + time.Second)
+	x.latir()
+	if x.estado() != "listo" || x.columna("token_siguiente") != nil {
+		t.Fatalf("tras activar a la vez: %s", x.estado())
+	}
+	if err := x.generar(); err != nil {
+		t.Fatalf("tras activar a la vez el canal debía vivir: %v", err)
+	}
+	en, _ := x.banco.Almacen.Leer()
+	if c, err := x.m.TokenDeMotor(x.ctx, x.bd, x.motor); err != nil || string(c) != string(en.Token) || en.TokenAnterior != nil {
+		t.Fatalf("Iris y el servidor debían quedar con el mismo token, sin convivencia: %v", err)
 	}
 }

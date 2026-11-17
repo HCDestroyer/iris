@@ -1889,6 +1889,7 @@ type MensajeriaServidorIaMuestra struct {
 	DiscoPct     *float32
 	EnCurso      *int32
 	Datos        []byte
+	Estado       *string
 }
 
 type MensajeriaServidorIaMuestrasHora struct {

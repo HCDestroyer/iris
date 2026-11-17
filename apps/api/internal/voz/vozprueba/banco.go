@@ -134,7 +134,7 @@ func Certificado(t testing.TB) tls.Certificate {
 }
 
 // AbrirVentana abre la ventana de enlace en el servidor y devuelve el código (lo que hace
-// `iris-voz enlazar` con el código que el admin pega).
+// `iris-voz pair` con el código que el admin pega).
 func (b *Banco) AbrirVentana() string {
 	b.T.Helper()
 	codigo, err := voz.NuevoCodigo()

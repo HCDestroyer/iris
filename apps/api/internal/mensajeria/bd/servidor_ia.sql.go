@@ -587,6 +587,27 @@ func (q *Queries) DesactivarMotorIA(ctx context.Context, arg DesactivarMotorIAPa
 	return i, err
 }
 
+const descartarSiguienteMotorIA = `-- name: DescartarSiguienteMotorIA :execrows
+UPDATE mensajeria.voz_motores SET token_siguiente = NULL, cert_cliente_siguiente = NULL, cert_cliente_clave_siguiente = NULL,
+    cert_cliente_vence_siguiente = NULL, rotacion_desde = NULL, version = version + 1, updated_at = now()
+WHERE id = $1 AND token_siguiente IS NOT NULL AND (rotacion_desde IS NULL OR rotacion_desde <= $2::timestamptz)
+`
+
+type DescartarSiguienteMotorIAParams struct {
+	ID      int64
+	Vencida time.Time
+}
+
+// Lo «siguiente» de una entrega que nunca llegó al servidor (lo vigente contesta, lo siguiente no, y
+// el apartado ya venció): no se queda guardado hasta la próxima rotación.
+func (q *Queries) DescartarSiguienteMotorIA(ctx context.Context, arg DescartarSiguienteMotorIAParams) (int64, error) {
+	result, err := q.db.Exec(ctx, descartarSiguienteMotorIA, arg.ID, arg.Vencida)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const empresasActivasIA = `-- name: EmpresasActivasIA :many
 SELECT coalesce(a.empresa_id, 0)::bigint AS empresa_id, coalesce(e.nombre, '')::text AS nombre
 FROM mensajeria.asistente_ajustes a LEFT JOIN nucleo.empresas e ON e.id = a.empresa_id
@@ -1066,8 +1087,9 @@ func (q *Queries) InsertarMotorIA(ctx context.Context, arg InsertarMotorIAParams
 
 const insertarMuestraIA = `-- name: InsertarMuestraIA :exec
 
-INSERT INTO mensajeria.servidor_ia_muestras (motor_id, tomada_en, ok, uso_pct, vram_pct, temperatura_c, disco_pct, en_curso, datos)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO mensajeria.servidor_ia_muestras (motor_id, tomada_en, ok, uso_pct, vram_pct, temperatura_c, disco_pct, en_curso, datos, estado)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+    $10)
 ON CONFLICT DO NOTHING
 `
 
@@ -1081,6 +1103,7 @@ type InsertarMuestraIAParams struct {
 	DiscoPct     *float32
 	EnCurso      *int32
 	Datos        []byte
+	Estado       *string
 }
 
 // Tablero: muestras, agregados y episodios de aviso (contratos/voz.md §4.12) ----------------------
@@ -1095,6 +1118,7 @@ func (q *Queries) InsertarMuestraIA(ctx context.Context, arg InsertarMuestraIAPa
 		arg.DiscoPct,
 		arg.EnCurso,
 		arg.Datos,
+		arg.Estado,
 	)
 	return err
 }
@@ -1548,6 +1572,22 @@ func (q *Queries) PromoverTokenMotorIA(ctx context.Context, id int64) (Mensajeri
 	return i, err
 }
 
+const quitarDatosAnterioresIA = `-- name: QuitarDatosAnterioresIA :exec
+UPDATE mensajeria.servidor_ia_muestras SET datos = NULL WHERE motor_id = $1 AND datos IS NOT NULL AND tomada_en < $2
+`
+
+type QuitarDatosAnterioresIAParams struct {
+	MotorID  int64
+	TomadaEn time.Time
+}
+
+// La muestra completa (datos) solo se conserva en la última lectura buena: las anteriores se quedan
+// con sus escalares (un servidor hostil no llena la base con JSON cada 10 s).
+func (q *Queries) QuitarDatosAnterioresIA(ctx context.Context, arg QuitarDatosAnterioresIAParams) error {
+	_, err := q.db.Exec(ctx, quitarDatosAnterioresIA, arg.MotorID, arg.TomadaEn)
+	return err
+}
+
 const rechazosIADesde = `-- name: RechazosIADesde :one
 SELECT coalesce(sum(rechazos), 0)::bigint FROM mensajeria.servidor_ia_uso WHERE motor_id = $1 AND hora >= $2
 `
@@ -1746,7 +1786,7 @@ func (q *Queries) SumarUsoIA(ctx context.Context, arg SumarUsoIAParams) error {
 }
 
 const ultimaMuestraBuenaIA = `-- name: UltimaMuestraBuenaIA :one
-SELECT motor_id, tomada_en, ok, uso_pct, vram_pct, temperatura_c, disco_pct, en_curso, datos FROM mensajeria.servidor_ia_muestras WHERE motor_id = $1 AND ok AND datos IS NOT NULL ORDER BY tomada_en DESC LIMIT 1
+SELECT motor_id, tomada_en, ok, uso_pct, vram_pct, temperatura_c, disco_pct, en_curso, datos, estado FROM mensajeria.servidor_ia_muestras WHERE motor_id = $1 AND ok AND datos IS NOT NULL ORDER BY tomada_en DESC LIMIT 1
 `
 
 func (q *Queries) UltimaMuestraBuenaIA(ctx context.Context, motorID int64) (MensajeriaServidorIaMuestra, error) {
@@ -1762,12 +1802,13 @@ func (q *Queries) UltimaMuestraBuenaIA(ctx context.Context, motorID int64) (Mens
 		&i.DiscoPct,
 		&i.EnCurso,
 		&i.Datos,
+		&i.Estado,
 	)
 	return i, err
 }
 
 const ultimaMuestraIA = `-- name: UltimaMuestraIA :one
-SELECT motor_id, tomada_en, ok, uso_pct, vram_pct, temperatura_c, disco_pct, en_curso, datos FROM mensajeria.servidor_ia_muestras WHERE motor_id = $1 ORDER BY tomada_en DESC LIMIT 1
+SELECT motor_id, tomada_en, ok, uso_pct, vram_pct, temperatura_c, disco_pct, en_curso, datos, estado FROM mensajeria.servidor_ia_muestras WHERE motor_id = $1 ORDER BY tomada_en DESC LIMIT 1
 `
 
 // La última, buena o fallida.
@@ -1784,7 +1825,32 @@ func (q *Queries) UltimaMuestraIA(ctx context.Context, motorID int64) (Mensajeri
 		&i.DiscoPct,
 		&i.EnCurso,
 		&i.Datos,
+		&i.Estado,
 	)
+	return i, err
+}
+
+const ultimosEstadosIA = `-- name: UltimosEstadosIA :one
+SELECT count(*)::bigint AS total, (count(*) FILTER (WHERE u.estado = $1::text))::bigint AS en_estado
+FROM (SELECT mu.estado FROM mensajeria.servidor_ia_muestras mu WHERE mu.motor_id = $2 ORDER BY mu.tomada_en DESC LIMIT $3) u
+`
+
+type UltimosEstadosIAParams struct {
+	Estado  string
+	MotorID int64
+	N       int32
+}
+
+type UltimosEstadosIARow struct {
+	Total    int64
+	EnEstado int64
+}
+
+// De las últimas @n muestras, cuántas hay y cuántas quedaron en ese estado.
+func (q *Queries) UltimosEstadosIA(ctx context.Context, arg UltimosEstadosIAParams) (UltimosEstadosIARow, error) {
+	row := q.db.QueryRow(ctx, ultimosEstadosIA, arg.Estado, arg.MotorID, arg.N)
+	var i UltimosEstadosIARow
+	err := row.Scan(&i.Total, &i.EnEstado)
 	return i, err
 }
 
@@ -1934,7 +2000,10 @@ func (q *Queries) UsoIAFilas(ctx context.Context, arg UsoIAFilasParams) ([]UsoIA
 
 const ventanaMuestrasIA = `-- name: VentanaMuestrasIA :one
 SELECT count(*)::bigint AS total, count(vram_pct)::bigint AS con_vram, coalesce(min(vram_pct), 0)::float8 AS vram_min,
-    count(temperatura_c)::bigint AS con_temperatura, coalesce(min(temperatura_c), 0)::float8 AS temperatura_min
+    coalesce(max(vram_pct), 0)::float8 AS vram_max,
+    count(temperatura_c)::bigint AS con_temperatura, coalesce(min(temperatura_c), 0)::float8 AS temperatura_min,
+    coalesce(max(temperatura_c), 0)::float8 AS temperatura_max,
+    count(disco_pct)::bigint AS con_disco, coalesce(min(disco_pct), 0)::float8 AS disco_min, coalesce(max(disco_pct), 0)::float8 AS disco_max
 FROM mensajeria.servidor_ia_muestras WHERE motor_id = $1 AND tomada_en > $2 AND ok
 `
 
@@ -1947,8 +2016,13 @@ type VentanaMuestrasIARow struct {
 	Total          int64
 	ConVram        int64
 	VramMin        float64
+	VramMax        float64
 	ConTemperatura int64
 	TemperaturaMin float64
+	TemperaturaMax float64
+	ConDisco       int64
+	DiscoMin       float64
+	DiscoMax       float64
 }
 
 // Lo mínimo de la ventana (un umbral «durante N minutos» exige que toda la ventana lo supere).
@@ -1959,8 +2033,13 @@ func (q *Queries) VentanaMuestrasIA(ctx context.Context, arg VentanaMuestrasIAPa
 		&i.Total,
 		&i.ConVram,
 		&i.VramMin,
+		&i.VramMax,
 		&i.ConTemperatura,
 		&i.TemperaturaMin,
+		&i.TemperaturaMax,
+		&i.ConDisco,
+		&i.DiscoMin,
+		&i.DiscoMax,
 	)
 	return i, err
 }
