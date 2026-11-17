@@ -44,6 +44,12 @@ type casosVoz struct {
 	FijarAjustes      *auditoria.Caso[EntradaAjustesVoz, AjustesVoz]
 	resultadoAjustes  *auditoria.Caso[resultadoAjustesMeta, bool]
 	reintentarAjustes *auditoria.Caso[EntradaIDConv, LlamadasCanal]
+	VerPermiso        *auditoria.Caso[EntradaConvVoz, PermisoLlamada]
+	SolicitarPermiso  *auditoria.Caso[EntradaConvVoz, PermisoLlamada]
+	previoLlamar      *auditoria.Caso[EntradaLlamar, previoLlamar]
+	llamar            *auditoria.Caso[EntradaLlamar, Llamada]
+	resultadoLlamar   *auditoria.Caso[resultadoLlamar, bool]
+	RespuestaSDP      *auditoria.Caso[EntradaLlamada, RespuestaSDP]
 	mantener          *auditoria.Caso[uuid.UUID, mantenimientoLlamada]
 	vencer            *auditoria.Caso[struct{}, int]
 }
@@ -55,6 +61,8 @@ func nuevosCasosVoz(m *Modulo) casosVoz {
 		Recibir: nuevoRecibirLlamadas(m), VerRecibir: nuevoVerRecibir(m), Devoluciones: nuevoListarDevoluciones(m), Descartar: nuevoDescartarDevolucion(m),
 		VerCanal: nuevoVerLlamadasCanal(m), ConfigCanal: nuevoConfigurarLlamadasCanal(m), comprobar: nuevoGuardarComprobacion(m),
 		prepararCanal: nuevoPrepararComprobacion(m), VerAjustes: nuevoVerAjustesVoz(m), FijarAjustes: nuevoFijarAjustesVoz(m),
+		VerPermiso: nuevoVerPermisoLlamada(m), SolicitarPermiso: nuevoSolicitarPermisoLlamada(m), previoLlamar: nuevoPrevioLlamar(m),
+		llamar: nuevoLlamar(m), resultadoLlamar: nuevoResultadoLlamar(m), RespuestaSDP: nuevoRespuestaSDP(m),
 		mantener: nuevoMantenerLlamada(m), vencer: nuevoVencerDevoluciones(m), resultadoAjustes: nuevoResultadoAjustesMeta(m),
 		reintentarAjustes: nuevoReintentarAjustesMeta(m)}
 }
@@ -543,7 +551,8 @@ func nuevoColgarLlamada(m *Modulo) *auditoria.Caso[EntradaLlamada, Llamada] {
 			if llamadaFinal(l.Estado) {
 				return Llamada{}, llamadaTerminada()
 			}
-			if l.Estado != LlamadaEnCurso {
+			// Una saliente se puede colgar mientras marca (se cancela: no cuenta como sin contestar).
+			if l.Estado != LlamadaEnCurso && !(l.Direccion == "saliente" && l.Estado == LlamadaMarcando) {
 				return Llamada{}, nucleo.Conflicto("llamada_sin_contestar", "La llamada todavía no está en curso: usa rechazar o soltar")
 			}
 			c, err := q.ConversacionClienteParaActualizar(ctx, *l.ConversacionID)

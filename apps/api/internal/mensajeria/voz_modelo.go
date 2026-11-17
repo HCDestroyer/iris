@@ -193,6 +193,10 @@ type GraphLlamadas interface {
 	Ajustes(ctx context.Context, canal CanalGraph) (AjustesMetaLlamadas, error)
 	// FijarAjustes escribe icono, devolución y si están habilitadas.
 	FijarAjustes(ctx context.Context, canal CanalGraph, a AjustesMetaLlamadas) error
+	// Llamar inicia una saliente (action connect) con la oferta SDP del navegador y devuelve el call_id.
+	Llamar(ctx context.Context, canal CanalGraph, numero, sdpOferta string) (string, error)
+	// Permiso lee de Meta el permiso de llamada de un número (call_permissions).
+	Permiso(ctx context.Context, canal CanalGraph, numero string) (PermisoMeta, error)
 }
 
 // ErrMetaLlamada: Meta rechazó la acción o no respondió. Nunca lleva el mensaje crudo de Meta.

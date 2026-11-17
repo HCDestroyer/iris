@@ -598,6 +598,17 @@ func nuevoPrepararMensaje(m *Modulo) *auditoria.Caso[uuid.UUID, mensajePreparado
 				_ = json.Unmarshal(f.Variables, &vars)
 				s.Texto, s.Plantilla, s.Variables = nil, &p, vars
 			}
+			if f.Automatico != nil && *f.Automatico == AutomaticoPermisoLlamada {
+				// La solicitud de permiso de llamada: interactiva dentro de la ventana; fuera, la plantilla del número.
+				s.PermisoLlamada = &PermisoLlamadaSaliente{}
+				if !ventanaDe(c.UltimoEntranteEn, ahora).Abierta {
+					aj, err := q.VozAjustesCanal(ctx, c.CanalID)
+					if err != nil || aj.PlantillaPermiso == nil {
+						return mensajePreparado{Accion: accionNada}, m.fallarMensaje(ctx, t, f, c, MotivoFueraDeVentana, "sin plantilla de permiso de llamada")
+					}
+					s.PermisoLlamada.Plantilla, s.PermisoLlamada.Idioma = *aj.PlantillaPermiso, aj.PlantillaPermisoIdioma
+				}
+			}
 			if id := uuidDe(f.AdjuntoID); id != nil {
 				datos, adj, err := adjuntos.Contenido(ctx, m.cfg.Almacen, t, *id, EntidadAdjuntosConversacion, strconv.FormatInt(c.ID, 10), MaxAdjuntoSaliente)
 				if err != nil {

@@ -37,6 +37,14 @@ type graphFalso struct {
 	// alAccionar corre mientras «Meta» atiende la acción (fuera del candado): simula lo que pasa en el
 	// panel entre la intención y el resultado.
 	alAccionar func(accion string)
+	// Salientes (E1b): las ofertas que llegaron con connect, el call_id que se devolvió y lo que dice
+	// «Meta» del permiso de llamada.
+	salientes       int
+	proximaSaliente string
+	ultimaSaliente  string
+	ofertas         []string
+	permiso         mensajeria.PermisoMeta
+	permisosLeidos  int
 }
 
 func (g *graphFalso) Accion(_ context.Context, canal mensajeria.CanalGraph, callID, accion, sdp string, _ bool) error {
@@ -136,7 +144,8 @@ type bandejaVoz struct {
 // nuevaBandejaVoz: la bandeja con el doble de la Graph API y las llamadas encendidas en el número.
 func nuevaBandejaVoz(t *testing.T) *bandejaVoz {
 	t.Helper()
-	g := &graphFalso{fallar: map[string]error{}, ajustes: mensajeria.AjustesMetaLlamadas{Habilitadas: true, IconoVisible: true, LimiteMensajeria: 10000}}
+	g := &graphFalso{fallar: map[string]error{}, ajustes: mensajeria.AjustesMetaLlamadas{Habilitadas: true, IconoVisible: true, LimiteMensajeria: 10000},
+		permiso: mensajeria.PermisoMeta{Estado: "sin_pedir"}}
 	x := &bandejaVoz{bandeja: nuevaBandeja(t, func(c *mensajeria.Config) { c.Llamadas = g }), g: g}
 	// Cada persona en su navegador (el mismo id que usa recibe()).
 	x.agente.navegador, x.supervisor.navegador = fmt.Sprintf("navegador-%d", x.agente.id), fmt.Sprintf("navegador-%d", x.supervisor.id)

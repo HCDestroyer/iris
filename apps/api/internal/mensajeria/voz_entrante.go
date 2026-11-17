@@ -131,7 +131,8 @@ func (m *Modulo) canalGraphDe(ctx context.Context, q *mensajeriabd.Queries, cana
 func ajustesVoz(ctx context.Context, q *mensajeriabd.Queries, empresa int64) (mensajeriabd.MensajeriaVozAjuste, error) {
 	f, err := q.VozAjustes(ctx, empresa)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return mensajeriabd.MensajeriaVozAjuste{Grabar: "nunca", DuracionMaxPersonaMin: 60, SegundosAsignado: 10, RetencionGrabacionesDias: 30}, nil
+		return mensajeriabd.MensajeriaVozAjuste{Grabar: "nunca", DuracionMaxPersonaMin: 60, SegundosAsignado: 10, RetencionGrabacionesDias: 30,
+			MaxSalientesPorDia: 50, TopeMinutosSalientesMes: 300}, nil
 	}
 	return f, err
 }
@@ -143,11 +144,13 @@ func (m *Modulo) recibirEventoLlamada(ctx context.Context, t *auditoria.Tx, cana
 	}
 	switch strings.ToLower(ev.Event) {
 	case "connect":
-		// Solo entrantes en E1: el connect de una saliente (la respuesta SDP del cliente) llega con E1b.
+		// El connect de una saliente trae la respuesta SDP del cliente.
 		if d := strings.ToUpper(ev.Direction); d != "" && d != "USER_INITIATED" {
-			return nil
+			return m.eventoSaliente(ctx, t, canal, ev, ahora)
 		}
 		return m.recibirLlamada(ctx, t, canal, ev, perfil, ahora)
+	case "status":
+		return m.eventoSaliente(ctx, t, canal, ev, ahora)
 	case "terminate":
 		return m.terminarPorMeta(ctx, t, canal, ev, ahora)
 	}
@@ -424,6 +427,10 @@ func (m *Modulo) cerrarLlamada(ctx context.Context, t *auditoria.Tx, l *mensajer
 		l.DuracionSeg = &d
 	}
 	l.AccionMeta, l.AccionMetaEstado, l.AccionMetaEn, l.AccionMetaPor = nil, nil, nil, nil
+	// Una saliente a la que Meta todavía no le dio call_id no tiene nada que terminar allá.
+	if strings.HasPrefix(l.IDExterno, "pendiente:") {
+		accionMeta = ""
+	}
 	if accionMeta != "" {
 		if ctx.Value(claveSinMeta{}) != nil {
 			// Desde el mantenimiento no se llama a Meta: queda anotada, ya vencida, para el job de escrituras.
@@ -454,17 +461,18 @@ func (m *Modulo) cerrarLlamada(ctx context.Context, t *auditoria.Tx, l *mensajer
 			"duracion_seg": l.DuracionSeg, "motivo_fin": motivo, "tramos": 1}))
 	case LlamadaPerdida:
 		var devolucion *int64
-		if c != nil {
+		// Solo una entrante perdida deja devolución pendiente y mensaje automático.
+		if c != nil && l.Direccion != "saliente" {
 			if devolucion, err = m.trasPerdida(ctx, t, l, c, ahora); err != nil {
 				return err
 			}
 		}
 		// usuarios: a quién se le avisa por push (quien tiene la conversación y quienes supervisan la cola).
 		usuarios := []int64{}
-		if c != nil && c.AsignadoA != nil {
+		if c != nil && c.AsignadoA != nil && l.Direccion != "saliente" {
 			usuarios = append(usuarios, *c.AsignadoA)
 		}
-		if l.ColaID != nil {
+		if l.ColaID != nil && l.Direccion != "saliente" {
 			sups, errS := q.SupervisoresDeColas(ctx, []int64{*l.ColaID})
 			if errS != nil {
 				return errS
@@ -487,6 +495,11 @@ func (m *Modulo) cerrarLlamada(ctx context.Context, t *auditoria.Tx, l *mensajer
 	}
 	if *l, err = guardarLlamada(ctx, q, *l); err != nil {
 		return err
+	}
+	if l.Direccion == "saliente" {
+		if err := m.trasSaliente(ctx, t, l, ahora); err != nil {
+			return err
+		}
 	}
 	if err := taparSDPEntrantes(ctx, q, *l); err != nil {
 		return err

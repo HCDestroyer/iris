@@ -1672,6 +1672,9 @@ type MensajeriaLlamada struct {
 	UpdatedAt          time.Time
 	AccionMetaPor      *int64
 	ReclamadaNavegador *string
+	SdpRespuesta       *string
+	DevolucionID       *int64
+	Navegador          *string
 }
 
 type MensajeriaLlamadaCandidato struct {
@@ -1715,6 +1718,21 @@ type MensajeriaLlamadaGrabacione struct {
 	MotivoBorrado *string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+}
+
+type MensajeriaLlamadaPermiso struct {
+	ID                       int64
+	EmpresaID                *int64
+	CanalID                  int64
+	Numero                   string
+	Estado                   string
+	VenceEn                  *time.Time
+	Solicitudes              []byte
+	SinContestar             int32
+	UltimaSolicitudMensajeID *uuid.UUID
+	SincronizadoEn           *time.Time
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
 }
 
 type MensajeriaLlamadaReceptore struct {
@@ -1870,30 +1888,34 @@ type MensajeriaVozAjuste struct {
 	Version                  int32
 	CreatedAt                time.Time
 	UpdatedAt                time.Time
+	MaxSalientesPorDia       int32
+	TopeMinutosSalientesMes  int32
 }
 
 type MensajeriaVozAjustesCanal struct {
-	CanalID             int64
-	EmpresaID           *int64
-	LlamadasActivas     bool
-	Requisitos          []byte
-	ColaID              *int64
-	HorarioID           *int64
-	SegundosSonando     int32
-	FueraDeHorario      string
-	IconoVisible        bool
-	Devolucion          bool
-	HorasMeta           []byte
-	MensajePerdida      bool
-	MensajePerdidaTexto string
-	SincronizadoEn      *time.Time
-	Version             int32
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
-	MetaEstado          string
-	MetaIntentos        int32
-	MetaProximoEn       *time.Time
-	MetaDetalle         *string
+	CanalID                int64
+	EmpresaID              *int64
+	LlamadasActivas        bool
+	Requisitos             []byte
+	ColaID                 *int64
+	HorarioID              *int64
+	SegundosSonando        int32
+	FueraDeHorario         string
+	IconoVisible           bool
+	Devolucion             bool
+	HorasMeta              []byte
+	MensajePerdida         bool
+	MensajePerdidaTexto    string
+	SincronizadoEn         *time.Time
+	Version                int32
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	MetaEstado             string
+	MetaIntentos           int32
+	MetaProximoEn          *time.Time
+	MetaDetalle            *string
+	PlantillaPermiso       *string
+	PlantillaPermisoIdioma string
 }
 
 type MensajeriaWebhooksSalida struct {

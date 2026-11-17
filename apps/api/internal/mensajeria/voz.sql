@@ -36,7 +36,7 @@ WHERE l.id = @id AND coalesce(l.empresa_id, 0) = @empresa::bigint AND l.estado =
   AND l.suena_hasta > @ahora::timestamptz AND l.accion_meta_estado IS DISTINCT FROM 'pendiente'
   AND EXISTS (SELECT 1 FROM mensajeria.llamada_candidatos c WHERE c.llamada_id = l.id AND c.usuario_id = @usuario_id AND c.retirado_en IS NULL)
   -- Quien ya tiene una llamada viva no reclama otra.
-  AND NOT EXISTS (SELECT 1 FROM mensajeria.llamadas o WHERE o.id <> l.id AND o.estado IN ('conectando', 'en_curso')
+  AND NOT EXISTS (SELECT 1 FROM mensajeria.llamadas o WHERE o.id <> l.id AND o.estado IN ('conectando', 'en_curso', 'marcando')
       AND (o.usuario_id = @usuario_id OR o.reclamada_por = @usuario_id))
 RETURNING *;
 
@@ -97,7 +97,7 @@ WHERE coalesce(d.empresa_id, 0) = @empresa::bigint AND d.estado = 'disponible'
        OR EXISTS (SELECT 1 FROM mensajeria.cola_miembros m WHERE m.cola_id = sqlc.narg('cola_id')::bigint AND m.usuario_id = d.usuario_id)
        OR EXISTS (SELECT 1 FROM mensajeria.cola_supervisores s WHERE s.cola_id = sqlc.narg('cola_id')::bigint AND s.usuario_id = d.usuario_id))
   -- Quien ya tiene una llamada viva no recibe otra.
-  AND NOT EXISTS (SELECT 1 FROM mensajeria.llamadas l WHERE l.estado IN ('conectando', 'en_curso')
+  AND NOT EXISTS (SELECT 1 FROM mensajeria.llamadas l WHERE l.estado IN ('conectando', 'en_curso', 'marcando')
        AND (l.usuario_id = d.usuario_id OR l.reclamada_por = d.usuario_id))
 ORDER BY d.usuario_id;
 
@@ -118,12 +118,26 @@ SELECT EXISTS (SELECT 1 FROM mensajeria.llamada_receptores
 
 -- name: TocarReceptores :exec
 -- Latido del flujo SSE del usuario.
-UPDATE mensajeria.llamada_receptores SET visto_en = @ahora
-WHERE coalesce(empresa_id, 0) = @empresa::bigint AND usuario_id = @usuario_id AND recibe;
+-- También el navegador desde el que tiene una saliente viva, aunque no reciba llamadas.
+UPDATE mensajeria.llamada_receptores r SET visto_en = @ahora
+WHERE coalesce(r.empresa_id, 0) = @empresa::bigint AND r.usuario_id = @usuario_id
+  AND (r.recibe OR EXISTS (SELECT 1 FROM mensajeria.llamadas l WHERE l.usuario_id = r.usuario_id AND l.navegador = r.navegador
+        AND l.direccion = 'saliente' AND l.estado IN ('marcando', 'en_curso')));
+
+-- name: TocarNavegadorDeLlamada :exec
+-- El navegador desde el que se llama queda anotado (sin cambiar si recibe llamadas): su latido dice
+-- si el panel sigue abierto mientras dura la saliente.
+INSERT INTO mensajeria.llamada_receptores (empresa_id, usuario_id, navegador, recibe, visto_en)
+VALUES (sqlc.narg('empresa_id'), @usuario_id, @navegador, false, @ahora)
+ON CONFLICT ((coalesce(empresa_id, 0)), usuario_id, navegador) DO UPDATE SET visto_en = EXCLUDED.visto_en;
+
+-- name: NavegadorVivo :one
+SELECT EXISTS (SELECT 1 FROM mensajeria.llamada_receptores
+    WHERE coalesce(empresa_id, 0) = @empresa::bigint AND usuario_id = @usuario_id AND navegador = @navegador AND visto_en > @vivo_desde)::boolean;
 
 -- name: LlamadaActivaDeUsuario :one
 SELECT * FROM mensajeria.llamadas
-WHERE coalesce(empresa_id, 0) = @empresa::bigint AND estado IN ('conectando', 'en_curso')
+WHERE coalesce(empresa_id, 0) = @empresa::bigint AND estado IN ('conectando', 'en_curso', 'marcando')
   AND (usuario_id = @usuario_id OR reclamada_por = @usuario_id)
 ORDER BY sono_en DESC LIMIT 1;
 
@@ -241,14 +255,17 @@ SELECT * FROM mensajeria.voz_ajustes WHERE coalesce(empresa_id, 0) = @empresa::b
 SELECT * FROM mensajeria.voz_ajustes WHERE coalesce(empresa_id, 0) = @empresa::bigint FOR UPDATE;
 
 -- name: InsertarVozAjustes :one
-INSERT INTO mensajeria.voz_ajustes (empresa_id, grabar, duracion_max_persona_min, segundos_asignado, retencion_grabaciones_dias)
-VALUES (sqlc.narg('empresa_id'), @grabar, @duracion_max_persona_min, @segundos_asignado, @retencion_grabaciones_dias)
+INSERT INTO mensajeria.voz_ajustes (empresa_id, grabar, duracion_max_persona_min, segundos_asignado, retencion_grabaciones_dias,
+    max_salientes_por_dia, tope_minutos_salientes_mes)
+VALUES (sqlc.narg('empresa_id'), @grabar, @duracion_max_persona_min, @segundos_asignado, @retencion_grabaciones_dias,
+    @max_salientes_por_dia, @tope_minutos_salientes_mes)
 ON CONFLICT DO NOTHING
 RETURNING *;
 
 -- name: ActualizarVozAjustes :one
 UPDATE mensajeria.voz_ajustes SET grabar = @grabar, duracion_max_persona_min = @duracion_max_persona_min,
-    segundos_asignado = @segundos_asignado, retencion_grabaciones_dias = @retencion_grabaciones_dias, version = version + 1, updated_at = now()
+    segundos_asignado = @segundos_asignado, retencion_grabaciones_dias = @retencion_grabaciones_dias,
+    max_salientes_por_dia = @max_salientes_por_dia, tope_minutos_salientes_mes = @tope_minutos_salientes_mes, version = version + 1, updated_at = now()
 WHERE id = @id
 RETURNING *;
 
@@ -337,3 +354,80 @@ UPDATE mensajeria.conversacion_mensajes SET buzon_de_voz = true WHERE id = @id;
 SELECT EXISTS (SELECT 1 FROM mensajeria.llamadas l JOIN mensajeria.voz_ajustes_canal a ON a.canal_id = l.canal_id
     WHERE l.conversacion_id = @conversacion_id AND l.estado = 'fuera_de_horario' AND a.fuera_de_horario = 'buzon'
       AND l.sono_en > @desde AND l.sono_en <= @hasta)::boolean;
+
+-- Salientes y permiso de llamada (E1b, §3.7) ---------------------------------------------------------
+
+-- name: InsertarLlamadaSaliente :one
+-- Nace marcando, con la intención connect pendiente y un id externo provisional hasta que Meta da el suyo.
+INSERT INTO mensajeria.llamadas (id, empresa_id, origen, canal_id, conversacion_id, id_externo, direccion, numero, cliente_id, servicio_id,
+    cola_id, estado, usuario_id, navegador, devolucion_id, sono_en, suena_hasta, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en)
+VALUES (sqlc.arg('llamada_id'), sqlc.narg('empresa_id'), 'whatsapp', sqlc.arg('canal_id'), sqlc.arg('conversacion_id'), sqlc.arg('externo'), 'saliente', sqlc.arg('numero'),
+    sqlc.narg('cliente_id'), sqlc.narg('servicio'), sqlc.narg('cola_id'), 'marcando', sqlc.arg('usuario_id'), sqlc.arg('navegador'), sqlc.narg('devolucion_id'),
+    sqlc.arg('sono_en'), sqlc.arg('suena_hasta'), sqlc.arg('sdp_oferta'), 'connect', 'pendiente', sqlc.arg('sono_en'))
+RETURNING *;
+
+-- name: FijarExternoLlamada :one
+-- Meta aceptó el connect: la llamada toma su call_id y la oferta ya no hace falta.
+UPDATE mensajeria.llamadas SET id_externo = @externo, accion_meta_estado = 'hecha', sdp_oferta = NULL, updated_at = now()
+WHERE id = @id AND estado = 'marcando' AND accion_meta = 'connect' AND accion_meta_estado = 'pendiente'
+RETURNING *;
+
+-- name: SalientePorVincular :one
+-- Un webhook de una saliente cuyo call_id todavía no se guardó (llegó antes que la respuesta del connect).
+SELECT * FROM mensajeria.llamadas
+WHERE canal_id = @canal_id AND numero = @numero AND direccion = 'saliente' AND estado = 'marcando' AND id_externo LIKE 'pendiente:%'
+ORDER BY sono_en DESC LIMIT 1 FOR UPDATE;
+
+-- name: FijarRespuestaSDP :exec
+UPDATE mensajeria.llamadas SET sdp_respuesta = sqlc.narg('sdp'), updated_at = now() WHERE id = @id;
+
+-- name: SalientesDesde :one
+-- Salientes de la empresa desde un instante (límite por día).
+SELECT count(*)::bigint FROM mensajeria.llamadas
+WHERE coalesce(empresa_id, 0) = @empresa::bigint AND direccion = 'saliente' AND sono_en >= @desde AND estado <> 'fallida';
+
+-- name: ConectadasDelCanalDesde :one
+-- Salientes conectadas de un número desde un instante (Meta: 100 por 24 h).
+SELECT count(*)::bigint FROM mensajeria.llamadas
+WHERE canal_id = @canal_id AND direccion = 'saliente' AND contestada_en IS NOT NULL AND sono_en >= @desde;
+
+-- name: SegundosSalientes :one
+-- Segundos de salientes contestadas de la empresa en un periodo (tope de minutos del mes).
+SELECT coalesce(sum(duracion_seg), 0)::bigint FROM mensajeria.llamadas
+WHERE coalesce(empresa_id, 0) = @empresa::bigint AND direccion = 'saliente' AND contestada_en IS NOT NULL
+  AND sono_en >= @desde AND sono_en < @hasta AND id <> @menos;
+
+-- name: LlamadaVivaDeNumero :one
+SELECT EXISTS (SELECT 1 FROM mensajeria.llamadas WHERE canal_id = @canal_id AND numero = @numero
+    AND estado IN ('sonando', 'marcando', 'conectando', 'en_curso'))::boolean;
+
+-- name: PermisoLlamada :one
+SELECT * FROM mensajeria.llamada_permisos WHERE coalesce(empresa_id, 0) = @empresa::bigint AND canal_id = @canal_id AND numero = @numero;
+
+-- name: PermisoLlamadaParaActualizar :one
+SELECT * FROM mensajeria.llamada_permisos WHERE coalesce(empresa_id, 0) = @empresa::bigint AND canal_id = @canal_id AND numero = @numero FOR UPDATE;
+
+-- name: CrearPermisoLlamada :exec
+INSERT INTO mensajeria.llamada_permisos (empresa_id, canal_id, numero) VALUES (sqlc.narg('empresa_id'), @canal_id, @numero)
+ON CONFLICT DO NOTHING;
+
+-- name: GuardarPermisoLlamada :one
+UPDATE mensajeria.llamada_permisos SET estado = @estado, vence_en = sqlc.narg('vence_en'), solicitudes = @solicitudes, sin_contestar = @sin_contestar,
+    ultima_solicitud_mensaje_id = sqlc.narg('ultima_solicitud_mensaje_id'), sincronizado_en = sqlc.narg('sincronizado_en'), updated_at = now()
+WHERE id = @id
+RETURNING *;
+
+-- name: PermisosDeNumero :many
+-- Las filas de permiso de ese número en ese canal (la respuesta del cliente vale para todas).
+SELECT * FROM mensajeria.llamada_permisos WHERE canal_id = @canal_id AND numero = @numero ORDER BY id FOR UPDATE;
+
+-- name: FijarPlantillaPermiso :exec
+UPDATE mensajeria.voz_ajustes_canal SET plantilla_permiso = sqlc.narg('plantilla'), plantilla_permiso_idioma = @idioma, updated_at = now() WHERE canal_id = @canal_id;
+
+-- name: MarcarDevolucionHecha :one
+UPDATE mensajeria.llamada_devoluciones SET estado = 'hecha', atendida_por = @usuario_id, llamada_devuelta_id = @llamada_id, updated_at = now()
+WHERE id = @id AND estado = 'pendiente'
+RETURNING *;
+
+-- name: DevolucionPendiente :one
+SELECT * FROM mensajeria.llamada_devoluciones WHERE id = @id AND conversacion_id = @conversacion_id AND estado = 'pendiente';

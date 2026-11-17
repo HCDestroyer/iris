@@ -281,7 +281,21 @@ func nuevoProcesarMeta(m *Modulo) *auditoria.Caso[int64, struct{}] {
 							return struct{}{}, err
 						}
 					}
+					// Estados de una saliente (RINGING, ACCEPTED, REJECTED): llegan en statuses del campo calls.
+					if ch.Field == "calls" {
+						for _, st := range ch.Value.Statuses {
+							if err := m.recibirEventoLlamada(ctx, t, fila, metaLlamada{ID: st.ID, Event: "status", Status: st.Status, To: st.RecipientID,
+								Timestamp: st.Timestamp}, "", ahora); err != nil {
+								return struct{}{}, err
+							}
+						}
+					}
 					for _, msg := range ch.Value.Messages {
+						if msg.Interactive != nil && msg.Interactive.CallPermissionReply != nil {
+							if err := m.recibirPermisoLlamada(ctx, t, fila, msg, ahora); err != nil {
+								return struct{}{}, err
+							}
+						}
 						// La baja primero: así el mensaje ya llega con el número dado de baja (sin
 						// respuestas automáticas a quien pide no recibir mensajes).
 						if msg.Type == "text" && palabrasBaja[palabraDe(msg.Text.Body)] {

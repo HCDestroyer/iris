@@ -86,6 +86,15 @@ type MensajeSaliente struct {
 	Variables map[string]string
 	// Medio con Texto como pie.
 	Medio *MedioSaliente
+	// PermisoLlamada: la solicitud de permiso de llamada (voz.md §3.7) en lugar de un texto.
+	PermisoLlamada *PermisoLlamadaSaliente
+}
+
+// PermisoLlamadaSaliente: dentro de la ventana de 24 h va como mensaje interactivo; fuera, con la
+// plantilla aprobada del número (Plantilla ≠ "").
+type PermisoLlamadaSaliente struct {
+	Plantilla string
+	Idioma    string
 }
 
 // MedioSaliente es un archivo del módulo de adjuntos.

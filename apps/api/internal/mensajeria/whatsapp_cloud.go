@@ -128,6 +128,18 @@ func (w *whatsappCloud) EnviarConversacion(ctx context.Context, msg MensajeSalie
 	}
 	cuerpo := map[string]any{"messaging_product": "whatsapp", "recipient_type": "individual", "to": strings.TrimPrefix(msg.Destino, "+")}
 	switch {
+	case msg.PermisoLlamada != nil && msg.PermisoLlamada.Plantilla != "":
+		// Fuera de la ventana de 24 h: la plantilla call_permission_request aprobada del número.
+		cuerpo["type"] = "template"
+		cuerpo["template"] = map[string]any{"name": msg.PermisoLlamada.Plantilla, "language": map[string]any{"code": msg.PermisoLlamada.Idioma}}
+	case msg.PermisoLlamada != nil:
+		texto := ""
+		if msg.Texto != nil {
+			texto = *msg.Texto
+		}
+		cuerpo["type"] = "interactive"
+		cuerpo["interactive"] = map[string]any{"type": "call_permission_request", "action": map[string]any{"name": "call_permission_request"},
+			"body": map[string]any{"text": texto}}
 	case msg.Medio != nil:
 		id, err := w.subirMedio(ctx, *msg.Medio)
 		if err != nil {
@@ -344,7 +356,9 @@ type metaEstado struct {
 	ID        string `json:"id"`
 	Status    string `json:"status"`
 	Timestamp string `json:"timestamp"`
-	Errors    []struct {
+	// RecipientID: el número del cliente (en los estados de una llamada saliente).
+	RecipientID string `json:"recipient_id"`
+	Errors      []struct {
 		Code  int    `json:"code"`
 		Title string `json:"title"`
 	} `json:"errors"`
@@ -385,6 +399,12 @@ type metaMensaje struct {
 		ListReply *struct {
 			Title string `json:"title"`
 		} `json:"list_reply"`
+		// La respuesta del cliente a la solicitud de permiso de llamada (voz.md §3.7).
+		CallPermissionReply *struct {
+			Response            string      `json:"response"`
+			IsPermanent         bool        `json:"is_permanent"`
+			ExpirationTimestamp json.Number `json:"expiration_timestamp"`
+		} `json:"call_permission_reply"`
 	} `json:"interactive"`
 	Contacts []struct {
 		Name struct {

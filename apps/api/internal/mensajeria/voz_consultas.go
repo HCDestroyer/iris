@@ -125,8 +125,9 @@ func (m *Modulo) aLlamadas(ctx context.Context, q *mensajeriabd.Queries, a alcan
 		l.Puede = PuedeLlamada{
 			Contestar: f.Estado == LlamadaSonando && puede(nucleo.PermLlamadasContestar),
 			Rechazar:  f.Estado == LlamadaSonando && puede(nucleo.PermLlamadasRechazar),
-			Colgar:    f.Estado == LlamadaEnCurso && (mia || a.supervisa) && puede(nucleo.PermLlamadasColgar),
-			Anotar:    (f.Estado == LlamadaEnCurso || f.Estado == LlamadaTerminada) && (mia || a.supervisa) && puede(nucleo.PermLlamadasAnotar),
+			Colgar: (f.Estado == LlamadaEnCurso || (f.Estado == LlamadaMarcando && f.Direccion == "saliente")) && (mia || a.supervisa) &&
+				puede(nucleo.PermLlamadasColgar),
+			Anotar: (f.Estado == LlamadaEnCurso || f.Estado == LlamadaTerminada) && (mia || a.supervisa) && puede(nucleo.PermLlamadasAnotar),
 		}
 		out = append(out, l)
 	}

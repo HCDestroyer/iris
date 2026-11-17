@@ -51,6 +51,33 @@ type llamadaCuerpoHTTP[T any] struct {
 	Body      T
 }
 
+type conversacionIDHTTP struct {
+	ID int64 `path:"id" minimum:"1"`
+}
+
+type conversacionAccionHTTP struct {
+	nucleo.ConIdempotencia
+	ID int64 `path:"id" minimum:"1"`
+}
+
+type cuerpoLlamar struct {
+	SDPOferta       string `json:"sdpOferta" minLength:"1" maxLength:"8192" doc:"La oferta SDP del RTCPeerConnection del navegador"`
+	DevolucionID    *int64 `json:"devolucionId,omitempty" minimum:"1" doc:"La devolución pendiente que atiende esta llamada (queda hecha cuando el cliente contesta)"`
+	ConfirmarRiesgo bool   `json:"confirmarRiesgo,omitempty" doc:"Llamar aunque lleve tres seguidas sin contestar (la cuarta revoca el permiso)"`
+}
+
+type llamarHTTP struct {
+	nucleo.ConIdempotencia
+	ID        int64  `path:"id" minimum:"1"`
+	Navegador string `header:"X-Iris-Navegador" required:"false" maxLength:"64" pattern:"^[A-Za-z0-9_-]{8,64}$" doc:"El id de «Recibir llamadas» de este navegador"`
+	Body      cuerpoLlamar
+}
+
+type llamadaNavegadorHTTP struct {
+	ID        uuid.UUID `path:"id" format:"uuid"`
+	Navegador string    `header:"X-Iris-Navegador" required:"false" maxLength:"64" pattern:"^[A-Za-z0-9_-]{8,64}$"`
+}
+
 type activaHTTP struct {
 	Status int
 	Body   *Llamada
@@ -128,6 +155,39 @@ func (m *Modulo) registrarVoz(api huma.API) {
 	huma.Register(api, voz(op("listarLlamadasDeConversacion", http.MethodGet, "/conversaciones/{id}/llamadas", "Llamadas de una conversación", ver, http.StatusOK, http.StatusNotFound), ""),
 		func(ctx context.Context, in *conversacionLlamadasHTTP) (*cuerpo[nucleo.Pagina[Llamada]], error) {
 			return responder(k.Listar.Ejecutar(ctx, EntradaListarLlamadas{ConversacionID: in.ID, Cursor: in.Cursor, Limit: in.Limit}))
+		})
+
+	// Salientes y permiso de llamada (§3.7) ------------------------------------------------------------
+	huma.Register(api, voz(op("verPermisoLlamada", http.MethodGet, "/conversaciones/{id}/permiso-llamada", "Permiso del contacto para que lo llamen",
+		nucleo.PermConversacionesVer, http.StatusOK, http.StatusNotFound),
+		"Lo que Iris sabe del permiso (WhatsApp es la verdad y se le pregunta al llamar). `puedeLlamar` es para ti; `motivo` dice por qué no."),
+		func(ctx context.Context, in *conversacionIDHTTP) (*cuerpo[PermisoLlamada], error) {
+			return responder(k.VerPermiso.Ejecutar(ctx, EntradaConvVoz{ID: in.ID}))
+		})
+	huma.Register(api, voz(op("solicitarPermisoLlamada", http.MethodPost, "/conversaciones/{id}/solicitar-permiso-llamada", "Pedir al contacto permiso para llamarlo",
+		nucleo.PermLlamadasSolicitarPermiso, http.StatusOK, http.StatusNotFound),
+		"Dentro de la ventana de 24 h va como mensaje interactivo; fuera, con la plantilla de permiso del número. 422 `permiso_ya_vigente`, `limite_solicitudes` "+
+			"(1 por 24 h y 2 por 7 días; `errors[0].message` trae desde cuándo se puede), `sin_plantilla_permiso`, `llamadas_inactivas`, `cliente_sin_confirmar`, `baja`. "+
+			"Emite `llamada.permiso_solicitado`."),
+		func(ctx context.Context, in *conversacionAccionHTTP) (*cuerpo[PermisoLlamada], error) {
+			return responder(k.SolicitarPermiso.Ejecutar(ctx, EntradaConvVoz{ID: in.ID}))
+		})
+	huma.Register(api, voz(op("llamarContacto", http.MethodPost, "/conversaciones/{id}/llamar", "Llamar por WhatsApp al contacto de la conversación",
+		nucleo.PermLlamadasLlamar, http.StatusCreated, http.StatusNotFound, http.StatusConflict, http.StatusBadGateway),
+		"Saliente con coste: `llamadas.llamar` (sensible). El destino es siempre el contacto de la conversación. El navegador crea la oferta SDP; el servidor la "+
+			"sanea, comprueba el permiso del contacto en WhatsApp y los límites, y responde 201 `{ llamada }` en `marcando`. La respuesta SDP llega después: el feed "+
+			"avisa con `llamada_respuesta` (solo a ti) y se lee con `GET /llamadas/{id}/respuesta-sdp`. Pasa a `en_curso` cuando el cliente contesta; sin contestar en "+
+			"60 s queda `perdida`. Exige `X-Iris-Navegador`. 422 `sin_permiso_llamada`, `confirmar_riesgo` (lleva tres sin contestar: repite con `confirmarRiesgo`), "+
+			"`limite_llamadas`, `tope_alcanzado`, `llamadas_inactivas`, `sdp_invalido`; 409 `llamada_en_curso`, `devolucion_cerrada`; 502 `meta_rechazo`."),
+		func(ctx context.Context, in *llamarHTTP) (*cuerpo[Llamada], error) {
+			return responder(m.Llamar(ctx, EntradaLlamar{ID: in.ID, Navegador: in.Navegador, DevolucionID: in.Body.DevolucionID, ConfirmarRiesgo: in.Body.ConfirmarRiesgo,
+				SDPOferta: in.Body.SDPOferta}))
+		})
+	huma.Register(api, voz(op("verRespuestaSDP", http.MethodGet, "/llamadas/{id}/respuesta-sdp", "La respuesta SDP de una saliente", nucleo.PermLlamadasLlamar,
+		http.StatusOK, http.StatusNotFound, http.StatusConflict),
+		"Solo quien llamó y desde el mismo navegador (`X-Iris-Navegador`). 409 `sin_respuesta` si WhatsApp aún no la mandó; 409 `llamada_terminada` después."),
+		func(ctx context.Context, in *llamadaNavegadorHTTP) (*cuerpo[RespuestaSDP], error) {
+			return responder(k.RespuestaSDP.Ejecutar(ctx, EntradaLlamada{ID: in.ID, Navegador: in.Navegador}))
 		})
 
 	// Contestar una entrante (§3.3) ---------------------------------------------------------------
