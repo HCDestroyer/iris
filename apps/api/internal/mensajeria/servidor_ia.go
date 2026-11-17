@@ -373,7 +373,7 @@ type EntradaEnlazarMotor struct {
 // EnlaceMotor lleva el código de un solo uso (se muestra una vez).
 type EnlaceMotor struct {
 	Motor   MotorIA   `json:"motor"`
-	Codigo  string    `json:"codigo" doc:"Código de un solo uso (160 bits): se escribe en el servidor con «iris-voz pair». No se vuelve a mostrar"`
+	Codigo  string    `json:"codigo" doc:"Código de un solo uso (160 bits): se escribe en el servidor con «iris-voz enlazar». No se vuelve a mostrar"`
 	VenceEn time.Time `json:"venceEn"`
 }
 

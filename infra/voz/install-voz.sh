@@ -1,57 +1,58 @@
 #!/usr/bin/env bash
-# Iris Voz installer and manager: the dedicated AI server of Iris (docs/runbooks/servidor-ia.md).
+# Instalador y gestor de Iris Voz: el servidor de IA dedicado de Iris (docs/runbooks/servidor-ia.md).
 #
-# Verify this script BEFORE running it (cosign 2.4 or newer, from your own trusted source):
+# Verifica este script ANTES de ejecutarlo (cosign 2.4 o más nuevo, de una fuente tuya):
 #
 #   cosign verify-blob --new-bundle-format --bundle install-voz.sh.sigstore.json \
 #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
 #     --certificate-identity https://github.com/HCDestroyer/iris/.github/workflows/voz-release.yml@refs/tags/voz-vX.Y.Z \
 #     install-voz.sh && sudo bash install-voz.sh
 #
-# It never builds anything. It downloads the release package, verifies its Sigstore signature
-# OFFLINE (bundle + the Sigstore trusted root embedded in this script; the transparency log proof
-# is mandatory) and the signer identity (the voz-release workflow of this repository on a voz-vX.Y.Z
-# tag), and fails closed. Then it writes <dir>/.env, pulls the images (pinned by digest), starts the
-# server and prints the certificate fingerprint to compare in the Iris panel. After the install the
-# same script is available as `iris-voz`.
+# Nunca construye nada. Baja el paquete de la versión, verifica su firma de Sigstore SIN RED (bundle
+# y raíz de confianza embebida en este script; la prueba del registro de transparencia es
+# obligatoria) y quién lo firmó (el workflow voz-release de este repositorio en una etiqueta
+# voz-vX.Y.Z), y falla cerrado. Después escribe <carpeta>/.env, baja las imágenes (fijadas por
+# digest), arranca el servidor y muestra la huella del certificado para compararla en el panel de
+# Iris. Tras instalar, este mismo script queda como `iris-voz`.
 #
-# Usage: install-voz.sh [command] [options]
+# Uso: install-voz.sh [orden] [opciones]
 #
-# Commands:
-#   install             install or reconfigure (default)
-#   upgrade             move to a newer version (--version X.Y.Z or latest); never downgrades
-#   pair                open the pairing window; asks for the one-time code of the Iris panel
-#                       (hidden input; the code is never accepted as an argument)
-#   unpair              forget Iris: nothing is accepted until a new pairing
-#   status              version, containers, fingerprint, observed Iris IP, allowed models
-#   renew-cert          new server certificate, announced to Iris over the current channel
-#                       (--no-channel: the old one was lost; unpairs, pair again with a code)
-#   ip restrict|release only accept the control port from the Iris IP seen at pairing (off by default)
-#   model pull NAME     download a model (one-shot container; only reaches the model registry)
-#   model remove NAME   delete a model
-#   model allow NAME    let Iris use an installed model       (model disallow NAME: the opposite)
-#   model list          installed and allowed models
-#   logs [service]      follow the logs (puerta, llm, medidor)
-#   stop | start        stop or start every container
-#   compose ARGS        run docker compose on the installation
-#   version             print the installed version
+# Órdenes:
+#   instalar            instala o reconfigura (por defecto)
+#   actualizar          pasa a una versión más nueva (--version X.Y.Z o la última); nunca baja
+#   enlazar             abre la ventana de enlace; pide el código de un solo uso del panel de Iris
+#                       (no se ve al escribirlo; el código nunca se acepta como argumento)
+#   desenlazar          olvida a Iris: no se acepta nada hasta un enlace nuevo
+#   estado              versión, contenedores, huella, IP de Iris observada y modelos permitidos
+#   renovar-certificado certificado nuevo, que se anuncia a Iris por el canal vigente
+#                       (--sin-canal: el anterior se perdió; desenlaza y hay que enlazar con código)
+#   ip restringir|liberar    aceptar el puerto de control solo desde la IP de Iris vista al enlazar
+#                            (apagado de fábrica)
+#   modelo descargar NOMBRE  baja un modelo (contenedor de un solo uso; solo llega al registro de modelos)
+#   modelo quitar NOMBRE     borra un modelo
+#   modelo permitir NOMBRE   deja que Iris use un modelo instalado   (modelo retirar NOMBRE: lo contrario)
+#   modelo lista             modelos instalados y permitidos
+#   registros [servicio]     sigue los registros (puerta, llm, medidor)
+#   parar | arrancar         para o arranca todos los contenedores
+#   compose ARGS             ejecuta docker compose sobre la instalación
+#   version                  muestra la versión instalada
+#   ayuda                    esta ayuda
 #
-# Install options:
-#   --version X.Y.Z     version to install (default: latest voz-v* release)
-#   --dir PATH          install folder (default /opt/iris-voz)
-#   --port N            control port (default 8443)
-#   --listen ADDR       address the control port binds to (default 0.0.0.0)
-#   --no-gpu            run without a GPU (tests only: CPU inference is too slow for real use)
-#   --no-models         do not download the default models
-#   --allow-swap        do not stop when unencrypted swap is on
-#   --allow-unsynced-clock  do not stop when the clock is not NTP-synchronised
-#   -y, --yes           never ask
+# Opciones de instalar:
+#   --version X.Y.Z     versión a instalar (por defecto, la última voz-v*)
+#   --dir RUTA          carpeta de instalación (por defecto /opt/iris-voz)
+#   --puerto N          puerto de control (por defecto 8443)
+#   --escucha DIRECCION dirección en la que escucha el puerto de control (por defecto 0.0.0.0)
+#   --sin-gpu           sin GPU (solo pruebas: en CPU es demasiado lento para uso real)
+#   --sin-modelos       no bajar los modelos por defecto
+#   --permitir-intercambio      no detenerse si hay intercambio a disco sin cifrar
+#   --permitir-reloj-sin-ntp    no detenerse si el reloj no está sincronizado por NTP
+#   -s, --si            no preguntar nunca
 #
-# Environment (tests and offline servers): IRIS_VOZ_DIR, IRIS_VOZ_REPO (HCDestroyer/iris),
-# IRIS_VOZ_SOURCE (local folder with iris-voz-<v>.tar.gz, its .sigstore.json and a `latest` file,
-# instead of GitHub; the signature is verified all the same), IRIS_VOZ_COSIGN (path to a cosign
-# binary already on the server; its sha256 must match the pinned one), IRIS_VOZ_SKIP_PULL=1 (images
-# already loaded).
+# Entorno (pruebas y servidores sin internet): IRIS_VOZ_DIR, IRIS_VOZ_REPO (HCDestroyer/iris),
+# IRIS_VOZ_SOURCE (carpeta local con iris-voz-<v>.tar.gz, su .sigstore.json y un archivo `latest`,
+# en lugar de GitHub; la firma se verifica igual), IRIS_VOZ_COSIGN (ruta de un binario de cosign que
+# ya está en el servidor; su sha256 debe ser el fijado), IRIS_VOZ_SKIP_PULL=1 (imágenes ya cargadas).
 set -Eeuo pipefail
 
 REPO="${IRIS_VOZ_REPO:-HCDestroyer/iris}"
@@ -61,12 +62,12 @@ COMPOSE_MIN=2.24
 KEEP_RELEASES=3
 CURL=(curl -fsSL --proto '=https' --tlsv1.2 --retry 3)
 
-# Who must have signed the package: the release workflow of this repository, on a protected
-# voz-vX.Y.Z tag, never a branch. Not configurable.
+# Quién debe haber firmado el paquete: el workflow de release de este repositorio, en una etiqueta
+# protegida voz-vX.Y.Z, nunca en una rama. No es configurable.
 OIDC_ISSUER=https://token.actions.githubusercontent.com
 signer_identity() { printf 'https://github.com/HCDestroyer/iris/.github/workflows/voz-release.yml@refs/tags/voz-v%s' "$1"; }
 
-# cosign, pinned by sha256 (official release binaries).
+# cosign, fijado por sha256 (binarios oficiales).
 COSIGN_VERSION=v2.6.1
 cosign_sha256() {
     case "$1" in
@@ -77,7 +78,7 @@ cosign_sha256() {
 COSIGN_URL="https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION"
 
 log() { printf '\033[1m==>\033[0m %s\n' "$*" >&2; }
-warn() { printf '\033[33mwarning:\033[0m %s\n' "$*" >&2; }
+warn() { printf '\033[33maviso:\033[0m %s\n' "$*" >&2; }
 die() { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 usage() { sed -n '2,/^set -E/{/^#/p}' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
@@ -87,14 +88,15 @@ arch() {
     case "$(uname -m)" in
         x86_64 | amd64) echo amd64 ;;
         aarch64 | arm64) echo arm64 ;;
-        *) die "unsupported architecture: $(uname -m)" ;;
+        *) die "arquitectura no soportada: $(uname -m)" ;;
     esac
 }
 
-# The Sigstore trusted root (public keys of Fulcio, Rekor, CT log and timestamp authority) travels
-# inside this script, so verification needs no network. If Sigstore rotates its keys and this copy
-# no longer validates a newer package, verification fails closed: install with a newer installer.
-# Kept identical to infra/voz/sigstore/trusted_root.json (infra/voz/verificar.sh checks it).
+# La raíz de confianza de Sigstore (claves públicas de Fulcio, Rekor, el registro de certificados y
+# la autoridad de sellado de tiempo) viaja dentro de este script: verificar no necesita red. Si
+# Sigstore rota sus claves y esta copia ya no valida un paquete más nuevo, la verificación falla
+# cerrado: se instala con un instalador más nuevo. Idéntica a infra/voz/sigstore/trusted_root.json
+# (lo comprueba infra/voz/verificar.sh).
 write_trusted_root() {
     cat > "$1" << 'IRIS_VOZ_TRUSTED_ROOT'
 {
@@ -226,7 +228,7 @@ write_trusted_root() {
 IRIS_VOZ_TRUSTED_ROOT
 }
 
-# ensure_cosign DIR → path of a cosign binary whose sha256 is the pinned one.
+# ensure_cosign CARPETA → ruta de un cosign cuyo sha256 es el fijado.
 ensure_cosign() {
     local dest="$1/cosign" want a
     a="$(arch)"
@@ -239,24 +241,24 @@ ensure_cosign() {
     if [ -n "${IRIS_VOZ_COSIGN:-}" ]; then
         install -m 0755 "$IRIS_VOZ_COSIGN" "$dest.tmp"
     else
-        log "Downloading cosign $COSIGN_VERSION"
-        "${CURL[@]}" -o "$dest.tmp" "$COSIGN_URL/cosign-linux-$a" < /dev/null || die "could not download cosign"
+        log "Bajando cosign $COSIGN_VERSION"
+        "${CURL[@]}" -o "$dest.tmp" "$COSIGN_URL/cosign-linux-$a" < /dev/null || die "no se pudo bajar cosign"
         chmod 0755 "$dest.tmp"
     fi
     if [ "$(sha256sum "$dest.tmp" | cut -d' ' -f1)" != "$want" ]; then
         rm -f "$dest.tmp"
-        die "cosign does not match its pinned sha256 ($want)"
+        die "cosign no coincide con su sha256 fijado ($want)"
     fi
     mv -f "$dest.tmp" "$dest"
     printf '%s' "$dest"
 }
 
-# verify_signature COSIGN FILE BUNDLE IDENTITY: offline, with the embedded trusted root. The
-# transparency log inclusion proof inside the bundle is always checked (never ignored).
+# verify_signature COSIGN ARCHIVO BUNDLE IDENTIDAD: sin red, con la raíz de confianza embebida. La
+# prueba de inclusión en el registro de transparencia que trae el bundle se comprueba siempre.
 verify_signature() {
     local cosign="$1" file="$2" bundle="$3" identity="$4" root
-    [ -s "$file" ] || die "missing file to verify: $file"
-    [ -s "$bundle" ] || die "missing signature bundle: $bundle (unsigned packages are never installed)"
+    [ -s "$file" ] || die "falta el archivo a verificar: $file"
+    [ -s "$bundle" ] || die "falta el bundle de la firma: $bundle (nunca se instala un paquete sin firmar)"
     root="$(mktemp)"
     write_trusted_root "$root"
     if ! "$cosign" verify-blob --new-bundle-format --offline --trusted-root "$root" --bundle "$bundle" \
@@ -267,9 +269,9 @@ verify_signature() {
     rm -f "$root"
 }
 
-# manifest_get FILE KEY → string value of a top-level key of manifiesto.json.
+# manifest_get ARCHIVO CLAVE → valor de texto de una clave de primer nivel de manifiesto.json.
 manifest_get() { sed -n "s/^ *\"$2\": *\"\([^\"]*\)\".*/\1/p" "$1" | head -n1; }
-# manifest_models FILE → "name digest" per default model.
+# manifest_models ARCHIVO → «nombre digest» por cada modelo por defecto.
 manifest_models() { sed -n 's/.*"nombre": *"\([^"]*\)", *"digest": *"\([^"]*\)".*/\1 \2/p' "$1"; }
 
 env_get() {
@@ -293,41 +295,41 @@ dc() {
     local files=(-f "$DIR/current/docker-compose.yml")
     if [ "$(env_get IRIS_VOZ_GPU)" != 0 ]; then files+=(-f "$DIR/current/docker-compose.gpu.yml"); fi
     files+=(-f "$DIR/current/docker-compose.descarga.yml")
-    # Tests only: an extra compose file (the fake Ollama of CI).
+    # Solo pruebas: un compose más (el Ollama falso de CI).
     if [ -n "${IRIS_VOZ_COMPOSE_EXTRA:-}" ]; then files+=(-f "$IRIS_VOZ_COMPOSE_EXTRA"); fi
     docker compose --project-name iris-voz --env-file "$DIR/.env" "${files[@]}" "$@"
 }
 puerta() { dc exec -T puerta /usr/local/bin/voz-puerta "$@"; }
 
-need_root() { [ "$(id -u)" = 0 ] || die "run as root (sudo)"; }
-need_install() { [ -f "$DIR/current/VERSION" ] || die "Iris Voz is not installed in $DIR"; }
+need_root() { [ "$(id -u)" = 0 ] || die "hay que ejecutarlo como root (sudo)"; }
+need_install() { [ -f "$DIR/current/VERSION" ] || die "Iris Voz no está instalado en $DIR"; }
 
 check_docker() {
-    command -v docker > /dev/null || die "docker is not installed (https://docs.docker.com/engine/install/)"
+    command -v docker > /dev/null || die "docker no está instalado (https://docs.docker.com/engine/install/)"
     local v
     v="$(docker compose version --short 2> /dev/null || true)"
-    [ -n "$v" ] || die "the docker compose plugin is not installed"
-    version_ge "${v#v}" "$COMPOSE_MIN" || die "docker compose $COMPOSE_MIN or newer is required (found $v)"
+    [ -n "$v" ] || die "falta el plugin docker compose"
+    version_ge "${v#v}" "$COMPOSE_MIN" || die "hace falta docker compose $COMPOSE_MIN o más nuevo (hay $v)"
 }
 
 check_gpu() {
-    command -v nvidia-smi > /dev/null || die "nvidia-smi not found: install the NVIDIA driver (or use --no-gpu for a test)"
-    nvidia-smi --query-gpu=name,memory.total --format=csv,noheader < /dev/null >&2 || die "nvidia-smi cannot see a GPU"
+    command -v nvidia-smi > /dev/null || die "no está nvidia-smi: instala el controlador de NVIDIA (o usa --sin-gpu para una prueba)"
+    nvidia-smi --query-gpu=name,memory.total --format=csv,noheader < /dev/null >&2 || die "nvidia-smi no ve ninguna GPU"
     docker info --format '{{json .Runtimes}}' 2> /dev/null | grep -q nvidia ||
-        die "docker has no NVIDIA runtime: install nvidia-container-toolkit and run 'nvidia-ctk runtime configure --runtime=docker'"
+        die "docker no tiene el runtime de NVIDIA: instala nvidia-container-toolkit y ejecuta 'nvidia-ctk runtime configure --runtime=docker'"
 }
 
 check_clock() {
-    command -v timedatectl > /dev/null || { warn "cannot check the clock (no timedatectl): make sure NTP is on"; return 0; }
+    command -v timedatectl > /dev/null || { warn "no se puede comprobar el reloj (no hay timedatectl): asegúrate de que NTP está activo"; return 0; }
     [ "$(timedatectl show -p NTPSynchronized --value 2> /dev/null)" = yes ] && return 0
-    $ALLOW_CLOCK && { warn "the clock is not NTP-synchronised: Iris rejects requests more than 30 s off"; return 0; }
-    die "the clock is not NTP-synchronised (requests are signed with a timestamp; more than 30 s off is rejected). Enable NTP or pass --allow-unsynced-clock"
+    $ALLOW_CLOCK && { warn "el reloj no está sincronizado por NTP: Iris rechaza peticiones con más de 30 s de desfase"; return 0; }
+    die "el reloj no está sincronizado por NTP (las peticiones van firmadas con la hora; más de 30 s de desfase se rechaza). Activa NTP o usa --permitir-reloj-sin-ntp"
 }
 
 check_swap() {
     [ -z "$(swapon --noheadings 2> /dev/null || true)" ] && return 0
-    $ALLOW_SWAP && { warn "swap is on: prompts in memory could reach the disk"; return 0; }
-    die "swap is on (prompts in memory could reach the disk unencrypted). Turn it off (swapoff -a) or pass --allow-swap if it is encrypted"
+    $ALLOW_SWAP && { warn "hay intercambio a disco: lo que el modelo tiene en memoria podría llegar al disco"; return 0; }
+    die "hay intercambio a disco (lo que el modelo tiene en memoria podría llegar al disco sin cifrar). Apágalo (swapoff -a) o usa --permitir-intercambio si está cifrado"
 }
 
 latest_version() {
@@ -338,20 +340,20 @@ latest_version() {
         v="$("${CURL[@]}" "https://api.github.com/repos/$REPO/releases?per_page=100" < /dev/null |
             sed -n 's/.*"tag_name": *"voz-v\([0-9][0-9.]*\)".*/\1/p' | sort -V | tail -n1 || true)"
     fi
-    is_semver "$v" || die "could not find the latest Iris Voz release (use --version X.Y.Z)"
+    is_semver "$v" || die "no se encontró la última versión de Iris Voz (usa --version X.Y.Z)"
     printf '%s' "$v"
 }
 
-fetch() { # fetch VERSION NAME DEST
+fetch() { # fetch VERSION NOMBRE DESTINO
     if [ -n "$SOURCE" ]; then
-        cp "$SOURCE/$2" "$3" 2> /dev/null || die "missing $2 in $SOURCE"
+        cp "$SOURCE/$2" "$3" 2> /dev/null || die "falta $2 en $SOURCE"
     else
-        "${CURL[@]}" -o "$3" "https://github.com/$REPO/releases/download/voz-v$1/$2" < /dev/null || die "could not download $2"
+        "${CURL[@]}" -o "$3" "https://github.com/$REPO/releases/download/voz-v$1/$2" < /dev/null || die "no se pudo bajar $2"
     fi
 }
 
-# Downloads, verifies and unpacks a version into $DIR/releases/<version>. Nothing is unpacked before
-# the signature and the signer identity are verified.
+# Baja, verifica y desempaqueta una versión en $DIR/releases/<versión>. Nada se desempaqueta antes
+# de verificar la firma y quién firmó.
 fetch_release() {
     local v="$1" cosign tmp pkg dest
     dest="$DIR/releases/$v"
@@ -359,19 +361,19 @@ fetch_release() {
     cosign="$(ensure_cosign "$DIR/bin")"
     tmp="$(mktemp -d)"
     pkg="iris-voz-$v.tar.gz"
-    log "Downloading Iris Voz $v"
+    log "Bajando Iris Voz $v"
     fetch "$v" "$pkg" "$tmp/$pkg"
     fetch "$v" "$pkg.sigstore.json" "$tmp/$pkg.sigstore.json"
-    log "Verifying the signature (offline) and the signer"
+    log "Verificando la firma (sin red) y quién firmó"
     if ! verify_signature "$cosign" "$tmp/$pkg" "$tmp/$pkg.sigstore.json" "$(signer_identity "$v")"; then
         rm -rf "$tmp"
-        die "the package signature is NOT valid for $(signer_identity "$v"). Nothing was installed"
+        die "la firma del paquete NO es válida para $(signer_identity "$v"). No se instaló nada"
     fi
     tar -xzf "$tmp/$pkg" -C "$tmp"
-    # The signed manifest must say the same version as the package (and as the tag of the signer).
+    # El manifiesto firmado debe decir la misma versión que el paquete (y que la etiqueta de quien firmó).
     if [ "$(cat "$tmp/iris-voz-$v/VERSION" 2> /dev/null)" != "$v" ] || [ "$(manifest_get "$tmp/iris-voz-$v/manifiesto.json" version)" != "$v" ]; then
         rm -rf "$tmp"
-        die "the package says another version than $v. Nothing was installed"
+        die "el paquete dice otra versión que $v. No se instaló nada"
     fi
     mkdir -p "$DIR/releases"
     rm -rf "$dest"
@@ -383,51 +385,51 @@ activate_release() {
     local v="$1"
     ln -sfn "releases/$v" "$DIR/current"
     env_set IRIS_VOZ_VERSION "$v"
-    install -m 0755 "$DIR/current/install-voz.sh" /usr/local/bin/iris-voz 2> /dev/null || warn "could not install /usr/local/bin/iris-voz"
-    # Keep the last releases only.
+    install -m 0755 "$DIR/current/install-voz.sh" /usr/local/bin/iris-voz 2> /dev/null || warn "no se pudo instalar /usr/local/bin/iris-voz"
+    # Solo se guardan las últimas versiones.
     find "$DIR/releases" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | head -n -"$KEEP_RELEASES" |
         while read -r old; do [ "$old" = "$v" ] || rm -rf "$DIR/releases/${old:?}"; done
 }
 
 prepare_volumes() {
-    # The models volume belongs to the unprivileged user every container runs as.
-    # (Docker copies the owner of /modelos in the image the first time the empty volume is mounted.)
+    # El volumen de modelos es del usuario sin privilegios con el que corre cada contenedor.
+    # (Docker copia el dueño de /modelos de la imagen la primera vez que se monta el volumen vacío.)
     dc --profile descarga run --rm --no-deps preparar < /dev/null > /dev/null
 }
 
 start() {
     if [ "${IRIS_VOZ_SKIP_PULL:-0}" != 1 ]; then
-        log "Pulling the images"
+        log "Bajando las imágenes"
         dc --profile descarga pull --quiet < /dev/null
     fi
     prepare_volumes
-    log "Starting"
+    log "Arrancando"
     dc up -d --remove-orphans < /dev/null
     for _ in $(seq 1 60); do
         if puerta salud > /dev/null 2>&1 < /dev/null; then return 0; fi
         sleep 2
     done
-    die "the server did not become healthy (see: iris-voz logs puerta)"
+    die "el servidor no llegó a estar sano (mira: iris-voz registros puerta)"
 }
 
 model_name() {
-    [[ "$1" =~ ^[a-zA-Z0-9._:/-]{1,128}$ ]] || die "invalid model name: $1"
+    [[ "$1" =~ ^[a-zA-Z0-9._:/-]{1,128}$ ]] || die "nombre de modelo inválido: $1"
     case "$1" in *:*) printf '%s' "$1" ;; *) printf '%s:latest' "$1" ;; esac
 }
 
-model_pull() { # model_pull NAME [DIGEST]
+model_pull() { # model_pull NOMBRE [DIGEST]
     local name want="${2:-}" got
     name="$(model_name "$1")"
-    log "Downloading the model $name (only the model registry is reachable)"
-    dc --profile descarga run --rm descarga pull "$name" < /dev/null || { dc --profile descarga rm -sf proxy-descarga > /dev/null 2>&1 || true; die "could not download $name"; }
+    log "Bajando el modelo $name (solo se alcanza el registro de modelos)"
+    dc --profile descarga run --rm descarga pull "$name" < /dev/null || { dc --profile descarga rm -sf proxy-descarga > /dev/null 2>&1 || true; die "no se pudo bajar $name"; }
     dc --profile descarga rm -sf proxy-descarga > /dev/null 2>&1 || true
     if [ -n "$want" ]; then
         got="$(puerta modelo digest "$name" < /dev/null || true)"
         if [ "$got" != "$want" ]; then
             dc --profile descarga run --rm --no-deps descarga rm "$name" < /dev/null > /dev/null 2>&1 || true
-            die "the model $name does not match the digest pinned in the manifest (got '${got:-none}', want $want). It was removed"
+            die "el modelo $name no coincide con el digest fijado en el manifiesto (llegó '${got:-ninguno}', se esperaba $want). Se borró"
         fi
-        log "Model digest verified: $want"
+        log "Digest del modelo verificado: $want"
     fi
 }
 
@@ -436,15 +438,15 @@ show_fingerprint() {
     fp="$(puerta huella < /dev/null)"
     cat >&2 << EOF
 
-Iris Voz $(installed_version) is running on port $(env_get IRIS_VOZ_PUERTO).
+Iris Voz $(installed_version) está en marcha en el puerto $(env_get IRIS_VOZ_PUERTO).
 
-  Certificate fingerprint of this server:
+  Huella del certificado de este servidor:
     $fp
 
-Next, in the Iris panel (Administration → Integrations → AI server):
-  1. "Link AI server", with this server's address (https://<this server>:$(env_get IRIS_VOZ_PUERTO)).
-  2. Here: sudo iris-voz pair       (type the one-time code the panel shows; it is not echoed)
-  3. In the panel: "Connect", compare the fingerprint above with the one the panel shows, "Activate".
+Ahora, en el panel de Iris (Administración → Integraciones → Servidor de IA):
+  1. «Enlazar servidor de IA», con la dirección de este servidor (https://<este servidor>:$(env_get IRIS_VOZ_PUERTO)).
+  2. Aquí: sudo iris-voz enlazar     (escribe el código de un solo uso que muestra el panel; no se ve al teclear)
+  3. En el panel: «Conectar», compara la huella de arriba con la que muestra el panel y «Activar».
 EOF
 }
 
@@ -458,10 +460,10 @@ cmd_install() {
     chmod 700 "$DIR"
     local v="$VERSION" cur
     [ -n "$v" ] || v="$(latest_version)"
-    is_semver "$v" || die "invalid version: $v"
+    is_semver "$v" || die "versión inválida: $v"
     cur="$(installed_version)"
     if [ -n "$cur" ] && [ "$cur" != "$v" ] && version_ge "$cur" "$v"; then
-        die "version $cur is installed: refusing to downgrade to $v"
+        die "está instalada la versión $cur: no se baja a la $v"
     fi
     fetch_release "$v"
     [ -n "$(env_get IRIS_VOZ_PUERTO)" ] || env_set IRIS_VOZ_PUERTO "${PORT:-8443}"
@@ -488,13 +490,13 @@ cmd_upgrade() {
     local v="$VERSION" cur
     cur="$(installed_version)"
     [ -n "$v" ] || v="$(latest_version)"
-    is_semver "$v" || die "invalid version: $v"
-    [ "$cur" != "$v" ] || { log "Iris Voz $v is already installed"; return 0; }
-    version_ge "$v" "$cur" || die "version $cur is installed: refusing to downgrade to $v"
+    is_semver "$v" || die "versión inválida: $v"
+    [ "$cur" != "$v" ] || { log "Iris Voz $v ya está instalado"; return 0; }
+    version_ge "$v" "$cur" || die "está instalada la versión $cur: no se baja a la $v"
     fetch_release "$v"
     activate_release "$v"
     start
-    log "Iris Voz upgraded from $cur to $v"
+    log "Iris Voz actualizado de $cur a $v"
 }
 
 cmd_pair() {
@@ -502,23 +504,23 @@ cmd_pair() {
     need_install
     local code
     if { : < /dev/tty; } 2> /dev/null && [ -t 0 ]; then
-        printf 'One-time code from the Iris panel (not shown while you type): ' > /dev/tty
+        printf 'Código de un solo uso del panel de Iris (no se ve al escribirlo): ' > /dev/tty
         IFS= read -rs code < /dev/tty || true
         printf '\n' > /dev/tty
     else
-        IFS= read -r code || true # piped (automation); never an argument
+        IFS= read -r code || true # por la entrada (automatización); nunca como argumento
     fi
-    [ -n "$code" ] || die "no code given"
+    [ -n "$code" ] || die "no se escribió ningún código"
     printf '%s\n' "$code" | puerta enlazar
     unset code
 }
 
 cmd_status() {
     need_install
-    echo "version: $(installed_version)"
+    echo "versión: $(installed_version)"
     dc ps
     puerta estado < /dev/null
-    echo "installed models:"
+    echo "modelos instalados:"
     dc exec -T llm ollama list < /dev/null 2> /dev/null || true
 }
 
@@ -527,88 +529,88 @@ cmd_model() {
     need_install
     local sub="${1:-}" name="${2:-}"
     case "$sub" in
-        pull) [ -n "$name" ] || die "usage: model pull NAME"; model_pull "$name" ;;
-        remove)
-            [ -n "$name" ] || die "usage: model remove NAME"
+        descargar) [ -n "$name" ] || die "uso: modelo descargar NOMBRE"; model_pull "$name" ;;
+        quitar)
+            [ -n "$name" ] || die "uso: modelo quitar NOMBRE"
             name="$(model_name "$name")"
             puerta modelo retirar "$name" < /dev/null
             dc --profile descarga run --rm --no-deps descarga rm "$name" < /dev/null
             ;;
-        allow) [ -n "$name" ] || die "usage: model allow NAME"; puerta modelo permitir "$(model_name "$name")" < /dev/null ;;
-        disallow) [ -n "$name" ] || die "usage: model disallow NAME"; puerta modelo retirar "$(model_name "$name")" < /dev/null ;;
-        list)
-            echo "allowed:"
+        permitir) [ -n "$name" ] || die "uso: modelo permitir NOMBRE"; puerta modelo permitir "$(model_name "$name")" < /dev/null ;;
+        retirar) [ -n "$name" ] || die "uso: modelo retirar NOMBRE"; puerta modelo retirar "$(model_name "$name")" < /dev/null ;;
+        lista)
+            echo "permitidos:"
             puerta modelo lista < /dev/null
-            echo "installed:"
+            echo "instalados:"
             dc exec -T llm ollama list < /dev/null 2> /dev/null || true
             ;;
-        *) die "usage: model pull|remove|allow|disallow NAME | model list" ;;
+        *) die "uso: modelo descargar|quitar|permitir|retirar NOMBRE | modelo lista" ;;
     esac
 }
 
 main() {
-    CMD=install
+    CMD=instalar
     case "${1:-}" in
-        install | upgrade | pair | unpair | status | renew-cert | ip | model | logs | stop | start | compose | version) CMD="$1"; shift ;;
-        help | -h | --help) usage 0 ;;
+        instalar | actualizar | enlazar | desenlazar | estado | renovar-certificado | ip | modelo | registros | parar | arrancar | compose | version) CMD="$1"; shift ;;
+        ayuda | -h | --ayuda) usage 0 ;;
         '' | -*) ;;
-        *) die "unknown command: $1 (see --help)" ;;
+        *) die "orden desconocida: $1 (mira: iris-voz ayuda)" ;;
     esac
     VERSION="" PORT="" LISTEN="" NO_GPU=false NO_MODELS=false ALLOW_SWAP=false ALLOW_CLOCK=false
     REST=()
     case "$CMD" in
-        compose | logs | model | ip | renew-cert) REST=("$@"); set -- ;;
+        compose | registros | modelo | ip | renovar-certificado) REST=("$@"); set -- ;;
     esac
     while [ $# -gt 0 ]; do
         case "$1" in
-            --version) [ $# -ge 2 ] || die "--version needs a value"; VERSION="${2#v}"; shift 2 ;;
-            --dir) [ $# -ge 2 ] || die "--dir needs a value"; DIR="$2"; shift 2 ;;
-            --port) [ $# -ge 2 ] || die "--port needs a value"; PORT="$2"; shift 2 ;;
-            --listen) [ $# -ge 2 ] || die "--listen needs a value"; LISTEN="$2"; shift 2 ;;
-            --no-gpu) NO_GPU=true; shift ;;
-            --no-models) NO_MODELS=true; shift ;;
-            --allow-swap) ALLOW_SWAP=true; shift ;;
-            --allow-unsynced-clock) ALLOW_CLOCK=true; shift ;;
-            -y | --yes) shift ;;
-            -h | --help) usage 0 ;;
-            *) die "unknown option: $1 (see --help)" ;;
+            --version) [ $# -ge 2 ] || die "--version necesita un valor"; VERSION="${2#v}"; shift 2 ;;
+            --dir) [ $# -ge 2 ] || die "--dir necesita un valor"; DIR="$2"; shift 2 ;;
+            --puerto) [ $# -ge 2 ] || die "--puerto necesita un valor"; PORT="$2"; shift 2 ;;
+            --escucha) [ $# -ge 2 ] || die "--escucha necesita un valor"; LISTEN="$2"; shift 2 ;;
+            --sin-gpu) NO_GPU=true; shift ;;
+            --sin-modelos) NO_MODELS=true; shift ;;
+            --permitir-intercambio) ALLOW_SWAP=true; shift ;;
+            --permitir-reloj-sin-ntp) ALLOW_CLOCK=true; shift ;;
+            -s | --si) shift ;;
+            -h | --ayuda) usage 0 ;;
+            *) die "opción desconocida: $1 (mira: iris-voz ayuda)" ;;
         esac
     done
     case "$DIR" in /*) ;; *) DIR="$(pwd)/$DIR" ;; esac
     DIR="${DIR%/}"
-    [ -n "$DIR" ] || die "--dir cannot be /"
-    [ -z "$PORT" ] || [[ "$PORT" =~ ^[0-9]{1,5}$ ]] || die "invalid port: $PORT"
+    [ -n "$DIR" ] || die "--dir no puede ser /"
+    [ -z "$PORT" ] || [[ "$PORT" =~ ^[0-9]{1,5}$ ]] || die "puerto inválido: $PORT"
 
     case "$CMD" in
-        install) cmd_install ;;
-        upgrade) cmd_upgrade ;;
-        pair) cmd_pair ;;
-        unpair) need_root; need_install; puerta desenlazar < /dev/null ;;
-        status) cmd_status ;;
-        renew-cert)
+        instalar) cmd_install ;;
+        actualizar) cmd_upgrade ;;
+        enlazar) cmd_pair ;;
+        desenlazar) need_root; need_install; puerta desenlazar < /dev/null ;;
+        estado) cmd_status ;;
+        renovar-certificado)
             need_root
             need_install
-            if [ "${REST[0]:-}" = --no-channel ]; then puerta renovar-certificado --sin-canal < /dev/null; else puerta renovar-certificado < /dev/null; fi
+            if [ "${REST[0]:-}" = --sin-canal ]; then puerta renovar-certificado --sin-canal < /dev/null; else puerta renovar-certificado < /dev/null; fi
             ;;
         ip)
             need_root
             need_install
             case "${REST[0]:-}" in
-                restrict) puerta ip restringir < /dev/null ;;
-                release) puerta ip liberar < /dev/null ;;
-                *) die "usage: ip restrict|release" ;;
+                restringir) puerta ip restringir < /dev/null ;;
+                liberar) puerta ip liberar < /dev/null ;;
+                *) die "uso: ip restringir|liberar" ;;
             esac
             ;;
-        model) cmd_model "${REST[@]}" ;;
-        logs) need_install; dc logs -f --tail 100 "${REST[@]}" ;;
-        stop) need_root; need_install; dc --profile descarga down ;;
-        start) need_root; need_install; IRIS_VOZ_SKIP_PULL=1 start ;;
+        modelo) cmd_model "${REST[@]}" ;;
+        registros) need_install; dc logs -f --tail 100 "${REST[@]}" ;;
+        parar) need_root; need_install; dc --profile descarga down ;;
+        arrancar) need_root; need_install; IRIS_VOZ_SKIP_PULL=1 start ;;
         compose) need_install; dc "${REST[@]}" ;;
         version) need_install; installed_version ;;
     esac
 }
 
-# Runs only when executed; tests source this file to call its functions.
+# Solo corre si se ejecuta; las pruebas lo cargan con «.» para llamar a sus funciones.
 if ! (return 0 2> /dev/null); then
     main "$@"
 fi

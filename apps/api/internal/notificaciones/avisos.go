@@ -25,6 +25,14 @@ import (
 // Tipos de aviso.
 const TipoAvisoAsistenteTope = "asistente_tope"
 
+// Avisos del servidor de IA de la instalación (contratos/voz.md §4.12): a quienes tienen
+// servidor_ia.ver y todas las empresas. Uno por episodio.
+const (
+	TipoAvisoServidorIACaido        = "servidor_ia_caido"
+	TipoAvisoServidorIAIncompatible = "servidor_ia_incompatible"
+	TipoAvisoServidorIAUmbral       = "servidor_ia_umbral"
+)
+
 // EnlaceAsistente es la pantalla de los ajustes y el uso del asistente en el panel.
 const EnlaceAsistente = "/administracion/asistente"
 
@@ -40,7 +48,7 @@ const (
 // AvisoPanel es un aviso de la campana.
 type AvisoPanel struct {
 	ID        int64          `json:"id"`
-	Tipo      string         `json:"tipo" enum:"asistente_tope" doc:"asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes"`
+	Tipo      string         `json:"tipo" enum:"asistente_tope,servidor_ia_caido,servidor_ia_incompatible,servidor_ia_umbral" doc:"asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)"`
 	Nivel     string         `json:"nivel" enum:"info,alerta,peligro" doc:"alerta al 80 %, peligro al 100 % (el asistente se pausó)"`
 	Titulo    string         `json:"titulo" doc:"Texto en español, listo para mostrar"`
 	Enlace    *string        `json:"enlace" nullable:"true" doc:"Ruta del panel a la que lleva (p. ej. /administracion/asistente)"`
