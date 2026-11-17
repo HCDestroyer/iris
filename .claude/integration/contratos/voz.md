@@ -1166,6 +1166,14 @@ no guarda ninguna credencial de Iris.
     servidor rechaza lo siguiente **de forma explícita** (401 por la firma, o el certificado en el
     saludo TLS) en **3 latidos seguidos** (`servidor_ia.rotacion_descartada` en la auditoría). Un
     tiempo agotado o un corte de red no son un rechazo: se conserva y se vuelve a probar.
+  - **Qué es un rechazo explícito:** solo lo que nadie en el camino puede falsificar. El 401 llega
+    por TLS con la huella del servidor fijada. El rechazo del certificado de cliente es una alerta
+    TLS que la puerta manda **después** del saludo (cifrada, con el servidor ya autenticado); una
+    alerta **durante** el saludo va en claro y cualquiera puede inventarla: cuenta como fallo de red.
+  - **Límite de tiempo:** si pasaron 25 h (la convivencia de 24 h más un margen) desde que se
+    apartó la rotación, lo vigente sigue contestando y lo «siguiente» no, se descarta aunque no
+    haya habido rechazo explícito: de haberse aplicado, lo vigente ya no valdría. Así una
+    «siguiente» sin respuesta no bloquea para siempre la rotación automática.
   - Durante la convivencia la puerta acepta **todas** las rutas, también `/credencial`, firmadas
     con el token anterior: por eso Iris puede terminar o repetir la rotación sin reenlazar.
   - La **rotación automática** que falla no se repite en cada latido: un intento por hora como mucho.
