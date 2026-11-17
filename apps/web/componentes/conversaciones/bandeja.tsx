@@ -11,6 +11,7 @@ import type { Contadores, Conversacion, EventoBandeja } from "@/lib/conversacion
 import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
 import { anunciarFuente, publicarEvento } from "@/lib/voz/canal";
+import { ProveedorDevoluciones } from "../voz/devoluciones";
 import { ProveedorCatalogos } from "./catalogos";
 import { PanelConversacion } from "./conversacion";
 import { ListaConversaciones } from "./lista";
@@ -195,6 +196,7 @@ export function Bandeja() {
     const listaVisible = abierta === null;
     return (
         <ProveedorCatalogos>
+        <ProveedorDevoluciones>
         <div data-slot="bandeja" data-vista={listaVisible ? "lista" : "conversacion"} className="@container/bandeja min-h-0 overflow-hidden bg-background-secondary">
             <div
                 className={cn(
@@ -237,6 +239,7 @@ export function Bandeja() {
                 )}
             </div>
         </div>
+        </ProveedorDevoluciones>
         </ProveedorCatalogos>
     );
 }

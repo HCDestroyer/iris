@@ -11,6 +11,7 @@ import { identidadQuedoVerificada, resultadoIdentidad } from "@/lib/asistente/fa
 import { esEventoBot } from "@/lib/conversaciones/atencion";
 import { rutaDescargaAdjunto } from "@/lib/ordenes/adjuntos";
 import { diaLocal } from "@/lib/conversaciones/presentacion";
+import { LlamadaEnHilo } from "../voz/en-hilo";
 
 type Props = {
     mensajes: readonly Mensaje[];
@@ -138,6 +139,8 @@ function EtiquetaAsistente() {
 }
 
 function Burbuja({ m }: { m: Mensaje }) {
+    // Voz E1: la llamada queda en el hilo como una tarjeta propia (contestada, perdida, rechazada…).
+    if (m.tipo === "llamada" && m.llamada) return <LlamadaEnHilo m={m} />;
     if (m.direccion === "sistema") {
         const tipo = m.evento?.tipo ?? "";
         const bot = esEventoBot(tipo);
