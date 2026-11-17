@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"slices"
 	"strings"
@@ -658,5 +659,71 @@ func TestServidorIARotacionAutomaticaConEspera(t *testing.T) {
 	}
 	if err := x.generar(); err != nil {
 		t.Fatalf("tras la rotación automática: %v", err)
+	}
+}
+
+// N7 y N8: una «siguiente» que nunca recibe ni un acierto ni un rechazo explícito. Una alerta TLS
+// durante el saludo (que cualquiera en el camino puede falsificar) no cuenta como rechazo; y pasada
+// la convivencia más un margen, con lo vigente contestando, se descarta y la rotación automática vuelve.
+func TestServidorIASiguienteSinRespuesta(t *testing.T) {
+	x := nuevoBancoIA(t, vozprueba.Opciones{})
+	x.enlazar()
+	x.activar()
+	if err := x.m.SiguienteSinEntregar(x.ctx, x.bd, x.motor, true); err != nil {
+		t.Fatal(err)
+	}
+	descartes := func() int {
+		return x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'servidor_ia.rotacion_descartada' AND entidad_id = $1`, fmt.Sprint(x.motor))
+	}
+	rechazos := func() int {
+		return x.contar(`SELECT siguiente_rechazos FROM mensajeria.voz_motores WHERE id = $1`, x.motor)
+	}
+	*x.reloj = x.reloj.Add(mensajeria.PlazoRotacionIA + time.Second)
+	// N7: el sondeo de lo siguiente recibe una alerta TLS durante el saludo (así la entrega
+	// crypto/tls). No es un rechazo explícito: el contador no sube y no se descarta.
+	x.m.FijarSondeoSiguienteIA(func() error {
+		return &net.OpError{Op: "remote error", Net: "tcp", Err: errors.New("tls: bad certificate")}
+	})
+	for range 5 {
+		x.latir()
+	}
+	if x.columna("token_siguiente") == nil || rechazos() != 0 || descartes() != 0 {
+		t.Fatalf("una alerta durante el saludo no debía contar: %d rechazos, %d descartes", rechazos(), descartes())
+	}
+	// N8: sigue sin acierto ni rechazo explícito (tiempos agotados). Mientras quede algo «siguiente»
+	// la rotación automática no corre, aunque el token tenga más de 30 días.
+	x.m.FijarSondeoSiguienteIA(func() error { return context.DeadlineExceeded })
+	viejo := x.reloj.Add(-31 * 24 * time.Hour)
+	x.sql(`UPDATE mensajeria.voz_motores SET token_rotado_en = $2 WHERE id = $1`, x.motor, viejo)
+	*x.reloj = x.reloj.Add(12 * time.Hour)
+	x.latir()
+	var rotado time.Time
+	leerRotado := func() time.Time {
+		t.Helper()
+		if err := x.bd.QueryRow(x.ctx, `SELECT token_rotado_en FROM mensajeria.voz_motores WHERE id = $1`, x.motor).Scan(&rotado); err != nil {
+			t.Fatal(err)
+		}
+		return rotado
+	}
+	if x.columna("token_siguiente") == nil || descartes() != 0 || !leerRotado().Equal(viejo) {
+		t.Fatal("a las 12 horas todavía no se descarta ni se rota")
+	}
+	// A las 25 horas (la convivencia de 24 h más el margen) lo vigente sigue contestando: de haberse
+	// aplicado lo siguiente, ya no valdría. Se descarta, auditado, y la rotación automática vuelve.
+	*x.reloj = x.reloj.Add(13*time.Hour + time.Minute)
+	x.latir()
+	if x.columna("token_siguiente") != nil || x.columna("cert_cliente_clave_siguiente") != nil || descartes() != 1 {
+		t.Fatalf("a las 25 horas debía descartarse: %d descartes", descartes())
+	}
+	x.m.FijarSondeoSiguienteIA(nil)
+	x.latir()
+	if leerRotado().Equal(viejo) || x.reloj.Sub(rotado) > time.Minute || x.columna("token_siguiente") != nil {
+		t.Fatalf("tras el descarte la rotación automática debía volver: rotado %s", rotado)
+	}
+	if x.estado() != "listo" {
+		t.Fatalf("estado: %s", x.estado())
+	}
+	if err := x.generar(); err != nil {
+		t.Fatalf("tras volver a rotar el canal debía vivir: %v", err)
 	}
 }

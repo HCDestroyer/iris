@@ -8,7 +8,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -149,16 +148,10 @@ const rechazosParaDescartar = 3
 // esperaRotacionFallida: tras fallar la rotación automática, no se intenta otra hasta pasado esto.
 const esperaRotacionFallida = time.Hour
 
-// rechazoExplicito: el servidor contestó y dijo que no (401 por la firma, o rechazó el certificado
-// de cliente en el saludo TLS). Un tiempo agotado, un corte o cualquier otro error NO lo es: ahí
-// no se sabe qué tiene el servidor.
-func rechazoExplicito(err error) bool {
-	var ep *voz.ErrorPuerta
-	if errors.As(err, &ep) {
-		return ep.Estado == http.StatusUnauthorized && ep.Codigo == "no_autorizado"
-	}
-	return err != nil && strings.Contains(err.Error(), "remote error: tls:")
-}
+// vidaSiguienteSinAplicar: pasado esto desde que se apartó la rotación (la convivencia más un
+// margen), si lo vigente sigue contestando y lo «siguiente» no, la entrega no se aplicó nunca: de
+// haberse aplicado, lo vigente ya no valdría. Se descarta aunque no haya habido un rechazo explícito.
+const vidaSiguienteSinAplicar = convivenciaRotacion + time.Hour
 
 func (m *Modulo) probarCanal(ctx context.Context, c conexionMotor, cert tls.Certificate, token []byte) error {
 	cli, err := m.clienteCon(c, cert, token)
@@ -718,8 +711,11 @@ func (m *Modulo) latirMotor(ctx context.Context, id int64) (mensajeriabd.Mensaje
 		// quien la empezó). Se mira qué tiene el servidor:
 		var errSig error
 		if err != nil || !vivo.siguiente {
-			if errSig = m.probarCanal(ctx, c, sig.cert, sig.token); errSig == nil && m.sondeoSiguienteIA != nil {
-				errSig = m.sondeoSiguienteIA()
+			errSig = m.probarCanal(ctx, c, sig.cert, sig.token)
+			if m.sondeoSiguienteIA != nil {
+				if errPrueba := m.sondeoSiguienteIA(); errPrueba != nil {
+					errSig = errPrueba
+				}
 			}
 		}
 		if errSig == nil {
@@ -733,8 +729,11 @@ func (m *Modulo) latirMotor(ctx context.Context, id int64) (mensajeriabd.Mensaje
 			// lo siguiente de forma explícita varios latidos seguidos: entonces la entrega nunca llegó.
 			// Un tiempo agotado o un corte de red no dicen nada: se conserva y se vuelve a probar (si la
 			// rotación sí se aplicó, descartarla dejaría a Iris con una credencial que caduca).
-			n, errN := k.rechazoSiguiente.Ejecutar(ctx, entradaRechazoSiguiente{ID: id, Explicito: err == nil && rechazoExplicito(errSig)})
-			if errN == nil && n >= rechazosParaDescartar {
+			n, errN := k.rechazoSiguiente.Ejecutar(ctx, entradaRechazoSiguiente{ID: id, Explicito: err == nil && voz.RechazoExplicito(errSig)})
+			// Sin rechazo explícito también hay un final: pasada la convivencia más un margen, con lo
+			// vigente contestando, lo siguiente no pudo aplicarse (si no, lo vigente ya habría caducado).
+			vencida := err == nil && f.RotacionDesde != nil && m.ahora().Sub(*f.RotacionDesde) > vidaSiguienteSinAplicar
+			if errN == nil && (n >= rechazosParaDescartar || vencida) {
 				if _, errD := k.descartarSiguiente.Ejecutar(ctx, id); errD != nil {
 					slog.WarnContext(ctx, "servidor de IA: descartar una entrega que no llegó", "err", errD)
 				}

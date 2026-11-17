@@ -34,6 +34,30 @@ type ErrorPuerta struct {
 
 func (e *ErrorPuerta) Error() string { return fmt.Sprintf("voz: %d %s", e.Estado, e.Codigo) }
 
+// ErrorRechazoTLS: el servidor cortó con una alerta TLS DESPUÉS de un saludo en el que presentó el
+// certificado fijado y firmó con él (lo que llega después va cifrado con claves que solo él tiene:
+// nadie en el camino puede falsificarlo). Es como rechaza la puerta un certificado de cliente que no
+// conoce. Una alerta durante el saludo (en claro, falsificable) NO es esto: es un fallo de red.
+type ErrorRechazoTLS struct{ Causa error }
+
+func (e *ErrorRechazoTLS) Error() string {
+	return "voz: el servidor rechazó la conexión: " + e.Causa.Error()
+}
+func (e *ErrorRechazoTLS) Unwrap() error { return e.Causa }
+
+// RechazoExplicito dice si el servidor contestó y dijo que no a estas credenciales: 401 por la firma
+// (sobre TLS con la huella fijada) o el rechazo del certificado de cliente tras el saludo. Un tiempo
+// agotado, un corte, una alerta durante el saludo o cualquier otro error no lo son: ahí no se sabe
+// qué tiene el servidor.
+func RechazoExplicito(err error) bool {
+	var ep *ErrorPuerta
+	if errors.As(err, &ep) {
+		return ep.Estado == http.StatusUnauthorized && ep.Codigo == "no_autorizado"
+	}
+	var rt *ErrorRechazoTLS
+	return errors.As(err, &rt)
+}
+
 // OpcionesCliente es la conexión de Iris con un servidor ya enlazado.
 type OpcionesCliente struct {
 	// URL base: https://host:puerto (sin ruta).
@@ -58,6 +82,8 @@ type Cliente struct {
 	http  *http.Client
 	mu    sync.Mutex
 	vista string
+	// saludos: saludos TLS en los que el servidor ya presentó y probó el certificado fijado.
+	saludos int
 }
 
 func validarBase(crudo string) error {
@@ -99,6 +125,7 @@ func NuevoCliente(o OpcionesCliente) (*Cliente, error) {
 			}
 			c.mu.Lock()
 			c.vista = h
+			c.saludos++
 			c.mu.Unlock()
 			return nil
 		},
@@ -109,6 +136,20 @@ func NuevoCliente(o OpcionesCliente) (*Cliente, error) {
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	return c, nil
+}
+
+// clasificar convierte en *ErrorRechazoTLS una alerta TLS del servidor recibida en una conexión
+// cuyo saludo (de esta misma petición) ya autenticó al servidor. Cualquier otra cosa se deja igual.
+func (c *Cliente) clasificar(err error, saludosAntes int) error {
+	c.mu.Lock()
+	saludado := c.saludos > saludosAntes
+	c.mu.Unlock()
+	var op *net.OpError
+	// crypto/tls entrega las alertas del otro lado como un net.OpError con Op «remote error».
+	if saludado && errors.As(err, &op) && op.Op == "remote error" {
+		return &ErrorRechazoTLS{Causa: err}
+	}
+	return err
 }
 
 // Cerrar suelta las conexiones.
@@ -141,14 +182,17 @@ func (c *Cliente) Hacer(ctx context.Context, metodo, ruta string, cuerpo []byte,
 	if len(cuerpo) > 0 {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	c.mu.Lock()
+	antes := c.saludos
+	c.mu.Unlock()
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, c.clasificar(err, antes)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	b, err := io.ReadAll(io.LimitReader(resp.Body, tope+1))
 	if err != nil {
-		return nil, err
+		return nil, c.clasificar(err, antes)
 	}
 	if int64(len(b)) > tope {
 		return nil, &ErrorPuerta{Estado: resp.StatusCode, Codigo: "respuesta_demasiado_grande"}
