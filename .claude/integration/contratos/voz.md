@@ -130,6 +130,63 @@ técnica (§9)**; los que más pesan están listados en §10.
     `llamadas.contestar` es la del SDP saneado.
   - **Job `mensajeria.voz_meta`.** Dentro de un ciclo sigue tomando lotes mientras quede
     presupuesto (4 s): un `terminate` no espera varios ciclos detrás de otras escrituras.
+- **E1b hecha en el servidor (17 nov 2026): salientes y permiso de llamada.** Lo que §2.5 y §3.7
+  no decían, o cambia:
+  - **Solo la empresa dueña del número** llama y pide permiso. En un número prestado, la
+    prestataria recibe 422 `llamadas_inactivas` (y `permiso-llamada` responde `puedeLlamar: false`,
+    `puedeSolicitar: false`, `motivo: "llamadas_inactivas"`).
+  - **`GET /conversaciones/{id}/permiso-llamada`** →
+    `{ estado, venceEn?, puedeSolicitar, proximaSolicitudEn?, puedeLlamar, motivo?, sinContestar }`.
+    Es lo que Iris sabe (no pregunta a Meta). `motivo`: `llamadas_inactivas`,
+    `sin_permiso_llamada` o `no_autorizado` (quien mira no tiene `llamadas.llamar`). Un temporal
+    vencido se muestra `sin_pedir`.
+  - **Solicitar.** El mensaje queda en el hilo como texto saliente con `automatico:
+    "permiso_llamada"`. Fuera de la ventana usa la plantilla que el supervisor indica en
+    `POST /canales/{id}/llamadas/configurar` (`plantillaPermiso`, `plantillaPermisoIdioma`;
+    opcionales: ausentes se conservan, vacía se quita); sin ella, 422 `sin_plantilla_permiso`. El
+    requisito `plantilla_permiso` de `comprobar` sigue siendo solo aviso. `limite_solicitudes`
+    trae en `errors[0].message` desde cuándo se puede volver a pedir.
+  - **La respuesta del cliente** llega por el webhook `messages` (`interactive.type:
+    "call_permission_reply"`): `accept` → `temporal` (7 días, o lo que diga
+    `expiration_timestamp`) o `permanente`; `reject` → `negado`. En el hilo queda como texto del
+    cliente («Aceptó que lo llamen por WhatsApp»).
+  - **`POST /conversaciones/{id}/llamar { sdpOferta, devolucionId?, confirmarRiesgo? }`** con
+    `X-Iris-Navegador` (sin él, 422 `navegador_requerido`). La oferta del navegador se **sanea**
+    igual que la respuesta de una entrante y es la que va a Meta. Fases, sin llamar a Meta dentro
+    de una transacción: leer → `call_permissions` (lectura recordada 60 s; si Meta no responde,
+    502 `meta_rechazo`: falla cerrado) → guardar la llamada `marcando` con la intención `connect`
+    → `connect` → guardar el `call_id`. Si Meta rechaza el `connect`: 502 `meta_rechazo` y la
+    llamada queda `fallida` (`error_meta`). Errores nuevos: 422 **`confirmar_riesgo`** (lleva tres
+    seguidas sin contestar y no vino `confirmarRiesgo: true`), 409 `devolucion_cerrada`.
+  - **Estados de una saliente.** `marcando` → la respuesta SDP de Meta llega por el webhook
+    `connect` (`direction: BUSINESS_INITIATED`), pasa la **validación estricta** y se guarda; el
+    feed avisa `llamada_respuesta` **solo a quien llamó** (sin SDP) y se lee con
+    `GET /llamadas/{id}/respuesta-sdp` (`llamadas.llamar`; solo quien llamó y desde el mismo
+    navegador: 404 a cualquier otro, 409 `otro_navegador`, 409 `sin_respuesta` si aún no llegó).
+    Si la respuesta no pasa la validación: `fallida` + `terminate`. **`marcando → en_curso` es con
+    el estado `ACCEPTED`** (no al llegar el SDP); `REJECTED` o un `terminate` sin contestar →
+    `perdida` (`nadie_contesto`); sin `ACCEPTED` en 60 s el mantenimiento la deja `perdida` y manda
+    `terminate`. `RINGING` no cambia nada.
+  - **Colgar.** `POST /llamadas/{id}/colgar` también vale mientras marca (queda `terminada`,
+    `agente_colgo`, y **no** cuenta como sin contestar). Con **`?propia=true`** solo cuelga quien
+    tiene la llamada (supervisar no cuenta): es lo que manda el panel al cerrarse la pestaña.
+  - **Una saliente perdida** no deja devolución pendiente ni mensaje automático, y su
+    `llamada.perdida` va con `usuarios: []` (sin push). Suma `sin_contestar`; a la cuarta el
+    permiso queda `revocado` (`llamada.permiso_cambiado`). Al contestar vuelve a 0.
+  - **Devolver la llamada.** Con `devolucionId` (pendiente y de esa conversación), la devolución
+    queda `hecha` (con `llamada_devuelta_id`) **cuando el cliente contesta**, no al marcar.
+  - **Límites y coste.** `GET/POST /voz/ajustes` suman `maxSalientesPorDia` (50, 0–1000) y
+    `topeMinutosSalientesMes` (300, 0–100000); en `actualizar` son opcionales. El día y el mes se
+    cuentan en `America/Guatemala`. Los minutos son la suma de `duracion_seg` de las salientes
+    contestadas del mes. `voz.tope_alcanzado` (`tipo: salientes`) sale una vez al cruzar el 80 % y
+    otra al cruzar el 100 %, al terminar la llamada que lo cruza; pasado el tope, 422
+    `tope_alcanzado`. 100 conectadas por número en 24 h → 422 `limite_llamadas`.
+  - **Panel caído en una saliente.** Quien llama puede no tener «Recibir llamadas»: cuenta el
+    latido del flujo de eventos del navegador desde el que llamó (tiene que estar abierto mientras
+    dure la llamada; si no, a los 55 s se corta con `error_medio`).
+  - **Permisos.** `llamadas.llamar` (sensible): `supervisor` y `admin`. `llamadas.solicitar_permiso`:
+    `soporte`, `ventas`, `supervisor`, `admin`.
+  - **Fuera de E1b:** el botón «Llámanos» (`tipo: "llamanos"`) y el asistente pidiendo permiso.
 - **E1c (grabación, pendiente de la prueba real):** la grabación de Meta **no forma parte de E1**.
   No se ofrece ni se acepta: `grabar` es siempre `nunca` (cualquier otro valor en
   `POST /voz/ajustes/actualizar` responde **422 `grabacion_no_disponible`**), Iris **nunca pide** la
@@ -755,6 +812,8 @@ Un supervisor puede **oír** una llamada en curso sin participar.
 | `llamada_terminada` | 409 | Acción sobre una llamada en estado final |
 | `llamada_en_curso` | 409 | El usuario o el contacto ya tienen una llamada viva |
 | `navegador_requerido` | 422 | `reclamar` o `GET /llamadas/recibir` sin el id del navegador (`X-Iris-Navegador`) |
+| `confirmar_riesgo` | 422 | `llamar` a un contacto con tres salientes seguidas sin contestar, sin `confirmarRiesgo: true` |
+| `sin_respuesta` | 409 | `GET /llamadas/{id}/respuesta-sdp` antes de que WhatsApp mande la respuesta |
 | `accion_en_curso` | 409 | `soltar` o `reclamar` mientras WhatsApp no ha respondido a un `pre_accept` o `accept` de esa llamada |
 | `reserva_vencida` | 409 | `contestar` o `confirmar-medio` después de `reclamadaHasta` |
 | `sdp_invalido` | 422 | El SDP no pasa la validación (campo `sdpRespuesta` / `sdpOferta`) |

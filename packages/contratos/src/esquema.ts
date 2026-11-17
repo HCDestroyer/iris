@@ -4384,7 +4384,7 @@ export interface paths {
         put?: never;
         /**
          * Colgar
-         * @description Permiso: `llamadas.colgar`. Quien la tiene, o quien supervisa. 409 `llamada_terminada` si ya terminó. Emite `llamada.terminada`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         * @description Permiso: `llamadas.colgar`. Quien la tiene, o quien supervisa. Con `?propia=true` solo quien la tiene (supervisar no cuenta): es lo que debe mandar el panel al cerrarse la pestaña, para no colgar la llamada de otra persona si la reserva propia ya venció (404 en ese caso). Una saliente también se cuelga mientras marca. 409 `llamada_terminada` si ya terminó. Emite `llamada.terminada`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
          */
         post: operations["colgarLlamada"];
         delete?: never;
@@ -35056,12 +35056,13 @@ export interface operations {
     };
     colgarLlamada: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Solo si la llamada es tuya (no vale supervisar): para el cierre de pestaña */
+                propia?: boolean;
+            };
             header?: {
                 /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
                 "Idempotency-Key"?: string;
-                /** @description El id de «Recibir llamadas» de este navegador. Obligatorio en reclamar, contestar, confirmar-medio y soltar: la reserva es de un usuario en un navegador */
-                "X-Iris-Navegador"?: string;
             };
             path: {
                 id: string;

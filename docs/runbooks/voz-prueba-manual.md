@@ -70,6 +70,36 @@ el servidor las quita antes de mandarla a Meta; comprobar que aun así el audio 
    cliente escribió en las últimas 24 h, sale el mensaje automático (una vez por hora).
 4. Cuatro llamadas seguidas del mismo teléfono en 10 minutos: la cuarta se rechaza.
 
+## 4b. Salientes y permiso de llamada (E1b)
+
+Con un usuario `supervisor` (tiene `llamadas.llamar`) y el número de pruebas de la empresa dueña.
+
+1. `GET …/conversaciones/{id}/permiso-llamada`: `sin_pedir`. `POST …/solicitar-permiso-llamada`
+   dentro de la ventana de 24 h: al teléfono llega el mensaje con los botones de permiso. Guardar
+   el **cuerpo que Iris manda** y el **webhook de la respuesta** al aceptar (temporal) y al rechazar.
+2. Repetir la solicitud: 422 `limite_solicitudes`. Comprobar contra WhatsApp Manager los límites
+   (1 por 24 h, 2 por 7 días).
+3. Fuera de la ventana: indicar la plantilla en los ajustes de llamadas del número
+   (`plantillaPermiso`) y solicitar. Guardar el cuerpo y la respuesta de Meta.
+4. `POST …/conversaciones/{id}/llamar` desde el panel. Esperado: el teléfono suena; al contestar,
+   audio en los dos sentidos. Guardar los webhooks en orden (respuesta SDP, RINGING, ACCEPTED,
+   terminate) y la respuesta de `connect` y de `call_permissions`.
+5. No contestar: a los 60 s Iris la deja perdida y manda `terminate`. Rechazar desde el teléfono.
+6. Colgar desde el panel mientras suena.
+
+Supuestos de E1b por confirmar (si alguno no se cumple, las salientes no funcionan o cuentan mal):
+
+| # | Supuesto | Dónde está en el código |
+| --- | --- | --- |
+| 13 | `connect` responde `{ "calls": [{ "id": "wacid…" }] }` | `graphHTTP.Llamar` |
+| 14 | La respuesta SDP llega en `calls[]` con `event: connect`, `direction: BUSINESS_INITIATED` y `session.sdp_type: answer` | `eventoSaliente` |
+| 15 | RINGING, ACCEPTED y REJECTED llegan en `statuses[]` del campo `calls`, con `id` = call_id y `recipient_id` | `procesarMeta` (entrantes.go) |
+| 16 | `GET /{phone_number_id}/call_permissions?user_wa_id=` responde `permission.status` (`temporary`, `permanent`, otro = sin permiso), `expiration_time` y `actions[]` con `start_call` | `graphHTTP.Permiso` |
+| 17 | La solicitud es `interactive.type: call_permission_request` y la respuesta `interactive.call_permission_reply { response, is_permanent, expiration_timestamp }` | `whatsapp_cloud.go`, `recibirPermisoLlamada` |
+| 18 | La plantilla de permiso se manda sin componentes (`template { name, language }`) | `whatsapp_cloud.go` |
+| 19 | La respuesta SDP real de Meta a una saliente pasa la lista cerrada (si no, la llamada queda `fallida` y se ve en `llamada.fallida`) | `ValidarSDP` |
+| 20 | ¿Meta manda `ACCEPTED` siempre? Si solo manda el SDP, las salientes se quedarían en `marcando` hasta los 60 s | `eventoSaliente` |
+
 ## 5. Qué entregar
 
 Un informe corto con: lo que difiere de cada supuesto, los cuerpos reales de `connect` y `terminate`

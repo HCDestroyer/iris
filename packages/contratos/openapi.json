@@ -54385,7 +54385,7 @@
     },
     "/api/v1/mensajeria/llamadas/{id}/colgar": {
       "post": {
-        "description": "Permiso: `llamadas.colgar`. Quien la tiene, o quien supervisa. 409 `llamada_terminada` si ya terminó. Emite `llamada.terminada`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.",
+        "description": "Permiso: `llamadas.colgar`. Quien la tiene, o quien supervisa. Con `?propia=true` solo quien la tiene (supervisar no cuenta): es lo que debe mandar el panel al cerrarse la pestaña, para no colgar la llamada de otra persona si la reserva propia ya venció (404 en ese caso). Una saliente también se cuelga mientras marca. 409 `llamada_terminada` si ya terminó. Emite `llamada.terminada`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.",
         "operationId": "colgarLlamada",
         "parameters": [
           {
@@ -54408,14 +54408,13 @@
             }
           },
           {
-            "description": "El id de «Recibir llamadas» de este navegador. Obligatorio en reclamar, contestar, confirmar-medio y soltar: la reserva es de un usuario en un navegador",
-            "in": "header",
-            "name": "X-Iris-Navegador",
+            "description": "Solo si la llamada es tuya (no vale supervisar): para el cierre de pestaña",
+            "explode": false,
+            "in": "query",
+            "name": "propia",
             "schema": {
-              "description": "El id de «Recibir llamadas» de este navegador. Obligatorio en reclamar, contestar, confirmar-medio y soltar: la reserva es de un usuario en un navegador",
-              "maxLength": 64,
-              "pattern": "^[A-Za-z0-9_-]{8,64}$",
-              "type": "string"
+              "description": "Solo si la llamada es tuya (no vale supervisar): para el cierre de pestaña",
+              "type": "boolean"
             }
           }
         ],
