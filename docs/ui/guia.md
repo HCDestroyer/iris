@@ -736,6 +736,9 @@ solo para quien tiene `llamadas.contestar`: el aviso y la barra aparecen en cual
   Recomendado / Sin comprobar», «pendiente de aplicar en WhatsApp» con «Reintentar», a quién le
   suena, horario y llamadas perdidas; un número por QR solo muestra por qué no puede) y
   `/administracion/llamadas` (de la empresa). **La grabación no se ofrece.**
+- **«En pruebas»:** hasta validar las llamadas con Meta, los ajustes llevan arriba la franja «En
+  pruebas» y los interruptores, la etiqueta. Se quita con una sola constante:
+  `LLAMADAS_EN_PRUEBAS` en `componentes/voz/en-pruebas.tsx`.
 - **Pruebas:** `lib/voz/*.test.ts` (máquina, textos, ajustes) y `e2e/voz.spec.ts` con
   `e2e/api-voz.ts`, `e2e/doble-webrtc.ts` (micrófono y `RTCPeerConnection` de mentira) y
   `page.clock` para los plazos de 12 s y 5 s.

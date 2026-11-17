@@ -6,6 +6,7 @@ import { useState } from "react";
 import { mensajeDeError } from "@/lib/api/errores";
 import { permisoMicrofono } from "@/lib/voz/medios";
 import { useEstoyDisponible } from "../conversaciones/disponibilidad";
+import { EtiquetaEnPruebas } from "./en-pruebas";
 import { useVoz } from "./proveedor";
 
 /** Qué pasa con «Recibir llamadas» en este navegador, para el punto del botón. */
@@ -83,6 +84,7 @@ export function ControlRecibir({ className }: { className?: string }) {
     const sinMicrofono = microfono === "sin_microfono" || microfono === "no_disponible";
     return (
         <div className={cn("grid gap-2.5", className)} data-slot="control-recibir" data-recibe={recibir.recibe ? "si" : "no"}>
+            <EtiquetaEnPruebas />
             <Interruptor
                 alFinal
                 etiqueta="Recibir llamadas en este navegador"

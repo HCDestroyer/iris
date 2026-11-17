@@ -81,7 +81,7 @@ export function anotarLlamada(id: string, nota: string, resultado: ResultadoLlam
  * `colgar` (ya en curso) salen con `fetch` y `keepalive`, que el navegador termina de mandar aunque
  * la página ya no exista. Lleva a mano lo que el cliente pone solo (CSRF y empresa activa).
  */
-export function avisarAlCerrar(id: string, accion: "soltar" | "colgar", empresaDeLaLlamada?: number): void {
+export function avisarAlCerrar(id: string, accion: "soltar" | "colgar", empresaDeLaLlamada?: number, propia = false): void {
     if (typeof fetch === "undefined" || typeof document === "undefined") return;
     const cabeceras: Record<string, string> = { "Content-Type": "application/json", "Idempotency-Key": nuevaClaveIdempotencia(), [CABECERA_NAVEGADOR]: idNavegador() };
     const csrf = leerCookie(COOKIE_CSRF, document.cookie);
@@ -90,7 +90,8 @@ export function avisarAlCerrar(id: string, accion: "soltar" | "colgar", empresaD
     const empresa = empresaDeLaLlamada ?? empresaGuardada();
     if (empresa !== undefined) cabeceras[CABECERA_EMPRESA] = String(empresa);
     try {
-        void fetch(`${BASE}/${encodeURIComponent(id)}/${accion}`, {
+        // `colgar?propia=true`: solo cuelga quien tiene la llamada (voz.md §2.3).
+        void fetch(`${BASE}/${encodeURIComponent(id)}/${accion}${accion === "colgar" && propia ? "?propia=true" : ""}`, {
             method: "POST",
             credentials: "include",
             keepalive: true,

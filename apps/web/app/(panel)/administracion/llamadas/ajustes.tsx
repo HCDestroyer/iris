@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { CargaRegistro } from "@/componentes/carga-registro";
+import { FranjaEnPruebas } from "@/componentes/voz/en-pruebas";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { erroresACampos } from "@/lib/formularios";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
@@ -63,6 +64,7 @@ function Formulario({ ajustes }: { ajustes: AjustesVoz }) {
                 ) : null
             }
         >
+            <FranjaEnPruebas />
             <SeccionFormulario titulo="A quién le suena primero">
                 <CampoNumero
                     etiqueta="Segundos que suena solo a quien tiene la conversación"

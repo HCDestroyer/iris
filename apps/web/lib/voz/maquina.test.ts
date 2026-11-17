@@ -217,7 +217,8 @@ describe("máquina de la llamada entrante (contratos/voz.md §3.3)", () => {
         // Sin candado no se suelta a ciegas.
         expect(en(4, "respondida", false)).toBeNull();
         // `confirmar-medio` ya salió: colgar, con o sin candado.
-        expect(en(5, "confirmando", false)).toEqual({ accion: "colgar", id: llamada().id });
+        // …y con `propia`: sin tiempo de comprobar de quién es, que solo cuelgue si es mía.
+        expect(en(5, "confirmando", false)).toEqual({ accion: "colgar", id: llamada().id, propia: true });
         expect(en(6, "en_curso", false)).toEqual({ accion: "colgar", id: llamada().id });
     });
 });

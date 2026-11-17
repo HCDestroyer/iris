@@ -216,10 +216,13 @@ export function alSalir(antes: EstadoVoz, despues: EstadoVoz, etapa: Etapa, rese
  * Qué avisarle al servidor si la pestaña se cierra ahora (§3.4), con `keepalive`: `colgar` si hablo
  * o pudo aceptarse; `soltar` si la reserva es (o puede ser) mía; nada si solo suena.
  */
-export function alCerrarPestana(e: EstadoVoz, etapa: Etapa, reservaSegura: boolean): { accion: "soltar" | "colgar"; id: string } | null {
+export function alCerrarPestana(e: EstadoVoz, etapa: Etapa, reservaSegura: boolean): { accion: "soltar" | "colgar"; id: string; propia?: true } | null {
     if (e.fase === "en_curso") return { accion: "colgar", id: e.llamada.id };
     if (e.fase !== "contestando") return null;
-    if (etapa === "confirmando" || etapa === "en_curso") return { accion: "colgar", id: e.llamada.id };
+    // `confirmar-medio` salió y no se sabe si se aceptó: al cerrar no hay tiempo de leer de quién es
+    // la llamada, así que se cuelga con `propia` (solo si la tengo yo: quien supervisa no cuelga por
+    // accidente la de un compañero que la tomó después).
+    if (etapa === "confirmando" || etapa === "en_curso") return { accion: "colgar", id: e.llamada.id, propia: true };
     // También con `reclamar` en vuelo: si no llegó a reservarse, el servidor responde 404 y no pasa nada.
     return reservaSegura ? { accion: "soltar", id: e.llamada.id } : null;
 }

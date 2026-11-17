@@ -1,5 +1,5 @@
 import path from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Route } from "@playwright/test";
 import { ADMIN, AGENTE_CONV, CONSULTA, EMPRESAS, conSesion, simularApi } from "./api-falsa";
 import type { OpcionesVoz } from "./api-voz";
 import { abrirMenu, esTelefono, hojaMas, selectorEmpresa } from "./ayudas";
@@ -102,6 +102,7 @@ test.describe("voz › recibir llamadas", () => {
         const panel = await abrirRecibir(page);
         const interruptor = panel.getByRole("switch", { name: "Recibir llamadas en este navegador" });
         await expect(interruptor).not.toBeChecked();
+        await expect(panel.locator('[data-etiqueta="en-pruebas"]')).toHaveText("En pruebas");
         await expect(panel).toContainText("Apagado: las llamadas no suenan en este navegador.");
         await interruptor.click();
         // Antes de que el navegador pregunte, Iris dice por qué.
@@ -826,6 +827,22 @@ test.describe("voz › nunca una llamada viva sin audio (revisión de seguridad)
         await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
         await expect.poll(() => acciones(api, "colgar").length).toBe(1);
         expect(acciones(api, "soltar")).toHaveLength(0);
+        // Sin tiempo de comprobar de quién es la llamada: `colgar?propia=true` (solo si es mía).
+        expect(api.peticiones.find((p) => p.ruta.endsWith("/colgar"))?.query.get("propia")).toBe("true");
+    });
+
+    test("al cerrar la pestaña confirmando, si otra persona ya tiene la llamada, `colgar?propia=true` no se la cuelga", async ({ page }) => {
+        const api = await abrir(page, "/cuenta");
+        const llamada = await suena(page, api);
+        api.voz.retener("confirmar-medio");
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect.poll(() => acciones(api, "confirmar-medio").length).toBe(1);
+        // Mi reserva venció y la tomó Rosa; yo superviso (podría colgar la de cualquiera).
+        const real = api.voz.llamadas.get(llamada.id);
+        if (real) Object.assign(real, { estado: "en_curso", usuario: { id: 9, nombre: "Rosa Sánchez" } });
+        await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+        await expect.poll(() => acciones(api, "colgar").length).toBe(1);
+        expect(api.voz.llamadas.get(llamada.id)?.estado).toBe("en_curso");
     });
 
     test("sin candado del navegador (`navigator.locks`) no se manda `soltar`: no se sabe si mi `reclamar` fue el que ganó", async ({ page }) => {
@@ -914,6 +931,67 @@ test.describe("voz › nunca una llamada viva sin audio (revisión de seguridad)
         expect(salir).toBeGreaterThan(colgar);
     });
 
+    test("cerrar sesión hablando y no se logra colgar en 6 s: no sigue en silencio; «Reintentar» o «Salir de todos modos»", async ({ page }) => {
+        const api = await abrir(page, "/cuenta");
+        const llamada = await suena(page, api);
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect(barra(page)).toBeVisible();
+        await page.getByRole("link", { name: "Iris, inicio" }).click();
+        await expect(page).toHaveURL(/\/$/);
+        if (esTelefono(page)) {
+            await abrirMenu(page);
+            await hojaMas(page).getByRole("menuitem", { name: "Cerrar sesión" }).click();
+        } else {
+            await page.getByRole("button", { name: /^Tu cuenta/ }).click();
+            await page.getByRole("menuitem", { name: "Cerrar sesión" }).click();
+        }
+        api.voz.forzar.colgar = 99;
+        await page.getByRole("alertdialog", { name: "Tienes una llamada con Carlos Ruiz" }).getByRole("button", { name: "Colgar y seguir" }).click();
+        await expect.poll(() => acciones(api, "colgar").length).toBeGreaterThan(0);
+        const sinColgar = page.getByRole("alertdialog", { name: "No se pudo colgar la llamada" });
+        await page.clock.fastForward(6_500);
+        await expect(sinColgar).toBeVisible();
+        await expect(sinColgar).toContainText("Para Carlos Ruiz la llamada puede seguir en línea");
+        // La sesión NO se cerró.
+        expect(api.peticiones.some((p) => p.metodo === "DELETE" && p.ruta === "/api/v1/sesion")).toBe(false);
+        await sinDesbordes(page);
+        await captura(page, "salir-sin-colgar");
+        // «Reintentar» sigue fallando: se queda en el diálogo.
+        await sinColgar.getByRole("button", { name: "Reintentar" }).click();
+        await page.clock.fastForward(6_500);
+        await expect(sinColgar.getByRole("button", { name: "Reintentar" })).toBeVisible();
+        expect(api.peticiones.some((p) => p.metodo === "DELETE" && p.ruta === "/api/v1/sesion")).toBe(false);
+        // Ahora el servidor responde: «Reintentar» cuelga y entonces sí se cierra la sesión.
+        api.voz.forzar.colgar = 0;
+        await sinColgar.getByRole("button", { name: "Reintentar" }).click();
+        await expect(page).toHaveURL(/\/entrar/);
+        expect(api.voz.llamadas.get(llamada.id)?.estado).toBe("terminada");
+    });
+
+    test("…y «Salir de todos modos» cierra la sesión aunque no se haya podido colgar", async ({ page }) => {
+        const api = await abrir(page, "/cuenta");
+        const llamada = await suena(page, api);
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect(barra(page)).toBeVisible();
+        await page.getByRole("link", { name: "Iris, inicio" }).click();
+        await expect(page).toHaveURL(/\/$/);
+        if (esTelefono(page)) {
+            await abrirMenu(page);
+            await hojaMas(page).getByRole("menuitem", { name: "Cerrar sesión" }).click();
+        } else {
+            await page.getByRole("button", { name: /^Tu cuenta/ }).click();
+            await page.getByRole("menuitem", { name: "Cerrar sesión" }).click();
+        }
+        api.voz.forzar.colgar = 99;
+        await page.getByRole("alertdialog", { name: "Tienes una llamada con Carlos Ruiz" }).getByRole("button", { name: "Colgar y seguir" }).click();
+        await expect.poll(() => acciones(api, "colgar").length).toBeGreaterThan(0);
+        await page.clock.fastForward(6_500);
+        const sinColgar = page.getByRole("alertdialog", { name: "No se pudo colgar la llamada" });
+        await sinColgar.getByRole("button", { name: "Salir de todos modos" }).click();
+        await expect(page).toHaveURL(/\/entrar/);
+        expect(api.voz.llamadas.get(llamada.id)?.estado).toBe("en_curso");
+    });
+
     test("cambiar de empresa hablando: pregunta antes y `colgar` viaja con la empresa de la llamada, no con la nueva", async ({ page }) => {
         const api = await abrir(page, "/tickets", { opciones: { empresas: EMPRESAS } });
         await page.getByRole("list", { name: "Empresas" }).getByRole("button", { name: "Cable Norte" }).click();
@@ -942,6 +1020,40 @@ test.describe("voz › nunca una llamada viva sin audio (revisión de seguridad)
         const colgar = api.peticiones.findIndex((p) => p.ruta.endsWith("/colgar"));
         expect(api.peticiones[colgar]?.empresa).toBe("10");
         expect(colgar).toBeLessThan(api.peticiones.findIndex((p) => p.empresa === "20"));
+    });
+
+    test("el timbre calla mientras el flujo está caído (no se sabe si sigue sonando) y vuelve al reconectar", async ({ page }) => {
+        const api = await abrir(page, "/cuenta");
+        await suena(page, api);
+        await expect(aviso(page)).toHaveAttribute("data-timbre", "sonando");
+        // Se cae la red del flujo: ni el SSE ni el sondeo responden.
+        const cortar = (r: Route) => r.abort("internetdisconnected");
+        await page.route("**/api/v1/mensajeria/conversaciones/eventos", cortar);
+        await page.route("**/api/v1/mensajeria/conversaciones/cambios*", cortar);
+        await expect
+            .poll(
+                async () => {
+                    await page.clock.fastForward(3_500);
+                    return aviso(page).getAttribute("data-timbre");
+                },
+                { timeout: 15_000, intervals: [300] },
+            )
+            .toBeNull();
+        // El aviso sigue (la llamada puede seguir viva), pero en silencio.
+        await expect(aviso(page)).toHaveAttribute("data-fase", "sonando");
+        await expect(aviso(page).getByRole("button", { name: "Contestar" })).toBeVisible();
+        // Vuelve la red: vuelve a sonar.
+        await page.unroute("**/api/v1/mensajeria/conversaciones/eventos", cortar);
+        await page.unroute("**/api/v1/mensajeria/conversaciones/cambios*", cortar);
+        await expect
+            .poll(
+                async () => {
+                    await page.clock.fastForward(3_500);
+                    return aviso(page).getAttribute("data-timbre");
+                },
+                { timeout: 15_000, intervals: [300] },
+            )
+            .toBe("sonando");
     });
 
     test("el timbre tiene tope: sin noticias de la llamada, a los 60 s deja de sonar aquí", async ({ page }) => {
@@ -1037,6 +1149,19 @@ test.describe("voz › en el hilo y en la lista", () => {
         expect(api.voz.llamadas.get(otra.id)?.estado).toBe("en_curso");
     });
 
+    test("una llamada por devolver cuya conversación no está en la lista cargada muestra su `titulo` y, sin él, su `numero`", async ({ page }) => {
+        const api = await abrir(page, "/cuenta", { voz: {} });
+        const base = { llamadaId: "0199c0de-0000-7000-8000-00000000aaaa", estado: "pendiente" as const, pedidaPor: "sistema" as const, creadaEn: new Date(Date.now() - 9 * 60_000).toISOString(), venceEn: new Date(Date.now() + 86_400_000).toISOString() };
+        api.voz.devoluciones.push({ ...base, id: 901, conversacionId: 9901, titulo: "Pedro Xol", numero: "+50255550199" }, { ...base, id: 902, conversacionId: 9902, titulo: "", numero: "+50255550777" });
+        await page.goto("/conversaciones");
+        const porDevolver = page.getByRole("region", { name: "Llamadas por devolver" });
+        await porDevolver.getByRole("button", { name: "2 llamadas por devolver" }).click();
+        await expect(porDevolver.locator('[data-devolucion="901"]')).toContainText("Pedro Xol");
+        await expect(porDevolver.locator('[data-devolucion="902"]')).toContainText("+50255550777");
+        await expect(porDevolver).not.toContainText(/Conversación \d/);
+        await sinDesbordes(page);
+    });
+
     test("llamada perdida: la fila la marca, se junta arriba como «por devolver» y se descarta con motivo", async ({ page }) => {
         const api = await abrir(page, "/conversaciones", { voz: { devoluciones: [41, 42] } });
         const fila = (id: number) => page.locator(`li:has([data-conversacion="${id}"])`);
@@ -1121,6 +1246,9 @@ test.describe("voz › ajustes", () => {
         await expect(requisitos.locator('[data-requisito="webhook_calls"]')).toContainText("No impide encender");
         await expect(requisitos.locator('[data-requisito="plantilla_permiso"]')).toContainText("Recomendado:");
         const encender = f.getByRole("switch", { name: "Este número recibe llamadas de WhatsApp" });
+        // Hasta validarlo con Meta: franja «En pruebas» arriba y la etiqueta junto al interruptor.
+        await expect(f.locator('[data-slot="llamadas-en-pruebas"]')).toContainText("Las llamadas de WhatsApp están en pruebas: aún no se han validado con llamadas reales. Enciéndelas solo en un número de prueba.");
+        await expect(f.locator('[data-etiqueta="en-pruebas"]')).toHaveText("En pruebas");
         await expect(encender).toBeDisabled();
         await expect(f).toContainText("Falta cumplir los requisitos de Meta de arriba.");
         // La grabación no se ofrece.
@@ -1244,6 +1372,7 @@ test.describe("voz › ajustes", () => {
         await expect(page).toHaveURL(/\/administracion\/llamadas$/);
         const f = page.getByRole("form", { name: "Ajustes de llamadas" });
         await expect(f.getByLabel("Segundos que suena solo a quien tiene la conversación")).toHaveValue("10");
+        await expect(f.locator('[data-slot="llamadas-en-pruebas"]')).toContainText("Las llamadas de WhatsApp están en pruebas");
         await expect(f.locator('[data-slot="grabacion-no-disponible"]')).toContainText("la grabación todavía no está disponible.");
         await expect(f.getByRole("switch")).toHaveCount(0);
         // El campo no deja pasar del máximo de fábrica (120 min).
