@@ -4384,7 +4384,7 @@ export interface paths {
         put?: never;
         /**
          * Colgar
-         * @description Permiso: `llamadas.colgar`. Quien la tiene, o quien supervisa. Con `?propia=true` solo quien la tiene (supervisar no cuenta): es lo que debe mandar el panel al cerrarse la pestaña, para no colgar la llamada de otra persona si la reserva propia ya venció (404 en ese caso). Una saliente también se cuelga mientras marca. 409 `llamada_terminada` si ya terminó. Emite `llamada.terminada`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         * @description Permiso: `llamadas.colgar`. Quien la tiene, o quien supervisa. Con `?propia=true` solo quien la tiene (supervisar no cuenta): es lo que debe mandar el panel al cerrarse la pestaña, para no colgar la llamada de otra persona si la reserva propia ya venció (404 en ese caso). Con `propia=true` también termina la llamada que estás contestando (`conectando` a tu nombre), aunque WhatsApp no haya respondido todavía al `accept`: queda `terminada`, nunca `en_curso` sin audio. Una saliente también se cuelga mientras marca. 409 `llamada_terminada` si ya terminó. Emite `llamada.terminada`. Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
          */
         post: operations["colgarLlamada"];
         delete?: never;
@@ -8153,6 +8153,16 @@ export interface components {
              * @description Llamadas salientes de la empresa por día (0–1000; 0 = ninguna)
              */
             maxSalientesPorDia: number;
+            /**
+             * Format: int32
+             * @description Minutos de llamadas salientes contestadas este mes (cuenta lo que llevan las que están en curso), para comparar con topeMinutosSalientesMes
+             */
+            minutosSalientesMes: number;
+            /**
+             * Format: int32
+             * @description Llamadas salientes hechas hoy, para comparar con maxSalientesPorDia
+             */
+            salientesHoy: number;
             /**
              * Format: int32
              * @description Cuánto suena primero solo a quien tiene la conversación (0–20)
@@ -15399,6 +15409,8 @@ export interface components {
              * @description Llamadas seguidas sin contestar: a la cuarta WhatsApp revoca el permiso
              */
             sinContestar: number;
+            /** @description La última solicitud se envió pero WhatsApp no confirmó si la recibió: cuenta para el límite hasta que se sepa (lo resuelve el servidor en un par de minutos, o la respuesta del cliente) */
+            solicitudSinConfirmar?: boolean;
             /**
              * Format: date-time
              * @description Con temporal: hasta cuándo vale

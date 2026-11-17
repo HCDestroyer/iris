@@ -50,6 +50,7 @@ type casosVoz struct {
 	llamar            *auditoria.Caso[EntradaLlamar, Llamada]
 	resultadoLlamar   *auditoria.Caso[resultadoLlamar, bool]
 	RespuestaSDP      *auditoria.Caso[EntradaLlamada, RespuestaSDP]
+	resolverSolicitud *auditoria.Caso[solicitudResuelta, bool]
 	mantener          *auditoria.Caso[uuid.UUID, mantenimientoLlamada]
 	vencer            *auditoria.Caso[struct{}, int]
 }
@@ -62,7 +63,7 @@ func nuevosCasosVoz(m *Modulo) casosVoz {
 		VerCanal: nuevoVerLlamadasCanal(m), ConfigCanal: nuevoConfigurarLlamadasCanal(m), comprobar: nuevoGuardarComprobacion(m),
 		prepararCanal: nuevoPrepararComprobacion(m), VerAjustes: nuevoVerAjustesVoz(m), FijarAjustes: nuevoFijarAjustesVoz(m),
 		VerPermiso: nuevoVerPermisoLlamada(m), SolicitarPermiso: nuevoSolicitarPermisoLlamada(m), previoLlamar: nuevoPrevioLlamar(m),
-		llamar: nuevoLlamar(m), resultadoLlamar: nuevoResultadoLlamar(m), RespuestaSDP: nuevoRespuestaSDP(m),
+		llamar: nuevoLlamar(m), resultadoLlamar: nuevoResultadoLlamar(m), RespuestaSDP: nuevoRespuestaSDP(m), resolverSolicitud: nuevoResolverSolicitud(m),
 		mantener: nuevoMantenerLlamada(m), vencer: nuevoVencerDevoluciones(m), resultadoAjustes: nuevoResultadoAjustesMeta(m),
 		reintentarAjustes: nuevoReintentarAjustesMeta(m)}
 }
@@ -549,9 +550,12 @@ func nuevoColgarLlamada(m *Modulo) *auditoria.Caso[EntradaLlamada, Llamada] {
 			if err != nil {
 				return Llamada{}, err
 			}
-			// Quien la tiene, o un supervisor. Con soloPropia (cierre de pestaña) supervisar no cuenta: si
-			// la reserva propia venció y la llamada ya es de otra persona, no se le cuelga.
-			if (l.UsuarioID == nil || *l.UsuarioID != a.usuario) && (!a.supervisa || in.SoloPropia) {
+			// Quien la tiene (en curso, o reservada a su nombre mientras conecta), o un supervisor. Con
+			// soloPropia (cierre de pestaña) supervisar no cuenta: si la reserva propia venció y la
+			// llamada ya es de otra persona, no se le cuelga.
+			reservada := l.ReclamadaPor != nil && *l.ReclamadaPor == a.usuario
+			duena := (l.UsuarioID != nil && *l.UsuarioID == a.usuario) || reservada
+			if !duena && (!a.supervisa || in.SoloPropia) {
 				return Llamada{}, llamadaNoEncontrada()
 			}
 			if llamadaFinal(l.Estado) {
@@ -559,7 +563,12 @@ func nuevoColgarLlamada(m *Modulo) *auditoria.Caso[EntradaLlamada, Llamada] {
 			}
 			// Una saliente se puede colgar mientras marca (se cancela: no cuenta como sin contestar).
 			marcando := l.Direccion == "saliente" && l.Estado == LlamadaMarcando
-			if l.Estado != LlamadaEnCurso && !marcando {
+			// La pestaña que la estaba contestando se cierra (propia=true) con la llamada conectando a su
+			// nombre, quizá con el pre_accept o el accept en vuelo: se termina. cerrarLlamada cambia la
+			// intención con Meta a terminate, así que el resultado del accept que llegue después ya no se
+			// aplica: no queda «en curso» sin audio ni en un estado intermedio.
+			conectandoMia := in.SoloPropia && l.Estado == LlamadaConectando && reservada
+			if l.Estado != LlamadaEnCurso && !marcando && !conectandoMia {
 				return Llamada{}, nucleo.Conflicto("llamada_sin_contestar", "La llamada todavía no está en curso: usa rechazar o soltar")
 			}
 			c, err := q.ConversacionClienteParaActualizar(ctx, *l.ConversacionID)

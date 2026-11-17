@@ -76,6 +76,9 @@ type PermisoMeta struct {
 	// PuedeLlamar y PuedeSolicitar: lo que Meta deja hacer ahora (sus propios límites).
 	PuedeLlamar    bool
 	PuedeSolicitar bool
+	// SolicitudesEnDia: cuántas solicitudes de permiso cuenta Meta a ese número en las últimas 24 h
+	// (nil si Meta no lo dice). Sirve para saber si una solicitud sin confirmar llegó a salir.
+	SolicitudesEnDia *int
 }
 
 // PermisoLlamada es el permiso del contacto para que lo llamemos.
@@ -87,6 +90,8 @@ type PermisoLlamada struct {
 	PuedeLlamar        bool       `json:"puedeLlamar" doc:"Tú puedes llamarlo ahora (permiso vigente, llamadas encendidas y llamadas.llamar)"`
 	Motivo             *string    `json:"motivo,omitempty" enum:"llamadas_inactivas,sin_permiso_llamada,no_autorizado" doc:"Por qué no se puede llamar"`
 	SinContestar       int32      `json:"sinContestar" doc:"Llamadas seguidas sin contestar: a la cuarta WhatsApp revoca el permiso"`
+	// SolicitudSinConfirmar: la última solicitud se quedó sin respuesta de WhatsApp al enviarla.
+	SolicitudSinConfirmar bool `json:"solicitudSinConfirmar,omitempty" doc:"La última solicitud se envió pero WhatsApp no confirmó si la recibió: cuenta para el límite hasta que se sepa (lo resuelve el servidor en un par de minutos, o la respuesta del cliente)"`
 }
 
 func llamadasInactivas() *nucleo.Problema {
@@ -144,7 +149,7 @@ func solicitudesDelContacto(ctx context.Context, q *mensajeriabd.Queries, empres
 
 func (m *Modulo) aPermiso(ctx context.Context, f mensajeriabd.MensajeriaLlamadaPermiso, activas bool, delContacto []time.Time) PermisoLlamada {
 	ahora := m.ahora()
-	p := PermisoLlamada{Estado: f.Estado, SinContestar: f.SinContestar}
+	p := PermisoLlamada{Estado: f.Estado, SinContestar: f.SinContestar, SolicitudSinConfirmar: f.SolicitudSinConfirmar}
 	if f.Estado == "" {
 		p.Estado = PermisoSinPedir
 	}
@@ -212,7 +217,8 @@ func guardarPermiso(ctx context.Context, q *mensajeriabd.Queries, f mensajeriabd
 		f.Solicitudes = []byte("[]")
 	}
 	return q.GuardarPermisoLlamada(ctx, mensajeriabd.GuardarPermisoLlamadaParams{ID: f.ID, Estado: f.Estado, VenceEn: f.VenceEn, Solicitudes: f.Solicitudes,
-		SinContestar: f.SinContestar, UltimaSolicitudMensajeID: f.UltimaSolicitudMensajeID, SincronizadoEn: f.SincronizadoEn})
+		SinContestar: f.SinContestar, UltimaSolicitudMensajeID: f.UltimaSolicitudMensajeID, SincronizadoEn: f.SincronizadoEn,
+		SolicitudSinConfirmar: f.SolicitudSinConfirmar})
 }
 
 // cambiarPermiso guarda el estado nuevo y, si cambió, emite llamada.permiso_cambiado (sin el número).
@@ -337,6 +343,7 @@ func nuevoSolicitarPermisoLlamada(m *Modulo) *auditoria.Caso[EntradaConvVoz, Per
 			}
 			f.Solicitudes, _ = json.Marshal(append(recientes, ahora))
 			f.UltimaSolicitudMensajeID = pgUUID(&msg.ID)
+			f.SolicitudSinConfirmar = false
 			f, err = cambiarPermiso(ctx, t, f, PermisoPedido, nil, &c.ID)
 			if err != nil {
 				return PermisoLlamada{}, err
@@ -385,6 +392,8 @@ func (m *Modulo) recibirPermisoLlamada(ctx context.Context, t *auditoria.Tx, can
 		}
 	}
 	for _, f := range filas {
+		// Si respondió, la solicitud le llegó: deja de estar sin confirmar (y cuenta para el límite).
+		f.SolicitudSinConfirmar = false
 		if estado != PermisoNegado {
 			f.SinContestar = 0
 		}
@@ -1106,8 +1115,12 @@ func (g graphHTTP) Permiso(ctx context.Context, canal CanalGraph, numero string)
 			ExpirationTime int64  `json:"expiration_time"`
 		} `json:"permission"`
 		Actions []struct {
-			Name  string `json:"action_name"`
-			Puede bool   `json:"can_perform_action"`
+			Name   string `json:"action_name"`
+			Puede  bool   `json:"can_perform_action"`
+			Limits []struct {
+				Periodo string `json:"time_period"`
+				Uso     *int   `json:"current_usage"`
+			} `json:"limits"`
 		} `json:"actions"`
 	}
 	if json.Unmarshal(b, &r) != nil {
@@ -1130,6 +1143,11 @@ func (g graphHTTP) Permiso(ctx context.Context, canal CanalGraph, numero string)
 			p.PuedeLlamar = a.Puede
 		case "send_call_permission_request":
 			p.PuedeSolicitar = a.Puede
+			for _, l := range a.Limits {
+				if l.Periodo == "PT24H" && l.Uso != nil {
+					p.SolicitudesEnDia = l.Uso
+				}
+			}
 		}
 	}
 	// Sin permiso no se llama, diga lo que diga la lista de acciones.
@@ -1203,10 +1221,15 @@ func (m *Modulo) despacharHuerfanas(ctx context.Context, bd nucleo.BD) error {
 	return nil
 }
 
-// solicitudDePermisoFallida deshace una solicitud de permiso cuyo mensaje no salió (Meta lo rechazó,
-// la plantilla ya no está, el número se desactivó…): no cuenta para el límite de 1 por 24 h y 2 por
-// 7 días, y el permiso vuelve a «sin pedir». El motivo de la falla queda en el mensaje.
-func (m *Modulo) solicitudDePermisoFallida(ctx context.Context, t *auditoria.Tx, f mensajeriabd.MensajeriaConversacionMensaje, c mensajeriabd.MensajeriaConversacion) error {
+// solicitudDePermisoFallida corre cuando el mensaje de una solicitud de permiso queda fallido.
+//
+//   - Si se sabe que no salió (Meta lo rechazó, la plantilla ya no está, el número se desactivó…): la
+//     solicitud se deshace: no cuenta para el límite de 1 por 24 h y 2 por 7 días y el permiso vuelve
+//     a «sin pedir».
+//   - Si los intentos se agotaron sin respuesta de Meta (sinRespuesta), pudo llegar al cliente: no se
+//     descuenta a ciegas. Queda «sin confirmar» (sigue contando) y la resuelve el job de escrituras
+//     preguntando a Meta (resolverSolicitudes), o la respuesta del cliente si llega antes.
+func (m *Modulo) solicitudDePermisoFallida(ctx context.Context, t *auditoria.Tx, f mensajeriabd.MensajeriaConversacionMensaje, c mensajeriabd.MensajeriaConversacion, sinRespuesta bool) error {
 	q := mensajeriabd.New(t)
 	p, err := q.PermisoLlamadaParaActualizar(ctx, mensajeriabd.PermisoLlamadaParaActualizarParams{Empresa: empresaDeConv(c), CanalID: c.CanalID, Numero: c.Numero})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -1218,6 +1241,18 @@ func (m *Modulo) solicitudDePermisoFallida(ctx context.Context, t *auditoria.Tx,
 	if id := uuidDe(p.UltimaSolicitudMensajeID); id == nil || *id != f.ID {
 		return nil
 	}
+	if sinRespuesta {
+		p.SolicitudSinConfirmar, p.SincronizadoEn = true, nil
+		_, err = guardarPermiso(ctx, q, p)
+		return err
+	}
+	_, err = descontarSolicitud(ctx, t, p, &c.ID)
+	return err
+}
+
+// descontarSolicitud quita la última solicitud de la cuenta y, si el permiso seguía «pedido», lo
+// devuelve a «sin pedir».
+func descontarSolicitud(ctx context.Context, t *auditoria.Tx, p mensajeriabd.MensajeriaLlamadaPermiso, conv *int64) (mensajeriabd.MensajeriaLlamadaPermiso, error) {
 	solicitudes := solicitudesDe(p.Solicitudes)
 	if n := len(solicitudes); n > 0 {
 		slices.SortFunc(solicitudes, func(a, b time.Time) int { return a.Compare(b) })
@@ -1228,10 +1263,98 @@ func (m *Modulo) solicitudDePermisoFallida(ctx context.Context, t *auditoria.Tx,
 	}
 	p.Solicitudes, _ = json.Marshal(solicitudes)
 	p.UltimaSolicitudMensajeID = pgUUID(nil)
+	p.SolicitudSinConfirmar = false
 	estado := p.Estado
 	if estado == PermisoPedido {
 		estado = PermisoSinPedir
 	}
-	_, err = cambiarPermiso(ctx, t, p, estado, p.VenceEn, &c.ID)
-	return err
+	return cambiarPermiso(ctx, t, p, estado, p.VenceEn, conv)
+}
+
+// solicitudResuelta es lo que dijo Meta de una solicitud sin confirmar.
+type solicitudResuelta struct {
+	ID int64 `json:"permiso_id"`
+	// Resultado: llego (Meta la cuenta o hay permiso), no_llego (Meta no la cuenta: se libera el cupo)
+	// o vencida (pasó un día sin saberlo: ya no cuenta para el límite de 24 h y se deja de preguntar).
+	Resultado string `json:"resultado"`
+	meta      PermisoMeta
+}
+
+func nuevoResolverSolicitud(m *Modulo) *auditoria.Caso[solicitudResuelta, bool] {
+	return auditoria.Nuevo(auditoria.Caso[solicitudResuelta, bool]{
+		Accion: "llamadas.resolver_solicitud", Acceso: auditoria.Autenticado, SinEmpresa: true,
+		Logica: func(ctx context.Context, t *auditoria.Tx, in solicitudResuelta) (bool, error) {
+			if err := soloSistemaVoz(ctx); err != nil {
+				return false, err
+			}
+			q := mensajeriabd.New(t)
+			p, err := q.PermisoLlamadaPorID(ctx, in.ID)
+			if err != nil || !p.SolicitudSinConfirmar {
+				return false, err
+			}
+			t.FijarEmpresa(derefEmpresa(p.EmpresaID))
+			t.FijarEntidad("llamada_permiso", p.ID)
+			switch in.Resultado {
+			case "no_llego":
+				_, err = descontarSolicitud(ctx, t, p, nil)
+			default:
+				p.SolicitudSinConfirmar = false
+				estado, vence := p.Estado, p.VenceEn
+				if in.meta.Estado == PermisoTemporal || in.meta.Estado == PermisoPermanente {
+					estado, vence = in.meta.Estado, in.meta.VenceEn
+				}
+				_, err = cambiarPermiso(ctx, t, p, estado, vence, nil)
+			}
+			return true, err
+		},
+	})
+}
+
+// resolverSolicitudes pregunta a Meta por las solicitudes de permiso que quedaron sin confirmar.
+// Solo se libera el cupo si Meta dice que no cuenta ninguna solicitud a ese número; si la cuenta, o
+// ya hay permiso, llegó. Si Meta no lo dice o no responde, sigue contando y se vuelve a preguntar
+// (una vez por minuto) hasta que pase un día.
+func (m *Modulo) resolverSolicitudes(ctx context.Context, bd nucleo.BD) error {
+	q := mensajeriabd.New(bd)
+	ahora := m.ahora()
+	filas, err := q.TomarSolicitudesSinConfirmar(ctx, mensajeriabd.TomarSolicitudesSinConfirmarParams{Ahora: ahora, Antes: ptrT(ahora.Add(-time.Minute)), Lote: LoteMetaVoz})
+	if err != nil {
+		return err
+	}
+	for _, p := range filas {
+		r := solicitudResuelta{ID: p.ID}
+		ultima := time.Time{}
+		for _, s := range solicitudesDe(p.Solicitudes) {
+			if s.After(ultima) {
+				ultima = s
+			}
+		}
+		if ahora.Sub(ultima) >= 24*time.Hour {
+			r.Resultado = "vencida"
+		} else {
+			cg, err := m.canalGraphDe(ctx, q, p.CanalID)
+			if err != nil {
+				continue
+			}
+			meta, err := m.graph().Permiso(ctx, cg, p.Numero)
+			if err != nil {
+				continue // Meta no responde: sigue contando; se pregunta otra vez en un minuto
+			}
+			r.meta = meta
+			switch {
+			case meta.Estado == PermisoTemporal || meta.Estado == PermisoPermanente:
+				r.Resultado = "llego"
+			case meta.SolicitudesEnDia == nil:
+				continue // Meta no dice cuántas cuenta: no se libera a ciegas
+			case *meta.SolicitudesEnDia == 0:
+				r.Resultado = "no_llego"
+			default:
+				r.Resultado = "llego"
+			}
+		}
+		if _, err := m.Voz.resolverSolicitud.Ejecutar(ctx, r); err != nil {
+			slog.WarnContext(ctx, "voz: resolver una solicitud de permiso sin confirmar", "permiso_id", p.ID, "err", err)
+		}
+	}
+	return nil
 }

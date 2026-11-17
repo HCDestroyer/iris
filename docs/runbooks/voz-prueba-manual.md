@@ -123,6 +123,11 @@ Además, con un número real:
   temporal, llamar y colgar desde el panel antes de que conteste, cuatro veces seguidas, y leer
   `call_permissions`. Si Meta la cuenta, hay que sumarla también en Iris (`trasSaliente`), o
   `confirmarRiesgo` irá por detrás de la cuenta de Meta.
+- **Supuesto 23:** `call_permissions` trae, en la acción `send_call_permission_request`,
+  `limits[] { time_period: "PT24H", current_usage }`. Iris lo usa para saber si una solicitud cuyo
+  envío se quedó sin respuesta llegó a salir (`graphHTTP.Permiso`, `resolverSolicitudes`). Si Meta
+  no trae ese dato, la solicitud dudosa sigue contando para el límite hasta que pase un día: mirar
+  la respuesta real y ajustar.
 - Si el número también hace salientes desde otro sistema: comprobar que Iris no las corta (quedan
   en `mensajeria.llamadas_huerfanas` con estado `ajena`).
 

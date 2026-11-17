@@ -1637,3 +1637,57 @@ func TestLlamadaMetaApartadoPorLote(t *testing.T) {
 		t.Fatalf("apartado por lote: primero %s, último %s (reloj %s)", primero, ultimo, x.reloj)
 	}
 }
+
+// La pestaña que está contestando se cierra con el accept en vuelo: colgar?propia=true reconoce como
+// dueño a quien tiene la llamada reservada y la termina; el resultado del accept que llega después
+// no la deja «en curso» sin audio.
+func TestLlamadaColgarPropiaConElAcceptEnVuelo(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	x.recibe(x.agente, x.supervisor)
+	num, call := numeroCliente(), "wacid.cierre"+numeroCliente()
+	x.connect(num, call)
+	id, _, _ := x.llamada(call)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/reclamar", nil), http.StatusOK)
+	// Reservada a nombre del agente: sin propia sigue sin poder colgarse (aún no está en curso), y
+	// otra persona con propia=true no la toca, ni siquiera quien supervisa.
+	if r := x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/colgar", nil), http.StatusConflict); !strings.Contains(crudo(r), "llamada_sin_contestar") {
+		t.Fatalf("colgar sin propia mientras conecta: %s", crudo(r))
+	}
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/llamadas/"+id+"/colgar?propia=true", nil), http.StatusNotFound)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/contestar", map[string]any{"sdpRespuesta": sdpNavegador("")}), http.StatusOK)
+	var una sync.Once
+	x.gancho(func(accion string) {
+		if accion != "accept" {
+			return
+		}
+		una.Do(func() {
+			// La pestaña se cierra mientras Meta atiende el accept.
+			if r := x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/colgar?propia=true", nil); r.status != http.StatusOK || r.cuerpo["estado"] != "terminada" {
+				t.Errorf("colgar propia con el accept en vuelo: %d %s", r.status, crudo(r))
+			}
+		})
+	})
+	rc := x.api(x.agente, http.MethodPost, "/llamadas/"+id+"/confirmar-medio", nil)
+	x.gancho(nil)
+	_, estado, motivo := x.llamada(call)
+	if estado != "terminada" || motivo != "agente_colgo" || x.g.cuenta("terminate:"+call) != 1 || rc.status >= 500 {
+		t.Fatalf("tras el accept tardío: %s %s, confirmar-medio %d, Meta %v", estado, motivo, rc.status, x.g.hechas())
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id = $1::uuid AND (usuario_id IS NOT NULL OR contestada_en IS NOT NULL OR reclamada_por IS NOT NULL
+		OR accion_meta_estado = 'pendiente')`, id); n != 0 {
+		t.Fatal("la llamada no debía quedar a nombre de nadie ni con una acción a medias")
+	}
+	if x.contar(`SELECT count(*) FROM mensajeria.llamada_tramos WHERE llamada_id = $1::uuid`, id) != 0 || x.eventos("llamada.contestada", id) != 0 || x.eventos("llamada.terminada", id) != 1 {
+		t.Fatal("ni tramo ni contestada; una sola terminada")
+	}
+	x.exigir(x.api(x.agente, http.MethodGet, "/llamadas/activa", nil), http.StatusNoContent)
+	// Lo mismo sin acción en vuelo (reservada, antes de contestar).
+	num2, call2 := numeroCliente(), "wacid.cierre2"+numeroCliente()
+	x.pasa(time.Second, x.agente, x.supervisor)
+	x.connect(num2, call2)
+	id2, _, _ := x.llamada(call2)
+	x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id2+"/reclamar", nil), http.StatusOK)
+	if r := x.exigir(x.api(x.agente, http.MethodPost, "/llamadas/"+id2+"/colgar?propia=true", nil), http.StatusOK); r.cuerpo["estado"] != "terminada" || x.g.cuenta("terminate:"+call2) != 1 {
+		t.Fatalf("colgar propia con la llamada reservada: %s", crudo(r))
+	}
+}

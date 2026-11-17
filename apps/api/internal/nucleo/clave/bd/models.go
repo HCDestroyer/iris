@@ -1736,6 +1736,7 @@ type MensajeriaLlamadaPermiso struct {
 	SincronizadoEn           *time.Time
 	CreatedAt                time.Time
 	UpdatedAt                time.Time
+	SolicitudSinConfirmar    bool
 }
 
 type MensajeriaLlamadaReceptore struct {

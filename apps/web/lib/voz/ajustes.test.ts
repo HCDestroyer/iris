@@ -17,7 +17,7 @@ const CANAL: LlamadasCanal = {
     whatsapp: { estado: "aplicado", intentos: 1 },
     version: 4,
 };
-const AJUSTES: AjustesVoz = { version: 3, grabar: "nunca", duracionMaxPersonaMin: 60, segundosAsignado: 10, maxSalientesPorDia: 50, topeMinutosSalientesMes: 300, maxColgadasMarcandoDia: 3 };
+const AJUSTES: AjustesVoz = { version: 3, grabar: "nunca", duracionMaxPersonaMin: 60, segundosAsignado: 10, maxSalientesPorDia: 50, topeMinutosSalientesMes: 300, maxColgadasMarcandoDia: 3, minutosSalientesMes: 0, salientesHoy: 0 };
 
 describe("ajustes de llamadas por número (espejo de `POST /canales/{id}/llamadas/configurar`)", () => {
     it("lo leído va y vuelve igual; sin cola ni horario no se mandan", () => {

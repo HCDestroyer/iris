@@ -461,9 +461,22 @@ ON CONFLICT DO NOTHING;
 
 -- name: GuardarPermisoLlamada :one
 UPDATE mensajeria.llamada_permisos SET estado = @estado, vence_en = sqlc.narg('vence_en'), solicitudes = @solicitudes, sin_contestar = @sin_contestar,
-    ultima_solicitud_mensaje_id = sqlc.narg('ultima_solicitud_mensaje_id'), sincronizado_en = sqlc.narg('sincronizado_en'), updated_at = now()
+    ultima_solicitud_mensaje_id = sqlc.narg('ultima_solicitud_mensaje_id'), sincronizado_en = sqlc.narg('sincronizado_en'),
+    solicitud_sin_confirmar = @solicitud_sin_confirmar, updated_at = now()
 WHERE id = @id
 RETURNING *;
+
+-- name: TomarSolicitudesSinConfirmar :many
+-- Solicitudes de permiso cuyo envío quedó sin respuesta de Meta: el job de escrituras las resuelve
+-- preguntando a Meta (una vez por minuto cada una; SKIP LOCKED).
+UPDATE mensajeria.llamada_permisos SET sincronizado_en = @ahora::timestamptz
+WHERE id IN (SELECT p.id FROM mensajeria.llamada_permisos p
+    WHERE p.solicitud_sin_confirmar AND (p.sincronizado_en IS NULL OR p.sincronizado_en <= @antes)
+    ORDER BY p.updated_at LIMIT @lote FOR UPDATE SKIP LOCKED)
+RETURNING *;
+
+-- name: PermisoLlamadaPorID :one
+SELECT * FROM mensajeria.llamada_permisos WHERE id = @id FOR UPDATE;
 
 -- name: PermisosDeNumero :many
 -- Las filas de permiso de ese número en ese canal (la respuesta del cliente vale para todas).

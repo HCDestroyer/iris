@@ -580,7 +580,10 @@ type AjustesVoz struct {
 	// Límites de las llamadas salientes (cuestan dinero).
 	MaxSalientesPorDia      int32 `json:"maxSalientesPorDia" doc:"Llamadas salientes de la empresa por día (0–1000; 0 = ninguna)"`
 	TopeMinutosSalientesMes int32 `json:"topeMinutosSalientesMes" doc:"Minutos de llamadas salientes por mes (0–100000; 0 = ninguna)"`
-	MaxColgadasMarcandoDia  int32 `json:"maxColgadasMarcandoDia" doc:"Cuántas salientes a un mismo contacto se pueden colgar mientras marcan en un día antes de dejar de llamarlo (1–20; 0 = sin límite)"`
+	// Consumo, para mostrarlo junto a los topes (solo lectura).
+	MinutosSalientesMes    int32 `json:"minutosSalientesMes" doc:"Minutos de llamadas salientes contestadas este mes (cuenta lo que llevan las que están en curso), para comparar con topeMinutosSalientesMes"`
+	SalientesHoy           int32 `json:"salientesHoy" doc:"Llamadas salientes hechas hoy, para comparar con maxSalientesPorDia"`
+	MaxColgadasMarcandoDia int32 `json:"maxColgadasMarcandoDia" doc:"Cuántas salientes a un mismo contacto se pueden colgar mientras marcan en un día antes de dejar de llamarlo (1–20; 0 = sin límite)"`
 }
 
 // EntradaAjustesVoz es POST /voz/ajustes/actualizar.
@@ -600,7 +603,7 @@ func aAjustesVoz(f mensajeriabd.MensajeriaVozAjuste) AjustesVoz {
 		MaxSalientesPorDia: f.MaxSalientesPorDia, TopeMinutosSalientesMes: f.TopeMinutosSalientesMes, MaxColgadasMarcandoDia: f.MaxColgadasMarcandoDia}
 }
 
-func nuevoVerAjustesVoz(*Modulo) *auditoria.Caso[struct{}, AjustesVoz] {
+func nuevoVerAjustesVoz(m *Modulo) *auditoria.Caso[struct{}, AjustesVoz] {
 	return auditoria.Nuevo(auditoria.Caso[struct{}, AjustesVoz]{
 		Accion: "voz.ver_ajustes", Permiso: nucleo.PermVozConfigurar, AuditarExito: sinAuditar[AjustesVoz],
 		Logica: func(ctx context.Context, t *auditoria.Tx, _ struct{}) (AjustesVoz, error) {
@@ -609,12 +612,31 @@ func nuevoVerAjustesVoz(*Modulo) *auditoria.Caso[struct{}, AjustesVoz] {
 				return AjustesVoz{}, err
 			}
 			f, err := ajustesVoz(ctx, mensajeriabd.New(t), a.empresa)
-			return aAjustesVoz(f), err
+			if err != nil {
+				return AjustesVoz{}, err
+			}
+			return m.conConsumo(ctx, mensajeriabd.New(t), a.empresa, aAjustesVoz(f))
 		},
 	})
 }
 
-func nuevoFijarAjustesVoz(*Modulo) *auditoria.Caso[EntradaAjustesVoz, AjustesVoz] {
+// conConsumo completa los ajustes con lo usado: minutos de salientes del mes y salientes de hoy
+// (los mismos conteos que aplica llamar; hora de Guatemala).
+func (m *Modulo) conConsumo(ctx context.Context, q *mensajeriabd.Queries, empresa int64, aj AjustesVoz) (AjustesVoz, error) {
+	ahora := m.ahora()
+	seg, err := q.SegundosSalientes(ctx, mensajeriabd.SegundosSalientesParams{Empresa: empresa, Desde: inicioMes(ahora), Hasta: ahora.Add(time.Hour), Menos: uuid.Nil, Ahora: ahora})
+	if err != nil {
+		return aj, err
+	}
+	hoy, err := q.SalientesDesde(ctx, mensajeriabd.SalientesDesdeParams{Empresa: empresa, Desde: inicioDia(ahora)})
+	if err != nil {
+		return aj, err
+	}
+	aj.MinutosSalientesMes, aj.SalientesHoy = int32(min(seg/60, 1<<30)), int32(min(hoy, 1<<30)) //nolint:gosec // acotados
+	return aj, nil
+}
+
+func nuevoFijarAjustesVoz(m *Modulo) *auditoria.Caso[EntradaAjustesVoz, AjustesVoz] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaAjustesVoz, AjustesVoz]{
 		Accion: "voz.configurar", Permiso: nucleo.PermVozConfigurar,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaAjustesVoz) (AjustesVoz, error) {
@@ -688,7 +710,10 @@ func nuevoFijarAjustesVoz(*Modulo) *auditoria.Caso[EntradaAjustesVoz, AjustesVoz
 			if campos == nil {
 				campos = []string{}
 			}
-			return aAjustesVoz(f), t.Emitir("voz.ajustes_cambiados", map[string]any{"empresa_id": f.EmpresaID, "campos": campos})
+			if err := t.Emitir("voz.ajustes_cambiados", map[string]any{"empresa_id": f.EmpresaID, "campos": campos}); err != nil {
+				return AjustesVoz{}, err
+			}
+			return m.conConsumo(ctx, q, a.empresa, aAjustesVoz(f))
 		},
 	})
 }
@@ -881,6 +906,10 @@ func (m *Modulo) DespacharMetaVoz(ctx context.Context, bd nucleo.BD) error {
 	}
 	// Llamadas que existen en Meta y no en Iris: se terminan.
 	if err := m.despacharHuerfanas(ctx, bd); err != nil {
+		return err
+	}
+	// Solicitudes de permiso que quedaron sin confirmar: se le pregunta a Meta.
+	if err := m.resolverSolicitudes(ctx, bd); err != nil {
 		return err
 	}
 	// Aplicar los ajustes de un número son dos llamadas a Meta (leer y escribir).

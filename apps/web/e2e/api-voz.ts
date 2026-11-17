@@ -78,7 +78,7 @@ export function apiVoz(
     let idDevolucion = 70;
     const devoluciones: Devolucion[] = [];
     const canales = new Map<number, LlamadasCanal>();
-    let ajustes: AjustesVoz = { version: 3, grabar: "nunca", duracionMaxPersonaMin: 60, segundosAsignado: 10, maxSalientesPorDia: 50, topeMinutosSalientesMes: 300, maxColgadasMarcandoDia: 3 };
+    let ajustes: AjustesVoz = { version: 3, grabar: "nunca", duracionMaxPersonaMin: 60, segundosAsignado: 10, maxSalientesPorDia: 50, topeMinutosSalientesMes: 300, maxColgadasMarcandoDia: 3, minutosSalientesMes: 0, salientesHoy: 0 };
 
     /** Lo que recibió el servidor, para comprobarlo en la prueba. */
     const recibido = {

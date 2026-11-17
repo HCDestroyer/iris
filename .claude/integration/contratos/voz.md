@@ -269,6 +269,27 @@ técnica (§9)**; los que más pesan están listados en §10.
   - **`respuesta-sdp`** responde 409 `sin_respuesta` mientras la respuesta venga de un webhook
     adelantado sin confirmar. Un flujo de eventos sin `?navegador=` nunca toca el navegador de una
     saliente viva, aunque ese navegador también reciba llamadas.
+- **Seguimiento de E1b (17 nov 2026, después de la #187):**
+  - **`colgar?propia=true` y la llamada que se está contestando.** Es dueño quien tiene la llamada
+    `en_curso` **o reservada a su nombre** (`conectando`, `reclamada_por`). Con `propia=true` y la
+    llamada `conectando` a su nombre (la pestaña se cierra, quizá con el `pre_accept` o el `accept`
+    en vuelo) la llamada **se termina** (`terminada`, `agente_colgo`, `terminate` en Meta): el
+    resultado del `accept` que llegue después ya no se aplica, así que nunca queda `en_curso` sin
+    audio. Sin `propia`, colgar una llamada que aún conecta sigue respondiendo 409
+    `llamada_sin_contestar` (para eso está `soltar`).
+  - **Solicitud de permiso sin confirmar.** Si el envío de la solicitud agota sus intentos **sin
+    respuesta de Meta** (pudo llegar al cliente), no se descuenta a ciegas: el permiso sigue
+    `pedido`, la solicitud sigue contando para el límite y `permiso-llamada` trae
+    `solicitudSinConfirmar: true`. El job `mensajeria.voz_meta` pregunta a Meta
+    (`call_permissions`, una vez por minuto): si hay permiso, o Meta cuenta alguna solicitud a ese
+    número en 24 h, llegó (deja de estar sin confirmar y sigue contando); si Meta cuenta cero, no
+    llegó y se libera el cupo (`sin_pedir`); si Meta no lo dice o no responde, sigue contando. La
+    respuesta del cliente por webhook también la confirma. Solo cuando Meta **rechaza** el envío
+    se descuenta de inmediato, como antes.
+  - **Consumo de salientes.** `GET /voz/ajustes` (y la respuesta de `actualizar`) traen
+    `minutosSalientesMes` (salientes contestadas del mes, contando lo que llevan las que están en
+    curso) y `salientesHoy`, para mostrarlos junto a `topeMinutosSalientesMes` y
+    `maxSalientesPorDia`. Son de solo lectura.
 - **E1c (grabación, pendiente de la prueba real):** la grabación de Meta **no forma parte de E1**.
   No se ofrece ni se acepta: `grabar` es siempre `nunca` (cualquier otro valor en
   `POST /voz/ajustes/actualizar` responde **422 `grabacion_no_disponible`**), Iris **nunca pide** la

@@ -843,10 +843,23 @@ func TestLlamadaSalienteTopeEnCurso(t *testing.T) {
 	tope := usados/60 + 2
 	queda := tope*60 - usados // entre 61 y 120 segundos
 	x.limitesVoz(1000, tope)
+	// El consumo viaja con los ajustes, para pintarlo junto a los topes.
+	admin := x.persona([]int64{1}, rolBase("admin"))
+	admin.empresa = 1
+	hoy := x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE empresa_id = 1 AND direccion = 'saliente' AND estado <> 'fallida' AND sono_en >= $1`, x.reloj.Add(-10*time.Hour))
+	if v := x.exigir(x.api(admin, http.MethodGet, "/voz/ajustes", nil), http.StatusOK); v.cuerpo["minutosSalientesMes"] != float64(usados/60) ||
+		v.cuerpo["salientesHoy"] != float64(hoy) || v.cuerpo["topeMinutosSalientesMes"] != float64(tope) {
+		t.Fatalf("consumo de salientes: %s (usados %d s, hoy %d)", crudo(v), usados, hoy)
+	}
 	id, call := x.saliente(x.supervisor, conv, nil)
 	x.respuestaSaliente(num, call)
 	x.estadoSaliente(num, call, "ACCEPTED")
 	x.pasa(time.Duration(queda-10)*time.Second, x.supervisor)
+	// Cuenta lo que lleva la llamada en curso, y la de hoy.
+	if v := x.exigir(x.api(admin, http.MethodGet, "/voz/ajustes", nil), http.StatusOK); v.cuerpo["minutosSalientesMes"] != float64((usados+queda-10)/60) ||
+		v.cuerpo["salientesHoy"] != float64(hoy+1) {
+		t.Fatalf("consumo con una llamada en curso: %s", crudo(v))
+	}
 	x.mantener()
 	if _, estado, _ := x.llamada(call); estado != "en_curso" {
 		t.Fatalf("antes del tope sigue en curso: %s", estado)
@@ -1319,5 +1332,90 @@ func TestLlamadaSalienteTimbrarYCerrarPestana(t *testing.T) {
 	if n := x.contar(`SELECT coalesce(max(sin_contestar), 0) FROM mensajeria.llamada_permisos p JOIN mensajeria.conversaciones c ON c.numero = p.numero AND c.canal_id = p.canal_id
 		WHERE c.id = $1`, conv2); n != 0 {
 		t.Fatalf("un connect rechazado no cuenta como sin contestar: %d", n)
+	}
+}
+
+// Una solicitud de permiso cuyo envío se quedó sin respuesta de Meta pudo llegar al cliente: no se
+// descuenta a ciegas. Queda «sin confirmar» (cuenta para el límite) hasta que Meta o el cliente lo digan.
+func TestSolicitarPermisoSinConfirmar(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	sinRespuesta := func() (num, conv string) {
+		t.Helper()
+		num = numeroCliente()
+		x.texto(num, "wamid.sinconf"+num, "Hola")
+		conv = cid(x.conv(num))
+		x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv+"/solicitar-permiso-llamada", nil), http.StatusOK)
+		var msg string
+		if err := x.bd.QueryRow(x.ctx, `SELECT id::text FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND automatico = 'permiso_llamada'`, conv).Scan(&msg); err != nil {
+			t.Fatal(err)
+		}
+		// Meta no responde (límite de peticiones, 5xx…) hasta agotar los intentos.
+		x.meta.error.Store(130429)
+		_, err := x.m.ProcesarMensaje(x.ctx, uuid.MustParse(msg), true)
+		x.meta.error.Store(0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE id = $1::uuid AND estado_entrega = 'fallido'`, msg); n != 1 {
+			t.Fatal("el mensaje debía quedar fallido")
+		}
+		return num, conv
+	}
+	permiso := func(conv string) map[string]any {
+		t.Helper()
+		return x.exigir(x.api(x.agente, http.MethodGet, "/conversaciones/"+conv+"/permiso-llamada", nil), http.StatusOK).cuerpo
+	}
+	fijar := func(p mensajeria.PermisoMeta) {
+		x.g.mu.Lock()
+		x.g.permiso = p
+		x.g.mu.Unlock()
+	}
+	n := func(i int) *int { return &i }
+
+	// Sin saber si llegó: sigue «pedido», cuenta para el límite y está marcada sin confirmar.
+	_, conv := sinRespuesta()
+	if p := permiso(conv); p["estado"] != "pedido" || p["solicitudSinConfirmar"] != true || p["puedeSolicitar"] != false {
+		t.Fatalf("sin respuesta de Meta al enviar: %v", p)
+	}
+	// Meta no dice cuántas solicitudes cuenta, o no responde: no se libera el cupo.
+	fijar(mensajeria.PermisoMeta{Estado: "sin_pedir"})
+	x.despachar()
+	x.pasa(61 * time.Second)
+	x.g.falla("permiso", &mensajeria.ErrMetaLlamada{SinRespuesta: true})
+	x.despachar()
+	x.g.falla("permiso", nil)
+	if p := permiso(conv); p["solicitudSinConfirmar"] != true || p["puedeSolicitar"] != false {
+		t.Fatalf("sin dato de Meta no se libera el cupo: %v", p)
+	}
+	// Se pregunta como mucho una vez por minuto.
+	leidas := x.g.permisosLeidos
+	x.despachar()
+	if x.g.permisosLeidos != leidas {
+		t.Fatal("no debía preguntar a Meta otra vez antes de un minuto")
+	}
+	// Meta dice que no cuenta ninguna solicitud a ese número: no llegó, se libera.
+	fijar(mensajeria.PermisoMeta{Estado: "sin_pedir", SolicitudesEnDia: n(0)})
+	x.pasa(61 * time.Second)
+	x.despachar()
+	if p := permiso(conv); p["estado"] != "sin_pedir" || p["solicitudSinConfirmar"] == true || p["puedeSolicitar"] != true {
+		t.Fatalf("Meta no la cuenta: %v", p)
+	}
+
+	// Meta sí la cuenta: llegó. Deja de estar sin confirmar y sigue contando para el límite.
+	_, conv2 := sinRespuesta()
+	fijar(mensajeria.PermisoMeta{Estado: "sin_pedir", SolicitudesEnDia: n(1)})
+	x.despachar()
+	if p := permiso(conv2); p["estado"] != "pedido" || p["solicitudSinConfirmar"] == true || p["puedeSolicitar"] != false {
+		t.Fatalf("Meta la cuenta: %v", p)
+	}
+
+	// El cliente responde antes de que se resuelva: llegó.
+	num3, conv3 := sinRespuesta()
+	x.darPermiso(num3, "accept", false)
+	if p := permiso(conv3); p["estado"] != "temporal" || p["solicitudSinConfirmar"] == true {
+		t.Fatalf("la respuesta del cliente la confirma: %v", p)
+	}
+	if n := x.contar(`SELECT jsonb_array_length(solicitudes) FROM mensajeria.llamada_permisos WHERE canal_id = $1 AND numero = $2`, x.canal.ID, "+"+num3); n != 1 {
+		t.Fatalf("la solicitud confirmada sigue contando: %d", n)
 	}
 }

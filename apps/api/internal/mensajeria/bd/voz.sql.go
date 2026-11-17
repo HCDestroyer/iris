@@ -1015,9 +1015,10 @@ func (q *Queries) GuardarLlamada(ctx context.Context, arg GuardarLlamadaParams) 
 
 const guardarPermisoLlamada = `-- name: GuardarPermisoLlamada :one
 UPDATE mensajeria.llamada_permisos SET estado = $1, vence_en = $2, solicitudes = $3, sin_contestar = $4,
-    ultima_solicitud_mensaje_id = $5, sincronizado_en = $6, updated_at = now()
-WHERE id = $7
-RETURNING id, empresa_id, canal_id, numero, estado, vence_en, solicitudes, sin_contestar, ultima_solicitud_mensaje_id, sincronizado_en, created_at, updated_at
+    ultima_solicitud_mensaje_id = $5, sincronizado_en = $6,
+    solicitud_sin_confirmar = $7, updated_at = now()
+WHERE id = $8
+RETURNING id, empresa_id, canal_id, numero, estado, vence_en, solicitudes, sin_contestar, ultima_solicitud_mensaje_id, sincronizado_en, created_at, updated_at, solicitud_sin_confirmar
 `
 
 type GuardarPermisoLlamadaParams struct {
@@ -1027,6 +1028,7 @@ type GuardarPermisoLlamadaParams struct {
 	SinContestar             int32
 	UltimaSolicitudMensajeID pgtype.UUID
 	SincronizadoEn           *time.Time
+	SolicitudSinConfirmar    bool
 	ID                       int64
 }
 
@@ -1038,6 +1040,7 @@ func (q *Queries) GuardarPermisoLlamada(ctx context.Context, arg GuardarPermisoL
 		arg.SinContestar,
 		arg.UltimaSolicitudMensajeID,
 		arg.SincronizadoEn,
+		arg.SolicitudSinConfirmar,
 		arg.ID,
 	)
 	var i MensajeriaLlamadaPermiso
@@ -1054,6 +1057,7 @@ func (q *Queries) GuardarPermisoLlamada(ctx context.Context, arg GuardarPermisoL
 		&i.SincronizadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SolicitudSinConfirmar,
 	)
 	return i, err
 }
@@ -2191,7 +2195,7 @@ func (q *Queries) MarcarDevolucionHecha(ctx context.Context, arg MarcarDevolucio
 }
 
 const permisoLlamada = `-- name: PermisoLlamada :one
-SELECT id, empresa_id, canal_id, numero, estado, vence_en, solicitudes, sin_contestar, ultima_solicitud_mensaje_id, sincronizado_en, created_at, updated_at FROM mensajeria.llamada_permisos WHERE coalesce(empresa_id, 0) = $1::bigint AND canal_id = $2 AND numero = $3
+SELECT id, empresa_id, canal_id, numero, estado, vence_en, solicitudes, sin_contestar, ultima_solicitud_mensaje_id, sincronizado_en, created_at, updated_at, solicitud_sin_confirmar FROM mensajeria.llamada_permisos WHERE coalesce(empresa_id, 0) = $1::bigint AND canal_id = $2 AND numero = $3
 `
 
 type PermisoLlamadaParams struct {
@@ -2216,12 +2220,13 @@ func (q *Queries) PermisoLlamada(ctx context.Context, arg PermisoLlamadaParams) 
 		&i.SincronizadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SolicitudSinConfirmar,
 	)
 	return i, err
 }
 
 const permisoLlamadaParaActualizar = `-- name: PermisoLlamadaParaActualizar :one
-SELECT id, empresa_id, canal_id, numero, estado, vence_en, solicitudes, sin_contestar, ultima_solicitud_mensaje_id, sincronizado_en, created_at, updated_at FROM mensajeria.llamada_permisos WHERE coalesce(empresa_id, 0) = $1::bigint AND canal_id = $2 AND numero = $3 FOR UPDATE
+SELECT id, empresa_id, canal_id, numero, estado, vence_en, solicitudes, sin_contestar, ultima_solicitud_mensaje_id, sincronizado_en, created_at, updated_at, solicitud_sin_confirmar FROM mensajeria.llamada_permisos WHERE coalesce(empresa_id, 0) = $1::bigint AND canal_id = $2 AND numero = $3 FOR UPDATE
 `
 
 type PermisoLlamadaParaActualizarParams struct {
@@ -2246,12 +2251,38 @@ func (q *Queries) PermisoLlamadaParaActualizar(ctx context.Context, arg PermisoL
 		&i.SincronizadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SolicitudSinConfirmar,
+	)
+	return i, err
+}
+
+const permisoLlamadaPorID = `-- name: PermisoLlamadaPorID :one
+SELECT id, empresa_id, canal_id, numero, estado, vence_en, solicitudes, sin_contestar, ultima_solicitud_mensaje_id, sincronizado_en, created_at, updated_at, solicitud_sin_confirmar FROM mensajeria.llamada_permisos WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) PermisoLlamadaPorID(ctx context.Context, id int64) (MensajeriaLlamadaPermiso, error) {
+	row := q.db.QueryRow(ctx, permisoLlamadaPorID, id)
+	var i MensajeriaLlamadaPermiso
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.CanalID,
+		&i.Numero,
+		&i.Estado,
+		&i.VenceEn,
+		&i.Solicitudes,
+		&i.SinContestar,
+		&i.UltimaSolicitudMensajeID,
+		&i.SincronizadoEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.SolicitudSinConfirmar,
 	)
 	return i, err
 }
 
 const permisosDeNumero = `-- name: PermisosDeNumero :many
-SELECT id, empresa_id, canal_id, numero, estado, vence_en, solicitudes, sin_contestar, ultima_solicitud_mensaje_id, sincronizado_en, created_at, updated_at FROM mensajeria.llamada_permisos WHERE canal_id = $1 AND numero = $2 ORDER BY id FOR UPDATE
+SELECT id, empresa_id, canal_id, numero, estado, vence_en, solicitudes, sin_contestar, ultima_solicitud_mensaje_id, sincronizado_en, created_at, updated_at, solicitud_sin_confirmar FROM mensajeria.llamada_permisos WHERE canal_id = $1 AND numero = $2 ORDER BY id FOR UPDATE
 `
 
 type PermisosDeNumeroParams struct {
@@ -2282,6 +2313,7 @@ func (q *Queries) PermisosDeNumero(ctx context.Context, arg PermisosDeNumeroPara
 			&i.SincronizadoEn,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SolicitudSinConfirmar,
 		); err != nil {
 			return nil, err
 		}
@@ -2912,6 +2944,56 @@ func (q *Queries) TomarHuerfanas(ctx context.Context, arg TomarHuerfanasParams) 
 			&i.CanalID,
 			&i.CallID,
 			&i.Intentos,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const tomarSolicitudesSinConfirmar = `-- name: TomarSolicitudesSinConfirmar :many
+UPDATE mensajeria.llamada_permisos SET sincronizado_en = $1::timestamptz
+WHERE id IN (SELECT p.id FROM mensajeria.llamada_permisos p
+    WHERE p.solicitud_sin_confirmar AND (p.sincronizado_en IS NULL OR p.sincronizado_en <= $2)
+    ORDER BY p.updated_at LIMIT $3 FOR UPDATE SKIP LOCKED)
+RETURNING id, empresa_id, canal_id, numero, estado, vence_en, solicitudes, sin_contestar, ultima_solicitud_mensaje_id, sincronizado_en, created_at, updated_at, solicitud_sin_confirmar
+`
+
+type TomarSolicitudesSinConfirmarParams struct {
+	Ahora time.Time
+	Antes *time.Time
+	Lote  int32
+}
+
+// Solicitudes de permiso cuyo envío quedó sin respuesta de Meta: el job de escrituras las resuelve
+// preguntando a Meta (una vez por minuto cada una; SKIP LOCKED).
+func (q *Queries) TomarSolicitudesSinConfirmar(ctx context.Context, arg TomarSolicitudesSinConfirmarParams) ([]MensajeriaLlamadaPermiso, error) {
+	rows, err := q.db.Query(ctx, tomarSolicitudesSinConfirmar, arg.Ahora, arg.Antes, arg.Lote)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MensajeriaLlamadaPermiso
+	for rows.Next() {
+		var i MensajeriaLlamadaPermiso
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.CanalID,
+			&i.Numero,
+			&i.Estado,
+			&i.VenceEn,
+			&i.Solicitudes,
+			&i.SinContestar,
+			&i.UltimaSolicitudMensajeID,
+			&i.SincronizadoEn,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.SolicitudSinConfirmar,
 		); err != nil {
 			return nil, err
 		}
