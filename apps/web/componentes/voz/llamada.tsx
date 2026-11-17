@@ -1,59 +1,62 @@
 "use client";
 
-import { avisar, Aviso, Boton, CampoArea, CampoSelector, Cargando, cn, Dialogo, DialogoContenido, DialogoPie, InsigniaEstado } from "@iris/ui";
-import { CalendarPlus, LifeBuoy, Mic, MicOff, Phone, PhoneCall, PhoneIncoming, PhoneOff, RotateCw, UserRound, X } from "lucide-react";
+import { avisar, Aviso, Boton, CampoArea, CampoSelector, Cargando, cn, Dialogo, DialogoConfirmar, DialogoContenido, DialogoPie, InsigniaEstado } from "@iris/ui";
+import { Banknote, CalendarPlus, LifeBuoy, Mic, MicOff, Phone, PhoneCall, PhoneIncoming, PhoneOff, RotateCw, UserRound, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
-import { leerDetalle } from "@/lib/conversaciones/api";
-import type { ConversacionDetalle } from "@/lib/conversaciones/tipos";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useSesion } from "@/lib/sesion";
-import { anotarLlamada } from "@/lib/voz/api";
+import { anotarLlamada, leerLlamada } from "@/lib/voz/api";
 import type { EstadoVoz } from "@/lib/voz/maquina";
 import { quienLlama, reloj, RESULTADOS, textoAviso } from "@/lib/voz/presentacion";
 import type { Llamada, ResultadoLlamada } from "@/lib/voz/tipos";
 import { DialogoTicket } from "../conversaciones/ficha";
 import { useVoz } from "./proveedor";
 
-/** El contexto del cliente que llama, leído de su conversación. Si no se pudo leer, no se muestra nada (nunca inventado). */
-function useContexto(conversacionId: number | undefined): ConversacionDetalle | null {
-    const [leido, setLeido] = useState<{ id: number; detalle: ConversacionDetalle } | null>(null);
+/**
+ * ¿El cliente que llama tiene saldo vencido? Solo viaja en el detalle de la llamada
+ * (`GET /llamadas/{id}`), así que se pide al sonar. `true` solo si el servidor lo dice: ausente o
+ * sin leer no se muestra nada (nunca «al día»).
+ */
+function useSaldoVencido(llamada: Llamada | null): boolean {
+    const id = llamada?.contacto.tipo === "cliente" ? llamada.id : undefined;
+    const [leido, setLeido] = useState<{ id: string; vencido: boolean } | null>(null);
     useEffect(() => {
-        if (conversacionId === undefined) return;
+        if (id === undefined) return;
         const control = new AbortController();
-        leerDetalle(conversacionId, control.signal).then(
-            (detalle) => !control.signal.aborted && setLeido({ id: conversacionId, detalle }),
+        leerLlamada(id, control.signal).then(
+            (l) => !control.signal.aborted && setLeido({ id, vencido: l.senales?.saldoVencido === true }),
             () => undefined,
         );
         return () => control.abort();
-    }, [conversacionId]);
-    return leido && leido.id === conversacionId ? leido.detalle : null;
+    }, [id]);
+    return leido !== null && leido.id === id && leido.vencido;
 }
 
 const hrefConversacion = (id: number) => `/conversaciones?c=${id}`;
 
-/** Servicio y señales del cliente (servicio suspendido, ticket de la conversación), según lo que mande el servidor. */
-function Senales({ llamada, detalle }: { llamada: Llamada; detalle: ConversacionDetalle | null }) {
-    const servicios = detalle?.clienteResumen?.servicios ?? [];
-    const servicio = servicios.find((s) => s.id === llamada.contacto.servicioId) ?? servicios[0];
-    const ticket = detalle?.vinculos.filter((v) => v.tipo === "ticket").at(-1);
-    if (!servicio && !ticket) return null;
+/** Servicio y señales del cliente (saldo vencido, ticket abierto), solo lo que manda el servidor en la llamada. */
+function Senales({ llamada, saldoVencido }: { llamada: Llamada; saldoVencido: boolean }) {
+    const servicio = llamada.senales?.servicio;
+    const ticket = llamada.senales?.ticketAbierto;
+    if (!servicio && !ticket && !saldoVencido) return null;
     return (
         <ul aria-label="Datos del cliente" className="flex min-w-0 flex-wrap gap-1.5">
             {servicio ? (
                 <li className="min-w-0">
-                    <InsigniaEstado
-                        tono={servicio.estado === "activo" ? "neutral" : servicio.estado === "suspendido" ? "warning" : "neutral"}
-                        texto={`${servicio.plan} · ${servicio.estado}`}
-                        className="max-w-full [&>span]:truncate"
-                    />
+                    <InsigniaEstado tono={servicio.estado === "suspendido" ? "warning" : "neutral"} texto={`${servicio.plan} · ${servicio.estado}`} className="max-w-full [&>span]:truncate" />
+                </li>
+            ) : null}
+            {saldoVencido ? (
+                <li>
+                    <InsigniaEstado tono="warning" icono={Banknote} texto="Saldo vencido" data-slot="saldo-vencido" />
                 </li>
             ) : null}
             {ticket ? (
-                <li>
-                    <InsigniaEstado tono="info" icono={LifeBuoy} texto={`Ticket ${ticket.referencia}`} />
+                <li className="min-w-0">
+                    <InsigniaEstado tono="info" icono={LifeBuoy} texto={`Ticket ${ticket.numero}`} title={ticket.asunto} className="max-w-full [&>span]:truncate" />
                 </li>
             ) : null}
         </ul>
@@ -77,7 +80,9 @@ export function AvisoLlamada() {
     const router = useRouter();
     const estado = voz?.estado;
     const llamada = estado && (estado.fase === "sonando" || estado.fase === "contestando") ? estado.llamada : null;
-    const detalle = useContexto(llamada?.conversacionId);
+    const saldoVencido = useSaldoVencido(llamada);
+    const { puede } = useSesion();
+    const [paraTodos, setParaTodos] = useState(false);
     const cerrar = voz?.cerrar;
     const esAviso = estado?.fase === "aviso";
     // El mensaje llano se va solo: no pide hacer nada.
@@ -129,7 +134,7 @@ export function AvisoLlamada() {
                     {llamada.canal ? <p className="truncate text-xs text-muted-foreground">Al número {llamada.canal.nombre}</p> : null}
                 </div>
             </div>
-            <Senales llamada={llamada} detalle={detalle} />
+            <Senales llamada={llamada} saldoVencido={saldoVencido} />
             {sonando && voz.microfono !== "concedido" ? (
                 // El permiso aún no está dado en este navegador: que la pregunta no tome por sorpresa.
                 <p className="flex items-start gap-1.5 text-xs text-muted-foreground" data-slot="aviso-permiso">
@@ -160,6 +165,25 @@ export function AvisoLlamada() {
             ) : (
                 <Cargando texto={estado.fase === "contestando" ? PASO[estado.paso] : "Conectando…"} visible />
             )}
+            {sonando && puede(["conversaciones.supervisar"]) && puede(["llamadas.rechazar"]) ? (
+                // Quien supervisa: que deje de sonarles a todos (queda rechazada).
+                <Boton variante="enlace" className="justify-self-start text-xs text-muted-foreground" onClick={() => setParaTodos(true)}>
+                    Rechazar para todos
+                </Boton>
+            ) : null}
+            <DialogoConfirmar
+                open={paraTodos}
+                onOpenChange={setParaTodos}
+                titulo="¿Rechazar la llamada para todos?"
+                descripcion={`Deja de sonarles a todas las personas y ${quien.conocido ? quien.nombre : "quien llama"} oye que no se le contestó. Queda como rechazada en la conversación.`}
+                textoConfirmar="Rechazar para todos"
+                textoCancelar="Dejar que suene"
+                peligro
+                alConfirmar={async () => {
+                    await voz.rechazarParaTodos();
+                    setParaTodos(false);
+                }}
+            />
         </section>
     );
 }

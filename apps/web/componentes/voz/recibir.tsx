@@ -15,7 +15,7 @@ function useResumen(): Resumen | null {
     const voz = useVoz();
     const disponible = useEstoyDisponible();
     if (!voz || voz.recibir.estado !== "listo") return null;
-    if (voz.microfono === "denegado" || voz.microfono === "sin_microfono" || voz.desplazado) return "atencion";
+    if (voz.microfono === "denegado" || voz.microfono === "sin_microfono" || voz.desplazado !== null) return "atencion";
     if (!voz.recibir.recibe) return "apagado";
     // Encendido pero ahora no sonaría: sin flujo en vivo o «No disponible».
     if ((voz.feed !== null && voz.feed !== "en_vivo" && voz.feed !== "conectando") || disponible === false) return "atencion";
@@ -111,8 +111,10 @@ export function ControlRecibir({ className }: { className?: string }) {
                     </span>
                 </Aviso>
             ) : null}
-            {voz.desplazado && !recibir.recibe ? (
+            {voz.desplazado !== null && !recibir.recibe ? (
                 <Aviso
+                    data-slot="recibir-apagado"
+                    data-motivo={voz.desplazado}
                     tono="warning"
                     titulo="Este navegador dejó de recibir llamadas"
                     accion={
@@ -121,7 +123,11 @@ export function ControlRecibir({ className }: { className?: string }) {
                         </Boton>
                     }
                 >
-                    Tienes «Recibir llamadas» encendido en muchos navegadores y se guardan como mucho 10. Si contestas desde aquí, vuelve a encenderlo.
+                    {voz.desplazado === "inactivo"
+                        ? "Llevabas más de 30 días sin abrir Iris en este navegador y se apagó solo. Si contestas desde aquí, vuelve a encenderlo."
+                        : voz.desplazado === "tope"
+                          ? "Lo tienes encendido en más de 10 navegadores y solo se guardan los 10 más recientes. Si contestas desde aquí, vuelve a encenderlo."
+                          : "El servidor lo apagó en este navegador. Si contestas desde aquí, vuelve a encenderlo."}
                 </Aviso>
             ) : null}
             {bloqueado ? (
@@ -165,7 +171,7 @@ export function ControlRecibir({ className }: { className?: string }) {
                 ) : (
                     <p className="text-xs text-muted-foreground">Te suenan las llamadas de WhatsApp de tus colas mientras tengas Iris abierto y estés «Disponible».</p>
                 )
-            ) : !explicando && !bloqueado && !sinMicrofono && !voz.desplazado ? (
+            ) : !explicando && !bloqueado && !sinMicrofono && voz.desplazado === null ? (
                 <p className="text-xs text-muted-foreground">Apagado: las llamadas no suenan en este navegador.</p>
             ) : null}
         </div>

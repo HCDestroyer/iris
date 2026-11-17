@@ -72,6 +72,8 @@ export async function soltarSeguro(id: string, motivo: string, ctx: Contexto): P
             await soltarLlamada(id, motivo, ctx.empresa);
             return { tipo: "soltada" };
         } catch (e) {
+            // La reserva es de otro navegador mío (o de otra pestaña): no es de aquí y no se toca.
+            if (e instanceof ErrorApi && e.codigo === "llamada_ya_contestada" && (e.errores[0]?.rule === "otro_navegador" || e.errores[0]?.rule === "misma_persona")) return { tipo: "nada" };
             if (!accionEnCurso(e)) break;
             await esperar(ESPERA_SOLTAR_MS);
         }

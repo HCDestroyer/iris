@@ -1,8 +1,13 @@
 "use client";
 
-import { Boton, cn } from "@iris/ui";
+import { avisar, Boton, cn, DialogoConfirmar } from "@iris/ui";
 import { Clock, MessageSquare, Phone, PhoneCall, PhoneIncoming, PhoneMissed, PhoneOff, StickyNote, TriangleAlert, type LucideIcon } from "lucide-react";
+import { useState } from "react";
+import { nuevaClaveIdempotencia } from "@/lib/api/cliente";
+import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { hora } from "@/lib/conversaciones/presentacion";
+import { useSesion } from "@/lib/sesion";
+import { colgarLlamada } from "@/lib/voz/api";
 import type { Mensaje } from "@/lib/conversaciones/tipos";
 import { llamadaEnHilo, type IconoLlamada, type TonoLlamada } from "@/lib/voz/presentacion";
 import { useDevoluciones } from "./devoluciones";
@@ -41,12 +46,17 @@ function irAlCompositor(conversacionId: number) {
  */
 export function LlamadaEnHilo({ m }: { m: Mensaje }) {
     const dev = useDevoluciones();
+    const { yo, puede } = useSesion();
+    const [colgando, setColgando] = useState(false);
     if (!m.llamada) return null;
     const l = m.llamada;
     const v = llamadaEnHilo(l);
     const Icono = l.direccion === "saliente" && v.icono === "contestada" ? Phone : ICONO[v.icono];
     const clase = CLASE[v.tono];
     const pendiente = l.estado === "perdida" ? dev?.deLlamada(l.id) : undefined;
+    // Quien supervisa puede colgar la llamada viva de otra persona (la propia se cuelga en la barra).
+    const deOtra = (l.estado === "en_curso" || l.estado === "conectando") && l.atendidaPor !== "asistente" && l.usuario !== undefined && l.usuario.id !== yo.usuario.id;
+    const puedeColgar = deOtra && puede(["conversaciones.supervisar"]) && puede(["llamadas.colgar"]);
     return (
         <div
             data-mensaje={m.id}
@@ -73,6 +83,33 @@ export function LlamadaEnHilo({ m }: { m: Mensaje }) {
                     </span>
                 ) : null}
             </div>
+            {puedeColgar ? (
+                <div className="flex flex-wrap gap-1.5">
+                    <Boton variante="peligro" tamano="sm" onClick={() => setColgando(true)}>
+                        <PhoneOff />
+                        Colgar la llamada
+                    </Boton>
+                    <DialogoConfirmar
+                        open={colgando}
+                        onOpenChange={setColgando}
+                        titulo={`¿Colgar la llamada de ${l.usuario?.nombre ?? "otra persona"}?`}
+                        descripcion="Se corta ahora para el cliente y para quien la atiende. Queda registrado que la colgaste tú."
+                        textoConfirmar="Colgar la llamada"
+                        textoCancelar="No colgar"
+                        peligro
+                        alConfirmar={async () => {
+                            try {
+                                await colgarLlamada(l.id, nuevaClaveIdempotencia());
+                                avisar({ titulo: "Llamada colgada" });
+                            } catch (e) {
+                                const yaTermino = e instanceof ErrorApi && (e.codigo === "llamada_terminada" || e.estado === 404);
+                                avisar({ tono: yaTermino ? "info" : "error", titulo: yaTermino ? "La llamada ya había terminado" : "No se pudo colgar", ...(yaTermino ? {} : { descripcion: mensajeDeError(e).titulo }) });
+                            }
+                            setColgando(false);
+                        }}
+                    />
+                </div>
+            ) : null}
             {l.estado === "perdida" ? (
                 <div className="flex flex-wrap gap-1.5">
                     <Boton variante="secundario" tamano="sm" onClick={() => irAlCompositor(m.conversacionId)}>

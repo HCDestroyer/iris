@@ -36,6 +36,8 @@ export type OpcionesVoz = {
     sinRequisitos?: boolean;
     /** Solo quien atiende: sin `llamadas.configurar` ni `voz.configurar`. */
     soloAtender?: boolean;
+    /** Conversaciones cuyo cliente tiene saldo vencido (solo viaja en `GET /llamadas/{id}`). */
+    saldoVencido?: number[];
     /** Cómo están en WhatsApp los ajustes del número 3 (por defecto, aplicados). */
     whatsapp?: "pendiente" | "error";
 };
@@ -70,7 +72,8 @@ export function apiVoz(
     const { actor, conversaciones, mensajes, emitir } = contexto;
     const recibe = new Map<string, boolean>();
     const llamadas = new Map<string, Llamada>();
-    const reservas = new Map<string, { usuarioId: number; hasta: number }>();
+    /** La reserva queda atada al navegador de `X-Iris-Navegador` que la reclamó. */
+    const reservas = new Map<string, { usuarioId: number; hasta: number; navegador: string }>();
     let n = 0;
     let idDevolucion = 70;
     const devoluciones: Devolucion[] = [];
@@ -79,7 +82,7 @@ export function apiVoz(
 
     /** Lo que recibió el servidor, para comprobarlo en la prueba. */
     const recibido = {
-        acciones: [] as { accion: string; llamadaId: string; cuerpo: Record<string, unknown>; usuarioId: number }[],
+        acciones: [] as { accion: string; llamadaId: string; cuerpo: Record<string, unknown>; usuarioId: number; navegador: string }[],
         configurados: [] as { canalId: number; cuerpo: Record<string, unknown> }[],
         ajustes: [] as Record<string, unknown>[],
         descartadas: [] as { id: number; motivo: string }[],
@@ -91,10 +94,11 @@ export function apiVoz(
         /** Cuántas veces más `reclamar` / `soltar` responden 409 `accion_en_curso` (WhatsApp aún no contesta). */
         enCurso?: { reclamar?: number; soltar?: number };
         /** El servidor apagó «Recibir» en este navegador (pasó del máximo por persona). */
-        desplazado?: boolean;
+        desplazado?: "tope" | "inactivo";
         /** Qué pasa al reintentar la escritura en WhatsApp (por defecto, se aplica). */
         aplicar?: "error";
-        contestar?: "sdp_invalido" | "reserva_vencida" | "meta_rechazo";
+        /** `otro_navegador`: la reserva es de otro navegador de la misma persona (409, no se toca). */
+        contestar?: "sdp_invalido" | "reserva_vencida" | "meta_rechazo" | "otro_navegador";
         /** `perdida`: el servidor acepta la llamada pero la respuesta no llega al navegador. */
         confirmar?: "reserva_vencida" | "perdida";
         /** Cuántas veces más `colgar` responde 500. */
@@ -181,6 +185,10 @@ export function apiVoz(
             tramos: [],
             sonoEn: ahora,
             suenaHasta: new Date(Date.now() + 30_000).toISOString(),
+            // Señales del cliente: solo en llamadas vivas con cliente. `saldoVencido` no viaja en el feed.
+            ...(c.contacto.clienteId
+                ? { senales: { servicio: { id: c.contacto.servicioId ?? 0, codigo: `S-${c.contacto.clienteId}`, plan: "Fibra 100 Mb", estado: "activo" }, ...(conversacionId === 41 ? { ticketAbierto: { id: 4812, numero: "TK-004812", asunto: "Sin internet desde las 7" } } : {}) } }
+                : {}),
             puede: { contestar: true, rechazar: true, colgar: false, anotar: false, tomar: false, transferir: false, escucharGrabacion: false },
             ...datos,
         };
@@ -232,7 +240,8 @@ export function apiVoz(
     }
     function pendiente(conversacionId: number, llamadaId: string, pedidaPor: Devolucion["pedidaPor"] = "sistema"): Devolucion {
         idDevolucion += 1;
-        const d: Devolucion = { id: idDevolucion, conversacionId, llamadaId, estado: "pendiente", pedidaPor, creadaEn: new Date(Date.now() - 6 * 60_000).toISOString(), venceEn: new Date(Date.now() + 86_400_000).toISOString() };
+        const conv = conversaciones.find((x) => x.id === conversacionId);
+        const d: Devolucion = { id: idDevolucion, conversacionId, llamadaId, titulo: conv?.titulo ?? "", numero: conv?.numero ?? "", estado: "pendiente", pedidaPor, creadaEn: new Date(Date.now() - 6 * 60_000).toISOString(), venceEn: new Date(Date.now() + 86_400_000).toISOString() };
         devoluciones.push(d);
         return d;
     }
@@ -249,7 +258,7 @@ export function apiVoz(
         l.estado = "conectando";
         l.usuario = OTRA;
         l.atendidaPor = "persona";
-        reservas.set(id, { usuarioId: OTRA.id, hasta: Date.now() + 12_000 });
+        reservas.set(id, { usuarioId: OTRA.id, hasta: Date.now() + 12_000, navegador: "navegador-de-rosa" });
         avisar("llamada_actualizada", l);
     }
     /** El cliente cuelga. */
@@ -295,6 +304,7 @@ export function apiVoz(
     async function manejar(x: { route: Route; metodo: string; ruta: string; query: URLSearchParams; cuerpo: unknown; idempotencia: string | undefined; puede: (p: Permiso) => boolean }): Promise<boolean> {
         const { route, metodo, ruta, query, puede } = x;
         const cuerpo = (x.cuerpo ?? {}) as Record<string, unknown>;
+        const cabeceras = route.request().headers();
         const prohibido = async () => (await problema(route, P("permiso_denegado", 403, "Sin permiso")), true);
         const noExiste = async () => (await problema(route, P("no_encontrado", 404, "No encontrado")), true);
 
@@ -363,8 +373,11 @@ export function apiVoz(
         // --- «Recibir llamadas» ---
         if (ruta === `${BASE}/llamadas/recibir` && metodo === "GET") {
             if (!puede("llamadas.contestar")) return prohibido();
-            const nav = query.get("navegador") ?? "";
-            return (await json(route, { recibe: forzar.desplazado ? false : (recibe.get(nav) ?? opciones.recibe ?? false), vivo: true }), true);
+            // El id va en la cabecera (no queda en los registros de acceso); la query sigue valiendo.
+            const nav = cabeceras["x-iris-navegador"] ?? query.get("navegador") ?? "";
+            if (!nav) return (await problema(route, P("navegador_requerido", 422, "Falta el id del navegador")), true);
+            if (forzar.desplazado) return (await json(route, { recibe: false, vivo: true, motivo: forzar.desplazado }), true);
+            return (await json(route, { recibe: recibe.get(nav) ?? opciones.recibe ?? false, vivo: true }), true);
         }
         const interruptor = /^\/api\/v1\/mensajeria\/llamadas\/recibir\/(encender|apagar)$/.exec(ruta);
         if (interruptor && metodo === "POST") {
@@ -415,12 +428,16 @@ export function apiVoz(
         if (!una[2]) {
             if (metodo !== "GET") return false;
             if (!puede("llamadas.ver")) return prohibido();
-            return (await json(route, vista(l)), true);
+            // El detalle es el único que dice si hay saldo vencido (y solo cuando es `true`).
+            const detalle = vista(l);
+            if (detalle.senales && (opciones.saldoVencido ?? []).includes(l.conversacionId ?? 0)) detalle.senales.saldoVencido = true;
+            return (await json(route, detalle), true);
         }
         if (metodo !== "POST") return false;
         const accion = una[2];
         const yo = actor();
-        recibido.acciones.push({ accion, llamadaId: l.id, cuerpo, usuarioId: yo.id });
+        const nav = cabeceras["x-iris-navegador"] ?? "";
+        recibido.acciones.push({ accion, llamadaId: l.id, cuerpo, usuarioId: yo.id, navegador: nav });
         // La petición llegó; el «servidor» tarda en atenderla lo que diga la prueba.
         await retenidas.get(accion);
         const reserva = reservas.get(l.id);
@@ -430,6 +447,7 @@ export function apiVoz(
 
         if (accion === "reclamar") {
             if (!puede("llamadas.contestar")) return prohibido();
+            if (!nav) return (await problema(route, P("navegador_requerido", 422, "Falta el id del navegador")), true);
             if (forzar.enCurso?.reclamar) {
                 forzar.enCurso.reclamar -= 1;
                 return (await problema(route, P("accion_en_curso", 409, "WhatsApp aún no responde")), true);
@@ -442,26 +460,36 @@ export function apiVoz(
                 contestaOtro(l.id);
                 return (await yaContestada(`La contestó ${OTRA.nombre}.`), true);
             }
+            if (l.estado === "conectando" && reserva?.usuarioId === yo.id && reserva.navegador !== nav) return (await yaContestada("La estás contestando en otro navegador.", "misma_persona"), true);
             if (l.estado === "conectando" && reserva?.usuarioId === yo.id && reserva.hasta > Date.now()) {
-                // La misma persona dentro de la reserva (otra pestaña): la misma respuesta.
+                // El mismo navegador dentro de la reserva (otra pestaña): la misma respuesta.
                 return (await json(route, { llamada: vista(l), sdpOferta: SDP_OFERTA, ice: { servidores: [] }, venceEn: new Date(reserva.hasta).toISOString() }), true);
             }
             if (l.estado !== "sonando") return (await yaContestada(l.usuario ? `La contestó ${l.usuario.nombre}.` : "La llamada ya no está sonando.", l.usuario?.id === yo.id ? "misma_persona" : undefined), true);
             l.estado = "conectando";
             l.usuario = { id: yo.id, nombre: yo.nombre };
             const hasta = Date.now() + 12_000;
-            reservas.set(l.id, { usuarioId: yo.id, hasta });
+            reservas.set(l.id, { usuarioId: yo.id, hasta, navegador: nav });
             avisar("llamada_actualizada", l);
             return (await json(route, { llamada: vista(l), sdpOferta: SDP_OFERTA, ice: { servidores: [] }, venceEn: new Date(hasta).toISOString() }), true);
         }
         if (accion === "rechazar") {
             if (!puede("llamadas.rechazar")) return prohibido();
             if (final) return (await problema(route, P("llamada_terminada", 409, "La llamada ya terminó")), true);
+            if (cuerpo.paraTodos === true) {
+                // Solo quien supervisa: deja de sonarles a todos y queda rechazada.
+                if (!puede("conversaciones.supervisar")) return prohibido();
+                if (l.estado !== "sonando") return (await yaContestada("La llamada ya no está sonando."), true);
+                l.usuario = { id: yo.id, nombre: yo.nombre };
+                terminar(l, "rechazada", "rechazada_supervisor");
+            }
             return (await json(route, vista(l)), true);
         }
         if (accion === "contestar" || accion === "confirmar-medio" || accion === "soltar") {
             // Después de reclamar, la llamada es de quien la reclamó: cualquier otro, 404.
             if (reserva?.usuarioId !== yo.id) return noExiste();
+            // …y de ese navegador: desde otro de la misma persona, 409 sin tocar la reserva.
+            if (reserva.navegador !== nav || forzar.contestar === "otro_navegador") return (await yaContestada("La estás contestando en otro navegador.", "otro_navegador"), true);
             if (final) return (await problema(route, P("llamada_terminada", 409, "La llamada ya terminó")), true);
             if (accion === "soltar") {
                 if (forzar.enCurso?.soltar) {

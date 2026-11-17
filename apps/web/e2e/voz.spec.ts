@@ -119,6 +119,10 @@ test.describe("voz › recibir llamadas", () => {
         const navegador = api.voz.recibido.recibir[0]?.navegador ?? "";
         expect(api.voz.recibido.recibir).toEqual([{ accion: "encender", navegador }]);
         expect(navegador).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
+        // Al leer, el id va en la cabecera `X-Iris-Navegador`, nunca en la URL (no queda en los registros de acceso).
+        const lecturas = api.peticiones.filter((p) => p.metodo === "GET" && p.ruta.endsWith("/llamadas/recibir"));
+        expect(lecturas.length).toBeGreaterThan(0);
+        expect(lecturas.every((p) => p.query.get("navegador") === null)).toBe(true);
         // Al recargar sigue encendido: el id del navegador se guardó.
         await page.reload();
         const otra = await abrirRecibir(page);
@@ -165,7 +169,7 @@ test.describe("voz › recibir llamadas", () => {
         await expect(aviso(page)).toHaveCount(0);
 
         // Lectura fallida: ni «encendido» ni «apagado» inventados.
-        await page.route("**/api/v1/mensajeria/llamadas/recibir?*", (r) => r.fulfill({ status: 500, contentType: "application/problem+json", body: JSON.stringify({ type: "urn:iris:problema:error_interno", title: "Error del servidor", status: 500 }) }), { times: 1 });
+        await page.route("**/api/v1/mensajeria/llamadas/recibir", (r) => r.fulfill({ status: 500, contentType: "application/problem+json", body: JSON.stringify({ type: "urn:iris:problema:error_interno", title: "Error del servidor", status: 500 }) }), { times: 1 });
         await page.reload();
         const otra = await abrirRecibir(page);
         await expect(otra).toContainText("No se pudo leer si recibes llamadas aquí");
@@ -178,11 +182,13 @@ test.describe("voz › recibir llamadas", () => {
         const api = await abrir(page, "/cuenta");
         if (!esTelefono(page)) await expect(page.getByRole("button", { name: "Recibir llamadas: encendido" })).toBeVisible();
         else await feedListo(page, api);
-        api.voz.forzar.desplazado = true;
+        api.voz.forzar.desplazado = "tope";
         await page.clock.fastForward(61_000);
         if (!esTelefono(page)) await expect(page.getByRole("button", { name: "Recibir llamadas: necesita tu atención" })).toBeVisible();
         const panel = await abrirRecibir(page);
         await expect(panel).toContainText("Este navegador dejó de recibir llamadas");
+        await expect(panel.locator('[data-slot="recibir-apagado"]')).toHaveAttribute("data-motivo", "tope");
+        await expect(panel).toContainText("Lo tienes encendido en más de 10 navegadores");
         await expect(panel.getByRole("switch", { name: "Recibir llamadas en este navegador" })).not.toBeChecked();
         await sinDesbordes(page);
         await captura(page, "recibir-desplazado");
@@ -190,6 +196,20 @@ test.describe("voz › recibir llamadas", () => {
         await expect(panel.getByRole("switch", { name: "Recibir llamadas en este navegador" })).toBeChecked();
         await expect(panel).not.toContainText("Este navegador dejó de recibir llamadas");
         expect(api.voz.recibido.recibir.map((r) => r.accion)).toEqual(["encender"]);
+    });
+
+    test("apagado por 30 días sin abrir este navegador: al entrar lo dice con ese motivo", async ({ page }) => {
+        await page.clock.install();
+        await instalarDobleVoz(page, { permiso: "granted" });
+        const api = await simularApi(page, { conversaciones: { flujoLargo: true }, voz: {} });
+        api.voz.forzar.desplazado = "inactivo";
+        await conSesion(page.context(), test.info().project.use.baseURL ?? "", ADMIN.correo);
+        await page.goto("/cuenta");
+        const panel = await abrirRecibir(page);
+        await expect(panel.locator('[data-slot="recibir-apagado"]')).toHaveAttribute("data-motivo", "inactivo");
+        await expect(panel).toContainText("más de 30 días sin abrir Iris en este navegador");
+        await panel.getByRole("button", { name: "Volver a encender" }).click();
+        await expect(panel.getByRole("switch", { name: "Recibir llamadas en este navegador" })).toBeChecked();
     });
 
     test("sin `llamadas.contestar` no hay interruptor, ni aviso, ni se abre el flujo", async ({ page }) => {
@@ -215,8 +235,14 @@ test.describe("voz › llamada entrante", () => {
         await expect(tarjeta).toHaveAccessibleName("Llamada entrante de Carlos Ruiz");
         await expect(tarjeta).toContainText("Llamada de WhatsApp · +50255120041");
         await expect(tarjeta).toContainText("Al número Soporte");
-        // Servicio y ticket: lo que manda el servidor en la conversación.
-        await expect(tarjeta.getByRole("list", { name: "Datos del cliente" })).toContainText("Ticket TK-004812");
+        // Servicio y ticket abierto: lo que manda el servidor en la propia llamada (`senales`).
+        const datos = tarjeta.getByRole("list", { name: "Datos del cliente" });
+        await expect(datos).toContainText("Fibra 100 Mb · activo");
+        await expect(datos).toContainText("Ticket TK-004812");
+        // Sin `saldoVencido: true` no se dice nada del saldo (ni «al día»).
+        await expect(datos).not.toContainText(/[Ss]aldo|al día/);
+        expect(api.peticiones.some((p) => p.metodo === "GET" && p.ruta === "/api/v1/mensajeria/conversaciones/41")).toBe(false);
+        // `reclamar`, `contestar` y `confirmar-medio` llevan el id de este navegador en la cabecera.
         await expect(tarjeta).toHaveAttribute("data-timbre", "sonando");
         await sinDesbordes(page);
         await captura(page, "entrante");
@@ -226,6 +252,8 @@ test.describe("voz › llamada entrante", () => {
         await expect(tarjeta).toHaveCount(0);
         // reclamar → contestar (con la respuesta SDP) → confirmar-medio, una vez cada uno.
         expect(api.voz.recibido.acciones.map((a) => a.accion)).toEqual(["reclamar", "contestar", "confirmar-medio"]);
+        expect(new Set(api.voz.recibido.acciones.map((a) => a.navegador)).size).toBe(1);
+        expect(api.voz.recibido.acciones[0]?.navegador).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
         // La respuesta SDP del navegador viaja tal cual: quien la sanea es el servidor.
         const sdp = String(acciones(api, "contestar")[0]?.cuerpo.sdpRespuesta);
         expect(sdp).toBe(await page.evaluate(() => window.__voz.respuesta));
@@ -321,11 +349,68 @@ test.describe("voz › llamada entrante", () => {
         await expect(tarjeta).toContainText(`Llamada de WhatsApp · ${llamada.numero}`);
         await sinDesbordes(page);
         await captura(page, "entrante-desconocido");
-        await tarjeta.getByRole("button", { name: "Rechazar" }).click();
+        await tarjeta.getByRole("button", { name: "Rechazar", exact: true }).click();
         await expect(tarjeta).toHaveCount(0);
         await expect.poll(() => acciones(api, "rechazar").map((a) => a.cuerpo)).toEqual([{}]);
         // Solo dejó de sonarme a mí: la llamada sigue sonando en el servidor.
         expect(api.voz.llamadas.get(llamada.id)?.estado).toBe("sonando");
+    });
+
+    test("saldo vencido: se pide el detalle al sonar y solo se muestra si el servidor dice `true`", async ({ page }) => {
+        const api = await abrir(page, "/cuenta", { voz: { recibe: true, saldoVencido: [41] } });
+        const llamada = await suena(page, api);
+        await expect(aviso(page).locator('[data-slot="saldo-vencido"]')).toHaveText("Saldo vencido");
+        expect(api.peticiones.some((p) => p.metodo === "GET" && p.ruta.endsWith(`/llamadas/${llamada.id}`))).toBe(true);
+        await sinDesbordes(page);
+        await captura(page, "entrante-saldo-vencido");
+        await aviso(page).getByRole("button", { name: "Rechazar", exact: true }).click();
+        // Otro cliente, sin el dato: nada sobre el saldo.
+        await suena(page, api, 42);
+        await expect(aviso(page).getByRole("list", { name: "Datos del cliente" })).toContainText("Fibra 100 Mb");
+        await page.waitForTimeout(400);
+        await expect(aviso(page).locator('[data-slot="saldo-vencido"]')).toHaveCount(0);
+        // Si el detalle no se puede leer, tampoco se inventa.
+        await aviso(page).getByRole("button", { name: "Rechazar", exact: true }).click();
+        await page.route("**/api/v1/mensajeria/llamadas/0199c0de-*", (r) => (r.request().method() === "GET" ? r.fulfill({ status: 500, contentType: "application/problem+json", body: JSON.stringify({ type: "urn:iris:problema:error_interno", title: "Error del servidor", status: 500 }) }) : r.fallback()));
+        await suena(page, api);
+        await page.waitForTimeout(400);
+        await expect(aviso(page).locator('[data-slot="saldo-vencido"]')).toHaveCount(0);
+    });
+
+    test("quien supervisa puede «Rechazar para todos», con confirmación; quien solo atiende no lo ve", async ({ page }) => {
+        const api = await abrir(page, "/cuenta");
+        const llamada = await suena(page, api);
+        await aviso(page).getByRole("button", { name: "Rechazar para todos" }).click();
+        const dialogo = page.getByRole("alertdialog", { name: "¿Rechazar la llamada para todos?" });
+        await expect(dialogo).toContainText("Deja de sonarles a todas las personas");
+        await sinDesbordes(page);
+        await captura(page, "rechazar-para-todos");
+        await dialogo.getByRole("button", { name: "Dejar que suene" }).click();
+        await expect(aviso(page)).toHaveAttribute("data-fase", "sonando");
+        expect(acciones(api, "rechazar")).toHaveLength(0);
+        await aviso(page).getByRole("button", { name: "Rechazar para todos" }).click();
+        await dialogo.getByRole("button", { name: "Rechazar para todos" }).click();
+        await expect(page.getByText("Llamada de Carlos Ruiz rechazada para todos")).toBeVisible();
+        await expect(aviso(page)).toHaveCount(0);
+        expect(acciones(api, "rechazar").map((a) => a.cuerpo)).toEqual([{ paraTodos: true }]);
+        expect(api.voz.llamadas.get(llamada.id)?.estado).toBe("rechazada");
+    });
+
+    test("la reserva es de otro navegador mío (409 `otro_navegador`): se dice y aquí no se suelta ni se cuelga", async ({ page }) => {
+        const api = await abrir(page, "/cuenta");
+        const llamada = await suena(page, api);
+        api.voz.forzar.contestar = "otro_navegador";
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect(aviso(page)).toHaveAttribute("data-motivo", "otro_navegador");
+        await expect(aviso(page)).toContainText("La estás contestando en otro navegador");
+        await page.clock.fastForward(5_000);
+        await page.waitForTimeout(300);
+        expect(acciones(api, "soltar")).toHaveLength(0);
+        expect(acciones(api, "colgar")).toHaveLength(0);
+        // La reserva (del otro navegador) sigue intacta.
+        expect(api.voz.llamadas.get(llamada.id)?.estado).toBe("conectando");
+        expect(await page.evaluate(() => window.__voz.microfonoAbierto())).toBe(false);
+        await sinDesbordes(page);
     });
 
     test("otra persona la contesta mientras suena: deja de sonar y dice quién", async ({ page }) => {
@@ -925,6 +1010,33 @@ test.describe("voz › en el hilo y en la lista", () => {
         await captura(page, "hilo-llamadas");
     });
 
+    test("quien supervisa cuelga la llamada viva de otra persona desde el hilo, con confirmación; quien solo atiende no ve el botón", async ({ page }) => {
+        const api = await abrir(page, "/cuenta", { voz: {} });
+        const deRosa = api.voz.historica(41, "en_curso", { atendidaPor: "persona", usuario: { id: 9, nombre: "Rosa Sánchez" }, contestadaEn: new Date().toISOString() });
+        delete api.voz.llamadas.get(deRosa.id)?.terminadaEn;
+        await page.goto("/conversaciones?c=41");
+        const tarjeta = page.getByRole("log", { name: "Mensajes" }).locator('[data-slot="llamada-hilo"][data-estado="en_curso"]');
+        await expect(tarjeta).toContainText("Con Rosa Sánchez");
+        await tarjeta.getByRole("button", { name: "Colgar la llamada" }).click();
+        const dialogo = page.getByRole("alertdialog", { name: "¿Colgar la llamada de Rosa Sánchez?" });
+        await sinDesbordes(page);
+        await dialogo.getByRole("button", { name: "No colgar" }).click();
+        expect(acciones(api, "colgar")).toHaveLength(0);
+        await tarjeta.getByRole("button", { name: "Colgar la llamada" }).click();
+        await dialogo.getByRole("button", { name: "Colgar la llamada" }).click();
+        await expect(page.getByText("Llamada colgada")).toBeVisible();
+        expect(api.voz.llamadas.get(deRosa.id)?.estado).toBe("terminada");
+
+        // Quien solo atiende (sin `conversaciones.supervisar`): sin botón.
+        const otra = api.voz.historica(42, "en_curso", { atendidaPor: "persona", usuario: { id: 9, nombre: "Rosa Sánchez" } });
+        await conSesion(page.context(), test.info().project.use.baseURL ?? "", AGENTE_CONV.correo);
+        await page.goto("/conversaciones?c=42");
+        const ajena = page.getByRole("log", { name: "Mensajes" }).locator('[data-slot="llamada-hilo"][data-estado="en_curso"]');
+        await expect(ajena).toContainText("Con Rosa Sánchez");
+        await expect(ajena.getByRole("button", { name: "Colgar la llamada" })).toHaveCount(0);
+        expect(api.voz.llamadas.get(otra.id)?.estado).toBe("en_curso");
+    });
+
     test("llamada perdida: la fila la marca, se junta arriba como «por devolver» y se descarta con motivo", async ({ page }) => {
         const api = await abrir(page, "/conversaciones", { voz: { devoluciones: [41, 42] } });
         const fila = (id: number) => page.locator(`li:has([data-conversacion="${id}"])`);
@@ -979,6 +1091,8 @@ test.describe("voz › en el hilo y en la lista", () => {
     test("quien atiende sin administrar (agente) recibe y contesta; no ve los ajustes", async ({ page }) => {
         const api = await abrir(page, "/cuenta", { correo: AGENTE_CONV.correo });
         await suena(page, api, 42);
+        // Sin `conversaciones.supervisar` no hay «Rechazar para todos».
+        await expect(aviso(page).getByRole("button", { name: "Rechazar para todos" })).toHaveCount(0);
         await aviso(page).getByRole("button", { name: "Contestar" }).click();
         await expect(barra(page)).toBeVisible();
         await barra(page).getByRole("button", { name: "Colgar" }).click();

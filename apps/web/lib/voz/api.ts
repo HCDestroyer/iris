@@ -1,5 +1,6 @@
 import { api, COOKIE_CSRF, CABECERA_CSRF, leerCookie, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { CABECERA_EMPRESA, empresaGuardada } from "@/lib/empresa";
+import { idNavegador } from "./navegador";
 import type { EntradaAjustesVoz, EntradaLlamadasCanal, ResultadoLlamada } from "./tipos";
 
 /* Llamadas del panel de voz (contratos/voz.md §3), con el cliente tipado. */
@@ -10,20 +11,28 @@ const idem = (clave = nuevaClaveIdempotencia()) => ({ "Idempotency-Key": clave }
  * La llamada es de una empresa: `soltar`, `colgar` y compañía van con **esa** empresa aunque la
  * activa del panel ya haya cambiado (si no, el servidor responde 404 y la llamada queda viva).
  */
+/**
+ * El id de «Recibir llamadas» de este navegador. La reserva de `reclamar` queda atada a él: desde
+ * otro navegador de la misma persona, `contestar`, `confirmar-medio` y `soltar` responden 409
+ * `llamada_ya_contestada` (`otro_navegador`) y no tocan la reserva. Va en cabecera (no en la URL)
+ * para que no quede en los registros de acceso.
+ */
+export const CABECERA_NAVEGADOR = "X-Iris-Navegador";
+const navegador = () => ({ [CABECERA_NAVEGADOR]: idNavegador() });
 const de = (empresa: number | undefined) => (empresa === undefined ? {} : { headers: { [CABECERA_EMPRESA]: String(empresa) } });
 
 // --- «Recibir llamadas» (por usuario y navegador) ----------------------------------------------
 
-export function leerRecibir(navegador: string, signal?: AbortSignal) {
-    return resolver(api().GET(`${BASE}/recibir`, { params: { query: { navegador } }, signal }));
+export function leerRecibir(signal?: AbortSignal) {
+    return resolver(api().GET(`${BASE}/recibir`, { params: { header: navegador() }, signal }));
 }
 
-export function encenderRecibir(navegador: string) {
-    return resolver(api().POST(`${BASE}/recibir/encender`, { params: { header: idem() }, body: { navegador } }));
+export function encenderRecibir() {
+    return resolver(api().POST(`${BASE}/recibir/encender`, { params: { header: idem() }, body: { navegador: idNavegador() } }));
 }
 
-export function apagarRecibir(navegador: string) {
-    return resolver(api().POST(`${BASE}/recibir/apagar`, { params: { header: idem() }, body: { navegador } }));
+export function apagarRecibir() {
+    return resolver(api().POST(`${BASE}/recibir/apagar`, { params: { header: idem() }, body: { navegador: idNavegador() } }));
 }
 
 // --- La llamada --------------------------------------------------------------------------------
@@ -39,28 +48,28 @@ export function leerLlamada(id: string, signal?: AbortSignal, empresa?: number) 
 
 /** Atómico: gana quien actualiza la fila. Es idempotente por naturaleza (no lleva `Idempotency-Key`). */
 export function reclamarLlamada(id: string, signal?: AbortSignal) {
-    return resolver(api().POST(`${BASE}/{id}/reclamar`, { params: { path: { id } }, signal }));
+    return resolver(api().POST(`${BASE}/{id}/reclamar`, { params: { path: { id }, header: navegador() }, signal }));
 }
 
 export function contestarLlamada(id: string, sdpRespuesta: string, clave: string, signal?: AbortSignal) {
-    return resolver(api().POST(`${BASE}/{id}/contestar`, { params: { path: { id }, header: idem(clave) }, body: { sdpRespuesta }, signal }));
+    return resolver(api().POST(`${BASE}/{id}/contestar`, { params: { path: { id }, header: { ...idem(clave), ...navegador() } }, body: { sdpRespuesta }, signal }));
 }
 
 export function confirmarMedio(id: string, clave: string, signal?: AbortSignal) {
-    return resolver(api().POST(`${BASE}/{id}/confirmar-medio`, { params: { path: { id }, header: idem(clave) }, signal }));
+    return resolver(api().POST(`${BASE}/{id}/confirmar-medio`, { params: { path: { id }, header: { ...idem(clave), ...navegador() } }, signal }));
 }
 
 export function soltarLlamada(id: string, motivo: string, empresa?: number) {
-    return resolver(api().POST(`${BASE}/{id}/soltar`, { params: { path: { id }, header: idem() }, body: { motivo }, ...de(empresa) }));
+    return resolver(api().POST(`${BASE}/{id}/soltar`, { params: { path: { id }, header: { ...idem(), ...navegador() } }, body: { motivo }, ...de(empresa) }));
 }
 
 export function colgarLlamada(id: string, clave: string, empresa?: number) {
     return resolver(api().POST(`${BASE}/{id}/colgar`, { params: { path: { id }, header: idem(clave) }, ...de(empresa) }));
 }
 
-/** Deja de sonarle a este usuario (no la rechaza para todos). */
-export function rechazarLlamada(id: string, empresa?: number) {
-    return resolver(api().POST(`${BASE}/{id}/rechazar`, { params: { path: { id }, header: idem() }, body: {}, ...de(empresa) }));
+/** Deja de sonarle a este usuario. Con `paraTodos` (quien supervisa), la rechaza para todos. */
+export function rechazarLlamada(id: string, empresa?: number, paraTodos = false) {
+    return resolver(api().POST(`${BASE}/{id}/rechazar`, { params: { path: { id }, header: idem() }, body: paraTodos ? { paraTodos: true } : {}, ...de(empresa) }));
 }
 
 export function anotarLlamada(id: string, nota: string, resultado: ResultadoLlamada | undefined, clave: string) {
@@ -74,7 +83,7 @@ export function anotarLlamada(id: string, nota: string, resultado: ResultadoLlam
  */
 export function avisarAlCerrar(id: string, accion: "soltar" | "colgar", empresaDeLaLlamada?: number): void {
     if (typeof fetch === "undefined" || typeof document === "undefined") return;
-    const cabeceras: Record<string, string> = { "Content-Type": "application/json", "Idempotency-Key": nuevaClaveIdempotencia() };
+    const cabeceras: Record<string, string> = { "Content-Type": "application/json", "Idempotency-Key": nuevaClaveIdempotencia(), [CABECERA_NAVEGADOR]: idNavegador() };
     const csrf = leerCookie(COOKIE_CSRF, document.cookie);
     if (csrf) cabeceras[CABECERA_CSRF] = csrf;
     // La empresa de la llamada, no la activa: al cambiar de empresa la activa ya es otra.

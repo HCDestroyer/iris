@@ -25,7 +25,6 @@ import { colgarSeguro, soltarSeguro, type Fin } from "@/lib/voz/asegurar";
 import { escucharEventos, escucharFuente, fuenteAjena, publicarEvento } from "@/lib/voz/canal";
 import { alCerrarPestana, alSalir, CONFIRMAR_MS, debeSonar, LIBRE, llamadaDe, ocupada, RESERVA_MS, siguiente, TIMBRE_MAX_MS, type EstadoVoz, type Etapa, type EventoVoz } from "@/lib/voz/maquina";
 import { conectar, ErrorMicrofono, navegadorAdmiteLlamadas, pedirMicrofono, permisoMicrofono, soltarMicrofono, type Conexion, type EstadoMicrofono } from "@/lib/voz/medios";
-import { idNavegador } from "@/lib/voz/navegador";
 import { motivoDeCodigo } from "@/lib/voz/presentacion";
 import { sonarTimbre } from "@/lib/voz/timbre";
 import type { Llamada } from "@/lib/voz/tipos";
@@ -68,8 +67,11 @@ type ContextoVoz = {
     errorColgar: unknown;
     reintentarColgar: () => void;
     recibir: EstadoRecibir;
-    /** El servidor apagó «Recibir» en este navegador (pasó del máximo por persona): se ofrece volver a encender. */
-    desplazado: boolean;
+    /**
+     * El servidor apagó «Recibir» en este navegador: `tope` (más de 10 navegadores), `inactivo` (30
+     * días sin abrirlo) o `desconocido`. Se dice y se ofrece volver a encender.
+     */
+    desplazado: MotivoApagado | null;
     /** Lo que se sabe del micrófono en este navegador (`null`: aún no se preguntó). */
     microfono: EstadoMicrofono | null;
     /** ¿Este navegador puede contestar? (micrófono y WebRTC, en contexto seguro) */
@@ -83,6 +85,8 @@ type ContextoVoz = {
     feed: EstadoFeed | null;
     /** ¿Está sonando el timbre? (para pruebas y lectores de pantalla) */
     timbre: boolean;
+    /** Quien supervisa: rechaza para todos la llamada que suena (deja de sonarles y queda rechazada). */
+    rechazarParaTodos: () => Promise<void>;
     /**
      * Antes de cambiar de empresa o cerrar sesión: con una llamada viva o sonando pregunta y, si la
      * persona sigue, la cuelga o suelta **antes** de irse. `false`: se queda.
@@ -122,6 +126,8 @@ const accionEnCurso = (e: unknown) => e instanceof ErrorApi && e.codigo === "acc
 
 /** Cada cuánto se relee si este navegador sigue recibiendo (el servidor guarda como mucho 10 por persona). */
 const RELEER_RECIBIR_MS = 60_000;
+
+export type MotivoApagado = "tope" | "inactivo" | "desconocido";
 
 type Intento = { conexion: Conexion | null; microfono: MediaStream | null; plazo: number; liberar: (() => void) | null; etapa: Etapa; reservaSegura: boolean };
 
@@ -220,7 +226,7 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
     const [microfono, setMicrofono] = useState<EstadoMicrofono | null>(null);
     const [cambiando, setCambiando] = useState(false);
     const [errorCambio, setErrorCambio] = useState<unknown>(null);
-    const [desplazado, setDesplazado] = useState(false);
+    const [desplazado, setDesplazado] = useState<MotivoApagado | null>(null);
     const recibe = recibir.estado === "listo" && recibir.recibe;
     const recibeRef = useRef(recibe);
     const releerRecibir = useRef<() => void>(() => undefined);
@@ -232,11 +238,11 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
         let vivo = true;
         const leer = () => {
             if (document.visibilityState !== "visible") return;
-            leerRecibir(idNavegador()).then(
+            leerRecibir().then(
                 (r) => {
                     if (!vivo || r.recibe) return;
                     setRecibir({ estado: "listo", recibe: false });
-                    setDesplazado(true);
+                    setDesplazado(r.motivo ?? "desconocido");
                 },
                 // Una relectura fallida no cambia nada: el interruptor sigue como se leyó.
                 () => undefined,
@@ -260,9 +266,11 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
         const control = new AbortController();
         (async () => {
             try {
-                const r = await leerRecibir(idNavegador(), control.signal);
+                const r = await leerRecibir(control.signal);
                 if (control.signal.aborted) return;
                 let encendido = r.recibe;
+                // Lo apagó el servidor desde la última vez: se dice por qué.
+                if (!r.recibe && r.motivo) setDesplazado(r.motivo);
                 if (encendido) {
                     // Encendido pero el navegador ya no deja usar el micrófono: no puede contestar.
                     const permiso = admiteAhora() ? await permisoMicrofono() : "denied";
@@ -270,7 +278,7 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
                     if (permiso === "denied") {
                         encendido = false;
                         setMicrofono(admiteAhora() ? "denegado" : "no_disponible");
-                        void apagarRecibir(idNavegador()).catch(() => undefined);
+                        void apagarRecibir().catch(() => undefined);
                     } else if (permiso === "granted") {
                         setMicrofono("concedido");
                     }
@@ -296,9 +304,9 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
             // El permiso se pide aquí, con calma, y no cuando ya está sonando (§3.4).
             soltarMicrofono(await pedirMicrofono());
             setMicrofono("concedido");
-            const r = await encenderRecibir(idNavegador());
+            const r = await encenderRecibir();
             setRecibir({ estado: "listo", recibe: r.recibe });
-            setDesplazado(false);
+            setDesplazado(null);
             avisar({ titulo: "Este navegador ya recibe llamadas" });
             return true;
         } catch (e) {
@@ -314,9 +322,9 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
         setCambiando(true);
         setErrorCambio(null);
         try {
-            const r = await apagarRecibir(idNavegador());
+            const r = await apagarRecibir();
             setRecibir({ estado: "listo", recibe: r.recibe });
-            setDesplazado(false);
+            setDesplazado(null);
             avisar({ titulo: "Este navegador ya no recibe llamadas" });
         } catch (e) {
             setErrorCambio(e);
@@ -459,7 +467,10 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
                     despachar({ tipo: "fallo", motivo: error.estado === "denegado" ? "microfono_denegado" : "sin_microfono" });
                 } else if (error instanceof ErrorApi) {
                     if (error.codigo === "llamada_ya_contestada" && error.errores[0]?.rule === "misma_persona") despachar({ tipo: "otra_pestana" });
-                    else despachar({ tipo: "fallo", motivo: motivoDeCodigo(error.codigo, error.estado), detalle: error.codigo === "llamada_ya_contestada" ? error.detalle : undefined });
+                    else {
+                        const motivo = motivoDeCodigo(error.codigo, error.estado, error.errores[0]?.rule);
+                        despachar({ tipo: "fallo", motivo, detalle: motivo === "otro_la_contesto" ? error.detalle : undefined });
+                    }
                     // El servidor dice que este navegador ya no recibe: se relee para decirlo.
                     if (error.codigo === "no_recibe_llamadas") releerRecibir.current();
                 } else {
@@ -478,6 +489,20 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
             if (error instanceof ErrorApi && (error.estado === 409 || error.estado === 404)) return;
             avisar({ titulo: "No se pudo rechazar la llamada", descripcion: mensajeDeError(error).titulo });
         });
+    }, [despachar, empresaMontada]);
+
+    const rechazarParaTodos = useCallback(async () => {
+        const e = estadoRef.current;
+        if (e.fase !== "sonando") return;
+        const { id, titulo } = e.llamada;
+        try {
+            await rechazarLlamada(id, empresaMontada, true);
+            despachar({ tipo: "rechazar" });
+            avisar({ titulo: `Llamada de ${titulo} rechazada para todos` });
+        } catch (error) {
+            // Ya la contestó alguien o terminó: el feed lo dirá; aquí solo se explica.
+            avisar({ tono: "warning", titulo: "No se pudo rechazar para todos", descripcion: error instanceof ErrorApi && error.estado === 409 ? "La llamada ya no está sonando." : mensajeDeError(error).titulo });
+        }
     }, [despachar, empresaMontada]);
 
     /** «Colgar»: se cierra el audio y `despachar` asegura (con reintentos) que el servidor la termine. */
@@ -564,8 +589,8 @@ export function ProveedorVoz({ children }: { children: ReactNode }) {
     }, []);
 
     const valor = useMemo<ContextoVoz>(
-        () => ({ estado, contestar, rechazar, colgar, silenciar, cerrar, errorColgar, reintentarColgar, recibir, desplazado, microfono, admite, cambiando, errorCambio, encender, apagar, reintentarRecibir, feed, timbre: suena, antesDeSalir }),
-        [estado, contestar, rechazar, colgar, silenciar, cerrar, errorColgar, reintentarColgar, recibir, desplazado, microfono, admite, cambiando, errorCambio, encender, apagar, reintentarRecibir, feed, suena, antesDeSalir],
+        () => ({ estado, contestar, rechazar, colgar, silenciar, cerrar, errorColgar, reintentarColgar, recibir, desplazado, microfono, admite, cambiando, errorCambio, encender, apagar, reintentarRecibir, feed, timbre: suena, antesDeSalir, rechazarParaTodos }),
+        [estado, contestar, rechazar, colgar, silenciar, cerrar, errorColgar, reintentarColgar, recibir, desplazado, microfono, admite, cambiando, errorCambio, encender, apagar, reintentarRecibir, feed, suena, antesDeSalir, rechazarParaTodos],
     );
     return (
         <Contexto value={valor}>

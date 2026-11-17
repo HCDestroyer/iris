@@ -708,7 +708,9 @@ solo para quien tiene `llamadas.contestar`: el aviso y la barra aparecen en cual
   recibir» (el servidor guarda 10 por persona) con «Volver a encender».
 - **Llamada entrante:** tarjeta flotante bajo la barra superior (ancho completo en 390 px) con el
   cliente o «Número desconocido» (nunca un nombre inventado), el número al que llaman, su servicio
-  y el ticket de la conversación si el servidor los manda, «Rechazar» y «Contestar». Suena un
+  el ticket abierto y «Saldo vencido» solo si el servidor lo dice (ausente no se muestra nada,
+  nunca «al día»), «Rechazar» y «Contestar». Quien supervisa ve además «Rechazar para todos» (con
+  confirmación) y, en el hilo, «Colgar la llamada» de otra persona. Suena un
   timbre (WebAudio). «Contestar» abre la conversación del cliente, salvo que estés en un
   formulario (no se pierde lo escrito: queda «Ver cliente» en la barra).
 - **Si no se pudo contestar** (otra persona la tomó, venció el tiempo, micrófono, red, ya tienes

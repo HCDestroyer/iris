@@ -48,6 +48,8 @@ export function textoAviso(motivo: MotivoAviso, quien?: string): { titulo: strin
             return { titulo: "No se pudo conectar el audio", detalle: "Tu red no dejó pasar la llamada. Prueba otra vez o desde otra red." };
         case "meta_rechazo":
             return { titulo: "WhatsApp no aceptó la llamada", detalle: "Puede que el cliente ya haya colgado." };
+        case "otro_navegador":
+            return { titulo: "La estás contestando en otro navegador", detalle: "Sigue allá: aquí no se cambia nada." };
         case "otra_llamada":
             return { titulo: "Ya tienes otra llamada", detalle: "Termínala para contestar esta. Mientras tanto les sigue sonando a los demás." };
         default:
@@ -55,9 +57,9 @@ export function textoAviso(motivo: MotivoAviso, quien?: string): { titulo: strin
     }
 }
 
-/** El motivo de aviso que corresponde a un código de error del servidor (§3.11). */
-export function motivoDeCodigo(codigo: string, estado: number): MotivoAviso {
-    if (codigo === "llamada_ya_contestada") return "otro_la_contesto";
+/** El motivo de aviso que corresponde a un código de error del servidor (§3.11) y a su regla. */
+export function motivoDeCodigo(codigo: string, estado: number, regla?: string): MotivoAviso {
+    if (codigo === "llamada_ya_contestada") return regla === "otro_navegador" ? "otro_navegador" : "otro_la_contesto";
     if (codigo === "reserva_vencida") return "reserva_vencida";
     if (codigo === "llamada_terminada") return "termino_antes";
     if (codigo === "no_recibe_llamadas") return "no_recibe_llamadas";

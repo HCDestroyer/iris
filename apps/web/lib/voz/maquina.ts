@@ -26,6 +26,8 @@ export type MotivoAviso =
     | "meta_rechazo"
     /** 409 `llamada_en_curso`: ya tengo otra llamada viva (en otra pestaña o navegador). */
     | "otra_llamada"
+    /** 409 `llamada_ya_contestada` (`otro_navegador`): la reserva es de otro navegador mío. */
+    | "otro_navegador"
     | "error";
 
 export type EstadoVoz =
@@ -202,6 +204,8 @@ export function alSalir(antes: EstadoVoz, despues: EstadoVoz, etapa: Etapa, rese
         return despues.fase === "terminada" && esFinal(despues.llamada) ? null : "colgar";
     }
     if (antes.fase !== "contestando") return null;
+    // La tengo en otro navegador mío, con su audio: aquí no se suelta ni se cuelga nada.
+    if (despues.fase === "aviso" && despues.motivo === "otro_navegador") return null;
     if (etapa === "confirmando" || etapa === "en_curso") return "colgar";
     const ajena = despues.fase === "aviso" && (despues.motivo === "otro_la_contesto" || despues.motivo === "termino_antes");
     if (ajena || !reservaSegura || etapa === "reclamando") return null;

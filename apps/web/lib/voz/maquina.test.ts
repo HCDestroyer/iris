@@ -188,6 +188,11 @@ describe("máquina de la llamada entrante (contratos/voz.md §3.3)", () => {
         expect(alSalir(hablando, siguiente(hablando, { tipo: "medio_caido", ahora: T0 }, YO), "en_curso", true)).toBe("colgar");
         expect(alSalir(hablando, siguiente(hablando, { tipo: "abandonar" }, YO), "en_curso", false)).toBe("colgar");
         expect(alSalir(hablando, siguiente(hablando, { tipo: "actualizada", llamada: llamada({ estado: "terminada", duracionSeg: 9 }) }, YO), "en_curso", true)).toBeNull();
+        // La reserva es de otro navegador mío (409 `otro_navegador`), que tiene el audio: ni soltar ni colgar,
+        // tampoco si `confirmar-medio` ya había salido de aquí.
+        for (const etapa of ["respondida", "confirmando"] as Etapa[]) {
+            expect(alSalir(confirmando, siguiente(confirmando, { tipo: "fallo", motivo: "otro_navegador" }, YO), etapa, true)).toBeNull();
+        }
         // Seguir ocupada (un paso más) no manda nada.
         expect(alSalir(en(3), en(4), "reservada", true)).toBeNull();
         expect(alSalir(LIBRE, LIBRE, "reclamando", true)).toBeNull();
@@ -251,6 +256,8 @@ describe("textos de la voz", () => {
         expect(motivoDeCodigo("no_recibe_llamadas", 422)).toBe("no_recibe_llamadas");
         expect(motivoDeCodigo("meta_rechazo", 502)).toBe("meta_rechazo");
         expect(motivoDeCodigo("llamada_en_curso", 409)).toBe("otra_llamada");
+        expect(motivoDeCodigo("llamada_ya_contestada", 409, "otro_navegador")).toBe("otro_navegador");
+        expect(textoAviso("otro_navegador").titulo).toBe("La estás contestando en otro navegador");
         expect(textoAviso("otra_llamada").titulo).toBe("Ya tienes otra llamada");
         // Iris no puede leer el webhook de Meta: «sin comprobar», nunca «cumple».
         expect(textoRequisito({ codigo: "webhook_calls", cumple: false, aviso: true, sinComprobar: true, detalle: "Se sabrá con la primera llamada." }).estado).toBe("sin_comprobar");

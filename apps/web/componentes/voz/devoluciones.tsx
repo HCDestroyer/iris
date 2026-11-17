@@ -203,7 +203,7 @@ export function PendientesDevolver({ conversaciones, hrefDe, ahora }: { conversa
                         return (
                             <li key={d.id} data-devolucion={d.id} className="grid gap-1.5 rounded-md bg-card p-2">
                                 <div className="grid min-w-0">
-                                    <span className="truncate text-[0.8125rem] font-semibold">{conv?.titulo ?? `Conversación ${d.conversacionId}`}</span>
+                                    <span className="truncate text-[0.8125rem] font-semibold">{d.titulo || conv?.titulo || d.numero}</span>
                                     <span className="truncate text-xs text-muted-foreground">
                                         Llamó {haceCuanto(d.creadaEn, ahora)}
                                         {d.pedidaPor === "cliente" ? " · pidió que lo llamen" : d.pedidaPor === "asistente" ? " · lo anotó el asistente" : ""}
