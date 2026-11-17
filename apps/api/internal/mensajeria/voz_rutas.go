@@ -78,6 +78,12 @@ type llamadaNavegadorHTTP struct {
 	Navegador string    `header:"X-Iris-Navegador" required:"false" maxLength:"64" pattern:"^[A-Za-z0-9_-]{8,64}$"`
 }
 
+type colgarHTTP struct {
+	nucleo.ConIdempotencia
+	ID     uuid.UUID `path:"id" format:"uuid"`
+	Propia bool      `query:"propia" required:"false" doc:"Solo si la llamada es tuya (no vale supervisar): para el cierre de pestaña"`
+}
+
 type activaHTTP struct {
 	Status int
 	Body   *Llamada
@@ -224,9 +230,11 @@ func (m *Modulo) registrarVoz(api huma.API) {
 			return responder(k.Soltar.Ejecutar(ctx, EntradaSoltar{ID: in.ID, Navegador: in.Navegador, Motivo: in.Body.Motivo}))
 		})
 	huma.Register(api, voz(op("colgarLlamada", http.MethodPost, "/llamadas/{id}/colgar", "Colgar", colgar, http.StatusOK, http.StatusNotFound, http.StatusConflict),
-		"Quien la tiene, o quien supervisa. 409 `llamada_terminada` si ya terminó. Emite `llamada.terminada`."),
-		func(ctx context.Context, in *llamadaHTTP) (*cuerpo[Llamada], error) {
-			return responder(m.Colgar(ctx, EntradaLlamada{ID: in.ID}))
+		"Quien la tiene, o quien supervisa. Con `?propia=true` solo quien la tiene (supervisar no cuenta): es lo que debe mandar el panel al cerrarse la "+
+			"pestaña, para no colgar la llamada de otra persona si la reserva propia ya venció (404 en ese caso). Una saliente también se cuelga mientras marca. "+
+			"409 `llamada_terminada` si ya terminó. Emite `llamada.terminada`."),
+		func(ctx context.Context, in *colgarHTTP) (*cuerpo[Llamada], error) {
+			return responder(m.Colgar(ctx, EntradaLlamada{ID: in.ID, SoloPropia: in.Propia}))
 		})
 	huma.Register(api, voz(op("rechazarLlamada", http.MethodPost, "/llamadas/{id}/rechazar", "Rechazar una llamada que suena", rechazar,
 		http.StatusOK, http.StatusNotFound, http.StatusConflict),

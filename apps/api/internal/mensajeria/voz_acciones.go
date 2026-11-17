@@ -73,6 +73,9 @@ type EntradaLlamada struct {
 	// Navegador: el id de «Recibir llamadas» de este navegador (cabecera X-Iris-Navegador). La reserva
 	// de reclamar queda atada a él.
 	Navegador string `json:"navegador,omitempty"`
+	// SoloPropia (colgar): solo si la llamada es de quien lo pide; no vale supervisar. Es lo que manda
+	// el panel al cerrarse la pestaña, para no colgar la llamada de un compañero.
+	SoloPropia bool `json:"soloPropia,omitempty"`
 }
 
 // LlamadaReclamada es la respuesta de reclamar: la oferta SDP solo viaja aquí y solo a quien la ganó.
@@ -544,15 +547,17 @@ func nuevoColgarLlamada(m *Modulo) *auditoria.Caso[EntradaLlamada, Llamada] {
 			if err != nil {
 				return Llamada{}, err
 			}
-			// Quien la tiene, o un supervisor.
-			if (l.UsuarioID == nil || *l.UsuarioID != a.usuario) && !a.supervisa {
+			// Quien la tiene, o un supervisor. Con soloPropia (cierre de pestaña) supervisar no cuenta: si
+			// la reserva propia venció y la llamada ya es de otra persona, no se le cuelga.
+			if (l.UsuarioID == nil || *l.UsuarioID != a.usuario) && (!a.supervisa || in.SoloPropia) {
 				return Llamada{}, llamadaNoEncontrada()
 			}
 			if llamadaFinal(l.Estado) {
 				return Llamada{}, llamadaTerminada()
 			}
 			// Una saliente se puede colgar mientras marca (se cancela: no cuenta como sin contestar).
-			if l.Estado != LlamadaEnCurso && !(l.Direccion == "saliente" && l.Estado == LlamadaMarcando) {
+			marcando := l.Direccion == "saliente" && l.Estado == LlamadaMarcando
+			if l.Estado != LlamadaEnCurso && !marcando {
 				return Llamada{}, nucleo.Conflicto("llamada_sin_contestar", "La llamada todavía no está en curso: usa rechazar o soltar")
 			}
 			c, err := q.ConversacionClienteParaActualizar(ctx, *l.ConversacionID)

@@ -557,14 +557,16 @@ func TestLlamadaLimitesYWebhook(t *testing.T) {
 		"segundosAsignado": 0}), http.StatusForbidden)
 	admin := x.persona([]int64{1}, rolBase("admin"))
 	admin.empresa = 1 // opera en todas: indica cuál con X-Iris-Empresa
-	aj := x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": 0, "duracionMaxPersonaMin": 10,
+	// (otra prueba pudo guardar ya los ajustes de la empresa: se parte de la versión que haya)
+	v0 := x.exigir(x.api(admin, http.MethodGet, "/voz/ajustes", nil), http.StatusOK).cuerpo["version"].(float64)
+	aj := x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": v0, "duracionMaxPersonaMin": 10,
 		"segundosAsignado": 0}), http.StatusOK)
-	if aj.cuerpo["version"] != float64(1) || x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'voz.ajustes_cambiados' AND payload ? 'campos'`) == 0 {
+	if aj.cuerpo["version"] != v0+1 || x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'voz.ajustes_cambiados' AND payload ? 'campos'`) == 0 {
 		t.Fatalf("ajustes de voz: %s", crudo(aj))
 	}
-	x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": 0, "duracionMaxPersonaMin": 10,
+	x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": v0, "duracionMaxPersonaMin": 10,
 		"segundosAsignado": 0}), http.StatusConflict)
-	x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": 1, "duracionMaxPersonaMin": 500,
+	x.exigir(x.api(admin, http.MethodPost, "/voz/ajustes/actualizar", map[string]any{"version": v0 + 1, "duracionMaxPersonaMin": 500,
 		"segundosAsignado": 0}), http.StatusUnprocessableEntity)
 	larga, callLarga := numeroCliente(), "wacid.larga"+numeroCliente()
 	x.pasa(time.Second, x.agente)
@@ -1406,8 +1408,8 @@ func TestLlamadaReservaPorNavegador(t *testing.T) {
 	if n := x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id = $1::uuid AND estado = 'en_curso' AND reclamada_navegador IS NULL`, id); n != 1 {
 		t.Fatal("en curso, ya sin reserva")
 	}
-	// Colgar: quien la tiene, desde cualquier navegador.
-	if r := x.exigir(x.api(otroNav, http.MethodPost, "/llamadas/"+id+"/colgar", nil), http.StatusOK); r.cuerpo["estado"] != "terminada" {
+	// Colgar: quien la tiene, desde cualquier navegador (también con propia=true).
+	if r := x.exigir(x.api(otroNav, http.MethodPost, "/llamadas/"+id+"/colgar?propia=true", nil), http.StatusOK); r.cuerpo["estado"] != "terminada" {
 		t.Fatalf("colgar desde el otro navegador: %s", crudo(r))
 	}
 	// Soltar desde el navegador de la reserva sí la libera, y limpia el navegador.
@@ -1430,6 +1432,12 @@ func TestLlamadaReservaPorNavegador(t *testing.T) {
 	x.connect(num3, call3)
 	id3, _, _ := x.llamada(call3)
 	x.contestar(x.agente, id3)
+	// Al cerrarse la pestaña el panel manda colgar con ?propia=true: ni siquiera quien supervisa cuelga
+	// así la llamada de un compañero (su reserva venció y ahora la llamada es de otra persona).
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/llamadas/"+id3+"/colgar?propia=true", nil), http.StatusNotFound)
+	if _, estado, _ := x.llamada(call3); estado != "en_curso" || x.g.cuenta("terminate:"+call3) != 0 {
+		t.Fatalf("colgar con propia=true no debía tocar la llamada de otra persona: %s", estado)
+	}
 	if r := x.exigir(x.api(x.supervisor, http.MethodPost, "/llamadas/"+id3+"/colgar", nil), http.StatusOK); r.cuerpo["estado"] != "terminada" || x.g.cuenta("terminate:"+call3) != 1 {
 		t.Fatalf("el supervisor cuelga la llamada de otra persona: %s", crudo(r))
 	}
