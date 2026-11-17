@@ -1161,9 +1161,14 @@ no guarda ninguna credencial de Iris.
     lleva la huella que devolvió «Conectar» y que el admin comparó con la del instalador. Si el
     servidor enlazado ya no es ese (alguien enlazó otro entre «Conectar» y «Activar»), 409
     `huella_cambiada` sin llamar a ningún servidor; sin `huellaTls`, 422.
-  - Si la entrega **nunca llegó** (lo vigente contesta, lo «siguiente» no, y el apartado venció), el
-    latido borra lo «siguiente» guardado (`servidor_ia.rotacion_descartada` en la auditoría); si sí
-    llegó, lo promueve aunque lo anterior todavía conteste.
+  - Si quedó algo «siguiente» y el apartado venció, el latido lo sondea. Si contesta, lo promueve
+    (aunque lo anterior todavía conteste). Solo lo **descarta** cuando lo vigente contesta y el
+    servidor rechaza lo siguiente **de forma explícita** (401 por la firma, o el certificado en el
+    saludo TLS) en **3 latidos seguidos** (`servidor_ia.rotacion_descartada` en la auditoría). Un
+    tiempo agotado o un corte de red no son un rechazo: se conserva y se vuelve a probar.
+  - Durante la convivencia la puerta acepta **todas** las rutas, también `/credencial`, firmadas
+    con el token anterior: por eso Iris puede terminar o repetir la rotación sin reenlazar.
+  - La **rotación automática** que falla no se repite en cada latido: un intento por hora como mucho.
   - **Qué garantiza el servidor al rotar:** `/credencial` aplica la credencial entera (un solo
     cambio de su archivo de estado) o no la aplica. Si el panel recibe 502 `motor_no_responde` al
     rotar, pasó una de dos cosas: no llegó a aplicarse (sigue valiendo la llave actual), o se
@@ -1772,8 +1777,8 @@ estado. Un servidor que va y viene es un solo episodio. **Enfriamiento de avisos
 el correo llevan como mucho **un aviso por tipo, servidor y hora** (por umbral: por cada uno de
 vram, disco, temperatura y saturación), por más episodios o cambios de estado que haya; el
 episodio sigue en el tablero. **Lo que se guarda:** de cada lectura, los escalares; la muestra
-completa solo de la última lectura buena. Una lectura con más de 16 tarjetas o 64 modelos se
-descarta entera. Umbrales por instalación
+completa solo de la última lectura buena. Una lectura con más de 16 tarjetas se descarta
+entera; con más de 64 modelos se guardan los primeros 64 (el tablero no se queda ciego). Umbrales por instalación
 (`POST /servidor-ia/umbrales/actualizar { …, version }`, `servidor_ia.administrar`, auditado,
 evento `servidor_ia.ajustes_cambiados`), de fábrica:
 

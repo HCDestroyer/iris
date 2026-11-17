@@ -19,7 +19,7 @@ INSERT INTO mensajeria.voz_motores (nombre, url) VALUES ($1, $2) RETURNING *;
 -- Un enlace nuevo invalida todo lo anterior: token, huellas y certificado de cliente.
 UPDATE mensajeria.voz_motores SET nombre = @nombre, url = @url, estado = 'sin_enlazar', detalle = NULL,
     enlace_codigo = @enlace_codigo, enlace_vence_en = @enlace_vence_en, enlace_usado_en = NULL,
-    token = NULL, token_siguiente = NULL, token_rotado_en = NULL, rotacion_desde = NULL,
+    token = NULL, token_siguiente = NULL, token_rotado_en = NULL, rotacion_desde = NULL, siguiente_rechazos = 0, rotacion_fallida_en = NULL,
     cert_cliente_siguiente = NULL, cert_cliente_clave_siguiente = NULL, cert_cliente_vence_siguiente = NULL,
     cert_cliente = @cert_cliente, cert_cliente_clave = @cert_cliente_clave, cert_cliente_vence_en = @cert_cliente_vence_en,
     huella_tls = NULL, huella_tls_siguiente = NULL, ip_observada = NULL, restringe_ip = false,
@@ -48,7 +48,7 @@ WHERE id = @id AND enlace_codigo IS NOT NULL AND version = @version RETURNING *;
 -- de entregarlo. Compara la versión y aparta la rotación (rotacion_desde): dos a la vez no se pisan
 -- ni se cruzan en el servidor (sin filas = otra ganó o sigue en vuelo). Un apartado viejo (una
 -- rotación que murió a medias) no bloquea: @vencida es «ahora menos el plazo de una rotación».
-UPDATE mensajeria.voz_motores SET token_siguiente = @token_siguiente, rotacion_desde = @ahora::timestamptz,
+UPDATE mensajeria.voz_motores SET token_siguiente = @token_siguiente, rotacion_desde = @ahora::timestamptz, siguiente_rechazos = 0,
     cert_cliente_siguiente = sqlc.narg(cert_cliente_siguiente), cert_cliente_clave_siguiente = sqlc.narg(cert_cliente_clave_siguiente),
     cert_cliente_vence_siguiente = sqlc.narg(cert_cliente_vence_siguiente), version = version + 1, updated_at = now()
 WHERE id = @id AND version = @version AND (rotacion_desde IS NULL OR rotacion_desde <= @vencida::timestamptz) RETURNING version;
@@ -60,15 +60,25 @@ UPDATE mensajeria.voz_motores SET token = token_siguiente, token_siguiente = NUL
     cert_cliente_clave = coalesce(cert_cliente_clave_siguiente, cert_cliente_clave),
     cert_cliente_vence_en = coalesce(cert_cliente_vence_siguiente, cert_cliente_vence_en),
     cert_cliente_siguiente = NULL, cert_cliente_clave_siguiente = NULL, cert_cliente_vence_siguiente = NULL, rotacion_desde = NULL,
-    version = version + 1, updated_at = now()
+    siguiente_rechazos = 0, rotacion_fallida_en = NULL, version = version + 1, updated_at = now()
 WHERE id = @id AND token_siguiente IS NOT NULL RETURNING *;
 
 -- name: DescartarSiguienteMotorIA :execrows
--- Lo «siguiente» de una entrega que nunca llegó al servidor (lo vigente contesta, lo siguiente no, y
--- el apartado ya venció): no se queda guardado hasta la próxima rotación.
+-- Lo «siguiente» de una entrega que nunca llegó al servidor (lo vigente contesta, el servidor rechaza
+-- lo siguiente de forma explícita varias veces seguidas, y el apartado ya venció): no se queda
+-- guardado hasta la próxima rotación.
 UPDATE mensajeria.voz_motores SET token_siguiente = NULL, cert_cliente_siguiente = NULL, cert_cliente_clave_siguiente = NULL,
-    cert_cliente_vence_siguiente = NULL, rotacion_desde = NULL, version = version + 1, updated_at = now()
+    cert_cliente_vence_siguiente = NULL, rotacion_desde = NULL, siguiente_rechazos = 0, version = version + 1, updated_at = now()
 WHERE id = @id AND token_siguiente IS NOT NULL AND (rotacion_desde IS NULL OR rotacion_desde <= @vencida::timestamptz);
+
+-- name: AnotarRechazoSiguienteMotorIA :one
+-- Un sondeo de lo «siguiente»: si el servidor lo rechazó de forma explícita suma uno; cualquier otra
+-- cosa (tiempo agotado, corte de red) vuelve la cuenta a cero. Devuelve cuántos seguidos lleva.
+UPDATE mensajeria.voz_motores SET siguiente_rechazos = CASE WHEN @explicito::boolean THEN siguiente_rechazos + 1 ELSE 0 END
+WHERE id = @id AND token_siguiente IS NOT NULL RETURNING siguiente_rechazos;
+
+-- name: MarcarRotacionFallidaMotorIA :exec
+UPDATE mensajeria.voz_motores SET rotacion_fallida_en = @ahora::timestamptz WHERE id = @id;
 
 -- name: ActivarMotorIA :one
 UPDATE mensajeria.voz_motores SET activado_en = now(), estado = @estado, detalle = NULL, fallos_seguidos = 0,

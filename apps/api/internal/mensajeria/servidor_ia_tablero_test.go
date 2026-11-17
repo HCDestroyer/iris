@@ -254,7 +254,7 @@ func TestServidorIATableroMuestrasYAvisos(t *testing.T) {
 		t.Fatal(err)
 	}
 	crudo, _ := json.Marshal(deEmpresa)
-	if deEmpresa.Estado.Detalle != nil || deEmpresa.Servidor != nil || strings.Contains(string(crudo), "detalle interno") || strings.Contains(string(crudo), "RTX") ||
+	if deEmpresa.Estado.Detalle != nil || deEmpresa.Estado.EncendidoSeg != nil || deEmpresa.Estado.TomadoEn == nil || deEmpresa.Servidor != nil || strings.Contains(string(crudo), "detalle interno") || strings.Contains(string(crudo), "RTX") ||
 		deEmpresa.Estado.EmpresasActivas != nil || len(deEmpresa.Avisos) != 0 || deEmpresa.Uso == nil || len(deEmpresa.Uso.Empresas) != 1 || deEmpresa.Uso.Empresas[0].EmpresaID != 1 {
 		t.Fatalf("tablero de quien solo ve su uso: %s", crudo)
 	}
@@ -326,7 +326,6 @@ func TestServidorIAMetricasRevalidadas(t *testing.T) {
 		"memoria usada mayor que total": func(m *voz.Metricas) { m.Memoria.UsadoMb = m.Memoria.TotalMb + 1 },
 		"disco negativo":                func(m *voz.Metricas) { m.Disco.UsadoMb = -1 },
 		"demasiadas GPU":                func(m *voz.Metricas) { m.GPUs.Lista = make([]voz.GPU, 17) },
-		"demasiados modelos":            func(m *voz.Metricas) { m.Modelos = make([]voz.ModeloMetricas, 65) },
 		"modelo con nombre raro":        func(m *voz.Metricas) { m.Modelos[0].ID = "modelo a; rm -rf /" },
 		"peticiones en curso absurdas":  func(m *voz.Metricas) { m.LLM.EnCurso = 100000 },
 		"tiempo encendido negativo":     func(m *voz.Metricas) { m.EncendidoSeg = -1 },
@@ -339,5 +338,33 @@ func TestServidorIAMetricasRevalidadas(t *testing.T) {
 		if mensajeria.MetricasValidas(mala) {
 			t.Fatalf("%s: debía descartarse", nombre)
 		}
+	}
+}
+
+// Con más de 64 modelos instalados el tablero no se queda ciego: se guardan los primeros 64 (y se
+// anota que la lista está cortada). El resto de la lectura se valida igual de estricto.
+func TestServidorIAMetricasModelosTruncados(t *testing.T) {
+	mt := voz.Metricas{EncendidoSeg: 60}
+	mt.CPU.Nucleos, mt.Memoria.TotalMb = 8, 32000
+	for i := range 80 {
+		mt.Modelos = append(mt.Modelos, voz.ModeloMetricas{ID: fmt.Sprintf("modelo-%d:latest", i), TamanoMb: 4000})
+	}
+	if n, truncados, ok := mensajeria.ModelosDeMuestra(mt); !ok || n != 64 || !truncados {
+		t.Fatalf("80 modelos: ok=%v, guardados %d, truncados=%v", ok, n, truncados)
+	}
+	mt.Modelos = mt.Modelos[:64]
+	if n, truncados, ok := mensajeria.ModelosDeMuestra(mt); !ok || n != 64 || truncados {
+		t.Fatalf("64 modelos: ok=%v, guardados %d, truncados=%v", ok, n, truncados)
+	}
+	// Un modelo inválido entre los que se guardan sigue descartando la lectura; fuera del corte, no se mira.
+	mala := mt
+	mala.Modelos = append([]voz.ModeloMetricas(nil), mt.Modelos...)
+	mala.Modelos[3].ID = "modelo; rm -rf /"
+	if mensajeria.MetricasValidas(mala) {
+		t.Fatal("un modelo inválido debía descartar la lectura")
+	}
+	mt.Memoria.UsadoMb = mt.Memoria.TotalMb + 1
+	if mensajeria.MetricasValidas(mt) {
+		t.Fatal("el resto de la lectura se sigue validando")
 	}
 }

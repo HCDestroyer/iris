@@ -29,6 +29,7 @@ type Banco struct {
 	reloj  func() time.Time
 	srv    *http.Server
 	rutas  []string
+	fallar string
 }
 
 // Opciones del banco.
@@ -109,7 +110,12 @@ func NuevoBanco(t testing.TB, o Opciones) *Banco {
 	srv.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b.mu.Lock()
 		b.rutas = append(b.rutas, r.Method+" "+r.URL.Path)
+		fallar := b.fallar != "" && r.URL.Path == b.fallar
 		b.mu.Unlock()
+		if fallar {
+			http.Error(w, `{"codigo":"error"}`, http.StatusInternalServerError)
+			return
+		}
 		puerta.ServeHTTP(w, r)
 	})
 	b.srv = srv
@@ -171,6 +177,13 @@ func (b *Banco) Cliente(cert tls.Certificate, token []byte, versionIris string, 
 
 // Apagar tira el servidor (como si la máquina se cayera).
 func (b *Banco) Apagar() { _ = b.srv.Close() }
+
+// Fallar hace que la puerta responda 500 en esa ruta ("" = ninguna).
+func (b *Banco) Fallar(ruta string) {
+	b.mu.Lock()
+	b.fallar = ruta
+	b.mu.Unlock()
+}
 
 // Rutas devuelve, en orden, las peticiones que recibió la puerta («MÉTODO /ruta»).
 func (b *Banco) Rutas() []string {

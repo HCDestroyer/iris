@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -139,6 +140,24 @@ type canalVivo struct {
 	// siguiente: contesta con lo «siguiente»: una rotación quedó a medias (el servidor la aplicó y la
 	// respuesta se perdió) y solo falta promoverla en Iris.
 	siguiente bool
+}
+
+// rechazosParaDescartar: latidos seguidos en los que el servidor debe rechazar lo «siguiente» de
+// forma explícita antes de darlo por no entregado.
+const rechazosParaDescartar = 3
+
+// esperaRotacionFallida: tras fallar la rotación automática, no se intenta otra hasta pasado esto.
+const esperaRotacionFallida = time.Hour
+
+// rechazoExplicito: el servidor contestó y dijo que no (401 por la firma, o rechazó el certificado
+// de cliente en el saludo TLS). Un tiempo agotado, un corte o cualquier otro error NO lo es: ahí
+// no se sabe qué tiene el servidor.
+func rechazoExplicito(err error) bool {
+	var ep *voz.ErrorPuerta
+	if errors.As(err, &ep) {
+		return ep.Estado == http.StatusUnauthorized && ep.Codigo == "no_autorizado"
+	}
+	return err != nil && strings.Contains(err.Error(), "remote error: tls:")
 }
 
 func (m *Modulo) probarCanal(ctx context.Context, c conexionMotor, cert tls.Certificate, token []byte) error {
@@ -697,17 +716,28 @@ func (m *Modulo) latirMotor(ctx context.Context, id int64) (mensajeriabd.Mensaje
 	if sig, hay := c.canalSiguiente(); hay && !m.rotacionEnVuelo(f) {
 		// Quedó algo «siguiente» de una rotación que ya no está en vuelo (si lo está, la termina
 		// quien la empezó). Se mira qué tiene el servidor:
-		switch {
-		case (err == nil && vivo.siguiente) || m.probarCanal(ctx, c, sig.cert, sig.token) == nil:
+		var errSig error
+		if err != nil || !vivo.siguiente {
+			if errSig = m.probarCanal(ctx, c, sig.cert, sig.token); errSig == nil && m.sondeoSiguienteIA != nil {
+				errSig = m.sondeoSiguienteIA()
+			}
+		}
+		if errSig == nil {
 			// La aplicó (la respuesta se perdió): se termina sola, sin perder el canal. Con convivencia
 			// lo vigente también contesta todavía; se promueve igual, antes de que deje de valer.
 			if _, errP := k.Rotar.guardar.Ejecutar(ctx, credencialEntregada{ID: id, Origen: "automatica"}); errP != nil {
 				slog.WarnContext(ctx, "servidor de IA: terminar una rotación a medias", "err", errP)
 			}
-		case err == nil:
-			// Lo vigente contesta y lo siguiente no: la entrega nunca llegó. No se queda guardado.
-			if _, errD := k.descartarSiguiente.Ejecutar(ctx, id); errD != nil {
-				slog.WarnContext(ctx, "servidor de IA: descartar una entrega que no llegó", "err", errD)
+		} else {
+			// Lo siguiente no contesta. Solo se descarta si lo vigente sí contesta y el servidor rechaza
+			// lo siguiente de forma explícita varios latidos seguidos: entonces la entrega nunca llegó.
+			// Un tiempo agotado o un corte de red no dicen nada: se conserva y se vuelve a probar (si la
+			// rotación sí se aplicó, descartarla dejaría a Iris con una credencial que caduca).
+			n, errN := k.rechazoSiguiente.Ejecutar(ctx, entradaRechazoSiguiente{ID: id, Explicito: err == nil && rechazoExplicito(errSig)})
+			if errN == nil && n >= rechazosParaDescartar {
+				if _, errD := k.descartarSiguiente.Ejecutar(ctx, id); errD != nil {
+					slog.WarnContext(ctx, "servidor de IA: descartar una entrega que no llegó", "err", errD)
+				}
 			}
 		}
 	}
@@ -770,11 +800,15 @@ func (m *Modulo) MantenerServidorIA(ctx context.Context, bd nucleo.BD) error {
 	if err != nil {
 		return err
 	}
-	if motorUtilizable(f2) && f2.TokenRotadoEn != nil && m.ahora().Sub(*f2.TokenRotadoEn) > vidaToken {
+	// La rotación automática que falla no se repite en cada latido (un servidor que rechaza
+	// /credencial no provoca un bucle de claves nuevas y auditoría): un intento por hora como mucho.
+	enEspera := f2.RotacionFallidaEn != nil && m.ahora().Sub(*f2.RotacionFallidaEn) < esperaRotacionFallida
+	if motorUtilizable(f2) && f2.TokenRotadoEn != nil && m.ahora().Sub(*f2.TokenRotadoEn) > vidaToken && f2.TokenSiguiente == nil && !enEspera {
 		c, err := k.leer.Ejecutar(ctx, f2.ID)
 		if err == nil {
 			if _, err := k.Rotar.rotar(ctx, c, "automatica", false); err != nil {
-				slog.WarnContext(ctx, "servidor de IA: rotación automática", "err", err)
+				slog.WarnContext(ctx, "servidor de IA: rotación automática; se reintenta en una hora", "err", err)
+				_, _ = k.rotacionFallida.Ejecutar(ctx, f2.ID)
 			}
 		}
 	}

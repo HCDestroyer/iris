@@ -60,6 +60,8 @@ SOURCE="${IRIS_VOZ_SOURCE:-}"
 DIR="${IRIS_VOZ_DIR:-/opt/iris-voz}"
 COMPOSE_MIN=2.24
 KEEP_RELEASES=3
+# Dónde queda este script como `iris-voz` (IRIS_VOZ_BIN solo para pruebas).
+BIN="${IRIS_VOZ_BIN:-/usr/local/bin/iris-voz}"
 CURL=(curl -fsSL --proto '=https' --tlsv1.2 --retry 3)
 
 # Quién debe haber firmado el paquete: el workflow de release de este repositorio, en una etiqueta
@@ -385,7 +387,8 @@ activate_release() {
     local v="$1"
     ln -sfn "releases/$v" "$DIR/current"
     env_set IRIS_VOZ_VERSION "$v"
-    install -m 0755 "$DIR/current/install-voz.sh" /usr/local/bin/iris-voz 2> /dev/null || warn "no se pudo instalar /usr/local/bin/iris-voz"
+    # El envoltorio `iris-voz` es el de la versión activa: instalar y actualizar lo reemplazan.
+    install -m 0755 "$DIR/current/install-voz.sh" "$BIN" 2> /dev/null || warn "no se pudo instalar $BIN"
     # Solo se guardan las últimas versiones.
     find "$DIR/releases" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | head -n -"$KEEP_RELEASES" |
         while read -r old; do [ "$old" = "$v" ] || rm -rf "$DIR/releases/${old:?}"; done

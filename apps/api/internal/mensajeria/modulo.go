@@ -215,6 +215,8 @@ type Modulo struct {
 	resumenes *cacheResumen
 	// trasLeerCabeza: solo pruebas (entre la cabeza y los eventos de leerFeed).
 	trasLeerCabeza func()
+	// sondeoSiguienteIA: solo pruebas (hace fallar el sondeo de lo «siguiente» del servidor de IA).
+	sondeoSiguienteIA func() error
 	// fallarFila: solo pruebas (un error en una fila del barrido de disponibilidad o del bot).
 	fallarFila  func(id int64) error
 	retirarFoto *auditoria.Caso[uuid.UUID, string]

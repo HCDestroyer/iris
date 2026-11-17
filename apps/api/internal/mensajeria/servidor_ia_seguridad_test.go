@@ -241,6 +241,19 @@ func TestServidorIARotacionAMediasYConcurrente(t *testing.T) {
 		if err := x.generar(); (err == nil) == revocar {
 			t.Fatalf("revocar=%v: con la rotación aplicada en el servidor, la llave vigente de Iris: %v", revocar, err)
 		}
+		if !revocar {
+			// Durante la convivencia la puerta acepta también /credencial firmada con el token
+			// anterior (el que Iris sigue teniendo como vigente): por eso la recuperación es automática.
+			antes := len(x.banco.Rutas())
+			r := x.api(x.admin, http.MethodPost, x.ruta("/rotar-token"), map[string]any{})
+			x.exigir(r, http.StatusConflict, "type", "urn:iris:problema:rotacion_en_curso") // en vuelo: todavía no
+			if len(x.banco.Rutas()) != antes {
+				t.Fatal("una rotación en vuelo no debía llamar al servidor")
+			}
+			if err := x.m.CredencialConLoVigente(x.ctx, x.bd, x.motor); err != nil {
+				t.Fatalf("la puerta debía aceptar /credencial firmada con el token anterior durante la convivencia: %v", err)
+			}
+		}
 		pasar()
 		x.exigir(x.api(x.admin, http.MethodPost, x.ruta("/rotar-token"), map[string]any{"revocar": revocar}), http.StatusOK)
 		if siguiente() {
@@ -258,9 +271,10 @@ func TestServidorIARotacionAMediasYConcurrente(t *testing.T) {
 		t.Fatalf("tras una entrega que no llegó: %v", err)
 	}
 
-	// N3: lo «siguiente» de una entrega que nunca llegó no se queda guardado. Mientras está en vuelo
-	// no se toca; vencido el apartado, y con lo vigente contestando, el latido lo borra.
-	if err := x.m.SiguienteSinEntregar(x.ctx, x.bd, x.motor); err != nil {
+	// N3 y N5: lo «siguiente» de una entrega que nunca llegó no se queda guardado, pero solo se borra
+	// cuando el servidor lo rechaza de forma explícita (401) en tres latidos seguidos, con lo vigente
+	// contestando y el apartado vencido. Mientras está en vuelo no se toca.
+	if err := x.m.SiguienteSinEntregar(x.ctx, x.bd, x.motor, false); err != nil {
 		t.Fatal(err)
 	}
 	vigente := string(x.columna("token"))
@@ -270,14 +284,42 @@ func TestServidorIARotacionAMediasYConcurrente(t *testing.T) {
 	}
 	pasar()
 	x.latir()
+	x.latir()
+	if !siguiente() {
+		t.Fatal("dos rechazos no bastan para descartar")
+	}
+	// Un sondeo que falla por red (no es un rechazo) vuelve la cuenta a cero.
+	x.m.FijarSondeoSiguienteIA(nil)
+	x.sql(`UPDATE mensajeria.voz_motores SET siguiente_rechazos = 0 WHERE id = $1`, x.motor)
+	x.latir()
+	x.latir()
+	if !siguiente() {
+		t.Fatal("tras volver la cuenta a cero hacen falta otros tres rechazos")
+	}
+	x.latir()
 	if siguiente() || x.columna("rotacion_desde") != nil || string(x.columna("token")) != vigente {
-		t.Fatal("el latido debía borrar lo siguiente de una entrega que no llegó, sin tocar lo vigente")
+		t.Fatal("al tercer rechazo explícito seguido el latido debía borrar lo siguiente, sin tocar lo vigente")
 	}
 	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'servidor_ia.rotacion_descartada' AND entidad_id = $1`, fmt.Sprint(x.motor)); n != 1 {
 		t.Fatalf("auditoría del descarte: %d", n)
 	}
 	if err := x.generar(); err != nil {
 		t.Fatalf("tras descartar, el canal sigue con lo vigente: %v", err)
+	}
+	// Lo mismo cuando lo que no llegó traía un certificado de cliente nuevo: el servidor lo rechaza
+	// en el saludo TLS, que también es un rechazo explícito.
+	if err := x.m.SiguienteSinEntregar(x.ctx, x.bd, x.motor, true); err != nil {
+		t.Fatal(err)
+	}
+	pasar()
+	x.latir()
+	x.latir()
+	if !siguiente() {
+		t.Fatal("dos rechazos del certificado no bastan para descartar")
+	}
+	x.latir()
+	if siguiente() || x.columna("cert_cliente_clave_siguiente") != nil || x.estado() != "listo" {
+		t.Fatal("al tercer rechazo del certificado nuevo debía descartarse lo siguiente")
 	}
 	// Y al revés: una rotación con convivencia que sí llegó (lo vigente todavía contesta) no se
 	// descarta: el latido la termina antes de que lo anterior deje de valer.
@@ -286,6 +328,20 @@ func TestServidorIARotacionAMediasYConcurrente(t *testing.T) {
 	}
 	enServidor, _ := x.banco.Almacen.Leer()
 	pasar()
+	// N5: el sondeo de lo siguiente falla por red (tiempo agotado), una y varias veces. No es un
+	// rechazo: no se descarta, por muchos latidos que pasen.
+	x.m.FijarSondeoSiguienteIA(func() error { return context.DeadlineExceeded })
+	for range 5 {
+		x.latir()
+	}
+	if !siguiente() || string(x.columna("token")) != vigente {
+		t.Fatal("un fallo de red al sondear lo siguiente no debía descartarlo")
+	}
+	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'servidor_ia.rotacion_descartada' AND entidad_id = $1`, fmt.Sprint(x.motor)); n != 2 {
+		t.Fatalf("no debía haber otro descarte: %d", n)
+	}
+	// En cuanto el sondeo vuelve a pasar, el latido siguiente la promueve.
+	x.m.FijarSondeoSiguienteIA(nil)
 	x.latir()
 	if siguiente() || string(x.columna("token")) == vigente {
 		t.Fatal("el latido debía promover la rotación que sí llegó al servidor")
@@ -538,5 +594,69 @@ func TestServidorIAActivarALaVez(t *testing.T) {
 	en, _ := x.banco.Almacen.Leer()
 	if c, err := x.m.TokenDeMotor(x.ctx, x.bd, x.motor); err != nil || string(c) != string(en.Token) || en.TokenAnterior != nil {
 		t.Fatalf("Iris y el servidor debían quedar con el mismo token, sin convivencia: %v", err)
+	}
+}
+
+// N6: la rotación automática contra un servidor que rechaza /credencial no entra en bucle: tras un
+// fallo, un intento por hora como mucho.
+func TestServidorIARotacionAutomaticaConEspera(t *testing.T) {
+	x := nuevoBancoIA(t, vozprueba.Opciones{})
+	x.enlazar()
+	x.activar()
+	x.latir()
+	intentos := func() int {
+		n := 0
+		for _, r := range x.banco.Rutas() {
+			if r == "POST "+voz.RutaCredencial {
+				n++
+			}
+		}
+		return n
+	}
+	base := intentos()
+	// El token tiene más de 30 días y el servidor falla al recibir la credencial nueva.
+	x.sql(`UPDATE mensajeria.voz_motores SET token_rotado_en = $2 WHERE id = $1`, x.motor, x.reloj.Add(-31*24*time.Hour))
+	x.banco.Fallar(voz.RutaCredencial)
+	x.latir()
+	if intentos() != base+1 || x.columna("rotacion_fallida_en::text::bytea") == nil {
+		t.Fatalf("debía intentarse la rotación automática una vez: %d", intentos()-base)
+	}
+	// Media hora de latidos (uno cada 40 s): ni un intento más, y como mucho un descarte auditado.
+	for range 45 {
+		*x.reloj = x.reloj.Add(40 * time.Second)
+		x.latir()
+	}
+	if intentos() != base+1 {
+		t.Fatalf("la rotación automática fallida no debía repetirse en cada latido: %d intentos", intentos()-base)
+	}
+	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'servidor_ia.rotacion_descartada' AND entidad_id = $1`, fmt.Sprint(x.motor)); n != 1 {
+		t.Fatalf("descartes auditados en media hora: %d", n)
+	}
+	if x.columna("token_siguiente") != nil || x.estado() != "listo" {
+		t.Fatalf("lo que no llegó debía descartarse y el servidor seguir listo: %s", x.estado())
+	}
+	if err := x.generar(); err != nil {
+		t.Fatalf("mientras tanto el canal sigue con lo vigente: %v", err)
+	}
+	// Pasada la hora se intenta otra vez (una); y cuando el servidor vuelve a aceptar, rota.
+	*x.reloj = x.reloj.Add(31 * time.Minute)
+	x.latir()
+	if intentos() != base+2 {
+		t.Fatalf("a la hora debía intentarse otra vez: %d intentos", intentos()-base)
+	}
+	x.banco.Fallar("")
+	*x.reloj = x.reloj.Add(61 * time.Minute)
+	x.latir() // descarta lo que quedó del segundo intento, o rota si ya no queda nada
+	for range 4 {
+		*x.reloj = x.reloj.Add(40 * time.Second)
+		x.latir()
+	}
+	var rotado time.Time
+	if err := x.bd.QueryRow(x.ctx, `SELECT token_rotado_en FROM mensajeria.voz_motores WHERE id = $1`, x.motor).Scan(&rotado); err != nil || x.reloj.Sub(rotado) > time.Hour ||
+		x.columna("rotacion_fallida_en::text::bytea") != nil || x.columna("token_siguiente") != nil {
+		t.Fatalf("cuando el servidor vuelve a aceptar, la rotación automática entra: rotado %s (%v)", rotado, err)
+	}
+	if err := x.generar(); err != nil {
+		t.Fatalf("tras la rotación automática: %v", err)
 	}
 }
