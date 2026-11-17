@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
 
@@ -247,6 +248,30 @@ func TestManualesBusquedaSugerenciasYEnvio(t *testing.T) {
 	}
 	if motivos[diag["id"].(float64)] != "etiqueta" || motivos[onu["id"].(float64)] != "equipo" || motivos[visita["id"].(float64)] != "ticket_abierto" {
 		t.Fatalf("sugerencias con su motivo: %v", s.cuerpo)
+	}
+	// El motivo ticket_abierto lleva el número del ticket: quien solo ve los tickets de otra zona no lo recibe.
+	var zona int64
+	if err := b.bd.QueryRow(b.ctx, `SELECT coalesce(max(id), 0) + 1000 FROM agenda.zonas`).Scan(&zona); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO agenda.zonas (id, empresa_id, origen, nombre) VALUES ($1, 1, 'local', $2)`, zona, fmt.Sprint("Zona manuales ", zona)); err != nil {
+		t.Fatal(err)
+	}
+	deZona := b.persona([]int64{1}, rolBase("ventas"), identidad.AsignacionRol{Rol: "soporte", ZonaID: &zona})
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO mensajeria.cola_miembros (cola_id, usuario_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, b.cola, deZona.id); err != nil {
+		t.Fatal(err)
+	}
+	sz := b.api(deZona, http.MethodGet, "/conversaciones/"+cid(c)+"/manuales-sugeridos", nil)
+	b.exigir(sz, http.StatusOK)
+	if crudo := fmt.Sprint(sz.cuerpo); strings.Contains(crudo, "ticket_abierto") || !strings.Contains(crudo, "etiqueta") {
+		t.Fatalf("sugerencias fuera del alcance de tickets.ver: %v", sz.cuerpo)
+	}
+	if _, err := b.bd.Exec(b.ctx, `UPDATE soporte.tickets SET zona_id = $2 WHERE cliente_id = $1`, cliente, zona); err != nil {
+		t.Fatal(err)
+	}
+	sz = b.api(deZona, http.MethodGet, "/conversaciones/"+cid(c)+"/manuales-sugeridos", nil)
+	if b.exigir(sz, http.StatusOK); !strings.Contains(fmt.Sprint(sz.cuerpo), "ticket_abierto") {
+		t.Fatalf("con el ticket en su zona: %v", sz.cuerpo)
 	}
 
 	// Enviar: interno no; para el cliente, por enlace público.
