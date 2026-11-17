@@ -733,7 +733,11 @@ func (m *Modulo) DespacharMetaVoz(ctx context.Context, bd nucleo.BD) error {
 	ctx = ctxSistema(ctx, bd)
 	q := mensajeriabd.New(bd)
 	ahora := m.ahora()
-	acciones, err := q.TomarAccionesMeta(ctx, mensajeriabd.TomarAccionesMetaParams{Ahora: ahora, Antes: ptrT(ahora.Add(-2 * PlazoMeta))})
+	// Se toman pocas y quedan apartadas lote × plazo (lo que tarda este ciclo, en el peor caso, en
+	// atenderlas todas): otro ciclo no retoma las mismas mientras tanto.
+	gracia := 2 * PlazoMeta
+	acciones, err := q.TomarAccionesMeta(ctx, mensajeriabd.TomarAccionesMetaParams{Antes: ptrT(ahora.Add(-gracia)), Lote: LoteMetaVoz,
+		Aparte: ahora.Add(LoteMetaVoz*PlazoMeta - gracia)})
 	if err != nil {
 		return err
 	}
@@ -748,7 +752,9 @@ func (m *Modulo) DespacharMetaVoz(ctx context.Context, bd nucleo.BD) error {
 			slog.WarnContext(ctx, "voz: acción pendiente con Meta", "llamada_id", a.ID, "err", err)
 		}
 	}
-	canales, err := q.TomarCanalesMetaPendiente(ctx, mensajeriabd.TomarCanalesMetaPendienteParams{Ahora: &ahora, Aparte: ahora.Add(time.Minute)})
+	// Aplicar los ajustes de un número son dos llamadas a Meta (leer y escribir).
+	canales, err := q.TomarCanalesMetaPendiente(ctx, mensajeriabd.TomarCanalesMetaPendienteParams{Ahora: &ahora, Lote: LoteMetaVoz,
+		Aparte: ahora.Add(LoteMetaVoz * 2 * PlazoMeta)})
 	if err != nil {
 		return err
 	}

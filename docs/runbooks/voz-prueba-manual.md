@@ -36,6 +36,15 @@ solo sitio (`graphHTTP`, `apps/api/internal/mensajeria/voz_modelo.go`) y la form
 
 ## 3. Lo que el diseño supone y hay que confirmar
 
+**Lo primero a mirar: la oferta SDP real de Meta.** Iris valida la oferta con una lista cerrada de
+líneas, atributos y códecs (solo Opus y `telephone-event`) antes de entregarla al navegador. Si la
+oferta real trae un atributo o un códec fuera de la lista, **ninguna llamada suena**: falla cerrado,
+la llamada queda `perdida` y en el log del servidor aparece `voz: la oferta SDP de Meta no pasa la
+validación` con el motivo. Si en el paso 2 no suena nada, mirar ese log y el SDP del webhook crudo
+(antes de que termine la llamada: después queda tapado) y ampliar la lista (`atributosSDP` en
+`voz_modelo.go`). La respuesta del navegador no se rechaza por traer direcciones de la red local:
+el servidor las quita antes de mandarla a Meta; comprobar que aun así el audio conecta.
+
 | # | Supuesto | Cómo probarlo | Si no se cumple |
 | --- | --- | --- | --- |
 | 1 | Se puede hacer `pre_accept` y luego **no** aceptar sin que el cliente lo note | Reclamar, contestar y no confirmar el medio (cerrar la pestaña): ¿el teléfono sigue sonando? | Quien reclama se queda con la llamada (§3.3, paso 7) |

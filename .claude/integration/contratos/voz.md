@@ -76,10 +76,18 @@ técnica (§9)**; los que más pesan están listados en §10.
     quitan los que llevan 30 días sin verse y los más viejos que pasen del tope.
   - **Escrituras a Meta.** El mantenimiento (cada 5 s) no llama a Meta: los `reject` y `terminate`
     que decide, sus reintentos (hasta 2 minutos) y los ajustes de número pendientes los hace el job
-    `mensajeria.voz_meta`, que toma las filas con `SKIP LOCKED`.
+    `mensajeria.voz_meta`, que toma las filas con `SKIP LOCKED`, de 5 en 5, y las aparta
+    lote × plazo para que otro ciclo no retome las mismas. Un `connect` a un número con las llamadas
+    apagadas (o por QR) también deja tapado su SDP en `entrantes`.
   - **SDP.** La validación es una lista cerrada de líneas y atributos, revisa `c=`, `a=rtcp` y el
     `raddr` de los candidatos, bloquea también CGNAT (100.64.0.0/10) y NAT64, admite 32 candidatos
-    y se aplica igual a la oferta de Meta (si no pasa, la llamada no suena y queda `perdida`). Al
+    y se aplica estricta a la oferta de Meta (si no pasa, la llamada no suena y queda `perdida`).
+    La **respuesta del navegador se sanea**, no se rechaza, por traer direcciones locales (Chrome
+    las pone en los candidatos host y en `raddr` cuando el micrófono está concedido): el servidor
+    quita los candidatos con dirección privada, CGNAT, loopback, link-local, NAT64, de documentación
+    o con nombre mDNS (`.local`), quita `raddr`/`rport` de los que quedan y fija `c=IN IP4 0.0.0.0`;
+    a Meta va el SDP saneado. 422 `sdp_invalido` solo para lo estructuralmente inválido o fuera de
+    la lista cerrada. Al
     terminar la llamada el SDP se tapa (`***`) también en `mensajeria.entrantes.payload`.
   - **`despacho`** no tiene `llamadas.descartar_devolucion` (§8.2).
 - **E1c (grabación, pendiente de la prueba real):** la grabación de Meta **no forma parte de E1**.
@@ -1772,10 +1780,7 @@ un TURN.
   nombre del archivo de la grabación.
 - El resumen y la clasificación del chat sirven tal cual sobre turnos transcritos.
 
-**Pendiente de código (no está implementado).** El límite de verificación pasa a 3 intentos por
-`cliente_id` y día sumando chat y voz (§5.5 y `conversaciones.md` §17.8.2). **El chat hoy cuenta
-por conversación**; se cambia en la PR de E3 o antes. Hasta entonces el texto de §17.8.2 describe
-el comportamiento acordado, no el del código.
+**Límite de verificación entre canales.** El chat ya cuenta por cliente (`conversaciones.md` §17.8.2: 3 intentos por cliente y día desde números verificados, más una bolsa aparte para números sin verificar). La voz se suma a ese mismo conteo cuando se implemente E3 (§5.5).
 
 ### 10.3 Decisiones del líder (17 nov 2026)
 

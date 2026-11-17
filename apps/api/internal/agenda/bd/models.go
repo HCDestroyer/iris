@@ -1138,12 +1138,13 @@ type MensajeriaAsistenteUso struct {
 }
 
 type MensajeriaAsistenteVerificacione struct {
-	ID             int64
-	EmpresaID      *int64
-	ConversacionID int64
-	ClienteID      int64
-	Resultado      string
-	CreadaEn       time.Time
+	ID               int64
+	EmpresaID        *int64
+	ConversacionID   int64
+	ClienteID        int64
+	Resultado        string
+	CreadaEn         time.Time
+	NumeroVerificado bool
 }
 
 type MensajeriaAviso struct {

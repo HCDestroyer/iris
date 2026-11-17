@@ -689,8 +689,9 @@ func (m *Modulo) herrReconexion(ctx context.Context, t *turnoIA, l LlamadaIA, h 
 
 // herrVerificarIdentidad hace el desafío de identidad de Argos (§7.5) con el documento que el cliente
 // escribió. El dato no pasa por el modelo (lo ve como ***), no se guarda (el mensaje queda con ***) y
-// no va a logs, auditoría ni eventos. Máximo 3 intentos por conversación y día; al agotarlos o si
-// Argos no puede verificar, pasa a una persona.
+// no va a logs, auditoría ni eventos. Máximo 3 intentos por cliente (y empresa) y día, sumando todas
+// sus conversaciones desde números verificados como suyos; desde un número asociado a mano los
+// intentos van aparte (intentosDisponibles). Al agotarlos o si Argos no puede verificar, pasa a una persona.
 func (m *Modulo) herrVerificarIdentidad(ctx context.Context, t *turnoIA, l LlamadaIA, h accionHecha) (resHerramienta, accionHecha) {
 	var a struct{}
 	if args(l.Argumentos, &a) != nil {
@@ -705,12 +706,13 @@ func (m *Modulo) herrVerificarIdentidad(ctx context.Context, t *turnoIA, l Llama
 	}
 	q := mensajeriabd.New(nucleo.BDDe(ctx))
 	desde := m.ahora().Add(-24 * time.Hour)
-	n, err := q.VerificacionesRecientes(ctx, mensajeriabd.VerificacionesRecientesParams{ConversacionID: t.conv, Desde: desde})
+	agotados := resHerramienta{paso: PasoHerramientaFallo, resumen: "No pasó la verificación de identidad (intentos agotados)."}
+	quedan, err := m.intentosDisponibles(ctx, q, t, desde)
 	if err != nil {
 		return resHerramienta{fallo: true}, h
 	}
-	if n >= VerificacionesPorDiaConv {
-		return resHerramienta{paso: PasoHerramientaFallo, resumen: "No pasó la verificación de identidad (intentos agotados)."}, h
+	if quedan <= 0 {
+		return agotados, h
 	}
 	// El dato sale del último mensaje del cliente, tal como lo escribió (el modelo solo vio ***).
 	ms, err := q.UltimosEntrantesTexto(ctx, mensajeriabd.UltimosEntrantesTextoParams{ConversacionID: t.conv, Desde: t.desde})
@@ -745,9 +747,19 @@ func (m *Modulo) herrVerificarIdentidad(ctx context.Context, t *turnoIA, l Llama
 		// Sin un candidato claro no se gasta un intento: se le pide el dato otra vez.
 		return rechazo("no encuentro un DPI o NIT completo en lo que escribió el cliente. Pídele que lo escriba completo, solo el número."), h
 	}
+	// El intento se reserva antes de llamar a Argos, con el conteo del cliente bajo candado: dos
+	// conversaciones del mismo cliente a la vez no suman más de VerificacionesPorDiaCliente.
+	reserva, quedan, err := m.reservarVerificacion(ctx, t, desde)
+	if err != nil {
+		return resHerramienta{fallo: true}, h
+	}
+	if reserva == 0 {
+		return agotados, h
+	}
 	// Argos: 429 demasiados_intentos, 422 metodo_no_disponible o 503 → pasa a una persona, sin reintentar.
 	coincide, errArgos := ver.VerificarIdentidad(ctx, m.atencionTurno(t), t.clienteID, "documento", valor)
-	reg := verificacionHecha{ConversacionID: t.conv, ClienteID: t.clienteID, Resultado: "no_coincide", Detalle: IdentidadNoCoincide, desde: t.desde}
+	reg := verificacionHecha{ConversacionID: t.conv, ClienteID: t.clienteID, Resultado: "no_coincide", Detalle: IdentidadNoCoincide, desde: t.desde,
+		reserva: reserva}
 	switch {
 	case errArgos != nil:
 		reg.Resultado, reg.Detalle = "error", IdentidadNoDisponible
@@ -778,13 +790,53 @@ func (m *Modulo) herrVerificarIdentidad(ctx context.Context, t *turnoIA, l Llama
 		h.actividadTipo, h.actividadTexto = "identidad_verificada", "Verificó la identidad del cliente"
 		return resHerramienta{contenido: "Identidad verificada. Ya puedes usar las herramientas que la exigen."}, h
 	case "no_coincide":
-		if quedan := VerificacionesPorDiaConv - n - 1; quedan > 0 {
+		if quedan--; quedan > 0 {
 			return rechazo(fmt.Sprintf("el dato no coincide. Pídele que lo revise y lo escriba completo (quedan %d intentos).", quedan)), h
 		}
 		return resHerramienta{paso: PasoHerramientaFallo, resumen: "No pasó la verificación de identidad (el dato no coincidió)."}, h
 	}
 	// Argos no pudo verificar (cliente sin documento, demasiados intentos o caído): sigue una persona.
 	return resHerramienta{paso: PasoHerramientaFallo, resumen: "No se pudo verificar la identidad del cliente en Argos."}, h
+}
+
+// intentosDisponibles: cuántos intentos del desafío le quedan a esta conversación.
+//   - Número verificado como del cliente: 3 por cliente y día entre todas sus conversaciones
+//     verificadas. Los intentos hechos desde números sin verificar no los gastan.
+//   - Número asociado a mano (sin verificar): 3 por conversación y día, 3 por cliente y día entre
+//     todos sus números sin verificar y 2 en media hora. Quien logra que asocien su número al cliente
+//     de otro no le quema los intentos al titular, y en media hora Argos nunca recibe más de 3 + 2 = 5
+//     intentos de un cliente (su límite antes del 429).
+func (m *Modulo) intentosDisponibles(ctx context.Context, q *mensajeriabd.Queries, t *turnoIA, desde time.Time) (int64, error) {
+	n, err := q.VerificacionesRecientes(ctx, mensajeriabd.VerificacionesRecientesParams{Empresa: t.empresa, ClienteID: t.clienteID, Desde: desde,
+		ConversacionID: t.conv, Reciente: m.ahora().Add(-30 * time.Minute)})
+	if err != nil {
+		return 0, err
+	}
+	if t.numeroVerificado {
+		return VerificacionesPorDiaCliente - n.Verificados, nil
+	}
+	return min(VerificacionesSinVerificarPorDiaConv-n.DeLaConversacion, VerificacionesSinVerificarPorDiaCliente-n.SinVerificar,
+		VerificacionesSinVerificarPorMediaHora-n.SinVerificarRecientes), nil
+}
+
+// reservarVerificacion cuenta los intentos bajo el candado del cliente y, si a la conversación le
+// queda alguno, reserva uno. Devuelve el id de la reserva (0 = agotados) y cuántos quedaban antes.
+func (m *Modulo) reservarVerificacion(ctx context.Context, t *turnoIA, desde time.Time) (int64, int64, error) {
+	var reserva, quedan int64
+	err := nucleo.EnTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		q := mensajeriabd.New(tx)
+		if err := q.BloquearVerificacionesCliente(ctx, mensajeriabd.BloquearVerificacionesClienteParams{Empresa: t.empresa, ClienteID: t.clienteID}); err != nil {
+			return err
+		}
+		var err error
+		if quedan, err = m.intentosDisponibles(ctx, q, t, desde); err != nil || quedan <= 0 {
+			return err
+		}
+		reserva, err = q.ReservarVerificacion(ctx, mensajeriabd.ReservarVerificacionParams{EmpresaID: empresaPtrDe(t.empresa), ConversacionID: t.conv,
+			ClienteID: t.clienteID, CreadaEn: m.ahora(), NumeroVerificado: t.numeroVerificado})
+		return err
+	})
+	return reserva, quedan, err
 }
 
 // reglasPromesa: el código de regla del simulador de Argos, en un texto fijo. El código crudo nunca

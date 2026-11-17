@@ -2347,8 +2347,15 @@ a Argos (§7.5, método `documento`) y **no lo guarda**: el texto del mensaje qu
 Se tapan **todas** las coincidencias del mensaje, también en el payload crudo de Meta
 (`mensajeria.entrantes`), y también si la herramienta no llega a correr en ese turno. Máximo 3
 intentos por **`cliente_id` y día, sumando chat y voz** (`contratos/voz.md` §5.5; antes era por
-conversación: **pendiente de código**, el chat hoy aún cuenta por conversación); al fallar el
-tercero pasa a una persona. Si Argos responde `429
+conversación); al fallar el
+tercero pasa a una persona. **El tope por cliente lo comparten solo las conversaciones cuyo número
+está verificado como del cliente** (`cliente_verificado`: asociación automática o confirmada). Una
+conversación **asociada a mano y sin verificar** cuenta aparte, para que quien logre que asocien su
+número al cliente de otro no le gaste los intentos al titular: 3 por conversación y día, 3 por
+cliente y día entre todos sus números sin verificar, y como mucho 2 en media hora. Así el titular
+conserva siempre sus 3 intentos y en media hora Argos recibe a lo sumo 3 + 2 = 5 intentos de un
+cliente (su límite antes del `429`); el máximo absoluto es 6 por cliente y día. Cada intento se
+reserva antes de llamar a Argos, con el conteo bajo un candado por cliente. Si Argos responde `429
 demasiados_intentos`, `422 metodo_no_disponible` o `503`, pasa a una persona sin reintentar. La
 verificación vale para el cliente con el que se hizo: si la conversación cambió de cliente mientras
 Argos respondía, no cuenta. Cada intento queda en `mensajeria.asistente_verificaciones` (sin el dato), en la

@@ -256,7 +256,8 @@ func nuevoContestarLlamada(m *Modulo) *auditoria.Caso[EntradaContestar, Llamada]
 				(l.AccionMetaEstado != nil && *l.AccionMetaEstado == "pendiente") {
 				return Llamada{}, reservaLlamadaVencida()
 			}
-			if err := ValidarSDP(in.SDPRespuesta); err != nil {
+			// Solo se rechaza lo inválido: las direcciones locales del navegador se quitan (SanearSDP).
+			if _, err := SanearSDP(in.SDPRespuesta); err != nil {
 				return Llamada{}, sdpInvalido("sdpRespuesta", err.Error())
 			}
 			intencionMeta(&l, MetaPreAceptar, ahora)
@@ -277,7 +278,12 @@ func (m *Modulo) Contestar(ctx context.Context, in EntradaContestar) (Llamada, e
 	if _, err := m.Voz.contestar.Ejecutar(ctx, in); err != nil {
 		return Llamada{}, err
 	}
-	if err := m.cumplirMeta(ctx, nucleo.BDDe(ctx), in.ID, in.SDPRespuesta); err != nil {
+	// A Meta va el SDP saneado (el caso de uso ya comprobó que es válido).
+	saneado, err := SanearSDP(in.SDPRespuesta)
+	if err != nil {
+		return Llamada{}, sdpInvalido("sdpRespuesta", err.Error())
+	}
+	if err := m.cumplirMeta(ctx, nucleo.BDDe(ctx), in.ID, saneado); err != nil {
 		var em *ErrMetaLlamada
 		if errors.As(err, &em) {
 			return Llamada{}, metaRechazo()
