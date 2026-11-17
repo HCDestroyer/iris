@@ -166,6 +166,9 @@ describe("textos de las salientes y del permiso de llamada", () => {
         expect(llamadaEnHilo({ ...base, estado: "terminada", duracionSeg: 60, motivoFin: "tope_alcanzado" }).detalle).toContain("tope de minutos");
         expect(llamadaEnHilo({ ...base, estado: "terminada", motivoFin: "error_medio" })).toMatchObject({ tono: "aviso", titulo: "La llamada al cliente se cortó" });
         expect(llamadaEnHilo({ ...base, estado: "fallida" })).toMatchObject({ tono: "aviso", titulo: "La llamada al cliente no se pudo conectar" });
+        // Entrante que alguien dejó mientras conectaba (`agente_salio`): perdida, con su propio texto.
+        expect(llamadaEnHilo({ ...base, direccion: "entrante", estado: "perdida", motivoFin: "agente_salio" })).toMatchObject({ tono: "error", titulo: "Llamada perdida de WhatsApp", detalle: "Ana López empezó a contestarla y se cortó antes de conectar" });
+        expect(llamadaEnHilo({ id: "y", direccion: "entrante", tieneNota: false, estado: "perdida", motivoFin: "agente_salio" }).detalle).toBe("Se empezó a contestar y se cortó antes de conectar");
         // La entrante perdida sigue siendo la única en rojo.
         expect(llamadaEnHilo({ ...base, direccion: "entrante", estado: "perdida" }).tono).toBe("error");
     });

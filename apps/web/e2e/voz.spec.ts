@@ -730,6 +730,8 @@ test.describe("voz › nunca una llamada viva sin audio (revisión de seguridad)
         const api = await abrir(page, "/cuenta");
         await suena(page, api);
         const liberar = api.voz.retener("confirmar-medio");
+        // Contra un servidor anterior (404 a `propia` mientras conecta): sigue funcionando.
+        api.voz.forzar.propiaAntigua = true;
         await aviso(page).getByRole("button", { name: "Contestar" }).click();
         await expect.poll(() => acciones(api, "confirmar-medio").length).toBe(1);
         const lecturas = () => api.peticiones.filter((p) => p.metodo === "GET" && p.ruta.endsWith(`/llamadas/${ultima(api)?.id}`)).length;
@@ -747,8 +749,7 @@ test.describe("voz › nunca una llamada viva sin audio (revisión de seguridad)
         await expect.poll(() => ultima(api)?.estado).toBe("en_curso");
         // …y entonces sí se cuelga (solo la mía). Se le dice al agente.
         await adelantarHasta(page, () => ultima(api)?.estado === "terminada");
-        expect(acciones(api, "colgar")).toHaveLength(1);
-        expect(api.peticiones.find((p) => p.ruta.endsWith("/colgar"))?.query.get("propia")).toBe("true");
+        expect(api.peticiones.filter((p) => p.ruta.endsWith("/colgar")).every((p) => p.query.get("propia") === "true")).toBe(true);
         await expect(page.getByText("La llamada se conectó sin audio y se colgó")).toBeVisible();
         await expect(barra(page)).toHaveCount(0);
     });
@@ -770,6 +771,8 @@ test.describe("voz › nunca una llamada viva sin audio (revisión de seguridad)
         const api = await abrir(page, "/cuenta", { doble: { permiso: "granted", medio: "falla" } });
         await suena(page, api);
         api.voz.forzar.soltar = "error";
+        // Contra un servidor anterior (404 a `propia` mientras conecta).
+        api.voz.forzar.propiaAntigua = true;
         await aviso(page).getByRole("button", { name: "Contestar" }).click();
         await expect(aviso(page)).toHaveAttribute("data-motivo", "medio_fallido");
         const lecturas = () => api.peticiones.filter((p) => p.metodo === "GET" && p.ruta.endsWith(`/llamadas/${ultima(api)?.id}`)).length;
@@ -777,15 +780,16 @@ test.describe("voz › nunca una llamada viva sin audio (revisión de seguridad)
         // 404, y eso no es el final). Se relee mientras siga así.
         await adelantarHasta(page, () => lecturas() >= 3);
         expect(acciones(api, "soltar")).toHaveLength(1);
-        expect(acciones(api, "colgar")).toHaveLength(0);
+        expect(ultima(api)?.estado).toBe("conectando");
         // La reserva vence en el servidor y la llamada vuelve a sonarles a los demás: nada mío que colgar.
         const primera = ultima(api);
         if (primera) {
             primera.estado = "sonando";
             delete primera.usuario;
         }
+        const colgadas = acciones(api, "colgar").length;
         await page.clock.fastForward(3_000);
-        expect(acciones(api, "colgar")).toHaveLength(0);
+        expect(acciones(api, "colgar")).toHaveLength(colgadas);
         await expect(page.getByText("No se pudo colgar una llamada que quedó abierta")).toHaveCount(0);
         // El aviso llano se va solo a los 8 s (el reloj ya pasó de ahí).
         await page.clock.fastForward(8_000);
@@ -811,7 +815,42 @@ test.describe("voz › nunca una llamada viva sin audio (revisión de seguridad)
         if (segunda) segunda.estado = "en_curso";
         await page.getByRole("button", { name: "Reintentar" }).click();
         await adelantarHasta(page, () => ultima(api)?.estado === "terminada");
+    });
+
+    test("se deja la llamada mientras conecta (`confirmar-medio` en vuelo): el servidor la termina con `propia` y queda como perdida por devolver (`agente_salio`), con su texto en el hilo y en la lista", async ({ page }) => {
+        const api = await abrir(page, "/conversaciones?c=41");
+        await suena(page, api);
+        const liberar = api.voz.retener("confirmar-medio");
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect.poll(() => acciones(api, "confirmar-medio").length).toBe(1);
+        await page.clock.fastForward(8_200);
+        // `colgar?propia=true` responde 200 con la llamada ya `perdida`: es el final, sin más intentos.
+        await expect.poll(() => ultima(api)?.estado).toBe("perdida");
+        expect(ultima(api)?.motivoFin).toBe("agente_salio");
+        await expect(page.getByText("La llamada no llegó a conectar")).toBeVisible();
+        await expect(page.getByText("La llamada se conectó sin audio y se colgó")).toHaveCount(0);
+        expect(await medios(page)).toEqual({ abiertas: 0, microfono: false });
+        // El `accept` que llega después ya no se aplica: no queda `en_curso` sin audio.
+        liberar();
+        await page.clock.fastForward(3_000);
+        expect(ultima(api)?.estado).toBe("perdida");
         expect(acciones(api, "colgar")).toHaveLength(1);
+        // En el hilo: perdida, diciendo que se cortó al contestarla (no «nadie contestó»).
+        await feedListo(page, api);
+        const tarjeta = page.getByRole("log", { name: "Mensajes" }).locator('[data-slot="llamada-hilo"][data-estado="perdida"]');
+        await expect(tarjeta).toContainText("empezó a contestarla y se cortó antes de conectar");
+        await expect(tarjeta).toHaveAttribute("data-tono", "error");
+        await expect(tarjeta.getByRole("button", { name: "Escribirle" })).toBeVisible();
+        await tarjeta.scrollIntoViewIfNeeded();
+        await sinDesbordes(page);
+        await captura(page, "agente-salio-hilo");
+        // En la lista: la fila lo dice y queda por devolver.
+        if (esTelefono(page)) await page.getByRole("link", { name: "Volver a las conversaciones" }).click();
+        await expect(page.locator('li:has([data-conversacion="41"]) [data-slot="chip-perdida"]')).toHaveText("Se cortó al contestar · escríbele");
+        await page.getByRole("region", { name: "Llamadas por devolver" }).getByRole("button", { name: "1 llamada por devolver" }).click();
+        await expect(page.getByRole("region", { name: "Llamadas por devolver" })).toContainText("se cortó al contestar");
+        await sinDesbordes(page);
+        await captura(page, "agente-salio-lista");
     });
 
     test("`soltar` de una reserva que ya tomó otra persona no cuelga la llamada de un compañero (aunque yo supervise)", async ({ page }) => {

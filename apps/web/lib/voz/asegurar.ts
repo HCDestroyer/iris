@@ -46,8 +46,9 @@ export const LECTURAS_CONECTANDO = 30;
  * (quien supervisa puede colgar la de otra persona: nunca se cuelga a ciegas la de un compañero) y
  * la cuelga con `?propia=true`, que el servidor solo acepta de quien la tiene.
  *
- * Con `confirmar-medio` en vuelo la llamada está `conectando`: reservada a mi nombre pero todavía
- * de nadie (el servidor responde 404 a `propia`). Ese 404 **no es el final**: si el `accept`
+ * Con `confirmar-medio` en vuelo la llamada está `conectando`, reservada a mi nombre. El servidor
+ * la termina con `propia` (200 con `perdida` o `terminada`: final). Uno anterior responde 404, y
+ * ese 404 **no es el final**: si el `accept`
  * termina después, queda `en_curso` sin audio. Mientras la lectura diga que sigue reservada a mi
  * nombre se espera y se relee, hasta que pase a `en_curso` (y entonces se cuelga) o termine o
  * vuelva a sonar (la reserva venció: no hay nada mío).
@@ -83,9 +84,16 @@ export async function colgarSeguro(id: string, ctx: Contexto, soloSiEsMia: boole
         }
         if (esFinal(l) || l.estado === "sonando" || l.usuario?.id !== ctx.yoId) return { tipo: "nada" };
         if (l.estado === "conectando") {
-            // Reservada a mi nombre y aún sin aceptar: puede aceptarse en cualquier momento.
+            // Reservada a mi nombre y aún sin aceptar. El servidor nuevo la termina con `propia`
+            // (200: queda `perdida` con `agente_salio`, o `terminada`): eso es el final. El anterior
+            // responde 404: no es el final (puede aceptarse en cualquier momento); se espera y se relee.
+            try {
+                return { tipo: "colgada", llamada: await colgarLlamada(id, nuevaClaveIdempotencia(), ctx.empresa, true) };
+            } catch (e) {
+                if (e instanceof ErrorApi && e.codigo === "llamada_terminada") return { tipo: "nada" };
+                ultimo = e;
+            }
             conectando += 1;
-            ultimo = new Error("La llamada sigue conectando");
             await esperar(ESPERA_ACEPTAR_MS);
             continue;
         }

@@ -113,6 +113,24 @@ export function entradaDeAjustes(v: ValoresAjustesVoz, a: Pick<AjustesVoz, "vers
     };
 }
 
+/** Cuánto se lleva de un tope de salientes, para decirlo junto a él. */
+export type Consumo = { texto: string; nivel: "normal" | "cerca" | "tope" };
+
+function consumo(lleva: unknown, tope: unknown, texto: (lleva: number, tope: number) => string): Consumo | null {
+    // Sin el dato, o con el tope en 0 (salientes apagadas), no se inventa nada.
+    if (typeof lleva !== "number" || typeof tope !== "number" || !Number.isFinite(lleva) || lleva < 0 || tope <= 0) return null;
+    const parte = lleva / tope;
+    return { texto: texto(Math.floor(lleva), tope), nivel: parte >= 1 ? "tope" : parte >= 0.8 ? "cerca" : "normal" };
+}
+
+/** «Llevas 120 de 300 minutos este mes» y «8 de 50 llamadas hoy», contra los topes **guardados**. */
+export function consumoSalientes(a: Partial<Pick<AjustesVoz, "minutosSalientesMes" | "salientesHoy" | "topeMinutosSalientesMes" | "maxSalientesPorDia">>): { mes: Consumo | null; hoy: Consumo | null } {
+    return {
+        mes: consumo(a.minutosSalientesMes, a.topeMinutosSalientesMes, (l, t) => `Llevas ${l} de ${t} minutos este mes`),
+        hoy: consumo(a.salientesHoy, a.maxSalientesPorDia, (l, t) => `${l} de ${t} llamadas hoy`),
+    };
+}
+
 /** Resumen de «Avanzado» plegado. */
 export function resumenSalientes(v: Partial<ValoresAjustesVoz>): string {
     const n = (t: string | undefined) => (t !== undefined && /^\d+$/.test(t) ? Number(t) : null);

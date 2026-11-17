@@ -214,6 +214,19 @@ test.describe("voz salientes › permiso de llamada", () => {
         await captura(page, "permiso-vencido");
     });
 
+    test("la solicitud se envió pero WhatsApp aún no confirma que la recibió: se dice y no se ofrece pedir otra", async ({ page }) => {
+        const api = await abrir(page, "/conversaciones?c=41", { voz: { salientes: true, permisos: { 41: { estado: "pedido", solicitudSinConfirmar: true, puedeSolicitar: true } } } });
+        const panel = await abrirPermiso(page);
+        await expect(panel.locator('[data-slot="permiso-llamada"]')).toHaveAttribute("data-estado", "pedido");
+        await expect(panel.locator('[data-slot="solicitud-sin-confirmar"]')).toContainText("Se envió la solicitud, pero WhatsApp aún no confirma que la recibió");
+        // Sigue contando: aunque el servidor dijera que se puede, no se ofrece otra.
+        await expect(panel.getByRole("button", { name: "Pedir permiso para llamarle" })).toHaveCount(0);
+        await expect(panel.getByRole("button", { name: "Llamar", exact: true })).toHaveCount(0);
+        expect(api.voz.recibido.solicitudes).toHaveLength(0);
+        await sinDesbordes(page);
+        await captura(page, "permiso-sin-confirmar");
+    });
+
     test("si el permiso no se pudo leer: error con «Reintentar», sin ofrecer llamar ni pedir", async ({ page }) => {
         await abrir(page, "/conversaciones?c=41");
         let fallar = true;
@@ -911,6 +924,33 @@ test.describe("voz salientes › ajustes", () => {
         await f.getByRole("button", { name: "Guardar" }).click();
         await expect(page.getByText("Ajustes de llamadas guardados")).toBeVisible();
         expect(api.voz.recibido.ajustes).toEqual([{ version: 3, duracionMaxPersonaMin: 60, segundosAsignado: 10, maxSalientesPorDia: 20, topeMinutosSalientesMes: 120, maxColgadasMarcandoDia: 0 }]);
+    });
+
+    test("de la empresa: junto a cada tope, lo que se lleva; el punto crece al pasar del 80 % y con el tope en 0 no se inventa nada", async ({ page }) => {
+        await abrir(page, "/administracion/llamadas", { voz: { recibe: false, consumo: { minutosSalientesMes: 120, salientesHoy: 45 } } });
+        const avanzado = page.getByRole("form", { name: "Ajustes de llamadas" }).locator('[data-slot="avanzado"]');
+        await avanzado.getByRole("button", { name: /Avanzado/ }).click();
+        const mes = avanzado.locator('[data-slot="consumo-mes"]');
+        const hoy = avanzado.locator('[data-slot="consumo-hoy"]');
+        await expect(mes).toHaveText("Llevas 120 de 300 minutos este mes");
+        await expect(mes).toHaveAttribute("data-nivel", "normal");
+        // 45 de 50 llamadas: pasó del 80 %; el punto crece y lo dice.
+        await expect(hoy).toHaveText("45 de 50 llamadas hoy · cerca del tope");
+        await expect(hoy).toHaveAttribute("data-nivel", "cerca");
+        const ancho = (l: typeof mes) => l.locator("span[aria-hidden]").evaluate((e) => e.getBoundingClientRect().width);
+        expect(await ancho(hoy)).toBeGreaterThan(await ancho(mes));
+        await hoy.scrollIntoViewIfNeeded();
+        await sinDesbordes(page);
+        await captura(page, "ajustes-consumo");
+
+        // Con el tope en 0 (salientes apagadas) no hay de qué llevar la cuenta; llegar al tope se dice.
+        const otra = await page.context().newPage();
+        await abrir(otra, "/administracion/llamadas", { voz: { recibe: false, consumo: { minutosSalientesMes: 300, salientesHoy: 3 }, topes: { maxSalientesPorDia: 0 } } });
+        const segundo = otra.getByRole("form", { name: "Ajustes de llamadas" }).locator('[data-slot="avanzado"]');
+        await segundo.getByRole("button", { name: /Avanzado/ }).click();
+        await expect(segundo.locator('[data-slot="consumo-mes"]')).toHaveText("Llevas 300 de 300 minutos este mes · se llegó al tope");
+        await expect(segundo.locator('[data-slot="consumo-mes"]')).toHaveAttribute("data-nivel", "tope");
+        await expect(segundo.locator('[data-slot="consumo-hoy"]')).toHaveCount(0);
     });
 
     test("por número: plantilla de permiso de llamada y su idioma; si WhatsApp no la tiene aprobada (422), se dice junto al campo", async ({ page }) => {

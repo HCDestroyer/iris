@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { avisar, Aviso, Boton, CampoNumero, FormularioPagina, liberarProteccion, SeccionFormulario } from "@iris/ui";
+import { avisar, Aviso, Boton, CampoNumero, cn, FormularioPagina, liberarProteccion, SeccionFormulario } from "@iris/ui";
 import { ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -14,11 +14,23 @@ import { erroresACampos } from "@/lib/formularios";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
-import { entradaDeAjustes, esquemaAjustesVoz, resumenSalientes, valoresDeAjustes, type ValoresAjustesVoz } from "@/lib/voz/ajustes";
+import { consumoSalientes, entradaDeAjustes, esquemaAjustesVoz, resumenSalientes, valoresDeAjustes, type Consumo, type ValoresAjustesVoz } from "@/lib/voz/ajustes";
 import { guardarAjustesVoz, leerAjustesVoz } from "@/lib/voz/api";
 import type { AjustesVoz } from "@/lib/voz/tipos";
 
 const AVANZADOS = ["maxSalientesPorDia", "topeMinutosSalientesMes", "maxColgadasMarcandoDia"] as const;
+
+/** Lo que se lleva de un tope: un punto discreto que crece al pasar del 80 % (ámbar) y al llegar al tope (rojo). */
+function LineaConsumo({ consumo, slot }: { consumo: Consumo | null; slot: string }) {
+    if (!consumo) return null;
+    return (
+        <p data-slot={slot} data-nivel={consumo.nivel} className={cn("flex items-center gap-2 text-sm", consumo.nivel === "normal" ? "text-muted-foreground" : consumo.nivel === "cerca" ? "font-medium text-warning" : "font-medium text-error")}>
+            <span aria-hidden className={cn("shrink-0 rounded-full", consumo.nivel === "normal" ? "size-1.5 bg-muted-foreground/60" : consumo.nivel === "cerca" ? "size-2.5 bg-warning" : "size-2.5 bg-error")} />
+            {consumo.texto}
+            {consumo.nivel === "cerca" ? " · cerca del tope" : consumo.nivel === "tope" ? " · se llegó al tope" : ""}
+        </p>
+    );
+}
 
 /** `/administracion/llamadas`: ajustes de llamadas de la empresa (`GET /voz/ajustes`, campos de E1 y E1b). */
 export function AjustesDeLlamadas() {
@@ -42,6 +54,7 @@ function Formulario({ ajustes }: { ajustes: AjustesVoz }) {
     // «Avanzado» va plegado; se abre solo si uno de sus campos tiene un error que corregir.
     const [abierto, setAbierto] = useState(false);
     const avanzado = abierto || AVANZADOS.some((c) => errores[c] !== undefined);
+    const lleva = consumoSalientes(ajustes);
     return (
         <FormularioPagina
             titulo="Ajustes de llamadas"
@@ -114,22 +127,28 @@ function Formulario({ ajustes }: { ajustes: AjustesVoz }) {
                             Llamar a un cliente por WhatsApp se cobra por minuto (recibir llamadas no). Estos límites cuidan esa cuenta.
                         </p>
                         <div className="grid gap-4 sm:grid-cols-2">
-                            <CampoNumero
-                                etiqueta="Llamadas salientes al día, como mucho"
-                                minimo={0}
-                                maximo={1000}
-                                ayuda="Entre todas las personas de la empresa. Con 0 no se puede llamar. De fábrica: 50."
-                                error={errores.maxSalientesPorDia?.message}
-                                {...form.register("maxSalientesPorDia")}
-                            />
-                            <CampoNumero
-                                etiqueta="Minutos de llamadas salientes al mes, como mucho"
-                                minimo={0}
-                                maximo={100000}
-                                ayuda="Al llegar al tope no se puede llamar hasta el mes siguiente, y la llamada que esté en curso se corta. Con 0 no se puede llamar. De fábrica: 300."
-                                error={errores.topeMinutosSalientesMes?.message}
-                                {...form.register("topeMinutosSalientesMes")}
-                            />
+                            <div className="grid content-start gap-2">
+                                <CampoNumero
+                                    etiqueta="Llamadas salientes al día, como mucho"
+                                    minimo={0}
+                                    maximo={1000}
+                                    ayuda="Entre todas las personas de la empresa. Con 0 no se puede llamar. De fábrica: 50."
+                                    error={errores.maxSalientesPorDia?.message}
+                                    {...form.register("maxSalientesPorDia")}
+                                />
+                                <LineaConsumo consumo={lleva.hoy} slot="consumo-hoy" />
+                            </div>
+                            <div className="grid content-start gap-2">
+                                <CampoNumero
+                                    etiqueta="Minutos de llamadas salientes al mes, como mucho"
+                                    minimo={0}
+                                    maximo={100000}
+                                    ayuda="Al llegar al tope no se puede llamar hasta el mes siguiente, y la llamada que esté en curso se corta. Con 0 no se puede llamar. De fábrica: 300."
+                                    error={errores.topeMinutosSalientesMes?.message}
+                                    {...form.register("topeMinutosSalientesMes")}
+                                />
+                                <LineaConsumo consumo={lleva.mes} slot="consumo-mes" />
+                            </div>
                             <CampoNumero
                                 etiqueta="Llamadas a un mismo contacto que se pueden colgar antes de que conteste, por día"
                                 minimo={0}

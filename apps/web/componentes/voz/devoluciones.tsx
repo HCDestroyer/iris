@@ -30,6 +30,11 @@ type ContextoDevoluciones = {
     deLlamada: (id: string) => DevolucionLlamada | undefined;
     puedeDescartar: boolean;
     descartar: (d: DevolucionLlamada) => void;
+    /**
+     * ¿Esa llamada se perdió porque alguien empezó a contestarla y la dejó (`agente_salio`)? Solo
+     * se sabe por el flujo en vivo (la devolución no trae el motivo): tras recargar no se dice.
+     */
+    seCorto: (llamadaId: string) => boolean;
 };
 
 const Contexto = createContext<ContextoDevoluciones | null>(null);
@@ -50,12 +55,15 @@ function Proveedor({ children }: { children: ReactNode }) {
     const lectura = useLectura(async (signal) => (await leerDevoluciones(signal)).data ?? []);
     const { refrescar, reemplazar } = lectura;
     const [descartando, setDescartando] = useState<DevolucionLlamada | null>(null);
+    const [cortadas, setCortadas] = useState<readonly string[]>([]);
     const datos = lectura.estado === "listo" ? lectura.datos : null;
 
     // Una llamada que se pierde, o una devolución que alguien cerró, cambia la lista.
     useEffect(
         () =>
             escucharEventos((evento) => {
+                const l = evento.llamada;
+                if (l && l.estado === "perdida" && l.motivoFin === "agente_salio") setCortadas((c) => (c.includes(l.id) ? c : [...c, l.id]));
                 if (evento.tipo === "devolucion_actualizada" || evento.tipo === "llamada_terminada") void refrescar();
             }),
         [refrescar],
@@ -68,8 +76,9 @@ function Proveedor({ children }: { children: ReactNode }) {
             deLlamada: (id) => datos?.find((d) => d.llamadaId === id),
             puedeDescartar: puede(["llamadas.descartar_devolucion"]),
             descartar: setDescartando,
+            seCorto: (llamadaId) => cortadas.includes(llamadaId),
         }),
-        [lectura, datos, puede],
+        [lectura, datos, puede, cortadas],
     );
     return (
         <Contexto value={valor}>
@@ -153,12 +162,14 @@ function DialogoDescartar({ devolucion, cerrar, alHecho }: { devolucion: Devoluc
 
 /** «Llamada perdida» en la fila de la lista: el punto que crece porque pide actuar. */
 export function ChipPerdida({ conversacionId }: { conversacionId: number }) {
-    const d = useDevoluciones()?.deConversacion(conversacionId);
-    if (!d) return null;
+    const dev = useDevoluciones();
+    const d = dev?.deConversacion(conversacionId);
+    if (!d || !dev) return null;
+    const cortada = dev.seCorto(d.llamadaId);
     return (
-        <span data-slot="chip-perdida" className="col-span-2 col-start-2 inline-flex w-fit max-w-full items-center gap-1 rounded-md border border-error/40 bg-error/10 px-1.5 py-0.5 text-[0.71875rem] font-semibold text-error">
+        <span data-slot="chip-perdida" data-cortada={cortada || undefined} className="col-span-2 col-start-2 inline-flex w-fit max-w-full items-center gap-1 rounded-md border border-error/40 bg-error/10 px-1.5 py-0.5 text-[0.71875rem] font-semibold text-error">
             <PhoneMissed aria-hidden className="size-3 shrink-0" />
-            <span className="truncate">Llamada perdida · escríbele</span>
+            <span className="truncate">{cortada ? "Se cortó al contestar · escríbele" : "Llamada perdida · escríbele"}</span>
         </span>
     );
 }
@@ -214,6 +225,7 @@ export function PendientesDevolver({ conversaciones, hrefDe, ahora }: { conversa
                                     <span className="truncate text-[0.8125rem] font-semibold">{d.titulo || conv?.titulo || d.numero}</span>
                                     <span className="truncate text-xs text-muted-foreground">
                                         Llamó {haceCuanto(d.creadaEn, ahora)}
+                                        {dev.seCorto(d.llamadaId) ? " · se cortó al contestar" : ""}
                                         {d.pedidaPor === "cliente" ? " · pidió que lo llamen" : d.pedidaPor === "asistente" ? " · lo anotó el asistente" : ""}
                                     </span>
                                 </div>
