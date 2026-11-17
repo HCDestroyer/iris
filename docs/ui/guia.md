@@ -671,6 +671,14 @@ Contrato: `.claude/integration/contratos/correo-sistema.md`. Pantalla: `/adminis
   (p. ej. «usa una contraseña de aplicación»).
 - **Contraseña:** nunca viene del servidor. Con `tieneContrasena`, el campo va vacío con «Guardada.
   Escribe otra para cambiarla» y una casilla «Quitar la contraseña guardada». Sin tocarla no viaja.
+  La guardada no se manda a otro servidor: si cambian el servidor, el puerto o el usuario, el panel
+  pide escribirla otra vez **antes** de guardar o probar (`faltaContrasena`). Sin usuario, avisa
+  junto al campo que la guardada se borra al guardar.
+- **Reglas del servidor (422) en llano** (`reglaDeCorreo`): cada código conocido va con las palabras
+  del panel junto a su campo; lo que no es de un campo (falta la clave de cifrado de la instalación)
+  va como aviso general, sin nombres de variables del servidor.
+- **Detalles que escribe el servidor se muestran tal cual:** `origenDetalle` bajo el título del
+  origen y `detalle` del resultado de la prueba.
 - **Correo de prueba:** un diálogo corto (un campo: el destinatario, por defecto el correo de quien
   prueba) que manda lo del formulario **sin guardar**. Si el formulario no es válido, el diálogo no
   se abre y se marcan los campos. El resultado va con icono + texto + color y la causa en llano
