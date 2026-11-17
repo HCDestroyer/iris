@@ -233,6 +233,8 @@ type conexionMotor struct {
 	cert           tls.Certificate
 	token          []byte
 	tokenSiguiente []byte
+	// certSiguiente: el certificado de cliente que se está entregando en una rotación (nil = el mismo).
+	certSiguiente *tls.Certificate
 }
 
 func (m *Modulo) descifrarMotor(id int64, campo string, cifrado []byte) ([]byte, error) {
@@ -267,8 +269,21 @@ func (m *Modulo) conexionDeMotor(f mensajeriabd.MensajeriaVozMotor) (conexionMot
 	if c.token, err = m.descifrarMotor(f.ID, "token", f.Token); err != nil {
 		return c, err
 	}
-	c.tokenSiguiente, err = m.descifrarMotor(f.ID, "token", f.TokenSiguiente)
-	return c, err
+	if c.tokenSiguiente, err = m.descifrarMotor(f.ID, "token", f.TokenSiguiente); err != nil {
+		return c, err
+	}
+	if f.CertClienteSiguiente != nil && f.CertClienteClaveSiguiente != nil {
+		clave, err := m.descifrarMotor(f.ID, "cert_cliente_clave", f.CertClienteClaveSiguiente)
+		if err != nil {
+			return c, err
+		}
+		par, err := tls.X509KeyPair([]byte(*f.CertClienteSiguiente), clave)
+		if err != nil {
+			return c, err
+		}
+		c.certSiguiente = &par
+	}
+	return c, nil
 }
 
 func (c conexionMotor) huellas() []string {
@@ -285,7 +300,11 @@ func (c conexionMotor) huellas() []string {
 // clienteMotor arma el cliente firmado con ese token. Un cliente por uso: sin conexiones ni
 // credenciales que queden en memoria.
 func (m *Modulo) clienteMotor(c conexionMotor, token []byte) (*voz.Cliente, error) {
-	return voz.NuevoCliente(voz.OpcionesCliente{URL: c.fila.Url, Huellas: c.huellas(), Cert: c.cert, Token: token,
+	return m.clienteCon(c, c.cert, token)
+}
+
+func (m *Modulo) clienteCon(c conexionMotor, cert tls.Certificate, token []byte) (*voz.Cliente, error) {
+	return voz.NuevoCliente(voz.OpcionesCliente{URL: c.fila.Url, Huellas: c.huellas(), Cert: cert, Token: token,
 		VersionIris: m.versionIris(), Control: controlIA(m.cfg.PermitirLoopbackIA), Ahora: m.cfg.Ahora})
 }
 
@@ -350,13 +369,18 @@ type CasosServidorIA struct {
 	FijarUmbrales *auditoria.Caso[EntradaUmbralesIA, UmbralesIA]
 	Tablero       *auditoria.Caso[EntradaTableroIA, TableroIA]
 
-	leer        *auditoria.Caso[entradaLeerMotor, conexionMotor]
-	fijarToken  *auditoria.Caso[entradaFijarToken, struct{}]
-	latido      *auditoria.Caso[resultadoLatido, mensajeriabd.MensajeriaVozMotor]
-	reservar    *auditoria.Caso[entradaPlaza, plazaIA]
-	terminar    *auditoria.Caso[usoPeticionIA, struct{}]
-	mantener    *auditoria.Caso[struct{}, struct{}]
-	motorActual *auditoria.Caso[struct{}, *mensajeriabd.MensajeriaVozMotor]
+	// admin: la entrada de activar, rotar y probar. Lleva el permiso sensible: así el caso exige la
+	// re-autenticación de una sesión de autologin ANTES de cualquier llamada de red, y sin permiso es 403.
+	admin *auditoria.Caso[int64, conexionMotor]
+	// leer: lo mismo para el sistema (latido, rotación automática); nunca se llama por una persona.
+	leer            *auditoria.Caso[int64, conexionMotor]
+	fijarSiguiente  *auditoria.Caso[entradaFijarSiguiente, struct{}]
+	conectarFallido *auditoria.Caso[int64, struct{}]
+	latido          *auditoria.Caso[resultadoLatido, mensajeriabd.MensajeriaVozMotor]
+	reservar        *auditoria.Caso[entradaPlaza, plazaIA]
+	terminar        *auditoria.Caso[usoPeticionIA, struct{}]
+	mantener        *auditoria.Caso[struct{}, struct{}]
+	motorActual     *auditoria.Caso[struct{}, *mensajeriabd.MensajeriaVozMotor]
 }
 
 // ListaMotoresIA es GET /voz/motores.
@@ -391,16 +415,14 @@ type EntradaEmpresasMotor struct {
 	SimultaneasPorEmpresa int32   `json:"simultaneasPorEmpresa" minimum:"1" maximum:"64" doc:"Peticiones al modelo a la vez por empresa"`
 }
 
-type entradaLeerMotor struct {
-	ID      int64
-	Permiso nucleo.Permiso
-	// sistema: lo pide un job o el asistente (sin persona).
-	sistema bool
-}
-
-type entradaFijarToken struct {
-	ID    int64
-	Token []byte
+// entradaFijarSiguiente: lo que se guarda antes de entregarlo al servidor. Nada de esto se audita.
+type entradaFijarSiguiente struct {
+	ID        int64      `json:"id"`
+	Version   int32      `json:"version"`
+	Token     []byte     `json:"-"`
+	Cert      *string    `json:"-"`
+	CertClave []byte     `json:"-"`
+	CertVence *time.Time `json:"-"`
 }
 
 func nuevosCasosServidorIA(m *Modulo) *CasosServidorIA {
@@ -513,38 +535,57 @@ func nuevosCasosServidorIA(m *Modulo) *CasosServidorIA {
 		},
 	})
 
-	k.leer = auditoria.Nuevo(auditoria.Caso[entradaLeerMotor, conexionMotor]{
-		Accion: "servidor_ia.leer", Acceso: auditoria.Autenticado, SinEmpresa: true, AuditarExito: sinAuditar[conexionMotor],
-		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaLeerMotor) (conexionMotor, error) {
-			if !in.sistema {
-				if err := soloInstalacion(ctx); err != nil {
-					return conexionMotor{}, err
-				}
-				if !contexto.PermisosDe(ctx).Tiene(string(in.Permiso)) {
-					return conexionMotor{}, nucleo.NoEncontrado("No existe")
-				}
-			}
-			f, err := motorDe(ctx, mensajeriabd.New(t), in.ID, false)
-			if err != nil {
+	conexion := func(ctx context.Context, t *auditoria.Tx, id int64) (conexionMotor, error) {
+		f, err := motorDe(ctx, mensajeriabd.New(t), id, false)
+		if err != nil {
+			return conexionMotor{}, err
+		}
+		c, err := m.conexionDeMotor(f)
+		if err != nil {
+			// Sin credenciales legibles no hay canal: se trata como un servidor que no responde.
+			return conexionMotor{fila: f}, nil
+		}
+		return c, nil
+	}
+	k.admin = auditoria.Nuevo(auditoria.Caso[int64, conexionMotor]{
+		Accion: "servidor_ia.administrar", Permiso: nucleo.PermServidorIAAdministrar, SinEmpresa: true, AuditarExito: sinAuditar[conexionMotor],
+		Logica: func(ctx context.Context, t *auditoria.Tx, id int64) (conexionMotor, error) {
+			if err := soloInstalacion(ctx); err != nil {
 				return conexionMotor{}, err
 			}
-			c, err := m.conexionDeMotor(f)
-			if err != nil {
-				// Sin credenciales legibles no hay canal: se trata como un servidor que no responde.
-				return conexionMotor{fila: f}, nil
-			}
-			return c, nil
+			return conexion(ctx, t, id)
 		},
 	})
-
-	k.fijarToken = auditoria.Nuevo(auditoria.Caso[entradaFijarToken, struct{}]{
+	k.leer = auditoria.Nuevo(auditoria.Caso[int64, conexionMotor]{
+		Accion: "servidor_ia.leer", Acceso: auditoria.Autenticado, SinEmpresa: true, AuditarExito: sinAuditar[conexionMotor],
+		Logica: conexion,
+	})
+	k.fijarSiguiente = auditoria.Nuevo(auditoria.Caso[entradaFijarSiguiente, struct{}]{
 		Accion: "servidor_ia.rotar", Acceso: auditoria.Autenticado, SinEmpresa: true, AuditarExito: sinAuditar[struct{}],
-		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaFijarToken) (struct{}, error) {
+		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaFijarSiguiente) (struct{}, error) {
 			cifrado, err := m.cifrarMotor(in.ID, "token", in.Token)
 			if err != nil {
 				return struct{}{}, err
 			}
-			return struct{}{}, mensajeriabd.New(t).FijarTokenSiguienteMotorIA(ctx, mensajeriabd.FijarTokenSiguienteMotorIAParams{ID: in.ID, TokenSiguiente: cifrado})
+			ahora := m.ahora()
+			_, err = mensajeriabd.New(t).FijarSiguienteMotorIA(ctx, mensajeriabd.FijarSiguienteMotorIAParams{ID: in.ID, Version: in.Version,
+				Ahora: ahora, Vencida: ahora.Add(-plazoRotacionIA),
+				TokenSiguiente: cifrado, CertClienteSiguiente: in.Cert, CertClienteClaveSiguiente: in.CertClave, CertClienteVenceSiguiente: in.CertVence})
+			if errors.Is(err, pgx.ErrNoRows) {
+				// Otra rotación (o un cambio de la tarjeta) llegó antes: esta no pisa nada.
+				return struct{}{}, rotacionEnCurso()
+			}
+			return struct{}{}, err
+		},
+	})
+	k.conectarFallido = auditoria.Nuevo(auditoria.Caso[int64, struct{}]{
+		Accion: "servidor_ia.conectar_fallido", Permiso: nucleo.PermServidorIAAdministrar, SinEmpresa: true,
+		Logica: func(_ context.Context, t *auditoria.Tx, id int64) (struct{}, error) {
+			t.FijarEmpresa(0)
+			t.FijarEntidad("voz_motor", id)
+			// Sin el código ni el motivo (no se distingue: voz.md §4.8).
+			t.Anotar(map[string]any{"estado": "error"})
+			return struct{}{}, nil
 		},
 	})
 

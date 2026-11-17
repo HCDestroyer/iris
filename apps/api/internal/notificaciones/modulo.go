@@ -107,13 +107,15 @@ type Modulo struct {
 	CerrarEnvio    *auditoria.Caso[ResultadoEnvio, bool]
 	PurgarCaducos  *auditoria.Caso[struct{}, ResultadoPurga]
 	// Avisos del panel (la campana) y correos del sistema.
-	ListarAvisos   *auditoria.Caso[EntradaListarAvisos, nucleo.Pagina[AvisoPanel]]
-	ResumenAvisos  *auditoria.Caso[struct{}, ResumenAvisos]
-	LeerAviso      *auditoria.Caso[EntradaLeerAviso, AvisoPanel]
-	LeerAvisos     *auditoria.Caso[struct{}, AvisosLeidos]
-	AvisarTope     *auditoria.Caso[EntradaAvisarTope, ResultadoAvisarTope]
-	prepararCorreo *auditoria.Caso[int64, *correoListo]
-	cerrarCorreo   *auditoria.Caso[ResultadoCorreo, bool]
+	ListarAvisos  *auditoria.Caso[EntradaListarAvisos, nucleo.Pagina[AvisoPanel]]
+	ResumenAvisos *auditoria.Caso[struct{}, ResumenAvisos]
+	LeerAviso     *auditoria.Caso[EntradaLeerAviso, AvisoPanel]
+	LeerAvisos    *auditoria.Caso[struct{}, AvisosLeidos]
+	AvisarTope    *auditoria.Caso[EntradaAvisarTope, ResultadoAvisarTope]
+	// AvisarServidorIA: campana y correo del servidor de IA de la instalación.
+	AvisarServidorIA *auditoria.Caso[EntradaAvisarServidorIA, ResultadoAvisarTope]
+	prepararCorreo   *auditoria.Caso[int64, *correoListo]
+	cerrarCorreo     *auditoria.Caso[ResultadoCorreo, bool]
 	// Correo del sistema configurable desde el panel (contratos/correo-sistema.md).
 	VerCorreoSistema        *auditoria.Caso[EntradaVerCorreo, CorreoSistema]
 	GuardarCorreoSistema    *auditoria.Caso[EntradaGuardarCorreo, CorreoSistema]
@@ -158,6 +160,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.LeerAviso = m.nuevoLeerAviso()
 	m.LeerAvisos = m.nuevoLeerTodosLosAvisos()
 	m.AvisarTope = m.nuevoAvisarTope()
+	m.AvisarServidorIA = m.nuevoAvisarServidorIA()
 	m.prepararCorreo = m.nuevoPrepararCorreo()
 	m.cerrarCorreo = m.nuevoCerrarCorreo()
 	m.VerCorreoSistema = m.nuevoVerCorreoSistema()

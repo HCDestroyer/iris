@@ -339,7 +339,7 @@ func (q *Queries) CerrarPruebaCorreo(ctx context.Context, arg CerrarPruebaCorreo
 
 const contarAvisosNoLeidos = `-- name: ContarAvisosNoLeidos :one
 SELECT count(*)::integer FROM notificaciones.avisos
-WHERE usuario_id = $1 AND coalesce(empresa_id, 0) = coalesce($2::bigint, 0) AND leido_en IS NULL
+WHERE usuario_id = $1 AND (coalesce(empresa_id, 0) = coalesce($2::bigint, 0) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral')) AND leido_en IS NULL
 `
 
 type ContarAvisosNoLeidosParams struct {
@@ -561,6 +561,49 @@ func (q *Queries) DestinatariosConPermiso(ctx context.Context, arg Destinatarios
 	var items []DestinatariosConPermisoRow
 	for rows.Next() {
 		var i DestinatariosConPermisoRow
+		if err := rows.Scan(&i.ID, &i.Correo, &i.Nombre); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const destinatariosInstalacion = `-- name: DestinatariosInstalacion :many
+SELECT DISTINCT u.id, u.correo, u.nombre
+FROM nucleo.usuarios u
+JOIN nucleo.usuarios_roles ur ON ur.usuario_id = u.id
+JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
+JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id AND rp.permiso = $1::text
+WHERE u.activo AND u.tipo = 'persona'
+  AND EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur2
+              JOIN nucleo.roles r2 ON r2.id = ur2.rol_id AND r2.activo
+              JOIN nucleo.roles_permisos rp2 ON rp2.rol_id = ur2.rol_id
+              WHERE ur2.usuario_id = u.id AND rp2.permiso = 'empresas.todas'
+                AND ur2.zona_id IS NULL AND ur2.cuadrilla_id IS NULL)
+ORDER BY u.id
+`
+
+type DestinatariosInstalacionRow struct {
+	ID     int64
+	Correo string
+	Nombre string
+}
+
+// Personas activas con el permiso y con empresas.todas sin límite de alcance: quienes ven lo que es
+// de la instalación (el servidor de IA).
+func (q *Queries) DestinatariosInstalacion(ctx context.Context, permiso string) ([]DestinatariosInstalacionRow, error) {
+	rows, err := q.db.Query(ctx, destinatariosInstalacion, permiso)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DestinatariosInstalacionRow
+	for rows.Next() {
+		var i DestinatariosInstalacionRow
 		if err := rows.Scan(&i.ID, &i.Correo, &i.Nombre); err != nil {
 			return nil, err
 		}
@@ -1190,7 +1233,7 @@ func (q *Queries) InsertarRechazoCorreo(ctx context.Context, arg InsertarRechazo
 
 const leerAviso = `-- name: LeerAviso :one
 UPDATE notificaciones.avisos SET leido_en = coalesce(leido_en, $1)
-WHERE id = $2 AND usuario_id = $3 AND coalesce(empresa_id, 0) = coalesce($4::bigint, 0)
+WHERE id = $2 AND usuario_id = $3 AND (coalesce(empresa_id, 0) = coalesce($4::bigint, 0) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral'))
 RETURNING id, usuario_id, empresa_id, tipo, clave, nivel, titulo, enlace, datos, evento_id, leido_en, creado_en
 `
 
@@ -1229,7 +1272,7 @@ func (q *Queries) LeerAviso(ctx context.Context, arg LeerAvisoParams) (Notificac
 
 const leerTodosLosAvisos = `-- name: LeerTodosLosAvisos :execrows
 UPDATE notificaciones.avisos SET leido_en = $1
-WHERE usuario_id = $2 AND coalesce(empresa_id, 0) = coalesce($3::bigint, 0) AND leido_en IS NULL
+WHERE usuario_id = $2 AND (coalesce(empresa_id, 0) = coalesce($3::bigint, 0) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral')) AND leido_en IS NULL
 `
 
 type LeerTodosLosAvisosParams struct {
@@ -1248,7 +1291,7 @@ func (q *Queries) LeerTodosLosAvisos(ctx context.Context, arg LeerTodosLosAvisos
 
 const listarAvisos = `-- name: ListarAvisos :many
 SELECT id, usuario_id, empresa_id, tipo, clave, nivel, titulo, enlace, datos, evento_id, leido_en, creado_en FROM notificaciones.avisos
-WHERE usuario_id = $1 AND coalesce(empresa_id, 0) = coalesce($2::bigint, 0)
+WHERE usuario_id = $1 AND (coalesce(empresa_id, 0) = coalesce($2::bigint, 0) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral'))
   AND (NOT $3::boolean OR leido_en IS NULL)
   AND ($4::bigint = 0 OR id < $4::bigint)
 ORDER BY id DESC
@@ -1263,7 +1306,8 @@ type ListarAvisosParams struct {
 	Limite       int32
 }
 
-// Los del usuario en la empresa activa (null = sin conector), del más nuevo al más viejo.
+// Los del usuario en la empresa activa (null = sin conector), del más nuevo al más viejo. Los del
+// servidor de IA son de la instalación: se ven con cualquier empresa activa.
 func (q *Queries) ListarAvisos(ctx context.Context, arg ListarAvisosParams) ([]NotificacionesAviso, error) {
 	rows, err := q.db.Query(ctx, listarAvisos,
 		arg.UsuarioID,

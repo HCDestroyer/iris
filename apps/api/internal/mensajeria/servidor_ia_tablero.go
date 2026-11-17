@@ -2,6 +2,7 @@ package mensajeria
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"time"
@@ -94,7 +95,7 @@ type GPUTablero struct {
 
 // GPUsTablero: siempre un objeto.
 type GPUsTablero struct {
-	Estado string       `json:"estado" enum:"ok,omitido"`
+	Estado string       `json:"estado" enum:"ok,sin_gpu,omitido" doc:"ok: hay tarjetas en lista. sin_gpu: el servidor respondió y no tiene tarjeta. omitido: no hubo lectura de la GPU (no se puede afirmar nada)"`
 	Lista  []GPUTablero `json:"lista"`
 }
 
@@ -366,25 +367,36 @@ func nuevosCasosTablero(m *Modulo, k *CasosServidorIA) {
 			if !todo && !empresaPermitida(f, empresa) {
 				return r, nil // para esa empresa es como si no hubiera servidor
 			}
-			r.Estado.MotorID, r.Estado.Estado, r.Estado.Detalle, r.Estado.Version = &f.ID, &f.Estado, f.Detalle, f.VersionMotor
+			r.Estado.MotorID, r.Estado.Estado, r.Estado.Version = &f.ID, &f.Estado, f.VersionMotor
+			if todo {
+				// El detalle puede traer el motivo libre que escribió el admin de la instalación: el
+				// admin de empresa solo ve el estado (lista cerrada).
+				r.Estado.Detalle = f.Detalle
+			}
 			r.Estado.Compatible, r.Estado.MotivoIncompatible = &f.Compatible, f.MotivoIncompatible
 			r.Estado.ModelosDisponibles = modelosUtilizables(f)
-			// La última lectura buena es la del último latido. Las series y la muestra del servidor
-			// (GPU, CPU, disco, modelos cargados) llegan con el muestreo de /metricas.
-			r.Estado.TomadoEn = f.UltimoLatidoEn
-			r.Estado.LecturaOk = f.UltimoLatidoEn != nil && f.FallosSeguidos == 0 && f.Estado != MotorDesactivado
-			var desde time.Time
-			ahora := m.ahora()
-			switch in.Rango {
-			case "ahora":
-				desde = ahora.Truncate(time.Hour)
-			case "24h":
-				desde = ahora.Add(-24 * time.Hour)
-			case "7d":
-				desde = ahora.Add(-7 * 24 * time.Hour)
-			default:
-				desde = ahora.Add(-time.Hour).Truncate(time.Hour)
+			// lecturaOk: la última muestra es buena y reciente. tomadoEn: la última que sí se pudo leer.
+			var buena *muestraGuardada
+			if u, err := q.UltimaMuestraIA(ctx, f.ID); err == nil {
+				r.Estado.LecturaOk = u.Ok && m.ahora().Sub(u.TomadaEn) <= vidaLecturaIA && f.Estado != MotorDesactivado
+			} else if !errors.Is(err, pgx.ErrNoRows) {
+				return r, err
 			}
+			if b, err := q.UltimaMuestraBuenaIA(ctx, f.ID); err == nil {
+				var g muestraGuardada
+				if json.Unmarshal(b.Datos, &g) == nil {
+					buena = &g
+					r.Estado.TomadoEn, r.Estado.EncendidoSeg = &b.TomadaEn, &g.EncendidoSeg
+				}
+			} else if !errors.Is(err, pgx.ErrNoRows) {
+				return r, err
+			}
+			ahora := m.ahora()
+			series, desde, err := m.seriesIA(ctx, q, f.ID, in.Rango, empresa, todo)
+			if err != nil {
+				return r, err
+			}
+			desde = desde.Truncate(time.Minute)
 			filas, err := q.UsoIAEnRango(ctx, mensajeriabd.UsoIAEnRangoParams{MotorID: f.ID, Desde: desde, EmpresaID: empresa})
 			if err != nil {
 				return r, err
@@ -412,7 +424,7 @@ func nuevosCasosTablero(m *Modulo, k *CasosServidorIA) {
 				}
 				uso.Errores = append(uso.Errores, ErrorRecienteIA{Motivo: motivo, Cuenta: x.Cuenta, UltimoEn: x.UltimoEn})
 			}
-			r.Uso, r.Series = uso, []PuntoSerieIA{}
+			r.Uso, r.Series = uso, series
 			if !todo {
 				return r, nil
 			}
@@ -434,14 +446,27 @@ func nuevosCasosTablero(m *Modulo, k *CasosServidorIA) {
 			if err != nil {
 				return r, err
 			}
-			if f.UltimoLatidoEn != nil {
-				// Hasta que haya muestras de /metricas: lo que sí se sabe del último latido.
-				s := &ServidorTablero{GPUs: GPUsTablero{Estado: "omitido", Lista: []GPUTablero{}}, Modelos: []ModeloTablero{},
-					LLM: OcupacionIA{EnCurso: enCurso, MaxSimultaneas: f.MaxSimultaneas}, Rechazadas: rechazadas}
-				for _, id := range catalogoDe(f).LLM {
-					s.Modelos = append(s.Modelos, ModeloTablero{ID: id, Permitido: f.ModelosPermitidos == nil || slices.Contains(f.ModelosPermitidos, id)})
+			if buena != nil {
+				sv := buena.Servidor
+				// La ocupación y los rechazos los lleva Iris; lo demás es la última lectura buena.
+				sv.LLM, sv.Rechazadas = OcupacionIA{EnCurso: enCurso, MaxSimultaneas: f.MaxSimultaneas}, rechazadas
+				r.Servidor = &sv
+			}
+			avisos, err := q.AvisosIAEnRango(ctx, mensajeriabd.AvisosIAEnRangoParams{MotorID: f.ID, Desde: &desde})
+			if err != nil {
+				return r, err
+			}
+			for _, a := range avisos {
+				av := AvisoServidorIA{Tipo: a.Tipo, Activo: a.Hasta == nil, Desde: a.Desde, Hasta: a.Hasta}
+				if a.Valor != nil {
+					v := float64(*a.Valor)
+					av.Valor = &v
 				}
-				r.Servidor = s
+				if a.Umbral != nil {
+					v := float64(*a.Umbral)
+					av.Umbral = &v
+				}
+				r.Avisos = append(r.Avisos, av)
 			}
 			return r, nil
 		},

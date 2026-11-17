@@ -9,6 +9,7 @@ import (
 
 	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/voz"
 )
 
 // Lo que corren los workers, para las pruebas (sin River).
@@ -181,4 +182,35 @@ func (m *Modulo) ReservarVerificacion(ctx context.Context, empresa, cliente, con
 // ProveedorPara arma el proveedor del asistente de una configuración (el mismo que usa el módulo).
 func (m *Modulo) ProveedorPara(cfg ConfigProveedor, plazo time.Duration) (Proveedor, error) {
 	return m.proveedorDe(cfg, plazo)
+}
+
+// RotacionAMedias deja una rotación de credenciales como queda si la respuesta del servidor se
+// pierde: lo «siguiente» guardado en Iris y ya aplicado en el servidor, sin promover.
+func (m *Modulo) RotacionAMedias(ctx context.Context, bd nucleo.BD, id int64, revocar bool) error {
+	ctx = ctxSistema(ctx, bd)
+	c, err := m.ServidorIA.leer.Ejecutar(ctx, id)
+	if err != nil {
+		return err
+	}
+	convivencia := convivenciaRotacion
+	if revocar {
+		convivencia = 0
+	}
+	return m.entregarCredencial(ctx, m.ServidorIA, c, canalVivo{token: c.token, cert: c.cert}, convivencia, revocar)
+}
+
+// EstimarEntradaIA y UsoContado: la cuenta propia de tokens del servidor de IA.
+func EstimarEntradaIA(in PedidoIA) int64 { return estimarEntradaIA(in) }
+
+func UsoContado(in PedidoIA, declarado UsoIA, salida string) UsoIA {
+	return usoContado(in, declarado, salida)
+}
+
+// PlazoRotacionIA: lo que dura apartada una rotación.
+const PlazoRotacionIA = plazoRotacionIA
+
+// MetricasValidas: la revalidación de lo que devuelve /metricas.
+func MetricasValidas(mt voz.Metricas) bool {
+	_, _, ok := muestraDe(mt)
+	return ok
 }

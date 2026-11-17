@@ -45,6 +45,7 @@ const (
 	ColumnaMotorTokenSiguiente = "mensajeria.voz_motores.token_siguiente" //nolint:gosec // nombre de una columna, no un secreto
 	ColumnaMotorClaveCert      = "mensajeria.voz_motores.cert_cliente_clave"
 	ColumnaMotorCodigoEnlace   = "mensajeria.voz_motores.enlace_codigo"
+	ColumnaMotorClaveCertSig   = "mensajeria.voz_motores.cert_cliente_clave_siguiente"
 	// ColumnaCorreoSistema: contraseña del SMTP del correo del sistema (contratos/correo-sistema.md).
 	ColumnaCorreoSistema = "notificaciones.correo_ajustes.contrasena_cifrada"
 )
@@ -52,7 +53,7 @@ const (
 // Columnas en el orden en que se rotan y se informan.
 var Columnas = []string{ColumnaTOTP, ColumnaTokenConector, ColumnaSecretoWebhook, ColumnaIMAP, ColumnaSMTP, ColumnaVerificador,
 	ColumnaWebhookSalida, ColumnaCanalMensajeria, ColumnaConexionMeta, ColumnaAsistente, ColumnaMotorToken, ColumnaMotorTokenSiguiente, ColumnaMotorClaveCert,
-	ColumnaMotorCodigoEnlace, ColumnaCorreoSistema}
+	ColumnaMotorCodigoEnlace, ColumnaMotorClaveCertSig, ColumnaCorreoSistema}
 
 // datoAsociadoBuzon es el de internal/soporte (buzones.go, de I2): "soporte.buzon:<id>:imap|smtp".
 // La prueba de la rotación lo verifica leyendo el buzón con el módulo de soporte.
@@ -394,13 +395,14 @@ func (r *rotador) motoresIA(ctx context.Context, q *clavebd.Queries, simular boo
 	}
 	for _, f := range filas {
 		p := clavebd.RecifrarMotorIAParams{ID: f.ID, Token: f.Token, TokenSiguiente: f.TokenSiguiente,
-			CertClienteClave: f.CertClienteClave, EnlaceCodigo: f.EnlaceCodigo}
+			CertClienteClave: f.CertClienteClave, CertClienteClaveSiguiente: f.CertClienteClaveSiguiente, EnlaceCodigo: f.EnlaceCodigo}
 		hay := false
 		for _, c := range []struct {
 			valor      *[]byte
 			col, campo string
 		}{{&p.Token, ColumnaMotorToken, "token"}, {&p.TokenSiguiente, ColumnaMotorTokenSiguiente, "token"},
-			{&p.CertClienteClave, ColumnaMotorClaveCert, "cert_cliente_clave"}, {&p.EnlaceCodigo, ColumnaMotorCodigoEnlace, "enlace_codigo"}} {
+			{&p.CertClienteClave, ColumnaMotorClaveCert, "cert_cliente_clave"}, {&p.EnlaceCodigo, ColumnaMotorCodigoEnlace, "enlace_codigo"},
+			{&p.CertClienteClaveSiguiente, ColumnaMotorClaveCertSig, "cert_cliente_clave"}} {
 			nuevo, cambio, err := r.valor(c.col, f.ID, *c.valor, mensajeria.DatosAsociadosMotor(f.ID, c.campo))
 			if err != nil {
 				return err

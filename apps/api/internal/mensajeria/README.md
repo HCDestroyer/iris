@@ -600,25 +600,39 @@ Un servidor dedicado con GPU, de la instalación, que el asistente de chat usa c
 - **Tarjeta** (`servidor_ia.ver` / `servidor_ia.administrar`, más `empresas.todas`):
   `GET /voz/motores`, `POST /voz/motores/enlazar` (código de un solo uso, guardado cifrado hasta
   enlazar o 15 min), `…/{id}/conectar` (el intercambio; el secreto inicial se deriva, no viaja),
-  `…/activar` (rota a un token aleatorio sin convivencia), `…/desactivar`, `…/probar`,
-  `…/rotar-token` (`revocar: true` = sin convivencia y certificado de cliente nuevo),
+  `…/activar` (con la `huellaTls` que comparó el admin: 409 `huella_cambiada` si ya no es esa; rota a un token aleatorio sin convivencia), `…/desactivar`, `…/probar`,
+  `…/rotar-token` (`revocar: true` = sin convivencia y certificado de cliente nuevo; lo nuevo se
+  guarda como «siguiente» antes de entregarlo y una rotación a medias se termina sola; una a la
+  vez: 409 `rotacion_en_curso`),
   `…/empresas/actualizar` y `…/modelos/actualizar`.
 - **Proveedor del asistente** (`servidor_ia_proveedor.go`): el adaptador compatible con OpenAI con
   otro transporte. Toda llamada al modelo toma una **plaza** (tope del servidor, máximo por empresa y
   una plaza garantizada por empresa activa; sin cola: `servidor_ia_ocupado` al instante), anota el
-  uso por hora, empresa y modelo (`servidor_ia_uso`, sin texto) y cuenta para el tope de tokens
-  `max(lo que declara el servidor, la estimación propia)`. Con el servidor caído, degradado,
+  uso por minuto, empresa y modelo (`servidor_ia_uso`, sin texto) y cuenta para el tope de tokens
+  `max(lo que declara el servidor, la estimación propia)` con techo (la estimación cuenta también
+  los pasos del turno y las herramientas; un error después de enviar anota la estimación). Con el servidor caído, degradado,
   incompatible o desactivado falla al instante sin llamar (`servidor_ia_no_disponible`).
 - **Latido** (job `mensajeria.servidor_ia`, cada 10 s): `/salud`, compatibilidad en los dos
   sentidos, catálogo revalidado, huella siguiente del servidor (solo se acepta anunciada por el
   canal vigente), rotación automática del token cada 30 días y limpieza de códigos y plazas
-  vencidos. Tres fallos seguidos → `no_disponible`.
+  vencidos. Tres fallos seguidos → `no_disponible`. En la misma pasada lee `/metricas`, lo
+  revalida entero y guarda la **muestra** (`servidor_ia_muestras`; una lectura que no valida o que
+  no llega cuenta como fallida), abre o cierra los **episodios de aviso** (`servidor_ia_avisos`:
+  caído, incompatible, VRAM y temperatura sostenidas, disco y saturación) y, cada 5 minutos, agrega
+  por hora (`servidor_ia_muestras_hora`) y aplica la retención.
 - **Tablero y umbrales**: `GET /servidor-ia/tablero`, `GET /servidor-ia/umbrales`,
-  `POST /servidor-ia/umbrales/actualizar`. Hoy el tablero trae estado y uso; las series y la
-  muestra del servidor (GPU, CPU, disco) y los avisos llegan con el muestreo de `/metricas`.
+  `POST /servidor-ia/umbrales/actualizar`. El tablero trae el estado, la última muestra buena del
+  servidor (GPU, CPU, memoria, disco y modelos), las series del rango (GPU y VRAM de las muestras;
+  peticiones y tiempos del uso), el uso por empresa y los episodios de aviso. Quien solo tiene
+  `servidor_ia.ver_uso` ve el estado sin detalle y el uso de su empresa, nada del servidor.
+- **Avisos**: `notificaciones` escucha `voz.motor_estado_cambiado` (caído, incompatible) y
+  `servidor_ia.umbral_superado` y avisa por campana y correo a quienes tienen `servidor_ia.ver` y
+  todas las empresas, uno por episodio.
 
 Eventos (todos con `empresa_id: null`): `voz.motor_enlazado`, `voz.motor_activado`,
 `voz.motor_desactivado`, `voz.motor_estado_cambiado`, `voz.motor_token_rotado`,
-`voz.motor_empresas_cambiadas`, `voz.motor_modelos_cambiados`, `servidor_ia.ajustes_cambiados`.
+`voz.motor_empresas_cambiadas`, `voz.motor_modelos_cambiados`, `servidor_ia.ajustes_cambiados`,
+`servidor_ia.umbral_superado` y `servidor_ia.umbral_normalizado`.
 No consume eventos. Secretos cifrados con `IRIS_CLAVE_CIFRADO` (los rota `iris clave rotar`): el
-token, la clave del certificado de cliente y el código de enlace pendiente.
+token y el token siguiente, la clave del certificado de cliente (la vigente y la siguiente) y el
+código de enlace pendiente.

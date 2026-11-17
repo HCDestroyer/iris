@@ -77,7 +77,9 @@ type usoPeticionIA struct {
 
 func nuevosCasosPlazas(m *Modulo, k *CasosServidorIA) {
 	anotar := func(ctx context.Context, q *mensajeriabd.Queries, u usoPeticionIA) error {
-		hora := m.ahora().Truncate(time.Hour)
+		// La cubeta de tiempo es el minuto (la columna se llama «hora» por historia): así las series
+		// del tablero tienen peticiones y tiempos por minuto.
+		hora := m.ahora().Truncate(time.Minute)
 		modelo := u.Modelo
 		if !voz.ReNombreModelo.MatchString(modelo) {
 			modelo = "?"
@@ -236,8 +238,37 @@ func (p *proveedorServidorIA) con(ctx context.Context, modelo string, f func(Pro
 	return err
 }
 
-// Generar llama al modelo. Para el tope de tokens cuenta max(lo que declara el servidor, la
-// estimación propia): un servidor que declare 0 no regala tokens.
+// estimarEntradaIA: lo que Iris calcula que mandó (3 caracteres por token): instrucciones, contenido,
+// los pasos anteriores del turno (respuestas, llamadas y resultados) y la definición de las herramientas.
+func estimarEntradaIA(in PedidoIA) int64 {
+	n := len([]rune(in.Instrucciones)) + len([]rune(in.Contenido))
+	for _, p := range in.Pasos {
+		n += len([]rune(p.Respuesta.Texto))
+		for _, l := range p.Respuesta.Llamadas {
+			n += len(l.Nombre) + len(l.Argumentos)
+		}
+		for _, r := range p.Resultados {
+			n += len([]rune(r.Contenido))
+		}
+	}
+	for _, h := range in.Herramientas {
+		n += len(h.Nombre) + len([]rune(h.Descripcion)) + 40*(len(h.Parametros)+1)
+	}
+	return int64(n)/3 + 1
+}
+
+// usoContado: para el tope de tokens cuenta max(lo que declara el servidor, la estimación propia),
+// con un techo a lo declarado: un servidor que declare 0 no regala tokens y uno que declare un
+// disparate no agota el tope de la empresa.
+func usoContado(in PedidoIA, declarado UsoIA, textoSalida string) UsoIA {
+	entrada := estimarEntradaIA(in)
+	salida := int64(len([]rune(textoSalida)))/3 + 1
+	techoSalida := max(in.MaxTokens, 4096) * 2
+	return UsoIA{Entrada: min(max(declarado.Entrada, entrada), entrada*4+4096), Salida: min(max(declarado.Salida, salida), max(techoSalida, salida))}
+}
+
+// Generar llama al modelo y cuenta el uso con la estimación propia (ver usoContado). Si falla
+// después de enviar (el servidor ya gastó GPU), se anota la estimación de la entrada.
 func (p *proveedorServidorIA) Generar(ctx context.Context, in PedidoIA) (RespuestaIA, UsoIA, error) {
 	var resp RespuestaIA
 	var uso UsoIA
@@ -249,11 +280,10 @@ func (p *proveedorServidorIA) Generar(ctx context.Context, in PedidoIA) (Respues
 		var err error
 		resp, uso, err = prov.Generar(ctx, in)
 		if err != nil {
-			return UsoIA{}, err
+			uso = UsoIA{Entrada: estimarEntradaIA(in)}
+			return uso, err
 		}
-		entradaMin := int64(len([]rune(in.Instrucciones))+len([]rune(in.Contenido)))/3 + 1
-		salidaMin := int64(len([]rune(resp.Texto)))/3 + 1
-		uso.Entrada, uso.Salida = max(uso.Entrada, entradaMin), max(uso.Salida, salidaMin)
+		uso = usoContado(in, uso, resp.Texto)
 		return uso, nil
 	})
 	return resp, uso, err

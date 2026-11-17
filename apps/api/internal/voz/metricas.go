@@ -26,7 +26,10 @@ const (
 	EstadoListo     = "listo"
 	EstadoDegradado = "degradado"
 	EstadoOmitido   = "omitido"
-	EstadoError     = "error"
+	// EstadoSinGPU: el servidor respondió y no tiene tarjeta (instalado sin GPU, o el medidor leyó
+	// y no encontró ninguna). «omitido» en las GPU = no hubo lectura: no se puede afirmar nada.
+	EstadoSinGPU = "sin_gpu"
+	EstadoError  = "error"
 )
 
 // SaludLLM es el estado del modelo de lenguaje.
@@ -239,10 +242,12 @@ func (p *Puerta) metricas(o respuesta, r *http.Request, e Estado) int {
 	if llm.Estado != EstadoListo {
 		m.Estado = EstadoDegradado
 	}
-	if gpus, ok := p.leerGPU(); ok {
+	if p.cfg.MedidorRuta == "" {
+		m.GPUs.Estado = EstadoSinGPU // instalado sin GPU: no hay medidor
+	} else if gpus, ok := p.leerGPU(); ok {
 		m.GPUs = GPUs{Lista: gpus}
-		if gpus == nil {
-			m.GPUs.Lista = []GPU{}
+		if len(gpus) == 0 {
+			m.GPUs = GPUs{Estado: EstadoSinGPU, Lista: []GPU{}}
 		}
 	}
 	for _, x := range todos {

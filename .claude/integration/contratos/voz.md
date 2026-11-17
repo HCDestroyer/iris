@@ -1151,6 +1151,29 @@ no guarda ninguna credencial de Iris.
   renueva en la misma operación cuando le quedan menos de 30 días o si el admin lo pide: la puerta
   acepta las dos huellas durante la misma ventana. Cada rotación audita y emite
   `voz.motor_token_rotado` (sin el token).
+  - **Lo nuevo se guarda antes de entregarlo.** Iris guarda el token «siguiente» (y, si lo hay, el
+    certificado de cliente «siguiente», con su clave cifrada) **antes** de mandarlo. Si la respuesta
+    del servidor se pierde, Iris prueba con lo guardado y termina la rotación sola (el panel, o el
+    latido siguiente): no se queda sin canal ni con «Revocar ahora».
+  - **Una rotación a la vez.** Quien empieza una la aparta 30 s (y se compara la versión de la
+    fila): otra que llegue mientras tanto recibe 409 `rotacion_en_curso` y no pisa nada.
+  - **«Activar» liga lo que el admin comparó:** `POST /voz/motores/{id}/activar { huellaTls }`
+    lleva la huella que devolvió «Conectar» y que el admin comparó con la del instalador. Si el
+    servidor enlazado ya no es ese (alguien enlazó otro entre «Conectar» y «Activar»), 409
+    `huella_cambiada` sin llamar a ningún servidor; sin `huellaTls`, 422.
+  - **Qué garantiza el servidor al rotar:** `/credencial` aplica la credencial entera (un solo
+    cambio de su archivo de estado) o no la aplica. Si el panel recibe 502 `motor_no_responde` al
+    rotar, pasó una de dos cosas: no llegó a aplicarse (sigue valiendo la llave actual), o se
+    aplicó y el servidor dejó de contestar justo después. En el segundo caso, con convivencia la
+    llave actual sigue valiendo 24 h; con «Revocar ahora» ya no vale, pero Iris tiene guardada la
+    nueva y la usa sola en el siguiente latido. En ningún caso hay que volver a enlazar. El texto
+    exacto para el panel: «No se pudo confirmar el cambio; Iris recupera el canal sola».
+  - **Activar, rotar y probar son acciones sensibles** (`servidor_ia.administrar`): sin el permiso
+    responden 403, y una sesión de autologin sin re-autenticar recibe 403
+    `reautenticacion_requerida` **antes** de cualquier llamada de red. Al activar, lo primero que
+    recibe el servidor es la rotación del token derivado (antes que `/salud`).
+  - En la auditoría no queda ningún secreto, ni cifrado: ni tokens ni la clave del certificado. Un
+    «Conectar» fallido deja su fila (`servidor_ia.conectar_fallido`), sin el código ni el motivo.
 - **«Revocar ahora»** (`POST /voz/motores/{id}/rotar-token { revocar: true }`): la misma rotación
   con **convivencia 0** (token y certificado de cliente anteriores dejan de valer en el acto). En
   el servidor, **`iris-voz desenlazar`** borra token y huella fijada y deja la puerta sin aceptar
@@ -1685,7 +1708,7 @@ firmada como `/version`):
 - GPU por tarjeta. **No la lee la puerta** (no ve la GPU): la lee un contenedor **medidor**, sin
   ningún puerto y sin red, que ejecuta `nvidia-smi` con argumentos fijos (plazo 2 s) y deja el
   resultado en un volumen `tmpfs` que la puerta monta en solo lectura; una lectura de más de 15 s
-  se da por perdida. Sin GPU (`--sin-gpu`) o sin lectura, `"gpus": { "estado": "omitido", "lista": [] }`. Un dato que la tarjeta no da va `null`, no inventado.
+  se da por perdida. **Sin GPU** (instalado con `--sin-gpu`, o el medidor leyó y no encontró ninguna tarjeta): `"gpus": { "estado": "sin_gpu", "lista": [] }`. **Sin lectura** (el medidor no dejó nada o lo que dejó es viejo): `"gpus": { "estado": "omitido", "lista": [] }`; con `omitido` no se puede afirmar nada de la GPU. Un dato que la tarjeta no da va `null`, no inventado.
 - `disco` es el del volumen de modelos. `modelos` sale de la lista de instalados y de los cargados
   en memoria que declara Ollama; `cargadoHasta` es hasta cuándo queda residente.
 - **Seguridad de la ruta:** no acepta parámetros ni cuerpo; **no ejecuta ningún comando con
@@ -1770,7 +1793,9 @@ salvo lo marcado con «(cambia)».
 - `estado.lecturaOk` es `false` cuando la última lectura del servidor falló: entonces `servidor`
   es lo de `estado.tomadoEn` (la última muestra buena) o `null`, y **no se muestra como actual**.
   `estado.motorId` es `null` si no hay ningún servidor enlazado.
-- `servidor.gpus` es **siempre un objeto** `{ estado: "ok" | "omitido", lista: [] }` **(cambia:** el
+- `servidor.gpus` es **siempre un objeto** `{ estado: "ok" | "sin_gpu" | "omitido", lista: [] }`:
+  `sin_gpu` = el servidor respondió y no tiene tarjeta; `omitido` = no hubo lectura de la GPU (el
+  panel no afirma ni «sin GPU» ni valores). **(cambia:** el
   panel supuso una lista o `{estado:"omitido"}`; una unión así no sale bien en los tipos
   generados**)**. `disco` (el volumen de modelos) y `potenciaW` por tarjeta sí llegan; `cpu` y
   `memoria` también. Un dato que la tarjeta no da es `null`.

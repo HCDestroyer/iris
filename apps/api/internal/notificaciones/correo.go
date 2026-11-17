@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/mail"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -156,6 +157,9 @@ func (m *Modulo) nuevoPrepararCorreo() *auditoria.Caso[int64, *correoListo] {
 
 // textoCorreo arma el cuerpo (texto plano) del correo según su tipo.
 func (m *Modulo) textoCorreo(c notificacionesbd.NotificacionesCorreo) string {
+	if slices.Contains(TiposAvisoServidorIA, c.Tipo) {
+		return m.textoCorreoServidorIA(c)
+	}
 	var d struct {
 		Porcentaje int    `json:"porcentaje"`
 		Mes        string `json:"mes"`
@@ -176,6 +180,8 @@ func (m *Modulo) textoCorreo(c notificacionesbd.NotificacionesCorreo) string {
 	fmt.Fprintf(&b, "\nEste aviso lo envía Iris a quienes administran el asistente de IA de %s.\n", d.Empresa)
 	return b.String()
 }
+
+func (m *Modulo) baseURL() string { return strings.TrimRight(m.cfg.BaseURL, "/") }
 
 // miles: 1500000 → «1,500,000».
 func miles(n int64) string {
