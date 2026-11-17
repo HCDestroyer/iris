@@ -98,7 +98,7 @@ Supuestos de E1b por confirmar (si alguno no se cumple, las salientes no funcion
 | 17 | La solicitud es `interactive.type: call_permission_request` y la respuesta `interactive.call_permission_reply { response, is_permanent, expiration_timestamp }` | `whatsapp_cloud.go`, `recibirPermisoLlamada` |
 | 18 | La plantilla de permiso se manda sin componentes (`template { name, language }`) | `whatsapp_cloud.go` |
 | 19 | La respuesta SDP real de Meta a una saliente pasa la lista cerrada (si no, la llamada queda `fallida` y se ve en `llamada.fallida`) | `ValidarSDP` |
-| 20 | ¿Meta manda `ACCEPTED` siempre? Si solo manda el SDP, las salientes se quedarían en `marcando` hasta los 60 s | `eventoSaliente` |
+| 20 | ¿Meta manda `ACCEPTED` siempre? Si no, la llamada se ve `marcando` mientras hay audio; al llegar el `terminate` con duración queda `terminada` y cuenta para el tope, pero a los 60 s el mantenimiento la habría cortado antes: habría que pasar a `en_curso` al llegar la respuesta SDP | `eventoSaliente`, `terminarPorMeta` |
 
 ## 5. Qué entregar
 

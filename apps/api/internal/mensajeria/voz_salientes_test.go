@@ -506,12 +506,11 @@ func TestLlamadaSalienteLimitesYEmpresas(t *testing.T) {
 		t.Fatalf("plantilla de permiso: %s", crudo(c))
 	}
 
-	// Fuera de la ventana de 24 h la solicitud va con la plantilla del número; sin ella, 422.
+	// Fuera de la ventana de 24 h a un desconocido no se le manda nada (regla de consentimiento del chat).
 	numF := numeroCliente()
 	x.texto(numF, "wamid.fuera"+numF, "Hola")
 	convF := cid(x.conv(numF))
 	x.sql(`UPDATE mensajeria.conversaciones SET ultimo_entrante_en = $2 WHERE id = $1`, convF, x.reloj.Add(-30*time.Hour))
-	// (un desconocido fuera de ventana no recibe plantillas: es la regla de consentimiento del chat)
 	if r := x.api(x.agente, http.MethodPost, "/conversaciones/"+convF+"/solicitar-permiso-llamada", nil); r.status != http.StatusUnprocessableEntity {
 		t.Fatalf("solicitar fuera de ventana a un desconocido: %d %s", r.status, crudo(r))
 	}
@@ -542,5 +541,171 @@ func TestLlamadaSalienteLimitesYEmpresas(t *testing.T) {
 	x.exigir(x.llamar(sup2, conv, nil), http.StatusNotFound)
 	if len(x.g.hechas()) != antes {
 		t.Fatalf("nada de esto debía llegar a Meta: %v", x.g.hechas()[antes:])
+	}
+}
+
+// La solicitud de permiso fuera de la ventana de 24 h: con la plantilla del número (y solo con ella),
+// y lo que pasa si Meta la rechaza.
+func TestSolicitarPermisoConPlantilla(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	// Un cliente de Argos confirmado y con permiso de contacto, que escribió hace más de 24 h.
+	cliente := func() (num, conv string) {
+		t.Helper()
+		num = numeroCliente()
+		x.texto(num, "wamid.plantilla"+num, "Hola")
+		conv = cid(x.conv(num))
+		var id int64
+		if err := x.bd.QueryRow(x.ctx, `SELECT coalesce(max(id), 0) + 1000 FROM integracion.argos_clientes`).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		x.sql(`INSERT INTO integracion.argos_clientes (id, empresa_id, nombre, sincronizado_en, empresas) VALUES ($1, 1, 'Rosa Plantilla', now(), '{1}')`, id)
+		x.sql(`UPDATE mensajeria.conversaciones SET cliente_id = $2, cliente_verificado = true, asociacion = 'manual', ultimo_entrante_en = $3 WHERE id = $1`,
+			conv, id, x.reloj.Add(-30*time.Hour))
+		x.sql(`INSERT INTO mensajeria.consentimientos (empresa_id, cliente_id, canal, estado, origen, ocurrido_en) VALUES (1, $1, 'whatsapp', 'acepta', 'agente', $2)`,
+			id, x.reloj.Add(-48*time.Hour))
+		return num, conv
+	}
+	enviados := func() int {
+		x.meta.mu.Lock()
+		defer x.meta.mu.Unlock()
+		return len(x.meta.envios)
+	}
+	mensajeDe := func(conv string) string {
+		t.Helper()
+		var id string
+		if err := x.bd.QueryRow(x.ctx, `SELECT id::text FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND automatico = 'permiso_llamada' ORDER BY seq DESC LIMIT 1`,
+			conv).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	num, conv := cliente()
+	ruta := "/conversaciones/" + conv + "/solicitar-permiso-llamada"
+	// Sin plantilla indicada en el número: 422, sin mensaje ni solicitud contada.
+	antes := enviados()
+	if r := x.exigir(x.api(x.agente, http.MethodPost, ruta, nil), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "sin_plantilla_permiso") {
+		t.Fatalf("sin plantilla: %s", crudo(r))
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND automatico = 'permiso_llamada'`, conv); n != 0 || enviados() != antes {
+		t.Fatalf("sin plantilla no debía salir nada: %d mensajes", n)
+	}
+	if p := x.exigir(x.api(x.agente, http.MethodGet, "/conversaciones/"+conv+"/permiso-llamada", nil), http.StatusOK); p.cuerpo["estado"] != "sin_pedir" || p.cuerpo["puedeSolicitar"] != true {
+		t.Fatalf("la solicitud fallida no cuenta para el límite: %s", crudo(p))
+	}
+	// Con la plantilla del número: a Meta va la plantilla (no el interactivo), en su idioma.
+	x.exigir(x.configurar(x.versionLlamadas(), map[string]any{"plantillaPermiso": "permiso_de_llamada", "plantillaPermisoIdioma": "es_MX"}), http.StatusOK)
+	if s := x.exigir(x.api(x.agente, http.MethodPost, ruta, nil), http.StatusOK); s.cuerpo["estado"] != "pedido" {
+		t.Fatalf("solicitado con plantilla: %s", crudo(s))
+	}
+	msg := mensajeDe(conv)
+	if _, err := x.m.ProcesarMensaje(x.ctx, uuid.MustParse(msg), false); err != nil {
+		t.Fatal(err)
+	}
+	x.meta.mu.Lock()
+	envio := x.meta.envios[len(x.meta.envios)-1]
+	x.meta.mu.Unlock()
+	tpl, _ := envio["template"].(map[string]any)
+	if envio["type"] != "template" || envio["to"] != num || tpl["name"] != "permiso_de_llamada" || tpl["language"].(map[string]any)["code"] != "es_MX" || envio["interactive"] != nil {
+		t.Fatalf("solicitud con plantilla enviada a Meta: %v", envio)
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE id = $1::uuid AND estado_entrega = 'enviado'`, msg); n != 1 {
+		t.Fatal("el mensaje de la solicitud debía quedar enviado")
+	}
+
+	// Meta rechaza la plantilla (no existe o no está aprobada): el mensaje queda fallido a la vista,
+	// sin el texto de Meta, y el permiso sigue «pedido» (la solicitud cuenta: no se reintenta sola).
+	num2, conv2 := cliente()
+	x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv2+"/solicitar-permiso-llamada", nil), http.StatusOK)
+	msg2 := mensajeDe(conv2)
+	x.meta.error.Store(132001) // la plantilla no existe en ese idioma
+	_, err := x.m.ProcesarMensaje(x.ctx, uuid.MustParse(msg2), true)
+	x.meta.error.Store(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE id = $1::uuid AND estado_entrega = 'fallido' AND motivo_falla IS NOT NULL`, msg2); n != 1 {
+		t.Fatal("la solicitud rechazada por Meta debía quedar fallida")
+	}
+	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'conversacion.mensaje_fallido' AND payload->>'mensaje_id' = $1 AND payload::text NOT LIKE '%' || $2 || '%'`, msg2, num2); n != 1 {
+		t.Fatalf("conversacion.mensaje_fallido de la solicitud: %d", n)
+	}
+	p := x.exigir(x.api(x.agente, http.MethodGet, "/conversaciones/"+conv2+"/permiso-llamada", nil), http.StatusOK)
+	if p.cuerpo["estado"] != "pedido" || p.cuerpo["puedeSolicitar"] != false || p.cuerpo["puedeLlamar"] != false {
+		t.Fatalf("tras el rechazo de Meta: %s", crudo(p))
+	}
+	// Si alguien quita la plantilla antes de que salga el mensaje, no se manda como interactivo fuera de ventana.
+	num3, conv3 := cliente()
+	x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv3+"/solicitar-permiso-llamada", nil), http.StatusOK)
+	x.exigir(x.configurar(x.versionLlamadas(), map[string]any{"plantillaPermiso": ""}), http.StatusOK)
+	antes = enviados()
+	if _, err := x.m.ProcesarMensaje(x.ctx, uuid.MustParse(mensajeDe(conv3)), false); err != nil {
+		t.Fatal(err)
+	}
+	if enviados() != antes || x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND automatico = 'permiso_llamada' AND estado_entrega = 'fallido'`, conv3) != 1 {
+		t.Fatalf("sin plantilla al enviar (%s): no debía salir nada y el mensaje queda fallido", num3)
+	}
+}
+
+// Meta no manda ACCEPTED: la respuesta SDP llegó, hubo audio y después llega el terminate con su
+// duración. La llamada queda terminada (no perdida), con esa duración, y cuenta para el tope.
+func TestLlamadaSalienteSinAccepted(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	x.limitesVoz(1000, 100000)
+	t.Cleanup(func() { x.limitesVoz(1000, 100000) })
+	x.recibe(x.agente)
+	num, conv := x.convConPermiso()
+	// Con una devolución pendiente, para ver que también queda hecha.
+	x.connect(num, "wacid.sinaccepted"+num)
+	x.pasa(31 * time.Second)
+	x.mantener()
+	var dev int64
+	if err := x.bd.QueryRow(x.ctx, `SELECT id FROM mensajeria.llamada_devoluciones WHERE conversacion_id = $1 AND estado = 'pendiente'`, conv).Scan(&dev); err != nil {
+		t.Fatal(err)
+	}
+	var usados int
+	if err := x.bd.QueryRow(x.ctx, `SELECT coalesce(sum(duracion_seg), 0)::int FROM mensajeria.llamadas WHERE empresa_id = 1 AND direccion = 'saliente' AND contestada_en IS NOT NULL`).Scan(&usados); err != nil {
+		t.Fatal(err)
+	}
+	tope := usados/48 + 5
+	x.limitesVoz(1000, tope)
+	dur := 48*tope - usados + 1 // lo justo para cruzar el 80 %
+	id, call := x.saliente(x.supervisor, conv, map[string]any{"devolucionId": dev})
+	x.respuestaSaliente(num, call)
+	x.pasa(time.Duration(dur+3) * time.Second) // (más de 60 s marcando, pero el mantenimiento no llegó a correr)
+	x.webhookSaliente(num, call, "terminate", fmt.Sprintf(`,"status":"COMPLETED","duration":%d`, dur))
+	v := x.exigir(x.api(x.supervisor, http.MethodGet, "/llamadas/"+id, nil), http.StatusOK)
+	if v.cuerpo["estado"] != "terminada" || v.cuerpo["motivoFin"] != "cliente_colgo" || v.cuerpo["duracionSeg"] != float64(dur) || v.cuerpo["atendidaPor"] != "persona" ||
+		len(v.cuerpo["tramos"].([]any)) != 1 {
+		t.Fatalf("terminate con duración sin ACCEPTED: %s", crudo(v))
+	}
+	if x.eventos("llamada.contestada", id) != 1 || x.eventos("llamada.terminada", id) != 1 || x.eventos("llamada.perdida", id) != 0 {
+		t.Fatal("debía contar como contestada y terminada, no como perdida")
+	}
+	if n := x.contar(`SELECT sin_contestar FROM mensajeria.llamada_permisos WHERE canal_id = $1 AND numero = $2`, x.canal.ID, "+"+num); n != 0 {
+		t.Fatalf("no cuenta como sin contestar: %d", n)
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.llamada_devoluciones WHERE id = $1 AND estado = 'hecha' AND llamada_devuelta_id = $2::uuid`, dev, id); n != 1 {
+		t.Fatal("la devolución debía quedar hecha")
+	}
+	// Cuenta para el tope de minutos: cruzó el 80 %.
+	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'voz.tope_alcanzado' AND payload->>'tipo' = 'salientes' AND (payload->>'porcentaje')::int = 80
+		AND (payload->>'tope')::int = $1`, tope); n != 1 {
+		t.Fatalf("voz.tope_alcanzado al 80 %%: %d", n)
+	}
+	if n := x.contar(`SELECT coalesce(sum(duracion_seg), 0)::int FROM mensajeria.llamadas WHERE empresa_id = 1 AND direccion = 'saliente' AND contestada_en IS NOT NULL`); n != usados+dur {
+		t.Fatalf("minutos del mes: %d, esperaba %d", n, usados+dur)
+	}
+	// Un terminate sin duración (o con 0) de una que marcaba sigue siendo una llamada perdida.
+	x.pasa(61 * time.Second)
+	_, call2 := x.saliente(x.supervisor, conv, nil)
+	x.respuestaSaliente(num, call2)
+	x.webhookSaliente(num, call2, "terminate", `,"status":"COMPLETED","duration":0`)
+	if _, estado, _ := x.llamada(call2); estado != "perdida" {
+		t.Fatalf("terminate con duración 0: %s", estado)
+	}
+	// El ACCEPTED que llega tarde, después del terminate, no reabre nada.
+	x.estadoSaliente(num, call, "ACCEPTED")
+	if _, estado, _ := x.llamada(call); estado != "terminada" || x.eventos("llamada.contestada", id) != 1 {
+		t.Fatalf("ACCEPTED tardío: %s", estado)
 	}
 }

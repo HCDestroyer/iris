@@ -765,51 +765,59 @@ func (m *Modulo) eventoSaliente(ctx context.Context, t *auditoria.Tx, canal mens
 	}
 	switch strings.ToUpper(ev.Status) {
 	case "ACCEPTED":
-		if l.Estado != LlamadaMarcando || l.UsuarioID == nil {
-			return nil
-		}
-		persona := "persona"
-		l.Estado, l.AtendidaPor, l.ContestadaEn = LlamadaEnCurso, &persona, &ahora
-		if err := q.InsertarTramo(ctx, mensajeriabd.InsertarTramoParams{LlamadaID: l.ID, UsuarioID: *l.UsuarioID, Comienzo: ahora}); err != nil {
-			return err
-		}
-		if l, err = guardarLlamada(ctx, q, l); err != nil {
-			return err
-		}
-		// Contestó: se reinicia la cuenta de llamadas sin contestar y la devolución queda hecha.
-		if f, err := q.PermisoLlamadaParaActualizar(ctx, mensajeriabd.PermisoLlamadaParaActualizarParams{Empresa: derefEmpresa(l.EmpresaID), CanalID: canal.ID, Numero: l.Numero}); err == nil {
-			f.SinContestar = 0
-			if _, err := guardarPermiso(ctx, q, f); err != nil {
-				return err
-			}
-		} else if !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-		if l.DevolucionID != nil {
-			d, err := q.MarcarDevolucionHecha(ctx, mensajeriabd.MarcarDevolucionHechaParams{ID: *l.DevolucionID, UsuarioID: l.UsuarioID, LlamadaID: pgUUID(&l.ID)})
-			if err == nil {
-				if err := t.Emitir("llamada.devolucion_cerrada", map[string]any{"devolucion_id": d.ID, "conversacion_id": d.ConversacionID, "empresa_id": d.EmpresaID,
-					"llamada_id": d.LlamadaID, "estado": "hecha", "usuario_id": l.UsuarioID, "llamada_devuelta_id": l.ID}); err != nil {
-					return err
-				}
-				if err := m.emitirEventoLlamada(ctx, t, l, EventoDevolucion, nil); err != nil {
-					return err
-				}
-			} else if !errors.Is(err, pgx.ErrNoRows) {
-				return err
-			}
-		}
-		if err := t.Emitir("llamada.contestada", map[string]any{"llamada_id": l.ID, "conversacion_id": l.ConversacionID, "empresa_id": l.EmpresaID,
-			"atendida_por": "persona", "usuario_id": l.UsuarioID, "espera_seg": int(max(0, ahora.Sub(l.SonoEn)/time.Second))}); err != nil {
-			return err
-		}
-		return m.emitirEventoLlamada(ctx, t, l, EventoLlamadaActualizada, nil)
+		return m.salienteContestada(ctx, t, &l, ahora)
 	case "REJECTED":
 		if l.Estado == LlamadaMarcando {
 			return cerrar(LlamadaPerdida, "nadie_contesto", "")
 		}
 	}
 	return nil
+}
+
+// salienteContestada pasa una saliente que marca a en_curso: el cliente contestó en `cuando`. Reinicia
+// la cuenta de llamadas sin contestar y deja hecha la devolución que atendía. La llama el estado
+// ACCEPTED y, si Meta no lo mandó, el terminate que trae una duración (terminarPorMeta).
+func (m *Modulo) salienteContestada(ctx context.Context, t *auditoria.Tx, l *mensajeriabd.MensajeriaLlamada, cuando time.Time) error {
+	if l.Estado != LlamadaMarcando || l.UsuarioID == nil || l.CanalID == nil {
+		return nil
+	}
+	q := mensajeriabd.New(t)
+	var err error
+	persona := "persona"
+	l.Estado, l.AtendidaPor, l.ContestadaEn = LlamadaEnCurso, &persona, &cuando
+	if err := q.InsertarTramo(ctx, mensajeriabd.InsertarTramoParams{LlamadaID: l.ID, UsuarioID: *l.UsuarioID, Comienzo: cuando}); err != nil {
+		return err
+	}
+	if *l, err = guardarLlamada(ctx, q, *l); err != nil {
+		return err
+	}
+	if f, err := q.PermisoLlamadaParaActualizar(ctx, mensajeriabd.PermisoLlamadaParaActualizarParams{Empresa: derefEmpresa(l.EmpresaID), CanalID: *l.CanalID, Numero: l.Numero}); err == nil {
+		f.SinContestar = 0
+		if _, err := guardarPermiso(ctx, q, f); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if l.DevolucionID != nil {
+		d, err := q.MarcarDevolucionHecha(ctx, mensajeriabd.MarcarDevolucionHechaParams{ID: *l.DevolucionID, UsuarioID: l.UsuarioID, LlamadaID: pgUUID(&l.ID)})
+		if err == nil {
+			if err := t.Emitir("llamada.devolucion_cerrada", map[string]any{"devolucion_id": d.ID, "conversacion_id": d.ConversacionID, "empresa_id": d.EmpresaID,
+				"llamada_id": d.LlamadaID, "estado": "hecha", "usuario_id": l.UsuarioID, "llamada_devuelta_id": l.ID}); err != nil {
+				return err
+			}
+			if err := m.emitirEventoLlamada(ctx, t, *l, EventoDevolucion, nil); err != nil {
+				return err
+			}
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+	}
+	if err := t.Emitir("llamada.contestada", map[string]any{"llamada_id": l.ID, "conversacion_id": l.ConversacionID, "empresa_id": l.EmpresaID,
+		"atendida_por": "persona", "usuario_id": l.UsuarioID, "espera_seg": int(max(0, cuando.Sub(l.SonoEn)/time.Second))}); err != nil {
+		return err
+	}
+	return m.emitirEventoLlamada(ctx, t, *l, EventoLlamadaActualizada, nil)
 }
 
 // trasSaliente corre al cerrar una saliente: una sin contestar cuenta para la revocación del permiso

@@ -583,6 +583,17 @@ func (m *Modulo) terminarPorMeta(ctx context.Context, t *auditoria.Tx, canal men
 			}
 			c = &f
 		}
+		// Una saliente que seguía marcando pero Meta dice que duró algo: sí se contestó (el ACCEPTED no
+		// llegó o llegó tarde). Queda terminada con su duración y cuenta para el tope de minutos.
+		if n, err := ev.Duration.Int64(); err == nil && n > 0 && n < 24*3600 && l.Direccion == "saliente" && l.Estado == LlamadaMarcando {
+			desde := ahora.Add(-time.Duration(n) * time.Second)
+			if desde.Before(l.SonoEn) {
+				desde = l.SonoEn
+			}
+			if err := m.salienteContestada(ctx, t, &l, desde); err != nil {
+				return err
+			}
+		}
 		estado, motivo := LlamadaPerdida, "nadie_contesto"
 		if l.Estado == LlamadaEnCurso {
 			estado, motivo = LlamadaTerminada, "cliente_colgo"

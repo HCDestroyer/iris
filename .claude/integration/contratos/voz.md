@@ -166,7 +166,10 @@ técnica (§9)**; los que más pesan están listados en §10.
     Si la respuesta no pasa la validación: `fallida` + `terminate`. **`marcando → en_curso` es con
     el estado `ACCEPTED`** (no al llegar el SDP); `REJECTED` o un `terminate` sin contestar →
     `perdida` (`nadie_contesto`); sin `ACCEPTED` en 60 s el mantenimiento la deja `perdida` y manda
-    `terminate`. `RINGING` no cambia nada.
+    `terminate`. `RINGING` no cambia nada. Si Meta no manda `ACCEPTED` y la llamada que seguía
+    `marcando` recibe un `terminate` con `duration` > 0, sí se contestó: queda `terminada`
+    (`cliente_colgo`) con esa duración, cuenta para el tope de minutos, deja hecha su devolución y
+    no suma `sin_contestar`. Con duración 0 o sin ella, `perdida`.
   - **Colgar.** `POST /llamadas/{id}/colgar` también vale mientras marca (queda `terminada`,
     `agente_colgo`, y **no** cuenta como sin contestar). Con **`?propia=true`** solo cuelga quien
     tiene la llamada (supervisar no cuenta): es lo que manda el panel al cerrarse la pestaña.
