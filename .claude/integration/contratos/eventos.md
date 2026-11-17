@@ -2,6 +2,14 @@
 
 Todo evento sale por `integracion.outbox` con esta forma: `{ id (uuid v7), evento, ocurrido_en, empresa_id, payload }`. Cada agente agrega aquí el detalle de sus eventos, en la misma PR que el código que los emite. El catálogo resumido está en `.claude/CLAUDE.md`.
 
+## Legal (núcleo)
+
+Emite el módulo `nucleo/legal` (`contratos/legal.md`), con `empresa_id = null` (son los datos de la instalación).
+
+| Evento | Payload | Cuándo |
+| --- | --- | --- |
+| `datos_legales.cambiados` | `campos[]` (los que cambiaron, en snake_case: `razon_social`, `nombre_comercial`, `correo_privacidad`, `telefono`, `direccion`, `pais`), `completo` (están todos los obligatorios: las páginas públicas están listas para Meta), `faltan[]` (obligatorios vacíos, en camelCase como en la API) | `POST /datos-legales/guardar` con algún cambio. Nunca los valores. Guardar lo mismo no emite. |
+
 ## Identidad (núcleo, I1)
 
 Emite el módulo `identidad`, con `empresa_id = null` (los usuarios de Iris no pertenecen a una empresa), salvo los de empresas y membresía, que llevan la empresa afectada.

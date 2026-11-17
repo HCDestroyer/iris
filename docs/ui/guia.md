@@ -694,6 +694,34 @@ Contrato: `.claude/integration/contratos/correo-sistema.md`. Pantalla: `/adminis
 - **Errores:** 409 con «Recargar» (trae lo guardado), 422 junto al campo, lectura fallida con
   «Reintentar» y sin formulario. Con solo `correo_sistema.ver`, todo deshabilitado y sin prueba.
 
+## Páginas legales y datos legales (nov. 2026)
+
+Contrato: `.claude/integration/contratos/legal.md`. Lógica y texto en `apps/web/lib/legal/`.
+
+- **Páginas públicas** (`/privacidad`, `/terminos`, `/eliminacion-de-datos` y `/en/privacy`,
+  `/en/terms`, `/en/data-deletion`): `PaginaLegal` (`componentes/legal/pagina-legal.tsx`), un
+  componente de servidor. Sin sesión, sin menú y **sin migas**: logo, título, titular, fecha de
+  última actualización, índice (a la izquierda y fijo en escritorio; arriba en el teléfono), texto
+  y pie con los otros dos documentos. El texto va en el HTML: se lee sin JavaScript.
+- **Sin datos no hay huecos:** el texto usa un nombre genérico y las líneas de contacto vacías no
+  se dibujan. Nunca «undefined», comillas vacías ni un error.
+- **El texto no lleva datos de ningún titular:** llegan por parámetro (`titularDe`). Al cambiar el
+  texto se sube `TEXTO_REVISADO_EN`.
+- **Pie legal** (`PieLegal`): enlaces a los tres documentos en el pie del inicio de sesión y del
+  portal de soporte.
+- **Pantalla** `/administracion/datos-legales` (`datos_legales.ver` / `.configurar`):
+    - arriba, un `Aviso`: verde «Datos completos…» o ámbar «Faltan datos legales: las páginas
+      públicas no están listas para Meta», con la lista de lo que falta en palabras del formulario;
+    - se puede guardar a medias (todo es opcional al guardar); el correo y el teléfono se validan;
+    - «Enlaces para Meta»: las seis URL con el dominio del panel (`CampoCopiar`), «Abrir» en otra
+      pestaña, dónde se pega cada una en Meta y un indicador por enlace (icono + texto + color):
+      «Comprobando…», «Responde bien», «Responde, pero faltan datos» o «No responde». La comprobación
+      pide la página sin cookies y exige la marca `data-pagina-legal`; «Volver a comprobar» la repite;
+    - sin `https` avisa que Meta no acepta esos enlaces;
+    - 409 con «Recargar», 422 junto al campo, lectura fallida con «Reintentar» y sin formulario. Con
+      solo `.ver`, todo deshabilitado (los enlaces sí se copian). Quien no opera en todas las
+      empresas ve un aviso: son datos de la instalación.
+
 ## Llamadas de WhatsApp en el panel (voz E1, nov. 2026)
 
 Contrato: `.claude/integration/contratos/voz.md` §3. Código: `apps/web/lib/voz` (máquina de estados,
