@@ -3377,6 +3377,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/conversaciones/{id}/asistente/pausar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pausar el asistente de IA en esta conversación
+         * @description Permiso: `conversaciones.pausar_asistente`. El asistente deja de contestarle solo al cliente en esta conversación (las sugerencias al agente siguen) hasta que alguien lo reanude o la conversación se resuelva. Vale aunque nadie la tenga asignada. Si estaba atendiendo, queda `detenido` y el turno en curso no envía nada. Repetirla es 200 sin cambios. 422 `conversacion_resuelta`. Evento `conversacion.asistente_pausado`; `atencionAsistente` lo refleja.
+         */
+        post: operations["pausarAsistenteConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/conversaciones/{id}/asistente/reanudar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Devolverle la conversación al asistente de IA
+         * @description Permiso: `conversaciones.pausar_asistente`. Quita la pausa y, si el asistente quedó detenido porque una persona la tomó o le escribió al cliente (o él mismo la pasó a una persona), vuelve a poder atender. Si lo último del hilo es un mensaje del cliente de este periodo sin respuesta y nadie la tiene asignada, lo contesta enseguida; si una persona ya contestó, espera al siguiente mensaje; con una persona asignada espera a que la suelte. Un turno se reabre una sola vez y pasa por los límites. Sin nada que reanudar es 200 sin cambios. 422 `conversacion_resuelta`. Evento `conversacion.asistente_reanudado`.
+         */
+        post: operations["reanudarAsistenteConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/conversaciones/{id}/asociar-cliente": {
         parameters: {
             query?: never;
@@ -3876,7 +3916,7 @@ export interface paths {
         put?: never;
         /**
          * Pedir a Argos una promesa de pago
-         * @description Permiso: `conversaciones.registrar_promesa`. Argos decide (activa, rechazada o pendiente_aprobacion) y la respuesta lo dice. 409 `promesa_abierta`, `idempotencia_en_curso`, `promesa_ya_enviada`; 422 `servicio_retirado`, `sin_plantilla_facturacion`, `servicio_sin_instalar`, `promesa_fecha_invalida`, `promesa_no_permitida`; 502 `argos_promesa_integracion`; 503 si Argos no responde (nada queda a medias).
+         * @description Permiso: `conversaciones.registrar_promesa`. Argos decide (activa, rechazada o pendiente_aprobacion) y la respuesta lo dice. 409 `promesa_abierta`, `idempotencia_en_curso`, `promesa_ya_enviada`; 422 `servicio_retirado`, `sin_plantilla_facturacion`, `servicio_sin_instalar`, `promesa_fecha_invalida`, `promesa_no_permitida`; 502 `argos_promesa_integracion`; 503 si Argos no responde; el pedido pudo haber llegado: repite con la misma Idempotency-Key.
          */
         post: operations["registrarPromesaConversacion"];
         delete?: never;
@@ -3952,11 +3992,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * El resumen guardado de la conversación
+         * @description Permiso: `conversaciones.sugerencias`. No llama al modelo ni gasta tokens. `desactualizado`: hay mensajes del hilo después de `hastaMensajeId` (`mensajesNuevos` dice cuántos). 404 `sin_resumen` si nadie lo ha pedido (el detalle de la conversación trae `resumen` cuando existe, para no preguntar de más).
+         */
+        get: operations["verResumenConversacion"];
         put?: never;
         /**
          * Resumen de la conversación (ficha del cliente)
-         * @description Permiso: `conversaciones.sugerencias`. Síncrono (hasta 90 s). Reserva y cuenta para el tope; no se guarda el texto. 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje`; 429 `demasiados_pedidos`; 502 `proveedor_no_responde`, `proveedor_error`, `clave_invalida`, `proveedor_redirige`, `rechazo_modelo`.
+         * @description Permiso: `conversaciones.sugerencias`. Genera el resumen (o lo regenera) y lo **guarda en la conversación**, reemplazando al anterior. Síncrono (hasta 90 s). Reserva y cuenta para el tope. Para verlo sin gastar tokens: `GET` de esta misma ruta. 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje`; 429 `demasiados_pedidos`; 502 `proveedor_no_responde`, `proveedor_error`, `clave_invalida`, `proveedor_redirige`, `rechazo_modelo` (si falla, el resumen anterior se conserva). Evento `conversacion.resumen_guardado` (sin el texto).
          */
         post: operations["resumirConversacion"];
         delete?: never;
@@ -8577,6 +8621,19 @@ export interface components {
             /** @description Fase 2: en la fase 1 solo false (422 disponible_en_fase_2) */
             activo: boolean;
         };
+        AtencionAsistente: {
+            /** @description true: nada en la conversación le impide contestar solo el próximo mensaje del cliente (cada mensaje pasa todavía por las reglas del turno: categoría, condición, límites). false: no va a contestar; motivo dice por qué */
+            atiende: boolean;
+            /**
+             * @description Con atiende = false, el primero que aplica: pausado (alguien lo pausó aquí), persona_asignada, persona_presente (una persona la tomó o le escribió al cliente en este periodo), espera_persona (el asistente la pasó a una persona: asistente.motivoPaso), tope (tope de tokens del mes), bot (la tomó el bot de menú), categoria_sugiere (su categoría no está en «responde solo»), horario_solo_sugiere (la franja del horario dice «solo sugerir»). null con atiende = true
+             * @enum {string|null}
+             */
+            motivo: "pausado" | "persona_asignada" | "persona_presente" | "espera_persona" | "tope" | "bot" | "categoria_sugiere" | "horario_solo_sugiere" | null;
+            /** @description Ausente: nadie lo pausó en esta conversación */
+            pausa?: components["schemas"]["PausaAsistente"];
+            /** @description «Reanudar» cambia algo: está pausado, detenido por una persona o esperando a una persona */
+            reanudable: boolean;
+        };
         Ausencia: {
             /** Format: date-time */
             anuladaEn: string | null;
@@ -9871,6 +9928,8 @@ export interface components {
             asignado?: components["schemas"]["UsuarioRef"];
             /** @description El asistente atiende (o atendió) solo esta conversación (§17.8). Ausente: nunca la atendió en este periodo */
             asistente?: components["schemas"]["AsistenteConv"];
+            /** @description §17.11: si el asistente atiende sola esta conversación ahora y, si no, por qué. Ausente: resuelta, de solo lectura, o la empresa no tiene el asistente atendiendo solo y nadie lo pausó aquí */
+            atencionAsistente?: components["schemas"]["AtencionAsistente"];
             canal: components["schemas"]["CanalRef"];
             /** @description Categoría de mensajes (§17); ausente: sin categoría */
             categoria?: components["schemas"]["CategoriaMensajesRef"];
@@ -9925,6 +9984,8 @@ export interface components {
             asignado?: components["schemas"]["UsuarioRef"];
             /** @description El asistente atiende (o atendió) solo esta conversación (§17.8). Ausente: nunca la atendió en este periodo */
             asistente?: components["schemas"]["AsistenteConv"];
+            /** @description §17.11: si el asistente atiende sola esta conversación ahora y, si no, por qué. Ausente: resuelta, de solo lectura, o la empresa no tiene el asistente atendiendo solo y nadie lo pausó aquí */
+            atencionAsistente?: components["schemas"]["AtencionAsistente"];
             canal: components["schemas"]["CanalRef"];
             /** @description Categoría de mensajes (§17); ausente: sin categoría */
             categoria?: components["schemas"]["CategoriaMensajesRef"];
@@ -9965,6 +10026,8 @@ export interface components {
             perfilNombre: string | null;
             /** Format: date-time */
             reabiertaEn: string | null;
+            /** @description §16.4: la conversación tiene un resumen del asistente guardado (el texto: GET …/resumen). Ausente si nadie lo ha pedido */
+            resumen?: components["schemas"]["ResumenGuardadoRef"];
             sla: components["schemas"]["SLAConversacion"];
             /** @description true: el número ya no está compartido con tu empresa (préstamo revocado, §15.3) y solo se puede leer. Ausente = false */
             soloLectura?: boolean;
@@ -12510,6 +12573,15 @@ export interface components {
              */
             version: number;
         };
+        EntradaPausarAsistente: {
+            /**
+             * @description Por qué (lista cerrada). Ausente = manual
+             * @enum {string}
+             */
+            motivo?: "manual" | "caso_delicado" | "respuesta_incorrecta" | "cliente_lo_pidio";
+            /** Format: int32 */
+            version: number;
+        };
         EntradaPerder: {
             /** @description Por qué se perdió (precio, sin cobertura, competencia…) */
             motivo: string;
@@ -13446,7 +13518,7 @@ export interface components {
             plantilla?: string;
             /** @description TK-…, OT-…, PR-… */
             referencia?: string;
-            /** @description conversacion_creada, asignada, tomada, transferida, resuelta, reabierta, etiquetada, cliente_asociado, contacto_iris_creado, ticket_creado, orden_creada, prospecto_creado, boleta_registrada, boleta_fallida, promesa_creada, respondio_aviso, fuera_de_horario, guardia_avisada, manual_enviado; 1.1: aviso_sin_atender, bot_atendio, menu_elegido, pasada, iniciada; 3b: reconexion_pedida (detalle: aceptada | rechazada), identidad_verificada (detalle: coincide | no_coincide | no_disponible | demasiados_intentos | supervisor) */
+            /** @description conversacion_creada, asignada, tomada, transferida, resuelta, reabierta, etiquetada, cliente_asociado, contacto_iris_creado, ticket_creado, orden_creada, prospecto_creado, boleta_registrada, boleta_fallida, promesa_creada, respondio_aviso, fuera_de_horario, guardia_avisada, manual_enviado; 1.1: aviso_sin_atender, bot_atendio, bot_sin_respuesta (el bot no pudo escribirle al cliente), menu_elegido, pasada, iniciada; 3b: reconexion_pedida (detalle: aceptada | rechazada), identidad_verificada (detalle: coincide | no_coincide | no_disponible | demasiados_intentos | supervisor); §17.11: asistente_pausado (detalle: el motivo de la pausa), asistente_reanudado (detalle: pausado | persona_presente | espera_persona) */
             tipo: string;
         };
         EventoTicket: {
@@ -15832,6 +15904,14 @@ export interface components {
             /** Format: int64 */
             ms: number;
         };
+        PausaAsistente: {
+            /** Format: date-time */
+            en: string;
+            /** @enum {string} */
+            motivo: "manual" | "caso_delicado" | "respuesta_incorrecta" | "cliente_lo_pidio";
+            /** @description Quién lo pausó */
+            por?: components["schemas"]["UsuarioRef"];
+        };
         PausaOrden: {
             /**
              * Format: int64
@@ -16003,7 +16083,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver" | "voz.configurar";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver" | "voz.configurar";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -16984,9 +17064,32 @@ export interface components {
             requiere_accion: number;
         };
         ResumenConversacion: {
+            /** @description Llegaron o se enviaron mensajes después de hastaMensajeId (las notas internas no cuentan) */
+            desactualizado: boolean;
             /** Format: date-time */
             generadoEn: string;
+            /** @description El último mensaje del hilo que cubre */
+            hastaMensajeId: string;
+            id: string;
+            /**
+             * Format: int64
+             * @description Cuántos mensajes del hilo hay después del resumen
+             */
+            mensajesNuevos: number;
+            /** @description El modelo que lo escribió */
+            modelo: string;
+            /** @description Quién lo pidió */
+            pedidoPor?: components["schemas"]["UsuarioRef"];
+            proveedor: string;
             texto: string;
+        };
+        ResumenGuardadoRef: {
+            desactualizado: boolean;
+            /** Format: date-time */
+            generadoEn: string;
+            id: string;
+            /** Format: int64 */
+            mensajesNuevos: number;
         };
         ResumenTickets: {
             /**
@@ -31913,6 +32016,172 @@ export interface operations {
             };
         };
     };
+    pausarAsistenteConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaPausarAsistente"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionClienteDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    reanudarAsistenteConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAccionConv"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionClienteDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     asociarClienteConversacion: {
         parameters: {
             query?: never;
@@ -34217,6 +34486,73 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verResumenConversacion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResumenConversacion"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

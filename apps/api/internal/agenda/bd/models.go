@@ -1120,6 +1120,7 @@ type MensajeriaAsistenteTurno struct {
 	TomadoEn       time.Time
 	CreadoEn       time.Time
 	TerminadoEn    *time.Time
+	Reaperturas    int16
 }
 
 type MensajeriaAsistenteUso struct {
@@ -1523,6 +1524,24 @@ type MensajeriaConversacionParticipante struct {
 	CreatedAt      time.Time
 }
 
+type MensajeriaConversacionResumene struct {
+	ID             uuid.UUID
+	EmpresaID      *int64
+	ConversacionID int64
+	ClienteID      *int64
+	Texto          string
+	PedidoPor      *int64
+	Proveedor      string
+	Modelo         string
+	HastaMensajeID uuid.UUID
+	HastaSeq       int64
+	TokensEntrada  int64
+	TokensSalida   int64
+	Vigente        bool
+	GeneradoEn     time.Time
+	CreatedAt      time.Time
+}
+
 type MensajeriaConversacionVinculo struct {
 	ConversacionID int64
 	Tipo           string
@@ -1585,6 +1604,10 @@ type MensajeriaConversacione struct {
 	IdentidadVenceEn        *time.Time
 	BotDiferidoMensajeID    *uuid.UUID
 	AsistenteMotivoPaso     *string
+	AsistentePausadoEn      *time.Time
+	AsistentePausadoPor     *int64
+	AsistentePausaMotivo    *string
+	AsistenteReanudadoEn    *time.Time
 }
 
 type MensajeriaDisponibilidad struct {

@@ -291,7 +291,7 @@ func (m *Modulo) alRecibirBandeja(ctx context.Context, t *auditoria.Tx, c *mensa
 		if err := fijarMotivoPaso(ctx, q, c, PasoAsistenteApagado); err != nil {
 			return err
 		}
-	case autonomo && !botAtendiendo(*c):
+	case autonomo && c.AsistentePausadoEn == nil && !botAtendiendo(*c):
 		// Espera a la clasificación: lo decide el job de la conversación.
 		c.BotDiferidoMensajeID = pgUUID(&f.ID)
 		return q.FijarBotDiferido(ctx, mensajeriabd.FijarBotDiferidoParams{ID: c.ID, MensajeID: c.BotDiferidoMensajeID})
@@ -638,9 +638,22 @@ func nuevoDispararBot(m *Modulo) *auditoria.Caso[int64, bool] {
 					mensaje = msg.ID
 				}
 			}
+			// ¿El bot le dijo algo al cliente en esta espera? Sin el menú de ahora, queda el saludo del
+			// principio (sin_disponibles). Si no salió nada (ventana de 24 h cerrada o BAJA), el hilo no
+			// dice «contestó el bot»: dice que no pudo.
+			respondio := mensaje != nil
+			if !respondio && c.BotEsperaEn != nil {
+				if respondio, err = q.BotRespondioDesde(ctx, mensajeriabd.BotRespondioDesdeParams{ConversacionID: c.ID, Desde: *c.BotEsperaEn}); err != nil {
+					return false, err
+				}
+			}
 			c.BotAtendioEn = &ahora
-			t.Anotar(map[string]any{"motivo": motivo, "mensaje_id": mensaje})
-			if err := m.sistema(ctx, t, &c, EventoSistema{Tipo: "bot_atendio", Detalle: &motivo, Minutos: &minutos}); err != nil {
+			t.Anotar(map[string]any{"motivo": motivo, "mensaje_id": mensaje, "respondio": respondio})
+			ev := EventoSistema{Tipo: "bot_atendio", Detalle: &motivo, Minutos: &minutos}
+			if !respondio {
+				ev = EventoSistema{Tipo: "bot_sin_respuesta", Detalle: &motivo, Minutos: &minutos}
+			}
+			if err := m.sistema(ctx, t, &c, ev); err != nil {
 				return false, err
 			}
 			if err := guardarBot(ctx, q, c); err != nil {
@@ -650,7 +663,7 @@ func nuevoDispararBot(m *Modulo) *auditoria.Caso[int64, bool] {
 				return false, err
 			}
 			return true, t.Emitir("conversacion.bot_atendio", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID, "cola_id": c.ColaID,
-				"motivo": motivo, "mensaje_id": mensaje, "menu": c.BotMenu != nil})
+				"motivo": motivo, "mensaje_id": mensaje, "menu": c.BotMenu != nil, "respondio": respondio})
 		},
 	})
 }
