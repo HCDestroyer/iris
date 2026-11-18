@@ -180,7 +180,7 @@ func aislarColaMeta(t *testing.T) {
 func nuevaBandejaVoz(t *testing.T) *bandejaVoz {
 	t.Helper()
 	aislarColaMeta(t)
-	g := &graphFalso{fallar: map[string]error{}, ajustes: mensajeria.AjustesMetaLlamadas{Habilitadas: true, IconoVisible: true, LimiteMensajeria: 10000},
+	g := &graphFalso{fallar: map[string]error{}, ajustes: mensajeria.AjustesMetaLlamadas{Habilitadas: true, IconoVisible: true, LimiteMensajeria: 10000, LimiteLeido: true},
 		permiso: mensajeria.PermisoMeta{Estado: "sin_pedir"},
 		plantillas: map[string]mensajeria.PlantillaMetaInfo{
 			"permiso_de_llamada|es":    {Existe: true, Aprobada: true, Categoria: "UTILITY"},
@@ -661,7 +661,7 @@ func TestLlamadaLimitesYWebhook(t *testing.T) {
 }
 
 func TestLlamadasAjustesDelNumero(t *testing.T) {
-	g := &graphFalso{fallar: map[string]error{}, ajustes: mensajeria.AjustesMetaLlamadas{Habilitadas: false, LimiteMensajeria: 250}}
+	g := &graphFalso{fallar: map[string]error{}, ajustes: mensajeria.AjustesMetaLlamadas{Habilitadas: false, LimiteMensajeria: 250, LimiteLeido: true}}
 	x := &bandejaVoz{bandeja: nuevaBandeja(t, func(c *mensajeria.Config) { c.Llamadas = g }), g: g}
 	// De fábrica: apagadas, version 0.
 	v := x.exigir(x.api(x.supervisor, http.MethodGet, x.rutaCanal("/llamadas"), nil), http.StatusOK)
@@ -680,7 +680,7 @@ func TestLlamadasAjustesDelNumero(t *testing.T) {
 	}
 	// Meta ya cumple: se enciende, se escribe en Meta y sale el evento.
 	g.mu.Lock()
-	g.ajustes = mensajeria.AjustesMetaLlamadas{Habilitadas: true, IconoVisible: true, LimiteMensajeria: 2000}
+	g.ajustes = mensajeria.AjustesMetaLlamadas{Habilitadas: true, IconoVisible: true, LimiteMensajeria: 2000, LimiteLeido: true}
 	g.mu.Unlock()
 	c = x.exigir(x.api(x.supervisor, http.MethodPost, x.rutaCanal("/llamadas/comprobar"), nil), http.StatusOK)
 	// B6: la suscripción al campo calls no se puede leer: queda «sin comprobar» (aviso, no impide

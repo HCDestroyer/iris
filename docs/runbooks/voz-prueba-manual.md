@@ -17,8 +17,13 @@ solo sitio (`graphHTTP`, `apps/api/internal/mensajeria/voz_modelo.go`) y la form
 ## 1. Requisitos y encendido
 
 1. `POST /api/v1/mensajeria/canales/{id}/llamadas/comprobar`. Esperado: `requisitos.cumple: true`.
-   **Supuesto a validar:** de dónde salen de verdad `calling_habilitado`, `limite_mensajeria` y
-   `webhook_calls` (hoy `GET /{phone_number_id}/settings` y `?fields=messaging_limit_tier`).
+   **Supuesto 1, resuelto el 2026-11-17:** `limite_mensajeria` sale de
+   `GET /{phone_number_id}?fields=whatsapp_business_manager_messaging_limit` (límite del portafolio
+   de negocio; `messaging_limit_tier` está deprecado y devolvía vacío, por eso Iris decía «Falta»
+   con un límite real de 2 000). Si Meta no lo devuelve o Iris no reconoce el valor, el requisito
+   sale «sin comprobar» y no impide encender. `calling_habilitado` sale de
+   `GET /{phone_number_id}/settings`; `webhook_calls` no se puede leer (se confirma con la primera
+   llamada). Detalle en `voz.md` §10.1-1.
 2. `POST …/llamadas/configurar` con `llamadasActivas: true`. Comprobar en WhatsApp Manager que el
    icono de llamada aparece en el chat del número.
 
