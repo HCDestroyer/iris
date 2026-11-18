@@ -201,6 +201,15 @@ export function claveTrasError(error: unknown, actual: string): string {
     return error instanceof ErrorApi && error.estado === 0 ? actual : nuevaClaveIdempotencia();
 }
 
+/**
+ * Lo mismo, para acciones que pasan por Argos: un 503 `argos_no_disponible` dice que Argos no
+ * contestó y que no quedó nada a medias, así que el reintento va con la misma clave (si el primer
+ * intento sí llegó, Argos no lo duplica). Con cualquier otra respuesta (un 409, p. ej.), clave nueva.
+ */
+export function claveTrasErrorDeArgos(error: unknown, actual: string): string {
+    return error instanceof ErrorApi && error.estado === 503 && error.codigo === "argos_no_disponible" ? actual : claveTrasError(error, actual);
+}
+
 let clienteNavegador: ClienteIris | undefined;
 
 /** Cliente único del navegador. */

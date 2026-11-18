@@ -61,7 +61,8 @@ function FormularioBoleta({ conv }: { conv: ConversacionDetalle }) {
     const datos = useLectura(async (signal) => {
         const [mensajes, cuentas, bancos] = await Promise.all([
             leerMensajes(conv.id, undefined, signal),
-            resolver(api().GET("/api/v1/mensajeria/conversaciones/cuentas-bancarias", { signal })),
+            // Las cuentas de la empresa de esta conversación: la misma contra la que se valida la boleta.
+            resolver(api().GET("/api/v1/mensajeria/conversaciones/cuentas-bancarias", { params: { query: { conversacionId: conv.id } }, signal })),
             resolver(api().GET("/api/v1/mensajeria/conversaciones/bancos", { signal })),
         ]);
         const adjuntos = (mensajes.data ?? [])
@@ -99,7 +100,9 @@ function FormularioBoleta({ conv }: { conv: ConversacionDetalle }) {
             { nombres: ["adjuntoId", "servicioId", "metodo", "cuentaBancariaId", "bancoOrigenId", "referencia", "monto", "fechaDeposito", "nota"], setError: form.setError },
         );
         if (b) {
-            avisar({ titulo: `Boleta ${b.referencia} enviada a Argos` });
+            // Si ya quedó fallida, se dice por qué (queda en la ficha con su detalle).
+            if (b.estado === "fallida") avisar({ tono: "error", titulo: `La boleta ${b.referencia} no se pudo registrar en Argos`, ...(b.detalle ? { descripcion: b.detalle } : {}) });
+            else avisar({ titulo: `Boleta ${b.referencia} enviada a Argos` });
             await liberarProteccion();
             router.replace(volverA);
         }

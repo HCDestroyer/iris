@@ -4,6 +4,7 @@ import type { Schema } from "@iris/contratos";
 import { ADMIN, conSesion, simularApi } from "./api-falsa";
 import { png, PDF, simularAdjuntos, type AdjuntosFalsos } from "./api-adjuntos-conv";
 import { esTelefono } from "./ayudas";
+import { escribirFecha } from "./controles";
 import { AHORA_CONV, mensaje } from "./datos-conversaciones";
 
 /*
@@ -563,5 +564,48 @@ test.describe("bandeja › un corte breve del tiempo real no es «Sin conexión�
         await expect(indicador(page)).toHaveCount(0, { timeout: 40_000 });
         if (esTelefono(page)) await page.locator('[data-conversacion="41"]').click();
         await expect(hilo(page).getByText("Escrito mientras no había conexión.")).toHaveCount(1);
+    });
+});
+
+test.describe("bandeja › boleta y promesa contra Argos", () => {
+    test("la boleta lee las cuentas bancarias de la empresa de esa conversación", async ({ page }) => {
+        const pedida = page.waitForRequest((r) => r.url().includes("/conversaciones/cuentas-bancarias"));
+        await abrir(page);
+        await page.goto("/conversaciones/41/boleta");
+        expect(new URL((await pedida).url()).searchParams.get("conversacionId")).toBe("41");
+        await expect(page.locator("main")).toContainText("Banco Industrial · 000-123456-7");
+    });
+
+    test("promesa: tras un 503 de Argos el reintento lleva la misma Idempotency-Key; tras un 409, otra", async ({ page }) => {
+        const claves: (string | null)[] = [];
+        const respuestas = [503, 503, 409, 409];
+        await abrir(page, undefined, {}, {}, async (p) => {
+            await p.route("**/api/v1/mensajeria/conversaciones/41/promesas/simular", (route) =>
+                route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ resultado: "activa", motivo: null, regla: "Hasta 5 días" }) }),
+            );
+            await p.route("**/api/v1/mensajeria/conversaciones/41/promesas", async (route) => {
+                if (route.request().method() !== "POST") return route.fallback();
+                claves.push(await route.request().headerValue("idempotency-key"));
+                const estado = respuestas[claves.length - 1] ?? 409;
+                const codigo = estado === 503 ? "argos_no_disponible" : "cliente_cambiado";
+                await route.fulfill({ status: estado, contentType: "application/problem+json", body: JSON.stringify({ type: `urn:iris:problema:${codigo}`, title: "No se pudo", status: estado }) });
+            });
+        });
+        if (esTelefono(page)) await conv(page).getByRole("button", { name: "Ver la ficha del cliente" }).click();
+        await page.getByRole("button", { name: "Promesa", exact: true }).click();
+        const dialogo = page.getByRole("dialog", { name: "Promesa de pago" });
+        await escribirFecha(dialogo, "Paga a más tardar el", "2026-11-25");
+        await dialogo.getByRole("button", { name: "Consultar con Argos" }).click();
+        const registrar = dialogo.getByRole("button", { name: "Registrar promesa" });
+        for (let n = 1; n <= 4; n++) {
+            await registrar.click();
+            await expect.poll(() => claves.length).toBe(n);
+            await expect(dialogo.getByRole("alert").or(dialogo.locator('[data-slot="aviso"]')).first()).toBeVisible();
+        }
+        expect(claves.every((c) => c && c.length > 8)).toBe(true);
+        // 503 → misma clave; 503 → misma; 409 → otra.
+        expect(claves[1]).toBe(claves[0]);
+        expect(claves[2]).toBe(claves[0]);
+        expect(claves[3]).not.toBe(claves[2]);
     });
 });

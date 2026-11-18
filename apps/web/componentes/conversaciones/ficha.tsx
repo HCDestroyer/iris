@@ -882,7 +882,8 @@ function DialogoPromesa({ conv, cerrar }: { conv: ConversacionDetalle; cerrar: (
                             avisar({ titulo: r.estado === "activa" ? "Promesa registrada en Argos" : r.estado === "pendiente_aprobacion" ? "Promesa enviada: espera aprobación en Argos" : "Argos rechazó la promesa" });
                             cerrar();
                         } catch (e) {
-                            clave.trasError(e);
+                            // Argos no contestó (503): el reintento lleva la misma clave para no pedirla dos veces.
+                            clave.trasErrorDeArgos(e);
                             if (!erroresACampos(e, ["servicioId", "venceEl"], form.setError)) setError(e);
                         }
                     })}
