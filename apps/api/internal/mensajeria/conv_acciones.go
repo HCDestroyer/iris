@@ -374,6 +374,12 @@ func nuevoRegistrarBoleta(m *Modulo) *auditoria.Caso[EntradaBoleta, Boleta] {
 				if err := clienteEnEmpresa(ctx, q, empresaDeConv(*c), *c.ClienteID, servicio); err != nil {
 					return err
 				}
+				// La cuenta es de la empresa de la conversación y está activa (Argos también lo valida).
+				alc := a
+				alc.empresa = empresaDeConv(*c)
+				if err := m.validarCuentaBoleta(ctx, atencionDe(alc, c.ID), alc.empresa, in.CuentaBancariaID); err != nil {
+					return err
+				}
 				datos, _, err := adjuntos.Contenido(ctx, m.cfg.Almacen, t, in.AdjuntoID, EntidadAdjuntosConversacion, strconv.FormatInt(c.ID, 10), 5<<20)
 				if err != nil || !esMimeBoleta(http.DetectContentType(datos)) || !adjuntoDeEmpresa(ctx, q, in.AdjuntoID, empresaDeConv(*c)) {
 					return reglaConv("adjunto_no_listo", "La boleta debe ser una imagen JPG, PNG o WebP o un PDF completo de esta conversación, de hasta 5 MB")

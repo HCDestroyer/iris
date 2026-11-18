@@ -2,7 +2,6 @@ package mensajeria
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
@@ -46,16 +45,30 @@ func nuevoPermisoBoleta() *auditoria.Caso[struct{}, alcanceConv] {
 	})
 }
 
-func nombreBanco(crudo json.RawMessage) string {
-	var s string
-	if json.Unmarshal(crudo, &s) == nil {
-		return s
+// cuentaParaBoleta: la cuenta recibe depósitos de esa empresa (activa, suya y en quetzales). Falla
+// cerrado: una cuenta sin empresa_id o de otra empresa no se ofrece ni se acepta.
+func cuentaParaBoleta(c argos.CuentaBancariaArgos, empresa int64) bool {
+	return c.RecibeDe(empresa) && (c.Moneda == "" || c.Moneda == "GTQ")
+}
+
+// cuentaNoValida: la cuenta de la boleta no es una de las que la empresa de la conversación ofrece.
+func cuentaNoValida() *nucleo.Problema {
+	return campoConv("cuentaBancariaId", "Esa cuenta no es una cuenta activa de la empresa de la conversación", "cuenta_de_la_empresa")
+}
+
+// validarCuentaBoleta comprueba con Argos que la cuenta sea de la empresa de la conversación, esté
+// activa y reciba depósitos. Sin poder leerla no se registra (falla cerrado).
+func (m *Modulo) validarCuentaBoleta(ctx context.Context, a argos.AtencionIris, empresa, cuenta int64) error {
+	cs, err := m.cfg.Argos.CuentasBancarias(ctx, a)
+	if err != nil {
+		return argos.Problema(err)
 	}
-	var o struct {
-		Nombre string `json:"nombre"`
+	for _, c := range cs {
+		if c.ID == cuenta && cuentaParaBoleta(c, empresa) {
+			return nil
+		}
 	}
-	_ = json.Unmarshal(crudo, &o)
-	return o.Nombre
+	return cuentaNoValida()
 }
 
 // CuentasBancarias lista las cuentas activas en GTQ de la empresa activa (Argos).
@@ -73,13 +86,10 @@ func (m *Modulo) CuentasBancarias(ctx context.Context) (ListaCuentasBancarias, e
 	}
 	out := ListaCuentasBancarias{Data: []CuentaBancaria{}}
 	for _, c := range cs {
-		if c.Moneda != "" && c.Moneda != "GTQ" {
+		if !cuentaParaBoleta(c, a.empresa) {
 			continue
 		}
-		if a.empresa != 0 && c.EmpresaID != nil && *c.EmpresaID != a.empresa {
-			continue
-		}
-		out.Data = append(out.Data, CuentaBancaria{ID: c.ID, Nombre: c.Nombre, Banco: nombreBanco(c.Banco), Numero: c.Numero, Moneda: c.Moneda})
+		out.Data = append(out.Data, CuentaBancaria{ID: c.ID, Nombre: c.Nombre, Banco: c.Banco, Numero: c.Numero, Moneda: c.Moneda})
 	}
 	return out, nil
 }
