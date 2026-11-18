@@ -593,6 +593,12 @@ func (m *Modulo) prepararTurno(ctx context.Context, t *auditoria.Tx, in entradaT
 	if err != nil {
 		return nada, err
 	}
+	// El último mensaje del cliente es de un periodo anterior (la conversación se resolvió después y un
+	// agente la reabrió a mano): no es de esta atención y el asistente no lo contesta, tampoco si el job
+	// corre por un reintento, el mantenimiento o «reanudar» (§17.11).
+	if !atendia && ultimo.CreadoEn.Before(inicioEntrantes(c)) {
+		return nada, nil
+	}
 	sinTexto := ultimo.Texto == nil || strings.TrimSpace(*ultimo.Texto) == ""
 	// Idempotencia por turno (conversación + mensaje): un job duplicado o un reintento no repite nada.
 	ahora := m.ahora()

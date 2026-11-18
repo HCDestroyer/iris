@@ -400,6 +400,15 @@ func TestAsistenteReanudarNoContestaLoYaContestado(t *testing.T) {
 	if turnos(conv2) != 0 {
 		t.Fatalf("reanudar programó un turno para un mensaje de un periodo anterior: %d", turnos(conv2))
 	}
+	// Y si el job de la conversación corre de todos modos (un reintento, el mantenimiento), el asistente
+	// tampoco contesta ese mensaje viejo: el turno también mira el periodo.
+	llamadas := x.autonomos()
+	x.ia.decir(`{"categoria": "Planes y precios", "confianza": 0.95}`)
+	x.guion(dice("No debería salir"))
+	x.correr(conv2)
+	if x.autonomos() != llamadas || len(x.delAsistente(conv2)) != 0 || turnos(conv2) != 0 {
+		t.Fatalf("el job contestó un mensaje de un periodo anterior: %d mensajes, %d turnos", len(x.delAsistente(conv2)), turnos(conv2))
+	}
 }
 
 // Revisión de seguridad (2 y 4): pausar y reanudar en bucle no salta los límites (un turno se reabre
