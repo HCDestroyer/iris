@@ -397,7 +397,7 @@ export type ApiFalsa = {
     /** ¿Hay un flujo de eventos de conversaciones abierto ahora (esperando eventos)? */
     flujoAbierto: () => boolean;
     /** Números de WhatsApp: resultados de Meta, cuerpos recibidos y credenciales guardadas. */
-    numeros: Pick<ApiNumeros, "resultados" | "cuerpos" | "secretos" | "ultimoCreado">;
+    numeros: Pick<ApiNumeros, "resultados" | "cuerpos" | "secretos" | "ultimoCreado" | "marcarPorEnvio">;
     /** Conexión con Meta, QR y préstamos: cuerpos recibidos, préstamos y el resultado del QR. */
     meta: Pick<ApiMeta, "conexion" | "cuerpos" | "prestamos" | "resultadoQr">;
     /** Encuestas: lista, respuestas públicas y peticiones públicas que llevaron sesión. */
@@ -1140,7 +1140,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
 
     return {
         chat,
-        numeros: { resultados: numeros.resultados, cuerpos: numeros.cuerpos, secretos: numeros.secretos, ultimoCreado: numeros.ultimoCreado },
+        numeros: { resultados: numeros.resultados, cuerpos: numeros.cuerpos, secretos: numeros.secretos, ultimoCreado: numeros.ultimoCreado, marcarPorEnvio: numeros.marcarPorEnvio },
         meta: { conexion: meta.conexion, cuerpos: meta.cuerpos, prestamos: meta.prestamos, resultadoQr: meta.resultadoQr },
         mutaciones,
         peticiones,

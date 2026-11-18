@@ -252,11 +252,15 @@ export function textoEntrega(m: Pick<Mensaje, "estadoEntrega" | "motivoFalla">):
         case "leido":
             return "leído";
         case "fallido":
-            return `no se envió${m.motivoFalla ? ` (${motivoFalla(m.motivoFalla)})` : ""}`;
+            // Estos motivos se explican enteros bajo la burbuja (`FallaMensaje`): aquí no se repiten.
+            return `no se envió${m.motivoFalla && !SE_EXPLICA_APARTE.has(m.motivoFalla) ? ` (${motivoFalla(m.motivoFalla)})` : ""}`;
         default:
             return "";
     }
 }
+
+/** Motivos de fallo que llevan su explicación propia bajo la burbuja (contratos/conversaciones.md §1.1). */
+const SE_EXPLICA_APARTE: ReadonlySet<string> = new Set(["token_invalido", "sin_permiso_meta", "rechazado_por_canal"]);
 
 export function motivoFalla(motivo: string): string {
     switch (motivo) {
@@ -270,6 +274,11 @@ export function motivoFalla(motivo: string): string {
             return "sin respuesta de WhatsApp";
         case "sin_permiso":
             return "sin permiso de contacto";
+        // §1.1: Meta rechazó el token del número o le falta un permiso (lo arregla un administrador).
+        case "token_invalido":
+            return "WhatsApp rechazó la conexión del número";
+        case "sin_permiso_meta":
+            return "falta un permiso en WhatsApp";
         default:
             return motivo.replace(/_/g, " ");
     }

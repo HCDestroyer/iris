@@ -44,6 +44,8 @@ export type OpcionesVoz = {
     saldoVencido?: number[];
     /** Cómo están en WhatsApp los ajustes del número 3 (por defecto, aplicados). */
     whatsapp?: "pendiente" | "error";
+    /** El número 3 tiene las llamadas apagadas y le llegaron llamadas que se rechazaron (voz.md, lectura del número). */
+    rechazadasApagadas?: Schema<"RechazadasApagadas">;
     /**
      * E1b: Ana (admin) puede llamar y pedir permiso; quien atiende sin administrar solo puede pedirlo.
      * Sin esta opción nadie tiene esos permisos y el panel no ofrece llamar.
@@ -453,6 +455,8 @@ export function apiVoz(
                           ? { estado: "error", intentos: 6, detalle: "WhatsApp rechazó los ajustes del número." }
                           : { estado: "aplicado", intentos: 1 },
                 version: 1,
+                // Solo viene con las llamadas apagadas y si llegó alguna en los últimos 7 días.
+                ...(id === 3 && opciones.rechazadasApagadas ? { rechazadasApagadas: opciones.rechazadasApagadas } : {}),
             };
             canales.set(id, c);
         }
@@ -533,6 +537,8 @@ export function apiVoz(
             const { version: _version, colaId, horarioId, plantillaPermiso, plantillaPermisoIdioma, ...resto } = cuerpo as unknown as Schema<"EntradaLlamadasCanal">;
             void _version;
             const nuevo: LlamadasCanal = { ...c, ...resto, version: c.version + 1 };
+            // Con las llamadas encendidas ya no se rechaza nada: el aviso deja de venir.
+            if (nuevo.llamadasActivas) delete nuevo.rechazadasApagadas;
             // Ausente se conserva; vacía se quita; con plantilla y sin idioma, «es».
             if (plantillaPermiso === "") {
                 delete nuevo.plantillaPermiso;

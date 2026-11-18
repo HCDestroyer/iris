@@ -1,4 +1,5 @@
 import type { MotivoAviso } from "./maquina";
+import { haceCuanto } from "../fechas";
 import type { Llamada, LlamadaEnMensaje, PermisoLlamada, RequisitoLlamadas, ResultadoLlamada } from "./tipos";
 
 /* Textos llanos de la voz E1: lo que la persona lee en el aviso, la barra, el hilo y los ajustes. */
@@ -184,6 +185,16 @@ const NOMBRE_REQUISITO: Record<RequisitoLlamadas["codigo"], string> = {
 };
 
 export type EstadoRequisito = "cumple" | "falta" | "aviso" | "sin_comprobar";
+
+/**
+ * Llamadas que entraron al número y se rechazaron porque las llamadas están apagadas en Iris
+ * (`rechazadasApagadas`, contratos/voz.md): cuándo fue la última y cuántas van hoy.
+ */
+export function textoRechazadasApagadas(r: { ultimaEn: string; hoy: number }, ahora: number): string {
+    const ultima = haceCuanto(r.ultimaEn, ahora);
+    const hoy = r.hoy === 1 ? "hoy va 1" : r.hoy > 1 ? `hoy van ${r.hoy}` : "";
+    return `Llegaron llamadas a este número y se rechazaron porque las llamadas están apagadas en Iris. La última, ${ultima || "hace poco"}${hoy ? `; ${hoy}` : ""}.`;
+}
 
 /**
  * Un requisito de Meta, en llano. `aviso`: no impide encender (solo limita algo). `sinComprobar`:
