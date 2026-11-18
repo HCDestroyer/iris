@@ -12,6 +12,7 @@ Este archivo es la memoria del líder entre sesiones. La conversación se compri
 6. **Proveedor de IA libre:** Ollama, compatibles con OpenAI y Anthropic; ninguno obligatorio.
 7. Los secretos que el PM configuró (Firebase, claves) nunca pasan por el chat.
 8. **Comandos de servidor en inglés, nunca en español** (17 nov 2026: «los comandos del server de iris, que se mantengan en ingles»). Vale para `irisctl` y para `iris-voz`: nombres de comandos y opciones (`install`, `upgrade`, `pair`, `status`, `model pull`…). Interpretación del líder: los mensajes que imprimen y la documentación siguen en español.
+9. **Agentes nuevos con Opus** (18 nov 2026: «seria lo ideal, que los nuevos agentes sean con opus»): al lanzar un agente nuevo se le pide el modelo Opus, para gastar menos del modelo de la sesión. Los que ya corren siguen con el suyo. El modelo de la propia sesión lo cambia el PM desde la app; el líder no puede.
 
 ## Cómo trabaja el líder
 
