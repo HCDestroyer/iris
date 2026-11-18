@@ -720,6 +720,9 @@ teléfono; `e2e/asistente-conversacion.spec.ts` en los 4 proyectos.
   devolvérsela al asistente se avisa si el cliente pidió una persona o está molesto** («Dejarla
   como está» / «Devolverla al asistente»). 409: se dice y se relee; 422 `conversacion_resuelta`,
   en llano. Aviso después de cada acción.
+- **Al quitar la asignación** de una conversación que el asistente atendía antes de que la persona
+  la tomara: «¿Que la siga atendiendo el asistente?» («Sí, que siga» / «No, queda en cola»). No se
+  ofrece si el cliente pidió una persona (`ofrecerQueSigaElAsistente`).
 - **En la lista**: punto discreto «Asistente en pausa» y punto ámbar «Nadie la atiende», en la
   línea de la categoría.
 - **Resumen guardado** (`ResumenAsistente`): si el detalle trae `resumen`, se lee al abrir la ficha
