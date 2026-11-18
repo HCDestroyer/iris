@@ -67,11 +67,9 @@ BEGIN
 END $$;
 -- +goose StatementEnd
 
--- Lo que ya quedó mintiendo en la bandeja: conversaciones con el asistente detenido que todavía
--- muestran su última actividad.
-UPDATE mensajeria.conversaciones
-SET asistente_actividad_tipo = NULL, asistente_actividad_texto = NULL, asistente_actividad_en = NULL
-WHERE asistente_estado = 'detenido' AND asistente_actividad_tipo IS NOT NULL;
+-- Las filas que ya quedaron mintiendo en la bandeja (asistente detenido con su última actividad a la
+-- vista) las limpia …_asistente_pausa_validar, fuera de esta transacción: aquí correría con el candado
+-- ACCESS EXCLUSIVE del ALTER TABLE tomado.
 
 -- +goose Down
 -- +goose StatementBegin

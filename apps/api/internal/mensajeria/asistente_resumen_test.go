@@ -107,6 +107,32 @@ func TestResumenQuedaGuardado(t *testing.T) {
 	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'conversaciones.resumen' AND entidad = 'conversacion' AND entidad_id = $1`, conv); n < 2 {
 		t.Fatalf("auditoría del resumen: %d", n)
 	}
+	// Resolver no lo quita (la atención terminó y el resumen es de ella)…
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/conversaciones/"+conv+"/resolver", map[string]any{"version": ver(x.conv(num))}), http.StatusOK)
+	x.exigir(x.api(x.agente, http.MethodGet, ruta, nil), http.StatusOK)
+	// …pero al reabrirse empieza un periodo nuevo: el resumen de la atención anterior ya no es el vigente.
+	*x.reloj = x.reloj.Add(time.Minute)
+	x.texto(num, "wamid.r3", "Hola, otra consulta")
+	x.exigir(x.api(x.agente, http.MethodGet, ruta, nil), http.StatusNotFound, "type", "urn:iris:problema:sin_resumen")
+	if c := x.conv(num); c["resumen"] != nil {
+		t.Fatalf("reabierta: el resumen del periodo anterior sigue como vigente: %v", c["resumen"])
+	}
+	// Cambiar el cliente de la conversación lo invalida: se armó con los datos del anterior.
+	*x.reloj = x.reloj.Add(7 * time.Second)
+	x.ia.decir("- Resumen del cliente A.")
+	x.exigir(x.api(x.supervisor, http.MethodPost, ruta, nil), http.StatusOK)
+	x.exigir(x.api(x.agente, http.MethodGet, ruta, nil), http.StatusOK, "texto", "- Resumen del cliente A.")
+	otroCliente := x.clienteDeNumero(numeroCliente())
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/conversaciones/"+conv+"/asociar-cliente", map[string]any{"version": ver(x.conv(num)), "clienteId": otroCliente}), http.StatusOK)
+	x.exigir(x.api(x.agente, http.MethodGet, ruta, nil), http.StatusNotFound, "type", "urn:iris:problema:sin_resumen")
+	if c := x.conv(num); c["resumen"] != nil {
+		t.Fatalf("otro cliente: el resumen del anterior sigue como vigente: %v", c["resumen"])
+	}
+	*x.reloj = x.reloj.Add(7 * time.Second)
+	x.ia.decir("- Resumen del cliente B.")
+	x.exigir(x.api(x.supervisor, http.MethodPost, ruta, nil), http.StatusOK, "texto", "- Resumen del cliente B.")
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/conversaciones/"+conv+"/desasociar", map[string]any{"version": ver(x.conv(num))}), http.StatusOK)
+	x.exigir(x.api(x.agente, http.MethodGet, ruta, nil), http.StatusNotFound, "type", "urn:iris:problema:sin_resumen")
 	// Permiso y aislamiento: sin el permiso, 403; otra empresa o quien no ve la conversación, 404.
 	ajeno := x.persona([]int64{2}, rolBase("supervisor"))
 	x.exigir(x.api(x.lectura, http.MethodGet, ruta, nil), http.StatusForbidden)

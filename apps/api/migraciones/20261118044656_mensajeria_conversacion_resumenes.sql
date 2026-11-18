@@ -7,6 +7,9 @@ CREATE TABLE mensajeria.conversacion_resumenes (
     id               uuid PRIMARY KEY,
     empresa_id       bigint,
     conversacion_id  bigint      NOT NULL REFERENCES mensajeria.conversaciones (id),
+    -- El cliente de la conversación cuando se generó: si después se asocia a otro (o se desasocia), el
+    -- resumen deja de mostrarse (se armó con los datos del anterior).
+    cliente_id       bigint,
     texto            text        NOT NULL CHECK (char_length(texto) BETWEEN 1 AND 3000),
     pedido_por       bigint REFERENCES nucleo.usuarios (id),
     proveedor        text        NOT NULL,

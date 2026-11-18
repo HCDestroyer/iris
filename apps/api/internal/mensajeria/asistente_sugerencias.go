@@ -1503,6 +1503,8 @@ type resumenPreparado struct {
 	empresa int64
 	reserva uuid.UUID
 	usuario int64
+	// cliente: el de la conversación al armar el pedido (el resumen es de ese cliente).
+	cliente *int64
 	// hasta: el último mensaje del hilo al armar el pedido (lo que cubre el resumen).
 	hastaID  uuid.UUID
 	hastaSeq int64
@@ -1518,6 +1520,7 @@ type usoResumen struct {
 	// Lo que se guarda en la conversación si salió bien (sin etiqueta JSON: el texto nunca va a la auditoría).
 	texto     string
 	usuario   int64
+	cliente   *int64
 	proveedor string
 	modelo    string
 	hastaID   uuid.UUID
@@ -1575,7 +1578,7 @@ func nuevoResumirConversacion(m *Modulo) *ResumirConversacion {
 					return resumenPreparado{}, problemaIA(err)
 				}
 				return resumenPreparado{g: generacion{cfg: cfg, contexto: ctxIA, pedido: p}, empresa: empresaDeConv(c), reserva: reserva,
-					usuario: a.usuario, hastaID: hasta.ID, hastaSeq: hasta.Seq}, nil
+					usuario: a.usuario, cliente: c.ClienteID, hastaID: hasta.ID, hastaSeq: hasta.Seq}, nil
 			},
 		}),
 		registrar: auditoria.Nuevo(auditoria.Caso[usoResumen, ResumenConversacion]{
@@ -1595,9 +1598,9 @@ func nuevoResumirConversacion(m *Modulo) *ResumirConversacion {
 				if err := m.sumarUso(ctx, t, in.empresa, UsoIA{Entrada: in.TokensEntrada, Salida: in.TokensSalida}, 0, 1); err != nil {
 					return ResumenConversacion{}, err
 				}
-				// Falló, o la conversación pasó a otra empresa mientras se generaba: no se guarda nada (el
-				// resumen anterior, si había, sigue siendo el vigente).
-				if in.Error != "" || in.texto == "" || empresaDeConv(c) != in.empresa {
+				// Falló, o la conversación pasó a otra empresa o a otro cliente mientras se generaba: no se
+				// guarda nada (el resumen anterior, si había, sigue siendo el vigente).
+				if in.Error != "" || in.texto == "" || empresaDeConv(c) != in.empresa || !mismoID(in.cliente, c.ClienteID) {
 					return ResumenConversacion{}, nil
 				}
 				id, err := uuid.NewV7()
@@ -1609,7 +1612,7 @@ func nuevoResumirConversacion(m *Modulo) *ResumirConversacion {
 				}
 				ahora := m.ahora()
 				if _, err := q.InsertarResumenConversacion(ctx, mensajeriabd.InsertarResumenConversacionParams{ID: id, EmpresaID: c.EmpresaID, ConversacionID: c.ID,
-					Texto: in.texto, PedidoPor: &in.usuario, Proveedor: in.proveedor, Modelo: in.modelo, HastaMensajeID: in.hastaID, HastaSeq: in.hastaSeq,
+					ClienteID: c.ClienteID, Texto: in.texto, PedidoPor: &in.usuario, Proveedor: in.proveedor, Modelo: in.modelo, HastaMensajeID: in.hastaID, HastaSeq: in.hastaSeq,
 					TokensEntrada: in.TokensEntrada, TokensSalida: in.TokensSalida, GeneradoEn: ahora}); err != nil {
 					return ResumenConversacion{}, err
 				}
@@ -1661,6 +1664,7 @@ func (k *ResumirConversacion) Ejecutar(ctx context.Context, in EntradaConversaci
 	if err != nil {
 		reg.Error = codigoIA(err)
 	} else {
+		reg.cliente = pr.cliente
 		reg.texto, reg.usuario, reg.proveedor, reg.modelo = recortarIA(RedactarParaIA(texto), 3000), pr.usuario, pr.g.cfg.Proveedor, pr.g.cfg.Modelo
 		reg.hastaID, reg.hastaSeq = pr.hastaID, pr.hastaSeq
 	}
@@ -1673,7 +1677,7 @@ func (k *ResumirConversacion) Ejecutar(ctx context.Context, in EntradaConversaci
 		return ResumenConversacion{}, problemaIA(err)
 	}
 	if guardado.ID == uuid.Nil {
-		// La conversación cambió de empresa mientras se generaba: ya no es de quien lo pidió.
+		// La conversación cambió de empresa o de cliente mientras se generaba: ese resumen ya no vale.
 		return ResumenConversacion{}, conversacionClienteNoEncontrada()
 	}
 	return guardado, nil

@@ -722,17 +722,18 @@ func (q *Queries) InsertarReserva(ctx context.Context, arg InsertarReservaParams
 }
 
 const insertarResumenConversacion = `-- name: InsertarResumenConversacion :one
-INSERT INTO mensajeria.conversacion_resumenes (id, empresa_id, conversacion_id, texto, pedido_por, proveedor, modelo, hasta_mensaje_id, hasta_seq,
+INSERT INTO mensajeria.conversacion_resumenes (id, empresa_id, conversacion_id, cliente_id, texto, pedido_por, proveedor, modelo, hasta_mensaje_id, hasta_seq,
     tokens_entrada, tokens_salida, generado_en)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-    $10, $11, $12)
-RETURNING id, empresa_id, conversacion_id, texto, pedido_por, proveedor, modelo, hasta_mensaje_id, hasta_seq, tokens_entrada, tokens_salida, vigente, generado_en, created_at
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+    $11, $12, $13)
+RETURNING id, empresa_id, conversacion_id, cliente_id, texto, pedido_por, proveedor, modelo, hasta_mensaje_id, hasta_seq, tokens_entrada, tokens_salida, vigente, generado_en, created_at
 `
 
 type InsertarResumenConversacionParams struct {
 	ID             uuid.UUID
 	EmpresaID      *int64
 	ConversacionID int64
+	ClienteID      *int64
 	Texto          string
 	PedidoPor      *int64
 	Proveedor      string
@@ -749,6 +750,7 @@ func (q *Queries) InsertarResumenConversacion(ctx context.Context, arg InsertarR
 		arg.ID,
 		arg.EmpresaID,
 		arg.ConversacionID,
+		arg.ClienteID,
 		arg.Texto,
 		arg.PedidoPor,
 		arg.Proveedor,
@@ -764,6 +766,7 @@ func (q *Queries) InsertarResumenConversacion(ctx context.Context, arg InsertarR
 		&i.ID,
 		&i.EmpresaID,
 		&i.ConversacionID,
+		&i.ClienteID,
 		&i.Texto,
 		&i.PedidoPor,
 		&i.Proveedor,
@@ -1070,12 +1073,15 @@ func (q *Queries) ReservasHuerfanas(ctx context.Context, antes time.Time) ([]uui
 }
 
 const resumenVigente = `-- name: ResumenVigente :one
-SELECT r.id, r.empresa_id, r.conversacion_id, r.texto, r.pedido_por, r.proveedor, r.modelo, r.hasta_mensaje_id, r.hasta_seq, r.tokens_entrada, r.tokens_salida, r.vigente, r.generado_en, r.created_at, u.nombre AS pedido_por_nombre,
+SELECT r.id, r.empresa_id, r.conversacion_id, r.cliente_id, r.texto, r.pedido_por, r.proveedor, r.modelo, r.hasta_mensaje_id, r.hasta_seq, r.tokens_entrada, r.tokens_salida, r.vigente, r.generado_en, r.created_at, u.nombre AS pedido_por_nombre,
     (SELECT count(*) FROM mensajeria.conversacion_mensajes m
      WHERE m.conversacion_id = r.conversacion_id AND m.direccion IN ('entrante', 'saliente') AND m.seq > r.hasta_seq)::bigint AS mensajes_nuevos
 FROM mensajeria.conversacion_resumenes r
+JOIN mensajeria.conversaciones c ON c.id = r.conversacion_id
 LEFT JOIN nucleo.usuarios u ON u.id = r.pedido_por
 WHERE r.conversacion_id = $1 AND r.vigente AND coalesce(r.empresa_id, 0) = $2::bigint
+  AND r.cliente_id IS NOT DISTINCT FROM c.cliente_id
+  AND r.generado_en >= coalesce(c.reabierta_en, '-infinity')
 `
 
 type ResumenVigenteParams struct {
@@ -1087,6 +1093,7 @@ type ResumenVigenteRow struct {
 	ID              uuid.UUID
 	EmpresaID       *int64
 	ConversacionID  int64
+	ClienteID       *int64
 	Texto           string
 	PedidoPor       *int64
 	Proveedor       string
@@ -1103,7 +1110,10 @@ type ResumenVigenteRow struct {
 }
 
 // El resumen guardado de la conversación para su empresa de hoy (un número prestado nunca muestra el
-// de otra empresa), con quién lo pidió y cuántos mensajes del hilo llegaron después.
+// de otra empresa), con quién lo pidió y cuántos mensajes del hilo llegaron después. Solo vale el del
+// mismo cliente (si la conversación se asoció a otro o se desasoció, se armó con datos del anterior) y
+// el de este periodo (al reabrirse empieza una atención nueva). Se comprueba al leer, así vale por
+// cualquier camino que cambie el cliente o reabra la conversación.
 func (q *Queries) ResumenVigente(ctx context.Context, arg ResumenVigenteParams) (ResumenVigenteRow, error) {
 	row := q.db.QueryRow(ctx, resumenVigente, arg.ConversacionID, arg.Empresa)
 	var i ResumenVigenteRow
@@ -1111,6 +1121,7 @@ func (q *Queries) ResumenVigente(ctx context.Context, arg ResumenVigenteParams) 
 		&i.ID,
 		&i.EmpresaID,
 		&i.ConversacionID,
+		&i.ClienteID,
 		&i.Texto,
 		&i.PedidoPor,
 		&i.Proveedor,

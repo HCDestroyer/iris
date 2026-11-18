@@ -1894,9 +1894,12 @@ panel sepa si hay uno y si está al día sin preguntar de más. Al guardarse uno
   (`RedactarParaIA`), máximo 3000 caracteres.
 - **Número prestado (§15.3):** el resumen es de la empresa que lo pidió; si la conversación pasa a
   otra empresa, la nueva no lo ve (404 `sin_resumen`).
-- Al resolverse y reabrirse la conversación el resumen guardado sigue ahí, marcado desactualizado en
-  cuanto llegan mensajes (el «historial por conversación resuelta» es la propuesta D2, sin implementar:
-  `.claude/integration/i2.md`).
+- **De qué cliente y de qué atención.** El resumen guarda el cliente de la conversación cuando se
+  generó. Deja de ser el vigente (404 `sin_resumen`, `resumen` ausente en el detalle) si la
+  conversación **se asocia a otro cliente o se desasocia** (se armó con los datos del anterior), y
+  cuando la conversación **se reabre** (empieza una atención nueva; resuelta y sin reabrir se sigue
+  viendo). Se comprueba al leer, así vale por cualquier camino. La fila no se borra (entra en la
+  retención de arriba) y será la del episodio en la propuesta D2 (`.claude/integration/i2.md`).
 
 ### 16.5 Permisos nuevos
 

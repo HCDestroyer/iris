@@ -226,19 +226,25 @@ WHERE r.conversacion_id = @conversacion_id AND NOT r.vigente AND r.id NOT IN (
     ORDER BY a.generado_en DESC, a.id DESC LIMIT 5);
 
 -- name: InsertarResumenConversacion :one
-INSERT INTO mensajeria.conversacion_resumenes (id, empresa_id, conversacion_id, texto, pedido_por, proveedor, modelo, hasta_mensaje_id, hasta_seq,
+INSERT INTO mensajeria.conversacion_resumenes (id, empresa_id, conversacion_id, cliente_id, texto, pedido_por, proveedor, modelo, hasta_mensaje_id, hasta_seq,
     tokens_entrada, tokens_salida, generado_en)
-VALUES (@id, sqlc.narg('empresa_id'), @conversacion_id, @texto, sqlc.narg('pedido_por'), @proveedor, @modelo, @hasta_mensaje_id, @hasta_seq,
+VALUES (@id, sqlc.narg('empresa_id'), @conversacion_id, sqlc.narg('cliente_id'), @texto, sqlc.narg('pedido_por'), @proveedor, @modelo, @hasta_mensaje_id, @hasta_seq,
     @tokens_entrada, @tokens_salida, @generado_en)
 RETURNING *;
 
 -- name: ResumenVigente :one
 -- El resumen guardado de la conversación para su empresa de hoy (un número prestado nunca muestra el
--- de otra empresa), con quién lo pidió y cuántos mensajes del hilo llegaron después.
+-- de otra empresa), con quién lo pidió y cuántos mensajes del hilo llegaron después. Solo vale el del
+-- mismo cliente (si la conversación se asoció a otro o se desasoció, se armó con datos del anterior) y
+-- el de este periodo (al reabrirse empieza una atención nueva). Se comprueba al leer, así vale por
+-- cualquier camino que cambie el cliente o reabra la conversación.
 SELECT r.*, u.nombre AS pedido_por_nombre,
     (SELECT count(*) FROM mensajeria.conversacion_mensajes m
      WHERE m.conversacion_id = r.conversacion_id AND m.direccion IN ('entrante', 'saliente') AND m.seq > r.hasta_seq)::bigint AS mensajes_nuevos
 FROM mensajeria.conversacion_resumenes r
+JOIN mensajeria.conversaciones c ON c.id = r.conversacion_id
 LEFT JOIN nucleo.usuarios u ON u.id = r.pedido_por
-WHERE r.conversacion_id = @conversacion_id AND r.vigente AND coalesce(r.empresa_id, 0) = @empresa::bigint;
+WHERE r.conversacion_id = @conversacion_id AND r.vigente AND coalesce(r.empresa_id, 0) = @empresa::bigint
+  AND r.cliente_id IS NOT DISTINCT FROM c.cliente_id
+  AND r.generado_en >= coalesce(c.reabierta_en, '-infinity');
 

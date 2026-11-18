@@ -1528,6 +1528,7 @@ type MensajeriaConversacionResumene struct {
 	ID             uuid.UUID
 	EmpresaID      *int64
 	ConversacionID int64
+	ClienteID      *int64
 	Texto          string
 	PedidoPor      *int64
 	Proveedor      string
