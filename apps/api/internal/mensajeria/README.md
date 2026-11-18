@@ -105,7 +105,7 @@ Contrato completo (endpoints, payloads, SSE, reglas de la cola sin conexión):
   semáforo de `ChatLecturas` (16) lecturas del feed a la vez. El flujo quita el ReadTimeout del
   servidor y pone un plazo por escritura; el proxy de la API (`servidor.ProxyHacia`) solo en la
   lista cerrada de flujos (`GET /api/v1/mensajeria/chat/eventos` y
-  `GET /api/v1/mensajeria/conversaciones/eventos`, rutas exactas) usa un plazo de escritura móvil
+  `GET /api/v1/mensajeria/conversaciones/eventos`, rutas exactas, sin cuerpo ni escapes) usa un plazo de escritura móvil
   (60 s) y un máximo de 31 min, y ReverseProxy copia cada evento sin búfer. Un flujo SSE nuevo debe
   entrar en esa lista (`rutasFlujoSSE` en `nucleo/servidor/proxy.go`) o la API lo corta a los 60 s.
 - **Auditoría:** abrir una conversación nueva, enviar, eliminar y agregar un miembro, con los ids y
@@ -186,7 +186,9 @@ Contrato completo: `.claude/integration/contratos/conversaciones.md`. Código en
   por teléfono con `GET /clientes?telefono=` (o la instantánea si Argos no responde); contactos
   propios de Iris (`mensajeria.contactos_iris`) que se unen a la ficha de Argos.
 - **Tiempo real:** feed `mensajeria.conv_eventos` + `NOTIFY iris_conversaciones` + SSE
-  (`GET /conversaciones/eventos`) y sondeo (`/conversaciones/cambios`), con los mismos topes,
+  (`GET /conversaciones/eventos`) y sondeo (`/conversaciones/cambios`), con los mismos topes (pero
+  en un difusor aparte del chat: 5 flujos de bandeja + 5 de chat por usuario y hasta
+  2 × `IRIS_CHAT_SSE_MAX` flujos por proceso),
   plazos (latido de 25 s, cierre a los 30 min), revalidación y exención en el proxy de la API que el
   chat; purga a los 7 días (`chat_estado.conv_purgados_hasta`).
 - **Auditoría:** cada acción; el texto de los mensajes y notas nunca (solo id, tipo y hash).

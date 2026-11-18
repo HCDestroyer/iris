@@ -131,9 +131,14 @@ var (
 	maximoFlujoSSE    = 31 * time.Minute
 )
 
-// EsFlujoSSE: GET a una ruta exacta de rutasFlujoSSE.
+// EsFlujoSSE: GET sin cuerpo a una ruta exacta de rutasFlujoSSE, escrita sin escapes.
+//   - Sin cuerpo (ni Content-Length ni Transfer-Encoding): la exención se decide antes de
+//     autenticar (eso lo hace el destino) y el plazo de lectura pasa al tope, así que un GET con un
+//     cuerpo lento retendría la conexión 31 min. Con cuerpo, rigen los plazos del servidor.
+//   - Sin RawPath: r.URL.Path viene decodificado y el destino enruta por RawPath, así que
+//     «…/conversaciones/%65ventos» o un «%2F» no deben heredar la exención de otra ruta.
 func EsFlujoSSE(r *http.Request) bool {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet || r.ContentLength != 0 || len(r.TransferEncoding) > 0 || r.URL.RawPath != "" {
 		return false
 	}
 	_, ok := rutasFlujoSSE[r.URL.Path]

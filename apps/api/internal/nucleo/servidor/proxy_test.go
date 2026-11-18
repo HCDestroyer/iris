@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -165,8 +166,8 @@ func cuantosHasta(t *testing.T, lineas <-chan string) (int, time.Duration) {
 	}
 }
 
-// rutasFlujo: los flujos SSE que la API reenvía a la mensajería (la lista cerrada de
-// servidor.RutasFlujoSSE). Literales a propósito: si una sale de la lista, su prueba falla.
+// rutasFlujo: los flujos SSE que la API reenvía a la mensajería (la lista cerrada
+// rutasFlujoSSE de proxy.go). Literales a propósito: si una sale de la lista, su prueba falla.
 var rutasFlujo = []string{
 	"/api/v1/mensajeria/chat/eventos",
 	"/api/v1/mensajeria/conversaciones/eventos", // la bandeja: antes se cortaba a los 60 s
@@ -194,10 +195,22 @@ func TestProxyFlujoSSESinBuferNiPlazo(t *testing.T) {
 			}
 		}
 	}
+	// Escapes: Path llega decodificado y el destino enruta por RawPath; nunca heredan la exención.
 	for _, ruta := range []string{"/api/v1/mensajeria/plantillas", "/api/v1/mensajeria/eventos",
-		"/api/v1/mensajeria/conversaciones/1/eventos", "/api/v1/mensajeria/avisos/eventos"} {
+		"/api/v1/mensajeria/conversaciones/1/eventos", "/api/v1/mensajeria/avisos/eventos",
+		"/api/v1/mensajeria/conversaciones/%65ventos", "/api/v1/mensajeria/chat/%65ventos",
+		"/api/v1/mensajeria%2Fconversaciones/eventos", "/api/v1/mensajeria/chat%2Feventos"} {
 		if servidor.EsFlujoSSE(get(http.MethodGet, ruta)) {
 			t.Fatalf("EsFlujoSSE(GET %s): no está en la lista cerrada", ruta)
+		}
+	}
+	// Con cuerpo (Content-Length o chunked) no: la exención se decide antes de autenticar.
+	for _, ruta := range rutasFlujo {
+		conLargo, _ := http.NewRequest(http.MethodGet, "http://api"+ruta, strings.NewReader("x"))
+		chunked := get(http.MethodGet, ruta)
+		chunked.ContentLength, chunked.TransferEncoding = -1, []string{"chunked"}
+		if servidor.EsFlujoSSE(conLargo) || servidor.EsFlujoSSE(chunked) {
+			t.Fatalf("EsFlujoSSE(GET %s con cuerpo): solo sin cuerpo", ruta)
 		}
 	}
 }
@@ -256,18 +269,95 @@ func TestProxyFlujoSSEPlazoMovilYMaximo(t *testing.T) {
 	}
 }
 
-// Un flujo exento cuyo destino calla (sin eventos ni latidos) no queda abierto para siempre: lo
-// cierra el máximo absoluto. El plazo móvil corta a quien deja de leer (una escritura bloqueada).
+// Un flujo exento cuyo destino calla (sin eventos ni latidos) vive más que los plazos de la API
+// (1 s) y lo cierra el máximo absoluto, no antes ni nunca. (Sin la exención, un destino callado no
+// escribe y el WriteTimeout no llega a cortar: el flujo quedaba abierto hasta que el destino
+// cerrara; con ella, el tope de lectura lo cierra.)
 func TestProxyFlujoSSESilencioHastaElMaximo(t *testing.T) {
 	defer servidor.FijarPlazosSSE(400*time.Millisecond, 2*time.Second)()
 	for _, ruta := range rutasFlujo {
 		t.Run(ruta, func(t *testing.T) {
 			_, dur := cuantosHasta(t, leerIDs(t, apiConDestino(t, destinoCadaTanto(time.Minute))+ruta))
-			if dur > 3500*time.Millisecond {
-				t.Fatalf("un flujo sin escrituras duró %v: pasó el máximo", dur)
+			if dur < 1700*time.Millisecond || dur > 3500*time.Millisecond {
+				t.Fatalf("un flujo sin escrituras duró %v (esperaba ~2 s, el máximo)", dur)
 			}
 		})
 	}
+}
+
+// El plazo móvil corta a quien deja de leer: el destino escribe sin parar, el cliente no lee, la
+// escritura de la API se bloquea y vence su plazo (400 ms) mucho antes del máximo (10 s).
+func TestProxyFlujoSSEClienteQueNoLeeSeCorta(t *testing.T) {
+	defer servidor.FijarPlazosSSE(400*time.Millisecond, 10*time.Second)()
+	for _, ruta := range rutasFlujo {
+		t.Run(ruta, func(t *testing.T) {
+			fin := make(chan struct{})
+			relleno := strings.Repeat("x", 32*1024)
+			api := apiConDestino(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				defer close(fin)
+				w.Header().Set("Content-Type", "text/event-stream")
+				rc := http.NewResponseController(w)
+				for r.Context().Err() == nil {
+					if _, err := fmt.Fprintf(w, "data: %s\n\n", relleno); err != nil || rc.Flush() != nil {
+						return
+					}
+				}
+			}))
+			c := pedirCrudo(t, api, "GET "+ruta+" HTTP/1.1\r\nHost: api\r\nAccept: text/event-stream\r\n\r\n")
+			if tcp, ok := c.(*net.TCPConn); ok {
+				_ = tcp.SetReadBuffer(4096)
+			}
+			inicio := time.Now()
+			select {
+			case <-fin:
+				if d := time.Since(inicio); d > 5*time.Second {
+					t.Fatalf("el flujo de un cliente que no lee duró %v", d)
+				}
+			case <-time.After(8 * time.Second):
+				t.Fatal("el flujo de un cliente que no lee no se cortó: el plazo móvil no rige")
+			}
+		})
+	}
+}
+
+// Un GET a la ruta del flujo con cuerpo chunked lento no obtiene la exención: lo cortan los plazos
+// de la API (1 s), no el máximo (10 s). Así nadie sin sesión retiene la conexión 31 min.
+func TestProxyFlujoSSEConCuerpoConservaPlazos(t *testing.T) {
+	defer servidor.FijarPlazosSSE(5*time.Second, 10*time.Second)()
+	for _, ruta := range rutasFlujo {
+		t.Run(ruta, func(t *testing.T) {
+			c := pedirCrudo(t, apiConDestino(t, destinoCadaTanto(150*time.Millisecond)),
+				"GET "+ruta+" HTTP/1.1\r\nHost: api\r\nAccept: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n")
+			inicio := time.Now()
+			go func() { // el cuerpo, un byte cada 300 ms (nunca termina)
+				for c.SetWriteDeadline(time.Now().Add(time.Second)) == nil {
+					time.Sleep(300 * time.Millisecond)
+					if _, err := c.Write([]byte("1\r\na\r\n")); err != nil {
+						return
+					}
+				}
+			}()
+			_ = c.SetReadDeadline(time.Now().Add(8 * time.Second))
+			_, _ = io.Copy(io.Discard, c)
+			if d := time.Since(inicio); d > 2500*time.Millisecond {
+				t.Fatalf("un GET con cuerpo lento a %s duró %v: obtuvo la exención", ruta, d)
+			}
+		})
+	}
+}
+
+// pedirCrudo abre una conexión TCP a la API y escribe la petición tal cual.
+func pedirCrudo(t *testing.T, api, peticion string) net.Conn {
+	t.Helper()
+	c, err := net.Dial("tcp", strings.TrimPrefix(api, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	if _, err := io.WriteString(c, peticion); err != nil {
+		t.Fatal(err)
+	}
+	return c
 }
 
 // Otra ruta delegada con Accept: text/event-stream conserva los plazos de la API (1 s).

@@ -175,10 +175,12 @@ ProxyPassMatch "^/api/v1/mensajeria/(conversaciones|chat)/eventos$" "http://127.
 ```
 
 ```caddyfile
-# Caddy
-reverse_proxy 127.0.0.1:3000 {
+# Caddy: only the two event streams flush immediately; the rest keeps the default
+@eventos path_regexp eventos ^/api/v1/mensajeria/(conversaciones|chat)/eventos$
+reverse_proxy @eventos 127.0.0.1:3000 {
     flush_interval -1
 }
+reverse_proxy 127.0.0.1:3000
 ```
 
 Client IP: the API trusts `X-Forwarded-For` only from the panel's fixed IP (`IRIS_WEB_IP`). Never put
