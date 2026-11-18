@@ -2,6 +2,7 @@ package mensajeria
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
@@ -88,7 +89,15 @@ type cuentasLeidas struct {
 const (
 	CuentaValidada   = "validada"
 	CuentaSinValidar = "sin_validar_argos_no_disponible"
+	// CuentaSinConector: el conector con Argos está apagado; la boleta queda por enviar como siempre.
+	CuentaSinConector = "sin_validar_conector_apagado"
 )
+
+// conectorApagado: el error es el 503 conector_apagado (no hay conector con Argos activo).
+func conectorApagado(err error) bool {
+	var p *nucleo.Problema
+	return errors.As(err, &p) && p.Codigo() == "conector_apagado"
+}
 
 // RegistrarBoleta es el camino de una persona: lee las cuentas de Argos antes de la transacción y
 // registra la boleta con ese dato. Si Argos no responde, la boleta se registra igual y sigue su
@@ -107,7 +116,8 @@ func (m *Modulo) RegistrarBoleta(ctx context.Context, in EntradaBoleta) (Boleta,
 
 // validarCuentaBoleta comprueba que la cuenta sea de la empresa de la conversación, esté activa y
 // reciba depósitos. Con las cuentas ya leídas (una persona) no llama a Argos; si Argos no respondió
-// esa lectura, la boleta sigue sin validar (marca CuentaSinValidar). Sin lectura previa (el asistente
+// esa lectura o el conector está apagado, la boleta sigue sin validar (marca CuentaSinValidar o
+// CuentaSinConector). Sin lectura previa (el asistente
 // de IA) lee aquí y falla cerrado: sin poder leer las cuentas no registra.
 func (m *Modulo) validarCuentaBoleta(ctx context.Context, a alcanceConv, c *mensajeriabd.MensajeriaConversacion, in EntradaBoleta) (string, error) {
 	empresa := empresaDeConv(*c)
@@ -125,6 +135,9 @@ func (m *Modulo) validarCuentaBoleta(ctx context.Context, a alcanceConv, c *mens
 		if conector.EsCaido(l.err) {
 			slog.WarnContext(ctx, "boleta: la cuenta queda sin validar, Argos no disponible", "conversacion_id", c.ID, "cuenta_bancaria_id", in.CuentaBancariaID)
 			return CuentaSinValidar, nil
+		}
+		if conectorApagado(l.err) {
+			return CuentaSinConector, nil
 		}
 		return "", argos.Problema(l.err)
 	}

@@ -206,13 +206,14 @@ type BancoArgos struct {
 	Nombre string `json:"nombre"`
 }
 
-// CuentasBancarias: GET /cuentas-bancarias?activa=true (§7.2, cuentas_bancarias.ver).
+// CuentasBancarias: GET /cuentas-bancarias?activa=true (§7.2, cuentas_bancarias.ver). Argos responde
+// un arreglo plano sin paginar (ignora limit): no se manda.
 func (m *Modulo) CuentasBancarias(ctx context.Context, a AtencionIris) ([]CuentaBancariaArgos, error) {
 	cli, err := m.clienteAtencion(ctx, a)
 	if err != nil {
 		return nil, err
 	}
-	p, err := conector.ListaDe[CuentaBancariaArgos](ctx, cli.Cliente, "/cuentas-bancarias", url.Values{"activa": {"true"}, "limit": {"100"}})
+	p, err := conector.ListaDe[CuentaBancariaArgos](ctx, cli.Cliente, "/cuentas-bancarias", url.Values{"activa": {"true"}})
 	return p.Data, err
 }
 

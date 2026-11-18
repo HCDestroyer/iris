@@ -132,10 +132,16 @@ func TestConvCuentasBancariasDeLaEmpresa(t *testing.T) {
 	if boletas() != 2 || marca("CU-3") != "sin_validar_argos_no_disponible" || marca("CU-8") != "sin_validar_argos_no_disponible" {
 		t.Fatalf("con Argos caído la boleta se registra sin validar: %d %q %q", boletas(), marca("CU-3"), marca("CU-8"))
 	}
+	// Conector con Argos apagado: Iris sigue trabajando; la boleta queda por enviar con su marca.
+	falla(conector.ConectorApagado("Argos"))
+	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/boletas", boleta(10)), http.StatusCreated, "estado", "por_enviar")
+	if boletas() != 3 || marca("CU-10") != "sin_validar_conector_apagado" {
+		t.Fatalf("con el conector apagado la boleta se registra sin validar: %d %q", boletas(), marca("CU-10"))
+	}
 	falla(nil)
 	// Con Argos arriba, la cuenta sin alias de la empresa se valida y se registra.
 	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/boletas", boleta(5)), http.StatusCreated, "estado", "por_enviar")
-	if boletas() != 3 || marca("CU-5") != "validada" {
+	if boletas() != 4 || marca("CU-5") != "validada" {
 		t.Fatalf("la boleta con una cuenta de la empresa se registra validada: %d %q", boletas(), marca("CU-5"))
 	}
 	// La lista por conversación: las cuentas de la empresa de esa conversación; una que no existe, 404.
