@@ -138,7 +138,10 @@ dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`avis
 | `Interruptor` | `Switch`, `Switch.Content`, `Switch.Control`, `Switch.Thumb` | Ajustes de encendido/apagado que cambian lo que sigue. Con `register` como `Casilla`. `alFinal`: la etiqueta a la izquierda y el control a la derecha, a todo el ancho (filas de una lista de ajustes) |
 | `CampoNumero` | `NumberField` (+ `DecrementButton` / `IncrementButton` con `conPasos`) | Cantidades y montos; el formulario recibe el texto del número (`"250.5"`) |
 | `CampoBusqueda` | `SearchField` (`SearchIcon`, `Input`, `ClearButton`) | Lupa y «X» de Lucide; Escape borra |
-| `SelectorArchivo` | — (`<input type="file">` oculto en su `<label>`, como `Camara`) | Adjuntar sin cámara (compositor de la bandeja); clip de Lucide; se limpia tras elegir |
+| `SelectorArchivo` | — (`<input type="file">` oculto en su `<label>`, como `Camara`) | Elegir un archivo sin cámara; clip de Lucide; se limpia tras elegir |
+| `MenuArchivos` | `Dropdown` (por `MenuDesplegable`) + `<input type="file">` ocultos | El clip con menú (Fotos, Documento, Cámara): cada opción abre el selector del sistema con sus tipos; `varios` y `camara` por opción. Con una sola opción no hay menú |
+| `VistaPreviaArchivos` | — (`Boton` y `Dialogo` por dentro) | Lo elegido antes de enviarlo: miniatura ampliable (solo con la URL de objeto que le pasan), icono para documento y video, nombre y detalle, y el estado con icono + texto + color (no sirve, subiendo con barra, falló con «Reintentar»). Solo presentación |
+| `ListaRecortada` | — | Una línea con los chips que caben y «+N»; nunca desborda ni baja de línea. El nombre completo de todos lo pone quien la usa (`title` y texto para lectores) |
 | `AvatarUsuario` | `Avatar`, `Avatar.Fallback` | Iniciales (decorativo: el nombre va al lado) |
 | `Entrada`, `Campo` | `Input` | Un `<input>` nativo: sirve con `register` |
 | `CampoSecreto` | `Input` | Credencial que se pega una vez (token, app secret), con el ojo «Mostrar …», monoespaciada y sin corrector. Para que el gestor de contraseñas no ofrezca guardarla: `type="text"` con `-webkit-text-security: disc` donde el navegador lo soporta y, si no, `type="password"`; siempre `autocomplete="new-password"`, `data-1p-ignore` y `data-lpignore`. Sirve con `register` |
@@ -296,6 +299,36 @@ Diseño aprobado por el PM («compactar menús, mejor integración y que nada se
       previa en vivo y «Enviar y abrir conversación» con id de envío idempotente (`useIdEnvio`).
     - **`ListaEleccion`** (`@iris/ui`): radios en filas con contenido propio (persona con su
       disponibilidad, contacto con su permiso), deshabilitadas o atenuadas.
+- **Pulido tras el uso real (nov. 2026, `e2e/bandeja-pulido.spec.ts`):**
+    - **El hilo abre y se queda en el último mensaje.** Mientras estés abajo sigue abajo aunque
+      cambie la altura sin que llegue nada (una foto que carga tarde, la sugerencia o el compositor
+      que crecen, el teclado del teléfono: `ResizeObserver` del hilo y de su contenido). Solo subir
+      a mano te saca de «abajo»; entonces lo que llega no mueve la vista y aparece la píldora
+      «Mensajes nuevos ↓» (con la cuenta si son varios), que baja al pulsarla. Lo que envías tú te
+      lleva abajo siempre. Al cargar anteriores, lo que leías se queda en su sitio.
+    - **Compositor:** el texto crece hasta `max-h-40` y luego se desplaza por dentro; la barra de
+      botones envuelve en vez de cortarse y «Sugerir» queda en icono cuando la conversación es
+      estrecha (`@max-[26rem]/conv`).
+    - **Adjuntar como WhatsApp Web:** el clip (`MenuArchivos`) ofrece Fotos, Documento (PDF) y, en
+      pantalla táctil, Cámara; también se pega una imagen en el texto o se sueltan archivos sobre
+      la conversación (aviso «Suelta aquí para adjuntar»). Nada se envía solo: lo elegido queda en
+      `VistaPreviaArchivos` sobre el texto, que hace de comentario. Se valida antes de subir (tipo
+      y 16 MB, con el motivo a la vista), se puede quitar o ampliar, la subida va por partes con su
+      barra y, si falla, «Reintentar» sigue donde quedó. **La API admite un adjunto por mensaje**:
+      cada archivo sale en su mensaje, en orden, y el comentario va con el primero. Hasta 10 por
+      vez. Sin video (el módulo de adjuntos no lo admite). Seguridad: los nombres van como texto,
+      la miniatura es una URL de objeto que se libera al quitar o cerrar, y un SVG o un HTML nunca
+      se incrustan (van con icono de documento).
+    - **Etiquetas y chips, nunca desbordados** (`componentes/conversaciones/etiquetas.tsx`): en la
+      fila de la lista, una línea con las que caben y «+N» (`ListaRecortada`, todas en el título);
+      bajo la cabecera del hilo y en la ficha, envueltas en varias líneas; el nombre largo se
+      recorta con puntos y el completo va en `title`. En filtros y en el editor, `Casilla` ya no
+      ensancha su contenedor (recorta o parte el texto).
+    - **«Sin conexión» solo cuando lo es:** un corte del flujo (un proxy que cierra conexiones, el
+      servidor que reinicia) reconecta al momento con `Last-Event-ID`, sin indicador y sin perder
+      ni repetir eventos. El indicador aparece tras dos intentos fallidos seguidos o 9 s sin poder
+      conectar (primer reintento a 1 s; luego 3, 6, 12… hasta 30 s). Vale igual para el aviso de
+      llamadas (usa el mismo `iniciarFeed`).
 - **Pruebas de «nada cortado»:** `e2e/desbordes.ts` (`esperarSinDesbordes`) falla si la página
   se desplaza a lo ancho, si algo queda fuera de la ventana o si un texto se sale de su caja sin
   elipsis.

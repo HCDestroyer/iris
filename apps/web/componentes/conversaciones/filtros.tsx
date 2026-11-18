@@ -132,13 +132,17 @@ function Opcion({ activo, n, etiqueta, texto, alCambiar }: { activo: boolean; n:
     return (
         <div className={cn("flex min-h-9 min-w-0 items-center gap-2 rounded-md px-2.5", activo && "bg-elevated")}>
             <Casilla
-                className="min-w-0 flex-1 [&_label]:min-w-0 [&_label]:truncate"
+                className="min-w-0 flex-1"
                 checked={activo}
                 onChange={(e) => alCambiar(e.target.checked)}
-                etiqueta={<span className="flex min-w-0 items-center gap-2 truncate">{etiqueta}</span>}
+                etiqueta={
+                    <span className="block min-w-0 truncate" title={texto}>
+                        {etiqueta}
+                    </span>
+                }
                 aria-label={texto}
             />
-            {n !== undefined ? <span className="text-xs text-muted-foreground tabular-nums">{n}</span> : null}
+            {n !== undefined ? <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{n}</span> : null}
         </div>
     );
 }

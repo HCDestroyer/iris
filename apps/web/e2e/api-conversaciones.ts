@@ -1,5 +1,6 @@
 import type { Schema } from "@iris/contratos";
 import type { Route } from "@playwright/test";
+import { ADJUNTOS_SUBIDOS } from "./api-adjuntos-conv";
 import { agentesBandeja11, bandeja11, canalesBandeja11, colasBandeja11, PERMISOS_BANDEJA11, type ColaBase, type NumeroBase, type OpcionesBandeja11 } from "./api-bandeja11";
 import { apiAsistente, PERMISO_SUGERENCIAS, type OpcionesAsistente } from "./api-asistente";
 import { apiFase3 } from "./api-asistente3";
@@ -64,6 +65,13 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
     const eventos: Evento[] = [];
     let cursor = 100;
     let seq = 1000;
+    /**
+     * `seq` del mensaje que entra: siempre después de lo que ya hay en la conversación. Los datos de
+     * prueba numeran con un contador del proceso (`datos-conversaciones.ts`), que crece con cada
+     * prueba del mismo worker: un número fijo acababa quedando por debajo y el mensaje nuevo salía
+     * en medio del hilo.
+     */
+    const siguienteSeq = (id: number) => Math.max(seq, ...(mensajes.get(id) ?? []).map((m) => m.seq)) + 1;
     let flujosEnEspera = 0;
     const enviados: { ruta: string; cuerpo: unknown; idempotencia: string | undefined }[] = [];
 
@@ -246,7 +254,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
     function mensajeDelCliente(id: number, texto: string) {
         const c = conversaciones.find((x) => x.id === id);
         if (!c) return;
-        seq += 1;
+        seq = siguienteSeq(id);
         const m: Mensaje = {
             id: `0193b000-0000-7000-8000-${String(seq).padStart(12, "0")}`,
             conversacionId: id,
@@ -478,13 +486,19 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                     const p = asistente.alResponder(c.id, cuerpo.sugerenciaId);
                     if (p) return (await problema(route, p), true);
                 }
-                seq += 1;
+                // §8: el adjunto tiene que estar completo y ser de esta conversación (422 `adjunto_no_listo`).
+                const subido = typeof cuerpo.adjuntoId === "string" ? ADJUNTOS_SUBIDOS.get(cuerpo.adjuntoId) : undefined;
+                if (accion === "mensajes" && cuerpo.adjuntoId !== undefined && (!subido || subido.recibido !== subido.tamano || subido.entidadId !== String(c.id))) {
+                    return (await problema(route, P("adjunto_no_listo", 422, "El adjunto no está listo")), true);
+                }
+                seq = siguienteSeq(c.id);
                 const nuevo: Mensaje = {
                     id,
                     conversacionId: c.id,
                     seq,
                     direccion: accion === "notas" ? "nota" : "saliente",
-                    tipo: cuerpo.plantilla ? "plantilla" : "texto",
+                    ...(subido ? { adjunto: { id: String(cuerpo.adjuntoId), estado: "completo" as const, mime: subido.mime, tamano: subido.tamano, urlDescarga: `/api/v1/adjuntos/${String(cuerpo.adjuntoId)}` } } : {}),
+                    tipo: cuerpo.plantilla ? "plantilla" : subido ? (subido.mime === "application/pdf" ? "documento" : "imagen") : "texto",
                     texto: (cuerpo.texto as string | undefined) ?? null,
                     autor: { id: yo, nombre: agentes.find((a) => a.id === yo)?.nombre ?? "Yo" },
                     estadoEntrega: accion === "notas" ? null : "en_cola",
@@ -605,7 +619,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         return false;
     }
 
-    return { manejar, emitirEvento, flujoAbierto: () => flujosEnEspera > 0, conversaciones, mensajes, enviados, mensajeDelCliente, horarios, manuales, canales, configurados, respuestas, enlaces, consentimientos, colas, agentes, bandeja11: b11, asistente, fase3 };
+    return { manejar, emitirEvento, flujoAbierto: () => flujosEnEspera > 0, conversaciones, mensajes, enviados, etiquetas, mensajeDelCliente, horarios, manuales, canales, configurados, respuestas, enlaces, consentimientos, colas, agentes, bandeja11: b11, asistente, fase3 };
 }
 
 export type ApiConversaciones = ReturnType<typeof apiConversaciones>;

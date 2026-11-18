@@ -1,5 +1,6 @@
 "use client";
 
+import { EtiquetasEnvueltas } from "./etiquetas";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
     Aviso,
@@ -28,7 +29,7 @@ import { z } from "zod";
 import { api, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { cabeceraIdem } from "@/lib/conversaciones/api";
-import { CLASE_ETIQUETA, formatearNumero, horaLista, iniciales } from "@/lib/conversaciones/presentacion";
+import { formatearNumero, horaLista, iniciales } from "@/lib/conversaciones/presentacion";
 import type { Identidad } from "@/lib/conversaciones/sesion";
 import type { Conversacion, ConversacionDetalle } from "@/lib/conversaciones/tipos";
 import { haceCuanto } from "@/lib/fechas";
@@ -403,13 +404,7 @@ function Resumen({ conv, senalBoletas }: { conv: ConversacionDetalle; recargar: 
             </Seccion>
             <Seccion titulo="Etiquetas">
                 {(conv.etiquetas ?? []).length === 0 ? <p className="text-[0.8125rem] text-muted-foreground">Sin etiquetas (se ponen desde «⋯»).</p> : null}
-                <div className="flex flex-wrap gap-1.5">
-                    {(conv.etiquetas ?? []).map((e) => (
-                        <span key={e.id} className={cn("inline-flex h-[1.375rem] max-w-full items-center truncate rounded-md px-2 text-xs font-medium", CLASE_ETIQUETA[e.color] ?? CLASE_ETIQUETA.neutro)}>
-                            {e.nombre}
-                        </span>
-                    ))}
-                </div>
+                <EtiquetasEnvueltas etiquetas={conv.etiquetas ?? []} />
             </Seccion>
             <Seccion titulo="Atención">
                 <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[0.8125rem]">

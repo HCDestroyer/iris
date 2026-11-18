@@ -1,20 +1,20 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AreaTexto, Aviso, Boton, CampoBusqueda, Casilla, cn, GrupoSegmentado, PanelEmergente, SelectorArchivo } from "@iris/ui";
-import { AtSign, BookOpen, Clock, Send, Smile, X, Zap } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { AreaTexto, Boton, CampoBusqueda, Casilla, cn, GrupoSegmentado, MenuArchivos, PanelEmergente, VistaPreviaArchivos, type ArchivoEnVista, type OpcionArchivo } from "@iris/ui";
+import { AtSign, BookOpen, Camera, Clock, FileText, Image as IconoImagen, Send, Smile, X, Zap } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ClipboardEvent, type KeyboardEvent, type ReactNode } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { EN_OTRA_EMPRESA, esEnOtraEmpresa } from "@/lib/conversaciones/atencion";
-import { ACEPTA_ADJUNTO, motivoArchivoInvalido, subirAdjunto } from "@/lib/conversaciones/adjuntar";
+import { ACEPTA_DOCUMENTO, ACEPTA_FOTO, claseDeArchivo, MAX_ARCHIVOS, motivoArchivoInvalido, nuevaSubida, subirAdjunto, tipoLegible, type AvanceSubida } from "@/lib/conversaciones/adjuntar";
 import { cabeceraIdem, nuevoIdMensaje } from "@/lib/conversaciones/api";
 import { idTrasError } from "@/lib/conversaciones/id-envio";
 import { guardarBorrador, leerBorrador } from "@/lib/conversaciones/borradores";
 import type { Pendiente } from "@/lib/conversaciones/estado";
-import { aplicarRespuesta, textoVentana } from "@/lib/conversaciones/presentacion";
+import { aplicarRespuesta, tamanoLegible, textoVentana } from "@/lib/conversaciones/presentacion";
 import { esSesionCambiada, verificarSesion, type Identidad } from "@/lib/conversaciones/sesion";
 import type { Conversacion, Mensaje, RespuestaRapida } from "@/lib/conversaciones/tipos";
 import { useSesion } from "@/lib/sesion";
@@ -42,15 +42,45 @@ type Props = {
     registrarUsarTexto: (f: (t: string) => void) => void;
     /** «Usar» del asistente (§16.2): el texto a la caja y, al enviar, `sugerenciaId`. */
     registrarUsarSugerencia?: (f: (texto: string, sugerenciaId: string) => void) => void;
+    /** Archivos soltados sobre el hilo: pasan a la vista previa del compositor. */
+    registrarAdjuntar?: (f: (archivos: File[]) => void) => void;
     /** Junto a «Enviar» en Responder: «Sugerir» del asistente (modo `boton`). */
     accesorio?: ReactNode;
 };
 
 const EMOJIS = ["👍", "🙏", "😊", "🙂", "👋", "✅", "📶", "🔧", "📅", "⏰", "📍", "💳", "🧾", "⚠️", "❗", "🎉"];
 
-type Envio = { id: string; modo: Modo; texto: string; menciones: number[]; respuestaRapidaId: number | null; adjuntoId: string | null; sugerenciaId?: string | null };
+type Envio = { id: string; modo: Modo; texto: string; menciones: number[]; respuestaRapidaId: number | null; adjuntoId: string | null; sugerenciaId?: string | null; nombreArchivo?: string };
+
+/** Un archivo elegido, todavía sin enviar. La URL de objeto (solo fotos) se libera al quitarlo. */
+type Elegido = { id: string; archivo: File; url: string | undefined; estado: ArchivoEnVista["estado"]; mensaje: string | undefined; progreso: number; avance: AvanceSubida };
+
+const OPCIONES_ADJUNTAR: readonly OpcionArchivo[] = [
+    { clave: "fotos", etiqueta: "Fotos", icono: IconoImagen, accept: ACEPTA_FOTO, varios: true },
+    { clave: "documento", etiqueta: "Documento (PDF)", icono: FileText, accept: ACEPTA_DOCUMENTO, varios: true },
+];
+const OPCION_CAMARA: OpcionArchivo = { clave: "camara", etiqueta: "Cámara", icono: Camera, accept: ACEPTA_FOTO, camara: true };
+
+/** ¿Pantalla táctil (teléfono o tableta)? Solo ahí «Cámara» abre la cámara de verdad. */
+function useTactil(): boolean {
+    return useSyncExternalStore(
+        (avisar) => {
+            const consulta = window.matchMedia("(pointer: coarse)");
+            consulta.addEventListener("change", avisar);
+            return () => consulta.removeEventListener("change", avisar);
+        },
+        () => window.matchMedia("(pointer: coarse)").matches,
+        () => false,
+    );
+}
 
 /**
+ * Adjuntos (como WhatsApp Web): el clip abre un menú (Fotos, Documento y, en el teléfono, Cámara);
+ * también se puede pegar una imagen o soltar archivos sobre el hilo. Lo elegido no se envía solo:
+ * queda en una vista previa sobre el texto (que hace de comentario), donde se revisa, se quita y
+ * se ve qué no sirve antes de subir nada. La API admite un adjunto por mensaje: cada archivo sale
+ * en su mensaje, en orden, y el comentario va con el primero.
+ *
  * Compositor único (diseño del PM): pestañas Responder / Nota interna, tiempo que queda de la
  * ventana de 24 h, el texto, la barra de íconos (adjuntar, plantillas, respuestas rápidas, emoji)
  * y «Enviar» en tinta. Fuera de la ventana, al cliente solo se le puede mandar una plantilla
@@ -59,7 +89,7 @@ type Envio = { id: string; modo: Modo; texto: string; menciones: number[]; respu
  * Antes de guardar un borrador o de enviar, se comprueba con `GET /yo` que la sesión del navegador
  * sigue siendo la de quien está en pantalla: si cambió, nada sale (ver `lib/conversaciones/sesion`).
  */
-export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, alReenvio, alActualizar, recargar, abrirAyuda, registrarReintento, registrarUsarTexto, registrarUsarSugerencia, accesorio }: Props) {
+export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, alReenvio, alActualizar, recargar, abrirAyuda, registrarReintento, registrarUsarTexto, registrarUsarSugerencia, registrarAdjuntar, accesorio }: Props) {
     const { puede } = useSesion();
     const { respuestas, agentes } = useCatalogos();
     const [modo, setModo] = useState<Modo>("responder");
@@ -70,7 +100,11 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
     const [sugerenciaId, setSugerenciaId] = useState<string | null>(null);
     const [menciones, setMenciones] = useState<number[]>([]);
     const [error, setError] = useState<string | null>(null);
-    const [subiendo, setSubiendo] = useState<string | null>(null);
+    const [elegidos, setElegidos] = useState<Elegido[]>([]);
+    const elegidosAhora = useRef<Elegido[]>([]);
+    const [enviandoArchivos, setEnviandoArchivos] = useState(false);
+    const enviandoAhora = useRef(false);
+    const tactil = useTactil();
     const campo = useRef<HTMLTextAreaElement | null>(null);
     const ventana = textoVentana(conv.ventana, ahora);
     const cerrada = ventana === null;
@@ -100,8 +134,9 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
         return () => clearTimeout(t);
     }, [verificada, identidad, conv.id, modo, texto]);
 
-    async function mandar(e: Envio): Promise<void> {
-        const pendiente: Pendiente = { id: e.id, modo: e.modo, texto: e.texto || (e.adjuntoId ? "Archivo adjunto" : ""), creadoEn: new Date().toISOString(), error: null };
+    /** Manda el mensaje; `false` si quedó como pendiente con error (se reintenta desde el hilo). */
+    async function mandar(e: Envio): Promise<boolean> {
+        const pendiente: Pendiente = { id: e.id, modo: e.modo, texto: e.texto || (e.adjuntoId ? (e.nombreArchivo ? `Archivo: ${e.nombreArchivo}` : "Archivo adjunto") : ""), creadoEn: new Date().toISOString(), error: null };
         alPendiente(pendiente);
         try {
             await verificarSesion(identidad);
@@ -128,6 +163,7 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
             // 200 sin cuerpo (reenvío de un id que el servidor ya tenía): se relee el hilo.
             if (m) alConfirmado(m);
             else alReenvio();
+            return true;
         } catch (err) {
             // La sugerencia venció entre «Usar» y «Enviar»: el mensaje sale igual, sin ella.
             if (err instanceof ErrorApi && err.codigo === "sugerencia_no_vigente" && e.sugerenciaId) {
@@ -157,6 +193,7 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                 alPendiente({ ...pendiente, id, error: texto, definitivo }, e.id);
             }
             if (err instanceof ErrorApi && (err.codigo === "fuera_de_ventana" || err.estado === 409)) void recargar();
+            return false;
         }
     }
 
@@ -174,6 +211,7 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
             form.setValue("texto", actual ? `${actual}\n\n${t}` : t, { shouldDirty: true });
             campo.current?.focus();
         });
+        registrarAdjuntar?.(agregarArchivos);
         registrarUsarSugerencia?.((t, id) => {
             setModo("responder");
             const actual = form.getValues("texto").trim();
@@ -185,11 +223,15 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
 
     function enviar() {
         const limpio = form.getValues("texto").trim();
-        if (!limpio) return;
         if (limpio.length > 4096) {
             form.setError("texto", { message: "Hasta 4096 caracteres (límite de WhatsApp)." });
             return;
         }
+        if (modo === "responder" && elegidosAhora.current.some((x) => x.estado !== "invalido")) {
+            void enviarArchivos();
+            return;
+        }
+        if (!limpio) return;
         const e: Envio = {
             id: nuevoIdMensaje(),
             modo,
@@ -209,27 +251,101 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
         void mandar(e);
     }
 
-    async function adjuntar(archivo: File) {
-        const motivo = motivoArchivoInvalido(archivo);
-        if (motivo) {
-            setError(motivo);
+    /** Cambia la lista de elegidos (el estado y su copia al día, que usa el envío en curso). */
+    function cambiarElegidos(f: (lista: Elegido[]) => Elegido[]) {
+        elegidosAhora.current = f(elegidosAhora.current);
+        setElegidos(elegidosAhora.current);
+    }
+    const actualizarElegido = (id: string, cambios: Partial<Elegido>) => cambiarElegidos((l) => l.map((x) => (x.id === id ? { ...x, ...cambios } : x)));
+
+    function quitarElegido(id: string) {
+        const url = elegidosAhora.current.find((x) => x.id === id)?.url;
+        if (url) URL.revokeObjectURL(url);
+        cambiarElegidos((l) => l.filter((x) => x.id !== id));
+    }
+    // Al cerrar la conversación se liberan las vistas previas que quedaron.
+    useEffect(
+        () => () => {
+            for (const x of elegidosAhora.current) if (x.url) URL.revokeObjectURL(x.url);
+        },
+        [],
+    );
+
+    /** Del menú, del portapapeles o soltados sobre el hilo: a la vista previa, sin subir nada todavía. */
+    function agregarArchivos(archivos: File[]) {
+        if (archivos.length === 0) return;
+        if (cerrada) {
+            setError("Con la ventana de 24 h cerrada solo se puede mandar una plantilla, no archivos.");
             return;
         }
+        setModo("responder");
+        const caben = Math.max(0, MAX_ARCHIVOS - elegidosAhora.current.length);
+        setError(archivos.length > caben ? `Hasta ${MAX_ARCHIVOS} archivos por vez: ${archivos.length - caben === 1 ? "quedó fuera 1" : `quedaron fuera ${archivos.length - caben}`}.` : null);
+        const nuevos = archivos.slice(0, caben).map((archivo): Elegido => {
+            const motivo = motivoArchivoInvalido(archivo);
+            // Solo los mapas de bits que se pueden enviar se muestran como imagen (un SVG o un HTML, nunca).
+            const url = !motivo && claseDeArchivo(archivo.type) === "imagen" ? URL.createObjectURL(archivo) : undefined;
+            return { id: nuevoIdMensaje(), archivo, url, estado: motivo ? "invalido" : "listo", mensaje: motivo ?? undefined, progreso: 0, avance: nuevaSubida() };
+        });
+        cambiarElegidos((l) => [...l, ...nuevos]);
+        campo.current?.focus();
+    }
+
+    /**
+     * Sube y envía lo elegido, de uno en uno y en orden (un adjunto por mensaje). El comentario va
+     * con el primero. Si uno falla al subir, se detiene ahí con «Reintentar»: lo ya subido no se repite.
+     */
+    async function enviarArchivos() {
+        if (enviandoAhora.current) return;
+        enviandoAhora.current = true;
+        setEnviandoArchivos(true);
         setError(null);
-        setSubiendo(archivo.name);
         try {
             await verificarSesion(identidad);
-            const adjuntoId = await subirAdjunto(archivo, conv.id);
-            const pie = form.getValues("texto").trim();
-            const e: Envio = { id: nuevoIdMensaje(), modo: "responder", texto: pie, menciones: [], respuestaRapidaId: null, adjuntoId };
-            envios.current.set(e.id, e);
-            form.reset({ texto: "" });
-            void mandar(e);
+            for (const id of elegidosAhora.current.filter((x) => x.estado !== "invalido").map((x) => x.id)) {
+                const actual = elegidosAhora.current.find((x) => x.id === id);
+                if (!actual) continue;
+                actualizarElegido(id, { estado: "subiendo", mensaje: undefined });
+                let adjuntoId: string;
+                try {
+                    adjuntoId = await subirAdjunto(actual.archivo, conv.id, { avance: actual.avance, alAvanzar: (progreso) => actualizarElegido(id, { progreso }) });
+                } catch (err) {
+                    actualizarElegido(id, { estado: "error", mensaje: esSesionCambiada(err) ? "La sesión de este navegador cambió: no se subió." : `No se pudo subir: ${mensajeDeError(err).titulo}` });
+                    return;
+                }
+                actualizarElegido(id, { estado: "enviando", progreso: 1 });
+                const comentario = form.getValues("texto").trim();
+                const e: Envio = { id: nuevoIdMensaje(), modo: "responder", texto: comentario, menciones: [], respuestaRapidaId: null, adjuntoId, nombreArchivo: actual.archivo.name };
+                envios.current.set(e.id, e);
+                if (comentario) {
+                    form.reset({ texto: "" });
+                    guardarBorrador(identidad, conv.id, "responder", "");
+                    setRespuestaId(null);
+                    setSugerenciaId(null);
+                }
+                const enviado = await mandar(e);
+                // Ya está en el hilo (enviado, o pendiente con su «Reintentar»).
+                quitarElegido(id);
+                if (!enviado) {
+                    if (elegidosAhora.current.some((x) => x.estado !== "invalido")) setError("Un archivo no se envió: reinténtalo en el hilo. Los demás siguen aquí; pulsa Enviar para continuar.");
+                    return;
+                }
+            }
         } catch (err) {
-            setError(esSesionCambiada(err) ? "La sesión de este navegador cambió: no se subió el archivo." : `No se pudo subir «${archivo.name}»: ${mensajeDeError(err).titulo}`);
+            setError(esSesionCambiada(err) ? "La sesión de este navegador cambió: no se subió nada." : `No se pudo enviar: ${mensajeDeError(err).titulo}`);
+            cambiarElegidos((l) => l.map((x) => (x.estado === "subiendo" || x.estado === "enviando" ? { ...x, estado: "listo" } : x)));
         } finally {
-            setSubiendo(null);
+            enviandoAhora.current = false;
+            setEnviandoArchivos(false);
         }
+    }
+
+    /** Pegar una imagen (o un archivo) del portapapeles: a la vista previa. El texto se pega como siempre. */
+    function alPegar(e: ClipboardEvent<HTMLTextAreaElement>) {
+        const archivos = [...e.clipboardData.files];
+        if (archivos.length === 0) return;
+        e.preventDefault();
+        agregarArchivos(archivos);
     }
 
     function alTeclear(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -253,6 +369,18 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
     );
     const candidatos = agentes.estado === "listo" ? agentesDeCola(agentes.datos, conv.cola?.id).filter((a) => a.id !== identidad.usuarioId) : [];
     const soloPlantilla = modo === "responder" && cerrada;
+    const porEnviar = modo === "responder" ? elegidos : [];
+    const validos = porEnviar.filter((x) => x.estado !== "invalido").length;
+    const enVista: ArchivoEnVista[] = porEnviar.map((x) => ({
+        id: x.id,
+        nombre: x.archivo.name || "Imagen pegada",
+        detalle: `${tipoLegible(x.archivo)} · ${tamanoLegible(x.archivo.size)}`,
+        clase: claseDeArchivo(x.archivo.type),
+        url: x.url,
+        estado: x.estado,
+        mensaje: x.mensaje,
+        progreso: x.progreso,
+    }));
     // Borrar todo el texto suelta la sugerencia: lo que se escriba después ya no sale de ella.
     const { ref: refCampo, ...registro } = form.register("texto", { onChange: (e: { target: { value: string } }) => !e.target.value.trim() && setSugerenciaId(null) });
 
@@ -318,6 +446,11 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                                 })}
                             </div>
                         ) : null}
+                        {porEnviar.length > 0 ? (
+                            <VistaPreviaArchivos etiqueta="Archivos por enviar" archivos={enVista} alQuitar={quitarElegido} alReintentar={() => void enviarArchivos()} className="px-2 pt-2">
+                                {validos > 1 ? <p className="px-1 text-xs text-muted-foreground">Cada archivo sale en su propio mensaje, en este orden. El comentario va con el primero.</p> : null}
+                            </VistaPreviaArchivos>
+                        ) : null}
                         <label className="sr-only" htmlFor={`compositor-${conv.id}`}>
                             {modo === "nota" ? "Nota interna (solo la ve el equipo)" : `Mensaje para ${conv.titulo}`}
                         </label>
@@ -325,9 +458,10 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                             id={`compositor-${conv.id}`}
                             rows={2}
                             maxLength={4096}
-                            placeholder={modo === "nota" ? "Nota para el equipo; el cliente no la ve" : "Escribe un mensaje"}
-                            className="block max-h-40 min-h-11 w-full resize-none rounded-none border-0 bg-transparent px-3 pt-2 pb-1 text-sm leading-relaxed shadow-none outline-none [field-sizing:content] focus:ring-0 focus-visible:ring-0 sm:text-sm"
+                            placeholder={modo === "nota" ? "Nota para el equipo; el cliente no la ve" : validos > 0 ? "Comentario (opcional)" : "Escribe un mensaje"}
+                            className="block max-h-40 min-h-11 w-full min-w-0 resize-none rounded-none border-0 bg-transparent px-3 pt-2 pb-1 text-sm leading-relaxed [overflow-wrap:anywhere] shadow-none outline-none [field-sizing:content] focus:ring-0 focus-visible:ring-0 sm:text-sm"
                             onKeyDown={alTeclear}
+                            onPaste={alPegar}
                             aria-invalid={form.formState.errors.texto ? true : undefined}
                             {...registro}
                             ref={(el) => {
@@ -342,10 +476,16 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                         {form.formState.errors.texto?.message ?? error}
                     </p>
                 ) : null}
-                <div className="flex min-w-0 items-center gap-0.5 px-1.5 pt-0.5 pb-1.5">
+                <div className="flex min-w-0 flex-wrap items-center gap-0.5 px-1.5 pt-0.5 pb-1.5" data-slot="barra-compositor">
                     {modo === "responder" ? (
                         <>
-                            <SelectorArchivo etiqueta={subiendo ? `Subiendo ${subiendo}…` : "Adjuntar foto o PDF"} accept={ACEPTA_ADJUNTO} alElegir={adjuntar} disabled={cerrada || subiendo !== null} className="text-muted-foreground" />
+                            <MenuArchivos
+                                etiqueta="Adjuntar"
+                                opciones={tactil ? [...OPCIONES_ADJUNTAR, OPCION_CAMARA] : OPCIONES_ADJUNTAR}
+                                alElegir={agregarArchivos}
+                                disabled={cerrada || enviandoArchivos || elegidos.length >= MAX_ARCHIVOS}
+                                className="text-muted-foreground"
+                            />
                             {puede(["manuales.ver"]) ? (
                                 <Boton variante="fantasma" tamano="icono-sm" className="text-muted-foreground" aria-label="Manuales" title="Manuales" onClick={abrirAyuda}>
                                     <BookOpen />
@@ -360,18 +500,13 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                     )}
                     {soloPlantilla ? null : <MenuEmoji alElegir={(e) => form.setValue("texto", `${form.getValues("texto")}${e}`, { shouldDirty: true })} />}
                     {soloPlantilla ? null : (
-                        <Boton variante="tinta" tamano="sm" className="ml-auto h-8 rounded-lg px-3" onClick={enviar} disabled={!texto.trim()} title="Enviar (Enter)">
+                        <Boton variante="tinta" tamano="sm" className="ml-auto h-8 rounded-lg px-3" onClick={enviar} disabled={enviandoArchivos || (!texto.trim() && validos === 0)} title="Enviar (Enter)">
                             {modo === "nota" ? "Guardar nota" : "Enviar"}
                             <Send />
                         </Boton>
                     )}
                 </div>
             </div>
-            {subiendo ? (
-                <Aviso tono="info" titulo={`Subiendo «${subiendo}»…`} className="mt-2">
-                    Se enviará al terminar.
-                </Aviso>
-            ) : null}
         </div>
     );
 }
