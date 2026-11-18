@@ -49053,6 +49053,20 @@
       "get": {
         "description": "Permiso: `conversaciones.registrar_boleta`.",
         "operationId": "cuentasBancariasConversaciones",
+        "parameters": [
+          {
+            "description": "La conversación de la boleta: lista las cuentas de la empresa de esa conversación (la misma contra la que se valida al registrar). Sin él, las de la empresa activa",
+            "explode": false,
+            "in": "query",
+            "name": "conversacionId",
+            "schema": {
+              "description": "La conversación de la boleta: lista las cuentas de la empresa de esa conversación (la misma contra la que se valida al registrar). Sin él, las de la empresa activa",
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -49083,6 +49097,16 @@
               }
             },
             "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
           },
           "422": {
             "content": {
@@ -53156,7 +53180,7 @@
     },
     "/api/v1/mensajeria/conversaciones/{id}/promesas": {
       "post": {
-        "description": "Permiso: `conversaciones.registrar_promesa`. Argos decide (activa, rechazada o pendiente_aprobacion) y la respuesta lo dice. 409 `promesa_abierta`; 503 si Argos no responde (nada queda a medias).",
+        "description": "Permiso: `conversaciones.registrar_promesa`. Argos decide (activa, rechazada o pendiente_aprobacion) y la respuesta lo dice. 409 `promesa_abierta`, `idempotencia_en_curso`, `promesa_ya_enviada`; 422 `servicio_retirado`, `sin_plantilla_facturacion`, `servicio_sin_instalar`, `promesa_fecha_invalida`, `promesa_no_permitida`; 502 `argos_promesa_integracion`; 503 si Argos no responde (nada queda a medias).",
         "operationId": "registrarPromesaConversacion",
         "parameters": [
           {
@@ -53269,7 +53293,7 @@
     },
     "/api/v1/mensajeria/conversaciones/{id}/promesas/simular": {
       "post": {
-        "description": "Permiso: `conversaciones.registrar_promesa`.",
+        "description": "Permiso: `conversaciones.registrar_promesa`. Los rechazos de Argos salen en llano, como al pedirla: 409 `promesa_abierta`; 422 `servicio_retirado`, `sin_plantilla_facturacion`, `servicio_sin_instalar`, `promesa_fecha_invalida`, `promesa_no_permitida`; 502 `argos_promesa_integracion`.",
         "operationId": "simularPromesaConversacion",
         "parameters": [
           {

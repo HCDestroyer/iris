@@ -15,7 +15,7 @@ import (
 
 const boletaPorID = `-- name: BoletaPorID :one
 
-SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente FROM mensajeria.boletas WHERE id = $1
+SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente, cuenta_validacion FROM mensajeria.boletas WHERE id = $1
 `
 
 // Boletas: aprobar y rechazar desde la conversación (contrato con Argos 0.7.0 §7.7, pedido B3).
@@ -59,12 +59,13 @@ func (q *Queries) BoletaPorID(ctx context.Context, id uuid.UUID) (MensajeriaBole
 		&i.ResolucionError,
 		&i.ResolucionAgotadaEn,
 		&i.PorAsistente,
+		&i.CuentaValidacion,
 	)
 	return i, err
 }
 
 const boletasDeConversacion = `-- name: BoletasDeConversacion :many
-SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente FROM mensajeria.boletas WHERE conversacion_id = $1 ORDER BY created_at, id
+SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente, cuenta_validacion FROM mensajeria.boletas WHERE conversacion_id = $1 ORDER BY created_at, id
 `
 
 func (q *Queries) BoletasDeConversacion(ctx context.Context, conversacionID int64) ([]MensajeriaBoleta, error) {
@@ -113,6 +114,7 @@ func (q *Queries) BoletasDeConversacion(ctx context.Context, conversacionID int6
 			&i.ResolucionError,
 			&i.ResolucionAgotadaEn,
 			&i.PorAsistente,
+			&i.CuentaValidacion,
 		); err != nil {
 			return nil, err
 		}
@@ -157,7 +159,7 @@ SET decidida_por = COALESCE(decidida_por, $1),
     pago_id = COALESCE(pago_id, $3), resolucion = NULL, resolucion_en = NULL, resolucion_proximo = NULL,
     resolucion_intentos = 0, resolucion_error = NULL, resolucion_agotada_en = NULL, updated_at = now()
 WHERE id = $4
-RETURNING id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente
+RETURNING id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente, cuenta_validacion
 `
 
 type CompletarDecisionBoletaParams struct {
@@ -213,6 +215,7 @@ func (q *Queries) CompletarDecisionBoleta(ctx context.Context, arg CompletarDeci
 		&i.ResolucionError,
 		&i.ResolucionAgotadaEn,
 		&i.PorAsistente,
+		&i.CuentaValidacion,
 	)
 	return i, err
 }
@@ -268,7 +271,7 @@ UPDATE mensajeria.boletas
 SET resolucion_intentos = resolucion_intentos + 1, resolucion_error = $1, resolucion_proximo = $2,
     resolucion_agotada_en = $3, updated_at = now()
 WHERE id = $4
-RETURNING id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente
+RETURNING id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente, cuenta_validacion
 `
 
 type ReintentarResolucionBoletaParams struct {
@@ -324,6 +327,7 @@ func (q *Queries) ReintentarResolucionBoleta(ctx context.Context, arg Reintentar
 		&i.ResolucionError,
 		&i.ResolucionAgotadaEn,
 		&i.PorAsistente,
+		&i.CuentaValidacion,
 	)
 	return i, err
 }
@@ -336,7 +340,7 @@ SET estado = $1, decidida_en = $2, decidida_por = $3, pago_id = $4,
     aviso_mensaje_id = $9, resolucion = NULL, resolucion_en = NULL, resolucion_proximo = NULL,
     resolucion_intentos = 0, resolucion_error = NULL, resolucion_agotada_en = NULL, updated_at = now()
 WHERE id = $10
-RETURNING id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente
+RETURNING id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente, cuenta_validacion
 `
 
 type ResolverBoletaParams struct {
@@ -405,6 +409,7 @@ func (q *Queries) ResolverBoleta(ctx context.Context, arg ResolverBoletaParams) 
 		&i.ResolucionError,
 		&i.ResolucionAgotadaEn,
 		&i.PorAsistente,
+		&i.CuentaValidacion,
 	)
 	return i, err
 }

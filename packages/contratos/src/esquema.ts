@@ -3876,7 +3876,7 @@ export interface paths {
         put?: never;
         /**
          * Pedir a Argos una promesa de pago
-         * @description Permiso: `conversaciones.registrar_promesa`. Argos decide (activa, rechazada o pendiente_aprobacion) y la respuesta lo dice. 409 `promesa_abierta`; 503 si Argos no responde (nada queda a medias).
+         * @description Permiso: `conversaciones.registrar_promesa`. Argos decide (activa, rechazada o pendiente_aprobacion) y la respuesta lo dice. 409 `promesa_abierta`, `idempotencia_en_curso`, `promesa_ya_enviada`; 422 `servicio_retirado`, `sin_plantilla_facturacion`, `servicio_sin_instalar`, `promesa_fecha_invalida`, `promesa_no_permitida`; 502 `argos_promesa_integracion`; 503 si Argos no responde (nada queda a medias).
          */
         post: operations["registrarPromesaConversacion"];
         delete?: never;
@@ -3896,7 +3896,7 @@ export interface paths {
         put?: never;
         /**
          * Política de Argos para una promesa (sin crear nada)
-         * @description Permiso: `conversaciones.registrar_promesa`.
+         * @description Permiso: `conversaciones.registrar_promesa`. Los rechazos de Argos salen en llano, como al pedirla: 409 `promesa_abierta`; 422 `servicio_retirado`, `sin_plantilla_facturacion`, `servicio_sin_instalar`, `promesa_fecha_invalida`, `promesa_no_permitida`; 502 `argos_promesa_integracion`.
          */
         post: operations["simularPromesaConversacion"];
         delete?: never;
@@ -31224,7 +31224,10 @@ export interface operations {
     };
     cuentasBancariasConversaciones: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description La conversación de la boleta: lista las cuentas de la empresa de esa conversación (la misma contra la que se valida al registrar). Sin él, las de la empresa activa */
+                conversacionId?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -31251,6 +31254,15 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
