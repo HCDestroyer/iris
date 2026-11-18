@@ -472,7 +472,7 @@ func (q *Queries) BuscarContactosIris(ctx context.Context, arg BuscarContactosIr
 }
 
 const canalActivoPorPhoneNumber = `-- name: CanalActivoPorPhoneNumber :one
-SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en, tipo_conexion, coexistencia, conectado_en, desconectado_en, desconectado_motivo, ultimo_eco_en, sincronizacion FROM mensajeria.canales WHERE phone_number_id = $1 AND activo
+SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en, tipo_conexion, coexistencia, conectado_en, desconectado_en, desconectado_motivo, ultimo_eco_en, sincronizacion, rechazado_por_envio FROM mensajeria.canales WHERE phone_number_id = $1 AND activo
 `
 
 func (q *Queries) CanalActivoPorPhoneNumber(ctx context.Context, phoneNumberID string) (MensajeriaCanal, error) {
@@ -516,6 +516,7 @@ func (q *Queries) CanalActivoPorPhoneNumber(ctx context.Context, phoneNumberID s
 		&i.DesconectadoMotivo,
 		&i.UltimoEcoEn,
 		&i.Sincronizacion,
+		&i.RechazadoPorEnvio,
 	)
 	return i, err
 }
@@ -523,7 +524,7 @@ func (q *Queries) CanalActivoPorPhoneNumber(ctx context.Context, phoneNumberID s
 const canalAvisosDeEmpresa = `-- name: CanalAvisosDeEmpresa :one
 
 
-SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en, tipo_conexion, coexistencia, conectado_en, desconectado_en, desconectado_motivo, ultimo_eco_en, sincronizacion FROM mensajeria.canales
+SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en, tipo_conexion, coexistencia, conectado_en, desconectado_en, desconectado_motivo, ultimo_eco_en, sincronizacion, rechazado_por_envio FROM mensajeria.canales
 WHERE coalesce(empresa_id, 0) = $1::bigint AND canal = $2 AND activo AND avisos_empresa AND desconectado_en IS NULL
 `
 
@@ -576,12 +577,13 @@ func (q *Queries) CanalAvisosDeEmpresa(ctx context.Context, arg CanalAvisosDeEmp
 		&i.DesconectadoMotivo,
 		&i.UltimoEcoEn,
 		&i.Sincronizacion,
+		&i.RechazadoPorEnvio,
 	)
 	return i, err
 }
 
 const canalesDeEmpresa = `-- name: CanalesDeEmpresa :many
-SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en, tipo_conexion, coexistencia, conectado_en, desconectado_en, desconectado_motivo, ultimo_eco_en, sincronizacion FROM mensajeria.canales WHERE coalesce(empresa_id, 0) = $1::bigint ORDER BY NOT activo, lower(nombre), id
+SELECT id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en, tipo_conexion, coexistencia, conectado_en, desconectado_en, desconectado_motivo, ultimo_eco_en, sincronizacion, rechazado_por_envio FROM mensajeria.canales WHERE coalesce(empresa_id, 0) = $1::bigint ORDER BY NOT activo, lower(nombre), id
 `
 
 func (q *Queries) CanalesDeEmpresa(ctx context.Context, empresa int64) ([]MensajeriaCanal, error) {
@@ -631,6 +633,7 @@ func (q *Queries) CanalesDeEmpresa(ctx context.Context, empresa int64) ([]Mensaj
 			&i.DesconectadoMotivo,
 			&i.UltimoEcoEn,
 			&i.Sincronizacion,
+			&i.RechazadoPorEnvio,
 		); err != nil {
 			return nil, err
 		}
@@ -840,7 +843,7 @@ const configurarCanal = `-- name: ConfigurarCanal :one
 UPDATE mensajeria.canales
 SET usos = $1::text[], avisos_empresa = $2, cola_id = $3, version = version + 1, updated_at = now()
 WHERE id = $4
-RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en, tipo_conexion, coexistencia, conectado_en, desconectado_en, desconectado_motivo, ultimo_eco_en, sincronizacion
+RETURNING id, empresa_id, tipo, canal, nombre, numero, phone_number_id, waba_id, credenciales_cifradas, plantillas, pausado_hasta, activo, creado_por, version, created_at, updated_at, usos, avisos_empresa, cola_id, horario_id, fuera_horario, bot, ultima_prueba_en, ultimo_estado, ultimo_detalle, webhook_verificado_en, ultimo_mensaje_en, token_guardado_en, app_secret_guardado_en, verify_token_guardado_en, tipo_conexion, coexistencia, conectado_en, desconectado_en, desconectado_motivo, ultimo_eco_en, sincronizacion, rechazado_por_envio
 `
 
 type ConfigurarCanalParams struct {
@@ -896,6 +899,7 @@ func (q *Queries) ConfigurarCanal(ctx context.Context, arg ConfigurarCanalParams
 		&i.DesconectadoMotivo,
 		&i.UltimoEcoEn,
 		&i.Sincronizacion,
+		&i.RechazadoPorEnvio,
 	)
 	return i, err
 }

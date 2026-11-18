@@ -1274,6 +1274,7 @@ type MensajeriaCanale struct {
 	DesconectadoMotivo    *string
 	UltimoEcoEn           *time.Time
 	Sincronizacion        []byte
+	RechazadoPorEnvio     bool
 }
 
 type MensajeriaChatConversacione struct {

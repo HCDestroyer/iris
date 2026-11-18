@@ -201,7 +201,7 @@ Argos; `iris`: cualquier otro). Fechas en UTC (RFC 3339).
 | `canal_mensajeria.actualizado` | `canal_id`, `empresa_id`, `campos[]` (las credenciales cambiadas van como `credenciales`, nunca el valor) | `POST /mensajeria/canales/{id}/actualizar`. |
 | `canal_mensajeria.activado` / `canal_mensajeria.desactivado` | `canal_id`, `empresa_id` | `POST /mensajeria/canales/{id}/activar` / `desactivar`. |
 | `canal_mensajeria.calidad` | `canal_id`, `evento` (de Meta: `FLAGGED`, `UNFLAGGED`, `DOWNGRADE`, `UPGRADE`), `pausado_hasta` (o null) | Meta cambia la calidad del número: se pausa 24 h o se libera (§6.5). |
-| `canal_mensajeria.probado` | `canal_id`, `empresa_id` (o null), `estado` (`conectado`, `token_invalido`, `numero_no_coincide`, `sin_permiso`, `error_meta`), `origen` (`envio`; ausente = la prueba) | `POST /mensajeria/canales/{id}/probar` (contratos/conversaciones.md §1.1). Con `origen: envio`: Meta rechazó el token o los permisos al enviar y el número quedó marcado (una vez por cambio de estado). Nunca credenciales ni el detalle de Meta. |
+| `canal_mensajeria.probado` | `canal_id`, `empresa_id` (o null), `estado` (`conectado`, `token_invalido`, `numero_no_coincide`, `sin_permiso`, `error_meta`), `origen` (`envio`; ausente = la prueba) | `POST /mensajeria/canales/{id}/probar` (contratos/conversaciones.md §1.1). Con `origen: envio`: Meta rechazó el token o los permisos al enviar y el número quedó marcado, o aceptó un envío después y volvió a `conectado` (una vez por cambio de estado). Nunca credenciales ni el detalle de Meta. |
 
 **Webhooks hacia Argos (§6.6, 0.6.1).** El suscriptor `mensajeria.webhooks` del relay toma
 `aviso.entregado`, `aviso.fallido` (solo `origen = argos`) y `contacto.baja`, y los entrega como

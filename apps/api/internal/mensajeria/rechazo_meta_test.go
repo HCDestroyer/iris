@@ -213,6 +213,100 @@ func TestRechazoDeMetaNoMarcaPorOtrosErrores(t *testing.T) {
 	}
 }
 
+// TestRechazoDeMeta403QueNoEsDePermiso: un 403 cuyo código no es de permiso (130497: país
+// restringido para la cuenta) depende del destinatario, no del token: el mensaje falla como
+// rechazado_por_canal y el número no cambia de estado.
+func TestRechazoDeMeta403QueNoEsDePermiso(t *testing.T) {
+	for _, codigo := range []int{130497, 131031} {
+		b := nuevaBandeja(t, nil)
+		admin := b.persona([]int64{1}, rolBase("admin"))
+		admin.empresa = 1
+		num := numeroCliente()
+		b.texto(num, "wamid.in."+num, "Hola")
+		conv := cid(b.conv(num))
+		antes := b.conexionCanal(admin)
+		b.meta.rechazar(http.StatusForbidden, codigo, 0)
+		id := b.responderYProcesar(conv, "Hola, ¿en qué le ayudamos?")
+		b.meta.rechazar(0, 0, 0)
+		m := mensajePorID(b.mensajes(admin, conv), id)
+		cf, _ := m["codigoFalla"].(map[string]any)
+		if m["estadoEntrega"] != "fallido" || m["motivoFalla"] != "rechazado_por_canal" || cf == nil || cf["codigo"] != float64(codigo) || cf["status"] != float64(http.StatusForbidden) {
+			t.Fatalf("403 con %d: %v", codigo, m)
+		}
+		if got := b.conexionCanal(admin); got != antes || len(b.probados()) != 0 {
+			t.Fatalf("403 con %d no marca el número: %s → %s, %v", codigo, antes, got, b.probados())
+		}
+		if n := b.contar(`SELECT count(*) FROM mensajeria.canales WHERE id = $1 AND (ultimo_estado IS NOT NULL OR rechazado_por_envio)`, b.canal.ID); n != 0 {
+			t.Fatalf("403 con %d dejó marca en el número", codigo)
+		}
+	}
+}
+
+// TestRechazoDeMetaSeLimpiaConUnEnvioAceptado: tras un rechazo real del token (401/190), el primer
+// envío que Meta acepta devuelve el número a conectado con un solo evento; los siguientes, nada.
+// Lo que dijo «Probar» no lo toca un envío.
+func TestRechazoDeMetaSeLimpiaConUnEnvioAceptado(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	admin := b.persona([]int64{1}, rolBase("admin"))
+	admin.empresa = 1
+	num := numeroCliente()
+	b.texto(num, "wamid.in."+num, "No tengo internet")
+	conv := cid(b.conv(num))
+	// Con el webhook verificado, «conectado» se ve tal cual.
+	if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.canales SET webhook_verificado_en = now() WHERE id = $1`, b.canal.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	b.meta.rechazar(http.StatusUnauthorized, 190, 463)
+	b.responderYProcesar(conv, "Ya lo revisamos.")
+	b.responderYProcesar(conv, "¿Sigue sin servicio?")
+	b.meta.rechazar(0, 0, 0)
+	if got := b.conexionCanal(admin); got != "token_invalido" {
+		t.Fatalf("tras el rechazo: %s", got)
+	}
+
+	ok1 := b.responderYProcesar(conv, "Listo, ya debería funcionar.")
+	b.responderYProcesar(conv, "Cualquier cosa nos escribe.")
+	b.responderYProcesar(conv, "Buen día.")
+	if m := mensajePorID(b.mensajes(admin, conv), ok1); m["estadoEntrega"] != "enviado" {
+		t.Fatalf("el envío aceptado: %v", m)
+	}
+	if got := b.conexionCanal(admin); got != "conectado" {
+		t.Fatalf("tras un envío aceptado: %s", got)
+	}
+	ev := b.probados()
+	if len(ev) != 2 || ev[0]["estado"] != "token_invalido" || ev[1]["estado"] != "conectado" || ev[1]["origen"] != "envio" || len(ev[1]) != 4 {
+		t.Fatalf("un evento por cambio de estado: %v", ev)
+	}
+	if n := b.contar(`SELECT count(*) FROM mensajeria.canales WHERE id = $1 AND ultimo_detalle IS NULL AND NOT rechazado_por_envio`, b.canal.ID); n != 1 {
+		t.Fatal("la marca debía quedar limpia")
+	}
+
+	// Lo que puso «Probar» (aquí, a mano: sin_permiso al leer el número) no lo limpia un envío.
+	if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.canales SET ultimo_estado = 'sin_permiso', ultimo_detalle = 'de la prueba', rechazado_por_envio = false WHERE id = $1`, b.canal.ID); err != nil {
+		t.Fatal(err)
+	}
+	b.responderYProcesar(conv, "Seguimos atentos.")
+	if got := b.conexionCanal(admin); got != "sin_permiso" || len(b.probados()) != 2 {
+		t.Fatalf("un envío no pisa lo que dijo «Probar»: %s, %v", got, b.probados())
+	}
+	// Y si «Probar» ya decía token_invalido, un envío rechazado por lo mismo no repite el evento,
+	// pero el siguiente aceptado sí lo limpia.
+	if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.canales SET ultimo_estado = 'token_invalido' WHERE id = $1`, b.canal.ID); err != nil {
+		t.Fatal(err)
+	}
+	b.meta.rechazar(http.StatusUnauthorized, 190, 0)
+	b.responderYProcesar(conv, "Otra vez.")
+	b.meta.rechazar(0, 0, 0)
+	if len(b.probados()) != 2 {
+		t.Fatalf("mismo estado, sin evento: %v", b.probados())
+	}
+	b.responderYProcesar(conv, "Y ahora sí.")
+	if got := b.conexionCanal(admin); got != "conectado" || len(b.probados()) != 3 {
+		t.Fatalf("limpieza tras coincidir con la prueba: %s, %v", got, b.probados())
+	}
+}
+
 // TestLlamadasRechazadasConLasLlamadasApagadas: una entrante a un número con las llamadas apagadas
 // en Iris se rechaza y queda a la vista en la pantalla de llamadas del número (cuándo la última y
 // cuántas hoy), sin nada de quien llamó.

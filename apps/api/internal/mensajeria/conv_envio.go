@@ -702,6 +702,9 @@ func nuevoRegistrarMensaje(m *Modulo) *auditoria.Caso[entradaRegistrarMensaje, r
 				if _, err := q.MarcarEnvioMensaje(ctx, p); err != nil {
 					return registrado{}, err
 				}
+				if err := m.limpiarRechazoCanal(ctx, t, c.CanalID); err != nil {
+					return registrado{}, err
+				}
 				return registrado{Cambio: true}, m.emitirEventoConv(ctx, t, c, EventoConvMensajeActualizad, &f.ID, nil)
 			case e != nil && e.Pausar:
 				hasta := ahora.Add(time.Hour)

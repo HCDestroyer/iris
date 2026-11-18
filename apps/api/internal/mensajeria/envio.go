@@ -148,6 +148,11 @@ func nuevoRegistrarEnvio(m *Modulo) *auditoria.Caso[entradaRegistrar, registrado
 				if err := t.Emitir("aviso.enviado", map[string]any{"aviso_id": f.ID, "canal": f.Canal, "canal_id": f.CanalID, "origen": f.Origen}); err != nil {
 					return registrado{}, err
 				}
+				if f.CanalID != nil {
+					if err := m.limpiarRechazoCanal(ctx, t, *f.CanalID); err != nil {
+						return registrado{}, err
+					}
+				}
 				if in.Resultado.Entregado {
 					return registrado{Cambio: true}, m.entregar(ctx, t, f, ahora, nil)
 				}
