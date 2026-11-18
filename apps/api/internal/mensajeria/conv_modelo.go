@@ -292,7 +292,8 @@ type MensajeConversacion struct {
 	Plantilla      *PlantillaMensaje `json:"plantilla,omitempty"`
 	Autor          *UsuarioRef       `json:"autor,omitempty" doc:"Saliente y nota; ausente en entrante, sistema y respuestas automáticas"`
 	EstadoEntrega  *string           `json:"estadoEntrega" nullable:"true" enum:"en_cola,enviado,entregado,leido,fallido"`
-	MotivoFalla    *string           `json:"motivoFalla" nullable:"true"`
+	MotivoFalla    *string           `json:"motivoFalla" nullable:"true" doc:"Con fallido: numero_invalido, rechazado_por_canal, fuera_de_ventana, agotado, sin_permiso, token_invalido (Meta rechazó el token del número) o sin_permiso_meta (el token no tiene permiso sobre el número)"`
+	CodigoFalla    *CodigoFalla      `json:"codigoFalla,omitempty" doc:"Solo para quien administra los números (mensajeria.configurar) y solo si Meta respondió con un error: el status HTTP y su código numérico. Nunca el texto de Meta ni nada del token"`
 	Menciones      []UsuarioRef      `json:"menciones"`
 	Evento         *EventoSistema    `json:"evento,omitempty"`
 	CreadoEn       time.Time         `json:"creadoEn"`
@@ -878,6 +879,8 @@ func mensajesConv(ctx context.Context, q *mensajeriabd.Queries, filas []mensajer
 	if len(filas) == 0 {
 		return []MensajeConversacion{}, nil
 	}
+	// El código numérico del rechazo de Meta solo lo ve quien administra los números.
+	administra := contexto.PermisosDe(ctx).Tiene(string(nucleo.PermMensajeriaConfigurar))
 	var personas []int64
 	var adjs []uuid.UUID
 	for _, f := range filas {
@@ -916,6 +919,9 @@ func mensajesConv(ctx context.Context, q *mensajeriabd.Queries, filas []mensajer
 	out := make([]MensajeConversacion, 0, len(filas))
 	for _, f := range filas {
 		x := aMensajeConv(f, nombres, estados)
+		if administra {
+			x.CodigoFalla = codigoFallaDe(f)
+		}
 		x.BuzonDeVoz = f.BuzonDeVoz
 		if id := uuidDe(f.LlamadaID); id != nil {
 			if l, ok := llamadas[*id]; ok {
@@ -925,6 +931,22 @@ func mensajesConv(ctx context.Context, q *mensajeriabd.Queries, filas []mensajer
 		out = append(out, x)
 	}
 	return out, nil
+}
+
+// CodigoFalla: con qué rechazó Meta un mensaje, en números (para soporte: se busca en la
+// documentación de errores de Meta).
+type CodigoFalla struct {
+	Status    *int32 `json:"status" nullable:"true" doc:"Status HTTP de la respuesta de Meta (null si el rechazo llegó después, por webhook)"`
+	Codigo    *int32 `json:"codigo" nullable:"true" doc:"Código de error de Meta (p. ej. 190 = token; 10 y 200–299 = permisos; 131047 = fuera de la ventana de 24 h)"`
+	Subcodigo *int32 `json:"subcodigo" nullable:"true"`
+}
+
+// codigoFallaDe: el código de la falla de un mensaje, o nil si Meta no dio ninguno.
+func codigoFallaDe(f mensajeriabd.MensajeriaConversacionMensaje) *CodigoFalla {
+	if f.FallaStatus == nil && f.FallaCodigo == nil && f.FallaSubcodigo == nil {
+		return nil
+	}
+	return &CodigoFalla{Status: f.FallaStatus, Codigo: f.FallaCodigo, Subcodigo: f.FallaSubcodigo}
 }
 
 func aMensajeConv(f mensajeriabd.MensajeriaConversacionMensaje, nombres map[int64]string, estados map[uuid.UUID]mensajeriabd.EstadosAdjuntosRow) MensajeConversacion {

@@ -165,7 +165,18 @@ func nuevoRegistrarEnvio(m *Modulo) *auditoria.Caso[entradaRegistrar, registrado
 				}
 				return registrado{Reintentar: true}, q.ContarIntento(ctx, a.ID)
 			case e != nil:
-				return registrado{Cambio: true}, m.fallar(ctx, t, a, e.Motivo, &e.Detalle)
+				motivo := e.Motivo
+				if e.EstadoCanal != "" {
+					// El token o el permiso del número: el canal queda marcado. Hacia Argos el motivo
+					// sigue siendo el del contrato (§6.6), que no conoce estos.
+					if a.CanalID != nil {
+						if err := m.marcarCanalRechazado(ctx, t, *a.CanalID, e); err != nil {
+							return registrado{}, err
+						}
+					}
+					motivo = MotivoRechazado
+				}
+				return registrado{Cambio: true}, m.fallar(ctx, t, a, motivo, &e.Detalle)
 			}
 			return registrado{}, nil
 		},

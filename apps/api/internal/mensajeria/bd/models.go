@@ -1568,6 +1568,9 @@ type MensajeriaConversacionMensaje struct {
 	ConSaldo          bool
 	LlamadaID         pgtype.UUID
 	BuzonDeVoz        bool
+	FallaStatus       *int32
+	FallaCodigo       *int32
+	FallaSubcodigo    *int32
 }
 
 type MensajeriaConversacionParticipante struct {
@@ -1779,6 +1782,12 @@ type MensajeriaLlamadasHuerfana struct {
 	ProximoEn time.Time
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+type MensajeriaLlamadasRechazadasApagada struct {
+	ID         int64
+	CanalID    int64
+	OcurridoEn time.Time
 }
 
 type MensajeriaManualEnlace struct {

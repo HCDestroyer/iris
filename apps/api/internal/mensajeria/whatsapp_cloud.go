@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -15,6 +16,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
+	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 )
 
 // WhatsApp Cloud API (Meta). Envío de plantillas con POST /{phone_number_id}/messages y token del
@@ -236,28 +242,71 @@ func (w *whatsappCloud) postMeta(ctx context.Context, ruta, tipo string, cuerpo 
 // clasificarErrorMeta traduce un error de la Cloud API
 // (https://developers.facebook.com/docs/whatsapp/cloud-api/support/error-codes).
 func clasificarErrorMeta(status int, e *metaError) *ErrorCanal {
-	codigo := 0
+	codigo, sub := 0, 0
 	titulo := ""
 	if e != nil {
-		codigo, titulo = e.Code, e.Title
+		codigo, sub, titulo = e.Code, e.Subcode, e.Title
 		if titulo == "" {
 			titulo = e.Type
 		}
 	}
-	detalle := recortar(fmt.Sprintf("meta %d: %d %s", status, codigo, titulo), 200)
+	out := &ErrorCanal{Motivo: MotivoRechazado, Detalle: recortar(fmt.Sprintf("meta %d: %d %s", status, codigo, titulo), 200),
+		Status: status, Codigo: codigo, Subcodigo: sub}
 	switch {
 	case codigo == 131048 || codigo == 131056 || codigo == 368:
 		// Límite de spam, demasiados mensajes al mismo número o restricción de la cuenta: se pausa.
-		return &ErrorCanal{Motivo: MotivoRechazado, Detalle: detalle, Temporal: true, Pausar: true}
+		out.Temporal, out.Pausar = true, true
 	case status == http.StatusTooManyRequests || codigo == 4 || codigo == 80007 || codigo == 130429 || codigo == 131016 || status >= 500 || status == 0:
-		return &ErrorCanal{Motivo: MotivoRechazado, Detalle: detalle, Temporal: true}
+		out.Temporal = true
+	case status == http.StatusUnauthorized || codigo == 190:
+		// El token del número: vencido, revocado o mal copiado (190, con cualquier subcódigo). No es
+		// del mensaje: reintentar no sirve y el canal queda marcado. Misma regla que «Probar».
+		out.Motivo, out.EstadoCanal = MotivoTokenInvalido, PruebaTokenInvalido
+	case status == http.StatusForbidden || codigo == 10 || (codigo >= 200 && codigo <= 299):
+		// El token no tiene permiso sobre el número o su cuenta de WhatsApp Business.
+		out.Motivo, out.EstadoCanal = MotivoSinPermisoMeta, PruebaSinPermiso
 	case codigo == 131047:
 		// Más de 24 h desde el último mensaje del cliente: solo plantillas.
-		return &ErrorCanal{Motivo: MotivoFueraDeVentana, Detalle: detalle}
+		out.Motivo = MotivoFueraDeVentana
 	case codigo == 131026 || codigo == 131030 || codigo == 131021 || codigo == 133010:
-		return &ErrorCanal{Motivo: MotivoNumeroInvalido, Detalle: detalle}
+		out.Motivo = MotivoNumeroInvalido
 	}
-	return &ErrorCanal{Motivo: MotivoRechazado, Detalle: detalle}
+	return out
+}
+
+// detalleCanalRechazado: el texto del estado del canal cuando Meta rechaza un envío por el número.
+// Como el de «Probar»: solo números, nunca texto de Meta ni nada del token.
+func detalleCanalRechazado(e *ErrorCanal) string {
+	if e.EstadoCanal == PruebaTokenInvalido {
+		return fmt.Sprintf("Meta rechazó el token al enviar un mensaje: vencido, revocado o mal copiado (HTTP %d, código %d)", e.Status, e.Codigo)
+	}
+	return fmt.Sprintf("Meta rechazó un envío: el token no tiene permiso sobre este número o su cuenta de WhatsApp Business (HTTP %d, código %d)", e.Status, e.Codigo)
+}
+
+// marcarCanalRechazado deja el canal como «token rechazado» o «sin permiso» cuando Meta rechaza un
+// envío por eso, y lo avisa con el mismo evento que «Probar». Una sola vez por cambio de estado: mil
+// mensajes rechazados no son mil eventos.
+func (m *Modulo) marcarCanalRechazado(ctx context.Context, t *auditoria.Tx, canalID int64, e *ErrorCanal) error {
+	if e == nil || e.EstadoCanal == "" || canalID == 0 {
+		return nil
+	}
+	q := mensajeriabd.New(t)
+	f, err := q.CanalPorIDParaActualizar(ctx, canalID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if f.UltimoEstado != nil && *f.UltimoEstado == e.EstadoCanal {
+		return nil
+	}
+	ahora, detalle := m.ahora(), detalleCanalRechazado(e)
+	if _, err := q.RegistrarPruebaCanal(ctx, mensajeriabd.RegistrarPruebaCanalParams{ID: canalID, ProbadoEn: &ahora, Estado: &e.EstadoCanal, Detalle: &detalle}); err != nil {
+		return err
+	}
+	t.Anotar(map[string]any{"canal_id": canalID, "canal_estado": e.EstadoCanal, "status": e.Status, "codigo": e.Codigo})
+	return t.Emitir("canal_mensajeria.probado", map[string]any{"canal_id": canalID, "empresa_id": f.EmpresaID, "estado": e.EstadoCanal, "origen": "envio"})
 }
 
 // FirmaMetaValida compara X-Hub-Signature-256 (sha256=<hex(HMAC-SHA256(app_secret, cuerpo))>) en
@@ -445,8 +494,8 @@ func motivoFallaMeta(e metaEstado) (motivo, detalle string) {
 	}
 	err := e.Errors[0]
 	c := clasificarErrorMeta(http.StatusBadRequest, &metaError{Code: err.Code, Title: err.Title})
-	if c.Motivo == MotivoNumeroInvalido {
-		return MotivoNumeroInvalido, c.Detalle
+	if c.Motivo == MotivoNumeroInvalido || c.Motivo == MotivoTokenInvalido || c.Motivo == MotivoSinPermisoMeta {
+		return c.Motivo, c.Detalle
 	}
 	return MotivoRechazado, recortar(fmt.Sprintf("meta: %d %s", err.Code, err.Title), 200)
 }

@@ -174,6 +174,17 @@ func (m *Modulo) recibirLlamada(ctx context.Context, t *auditoria.Tx, canal mens
 	// 1. Número sin llamadas encendidas (o por QR): no debería llegar. Se rechaza sin registrar nada.
 	if sinAjustes || !aj.LlamadasActivas || canal.TipoConexion != ConexionAPI {
 		m.rechazarSinRegistro(ctx, t, canal.ID, ev.ID)
+		if canal.TipoConexion == ConexionAPI {
+			// En WhatsApp el número tiene llamadas y en Iris están apagadas: al cliente le suena y se
+			// corta. Queda anotado (solo cuándo) para que la pantalla de llamadas del número lo diga.
+			if err := q.RegistrarRechazadaApagada(ctx, mensajeriabd.RegistrarRechazadaApagadaParams{CanalID: canal.ID, Ahora: ahora, Hoy: inicioDia(ahora)}); err != nil {
+				return err
+			}
+			if err := q.BorrarRechazadasApagadasViejas(ctx, mensajeriabd.BorrarRechazadasApagadasViejasParams{CanalID: canal.ID, Antes: ahora.Add(-30 * 24 * time.Hour)}); err != nil {
+				return err
+			}
+			slog.WarnContext(ctx, "voz: llegó una llamada y se rechazó porque las llamadas del número están apagadas en Iris", "canal_id", canal.ID)
+		}
 		// No queda llamada, pero el webhook guardado trae la oferta: se tapa igual.
 		return taparSDPDeLlamada(ctx, q, canal.ID, ev.ID, ahora.Add(-10*time.Minute))
 	}

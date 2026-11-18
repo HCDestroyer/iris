@@ -60,12 +60,33 @@ type LlamadasCanal struct {
 	Devolucion      bool           `json:"devolucion"`
 	MensajePerdida  MensajePerdida `json:"mensajePerdida"`
 	// PlantillaPermiso: la plantilla de permiso de llamada del número (fuera de la ventana de 24 h).
-	PlantillaPermiso       *string            `json:"plantillaPermiso,omitempty"`
-	PlantillaPermisoIdioma string             `json:"plantillaPermisoIdioma,omitempty"`
-	Requisitos             RequisitosLlamadas `json:"requisitos"`
-	SincronizadoEn         *time.Time         `json:"sincronizadoEn,omitempty"`
-	WhatsApp               EstadoEnWhatsApp   `json:"whatsapp" doc:"Si los ajustes del número ya están aplicados en WhatsApp"`
-	HorasWhatsApp          *HorasMeta         `json:"horasWhatsapp,omitempty" doc:"El horario de llamadas que tiene WhatsApp (espejo). Ausente: abierto siempre y el horario lo aplica Iris"`
+	PlantillaPermiso       *string             `json:"plantillaPermiso,omitempty"`
+	PlantillaPermisoIdioma string              `json:"plantillaPermisoIdioma,omitempty"`
+	Requisitos             RequisitosLlamadas  `json:"requisitos"`
+	SincronizadoEn         *time.Time          `json:"sincronizadoEn,omitempty"`
+	WhatsApp               EstadoEnWhatsApp    `json:"whatsapp" doc:"Si los ajustes del número ya están aplicados en WhatsApp"`
+	HorasWhatsApp          *HorasMeta          `json:"horasWhatsapp,omitempty" doc:"El horario de llamadas que tiene WhatsApp (espejo). Ausente: abierto siempre y el horario lo aplica Iris"`
+	RechazadasApagadas     *RechazadasApagadas `json:"rechazadasApagadas,omitempty" doc:"Solo con llamadasActivas = false: llegaron llamadas a este número (en WhatsApp sí están encendidas) y se rechazaron porque en Iris están apagadas. Ausente si no hubo ninguna en los últimos 7 días"`
+}
+
+// RechazadasApagadas: llamadas rechazadas por tener las llamadas del número apagadas en Iris. Solo
+// cuándo y cuántas: nunca quién llamó.
+type RechazadasApagadas struct {
+	UltimaEn time.Time `json:"ultimaEn" doc:"Cuándo se rechazó la última"`
+	Hoy      int32     `json:"hoy" doc:"Cuántas se rechazaron hoy (día de Guatemala)"`
+}
+
+// conRechazadas añade el aviso de las llamadas rechazadas con las llamadas apagadas (si las hay).
+func conRechazadas(ctx context.Context, q *mensajeriabd.Queries, out LlamadasCanal, ahora time.Time) (LlamadasCanal, error) {
+	if out.LlamadasActivas || out.TipoConexion != ConexionAPI {
+		return out, nil
+	}
+	r, err := q.RechazadasApagadas(ctx, mensajeriabd.RechazadasApagadasParams{CanalID: out.CanalID, Hoy: inicioDia(ahora), Desde: ahora.Add(-7 * 24 * time.Hour)})
+	if err != nil || r.Total == 0 {
+		return out, err
+	}
+	out.RechazadasApagadas = &RechazadasApagadas{UltimaEn: r.UltimaEn, Hoy: r.Hoy}
+	return out, nil
 }
 
 // EstadoEnWhatsApp: la escritura en WhatsApp de los ajustes del número (encendido, icono, devolución
@@ -161,7 +182,7 @@ func guardarLlamadasCanal(ctx context.Context, q *mensajeriabd.Queries, f mensaj
 		MensajePerdidaTexto: f.MensajePerdidaTexto, SincronizadoEn: f.SincronizadoEn})
 }
 
-func nuevoVerLlamadasCanal(*Modulo) *auditoria.Caso[EntradaIDConv, LlamadasCanal] {
+func nuevoVerLlamadasCanal(m *Modulo) *auditoria.Caso[EntradaIDConv, LlamadasCanal] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaIDConv, LlamadasCanal]{
 		Accion: "llamadas.ver_ajustes", Permiso: nucleo.PermLlamadasConfigurar, AuditarExito: sinAuditar[LlamadasCanal],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaIDConv) (LlamadasCanal, error) {
@@ -175,7 +196,10 @@ func nuevoVerLlamadasCanal(*Modulo) *auditoria.Caso[EntradaIDConv, LlamadasCanal
 				return LlamadasCanal{}, err
 			}
 			f, guardado, err := leerLlamadasCanal(ctx, q, c, false)
-			return aLlamadasCanal(c, f, guardado), err
+			if err != nil {
+				return LlamadasCanal{}, err
+			}
+			return conRechazadas(ctx, q, aLlamadasCanal(c, f, guardado), m.ahora())
 		},
 	})
 }
@@ -515,7 +539,7 @@ func nuevoGuardarComprobacion(m *Modulo) *auditoria.Caso[entradaComprobado, Llam
 			if f, err = guardarLlamadasCanal(ctx, q, f); err != nil {
 				return LlamadasCanal{}, err
 			}
-			return aLlamadasCanal(c, f, true), nil
+			return conRechazadas(ctx, q, aLlamadasCanal(c, f, true), ahora)
 		},
 	})
 }
