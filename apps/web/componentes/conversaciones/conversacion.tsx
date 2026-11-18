@@ -249,11 +249,28 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
         };
     }, [identidadVigente, venceEn, id, reemplazarDetalle]);
 
+    /**
+     * Relee el detalle **de fondo** (un aviso del flujo, un mensaje de sistema, «recargar»): si
+     * falla, lo que hay en pantalla se queda —nunca se cambia el panel por un error ni se desmonta
+     * el compositor— y una respuesta más vieja que lo que ya trajo una acción o el flujo no pisa
+     * nada. `refrescarDetalle` queda para «Reintentar» y las recargas tras un 409, que sí deben
+     * decir si fallaron.
+     */
+    const releerDeFondo = useCallback(() => {
+        leerDetalle(id).then(
+            (datos) => {
+                const actual = vista.current;
+                if (vivo.current && actual && actual.id === datos.id && datos.version >= actual.version) reemplazarDetalle(datos);
+            },
+            () => undefined,
+        );
+    }, [id, reemplazarDetalle]);
+
     useEffect(
         () =>
             suscribir((s) => {
                 if (s.tipo === "recargar") {
-                    void refrescarDetalle();
+                    releerDeFondo();
                     setIntento((n) => n + 1);
                     return;
                 }
@@ -264,7 +281,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                     setMensajes((actual) => fusionarMensajes(actual, [m]));
                     setPendientes((p) => p.filter((x) => x.id !== m.id));
                     // Un evento de sistema puede traer un vínculo nuevo (ticket, orden…).
-                    if (m.direccion === "sistema") void refrescarDetalle();
+                    if (m.direccion === "sistema") releerDeFondo();
                     if (m.direccion === "sistema" && (m.evento?.tipo ?? "").startsWith("boleta_")) setSenalBoletas((n) => n + 1);
                 }
                 if (e.conversacion && e.conversacion.id === id) aplicarRef.current(e.conversacion);
@@ -282,19 +299,12 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                     clearTimeout(relectura.current);
                     relectura.current = setTimeout(() => {
                         relecturaDesde.current = null;
-                        leerDetalle(id).then(
-                            (datos) => {
-                                const actual = vista.current;
-                                if (vivo.current && actual && actual.id === datos.id && datos.version >= actual.version) reemplazarDetalle(datos);
-                            },
-                            () => undefined,
-                        );
+                        releerDeFondo();
                     }, espera);
                 }
             }),
-        [id, suscribir, refrescarDetalle, reemplazarDetalle],
+        [id, suscribir, releerDeFondo],
     );
-
 
     // Leer: avanza la lectura hasta el último mensaje del cliente que se ve (nunca retrocede).
     const ultimoEntrante = [...mensajes].reverse().find((m) => m.direccion === "entrante")?.id;

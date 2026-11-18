@@ -345,6 +345,31 @@ test.describe("asistente por conversación › relectura de fondo del detalle", 
         await expect(conv(page).getByRole("button", { name: "Reintentar" })).toHaveCount(0);
     });
 
+    test("llega un mensaje de sistema y leer el detalle falla: el compositor y lo escrito siguen intactos", async ({ page }) => {
+        // Sin resumen guardado: la relectura la dispara el propio mensaje de sistema.
+        const api = await abrir(page, con({ atiende: true, motivo: null, reanudable: false }, { asignado: null }));
+        const caja = conv(page).locator('[data-slot="compositor"]').getByRole("textbox");
+        await caja.fill("No quiero perder esto");
+        let fallos = 0;
+        await page.route(RUTA, (route) => {
+            if (route.request().method() !== "GET") return route.fallback();
+            fallos++;
+            return route.fulfill({ status: 500, contentType: "application/problem+json", body: JSON.stringify({ type: "urn:iris:problema:error_interno", title: "Error interno", status: 500 }) });
+        });
+        // Otra persona pausa el asistente: llega su mensaje de sistema por el flujo.
+        await expect.poll(() => api.flujoAbierto(), { timeout: 60_000, intervals: [100, 250, 500] }).toBe(true);
+        const c = api.conversaciones.conversaciones.find((x) => x.id === 41);
+        const m = mensaje(41, { direccion: "sistema", evento: { tipo: "asistente_pausado", actorNombre: "Andrea", detalle: "manual" } as never });
+        api.conversaciones.mensajes.get(41)?.push(m);
+        if (c) api.conversaciones.emitirEvento({ tipo: "mensaje_nuevo", conversacionId: 41, mensaje: m, conversacion: structuredClone(c) } as never);
+        await expect(conv(page).getByRole("log", { name: "Mensajes" }).locator('[data-evento="asistente_pausado"]')).toBeVisible({ timeout: 60_000 });
+        await expect.poll(() => fallos).toBeGreaterThan(0);
+        await expect(caja).toHaveValue("No quiero perder esto");
+        await expect(conv(page).locator('[data-slot="compositor"]')).toBeVisible();
+        await expect(page.getByText(/No se pudo leer la conversación|No se pudieron leer/)).toHaveCount(0);
+        await expect(conv(page).getByRole("button", { name: "Reintentar" })).toHaveCount(0);
+    });
+
     test("una respuesta vieja de la relectura que llega tarde no pisa lo que ya trajo una acción", async ({ page }) => {
         const api = await abrir(page, con({ atiende: true, motivo: null, reanudable: false }, { asignado: null }), conResumen);
         await expect(franja(page)).toHaveAttribute("data-estado", "atendiendo");
@@ -366,8 +391,11 @@ test.describe("asistente por conversación › relectura de fondo del detalle", 
         await franja(page).getByRole("button", { name: /^Pausar el asistente/ }).click();
         await expect(franja(page)).toHaveAttribute("data-estado", "pausado");
         // Llega la respuesta vieja («el asistente atiende»): no debe volver atrás.
+        const llegoLaVieja = page.waitForResponse((res) => res.request().method() === "GET" && new URL(res.url()).pathname === "/api/v1/mensajeria/conversaciones/41");
         (soltar as (() => void) | null)?.();
-        await page.waitForTimeout(800);
+        await (await llegoLaVieja).finished();
+        // Un respiro para que React aplique (o descarte) lo que llegó.
+        await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
         await expect(franja(page)).toHaveAttribute("data-estado", "pausado");
         // Y la acción siguiente no da 409 por una versión atrasada.
         await franja(page).getByRole("button", { name: /^Reanudar/ }).click();
