@@ -1491,6 +1491,40 @@ func TestLlamadaReservaPorNavegador(t *testing.T) {
 
 // Señales del cliente en la llamada: servicio, ticket abierto y «tiene saldo vencido» (solo un
 // booleano, solo en GET /llamadas/{id} y solo para quien puede ver el estado de cuenta).
+// montoSenales: un monto que no se confunde con nada. El JSON de la llamada trae ids, teléfonos y
+// nombres con números al azar («Soporte 4769183503876»): buscar un monto corto como «350» ahí daba
+// falsos positivos.
+const montoSenales = "987654.32"
+
+// sinMontos: la respuesta de la llamada no trae el monto ni la moneda en ninguna parte, y `senales`
+// solo trae las claves esperadas (ninguna de monto).
+func sinMontos(t *testing.T, donde string, r respuesta) {
+	t.Helper()
+	if c := crudo(r); strings.Contains(c, "987654") || strings.Contains(c, "GTQ") {
+		t.Fatalf("%s: la llamada trae el monto o la moneda: %s", donde, c)
+	}
+	senales, _ := r.cuerpo["senales"].(map[string]any)
+	permitidas := map[string]bool{"servicio": true, "ticketAbierto": true, "saldoVencido": true}
+	for clave, valor := range senales {
+		if !permitidas[clave] {
+			t.Fatalf("%s: senales trae una clave que no se esperaba (%q): %v", donde, clave, senales)
+		}
+		if clave == "saldoVencido" {
+			if _, ok := valor.(bool); !ok {
+				t.Fatalf("%s: saldoVencido debe ser un booleano, llegó %T (%v)", donde, valor, valor)
+			}
+		}
+	}
+	for _, hijo := range []string{"servicio", "ticketAbierto"} {
+		m, _ := senales[hijo].(map[string]any)
+		for clave := range m {
+			if c := strings.ToLower(clave); strings.Contains(c, "monto") || strings.Contains(c, "saldo") || strings.Contains(c, "moneda") || strings.Contains(c, "deuda") {
+				t.Fatalf("%s: senales.%s trae una clave de monto (%q): %v", donde, hijo, clave, m)
+			}
+		}
+	}
+}
+
 func TestLlamadaSenalesDelCliente(t *testing.T) {
 	x := nuevaBandejaVoz(t)
 	x.recibe(x.agente)
@@ -1506,7 +1540,7 @@ func TestLlamadaSenalesDelCliente(t *testing.T) {
 	x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv+"/asociar-cliente", map[string]any{"version": ver(x.conv(num)), "clienteId": cliente, "servicioId": cliente * 10}), http.StatusOK)
 	x.sql(`INSERT INTO soporte.tickets (prioridad, origen, asunto, sla_inicio, empresa_id, cliente_id) VALUES ('media', 'panel', 'Sin internet desde ayer', now(), 1, $1)`, cliente)
 	x.argos.mu.Lock()
-	x.argos.cuenta = &argos.EstadoCuenta{Saldo: ptrTexto("350.00"), Moneda: "GTQ", FacturasVencidas: ptrEntero(2), MontoVencido: ptrTexto("350.00")}
+	x.argos.cuenta = &argos.EstadoCuenta{Saldo: ptrTexto(montoSenales), Moneda: "GTQ", FacturasVencidas: ptrEntero(2), MontoVencido: ptrTexto(montoSenales)}
 	x.argos.mu.Unlock()
 	x.connect(num, call)
 	id, estado, _ := x.llamada(call)
@@ -1528,13 +1562,16 @@ func TestLlamadaSenalesDelCliente(t *testing.T) {
 	}
 	// Al ver la llamada, quien puede ver el estado de cuenta recibe el booleano; nunca montos.
 	v := x.exigir(x.api(x.agente, http.MethodGet, "/llamadas/"+id, nil), http.StatusOK)
-	if v.cuerpo["senales"].(map[string]any)["saldoVencido"] != true || strings.Contains(crudo(v), "350") || strings.Contains(crudo(v), "GTQ") {
+	if v.cuerpo["senales"].(map[string]any)["saldoVencido"] != true {
 		t.Fatalf("saldo vencido: %s", crudo(v))
 	}
+	sinMontos(t, "quien ve el estado de cuenta", v)
 	// Releer la llamada no vuelve a preguntar a Argos: la respuesta se recuerda 60 s.
 	antes = x.argos.cuentas
 	if v := x.exigir(x.api(x.agente, http.MethodGet, "/llamadas/"+id, nil), http.StatusOK); v.cuerpo["senales"].(map[string]any)["saldoVencido"] != true || x.argos.cuentas != antes {
 		t.Fatalf("relectura dentro de la vigencia: %s, consultas %d → %d", crudo(v), antes, x.argos.cuentas)
+	} else {
+		sinMontos(t, "relectura", v)
 	}
 	// Despacho contesta llamadas pero no ve saldos: el campo no viaja y no se le pregunta a Argos.
 	despacho := x.persona([]int64{1}, rolBase("despacho"))
@@ -1544,6 +1581,7 @@ func TestLlamadaSenalesDelCliente(t *testing.T) {
 	if sd := v.cuerpo["senales"].(map[string]any); sd["saldoVencido"] != nil || sd["servicio"] == nil || x.argos.cuentas != antes {
 		t.Fatalf("despacho no ve el saldo: %s", crudo(v))
 	}
+	sinMontos(t, "despacho", v)
 	// ticketAbierto respeta el alcance de tickets.ver: quien solo ve los tickets de una zona no ve el
 	// de otra (ni sin zona); el servicio sí.
 	var zona int64
@@ -1562,6 +1600,7 @@ func TestLlamadaSenalesDelCliente(t *testing.T) {
 	if sd := v.cuerpo["senales"].(map[string]any); sd["ticketAbierto"] == nil {
 		t.Fatalf("ticket de su zona: %s", crudo(v))
 	}
+	sinMontos(t, "soporte de la zona", v)
 	// Al día, pero dentro de los 60 s sigue valiendo lo recordado; pasados, se vuelve a preguntar: false.
 	x.argos.mu.Lock()
 	x.argos.cuenta = &argos.EstadoCuenta{Saldo: ptrTexto("0.00"), Moneda: "GTQ", FacturasVencidas: ptrEntero(0)}

@@ -6276,6 +6276,57 @@
         ],
         "type": "object"
       },
+      "CuerpoGuardar": {
+        "additionalProperties": false,
+        "properties": {
+          "correoPrivacidad": {
+            "description": "Correo al que se piden el acceso, la corrección y la eliminación de datos. Una sola dirección",
+            "maxLength": 254,
+            "type": "string"
+          },
+          "direccion": {
+            "description": "Dirección física del titular, en una línea",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "nombreComercial": {
+            "description": "Nombre con que los clientes conocen a la empresa",
+            "maxLength": 120,
+            "type": "string"
+          },
+          "pais": {
+            "description": "País del titular: sus leyes son la ley aplicable de los términos",
+            "maxLength": 80,
+            "type": "string"
+          },
+          "razonSocial": {
+            "description": "Nombre legal de quien opera la instalación (el responsable de los datos)",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "telefono": {
+            "description": "Opcional. Dígitos, espacios, +, guiones y paréntesis",
+            "maxLength": 40,
+            "type": "string"
+          },
+          "version": {
+            "description": "La que leíste; 0 la primera vez",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "razonSocial",
+          "nombreComercial",
+          "correoPrivacidad",
+          "telefono",
+          "direccion",
+          "pais"
+        ],
+        "type": "object"
+      },
       "CuerpoGuardarCorreo": {
         "additionalProperties": false,
         "properties": {
@@ -6586,6 +6637,132 @@
         "required": [
           "en",
           "campos"
+        ],
+        "type": "object"
+      },
+      "DatosLegales": {
+        "additionalProperties": false,
+        "properties": {
+          "actualizadoEn": {
+            "description": "Último cambio: es la fecha de «última actualización» de las páginas públicas",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "completo": {
+            "description": "Están todos los datos obligatorios: las páginas públicas están listas para Meta",
+            "type": "boolean"
+          },
+          "configurado": {
+            "description": "Ya se guardaron datos alguna vez",
+            "type": "boolean"
+          },
+          "correoPrivacidad": {
+            "description": "Correo al que se piden el acceso, la corrección y la eliminación de datos. Una sola dirección",
+            "maxLength": 254,
+            "type": "string"
+          },
+          "direccion": {
+            "description": "Dirección física del titular, en una línea",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "faltan": {
+            "description": "Campos obligatorios vacíos (razonSocial, nombreComercial, correoPrivacidad, direccion, pais), en el orden del formulario",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nombreComercial": {
+            "description": "Nombre con que los clientes conocen a la empresa",
+            "maxLength": 120,
+            "type": "string"
+          },
+          "pais": {
+            "description": "País del titular: sus leyes son la ley aplicable de los términos",
+            "maxLength": 80,
+            "type": "string"
+          },
+          "razonSocial": {
+            "description": "Nombre legal de quien opera la instalación (el responsable de los datos)",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "telefono": {
+            "description": "Opcional. Dígitos, espacios, +, guiones y paréntesis",
+            "maxLength": 40,
+            "type": "string"
+          },
+          "version": {
+            "description": "0 si nunca se guardó",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "configurado",
+          "version",
+          "actualizadoEn",
+          "completo",
+          "faltan",
+          "razonSocial",
+          "nombreComercial",
+          "correoPrivacidad",
+          "telefono",
+          "direccion",
+          "pais"
+        ],
+        "type": "object"
+      },
+      "DatosPublicos": {
+        "additionalProperties": false,
+        "properties": {
+          "actualizadoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "completo": {
+            "description": "false: faltan datos obligatorios; las páginas se muestran sin huecos, con lo que haya",
+            "type": "boolean"
+          },
+          "correo": {
+            "description": "Correo de contacto de privacidad",
+            "type": "string"
+          },
+          "direccion": {
+            "type": "string"
+          },
+          "nombreComercial": {
+            "type": "string"
+          },
+          "pais": {
+            "type": "string"
+          },
+          "razonSocial": {
+            "type": "string"
+          },
+          "telefono": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "nombreComercial",
+          "razonSocial",
+          "correo",
+          "telefono",
+          "direccion",
+          "pais",
+          "actualizadoEn",
+          "completo"
         ],
         "type": "object"
       },
@@ -22817,6 +22994,8 @@
           "correo_sistema.ver",
           "cotizaciones.aceptar",
           "cotizaciones.crear",
+          "datos_legales.configurar",
+          "datos_legales.ver",
           "empresas.adoptar",
           "empresas.crear",
           "empresas.editar",
@@ -36015,6 +36194,182 @@
           "agenda"
         ],
         "x-permiso": "agenda.editar_cuadrilla"
+      }
+    },
+    "/api/v1/datos-legales": {
+      "get": {
+        "description": "Permiso `datos_legales.ver`. Los datos de quien opera la instalación (razón social, nombre comercial, contacto de privacidad, dirección y país) que muestran las páginas públicas de privacidad, términos y eliminación de datos. Sin datos guardados: campos vacíos, `configurado: false` y `version: 0`. `faltan` lista los obligatorios vacíos; con `completo: true` las páginas están listas para Meta. Son de la instalación: exige operar sin límite de empresa (si no, 403). Solo personas. Contrato: `.claude/integration/contratos/legal.md`.",
+        "operationId": "verDatosLegales",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatosLegales"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ],
+        "summary": "Ver los datos legales del titular",
+        "tags": [
+          "datos legales"
+        ]
+      }
+    },
+    "/api/v1/datos-legales/guardar": {
+      "post": {
+        "description": "Permiso `datos_legales.configurar`. Crea o reemplaza los datos. `version` la que leíste (0 la primera vez): distinta, 409. Cualquier campo puede ir vacío (se guarda lo que haya y `faltan` dice qué falta); el correo debe ser una sola dirección y el teléfono solo dígitos, espacios, +, guiones y paréntesis (422 con `errors[].field`). Si nada cambia no sube la versión ni la fecha. La fecha de «última actualización» de las páginas públicas es la de este cambio. Emite `datos_legales.cambiados`. Contrato: `.claude/integration/contratos/legal.md`.",
+        "operationId": "guardarDatosLegales",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoGuardar"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatosLegales"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ],
+        "summary": "Guardar los datos legales del titular",
+        "tags": [
+          "datos legales"
+        ]
       }
     },
     "/api/v1/dispositivos": {
@@ -67829,6 +68184,45 @@
           "comercial"
         ],
         "x-permiso": "prospectos.reabrir"
+      }
+    },
+    "/api/v1/publico/datos-legales": {
+      "get": {
+        "description": "Sin sesión. Lo que el titular publica en las páginas de privacidad, términos y eliminación de datos: nombre comercial, razón social, correo de privacidad, teléfono, dirección, país y la fecha del último cambio. Sin datos guardados responde 200 con los campos vacíos, `actualizadoEn: null` y `completo: false` (las páginas no muestran huecos). La API guarda la respuesta en memoria hasta un minuto (un cambio la renueva). Respuesta con `Cache-Control: public, max-age=60`. Contrato: `.claude/integration/contratos/legal.md`.",
+        "operationId": "verDatosLegalesPublicos",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatosPublicos"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Datos legales públicos del titular",
+        "tags": [
+          "datos legales"
+        ]
       }
     },
     "/api/v1/reportes/primera-visita": {

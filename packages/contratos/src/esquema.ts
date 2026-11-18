@@ -952,6 +952,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/datos-legales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ver los datos legales del titular
+         * @description Permiso `datos_legales.ver`. Los datos de quien opera la instalación (razón social, nombre comercial, contacto de privacidad, dirección y país) que muestran las páginas públicas de privacidad, términos y eliminación de datos. Sin datos guardados: campos vacíos, `configurado: false` y `version: 0`. `faltan` lista los obligatorios vacíos; con `completo: true` las páginas están listas para Meta. Son de la instalación: exige operar sin límite de empresa (si no, 403). Solo personas. Contrato: `.claude/integration/contratos/legal.md`.
+         */
+        get: operations["verDatosLegales"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/datos-legales/guardar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Guardar los datos legales del titular
+         * @description Permiso `datos_legales.configurar`. Crea o reemplaza los datos. `version` la que leíste (0 la primera vez): distinta, 409. Cualquier campo puede ir vacío (se guarda lo que haya y `faltan` dice qué falta); el correo debe ser una sola dirección y el teléfono solo dígitos, espacios, +, guiones y paréntesis (422 con `errors[].field`). Si nada cambia no sube la versión ni la fecha. La fecha de «última actualización» de las páginas públicas es la de este cambio. Emite `datos_legales.cambiados`. Contrato: `.claude/integration/contratos/legal.md`.
+         */
+        post: operations["guardarDatosLegales"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dispositivos": {
         parameters: {
             query?: never;
@@ -6297,6 +6337,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/publico/datos-legales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Datos legales públicos del titular
+         * @description Sin sesión. Lo que el titular publica en las páginas de privacidad, términos y eliminación de datos: nombre comercial, razón social, correo de privacidad, teléfono, dirección, país y la fecha del último cambio. Sin datos guardados responde 200 con los campos vacíos, `actualizadoEn: null` y `completo: false` (las páginas no muestran huecos). La API guarda la respuesta en memoria hasta un minuto (un cambio la renueva). Respuesta con `Cache-Control: public, max-age=60`. Contrato: `.claude/integration/contratos/legal.md`.
+         */
+        get: operations["verDatosLegalesPublicos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reportes/primera-visita": {
         parameters: {
             query?: never;
@@ -10144,6 +10204,25 @@ export interface components {
             /** @description Ubicación compartida */
             ubicacion?: components["schemas"]["UbicacionChat"];
         };
+        CuerpoGuardar: {
+            /** @description Correo al que se piden el acceso, la corrección y la eliminación de datos. Una sola dirección */
+            correoPrivacidad: string;
+            /** @description Dirección física del titular, en una línea */
+            direccion: string;
+            /** @description Nombre con que los clientes conocen a la empresa */
+            nombreComercial: string;
+            /** @description País del titular: sus leyes son la ley aplicable de los términos */
+            pais: string;
+            /** @description Nombre legal de quien opera la instalación (el responsable de los datos) */
+            razonSocial: string;
+            /** @description Opcional. Dígitos, espacios, +, guiones y paréntesis */
+            telefono: string;
+            /**
+             * Format: int32
+             * @description La que leíste; 0 la primera vez
+             */
+            version: number;
+        };
         CuerpoGuardarCorreo: {
             activo: boolean;
             /** @description Solo escritura. Ausente = se conserva la guardada; "" = se borra */
@@ -10259,6 +10338,49 @@ export interface components {
              * @description Último aviso de Argos
              */
             en: string;
+        };
+        DatosLegales: {
+            /**
+             * Format: date-time
+             * @description Último cambio: es la fecha de «última actualización» de las páginas públicas
+             */
+            actualizadoEn: string | null;
+            /** @description Están todos los datos obligatorios: las páginas públicas están listas para Meta */
+            completo: boolean;
+            /** @description Ya se guardaron datos alguna vez */
+            configurado: boolean;
+            /** @description Correo al que se piden el acceso, la corrección y la eliminación de datos. Una sola dirección */
+            correoPrivacidad: string;
+            /** @description Dirección física del titular, en una línea */
+            direccion: string;
+            /** @description Campos obligatorios vacíos (razonSocial, nombreComercial, correoPrivacidad, direccion, pais), en el orden del formulario */
+            faltan: string[] | null;
+            /** @description Nombre con que los clientes conocen a la empresa */
+            nombreComercial: string;
+            /** @description País del titular: sus leyes son la ley aplicable de los términos */
+            pais: string;
+            /** @description Nombre legal de quien opera la instalación (el responsable de los datos) */
+            razonSocial: string;
+            /** @description Opcional. Dígitos, espacios, +, guiones y paréntesis */
+            telefono: string;
+            /**
+             * Format: int32
+             * @description 0 si nunca se guardó
+             */
+            version: number;
+        };
+        DatosPublicos: {
+            /** Format: date-time */
+            actualizadoEn: string | null;
+            /** @description false: faltan datos obligatorios; las páginas se muestran sin huecos, con lo que haya */
+            completo: boolean;
+            /** @description Correo de contacto de privacidad */
+            correo: string;
+            direccion: string;
+            nombreComercial: string;
+            pais: string;
+            razonSocial: string;
+            telefono: string;
         };
         Destinatario: {
             /** @description Código del cliente en Argos (null en un contacto de Iris) */
@@ -15881,7 +16003,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver" | "voz.configurar";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver" | "voz.configurar";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -22254,6 +22376,143 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Cuadrilla"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verDatosLegales: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatosLegales"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    guardarDatosLegales: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CuerpoGuardar"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatosLegales"];
                 };
             };
             /** @description Unauthorized */
@@ -43724,6 +43983,36 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verDatosLegalesPublicos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatosPublicos"];
+                };
+            };
+            /** @description Error */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -1,7 +1,8 @@
-import { Cloud, ClipboardList, Cpu, DatabaseZap, History, KeyRound, Mail, MailCheck, Map as IconoMapa, Plug, ShieldCheck, Smartphone, Users, Zap, Phone, PhoneCall, CalendarClock, BookOpen, Inbox, Settings2, Sparkles, type LucideIcon } from "lucide-react";
+import { Cloud, ClipboardList, Cpu, DatabaseZap, History, KeyRound, Mail, MailCheck, Map as IconoMapa, Plug, Scale, ShieldCheck, Smartphone, Users, Zap, Phone, PhoneCall, CalendarClock, BookOpen, Inbox, Settings2, Sparkles, type LucideIcon } from "lucide-react";
 import { PERMISO_CONFIGURAR_ASISTENTE } from "@/lib/asistente/permisos";
 import { PERMISOS_CUADRILLAS, PERMISOS_ZONAS } from "@/lib/agenda/permisos";
 import { PERMISO_CONFIGURAR_CORREO, PERMISO_VER_CORREO } from "@/lib/correo/tipos";
+import { PERMISO_CONFIGURAR_LEGAL, PERMISO_VER_LEGAL } from "@/lib/legal/datos";
 import { PERMISO_CONEXION_META } from "@/lib/meta/tipos";
 import type { Permiso } from "@/lib/menu";
 import { PERMISO_VER, PERMISO_VER_USO } from "@/lib/servidor-ia/tipos";
@@ -37,6 +38,13 @@ export const SECCIONES: readonly Seccion[] = [
         descripcion: "La app de Meta (o el servicio central) con que se conectan los números por QR.",
         icono: Cloud,
         permisos: [PERMISO_CONEXION_META],
+    },
+    {
+        href: "/administracion/datos-legales",
+        titulo: "Datos legales",
+        descripcion: "Quién opera el servicio y los enlaces de privacidad, términos y eliminación de datos que pide Meta.",
+        icono: Scale,
+        permisos: [PERMISO_VER_LEGAL, PERMISO_CONFIGURAR_LEGAL],
     },
     {
         href: "/administracion/colas",

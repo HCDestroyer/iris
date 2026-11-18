@@ -1,6 +1,7 @@
 import { MarcaIris, Tarjeta } from "@iris/ui";
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { PieLegal } from "@/componentes/legal/pie-legal";
 import { SelectorTema } from "@/componentes/selector-tema";
 import { FormularioEntrar } from "./formulario-entrar";
 
@@ -20,8 +21,9 @@ export default function PaginaEntrar() {
                     </Suspense>
                 </Tarjeta>
             </main>
-            <footer className="px-4 pb-6 text-center text-xs text-muted-foreground">
-                Iris · familia Horus
+            <footer className="grid justify-items-center gap-2 px-4 pb-6 text-center text-xs text-muted-foreground">
+                <PieLegal />
+                <span>Iris · familia Horus</span>
             </footer>
         </div>
     );

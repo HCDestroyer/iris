@@ -1,6 +1,7 @@
 import { MarcaIris } from "@iris/ui";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { PieLegal } from "@/componentes/legal/pie-legal";
 import { SelectorTema } from "@/componentes/selector-tema";
 
 /**
@@ -34,6 +35,7 @@ export function MarcoPortal({ children, acciones, inicio = false }: { children: 
             <main className="mx-auto w-full max-w-3xl flex-1 px-4 pt-6 pb-16">{children}</main>
             <footer className="flex flex-col items-center gap-3 px-4 pb-6 text-center text-xs text-muted-foreground">
                 <SelectorTema className="sm:hidden" />
+                <PieLegal />
                 <span>Atención al cliente · Iris</span>
             </footer>
         </div>

@@ -285,6 +285,7 @@ Una tarea está terminada solo si:
 | `notificaciones.correo_enviado` / `notificaciones.correo_fallido` | notificaciones (correo del sistema) | correo_id, usuario_id, tipo, clave, motivo (o null) |
 | `correo_sistema.ajustes_cambiados` | notificaciones (correo del sistema) | empresa_id (o null = global), campos[], activo; nunca la contraseña |
 | `correo_sistema.probado` | notificaciones (correo del sistema) | empresa_id (o null), estado (ok, error), causa (o null), usuario_id; nunca el host, el destino ni credenciales |
+| `datos_legales.cambiados` | legal (núcleo) | campos[], completo, faltan[]; nunca los valores |
 | `dispositivo.registrado` / `dispositivo.quitado` | notificaciones | dispositivo_id, usuario_id, empresa_id, token_fin; plataforma, app_version, nuevo (registrado); motivo (usuario, sesion_cerrada, token_invalido, otro_usuario, sin_acceso) (quitado); nunca el token |
 | `notificaciones.preferencias_cambiadas` | notificaciones | usuario_id, campos[], version |
 

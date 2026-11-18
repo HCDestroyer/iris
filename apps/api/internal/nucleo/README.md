@@ -12,6 +12,7 @@ acceso escribe `ruta` (escapada y enmascarada, sin query) y `patron` (el de chi,
 `HostDe(RemoteAddr)`.
 Subpaquetes:
 
+- `legal`: datos legales del titular para las páginas públicas que pide Meta (`legal/README.md`).
 - `contexto`: `Actor` (también el **actor cliente** del portal: `ActorCliente`, con `ClienteID` y
   `EmpresaID` de Argos), `Canal`, `RequestID`, permisos efectivos con alcance (zona/cuadrilla) y
   empresa activa (`EmpresaDe`, `EmpresasDe`).

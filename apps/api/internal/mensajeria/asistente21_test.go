@@ -59,14 +59,14 @@ func TestAsistenteSaldoClienteVerificado(t *testing.T) {
 	x := nuevaBandejaIA(t)
 	x.activar(nil)
 	conv, _ := x.conClienteArgos()
-	x.cuenta(&argos.EstadoCuenta{Saldo: texto("357.25"), Moneda: "GTQ", FacturasVencidas: vencidas(2), MontoVencido: texto("357.25")})
+	x.cuenta(&argos.EstadoCuenta{Saldo: texto("987654.32"), Moneda: "GTQ", FacturasVencidas: vencidas(2), MontoVencido: texto("987654.32")})
 	x.ia.decir(respuestaModelo("Hola Ana, tienes un saldo pendiente de 2 facturas vencidas; un agente te confirma el detalle.", []string{"F1"}, nil))
 	s := x.pedirYGenerar(x.agente, conv)
 	if s["estado"] != "lista" || strings.Join(etiquetasArgos(s), ",") != "Con saldo vencido (2 facturas) · Argos" {
 		t.Fatalf("sugerencia: %v", s)
 	}
 	pedido, _, _ := x.ia.ultimo()
-	if strings.Contains(pedido, "357") || strings.Contains(pedido, "GTQ") || !strings.Contains(pedido, "con saldo vencido (2 facturas vencidas)") {
+	if strings.Contains(pedido, "987654") || strings.Contains(pedido, "GTQ") || !strings.Contains(pedido, "con saldo vencido (2 facturas vencidas)") {
 		t.Fatalf("el modelo ve el estado, nunca el monto: %s", pedido)
 	}
 	x.argos.mu.Lock()
@@ -76,17 +76,17 @@ func TestAsistenteSaldoClienteVerificado(t *testing.T) {
 		t.Fatalf("cabeceras de §7.1: %+v", actor)
 	}
 	// Aunque el cliente esté verificado, un monto de deuda en el texto se rechaza (y no va al detalle).
-	x.ia.decir(respuestaModelo("Hola Ana, tu saldo vencido es de Q357.25.", []string{"F1"}, nil))
+	x.ia.decir(respuestaModelo("Hola Ana, tu saldo vencido es de Q987654.32.", []string{"F1"}, nil))
 	s = x.pedirYGenerar(x.agente, conv)
 	errSug, _ := s["error"].(map[string]any)
-	if s["estado"] != "error" || errSug["codigo"] != "respuesta_invalida" || strings.Contains(errSug["detalle"].(string), "357") {
+	if s["estado"] != "error" || errSug["codigo"] != "respuesta_invalida" || strings.Contains(errSug["detalle"].(string), "987654") {
 		t.Fatalf("un monto con cliente verificado también se rechaza: %v", s)
 	}
 	// El monto no quedó en ningún lado.
 	for tabla, sql := range map[string]string{
-		"sugerencias": `SELECT count(*) FROM mensajeria.sugerencias WHERE coalesce(texto, '') LIKE '%357.25%' OR fuentes::text LIKE '%357.25%' OR coalesce(error_detalle, '') LIKE '%357.25%'`,
-		"outbox":      `SELECT count(*) FROM integracion.outbox WHERE payload::text LIKE '%357.25%'`,
-		"auditoría":   `SELECT count(*) FROM auditoria.acciones WHERE entrada::text LIKE '%357.25%' OR resultado::text LIKE '%357.25%'`,
+		"sugerencias": `SELECT count(*) FROM mensajeria.sugerencias WHERE coalesce(texto, '') LIKE '%987654.32%' OR fuentes::text LIKE '%987654.32%' OR coalesce(error_detalle, '') LIKE '%987654.32%'`,
+		"outbox":      `SELECT count(*) FROM integracion.outbox WHERE payload::text LIKE '%987654.32%'`,
+		"auditoría":   `SELECT count(*) FROM auditoria.acciones WHERE entrada::text LIKE '%987654.32%' OR resultado::text LIKE '%987654.32%'`,
 	} {
 		if n := x.contar(sql); n != 0 {
 			t.Fatalf("el monto quedó en %s", tabla)
@@ -103,7 +103,7 @@ func TestAsistenteSaldoSinVerificar(t *testing.T) {
 	if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.conversaciones SET cliente_verificado = false WHERE id = $1`, conv); err != nil {
 		t.Fatal(err)
 	}
-	x.cuenta(&argos.EstadoCuenta{Saldo: texto("125.50"), Moneda: "GTQ", FacturasVencidas: vencidas(1), MontoVencido: texto("125.50")})
+	x.cuenta(&argos.EstadoCuenta{Saldo: texto("876543.21"), Moneda: "GTQ", FacturasVencidas: vencidas(1), MontoVencido: texto("876543.21")})
 	x.ia.decir(respuestaModelo("Hola Ana, para darte ese detalle primero verificamos tu identidad. ¿Te parece?", []string{"F1"}, nil))
 	s := x.pedirYGenerar(x.agente, conv)
 	if s["estado"] != "lista" || strings.Join(etiquetasArgos(s), ",") != "Con saldo vencido (1 factura) · Argos" {
@@ -112,7 +112,7 @@ func TestAsistenteSaldoSinVerificar(t *testing.T) {
 	pedido, _, _ := x.ia.ultimo()
 	// Solo lo que cambia por pedido (las instrucciones fijas hablan de saldos en general).
 	pedido = pedido[strings.Index(pedido, `"role":"user"`):]
-	for _, prohibido := range []string{"125", "saldo vencido", "facturas vencidas", "al día", "Estado de cuenta"} {
+	for _, prohibido := range []string{"876543", "saldo vencido", "facturas vencidas", "al día", "Estado de cuenta"} {
 		if strings.Contains(pedido, prohibido) {
 			t.Fatalf("sin verificar, el modelo no ve nada del estado de cuenta (%q): %s", prohibido, pedido)
 		}
@@ -121,10 +121,10 @@ func TestAsistenteSaldoSinVerificar(t *testing.T) {
 		t.Fatalf("falta la instrucción de no hablar de saldos: %s", pedido)
 	}
 	// El modelo «desobedece» y da un monto: rechazada.
-	x.ia.decir(respuestaModelo("Tu saldo pendiente es de 125.50, puedes pagar en agencias.", []string{"F1"}, nil))
+	x.ia.decir(respuestaModelo("Tu saldo pendiente es de 876543.21, puedes pagar en agencias.", []string{"F1"}, nil))
 	s = x.pedirYGenerar(x.agente, conv)
 	errSug, _ := s["error"].(map[string]any)
-	if s["estado"] != "error" || errSug["codigo"] != "respuesta_invalida" || strings.Contains(errSug["detalle"].(string), "125") {
+	if s["estado"] != "error" || errSug["codigo"] != "respuesta_invalida" || strings.Contains(errSug["detalle"].(string), "876543") {
 		t.Fatalf("debía rechazarse: %v", s)
 	}
 }

@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { describe, expect, it } from "vitest";
+import { RUTAS_PUBLICAS } from "./lib/legal/paginas";
 import { config, middleware } from "./middleware";
 
 const pedir = (ruta: string, cookies = "") => new NextRequest(`http://iris.test${ruta}`, { headers: cookies ? { cookie: cookies } : {} });
@@ -30,6 +31,17 @@ describe("middleware", () => {
     it("el autologin desde Argos no pasa por el middleware", () => {
         expect(coincide("/sso/entrar")).toBe(false);
         expect(coincide("/sso")).toBe(true);
+    });
+    it("las páginas legales públicas no pasan por el middleware (Meta las abre sin sesión)", () => {
+        for (const ruta of RUTAS_PUBLICAS) {
+            expect(coincide(ruta), ruta).toBe(false);
+        }
+        expect(coincide("/robots.txt")).toBe(false);
+        // Lo parecido sigue pidiendo sesión.
+        expect(coincide("/privacidades")).toBe(true);
+        expect(coincide("/en")).toBe(true);
+        expect(coincide("/en/tickets")).toBe(true);
+        expect(coincide("/terminos-internos")).toBe(true);
     });
     it("/campo, su manifest y el service worker no pasan por el middleware (abren sin señal)", () => {
         expect(coincide("/campo")).toBe(false);
