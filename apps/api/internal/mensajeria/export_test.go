@@ -288,3 +288,8 @@ func (m *Modulo) CredencialConLoVigente(ctx context.Context, bd nucleo.BD, id in
 func DecidirCuenta(empresa int64, cuentas []argos.CuentaBancariaArgos, err error, cuenta int64) (string, error) {
 	return decidirCuenta(empresa, cuentasLeidas{cuentas: cuentas, err: err}, cuenta)
 }
+
+// EnviarBoleta: el despacho de una boleta (lo que hace cada corrida con cada id vencido).
+func (m *Modulo) EnviarBoleta(ctx context.Context, id uuid.UUID) error {
+	return m.enviarBoleta(ctx, id)
+}

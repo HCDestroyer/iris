@@ -197,12 +197,64 @@ func TestConvCuentasBancariasDeLaEmpresa(t *testing.T) {
 		t.Fatalf("cuentas de la conversación: %v", lc.cuerpo)
 	}
 	b.exigir(b.api(b.agente, http.MethodGet, "/conversaciones/cuentas-bancarias?conversacionId=999999999", nil), http.StatusNotFound)
+	vencer := func() {
+		if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.boletas SET proximo_intento = '2000-01-01' WHERE conversacion_id = $1::bigint AND estado = 'por_enviar'`, cid(c)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// El despacho con una respuesta ilegible de Argos: detalle propio (no «Argos no respondió»), sin POST.
+	b.argos.mu.Lock()
+	b.argos.cuentasExtra = `,{"id":11,"empresa_id":"1","activa":"true"}`
+	b.argos.mu.Unlock()
+	vencer()
+	antes = enviados()
+	if err := b.m.DespacharBoletas(b.ctx, b.bd); err != nil {
+		t.Fatal(err)
+	}
+	if e, d, _ := fila("CU-10"); e != "por_enviar" || d != mensajeria.DetalleArgosIlegible || enviados() != antes+1 {
+		// Solo la CU-5, ya validada, no necesita leer las cuentas y se manda.
+		t.Fatalf("respuesta ilegible en el despacho: %s %q, comprobantes %d", e, d, enviados()-antes)
+	}
+	b.argos.mu.Lock()
+	b.argos.cuentasExtra = cuentasQueNoSon
+	b.argos.mu.Unlock()
+	// Boletas anteriores a la marca (cuenta_validacion nula) todavía por enviar: se revalidan igual.
+	if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.boletas SET cuenta_validacion = NULL WHERE conversacion_id = $1::bigint AND referencia IN ('CU-8', 'CU-3')`, cid(c)); err != nil {
+		t.Fatal(err)
+	}
 	// S1. El despacho con Argos arriba revalida las que quedaron sin validar antes del POST
 	// /comprobantes: la ajena (8), la inactiva (10) y la que está en dólares (4) quedan fallidas con
 	// su motivo y sin POST; la buena (3) se valida y se manda, igual que la ya validada (5).
-	if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.boletas SET proximo_intento = '2000-01-01' WHERE conversacion_id = $1::bigint`, cid(c)); err != nil {
-		t.Fatal(err)
+	vencer()
+	// Dos corridas solapadas: mientras «Argos» atiende el POST de una boleta, otro despacho de la
+	// misma boleta no la toma (está reservada): un solo POST por boleta.
+	var solapadas []error
+	b.argos.mu.Lock()
+	b.argos.alComprobante = func() {
+		filas, err := b.bd.Query(b.ctx, `SELECT id FROM mensajeria.boletas WHERE conversacion_id = $1::bigint`, cid(c))
+		if err != nil {
+			solapadas = append(solapadas, err)
+			return
+		}
+		var ids []uuid.UUID
+		for filas.Next() {
+			var id uuid.UUID
+			if err := filas.Scan(&id); err != nil {
+				solapadas = append(solapadas, err)
+			}
+			ids = append(ids, id)
+		}
+		filas.Close()
+		b.argos.mu.Lock()
+		b.argos.alComprobante = nil
+		b.argos.mu.Unlock()
+		for _, id := range ids {
+			if err := b.m.EnviarBoleta(b.ctx, id); err != nil {
+				solapadas = append(solapadas, err)
+			}
+		}
 	}
+	b.argos.mu.Unlock()
 	antes = enviados()
 	if err := b.m.DespacharBoletas(b.ctx, b.bd); err != nil {
 		t.Fatal(err)
@@ -217,8 +269,12 @@ func TestConvCuentasBancariasDeLaEmpresa(t *testing.T) {
 			t.Fatalf("%s debía mandarse a Argos ya validada: %s %s", ref, e, v)
 		}
 	}
-	if enviados() != antes+2 {
-		t.Fatalf("solo las dos boletas con cuenta válida hacen POST /comprobantes: %d", enviados()-antes)
+	if len(solapadas) != 0 {
+		t.Fatalf("el despacho solapado: %v", solapadas)
+	}
+	// CU-5 ya salió en el despacho anterior; aquí solo CU-3, una sola vez aunque hubo dos corridas.
+	if enviados() != antes+1 {
+		t.Fatalf("solo la boleta con cuenta válida hace POST /comprobantes, y una sola vez: %d", enviados()-antes)
 	}
 	if n := b.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'boleta.fallida' AND payload->>'conversacion_id' = $1`, cid(c)); n != 3 {
 		t.Fatalf("boleta.fallida: %d", n)

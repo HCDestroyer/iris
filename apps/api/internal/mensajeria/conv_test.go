@@ -67,7 +67,9 @@ type argosFalso struct {
 	// cuentasExtra: más cuentas en la respuesta de GET /cuentas-bancarias (JSON, cada una con su coma
 	// delante); errCuentas: Argos no responde esa lectura.
 	cuentasExtra string
-	errCuentas   error
+	// alComprobante corre mientras «Argos» atiende POST /comprobantes (fuera del candado).
+	alComprobante func()
+	errCuentas    error
 	// caja: el Argos falso (httptest) que aprueba y rechaza comprobantes (boletas_decidir_test.go).
 	caja *cajaFalsa
 }
@@ -140,6 +142,12 @@ func (f *argosFalso) EquiposEnComodato(context.Context, int64, int64) ([]argos.E
 }
 
 func (f *argosFalso) RegistrarComprobante(_ context.Context, a argos.AtencionIris, in argos.EntradaComprobante) (argos.ComprobanteArgos, error) {
+	f.mu.Lock()
+	alComprobante := f.alComprobante
+	f.mu.Unlock()
+	if alComprobante != nil {
+		alComprobante()
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.claves = append(f.claves, in.Clave)

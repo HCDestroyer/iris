@@ -455,6 +455,10 @@ func nuevoPrepararBoleta(m *Modulo) *auditoria.Caso[uuid.UUID, boletaPorEnviar] 
 			if f.Estado != "por_enviar" {
 				return boletaPorEnviar{nada: true}, nil
 			}
+			// Otro despacho la reservó (o espera su reintento): dos corridas solapadas no la mandan dos veces.
+			if f.ProximoIntento.After(m.ahora()) {
+				return boletaPorEnviar{nada: true}, nil
+			}
 			// Reservada 5 min: otro despacho no la toma mientras se manda.
 			if _, err := q.ResultadoBoleta(ctx, mensajeriabd.ResultadoBoletaParams{ID: id, Estado: f.Estado, ComprobanteID: f.ComprobanteID,
 				Detalle: f.Detalle, ProximoIntento: m.ahora().Add(5 * time.Minute)}); err != nil {
@@ -582,10 +586,10 @@ func (m *Modulo) enviarBoleta(ctx context.Context, id uuid.UUID) error {
 		Archivo: conector.Archivo{Campo: "archivo", Nombre: "boleta-" + f.ID.String() + ext, Mime: p.mime, Datos: p.datos}, Nota: f.Nota,
 		Clave: "iris:boleta:" + f.ID.String()}
 	res := resultadoBoleta{ID: id}
-	// Registrada sin validar la cuenta (Argos no respondía o el conector estaba apagado): se
-	// revalida antes de mandar el comprobante. Si no es una cuenta activa en GTQ de la empresa, la
+	// Registrada sin validar la cuenta (Argos no respondía o el conector estaba apagado) o anterior a
+	// la marca (cuenta_validacion nula): se revalida antes de mandar el comprobante. Si no es una cuenta activa en GTQ de la empresa, la
 	// boleta falla sin hacer el POST; si Argos sigue sin responder, sigue el reintento normal.
-	if f.CuentaValidacion != nil && *f.CuentaValidacion != CuentaValidada {
+	if f.CuentaValidacion == nil || *f.CuentaValidacion != CuentaValidada {
 		cs, err := m.cfg.Argos.CuentasBancarias(ctx, p.a)
 		switch {
 		case err != nil:
@@ -610,10 +614,17 @@ func (m *Modulo) enviarBoleta(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+// DetalleArgosIlegible: el detalle de una boleta cuando Argos respondió algo que Iris no pudo leer.
+const DetalleArgosIlegible = "Argos respondió algo que Iris no entiende"
+
 // resumenErrorArgos: el detalle seguro para guardar y si se reintenta (caído, sin conector).
 func resumenErrorArgos(err error) (string, bool) {
 	var er *conector.ErrorRemoto
 	if errors.As(err, &er) {
+		if er.Ilegible {
+			// Un 2xx que Iris no pudo decodificar: no es que Argos no responda.
+			return DetalleArgosIlegible, true
+		}
 		if er.Caido() {
 			return "Argos no respondió", true
 		}
