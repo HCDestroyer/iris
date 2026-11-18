@@ -91,12 +91,13 @@ func ProxyHacia(destino string, nombre string, log *slog.Logger) (http.Handler, 
 			noDisponible(w, http.StatusBadGateway)
 		},
 	}
-	// Server-Sent Events (GET /api/v1/mensajeria/chat/eventos): ReverseProxy ya copia cada evento
+	// Server-Sent Events (RutasFlujoSSE: el chat y la bandeja): ReverseProxy ya copia cada evento
 	// sin esperar (con text/event-stream vacía el búfer en cada escritura), pero el WriteTimeout y el
 	// ReadTimeout del servidor (60 s) cortarían el flujo, y el ReadTimeout al vencer cancela el
-	// contexto de la petición. Solo en esa ruta exacta (EsFlujoSSE): plazo de escritura móvil (se
-	// renueva con cada escritura; el destino manda un latido cada 25 s) y un máximo absoluto
-	// (el destino cierra a los 30 min). Nunca sin plazo.
+	// contexto de la petición. Solo en esas rutas exactas y con GET (EsFlujoSSE): plazo de escritura
+	// móvil (se renueva con cada escritura; el destino manda un latido cada 25 s) y un máximo
+	// absoluto (el destino cierra a los 30 min). Nunca sin plazo; ReadHeaderTimeout no cambia (las
+	// cabeceras ya se leyeron al llegar aquí).
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if EsFlujoSSE(r) {
 			e := &escrituraMovil{ResponseWriter: w, rc: http.NewResponseController(w), plazo: plazoEscrituraSSE,
@@ -109,8 +110,20 @@ func ProxyHacia(destino string, nombre string, log *slog.Logger) (http.Handler, 
 	}), nil
 }
 
-// RutaFlujoSSE es la única ruta delegada que es un flujo largo (el SSE del chat).
+// RutaFlujoSSE es el flujo SSE del chat (GET /chat/eventos, mensajeria/chat_flujo.go).
 const RutaFlujoSSE = "/api/v1/mensajeria/chat/eventos"
+
+// RutaFlujoSSEConversaciones es el flujo SSE de la bandeja (GET /conversaciones/eventos,
+// mensajeria/conv_flujo.go). Sin la exención el panel veía «Sin conexión» cada 60 s.
+const RutaFlujoSSEConversaciones = "/api/v1/mensajeria/conversaciones/eventos"
+
+// rutasFlujoSSE es la lista cerrada de rutas delegadas que son un flujo largo: rutas exactas, sin
+// prefijos ni comodines. Una ruta nueva entra aquí solo si su servidor quita el ReadTimeout, pone
+// un plazo por escritura, manda latidos, se cierra solo (ChatDuracionMax) y revalida la sesión.
+var rutasFlujoSSE = map[string]struct{}{
+	RutaFlujoSSE:               {},
+	RutaFlujoSSEConversaciones: {},
+}
 
 // Plazos del flujo SSE a través del proxy (variables para las pruebas).
 var (
@@ -118,9 +131,13 @@ var (
 	maximoFlujoSSE    = 31 * time.Minute
 )
 
-// EsFlujoSSE: GET a la ruta exacta del flujo SSE del chat.
+// EsFlujoSSE: GET a una ruta exacta de rutasFlujoSSE.
 func EsFlujoSSE(r *http.Request) bool {
-	return r.Method == http.MethodGet && r.URL.Path == RutaFlujoSSE
+	if r.Method != http.MethodGet {
+		return false
+	}
+	_, ok := rutasFlujoSSE[r.URL.Path]
+	return ok
 }
 
 // escrituraMovil renueva el plazo de escritura con cada escritura, sin pasar del tope.

@@ -165,16 +165,51 @@ func cuantosHasta(t *testing.T, lineas <-chan string) (int, time.Duration) {
 	}
 }
 
-// El flujo SSE del chat (GET /api/v1/mensajeria/chat/eventos) pasa por el proxy sin búfer (cada
-// evento llega al escribirse) y sobrevive el WriteTimeout y el ReadTimeout de la API (aquí 1 s).
+// rutasFlujo: los flujos SSE que la API reenvía a la mensajería (la lista cerrada de
+// servidor.RutasFlujoSSE). Literales a propósito: si una sale de la lista, su prueba falla.
+var rutasFlujo = []string{
+	"/api/v1/mensajeria/chat/eventos",
+	"/api/v1/mensajeria/conversaciones/eventos", // la bandeja: antes se cortaba a los 60 s
+}
+
+// Los flujos SSE (el del chat y el de la bandeja) pasan por el proxy sin búfer (cada evento llega
+// al escribirse) y sobreviven el WriteTimeout y el ReadTimeout de la API (aquí 1 s).
 func TestProxyFlujoSSESinBuferNiPlazo(t *testing.T) {
 	defer servidor.FijarPlazosSSE(5*time.Second, 10*time.Second)()
+	for _, ruta := range rutasFlujo {
+		t.Run(ruta, func(t *testing.T) { probarFlujoVivo(t, ruta) })
+	}
+	get := func(metodo, ruta string) *http.Request {
+		r, _ := http.NewRequest(metodo, "http://api"+ruta, nil)
+		return r
+	}
+	for _, ruta := range rutasFlujo {
+		if !servidor.EsFlujoSSE(get(http.MethodGet, ruta)) {
+			t.Fatalf("EsFlujoSSE(GET %s) = false", ruta)
+		}
+		for _, no := range []*http.Request{get(http.MethodPost, ruta), get(http.MethodHead, ruta), get(http.MethodGet, ruta+"/x"),
+			get(http.MethodGet, ruta+"/"), get(http.MethodGet, strings.TrimSuffix(ruta, "/eventos"))} {
+			if servidor.EsFlujoSSE(no) {
+				t.Fatalf("EsFlujoSSE(%s %s): solo GET a la ruta exacta", no.Method, no.URL.Path)
+			}
+		}
+	}
+	for _, ruta := range []string{"/api/v1/mensajeria/plantillas", "/api/v1/mensajeria/eventos",
+		"/api/v1/mensajeria/conversaciones/1/eventos", "/api/v1/mensajeria/avisos/eventos"} {
+		if servidor.EsFlujoSSE(get(http.MethodGet, ruta)) {
+			t.Fatalf("EsFlujoSSE(GET %s): no está en la lista cerrada", ruta)
+		}
+	}
+}
+
+// probarFlujoVivo: tres eventos por ruta, el tercero después del WriteTimeout de la API.
+func probarFlujoVivo(t *testing.T, ruta string) {
 	siguiente := make(chan struct{})
 	url := apiConDestino(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		rc := http.NewResponseController(w)
-		_ = rc.Flush() // como el chat: las cabeceras salen enseguida (retry: …)
+		_ = rc.Flush() // como el chat y la bandeja: las cabeceras salen enseguida (retry: …)
 		for i := 1; i <= 3; i++ {
 			select {
 			case <-siguiente:
@@ -185,7 +220,7 @@ func TestProxyFlujoSSESinBuferNiPlazo(t *testing.T) {
 			_ = rc.Flush()
 		}
 	}))
-	lineas := leerIDs(t, url+servidor.RutaFlujoSSE)
+	lineas := leerIDs(t, url+ruta)
 	for i := 1; i <= 3; i++ {
 		if i == 3 {
 			time.Sleep(1500 * time.Millisecond) // pasa el WriteTimeout y el ReadTimeout de la API
@@ -198,29 +233,40 @@ func TestProxyFlujoSSESinBuferNiPlazo(t *testing.T) {
 		select {
 		case l, ok := <-lineas:
 			if !ok || l != fmt.Sprintf("id: %d", i) {
-				t.Fatalf("evento %d: %q (abierto %v)", i, l, ok)
+				t.Fatalf("evento %d: %q (abierto %v): se cortó el flujo", i, l, ok)
 			}
 		case <-time.After(3 * time.Second):
 			t.Fatalf("el evento %d no llegó: el proxy lo retuvo en un búfer", i)
 		}
 	}
-	get := func(metodo, ruta string) *http.Request {
-		r, _ := http.NewRequest(metodo, "http://api"+ruta, nil)
-		return r
-	}
-	if !servidor.EsFlujoSSE(get(http.MethodGet, servidor.RutaFlujoSSE)) || servidor.EsFlujoSSE(get(http.MethodPost, servidor.RutaFlujoSSE)) ||
-		servidor.EsFlujoSSE(get(http.MethodGet, "/api/v1/mensajeria/plantillas")) || servidor.EsFlujoSSE(get(http.MethodGet, servidor.RutaFlujoSSE+"/x")) {
-		t.Fatal("EsFlujoSSE: solo GET a la ruta exacta")
-	}
 }
 
 // El plazo del flujo nunca es cero: el de escritura se renueva con cada evento (más corto que el
-// WriteTimeout de la API, el flujo sigue mientras haya eventos) y hay un máximo absoluto.
+// WriteTimeout de la API, el flujo sigue mientras haya eventos) y hay un máximo absoluto, en las
+// dos rutas (el cliente se reconecta).
 func TestProxyFlujoSSEPlazoMovilYMaximo(t *testing.T) {
 	defer servidor.FijarPlazosSSE(400*time.Millisecond, 2*time.Second)()
-	n, dur := cuantosHasta(t, leerIDs(t, apiConDestino(t, destinoCadaTanto(150*time.Millisecond))+servidor.RutaFlujoSSE))
-	if dur < 1700*time.Millisecond || dur > 3500*time.Millisecond || n < 9 {
-		t.Fatalf("el flujo duró %v con %d eventos (esperaba ~2 s, el máximo)", dur, n)
+	for _, ruta := range rutasFlujo {
+		t.Run(ruta, func(t *testing.T) {
+			n, dur := cuantosHasta(t, leerIDs(t, apiConDestino(t, destinoCadaTanto(150*time.Millisecond))+ruta))
+			if dur < 1700*time.Millisecond || dur > 3500*time.Millisecond || n < 9 {
+				t.Fatalf("el flujo duró %v con %d eventos (esperaba ~2 s, el máximo)", dur, n)
+			}
+		})
+	}
+}
+
+// Un flujo exento cuyo destino calla (sin eventos ni latidos) no queda abierto para siempre: lo
+// cierra el máximo absoluto. El plazo móvil corta a quien deja de leer (una escritura bloqueada).
+func TestProxyFlujoSSESilencioHastaElMaximo(t *testing.T) {
+	defer servidor.FijarPlazosSSE(400*time.Millisecond, 2*time.Second)()
+	for _, ruta := range rutasFlujo {
+		t.Run(ruta, func(t *testing.T) {
+			_, dur := cuantosHasta(t, leerIDs(t, apiConDestino(t, destinoCadaTanto(time.Minute))+ruta))
+			if dur > 3500*time.Millisecond {
+				t.Fatalf("un flujo sin escrituras duró %v: pasó el máximo", dur)
+			}
+		})
 	}
 }
 

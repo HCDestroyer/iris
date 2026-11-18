@@ -79,7 +79,11 @@ Subpaquetes:
   actor sistema). `Cifrador` acepta la anterior (`IRIS_CLAVE_CIFRADO_ANTERIOR`) para descifrar
   durante la transición. Runbook: `docs/runbooks/rotar-clave-cifrado.md`.
 - `servidor`: chi + huma, middlewares (request id, log, pánicos, identidad, idempotencia),
-  `/salud` y `/listo`.
+  `/salud` y `/listo`. `ProxyHacia` reenvía `/api/v1/mensajeria/*` al proceso de mensajería con los
+  plazos del servidor (60 s), salvo la lista cerrada de flujos SSE (`rutasFlujoSSE`, rutas exactas y
+  solo GET): `/api/v1/mensajeria/chat/eventos` y `/api/v1/mensajeria/conversaciones/eventos`. Esos
+  llevan un plazo de escritura móvil (60 s, se renueva con cada evento o latido) y un máximo de 31 min
+  (el destino cierra a los 30 y el cliente se reconecta); `ReadHeaderTimeout` no cambia.
 - `pruebas`: Postgres real para las pruebas de integración.
 
 **Idempotencia:** el hash de la petición es un HMAC-SHA256 con clave derivada de

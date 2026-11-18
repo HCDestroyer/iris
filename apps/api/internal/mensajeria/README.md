@@ -103,9 +103,11 @@ Contrato completo (endpoints, payloads, SSE, reglas de la cola sin conexión):
   ese momento; si falla, se cierra. Topes: `ChatSSEPorUsuario` (5; el sexto, 429
   `demasiados_flujos`), `ChatSSEMax` (`IRIS_CHAT_SSE_MAX`, 1000; 503 `flujos_agotados`) y un
   semáforo de `ChatLecturas` (16) lecturas del feed a la vez. El flujo quita el ReadTimeout del
-  servidor y pone un plazo por escritura; el proxy de la API (`servidor.ProxyHacia`) solo en
-  `GET /api/v1/mensajeria/chat/eventos` usa un plazo de escritura móvil (60 s) y un máximo de 31 min,
-  y ReverseProxy copia cada evento sin búfer.
+  servidor y pone un plazo por escritura; el proxy de la API (`servidor.ProxyHacia`) solo en la
+  lista cerrada de flujos (`GET /api/v1/mensajeria/chat/eventos` y
+  `GET /api/v1/mensajeria/conversaciones/eventos`, rutas exactas) usa un plazo de escritura móvil
+  (60 s) y un máximo de 31 min, y ReverseProxy copia cada evento sin búfer. Un flujo SSE nuevo debe
+  entrar en esa lista (`rutasFlujoSSE` en `nucleo/servidor/proxy.go`) o la API lo corta a los 60 s.
 - **Auditoría:** abrir una conversación nueva, enviar, eliminar y agregar un miembro, con los ids y
   nunca el texto. Listar, ver, leer, cambios y el flujo no dejan fila. Los logs no llevan cuerpos.
 - `Config`: `ChatPorMinuto` (30), `ChatPlazoEliminar` (15 min), `ChatLatido` (25 s),
@@ -184,8 +186,9 @@ Contrato completo: `.claude/integration/contratos/conversaciones.md`. Código en
   por teléfono con `GET /clientes?telefono=` (o la instantánea si Argos no responde); contactos
   propios de Iris (`mensajeria.contactos_iris`) que se unen a la ficha de Argos.
 - **Tiempo real:** feed `mensajeria.conv_eventos` + `NOTIFY iris_conversaciones` + SSE
-  (`GET /conversaciones/eventos`) y sondeo (`/conversaciones/cambios`), con los mismos topes y
-  revalidación que el chat; purga a los 7 días (`chat_estado.conv_purgados_hasta`).
+  (`GET /conversaciones/eventos`) y sondeo (`/conversaciones/cambios`), con los mismos topes,
+  plazos (latido de 25 s, cierre a los 30 min), revalidación y exención en el proxy de la API que el
+  chat; purga a los 7 días (`chat_estado.conv_purgados_hasta`).
 - **Auditoría:** cada acción; el texto de los mensajes y notas nunca (solo id, tipo y hash).
 
 Emite (detalle en `contratos/eventos.md`, «Conversaciones con clientes»): `conversacion.*`,
