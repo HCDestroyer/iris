@@ -1100,6 +1100,12 @@ a una conversación **sin asignar** sin aviso ni bot ya en curso en esta espera:
    evento de sistema `bot_atendio` (`detalle: "sin_disponibles"`): «Sin agentes disponibles:
    contestó el bot».
 
+**Si el bot no le pudo mandar nada al cliente en esa espera** (ni saludo ni menú: BAJA vigente o
+ventana de 24 h cerrada), el evento de sistema **no es** `bot_atendio` sino `bot_sin_respuesta` (mismo
+`detalle` y `minutos`): «Nadie la tomó en 30 min y el bot no pudo contestar (el cliente no acepta
+mensajes o pasaron 24 h)». El outbox `conversacion.bot_atendio` sale igual, con `respondio: false` y
+`mensaje_id: null`; `espera.botAtendio` queda `true` (el temporizador ya disparó).
+
 **Con el horario cerrado:** como hoy (§10.2: `fueraDeHorario.mensaje` una vez por ventana cerrada y
 la guardia), pero lo manda el bot: con el bot activo sale `conversacion.bot_atendio` con
 `motivo: fuera_de_horario` (además de `conversacion.fuera_de_horario`) y, si tiene menú, el menú va
@@ -2137,6 +2143,10 @@ traslado» (`aviso`, `sugiere`) y «Otro» (`neutro`, `sugiere`, `esOtro: true`)
   `reconexion_pedida`, `espera_persona` («Espera a una persona»).
 - `asistente` **(3b)**: `estado` `atendiendo` | `espera_persona` | `detenido` (una persona tomó o
   escribió) y `turnos`.
+- `actividadAsistente` **se borra** cuando el asistente queda `detenido` (una persona la tomó, le
+  escribió al cliente o lo pausó) y cuando la conversación se reabre: nunca queda «Respondió al
+  cliente» en una conversación que el asistente ya no contesta. Si el asistente atiende ahora y por
+  qué no lo dice `atencionAsistente` (§17.11).
 - `MensajeConversacion` suma `autorTipo`: `cliente` (entrante) | `persona` | `asistente_ia` |
   `sistema` (mensajes de sistema, bot, fuera de horario). **(3b)** los mensajes del asistente llevan
   `autorTipo: "asistente_ia"`, `automatico: "asistente"` y `autor` ausente; `UltimoMensajeResumen`
@@ -2254,7 +2264,9 @@ herramienta_fallo|max_turnos|persona_presente|tope`, cola_id, turnos).
 - **Idempotencia:** clave por conversación y mensaje; un job duplicado no envía dos veces ni crea
   dos tickets.
 - **Persona presente:** si un agente toma la conversación o escribe, el asistente se detiene ahí
-  hasta que se resuelva o se reabra sin asignar.
+  hasta que se resuelva o se reabra sin asignar, **también si el agente después se quita la
+  asignación**: no retoma solo. Para devolvérsela está `POST …/asistente/reanudar` (§17.11), y
+  `atencionAsistente.motivo = persona_presente` lo dice mientras tanto.
 - **Pasar a persona** (siempre activo): el cliente lo pide, muestra enojo, no hay con qué responder,
   falla una herramienta o se llega a `maxTurnos`. Queda en la cola de su categoría con una nota
   interna que resume lo hecho.
@@ -2584,3 +2596,82 @@ Eventos: `orden.creada` con `origen: "asistente"` (valor nuevo), `orden.programa
 `perfiles[].exigeVerificacionFuerte.agendar_visita`. El interruptor `agendar_visita` deja de decir
 «Próximamente». En el hilo sale el mensaje de sistema `orden_creada`; la orden trae `origen:
 "asistente"` en campo.
+
+### 17.11 El asistente por conversación: ¿atiende ahora?, pausar y reanudar
+
+Lo implementa I2 en `asistente_pausa.go`. Responde a dos reportes del PM con el asistente atendiendo
+solo: (A1) una persona toma la conversación y después se quita la asignación, y la bandeja seguía
+diciendo que el asistente «respondió» aunque ya no contesta; (A2) no había cómo ver ni decidir, por
+conversación, que el asistente no conteste.
+
+**Qué pasaba (A1).** El comportamiento de §17.8 es el correcto y no cambia: cuando una persona toma
+la conversación o le escribe al cliente, el asistente queda `detenido` hasta que se resuelva, aunque
+la persona se quite la asignación. Lo que mentía era el indicador: `actividadAsistente` («Respondió
+al cliente») se quedaba en la fila de la bandeja para siempre, y nada decía que el asistente ya no
+atendía. Ahora esa línea se borra al detenerse (§17.4), la conversación dice por qué no atiende y
+una persona puede devolvérsela con `reanudar`.
+
+**Campo de lectura** en `ConversacionCliente` (lista, detalle y feed):
+
+```json
+"atencionAsistente": {
+  "atiende": false,
+  "motivo": "pausado",          // null con atiende = true
+  "reanudable": true,           // «Reanudar» cambia algo
+  "pausa": { "por": { "id": 7, "nombre": "Andrea Castillo" }, "en": "…", "motivo": "caso_delicado" }  // ausente: sin pausa
+}
+```
+
+- **Ausente** si la conversación está resuelta o es de solo lectura, o si la empresa no tiene el
+  asistente atendiendo solo (inactivo o `modoAutonomo: nunca`) y nadie lo pausó en esta conversación:
+  no hay nada que pintar.
+- `atiende: true`: nada **en la conversación** le impide contestar solo el próximo mensaje del
+  cliente. Cada mensaje pasa todavía por las reglas del turno (categoría del mensaje y su condición,
+  límites por hora, presupuesto, y en `sin_nadie` la espera a los agentes en línea); si entonces no
+  puede y ya estaba atendiendo, pasa a una persona y queda `espera_persona` con su `motivoPaso`.
+- `atiende: false` → `motivo`, el **primero** que aplica:
+
+| `motivo` | Qué pasa | `reanudable` |
+| --- | --- | --- |
+| `pausado` | Alguien lo pausó en esta conversación (`pausa` dice quién, cuándo y por qué) | sí |
+| `persona_asignada` | La tiene una persona | no (sí, si además hay pausa) |
+| `persona_presente` | Una persona la tomó o le escribió al cliente en este periodo, y ya no la tiene nadie. **Nadie la está atendiendo:** el asistente no retoma solo | sí |
+| `espera_persona` | El asistente la pasó a una persona (`asistente.motivoPaso` dice por qué) | sí |
+| `tope` | La empresa llegó al tope de tokens del mes | no |
+| `bot` | La tomó el bot de menú (§14.6) | no |
+| `categoria_sugiere` | La categoría de la conversación no está en «responde solo» | no |
+| `horario_solo_sugiere` | La franja vigente del horario de la cola dice «solo sugerir» | no |
+
+**Acciones** (permiso nuevo `conversaciones.pausar_asistente` para las dos: `despacho`, `soporte`,
+`ventas`, `supervisor`, `admin`; exigen ver la conversación —si no, 404—, `version` con 409
+`conflicto_version` y aceptan `Idempotency-Key`). Devuelven el detalle de la conversación.
+
+| Método y ruta | Cuerpo | Notas |
+| --- | --- | --- |
+| `POST /conversaciones/{id}/asistente/pausar` | `{ version, motivo? }` | `motivo`: `manual` (por defecto) \| `caso_delicado` \| `respuesta_incorrecta` \| `cliente_lo_pidio` (422 si es otro). Vale **aunque nadie la tenga asignada**. Si el asistente atendía queda `detenido` y el turno en curso no envía nada. Repetirla: 200 sin cambios ni evento. 422 `conversacion_resuelta` |
+| `POST /conversaciones/{id}/asistente/reanudar` | `{ version }` | Quita la pausa y, si el asistente estaba `detenido` o en `espera_persona` (o una persona había escrito), **vuelve a poder atender**: `asistente` queda ausente hasta su próximo turno, conserva sus turnos y no se presenta otra vez. Si el cliente está esperando (`abierta`) y nadie la tiene, contesta ese mensaje enseguida (~segundos). Con una persona asignada no contesta hasta que la suelte. Sin nada que reanudar: 200 sin cambios ni evento. 422 `conversacion_resuelta` |
+
+**Decisiones (I2; el líder las confirma con el PM).**
+- **Pausado = el asistente no le contesta solo al cliente en esa conversación.** Las **sugerencias
+  al agente siguen** (botón y automáticas) y la clasificación también: no llegan al cliente.
+- **La pausa dura hasta que alguien la reanude o la conversación se resuelva.** Al resolverse se
+  quita (como el resto del estado del asistente, §17.8.1); al reabrirse la conversación vuelve al
+  comportamiento de la empresa. No hay evento propio al quitarse por resolver: lo dice
+  `conversacion.resuelta`.
+- **Al quitarse la asignación el asistente no retoma solo.** Es lo que dice §17.8 y es lo prudente:
+  la persona pudo haber prometido algo que el asistente no sabe. Quien la suelta decide: «Reanudar»
+  se la devuelve. *Propuesta para el PM:* que el panel, al quitar la asignación de una conversación
+  que el asistente atendía, pregunte «¿Que la siga atendiendo el asistente?» (es `asignar` +
+  `reanudar`; no hace falta más servidor).
+- **Con el asistente en pausa el bot de menú no espera a la clasificación:** corre enseguida, como
+  en una empresa sin modo autónomo.
+
+**En el hilo.** Mensajes de sistema `asistente_pausado` (`actorNombre`, `detalle` = motivo de la
+pausa) y `asistente_reanudado` (`actorNombre`, `detalle` = de dónde venía: `pausado` |
+`persona_presente` | `espera_persona`).
+
+**Auditoría y eventos (outbox; nunca texto).** Acciones `conversaciones.pausar_asistente` y
+`conversaciones.reanudar_asistente`. Eventos `conversacion.asistente_pausado` (conversacion_id,
+empresa_id, actor_id, motivo, atendia, asignado_a) y `conversacion.asistente_reanudado`
+(conversacion_id, empresa_id, actor_id, de, asignado_a). Detalle en `contratos/eventos.md`.
+

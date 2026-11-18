@@ -528,6 +528,20 @@ Emite `conversacion.categorizada`, `categoria.creada`, `categoria.actualizada` y
 - Eventos: `orden.creada` (origen `asistente`), `orden.programada`, `conversacion.vinculo_creado` y
   `asistente.accion_ejecutada` (`ofrecer_visita`, `agendar_visita`).
 
+### El asistente por conversación: pausar y reanudar (§17.11, `asistente_pausa.go`)
+
+- **Qué hace:** `atencionAsistente` en cada conversación (si el asistente la atiende sola ahora y por
+  qué no) y las acciones `POST /conversaciones/{id}/asistente/pausar` y `…/reanudar` (permiso
+  `conversaciones.pausar_asistente`). La pausa vive en la conversación (`asistente_pausado_en`,
+  `_por`, `asistente_pausa_motivo`) y se quita al reanudar o al resolverse (trigger
+  `conv_asistente_estado`). «Reanudar» también le devuelve la conversación al asistente cuando una
+  persona la tomó o escribió (`asistente_reanudado_en`): nunca retoma solo.
+- **Honestidad de la bandeja:** `actividadAsistente` se borra cuando el asistente queda `detenido` y
+  al reabrirse; el temporizador del bot deja `bot_sin_respuesta` (no `bot_atendio`) si no le pudo
+  mandar nada al cliente.
+- **Eventos que emite:** `conversacion.asistente_pausado`, `conversacion.asistente_reanudado`;
+  `conversacion.bot_atendio` suma `respondio`. No consume ninguno.
+
 ## Voz, etapa E1: llamadas de WhatsApp contestadas en el panel
 
 Contrato: `.claude/integration/contratos/voz.md`. Código en `voz_*.go`, consultas en `voz.sql`.

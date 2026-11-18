@@ -251,7 +251,12 @@ SELECT c.*,
     ca.nombre AS canal_nombre, ca.numero AS canal_numero, ca.usos AS canal_usos,
     co.nombre AS cola_nombre, co.sla_respuesta_min, co.sla_por_vencer_min,
     k.nombre AS categoria_nombre, k.tono AS categoria_tono, k.sla_primera_respuesta_min AS categoria_sla_min,
-    u.nombre AS asignado_nombre,
+    k.modo AS categoria_modo, k.activa AS categoria_activa,
+    u.nombre AS asignado_nombre, pp.nombre AS pausado_por_nombre,
+    -- §17.11: una persona le escribió al cliente en este periodo (y después de la última reanudación).
+    EXISTS (SELECT 1 FROM mensajeria.conversacion_mensajes pm
+            WHERE pm.conversacion_id = c.id AND pm.direccion = 'saliente' AND pm.automatico IS NULL
+              AND pm.creado_en >= GREATEST(coalesce(c.reabierta_en, '-infinity'), coalesce(c.asistente_reanudado_en, '-infinity')))::boolean AS persona_escribio,
     ac.nombre AS cliente_nombre, ci.nombre AS contacto_iris_nombre,
     um.direccion AS ultimo_direccion, um.tipo AS ultimo_tipo, um.texto AS ultimo_texto, um.creado_en AS ultimo_creado_en,
     um.evento AS ultimo_evento, um.automatico AS ultimo_automatico,
@@ -267,6 +272,7 @@ JOIN mensajeria.canales ca ON ca.id = c.canal_id
 LEFT JOIN mensajeria.colas co ON co.id = c.cola_id
 LEFT JOIN mensajeria.asistente_categorias k ON k.id = c.categoria_id AND coalesce(k.empresa_id, 0) = coalesce(c.empresa_id, 0)
 LEFT JOIN nucleo.usuarios u ON u.id = c.asignado_a
+LEFT JOIN nucleo.usuarios pp ON pp.id = c.asistente_pausado_por
 LEFT JOIN integracion.argos_clientes ac ON ac.id = c.cliente_id
 LEFT JOIN mensajeria.contactos_iris ci ON ci.id = c.contacto_iris_id
 LEFT JOIN mensajeria.conversacion_mensajes um ON um.id = c.ultimo_mensaje_id

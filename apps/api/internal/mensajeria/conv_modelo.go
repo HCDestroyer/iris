@@ -168,6 +168,7 @@ type ConversacionCliente struct {
 	CategoriaOrigen    *string               `json:"categoriaOrigen" nullable:"true" required:"false" enum:"asistente,agente"`
 	ActividadAsistente *ActividadAsistente   `json:"actividadAsistente,omitempty" doc:"Lo último que hizo el asistente en la conversación"`
 	Asistente          *AsistenteConv        `json:"asistente,omitempty" doc:"El asistente atiende (o atendió) solo esta conversación (§17.8). Ausente: nunca la atendió en este periodo"`
+	AtencionAsistente  *AtencionAsistente    `json:"atencionAsistente,omitempty" doc:"§17.11: si el asistente atiende sola esta conversación ahora y, si no, por qué. Ausente: resuelta, de solo lectura, o la empresa no tiene el asistente atendiendo solo y nadie lo pausó aquí"`
 	SoloLectura        bool                  `json:"soloLectura,omitempty" doc:"true: el número ya no está compartido con tu empresa (préstamo revocado, §15.3) y solo se puede leer. Ausente = false"`
 	UltimaActividad    time.Time             `json:"ultimaActividad"`
 	CreadaEn           time.Time             `json:"creadaEn"`
@@ -265,7 +266,7 @@ type PlantillaMensaje struct {
 
 // EventoSistema es un mensaje de sistema («Andrea creó TK-004812»): el panel arma el texto.
 type EventoSistema struct {
-	Tipo           string  `json:"tipo" doc:"conversacion_creada, asignada, tomada, transferida, resuelta, reabierta, etiquetada, cliente_asociado, contacto_iris_creado, ticket_creado, orden_creada, prospecto_creado, boleta_registrada, boleta_fallida, promesa_creada, respondio_aviso, fuera_de_horario, guardia_avisada, manual_enviado; 1.1: aviso_sin_atender, bot_atendio, menu_elegido, pasada, iniciada; 3b: reconexion_pedida (detalle: aceptada | rechazada), identidad_verificada (detalle: coincide | no_coincide | no_disponible | demasiados_intentos | supervisor)"`
+	Tipo           string  `json:"tipo" doc:"conversacion_creada, asignada, tomada, transferida, resuelta, reabierta, etiquetada, cliente_asociado, contacto_iris_creado, ticket_creado, orden_creada, prospecto_creado, boleta_registrada, boleta_fallida, promesa_creada, respondio_aviso, fuera_de_horario, guardia_avisada, manual_enviado; 1.1: aviso_sin_atender, bot_atendio, bot_sin_respuesta (el bot no pudo escribirle al cliente), menu_elegido, pasada, iniciada; 3b: reconexion_pedida (detalle: aceptada | rechazada), identidad_verificada (detalle: coincide | no_coincide | no_disponible | demasiados_intentos | supervisor); §17.11: asistente_pausado (detalle: el motivo de la pausa), asistente_reanudado (detalle: pausado | persona_presente | espera_persona)"`
 	ActorNombre    *string `json:"actorNombre,omitempty"`
 	AsignadoNombre *string `json:"asignadoNombre,omitempty"`
 	ColaNombre     *string `json:"colaNombre,omitempty"`
@@ -699,6 +700,8 @@ func (m *Modulo) resumirConvs(ctx context.Context, q *mensajeriabd.Queries, usua
 	ahora := m.ahora()
 	disp := map[[2]int64][]UsuarioRef{}
 	vigencias := map[int64]time.Duration{}
+	autonomos := map[int64]autonomoEmpresa{}
+	franjas := map[[3]int64]bool{}
 	porID := make(map[int64]ConversacionCliente, len(filas))
 	for _, f := range filas {
 		c := mensajeriabd.MensajeriaConversacion{ID: f.ID, ClienteID: f.ClienteID, ServicioID: f.ServicioID, ContactoIrisID: f.ContactoIrisID,
@@ -733,6 +736,32 @@ func (m *Modulo) resumirConvs(ctx context.Context, q *mensajeriabd.Queries, usua
 			if *f.AsistenteEstado == AsistenteEsperaPersona && f.AsistenteMotivoPaso != nil && slices.Contains(motivosDePaso, *f.AsistenteMotivoPaso) {
 				v.Asistente.MotivoPaso = f.AsistenteMotivoPaso
 			}
+		}
+		emp := derefEmpresa(f.EmpresaID)
+		if _, ok := autonomos[emp]; !ok {
+			e, err := m.autonomoDeEmpresa(ctx, q, emp)
+			if err != nil {
+				return nil, err
+			}
+			autonomos[emp] = e
+		}
+		if v.AtencionAsistente, err = atencionAsistente(f, autonomos[emp], func() (bool, error) {
+			// La franja vigente del horario de la cola (o del número), con caché por cola y número.
+			clave := [3]int64{emp, -1, f.CanalID}
+			if f.ColaID != nil {
+				clave[1] = *f.ColaID
+			}
+			solo, ok := franjas[clave]
+			if !ok {
+				c.EmpresaID, c.CanalID = f.EmpresaID, f.CanalID
+				if _, _, solo, err = m.perfilDeCola(ctx, q, c, *autonomos[emp].aj, f.ColaID); err != nil {
+					return false, err
+				}
+				franjas[clave] = solo
+			}
+			return solo, nil
+		}); err != nil {
+			return nil, err
 		}
 		if v.Etiquetas == nil {
 			v.Etiquetas = []EtiquetaRef{}

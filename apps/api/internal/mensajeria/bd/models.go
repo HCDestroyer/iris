@@ -1517,6 +1517,10 @@ type MensajeriaConversacion struct {
 	IdentidadVenceEn        *time.Time
 	BotDiferidoMensajeID    pgtype.UUID
 	AsistenteMotivoPaso     *string
+	AsistentePausadoEn      *time.Time
+	AsistentePausadoPor     *int64
+	AsistentePausaMotivo    *string
+	AsistenteReanudadoEn    *time.Time
 }
 
 type MensajeriaConversacionEtiqueta struct {

@@ -399,7 +399,7 @@ SET categoria_id = $1, categoria_confianza = $2, categoria_origen = $3,
     categoria_en = $4, clasificado_mensaje_id = coalesce($5, clasificado_mensaje_id),
     version = version + $6::integer, updated_at = now()
 WHERE id = $7
-RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en, identidad_verificada_en, identidad_vence_en, bot_diferido_mensaje_id, asistente_motivo_paso
+RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en, identidad_verificada_en, identidad_vence_en, bot_diferido_mensaje_id, asistente_motivo_paso, asistente_pausado_en, asistente_pausado_por, asistente_pausa_motivo, asistente_reanudado_en
 `
 
 type FijarCategoriaConversacionParams struct {
@@ -477,6 +477,10 @@ func (q *Queries) FijarCategoriaConversacion(ctx context.Context, arg FijarCateg
 		&i.IdentidadVenceEn,
 		&i.BotDiferidoMensajeID,
 		&i.AsistenteMotivoPaso,
+		&i.AsistentePausadoEn,
+		&i.AsistentePausadoPor,
+		&i.AsistentePausaMotivo,
+		&i.AsistenteReanudadoEn,
 	)
 	return i, err
 }

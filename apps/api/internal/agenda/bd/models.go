@@ -1584,6 +1584,10 @@ type MensajeriaConversacione struct {
 	IdentidadVenceEn        *time.Time
 	BotDiferidoMensajeID    *uuid.UUID
 	AsistenteMotivoPaso     *string
+	AsistentePausadoEn      *time.Time
+	AsistentePausadoPor     *int64
+	AsistentePausaMotivo    *string
+	AsistenteReanudadoEn    *time.Time
 }
 
 type MensajeriaDisponibilidad struct {

@@ -560,7 +560,8 @@ func (m *Modulo) prepararTurno(ctx context.Context, t *auditoria.Tx, in entradaT
 	atendia := c.AsistenteEstado != nil && *c.AsistenteEstado == AsistenteAtendiendo
 	// Resuelta, con una persona asignada, o detenido / en espera de una persona: no es su turno. Un
 	// turno que quedó en curso ahí se cierra como descartado (ya no lo va a terminar nadie).
-	if c.Estado == EstadoConvResuelta || c.AsignadoA != nil || (c.AsistenteEstado != nil && !atendia) {
+	// Tampoco si alguien lo pausó en esta conversación (§17.11).
+	if c.Estado == EstadoConvResuelta || c.AsignadoA != nil || c.AsistentePausadoEn != nil || (c.AsistenteEstado != nil && !atendia) {
 		return nada, q.DescartarTurnosEnCurso(ctx, mensajeriabd.DescartarTurnosEnCursoParams{ConversacionID: c.ID, Ahora: ptrTiempo(m.ahora())})
 	}
 	// El bot ya tomó esta conversación (menú pendiente o ya contestó): el asistente no se mete (§17.3).
@@ -731,8 +732,9 @@ func (m *Modulo) prepararTurno(ctx context.Context, t *auditoria.Tx, in entradaT
 	}
 	desde := inicioPeriodo(c)
 	if !atendia {
-		// Una persona ya escribió en este periodo (desde Iris o desde el teléfono): no se mete.
-		if escribio, err := q.PersonaEscribioDesde(ctx, mensajeriabd.PersonaEscribioDesdeParams{ConversacionID: c.ID, Desde: desde}); err != nil || escribio {
+		// Una persona ya escribió en este periodo (desde Iris o desde el teléfono): no se mete, salvo que
+		// después alguien le haya devuelto la conversación («reanudar», §17.11).
+		if escribio, err := q.PersonaEscribioDesde(ctx, mensajeriabd.PersonaEscribioDesdeParams{ConversacionID: c.ID, Desde: desdePersona(c)}); err != nil || escribio {
 			return nada, err
 		}
 		// sin_nadie: fuera de horario o sin agentes disponibles actúa enseguida; con agentes en línea

@@ -177,10 +177,13 @@ type casosAsistente struct {
 	ActivarCategoria    *auditoria.Caso[EntradaCambioCategoriaMensajes, CategoriaMensajes]
 	DesactivarCategoria *auditoria.Caso[EntradaCambioCategoriaMensajes, CategoriaMensajes]
 	Categorizar         *auditoria.Caso[EntradaCategorizar, ConversacionClienteDetalle]
-	Efecto              *auditoria.Caso[EntradaUsoAsistente, EfectoAsistente]
-	ProbarMensaje       *ProbarMensaje
-	prepararClasif      *auditoria.Caso[int64, clasifPreparada]
-	guardarClasif       *auditoria.Caso[clasificacionModelo, struct{}]
+	// §17.11: pausar y reanudar el asistente en una conversación.
+	Pausar         *auditoria.Caso[EntradaPausarAsistente, ConversacionClienteDetalle]
+	Reanudar       *auditoria.Caso[EntradaAccionConv, ConversacionClienteDetalle]
+	Efecto         *auditoria.Caso[EntradaUsoAsistente, EfectoAsistente]
+	ProbarMensaje  *ProbarMensaje
+	prepararClasif *auditoria.Caso[int64, clasifPreparada]
+	guardarClasif  *auditoria.Caso[clasificacionModelo, struct{}]
 
 	// Fase 3b (§17.8): el asistente atiende solo.
 	prepararTurno         *auditoria.Caso[entradaTurno, turnoPreparado]
@@ -205,6 +208,7 @@ func nuevosCasosAsistente(m *Modulo) casosAsistente {
 		ActivarCategoria:    nuevoCambioCategoria("mensajeria.asistente_activar_categoria", true),
 		DesactivarCategoria: nuevoCambioCategoria("mensajeria.asistente_desactivar_categoria", false),
 		Categorizar:         nuevoCategorizarConv(m), Efecto: nuevoEfectoAsistente(m), ProbarMensaje: nuevoProbarMensaje(m),
+		Pausar: nuevoPausarAsistente(m), Reanudar: nuevoReanudarAsistente(m),
 		prepararClasif: nuevoPrepararClasificacion(m), guardarClasif: nuevoGuardarClasificacion(m),
 		registrarVerificacion: nuevoRegistrarVerificacion(m),
 		prepararTurno:         nuevoPrepararTurno(m), terminarTurno: nuevoTerminarTurno(m), registrarAccion: nuevoRegistrarAccion(m),

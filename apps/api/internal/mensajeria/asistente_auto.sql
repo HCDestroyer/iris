@@ -73,6 +73,37 @@ UPDATE mensajeria.conversaciones SET asistente_motivo_paso = @motivo, updated_at
 UPDATE mensajeria.conversaciones SET asistente_estado = 'detenido', updated_at = now()
 WHERE id = @id AND asistente_estado IN ('atendiendo', 'espera_persona');
 
+-- name: PausarAsistenteConv :exec
+-- §17.11: la pausa queda en la conversación; si el asistente la estaba atendiendo (o esperaba a una
+-- persona), queda detenido: el turno en curso ya no envía nada.
+UPDATE mensajeria.conversaciones
+SET asistente_pausado_en = @ahora, asistente_pausado_por = @usuario, asistente_pausa_motivo = @motivo,
+    asistente_estado = CASE WHEN asistente_estado IN ('atendiendo', 'espera_persona') THEN 'detenido' ELSE asistente_estado END,
+    updated_at = now()
+WHERE id = @id;
+
+-- name: ReanudarAsistenteConv :exec
+-- §17.11: quita la pausa y le devuelve la conversación al asistente: deja de estar detenido (conserva
+-- sus turnos y su presentación) y lo que una persona escribió antes ya no lo frena.
+UPDATE mensajeria.conversaciones
+SET asistente_pausado_en = NULL, asistente_pausado_por = NULL, asistente_pausa_motivo = NULL, asistente_reanudado_en = @ahora,
+    asistente_estado = CASE WHEN asistente_estado IN ('detenido', 'espera_persona') THEN NULL ELSE asistente_estado END,
+    updated_at = now()
+WHERE id = @id;
+
+-- name: ReabrirTurnoDescartado :execrows
+-- Al reanudar: el turno del último mensaje del cliente que se descartó porque había una persona
+-- vuelve a estar pendiente (con el arriendo vencido), para que el asistente conteste ese mensaje.
+UPDATE mensajeria.asistente_turnos SET estado = 'en_curso', motivo = NULL, terminado_en = NULL, tomado_en = 'epoch'
+WHERE conversacion_id = @conversacion_id AND mensaje_id = @mensaje_id AND estado = 'descartado' AND motivo = 'persona_presente';
+
+-- name: BotRespondioDesde :one
+-- ¿El bot le mandó algo al cliente en esta espera? (saludo o menú)
+SELECT EXISTS (
+    SELECT 1 FROM mensajeria.conversacion_mensajes m
+    WHERE m.conversacion_id = @conversacion_id AND m.direccion = 'saliente' AND m.automatico = 'bot' AND m.creado_en >= @desde
+)::boolean;
+
 -- name: PersonaEscribioDesde :one
 -- Todo saliente que no sea automático cuenta como «una persona escribió»: un agente desde Iris o
 -- desde el teléfono del negocio (eco de coexistencia, sin autor).
