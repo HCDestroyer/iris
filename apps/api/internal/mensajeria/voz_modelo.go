@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/netip"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -113,8 +114,11 @@ type AjustesMetaLlamadas struct {
 	Habilitadas  bool `json:"habilitadas"`
 	IconoVisible bool `json:"iconoVisible"`
 	Devolucion   bool `json:"devolucion"`
-	// LimiteMensajeria: destinatarios por día del número (≥ 2 000 para tener llamadas).
+	// LimiteMensajeria: destinatarios por día del portafolio de negocio del número (Meta pide
+	// 2 000 o más para tener llamadas). Solo vale con LimiteLeido.
 	LimiteMensajeria int64 `json:"limiteMensajeria"`
+	// LimiteLeido: Meta devolvió el límite y se entendió. Si es false no se sabe: nunca «falta».
+	LimiteLeido bool `json:"limiteLeido"`
 	// Horas: el espejo de call_hours (nil = abierto siempre: Iris aplica su horario de su lado).
 	Horas *HorasMeta `json:"horas,omitempty"`
 }
@@ -280,30 +284,59 @@ func (g graphHTTP) Ajustes(ctx context.Context, canal CanalGraph) (AjustesMetaLl
 	}
 	a := AjustesMetaLlamadas{Habilitadas: strings.EqualFold(r.Calling.Status, "ENABLED"), IconoVisible: !strings.EqualFold(r.Calling.CallIconVisibility, "DISABLE_ALL"),
 		Devolucion: strings.EqualFold(r.Calling.CallbackPermissionStatus, "ENABLED")}
-	// El límite de mensajería no viene en /settings: se lee aparte y, si no se puede leer, queda sin
-	// cumplir (falla cerrado). La suscripción al campo calls no se puede leer con el token del número.
-	if b, err := g.pedir(ctx, http.MethodGet, canal, "?fields=messaging_limit_tier", nil); err == nil {
-		var n struct {
-			Tier string `json:"messaging_limit_tier"`
+	// El límite de mensajería no viene en /settings: se lee aparte, del nodo del número. El campo es
+	// whatsapp_business_manager_messaging_limit (el límite es del portafolio de negocio, compartido
+	// por todos sus números); messaging_limit_tier está deprecado y solo se usa de respaldo, en una
+	// segunda consulta (pedir un campo que ya no existe haría fallar la primera). Si no se puede leer
+	// o no se entiende, queda «sin comprobar»: nunca se afirma que falta sobre un dato no leído. La
+	// suscripción al campo calls no se puede leer con el token del número.
+	for _, campo := range []string{"whatsapp_business_manager_messaging_limit", "messaging_limit_tier"} {
+		b, err := g.pedir(ctx, http.MethodGet, canal, "?fields="+campo, nil)
+		if err != nil {
+			continue
 		}
-		_ = json.Unmarshal(b, &n)
-		a.LimiteMensajeria = limiteDeTier(n.Tier)
+		var n map[string]json.RawMessage
+		var nivel string
+		if json.Unmarshal(b, &n) != nil || json.Unmarshal(n[campo], &nivel) != nil {
+			continue
+		}
+		if limite, ok := LimiteDeNivel(nivel); ok {
+			a.LimiteMensajeria, a.LimiteLeido = limite, true
+			break
+		}
 	}
 	return a, nil
 }
 
-func limiteDeTier(t string) int64 {
-	switch strings.ToUpper(t) {
-	case "TIER_2K":
-		return 2000
-	case "TIER_10K":
-		return 10000
-	case "TIER_100K":
-		return 100000
-	case "TIER_UNLIMITED":
-		return 1 << 40
+// LimiteIlimitado: el valor de LimiteMensajeria para un portafolio sin límite.
+const LimiteIlimitado = int64(1) << 40
+
+var reNivelMeta = regexp.MustCompile(`^TIER_(\d{1,9})(K|M)?$`)
+
+// LimiteDeNivel traduce el nivel de mensajería de Meta (TIER_250, TIER_2K, TIER_10K, TIER_100K,
+// TIER_UNLIMITED…) a destinatarios por día. ok es false si el valor no se entiende: Meta no publica
+// la lista cerrada de literales (su documentación solo da el ejemplo TIER_250), así que se lee el
+// número del propio literal y lo desconocido no se interpreta.
+func LimiteDeNivel(nivel string) (int64, bool) {
+	nivel = strings.ToUpper(strings.TrimSpace(nivel))
+	if nivel == "TIER_UNLIMITED" {
+		return LimiteIlimitado, true
 	}
-	return 0
+	m := reNivelMeta.FindStringSubmatch(nivel)
+	if m == nil {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(m[1], 10, 64)
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	switch m[2] {
+	case "K":
+		n *= 1000
+	case "M":
+		n *= 1000000
+	}
+	return n, true
 }
 
 func (g graphHTTP) FijarAjustes(ctx context.Context, canal CanalGraph, a AjustesMetaLlamadas) error {

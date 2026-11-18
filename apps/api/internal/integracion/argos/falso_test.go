@@ -37,6 +37,8 @@ type argosFalso struct {
 	sinA8      bool
 	llamadas   map[string]int
 	sinPermiso bool
+	// rutaExtra atiende GET /cuentas-bancarias (cuentas_bancarias_test.go).
+	rutaExtra http.HandlerFunc
 	// empresaPedida: X-Empresa-Id de la última búsqueda.
 	empresaPedida string
 	// alcance: empresas del token de Iris en Argos (vacío = global). Sin global, ?empresas=todas
@@ -124,6 +126,13 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 	mux.HandleFunc("POST /api/v1/integraciones/iris/conexion/canjear", a.canjear)
 	mux.HandleFunc("POST /api/v1/integraciones/iris/conexion/revocar", a.revocar)
 	mux.HandleFunc("GET /api/v1/clientes", a.conToken(a.buscar))
+	mux.HandleFunc("GET /api/v1/cuentas-bancarias", a.conToken(func(w http.ResponseWriter, r *http.Request) {
+		if a.rutaExtra == nil {
+			http.NotFound(w, r)
+			return
+		}
+		a.rutaExtra(w, r)
+	}))
 	mux.HandleFunc("GET /api/v1/clientes/{id}", a.conToken(a.cliente))
 	mux.HandleFunc("GET /api/v1/clientes/{id}/estado-cuenta", a.conToken(a.estadoCuenta))
 	mux.HandleFunc("GET /api/v1/servicios", a.conToken(a.serviciosDe))

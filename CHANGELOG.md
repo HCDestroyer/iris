@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.28.1](https://github.com/HCDestroyer/iris/compare/v0.28.0...v0.28.1) (2026-11-18)
+
+
+### Correcciones
+
+* **mensajeria:** leer el límite de mensajería con el campo vigente de Meta y no bloquear por un dato no leído ([#199](https://github.com/HCDestroyer/iris/issues/199)) ([5929ba9](https://github.com/HCDestroyer/iris/commit/5929ba940794772ccbdbe9ddc591a3f45c0de08b))
+
 ## [0.28.0](https://github.com/HCDestroyer/iris/compare/v0.27.0...v0.28.0) (2026-11-18)
 
 

@@ -367,7 +367,9 @@ agregan un mensaje de sistema y un vínculo. Exigen ver la conversación y el pe
 
 `{ adjuntoId, servicioId?, metodo, cuentaBancariaId, bancoOrigenId?, referencia, monto,
 fechaDeposito, nota? }`. Para el formulario: `GET /conversaciones/cuentas-bancarias` →
-`{ data: [{ id, nombre, banco, numero, moneda }] }` (las activas en GTQ de la empresa activa) y
+`{ data: [{ id, nombre, banco, numero, moneda }] }` (las activas en GTQ de la empresa activa; con
+`?conversacionId=`, las de la empresa de esa conversación, la misma contra la que se valida la
+boleta; 404 si no la ve) y
 `GET /conversaciones/bancos` → `{ data: [{ id, nombre }] }`, las dos con
 `conversaciones.registrar_boleta`, leídas de Argos en el momento (no se guardan; Argos caído: 503).
 El adjunto se elige de los mensajes de la conversación (`MensajeConversacion.adjunto.id`); no hay
