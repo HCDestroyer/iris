@@ -98,6 +98,13 @@ type metaFalso struct {
 	envios []map[string]any
 	medios int
 	error  atomic.Int32 // código de error de Meta a responder (0 = ninguno)
+	// Llamadas (GET /{phone_number_id}/settings y el límite de mensajería del nodo del número).
+	// nivel: valor de whatsapp_business_manager_messaging_limit ("" = Meta no lo devuelve).
+	// nivelViejo: valor del campo deprecado messaging_limit_tier ("" = no lo devuelve; "error" = Meta
+	// responde 400 porque el campo ya no existe).
+	llamadasHabilitadas bool
+	nivel, nivelViejo   string
+	campos              []string // los ?fields= pedidos, en orden
 }
 
 // medioFalso es la «foto» que Meta entrega al descargar un medio.
@@ -112,7 +119,34 @@ func nuevoMeta(t *testing.T) *metaFalso {
 		}
 		// Medios: GET /{media_id} (url) y GET /descarga/… (los bytes); POST …/media (subida).
 		if req.Method == http.MethodGet {
+			f.mu.Lock()
+			habilitadas, nivel, nivelViejo := f.llamadasHabilitadas, f.nivel, f.nivelViejo
+			campo := req.URL.Query().Get("fields")
+			if campo != "" {
+				f.campos = append(f.campos, campo)
+			}
+			f.mu.Unlock()
+			nodo := func(nombre, valor string) {
+				if valor == "" {
+					_, _ = fmt.Fprint(w, `{"id":"106540352242922"}`)
+					return
+				}
+				_, _ = fmt.Fprintf(w, `{%q:%q,"id":"106540352242922"}`, nombre, valor)
+			}
 			switch {
+			case strings.HasSuffix(req.URL.Path, "/settings"):
+				estado := "DISABLED"
+				if habilitadas {
+					estado = "ENABLED"
+				}
+				_, _ = fmt.Fprintf(w, `{"calling":{"status":%q,"call_icon_visibility":"DEFAULT","callback_permission_status":"DISABLED"}}`, estado)
+			case campo == "whatsapp_business_manager_messaging_limit":
+				nodo(campo, nivel)
+			case campo == "messaging_limit_tier" && nivelViejo == "error":
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = fmt.Fprint(w, `{"error":{"message":"(#100) Tried accessing nonexisting field (messaging_limit_tier)","type":"OAuthException","code":100}}`)
+			case campo == "messaging_limit_tier":
+				nodo(campo, nivelViejo)
 			case strings.HasPrefix(req.URL.Path, "/descarga/") && strings.HasSuffix(req.URL.Path, "texto"):
 				// Dice ser una foto, pero no lo es.
 				w.Header().Set("Content-Type", "image/jpeg")
