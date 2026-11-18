@@ -11,7 +11,10 @@ Outbox y entrega de eventos (CLAUDE.md §3).
   suscriptores; tras `MaxIntentos` (20) queda `fallido_en` y no se reintenta (error en el log;
   para reintentarlo a mano: `fallido_en = NULL, proximo_intento = now()`).
 - `NuevoClienteRiver` + `EscucharOutbox`: el worker (`cmd/worker`) corre el relay con River por
-  cada `NOTIFY` y periódicamente (`IRIS_RELAY_INTERVALO`).
+  cada `NOTIFY` y periódicamente (`IRIS_RELAY_INTERVALO`). El job del relay no es único en
+  River (la unicidad descartaba el job de un `NOTIFY` llegado justo después de otro relay); tras
+  soltar el candado el relay mira si quedó algo pendiente, y tras cada `LISTEN` (arranque y
+  reconexión) el listener encola un barrido de lo que se avisó sin nadie escuchando.
 
 Los suscriptores deben ser idempotentes: un evento puede llegar más de una vez.
 
