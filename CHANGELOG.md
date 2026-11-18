@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.28.0](https://github.com/HCDestroyer/iris/compare/v0.27.0...v0.28.0) (2026-11-18)
+
+
+### Funcionalidades
+
+* **mensajeria:** Servidor de IA (Iris Voz) con su tablero ([#195](https://github.com/HCDestroyer/iris/issues/195)) ([00da435](https://github.com/HCDestroyer/iris/commit/00da4353b2f7ef2cb13f5044fe5ec7e72b05f4cd))
+* **nucleo:** páginas públicas de privacidad, términos y eliminación de datos para Meta ([#197](https://github.com/HCDestroyer/iris/issues/197)) ([5343aa5](https://github.com/HCDestroyer/iris/commit/5343aa56a23168b4262ef34518dea87cc5302502))
+
 ## [0.27.0](https://github.com/HCDestroyer/iris/compare/v0.26.0...v0.27.0) (2026-11-17)
 
 
