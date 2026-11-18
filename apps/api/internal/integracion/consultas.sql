@@ -5,6 +5,14 @@ VALUES (@id, @evento, @empresa_id, @payload, @ocurrido_en, @request_id);
 -- name: TomarCandadoRelay :one
 SELECT pg_try_advisory_xact_lock(@clave::bigint)::boolean AS tomado;
 
+-- name: HayEventoPendiente :one
+-- Sin candado ni FOR UPDATE: el relay lo consulta tras soltar su candado para no dejar atrás
+-- un evento confirmado entre su último barrido vacío y la liberación del candado.
+SELECT EXISTS (
+    SELECT 1 FROM integracion.outbox
+    WHERE publicado_en IS NULL AND fallido_en IS NULL AND proximo_intento <= now()
+)::boolean AS hay;
+
 -- name: TomarEventoPendiente :one
 -- Un evento por transacción corta: se entrega y se confirma solo.
 SELECT * FROM integracion.outbox

@@ -75,6 +75,22 @@ func (q *Queries) EventosPorRequest(ctx context.Context, requestID string) ([]In
 	return items, nil
 }
 
+const hayEventoPendiente = `-- name: HayEventoPendiente :one
+SELECT EXISTS (
+    SELECT 1 FROM integracion.outbox
+    WHERE publicado_en IS NULL AND fallido_en IS NULL AND proximo_intento <= now()
+)::boolean AS hay
+`
+
+// Sin candado ni FOR UPDATE: el relay lo consulta tras soltar su candado para no dejar atrás
+// un evento confirmado entre su último barrido vacío y la liberación del candado.
+func (q *Queries) HayEventoPendiente(ctx context.Context) (bool, error) {
+	row := q.db.QueryRow(ctx, hayEventoPendiente)
+	var hay bool
+	err := row.Scan(&hay)
+	return hay, err
+}
+
 const insertarEvento = `-- name: InsertarEvento :exec
 INSERT INTO integracion.outbox (id, evento, empresa_id, payload, ocurrido_en, request_id)
 VALUES ($1, $2, $3, $4, $5, $6)
