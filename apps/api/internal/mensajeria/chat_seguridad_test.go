@@ -26,7 +26,7 @@ import (
 // Revisión de seguridad del chat (PR #110): fotos de mensajes eliminados o nunca enviados,
 // revalidación del SSE, topes de flujos, despacho «unido» y el cursor del feed.
 
-// servirSSE sirve e.h por HTTP con LISTEN iris_chat; al terminar corta los flujos y cierra.
+// servirSSE sirve e.h por HTTP con LISTEN iris_chat e iris_conversaciones; al terminar corta los flujos y cierra.
 func (e *entorno) servirSSE(t *testing.T) (string, context.Context) {
 	t.Helper()
 	srv := httptest.NewServer(e.h)
@@ -34,14 +34,25 @@ func (e *entorno) servirSSE(t *testing.T) (string, context.Context) {
 	ctx, cancelar := context.WithCancel(context.Background())
 	t.Cleanup(cancelar) // corre antes que srv.Close
 	go e.m.EscucharChat(ctx, pruebas.Pool(t), nil)
+	go e.m.EscucharConversaciones(ctx, pruebas.Pool(t), nil)
 	return srv.URL, ctx
 }
 
 // estadoSSE abre un flujo y devuelve su status (el cuerpo queda abierto hasta cancelar ctx si es 200).
 func estadoSSE(t *testing.T, ctx context.Context, url string, p persona) int {
 	t.Helper()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url+rutaChat+"/eventos", nil)
-	req.Header.Set("Authorization", "Bearer "+p.token)
+	return estadoSSEEn(t, ctx, url+rutaChat+"/eventos", p)
+}
+
+// estadoSSEEn es estadoSSE con la url del flujo y la cookie de p, si tiene (la bandeja).
+func estadoSSEEn(t *testing.T, ctx context.Context, url string, p persona) int {
+	t.Helper()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if p.cookie != "" {
+		req.AddCookie(&http.Cookie{Name: identidad.CookieSesion, Value: p.cookie})
+	} else {
+		req.Header.Set("Authorization", "Bearer "+p.token)
+	}
 	req.Header.Set("Accept", "text/event-stream")
 	res, err := http.DefaultClient.Do(req) //nolint:bodyclose // los 200 los cierra cancelar ctx
 	if err != nil {

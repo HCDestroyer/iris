@@ -494,7 +494,13 @@ type eventoSSE struct {
 // abrirSSE abre el flujo; el cuerpo lo cierra la lectura al terminar (cancelar ctx).
 func abrirSSE(t *testing.T, ctx context.Context, url string, p persona, ultimo string) <-chan eventoSSE {
 	t.Helper()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url+rutaChat+"/eventos", nil)
+	return abrirSSEEn(t, ctx, url+rutaChat+"/eventos", p, ultimo)
+}
+
+// abrirSSEEn abre el flujo de url (el del chat o el de la bandeja) con la cookie o el token de p.
+func abrirSSEEn(t *testing.T, ctx context.Context, url string, p persona, ultimo string) <-chan eventoSSE {
+	t.Helper()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if p.cookie != "" {
 		req.AddCookie(&http.Cookie{Name: identidad.CookieSesion, Value: p.cookie})
 	} else {
