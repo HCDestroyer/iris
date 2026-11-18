@@ -109,9 +109,15 @@ test("los clientes recientes se borran al cerrar sesión y ante un 401", async (
     await conSesion(context, baseURL ?? "", ADMIN.correo);
     await page.goto("/");
     await sembrar();
-    api.responderProblema("/api/v1/tickets", { type: "urn:iris:problema:no_autenticado", title: "No autenticado", status: 401 }, 1);
+    // Solo la lista de `/tickets` (ruta exacta): con el prefijo, el 401 lo podía gastar el
+    // `GET /tickets/resumen` que Inicio aún tenía en vuelo, cuya respuesta el navegador descarta
+    // al navegar, y ninguna petición de la pantalla llegaba a recibir el 401.
+    api.responderProblema("/api/v1/tickets", { type: "urn:iris:problema:no_autenticado", title: "No autenticado", status: 401 }, 1, { exacta: true });
+    const rechazo = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/v1/tickets" && r.status() === 401);
     await page.goto("/tickets");
+    await rechazo;
     await expect.poll(recientes).toBe(0);
+    expect(await page.evaluate(() => localStorage.getItem("iris:otra-cosa"))).toBe("1");
 });
 
 test("por IP elige el servicio de esa IP; vacío y error con «Reintentar»", async ({ page, context, baseURL }) => {

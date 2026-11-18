@@ -356,8 +356,11 @@ export type ApiFalsa = {
     orden: string[];
     /** Hace fallar `GET /yo` o `GET /usuarios` las próximas `n` veces con 500. */
     fallar: (ruta: "/api/v1/yo" | "/api/v1/usuarios", n: number) => void;
-    /** Responde `problema` en las próximas `n` peticiones cuya ruta empiece con `prefijo`. */
-    responderProblema: (prefijo: string, p: Problema, n: number) => void;
+    /**
+     * Responde `problema` en las próximas `n` peticiones cuya ruta empiece con `prefijo` (con
+     * `exacta`, solo las de esa ruta: `/api/v1/tickets` no toca `/api/v1/tickets/resumen`).
+     */
+    responderProblema: (prefijo: string, p: Problema, n: number, opciones?: { exacta?: boolean }) => void;
     /** Otra persona cambió el buzón: sube su versión (la próxima acción con la vieja da 409). */
     cambiarVersionBuzon: (buzonId: number) => void;
     /** Otra persona cambió el ticket: sube su versión (la próxima acción con la vieja da 409). */
@@ -505,7 +508,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     const orden: string[] = [];
     let busquedasFallidas = 0;
     const fallos = new Map<string, number>();
-    const problemas: { prefijo: string; p: Problema; n: number }[] = [];
+    const problemas: { prefijo: string; p: Problema; n: number; exacta: boolean }[] = [];
     const correo = apiCorreo(opciones.correo);
     const legal = apiLegal(opciones.legal);
     const mfaPendiente = new Map<string, number>();
@@ -582,7 +585,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             cuerpo = undefined;
         }
         peticiones.push({ metodo, ruta, query: url.searchParams, empresa: cabeceras["x-iris-empresa"], idempotencia: cabeceras["idempotency-key"], cuerpo });
-        const forzado = problemas.find((x) => x.n > 0 && ruta.startsWith(x.prefijo));
+        const forzado = problemas.find((x) => x.n > 0 && (x.exacta ? ruta === x.prefijo : ruta.startsWith(x.prefijo)));
         if (forzado) {
             forzado.n--;
             return problema(route, forzado.p);
@@ -1149,8 +1152,8 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         avisosPanel,
         orden,
         tickets: esc.tickets,
-        responderProblema: (prefijo, p, n) => {
-            problemas.push({ prefijo, p, n });
+        responderProblema: (prefijo, p, n, opciones) => {
+            problemas.push({ prefijo, p, n, exacta: opciones?.exacta === true });
         },
         cambiarVersionBuzon: (buzonId) => {
             const b = buzones?.find((x) => x.id === buzonId);
