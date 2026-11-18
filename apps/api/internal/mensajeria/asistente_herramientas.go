@@ -572,7 +572,7 @@ func (m *Modulo) herrCuentasBoleta(ctx context.Context, t *turnoIA, l LlamadaIA,
 	b.WriteString("Cuentas de la empresa que reciben depósitos:\n")
 	for _, k := range cs {
 		// Solo las de la empresa de la conversación y en quetzales.
-		if (k.EmpresaID != nil && *k.EmpresaID != t.empresa) || (k.Moneda != "" && k.Moneda != "GTQ") {
+		if !k.RecibeDe(t.empresa) || (k.Moneda != "" && k.Moneda != "GTQ") {
 			continue
 		}
 		b.WriteString(fmt.Sprintf("- cuenta id %d: %s\n", k.ID, limpiarDato(k.Nombre, 80)))
@@ -623,7 +623,7 @@ func (m *Modulo) herrRegistrarBoleta(ctx context.Context, t *turnoIA, l LlamadaI
 		return resHerramienta{fallo: true}, h
 	}
 	if !slices.ContainsFunc(cs, func(k argos.CuentaBancariaArgos) bool {
-		return k.ID == a.CuentaBancariaID && (k.EmpresaID == nil || *k.EmpresaID == t.empresa)
+		return k.ID == a.CuentaBancariaID && k.RecibeDe(t.empresa)
 	}) {
 		return rechazo("esa cuenta no es de la empresa. Usa una de cuentas_para_boleta."), h
 	}

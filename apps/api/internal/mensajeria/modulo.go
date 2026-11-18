@@ -202,7 +202,7 @@ type Modulo struct {
 	auditarBot       *auditoria.Caso[botAuditado, struct{}]
 	dispararBot      *auditoria.Caso[int64, bool]
 	botDiferido      *auditoria.Caso[int64, bool]
-	permisoBoleta    *auditoria.Caso[struct{}, alcanceConv]
+	permisoBoleta    *auditoria.Caso[int64, alcanceConv]
 	// Aprobar y rechazar boletas (contrato con Argos 0.7.0 §7.7).
 	boletas       *DecidirBoleta
 	verBoleta     *auditoria.Caso[EntradaBoletaID, Boleta]

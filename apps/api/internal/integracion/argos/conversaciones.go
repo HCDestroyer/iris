@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
@@ -143,13 +144,60 @@ func (m *Modulo) RegistrarComprobante(ctx context.Context, a AtencionIris, in En
 }
 
 // CuentaBancariaArgos es una cuenta de la empresa que recibe depósitos (GET /cuentas-bancarias).
+// Argos manda id, empresa_id, banco_id, banco_nombre, numero, alias, moneda y activa (más campos
+// contables que Iris no usa). No manda «nombre» ni «banco»: Nombre se arma al leer.
 type CuentaBancariaArgos struct {
-	ID        int64           `json:"id"`
-	Nombre    string          `json:"nombre"`
-	Banco     json.RawMessage `json:"banco"`
-	Numero    string          `json:"numero"`
-	Moneda    string          `json:"moneda"`
-	EmpresaID *int64          `json:"empresa_id"`
+	ID int64 `json:"id"`
+	// EmpresaID: la empresa dueña. Argos siempre la manda; sin ella la cuenta no se ofrece.
+	EmpresaID *int64 `json:"empresa_id"`
+	// Banco: el nombre del banco (banco_nombre).
+	Banco  string `json:"banco_nombre"`
+	Numero string `json:"numero"`
+	// Alias: el nombre que la empresa le puso a la cuenta; puede venir vacío.
+	Alias  string `json:"alias"`
+	Moneda string `json:"moneda"`
+	Activa bool   `json:"activa"`
+	// Nombre: el alias o, si viene vacío, el banco y los últimos 4 dígitos del número.
+	Nombre string `json:"-"`
+}
+
+// UnmarshalJSON lee la cuenta y arma Nombre.
+func (c *CuentaBancariaArgos) UnmarshalJSON(crudo []byte) error {
+	type plano CuentaBancariaArgos
+	var p plano
+	if err := json.Unmarshal(crudo, &p); err != nil {
+		return err
+	}
+	*c = CuentaBancariaArgos(p)
+	c.Alias, c.Banco = strings.TrimSpace(c.Alias), strings.TrimSpace(c.Banco)
+	c.Nombre = c.Alias
+	if c.Nombre == "" {
+		c.Nombre = strings.TrimSpace(c.Banco + " " + ultimosDigitos(c.Numero, 4))
+	}
+	return nil
+}
+
+// ultimosDigitos: «…1234» con los últimos n dígitos del número (vacío si no tiene dígitos).
+func ultimosDigitos(numero string, n int) string {
+	d := make([]rune, 0, len(numero))
+	for _, r := range numero {
+		if r >= '0' && r <= '9' {
+			d = append(d, r)
+		}
+	}
+	if len(d) == 0 {
+		return ""
+	}
+	if len(d) > n {
+		d = d[len(d)-n:]
+	}
+	return "…" + string(d)
+}
+
+// RecibeDe: la cuenta está activa y es de esa empresa. Falla cerrado: sin empresa_id, de otra
+// empresa o sin empresa en la conversación (0), la cuenta no se ofrece ni se acepta.
+func (c CuentaBancariaArgos) RecibeDe(empresa int64) bool {
+	return empresa != 0 && c.EmpresaID != nil && *c.EmpresaID == empresa && c.Activa
 }
 
 // BancoArgos es un banco de origen (GET /bancos).
@@ -158,13 +206,14 @@ type BancoArgos struct {
 	Nombre string `json:"nombre"`
 }
 
-// CuentasBancarias: GET /cuentas-bancarias?activa=true (§7.2, cuentas_bancarias.ver).
+// CuentasBancarias: GET /cuentas-bancarias?activa=true (§7.2, cuentas_bancarias.ver). Argos responde
+// un arreglo plano sin paginar (ignora limit): no se manda.
 func (m *Modulo) CuentasBancarias(ctx context.Context, a AtencionIris) ([]CuentaBancariaArgos, error) {
 	cli, err := m.clienteAtencion(ctx, a)
 	if err != nil {
 		return nil, err
 	}
-	p, err := conector.ListaDe[CuentaBancariaArgos](ctx, cli.Cliente, "/cuentas-bancarias", url.Values{"activa": {"true"}, "limit": {"100"}})
+	p, err := conector.ListaDe[CuentaBancariaArgos](ctx, cli.Cliente, "/cuentas-bancarias", url.Values{"activa": {"true"}})
 	return p.Data, err
 }
 
