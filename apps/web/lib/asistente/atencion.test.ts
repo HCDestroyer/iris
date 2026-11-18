@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { textoEvento } from "../conversaciones/presentacion";
-import { accionDeMenu, franjaAtencion, pideConfirmarReanudar, puntoAtencion, textoEventoAsistente, textoMotivoPausa, type AtencionAsistente } from "./atencion";
+import { accionDeMenu, franjaAtencion, ofrecerQueSigaElAsistente, pideConfirmarReanudar, puntoAtencion, textoEventoAsistente, textoMotivoPausa, type AtencionAsistente } from "./atencion";
 
 const AHORA = Date.parse("2026-11-18T16:00:00Z");
 const con = (a: Partial<AtencionAsistente>, extra: object = {}) => ({ atencionAsistente: { atiende: false, motivo: null, reanudable: false, ...a } as AtencionAsistente, ...extra });
@@ -75,6 +75,27 @@ describe("antes de reanudar", () => {
         expect(pideConfirmarReanudar({ asistente: { motivoPaso: "enojo" } })).toBe(true);
         for (const motivoPaso of ["sin_respuesta", "max_turnos", null, undefined]) expect(pideConfirmarReanudar({ asistente: { motivoPaso } })).toBe(false);
         expect(pideConfirmarReanudar({})).toBe(false);
+    });
+});
+
+describe("al quitar la asignación", () => {
+    const antes = con({ motivo: "persona_asignada" });
+    const despues = con({ motivo: "persona_presente", reanudable: true });
+
+    it("se pregunta si sigue el asistente solo si él atendía antes de que la persona la tomara y puede retomarla", () => {
+        expect(ofrecerQueSigaElAsistente(antes, despues)).toBe(true);
+        // La empresa no usa el asistente atendiendo solo, o no venía de una persona asignada.
+        expect(ofrecerQueSigaElAsistente({}, {})).toBe(false);
+        expect(ofrecerQueSigaElAsistente(con({ motivo: "pausado" }), despues)).toBe(false);
+        expect(ofrecerQueSigaElAsistente(con({ motivo: "tope" }), con({ motivo: "tope" }))).toBe(false);
+        // No puede retomarla.
+        expect(ofrecerQueSigaElAsistente(antes, con({ motivo: "persona_presente", reanudable: false }))).toBe(false);
+        expect(ofrecerQueSigaElAsistente(antes, con({ motivo: "pausado", reanudable: true }))).toBe(false);
+    });
+
+    it("si el cliente pidió una persona no se ofrece", () => {
+        expect(ofrecerQueSigaElAsistente(antes, { ...despues, asistente: { motivoPaso: "cliente_lo_pidio" } })).toBe(false);
+        expect(ofrecerQueSigaElAsistente(antes, { ...despues, asistente: { motivoPaso: "enojo" } })).toBe(false);
     });
 });
 

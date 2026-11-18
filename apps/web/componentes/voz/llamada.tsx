@@ -1,5 +1,6 @@
 "use client";
 
+import { hayProteccion, salirDeConversacion } from "@/lib/conversaciones/salida";
 import { avisar, Aviso, Boton, CampoArea, CampoSelector, Cargando, cn, Dialogo, DialogoConfirmar, DialogoContenido, DialogoPie, InsigniaEstado } from "@iris/ui";
 import { Banknote, CalendarPlus, LifeBuoy, Mic, MicOff, Phone, PhoneCall, PhoneIncoming, PhoneOff, PhoneOutgoing, RotateCw, UserRound, X } from "lucide-react";
 import Link from "next/link";
@@ -152,10 +153,12 @@ export function AvisoLlamada() {
                         onClick={() => {
                             voz.contestar();
                             // La ficha del cliente a la vista: se abre su conversación, salvo que
-                            // estés llenando un formulario (no se pierde lo escrito; queda «Ver cliente»).
+                            // estés llenando un formulario o tengas archivos por enviar o subiendo en
+                            // otra conversación (no se pierde nada ni se pregunta en medio de la
+                            // llamada; queda «Ver cliente»).
                             const id = llamada.conversacionId;
                             const yaAhi = window.location.pathname === "/conversaciones" && new URLSearchParams(window.location.search).get("c") === String(id);
-                            if (id !== undefined && !yaAhi && !document.querySelector('[data-slot="formulario-pagina"]')) router.push(hrefConversacion(id));
+                            if (id !== undefined && !yaAhi && !document.querySelector('[data-slot="formulario-pagina"]') && !hayProteccion()) router.push(hrefConversacion(id));
                         }}
                     >
                         <Phone />
@@ -420,7 +423,7 @@ function FormularioNota({ terminada, alTicket }: { terminada: Extract<EstadoVoz,
                                 </Boton>
                             ) : null}
                             {puede(["ordenes.crear"]) ? (
-                                <Boton type="button" variante="contorno" tamano="sm" disabled={guardando} onClick={() => void seguir(() => router.push(`/conversaciones/${conversacionId}/orden`))}>
+                                <Boton type="button" variante="contorno" tamano="sm" disabled={guardando} onClick={() => void seguir(() => salirDeConversacion(`/conversaciones/${conversacionId}/orden`, (ruta) => router.push(ruta)))}>
                                     <CalendarPlus />
                                     Agendar visita
                                 </Boton>

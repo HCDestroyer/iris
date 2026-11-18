@@ -1,7 +1,7 @@
 "use client";
 
 import { pausarAsistente, reanudarAsistente } from "@/lib/asistente/api";
-import { accionDeMenu, pideConfirmarReanudar } from "@/lib/asistente/atencion";
+import { accionDeMenu, ofrecerQueSigaElAsistente, pideConfirmarReanudar } from "@/lib/asistente/atencion";
 import { PERMISO_PAUSAR_ASISTENTE } from "@/lib/asistente/permisos";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -48,7 +48,7 @@ import type { Schema } from "@iris/contratos";
 import { agentesDeCola, useCatalogos } from "./catalogos";
 import { AvatarDisponible, EstadoDisponible } from "./disponibilidad";
 
-type Dialogo = "asignar" | "pasar" | "pasar-empresa" | "transferir" | "etiquetar" | "mencionar" | "ayuda" | "desasociar" | "reanudar" | null;
+type Dialogo = "asignar" | "pasar" | "pasar-empresa" | "transferir" | "etiquetar" | "mencionar" | "ayuda" | "desasociar" | "reanudar" | "seguir-asistente" | null;
 
 type Props = {
     conv: Conversacion;
@@ -121,7 +121,12 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
     const quitar = () =>
         rapida(
             "quitar",
-            async (clave) => await resolver(api().POST(`${BASE}/asignar`, { params: ruta(conv, clave), body: { version: conv.version, usuarioId: null } })),
+            async (clave) => {
+                const c = await resolver(api().POST(`${BASE}/asignar`, { params: ruta(conv, clave), body: { version: conv.version, usuarioId: null } }));
+                // El asistente la atendía antes de que una persona la tomara: se pregunta si sigue él.
+                if (puede([PERMISO_PAUSAR_ASISTENTE]) && ofrecerQueSigaElAsistente(conv, c)) setDialogo("seguir-asistente");
+                return c;
+            },
             () => ({ titulo: `${conv.titulo}: sin asignar` }),
         );
     const reabrir = (c: Conversacion = conv) =>
@@ -315,6 +320,18 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
                 descripcion="¿Devolverle la conversación al asistente de todos modos? Queda registrado quién lo hizo."
                 textoCancelar="Dejarla como está"
                 textoConfirmar="Devolverla al asistente"
+                alConfirmar={async () => {
+                    await reanudarAsistenteAqui();
+                    setDialogo(null);
+                }}
+            />
+            <DialogoConfirmar
+                open={dialogo === "seguir-asistente"}
+                onOpenChange={(a) => !a && setDialogo(null)}
+                titulo="¿Que la siga atendiendo el asistente?"
+                descripcion="El asistente atendía esta conversación antes de que una persona la tomara. Si no, queda en la cola hasta que alguien la tome."
+                textoCancelar="No, queda en cola"
+                textoConfirmar="Sí, que siga"
                 alConfirmar={async () => {
                     await reanudarAsistenteAqui();
                     setDialogo(null);

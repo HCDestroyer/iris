@@ -1,5 +1,6 @@
 "use client";
 
+import { EtiquetasEnvueltas } from "./etiquetas";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
     Aviso,
@@ -28,7 +29,7 @@ import { z } from "zod";
 import { api, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { cabeceraIdem } from "@/lib/conversaciones/api";
-import { CLASE_ETIQUETA, formatearNumero, horaLista, iniciales } from "@/lib/conversaciones/presentacion";
+import { formatearNumero, horaLista, iniciales } from "@/lib/conversaciones/presentacion";
 import type { Identidad } from "@/lib/conversaciones/sesion";
 import type { Conversacion, ConversacionDetalle } from "@/lib/conversaciones/tipos";
 import { haceCuanto } from "@/lib/fechas";
@@ -403,13 +404,7 @@ function Resumen({ conv, senalBoletas }: { conv: ConversacionDetalle; recargar: 
             </Seccion>
             <Seccion titulo="Etiquetas">
                 {(conv.etiquetas ?? []).length === 0 ? <p className="text-[0.8125rem] text-muted-foreground">Sin etiquetas (se ponen desde «⋯»).</p> : null}
-                <div className="flex flex-wrap gap-1.5">
-                    {(conv.etiquetas ?? []).map((e) => (
-                        <span key={e.id} className={cn("inline-flex h-[1.375rem] max-w-full items-center truncate rounded-md px-2 text-xs font-medium", CLASE_ETIQUETA[e.color] ?? CLASE_ETIQUETA.neutro)}>
-                            {e.nombre}
-                        </span>
-                    ))}
-                </div>
+                <EtiquetasEnvueltas etiquetas={conv.etiquetas ?? []} />
             </Seccion>
             <Seccion titulo="Atención">
                 <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[0.8125rem]">
@@ -887,7 +882,8 @@ function DialogoPromesa({ conv, cerrar }: { conv: ConversacionDetalle; cerrar: (
                             avisar({ titulo: r.estado === "activa" ? "Promesa registrada en Argos" : r.estado === "pendiente_aprobacion" ? "Promesa enviada: espera aprobación en Argos" : "Argos rechazó la promesa" });
                             cerrar();
                         } catch (e) {
-                            clave.trasError(e);
+                            // Argos no contestó a tiempo (503; pudo llegarle): el reintento lleva la misma clave para no pedirla dos veces.
+                            clave.trasErrorDeArgos(e);
                             if (!erroresACampos(e, ["servicioId", "venceEl"], form.setError)) setError(e);
                         }
                     })}
@@ -909,7 +905,7 @@ function DialogoPromesa({ conv, cerrar }: { conv: ConversacionDetalle; cerrar: (
                     {error ? (
                         <Aviso tono="error" titulo={error instanceof ErrorApi && error.codigo === "argos_no_disponible" ? "Argos no responde" : error instanceof ErrorApi && error.codigo === "cliente_cambiado" ? "El cliente cambió mientras Argos respondía" : "No se pudo"}>
                             {error instanceof ErrorApi && error.codigo === "argos_no_disponible"
-                                ? "No quedó nada a medias. Vuelve a intentarlo en un momento."
+                                ? "Vuelve a intentarlo en un momento: si ya había llegado a Argos, no se registra dos veces."
                                 : error instanceof ErrorApi && error.codigo === "cliente_cambiado"
                                   ? "Revisa en Argos si la promesa quedó registrada antes de volver a pedirla."
                                   : error instanceof ErrorApi && error.codigo === "cliente_sin_confirmar"

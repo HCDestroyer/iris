@@ -365,9 +365,10 @@ export function BotonSugerir({ asistente }: { asistente: Asistente }) {
     const { estado, sugerencia, pidiendo } = asistente;
     if (!estado?.activo || estado.pausado || estado.modo !== "boton" || sugerencia) return null;
     return (
-        <Boton variante="fantasma" tamano="sm" className="h-8 px-2 text-primary" onClick={() => void asistente.pedir(false)} disabled={pidiendo} title="Pedir una sugerencia al asistente">
+        <Boton variante="fantasma" tamano="sm" className="h-8 shrink-0 px-2 text-primary" onClick={() => void asistente.pedir(false)} disabled={pidiendo} title="Pedir una sugerencia al asistente">
             <Sparkles />
-            {pidiendo ? "Pidiendo…" : "Sugerir"}
+            {/* En el teléfono no cabe junto a «Enviar»: queda el icono con su nombre accesible. */}
+            <span className="@max-[26rem]/conv:sr-only">{pidiendo ? "Pidiendo…" : "Sugerir"}</span>
         </Boton>
     );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef } from "react";
-import { claveTrasError, nuevaClaveIdempotencia } from "./api/cliente";
+import { claveTrasError, claveTrasErrorDeArgos, nuevaClaveIdempotencia } from "./api/cliente";
 
 export type ClaveIdempotencia = {
     /** Clave del intento actual (se reusa al reintentar el mismo envío sin respuesta). */
@@ -10,6 +10,8 @@ export type ClaveIdempotencia = {
     renovar: () => void;
     /** El envío falló: nueva clave si la API respondió (guardó el error), la misma si no hubo respuesta. */
     trasError: (error: unknown) => void;
+    /** Como `trasError`, para acciones que pasan por Argos: tras un 503 `argos_no_disponible` conserva la clave. */
+    trasErrorDeArgos: (error: unknown) => void;
 };
 
 /** `Idempotency-Key` de un formulario o acción, para usar desde manejadores (nunca durante el render). */
@@ -23,6 +25,9 @@ export function useClaveIdempotencia(): ClaveIdempotencia {
             },
             trasError: (error: unknown) => {
                 clave.current = claveTrasError(error, clave.current ?? nuevaClaveIdempotencia());
+            },
+            trasErrorDeArgos: (error: unknown) => {
+                clave.current = claveTrasErrorDeArgos(error, clave.current ?? nuevaClaveIdempotencia());
             },
         }),
         [],

@@ -125,6 +125,42 @@ test.describe("asistente por conversación › quién atiende, pausar y reanudar
         expect(pedidos(api, "/41/asistente/pausar")).toHaveLength(1);
     });
 
+    test("al quitar la asignación de una conversación que el asistente atendía se pregunta si sigue él: «Sí, que siga» se la devuelve", async ({ page }) => {
+        const api = await abrir(page, con({ atiende: false, motivo: "persona_asignada", reanudable: false }));
+        await conv(page).getByRole("button", { name: /^Asignada a / }).click();
+        await page.getByRole("menuitem", { name: "Quitar asignación" }).click();
+        const pregunta = page.getByRole("alertdialog").or(page.getByRole("dialog")).filter({ hasText: "¿Que la siga atendiendo el asistente?" });
+        await expect(pregunta).toBeVisible();
+        await expect.poll(async () => (await buscarDesbordes(page)).length, { timeout: 5_000 }).toBe(0);
+        await captura(page, "quitar-asignacion-pregunta");
+        // Mientras se decide, se nota que nadie la atiende.
+        await expect(franja(page)).toHaveAttribute("data-estado", "persona_presente");
+        await pregunta.getByRole("button", { name: "Sí, que siga" }).click();
+        await expect(pregunta).toHaveCount(0);
+        await expect(franja(page)).toHaveAttribute("data-estado", "atendiendo");
+        expect(pedidos(api, "/41/asistente/reanudar")).toHaveLength(1);
+    });
+
+    test("«No, queda en cola» no reanuda; y sin el asistente de por medio no se pregunta nada", async ({ page }) => {
+        const api = await abrir(page, con({ atiende: false, motivo: "persona_asignada", reanudable: false }));
+        await conv(page).getByRole("button", { name: /^Asignada a / }).click();
+        await page.getByRole("menuitem", { name: "Quitar asignación" }).click();
+        const pregunta = page.getByRole("alertdialog").or(page.getByRole("dialog")).filter({ hasText: "¿Que la siga atendiendo el asistente?" });
+        await pregunta.getByRole("button", { name: "No, queda en cola" }).click();
+        await expect(pregunta).toHaveCount(0);
+        await expect(franja(page)).toHaveAttribute("data-estado", "persona_presente");
+        expect(pedidos(api, "/41/asistente/reanudar")).toHaveLength(0);
+
+        // Otra conversación, sin `atencionAsistente`: quitar la asignación no pregunta.
+        const otra = await page.context().newPage();
+        await abrir(otra, () => undefined);
+        await otra.getByRole("region", { name: /^Conversación con / }).getByRole("button", { name: /^Asignada a / }).click();
+        await otra.getByRole("menuitem", { name: "Quitar asignación" }).click();
+        await expect(otra.getByText(/: sin asignar/)).toBeVisible();
+        await expect(otra.getByText("¿Que la siga atendiendo el asistente?")).toHaveCount(0);
+        await otra.close();
+    });
+
     test("tope, bot y «solo sugiere» informan sin botones; sin el campo no se pinta nada", async ({ page }) => {
         await abrir(page, con({ atiende: false, motivo: "tope", reanudable: false }, { asignado: null }));
         await expect(franja(page)).toContainText("El asistente está en pausa: se llegó al tope del mes");

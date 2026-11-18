@@ -1,9 +1,10 @@
 "use client";
 
+import { EtiquetasEnvueltas } from "./etiquetas";
 import { Aviso, Boton, cn, Esqueleto, Hoja, HojaContenido } from "@iris/ui";
-import { ArrowLeft, PanelRight, RotateCw } from "lucide-react";
+import { ArrowLeft, PanelRight, RotateCw, Paperclip } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type DragEvent } from "react";
 import { api } from "@/lib/api/cliente";
 import { leerDetalle, leerMensajes } from "@/lib/conversaciones/api";
 import { fusionarMensajes, pendientesSinConfirmar, type Pendiente } from "@/lib/conversaciones/estado";
@@ -314,6 +315,10 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
     const reintentar = useRef<((p: Pendiente) => void) | null>(null);
     const usarTexto = useRef<((t: string) => void) | null>(null);
     const usarSugerencia = useRef<((t: string, id: string) => void) | null>(null);
+    const adjuntar = useRef<((archivos: File[]) => void) | null>(null);
+    // Arrastrar archivos sobre la conversación: se sueltan en la vista previa del compositor.
+    const [soltando, setSoltando] = useState(false);
+    const dentro = useRef(0);
     const responde = puede(["conversaciones.responder"]) && !detenido && conv !== null && !conv.soloLectura;
     const asistente = useAsistente({ id }, suscribir, responde);
 
@@ -344,6 +349,35 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
     }
 
     const tono = tonoDeCanal(conv.canal);
+    const traeArchivos = (e: DragEvent<HTMLElement>) => e.dataTransfer.types.includes("Files");
+    const aceptaArchivos = responde && textoVentana(conv.ventana, ahora) !== null;
+    const arrastre = aceptaArchivos
+            ? {
+                  onDragEnter: (e: DragEvent<HTMLElement>) => {
+                      if (!traeArchivos(e)) return;
+                      e.preventDefault();
+                      dentro.current++;
+                      setSoltando(true);
+                  },
+                  onDragOver: (e: DragEvent<HTMLElement>) => {
+                      if (!traeArchivos(e)) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "copy";
+                  },
+                  onDragLeave: (e: DragEvent<HTMLElement>) => {
+                      if (!traeArchivos(e)) return;
+                      dentro.current = Math.max(0, dentro.current - 1);
+                      if (dentro.current === 0) setSoltando(false);
+                  },
+                  onDrop: (e: DragEvent<HTMLElement>) => {
+                      if (!traeArchivos(e)) return;
+                      e.preventDefault();
+                      dentro.current = 0;
+                      setSoltando(false);
+                      adjuntar.current?.([...e.dataTransfer.files]);
+                  },
+              }
+            : {};
     const conVerificacion = conv.contacto.tipo === "cliente" && nivelVerificacion(conv.contacto) !== undefined;
     const ficha = (
         <FichaCliente
@@ -363,7 +397,14 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
     );
     return (
         <>
-            <section ref={refSeccion} aria-label={`Conversación con ${conv.titulo}`} className="@container/conv relative flex min-h-0 min-w-0 flex-col">
+            <section ref={refSeccion} aria-label={`Conversación con ${conv.titulo}`} className="@container/conv relative flex min-h-0 min-w-0 flex-col" data-zona-soltar={aceptaArchivos ? "" : undefined} {...arrastre}>
+                {soltando ? (
+                    <div data-slot="soltar-archivos" className="pointer-events-none absolute inset-2 z-20 flex flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-primary bg-background/90 p-4 text-center text-sm font-semibold text-primary">
+                        <Paperclip aria-hidden className="size-6" />
+                        Suelta aquí para adjuntar
+                        <span className="text-xs font-normal text-muted-foreground">Fotos (JPG, PNG, WebP) o PDF, hasta 16 MB cada uno</span>
+                    </div>
+                ) : null}
                 <header className="flex h-[3.75rem] shrink-0 items-center gap-2 border-b border-border bg-card px-3 @min-[700px]/conv:gap-2.5 @min-[700px]/conv:px-3.5">
                     <Boton asChild variante="fantasma" tamano="icono-sm" className="@min-[700px]/bandeja:hidden">
                         <Link href={hrefLista} scroll={false} aria-label="Volver a las conversaciones" title="Volver a las conversaciones">
@@ -377,7 +418,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                     <div className="flex min-w-0 flex-1 flex-col">
                         <h2 className="truncate text-[0.9375rem] font-semibold">{tituloVisible(conv)}</h2>
                         <span className="flex min-w-0 items-center gap-1.5 text-[0.78125rem] text-muted-foreground">
-                            <PildoraCanal canal={conv.canal} className="shrink-0" />
+                            <PildoraCanal canal={conv.canal} className="max-w-[60%] shrink-0" />
                             {/* En el teléfono no caben los dos: con el nivel de verificación a la vista, el número queda en la ficha. */}
                             <span className={cn("truncate tabular-nums", conVerificacion && "hidden @min-[700px]/conv:inline")}>{formatearNumero(conv.numero)}</span>
                             <IndicadorVerificacion contacto={conv.contacto} />
@@ -397,6 +438,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                         <PanelRight />
                     </Boton>
                 </header>
+                <EtiquetasEnvueltas etiquetas={conv.etiquetas ?? []} slot="etiquetas-cabecera" className="max-h-[4.5rem] shrink-0 overflow-y-auto border-b border-border bg-card px-3 py-1.5 @min-[700px]/conv:px-3.5" />
                 <BarraCategoria conv={conv} alActualizar={aplicarConversacion} recargar={refrescarDetalle} bloqueada={detenido !== null} asistenteActivo={asistente.estado?.activo === true} ahora={ahora} />
                 {pideAtencion(conv) && !detenido ? (
                     <div className="shrink-0 px-3 pt-3 @min-[700px]/conv:px-4">
@@ -462,6 +504,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                         registrarReintento={(f) => (reintentar.current = f)}
                         registrarUsarTexto={(f) => (usarTexto.current = f)}
                         registrarUsarSugerencia={(f) => (usarSugerencia.current = f)}
+                        registrarAdjuntar={(f) => (adjuntar.current = f)}
                         accesorio={<BotonSugerir asistente={asistente} />}
                     />
                 ) : (

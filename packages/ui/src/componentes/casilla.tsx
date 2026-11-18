@@ -95,7 +95,7 @@ export function Casilla({
     const { marcada, conectar, cambiar } = useMarcaNativa({ ref, defaultChecked, onChange });
     const grande = tamano === "lg";
     return (
-        <div data-slot="casilla" className={cn("grid gap-1", className)}>
+        <div data-slot="casilla" className={cn("grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1", className)}>
             <Checkbox
                 id={ids.idCampo}
                 inputRef={conectar}
@@ -110,9 +110,9 @@ export function Casilla({
                 onChange={cambiar}
                 {...(onBlur ? { onBlur: onBlur as unknown as ComponentProps<typeof Checkbox>["onBlur"] } : {})}
                 {...(onFocus ? { onFocus: onFocus as unknown as ComponentProps<typeof Checkbox>["onFocus"] } : {})}
-                className="block"
+                className="block min-w-0"
             >
-                <Checkbox.Content className={cn("iris-entrada-cubierta group inline-flex min-h-6 cursor-pointer items-center gap-2.5 text-sm font-medium", grande && "min-h-11 text-base")}>
+                <Checkbox.Content className={cn("iris-entrada-cubierta group inline-flex max-w-full min-h-6 min-w-0 cursor-pointer items-center gap-2.5 text-sm font-medium [overflow-wrap:anywhere]", grande && "min-h-11 text-base")}>
                     <Checkbox.Control
                         className={cn(
                             "size-4 shrink-0 rounded-sm border border-input bg-background shadow-none",

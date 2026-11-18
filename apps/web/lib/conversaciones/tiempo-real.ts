@@ -15,6 +15,12 @@ import { crearLectorSSE } from "./sse";
  * - 401/403 → sin sesión o sin permiso: no reintenta. 410 `cursor_vencido` → recargar todo y seguir
  *   desde la cabeza. 429/503 → sondeo cada 12 s y vuelve a probar el flujo a los 5 min.
  * - Sin latido en 60 s (el servidor manda uno cada 25 s) → corta y reconecta.
+ * - **Un corte no es «sin conexión»**: un flujo que ya estaba abierto y se corta (un proxy que cierra
+ *   conexiones largas, el servidor que reinicia, un cambio de red) se reconecta al momento con
+ *   `Last-Event-ID`, sin avisar. «Sin conexión» solo se dice tras dos intentos fallidos seguidos o
+ *   si pasan más de 9 s sin poder conectar. Al volver se sigue desde el último id: nada se pierde ni se repite.
+ *   Excepción: si el flujo abre y se corta de golpe al poco (menos de 3 s) dos veces seguidas, sí se
+ *   avisa, y el aviso se quita cuando un flujo dura.
  * - Los eventos se aplican por `id`: uno puede llegar dos veces.
  */
 
@@ -62,9 +68,15 @@ export type OpcionesFeed<E extends EventoFeed> = {
     reloj?: Reloj;
 };
 
-/** `flujoMinimo`: un flujo que se cierra antes de esto se trata como un corte de red (con espera). */
-type Plazos = { sondeo: number; volverAlFlujo: number; sinLatido: number; esperaMin: number; esperaMax: number; flujoMinimo: number };
-const PLAZOS: Plazos = { sondeo: 12_000, volverAlFlujo: 300_000, sinLatido: 60_000, esperaMin: 3_000, esperaMax: 30_000, flujoMinimo: 5_000 };
+/**
+ * `flujoMinimo`: un flujo que se cierra antes de esto se reintenta con espera creciente (no en bucle).
+ * `reintentoRapido`: lo que se espera tras el primer fallo (después, `esperaMin` y creciendo).
+ * `gracia`: tiempo sin flujo a partir del cual se dice «sin conexión» aunque solo haya un fallo.
+ * `fallosParaAvisar`: intentos fallidos seguidos que hacen falta para decirlo antes.
+ */
+type Plazos = { sondeo: number; volverAlFlujo: number; sinLatido: number; esperaMin: number; esperaMax: number; flujoMinimo: number; reintentoRapido: number; gracia: number; fallosParaAvisar: number };
+export const PLAZOS_FEED: Plazos = { sondeo: 12_000, volverAlFlujo: 300_000, sinLatido: 60_000, esperaMin: 3_000, esperaMax: 30_000, flujoMinimo: 3_000, reintentoRapido: 1_000, gracia: 9_000, fallosParaAvisar: 2 };
+const PLAZOS = PLAZOS_FEED;
 
 export type Reloj = {
     esperar: (ms: number, senal: AbortSignal) => Promise<void>;
@@ -112,6 +124,37 @@ export function iniciarFeed<E extends EventoFeed>(opciones: OpcionesFeed<E>, alL
     let cursor: string | undefined;
     let estado: EstadoFeed | undefined;
     const vistos = new Set<string>();
+    // Fallos seguidos desde el último flujo bueno, y desde cuándo no hay flujo.
+    let fallos = 0;
+    let avisoPendiente: ReturnType<typeof setTimeout> | undefined;
+
+    /**
+     * Un intento de conectar falló (no hay red, o el servidor o un proxy respondieron con error).
+     * Solo se dice «sin conexión» al segundo fallo seguido, o si pasa la gracia sin haber vuelto
+     * (p. ej. un reintento que se queda colgado).
+     */
+    function anotarFallo() {
+        fallos++;
+        if (fallos >= plazos.fallosParaAvisar) {
+            cambiar("sin_conexion");
+            return;
+        }
+        avisoPendiente ??= setTimeout(() => {
+            avisoPendiente = undefined;
+            if (!senal.aborted && fallos > 0) cambiar("sin_conexion");
+        }, plazos.gracia);
+    }
+
+    /** Hay flujo (o sondeo) otra vez. */
+    function recuperado() {
+        fallos = 0;
+        clearTimeout(avisoPendiente);
+        avisoPendiente = undefined;
+    }
+    senal.addEventListener("abort", () => clearTimeout(avisoPendiente));
+    // Flujos seguidos que abrieron bien y se cortaron de golpe al poco: a partir del segundo ya no
+    // es «un corte», es que el flujo no se sostiene, y se avisa hasta que uno dure.
+    let cortesCortos = 0;
 
     function cambiar(nuevo: EstadoFeed) {
         if (nuevo !== estado) {
@@ -200,12 +243,16 @@ export function iniciarFeed<E extends EventoFeed>(opciones: OpcionesFeed<E>, alL
      * Lee el flujo hasta que se corte. Devuelve qué hacer después: `reconectar` solo si el flujo duró
      * (el cierre normal es a los 30 min); si se cierra al poco de abrirse (un proxy que corta, un
      * servidor que cierra al instante), `corto`, que se reintenta con espera para no entrar en bucle.
+     * Un flujo ya abierto que se corta de golpe (error de red a media lectura: un proxy que corta
+     * conexiones largas, el servidor que reinicia) cuenta igual que un cierre limpio; `red` es que ni
+     * siquiera se pudo abrir.
      */
     async function flujo(): Promise<"reconectar" | "corto" | "sondeo" | "vencido" | "red"> {
         await verificar();
         let inicio: number | undefined;
         const duro = (): "reconectar" | "corto" => (inicio !== undefined && reloj.ahora() - inicio >= plazos.flujoMinimo ? "reconectar" : "corto");
         const local = new AbortController();
+        let asentado: ReturnType<typeof setTimeout> | undefined;
         const cortar = () => local.abort();
         senal.addEventListener("abort", cortar);
         try {
@@ -213,7 +260,16 @@ export function iniciarFeed<E extends EventoFeed>(opciones: OpcionesFeed<E>, alL
             if (!respuesta.ok || !respuesta.body) {
                 return tratarEstado(respuesta.status);
             }
-            cambiar("en_vivo");
+            recuperado();
+            if (cortesCortos < plazos.fallosParaAvisar) {
+                cambiar("en_vivo");
+            } else {
+                // Venía cortándose: no se da por bueno hasta que dure.
+                asentado = setTimeout(() => {
+                    cortesCortos = 0;
+                    cambiar("en_vivo");
+                }, plazos.flujoMinimo);
+            }
             inicio = reloj.ahora();
             let ultimo = reloj.ahora();
             const lector = crearLectorSSE(() => {
@@ -247,14 +303,30 @@ export function iniciarFeed<E extends EventoFeed>(opciones: OpcionesFeed<E>, alL
                 lectura.releaseLock();
             }
             // El servidor cierra cada flujo a los 30 min: se reconecta con el último id.
-            return duro();
+            const fin = duro();
+            if (fin === "reconectar") cortesCortos = 0;
+            return fin;
         } catch (error) {
             if (error instanceof Detener || senal.aborted) {
                 throw error;
             }
             const e = estadoDe(error);
-            return e === undefined ? (local.signal.aborted ? duro() : "red") : tratarEstado(e);
+            if (e !== undefined) return tratarEstado(e);
+            // Lo cortó el vigía (sin latido): reconexión normal.
+            if (local.signal.aborted) return duro();
+            // Sin abrir: no hay red. Abierto y cortado de golpe: una reconexión más, sin avisar… salvo
+            // que se corte al poco de abrir una y otra vez.
+            if (inicio === undefined) return "red";
+            const fin = duro();
+            if (fin === "reconectar") {
+                cortesCortos = 0;
+            } else {
+                cortesCortos++;
+                if (cortesCortos >= plazos.fallosParaAvisar) cambiar("sin_conexion");
+            }
+            return fin;
         } finally {
+            clearTimeout(asentado);
             senal.removeEventListener("abort", cortar);
         }
     }
@@ -282,6 +354,7 @@ export function iniciarFeed<E extends EventoFeed>(opciones: OpcionesFeed<E>, alL
                 await reloj.esperar(plazos.sondeo, senal);
                 continue;
             }
+            recuperado();
             for (const e of pagina.data) {
                 entregar(e);
             }
@@ -308,7 +381,9 @@ export function iniciarFeed<E extends EventoFeed>(opciones: OpcionesFeed<E>, alL
         while (!senal.aborted) {
             try {
                 // Reconectar tras un cierre normal (cada 30 min) no es «conectando»: sigue al día.
-                if (estado !== "en_vivo" && estado !== "sondeo") cambiar("conectando");
+                // …y si el flujo viene cortándose al poco de abrir, el aviso se queda fijo hasta que uno dure.
+                const avisando = estado === "sin_conexion" && cortesCortos >= plazos.fallosParaAvisar;
+                if (estado !== "en_vivo" && estado !== "sondeo" && !avisando) cambiar("conectando");
                 if (cursor === undefined) {
                     await cabeza();
                 }
@@ -327,9 +402,14 @@ export function iniciarFeed<E extends EventoFeed>(opciones: OpcionesFeed<E>, alL
                 }
                 vencidosSeguidos = 0;
                 if (siguiente === "red") {
-                    cambiar("sin_conexion");
-                    await reloj.esperar(espera, senal);
-                    espera = Math.min(espera * 2, plazos.esperaMax);
+                    anotarFallo();
+                    // El primer reintento es casi inmediato; después, espera creciente.
+                    if (fallos === 1) {
+                        await reloj.esperar(plazos.reintentoRapido, senal);
+                    } else {
+                        await reloj.esperar(espera, senal);
+                        espera = Math.min(espera * 2, plazos.esperaMax);
+                    }
                     continue;
                 }
                 if (siguiente === "corto") {
@@ -361,9 +441,13 @@ export function iniciarFeed<E extends EventoFeed>(opciones: OpcionesFeed<E>, alL
                     }
                     continue;
                 }
-                cambiar("sin_conexion");
-                await reloj.esperar(espera, senal);
-                espera = Math.min(espera * 2, plazos.esperaMax);
+                anotarFallo();
+                if (fallos === 1) {
+                    await reloj.esperar(plazos.reintentoRapido, senal);
+                } else {
+                    await reloj.esperar(espera, senal);
+                    espera = Math.min(espera * 2, plazos.esperaMax);
+                }
             }
         }
     }

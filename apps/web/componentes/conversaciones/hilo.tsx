@@ -1,8 +1,8 @@
 "use client";
 
 import { Boton, Cargando, cn } from "@iris/ui";
-import { AlertTriangle, ArrowLeftRight, Bot, CirclePause, FileText, History, MapPin, MessageCircle, Paperclip, PencilLine, PhoneCall, Plug, RotateCw, ShieldCheck, ShieldX, Smartphone, Sparkles, Timer, UserRound, Voicemail } from "lucide-react";
-import { Fragment, useEffect, useLayoutEffect, useRef } from "react";
+import { AlertTriangle, ArrowDown, ArrowLeftRight, Bot, CirclePause, FileText, History, MapPin, MessageCircle, Paperclip, PencilLine, PhoneCall, Plug, RotateCw, ShieldCheck, ShieldX, Smartphone, Sparkles, Timer, UserRound, Voicemail } from "lucide-react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Pendiente } from "@/lib/conversaciones/estado";
 import { hora, separadorDia, tamanoLegible, textoEntrega, textoEvento } from "@/lib/conversaciones/presentacion";
 import type { Mensaje } from "@/lib/conversaciones/tipos";
@@ -24,38 +24,87 @@ type Props = {
     reintentarPendiente: (p: Pendiente) => void;
 };
 
+/** A menos de esto del final se considera que estás abajo (y la vista sigue a lo que llega). */
+const MARGEN_ABAJO = 80;
+
 /**
  * El hilo: burbujas del cliente a la izquierda, las nuestras a la derecha, notas internas en
  * amarillo punteado y los eventos de sistema centrados en una línea. Todo el texto es plano
- * (`white-space: pre-wrap`, nunca HTML). Se queda abajo al llegar mensajes si ya estabas abajo.
+ * (`white-space: pre-wrap`, nunca HTML).
+ *
+ * Abre en el último mensaje y **se queda abajo** mientras estés abajo, pase lo que pase con la
+ * altura: mensajes que llegan o envías, una foto que termina de cargar, la sugerencia del
+ * asistente o el compositor que crecen, el teclado del teléfono. Si subiste a leer, no salta:
+ * aparece «Mensajes nuevos» y al pulsarlo baja. Al cargar mensajes anteriores, lo que estabas
+ * leyendo se queda en su sitio.
  */
 export function Hilo({ mensajes, pendientes, ahora, hayAnteriores, cargandoAnteriores, errorAnteriores, cargarAnteriores, reintentarPendiente }: Props) {
     const caja = useRef<HTMLDivElement>(null);
+    const contenido = useRef<HTMLDivElement>(null);
     const abajo = useRef(true);
     const primero = mensajes[0]?.id;
+    const ultimo = mensajes.at(-1)?.id;
     const altoAntes = useRef(0);
+    const previo = useRef<{ primero: string | undefined; ultimo: string | undefined; cuantos: number; pendientes: number }>({ primero: undefined, ultimo: undefined, cuantos: 0, pendientes: 0 });
+    const [nuevos, setNuevos] = useState(0);
 
-    // Al cargar anteriores, la vista no salta: se conserva la distancia al final.
+    const irAlFinal = useCallback(() => {
+        const el = caja.current;
+        if (!el) return;
+        el.scrollTop = el.scrollHeight;
+        abajo.current = true;
+        altoAntes.current = el.scrollHeight;
+        setNuevos(0);
+    }, []);
+
     useLayoutEffect(() => {
         const el = caja.current;
         if (!el) return;
-        if (abajo.current) {
-            el.scrollTop = el.scrollHeight;
-        } else if (altoAntes.current) {
-            el.scrollTop += el.scrollHeight - altoAntes.current;
+        const antes = previo.current;
+        // Lo que envías tú te lleva abajo siempre, como en cualquier chat.
+        const envie = pendientes.length > antes.pendientes;
+        const llegaron = antes.ultimo !== undefined && ultimo !== antes.ultimo && primero === antes.primero ? Math.max(1, mensajes.length - antes.cuantos) : 0;
+        if (abajo.current || envie) {
+            irAlFinal();
+        } else {
+            // Al cargar anteriores, la vista no salta: se conserva la distancia al final.
+            if (primero !== antes.primero && altoAntes.current) el.scrollTop += el.scrollHeight - altoAntes.current;
+            if (llegaron > 0) setNuevos((n) => n + llegaron);
         }
         altoAntes.current = el.scrollHeight;
-    }, [mensajes, pendientes, primero]);
+        previo.current = { primero, ultimo, cuantos: mensajes.length, pendientes: pendientes.length };
+    }, [mensajes, pendientes, primero, ultimo, irAlFinal]);
 
     useEffect(() => {
         const el = caja.current;
         if (!el) return;
+        let topeAnterior = el.scrollTop;
         const alDesplazar = () => {
-            abajo.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+            const cerca = el.scrollHeight - el.scrollTop - el.clientHeight < MARGEN_ABAJO;
+            // Solo subir a mano te saca de «abajo». Si la distancia creció porque creció el contenido
+            // (una foto que cargó entre que se bajó y llegó este aviso), sigues abajo.
+            if (cerca) abajo.current = true;
+            else if (el.scrollTop < topeAnterior - 1) abajo.current = false;
+            topeAnterior = el.scrollTop;
             altoAntes.current = el.scrollHeight;
+            if (abajo.current) setNuevos(0);
         };
         el.addEventListener("scroll", alDesplazar, { passive: true });
-        return () => el.removeEventListener("scroll", alDesplazar);
+        // La altura cambia sin que llegue ningún mensaje: una foto que carga, el compositor o la
+        // sugerencia que crecen, el teclado del teléfono. Si estabas abajo, sigues abajo.
+        const observador =
+            typeof ResizeObserver === "undefined"
+                ? null
+                : new ResizeObserver(() => {
+                      if (abajo.current) el.scrollTop = el.scrollHeight;
+                      altoAntes.current = el.scrollHeight;
+                  });
+        observador?.observe(el);
+        if (contenido.current) observador?.observe(contenido.current);
+        return () => {
+            el.removeEventListener("scroll", alDesplazar);
+            observador?.disconnect();
+        };
     }, []);
 
     // Separador de día antes del primer mensaje de cada día (hora de Guatemala).
@@ -64,14 +113,37 @@ export function Hilo({ mensajes, pendientes, ahora, hayAnteriores, cargandoAnter
         return !anterior || diaLocal(Date.parse(anterior.creadoEn)) !== diaLocal(Date.parse(m.creadoEn)) ? separadorDia(m.creadoEn, ahora) : null;
     });
     return (
-        <div
-            ref={caja}
-            role="log"
-            aria-label="Mensajes"
-            aria-live="polite"
-            tabIndex={0}
-            className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-[clamp(0.75rem,3cqw,2rem)] py-4 outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
-        >
+        <div className="relative flex min-h-0 flex-1 flex-col">
+            <div ref={caja} role="log" aria-label="Mensajes" aria-live="polite" tabIndex={0} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset">
+                <div ref={contenido} className="flex min-w-0 flex-col gap-2 px-[clamp(0.75rem,3cqw,2rem)] py-4">
+                    <Mensajes
+                        mensajes={mensajes}
+                        pendientes={pendientes}
+                        separadores={separadores}
+                        hayAnteriores={hayAnteriores}
+                        cargandoAnteriores={cargandoAnteriores}
+                        errorAnteriores={errorAnteriores}
+                        cargarAnteriores={cargarAnteriores}
+                        reintentarPendiente={reintentarPendiente}
+                    />
+                </div>
+            </div>
+            {nuevos > 0 ? (
+                <Boton variante="tinta" tamano="sm" data-slot="mensajes-nuevos" className="absolute bottom-3 left-1/2 h-8 max-w-[calc(100%-1.5rem)] -translate-x-1/2 rounded-full px-3 shadow-md" onClick={irAlFinal}>
+                    <span className="truncate">Mensajes nuevos</span>
+                    {nuevos > 1 ? <span className="tabular-nums opacity-80">{nuevos > 99 ? "99+" : nuevos}</span> : null}
+                    <ArrowDown />
+                </Boton>
+            ) : null}
+        </div>
+    );
+}
+
+type PropsMensajes = Omit<Props, "ahora"> & { separadores: readonly (string | null)[] };
+
+function Mensajes({ mensajes, pendientes, separadores, hayAnteriores, cargandoAnteriores, errorAnteriores, cargarAnteriores, reintentarPendiente }: PropsMensajes) {
+    return (
+        <>
             {hayAnteriores ? (
                 <div className="flex justify-center">
                     <Boton variante="fantasma" tamano="sm" onClick={cargarAnteriores} disabled={cargandoAnteriores}>
@@ -115,7 +187,7 @@ export function Hilo({ mensajes, pendientes, ahora, hayAnteriores, cargandoAnter
                     )}
                 </div>
             ))}
-        </div>
+        </>
     );
 }
 

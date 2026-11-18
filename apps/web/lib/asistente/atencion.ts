@@ -101,6 +101,20 @@ export function pideConfirmarReanudar(conv: ConAtencion): boolean {
     return motivo === "cliente_lo_pidio" || motivo === "enojo";
 }
 
+/**
+ * Al quitar la asignación: ¿preguntar si la sigue atendiendo el asistente? Solo si el asistente se
+ * había apartado porque una persona la tenía (`antes`) y, ya sin nadie, puede retomarla
+ * (`despues`). Si el cliente pidió una persona, no se ofrece.
+ */
+export function ofrecerQueSigaElAsistente(antes: ConAtencion, despues: ConAtencion): boolean {
+    return (
+        antes.atencionAsistente?.motivo === "persona_asignada" &&
+        despues.atencionAsistente?.motivo === "persona_presente" &&
+        despues.atencionAsistente.reanudable &&
+        !pideConfirmarReanudar(despues)
+    );
+}
+
 /** El punto de la fila de la lista: solo lo que conviene ver de un vistazo. */
 export function puntoAtencion(a: AtencionAsistente | undefined): { estado: "pausado" | "persona_presente"; tono: "neutro" | "aviso"; texto: string } | null {
     if (!a || a.atiende) return null;
