@@ -1,4 +1,4 @@
-Versión: 0.7.1 (16 nov 2026, borrador) · Iris ↔ ArgosISP
+Versión: 0.8.0 (borrador, sin espejo; 18 nov 2026) · Iris ↔ ArgosISP
 
 # Contrato de integración Iris ↔ ArgosISP (copia de ArgosISP)
 
@@ -8,6 +8,7 @@ Versión: 0.7.1 (16 nov 2026, borrador) · Iris ↔ ArgosISP
 - Cada sistema toca solo su código. Lo que uno necesita del otro se pide en §5, y el dueño lo implementa en su repositorio.
 - Cambiar el contrato requiere dos PRs enlazadas, una por repositorio. La versión sigue semver.
 - Se reutilizan los mecanismos ya probados del contrato Argos ↔ Horus (`argos-isp/.claude/integration/contratos/horus.md` §1): códigos de conexión, webhooks firmados, enlace de conexión y autologin por ticket. Aquí solo se escriben las diferencias.
+- **La 0.8.0 es un borrador de Iris y todavía no tiene espejo.** La copia de `argos-isp` sigue en 0.7.1 hasta que el líder de Argos revise este texto contra su código y se abran las dos PRs enlazadas. Lo marcado «0.8.0, borrador» no obliga a ningún lado. Lo que falta por decidir está en §10.
 
 ## 0. Principios
 
@@ -32,6 +33,7 @@ Iris guarda, cifrado y de solo escritura, un token de Argos `atk_…` del usuari
 - **Autologin:** `sso.emitir`.
 - **Pagos y atención (0.6.0, §7, con los nombres de §9.1):** `comprobantes.registrar` (+ `comprobantes.ver` y `cuentas_bancarias.ver`), `comprobantes.reconexion_temporal`, `promesas.ver` (simulador, §7.4), `promesas.crear` y `clientes.verificar_identidad`. La búsqueda por teléfono (§7.6) es el filtro `telefono` de `GET /clientes`, con `clientes.ver`.
 - **Aprobar y rechazar comprobantes (0.7.0, §7.7):** `comprobantes.aprobar` y `comprobantes.rechazar`. Argos migra los tokens que ya existen. El token solo abre la ruta: el permiso real lo decide el usuario de Argos vinculado al `X-Iris-Actor` (§7.7), y con `asistente_ia` nunca valen.
+- **0.8.0 (borrador):** no pide permisos nuevos en Argos. Las cuentas bancarias (§7.8) usan `cuentas_bancarias.ver`, los datos del servicio (§2.4) usan `servicios.ver`, y la primera sincronización (§2.5) usa las lecturas de arriba. Si Argos quiere un permiso aparte para algún campo, está en §10.1.
 
 El usuario técnico Iris solo tiene alcance por empresas (o global), nunca por zona ni router: una lista completa y vacía significa sin servicios. Argos lo hace cumplir: un token, un rol o un correo que le darían alcance por zona o router responde `422 usuario_tecnico_solo_empresas`, y el canje nunca emite un token así.
 
@@ -96,6 +98,47 @@ Alternativa al enlace de §1.3, que sigue vigente: el admin conecta Iris con Arg
     - Iris muestra el resumen y el conector queda **apagado** hasta que el admin pulse «Activar», como hoy.
 6. **`panel_url` en el canje.** Las dos variantes del canje responden además `panel_url` (`PANEL_URL_PUBLICA` de Argos, por ejemplo `https://argos.kns.gt`). Iris guarda por separado `panel_url`, para «Ver en Argos» y para volver a autorizar, y `api_url`, el `api` del paso 5 o el origen del enlace de §1.3.
 
+### 1.5 Conexión de un paso (0.8.0, borrador)
+
+**Estado: propuesta conjunta, sin implementar.** No reemplaza a §1.3 ni a §1.4: los usa. «Un paso» significa que, después de aprobar en Argos y activar en Iris, nadie copia URLs, secretos ni tokens, ni lanza cargas a mano. La 0.8.0 agrega tres cosas: (a) la primera sincronización automática (§2.5), (b) el receptor de Iris guardado en el mismo canje y (c) una pantalla de estado en cada panel (§2.5).
+
+**Requisitos de seguridad (los fija Argos; no son negociables).** Cualquier implementación de esta sección los cumple todos; si uno no se puede cumplir, esa parte no se hace.
+
+| # | Requisito |
+| --- | --- |
+| S1 | El código de conexión es de **un solo uso** y de **vida corta** (15 min, §1.3). Un código nuevo anula los anteriores sin usar. |
+| S2 | El código viaja en el **fragmento** de la URL (`#…`), **nunca en la query**: no queda en logs de servidor ni en `Referer` (§1.3, §1.4 paso 4). |
+| S3 | El canje es **servidor a servidor y por HTTPS**. El navegador nunca ve el token ni los secretos. |
+| S4 | Si la conexión nace del botón (§1.4), **PKCE S256 es obligatorio**: sin el `code_verifier` correcto, `401 codigo_invalido` y el código queda gastado. |
+| S5 | El token que recibe Iris (`atk_`) tiene **alcance acotado a empresas** (§1.1), **nunca es de administrador** y **nunca se muestra en un panel**, ni en Argos ni en Iris: se guarda cifrado y de solo escritura. Lo mismo vale para el `iris_pat_` que recibe Argos. |
+| S6 | Los secretos (tokens y secretos de webhook) **se rotan y no se reutilizan**: cada canje genera secretos nuevos en los dos lados y revoca los anteriores con las reglas de reconexión de §1.3 (0.6.3). Ningún secreto de un canje anterior vuelve a valer. |
+| S7 | La conexión **la aprueba en Argos un usuario con `iris.configurar`**, con sesión propia y viendo el origen de Iris y las empresas del alcance (§1.4 paso 3). Nada la aprueba solo. |
+| S8 | **La vinculación de usuarios nunca va en el setup.** Sigue siendo por persona, con el correo y la contraseña de Argos de cada quien y la pantalla de confirmación de 0.7.1 (§1.3, A24). Nada en bloque, nada por correo, nada por coincidencia de nombres. La primera sincronización no trae usuarios de Argos ni crea vínculos. |
+
+**Capa extra: comparar la huella TLS (propuesta; a Argos le parece bien).** Es el patrón que Iris ya usa con su Servidor de IA (`voz.md` §4.2 y §4.8). La pantalla de aprobación de Argos y la de Iris muestran la huella SHA-256 del certificado TLS que cada lado vio del otro al canjear, y el admin las compara. Iris **fija** la huella del certificado de la API de Argos para ese conector. Si después cambia sin una reconexión, Iris marca el conector «certificado cambiado», deja de enviar escrituras (quedan en `integracion.pendientes`) y pide confirmar. Es una capa **además** de la validación normal del certificado contra las CA públicas, no en su lugar. Cómo viaja la huella, dónde se muestra y qué pasa en una renovación normal del certificado está en §10.1.
+
+**(b) El receptor de Iris en el mismo canje.** Este contrato remite al de Argos ↔ Horus para el cuerpo del canje y nunca lo escribió aquí. Iris ya manda hoy este cuerpo en el canje de Argos (`POST /api/v1/integraciones/iris/conexion/canjear`), y la 0.8.0 lo deja por escrito:
+
+```json
+{
+  "codigo": "<código del fragmento>",
+  "sistema": "iris",
+  "base_url": "https://iris.isp.example",
+  "token": "iris_pat_…",
+  "webhook": { "url": "https://iris.isp.example/api/v1/integraciones/argosisp/webhook/7", "secreto": "…" },
+  "code_verifier": "<solo si el código nació del botón>",
+  "contrato": "0.8.0",
+  "receptor_argos": true
+}
+```
+
+- `token` es el `iris_pat_` de §1.2, que Iris emite en ese momento. `webhook` es el **receptor de Iris** para los webhooks de §2.3, con el secreto que Iris generó (el receptor genera el secreto, §1.3).
+- Con la 0.8.0, Argos guarda `base_url`, `token` y `webhook` **en la misma transacción del canje** y no pide configurarlos aparte en su panel. En una reconexión se aplican con las reglas de §1.3 (0.6.3): quedan pendientes hasta la primera llamada del `atk_` nuevo.
+- Argos valida que el host de `webhook.url` sea el de `base_url` y, si la conexión nació del botón, que sea el origen `iris` que aprobó el admin (§1.4). Si no, responde `422` y el código queda gastado. Es la misma regla que Iris aplica al receptor de Argos (`422 webhook_invalido`, 0.6.2).
+- Qué parte de esto ya hace Argos y qué parte se sigue configurando a mano está en §10.1.
+
+**Qué queda igual.** El conector nace **apagado** en Iris hasta que un admin pulsa «Activar». El canje sin uso vence a las 24 h. La reconexión es la de 0.6.3. `PUT /integraciones/iris/contrato` sigue siendo la primera llamada autenticada. La primera sincronización (§2.5) empieza al activar, no al canjear.
+
 ## 2. Iris consume de Argos
 
 ### 2.1 Búsqueda y ficha
@@ -111,10 +154,14 @@ Alternativa al enlace de §1.3, que sigue vigente: el admin conecta Iris con Arg
 | Equipos en comodato de un servicio | `GET /api/v1/servicios/:id/equipos` |
 | Bodega y kardex del técnico (0.5.0) | `GET /api/v1/inventario/mi-bodega?id_externo=<usuario de Argos>` (o `?correo=`): `{ bodega, existencias[], unidades[], traslados_pendientes[], kardex }` (últimos 50; más con `GET /api/v1/inventario/movimientos?bodega_id=` y cursor). Sin bodega activa: `404 tecnico_sin_bodega`. `GET /api/v1/inventario/existencias?bodega_id=` sigue igual |
 | Ubicación y contacto en sitio (0.5.0) | `Cliente.referencia`; `Servicio.referencia`, `Servicio.contacto_nombre` y `Servicio.contacto_telefono` (null si no hay) |
+| Cuentas bancarias de la empresa (0.8.0, borrador) | `GET /api/v1/cuentas-bancarias` y `GET /api/v1/cuentas-bancarias/:id` (`cuentas_bancarias.ver`), y `GET /api/v1/bancos`. Detalle en §7.8 |
+| Red, precio y ubicación del servicio (0.8.0, borrador) | `GET /api/v1/servicios/:id` y la lista: los campos de §2.4 |
 
 ### 2.2 Instantánea en Iris
 
 Iris guarda en `integracion.argos_clientes` y `integracion.argos_servicios` solo lo que muestra: nombre, código, teléfono, `email`, dirección, coordenadas, `referencia` (cliente y servicio), contacto en sitio (`contacto_nombre`, `contacto_telefono`), zona, router, plan, estado y `empresa_id`. Cada fila lleva `sincronizado_en` y se refresca por webhook (§2.3) o al abrir la ficha si tiene más de 24 h.
+
+**0.8.0 (borrador).** La instantánea del servicio suma los datos de red y el precio de §2.4, con permisos propios en Iris. Se agrega una instantánea de las cuentas bancarias (§7.8). Con la primera sincronización (§2.5), las instantáneas se llenan al activar el conector y no solo al abrir cada ficha.
 
 ### 2.3 Webhooks Argos → Iris
 
@@ -133,9 +180,121 @@ Iris guarda en `integracion.argos_clientes` y `integracion.argos_servicios` solo
 | `servicio.eliminado` (0.3.1): servicio_id, empresa_id, cliente_id, router_id. Solo servicios que nunca se usaron (sin facturas, pagos, sesiones ni otro historial); en Argos la fila ya no existe. Llega junto con un `asignacion.cambiada` de ips vacías. Solo si `empresa_id` está en el alcance del usuario técnico | Quita la instantánea del servicio y refresca la lista de servicios del cliente (`cliente_id`). Órdenes y tickets que lo referencian conservan su copia y lo muestran «eliminado en Argos». Un evento atrasado de ese servicio no recrea la instantánea; `GET /servicios/:id` responde 404 (esperado, no se reintenta; ver «Confirmar un borrado» abajo). |
 | `router.eliminado` (0.3.1): router_id, empresa_id (empresa sugerida del router, o null = router compartido, que llega a cualquier alcance; con empresa, solo si está en el alcance). Solo routers sin historial | Quita el router de factibilidad (router o nodo sugerido); una factibilidad ya evaluada conserva el id. `GET /routers/:id` responde 404 (ver «Confirmar un borrado» abajo). |
 | `comprobante.aprobado` / `comprobante.rechazado` (0.6.0): forma en §7.2. Solo a conectores con contrato ≥ 0.6.0 | Resuelve la boleta en la conversación y avisa al cliente (§6.3). |
-| `promesa.creada` / `promesa.cumplida` / `promesa.incumplida` / `promesa.cancelada` (0.6.0): forma en §7.4. Solo a conectores con contrato ≥ 0.6.0 | Actualiza la promesa o la reconexión temporal de la conversación y explica al cliente. |
+| `promesa.creada` / `promesa.cumplida` / `promesa.incumplida` / `promesa.cancelada` (0.6.0): forma en §7.4. Solo a conectores con contrato ≥ 0.6.0. Desde 0.8.0 (borrador) el payload suma `motivo_reconexion` | Actualiza la promesa o la reconexión temporal de la conversación y explica al cliente. |
+| `cuenta_bancaria.cambiada` (0.8.0, borrador; propuesta de Argos): cuenta_bancaria_id, empresa_id, campos[] (solo nombres, nunca valores), activa. Solo a conectores con contrato ≥ 0.8.0 | Relee `GET /cuentas-bancarias/:id` y refresca la instantánea de la cuenta (§7.8). Una cuenta con `activa: false` deja de ofrecerse; nunca se borra. |
 
 **Confirmar un borrado (0.3.2).** Antes de quitar una instantánea por `servicio.eliminado` o `router.eliminado`, Iris puede confirmar con `GET /api/v1/servicios/:id` o `GET /api/v1/routers/:id`. Solo cuenta como borrado un `404` `application/problem+json` con `type` `urn:argosisp:problema:no_encontrado`. Un servicio de una empresa fuera del alcance del usuario técnico responde `403` (`type` `urn:argosisp:problema:empresa_no_permitida`, o el 403 genérico del ACL), nunca 404, y no es un borrado; los routers no se filtran por empresa (§2.1). Cualquier otra respuesta (5xx, timeout, 401) se reintenta con espera exponencial.
+
+### 2.4 Más datos del servicio (0.8.0, borrador)
+
+**Lo que Argos ya entrega (1.17.0).** `GET /api/v1/servicios/:id` y la lista (`GET /api/v1/servicios`) devuelven `ipv4`, `prefijo_enlace_v6`, `prefijo_delegado_v6`, `direccion`, `referencia`, `coordenadas`, `router_id`, `plan_id`, `costo_override`, `tipo_conexion`, `user_ppp` (**nunca la clave PPP**) y `planta` (el objeto de A9). Los cambios llegan por `servicio.datos_cambiados` (dirección, coordenadas, referencia, contacto) y `servicio.config_cambiada` (plan, IPs, prefijo, router), que ya están en §2.3.
+
+**Lo que Argos propone agregar en 0.8.0 (A27).**
+
+| Campo | Tipo | Detalle |
+| --- | --- | --- |
+| `precio_mensual` | string decimal | Lo que el cliente paga al mes por ese servicio, **ya calculado por Argos** (hoy sería `costo_override ?? precio del plan`). Iris nunca lo calcula ni lo deduce de `costo_override`. |
+| `moneda` | string | La moneda de `precio_mensual` (por ejemplo `GTQ`). |
+| `router_nombre` | string | El nombre del router de `router_id`, para no cruzarlo con el catálogo. |
+
+```json
+{
+  "id": 4410,
+  "cliente_id": 1201,
+  "empresa_id": 3,
+  "estado": "activo",
+  "plan_id": 12,
+  "precio_mensual": "250.00",
+  "moneda": "GTQ",
+  "router_id": 5,
+  "router_nombre": "Nodo Centro",
+  "tipo_conexion": "pppoe",
+  "user_ppp": "cli1201-4410",
+  "ipv4": "100.64.12.34",
+  "prefijo_enlace_v6": null,
+  "prefijo_delegado_v6": null,
+  "direccion": "3a calle 4-56 zona 1",
+  "referencia": "Portón negro, frente a la tienda",
+  "coordenadas": "14.634900,-90.506900",
+  "planta": { "caja": "C-014", "puerto": 3 }
+}
+```
+
+El ejemplo solo muestra los campos de esta sección; el resto del objeto no cambia. Los valores de `tipo_conexion` y la forma exacta de las IP y los prefijos son de Argos y están por confirmar (§10.1). La **caja o el nodo** no están en el servicio, salvo la referencia `planta` de A9, que es solo de lectura (§10.1).
+
+**Datos sensibles (clasificación de Argos).** Son sensibles la IP y los prefijos, las coordenadas y la dirección (datos personales) y `user_ppp`: Iris les pone permiso propio. El precio y el nombre del plan no son sensibles.
+
+**Qué entra a la instantánea de Iris** (`integracion.argos_servicios`, §2.2):
+
+| Dato | En la instantánea | Quién lo ve en Iris |
+| --- | --- | --- |
+| `plan_id`, nombre del plan, `estado`, `precio_mensual`, `moneda` | sí | Cualquiera con `clientes.ver` |
+| `router_id`, `router_nombre`, `tipo_conexion`, `ipv4`, `prefijo_enlace_v6`, `prefijo_delegado_v6`, `user_ppp`, `planta` | sí | Solo con `servicios.ver_red` |
+| `direccion`, `referencia`, `coordenadas`, contacto en sitio | sí (ya estaban) | Solo con `servicios.ver_ubicacion` |
+| `costo_override` | **no** | Nadie: Iris usa `precio_mensual` y no guarda el dato del que sale |
+| Clave PPP | **no** (Argos nunca la entrega) | Nadie |
+
+- La instantánea se refresca como en §2.2: por `servicio.config_cambiada` y `servicio.datos_cambiados`, y al abrir la ficha si tiene más de 24 h. Falta saber qué evento avisa cuando `precio_mensual` cambia sin que cambie el servicio, por ejemplo al subir el precio del plan (§10.1).
+- Sin el permiso, la API de Iris **no devuelve** el campo. No lo manda vacío ni lo oculta la pantalla: el filtro es del servidor.
+
+**Permisos nuevos en Iris (PROPUESTA del líder de Iris; los roles, pendientes del PM, §10.2).** Hoy Iris no tiene permisos `servicios.*`: todo lo del servicio se ve con `clientes.ver`, que tienen todos los roles base de persona.
+
+| Permiso propuesto | Qué abre | Roles base propuestos | Roles que no |
+| --- | --- | --- | --- |
+| `servicios.ver_red` | IP, prefijos, `user_ppp`, `tipo_conexion`, router y `planta` del servicio | `admin`, `supervisor`, `soporte` y `tecnico` (este solo en los servicios de sus órdenes, con el alcance de `ordenes.ver_propias`) | `despacho`, `ventas`, `caja`, `lectura` |
+| `servicios.ver_ubicacion` | Dirección, `referencia`, coordenadas y contacto en sitio del servicio | `admin`, `supervisor`, `despacho`, `soporte`, `ventas` y `tecnico` (solo en sus órdenes) | `caja`, `lectura` |
+
+- Las órdenes de trabajo guardan su propia copia de la dirección y las coordenadas para que el técnico llegue. Esa copia se sigue viendo con los permisos de la orden y no cambia.
+- Es un **cambio de comportamiento dentro de Iris**: `caja` y `lectura` dejarían de ver la dirección y las coordenadas del servicio, que hoy ven con `clientes.ver`. Por eso los roles van a §10.2.
+- Los usuarios de tipo integración (`integracion_argos`, `integracion_horus`) no reciben ninguno de los dos.
+- Cada lectura de estos datos por una persona se audita en Iris como lectura de datos personales (§0), sin el valor.
+
+**Qué recibe el asistente de IA (PROPUESTA del líder de Iris, §10.2).** Amplía `conversaciones.md` §17.9 sin relajarla:
+
+- **Nunca viajan al proveedor de IA:** IP, prefijos, `user_ppp`, coordenadas, la dirección, el texto libre de `referencia`, el contacto en sitio, `planta` ni el nombre del router. El asistente no tiene `servicios.ver_red` ni `servicios.ver_ubicacion`.
+- **Sí viajan:** el nombre del plan, `precio_mensual` con `moneda`, el estado del servicio y una **etiqueta corta** que arma Iris para distinguir los servicios de un mismo cliente.
+- **Etiqueta corta:** `Servicio <n> · <plan> · <zona>`. `<n>` es el orden del servicio dentro del cliente (1, 2, 3…, por id) y `<zona>` es el nombre de la zona del catálogo. No lleva calle, número de casa, coordenadas ni códigos internos. Si dos servicios quedan con la misma etiqueta, el asistente no adivina: pasa a una persona.
+- Los ids de servicio siguen sin ir en los argumentos de las herramientas: los pone el servidor (§17.9).
+
+**Cómo se distinguen los servicios de un mismo cliente en el panel.** Cada servicio va en una línea: código del servicio, plan, `precio_mensual` y estado (con icono, texto y color). La dirección corta se ve solo con `servicios.ver_ubicacion`, y la IP y el router solo con `servicios.ver_red`. Sin esos permisos se ve la misma etiqueta corta que usa el asistente. Vale para la ficha del cliente, el selector de servicio de un ticket, una orden o una boleta, y el panel lateral de la conversación.
+
+### 2.5 Primera sincronización y estado de la conexión (0.8.0, borrador)
+
+**Estado: propuesta conjunta, sin implementar.** Hoy Iris carga los catálogos (zonas, planes, routers) con un job y trae clientes y servicios a demanda, al abrir cada ficha. Con la 0.8.0, al **activar** un conector recién canjeado (§1.5), Iris hace sola una primera sincronización completa.
+
+**Qué trae y en qué orden.** Todo con lecturas que ya existen y con el token de §1.1. No hay rutas nuevas.
+
+| Paso | Recurso | Lectura en Argos |
+| --- | --- | --- |
+| 1 | Empresas | `empresas[]` y `alcance_global` de la respuesta del canje (§1.3) |
+| 2 | Zonas | `GET /api/v1/zonas` |
+| 3 | Planes | `GET /api/v1/planes` |
+| 4 | Routers | `GET /api/v1/routers` |
+| 5 | Cuentas bancarias y bancos | `GET /api/v1/cuentas-bancarias` (activas e inactivas) y `GET /api/v1/bancos` (§7.8) |
+| 6 | Clientes | `GET /api/v1/clientes`, paginado por cursor |
+| 7 | Servicios | `GET /api/v1/servicios`, paginado por cursor |
+
+- **Progreso.** Iris guarda por conector y por recurso: estado (`pendiente`, `en_curso`, `completo`, `fallido`), cuántos lleva, el último cursor, cuándo empezó y terminó, y el último error. La pantalla de estado lo muestra mientras corre.
+- **Reanudable.** Si se corta (reinicio, Argos caído, token revocado), sigue desde el último cursor guardado de ese recurso y no vuelve a empezar. Es un job único por conector: lanzarlo dos veces no lo duplica.
+- **Idempotente.** Cada fila se escribe como instantánea con su `sincronizado_en`. Un webhook que llega durante la carga se aplica normal. Entre la carga y un webhook gana la lectura más reciente de Argos. Una lista nunca revive una lápida de `servicio.eliminado` o `router.eliminado` (§2.3).
+- **Sin escrituras.** La primera sincronización solo lee de Argos. No crea clientes, tickets, órdenes ni usuarios, y **no trae usuarios de Argos ni vincula a nadie** (§1.5, S8).
+- **Carga.** Iris pagina con el `limit` que Argos permita y respeta `429` y `Retry-After`. El ritmo máximo, y si las listas de clientes y servicios se pueden recorrer completas sin filtro, están por confirmar (§10.1).
+- **Alcance.** Si la primera carga trae todos los clientes o solo los que tienen un servicio no retirado lo decide el PM (§10.2). Lo que no se cargue sigue llegando a demanda, como hoy.
+- **Sin Argos.** Iris sigue funcionando con lo que tenga (§0). Una sincronización a medias no bloquea nada, y la pantalla dice qué falta.
+
+**(c) Pantalla de estado, en los dos paneles.** Cada lado muestra lo que **él** sabe. Ninguno inventa el estado del otro.
+
+| Qué muestra | Panel de Iris (Administración → Integraciones → Argos) | Panel de Argos (Integraciones → Iris) |
+| --- | --- | --- |
+| Conexión | Conector activo o apagado, desde cuándo y quién lo activó | Lo que `GET /integraciones/iris` ya devuelve: `estado_canje`, `canje_vence_en`, `desconectado_en`, `motivo_desconexion`, `reconexion_pendiente_desde`, `reconexion_vence_en` y `requiere_reconectar` |
+| Versión de contrato de cada lado | La propia y la de Argos (`contrato` y `version_argos` del canje y de `GET /integraciones/iris/estado`) | La propia y la que Iris informó con `PUT /integraciones/iris/contrato` |
+| Qué se sincronizó y cuándo | Por recurso: cuántos, último `sincronizado_en` y estado de la primera carga | Lo que Iris le informe (ver abajo) |
+| Qué falló | Último error por recurso, webhooks entrantes rechazados y pendientes hacia Argos (`integracion.pendientes`) | Webhooks a Iris fallidos o en reintento, y el último `2xx` de Iris |
+| Empresas | Las del alcance y `alcance_global` | Las del usuario técnico Iris |
+
+- Con versiones de contrato distintas, las dos pantallas dicen qué funciones quedan apagadas por eso (§4.1), no solo los números de versión.
+- Ninguna de las dos pantallas muestra tokens ni secretos (§1.5, S5): solo si existen y cuándo se generaron.
+- **No está definido cómo se entera Argos del avance de la sincronización de Iris:** hoy no hay un campo ni una ruta para eso (§10.1). Hasta que se acuerde, el panel de Argos muestra solo lo suyo.
 
 ## 3. Iris escribe en Argos (al cerrar órdenes y ganar prospectos)
 
@@ -250,11 +409,13 @@ Los mismos códigos valen en lecturas y escrituras: `GET /inventario/mi-bodega` 
 - Argos solo envía los webhooks nuevos de 0.5.0 a conectores con contrato ≥ 0.5.0. Así un Iris anterior no los recibe como desconocidos.
 - Argos 1.5.x no conoce `tecnico`: lo ignora y, sin `bodega_id`, responde `422 bodega_id required`. Iris consulta `version_argos` antes de mandar `tecnico`.
 - `bodega_id` sigue válido en todo 0.x.
+- **0.8.0 (borrador):** qué hace cada lado cuando el otro no la habla está en §4.1. No hay mecanismos nuevos: se usan `contrato`, `version_argos` y `PUT /integraciones/iris/contrato`.
 
 ## 4. Versionado
 
-Semver. Esta versión 0.7.1 es un borrador hasta que los dos lados lo aprueben; desde 1.0.0, solo cambios compatibles en versiones menores.
+Semver. Esta versión 0.8.0 es un borrador **sin espejo** (ver «Gobierno»); la última versión con espejo es la 0.7.1. Desde 1.0.0, solo cambios compatibles en versiones menores.
 
+- **0.8.0** (18 nov 2026, **borrador de Iris, sin espejo**; pendiente de la revisión de Argos y de las decisiones del PM de §10.2): cuatro bloques, todos aditivos sobre 0.7.1. **A, reconexión temporal sin personal de caja** (era la 0.7.2; lado Argos en su rama `lider/iris-072`): §7.3: `motivo` acepta `fuera_de_horario` | `sin_personal` (otro valor, `422` con `errors[0].field = "motivo"`); `reglas_promesa.reconexion_temporal.vigencia` = `horas` (por defecto) | `medianoche`, con el vencimiento real siempre en `hasta`; el criterio de `sin_personal` es de Iris y queda auditado en Argos. §7.4 y §2.3: `motivo_reconexion` en la promesa (`GET /promesas`) y en los webhooks `promesa.*`. **B, cuentas bancarias de Argos como única fuente:** §7.8 (nueva): `titular` y `tipo` en la cuenta, webhook `cuenta_bancaria.cambiada`, instantánea de lectura en Iris y fin de las cuentas escritas a mano (lista «a migrar» en §10.3). **C, más datos del servicio:** §2.4 (nueva): `precio_mensual`, `moneda` y `router_nombre`; qué entra a la instantánea, los permisos propuestos `servicios.ver_red` y `servicios.ver_ubicacion` en Iris y qué recibe el asistente de IA. **D, conexión de un paso:** §1.5 (nueva): los requisitos de seguridad de Argos (S1–S8), el cuerpo del canje por escrito con el receptor de Iris, y la comparación de la huella TLS como capa extra; §2.5 (nueva): primera sincronización automática, con progreso y reanudable, y pantalla de estado en los dos paneles. §4.1 (nueva): compatibilidad y errores. §5: pedidos A25–A28 y B4–B7. §10 (nueva): lo que falta confirmar con Argos y con el PM. Es compatible: no cambia ningún campo ni ruta de 0.7.1; un Argos 1.17.x sin estos cambios sigue funcionando con Iris, y al revés (§4.1). Requiere la primera versión de Argos que la implemente (después de 1.17.0).
 - **0.7.1** (16 nov 2026): A24: quién decidió el comprobante y a qué instalación se le da acceso al vincular. §7.2 y §7.7: `verificado_iris_actor` en el `Comprobante` (`GET /comprobantes/:id`, la lista y la respuesta `200` de aprobar y rechazar) y en el payload de los webhooks `comprobante.aprobado` y `comprobante.rechazado`: el `X-Iris-Actor` (`usuario:<id>`) de quien aprobó o rechazó desde Iris, o `null` si se decidió en el panel de Argos. `iris_actor` sigue siendo el actor que **registró** el comprobante, no el que lo decidió. §1.3: `instalacion` (string o `null`: host de la `url_base` del conector, con puerto solo si no es el estándar) en `vinculacion` del canje del autologin Iris → Argos, y la pantalla de confirmación del vínculo con el sistema, el nombre y el correo del usuario de Iris, la instalación y el aviso, encima del formulario y antes de que la persona escriba su correo y su contraseña; Iris no manda nada nuevo. §7.1: la forma exacta de `X-Iris-Actor` y `X-Iris-Conversacion` como expresiones regulares, sin cambiar los límites. §6.3: en `boleta_rechazada` y `boleta_falta_dato`, `motivo` es un texto fijo de Iris según la `causa`, y el motivo libre solo se le reenvía al cliente si pasa una lista blanca (letras del español, espacios y los signos `,;:¿?¡!()`, sin dígitos ni puntos salvo el final); el motivo completo se guarda y va a Argos sin cambios. §7.7: antes de aplicar un webhook `comprobante.*`, Iris lee `GET /comprobantes/:id` (con las dos cabeceras de §7.1; si lee el sistema, las de quien registró la boleta) y filtra por `canal = iris`. Es aditiva y compatible: solo agrega campos y aclara el comportamiento de Iris. Con Argos 1.15.0 (contrato 0.7.0) `verificado_iris_actor` no viene, y entonces Iris solo muestra `verificado_por_nombre`. Argos responde `contrato: "0.7.1"` desde la versión que la implemente.
 - **0.7.0** (10 nov 2026, pedido del PM): A23: aprobar y rechazar comprobantes desde la conversación de Iris. §7.7 (nueva): `POST /comprobantes/:id/aprobar` y `POST /comprobantes/:id/rechazar` aceptan el token de Iris, solo para comprobantes con `canal = iris`, con `X-Iris-Actor`, `X-Iris-Conversacion` e `Idempotency-Key` obligatorias (`iris:aprobar:<comprobante_id>` / `iris:rechazar:<comprobante_id>`; la huella incluye el actor) y responden `200` con el `Comprobante` completo. Con el conector apagado o desconectado: `409 iris_apagado`, igual que en §1.3. Decide el usuario de Argos vinculado a `usuario:<id>`: activo, con el permiso y con la empresa del comprobante en su alcance; errores `403` `actor_sin_vinculo`, `actor_inactivo`, `actor_sin_permiso`, `actor_sin_empresa` y `actor_ia_no_permitido` (el asistente de IA nunca puede). La auditoría y el pago quedan a nombre del usuario vinculado, con el token de Iris como «vía». §1.1: el token de Iris suma `comprobantes.aprobar` y `comprobantes.rechazar` (Argos migra los que existen). §1.3: forma del autologin Iris → Argos (`POST /integraciones/iris/sso/tickets`), que es lo único que crea ese vínculo; `destino` pasa a ser opcional. §0, §3, §3.1, §7, §7.1–§7.4 y §9.3: se corrige el texto que decía que Iris no puede aprobar ni rechazar; Argos sigue decidiendo. Los webhooks `comprobante.*` y las promesas no cambian de forma. Pedido B3 a Iris. Es compatible: solo agrega rutas al token de Iris y vuelve opcional un campo. Requiere la primera versión de Argos que implemente A23.
 - **0.6.4** (5 nov 2026): A22: `nombre` en `bodegas[]` de `GET /inventario/tecnicos` para elegir la bodega sin códigos; toda bodega `tecnico` tiene usuario (restricción en base). Es compatible: solo agrega el campo. Argos responde `contrato: "0.6.4"`.
@@ -271,6 +432,48 @@ Semver. Esta versión 0.7.1 es un borrador hasta que los dos lados lo aprueben; 
 - **0.2.1** (28 oct): `servicio.caidas_repetidas` (A6) en §2.3; A1 y A9 listos en Argos.
 - **0.2.0** (28 oct): A5 pasa a reemplazado por la integración Iris ↔ OZmap; nuevo pedido A9 (referencia de planta al activar la instalación).
 - **0.1.0:** borrador inicial.
+
+### 4.1 Compatibilidad de la 0.8.0 (borrador)
+
+La 0.8.0 es aditiva sobre la 0.7.1. Un Argos 1.17.x sin estos cambios sigue funcionando con un Iris 0.8.0, y un Iris 0.7.1 sigue funcionando con un Argos que ya los tenga.
+
+**Cómo sabe cada lado qué soporta el otro.** No hay mecanismos nuevos: es el de «Versión y compatibilidad» de §3.3.
+
+- **Iris sabe de Argos** por `contrato` y `version_argos`, que vienen en la respuesta del canje y en `GET /integraciones/iris/estado`. Iris los relee al activar el conector y en su revisión periódica de versión.
+- **Argos sabe de Iris** por `contrato` en el cuerpo del canje y por `PUT /integraciones/iris/contrato { contrato, receptor_argos }`, que Iris manda al activar y cada vez que cambia de versión.
+- Cada lado usa una función de la 0.8.0 **solo si el otro informó un contrato ≥ 0.8.0**. Con menos, se comporta como en 0.7.1.
+
+| Función 0.8.0 | Iris 0.8.0 con un Argos sin ella (contrato < 0.8.0) | Argos 0.8.0 con Iris 0.7.1 |
+| --- | --- | --- |
+| `motivo: "sin_personal"` (§7.3) | Iris no lo manda: en horario hábil responde su `422 reconexion_no_corresponde` y sigue una persona, como hoy | Iris solo manda `fuera_de_horario`; Argos lo atiende igual |
+| `vigencia: "medianoche"` (§7.3) | No aplica: es de la plantilla de Argos | Iris 0.7.1 ya lee `hasta` de la respuesta y lo pasa a la plantilla `reconexion_temporal`; no asume horas |
+| `motivo_reconexion` en la promesa (§7.4) | El campo no viene: Iris lo trata como `null` y usa el motivo que guardó al pedirla | Iris ignora el campo que no conoce |
+| `titular` y `tipo` de la cuenta (§7.8) | No vienen: Iris muestra banco, número, alias y moneda, y no le ofrece al cliente una cuenta sin `titular` (§7.8) | Iris ignora los campos que no conoce |
+| Webhook `cuenta_bancaria.cambiada` (§2.3) | No llega: Iris refresca la instantánea de cuentas al usarla si tiene más de 24 h, y siempre relee la cuenta antes de registrar una boleta | Argos no lo envía a conectores con contrato < 0.8.0 |
+| `precio_mensual`, `moneda`, `router_nombre` (§2.4) | No vienen: Iris no muestra el precio del servicio ni lo calcula, y el asistente no lo dice. El nombre del router sale del catálogo, como hoy | Iris ignora los campos que no conoce |
+| Receptor de Iris en el canje (§1.5) | Iris ya lo manda. Si Argos no lo guarda solo, se configura aparte como hoy | Sin cambio |
+| Primera sincronización (§2.5) | Funciona igual, porque usa lecturas que ya existen. Sin `titular` en las cuentas ni precios | No aplica: Iris 0.7.1 no la hace |
+| Pantalla de estado (§2.5) | Iris muestra la suya con lo que tiene | Argos muestra la suya; lo de Iris, «no informado» |
+| Huella TLS (§1.5) | Iris la fija por su cuenta. Sin la pantalla de Argos, el admin no tiene con qué compararla y queda «sin comparar» | Sin cambio |
+
+- Argos solo envía el webhook nuevo (`cuenta_bancaria.cambiada`) a conectores con contrato ≥ 0.8.0, igual que hizo con los de 0.5.0 y 0.6.0. Los campos nuevos en respuestas y en webhooks que ya existen (`motivo_reconexion`) pueden ir siempre: quien no los conoce los ignora.
+- Ningún campo ni ruta de 0.7.1 cambia de forma ni de significado. `motivo: "fuera_de_horario"` y `vigencia: "horas"` siguen siendo los valores por defecto.
+- Los permisos `servicios.ver_red` y `servicios.ver_ubicacion` son internos de Iris y no dependen de la versión de Argos.
+
+**Errores de la 0.8.0.** No hay códigos de error nuevos acordados. Estos son los que tocan las secciones nuevas. Todos son de negocio y no se reintentan.
+
+| Dónde | Status | Código o regla | Cuándo |
+| --- | --- | --- | --- |
+| `POST /comprobantes/:id/reconexion-temporal` (§7.3) | 422 | validación, con `errors[0].field = "motivo"` | `motivo` distinto de `fuera_de_horario` y `sin_personal` |
+| `POST /comprobantes/:id/reconexion-temporal` (§7.3) | 422 | `reconexion_no_permitida`, con `errors[0].rule` | Las reglas de 0.7.1 (`no_habilitada`, `cupo_agotado`, `comprobante_no_pendiente`, `comprobante_no_cubre`, `servicio_no_cortado`, `suspension_manual`, `promesa_abierta`, `servicio_de_otro_cliente`), con cualquiera de los dos motivos |
+| Iris, `conversaciones.pedir_reconexion` (§7.3) | 422 | `reconexion_no_corresponde` | En horario hábil con alguien de caja disponible, con `sin_personal` apagado en Iris, o con un Argos que no lo soporta. Lo responde Iris sin llamar a Argos |
+| `GET /cuentas-bancarias` y `GET /cuentas-bancarias/:id` (§7.8) | 403 | `empresa_no_permitida` | Cuenta de una empresa fuera del alcance del usuario técnico Iris |
+| `POST /comprobantes` (§7.2, §7.8) | 422 | `cuenta_de_otra_empresa` | Sin cambio. Con una cuenta `activa: false`, por confirmar (§10.1) |
+| Canje (§1.5) | 401 | `codigo_invalido` | `code_verifier` que no coincide; el código queda gastado (S1, S4) |
+| Canje (§1.5) | 410 | `enlace_vencido` | Repetir un canje cuyo token ya se revocó |
+| Canje (§1.5), en Iris | 422 | `webhook_invalido` | Falta el receptor de Argos o su host no es el de la base del canje |
+| Canje (§1.5), en Argos | 422 | por definir (§10.1) | El host del receptor de Iris no es el de `base_url` ni el origen aprobado |
+| Rutas de §1.3 y §7.7 con el conector apagado | 409 | `iris_apagado` | Sin cambio |
 
 ## 5. Solicitudes
 
@@ -296,6 +499,10 @@ Semver. Esta versión 0.7.1 es un borrador hasta que los dos lados lo aprueben; 
 | A22 | **Nombre de la bodega del técnico** (0.6.4, §3.3): `nombre` en cada elemento de `bodegas[]` de `GET /inventario/tecnicos`, para que Iris elija la bodega de una lista sin teclear números. | listo en Argos |
 | A23 | **Aprobar y rechazar comprobantes desde Iris** (0.7.0, §7.7): `POST /comprobantes/:id/aprobar` y `POST /comprobantes/:id/rechazar` con el token de Iris, solo `canal = iris`, autorizadas por el usuario de Argos vinculado al `X-Iris-Actor` (los cinco `403 actor_*`), con el actor en la huella de idempotencia y la auditoría a nombre del usuario vinculado. Permisos `comprobantes.aprobar` y `comprobantes.rechazar` en el token de Iris, con migración de los que existen. `destino` opcional en `POST /integraciones/iris/sso/tickets` (§1.3). Pedido del PM. | en curso en Argos |
 | A24 | **Quién decidió el comprobante e instalación en el vínculo** (0.7.1): `verificado_iris_actor` en el `Comprobante` (`GET /comprobantes/:id`, la lista y la respuesta de aprobar y rechazar, §7.7) y en los webhooks `comprobante.aprobado` / `comprobante.rechazado` (§7.2), con `null` cuando decide caja en el panel. `instalacion` (string o `null`) en `vinculacion` del canje del autologin Iris → Argos y la pantalla de confirmación del vínculo con el sistema, el nombre y el correo del usuario de Iris, la instalación y el aviso, antes de pedir el correo y la contraseña (§1.3). | en curso en Argos |
+| A25 | **Reconexión temporal sin personal de caja** (0.8.0, borrador, §7.3): `motivo: "sin_personal"` en `POST /comprobantes/:id/reconexion-temporal`, `vigencia: "horas" \| "medianoche"` en la plantilla y `motivo_reconexion` en la promesa y en los webhooks `promesa.*`. | en la rama `lider/iris-072` de Argos; sin espejo |
+| A26 | **Cuentas bancarias como única fuente** (0.8.0, borrador, §7.8): `titular` y `tipo` (`monetaria` \| `ahorro`) en `GET /cuentas-bancarias`, y el webhook `cuenta_bancaria.cambiada`. Las desactivadas vienen con `activa: false` y nunca se borran. | propuesto por Argos; por confirmar (§10.1) |
+| A27 | **Más datos del servicio** (0.8.0, borrador, §2.4): `precio_mensual`, `moneda` y `router_nombre` en `GET /servicios/:id` y en la lista. Caja o nodo, por confirmar. | propuesto por Argos; por confirmar (§10.1) |
+| A28 | **Conexión de un paso, lado Argos** (0.8.0, borrador, §1.5 y §2.5): guardar en el mismo canje el receptor de Iris; pantalla de estado de la integración en el panel de Argos; mostrar la huella TLS en la pantalla de aprobación. Con los requisitos S1–S8. | propuesta conjunta; por confirmar (§10.1) |
 
 ### 5.2 ArgosISP solicita a Iris
 
@@ -304,6 +511,10 @@ Semver. Esta versión 0.7.1 es un borrador hasta que los dos lados lo aprueben; 
 | B1 | **Servicio de mensajería** (0.6.0, §6): API de avisos, plantillas, permisos de contacto y webhooks de entrega. Lo ofrece Iris aunque Argos no lo pidió; Argos lo adopta como canal WhatsApp (A21) y pide además las plantillas `factura_vencida` y `servicio_reactivado`. | en curso en Iris |
 | B2 | **Autologin a una conversación** (0.6.0, §7.2): destino `conversacion` en `POST <iris>/api/v1/integraciones/argosisp/sso/tickets`, con el id de `X-Iris-Conversacion`, para el botón «Ver conversación en Iris» de la cola de caja. | pendiente en Iris (cuando exista la pantalla de conversaciones) |
 | B3 | **Aprobar y rechazar desde la bandeja** (0.7.0, §7.7): emitir el ticket de autologin Iris → Argos (§1.3) con el botón «Vincular mi usuario de Argos»; los botones «Aprobar y registrar pago» y «Rechazar» en la boleta de la conversación, solo para una persona y nunca para el asistente de IA; y el manejo de los cinco `403` (`actor_sin_vinculo`, `actor_inactivo`, `actor_sin_permiso`, `actor_sin_empresa`, `actor_ia_no_permitido`). | listo en Iris |
+| B4 | **Criterio de `sin_personal`** (0.8.0, borrador, §7.3): Iris la pide solo en horario hábil y sin nadie de caja disponible, apagada de fábrica y con verificación fuerte; le dice al cliente la fecha y la hora exactas de `hasta`. | propuesto por el líder de Iris; pendiente del PM (§10.2) |
+| B5 | **Iris sin cuentas bancarias propias** (0.8.0, borrador, §7.8): instantánea de lectura, solo cuentas activas de la empresa de la conversación y migración de §10.3. | pendiente en Iris |
+| B6 | **Permisos para los datos sensibles del servicio** (0.8.0, borrador, §2.4): `servicios.ver_red` y `servicios.ver_ubicacion` en Iris, y el asistente de IA sin IP, `user_ppp` ni coordenadas. | propuesto por el líder de Iris; pendiente del PM (§10.2) |
+| B7 | **Conexión de un paso, lado Iris** (0.8.0, borrador, §1.5 y §2.5): primera sincronización automática, con progreso y reanudable; pantalla de estado en el panel de Iris; fijar y comparar la huella TLS de Argos. | pendiente en Iris |
 
 ## 6. Servicio de mensajería de Iris (0.6.0, fase 1)
 
@@ -364,7 +575,7 @@ Iris mantiene el texto, las traducciones y la aprobación de Meta. Argos solo us
 | `bienvenida` | `plan` | Argos | `servicio.instalacion_activada` |
 | `corte_programado` | `inicio`, `fin`, `zona` | Iris u Horus | Argos no tiene ventanas de mantenimiento: no la usa en la fase 1 |
 | `boleta_recibida`, `boleta_confirmada`, `boleta_rechazada`, `boleta_falta_dato` | `monto`, `moneda`, `motivo` | Iris, con la respuesta de §7.2 y los webhooks `comprobante.aprobado` / `comprobante.rechazado` | Argos **no** avisa por su cuenta de un comprobante con `canal = iris` (§7.2) |
-| `reconexion_temporal` | `hasta` | Iris, al recibir el 201 de §7.3 | Argos no avisa por su cuenta (§7.3) |
+| `reconexion_temporal` | `hasta` | Iris, al recibir el 201 de §7.3. Desde 0.8.0 (borrador), Iris escribe en `hasta` la fecha y la hora exactas en hora de Guatemala, tomadas del `hasta` de Argos | Argos no avisa por su cuenta (§7.3) |
 | `promesa_aceptada` | `vence_en`, `monto` | Iris, al recibir el 201 de §7.4 con `estado = activa` | Argos no avisa por su cuenta de una promesa creada por Iris (§7.4) |
 
 En `boleta_rechazada` y `boleta_falta_dato`, `motivo` es un texto fijo de Iris según la `causa` del rechazo. Iris solo le reenvía al cliente el motivo libre (el de `POST /comprobantes/:id/rechazar` o el `motivo_rechazo` que escribe caja) si, tras normalizarlo (Unicode NFKC y sin caracteres de formato), contiene únicamente letras del español, espacios y los signos `,;:¿?¡!()`. Cualquier dígito o punto lo deja fuera (salvo el punto final de la frase) y el cliente recibe solo el texto fijo de la causa. El motivo completo se guarda y se envía a Argos sin cambios.
@@ -429,6 +640,8 @@ En Argos todo esto ya existe para el portal del cliente y el panel; Iris usa las
 | Promesa de pago | **Promesa** (`promesas.crear`, `POST /promesas`), con reglas por plantilla y por canal (`ia`, `operador`) | Existe |
 | Política de promesas | **Simulador** (`POST /promesas/simular`) | Existe |
 | Reconexión temporal | **Promesa de tipo `reconexion_temporal`** ligada a un comprobante pendiente | Existe (PR #217) |
+| Reconexión temporal sin personal de caja (0.8.0, borrador) | La misma promesa, con `motivo: "sin_personal"` (§7.3) | En la rama `lider/iris-072` de Argos (A25) |
+| Cuentas donde deposita el cliente (0.8.0, borrador) | **Cuentas bancarias** de la empresa (`cuentas_bancarias.ver`), única fuente (§7.8) | Existe en 1.17.0; `titular`, `tipo` y el evento, propuestos (A26) |
 | Verificar identidad | `clientes.verificar_identidad` | Existe (PR #217) |
 | Buscar por teléfono | Filtro `telefono` de `GET /clientes` | Existe (PR #217) |
 
@@ -447,7 +660,7 @@ En Argos todo esto ya existe para el portal del cliente y el panel; Iris usa las
 
 ### 7.2 Comprobantes de pago (A16)
 
-**Leer las cuentas.** El cliente deposita en una cuenta bancaria de la empresa. Iris lee las cuentas con `GET /api/v1/cuentas-bancarias?activa=true` (`cuentas_bancarias.ver`; solo las de moneda `GTQ` reciben depósitos) y los bancos de origen con `GET /api/v1/bancos`. El asistente le pregunta al cliente a cuál depositó si la foto no lo dice.
+**Leer las cuentas.** El cliente deposita en una cuenta bancaria de la empresa. Iris lee las cuentas con `GET /api/v1/cuentas-bancarias?activa=true` (`cuentas_bancarias.ver`; solo las de moneda `GTQ` reciben depósitos) y los bancos de origen con `GET /api/v1/bancos`. El asistente le pregunta al cliente a cuál depositó si la foto no lo dice. Desde 0.8.0 (borrador) este catálogo es además la única fuente de las cuentas que Iris le ofrece al cliente (§7.8).
 
 **Registrar.** `POST /api/v1/comprobantes` (`comprobantes.registrar`), `multipart/form-data`, con `Idempotency-Key = iris:boleta:<id de la boleta en Iris>`. Los campos son los mismos del portal de Argos más los de Iris:
 
@@ -491,25 +704,72 @@ Webhooks Argos → Iris (§2.3), para comprobantes de cualquier canal dentro del
 - Con `canal = iris`, Argos no avisa al cliente por su cuenta del comprobante ni del pago que nace de él: lo hace Iris en la conversación.
 - `verificado_iris_actor` (0.7.1, A24) es el `X-Iris-Actor` de quien decidió desde Iris (§7.7). Con Argos 1.15.0 (contrato 0.7.0) el campo no viene.
 
-### 7.3 Reconexión temporal (A17)
+### 7.3 Reconexión temporal (A17; ampliada en 0.8.0, borrador)
 
 Cuando un cliente cortado manda su comprobante y nadie de caja puede revisarlo pronto, Iris puede pedir que Argos lo reconecte mientras se revisa. En Argos es una **promesa de pago** de tipo `reconexion_temporal`, ligada al comprobante: `evaluarEstadoServicio` mantiene el servicio activo mientras esté activa, igual que cualquier promesa. Nunca es un cambio de estado directo.
 
-`POST /api/v1/comprobantes/:id/reconexion-temporal` (`comprobantes.reconexion_temporal`) con `{ servicio_id?, motivo: "fuera_de_horario" }` e `Idempotency-Key = iris:reconexion:<comprobante_id>`. `servicio_id` es obligatorio solo si el comprobante no tiene servicio.
+`POST /api/v1/comprobantes/:id/reconexion-temporal` (`comprobantes.reconexion_temporal`) con `{ servicio_id?, motivo }` e `Idempotency-Key = iris:reconexion:<comprobante_id>`. `servicio_id` es obligatorio solo si el comprobante no tiene servicio.
 
+- **`motivo`** = `fuera_de_horario` | `sin_personal`. `sin_personal` es nuevo en 0.8.0 (borrador, A25). Cualquier otro valor responde `422` con `errors[0].field = "motivo"`.
+
+    | `motivo` | Qué significa | Desde |
+    | --- | --- | --- |
+    | `fuera_de_horario` | El comprobante llegó fuera del horario hábil de la empresa | 0.6.0 |
+    | `sin_personal` | Es horario hábil, pero no hay nadie de caja que pueda revisarlo ahora | 0.8.0 (borrador) |
+
+- Las reglas y los `422` son **los mismos con los dos motivos** (plantilla, cupo, cubre lo vencido…). Con cualquiera de los dos, el comprobante queda `pendiente` en la cola de caja.
 - Respuesta `201 { promesa_id, reconexion_id, hasta, servicio: { id, estado } }`. `reconexion_id` = `promesa_id` (alias para Iris); `hasta` = vencimiento de la promesa.
-- Política (la fija Argos en la plantilla de facturación, bloque nuevo `reconexion_temporal` de `reglas_promesa`, exceptuable por servicio). Valores aprobados por el PM (5 nov 2026):
+
+```json
+{ "servicio_id": 4410, "motivo": "sin_personal" }
+```
+
+```json
+{
+  "promesa_id": 9012,
+  "reconexion_id": 9012,
+  "hasta": "2026-11-19T06:00:00Z",
+  "servicio": { "id": 4410, "estado": "activo" }
+}
+```
+
+El ejemplo es una reconexión pedida el 18 nov a las 15:20 de Guatemala con `vigencia: "medianoche"`: `hasta` es la medianoche de Guatemala. El formato exacto de `hasta` está por confirmar (§10.1).
+
+- Política (la fija Argos en la plantilla de facturación, bloque `reconexion_temporal` de `reglas_promesa`, exceptuable por servicio). Valores aprobados por el PM (5 nov 2026):
     - apagada por defecto (`permitida: false`) hasta que cada empresa la active;
     - a lo sumo **una por periodo de facturación y servicio** (`max_por_periodo: 1`), aparte del cupo de promesas normales;
     - solo si el comprobante está `pendiente`, es del mismo cliente y su `monto` cubre **todo lo vencido** del servicio;
-    - dura `horas_max` (propuesta: 24 h) desde que se crea.
+    - dura `horas_max` (propuesta: 24 h) desde que se crea, con `vigencia: "horas"`.
+- **Vigencia (0.8.0, borrador).** `reglas_promesa.reconexion_temporal.vigencia` = `horas` (por defecto) | `medianoche`.
+    - `horas`: como hasta hoy, dura `horas_max` desde que se crea.
+    - `medianoche`: dura hasta la siguiente medianoche de Guatemala. Si faltan menos de 60 minutos para esa medianoche, dura hasta la medianoche siguiente (menos de 25 h en total). `horas_max` no se usa.
+    - **El vencimiento real llega siempre en `hasta`.** Iris no asume horas ni calcula la medianoche: lee `hasta`.
 - `422 reconexion_no_permitida`, con la razón en `errors[0].rule`: `no_habilitada`, `cupo_agotado`, `comprobante_no_pendiente`, `comprobante_no_cubre`, `servicio_no_cortado` (el servicio ya está activo), `suspension_manual` (lo suspendió un operador: solo él lo reactiva), `promesa_abierta` (ya tiene una promesa activa o pendiente), `servicio_de_otro_cliente`. Es de negocio y no se reintenta.
-- **Cómo termina** (webhooks `promesa.*` de §7.4, con `tipo = reconexion_temporal`). Aquí «caja» es quien aprueba o rechaza el comprobante: en el panel o desde Iris (§7.7):
+- **Cómo termina** (webhooks `promesa.*` de §7.4, con `tipo = reconexion_temporal`). Aquí «caja» es quien aprueba o rechaza el comprobante: en el panel o desde Iris (§7.7). No cambia en 0.8.0 ni depende del motivo:
     - caja aprueba el comprobante y el pago salda lo vencido → `promesa.cumplida`;
     - caja lo rechaza → la promesa se cancela al instante → `promesa.cancelada` con `motivo = comprobante_rechazado`, y el servicio se re-evalúa: vuelve a cortarse (si la plantilla tiene hora de corte y aún no llega, espera a esa hora, como cualquier corte);
-    - llega `hasta` con el comprobante aún pendiente → `promesa.cancelada` con `motivo = vencida_sin_revisar` y re-evaluación. No cuenta como promesa incumplida en el historial del cliente: la demora fue de caja;
+    - llega `hasta` con el comprobante aún pendiente → `promesa.cancelada` con `motivo = vencida_sin_revisar` y re-evaluación; el comprobante sigue en la cola de caja. No cuenta como promesa incumplida en el historial del cliente: la demora fue de caja;
     - caja aprueba pero el pago no salda lo vencido → sigue activa hasta `hasta` y entonces `promesa.incumplida`, como cualquier promesa.
+- **`motivo_reconexion` (0.8.0, borrador).** La promesa guarda con qué motivo se pidió: `motivo_reconexion` = `fuera_de_horario` | `sin_personal` | `null`. Viene en `GET /promesas` y en los cuatro webhooks `promesa.*` (§7.4). No es el `motivo` de `promesa.cancelada`, que dice por qué terminó.
 - Iris nunca pide una reconexión temporal sin un comprobante registrado. Argos no avisa al cliente por su cuenta: Iris le explica en los cuatro casos.
+
+**`sin_personal`: Argos confía en Iris (0.8.0, borrador).** Argos no tiene un horario de caja propio, así que no puede comprobar si había o no personal. El criterio es **de Iris**, y cada petición queda auditada en Argos con `X-Iris-Actor`, el canal y el motivo (§7.1). Las barreras de Argos son las mismas de siempre y no dependen de Iris:
+
+- la plantilla debe tener la reconexión habilitada (viene apagada de fábrica);
+- el cupo por periodo;
+- el comprobante debe cubrir todo lo vencido;
+- sin suspensión manual y sin otra promesa abierta.
+
+**Del lado de Iris (criterio PROPUESTO por el líder, pendiente de confirmación del PM; §10.2).** Amplía `conversaciones.md` §17.8, que hoy solo pide la reconexión fuera de horario.
+
+- **Cuándo pide `sin_personal`.** Solo cuando se cumplen las dos cosas: es **horario hábil** de la empresa (el mismo horario con el que Iris decide hoy `fuera_de_horario`) y **ningún usuario con rol `caja` está en estado disponible en esa empresa**. Si hay al menos una persona de caja disponible, Iris no la pide: responde su `422 reconexion_no_corresponde` y la boleta la revisa esa persona, como hoy.
+- **Cuándo pide `fuera_de_horario`.** Igual que hoy: fuera del horario hábil. Iris nunca manda los dos; el motivo sale del reloj y de la disponibilidad, no de lo que diga el cliente ni el modelo.
+- **Apagado de fábrica.** `sin_personal` tiene su propio interruptor en Iris, apagado por defecto y aparte del de la reconexión fuera de horario. Además, Iris solo lo manda si Argos informó contrato ≥ 0.8.0 (§4.1). Con cualquiera de las dos cosas en falta, se comporta como en 0.7.1.
+- **Verificación fuerte.** La exige siempre, sin opción, igual que la reconexión fuera de horario de hoy (`conversaciones.md` §17.8).
+- **Un comprobante registrado.** Como hoy: una boleta registrada en Argos en esa conversación.
+- **Qué le dice el asistente al cliente.** Dos cosas, siempre: la **fecha y la hora exactas** de `hasta` en hora de Guatemala (por ejemplo, «su servicio queda activo hasta las 12:00 de la noche de hoy, miércoles 18 de noviembre»), y que **su comprobante queda pendiente de revisión**: la reconexión no es la confirmación del pago. El texto lo arma Iris con el `hasta` de Argos; el modelo no escribe la hora.
+- **Evento.** `reconexion.solicitada` suma el motivo `sin_personal` a su campo `motivo` (hoy solo `fuera_de_horario`). Es un cambio propuesto en `eventos.md`.
+- **Auditoría en Iris.** El intento se registra antes de llamar a Argos, como hoy, con el motivo y con cuántas personas de caja había y cuántas disponibles en ese momento, para poder revisar el criterio después.
 
 ### 7.4 Promesas de pago (A18)
 
@@ -533,7 +793,7 @@ Son las promesas que Argos ya tiene (contrato `promesas.md` de Argos). Una prome
         - `pendiente_aprobacion`: la plantilla pide que un supervisor de Argos la apruebe. Iris le dice al cliente que queda en revisión y espera el webhook.
     - `409 promesa_abierta`: el servicio ya tiene una promesa activa o pendiente. `422` si `vence_en` no es futura, o el servicio está retirado, pendiente de instalación o sin plantilla. De negocio, no se reintentan.
     - `monto` en el cuerpo se ignora; `fecha_compromiso` de la propuesta es `vence_en`.
-3. **Webhooks Argos → Iris** (§2.3), para promesas de cualquier canal dentro del alcance; solo a conectores con contrato ≥ 0.6.0. Payload común: promesa_id, empresa_id, cliente_id, servicio_id, tipo (`promesa` \| `reconexion_temporal`), canal (`portal` \| `ia` \| `operador` \| `supervisor`), comprobante_id (o null), vence, monto.
+3. **Webhooks Argos → Iris** (§2.3), para promesas de cualquier canal dentro del alcance; solo a conectores con contrato ≥ 0.6.0. Payload común: promesa_id, empresa_id, cliente_id, servicio_id, tipo (`promesa` \| `reconexion_temporal`), canal (`portal` \| `ia` \| `operador` \| `supervisor`), comprobante_id (o null), vence, monto. Desde 0.8.0 (borrador) suma `motivo_reconexion`: `fuera_de_horario` \| `sin_personal` \| `null` (`null` cuando no es una reconexión temporal); el mismo campo viene en la promesa de `GET /promesas`. Un Argos anterior no lo manda, e Iris lo trata como `null`.
 
     | Evento | Cuándo |
     | --- | --- |
@@ -623,6 +883,59 @@ Errores de autorización: todos `403` `application/problem+json` con `code`. Son
 
 **En Iris (pedido B3).** El botón «Vincular mi usuario de Argos» emite el ticket de §1.3 sin `destino`. La boleta de la conversación muestra «Aprobar y registrar pago» y «Rechazar» solo a una persona, nunca al asistente de IA. Los cinco `403` se le muestran a quien pulsó, con qué hacer (por ejemplo, vincular su usuario con `actor_sin_vinculo`).
 
+### 7.8 Cuentas bancarias: Argos es la única fuente (0.8.0, borrador)
+
+Las cuentas donde los clientes depositan son un catálogo **de Argos**, por empresa: son las mismas con las que se registra el comprobante (§7.2). Desde la 0.8.0, Iris no tiene cuentas propias ni textos con números de cuenta escritos a mano. Lo que el agente o el asistente le dice al cliente sale de este catálogo.
+
+**Lo que existe hoy en Argos (1.17.0).** `GET /api/v1/cuentas-bancarias` y `GET /api/v1/cuentas-bancarias/:id`, con el permiso `cuentas_bancarias.ver` que el token de Iris tiene desde 0.6.0 (§1.1). El catálogo de bancos es `GET /api/v1/bancos`. Campos de la cuenta: `id`, `empresa_id`, `banco_id`, `banco_nombre`, `numero`, `alias`, `moneda`, `activa` y `version`. Hoy **no** existen `titular`, `tipo` ni un evento de cambio.
+
+**Lo que Argos propone agregar en 0.8.0 (A26).**
+
+- `titular` (string): a nombre de quién está la cuenta.
+- `tipo`: `monetaria` | `ahorro`.
+- Webhook `cuenta_bancaria.cambiada` (§2.3), solo con nombres de campos, nunca valores.
+- Una cuenta que se deja de usar queda con `activa: false`. **Nunca se borra**: así una boleta vieja siempre encuentra su cuenta.
+
+```json
+{
+  "id": 7,
+  "empresa_id": 3,
+  "banco_id": 2,
+  "banco_nombre": "Banco Industrial",
+  "numero": "000-123456-7",
+  "alias": "Monetaria principal",
+  "titular": "Internet del Norte, S.A.",
+  "tipo": "monetaria",
+  "moneda": "GTQ",
+  "activa": true,
+  "version": 4
+}
+```
+
+Webhook Argos → Iris, con el cuerpo de §2.3:
+
+```json
+{
+  "id": "<id estable del webhook>",
+  "evento": "cuenta_bancaria.cambiada",
+  "ocurrido_en": "2026-11-18T21:20:00Z",
+  "payload": { "cuenta_bancaria_id": 7, "empresa_id": 3, "campos": ["titular", "activa"], "activa": false }
+}
+```
+
+**Del lado de Iris.**
+
+- **Instantánea de lectura.** Iris guarda las cuentas en una tabla de instantánea (propuesta: `integracion.argos_cuentas_bancarias`) con los campos de arriba y `sincronizado_en`. Se llena en la primera sincronización (§2.5), con activas e inactivas, y se refresca con `cuenta_bancaria.cambiada`: al recibirlo, Iris relee `GET /cuentas-bancarias/:id` y guarda lo que diga Argos, no el payload. Sin el webhook (Argos anterior a 0.8.0), se refresca al usarla si tiene más de 24 h. Nunca se edita en Iris.
+- **Sin cuentas propias.** Iris no tiene pantalla, tabla ni ajuste para crear o editar cuentas. Lo que hay que migrar está en §10.3.
+- **Solo activas y solo de la empresa.** El agente y el asistente ofrecen únicamente cuentas con `activa: true`, de la **empresa de la conversación** y en la moneda que recibe depósitos (`GTQ`, §7.2). Una conversación sin empresa asignada no ofrece ninguna. El filtro es del servidor de Iris, no de la pantalla.
+- **Antes de registrar una boleta,** Iris relee la cuenta elegida en Argos (`GET /cuentas-bancarias/:id`). Si no es de la empresa, no manda el comprobante y lo dice. Una instantánea vieja nunca decide a dónde se registra un pago. Qué hacer con una cuenta que se desactivó después del depósito está por confirmar (§10.1).
+- **Sin `titular`** (Argos anterior a 0.8.0, o cuenta sin el dato), Iris no le ofrece esa cuenta al cliente por chat ni por voz. La cuenta sigue sirviendo para registrar una boleta que ya se depositó. Decirle a un cliente dónde depositar sin decirle a nombre de quién facilita un fraude.
+- **Cómo se le dice al cliente.** Con un texto fijo de Iris que lleva banco, tipo, número, titular y moneda.
+    - Con una **persona**: un botón «Enviar cuentas» en la conversación inserta ese texto. La persona no lo escribe a mano.
+    - Con el **asistente de IA** (PROPUESTA del líder de Iris, §10.2): el modelo no recibe los números ni los titulares. Escribe una marca y el servidor de Iris la reemplaza por el texto fijo al enviar, igual que ya hace con el saldo (`conversaciones.md` §17.9). Así el número no viaja al proveedor de IA y el modelo no puede cambiar un dígito.
+- **Dónde queda el número de cuenta.** En la instantánea, en el mensaje que se le envió al cliente (es parte de la conversación) y en la lectura de Argos. No va en ningún evento de Iris ni en su auditoría: ahí va solo `cuenta_bancaria_id`, como hoy en la boleta. El webhook `cuenta_bancaria.cambiada` tampoco lo trae.
+- **Si Argos no responde.** Para ofrecer cuentas, Iris usa la instantánea marcada `stale` (§0) si tiene menos de 24 h; con más, no ofrece cuentas y pasa a una persona. Para registrar la boleta, la relectura es obligatoria: sin Argos, la boleta queda en cola como hoy.
+
 ## 8. Fase 2 (sin forma todavía)
 
 - **Cambios en el equipo del cliente (Wi-Fi):** Argos se conectará con SmartOLT para cambiar el nombre o la contraseña del Wi-Fi, reiniciar la ONU o revisar la potencia. Iris lo pedirá a Argos, nunca directo a SmartOLT, con cliente verificado (§7.5). Mientras tanto, el asistente de Iris solo da las instrucciones de su biblioteca de ayuda.
@@ -673,3 +986,90 @@ Argos revisó la propuesta de Iris contra lo que ya tiene. Iris copia esta versi
 8. **Avisos (A21):** Argos adopta la mensajería de Iris solo como su canal WhatsApp; correo y Telegram siguen en Argos. Lo que Iris contestó en la conversación (comprobantes, reconexión y promesas creadas por Iris) Argos no lo repite. `corte_programado` no lo usa Argos. Argos suma las plantillas `factura_vencida` y `servicio_reactivado`, e Iris suma `boleta_recibida`. El registro de permisos de contacto vive solo en Iris.
 9. **Webhooks Iris → Argos:** van al receptor `/api/v1/integraciones/iris/webhook` que Argos ya entrega en el canje (activo desde PR #217).
 10. **Nuevo pedido B2** a Iris: destino de autologin `conversacion`, para el botón «Ver conversación en Iris» de la cola de caja.
+
+## 10. Por confirmar de la 0.8.0 (borrador)
+
+Mientras esta sección tenga puntos abiertos, la 0.8.0 sigue siendo borrador y no se copia al repositorio de Argos. Cada punto se cierra moviendo la respuesta a su sección y borrándolo de aquí.
+
+### 10.1 POR CONFIRMAR con Argos
+
+**Bloque A: reconexión temporal (§7.3, §7.4).**
+
+1. Formato de `hasta` en la respuesta `201` y en la promesa: ¿es un instante RFC 3339 en UTC? El ejemplo de §7.3 lo supone.
+2. Con `vigencia: "medianoche"`, ¿«medianoche de Guatemala» son las 00:00 del día siguiente (`06:00:00Z`) o el último instante del día (`05:59:59Z`)? Iris le dice al cliente la hora que salga de `hasta`.
+3. El código exacto del `422` por un `motivo` desconocido (¿`validacion`, como en §3.2?) y el `rule` de `errors[0]`.
+4. ¿Un Argos 1.17.x, sin la 0.8.0, responde ese mismo `422` a `sin_personal`? Iris no lo manda sin contrato ≥ 0.8.0; es para saber qué mostrar si pasa.
+5. ¿`motivo_reconexion` viene también en la respuesta `201` de `POST /comprobantes/:id/reconexion-temporal` y en la `Promesa` de `POST /promesas`, o solo en `GET /promesas` y los webhooks? ¿Vale `null` en toda promesa con `tipo = promesa`?
+6. ¿El cupo `max_por_periodo` es uno solo para los dos motivos, o cada motivo tiene el suyo?
+7. ¿La auditoría de Argos permite filtrar por motivo, para revisar cuántas reconexiones `sin_personal` pidió Iris?
+8. ¿Argos quiere que Iris mande algún dato más para auditar el criterio de `sin_personal` (por ejemplo, cuántas personas de caja había y cuántas disponibles)? Hoy no hay campo para eso y este borrador no lo agrega.
+
+**Bloque B: cuentas bancarias (§7.8).**
+
+9. Los nombres finales `titular` y `tipo` (`monetaria` | `ahorro`), si pueden venir `null` en cuentas viejas y sus límites de largo.
+10. Los nombres posibles en `campos[]` de `cuenta_bancaria.cambiada`. ¿Se emite también al **crear** una cuenta? ¿El `activa` del payload es el valor después del cambio?
+11. ¿`GET /cuentas-bancarias` sin `activa=true` devuelve también las inactivas? ¿Pagina con `cursor` y `limit` como las demás listas?
+12. `GET /cuentas-bancarias/:id` de una cuenta que no existe: ¿responde `404` con `urn:argosisp:problema:no_encontrado`, como en §2.3?
+13. `POST /comprobantes` con una `cuenta_bancaria_id` que está `activa: false`: ¿qué responde? El cliente pudo depositar antes de que se desactivara.
+14. **Desajuste a revisar.** El cliente de Iris lee hoy de `GET /cuentas-bancarias` los campos `nombre` y `banco` (`apps/api/internal/integracion/argos/conversaciones.go:146-153`), y Argos dice que los campos son `alias`, `banco_id` y `banco_nombre`. ¿Argos devuelve además `nombre` y un objeto `banco`, o Iris está leyendo campos que no existen? Si es lo segundo, es un fallo de Iris que se corrige con la migración de §10.3.
+15. ¿Solo las cuentas en `GTQ` reciben depósitos (§7.2), o Argos piensa abrir otras monedas? Iris filtra por `GTQ` en su código.
+16. ¿El catálogo de bancos (`GET /bancos`) cambia? Si cambia, ¿lo avisa algún evento, o Iris lo relee cada 24 h?
+
+**Bloque C: datos del servicio (§2.4).**
+
+17. Los nombres finales `precio_mensual`, `moneda` y `router_nombre`, y que vienen en `GET /servicios/:id` **y** en la lista.
+18. ¿Qué evento avisa cuando cambia `precio_mensual` sin cambiar el servicio (cambio del precio del plan o de `costo_override`)? ¿`servicio.config_cambiada` con `precio_mensual` en `campos[]`, o `catalogo.cambiado` del plan?
+19. ¿`precio_mensual` incluye impuestos, descuentos o cargos adicionales, o es solo el precio base? Es lo que el asistente le va a decir al cliente.
+20. Los valores posibles de `tipo_conexion` y la forma de `ipv4`, `prefijo_enlace_v6` y `prefijo_delegado_v6` (con o sin máscara; `null` o cadena vacía cuando no hay).
+21. **Caja o nodo.** No está en el servicio. ¿Argos lo va a exponer, y con qué campos? ¿O la única referencia sigue siendo `planta` (A9) y la fuente es OZmap?
+22. ¿`user_ppp` cambia alguna vez? Si cambia, ¿lo avisa `servicio.config_cambiada`?
+23. ¿El token de Iris necesita un permiso nuevo en Argos para alguno de estos campos, o basta `servicios.ver`?
+
+**Bloque D: conexión de un paso (§1.5, §2.5).**
+
+24. **Receptor de Iris en el canje.** Iris ya manda `base_url`, `token` (`iris_pat_`) y `webhook { url, secreto }` en el cuerpo del canje (`apps/api/internal/integracion/conector/tipos.go:166-178`). ¿Argos ya guarda los tres en ese mismo canje? Si sí, ¿qué es lo que hoy se configura aparte en el panel de Argos? Si no, ¿qué campos toma y cuáles pide a mano?
+25. El código del `422` de Argos cuando el host del receptor de Iris no es el de `base_url` ni el origen aprobado.
+26. **Listas completas.** ¿`GET /clientes` y `GET /servicios` se pueden recorrer enteras con `cursor`, sin `q` ni `cliente_id`? ¿Cuál es el `limit` máximo? ¿Hay un filtro por estado (para traer solo activos) o por fecha de cambio (para reanudar sin releer todo)?
+27. El ritmo que Argos acepta para la primera carga (peticiones por segundo) y si responde `429` con `Retry-After`.
+28. **Estado en el panel de Argos.** ¿Cómo se entera Argos del avance de la sincronización de Iris? Hoy no hay campo ni ruta. Opciones a decidir entre los dos: que Iris lo informe junto con `PUT /integraciones/iris/contrato`, una ruta nueva en Iris que Argos lea con su `iris_pat_`, o que el panel de Argos no lo muestre.
+29. **Huella TLS.** ¿En qué pantalla de Argos se muestra y de qué certificado (el de la API, el del panel o los dos)? ¿Cómo le llega a Iris para compararla? ¿Qué se hace en una renovación normal del certificado, para que la integración no se corte cada 60 a 90 días: fijar la clave pública en vez del certificado, o aceptar el cambio si la cadena sigue siendo válida y solo avisar?
+30. ¿La primera sincronización arranca al **activar** en Iris, como propone este borrador, o Argos necesita enterarse de que empezó?
+31. ¿Argos quiere limitar lo que el token de Iris puede leer en bloque? Por ejemplo, que la carga completa de clientes exija que el admin la haya aprobado en la pantalla de §1.4.
+32. La versión de Argos que implementaría cada bloque, y si el bloque A sale antes como 0.7.2 (ya está en la rama `lider/iris-072` de Argos) o va todo junto en la 0.8.0.
+
+### 10.2 POR CONFIRMAR con el PM
+
+1. **Criterio de `sin_personal` (§7.3).** Propuesta del líder: Iris la pide solo si, dentro del horario hábil de la empresa, ningún usuario con rol `caja` de esa empresa está disponible. Por decidir: ¿ese es el criterio? ¿Hay que esperar unos minutos sin nadie disponible antes de pedirla? Si la empresa no tiene a nadie con rol `caja`, ¿no se pide nunca o se pide siempre?
+2. **Quién enciende `sin_personal`.** Propuesta: apagado de fábrica en Iris, con un interruptor aparte del de la reconexión fuera de horario, que enciende un admin por empresa.
+3. **Vigencia hasta medianoche.** Es un ajuste de la plantilla de Argos. ¿El PM quiere `medianoche`? Con «horas», una reconexión pedida a las 10:00 dura hasta las 10:00 del día siguiente.
+4. **Qué roles ven la IP y los datos de red (§2.4).** Propuesta: `admin`, `supervisor`, `soporte` y `tecnico` (este solo en sus órdenes). No la ven `despacho`, `ventas`, `caja` ni `lectura`.
+5. **Qué roles ven la dirección y la ubicación (§2.4).** Propuesta: `admin`, `supervisor`, `despacho`, `soporte`, `ventas` y `tecnico` (solo en sus órdenes). No la verían `caja` ni `lectura`, que **hoy sí la ven**. ¿Se les quita?
+6. **El asistente y las cuentas bancarias (§7.8).** ¿El asistente da las cuentas solo, o siempre con verificación? Tres opciones: a cualquiera que las pida, solo a quien escribe desde un número registrado, o solo con verificación fuerte. Propuesta: basta el número registrado, porque son las cuentas de la empresa y no un dato del cliente; a un número desconocido se las da una persona.
+7. **El asistente y el precio (§2.4).** ¿Puede decir el precio mensual del servicio sin verificación fuerte? Propuesta: sí, con número registrado; es lo que ya dice la factura.
+8. **Cómo distingue el asistente los servicios (§2.4).** Propuesta: «Servicio 1 · plan · zona», sin dirección. ¿O prefiere que diga una parte de la dirección (por ejemplo, la colonia), aunque viaje al proveedor de IA?
+9. **Primera sincronización (§2.5).** ¿Trae todos los clientes o solo los activos? Propuesta: solo los que tienen un servicio no retirado; el resto llega a demanda al buscarlo.
+10. **Activar después de conectar (§1.5).** Hoy el conector queda apagado hasta que un admin de Iris pulsa «Activar». ¿Se mantiene ese paso, o la conexión aprobada en Argos lo activa sola? Propuesta: se mantiene.
+11. **Textos con números de cuenta que ya existen (§10.3).** Al migrar, ¿Iris solo avisa al admin para que los borre a mano, o además impide guardar una respuesta rápida o un manual con algo que parece un número de cuenta?
+
+### 10.3 A migrar en Iris: cuentas bancarias propias (§7.8)
+
+Revisión del repositorio de Iris (18 nov 2026). **Iris no tiene hoy una tabla ni una pantalla de cuentas bancarias propias:** las lee en vivo de Argos cada vez. Para cumplir §7.8 hay que cambiar esto:
+
+| # | Dónde | Qué hay hoy | Qué cambia |
+| --- | --- | --- | --- |
+| 1 | `apps/api/internal/integracion/argos/conversaciones.go:145-169` | `CuentaBancariaArgos` y `CuentasBancarias`: lectura en vivo de `GET /cuentas-bancarias?activa=true&limit=100`, sin instantánea ni `sincronizado_en`. Lee `nombre` y `banco`, que no son los campos que Argos declara (§10.1, punto 14). No lee `alias`, `banco_nombre`, `titular`, `tipo` ni `activa` | Llena la instantánea; el modelo usa los campos del contrato |
+| 2 | `apps/api/internal/mensajeria/conv_cuentas.go:12-13` y `:62-85` | El comentario dice «No se guardan en Iris». `CuentasBancarias` filtra por empresa y `GTQ` en memoria, sobre la lectura en vivo. Deja pasar la cuenta si la empresa activa es 0 o si la cuenta no trae `empresa_id` (`:79`) | Lee de la instantánea; solo activas de la empresa de la conversación, sin excepciones |
+| 3 | `apps/api/internal/mensajeria/conv_cuentas.go:16-22` | `CuentaBancaria` de la API de Iris: `id`, `nombre`, `banco`, `numero`, `moneda` | Suma `titular`, `tipo` y `alias`; cambian el OpenAPI y `packages/contratos` |
+| 4 | `apps/api/internal/mensajeria/conv_rutas.go:317-319` | `GET /mensajeria/conversaciones/cuentas-bancarias`, con el permiso de registrar boleta | Sigue; responde de la instantánea |
+| 5 | `apps/api/internal/mensajeria/asistente_herramientas.go:557-589` | Herramienta `cuentas_para_boleta`: le da al modelo solo el `id` y el `nombre` de cada cuenta, leídos en vivo. Deja pasar cuentas sin `empresa_id` (`:575`) | Lee de la instantánea; el modelo sigue sin recibir números; se suma la marca para ofrecer cuentas (§7.8) |
+| 6 | `apps/api/internal/mensajeria/asistente_herramientas.go:621-629` | Al registrar la boleta, valida la cuenta contra otra lectura en vivo de la lista, con la misma excepción de `empresa_id` nulo (`:626`) | Relectura de `GET /cuentas-bancarias/:id`, sin la excepción |
+| 7 | `apps/api/internal/mensajeria/conv_acciones.go:279` y `:386` | La boleta que registra una persona guarda `cuentaBancariaId` sin comprobar en Iris que la cuenta sea de la empresa (lo decide Argos al registrar) | La misma relectura antes de mandar el comprobante |
+| 8 | `apps/api/migraciones/20261106054851_mensajeria_conversaciones.sql:245` | `mensajeria.boletas.cuenta_bancaria_id`: solo el id de Argos | No cambia: es la referencia correcta |
+| 9 | `apps/web/app/(panel)/conversaciones/[id]/boleta/page.tsx:64` y `:187-189` | El formulario de la boleta lee las cuentas y las muestra en un selector | Muestra banco, tipo, alias y titular; se suma el botón «Enviar cuentas» en la conversación |
+| 10 | `apps/web/e2e/api-conversaciones.ts:291` | Fixture con una cuenta inventada (`"Banco Industrial"`, `"000-123456-7"`) con la forma vieja | Se tipa con el esquema nuevo de `packages/contratos` |
+| 11 | `apps/web/lib/manuales/inicio/generales.ts:326` | Manual de inicio «Dónde pagar»: le pide al ISP **escribir a mano** «los bancos, números de cuenta, agencias y otros medios de pago» | El texto deja de pedir números de cuenta: las cuentas las inserta Iris desde el catálogo |
+| 12 | `apps/api/migraciones/20261106064327_mensajeria_horarios_manuales.sql:43` (`mensajeria.manuales.cuerpo`) | Texto libre de hasta 50 000 caracteres: puede tener números de cuenta escritos a mano, y los manuales «Para el cliente» viajan al asistente | Revisar los que existan en cada instalación; decisión del PM (§10.2, punto 11) |
+| 13 | `apps/api/migraciones/20261106054851_mensajeria_conversaciones.sql:64` (`mensajeria.respuestas_rapidas.texto`) | Texto libre de hasta 4000 caracteres: es donde un agente guardaría «nuestras cuentas son…» | Igual que el 12; el botón «Enviar cuentas» lo reemplaza |
+| 14 | `apps/api/migraciones/20261106064327_mensajeria_horarios_manuales.sql:26-29` (`mensajeria.canales.fuera_horario`, clave `mensaje`) | Texto libre de la respuesta de fuera de horario | Igual que el 12 |
+
+No se encontraron cuentas ni números de cuenta en los ajustes de conversaciones (`mensajeria.ajustes_bandeja`), en los ajustes del asistente (`mensajeria.asistente_ajustes`, que no tiene un campo de instrucciones libres) ni en las plantillas de aviso. Los puntos 12 a 14 son campos de texto libre: el repositorio no trae números reales, pero cada instalación puede tenerlos en su base de datos.
