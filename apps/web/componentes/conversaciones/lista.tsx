@@ -1,5 +1,6 @@
 "use client";
 
+import { EtiquetasEnFila } from "./etiquetas";
 import { Aviso, Boton, CampoBusqueda, Cargando, cn, Esqueleto, GrupoSegmentado } from "@iris/ui";
 import { RotateCw, SquarePen, WifiOff } from "lucide-react";
 import Link from "next/link";
@@ -174,6 +175,7 @@ function FilaConversacion({ conv, href, actual, ahora }: { conv: Conversacion; h
                 ) : null}
             </span>
             <LineaCategoria conv={conv} />
+            <EtiquetasEnFila etiquetas={conv.etiquetas ?? []} className="col-span-2 col-start-2 pt-0.5" />
             <ChipPerdida conversacionId={conv.id} />
         </Link>
     );

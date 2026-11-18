@@ -510,6 +510,33 @@ test.describe("voz › llamada entrante", () => {
     });
 });
 
+test.describe("voz › contestar con archivos a medio enviar", () => {
+    test("contestar con archivos por enviar en otra conversación: la llamada se contesta, no se navega ni se pregunta, y los archivos siguen ahí", async ({ page }) => {
+        const api = await abrir(page, "/cuenta");
+        // La conversación 42 con la ventana de 24 h abierta (el reloj de esta prueba es el real).
+        const otra = api.conversaciones.conversaciones.find((c) => c.id === 42);
+        if (otra) otra.ventana = { abierta: true, cierraEn: new Date(Date.now() + 20 * 3_600_000).toISOString() };
+        await page.goto("/conversaciones?c=42");
+        const compositor = page.locator('[data-slot="compositor"]');
+        const elegidos = compositor.getByRole("group", { name: "Archivos por enviar" }).locator("[data-archivo]");
+        await compositor.locator('input[data-archivos="documento"]').setInputFiles([{ name: "contrato.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n%%EOF\n") }]);
+        await expect(elegidos).toHaveCount(1);
+        // Entra la llamada del cliente de la 41.
+        const llamada = await suena(page, api, 41);
+        await aviso(page).getByRole("button", { name: "Contestar" }).click();
+        await expect(barra(page)).toBeVisible();
+        await expect.poll(() => api.voz.llamadas.get(llamada.id)?.estado).toBe("en_curso");
+        // Sigue en la 42, con su archivo, y sin ninguna pregunta en medio de la llamada.
+        await expect(page).toHaveURL(/c=42/);
+        await expect(elegidos).toHaveCount(1);
+        await expect(page.getByText("Hay archivos sin enviar")).toHaveCount(0);
+        await expect(page.getByText("Todavía se están enviando archivos")).toHaveCount(0);
+        // Sin archivos, contestar sí abre la conversación del cliente (lo de siempre).
+        await compositor.getByRole("button", { name: "Quitar contrato.pdf" }).click();
+        await expect(elegidos).toHaveCount(0);
+    });
+});
+
 test.describe("voz › plazos, red y cierre", () => {
     test("pasan los 5 s para confirmar el medio: se suelta la reserva y se dice en llano", async ({ page }) => {
         const api = await abrir(page, "/cuenta", { doble: { permiso: "granted", medio: "nunca" } });
