@@ -11,10 +11,13 @@ Outbox y entrega de eventos (CLAUDE.md §3).
   suscriptores; tras `MaxIntentos` (20) queda `fallido_en` y no se reintenta (error en el log;
   para reintentarlo a mano: `fallido_en = NULL, proximo_intento = now()`).
 - `NuevoClienteRiver` + `EscucharOutbox`: el worker (`cmd/worker`) corre el relay con River por
-  cada `NOTIFY` y periódicamente (`IRIS_RELAY_INTERVALO`). El job del relay no es único en
-  River (la unicidad descartaba el job de un `NOTIFY` llegado justo después de otro relay); tras
-  soltar el candado el relay mira si quedó algo pendiente, y tras cada `LISTEN` (arranque y
-  reconexión) el listener encola un barrido de lo que se avisó sin nadie escuchando.
+  cada `NOTIFY` y periódicamente (`IRIS_RELAY_INTERVALO`). Excepción a la regla 6: el job del
+  relay no usa `unique` de River (la unicidad descartaba el job de un `NOTIFY` llegado justo
+  después de otro relay, y River obliga a incluir `running`). Lo acotan su cola propia (`relay`,
+  un worker), el advisory lock y que el listener no encola si ya hay un relay `available` en
+  `river_job`. Tras soltar el candado el relay mira si quedó algo pendiente (saltando filas
+  bloqueadas), y tras cada `LISTEN` (arranque y reconexión) el listener encola un barrido de lo
+  que se avisó sin nadie escuchando; la espera de reconexión vuelve a 1 s tras un `LISTEN` correcto.
 
 Los suscriptores deben ser idempotentes: un evento puede llegar más de una vez.
 
