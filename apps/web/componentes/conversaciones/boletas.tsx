@@ -279,7 +279,12 @@ function TarjetaBoleta({ boleta: b, porOtro, sinConfirmar, releyendo, alReleer, 
             ) : null}
             {quien && !sinConfirmar ? <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{quien}.</p> : null}
             {b.estado === "rechazada" && b.motivoRechazo && !sinConfirmar ? <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">Motivo: {b.motivoRechazo}</p> : null}
-            {b.estado === "fallida" && b.detalle ? <p className="text-xs text-error [overflow-wrap:anywhere]">{b.detalle}</p> : null}
+            {b.estado === "fallida" ? (
+                <p role="alert" className="flex items-start gap-1.5 text-xs text-error" data-slot="boleta-fallida">
+                    <TriangleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+                    <span className="min-w-0 [overflow-wrap:anywhere]">{b.detalle || "No se pudo registrar en Argos."}</span>
+                </p>
+            ) : null}
             {b.avisoCliente === "sin_aviso" ? <p className="text-xs font-medium text-warning [overflow-wrap:anywhere]">No se le pudo avisar al cliente por WhatsApp: avísale tú.</p> : null}
             {puedeAprobar || puedeRechazar ? (
                 <div className="grid gap-1.5">

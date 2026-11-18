@@ -1,5 +1,6 @@
 "use client";
 
+import { salirDeConversacion } from "@/lib/conversaciones/salida";
 import { avisar, cn } from "@iris/ui";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -44,9 +45,12 @@ export function Bandeja() {
         (f: Filtros, c: number | null, reemplazar = false) => {
             const destino = `${ruta}${urlDeFiltros(f, c)}`;
             if (reemplazar) router.replace(destino, { scroll: false });
+            // Cambiar de conversación por código («La atiendo», «Ver» de un aviso) pasa por el
+            // compositor: con archivos por enviar o subiendo, pregunta antes.
+            else if (c !== abierta) salirDeConversacion(destino, (r) => router.push(r, { scroll: false }));
             else router.push(destino, { scroll: false });
         },
-        [router, ruta],
+        [router, ruta, abierta],
     );
 
     // Lista: primera página por filtros; el feed la mantiene al día.
@@ -141,6 +145,23 @@ export function Bandeja() {
         aplicarRef.current = aplicar;
         navegarRef.current = navegar;
     });
+
+    // Soltar un archivo fuera de la conversación (la lista, la ficha, una conversación con la ventana
+    // cerrada) haría que el navegador lo abriera y sacara a la persona del panel: aquí no pasa nada.
+    useEffect(() => {
+        const sinAbrir = (e: DragEvent) => {
+            if (!e.dataTransfer?.types.includes("Files")) return;
+            e.preventDefault();
+            // Fuera de la zona de soltar (que ya puso «copiar»), el cursor dice que ahí no se puede.
+            if (e.type === "dragover" && !(e.target instanceof Element && e.target.closest("[data-zona-soltar]"))) e.dataTransfer.dropEffect = "none";
+        };
+        window.addEventListener("dragover", sinAbrir);
+        window.addEventListener("drop", sinAbrir);
+        return () => {
+            window.removeEventListener("dragover", sinAbrir);
+            window.removeEventListener("drop", sinAbrir);
+        };
+    }, []);
 
     useEffect(() => {
         let primera = true;

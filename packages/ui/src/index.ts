@@ -114,11 +114,14 @@ export {
     type PropsMenuDesplegableContenido,
     type PropsMenuDesplegableElemento,
 } from "./componentes/menu-desplegable";
+export { ListaRecortada, type PropsListaRecortada } from "./componentes/lista-recortada";
+export { MenuArchivos, type OpcionArchivo, type PropsMenuArchivos } from "./componentes/menu-archivos";
 export { PaletaBusqueda, type ElementoPaleta, type PropsPaletaBusqueda, type SeccionPaleta } from "./componentes/paleta-busqueda";
 export { PanelEmergente, type PropsPanelEmergente } from "./componentes/panel-emergente";
 export { PanelLateral, type PropsPanelLateral } from "./componentes/panel-lateral";
 export { Pestanas, type Pestana, type PropsPestanas } from "./componentes/pestanas";
 export { SelectorArchivo, type PropsSelectorArchivo } from "./componentes/selector-archivo";
+export { VistaPreviaArchivos, type ArchivoEnVista, type PropsVistaPreviaArchivos } from "./componentes/vista-previa-archivos";
 export { CampoSelector, leerOpciones, Selector, type OpcionSelector, type PropsCampoSelector, type PropsSelector } from "./componentes/selector";
 export {
     aFecha,

@@ -1,6 +1,6 @@
 import type { Schema } from "@iris/contratos";
 import { describe, expect, it } from "vitest";
-import { claveTrasError, crearClienteIris, leerCookie, resolver } from "./cliente";
+import { claveTrasError, claveTrasErrorDeArgos, crearClienteIris, leerCookie, resolver } from "./cliente";
 import { ErrorApi } from "./errores";
 
 type Llamada = { metodo: string; url: string; cabeceras: Headers; credenciales: RequestCredentials };
@@ -328,5 +328,29 @@ describe("cliente: re-autenticación (sesión desde Argos)", () => {
         const otra = await pedir(claveTrasError(error, "K1"));
         expect(otra).toEqual({ id: 1 });
         expect(ejecuciones).toBe(1);
+    });
+});
+
+describe("clave de idempotencia tras un error de una acción que pasa por Argos", () => {
+    const error = (estado: number, codigo: string) => new ErrorApi({ estado, codigo, titulo: "x" });
+
+    it("503 `argos_no_disponible`: conserva la clave para el reintento", () => {
+        expect(claveTrasErrorDeArgos(error(503, "argos_no_disponible"), "K1")).toBe("K1");
+    });
+
+    it("sin respuesta (red): también la conserva", () => {
+        expect(claveTrasErrorDeArgos(error(0, "sin_conexion"), "K1")).toBe("K1");
+    });
+
+    it("409, 422, otro 503 o un error cualquiera: clave nueva", () => {
+        for (const e of [error(409, "cliente_cambiado"), error(409, "argos_no_disponible"), error(422, "validacion"), error(503, "flujos_agotados"), error(500, "error_interno"), new Error("otro")]) {
+            const nueva = claveTrasErrorDeArgos(e, "K1");
+            expect(nueva).not.toBe("K1");
+            expect(nueva.length).toBeGreaterThan(8);
+        }
+    });
+
+    it("`claveTrasError` (lo demás del panel) no cambia: un 503 sigue dando clave nueva", () => {
+        expect(claveTrasError(error(503, "argos_no_disponible"), "K1")).not.toBe("K1");
     });
 });
