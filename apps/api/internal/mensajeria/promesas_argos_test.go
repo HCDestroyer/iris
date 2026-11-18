@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
 )
 
 // promesasFalsas es un Argos falso (httptest) que responde POST /promesas y /promesas/simular como
@@ -453,5 +454,13 @@ func TestAutonomoPromesaFallasDeArgos(t *testing.T) {
 		if n := len(p.pedidos("crear")) - antes; n != 1 {
 			t.Fatalf("%s: %d peticiones a Argos (sin reintentos)", r.codigo, n)
 		}
+	}
+}
+
+// En el log de integración solo van los campos de Argos que son un código simple.
+func TestCamposSegurosDePromesa(t *testing.T) {
+	got := mensajeria.CamposSeguros([]string{"vence_en", "Ana López 5512-0000", "servicio_id", "x\ny"})
+	if strings.Join(got, ",") != "vence_en,servicio_id" {
+		t.Fatalf("campos: %v", got)
 	}
 }

@@ -590,8 +590,10 @@ Iris guarda también las respuestas 4xx con su clave: el panel usa una clave nue
 respuesta (también tras 409 `idempotencia_en_curso`).
 
 Rechazos de Argos (1.17.0) en simular y en pedir, traducidos a un motivo en llano. Cada código se
-reconoce solo con el status que Argos documenta para él; el `detail` de Argos nunca llega al panel,
-al asistente ni al log de Iris:
+reconoce solo con el status que Argos documenta para él. El `detail` de Argos nunca llega al panel,
+a la auditoría, a los eventos ni al modelo; en el log de Iris solo aparece en los casos genéricos que
+siguen por `argos.Problema` (un 4xx sin código, un 409 desconocido, un código conocido con otro
+status), como en el resto del conector:
 
 | Argos | Iris | Texto (`detail`) |
 | --- | --- | --- |

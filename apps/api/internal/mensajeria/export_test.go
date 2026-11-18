@@ -139,6 +139,7 @@ func PreguntaSiEsPersona(texto string) bool {
 	return rePreguntaPersona.MatchString(texto)
 }
 func TextoReglaPromesa(codigo string) string { return textoReglaPromesa(codigo) }
+func CamposSeguros(campos []string) []string { return camposSeguros(campos) }
 func PerfilPorDefecto() PerfilAsistente      { return perfilPorDefecto() }
 func AccionesDeDinero() []string             { return accionesDeDinero }
 

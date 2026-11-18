@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -976,9 +977,23 @@ func problemaPromesa(codigo, titulo, detalle string) *nucleo.Problema {
 // integracionPromesa: Argos rechazó el pedido por cómo lo armó Iris. 502 con el código de Argos; en
 // el log solo status, código y campos (nunca el detail de Argos).
 func integracionPromesa(er *conector.ErrorRemoto) *nucleo.Problema {
-	slog.Warn("mensajeria: Argos rechazó la promesa por la integración", "status", er.Status, "codigo", er.Codigo, "campos", er.Campos)
+	slog.Warn("mensajeria: Argos rechazó la promesa por la integración", "status", er.Status, "codigo", er.Codigo, "campos", camposSeguros(er.Campos))
 	return nucleo.NuevoProblema(http.StatusBadGateway, CodigoPromesaIntegracion, "Falla de integración con Argos",
 		"Argos no aceptó el pedido de Iris (HTTP "+strconv.Itoa(er.Status)+", código "+er.Codigo+"). No es un problema del cliente: vuelve a intentarlo y, si se repite, avisa al administrador")
+}
+
+// codigoCampo: un nombre de campo corto y sin texto libre (vence_en), como las reglas del conector.
+var codigoCampo = regexp.MustCompile(`^[a-z0-9_]{1,60}$`)
+
+// camposSeguros: solo los errors[].field de Argos que son un código simple (para el log).
+func camposSeguros(campos []string) []string {
+	out := []string{}
+	for _, c := range campos {
+		if codigoCampo.MatchString(c) {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // esFechaPromesa: la validación de Argos es de la fecha: el campo es vence_en (y solo ese), o la
