@@ -5,7 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -875,7 +878,7 @@ func (k *Promesas) Simular(ctx context.Context, in EntradaSimularPromesa) (Simul
 	}
 	r, err := k.m.cfg.Argos.SimularPromesa(ctx, atencionDe(l.alcance, l.ID), in.ServicioID, vence)
 	if err != nil {
-		return SimulacionPromesaConv{}, argos.Problema(err)
+		return SimulacionPromesaConv{}, rechazoPromesaArgos(err)
 	}
 	return SimulacionPromesaConv{Resultado: r.Resultado, Regla: r.Regla, Motivo: r.Motivo, Monto: r.Monto, Limites: r.Limites}, nil
 }
@@ -907,6 +910,9 @@ func (k *Promesas) Crear(ctx context.Context, in EntradaPromesa) (PromesaConv, e
 		return PromesaConv{}, err
 	}
 	// Con la misma Idempotency-Key, el mismo id (y la misma clave hacia Argos) en cada reintento.
+	// Argos guarda la clave solo con un 2xx: tras un rechazo se puede cambiar la fecha con la misma
+	// clave. Si Argos ya la creó pero Iris no guardó nada (la respuesta se perdió), la misma clave con
+	// otro pedido es su 422 idempotency_key_reutilizada → 409 promesa_ya_enviada (revisar en Argos).
 	id := uuid.Must(uuid.NewV7())
 	if in.Clave != "" {
 		id = uuid.NewSHA1(uuid.NameSpaceOID, []byte("iris:promesa:"+strconv.FormatInt(pre.a.usuario, 10)+":"+in.Clave))
@@ -916,14 +922,134 @@ func (k *Promesas) Crear(ctx context.Context, in EntradaPromesa) (PromesaConv, e
 	}
 	r, err := k.m.cfg.Argos.CrearPromesa(ctx, atencionDe(pre.a, in.ID), in.ServicioID, vence, "iris:promesa:"+id.String())
 	if err != nil {
-		var er *conector.ErrorRemoto
-		if errors.As(err, &er) && er.Status == http.StatusConflict && strings.HasSuffix(er.Tipo, "promesa_abierta") {
-			return PromesaConv{}, nucleo.Conflicto("promesa_abierta", "El servicio ya tiene una promesa activa o pendiente en Argos")
-		}
-		if errors.As(err, &er) && er.Status == http.StatusUnprocessableEntity {
-			return PromesaConv{}, reglaConv("promesa_no_permitida", "Argos no acepta la promesa para este servicio (servicio retirado, sin plantilla o fecha no futura)")
-		}
-		return PromesaConv{}, argos.Problema(err)
+		return PromesaConv{}, rechazoPromesaArgos(err)
 	}
 	return k.final.Ejecutar(ctx, entradaFinalPromesa{EntradaPromesa: in, cliente: *pre.conv.ClienteID, id: id, hash: h[:], r: r, vence: dia})
+}
+
+// Rechazos de Argos a una promesa (POST /promesas y /promesas/simular, Argos 1.17.0) -------------------
+
+// codigosIntegracionPromesa: lo que Argos rechaza porque Iris armó mal el pedido (cabeceras de §7.1,
+// Idempotency-Key, empresa), con el status que Argos documenta. No es del cliente ni de quien
+// atiende: es un fallo de la integración.
+var codigosIntegracionPromesa = map[string]int{
+	"cabecera_iris_requerida":   http.StatusBadRequest,
+	"idempotency_key_requerida": http.StatusBadRequest,
+	"empresa_no_coincide":       http.StatusUnprocessableEntity,
+}
+
+// negocioPromesa: los 422 de negocio que Argos documenta (lista blanca): código, título y texto de Iris.
+var negocioPromesa = map[string][3]string{
+	"servicio_retirado": {"servicio_retirado", "Servicio retirado", "El servicio está retirado en Argos: no admite promesas de pago"},
+	"sin_plantilla": {"sin_plantilla_facturacion", "Sin plantilla de facturación",
+		"Este servicio no tiene plantilla de facturación en Argos; asígnale una en Argos para poder ofrecer promesas"},
+	"servicio_pendiente_instalacion": {"servicio_sin_instalar", "Servicio sin instalar",
+		"El servicio aún está pendiente de instalación en Argos: no admite promesas de pago hasta que se instale"},
+}
+
+// Códigos de Iris para los rechazos de Argos a una promesa.
+const (
+	CodigoPromesaNoPermitida = "promesa_no_permitida"
+	CodigoPromesaYaEnviada   = "promesa_ya_enviada"
+	CodigoPromesaIntegracion = "argos_promesa_integracion"
+	// maxReintentarPromesaArgos: tope del Retry-After que Iris repite (segundos).
+	maxReintentarPromesaArgos   = 60
+	textoPromesaYaEnviada       = "Argos ya recibió este pedido con otros datos. Revisa en Argos si la promesa quedó creada antes de volver a intentarlo"
+	textoPromesaNoPermitidaFijo = "el sistema de facturación no acepta la promesa para este servicio. No la prometas."
+)
+
+// rechazoPromesaArgos traduce el rechazo de Argos a una promesa (simular o crear) a un motivo en
+// llano. Cada código se reconoce solo con el status que Argos documenta para él. Los de negocio son
+// reglas de Iris (409/422 con su código y un texto fijo); los de integración son 502
+// argos_promesa_integracion con el código de Argos (nunca su detail ni datos del cliente). Lo demás
+// (Argos caído, 401/403, 404, un 409 desconocido) sigue como argos.Problema.
+func rechazoPromesaArgos(err error) error {
+	var er *conector.ErrorRemoto
+	if !errors.As(err, &er) || er.Codigo == "" || er.Status < 400 || er.Status >= 500 ||
+		er.Status == http.StatusUnauthorized || er.Status == http.StatusForbidden || er.Status == http.StatusNotFound || er.Status == http.StatusTooManyRequests {
+		return argos.Problema(err)
+	}
+	c, st := er.Codigo, er.Status
+	if n, ok := negocioPromesa[c]; ok && st == http.StatusUnprocessableEntity {
+		return problemaPromesa(n[0], n[1], n[2])
+	}
+	if s, ok := codigosIntegracionPromesa[c]; ok && st == s {
+		return integracionPromesa(er)
+	}
+	switch {
+	case c == "promesa_abierta" && st == http.StatusConflict:
+		return nucleo.NuevoProblema(http.StatusConflict, "promesa_abierta", "Ya tiene una promesa abierta",
+			"El servicio ya tiene una promesa de pago activa o pendiente en Argos (por ejemplo, una reconexión temporal): no se puede pedir otra hasta que esa termine")
+	case c == "idempotencia_en_curso" && st == http.StatusConflict:
+		p := nucleo.NuevoProblema(http.StatusConflict, "idempotencia_en_curso", "Argos aún procesa la promesa",
+			"Argos sigue procesando este mismo pedido: vuelve a intentarlo en unos segundos")
+		if s := int(er.ReintentarEn().Seconds()); s > 0 {
+			p = p.ConCabecera("Retry-After", strconv.Itoa(min(s, maxReintentarPromesaArgos)))
+		}
+		return p
+	case c == "idempotency_key_reutilizada" && st == http.StatusUnprocessableEntity:
+		// Argos ya guardó un 2xx con esta clave y otro pedido (la respuesta se perdió y se cambió la
+		// fecha): puede haber una promesa en Argos que Iris no registró.
+		slog.Warn("mensajeria: Argos ya tiene esta clave de promesa con otro pedido", "status", st, "codigo", c)
+		return nucleo.NuevoProblema(http.StatusConflict, CodigoPromesaYaEnviada, "Promesa ya enviada a Argos", textoPromesaYaEnviada)
+	case c == "validacion" && st == http.StatusUnprocessableEntity && esFechaPromesa(er):
+		texto := "La fecha de la promesa no es válida o ya pasó: elige hoy o un día futuro"
+		switch {
+		case slices.Contains(er.Reglas, "futuro"):
+			texto = "La fecha de la promesa ya pasó: elige hoy o un día futuro"
+		case slices.Contains(er.Reglas, "fecha"):
+			texto = "Argos no reconoce la fecha de la promesa: elige otro día"
+		}
+		return nucleo.NuevoProblema(http.StatusUnprocessableEntity, "promesa_fecha_invalida", "Fecha no válida", texto,
+			nucleo.ErrorCampo{Field: "venceEl", Message: texto, Rule: "futuro"})
+	case st == http.StatusUnprocessableEntity && c != "validacion":
+		// Una regla de Argos que Iris aún no conoce: de negocio, con su código para el panel (corto y sin
+		// texto libre). Al asistente le llega un texto fijo (deErrorPromesa).
+		slog.Warn("mensajeria: Argos rechazó la promesa con un código desconocido", "status", st, "codigo", c)
+		return problemaPromesa(CodigoPromesaNoPermitida, "Argos no acepta la promesa", "Argos no acepta la promesa para este servicio (código de Argos: "+c+")")
+	case st == http.StatusBadRequest || c == "validacion":
+		// Un 400 o una validación que no es de la fecha: Iris armó mal el pedido.
+		return integracionPromesa(er)
+	}
+	return argos.Problema(err)
+}
+
+func problemaPromesa(codigo, titulo, detalle string) *nucleo.Problema {
+	return nucleo.NuevoProblema(http.StatusUnprocessableEntity, codigo, titulo, detalle)
+}
+
+// integracionPromesa: Argos rechazó el pedido por cómo lo armó Iris. 502 con el código de Argos; en
+// el log solo status, código y campos (nunca el detail de Argos).
+func integracionPromesa(er *conector.ErrorRemoto) *nucleo.Problema {
+	slog.Warn("mensajeria: Argos rechazó la promesa por la integración", "status", er.Status, "codigo", er.Codigo, "campos", camposSeguros(er.Campos))
+	return nucleo.NuevoProblema(http.StatusBadGateway, CodigoPromesaIntegracion, "Falla de integración con Argos",
+		"Argos no aceptó el pedido de Iris (HTTP "+strconv.Itoa(er.Status)+", código "+er.Codigo+"). No es un problema del cliente: vuelve a intentarlo y, si se repite, avisa al administrador")
+}
+
+// codigoCampo: un nombre de campo corto y sin texto libre (vence_en), como las reglas del conector.
+var codigoCampo = regexp.MustCompile(`^[a-z0-9_]{1,60}$`)
+
+// camposSeguros: solo los errors[].field de Argos que son un código simple (para el log).
+func camposSeguros(campos []string) []string {
+	out := []string{}
+	for _, c := range campos {
+		if codigoCampo.MatchString(c) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// esFechaPromesa: la validación de Argos es de la fecha: el campo es vence_en (y solo ese), o la
+// regla es futuro o fecha. Sin campo ni regla no se sabe: es de integración.
+func esFechaPromesa(er *conector.ErrorRemoto) bool {
+	if len(er.Campos) > 0 {
+		for _, c := range er.Campos {
+			if c != "vence_en" {
+				return false
+			}
+		}
+		return true
+	}
+	return slices.Contains(er.Reglas, "futuro") || slices.Contains(er.Reglas, "fecha")
 }
