@@ -505,7 +505,7 @@ func (m *Modulo) herrPromesa(ctx context.Context, t *turnoIA, l LlamadaIA, h acc
 	}
 	sim, err := m.Conv.Promesas.Simular(ctx, EntradaSimularPromesa{ID: t.conv, ServicioID: a.ServicioID, VenceEl: &a.Fecha})
 	if err != nil {
-		return deError(err), h
+		return deErrorPromesa(err), h
 	}
 	// Del simulador solo sale el resultado y el código de la regla (nunca su texto libre ni un monto).
 	motivo := ""
@@ -536,7 +536,7 @@ func (m *Modulo) herrPromesa(ctx context.Context, t *turnoIA, l LlamadaIA, h acc
 		p, err = m.Conv.Promesas.Crear(ctx, pedido)
 	}
 	if err != nil {
-		return deError(err), h
+		return deErrorPromesa(err), h
 	}
 	h.Entidad, h.EntidadID = "promesa", p.ID.String()
 	h.actividadTipo, h.actividadTexto = "promesa_pedida", "Pidió una promesa de pago"
@@ -548,6 +548,23 @@ func (m *Modulo) herrPromesa(ctx context.Context, t *turnoIA, l LlamadaIA, h acc
 		return resHerramienta{contenido: "El sistema de facturación rechazó la promesa. Díselo al cliente y pasa a una persona si pide más."}, h
 	}
 	return resHerramienta{contenido: "La promesa quedó en revisión: un supervisor la aprueba. Dile al cliente que le avisarán."}, h
+}
+
+// deErrorPromesa: como deError, pero el código crudo de una regla desconocida de Argos nunca llega
+// al modelo (texto fijo), y promesa_ya_enviada es una falla (puede haber una promesa en Argos sin
+// registro en Iris: lo revisa una persona), no un motivo para probar otra fecha.
+func deErrorPromesa(err error) resHerramienta {
+	var p *nucleo.Problema
+	if errors.As(err, &p) {
+		switch p.Codigo() {
+		case CodigoPromesaNoPermitida:
+			return rechazo(textoPromesaNoPermitidaFijo)
+		case CodigoPromesaYaEnviada:
+			slog.Warn("asistente: una herramienta falló", "tipo", p.Type, "status", p.Status)
+			return resHerramienta{fallo: true}
+		}
+	}
+	return deError(err)
 }
 
 func (m *Modulo) atencionTurno(t *turnoIA) argos.AtencionIris {
@@ -572,7 +589,7 @@ func (m *Modulo) herrCuentasBoleta(ctx context.Context, t *turnoIA, l LlamadaIA,
 	b.WriteString("Cuentas de la empresa que reciben depósitos:\n")
 	for _, k := range cs {
 		// Solo las de la empresa de la conversación y en quetzales.
-		if (k.EmpresaID != nil && *k.EmpresaID != t.empresa) || (k.Moneda != "" && k.Moneda != "GTQ") {
+		if !k.RecibeDe(t.empresa) || (k.Moneda != "" && k.Moneda != "GTQ") {
 			continue
 		}
 		b.WriteString(fmt.Sprintf("- cuenta id %d: %s\n", k.ID, limpiarDato(k.Nombre, 80)))
@@ -623,7 +640,7 @@ func (m *Modulo) herrRegistrarBoleta(ctx context.Context, t *turnoIA, l LlamadaI
 		return resHerramienta{fallo: true}, h
 	}
 	if !slices.ContainsFunc(cs, func(k argos.CuentaBancariaArgos) bool {
-		return k.ID == a.CuentaBancariaID && (k.EmpresaID == nil || *k.EmpresaID == t.empresa)
+		return k.ID == a.CuentaBancariaID && k.RecibeDe(t.empresa)
 	}) {
 		return rechazo("esa cuenta no es de la empresa. Usa una de cuentas_para_boleta."), h
 	}
@@ -868,5 +885,6 @@ func esTransitorioArgos(err error) bool {
 	if !errors.As(err, &p) {
 		return true
 	}
-	return p.Status >= http.StatusInternalServerError || p.Codigo() == "idempotencia_en_curso"
+	// Un rechazo de Argos por la integración (cabeceras, Idempotency-Key, empresa) no cambia al repetir.
+	return (p.Status >= http.StatusInternalServerError && p.Codigo() != CodigoPromesaIntegracion) || p.Codigo() == "idempotencia_en_curso"
 }

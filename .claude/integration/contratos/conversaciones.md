@@ -367,7 +367,9 @@ agregan un mensaje de sistema y un vínculo. Exigen ver la conversación y el pe
 
 `{ adjuntoId, servicioId?, metodo, cuentaBancariaId, bancoOrigenId?, referencia, monto,
 fechaDeposito, nota? }`. Para el formulario: `GET /conversaciones/cuentas-bancarias` →
-`{ data: [{ id, nombre, banco, numero, moneda }] }` (las activas en GTQ de la empresa activa) y
+`{ data: [{ id, nombre, banco, numero, moneda }] }` (las activas en GTQ de la empresa activa; con
+`?conversacionId=`, las de la empresa de esa conversación, la misma contra la que se valida la
+boleta; 404 si no la ve) y
 `GET /conversaciones/bancos` → `{ data: [{ id, nombre }] }`, las dos con
 `conversaciones.registrar_boleta`, leídas de Argos en el momento (no se guardan; Argos caído: 503).
 El adjunto se elige de los mensajes de la conversación (`MensajeConversacion.adjunto.id`); no hay
@@ -575,7 +577,44 @@ cliente en la empresa (como al asociar: 422 `servicio_fuera_de_empresa`).
 hora de Guatemala). Sincrónica: Iris llama a Argos fuera de su transacción
 (`Idempotency-Key = iris:promesa:<id>`) y guarda el resultado: `activa`, `rechazada` (con `regla` y
 `motivo`) o `pendiente_aprobacion`. Argos caído: 503 `argos_no_disponible` y no queda nada a medias
-(repetir con la misma `Idempotency-Key`). 409 `promesa_abierta` de Argos pasa tal cual.
+(repetir con la misma `Idempotency-Key`).
+
+`<id>` sale de quien pide y su `Idempotency-Key` (la persona: usuario + clave; el asistente:
+conversación + clave del turno). Argos (§3.1) guarda la clave solo con una respuesta 2xx, con la
+huella del cuerpo crudo + `X-Iris-Actor`: tras un rechazo de Argos la misma clave con otra fecha se
+evalúa de nuevo. Si Argos ya creó la promesa pero Iris no guardó nada (la respuesta se perdió) y se
+repite la clave con otro pedido, Argos responde 422 `idempotency_key_reutilizada` → 409
+`promesa_ya_enviada`: puede haber una promesa en Argos sin registro en Iris, así que se revisa en
+Argos antes de volver a intentar. El mismo pedido repetido lleva la misma clave y Argos devuelve la
+promesa que ya creó. Una vez guardada la promesa, la misma clave con otro pedido es el 422
+`idempotencia_reutilizada` de Iris (no llega a Argos). Por HTTP, el middleware de idempotencia de
+Iris guarda también las respuestas 4xx con su clave: el panel usa una clave nueva tras cualquier
+respuesta (también tras 409 `idempotencia_en_curso`).
+
+Rechazos de Argos (1.17.0) en simular y en pedir, traducidos a un motivo en llano. Cada código se
+reconoce solo con el status que Argos documenta para él. El `detail` de Argos nunca llega al panel,
+a la auditoría, a los eventos ni al modelo; en el log de Iris solo aparece en los casos genéricos que
+siguen por `argos.Problema` (un 4xx sin código, un 409 desconocido, un código conocido con otro
+status), como en el resto del conector:
+
+| Argos | Iris | Texto (`detail`) |
+| --- | --- | --- |
+| 409 `promesa_abierta` | 409 `promesa_abierta` | El servicio ya tiene una promesa de pago activa o pendiente en Argos (por ejemplo, una reconexión temporal)… |
+| 409 `idempotencia_en_curso` | 409 `idempotencia_en_curso` (`Retry-After` de Argos acotado a 1–60 s) | Argos sigue procesando este mismo pedido: vuelve a intentarlo en unos segundos |
+| 422 `idempotency_key_reutilizada` | 409 `promesa_ya_enviada` | Argos ya recibió este pedido con otros datos. Revisa en Argos si la promesa quedó creada antes de volver a intentarlo |
+| 422 `servicio_retirado` | 422 `servicio_retirado` | El servicio está retirado en Argos: no admite promesas de pago |
+| 422 `sin_plantilla` | 422 `sin_plantilla_facturacion` | Este servicio no tiene plantilla de facturación en Argos; asígnale una en Argos para poder ofrecer promesas |
+| 422 `servicio_pendiente_instalacion` | 422 `servicio_sin_instalar` | El servicio aún está pendiente de instalación en Argos… |
+| 422 `validacion` con campo `vence_en`, o sin campo con `rule` `futuro`/`fecha` | 422 `promesa_fecha_invalida`, con `errors[]` en `venceEl` | La fecha de la promesa ya pasó… / Argos no reconoce la fecha… |
+| otro 422 con código | 422 `promesa_no_permitida` | Argos no acepta la promesa para este servicio (código de Argos: …); al asistente, un texto fijo sin el código |
+| 400 `cabecera_iris_requerida`, 400 `idempotency_key_requerida`, 422 `empresa_no_coincide`, otro 400, o `validacion` de otro campo o sin campo ni regla | 502 `argos_promesa_integracion` | Argos no aceptó el pedido de Iris (HTTP …, código …). No es un problema del cliente… |
+
+Lo demás (un código conocido con otro status, un 409 desconocido, Argos caído, 401/403, 404) sigue
+como cualquier llamada a Argos (502 `argos_rechazo`, 503 `argos_no_disponible`, 502
+`argos_sin_permiso`, 404). Las reglas de la política (cupo, plazo, sin deuda…) no son errores:
+simular responde 200 y pedir 201 con `estado: rechazada`. El asistente recibe los de negocio como
+motivo (acción `rechazada`); `argos_promesa_integracion` y `promesa_ya_enviada` son una falla de la
+herramienta (pasa a una persona), sin reintentarlos.
 
 ## 7. Bandeja
 

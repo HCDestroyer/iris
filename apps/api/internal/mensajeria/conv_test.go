@@ -64,8 +64,16 @@ type argosFalso struct {
 	documento    string
 	verificados  []string
 	errVerificar error
+	// cuentasExtra: más cuentas en la respuesta de GET /cuentas-bancarias (JSON, cada una con su coma
+	// delante); errCuentas: Argos no responde esa lectura.
+	cuentasExtra string
+	// alComprobante corre mientras «Argos» atiende POST /comprobantes (fuera del candado).
+	alComprobante func()
+	errCuentas    error
 	// caja: el Argos falso (httptest) que aprueba y rechaza comprobantes (boletas_decidir_test.go).
 	caja *cajaFalsa
+	// promesas: el Argos falso (httptest) de POST /promesas y /promesas/simular (promesas_argos_test.go).
+	promesas *promesasFalsas
 }
 
 // VerificarIdentidad: el desafío de identidad (mensajeria.ArgosIdentidad). Coincide si el valor es el
@@ -137,6 +145,12 @@ func (f *argosFalso) EquiposEnComodato(context.Context, int64, int64) ([]argos.E
 
 func (f *argosFalso) RegistrarComprobante(_ context.Context, a argos.AtencionIris, in argos.EntradaComprobante) (argos.ComprobanteArgos, error) {
 	f.mu.Lock()
+	alComprobante := f.alComprobante
+	f.mu.Unlock()
+	if alComprobante != nil {
+		alComprobante()
+	}
+	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.claves = append(f.claves, in.Clave)
 	f.actores = append(f.actores, a)
@@ -148,20 +162,65 @@ func (f *argosFalso) RegistrarComprobante(_ context.Context, a argos.AtencionIri
 	return argos.ComprobanteArgos{ID: 7_000_000 + siguienteCliente.Add(1), Estado: "pendiente"}, nil
 }
 
-func (f *argosFalso) CuentasBancarias(context.Context, argos.AtencionIris) ([]argos.CuentaBancariaArgos, error) {
-	return []argos.CuentaBancariaArgos{{ID: 3, Nombre: "Monetaria", Banco: json.RawMessage(`{"nombre":"Banco Industrial"}`), Numero: "123", Moneda: "GTQ"},
-		{ID: 4, Nombre: "Dólares", Moneda: "USD"}}, nil
+// cuentasArgos es el cuerpo de GET /cuentas-bancarias tal como lo manda Argos 1.17.0: id, empresa_id,
+// banco_id, banco_nombre, numero, alias, moneda y activa (más los contables). No hay «nombre» ni
+// «banco». Orden de Argos: banco, alias, id. La 5 no tiene alias; la 4 es en dólares.
+const cuentasArgos = `[
+	{"id":3,"empresa_id":%[1]d,"banco_id":1,"banco_nombre":"Banco Industrial","numero":"000-123456-7","alias":"Monetaria","moneda":"GTQ","activa":true,
+	 "cuenta_id":11,"cuenta_codigo":"1.1.02.01","version":1,"created_at":"2026-01-05T15:00:00Z","updated_at":"2026-01-05T15:00:00Z"},
+	{"id":4,"empresa_id":%[1]d,"banco_id":1,"banco_nombre":"Banco Industrial","numero":"000-999999-1","alias":"Dólares","moneda":"USD","activa":true,
+	 "cuenta_id":12,"cuenta_codigo":"1.1.02.02","version":1,"created_at":"2026-01-05T15:00:00Z","updated_at":"2026-01-05T15:00:00Z"},
+	{"id":5,"empresa_id":%[1]d,"banco_id":2,"banco_nombre":"Banrural","numero":"3-445-00987-6","alias":"","moneda":"GTQ","activa":true,
+	 "cuenta_id":13,"cuenta_codigo":"1.1.02.03","version":2,"created_at":"2026-01-05T15:00:00Z","updated_at":"2026-02-01T15:00:00Z"}
+	%[2]s]`
+
+// CuentasBancarias responde como Argos: el JSON real pasa por el mismo decodificador que el cliente
+// HTTP. Las cuentas base son de la empresa pedida (X-Empresa-Id; 1 sin cabecera); cuentasExtra agrega
+// objetos JSON (cada uno empieza con una coma) para probar cuentas ajenas, inactivas o sin empresa.
+func (f *argosFalso) CuentasBancarias(_ context.Context, a argos.AtencionIris) ([]argos.CuentaBancariaArgos, error) {
+	f.mu.Lock()
+	extra, falla := f.cuentasExtra, f.errCuentas
+	f.mu.Unlock()
+	if falla != nil {
+		return nil, falla
+	}
+	empresa := a.EmpresaID
+	if empresa == 0 {
+		empresa = 1
+	}
+	var cs []argos.CuentaBancariaArgos
+	if err := json.Unmarshal([]byte(fmt.Sprintf(cuentasArgos, empresa, extra)), &cs); err != nil {
+		// Igual que el cliente HTTP con un 200 que no puede decodificar (conector/cliente.go).
+		return nil, &conector.ErrorRemoto{Status: http.StatusBadGateway, Titulo: "Respuesta ilegible", Ilegible: true}
+	}
+	return cs, nil
 }
 
 func (f *argosFalso) Bancos(context.Context, argos.AtencionIris) ([]argos.BancoArgos, error) {
 	return []argos.BancoArgos{{ID: 1, Nombre: "Banrural"}}, nil
 }
 
-func (f *argosFalso) SimularPromesa(context.Context, argos.AtencionIris, int64, *time.Time) (argos.SimulacionPromesa, error) {
+func (f *argosFalso) SimularPromesa(ctx context.Context, a argos.AtencionIris, servicio int64, vence *time.Time) (argos.SimulacionPromesa, error) {
+	if p := f.promesasDe(); p != nil {
+		return p.cliente().SimularPromesa(ctx, a, servicio, vence)
+	}
 	return argos.SimulacionPromesa{Resultado: "aprobada", Monto: json.RawMessage(`"250.00"`)}, nil
 }
 
-func (f *argosFalso) CrearPromesa(_ context.Context, _ argos.AtencionIris, _ int64, _ time.Time, clave string) (argos.PromesaArgos, error) {
+// promesasDe: el Argos falso de promesas (httptest, promesas_argos_test.go), si la prueba lo puso.
+func (f *argosFalso) promesasDe() *promesasFalsas {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.promesas
+}
+
+func (f *argosFalso) CrearPromesa(ctx context.Context, a argos.AtencionIris, servicio int64, vence time.Time, clave string) (argos.PromesaArgos, error) {
+	if p := f.promesasDe(); p != nil {
+		f.mu.Lock()
+		f.claves = append(f.claves, clave)
+		f.mu.Unlock()
+		return p.cliente().CrearPromesa(ctx, a, servicio, vence, clave)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.claves = append(f.claves, clave)
@@ -843,7 +902,7 @@ func TestConvBoletaYPromesa(t *testing.T) {
 	adj := ms[len(ms)-1]["adjunto"].(map[string]any)["id"]
 	cu := b.api(b.agente, http.MethodGet, "/conversaciones/cuentas-bancarias", nil)
 	b.exigir(cu, http.StatusOK)
-	if d := cu.cuerpo["data"].([]any); len(d) != 1 || d[0].(map[string]any)["banco"] != "Banco Industrial" {
+	if d := cu.cuerpo["data"].([]any); len(d) != 2 || d[0].(map[string]any)["banco"] != "Banco Industrial" || d[0].(map[string]any)["nombre"] != "Monetaria" {
 		t.Fatalf("cuentas en GTQ: %v", cu.cuerpo)
 	}
 	b.exigir(b.api(b.lectura, http.MethodGet, "/conversaciones/bancos", nil), http.StatusForbidden)

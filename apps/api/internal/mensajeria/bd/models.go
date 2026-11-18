@@ -1199,6 +1199,7 @@ type MensajeriaBoleta struct {
 	ResolucionError     *string
 	ResolucionAgotadaEn *time.Time
 	PorAsistente        bool
+	CuentaValidacion    *string
 }
 
 type MensajeriaCanal struct {

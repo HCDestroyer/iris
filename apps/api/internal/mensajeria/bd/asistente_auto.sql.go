@@ -136,7 +136,7 @@ func (q *Queries) BloquearVerificacionesCliente(ctx context.Context, arg Bloquea
 }
 
 const boletaPorReferenciaConv = `-- name: BoletaPorReferenciaConv :one
-SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente FROM mensajeria.boletas
+SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente, cuenta_validacion FROM mensajeria.boletas
 WHERE conversacion_id = $1 AND referencia = $2 AND coalesce(empresa_id, 0) = $3::bigint
 ORDER BY created_at DESC LIMIT 1
 `
@@ -187,6 +187,7 @@ func (q *Queries) BoletaPorReferenciaConv(ctx context.Context, arg BoletaPorRefe
 		&i.ResolucionError,
 		&i.ResolucionAgotadaEn,
 		&i.PorAsistente,
+		&i.CuentaValidacion,
 	)
 	return i, err
 }
@@ -1601,7 +1602,7 @@ func (q *Queries) TurnosRecientesEmpresa(ctx context.Context, arg TurnosReciente
 }
 
 const ultimaBoletaConv = `-- name: UltimaBoletaConv :one
-SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente FROM mensajeria.boletas
+SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente, cuenta_validacion FROM mensajeria.boletas
 WHERE conversacion_id = $1 AND cliente_id = $2 AND coalesce(empresa_id, 0) = $3::bigint
 ORDER BY created_at DESC LIMIT 1
 `
@@ -1653,6 +1654,7 @@ func (q *Queries) UltimaBoletaConv(ctx context.Context, arg UltimaBoletaConvPara
 		&i.ResolucionError,
 		&i.ResolucionAgotadaEn,
 		&i.PorAsistente,
+		&i.CuentaValidacion,
 	)
 	return i, err
 }
