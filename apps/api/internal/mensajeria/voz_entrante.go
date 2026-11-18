@@ -317,6 +317,9 @@ func (m *Modulo) rechazarSinRegistro(ctx context.Context, t *auditoria.Tx, canal
 		return
 	}
 	t.Anotar(map[string]any{"llamada_rechazada_sin_registro": true})
+	// Para quien mira los registros: en Meta el número tiene llamadas y en Iris están apagadas (o el
+	// número es por QR). Sin datos del cliente.
+	slog.WarnContext(ctx, "voz: llegó una llamada y se rechazó porque las llamadas del número están apagadas en Iris", "canal_id", canalID)
 	t.AlConfirmar(func(ctx context.Context) {
 		if err := m.graph().Accion(context.WithoutCancel(ctx), cg, callID, MetaRechazar, "", false); err != nil {
 			slog.WarnContext(ctx, "voz: rechazar una llamada de un número sin llamadas encendidas", "canal_id", canalID, "err", err)
