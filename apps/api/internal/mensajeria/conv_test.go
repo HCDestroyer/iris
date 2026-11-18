@@ -72,6 +72,8 @@ type argosFalso struct {
 	errCuentas    error
 	// caja: el Argos falso (httptest) que aprueba y rechaza comprobantes (boletas_decidir_test.go).
 	caja *cajaFalsa
+	// promesas: el Argos falso (httptest) de POST /promesas y /promesas/simular (promesas_argos_test.go).
+	promesas *promesasFalsas
 }
 
 // VerificarIdentidad: el desafío de identidad (mensajeria.ArgosIdentidad). Coincide si el valor es el
@@ -198,11 +200,27 @@ func (f *argosFalso) Bancos(context.Context, argos.AtencionIris) ([]argos.BancoA
 	return []argos.BancoArgos{{ID: 1, Nombre: "Banrural"}}, nil
 }
 
-func (f *argosFalso) SimularPromesa(context.Context, argos.AtencionIris, int64, *time.Time) (argos.SimulacionPromesa, error) {
+func (f *argosFalso) SimularPromesa(ctx context.Context, a argos.AtencionIris, servicio int64, vence *time.Time) (argos.SimulacionPromesa, error) {
+	if p := f.promesasDe(); p != nil {
+		return p.cliente().SimularPromesa(ctx, a, servicio, vence)
+	}
 	return argos.SimulacionPromesa{Resultado: "aprobada", Monto: json.RawMessage(`"250.00"`)}, nil
 }
 
-func (f *argosFalso) CrearPromesa(_ context.Context, _ argos.AtencionIris, _ int64, _ time.Time, clave string) (argos.PromesaArgos, error) {
+// promesasDe: el Argos falso de promesas (httptest, promesas_argos_test.go), si la prueba lo puso.
+func (f *argosFalso) promesasDe() *promesasFalsas {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.promesas
+}
+
+func (f *argosFalso) CrearPromesa(ctx context.Context, a argos.AtencionIris, servicio int64, vence time.Time, clave string) (argos.PromesaArgos, error) {
+	if p := f.promesasDe(); p != nil {
+		f.mu.Lock()
+		f.claves = append(f.claves, clave)
+		f.mu.Unlock()
+		return p.cliente().CrearPromesa(ctx, a, servicio, vence, clave)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.claves = append(f.claves, clave)

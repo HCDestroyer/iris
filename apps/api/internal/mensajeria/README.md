@@ -180,7 +180,7 @@ Contrato completo: `.claude/integration/contratos/conversaciones.md`. Código en
   y `comercial.CrearProspecto` en la misma transacción (cmd/mensajeria los arma; River con
   `SkipUnknownJobCheck` porque sus jobs los trabaja cmd/worker). Boletas: `mensajeria.boletas` y el
   despacho del reloj (`POST /comprobantes` multipart a Argos, reintentos 1 min…12 h). Promesas:
-  sincrónicas contra Argos fuera de transacción (`iris:promesa:<id>`). Cabeceras `X-Iris-Actor` y
+  sincrónicas contra Argos fuera de transacción (`iris:promesa:<id>`); los rechazos de Argos salen en llano (contratos/conversaciones.md §6.5). Cabeceras `X-Iris-Actor` y
   `X-Iris-Conversacion` (§7.1).
 - **Contactos:** solo el id del cliente de Argos (los datos salen de la instantánea); coincidencias
   por teléfono con `GET /clientes?telefono=` (o la instantánea si Argos no responde); contactos
