@@ -610,15 +610,20 @@ test.describe("bandeja › adjuntos: revisión de la PR", () => {
         await pregunta.getByRole("button", { name: "Salir" }).click();
         await expect(page).not.toHaveURL(/c=41/);
         await expect(page).toHaveURL(/c=\d+/);
-        // La subida se cortó: no llegan las 4 partes, no se registra el segundo archivo y no sale ningún mensaje.
+        // Vuelve ENSEGUIDA (la parte en vuelo aún no terminó): el comentario ya está de borrador, y
+        // sigue ahí cuando el compositor nuevo guarda el suyo.
         const partesAlSalir = adjuntos.partes.length;
+        await page.locator('[data-conversacion="41"]').click();
+        await expect(caja(page)).toHaveValue("Comentario que no debe perderse");
+        // La subida se cortó: no llegan las 4 partes, no se registra el segundo archivo y no sale ningún mensaje.
         await page.waitForTimeout(2_500);
+        await expect(caja(page)).toHaveValue("Comentario que no debe perderse");
         expect(adjuntos.partes.length).toBeLessThanOrEqual(partesAlSalir + 1);
         expect(adjuntos.partes.length).toBeLessThan(4);
         expect(adjuntos.altas).toHaveLength(1);
         expect(mensajesEnviados(api)).toHaveLength(0);
-        // Al volver, el comentario está en la caja (borrador).
-        await page.locator('[data-conversacion="41"]').click();
+        // Y sobrevive a recargar (está guardado, no solo en pantalla).
+        await page.reload();
         await expect(caja(page)).toHaveValue("Comentario que no debe perderse");
         await expect(vista(page)).toHaveCount(0);
     });

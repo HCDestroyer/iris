@@ -116,7 +116,13 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
     );
     // …también cuando la bandeja cambia de conversación por código («La atiendo», «Ver» de un aviso).
     const salirProtegido = proteccion.salir;
-    useEffect(() => registrarSalidaProtegida(salirProtegido), [salirProtegido]);
+    useEffect(() => registrarSalidaProtegida(salirProtegido, () => elegidosAhora.current.some((x) => x.estado !== "invalido")), [salirProtegido]);
+    // El comentario ya tomado para un envío de archivos que aún no salió, y a quién guardárselo.
+    const pieEnVuelo = useRef<string | null>(null);
+    const paraBorrador = useRef({ identidad, id: conv.id });
+    useEffect(() => {
+        paraBorrador.current = { identidad, id: conv.id };
+    }, [identidad, conv.id]);
     const campo = useRef<HTMLTextAreaElement | null>(null);
     const ventana = textoVentana(conv.ventana, ahora);
     const cerrada = ventana === null;
@@ -282,6 +288,16 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
         return () => {
             montado.current = false;
             for (const x of elegidosAhora.current) if (x.url) URL.revokeObjectURL(x.url);
+            // Se salió antes de que saliera el primer archivo: el comentario no se pierde. Se guarda
+            // de borrador AHORA (no cuando termine la parte en vuelo): si la persona vuelve enseguida,
+            // el compositor nuevo ya lo encuentra.
+            const texto = pieEnVuelo.current;
+            pieEnVuelo.current = null;
+            if (texto) {
+                const { identidad: quien, id } = paraBorrador.current;
+                const previo = leerBorrador(quien, id, "responder");
+                guardarBorrador(quien, id, "responder", previo?.trim() ? `${texto}\n\n${previo}` : texto);
+            }
         };
     }, []);
 
@@ -322,6 +338,7 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
             respuestaRapidaId: respuestaId,
             sugerenciaId,
         };
+        pieEnVuelo.current = pie.texto || null;
         form.reset({ texto: "" });
         guardarBorrador(identidad, conv.id, "responder", "");
         setRespuestaId(null);
@@ -331,6 +348,7 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
             if (!pie || !montado.current) return;
             const { texto: textoPie, respuestaRapidaId: respuestaPie, sugerenciaId: sugerenciaPie } = pie;
             pie = null;
+            pieEnVuelo.current = null;
             const escrito = form.getValues("texto");
             if (textoPie) form.setValue("texto", escrito.trim() ? `${textoPie}\n\n${escrito}` : textoPie, { shouldDirty: true });
             // La respuesta rápida o la sugerencia que se eligió mientras subía se respeta.
@@ -367,6 +385,7 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                     nombreArchivo: actual.archivo.name,
                 };
                 pie = null;
+                pieEnVuelo.current = null;
                 envios.current.set(e.id, e);
                 const enviado = await mandar(e);
                 // Ya está en el hilo (enviado, o pendiente con su «Reintentar»).
@@ -384,12 +403,6 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
         } finally {
             enviandoAhora.current = false;
             if (montado.current) setEnviandoArchivos(false);
-            // Se salió antes de que saliera el primer archivo: el comentario no se pierde, queda
-            // de borrador en esta conversación (delante de lo que ya hubiera).
-            else if (pie?.texto) {
-                const previo = leerBorrador(identidad, conv.id, "responder");
-                guardarBorrador(identidad, conv.id, "responder", previo?.trim() ? `${pie.texto}\n\n${previo}` : pie.texto);
-            }
         }
     }
 
