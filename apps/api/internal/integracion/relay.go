@@ -78,7 +78,9 @@ type Relay struct {
 	// y no se reintenta más; se registra como error en el log. 20 por defecto.
 	MaxIntentos int32
 
-	alVaciar func() // solo pruebas: corre tras el último barrido vacío, con el candado tomado
+	// Solo pruebas: alVaciar corre tras el último barrido vacío, con el candado tomado;
+	// alTerminar, al terminar Ejecutar (candado suelto y segunda mirada hecha).
+	alVaciar, alTerminar func()
 }
 
 // Ejecutar corre el relay hasta vaciar lo pendiente. Si otro relay tiene el candado, sale sin
@@ -88,9 +90,15 @@ type Relay struct {
 // confirmado entre el último barrido vacío y la liberación del candado no lo ve este barrido, y
 // el relay que encoló su NOTIFY pudo salir por encontrar el candado tomado. Sin esta segunda
 // mirada ese evento esperaba a la corrida periódica.
+//
+// La segunda mirada salta, como el barrido, las filas que otra transacción tiene bloqueadas: si
+// no, una fila bloqueada la haría girar sin tomar nada.
 func (r *Relay) Ejecutar(ctx context.Context) (int, error) {
 	ctx = nucleo.ConBD(ctx, r.BD)
 	publicados := 0
+	if r.alTerminar != nil {
+		defer r.alTerminar()
+	}
 	for {
 		n, tomado, err := r.vaciar(ctx)
 		publicados += n
@@ -216,20 +224,25 @@ type ArgsRelay struct{}
 // Kind implementa river.JobArgs.
 func (ArgsRelay) Kind() string { return "integracion.relay_outbox" }
 
-// InsertOpts: sin unicidad de River. La unicidad (por periodo o por estado) descarta el job de
-// un NOTIFY cuando ya hay uno del mismo segundo terminado o en curso (River exige incluir
-// running), aunque ese job ya hizo su último barrido antes del COMMIT: el evento esperaba a la
-// corrida periódica. Un solo relay a la vez lo garantiza el advisory lock, y EscucharOutbox
-// agrupa los avisos que llegan mientras encola.
+// InsertOpts: cola propia y sin unicidad de River. La unicidad (por periodo o por estado)
+// descarta el job de un NOTIFY cuando ya hay uno del mismo segundo terminado o en curso (River
+// exige incluir running), aunque ese job ya hizo su último barrido antes del COMMIT: el evento
+// esperaba a la corrida periódica. Lo acotan la cola ColaRelay (un worker por proceso), el
+// advisory lock (un relay a la vez entre réplicas) y EscucharOutbox, que no encola si ya hay un
+// relay disponible sin empezar.
 func (ArgsRelay) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{
-		Queue:       ColaIntegracion,
+		Queue:       ColaRelay,
 		MaxAttempts: 3,
 	}
 }
 
-// ColaIntegracion es la cola de River de este módulo.
+// ColaIntegracion es la cola de River de los jobs de este módulo (Argos, Horus, pendientes…).
 const ColaIntegracion = "integracion"
+
+// ColaRelay es la cola del relay del outbox, aparte para que una ráfaga de commits no retrase
+// los jobs de ColaIntegracion.
+const ColaRelay = "relay"
 
 // TrabajadorRelay es el worker de River del relay.
 type TrabajadorRelay struct {

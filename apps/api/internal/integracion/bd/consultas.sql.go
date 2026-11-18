@@ -79,11 +79,14 @@ const hayEventoPendiente = `-- name: HayEventoPendiente :one
 SELECT EXISTS (
     SELECT 1 FROM integracion.outbox
     WHERE publicado_en IS NULL AND fallido_en IS NULL AND proximo_intento <= now()
+    LIMIT 1
+    FOR UPDATE SKIP LOCKED
 )::boolean AS hay
 `
 
-// Sin candado ni FOR UPDATE: el relay lo consulta tras soltar su candado para no dejar atrás
-// un evento confirmado entre su último barrido vacío y la liberación del candado.
+// Sin el candado del relay: se consulta tras soltarlo para no dejar atrás un evento confirmado
+// entre el último barrido vacío y la liberación. SKIP LOCKED como TomarEventoPendiente: una
+// fila bloqueada por otra transacción no cuenta (si contara, el relay giraría sin tomarla).
 func (q *Queries) HayEventoPendiente(ctx context.Context) (bool, error) {
 	row := q.db.QueryRow(ctx, hayEventoPendiente)
 	var hay bool
