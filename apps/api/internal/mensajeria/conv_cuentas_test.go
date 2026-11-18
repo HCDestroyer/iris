@@ -104,27 +104,53 @@ func TestConvCuentasBancariasDeLaEmpresa(t *testing.T) {
 	if boletas() != 0 {
 		t.Fatal("una cuenta que no es de la empresa no deja boleta")
 	}
-	// Sin poder leer las cuentas en Argos no se registra (falla cerrado).
-	b.argos.mu.Lock()
-	b.argos.errCuentas = &conector.ErrorRemoto{Status: 0}
-	b.argos.mu.Unlock()
+	marca := func(ref string) string {
+		var v string
+		if err := b.bd.QueryRow(b.ctx, `SELECT coalesce(k.despues #>> '{}', '') FROM mensajeria.boletas bo JOIN auditoria.cambios k ON k.entidad = 'boleta'
+			AND k.entidad_id = bo.id::text AND k.campo = 'cuenta_validacion' WHERE bo.conversacion_id = $1::bigint AND bo.referencia = $2`, cid(c), ref).Scan(&v); err != nil {
+			t.Fatalf("marca de la boleta %s: %v", ref, err)
+		}
+		return v
+	}
+	falla := func(err error) {
+		b.argos.mu.Lock()
+		b.argos.errCuentas = err
+		b.argos.mu.Unlock()
+	}
+	// Argos responde un error que no es una caída (403): no se registra.
+	falla(&conector.ErrorRemoto{Status: http.StatusForbidden})
 	if r := b.api(b.agente, http.MethodPost, ruta+"/boletas", boleta(3)); r.status/100 == 2 || boletas() != 0 {
-		t.Fatalf("sin Argos no se valida la cuenta: %d %v", r.status, r.cuerpo)
+		t.Fatalf("con un rechazo de Argos al leer las cuentas no se registra: %d %v", r.status, r.cuerpo)
 	}
-	b.argos.mu.Lock()
-	b.argos.errCuentas = nil
-	b.argos.mu.Unlock()
-	// La cuenta sin alias de la empresa, sí.
+	// Argos caído (regla 4): la boleta se registra igual y sigue su camino de reintentos; queda
+	// marcada en la auditoría como sin validar. Ni siquiera la cuenta ajena se puede descartar aquí:
+	// la rechaza Argos en POST /comprobantes.
+	falla(&conector.ErrorRemoto{Status: 0})
+	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/boletas", boleta(3)), http.StatusCreated, "estado", "por_enviar")
+	falla(&conector.ErrorRemoto{Status: http.StatusBadGateway})
+	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/boletas", boleta(8)), http.StatusCreated, "estado", "por_enviar")
+	if boletas() != 2 || marca("CU-3") != "sin_validar_argos_no_disponible" || marca("CU-8") != "sin_validar_argos_no_disponible" {
+		t.Fatalf("con Argos caído la boleta se registra sin validar: %d %q %q", boletas(), marca("CU-3"), marca("CU-8"))
+	}
+	falla(nil)
+	// Con Argos arriba, la cuenta sin alias de la empresa se valida y se registra.
 	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/boletas", boleta(5)), http.StatusCreated, "estado", "por_enviar")
-	if boletas() != 1 {
-		t.Fatal("la boleta con una cuenta de la empresa se registra")
+	if boletas() != 3 || marca("CU-5") != "validada" {
+		t.Fatalf("la boleta con una cuenta de la empresa se registra validada: %d %q", boletas(), marca("CU-5"))
 	}
+	// La lista por conversación: las cuentas de la empresa de esa conversación; una que no existe, 404.
+	lc := b.api(b.agente, http.MethodGet, "/conversaciones/cuentas-bancarias?conversacionId="+cid(c), nil)
+	b.exigir(lc, http.StatusOK)
+	if d := lc.cuerpo["data"].([]any); len(d) != 2 || d[1].(map[string]any)["nombre"] != "Banrural …9876" {
+		t.Fatalf("cuentas de la conversación: %v", lc.cuerpo)
+	}
+	b.exigir(b.api(b.agente, http.MethodGet, "/conversaciones/cuentas-bancarias?conversacionId=999999999", nil), http.StatusNotFound)
 	// Se manda a Argos aquí mismo: no queda por enviar para el despacho de otra prueba.
 	if err := b.m.DespacharBoletas(b.ctx, b.bd); err != nil {
 		t.Fatal(err)
 	}
-	if n := b.contar(`SELECT count(*) FROM mensajeria.boletas WHERE conversacion_id = $1::bigint AND estado = 'registrada' AND cuenta_bancaria_id = 5`, cid(c)); n != 1 {
-		t.Fatalf("boleta registrada en Argos con la cuenta 5: %d", n)
+	if n := b.contar(`SELECT count(*) FROM mensajeria.boletas WHERE conversacion_id = $1::bigint AND estado = 'por_enviar'`, cid(c)); n != 0 {
+		t.Fatalf("boletas sin despachar: %d", n)
 	}
 }
 
@@ -158,6 +184,17 @@ func TestAutonomoCuentasDeLaEmpresa(t *testing.T) {
 	}
 	if n := x.contar(`SELECT count(*) FROM mensajeria.boletas WHERE conversacion_id = $1::bigint`, conv); n != 0 {
 		t.Fatalf("una cuenta que no es de la empresa no deja boleta: %d", n)
+	}
+	// Argos caído: el asistente falla cerrado (no registra ni con una cuenta buena de la empresa).
+	x.argos.mu.Lock()
+	x.argos.errCuentas = &conector.ErrorRemoto{Status: 0}
+	x.argos.mu.Unlock()
+	x.turno(num, "wamid.cuia2", "Fue a la Monetaria", "Pagos y saldo", pasoFalso{llamadas: []llamadaFalsa{registrar(3)}}, dice("Te paso con una persona."))
+	if a := strings.Join(x.acciones(conv), ","); !strings.Contains(a, "recibir_boleta:fallo") || strings.Contains(a, "recibir_boleta:ok") {
+		t.Fatalf("con Argos caído el asistente no registra: %s", a)
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.boletas WHERE conversacion_id = $1::bigint`, conv); n != 0 {
+		t.Fatalf("el asistente no registra sin poder leer las cuentas: %d", n)
 	}
 	// Lo que leyó el modelo: las dos cuentas de la empresa con su nombre, y ninguna de las otras.
 	cuerpos := strings.Join(x.ia.cuerposAutonomos(), "\n")

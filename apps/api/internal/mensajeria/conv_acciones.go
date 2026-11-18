@@ -282,6 +282,8 @@ type EntradaBoleta struct {
 	Monto            string    `json:"monto" pattern:"^[0-9]{1,10}\\.[0-9]{2}$" doc:"Decimal con 2 decimales, en GTQ"`
 	FechaDeposito    string    `json:"fechaDeposito" format:"date" doc:"AAAA-MM-DD, no futura"`
 	Nota             *string   `json:"nota,omitempty" maxLength:"500"`
+	// cuentas: las cuentas de Argos leídas antes de la transacción (RegistrarBoleta); nil = sin leer.
+	cuentas *cuentasLeidas
 }
 
 // MarshalJSON: sin la nota.
@@ -375,9 +377,8 @@ func nuevoRegistrarBoleta(m *Modulo) *auditoria.Caso[EntradaBoleta, Boleta] {
 					return err
 				}
 				// La cuenta es de la empresa de la conversación y está activa (Argos también lo valida).
-				alc := a
-				alc.empresa = empresaDeConv(*c)
-				if err := m.validarCuentaBoleta(ctx, atencionDe(alc, c.ID), alc.empresa, in.CuentaBancariaID); err != nil {
+				cuenta, err := m.validarCuentaBoleta(ctx, a, c, in)
+				if err != nil {
 					return err
 				}
 				datos, _, err := adjuntos.Contenido(ctx, m.cfg.Almacen, t, in.AdjuntoID, EntidadAdjuntosConversacion, strconv.FormatInt(c.ID, 10), 5<<20)
@@ -397,7 +398,7 @@ func nuevoRegistrarBoleta(m *Modulo) *auditoria.Caso[EntradaBoleta, Boleta] {
 				}
 				b = aBoleta(f)
 				t.RegistrarCambios("boleta", f.ID, nil, map[string]any{"cliente_id": f.ClienteID, "servicio_id": f.ServicioID, "metodo": f.Metodo,
-					"referencia": f.Referencia, "monto": in.Monto, "adjunto_id": f.AdjuntoID})
+					"referencia": f.Referencia, "monto": in.Monto, "adjunto_id": f.AdjuntoID, "cuenta_bancaria_id": f.CuentaBancariaID, "cuenta_validacion": cuenta})
 				if err := m.vincular(ctx, t, c, a, "boleta", f.ID.String(), "Boleta "+f.Referencia, "boleta_registrada"); err != nil {
 					return err
 				}
