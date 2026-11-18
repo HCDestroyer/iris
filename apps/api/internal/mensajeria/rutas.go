@@ -48,7 +48,8 @@ var rutaReclamarLlamada = regexp.MustCompile(`^` + regexp.QuoteMeta(Prefijo) + `
 var rutaBoletaPropia = regexp.MustCompile(`^` + regexp.QuoteMeta(Prefijo) + `/boletas/[0-9a-fA-F-]{36}/(aprobar|rechazar)$`)
 
 // rutaAsistentePropia: el resumen y las acciones sobre una sugerencia responden con texto del
-// modelo, que no se guarda fuera de mensajeria.sugerencias; son idempotentes por naturaleza
+// modelo, que no se guarda fuera de mensajeria.sugerencias y mensajeria.conversacion_resumenes (nunca
+// en la tabla de idempotencia); son idempotentes por naturaleza
 // (usar, descartar y calificar repetidos responden 200 sin cambios) (§16).
 var rutaAsistentePropia = regexp.MustCompile(`^` + regexp.QuoteMeta(Prefijo) +
 	`/(asistente/probar-mensaje|conversaciones/[0-9]+/resumen|sugerencias/[0-9a-fA-F-]{36}/(usar|descartar|calificar))$`)

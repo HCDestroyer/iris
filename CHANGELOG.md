@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.28.2](https://github.com/HCDestroyer/iris/compare/v0.28.1...v0.28.2) (2026-11-18)
+
+
+### Correcciones
+
+* **integracion:** leer las cuentas bancarias de Argos con sus campos reales y solo las de la empresa ([#203](https://github.com/HCDestroyer/iris/issues/203)) ([99ee3ba](https://github.com/HCDestroyer/iris/commit/99ee3ba411bdd47a03bc888c37ebf08790e37fcf))
+* **mensajeria:** motivos claros cuando Argos rechaza una promesa ([#205](https://github.com/HCDestroyer/iris/issues/205)) ([eddd740](https://github.com/HCDestroyer/iris/commit/eddd740409bbd856ded1c5f178d975420e954a76))
+* **nucleo:** el flujo de la bandeja ya no se corta cada 60 s ([#208](https://github.com/HCDestroyer/iris/issues/208)) ([c8e21c1](https://github.com/HCDestroyer/iris/commit/c8e21c179f1f26d72cb7909e100ae9f4b67e7e14))
+
 ## [0.28.1](https://github.com/HCDestroyer/iris/compare/v0.28.0...v0.28.1) (2026-11-18)
 
 

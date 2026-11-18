@@ -150,6 +150,39 @@ to the server's `127.0.0.1`. Point the NPM Proxy Host (SSL certificate, "Force S
 Apache/nginx of the Iris server, and let that one proxy to `127.0.0.1:<IRIS_WEB_PUERTO>` as above.
 That is the chain on the PM's server: NPM → Apache (Virtualmin) → `127.0.0.1:53000`.
 
+Live updates (Server-Sent Events): `/api/v1/mensajeria/conversaciones/eventos` (conversations inbox)
+and `/api/v1/mensajeria/chat/eventos` (team chat) are long-lived streams (a heartbeat every 25 s, closed
+by Iris after 30 min; the browser reconnects). Behind your own proxy (Nginx Proxy Manager, nginx,
+Apache, Caddy) they need response buffering off and a long read timeout, or the panel shows
+"Sin conexión" again and again. These snippets were not tested in CI:
+
+```nginx
+# nginx, or Nginx Proxy Manager → Proxy Host → Advanced (before the general location /)
+location ~ ^/api/v1/mensajeria/(conversaciones|chat)/eventos$ {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_http_version 1.1;
+    proxy_buffering off;
+    proxy_read_timeout 3600s;
+}
+```
+
+```apache
+# Apache: before the general ProxyPass /
+ProxyPassMatch "^/api/v1/mensajeria/(conversaciones|chat)/eventos$" "http://127.0.0.1:3000/api/v1/mensajeria/$1/eventos" flushpackets=on timeout=3600
+```
+
+```caddyfile
+# Caddy: only the two event streams flush immediately; the rest keeps the default
+@eventos path_regexp eventos ^/api/v1/mensajeria/(conversaciones|chat)/eventos$
+reverse_proxy @eventos 127.0.0.1:3000 {
+    flush_interval -1
+}
+reverse_proxy 127.0.0.1:3000
+```
+
 Client IP: the API trusts `X-Forwarded-For` only from the panel's fixed IP (`IRIS_WEB_IP`). Never put
 the Docker network or its gateway in `IRIS_PROXIES_CONFIABLES` ([lab](lab.md), "IP del cliente").
 

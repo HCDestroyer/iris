@@ -107,9 +107,11 @@ Contrato completo (endpoints, payloads, SSE, reglas de la cola sin conexión):
   ese momento; si falla, se cierra. Topes: `ChatSSEPorUsuario` (5; el sexto, 429
   `demasiados_flujos`), `ChatSSEMax` (`IRIS_CHAT_SSE_MAX`, 1000; 503 `flujos_agotados`) y un
   semáforo de `ChatLecturas` (16) lecturas del feed a la vez. El flujo quita el ReadTimeout del
-  servidor y pone un plazo por escritura; el proxy de la API (`servidor.ProxyHacia`) solo en
-  `GET /api/v1/mensajeria/chat/eventos` usa un plazo de escritura móvil (60 s) y un máximo de 31 min,
-  y ReverseProxy copia cada evento sin búfer.
+  servidor y pone un plazo por escritura; el proxy de la API (`servidor.ProxyHacia`) solo en la
+  lista cerrada de flujos (`GET /api/v1/mensajeria/chat/eventos` y
+  `GET /api/v1/mensajeria/conversaciones/eventos`, rutas exactas, sin cuerpo ni escapes) usa un plazo de escritura móvil
+  (60 s) y un máximo de 31 min, y ReverseProxy copia cada evento sin búfer. Un flujo SSE nuevo debe
+  entrar en esa lista (`rutasFlujoSSE` en `nucleo/servidor/proxy.go`) o la API lo corta a los 60 s.
 - **Auditoría:** abrir una conversación nueva, enviar, eliminar y agregar un miembro, con los ids y
   nunca el texto. Listar, ver, leer, cambios y el flujo no dejan fila. Los logs no llevan cuerpos.
 - `Config`: `ChatPorMinuto` (30), `ChatPlazoEliminar` (15 min), `ChatLatido` (25 s),
@@ -188,8 +190,11 @@ Contrato completo: `.claude/integration/contratos/conversaciones.md`. Código en
   por teléfono con `GET /clientes?telefono=` (o la instantánea si Argos no responde); contactos
   propios de Iris (`mensajeria.contactos_iris`) que se unen a la ficha de Argos.
 - **Tiempo real:** feed `mensajeria.conv_eventos` + `NOTIFY iris_conversaciones` + SSE
-  (`GET /conversaciones/eventos`) y sondeo (`/conversaciones/cambios`), con los mismos topes y
-  revalidación que el chat; purga a los 7 días (`chat_estado.conv_purgados_hasta`).
+  (`GET /conversaciones/eventos`) y sondeo (`/conversaciones/cambios`), con los mismos topes (pero
+  en un difusor aparte del chat: 5 flujos de bandeja + 5 de chat por usuario y hasta
+  2 × `IRIS_CHAT_SSE_MAX` flujos por proceso),
+  plazos (latido de 25 s, cierre a los 30 min), revalidación y exención en el proxy de la API que el
+  chat; purga a los 7 días (`chat_estado.conv_purgados_hasta`).
 - **Auditoría:** cada acción; el texto de los mensajes y notas nunca (solo id, tipo y hash).
 
 Emite (detalle en `contratos/eventos.md`, «Conversaciones con clientes»): `conversacion.*`,
@@ -531,6 +536,28 @@ Emite `conversacion.categorizada`, `categoria.creada`, `categoria.actualizada` y
   `mensajeria.asistente_ofertas_visita`.
 - Eventos: `orden.creada` (origen `asistente`), `orden.programada`, `conversacion.vinculo_creado` y
   `asistente.accion_ejecutada` (`ofrecer_visita`, `agendar_visita`).
+
+### Resumen guardado de la conversación (§16.4, `asistente_sugerencias.go`)
+
+- **Qué hace:** `POST /conversaciones/{id}/resumen` genera el resumen y lo guarda en
+  `mensajeria.conversacion_resumenes` (uno vigente por conversación: quién lo pidió, cuándo, modelo y
+  hasta qué mensaje cubre); `GET` lo devuelve sin llamar al modelo, con `desactualizado` si llegaron
+  mensajes después. El detalle de la conversación trae `resumen` (sin el texto).
+- **Eventos que emite:** `conversacion.resumen_guardado` (nunca el texto). No consume ninguno.
+
+### El asistente por conversación: pausar y reanudar (§17.11, `asistente_pausa.go`)
+
+- **Qué hace:** `atencionAsistente` en cada conversación (si el asistente la atiende sola ahora y por
+  qué no) y las acciones `POST /conversaciones/{id}/asistente/pausar` y `…/reanudar` (permiso
+  `conversaciones.pausar_asistente`). La pausa vive en la conversación (`asistente_pausado_en`,
+  `_por`, `asistente_pausa_motivo`) y se quita al reanudar o al resolverse (trigger
+  `conv_asistente_estado`). «Reanudar» también le devuelve la conversación al asistente cuando una
+  persona la tomó o escribió (`asistente_reanudado_en`): nunca retoma solo.
+- **Honestidad de la bandeja:** `actividadAsistente` se borra cuando el asistente queda `detenido` y
+  al reabrirse; el temporizador del bot deja `bot_sin_respuesta` (no `bot_atendio`) si no le pudo
+  mandar nada al cliente.
+- **Eventos que emite:** `conversacion.asistente_pausado`, `conversacion.asistente_reanudado`;
+  `conversacion.bot_atendio` suma `respondio`. No consume ninguno.
 
 ## Voz, etapa E1: llamadas de WhatsApp contestadas en el panel
 

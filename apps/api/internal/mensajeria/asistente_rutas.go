@@ -112,10 +112,18 @@ func (m *Modulo) registrarAsistente(api huma.API) {
 		})
 	res := op("resumirConversacion", http.MethodPost, base+"/{id}/resumen", "Resumen de la conversación (ficha del cliente)", sug,
 		http.StatusOK, http.StatusNotFound, http.StatusTooManyRequests, http.StatusBadGateway)
-	res.Description += " Síncrono (hasta 90 s). Reserva y cuenta para el tope; no se guarda el texto. 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje`; " +
-		"429 `demasiados_pedidos`; 502 `proveedor_no_responde`, `proveedor_error`, `clave_invalida`, `proveedor_redirige`, `rechazo_modelo`."
+	res.Description += " Genera el resumen (o lo regenera) y lo **guarda en la conversación**, reemplazando al anterior. Síncrono (hasta 90 s). " +
+		"Reserva y cuenta para el tope. Para verlo sin gastar tokens: `GET` de esta misma ruta. 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje`; " +
+		"429 `demasiados_pedidos`; 502 `proveedor_no_responde`, `proveedor_error`, `clave_invalida`, `proveedor_redirige`, `rechazo_modelo` " +
+		"(si falla, el resumen anterior se conserva). Evento `conversacion.resumen_guardado` (sin el texto)."
 	huma.Register(api, res, func(ctx context.Context, in *idHTTP) (*cuerpo[ResumenConversacion], error) {
 		return responder(k.Resumen.Ejecutar(ctx, EntradaConversacion{ID: in.ID}))
+	})
+	verRes := op("verResumenConversacion", http.MethodGet, base+"/{id}/resumen", "El resumen guardado de la conversación", sug, http.StatusOK, http.StatusNotFound)
+	verRes.Description += " No llama al modelo ni gasta tokens. `desactualizado`: hay mensajes del hilo después de `hastaMensajeId` (`mensajesNuevos` dice cuántos). " +
+		"404 `sin_resumen` si nadie lo ha pedido (el detalle de la conversación trae `resumen` cuando existe, para no preguntar de más)."
+	huma.Register(api, verRes, func(ctx context.Context, in *EntradaConversacion) (*cuerpo[ResumenConversacion], error) {
+		return responder(k.VerResumen.Ejecutar(ctx, *in))
 	})
 	m.registrarAsistente3(api)
 }

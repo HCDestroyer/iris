@@ -163,12 +163,13 @@ type casosAsistente struct {
 	Modelos      *ModelosAsistente
 	Uso          *auditoria.Caso[EntradaUsoAsistente, UsoAsistente]
 
-	Pedir     *auditoria.Caso[EntradaPedirSugerencia, Sugerencia]
-	Actual    *auditoria.Caso[EntradaConversacion, Sugerencia]
-	Usar      *auditoria.Caso[EntradaSugerencia, Sugerencia]
-	Descartar *auditoria.Caso[EntradaSugerencia, Sugerencia]
-	Calificar *auditoria.Caso[EntradaCalificar, Sugerencia]
-	Resumen   *ResumirConversacion
+	Pedir      *auditoria.Caso[EntradaPedirSugerencia, Sugerencia]
+	Actual     *auditoria.Caso[EntradaConversacion, Sugerencia]
+	Usar       *auditoria.Caso[EntradaSugerencia, Sugerencia]
+	Descartar  *auditoria.Caso[EntradaSugerencia, Sugerencia]
+	Calificar  *auditoria.Caso[EntradaCalificar, Sugerencia]
+	Resumen    *ResumirConversacion
+	VerResumen *auditoria.Caso[EntradaConversacion, ResumenConversacion]
 
 	// Fase 3a (§17).
 	Categorias          *auditoria.Caso[EntradaListarCategoriasMensajes, ListaCategoriasMensajes]
@@ -177,10 +178,13 @@ type casosAsistente struct {
 	ActivarCategoria    *auditoria.Caso[EntradaCambioCategoriaMensajes, CategoriaMensajes]
 	DesactivarCategoria *auditoria.Caso[EntradaCambioCategoriaMensajes, CategoriaMensajes]
 	Categorizar         *auditoria.Caso[EntradaCategorizar, ConversacionClienteDetalle]
-	Efecto              *auditoria.Caso[EntradaUsoAsistente, EfectoAsistente]
-	ProbarMensaje       *ProbarMensaje
-	prepararClasif      *auditoria.Caso[int64, clasifPreparada]
-	guardarClasif       *auditoria.Caso[clasificacionModelo, struct{}]
+	// §17.11: pausar y reanudar el asistente en una conversación.
+	Pausar         *auditoria.Caso[EntradaPausarAsistente, ConversacionClienteDetalle]
+	Reanudar       *auditoria.Caso[EntradaAccionConv, ConversacionClienteDetalle]
+	Efecto         *auditoria.Caso[EntradaUsoAsistente, EfectoAsistente]
+	ProbarMensaje  *ProbarMensaje
+	prepararClasif *auditoria.Caso[int64, clasifPreparada]
+	guardarClasif  *auditoria.Caso[clasificacionModelo, struct{}]
 
 	// Fase 3b (§17.8): el asistente atiende solo.
 	prepararTurno         *auditoria.Caso[entradaTurno, turnoPreparado]
@@ -200,11 +204,12 @@ func nuevosCasosAsistente(m *Modulo) casosAsistente {
 		VerAjustes: nuevoVerAjustesAsistente(m), FijarAjustes: nuevoFijarAjustesAsistente(m), Estado: nuevoEstadoAsistente(m),
 		Probar: nuevoProbarAsistente(m), Modelos: nuevoModelosAsistente(m), Uso: nuevoUsoAsistente(m),
 		Pedir: nuevoPedirSugerencia(m), Actual: nuevoSugerenciaActual(m), Usar: nuevoUsarSugerencia(m),
-		Descartar: nuevoDescartarSugerencia(m), Calificar: nuevoCalificarSugerencia(m), Resumen: nuevoResumirConversacion(m),
+		Descartar: nuevoDescartarSugerencia(m), Calificar: nuevoCalificarSugerencia(m), Resumen: nuevoResumirConversacion(m), VerResumen: nuevoVerResumen(m),
 		Categorias: nuevoListarCategorias(m), CrearCategoria: nuevoCrearCategoria(m), ActualizarCategoria: nuevoActualizarCategoria(m),
 		ActivarCategoria:    nuevoCambioCategoria("mensajeria.asistente_activar_categoria", true),
 		DesactivarCategoria: nuevoCambioCategoria("mensajeria.asistente_desactivar_categoria", false),
 		Categorizar:         nuevoCategorizarConv(m), Efecto: nuevoEfectoAsistente(m), ProbarMensaje: nuevoProbarMensaje(m),
+		Pausar: nuevoPausarAsistente(m), Reanudar: nuevoReanudarAsistente(m),
 		prepararClasif: nuevoPrepararClasificacion(m), guardarClasif: nuevoGuardarClasificacion(m),
 		registrarVerificacion: nuevoRegistrarVerificacion(m),
 		prepararTurno:         nuevoPrepararTurno(m), terminarTurno: nuevoTerminarTurno(m), registrarAccion: nuevoRegistrarAccion(m),

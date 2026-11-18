@@ -1164,6 +1164,12 @@ a una conversación **sin asignar** sin aviso ni bot ya en curso en esta espera:
    evento de sistema `bot_atendio` (`detalle: "sin_disponibles"`): «Sin agentes disponibles:
    contestó el bot».
 
+**Si el bot no le pudo mandar nada al cliente en esa espera** (ni saludo ni menú: BAJA vigente o
+ventana de 24 h cerrada), el evento de sistema **no es** `bot_atendio` sino `bot_sin_respuesta` (mismo
+`detalle` y `minutos`): «Nadie la tomó en 30 min y el bot no pudo contestar (el cliente no acepta
+mensajes o pasaron 24 h)». El outbox `conversacion.bot_atendio` sale igual, con `respondio: false` y
+`mensaje_id: null`; `espera.botAtendio` queda `true` (el temporizador ya disparó).
+
 **Con el horario cerrado:** como hoy (§10.2: `fueraDeHorario.mensaje` una vez por ventana cerrada y
 la guardia), pero lo manda el bot: con el bot activo sale `conversacion.bot_atendio` con
 `motivo: fuera_de_horario` (además de `conversacion.fuera_de_horario`) y, si tiene menú, el menú va
@@ -1882,12 +1888,43 @@ quienes ven la conversación y tienen `conversaciones.sugerencias`.
 
 ### 16.4 Resumen de la conversación (ficha del cliente)
 
-`POST /conversaciones/{id}/resumen` (`conversaciones.sugerencias`) → 200
-`{ "texto": "…", "generadoEn": "…" }`. Síncrono (hasta 90 s; el panel muestra «Generando…»). Usa el
-historial (últimos 30, sin notas) y lo de Argos según `fuentes`. Reserva y cuenta para el tope; el
-uso se registra aunque quien lo pidió cierre la pantalla. No se guarda el texto. 422
-`asistente_inactivo`, `tope_alcanzado`, `sin_mensaje`; 429 `demasiados_pedidos`; 502
-`proveedor_no_responde` / `proveedor_error` / `clave_invalida` / `proveedor_redirige` / `rechazo_modelo`.
+**El resumen queda guardado en la conversación** (pedido del PM; antes se calculaba al vuelo y se
+perdía). Uno vigente por conversación, en `mensajeria.conversacion_resumenes`:
+
+```json
+{ "id": "0192…", "texto": "- El cliente reporta…", "generadoEn": "…",
+  "pedidoPor": { "id": 7, "nombre": "Andrea Castillo" },     // ausente si esa persona ya no existe
+  "proveedor": "anthropic", "modelo": "…",
+  "hastaMensajeId": "0192…",          // el último mensaje del hilo que cubre
+  "desactualizado": true, "mensajesNuevos": 2 }  // hay mensajes del hilo después (las notas no cuentan)
+```
+
+| Método y ruta | Notas |
+| --- | --- |
+| `POST /conversaciones/{id}/resumen` | **Genera o regenera** y guarda (reemplaza al vigente; los anteriores quedan en la tabla, sin mostrarse). 200 con la forma de arriba. Síncrono (hasta 90 s; el panel muestra «Generando…»). Usa el historial (últimos 30, sin notas) y lo de Argos según `fuentes`. Reserva y cuenta para el tope; el uso se registra y el resumen se guarda aunque quien lo pidió cierre la pantalla. Si falla, **el resumen anterior se conserva**. 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje`; 429 `demasiados_pedidos`; 502 `proveedor_no_responde` / `proveedor_error` / `clave_invalida` / `proveedor_redirige` / `rechazo_modelo` |
+| `GET /conversaciones/{id}/resumen` | El guardado, **sin llamar al modelo ni gastar tokens**. 404 `sin_resumen` si nadie lo ha pedido |
+
+Los dos con `conversaciones.sugerencias` y viendo la conversación (si no, 404). El **detalle** de la
+conversación (`GET /conversaciones/{id}` y la respuesta de cada acción) suma `resumen: { id,
+generadoEn, desactualizado, mensajesNuevos }` (ausente si no hay; **sin el texto**), para que el
+panel sepa si hay uno y si está al día sin preguntar de más. Al guardarse uno nuevo sale
+`conversacion_actualizada` por el flujo.
+
+- **Retención:** además del vigente se conservan, como mucho, los 5 resúmenes anteriores de la
+  conversación; al guardar uno nuevo se borran los más viejos.
+- **Desactualizado:** hay mensajes del cliente o respuestas (de una persona, del asistente o del
+  bot) con `seq` mayor que el de `hastaMensajeId`. No se regenera solo: lo decide una persona.
+- **Dónde vive el texto:** solo en esa tabla y en la respuesta de estas dos rutas (que no se guardan
+  en la idempotencia). Nunca en eventos, auditoría ni logs. Pasa por la misma redacción que el resto
+  (`RedactarParaIA`), máximo 3000 caracteres.
+- **Número prestado (§15.3):** el resumen es de la empresa que lo pidió; si la conversación pasa a
+  otra empresa, la nueva no lo ve (404 `sin_resumen`).
+- **De qué cliente y de qué atención.** El resumen guarda el cliente de la conversación cuando se
+  generó. Deja de ser el vigente (404 `sin_resumen`, `resumen` ausente en el detalle) si la
+  conversación **se asocia a otro cliente o se desasocia** (se armó con los datos del anterior), y
+  cuando la conversación **se reabre** (empieza una atención nueva; resuelta y sin reabrir se sigue
+  viendo). Se comprueba al leer, así vale por cualquier camino. La fila no se borra (entra en la
+  retención de arriba) y será la del episodio en la propuesta D2 (`.claude/integration/i2.md`).
 
 ### 16.5 Permisos nuevos
 
@@ -2201,6 +2238,10 @@ traslado» (`aviso`, `sugiere`) y «Otro» (`neutro`, `sugiere`, `esOtro: true`)
   `reconexion_pedida`, `espera_persona` («Espera a una persona»).
 - `asistente` **(3b)**: `estado` `atendiendo` | `espera_persona` | `detenido` (una persona tomó o
   escribió) y `turnos`.
+- `actividadAsistente` **se borra** cuando el asistente queda `detenido` (una persona la tomó, le
+  escribió al cliente o lo pausó) y cuando la conversación se reabre: nunca queda «Respondió al
+  cliente» en una conversación que el asistente ya no contesta. Si el asistente atiende ahora y por
+  qué no lo dice `atencionAsistente` (§17.11).
 - `MensajeConversacion` suma `autorTipo`: `cliente` (entrante) | `persona` | `asistente_ia` |
   `sistema` (mensajes de sistema, bot, fuera de horario). **(3b)** los mensajes del asistente llevan
   `autorTipo: "asistente_ia"`, `automatico: "asistente"` y `autor` ausente; `UltimoMensajeResumen`
@@ -2318,7 +2359,9 @@ herramienta_fallo|max_turnos|persona_presente|tope`, cola_id, turnos).
 - **Idempotencia:** clave por conversación y mensaje; un job duplicado no envía dos veces ni crea
   dos tickets.
 - **Persona presente:** si un agente toma la conversación o escribe, el asistente se detiene ahí
-  hasta que se resuelva o se reabra sin asignar.
+  hasta que se resuelva o se reabra sin asignar, **también si el agente después se quita la
+  asignación**: no retoma solo. Para devolvérsela está `POST …/asistente/reanudar` (§17.11), y
+  `atencionAsistente.motivo = persona_presente` lo dice mientras tanto.
 - **Pasar a persona** (siempre activo): el cliente lo pide, muestra enojo, no hay con qué responder,
   falla una herramienta o se llega a `maxTurnos`. Queda en la cola de su categoría con una nota
   interna que resume lo hecho.
@@ -2648,3 +2691,107 @@ Eventos: `orden.creada` con `origen: "asistente"` (valor nuevo), `orden.programa
 `perfiles[].exigeVerificacionFuerte.agendar_visita`. El interruptor `agendar_visita` deja de decir
 «Próximamente». En el hilo sale el mensaje de sistema `orden_creada`; la orden trae `origen:
 "asistente"` en campo.
+
+### 17.11 El asistente por conversación: ¿atiende ahora?, pausar y reanudar
+
+Lo implementa I2 en `asistente_pausa.go`. Responde a dos reportes del PM con el asistente atendiendo
+solo: (A1) una persona toma la conversación y después se quita la asignación, y la bandeja seguía
+diciendo que el asistente «respondió» aunque ya no contesta; (A2) no había cómo ver ni decidir, por
+conversación, que el asistente no conteste.
+
+**Qué pasaba (A1).** El comportamiento de §17.8 es el correcto y no cambia: cuando una persona toma
+la conversación o le escribe al cliente, el asistente queda `detenido` hasta que se resuelva, aunque
+la persona se quite la asignación. Lo que mentía era el indicador: `actividadAsistente` («Respondió
+al cliente») se quedaba en la fila de la bandeja para siempre, y nada decía que el asistente ya no
+atendía. Ahora esa línea se borra al detenerse (§17.4), la conversación dice por qué no atiende y
+una persona puede devolvérsela con `reanudar`.
+
+**Campo de lectura** en `ConversacionCliente` (lista, detalle y feed):
+
+```json
+"atencionAsistente": {
+  "atiende": false,
+  "motivo": "pausado",          // null con atiende = true
+  "reanudable": true,           // «Reanudar» cambia algo
+  "pausa": { "por": { "id": 7, "nombre": "Andrea Castillo" }, "en": "…", "motivo": "caso_delicado" }  // ausente: sin pausa
+}
+```
+
+- **Ausente** si la conversación está resuelta o es de solo lectura, o si la empresa no tiene el
+  asistente atendiendo solo (inactivo o `modoAutonomo: nunca`) y nadie lo pausó en esta conversación:
+  no hay nada que pintar.
+- `atiende: true`: nada **en la conversación** le impide contestar solo el próximo mensaje del
+  cliente. Cada mensaje pasa todavía por las reglas del turno (categoría del mensaje y su condición,
+  límites por hora, presupuesto, y en `sin_nadie` la espera a los agentes en línea); si entonces no
+  puede y ya estaba atendiendo, pasa a una persona y queda `espera_persona` con su `motivoPaso`.
+- `atiende: false` → `motivo`, el **primero** que aplica:
+
+| `motivo` | Qué pasa | `reanudable` |
+| --- | --- | --- |
+| `pausado` | Alguien lo pausó en esta conversación (`pausa` dice quién, cuándo y por qué) | sí |
+| `persona_asignada` | La tiene una persona | no (sí, si además hay pausa) |
+| `persona_presente` | Una persona la tomó o le escribió al cliente en este periodo, y ya no la tiene nadie. **Nadie la está atendiendo:** el asistente no retoma solo | sí |
+| `espera_persona` | El asistente la pasó a una persona (`asistente.motivoPaso` dice por qué) | sí |
+| `tope` | La empresa llegó al tope de tokens del mes | no |
+| `bot` | La tomó el bot de menú (§14.6) | no |
+| `categoria_sugiere` | La categoría de la conversación no está en «responde solo» | no |
+| `horario_solo_sugiere` | La franja vigente del horario de la cola dice «solo sugerir» | no |
+
+**Acciones** (permiso nuevo `conversaciones.pausar_asistente` para las dos: `despacho`, `soporte`,
+`ventas`, `supervisor`, `admin`; exigen ver la conversación —si no, 404—, `version` con 409
+`conflicto_version` y aceptan `Idempotency-Key`). Devuelven el detalle de la conversación.
+
+| Método y ruta | Cuerpo | Notas |
+| --- | --- | --- |
+| `POST /conversaciones/{id}/asistente/pausar` | `{ version, motivo? }` | `motivo`: `manual` (por defecto) \| `caso_delicado` \| `respuesta_incorrecta` \| `cliente_lo_pidio` (422 si es otro). Vale **aunque nadie la tenga asignada**. Si el asistente atendía queda `detenido` y el turno en curso no envía nada. Repetirla: 200 sin cambios ni evento. 422 `conversacion_resuelta` |
+| `POST /conversaciones/{id}/asistente/reanudar` | `{ version }` | Quita la pausa y, si el asistente estaba `detenido` o en `espera_persona` (o una persona había escrito), **vuelve a poder atender**: `asistente` queda ausente hasta su próximo turno, conserva sus turnos y no se presenta otra vez. Si el cliente está esperando una respuesta y nadie la tiene, contesta ese mensaje enseguida (~segundos); ver «Qué contesta al reanudar». Con una persona asignada no contesta hasta que la suelte. Sin nada que reanudar: 200 sin cambios ni evento. 422 `conversacion_resuelta` |
+
+**Decisiones (I2; el líder las confirma con el PM).**
+- **Pausado = el asistente no le contesta solo al cliente en esa conversación.** Las **sugerencias
+  al agente siguen** (botón y automáticas) y la clasificación también: no llegan al cliente.
+- **La pausa dura hasta que alguien la reanude o la conversación se resuelva.** Al resolverse se
+  quita (como el resto del estado del asistente, §17.8.1); al reabrirse la conversación vuelve al
+  comportamiento de la empresa. No hay evento propio al quitarse por resolver: lo dice
+  `conversacion.resuelta`.
+- **Al quitarse la asignación el asistente no retoma solo.** Es lo que dice §17.8 y es lo prudente:
+  la persona pudo haber prometido algo que el asistente no sabe. Quien la suelta decide: «Reanudar»
+  se la devuelve. *Propuesta para el PM:* que el panel, al quitar la asignación de una conversación
+  que el asistente atendía, pregunte «¿Que la siga atendiendo el asistente?» (es `asignar` +
+  `reanudar`; no hace falta más servidor).
+- **Con el asistente en pausa el bot de menú no espera a la clasificación:** corre enseguida, como
+  en una empresa sin modo autónomo.
+
+**Qué contesta al reanudar (revisión de seguridad).**
+- **Solo un mensaje del cliente que nadie contestó.** Reanudar programa un turno únicamente si la
+  conversación está `abierta`, sin asignar, y lo último que se dijeron el cliente y quien lo atiende
+  es un mensaje **del cliente y de este periodo** (el saludo del bot y la respuesta de fuera de
+  horario no cuentan como respuesta). Si una persona ya le contestó, o el último mensaje del cliente
+  es de antes de resolverse, reanudar **no contesta nada**: el asistente espera al siguiente mensaje.
+  El turno lo vuelve a comprobar: nunca contesta un mensaje después del cual ya escribió una persona
+  (no repite un ticket o una boleta ni la contradice).
+- **Sin saltarse los límites.** Una pausa descarta el turno en curso con motivo `pausado`. Al
+  reanudar, el turno de ese mensaje se reabre **como mucho una vez** (`asistente_turnos.reaperturas`)
+  y pasa otra vez por los límites por hora y por `maxTurnos`. Si lo vuelven a pausar a mitad, ya no
+  revive: ese mensaje lo contesta una persona (la conversación queda `abierta`, con su SLA).
+- **Pausar y reanudar mientras el asistente escribe.** Lo que estaba generando no se envía; el mismo
+  job corre el turno otra vez con la conversación como quedó. Si el job no se puede encolar porque ya
+  corre otro (es único por conversación), el turno queda pendiente y el mantenimiento lo reencola.
+  Un turno pendiente al que al final no le toca al asistente (categoría en «sugiere», tope…) se
+  cierra como `descartado` / `no_aplica`.
+- **Otra empresa.** Reanudar no revive un turno de otra empresa (número prestado) ni de un periodo
+  anterior. Los tokens de un turno se cuentan siempre a la empresa que hizo la llamada, aunque la
+  conversación haya cambiado de empresa mientras corría.
+- **Reanudar después de que el cliente pidió una persona** (`motivoPaso` `cliente_lo_pidio` o
+  `enojo`): lo puede hacer cualquier rol con el permiso (decisión del líder; el PM puede cambiarla).
+  Queda auditado: la auditoría y el evento llevan `motivo_paso` y `pausa_motivo_anterior`. El panel
+  debe avisarlo antes de reanudar. El mensaje en el que lo pidió ya tuvo su turno: no se contesta.
+
+**En el hilo.** Mensajes de sistema `asistente_pausado` (`actorNombre`, `detalle` = motivo de la
+pausa) y `asistente_reanudado` (`actorNombre`, `detalle` = de dónde venía: `pausado` |
+`persona_presente` | `espera_persona`).
+
+**Auditoría y eventos (outbox; nunca texto).** Acciones `conversaciones.pausar_asistente` y
+`conversaciones.reanudar_asistente`. Eventos `conversacion.asistente_pausado` (conversacion_id,
+empresa_id, actor_id, motivo, atendia, asignado_a) y `conversacion.asistente_reanudado`
+(conversacion_id, empresa_id, actor_id, de, motivo_paso, pausa_motivo_anterior, asignado_a). Detalle en `contratos/eventos.md`.
+

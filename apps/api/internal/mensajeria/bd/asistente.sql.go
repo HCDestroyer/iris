@@ -721,6 +721,67 @@ func (q *Queries) InsertarReserva(ctx context.Context, arg InsertarReservaParams
 	return err
 }
 
+const insertarResumenConversacion = `-- name: InsertarResumenConversacion :one
+INSERT INTO mensajeria.conversacion_resumenes (id, empresa_id, conversacion_id, cliente_id, texto, pedido_por, proveedor, modelo, hasta_mensaje_id, hasta_seq,
+    tokens_entrada, tokens_salida, generado_en)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+    $11, $12, $13)
+RETURNING id, empresa_id, conversacion_id, cliente_id, texto, pedido_por, proveedor, modelo, hasta_mensaje_id, hasta_seq, tokens_entrada, tokens_salida, vigente, generado_en, created_at
+`
+
+type InsertarResumenConversacionParams struct {
+	ID             uuid.UUID
+	EmpresaID      *int64
+	ConversacionID int64
+	ClienteID      *int64
+	Texto          string
+	PedidoPor      *int64
+	Proveedor      string
+	Modelo         string
+	HastaMensajeID uuid.UUID
+	HastaSeq       int64
+	TokensEntrada  int64
+	TokensSalida   int64
+	GeneradoEn     time.Time
+}
+
+func (q *Queries) InsertarResumenConversacion(ctx context.Context, arg InsertarResumenConversacionParams) (MensajeriaConversacionResumene, error) {
+	row := q.db.QueryRow(ctx, insertarResumenConversacion,
+		arg.ID,
+		arg.EmpresaID,
+		arg.ConversacionID,
+		arg.ClienteID,
+		arg.Texto,
+		arg.PedidoPor,
+		arg.Proveedor,
+		arg.Modelo,
+		arg.HastaMensajeID,
+		arg.HastaSeq,
+		arg.TokensEntrada,
+		arg.TokensSalida,
+		arg.GeneradoEn,
+	)
+	var i MensajeriaConversacionResumene
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.ConversacionID,
+		&i.ClienteID,
+		&i.Texto,
+		&i.PedidoPor,
+		&i.Proveedor,
+		&i.Modelo,
+		&i.HastaMensajeID,
+		&i.HastaSeq,
+		&i.TokensEntrada,
+		&i.TokensSalida,
+		&i.Vigente,
+		&i.GeneradoEn,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const insertarSugerencia = `-- name: InsertarSugerencia :one
 
 INSERT INTO mensajeria.sugerencias (id, empresa_id, conversacion_id, para_mensaje_id, estado, origen, pedida_por, created_at, updated_at)
@@ -936,6 +997,29 @@ func (q *Queries) PurgarPedidosAsistente(ctx context.Context, antes time.Time) e
 	return err
 }
 
+const purgarResumenesAnteriores = `-- name: PurgarResumenesAnteriores :exec
+DELETE FROM mensajeria.conversacion_resumenes r
+WHERE r.conversacion_id = $1 AND NOT r.vigente AND r.id NOT IN (
+    SELECT a.id FROM mensajeria.conversacion_resumenes a
+    WHERE a.conversacion_id = $1 AND NOT a.vigente
+    ORDER BY a.generado_en DESC, a.id DESC LIMIT 5)
+`
+
+// Retención: además del vigente se conservan, como mucho, los 5 anteriores de la conversación.
+func (q *Queries) PurgarResumenesAnteriores(ctx context.Context, conversacionID int64) error {
+	_, err := q.db.Exec(ctx, purgarResumenesAnteriores, conversacionID)
+	return err
+}
+
+const quitarResumenVigente = `-- name: QuitarResumenVigente :exec
+UPDATE mensajeria.conversacion_resumenes SET vigente = false WHERE conversacion_id = $1 AND vigente
+`
+
+func (q *Queries) QuitarResumenVigente(ctx context.Context, conversacionID int64) error {
+	_, err := q.db.Exec(ctx, quitarResumenVigente, conversacionID)
+	return err
+}
+
 const reservarTokens = `-- name: ReservarTokens :one
 UPDATE mensajeria.asistente_uso
 SET tokens_reservados = tokens_reservados + $1::bigint, updated_at = now()
@@ -986,6 +1070,73 @@ func (q *Queries) ReservasHuerfanas(ctx context.Context, antes time.Time) ([]uui
 		return nil, err
 	}
 	return items, nil
+}
+
+const resumenVigente = `-- name: ResumenVigente :one
+SELECT r.id, r.empresa_id, r.conversacion_id, r.cliente_id, r.texto, r.pedido_por, r.proveedor, r.modelo, r.hasta_mensaje_id, r.hasta_seq, r.tokens_entrada, r.tokens_salida, r.vigente, r.generado_en, r.created_at, u.nombre AS pedido_por_nombre,
+    (SELECT count(*) FROM mensajeria.conversacion_mensajes m
+     WHERE m.conversacion_id = r.conversacion_id AND m.direccion IN ('entrante', 'saliente') AND m.seq > r.hasta_seq)::bigint AS mensajes_nuevos
+FROM mensajeria.conversacion_resumenes r
+JOIN mensajeria.conversaciones c ON c.id = r.conversacion_id
+LEFT JOIN nucleo.usuarios u ON u.id = r.pedido_por
+WHERE r.conversacion_id = $1 AND r.vigente AND coalesce(r.empresa_id, 0) = $2::bigint
+  AND r.cliente_id IS NOT DISTINCT FROM c.cliente_id
+  AND r.generado_en >= coalesce(c.reabierta_en, '-infinity')
+`
+
+type ResumenVigenteParams struct {
+	ConversacionID int64
+	Empresa        int64
+}
+
+type ResumenVigenteRow struct {
+	ID              uuid.UUID
+	EmpresaID       *int64
+	ConversacionID  int64
+	ClienteID       *int64
+	Texto           string
+	PedidoPor       *int64
+	Proveedor       string
+	Modelo          string
+	HastaMensajeID  uuid.UUID
+	HastaSeq        int64
+	TokensEntrada   int64
+	TokensSalida    int64
+	Vigente         bool
+	GeneradoEn      time.Time
+	CreatedAt       time.Time
+	PedidoPorNombre *string
+	MensajesNuevos  int64
+}
+
+// El resumen guardado de la conversación para su empresa de hoy (un número prestado nunca muestra el
+// de otra empresa), con quién lo pidió y cuántos mensajes del hilo llegaron después. Solo vale el del
+// mismo cliente (si la conversación se asoció a otro o se desasoció, se armó con datos del anterior) y
+// el de este periodo (al reabrirse empieza una atención nueva). Se comprueba al leer, así vale por
+// cualquier camino que cambie el cliente o reabra la conversación.
+func (q *Queries) ResumenVigente(ctx context.Context, arg ResumenVigenteParams) (ResumenVigenteRow, error) {
+	row := q.db.QueryRow(ctx, resumenVigente, arg.ConversacionID, arg.Empresa)
+	var i ResumenVigenteRow
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.ConversacionID,
+		&i.ClienteID,
+		&i.Texto,
+		&i.PedidoPor,
+		&i.Proveedor,
+		&i.Modelo,
+		&i.HastaMensajeID,
+		&i.HastaSeq,
+		&i.TokensEntrada,
+		&i.TokensSalida,
+		&i.Vigente,
+		&i.GeneradoEn,
+		&i.CreatedAt,
+		&i.PedidoPorNombre,
+		&i.MensajesNuevos,
+	)
+	return i, err
 }
 
 const serviciosClienteAsistente = `-- name: ServiciosClienteAsistente :many
@@ -1318,6 +1469,27 @@ func (q *Queries) UltimoEntranteConv(ctx context.Context, conversacionID int64) 
 	row := q.db.QueryRow(ctx, ultimoEntranteConv, conversacionID)
 	var i UltimoEntranteConvRow
 	err := row.Scan(&i.ID, &i.Texto, &i.CreadoEn)
+	return i, err
+}
+
+const ultimoMensajeHilo = `-- name: UltimoMensajeHilo :one
+
+SELECT id, seq FROM mensajeria.conversacion_mensajes
+WHERE conversacion_id = $1 AND direccion IN ('entrante', 'saliente')
+ORDER BY seq DESC LIMIT 1
+`
+
+type UltimoMensajeHiloRow struct {
+	ID  uuid.UUID
+	Seq int64
+}
+
+// Resumen guardado de la conversación (§16.4) ------------------------------------------------------
+// El último mensaje del hilo con el cliente (sin notas ni mensajes de sistema): hasta dónde cubre un resumen.
+func (q *Queries) UltimoMensajeHilo(ctx context.Context, conversacionID int64) (UltimoMensajeHiloRow, error) {
+	row := q.db.QueryRow(ctx, ultimoMensajeHilo, conversacionID)
+	var i UltimoMensajeHiloRow
+	err := row.Scan(&i.ID, &i.Seq)
 	return i, err
 }
 

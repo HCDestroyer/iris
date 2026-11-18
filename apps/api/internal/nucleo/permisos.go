@@ -338,6 +338,9 @@ const (
 	PermConversacionesEtiquetar Permiso = "conversaciones.etiquetar"
 	// PermConversacionesCategorizar: corregir la categoría que el asistente le puso a una conversación.
 	PermConversacionesCategorizar Permiso = "conversaciones.categorizar"
+	// PermConversacionesPausarAsistente: pausar y reanudar el asistente de IA en una conversación
+	// (contratos/conversaciones.md §17.11).
+	PermConversacionesPausarAsistente Permiso = "conversaciones.pausar_asistente"
 	// PermConversacionesResolver: resolver y reabrir.
 	PermConversacionesResolver Permiso = "conversaciones.resolver"
 	// PermConversacionesAsociar: asociar a un cliente de Argos y administrar contactos de Iris.
@@ -470,6 +473,7 @@ var Catalogo = []DefPermiso{
 	{PermConversacionesEtiquetar, "Poner y quitar etiquetas a una conversación"},
 	{PermConversacionesIniciar, "Escribir primero por WhatsApp, con una plantilla aprobada, a un cliente o contacto con permiso de contacto desde un número de tus colas"},
 	{PermConversacionesPasar, "Pasar la conversación que tienes a un compañero de la misma cola, con una nota interna"},
+	{PermConversacionesPausarAsistente, "Pausar y reanudar el asistente de IA en una conversación (mientras está en pausa no le contesta solo al cliente)"},
 	{PermConversacionesPedirReconexion, "Pedir a Argos una reconexión temporal mientras caja revisa la boleta del cliente (Argos decide)"},
 	{PermConversacionesRegistrarBoleta, "Mandar a Argos la boleta de pago que envió el cliente por WhatsApp (caja la aprueba en Argos)"},
 	{PermConversacionesRegistrarPromesa, "Simular y pedir a Argos una promesa de pago desde una conversación (Argos decide)"},
@@ -645,7 +649,7 @@ var permisosRutas = []Permiso{PermRutasVer, PermRutasProponer, PermRutasPublicar
 // permisosAtencion son los de atender conversaciones con clientes (despacho, ventas, soporte y
 // supervisor); cada rol suma los suyos (contratos/conversaciones.md §4).
 var permisosAtencion = []Permiso{PermConversacionesVer, PermConversacionesResponder, PermConversacionesTomar, PermConversacionesPasar,
-	PermConversacionesEtiquetar, PermConversacionesCategorizar, PermConversacionesResolver, PermManualesVer, PermConversacionesSugerencias, PermIntegracionesAbrirArgos,
+	PermConversacionesEtiquetar, PermConversacionesCategorizar, PermConversacionesPausarAsistente, PermConversacionesResolver, PermManualesVer, PermConversacionesSugerencias, PermIntegracionesAbrirArgos,
 	// Llamadas de WhatsApp en el panel (contratos/voz.md §8.2).
 	PermLlamadasVer, PermLlamadasContestar, PermLlamadasRechazar, PermLlamadasColgar, PermLlamadasAnotar}
 
