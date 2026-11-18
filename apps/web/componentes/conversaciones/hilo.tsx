@@ -1,7 +1,7 @@
 "use client";
 
 import { Boton, Cargando, cn } from "@iris/ui";
-import { AlertTriangle, ArrowDown, ArrowLeftRight, Bot, FileText, History, MapPin, MessageCircle, Paperclip, PencilLine, PhoneCall, Plug, RotateCw, ShieldCheck, ShieldX, Smartphone, Sparkles, Timer, UserRound, Voicemail } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowLeftRight, Bot, CirclePause, FileText, History, MapPin, MessageCircle, Paperclip, PencilLine, PhoneCall, Plug, RotateCw, ShieldCheck, ShieldX, Smartphone, Sparkles, Timer, UserRound, Voicemail } from "lucide-react";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Pendiente } from "@/lib/conversaciones/estado";
 import { hora, separadorDia, tamanoLegible, textoEntrega, textoEvento } from "@/lib/conversaciones/presentacion";
@@ -218,8 +218,12 @@ function Burbuja({ m }: { m: Mensaje }) {
         const tipo = m.evento?.tipo ?? "";
         const bot = esEventoBot(tipo);
         const Icono =
-            tipo === "bot_atendio" || tipo === "menu_elegido"
+            tipo === "bot_atendio" || tipo === "menu_elegido" || tipo === "bot_sin_respuesta"
                 ? Bot
+                : tipo === "asistente_pausado"
+                  ? CirclePause
+                  : tipo === "asistente_reanudado"
+                    ? Sparkles
                 : tipo === "aviso_sin_atender"
                   ? Timer
                   : tipo === "pasada"
@@ -234,8 +238,10 @@ function Burbuja({ m }: { m: Mensaje }) {
         return (
             <p
                 className={cn(
-                    "flex max-w-full min-w-0 items-center gap-1.5 self-center rounded-full px-2.5 py-0.5 text-xs",
-                    tipo === "bot_atendio" ? "border border-info/30 bg-info/10 text-info" : "bg-elevated text-muted-foreground",
+                    "flex max-w-full min-w-0 items-center gap-1.5 self-center px-2.5 py-0.5 text-xs",
+                    tipo === "bot_sin_respuesta" ? "rounded-xl" : "rounded-full",
+                    // El bot contestó (información) o no pudo (aviso: el cliente sigue sin respuesta).
+                    tipo === "bot_atendio" ? "border border-info/30 bg-info/10 text-info" : tipo === "bot_sin_respuesta" ? "border border-warning/40 bg-warning/10 text-warning" : "bg-elevated text-muted-foreground",
                 )}
                 data-mensaje={m.id}
                 data-evento={tipo || undefined}
@@ -243,7 +249,8 @@ function Burbuja({ m }: { m: Mensaje }) {
                 data-bot={bot || undefined}
             >
                 <Icono aria-hidden className="size-3.5 shrink-0" />
-                <span className="truncate">{m.evento ? textoEvento(m.evento) : (m.texto ?? "")}</span>
+                {/* Lo que pide actuar se lee entero (en el teléfono no cabe en una línea). */}
+                <span className={tipo === "bot_sin_respuesta" ? "min-w-0 [overflow-wrap:anywhere]" : "truncate"}>{m.evento ? textoEvento(m.evento) : (m.texto ?? "")}</span>
                 <span className="shrink-0 tabular-nums">· {hora(m.creadoEn)}</span>
             </p>
         );

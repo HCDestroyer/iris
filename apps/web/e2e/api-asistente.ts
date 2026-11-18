@@ -48,6 +48,8 @@ export type OpcionesAsistente = {
     conflicto?: boolean;
     ajustes?: Partial<AjustesAsistente>;
     resumen?: "ok" | "error";
+    /** La conversación 41 ya tiene un resumen guardado (§16.4): viene en el detalle y `GET …/resumen` lo devuelve. */
+    resumenGuardado?: Partial<Schema<"ResumenConversacion">>;
     /** El primer pedido responde 429 con `Retry-After: 5` (`demasiados_pedidos` o, al pedir sugerencia, `demasiadas_sugerencias`). */
     limite429?: "sugerencia" | "resumen";
     /** La conversación pasó a otra empresa (§15.3): `…/sugerencias/actual` y las acciones responden 404. */
@@ -219,6 +221,27 @@ export function apiAsistente(e: Contexto, opcionesDadas: OpcionesAsistente | und
         };
     }
 
+    // §16.4: el resumen guardado de cada conversación.
+    const resumenes = new Map<number, Schema<"ResumenConversacion">>();
+    let numeroResumen = 0;
+    if (opciones.resumenGuardado) {
+        const guardado: Schema<"ResumenConversacion"> = {
+            id: "0199e5a0-0000-7000-8000-0000000000aa",
+            texto: "Sin internet desde las 7; hay una falla en su zona y ya se le avisó. Tiene el ticket TK-004812 abierto.",
+            generadoEn: ahora(),
+            hastaMensajeId: "0193a000-0000-7000-8000-000000000001",
+            modelo: "qwen3:32b",
+            proveedor: "ollama",
+            pedidoPor: { id: 2, nombre: "Andrea Castillo" },
+            desactualizado: false,
+            mensajesNuevos: 0,
+            ...opciones.resumenGuardado,
+        };
+        resumenes.set(41, guardado);
+        const c = e.conversaciones.find((x) => x.id === 41) as { resumen?: Schema<"ResumenGuardadoRef"> } | undefined;
+        if (c) c.resumen = { id: guardado.id, generadoEn: guardado.generadoEn, desactualizado: guardado.desactualizado, mensajesNuevos: guardado.mensajesNuevos };
+    }
+
     async function manejar(x: { route: Route; metodo: string; ruta: string; query: URLSearchParams; cuerpo: Record<string, unknown>; idempotencia: string | undefined; puede: (p: Permiso) => boolean }): Promise<boolean> {
         const { route, metodo, ruta, cuerpo, puede, idempotencia } = x;
         const prohibido = async () => (await problema(route, P("permiso_denegado", 403, "Sin permiso")), true);
@@ -310,6 +333,14 @@ export function apiAsistente(e: Contexto, opcionesDadas: OpcionesAsistente | und
         }
 
         const conv = /^\/api\/v1\/mensajeria\/conversaciones\/(\d+)\/(sugerencias|sugerencias\/actual|resumen)$/.exec(ruta);
+        if (conv && conv[2] === "resumen" && metodo === "GET") {
+            if (!puede(PERMISO_SUGERENCIAS)) return prohibido();
+            const guardado = resumenes.get(Number(conv[1]));
+            // Lo que cambia sin regenerar (mensajes nuevos) lo dice la referencia del detalle.
+            const ref = e.conversaciones.find((c) => c.id === Number(conv[1])) as { resumen?: Schema<"ResumenGuardadoRef"> } | undefined;
+            if (!guardado || !ref?.resumen) return (await problema(route, P("sin_resumen", 404, "No hay resumen")), true);
+            return (await json(route, { ...guardado, desactualizado: ref.resumen.desactualizado, mensajesNuevos: ref.resumen.mensajesNuevos }), true);
+        }
         if (!conv) return false;
         if (!puede(PERMISO_SUGERENCIAS)) return prohibido();
         const id = Number(conv[1]);
@@ -344,7 +375,26 @@ export function apiAsistente(e: Contexto, opcionesDadas: OpcionesAsistente | und
             }
             await new Promise((r) => setTimeout(r, 300));
             if (opciones.resumen === "error") return (await problema(route, P("proveedor_no_responde", 502, "El proveedor no respondió", { detail: "El servidor de IA no respondió a tiempo" })), true);
-            return (await json(route, { texto: "Cliente sin internet desde la mañana; ya reinició el módem. Hay una falla abierta en su zona. Primera vez que escribe este mes.", generadoEn: ahora() }), true);
+            // §16.4: se guarda en la conversación (reemplaza al anterior) y devuelve la forma completa.
+            numeroResumen += 1;
+            const nuevo: Schema<"ResumenConversacion"> = {
+                id: `0199e5a0-0000-7000-8000-${String(numeroResumen).padStart(12, "0")}`,
+                texto:
+                    numeroResumen === 1
+                        ? "Cliente sin internet desde la mañana; ya reinició el módem. Hay una falla abierta en su zona. Primera vez que escribe este mes."
+                        : "Sigue sin internet tras reiniciar el módem; se le ofreció visita técnica para hoy por la tarde.",
+                generadoEn: ahora(),
+                hastaMensajeId: "0193a000-0000-7000-8000-000000000001",
+                modelo: "qwen3:32b",
+                proveedor: "ollama",
+                pedidoPor: { id: 1, nombre: "Ana López" },
+                desactualizado: false,
+                mensajesNuevos: 0,
+            };
+            resumenes.set(id, nuevo);
+            const c = e.conversaciones.find((x) => x.id === id) as { resumen?: Schema<"ResumenGuardadoRef"> } | undefined;
+            if (c) c.resumen = { id: nuevo.id, generadoEn: nuevo.generadoEn, desactualizado: false, mensajesNuevos: 0 };
+            return (await json(route, nuevo), true);
         }
         return false;
     }

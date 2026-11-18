@@ -387,7 +387,7 @@ export type ApiFalsa = {
     /** Pedido B3: boletas, decisiones recibidas y enlaces a Argos pedidos. */
     pagos: Pick<ApiPagos, "boletas" | "decisiones" | "aperturas" | "rechazadasPorSesion">;
     /** Bandeja de conversaciones: conversaciones, mensajes, lo enviado y mensajes del cliente. */
-    conversaciones: Pick<ApiConversaciones, "conversaciones" | "etiquetas" | "mensajes" | "enviados" | "mensajeDelCliente" | "horarios" | "manuales" | "canales" | "configurados" | "respuestas" | "colas" | "agentes" | "bandeja11" | "asistente" | "fase3">;
+    conversaciones: Pick<ApiConversaciones, "conversaciones" | "emitirEvento" | "etiquetas" | "mensajes" | "enviados" | "mensajeDelCliente" | "horarios" | "manuales" | "canales" | "configurados" | "respuestas" | "colas" | "agentes" | "bandeja11" | "asistente" | "fase3">;
     /** Chat del equipo (solo con `chat: true`). */
     chat: ApiChatPanel | null;
     /** Voz E1: llamadas, devoluciones y lo que recibió el servidor (solo con `voz`). */

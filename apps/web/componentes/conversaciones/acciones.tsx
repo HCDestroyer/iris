@@ -1,5 +1,8 @@
 "use client";
 
+import { pausarAsistente, reanudarAsistente } from "@/lib/asistente/api";
+import { accionDeMenu, ofrecerQueSigaElAsistente, pideConfirmarReanudar, sePuedeReanudar } from "@/lib/asistente/atencion";
+import { PERMISO_PAUSAR_ASISTENTE } from "@/lib/asistente/permisos";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
     Aviso,
@@ -24,7 +27,7 @@ import {
     MenuDesplegableSeparador,
     useCambiosSinGuardar,
 } from "@iris/ui";
-import { ArrowLeftRight, AtSign, BookOpen, Building2, Check, ChevronDown, Ellipsis, LifeBuoy, Lock, RotateCcw, RotateCw, Tag, Unlink, User, UserCheck, UserMinus, UserPlus, X } from "lucide-react";
+import { CirclePause, CirclePlay, ArrowLeftRight, AtSign, BookOpen, Building2, Check, ChevronDown, Ellipsis, LifeBuoy, Lock, RotateCcw, RotateCw, Tag, Unlink, User, UserCheck, UserMinus, UserPlus, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useForm, useWatch, type FieldValues, type Path, type UseFormSetError } from "react-hook-form";
 import { z } from "zod";
@@ -45,7 +48,7 @@ import type { Schema } from "@iris/contratos";
 import { agentesDeCola, useCatalogos } from "./catalogos";
 import { AvatarDisponible, EstadoDisponible } from "./disponibilidad";
 
-type Dialogo = "asignar" | "pasar" | "pasar-empresa" | "transferir" | "etiquetar" | "mencionar" | "ayuda" | "desasociar" | null;
+type Dialogo = "asignar" | "pasar" | "pasar-empresa" | "transferir" | "etiquetar" | "mencionar" | "ayuda" | "desasociar" | "reanudar" | "seguir-asistente" | null;
 
 type Props = {
     conv: Conversacion;
@@ -118,7 +121,15 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
     const quitar = () =>
         rapida(
             "quitar",
-            async (clave) => await resolver(api().POST(`${BASE}/asignar`, { params: ruta(conv, clave), body: { version: conv.version, usuarioId: null } })),
+            async (clave) => {
+                const c = await resolver(api().POST(`${BASE}/asignar`, { params: ruta(conv, clave), body: { version: conv.version, usuarioId: null } }));
+                // El asistente la atendía antes de que una persona la tomara: se pregunta si sigue él.
+                if (puede([PERMISO_PAUSAR_ASISTENTE]) && ofrecerQueSigaElAsistente(conv, c)) {
+                    setVersionPregunta(c.version);
+                    setDialogo("seguir-asistente");
+                }
+                return c;
+            },
             () => ({ titulo: `${conv.titulo}: sin asignar` }),
         );
     const reabrir = (c: Conversacion = conv) =>
@@ -133,6 +144,30 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
             async (clave) => await resolver(api().POST(`${BASE}/resolver`, { params: ruta(conv, clave), body: { version: conv.version } })),
             (c) => ({ titulo: `Conversación con ${c.titulo} resuelta`, ...(p.resolver ? { accion: { texto: "Deshacer", alPresionar: () => void reabrir(c) } } : {}) }),
         );
+
+    // §17.11: lo que la franja de quién atiende no tiene ya a la vista (pausar con una persona
+    // asignada; devolvérsela al asistente cuando espera a una persona).
+    const accionAsistente = puede([PERMISO_PAUSAR_ASISTENTE]) && !resuelta ? accionDeMenu(conv) : null;
+    const pausarAsistenteAqui = () =>
+        rapida(
+            "pausar-asistente",
+            async (clave) => await pausarAsistente(conv.id, conv.version, undefined, clave),
+            () => ({ titulo: "Asistente en pausa en esta conversación" }),
+        );
+    // Las preguntas de reanudar guardan la `version` de cuando se preguntó: si la conversación
+    // cambia antes de confirmar (otra persona la tomó, el cliente pidió una persona), 409 y se relee.
+    const [versionPregunta, setVersionPregunta] = useState<number | null>(null);
+    const reanudarAsistenteAqui = (version = conv.version) =>
+        rapida(
+            "reanudar-asistente",
+            async (clave) => await reanudarAsistente(conv.id, version, clave),
+            () => ({ titulo: "El asistente vuelve a atender" }),
+        );
+
+    // La conversación cambió con una de esas preguntas abierta y ya no aplica (otra persona la tomó,
+    // el asistente ya atiende, el cliente acaba de pedir una persona): la pregunta se cierra sola.
+    if (dialogo === "seguir-asistente" && !(conv.atencionAsistente?.motivo === "persona_presente" && conv.atencionAsistente.reanudable && !pideConfirmarReanudar(conv))) setDialogo(null);
+    if (dialogo === "reanudar" && !sePuedeReanudar(conv)) setDialogo(null);
 
     // §15.3: préstamo revocado o pasada a otra empresa: no hay acciones (el servidor responde 422).
     if (conv.soloLectura) {
@@ -258,6 +293,21 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
                                 </MenuDesplegableElemento>
                             ) : null}
                             {p.asignar || p.pasar || empresasDestino.length > 0 ? <MenuDesplegableSeparador /> : null}
+                            {accionAsistente === "pausar" ? (
+                                <MenuDesplegableElemento icono={CirclePause} onSelect={() => void pausarAsistenteAqui()}>
+                                    Pausar el asistente aquí
+                                </MenuDesplegableElemento>
+                            ) : null}
+                            {accionAsistente === "reanudar" ? (
+                                <MenuDesplegableElemento icono={CirclePlay} onSelect={() => {
+                                        if (!pideConfirmarReanudar(conv)) return void reanudarAsistenteAqui();
+                                        setVersionPregunta(conv.version);
+                                        setDialogo("reanudar");
+                                    }}
+                                >
+                                    Que siga el asistente
+                                </MenuDesplegableElemento>
+                            ) : null}
                             {p.etiquetar ? (
                                 <MenuDesplegableElemento icono={Tag} onSelect={() => setDialogo("etiquetar")}>
                                     Etiquetas…
@@ -279,6 +329,30 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
             {dialogo === "transferir" ? <DialogoTransferir conv={conv} cerrar={() => setDialogo(null)} alHecho={alActualizar} recargar={recargar} /> : null}
             {dialogo === "etiquetar" ? <DialogoEtiquetas conv={conv} cerrar={() => setDialogo(null)} alHecho={alActualizar} recargar={recargar} /> : null}
             {dialogo === "mencionar" || dialogo === "ayuda" ? <DialogoMencion conv={conv} ayuda={dialogo === "ayuda"} cerrar={() => setDialogo(null)} /> : null}
+            <DialogoConfirmar
+                open={dialogo === "reanudar"}
+                onOpenChange={(a) => !a && setDialogo(null)}
+                titulo="El cliente pidió hablar con una persona"
+                descripcion="¿Devolverle la conversación al asistente de todos modos? Queda registrado quién lo hizo."
+                textoCancelar="Dejarla como está"
+                textoConfirmar="Devolverla al asistente"
+                alConfirmar={async () => {
+                    await reanudarAsistenteAqui(versionPregunta ?? conv.version);
+                    setDialogo(null);
+                }}
+            />
+            <DialogoConfirmar
+                open={dialogo === "seguir-asistente"}
+                onOpenChange={(a) => !a && setDialogo(null)}
+                titulo="¿Que la siga atendiendo el asistente?"
+                descripcion="El asistente atendía esta conversación antes de que una persona la tomara. Si no, queda en la cola hasta que alguien la tome."
+                textoCancelar="No, queda en cola"
+                textoConfirmar="Sí, que siga"
+                alConfirmar={async () => {
+                    await reanudarAsistenteAqui(versionPregunta ?? conv.version);
+                    setDialogo(null);
+                }}
+            />
             <DialogoConfirmar
                 open={dialogo === "desasociar"}
                 onOpenChange={(a) => !a && setDialogo(null)}

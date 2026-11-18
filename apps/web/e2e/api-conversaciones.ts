@@ -43,6 +43,7 @@ export const PERMISOS_CONVERSACIONES: Permiso[] = [
     ...PERMISOS_BANDEJA11,
     PERMISO_SUGERENCIAS,
     PERMISO_CATEGORIZAR,
+    "conversaciones.pausar_asistente",
 ];
 
 export type OpcionesConversaciones = OpcionesBandeja11 & {
@@ -398,6 +399,24 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             return (await json(route, c), true);
         };
         switch (accion) {
+            // §17.11: pausar y reanudar el asistente en esta conversación. Devuelven el detalle.
+            case "asistente/pausar":
+            case "asistente/reanudar": {
+                if (!puede("conversaciones.pausar_asistente")) return (await prohibido(), true);
+                if (c.estado === "resuelta") return (await problema(route, P("conversacion_resuelta", 422, "La conversación está resuelta")), true);
+                return responder(() => {
+                    const a = agentes.find((v) => v.id === yo);
+                    c.atencionAsistente =
+                        accion === "asistente/pausar"
+                            ? { atiende: false, motivo: "pausado", reanudable: true, pausa: { en: new Date().toISOString(), motivo: (cuerpo.motivo as "manual" | undefined) ?? "manual", por: { id: yo, nombre: a?.nombre ?? "Yo" } } }
+                            : // §17.11: con una persona asignada el asistente no vuelve a atender; se queda apartado.
+                              c.asignado
+                              ? { atiende: false, motivo: "persona_asignada", reanudable: false }
+                              : { atiende: true, motivo: null, reanudable: false };
+                    // Al pausar una persona, la bandeja deja de decir que el asistente contestó.
+                    if (accion === "asistente/pausar") delete (c as { actividadAsistente?: unknown }).actividadAsistente;
+                });
+            }
             case "tomar":
                 if (!puede("conversaciones.tomar")) return (await prohibido(), true);
                 if (c.asignado && c.asignado.id !== yo) return (await problema(route, P("ya_asignada", 409, "Ya está asignada", { detail: `La tiene ${c.asignado.nombre}` })), true);
@@ -414,6 +433,10 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                     const a = agentes.find((v) => v.id === id);
                     if (id === null || !a) delete c.asignado;
                     else c.asignado = { id: a.id, nombre: a.nombre };
+                    // §17.11: el asistente se aparta mientras la tiene una persona; al soltarla no
+                    // vuelve solo (queda «nadie la atiende» hasta que alguien lo reanude).
+                    if (c.atencionAsistente?.motivo === "persona_asignada" && !c.asignado) c.atencionAsistente = { atiende: false, motivo: "persona_presente", reanudable: true };
+                    else if (c.atencionAsistente?.atiende && c.asignado) c.atencionAsistente = { atiende: false, motivo: "persona_asignada", reanudable: false };
                 });
             }
             case "transferir": {
