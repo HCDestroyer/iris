@@ -658,6 +658,38 @@ Contrato: `.claude/integration/contratos/conversaciones.md` §17.10. Lógica pur
   mensaje de sistema «Asistente de IA creó OT-…» y el vínculo a la orden en la ficha; en la lista,
   la actividad «Agendó la visita OT-…» (texto del servidor: nunca el técnico).
 
+### El asistente por conversación: quién atiende, pausa y resumen guardado (nov. 2026)
+
+Contrato: `conversaciones.md` §17.11 (pausa), §16.4 (resumen), §17.4 (indicadores). Primero en el
+teléfono; `e2e/asistente-conversacion.spec.ts` en los 4 proyectos.
+
+- **Quién atiende** (`atencionAsistente`; `lib/asistente/atencion.ts`, `FranjaAtencion`): una franja
+  bajo la cabecera, con icono + texto + color. Teal: «El asistente atiende esta conversación».
+  Neutro: «Asistente en pausa · Andrea, hace 5 min · caso delicado», tope, bot de menú, «solo
+  sugiere». Ámbar (hay que actuar): «Nadie la está atendiendo: el asistente se apartó cuando una
+  persona la tomó» y «El asistente la pasó a una persona porque…». Sin el campo no se pinta nada
+  (con un servidor anterior queda la franja de siempre, por `asistente.estado`). En el teléfono el
+  texto va arriba, completo, y los botones debajo.
+- **Pausar / reanudar** (permiso `conversaciones.pausar_asistente`): «Pausar» de un toque (sin
+  motivo) y, al lado, el menú «Pausar porque…» (caso delicado, respondió mal, lo pidió el
+  cliente). «Reanudar» tras una pausa; «Que siga el asistente» cuando nadie la atiende. Con una
+  persona asignada no hay franja: «Pausar el asistente aquí» va en «⋯»; cuando espera a una
+  persona, «Que siga el asistente» también va en «⋯» (lo principal ahí es «Tomar»). **Antes de
+  devolvérsela al asistente se avisa si el cliente pidió una persona o está molesto** («Dejarla
+  como está» / «Devolverla al asistente»). 409: se dice y se relee; 422 `conversacion_resuelta`,
+  en llano. Aviso después de cada acción.
+- **En la lista**: punto discreto «Asistente en pausa» y punto ámbar «Nadie la atiende», en la
+  línea de la categoría.
+- **Resumen guardado** (`ResumenAsistente`): si el detalle trae `resumen`, se lee al abrir la ficha
+  (`GET …/resumen`, no gasta tokens) con «Generado por Andrea · hoy 10:42 · modelo». Con mensajes
+  posteriores: «Hay 2 mensajes nuevos desde este resumen» y «Actualizar resumen». Si actualizar
+  falla, el anterior sigue a la vista. Cuando `resumen` deja de venir (se reabrió, cambió de
+  cliente), vuelve «Resumir». El resumen solo viene en el detalle: el panel lo relee cuando el
+  flujo avisa un cambio de la conversación sin mensaje, o un mensaje habiendo resumen.
+- **En el hilo**: «Andrea pausó el asistente: respondió mal», «Andrea le devolvió la conversación
+  al asistente» y, en ámbar y sin recortar, «Nadie la tomó en 30 min y el bot no pudo contestar: el
+  cliente no acepta mensajes o pasaron 24 h» (nunca «contestó el bot» cuando no contestó).
+
 ## Correo del sistema (nov. 2026)
 
 Contrato: `.claude/integration/contratos/correo-sistema.md`. Pantalla: `/administracion/correo`

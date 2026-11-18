@@ -7,6 +7,7 @@ import { ChipCategoria } from "@/componentes/asistente/chip-categoria";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { categorizarConversacion } from "@/lib/asistente/api-fase3";
 import { asistenteAtiende, asistenteEspera, COLOR_DE_TONO, tonoDe, type Categoria } from "@/lib/asistente/fase3";
+import { franjaAtencion, puntoAtencion } from "@/lib/asistente/atencion";
 import { textoMotivoPaso } from "@/lib/asistente/fase3b";
 import { PERMISO_CATEGORIZAR } from "@/lib/asistente/permisos";
 import type { Filtros } from "@/lib/conversaciones/estado";
@@ -15,6 +16,7 @@ import type { Contadores, Conversacion } from "@/lib/conversaciones/tipos";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useSesion } from "@/lib/sesion";
 import { TEXTO_CAMBIO, useAtender } from "./atencion";
+import { FranjaAtencion } from "./atencion-asistente";
 import { useCatalogos } from "./catalogos";
 
 /*
@@ -64,11 +66,19 @@ function ChipFiltro({ activo, nombre, total, clase, alPresionar }: { activo: boo
 }
 
 /** Tercera línea de la fila: el chip de la categoría y lo que hizo el asistente (texto del servidor). */
-export function LineaCategoria({ conv }: { conv: Pick<Conversacion, "categoria" | "actividadAsistente"> }) {
-    if (!conv.categoria && !conv.actividadAsistente) return null;
+export function LineaCategoria({ conv }: { conv: Pick<Conversacion, "categoria" | "actividadAsistente" | "atencionAsistente"> }) {
+    // §17.11: en pausa (discreto) o sin que nadie la atienda (ámbar: hay que actuar).
+    const punto = puntoAtencion(conv.atencionAsistente);
+    if (!conv.categoria && !conv.actividadAsistente && !punto) return null;
     return (
         <span className="col-span-2 col-start-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 pt-0.5" data-slot="linea-categoria">
             {conv.categoria ? <ChipCategoria categoria={conv.categoria} /> : null}
+            {punto ? (
+                <span className={cn("flex min-w-0 items-center gap-1.5 text-xs", punto.tono === "aviso" ? "font-medium text-warning" : "text-muted-foreground")} data-atencion={punto.estado}>
+                    <span aria-hidden className={cn("size-2 shrink-0 rounded-full", punto.tono === "aviso" ? "bg-warning" : "bg-muted-foreground/60")} />
+                    <span className="truncate">{punto.texto}</span>
+                </span>
+            ) : null}
             {conv.actividadAsistente ? (
                 <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground" data-actividad={conv.actividadAsistente.tipo}>
                     <Sparkles aria-hidden className="size-3.5 shrink-0 text-primary" />
@@ -92,9 +102,10 @@ type PropsBarra = {
     recargar: () => Promise<void>;
     bloqueada: boolean;
     asistenteActivo: boolean;
+    ahora: number;
 };
 
-export function BarraCategoria({ conv, alActualizar, recargar, bloqueada, asistenteActivo }: PropsBarra) {
+export function BarraCategoria({ conv, alActualizar, recargar, bloqueada, asistenteActivo, ahora }: PropsBarra) {
     const { puede } = useSesion();
     const { categorias } = useCatalogos();
     const clave = useClaveIdempotencia();
@@ -103,10 +114,13 @@ export function BarraCategoria({ conv, alActualizar, recargar, bloqueada, asiste
     const lista = categorias.estado === "listo" ? categorias.datos : [];
     // Corregir la que puso el asistente, o poner una a mano mientras el asistente está activo.
     const puedeCambiar = puede([PERMISO_CATEGORIZAR]) && !bloqueada && !conv.soloLectura && lista.length > 0 && (Boolean(conv.categoria) || asistenteActivo);
-    const atiende = asistenteAtiende(conv);
+    // §17.11: con `atencionAsistente` manda ese campo (quién atiende, pausar y reanudar). Sin él
+    // (un servidor anterior), la franja de siempre a partir de `asistente.estado`.
+    const franja = conv.atencionAsistente ? franjaAtencion(conv, ahora) : null;
+    const atiende = !conv.atencionAsistente && asistenteAtiende(conv);
     // 3b: el asistente la dejó en la cola y nadie la ha tomado todavía.
-    const espera = asistenteEspera(conv) && !conv.asignado;
-    if (!conv.categoria && !puedeCambiar && !atiende && !espera) return null;
+    const espera = !conv.atencionAsistente && asistenteEspera(conv) && !conv.asignado;
+    if (!conv.categoria && !puedeCambiar && !atiende && !espera && !franja) return null;
 
     async function cambiar(categoria: Pick<Categoria, "id" | "nombre"> | null) {
         if ((conv.categoria?.id ?? null) === (categoria?.id ?? null)) return;
@@ -165,6 +179,7 @@ export function BarraCategoria({ conv, alActualizar, recargar, bloqueada, asiste
                     ) : null}
                 </div>
             ) : null}
+            {franja ? <FranjaAtencion conv={conv} ahora={ahora} alHecho={alActualizar} recargar={recargar} bloqueada={bloqueada || Boolean(conv.soloLectura)} /> : null}
             {atiende || espera ? (
                 <FranjaAsistente conv={conv} espera={!atiende} alHecho={alActualizar} recargar={recargar} puedeTomar={puede(["conversaciones.tomar"]) && !bloqueada && !conv.soloLectura} />
             ) : null}

@@ -144,6 +144,11 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
         },
         [alActualizar, detalle, id, reemplazarDetalle],
     );
+    const relectura = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const conResumenRef = useRef(false);
+    useEffect(() => {
+        conResumenRef.current = Boolean(conv?.resumen);
+    }, [conv?.resumen]);
     const aplicarRef = useRef(aplicarConversacion);
     useEffect(() => {
         aplicarRef.current = aplicarConversacion;
@@ -249,9 +254,17 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                     if (m.direccion === "sistema" && (m.evento?.tipo ?? "").startsWith("boleta_")) setSenalBoletas((n) => n + 1);
                 }
                 if (e.conversacion && e.conversacion.id === id) aplicarRef.current(e.conversacion);
+                // El resumen guardado solo viene en el detalle (§16.4): cuando la conversación cambia
+                // sin mensaje (alguien generó uno nuevo) o llega un mensaje habiendo resumen (queda
+                // desactualizado), se relee el detalle, con una pausa corta para juntar varios avisos.
+                if ((e.tipo === "conversacion_actualizada" && !e.mensaje) || (e.mensaje && conResumenRef.current)) {
+                    clearTimeout(relectura.current);
+                    relectura.current = setTimeout(() => void refrescarDetalle(), 600);
+                }
             }),
         [id, suscribir, refrescarDetalle],
     );
+    useEffect(() => () => clearTimeout(relectura.current), []);
 
     // Leer: avanza la lectura hasta el último mensaje del cliente que se ve (nunca retrocede).
     const ultimoEntrante = [...mensajes].reverse().find((m) => m.direccion === "entrante")?.id;
@@ -384,7 +397,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                         <PanelRight />
                     </Boton>
                 </header>
-                <BarraCategoria conv={conv} alActualizar={aplicarConversacion} recargar={refrescarDetalle} bloqueada={detenido !== null} asistenteActivo={asistente.estado?.activo === true} />
+                <BarraCategoria conv={conv} alActualizar={aplicarConversacion} recargar={refrescarDetalle} bloqueada={detenido !== null} asistenteActivo={asistente.estado?.activo === true} ahora={ahora} />
                 {pideAtencion(conv) && !detenido ? (
                     <div className="shrink-0 px-3 pt-3 @min-[700px]/conv:px-4">
                         <AvisoAtencion conv={conv} ahora={ahora} alHecho={aplicarConversacion} />

@@ -104,7 +104,7 @@ export function FichaCliente({ conv, identidad, pestana, alCambiarPestana, alAct
             </nav>
             {actual === "historial" ? <Historial conv={conv} /> : actual === "ayuda" ? <AyudaManuales conv={conv} identidad={identidad} alUsarTexto={alUsarTexto} /> : (
                 <>
-                    {asistente?.activo ? <ResumenAsistente key={conv.id} conversacionId={conv.id} estado={asistente} /> : null}
+                    {asistente?.activo ? <ResumenAsistente key={conv.id} conversacionId={conv.id} estado={asistente} guardado={conv.resumen} /> : null}
                     <Resumen conv={conv} recargar={recargar} senalBoletas={senalBoletas} />
                 </>
             )}

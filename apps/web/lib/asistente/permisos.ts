@@ -6,6 +6,9 @@ export const PERMISO_SUGERENCIAS: Permiso = "conversaciones.sugerencias";
 /** Ajustes, probar, modelos y uso (solo admin). */
 export const PERMISO_CONFIGURAR_ASISTENTE: Permiso = "mensajeria.asistente_configurar";
 
+/** Pausar y reanudar el asistente en una conversación (§17.11). */
+export const PERMISO_PAUSAR_ASISTENTE: Permiso = "conversaciones.pausar_asistente";
+
 // Fase 3.
 /** Corregir la categoría de una conversación (§17.3). */
 export const PERMISO_CATEGORIZAR: Permiso = "conversaciones.categorizar";
