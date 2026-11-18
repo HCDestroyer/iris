@@ -127,6 +127,12 @@ guardado (mismo host y tiempos que los envíos; 15 s) y responde 200 `PruebaCana
 - El resultado queda en el número (`ultimoEstado`, `ultimoDetalle`, `ultimaPruebaEn`), con su fila de
   auditoría (`mensajeria.probar_canal`, sin credenciales) y el evento `canal_mensajeria.probado`
   `{ canal_id, empresa_id, estado }`. Un número inactivo también se puede probar.
+- **Sin esperar a «Probar».** Si al **enviar** (un mensaje de la bandeja o un aviso) Meta rechaza el
+  token (401 o código 190, con cualquier subcódigo) o los permisos (403, código 10 o 200–299), el
+  número queda con `ultimoEstado` `token_invalido` / `sin_permiso` en ese momento y `conexion` lo
+  refleja en la siguiente lectura. `ultimoDetalle` solo lleva números (status y código de Meta). Se
+  emite `canal_mensajeria.probado` con `origen: "envio"`, una sola vez por cambio de estado (no una
+  por mensaje rechazado). Se limpia igual que una prueba: con «Probar» o al cambiar el token.
 - 404 si el número no existe o es de otra empresa; 422 `cifrado_no_disponible` sin `IRIS_CLAVE_CIFRADO`.
 
 ## 2. Colas, etiquetas y respuestas rápidas
@@ -225,6 +231,13 @@ Las notas internas y los mensajes de sistema no cambian el estado.
   "autor": { "id": 7, "nombre": "Andrea" },    // saliente y nota; null en entrante y sistema
   "estadoEntrega": "leido",           // saliente: en_cola | enviado | entregado | leido | fallido
   "motivoFalla": null,                // con fallido: numero_invalido | rechazado_por_canal | fuera_de_ventana | agotado | sin_permiso
+                                      //   | token_invalido (Meta rechazó el token del número: 401 / 190)
+                                      //   | sin_permiso_meta (al token le falta permiso: 403 / 10 / 200–299)
+  "codigoFalla": { "status": 401, "codigo": 190, "subcodigo": 463 },
+                                      // SOLO para quien tiene `mensajeria.configurar` (administra los números);
+                                      // ausente para los demás y si Meta no dio código. Cada campo puede ser null
+                                      // (`status` es null si el rechazo llegó después, por webhook). Son solo
+                                      // números: nunca el texto de Meta ni nada del token (eso queda en la base).
   "menciones": [{ "id": 9, "nombre": "Laura Méndez" }],   // nota
   "evento": { "tipo": "ticket_creado", "referencia": "TK-004812", "entidadId": 4812, "actorNombre": "Andrea" }, // sistema
   "creadoEn": "…", "enviadoEn": "…", "entregadoEn": "…", "leidoEn": "…" }

@@ -41,7 +41,10 @@ día (`limite_diario`; `urgente` lo salta, solo `corte_programado`). Al enviar: 
 21:00–07:00 Guatemala (espera; al terminar, si venció su variable de caducidad, `fallido`/`vencido`),
 20 por minuto por número remitente y pausa del número si Meta baja su calidad o corta por spam.
 Fallas del canal: `numero_invalido`, `rechazado_por_canal`; temporales se reintentan y al final
-`agotado`. Un aviso en cola sin acuse en 72 h también termina `agotado`.
+`agotado`. Si Meta rechaza el token (401/190) o los permisos (403/10/200–299) al enviar, el número
+queda marcado (`ultimo_estado`) y sale `canal_mensajeria.probado` con `origen: envio`; hacia Argos
+el motivo sigue siendo `rechazado_por_canal`, y en la bandeja el mensaje lleva `token_invalido` /
+`sin_permiso_meta` y, para quien administra los números, `codigoFalla` (solo números). Un aviso en cola sin acuse en 72 h también termina `agotado`.
 
 Canales: `Adaptador` (WhatsApp Cloud API y el simulado). El simulado solo con
 `IRIS_MENSAJERIA_SIMULADO=true` (dev y CI; el proceso no arranca con él si `IRIS_BASE_URL` es https en

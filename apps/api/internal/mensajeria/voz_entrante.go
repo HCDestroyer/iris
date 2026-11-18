@@ -183,7 +183,6 @@ func (m *Modulo) recibirLlamada(ctx context.Context, t *auditoria.Tx, canal mens
 			if err := q.BorrarRechazadasApagadasViejas(ctx, mensajeriabd.BorrarRechazadasApagadasViejasParams{CanalID: canal.ID, Antes: ahora.Add(-30 * 24 * time.Hour)}); err != nil {
 				return err
 			}
-			slog.WarnContext(ctx, "voz: llegó una llamada y se rechazó porque las llamadas del número están apagadas en Iris", "canal_id", canal.ID)
 		}
 		// No queda llamada, pero el webhook guardado trae la oferta: se tapa igual.
 		return taparSDPDeLlamada(ctx, q, canal.ID, ev.ID, ahora.Add(-10*time.Minute))

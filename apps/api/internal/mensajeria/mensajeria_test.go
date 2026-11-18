@@ -105,6 +105,9 @@ type metaFalso struct {
 	llamadasHabilitadas bool
 	nivel, nivelViejo   string
 	campos              []string // los ?fields= pedidos, en orden
+	alLeerAjustes       func()   // se llama al pedir /settings (para colar algo entre dos pasos)
+	// rechazo: si status != 0, todo POST responde ese status con ese código (y subcódigo) de error.
+	rechazo struct{ status, codigo, subcodigo int }
 }
 
 // medioFalso es la «foto» que Meta entrega al descargar un medio.
@@ -120,7 +123,7 @@ func nuevoMeta(t *testing.T) *metaFalso {
 		// Medios: GET /{media_id} (url) y GET /descarga/… (los bytes); POST …/media (subida).
 		if req.Method == http.MethodGet {
 			f.mu.Lock()
-			habilitadas, nivel, nivelViejo := f.llamadasHabilitadas, f.nivel, f.nivelViejo
+			habilitadas, nivel, nivelViejo, alLeer := f.llamadasHabilitadas, f.nivel, f.nivelViejo, f.alLeerAjustes
 			campo := req.URL.Query().Get("fields")
 			if campo != "" {
 				f.campos = append(f.campos, campo)
@@ -135,6 +138,9 @@ func nuevoMeta(t *testing.T) *metaFalso {
 			}
 			switch {
 			case strings.HasSuffix(req.URL.Path, "/settings"):
+				if alLeer != nil {
+					alLeer()
+				}
 				estado := "DISABLED"
 				if habilitadas {
 					estado = "ENABLED"
@@ -170,6 +176,17 @@ func nuevoMeta(t *testing.T) *metaFalso {
 		}
 		var c map[string]any
 		_ = json.NewDecoder(req.Body).Decode(&c)
+		f.mu.Lock()
+		rechazo := f.rechazo
+		f.mu.Unlock()
+		if rechazo.status != 0 {
+			// Como responde Meta de verdad: el mensaje de error es texto libre (aquí con algo que nunca
+			// debe salir por la API de Iris).
+			w.WriteHeader(rechazo.status)
+			_, _ = fmt.Fprintf(w, `{"error":{"message":"TEXTO-LIBRE-DE-META Error validating access token","type":"OAuthException","code":%d,"error_subcode":%d,"fbtrace_id":"AbCdEf"}}`,
+				rechazo.codigo, rechazo.subcodigo)
+			return
+		}
 		if code := f.error.Load(); code != 0 {
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = fmt.Fprintf(w, `{"error":{"code":%d,"error_user_title":"x"}}`, code)
@@ -918,6 +935,33 @@ func TestWhatsAppCloud(t *testing.T) {
 	}
 	e.meta.error.Store(0)
 	e.exigir(e.pedir(http.MethodGet, "/api/v1/mensajeria/avisos/"+id4.String(), e.otro, "", nil), http.StatusOK, "estado", "fallido", "motivo", "agotado")
+
+	// Meta rechaza el token (401/190): para Argos el motivo sigue siendo rechazado_por_canal (su contrato
+	// no cambia), pero el número queda marcado «token rechazado» sin esperar a «Probar».
+	c5 := e.cliente(2, "5512-7791")
+	e.pedir(http.MethodPost, "/api/v1/mensajeria/consentimientos", e.otro, fmt.Sprintf("argos:consentimiento:2:%d:whatsapp:a", c5),
+		map[string]any{"empresa_id": 2, "cliente_id": c5, "canal": "whatsapp", "estado": "acepta", "origen": "argos_panel", "ocurrido_en": cuando})
+	cuerpo5 := avisoPorVencer(c5, "2026-11-10")
+	cuerpo5["empresa_id"] = 2
+	r5 := e.pedir(http.MethodPost, "/api/v1/mensajeria/avisos", e.otro, fmt.Sprintf("argos:aviso:factura_por_vencer:%d", c5), cuerpo5)
+	e.meta.mu.Lock()
+	e.meta.rechazo.status, e.meta.rechazo.codigo, e.meta.rechazo.subcodigo = http.StatusUnauthorized, 190, 463
+	e.meta.mu.Unlock()
+	e.enviar(r5.cuerpo["aviso_id"].(string))
+	e.meta.mu.Lock()
+	e.meta.rechazo.status = 0
+	e.meta.mu.Unlock()
+	r5b := e.pedir(http.MethodGet, "/api/v1/mensajeria/avisos/"+r5.cuerpo["aviso_id"].(string), e.otro, "", nil)
+	e.exigir(r5b, http.StatusOK, "estado", "fallido", "motivo", "rechazado_por_canal")
+	if s := fmt.Sprint(r5b.cuerpo); strings.Contains(s, "TEXTO-LIBRE-DE-META") {
+		t.Fatalf("el texto de Meta salió hacia Argos: %s", s)
+	}
+	if n := e.contar(`SELECT count(*) FROM mensajeria.canales WHERE id = $1 AND ultimo_estado = 'token_invalido'`, canal.ID); n != 1 {
+		t.Fatal("el número debía quedar marcado con el token rechazado")
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'canal_mensajeria.probado' AND payload->>'canal_id' = $1 AND payload->>'origen' = 'envio'`, fmt.Sprint(canal.ID)); n != 1 {
+		t.Fatalf("canal_mensajeria.probado por el envío: %d", n)
+	}
 }
 
 func TestWebhooksSoloContrato060(t *testing.T) {

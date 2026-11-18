@@ -601,6 +601,11 @@ func (m *Modulo) ConfigurarLlamadas(ctx context.Context, in EntradaLlamadasCanal
 	if p, _ := nucleo.AProblema(err); p != nil && p.Codigo() == "requisitos_sin_cumplir" && in.LlamadasActivas {
 		// (Si sigue sin cumplir, el segundo intento responde con los requisitos de ahora.)
 		if fresco, errC := m.ComprobarLlamadas(ctx, in.ID, false); errC == nil {
+			// La comprobación sube la versión en uno. Si subió más, otra persona guardó entre los dos
+			// intentos: no se pisa su cambio, se responde el conflicto de siempre.
+			if fresco.Version != in.Version+1 {
+				return LlamadasCanal{}, nucleo.ConflictoVersion("llamadas_canal", in.ID)
+			}
 			in.Version = fresco.Version
 			return m.Voz.ConfigCanal.Ejecutar(ctx, in)
 		}
