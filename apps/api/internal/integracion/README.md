@@ -14,8 +14,8 @@ Outbox y entrega de eventos (CLAUDE.md §3).
   cada `NOTIFY` y periódicamente (`IRIS_RELAY_INTERVALO`). Excepción a la regla 6: el job del
   relay no usa `unique` de River (la unicidad descartaba el job de un `NOTIFY` llegado justo
   después de otro relay, y River obliga a incluir `running`). Lo acotan su cola propia (`relay`,
-  un worker), el advisory lock y que el listener no encola si ya hay un relay `available` en
-  `river_job`. Tras soltar el candado el relay mira si quedó algo pendiente (saltando filas
+  un worker), el advisory lock y que ni el listener ni la corrida periódica encolan si ya hay un
+  relay `available` en `river_job` (consulta propia por estado y cola; si falla, se encola igual). Tras soltar el candado el relay mira si quedó algo pendiente (saltando filas
   bloqueadas), y tras cada `LISTEN` (arranque y reconexión) el listener encola un barrido de lo
   que se avisó sin nadie escuchando; la espera de reconexión vuelve a 1 s tras un `LISTEN` correcto.
 
