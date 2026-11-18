@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/voz"
@@ -282,4 +283,14 @@ func (m *Modulo) CredencialConLoVigente(ctx context.Context, bd nucleo.BD, id in
 		return nil
 	}
 	return err
+}
+
+// DecidirCuenta: la decisión sobre la cuenta de una boleta con lo que respondió Argos (cuentas o error).
+func DecidirCuenta(empresa int64, cuentas []argos.CuentaBancariaArgos, err error, cuenta int64) (string, error) {
+	return decidirCuenta(empresa, cuentasLeidas{cuentas: cuentas, err: err}, cuenta)
+}
+
+// EnviarBoleta: el despacho de una boleta (lo que hace cada corrida con cada id vencido).
+func (m *Modulo) EnviarBoleta(ctx context.Context, id uuid.UUID) error {
+	return m.enviarBoleta(ctx, id)
 }

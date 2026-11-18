@@ -285,6 +285,8 @@ type EntradaBoleta struct {
 	Monto            string    `json:"monto" pattern:"^[0-9]{1,10}\\.[0-9]{2}$" doc:"Decimal con 2 decimales, en GTQ"`
 	FechaDeposito    string    `json:"fechaDeposito" format:"date" doc:"AAAA-MM-DD, no futura"`
 	Nota             *string   `json:"nota,omitempty" maxLength:"500"`
+	// cuentas: las cuentas de Argos leídas antes de la transacción (RegistrarBoleta); nil = sin leer.
+	cuentas *cuentasLeidas
 }
 
 // MarshalJSON: sin la nota.
@@ -377,6 +379,11 @@ func nuevoRegistrarBoleta(m *Modulo) *auditoria.Caso[EntradaBoleta, Boleta] {
 				if err := clienteEnEmpresa(ctx, q, empresaDeConv(*c), *c.ClienteID, servicio); err != nil {
 					return err
 				}
+				// La cuenta es de la empresa de la conversación y está activa (Argos también lo valida).
+				cuenta, err := m.validarCuentaBoleta(ctx, a, c, in)
+				if err != nil {
+					return err
+				}
 				datos, _, err := adjuntos.Contenido(ctx, m.cfg.Almacen, t, in.AdjuntoID, EntidadAdjuntosConversacion, strconv.FormatInt(c.ID, 10), 5<<20)
 				if err != nil || !esMimeBoleta(http.DetectContentType(datos)) || !adjuntoDeEmpresa(ctx, q, in.AdjuntoID, empresaDeConv(*c)) {
 					return reglaConv("adjunto_no_listo", "La boleta debe ser una imagen JPG, PNG o WebP o un PDF completo de esta conversación, de hasta 5 MB")
@@ -388,13 +395,13 @@ func nuevoRegistrarBoleta(m *Modulo) *auditoria.Caso[EntradaBoleta, Boleta] {
 				f, err := q.InsertarBoleta(ctx, mensajeriabd.InsertarBoletaParams{ID: id, EmpresaID: c.EmpresaID, ConversacionID: c.ID, ClienteID: *c.ClienteID,
 					ServicioID: servicio, AdjuntoID: in.AdjuntoID, Metodo: in.Metodo, CuentaBancariaID: in.CuentaBancariaID, BancoOrigenID: in.BancoOrigenID,
 					Referencia: in.Referencia, Monto: monto, FechaDeposito: pgtype.Date{Time: fecha, Valid: true}, Nota: in.Nota,
-					RegistradaPor: a.usuarioPtr(), ProximoIntento: m.ahora(), PorAsistente: a.asistente})
+					RegistradaPor: a.usuarioPtr(), ProximoIntento: m.ahora(), PorAsistente: a.asistente, CuentaValidacion: &cuenta})
 				if err != nil {
 					return err
 				}
 				b = aBoleta(f)
 				t.RegistrarCambios("boleta", f.ID, nil, map[string]any{"cliente_id": f.ClienteID, "servicio_id": f.ServicioID, "metodo": f.Metodo,
-					"referencia": f.Referencia, "monto": in.Monto, "adjunto_id": f.AdjuntoID})
+					"referencia": f.Referencia, "monto": in.Monto, "adjunto_id": f.AdjuntoID, "cuenta_bancaria_id": f.CuentaBancariaID, "cuenta_validacion": cuenta})
 				if err := m.vincular(ctx, t, c, a, "boleta", f.ID.String(), "Boleta "+f.Referencia, "boleta_registrada"); err != nil {
 					return err
 				}
@@ -432,6 +439,8 @@ type resultadoBoleta struct {
 	ComprobanteID *int64    `json:"comprobante_id,omitempty"`
 	Error         string    `json:"error,omitempty"`
 	Temporal      bool      `json:"temporal,omitempty"`
+	// CuentaRevalidada: el despacho comprobó con Argos la cuenta de una boleta registrada sin validar.
+	CuentaRevalidada bool `json:"cuenta_revalidada,omitempty"`
 }
 
 func nuevoPrepararBoleta(m *Modulo) *auditoria.Caso[uuid.UUID, boletaPorEnviar] {
@@ -447,6 +456,10 @@ func nuevoPrepararBoleta(m *Modulo) *auditoria.Caso[uuid.UUID, boletaPorEnviar] 
 				return boletaPorEnviar{}, err
 			}
 			if f.Estado != "por_enviar" {
+				return boletaPorEnviar{nada: true}, nil
+			}
+			// Otro despacho la reservó (o espera su reintento): dos corridas solapadas no la mandan dos veces.
+			if f.ProximoIntento.After(m.ahora()) {
 				return boletaPorEnviar{nada: true}, nil
 			}
 			// Reservada 5 min: otro despacho no la toma mientras se manda.
@@ -489,6 +502,12 @@ func nuevoResultadoBoleta(m *Modulo) *auditoria.Caso[resultadoBoleta, struct{}] 
 				t.FijarEmpresa(*f.EmpresaID)
 			}
 			t.FijarEntidad("boleta", f.ID)
+			if in.CuentaRevalidada {
+				if err := q.MarcarCuentaBoleta(ctx, mensajeriabd.MarcarCuentaBoletaParams{ID: f.ID, CuentaValidacion: nombrePtr(CuentaValidada)}); err != nil {
+					return struct{}{}, err
+				}
+				t.RegistrarCambios("boleta", f.ID, map[string]any{"cuenta_validacion": f.CuentaValidacion}, map[string]any{"cuenta_validacion": CuentaValidada})
+			}
 			ahora := m.ahora()
 			p := mensajeriabd.ResultadoBoletaParams{ID: f.ID, Estado: "registrada", ComprobanteID: in.ComprobanteID, ProximoIntento: ahora}
 			switch {
@@ -569,8 +588,26 @@ func (m *Modulo) enviarBoleta(ctx context.Context, id uuid.UUID) error {
 		BancoOrigenID: f.BancoOrigenID, Referencia: f.Referencia, Monto: monto, FechaDeposito: f.FechaDeposito.Time.Format("2006-01-02"),
 		Archivo: conector.Archivo{Campo: "archivo", Nombre: "boleta-" + f.ID.String() + ext, Mime: p.mime, Datos: p.datos}, Nota: f.Nota,
 		Clave: "iris:boleta:" + f.ID.String()}
-	r, errArgos := m.cfg.Argos.RegistrarComprobante(ctx, p.a, in)
 	res := resultadoBoleta{ID: id}
+	// Registrada sin validar la cuenta (Argos no respondía o el conector estaba apagado) o anterior a
+	// la marca (cuenta_validacion nula): se revalida antes de mandar el comprobante. Si no es una cuenta activa en GTQ de la empresa, la
+	// boleta falla sin hacer el POST; si Argos sigue sin responder, sigue el reintento normal.
+	if f.CuentaValidacion == nil || *f.CuentaValidacion != CuentaValidada {
+		cs, err := m.cfg.Argos.CuentasBancarias(ctx, p.a)
+		switch {
+		case err != nil:
+			res.Error, res.Temporal = resumenErrorArgos(err)
+		case !cuentaEnLista(cs, p.a.EmpresaID, f.CuentaBancariaID):
+			res.Error = MotivoCuentaBoleta
+		default:
+			res.CuentaRevalidada = true
+		}
+		if !res.CuentaRevalidada {
+			_, err = m.resultadoBoleta.Ejecutar(context.WithoutCancel(ctx), res)
+			return err
+		}
+	}
+	r, errArgos := m.cfg.Argos.RegistrarComprobante(ctx, p.a, in)
 	if errArgos == nil {
 		res.ComprobanteID = &r.ID
 	} else {
@@ -580,10 +617,17 @@ func (m *Modulo) enviarBoleta(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+// DetalleArgosIlegible: el detalle de una boleta cuando Argos respondió algo que Iris no pudo leer.
+const DetalleArgosIlegible = "Argos respondió algo que Iris no entiende"
+
 // resumenErrorArgos: el detalle seguro para guardar y si se reintenta (caído, sin conector).
 func resumenErrorArgos(err error) (string, bool) {
 	var er *conector.ErrorRemoto
 	if errors.As(err, &er) {
+		if er.Ilegible {
+			// Un 2xx que Iris no pudo decodificar: no es que Argos no responda.
+			return DetalleArgosIlegible, true
+		}
 		if er.Caido() {
 			return "Argos no respondió", true
 		}

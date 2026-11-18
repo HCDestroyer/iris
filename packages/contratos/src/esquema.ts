@@ -31193,7 +31193,10 @@ export interface operations {
     };
     cuentasBancariasConversaciones: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description La conversación de la boleta: lista las cuentas de la empresa de esa conversación (la misma contra la que se valida al registrar). Sin él, las de la empresa activa */
+                conversacionId?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -31220,6 +31223,15 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

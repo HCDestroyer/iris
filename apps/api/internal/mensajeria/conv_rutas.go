@@ -315,8 +315,8 @@ func (m *Modulo) registrarConversaciones(api huma.API) {
 			return responder(k.Agentes.Ejecutar(ctx, *in))
 		})
 	huma.Register(api, op("cuentasBancariasConversaciones", http.MethodGet, base+"/cuentas-bancarias", "Cuentas de la empresa que reciben depósitos (Argos §7.2)",
-		nucleo.PermConversacionesRegistrarBoleta, http.StatusOK), func(ctx context.Context, _ *struct{}) (*cuerpo[ListaCuentasBancarias], error) {
-		return responder(m.CuentasBancarias(ctx))
+		nucleo.PermConversacionesRegistrarBoleta, http.StatusOK, http.StatusNotFound), func(ctx context.Context, in *EntradaCuentasBancarias) (*cuerpo[ListaCuentasBancarias], error) {
+		return responder(m.CuentasBancarias(ctx, *in))
 	})
 	huma.Register(api, op("bancosConversaciones", http.MethodGet, base+"/bancos", "Bancos de origen (Argos §7.2)",
 		nucleo.PermConversacionesRegistrarBoleta, http.StatusOK), func(ctx context.Context, _ *struct{}) (*cuerpo[ListaBancos], error) {
@@ -509,7 +509,7 @@ func (m *Modulo) registrarConversaciones(api huma.API) {
 	bol.Description += " Queda `por_enviar` y sale a Argos (POST /comprobantes) con reintentos; caja la aprueba o rechaza en Argos. 422 `sin_cliente`, `adjunto_no_listo`."
 	huma.Register(api, bol, func(ctx context.Context, in *idCuerpoHTTP[EntradaBoleta]) (*cuerpo[Boleta], error) {
 		in.Body.ID = in.ID
-		return responder(k.Boleta.Ejecutar(ctx, in.Body))
+		return responder(m.RegistrarBoleta(ctx, in.Body))
 	})
 	sim := op("simularPromesaConversacion", http.MethodPost, base+"/{id}/promesas/simular", "Política de Argos para una promesa (sin crear nada)",
 		nucleo.PermConversacionesRegistrarPromesa, http.StatusOK, http.StatusNotFound)

@@ -48990,6 +48990,20 @@
       "get": {
         "description": "Permiso: `conversaciones.registrar_boleta`.",
         "operationId": "cuentasBancariasConversaciones",
+        "parameters": [
+          {
+            "description": "La conversación de la boleta: lista las cuentas de la empresa de esa conversación (la misma contra la que se valida al registrar). Sin él, las de la empresa activa",
+            "explode": false,
+            "in": "query",
+            "name": "conversacionId",
+            "schema": {
+              "description": "La conversación de la boleta: lista las cuentas de la empresa de esa conversación (la misma contra la que se valida al registrar). Sin él, las de la empresa activa",
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -49020,6 +49034,16 @@
               }
             },
             "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
           },
           "422": {
             "content": {
