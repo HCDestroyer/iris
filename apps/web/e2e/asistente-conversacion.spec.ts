@@ -27,12 +27,22 @@ const pedidos = (api: Api, fin: string) => api.conversaciones.enviados.filter((e
 
 async function abrir(page: Page, preparar: (api: Api) => void, opciones: Opciones = { conversaciones: { asistente: { inicial: null } } }, correo = ADMIN.correo) {
     await page.clock.setFixedTime(new Date(AHORA_CONV));
-    const api = await simularApi(page, opciones);
+    // El flujo falso queda abierto esperando: lo que se emita con él abierto llega al instante.
+    const api = await simularApi(page, { ...opciones, conversaciones: { flujoLargo: true, ...opciones.conversaciones } });
     preparar(api);
     await conSesion(page.context(), test.info().project.use.baseURL ?? "", correo);
     await page.goto("/conversaciones?c=41");
     await expect(conv(page)).toBeVisible();
     return api;
+}
+
+/**
+ * Un mensaje del cliente que llega por el flujo **ya**: se espera a que el flujo esté abierto (tras
+ * cada entrega el panel tarda en reabrirlo) y entonces se emite.
+ */
+async function llegaDelCliente(api: Api, texto: string) {
+    await expect.poll(() => api.flujoAbierto(), { timeout: 60_000, intervals: [100, 250, 500] }).toBe(true);
+    api.conversaciones.mensajeDelCliente(41, texto);
 }
 
 /** Pone `atencionAsistente` (y lo que haga falta) en la conversación 41. */
@@ -209,7 +219,7 @@ test.describe("asistente por conversación › quién atiende, pausar y reanudar
         // Mientras tanto otra persona la toma: llega por el flujo.
         const c = api.conversaciones.conversaciones.find((x) => x.id === 41);
         if (c) Object.assign(c, { asignado: { id: 3, nombre: "Laura Méndez" }, atencionAsistente: { atiende: false, motivo: "persona_asignada", reanudable: false }, version: c.version + 1 });
-        api.conversaciones.mensajeDelCliente(41, "¿Siguen ahí?");
+        await llegaDelCliente(api, "¿Siguen ahí?");
         await expect(pregunta).toHaveCount(0, { timeout: 60_000 });
         await expect(franja(page)).toHaveCount(0);
         expect(pedidos(api, "/41/asistente/reanudar")).toHaveLength(0);
@@ -293,7 +303,7 @@ test.describe("asistente por conversación › resumen guardado en la ficha", ()
         // El servidor deja de mandarlo y avisa por el flujo.
         const c = api.conversaciones.conversaciones.find((x) => x.id === 41) as { resumen?: unknown } | undefined;
         if (c) delete c.resumen;
-        api.conversaciones.mensajeDelCliente(41, "Hola, otra vez yo");
+        await llegaDelCliente(api, "Hola, otra vez yo");
         await expect(resumen.getByRole("button", { name: "Resumir", exact: true })).toBeVisible({ timeout: 20_000 });
         await expect(resumen).not.toContainText("Sin internet desde las 7");
     });
@@ -325,7 +335,7 @@ test.describe("asistente por conversación › relectura de fondo del detalle", 
             return route.fulfill({ status: 500, contentType: "application/problem+json", body: JSON.stringify({ type: "urn:iris:problema:error_interno", title: "Error interno", status: 500 }) });
         });
         // Llega un mensaje habiendo resumen: se relee el detalle de fondo.
-        api.conversaciones.mensajeDelCliente(41, "Sigo sin internet");
+        await llegaDelCliente(api, "Sigo sin internet");
         await expect(conv(page).getByRole("log", { name: "Mensajes" }).getByText("Sigo sin internet")).toBeVisible({ timeout: 60_000 });
         await expect.poll(() => fallos).toBeGreaterThan(0);
         // Nada se desmontó ni se cambió por un error.
@@ -349,7 +359,7 @@ test.describe("asistente por conversación › relectura de fondo del detalle", 
             await new Promise<void>((r) => (soltar = r));
             await route.fulfill({ status: 200, contentType: "application/json", body: vieja });
         });
-        api.conversaciones.mensajeDelCliente(41, "Hola");
+        await llegaDelCliente(api, "Hola");
         await expect(conv(page).getByRole("log", { name: "Mensajes" }).getByText("Hola", { exact: true })).toBeVisible({ timeout: 60_000 });
         await expect.poll(() => retenidas, { timeout: 60_000 }).toBe(1);
         // Mientras tanto se pausa: el panel ya tiene una versión más nueva.
