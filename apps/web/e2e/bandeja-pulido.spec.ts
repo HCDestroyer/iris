@@ -587,6 +587,60 @@ test.describe("bandeja › adjuntos: revisión de la PR", () => {
         expect(mensajesEnviados(api)).toHaveLength(0);
     });
 
+    test("«La atiendo» de otra conversación con una subida en curso: pregunta, y al salir corta la subida, no envía nada y el comentario queda de borrador", async ({ page }) => {
+        test.skip(esTelefono(page), "En el teléfono la lista no se ve con una conversación abierta: se sale por el enlace «Volver» (cubierto arriba).");
+        const { api, adjuntos } = await abrir(page, undefined, {}, { demoraParteMs: 700 });
+        const tamano = 2_000_000; // 4 partes
+        await compositor(page)
+            .locator('input[data-archivos="fotos"]')
+            .setInputFiles([{ name: "plano.png", mimeType: "image/png", buffer: Buffer.concat([png(30, 30), Buffer.alloc(tamano - png(30, 30).length, 3)]) }, foto("otra.png")]);
+        await caja(page).fill("Comentario que no debe perderse");
+        await compositor(page).getByRole("button", { name: /^Enviar/ }).click();
+        await expect(vista(page).locator("[data-archivo]").first()).toHaveAttribute("data-estado", "subiendo");
+        // Desde la lista, «La atiendo» de otra conversación (cambia por código, sin enlace).
+        const atender = page.getByRole("button", { name: /^La atiendo/ }).first();
+        await atender.click();
+        const pregunta = page.getByRole("alertdialog").or(page.getByRole("dialog")).filter({ hasText: "Todavía se están enviando archivos" });
+        await expect(pregunta).toBeVisible();
+        await expect(page).toHaveURL(/c=41/);
+        await pregunta.getByRole("button", { name: "Seguir aquí" }).click();
+        await expect(page).toHaveURL(/c=41/);
+        await expect(vista(page).locator("[data-archivo]")).toHaveCount(2);
+        await atender.click();
+        await pregunta.getByRole("button", { name: "Salir" }).click();
+        await expect(page).not.toHaveURL(/c=41/);
+        await expect(page).toHaveURL(/c=\d+/);
+        // La subida se cortó: no llegan las 4 partes, no se registra el segundo archivo y no sale ningún mensaje.
+        const partesAlSalir = adjuntos.partes.length;
+        await page.waitForTimeout(2_500);
+        expect(adjuntos.partes.length).toBeLessThanOrEqual(partesAlSalir + 1);
+        expect(adjuntos.partes.length).toBeLessThan(4);
+        expect(adjuntos.altas).toHaveLength(1);
+        expect(mensajesEnviados(api)).toHaveLength(0);
+        // Al volver, el comentario está en la caja (borrador).
+        await page.locator('[data-conversacion="41"]').click();
+        await expect(caja(page)).toHaveValue("Comentario que no debe perderse");
+        await expect(vista(page)).toHaveCount(0);
+    });
+
+    test("si la subida falla, la respuesta rápida elegida mientras subía se conserva y el comentario solo se antepone", async ({ page }) => {
+        const { api } = await abrir(page, undefined, {}, { demoraParteMs: 600, fallarPartes: 1 });
+        await compositor(page).locator('input[data-archivos="fotos"]').setInputFiles([foto("uno.png")]);
+        await caja(page).fill("Foto del poste");
+        await compositor(page).getByRole("button", { name: /^Enviar/ }).click();
+        await expect(caja(page)).toHaveValue("");
+        // Mientras sube, elige una respuesta rápida para el siguiente mensaje.
+        await compositor(page).getByRole("button", { name: "Visita hoy 13:30–15:00" }).click();
+        const rapida = await caja(page).inputValue();
+        await expect(vista(page).locator("[data-archivo]")).toHaveAttribute("data-estado", "error");
+        await expect(caja(page)).toHaveValue(`Foto del poste\n\n${rapida}`);
+        // Quita el archivo y manda el texto: sale con la respuesta rápida que eligió.
+        await vista(page).getByRole("button", { name: "Quitar uno.png" }).click();
+        await caja(page).press("Enter");
+        await expect.poll(() => mensajesEnviados(api).length).toBe(1);
+        expect(api.conversaciones.enviados.find((e) => e.ruta.endsWith("/41/mensajes"))?.cuerpo).toMatchObject({ respuestaRapidaId: 1 });
+    });
+
     test("pegar desde Excel o Word (texto e imagen a la vez) pega el texto y no adjunta la imagen", async ({ page }) => {
         await abrir(page);
         const bytes = [...png(24, 24)];

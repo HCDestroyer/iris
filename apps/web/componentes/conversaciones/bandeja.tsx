@@ -1,5 +1,6 @@
 "use client";
 
+import { salirDeConversacion } from "@/lib/conversaciones/salida";
 import { avisar, cn } from "@iris/ui";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -44,9 +45,12 @@ export function Bandeja() {
         (f: Filtros, c: number | null, reemplazar = false) => {
             const destino = `${ruta}${urlDeFiltros(f, c)}`;
             if (reemplazar) router.replace(destino, { scroll: false });
+            // Cambiar de conversación por código («La atiendo», «Ver» de un aviso) pasa por el
+            // compositor: con archivos por enviar o subiendo, pregunta antes.
+            else if (c !== abierta) salirDeConversacion(destino, (r) => router.push(r, { scroll: false }));
             else router.push(destino, { scroll: false });
         },
-        [router, ruta],
+        [router, ruta, abierta],
     );
 
     // Lista: primera página por filtros; el feed la mantiene al día.

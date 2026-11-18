@@ -14,6 +14,7 @@ import { ACEPTA_DOCUMENTO, ACEPTA_FOTO, claseDeArchivo, MAX_ARCHIVOS, motivoArch
 import { cabeceraIdem, nuevoIdMensaje } from "@/lib/conversaciones/api";
 import { idTrasError } from "@/lib/conversaciones/id-envio";
 import { guardarBorrador, leerBorrador } from "@/lib/conversaciones/borradores";
+import { registrarSalidaProtegida } from "@/lib/conversaciones/salida";
 import type { Pendiente } from "@/lib/conversaciones/estado";
 import { aplicarRespuesta, tamanoLegible, textoVentana } from "@/lib/conversaciones/presentacion";
 import { esSesionCambiada, verificarSesion, type Identidad } from "@/lib/conversaciones/sesion";
@@ -113,6 +114,9 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
         elegidos.some((x) => x.estado !== "invalido"),
         (ruta) => router.push(ruta, { scroll: false }),
     );
+    // …también cuando la bandeja cambia de conversación por código («La atiendo», «Ver» de un aviso).
+    const salirProtegido = proteccion.salir;
+    useEffect(() => registrarSalidaProtegida(salirProtegido), [salirProtegido]);
     const campo = useRef<HTMLTextAreaElement | null>(null);
     const ventana = textoVentana(conv.ventana, ahora);
     const cerrada = ventana === null;
@@ -325,11 +329,13 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
         /** Si se detiene antes de usarlo, el comentario vuelve a la caja (delante de lo que haya). */
         const devolverPie = () => {
             if (!pie || !montado.current) return;
-            const escrito = form.getValues("texto");
-            if (pie.texto) form.setValue("texto", escrito.trim() ? `${pie.texto}\n\n${escrito}` : pie.texto, { shouldDirty: true });
-            setRespuestaId(pie.respuestaRapidaId);
-            setSugerenciaId(pie.sugerenciaId);
+            const { texto: textoPie, respuestaRapidaId: respuestaPie, sugerenciaId: sugerenciaPie } = pie;
             pie = null;
+            const escrito = form.getValues("texto");
+            if (textoPie) form.setValue("texto", escrito.trim() ? `${textoPie}\n\n${escrito}` : textoPie, { shouldDirty: true });
+            // La respuesta rápida o la sugerencia que se eligió mientras subía se respeta.
+            setRespuestaId((actual) => actual ?? respuestaPie);
+            setSugerenciaId((actual) => actual ?? sugerenciaPie);
         };
         try {
             await verificarSesion(identidad);
@@ -378,6 +384,12 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
         } finally {
             enviandoAhora.current = false;
             if (montado.current) setEnviandoArchivos(false);
+            // Se salió antes de que saliera el primer archivo: el comentario no se pierde, queda
+            // de borrador en esta conversación (delante de lo que ya hubiera).
+            else if (pie?.texto) {
+                const previo = leerBorrador(identidad, conv.id, "responder");
+                guardarBorrador(identidad, conv.id, "responder", previo?.trim() ? `${pie.texto}\n\n${previo}` : pie.texto);
+            }
         }
     }
 
