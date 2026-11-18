@@ -34,6 +34,11 @@ export type ApiNumeros = {
     cuerpos: { ruta: string; cuerpo: Record<string, unknown>; idempotencia: string | undefined }[];
     /** Credenciales guardadas (para comprobar que lo vacío no cambió nada). */
     secretos: Map<number, { token: string; appSecret: string; verifyToken: string }>;
+    /**
+     * §1.1: un envío marca el número (Meta rechazó el token o los permisos) o lo devuelve a
+     * «conectado» (el primero que Meta acepta), sin pasar por «Probar». `ultimoDetalle` solo lleva números.
+     */
+    marcarPorEnvio: (id: number, estado: "token_invalido" | "sin_permiso" | "conectado") => void;
     /** El verify token se generó con esta prueba (el número creado). */
     ultimoCreado: () => Canal | null;
     /** Para `api-meta.ts` (§15): números, sus datos de Meta y entradas extra de la lista. */
@@ -299,5 +304,12 @@ export function apiNumeros(canales: Numero[], opciones: OpcionesNumeros = {}): A
         },
         listaExtra,
     };
-    return { resultados, cuerpos, secretos, ultimoCreado: () => creado, manejar, interno };
+    function marcarPorEnvio(id: number, estado: "token_invalido" | "sin_permiso" | "conectado") {
+        const e = extras.get(id);
+        if (!e) return;
+        e.ultimoEstado = estado;
+        e.ultimoDetalle = estado === "conectado" ? null : estado === "token_invalido" ? "HTTP 401, código 190" : "HTTP 403, código 200";
+        e.ultimaPruebaEn = AHORA();
+    }
+    return { resultados, cuerpos, secretos, ultimoCreado: () => creado, marcarPorEnvio, manejar, interno };
 }

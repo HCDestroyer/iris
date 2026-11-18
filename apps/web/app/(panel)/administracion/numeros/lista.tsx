@@ -4,7 +4,7 @@ import type { Schema } from "@iris/contratos";
 import { avisar, Aviso, Boton, cn, Esqueleto, EstadoVacio, Tarjeta } from "@iris/ui";
 import { BookOpen, Building2, CalendarClock, Cloud, Code, Eye, History, KeyRound, MessageCircle, Phone, Plus, Power, QrCode, Share2, SlidersHorizontal, Smartphone } from "lucide-react";
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { EstadoConexion } from "@/componentes/numeros/estado-conexion";
@@ -64,27 +64,45 @@ export function ListaNumeros() {
     const clave = useClaveIdempotencia();
     const [errorAccion, setErrorAccion] = useState<{ nombre: string; error: unknown } | null>(null);
     const [activando, setActivando] = useState<number | null>(null);
-    const lectura = useLectura(async (signal) => {
-        const [numeros, colas, horarios] = await Promise.all([
-            credenciales
-                ? leerCanales(signal).then((cs) =>
-                      deLaEmpresa(cs, empresaActiva).map(
-                          (c): Fila => ({
-                              ...c,
-                              prestadoPor: c.prestadoPor,
-                              // El préstamo trae sus usos y su cola (§15.3).
-                              usos: c.prestamo?.usos ?? c.usos,
-                              colaId: c.prestamo ? c.prestamo.colaId : c.colaId,
-                              meta: { conexion: c.conexion, tipoConexion: c.tipoConexion, ultimoEcoEn: c.ultimoEcoEn, conectadoEn: c.conectadoEn, desconectadoMotivo: c.desconectadoMotivo, compartidoCon: c.compartidoCon, sincronizacion: c.sincronizacion },
-                          }),
-                      ),
-                  )
-                : resolver(api().GET("/api/v1/mensajeria/conversaciones/canales", { signal })).then((r) => (r.data ?? []).map((c): Fila => ({ ...c, meta: null }))),
-            verBandeja ? resolver(api().GET("/api/v1/mensajeria/colas", { signal })).then((r) => r.data ?? []) : Promise.resolve(null),
-            verBandeja ? resolver(api().GET("/api/v1/mensajeria/horarios", { signal })).then((r) => r.data ?? []) : Promise.resolve(null),
-        ]);
+    const leer = useCallback(
+        async (signal?: AbortSignal) => {
+            const [numeros, colas, horarios] = await Promise.all([
+                credenciales
+                    ? leerCanales(signal).then((cs) =>
+                          deLaEmpresa(cs, empresaActiva).map(
+                              (c): Fila => ({
+                                  ...c,
+                                  prestadoPor: c.prestadoPor,
+                                  // El préstamo trae sus usos y su cola (§15.3).
+                                  usos: c.prestamo?.usos ?? c.usos,
+                                  colaId: c.prestamo ? c.prestamo.colaId : c.colaId,
+                                  meta: { conexion: c.conexion, tipoConexion: c.tipoConexion, ultimoEcoEn: c.ultimoEcoEn, conectadoEn: c.conectadoEn, desconectadoMotivo: c.desconectadoMotivo, compartidoCon: c.compartidoCon, sincronizacion: c.sincronizacion },
+                              }),
+                          ),
+                      )
+                    : resolver(api().GET("/api/v1/mensajeria/conversaciones/canales", { signal })).then((r) => (r.data ?? []).map((c): Fila => ({ ...c, meta: null }))),
+                verBandeja ? resolver(api().GET("/api/v1/mensajeria/colas", { signal })).then((r) => r.data ?? []) : Promise.resolve(null),
+                verBandeja ? resolver(api().GET("/api/v1/mensajeria/horarios", { signal })).then((r) => r.data ?? []) : Promise.resolve(null),
+            ]);
         return { numeros, colas, horarios };
-    });
+        },
+        [credenciales, empresaActiva, verBandeja],
+    );
+    const lectura = useLectura(leer);
+
+    // Un envío rechazado marca el número («Token vencido», «Sin permiso en Meta») y el primero que
+    // Meta acepta lo devuelve a «Conectado», sin pulsar «Probar» (§1.1): al volver a esta pestaña se
+    // relee la lista, para no quedarse con un estado viejo. En silencio: si falla, queda lo que había.
+    const { reemplazar } = lectura;
+    const listo = lectura.estado === "listo";
+    useEffect(() => {
+        if (!listo) return;
+        const alVerse = () => {
+            if (document.visibilityState === "visible") leer().then(reemplazar, () => undefined);
+        };
+        document.addEventListener("visibilitychange", alVerse);
+        return () => document.removeEventListener("visibilitychange", alVerse);
+    }, [leer, reemplazar, listo]);
 
     async function activar(f: Fila) {
         setErrorAccion(null);
@@ -310,6 +328,11 @@ function FilaNumero({
                         {etiquetaTipoConexion(m.tipoConexion)}
                     </span>
                     {desconectado ? <span className="text-xs text-muted-foreground">{textoDesconexion(m.desconectadoMotivo)}</span> : null}
+                    {dias === null && (m.conexion === "token_invalido" || m.conexion === "sin_permiso") ? (
+                        <span className="text-xs text-muted-foreground" data-slot="consecuencia-conexion">
+                            WhatsApp está rechazando los mensajes de este número.
+                        </span>
+                    ) : null}
                     {dias !== null ? <span className="text-xs text-muted-foreground">Meta lo desconecta a los 14 días sin uso. Abre la app en el teléfono.</span> : null}
                 </div>
             ) : null}

@@ -700,6 +700,20 @@ Contrato: `.claude/integration/contratos/conversaciones.md` §17.10. Lógica pur
   mensaje de sistema «Asistente de IA creó OT-…» y el vínculo a la orden en la ficha; en la lista,
   la actividad «Agendó la visita OT-…» (texto del servidor: nunca el técnico).
 
+## Rechazo de Meta a la vista (nov. 2026)
+
+Contrato: `conversaciones.md` §1.1 y `voz.md`. `e2e/rechazo-meta.spec.ts` en los 4 proyectos.
+
+- **Mensaje que no se envió** (`FallaMensaje`, `lib/conversaciones/falla.ts`): bajo la burbuja, con
+  icono + texto + color, por qué no salió. Si Meta rechazó el token o los permisos del número, al
+  agente se le dice que avise a un administrador; a quien tiene `mensajeria.configurar`, que lo
+  revise, con el enlace «Revisar el número» (a las credenciales de ese número). El código de Meta
+  («Código de WhatsApp: 190 (HTTP 401)») va discreto y solo si el servidor lo manda.
+- **Números de WhatsApp**: un envío rechazado marca el número y el primero aceptado lo devuelve a
+  «Conectado» sin pulsar «Probar»; la lista se relee al volver a la pestaña, en silencio.
+- **Llamadas del número**: aviso «Se están rechazando llamadas de clientes» (cuántas hoy y cuándo
+  la última) con «Encender las llamadas»; el 409 al guardar ofrece «Recargar» y reintentar.
+
 ## Correo del sistema (nov. 2026)
 
 Contrato: `.claude/integration/contratos/correo-sistema.md`. Pantalla: `/administracion/correo`

@@ -270,6 +270,11 @@ export function motivoFalla(motivo: string): string {
             return "sin respuesta de WhatsApp";
         case "sin_permiso":
             return "sin permiso de contacto";
+        // §1.1: Meta rechazó el token del número o le falta un permiso (lo arregla un administrador).
+        case "token_invalido":
+            return "WhatsApp rechazó la conexión del número";
+        case "sin_permiso_meta":
+            return "falta un permiso en WhatsApp";
         default:
             return motivo.replace(/_/g, " ");
     }
