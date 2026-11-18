@@ -3916,7 +3916,7 @@ export interface paths {
         put?: never;
         /**
          * Pedir a Argos una promesa de pago
-         * @description Permiso: `conversaciones.registrar_promesa`. Argos decide (activa, rechazada o pendiente_aprobacion) y la respuesta lo dice. 409 `promesa_abierta`, `idempotencia_en_curso`, `promesa_ya_enviada`; 422 `servicio_retirado`, `sin_plantilla_facturacion`, `servicio_sin_instalar`, `promesa_fecha_invalida`, `promesa_no_permitida`; 502 `argos_promesa_integracion`; 503 si Argos no responde (nada queda a medias).
+         * @description Permiso: `conversaciones.registrar_promesa`. Argos decide (activa, rechazada o pendiente_aprobacion) y la respuesta lo dice. 409 `promesa_abierta`, `idempotencia_en_curso`, `promesa_ya_enviada`; 422 `servicio_retirado`, `sin_plantilla_facturacion`, `servicio_sin_instalar`, `promesa_fecha_invalida`, `promesa_no_permitida`; 502 `argos_promesa_integracion`; 503 si Argos no responde; el pedido pudo haber llegado: repite con la misma Idempotency-Key.
          */
         post: operations["registrarPromesaConversacion"];
         delete?: never;
