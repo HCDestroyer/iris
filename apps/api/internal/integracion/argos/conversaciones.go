@@ -193,12 +193,25 @@ func (m *Modulo) SimularPromesa(ctx context.Context, a AtencionIris, servicioID 
 	if err != nil {
 		return SimulacionPromesa{}, err
 	}
+	return cli.simularPromesa(ctx, servicioID, venceEn)
+}
+
+// SimularPromesa: POST /promesas/simular con las cabeceras de §7.1, con este cliente (pruebas contra
+// un Argos falso; en producción va por Modulo.SimularPromesa con el conector activo).
+func (c *Cliente) SimularPromesa(ctx context.Context, a AtencionIris, servicioID int64, venceEn *time.Time) (SimulacionPromesa, error) {
+	if err := a.validar(); err != nil {
+		return SimulacionPromesa{}, err
+	}
+	return (&Cliente{Cliente: c.conAtencion(a)}).simularPromesa(ctx, servicioID, venceEn)
+}
+
+func (c *Cliente) simularPromesa(ctx context.Context, servicioID int64, venceEn *time.Time) (SimulacionPromesa, error) {
 	cuerpo := map[string]any{"servicio_id": servicioID}
 	if venceEn != nil {
 		cuerpo["vence_en"] = venceEn.UTC().Format(time.RFC3339)
 	}
 	var r SimulacionPromesa
-	err = cli.Pedir(ctx, "POST", "/promesas/simular", nil, cuerpo, true, &r)
+	err := c.Pedir(ctx, "POST", "/promesas/simular", nil, cuerpo, true, &r)
 	return r, err
 }
 
@@ -219,8 +232,23 @@ func (m *Modulo) CrearPromesa(ctx context.Context, a AtencionIris, servicioID in
 	if err != nil {
 		return PromesaArgos{}, err
 	}
+	return cli.crearPromesa(ctx, servicioID, venceEn, clave)
+}
+
+// CrearPromesa: POST /promesas con las cabeceras de §7.1, con este cliente (pruebas contra un Argos
+// falso; en producción va por Modulo.CrearPromesa con el conector activo).
+func (c *Cliente) CrearPromesa(ctx context.Context, a AtencionIris, servicioID int64, venceEn time.Time, clave string) (PromesaArgos, error) {
+	if err := a.validar(); err != nil {
+		return PromesaArgos{}, err
+	}
+	return (&Cliente{Cliente: c.conAtencion(a)}).crearPromesa(ctx, servicioID, venceEn, clave)
+}
+
+// crearPromesa: el cuerpo es siempre el mismo para el mismo pedido (Argos guarda la huella del cuerpo
+// crudo y del X-Iris-Actor con la Idempotency-Key).
+func (c *Cliente) crearPromesa(ctx context.Context, servicioID int64, venceEn time.Time, clave string) (PromesaArgos, error) {
 	var r PromesaArgos
-	err = cli.Escribir(ctx, "POST", "/promesas", map[string]any{"servicio_id": servicioID, "vence_en": venceEn.UTC().Format(time.RFC3339)}, clave, &r)
+	err := c.Escribir(ctx, "POST", "/promesas", map[string]any{"servicio_id": servicioID, "vence_en": venceEn.UTC().Format(time.RFC3339)}, clave, &r)
 	return r, err
 }
 

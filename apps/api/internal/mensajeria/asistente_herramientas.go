@@ -868,5 +868,6 @@ func esTransitorioArgos(err error) bool {
 	if !errors.As(err, &p) {
 		return true
 	}
-	return p.Status >= http.StatusInternalServerError || p.Codigo() == "idempotencia_en_curso"
+	// Un rechazo de Argos por la integración (cabeceras, Idempotency-Key, empresa) no cambia al repetir.
+	return (p.Status >= http.StatusInternalServerError && p.Codigo() != "argos_promesa_integracion") || p.Codigo() == "idempotencia_en_curso"
 }

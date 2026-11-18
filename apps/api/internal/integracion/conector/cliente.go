@@ -123,6 +123,9 @@ type ErrorRemoto struct {
 	HTML bool
 	// Campos: errors[].field (o location / campo) del problem+json, sin el prefijo body. (máx. 20).
 	Campos []string
+	// Reglas: errors[].rule del problem+json (futuro, fecha…), solo las que son un código simple
+	// (máx. 20; no van en paralelo a Campos).
+	Reglas []string
 
 	reintentarEn time.Duration
 	causa        error
@@ -450,6 +453,7 @@ func (c *Cliente) errorDeRespuesta(resp *http.Response, crudo []byte) *ErrorRemo
 			Field    string `json:"field"`
 			Location string `json:"location"`
 			Campo    string `json:"campo"`
+			Rule     string `json:"rule"`
 		} `json:"errors"`
 	}
 	if json.Unmarshal(crudo, &p) == nil {
@@ -468,6 +472,9 @@ func (c *Cliente) errorDeRespuesta(resp *http.Response, crudo []byte) *ErrorRemo
 			}
 			if campo = strings.TrimPrefix(strings.TrimSpace(campo), "body."); campo != "" && len(campo) <= 100 {
 				e.Campos = append(e.Campos, campo)
+			}
+			if regla := strings.TrimSpace(f.Rule); codigoSimple.MatchString(regla) {
+				e.Reglas = append(e.Reglas, regla)
 			}
 		}
 	}

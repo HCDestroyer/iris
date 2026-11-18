@@ -914,7 +914,7 @@ function DialogoPromesa({ conv, cerrar }: { conv: ConversacionDetalle; cerrar: (
                                   ? "Revisa en Argos si la promesa quedó registrada antes de volver a pedirla."
                                   : error instanceof ErrorApi && error.codigo === "cliente_sin_confirmar"
                                     ? "Falta que un supervisor confirme el cliente de esta conversación."
-                                    : mensajeDeError(error).titulo}
+                                    : (mensajeDeError(error).detalle ?? mensajeDeError(error).titulo)}
                         </Aviso>
                     ) : null}
                     <DialogoPie>
