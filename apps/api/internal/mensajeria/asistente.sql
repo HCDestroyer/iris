@@ -205,3 +205,32 @@ DELETE FROM mensajeria.asistente_pedidos WHERE creado_en < @antes;
 
 -- name: SugerenciasAtascadas :many
 SELECT id FROM mensajeria.sugerencias WHERE estado = 'generando' AND created_at < @antes ORDER BY created_at LIMIT 200;
+
+-- Resumen guardado de la conversación (§16.4) ------------------------------------------------------
+
+-- name: UltimoMensajeHilo :one
+-- El último mensaje del hilo con el cliente (sin notas ni mensajes de sistema): hasta dónde cubre un resumen.
+SELECT id, seq FROM mensajeria.conversacion_mensajes
+WHERE conversacion_id = @conversacion_id AND direccion IN ('entrante', 'saliente')
+ORDER BY seq DESC LIMIT 1;
+
+-- name: QuitarResumenVigente :exec
+UPDATE mensajeria.conversacion_resumenes SET vigente = false WHERE conversacion_id = @conversacion_id AND vigente;
+
+-- name: InsertarResumenConversacion :one
+INSERT INTO mensajeria.conversacion_resumenes (id, empresa_id, conversacion_id, texto, pedido_por, proveedor, modelo, hasta_mensaje_id, hasta_seq,
+    tokens_entrada, tokens_salida, generado_en)
+VALUES (@id, sqlc.narg('empresa_id'), @conversacion_id, @texto, sqlc.narg('pedido_por'), @proveedor, @modelo, @hasta_mensaje_id, @hasta_seq,
+    @tokens_entrada, @tokens_salida, @generado_en)
+RETURNING *;
+
+-- name: ResumenVigente :one
+-- El resumen guardado de la conversación para su empresa de hoy (un número prestado nunca muestra el
+-- de otra empresa), con quién lo pidió y cuántos mensajes del hilo llegaron después.
+SELECT r.*, u.nombre AS pedido_por_nombre,
+    (SELECT count(*) FROM mensajeria.conversacion_mensajes m
+     WHERE m.conversacion_id = r.conversacion_id AND m.direccion IN ('entrante', 'saliente') AND m.seq > r.hasta_seq)::bigint AS mensajes_nuevos
+FROM mensajeria.conversacion_resumenes r
+LEFT JOIN nucleo.usuarios u ON u.id = r.pedido_por
+WHERE r.conversacion_id = @conversacion_id AND r.vigente AND coalesce(r.empresa_id, 0) = @empresa::bigint;
+

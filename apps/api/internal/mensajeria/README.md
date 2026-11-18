@@ -528,6 +528,14 @@ Emite `conversacion.categorizada`, `categoria.creada`, `categoria.actualizada` y
 - Eventos: `orden.creada` (origen `asistente`), `orden.programada`, `conversacion.vinculo_creado` y
   `asistente.accion_ejecutada` (`ofrecer_visita`, `agendar_visita`).
 
+### Resumen guardado de la conversación (§16.4, `asistente_sugerencias.go`)
+
+- **Qué hace:** `POST /conversaciones/{id}/resumen` genera el resumen y lo guarda en
+  `mensajeria.conversacion_resumenes` (uno vigente por conversación: quién lo pidió, cuándo, modelo y
+  hasta qué mensaje cubre); `GET` lo devuelve sin llamar al modelo, con `desactualizado` si llegaron
+  mensajes después. El detalle de la conversación trae `resumen` (sin el texto).
+- **Eventos que emite:** `conversacion.resumen_guardado` (nunca el texto). No consume ninguno.
+
 ### El asistente por conversación: pausar y reanudar (§17.11, `asistente_pausa.go`)
 
 - **Qué hace:** `atencionAsistente` en cada conversación (si el asistente la atiende sola ahora y por

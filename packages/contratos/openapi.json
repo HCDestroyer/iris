@@ -5583,6 +5583,10 @@
               "null"
             ]
           },
+          "resumen": {
+            "$ref": "#/components/schemas/ResumenGuardadoRef",
+            "description": "§16.4: la conversación tiene un resumen del asistente guardado (el texto: GET …/resumen). Ausente si nadie lo ha pedido"
+          },
           "sla": {
             "$ref": "#/components/schemas/SLAConversacion"
           },
@@ -26192,8 +26196,35 @@
       "ResumenConversacion": {
         "additionalProperties": false,
         "properties": {
+          "desactualizado": {
+            "description": "Llegaron o se enviaron mensajes después de hastaMensajeId (las notas internas no cuentan)",
+            "type": "boolean"
+          },
           "generadoEn": {
             "format": "date-time",
+            "type": "string"
+          },
+          "hastaMensajeId": {
+            "description": "El último mensaje del hilo que cubre",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "mensajesNuevos": {
+            "description": "Cuántos mensajes del hilo hay después del resumen",
+            "format": "int64",
+            "type": "integer"
+          },
+          "modelo": {
+            "description": "El modelo que lo escribió",
+            "type": "string"
+          },
+          "pedidoPor": {
+            "$ref": "#/components/schemas/UsuarioRef",
+            "description": "Quién lo pidió"
+          },
+          "proveedor": {
             "type": "string"
           },
           "texto": {
@@ -26201,8 +26232,40 @@
           }
         },
         "required": [
+          "id",
           "texto",
-          "generadoEn"
+          "generadoEn",
+          "proveedor",
+          "modelo",
+          "hastaMensajeId",
+          "desactualizado",
+          "mensajesNuevos"
+        ],
+        "type": "object"
+      },
+      "ResumenGuardadoRef": {
+        "additionalProperties": false,
+        "properties": {
+          "desactualizado": {
+            "type": "boolean"
+          },
+          "generadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "mensajesNuevos": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "generadoEn",
+          "desactualizado",
+          "mensajesNuevos"
         ],
         "type": "object"
       },
@@ -53910,8 +53973,99 @@
       }
     },
     "/api/v1/mensajeria/conversaciones/{id}/resumen": {
+      "get": {
+        "description": "Permiso: `conversaciones.sugerencias`. No llama al modelo ni gasta tokens. `desactualizado`: hay mensajes del hilo después de `hastaMensajeId` (`mensajesNuevos` dice cuántos). 404 `sin_resumen` si nadie lo ha pedido (el detalle de la conversación trae `resumen` cuando existe, para no preguntar de más).",
+        "operationId": "verResumenConversacion",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResumenConversacion"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "El resumen guardado de la conversación",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "conversaciones.sugerencias"
+      },
       "post": {
-        "description": "Permiso: `conversaciones.sugerencias`. Síncrono (hasta 90 s). Reserva y cuenta para el tope; no se guarda el texto. 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje`; 429 `demasiados_pedidos`; 502 `proveedor_no_responde`, `proveedor_error`, `clave_invalida`, `proveedor_redirige`, `rechazo_modelo`.",
+        "description": "Permiso: `conversaciones.sugerencias`. Genera el resumen (o lo regenera) y lo **guarda en la conversación**, reemplazando al anterior. Síncrono (hasta 90 s). Reserva y cuenta para el tope. Para verlo sin gastar tokens: `GET` de esta misma ruta. 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje`; 429 `demasiados_pedidos`; 502 `proveedor_no_responde`, `proveedor_error`, `clave_invalida`, `proveedor_redirige`, `rechazo_modelo` (si falla, el resumen anterior se conserva). Evento `conversacion.resumen_guardado` (sin el texto).",
         "operationId": "resumirConversacion",
         "parameters": [
           {

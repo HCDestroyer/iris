@@ -3992,11 +3992,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * El resumen guardado de la conversación
+         * @description Permiso: `conversaciones.sugerencias`. No llama al modelo ni gasta tokens. `desactualizado`: hay mensajes del hilo después de `hastaMensajeId` (`mensajesNuevos` dice cuántos). 404 `sin_resumen` si nadie lo ha pedido (el detalle de la conversación trae `resumen` cuando existe, para no preguntar de más).
+         */
+        get: operations["verResumenConversacion"];
         put?: never;
         /**
          * Resumen de la conversación (ficha del cliente)
-         * @description Permiso: `conversaciones.sugerencias`. Síncrono (hasta 90 s). Reserva y cuenta para el tope; no se guarda el texto. 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje`; 429 `demasiados_pedidos`; 502 `proveedor_no_responde`, `proveedor_error`, `clave_invalida`, `proveedor_redirige`, `rechazo_modelo`.
+         * @description Permiso: `conversaciones.sugerencias`. Genera el resumen (o lo regenera) y lo **guarda en la conversación**, reemplazando al anterior. Síncrono (hasta 90 s). Reserva y cuenta para el tope. Para verlo sin gastar tokens: `GET` de esta misma ruta. 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje`; 429 `demasiados_pedidos`; 502 `proveedor_no_responde`, `proveedor_error`, `clave_invalida`, `proveedor_redirige`, `rechazo_modelo` (si falla, el resumen anterior se conserva). Evento `conversacion.resumen_guardado` (sin el texto).
          */
         post: operations["resumirConversacion"];
         delete?: never;
@@ -10022,6 +10026,8 @@ export interface components {
             perfilNombre: string | null;
             /** Format: date-time */
             reabiertaEn: string | null;
+            /** @description §16.4: la conversación tiene un resumen del asistente guardado (el texto: GET …/resumen). Ausente si nadie lo ha pedido */
+            resumen?: components["schemas"]["ResumenGuardadoRef"];
             sla: components["schemas"]["SLAConversacion"];
             /** @description true: el número ya no está compartido con tu empresa (préstamo revocado, §15.3) y solo se puede leer. Ausente = false */
             soloLectura?: boolean;
@@ -17058,9 +17064,32 @@ export interface components {
             requiere_accion: number;
         };
         ResumenConversacion: {
+            /** @description Llegaron o se enviaron mensajes después de hastaMensajeId (las notas internas no cuentan) */
+            desactualizado: boolean;
             /** Format: date-time */
             generadoEn: string;
+            /** @description El último mensaje del hilo que cubre */
+            hastaMensajeId: string;
+            id: string;
+            /**
+             * Format: int64
+             * @description Cuántos mensajes del hilo hay después del resumen
+             */
+            mensajesNuevos: number;
+            /** @description El modelo que lo escribió */
+            modelo: string;
+            /** @description Quién lo pidió */
+            pedidoPor?: components["schemas"]["UsuarioRef"];
+            proveedor: string;
             texto: string;
+        };
+        ResumenGuardadoRef: {
+            desactualizado: boolean;
+            /** Format: date-time */
+            generadoEn: string;
+            id: string;
+            /** Format: int64 */
+            mensajesNuevos: number;
         };
         ResumenTickets: {
             /**
@@ -34445,6 +34474,73 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verResumenConversacion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResumenConversacion"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

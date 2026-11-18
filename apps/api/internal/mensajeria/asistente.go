@@ -163,12 +163,13 @@ type casosAsistente struct {
 	Modelos      *ModelosAsistente
 	Uso          *auditoria.Caso[EntradaUsoAsistente, UsoAsistente]
 
-	Pedir     *auditoria.Caso[EntradaPedirSugerencia, Sugerencia]
-	Actual    *auditoria.Caso[EntradaConversacion, Sugerencia]
-	Usar      *auditoria.Caso[EntradaSugerencia, Sugerencia]
-	Descartar *auditoria.Caso[EntradaSugerencia, Sugerencia]
-	Calificar *auditoria.Caso[EntradaCalificar, Sugerencia]
-	Resumen   *ResumirConversacion
+	Pedir      *auditoria.Caso[EntradaPedirSugerencia, Sugerencia]
+	Actual     *auditoria.Caso[EntradaConversacion, Sugerencia]
+	Usar       *auditoria.Caso[EntradaSugerencia, Sugerencia]
+	Descartar  *auditoria.Caso[EntradaSugerencia, Sugerencia]
+	Calificar  *auditoria.Caso[EntradaCalificar, Sugerencia]
+	Resumen    *ResumirConversacion
+	VerResumen *auditoria.Caso[EntradaConversacion, ResumenConversacion]
 
 	// Fase 3a (§17).
 	Categorias          *auditoria.Caso[EntradaListarCategoriasMensajes, ListaCategoriasMensajes]
@@ -203,7 +204,7 @@ func nuevosCasosAsistente(m *Modulo) casosAsistente {
 		VerAjustes: nuevoVerAjustesAsistente(m), FijarAjustes: nuevoFijarAjustesAsistente(m), Estado: nuevoEstadoAsistente(m),
 		Probar: nuevoProbarAsistente(m), Modelos: nuevoModelosAsistente(m), Uso: nuevoUsoAsistente(m),
 		Pedir: nuevoPedirSugerencia(m), Actual: nuevoSugerenciaActual(m), Usar: nuevoUsarSugerencia(m),
-		Descartar: nuevoDescartarSugerencia(m), Calificar: nuevoCalificarSugerencia(m), Resumen: nuevoResumirConversacion(m),
+		Descartar: nuevoDescartarSugerencia(m), Calificar: nuevoCalificarSugerencia(m), Resumen: nuevoResumirConversacion(m), VerResumen: nuevoVerResumen(m),
 		Categorias: nuevoListarCategorias(m), CrearCategoria: nuevoCrearCategoria(m), ActualizarCategoria: nuevoActualizarCategoria(m),
 		ActivarCategoria:    nuevoCambioCategoria("mensajeria.asistente_activar_categoria", true),
 		DesactivarCategoria: nuevoCambioCategoria("mensajeria.asistente_desactivar_categoria", false),

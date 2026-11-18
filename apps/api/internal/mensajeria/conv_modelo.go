@@ -245,6 +245,7 @@ type ConversacionClienteDetalle struct {
 	Vinculos       []VinculoConversacion       `json:"vinculos"`
 	Participantes  []ParticipanteConversacion  `json:"participantes"`
 	ClienteResumen *ClienteResumenConversacion `json:"clienteResumen,omitempty" doc:"Ausente sin cliente o sin instantánea"`
+	Resumen        *ResumenGuardadoRef         `json:"resumen,omitempty" doc:"§16.4: la conversación tiene un resumen del asistente guardado (el texto: GET …/resumen). Ausente si nadie lo ha pedido"`
 	Supervisores   []UsuarioRef                `json:"supervisores" doc:"Supervisores de su cola"`
 	Equipo         []MiembroEquipo             `json:"equipo" doc:"Miembros y supervisores de su cola con su disponibilidad (sin cola, [])"`
 }
@@ -875,6 +876,13 @@ func (m *Modulo) detalleConv(ctx context.Context, q *mensajeriabd.Queries, usuar
 	}
 	for _, p := range ps {
 		d.Participantes = append(d.Participantes, ParticipanteConversacion{ID: p.UsuarioID, Nombre: p.Nombre, Origen: p.Origen})
+	}
+	switch res, err := q.ResumenVigente(ctx, mensajeriabd.ResumenVigenteParams{ConversacionID: c.ID, Empresa: empresaDeConv(c)}); {
+	case errors.Is(err, pgx.ErrNoRows):
+	case err != nil:
+		return d, err
+	default:
+		d.Resumen = &ResumenGuardadoRef{ID: res.ID, GeneradoEn: res.GeneradoEn, Desactualizado: res.MensajesNuevos > 0, MensajesNuevos: res.MensajesNuevos}
 	}
 	if c.ClienteID != nil {
 		cl, err := q.ClienteInstantanea(ctx, *c.ClienteID)

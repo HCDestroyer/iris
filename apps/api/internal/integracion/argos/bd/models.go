@@ -1522,6 +1522,23 @@ type MensajeriaConversacionParticipante struct {
 	CreatedAt      time.Time
 }
 
+type MensajeriaConversacionResumene struct {
+	ID             uuid.UUID
+	EmpresaID      *int64
+	ConversacionID int64
+	Texto          string
+	PedidoPor      *int64
+	Proveedor      string
+	Modelo         string
+	HastaMensajeID uuid.UUID
+	HastaSeq       int64
+	TokensEntrada  int64
+	TokensSalida   int64
+	Vigente        bool
+	GeneradoEn     time.Time
+	CreatedAt      time.Time
+}
+
 type MensajeriaConversacionVinculo struct {
 	ConversacionID int64
 	Tipo           string

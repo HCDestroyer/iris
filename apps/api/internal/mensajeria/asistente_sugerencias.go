@@ -141,10 +141,60 @@ type CuerpoCalificar struct {
 	Util bool `json:"util"`
 }
 
-// ResumenConversacion es POST /conversaciones/{id}/resumen.
+// ResumenConversacion es el resumen guardado de una conversación (POST y GET /conversaciones/{id}/resumen).
 type ResumenConversacion struct {
-	Texto      string    `json:"texto"`
-	GeneradoEn time.Time `json:"generadoEn"`
+	ID             uuid.UUID   `json:"id"`
+	Texto          string      `json:"texto"`
+	GeneradoEn     time.Time   `json:"generadoEn"`
+	PedidoPor      *UsuarioRef `json:"pedidoPor,omitempty" doc:"Quién lo pidió"`
+	Proveedor      string      `json:"proveedor"`
+	Modelo         string      `json:"modelo" doc:"El modelo que lo escribió"`
+	HastaMensajeID uuid.UUID   `json:"hastaMensajeId" doc:"El último mensaje del hilo que cubre"`
+	Desactualizado bool        `json:"desactualizado" doc:"Llegaron o se enviaron mensajes después de hastaMensajeId (las notas internas no cuentan)"`
+	MensajesNuevos int64       `json:"mensajesNuevos" doc:"Cuántos mensajes del hilo hay después del resumen"`
+}
+
+// ResumenGuardadoRef es lo que el detalle de la conversación dice de su resumen guardado (sin el texto).
+type ResumenGuardadoRef struct {
+	ID             uuid.UUID `json:"id"`
+	GeneradoEn     time.Time `json:"generadoEn"`
+	Desactualizado bool      `json:"desactualizado"`
+	MensajesNuevos int64     `json:"mensajesNuevos"`
+}
+
+func aResumen(f mensajeriabd.ResumenVigenteRow) ResumenConversacion {
+	r := ResumenConversacion{ID: f.ID, Texto: f.Texto, GeneradoEn: f.GeneradoEn, Proveedor: f.Proveedor, Modelo: f.Modelo,
+		HastaMensajeID: f.HastaMensajeID, Desactualizado: f.MensajesNuevos > 0, MensajesNuevos: f.MensajesNuevos}
+	if f.PedidoPor != nil && f.PedidoPorNombre != nil {
+		r.PedidoPor = &UsuarioRef{ID: *f.PedidoPor, Nombre: *f.PedidoPorNombre}
+	}
+	return r
+}
+
+// nuevoVerResumen es GET /conversaciones/{id}/resumen: el resumen guardado, sin llamar al modelo.
+func nuevoVerResumen(*Modulo) *auditoria.Caso[EntradaConversacion, ResumenConversacion] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaConversacion, ResumenConversacion]{
+		Accion: "conversaciones.ver_resumen", Permiso: nucleo.PermConversacionesSugerencias, AuditarExito: sinAuditar[ResumenConversacion],
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaConversacion) (ResumenConversacion, error) {
+			a, err := alcanceConvDe(ctx)
+			if err != nil {
+				return ResumenConversacion{}, err
+			}
+			q := mensajeriabd.New(t)
+			c, err := convVisible(ctx, q, a, in.ID, false)
+			if err != nil {
+				return ResumenConversacion{}, err
+			}
+			f, err := q.ResumenVigente(ctx, mensajeriabd.ResumenVigenteParams{ConversacionID: c.ID, Empresa: empresaDeConv(c)})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ResumenConversacion{}, nucleo.NuevoProblema(http.StatusNotFound, "sin_resumen", "Sin resumen", "Esta conversación todavía no tiene un resumen guardado")
+			}
+			if err != nil {
+				return ResumenConversacion{}, err
+			}
+			return aResumen(f), nil
+		},
+	})
 }
 
 type uuidSugerencia struct {
@@ -1445,13 +1495,17 @@ func validarSalidaModelo(r RespuestaIA, ctxIA contextoIA, etiquetas []mensajeria
 type ResumirConversacion struct {
 	m         *Modulo
 	preparar  *auditoria.Caso[EntradaConversacion, resumenPreparado]
-	registrar *auditoria.Caso[usoResumen, struct{}]
+	registrar *auditoria.Caso[usoResumen, ResumenConversacion]
 }
 
 type resumenPreparado struct {
 	g       generacion
 	empresa int64
 	reserva uuid.UUID
+	usuario int64
+	// hasta: el último mensaje del hilo al armar el pedido (lo que cubre el resumen).
+	hastaID  uuid.UUID
+	hastaSeq int64
 }
 
 type usoResumen struct {
@@ -1461,6 +1515,13 @@ type usoResumen struct {
 	Error          string    `json:"error,omitempty"`
 	empresa        int64     // la de la conversación al preparar (no se vuelve a exigir visibilidad)
 	reserva        uuid.UUID // la reserva de tokens que se libera
+	// Lo que se guarda en la conversación si salió bien (sin etiqueta JSON: el texto nunca va a la auditoría).
+	texto     string
+	usuario   int64
+	proveedor string
+	modelo    string
+	hastaID   uuid.UUID
+	hastaSeq  int64
 }
 
 func nuevoResumirConversacion(m *Modulo) *ResumirConversacion {
@@ -1486,6 +1547,10 @@ func nuevoResumirConversacion(m *Modulo) *ResumirConversacion {
 				} else if err != nil {
 					return resumenPreparado{}, err
 				}
+				hasta, err := q.UltimoMensajeHilo(ctx, c.ID)
+				if err != nil {
+					return resumenPreparado{}, err
+				}
 				if err := m.limitePedidos(ctx, q, a.usuario, c, "resumen"); err != nil {
 					return resumenPreparado{}, err
 				}
@@ -1509,23 +1574,66 @@ func nuevoResumirConversacion(m *Modulo) *ResumirConversacion {
 				if err := m.reservarTokens(ctx, q, reserva, empresaDeConv(c), aj.TopeTokensMes, estimarTokens(p)); err != nil {
 					return resumenPreparado{}, problemaIA(err)
 				}
-				return resumenPreparado{g: generacion{cfg: cfg, contexto: ctxIA, pedido: p}, empresa: empresaDeConv(c), reserva: reserva}, nil
+				return resumenPreparado{g: generacion{cfg: cfg, contexto: ctxIA, pedido: p}, empresa: empresaDeConv(c), reserva: reserva,
+					usuario: a.usuario, hastaID: hasta.ID, hastaSeq: hasta.Seq}, nil
 			},
 		}),
-		registrar: auditoria.Nuevo(auditoria.Caso[usoResumen, struct{}]{
+		registrar: auditoria.Nuevo(auditoria.Caso[usoResumen, ResumenConversacion]{
 			Accion: "conversaciones.resumen", Permiso: nucleo.PermConversacionesSugerencias,
-			Logica: func(ctx context.Context, t *auditoria.Tx, in usoResumen) (struct{}, error) {
+			Logica: func(ctx context.Context, t *auditoria.Tx, in usoResumen) (ResumenConversacion, error) {
 				t.FijarEmpresa(in.empresa)
 				t.FijarEntidad("conversacion", in.ConversacionID)
-				if err := m.liberarReserva(ctx, mensajeriabd.New(t), in.reserva); err != nil {
-					return struct{}{}, err
+				q := mensajeriabd.New(t)
+				// El candado de la conversación primero (el mismo orden que el resto de la bandeja).
+				c, err := q.ConversacionClienteParaActualizar(ctx, in.ConversacionID)
+				if err != nil {
+					return ResumenConversacion{}, err
 				}
-				return struct{}{}, m.sumarUso(ctx, t, in.empresa, UsoIA{Entrada: in.TokensEntrada, Salida: in.TokensSalida}, 0, 1)
+				if err := m.liberarReserva(ctx, q, in.reserva); err != nil {
+					return ResumenConversacion{}, err
+				}
+				if err := m.sumarUso(ctx, t, in.empresa, UsoIA{Entrada: in.TokensEntrada, Salida: in.TokensSalida}, 0, 1); err != nil {
+					return ResumenConversacion{}, err
+				}
+				// Falló, o la conversación pasó a otra empresa mientras se generaba: no se guarda nada (el
+				// resumen anterior, si había, sigue siendo el vigente).
+				if in.Error != "" || in.texto == "" || empresaDeConv(c) != in.empresa {
+					return ResumenConversacion{}, nil
+				}
+				id, err := uuid.NewV7()
+				if err != nil {
+					return ResumenConversacion{}, err
+				}
+				if err := q.QuitarResumenVigente(ctx, c.ID); err != nil {
+					return ResumenConversacion{}, err
+				}
+				ahora := m.ahora()
+				if _, err := q.InsertarResumenConversacion(ctx, mensajeriabd.InsertarResumenConversacionParams{ID: id, EmpresaID: c.EmpresaID, ConversacionID: c.ID,
+					Texto: in.texto, PedidoPor: &in.usuario, Proveedor: in.proveedor, Modelo: in.modelo, HastaMensajeID: in.hastaID, HastaSeq: in.hastaSeq,
+					TokensEntrada: in.TokensEntrada, TokensSalida: in.TokensSalida, GeneradoEn: ahora}); err != nil {
+					return ResumenConversacion{}, err
+				}
+				t.Anotar(map[string]any{"resumen_id": id, "hasta_mensaje_id": in.hastaID})
+				if err := t.Emitir("conversacion.resumen_guardado", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID, "resumen_id": id,
+					"usuario_id": in.usuario, "proveedor": in.proveedor, "modelo": in.modelo, "hasta_mensaje_id": in.hastaID,
+					"tokens_entrada": in.TokensEntrada, "tokens_salida": in.TokensSalida}); err != nil {
+					return ResumenConversacion{}, err
+				}
+				// Quien tenga abierta la conversación ve el resumen nuevo sin recargar.
+				if err := m.emitirEventoConv(ctx, t, c, EventoConvActualizada, nil, nil); err != nil {
+					return ResumenConversacion{}, err
+				}
+				f, err := q.ResumenVigente(ctx, mensajeriabd.ResumenVigenteParams{ConversacionID: c.ID, Empresa: in.empresa})
+				if err != nil {
+					return ResumenConversacion{}, err
+				}
+				return aResumen(f), nil
 			},
 		})}
 }
 
-// Ejecutar genera el resumen (no se guarda el texto, solo el uso).
+// Ejecutar genera el resumen y lo guarda en la conversación (reemplaza al anterior). El texto vive
+// solo en mensajeria.conversacion_resumenes: nunca en eventos ni auditoría.
 func (k *ResumirConversacion) Ejecutar(ctx context.Context, in EntradaConversacion) (ResumenConversacion, error) {
 	pr, err := k.preparar.Ejecutar(ctx, in)
 	if err != nil {
@@ -1549,13 +1657,21 @@ func (k *ResumirConversacion) Ejecutar(ctx context.Context, in EntradaConversaci
 	}
 	if err != nil {
 		reg.Error = codigoIA(err)
+	} else {
+		reg.texto, reg.usuario, reg.proveedor, reg.modelo = recortarIA(RedactarParaIA(texto), 3000), pr.usuario, pr.g.cfg.Proveedor, pr.g.cfg.Modelo
+		reg.hastaID, reg.hastaSeq = pr.hastaID, pr.hastaSeq
 	}
-	// El uso se registra aunque quien pidió el resumen se haya ido (contexto sin cancelar).
-	if _, errReg := k.registrar.Ejecutar(context.WithoutCancel(ctx), reg); errReg != nil {
+	// El uso se registra y el resumen se guarda aunque quien lo pidió se haya ido (contexto sin cancelar).
+	guardado, errReg := k.registrar.Ejecutar(context.WithoutCancel(ctx), reg)
+	if errReg != nil {
 		return ResumenConversacion{}, errReg
 	}
 	if err != nil {
 		return ResumenConversacion{}, problemaIA(err)
 	}
-	return ResumenConversacion{Texto: recortarIA(RedactarParaIA(texto), 3000), GeneradoEn: k.m.ahora()}, nil
+	if guardado.ID == uuid.Nil {
+		// La conversación cambió de empresa mientras se generaba: ya no es de quien lo pidió.
+		return ResumenConversacion{}, conversacionClienteNoEncontrada()
+	}
+	return guardado, nil
 }

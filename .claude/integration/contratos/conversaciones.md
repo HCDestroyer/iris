@@ -1824,12 +1824,38 @@ quienes ven la conversación y tienen `conversaciones.sugerencias`.
 
 ### 16.4 Resumen de la conversación (ficha del cliente)
 
-`POST /conversaciones/{id}/resumen` (`conversaciones.sugerencias`) → 200
-`{ "texto": "…", "generadoEn": "…" }`. Síncrono (hasta 90 s; el panel muestra «Generando…»). Usa el
-historial (últimos 30, sin notas) y lo de Argos según `fuentes`. Reserva y cuenta para el tope; el
-uso se registra aunque quien lo pidió cierre la pantalla. No se guarda el texto. 422
-`asistente_inactivo`, `tope_alcanzado`, `sin_mensaje`; 429 `demasiados_pedidos`; 502
-`proveedor_no_responde` / `proveedor_error` / `clave_invalida` / `proveedor_redirige` / `rechazo_modelo`.
+**El resumen queda guardado en la conversación** (pedido del PM; antes se calculaba al vuelo y se
+perdía). Uno vigente por conversación, en `mensajeria.conversacion_resumenes`:
+
+```json
+{ "id": "0192…", "texto": "- El cliente reporta…", "generadoEn": "…",
+  "pedidoPor": { "id": 7, "nombre": "Andrea Castillo" },     // ausente si esa persona ya no existe
+  "proveedor": "anthropic", "modelo": "…",
+  "hastaMensajeId": "0192…",          // el último mensaje del hilo que cubre
+  "desactualizado": true, "mensajesNuevos": 2 }  // hay mensajes del hilo después (las notas no cuentan)
+```
+
+| Método y ruta | Notas |
+| --- | --- |
+| `POST /conversaciones/{id}/resumen` | **Genera o regenera** y guarda (reemplaza al vigente; los anteriores quedan en la tabla, sin mostrarse). 200 con la forma de arriba. Síncrono (hasta 90 s; el panel muestra «Generando…»). Usa el historial (últimos 30, sin notas) y lo de Argos según `fuentes`. Reserva y cuenta para el tope; el uso se registra y el resumen se guarda aunque quien lo pidió cierre la pantalla. Si falla, **el resumen anterior se conserva**. 422 `asistente_inactivo`, `tope_alcanzado`, `sin_mensaje`; 429 `demasiados_pedidos`; 502 `proveedor_no_responde` / `proveedor_error` / `clave_invalida` / `proveedor_redirige` / `rechazo_modelo` |
+| `GET /conversaciones/{id}/resumen` | El guardado, **sin llamar al modelo ni gastar tokens**. 404 `sin_resumen` si nadie lo ha pedido |
+
+Los dos con `conversaciones.sugerencias` y viendo la conversación (si no, 404). El **detalle** de la
+conversación (`GET /conversaciones/{id}` y la respuesta de cada acción) suma `resumen: { id,
+generadoEn, desactualizado, mensajesNuevos }` (ausente si no hay; **sin el texto**), para que el
+panel sepa si hay uno y si está al día sin preguntar de más. Al guardarse uno nuevo sale
+`conversacion_actualizada` por el flujo.
+
+- **Desactualizado:** hay mensajes del cliente o respuestas (de una persona, del asistente o del
+  bot) con `seq` mayor que el de `hastaMensajeId`. No se regenera solo: lo decide una persona.
+- **Dónde vive el texto:** solo en esa tabla y en la respuesta de estas dos rutas (que no se guardan
+  en la idempotencia). Nunca en eventos, auditoría ni logs. Pasa por la misma redacción que el resto
+  (`RedactarParaIA`), máximo 3000 caracteres.
+- **Número prestado (§15.3):** el resumen es de la empresa que lo pidió; si la conversación pasa a
+  otra empresa, la nueva no lo ve (404 `sin_resumen`).
+- Al resolverse y reabrirse la conversación el resumen guardado sigue ahí, marcado desactualizado en
+  cuanto llegan mensajes (el «historial por conversación resuelta» es la propuesta D2, sin implementar:
+  `.claude/integration/i2.md`).
 
 ### 16.5 Permisos nuevos
 
