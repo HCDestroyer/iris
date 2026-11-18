@@ -392,7 +392,7 @@ func nuevoRegistrarBoleta(m *Modulo) *auditoria.Caso[EntradaBoleta, Boleta] {
 				f, err := q.InsertarBoleta(ctx, mensajeriabd.InsertarBoletaParams{ID: id, EmpresaID: c.EmpresaID, ConversacionID: c.ID, ClienteID: *c.ClienteID,
 					ServicioID: servicio, AdjuntoID: in.AdjuntoID, Metodo: in.Metodo, CuentaBancariaID: in.CuentaBancariaID, BancoOrigenID: in.BancoOrigenID,
 					Referencia: in.Referencia, Monto: monto, FechaDeposito: pgtype.Date{Time: fecha, Valid: true}, Nota: in.Nota,
-					RegistradaPor: a.usuarioPtr(), ProximoIntento: m.ahora(), PorAsistente: a.asistente})
+					RegistradaPor: a.usuarioPtr(), ProximoIntento: m.ahora(), PorAsistente: a.asistente, CuentaValidacion: &cuenta})
 				if err != nil {
 					return err
 				}
@@ -436,6 +436,8 @@ type resultadoBoleta struct {
 	ComprobanteID *int64    `json:"comprobante_id,omitempty"`
 	Error         string    `json:"error,omitempty"`
 	Temporal      bool      `json:"temporal,omitempty"`
+	// CuentaRevalidada: el despacho comprobó con Argos la cuenta de una boleta registrada sin validar.
+	CuentaRevalidada bool `json:"cuenta_revalidada,omitempty"`
 }
 
 func nuevoPrepararBoleta(m *Modulo) *auditoria.Caso[uuid.UUID, boletaPorEnviar] {
@@ -493,6 +495,12 @@ func nuevoResultadoBoleta(m *Modulo) *auditoria.Caso[resultadoBoleta, struct{}] 
 				t.FijarEmpresa(*f.EmpresaID)
 			}
 			t.FijarEntidad("boleta", f.ID)
+			if in.CuentaRevalidada {
+				if err := q.MarcarCuentaBoleta(ctx, mensajeriabd.MarcarCuentaBoletaParams{ID: f.ID, CuentaValidacion: nombrePtr(CuentaValidada)}); err != nil {
+					return struct{}{}, err
+				}
+				t.RegistrarCambios("boleta", f.ID, map[string]any{"cuenta_validacion": f.CuentaValidacion}, map[string]any{"cuenta_validacion": CuentaValidada})
+			}
 			ahora := m.ahora()
 			p := mensajeriabd.ResultadoBoletaParams{ID: f.ID, Estado: "registrada", ComprobanteID: in.ComprobanteID, ProximoIntento: ahora}
 			switch {
@@ -573,8 +581,26 @@ func (m *Modulo) enviarBoleta(ctx context.Context, id uuid.UUID) error {
 		BancoOrigenID: f.BancoOrigenID, Referencia: f.Referencia, Monto: monto, FechaDeposito: f.FechaDeposito.Time.Format("2006-01-02"),
 		Archivo: conector.Archivo{Campo: "archivo", Nombre: "boleta-" + f.ID.String() + ext, Mime: p.mime, Datos: p.datos}, Nota: f.Nota,
 		Clave: "iris:boleta:" + f.ID.String()}
-	r, errArgos := m.cfg.Argos.RegistrarComprobante(ctx, p.a, in)
 	res := resultadoBoleta{ID: id}
+	// Registrada sin validar la cuenta (Argos no respondía o el conector estaba apagado): se
+	// revalida antes de mandar el comprobante. Si no es una cuenta activa en GTQ de la empresa, la
+	// boleta falla sin hacer el POST; si Argos sigue sin responder, sigue el reintento normal.
+	if f.CuentaValidacion != nil && *f.CuentaValidacion != CuentaValidada {
+		cs, err := m.cfg.Argos.CuentasBancarias(ctx, p.a)
+		switch {
+		case err != nil:
+			res.Error, res.Temporal = resumenErrorArgos(err)
+		case !cuentaEnLista(cs, p.a.EmpresaID, f.CuentaBancariaID):
+			res.Error = MotivoCuentaBoleta
+		default:
+			res.CuentaRevalidada = true
+		}
+		if !res.CuentaRevalidada {
+			_, err = m.resultadoBoleta.Ejecutar(context.WithoutCancel(ctx), res)
+			return err
+		}
+	}
+	r, errArgos := m.cfg.Argos.RegistrarComprobante(ctx, p.a, in)
 	if errArgos == nil {
 		res.ComprobanteID = &r.ID
 	} else {

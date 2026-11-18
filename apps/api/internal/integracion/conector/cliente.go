@@ -121,6 +121,10 @@ type ErrorRemoto struct {
 	ProblemJSON bool
 	// HTML: la respuesta vino como text/html (la página de un panel web o de un proxy, no la API).
 	HTML bool
+	// Ilegible: el otro sistema respondió 2xx pero Iris no pudo decodificar el cuerpo (cambió un
+	// tipo o la forma). Va con Status 502, así que Caido() da verdadero; quien no deba tratarlo como
+	// una caída lo distingue con EsIlegible.
+	Ilegible bool
 	// Campos: errors[].field (o location / campo) del problem+json, sin el prefijo body. (máx. 20).
 	Campos []string
 
@@ -173,6 +177,13 @@ func (e *ErrorRemoto) Bloqueado() bool {
 func EsCaido(err error) bool {
 	var er *ErrorRemoto
 	return errors.As(err, &er) && er.Caido()
+}
+
+// EsIlegible indica que el otro sistema respondió 2xx con un cuerpo que Iris no pudo decodificar:
+// no es una caída del otro sistema, es un desajuste de contrato.
+func EsIlegible(err error) bool {
+	var er *ErrorRemoto
+	return errors.As(err, &er) && er.Ilegible
 }
 
 // EsNoEncontrado indica si el otro sistema respondió 404.
@@ -425,7 +436,7 @@ func (c *Cliente) unaCuerpo(ctx context.Context, metodo, ruta string, consulta u
 		return nil
 	}
 	if err := Decodificar(crudo, destino); err != nil {
-		return &ErrorRemoto{Remoto: c.remoto, Status: http.StatusBadGateway, Titulo: "Respuesta ilegible", causa: err}
+		return &ErrorRemoto{Remoto: c.remoto, Status: http.StatusBadGateway, Titulo: "Respuesta ilegible", Ilegible: true, causa: err}
 	}
 	return nil
 }

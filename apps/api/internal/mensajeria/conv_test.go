@@ -180,7 +180,8 @@ func (f *argosFalso) CuentasBancarias(_ context.Context, a argos.AtencionIris) (
 	}
 	var cs []argos.CuentaBancariaArgos
 	if err := json.Unmarshal([]byte(fmt.Sprintf(cuentasArgos, empresa, extra)), &cs); err != nil {
-		return nil, err
+		// Igual que el cliente HTTP con un 200 que no puede decodificar (conector/cliente.go).
+		return nil, &conector.ErrorRemoto{Status: http.StatusBadGateway, Titulo: "Respuesta ilegible", Ilegible: true}
 	}
 	return cs, nil
 }

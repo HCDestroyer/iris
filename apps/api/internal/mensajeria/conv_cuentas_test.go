@@ -2,6 +2,7 @@ package mensajeria_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
+	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
 
 // Cuentas que Argos no debería mandarle a la empresa 1 (o que no reciben depósitos): de otra
@@ -105,43 +108,86 @@ func TestConvCuentasBancariasDeLaEmpresa(t *testing.T) {
 		t.Fatal("una cuenta que no es de la empresa no deja boleta")
 	}
 	marca := func(ref string) string {
-		var v string
-		if err := b.bd.QueryRow(b.ctx, `SELECT coalesce(k.despues #>> '{}', '') FROM mensajeria.boletas bo JOIN auditoria.cambios k ON k.entidad = 'boleta'
-			AND k.entidad_id = bo.id::text AND k.campo = 'cuenta_validacion' WHERE bo.conversacion_id = $1::bigint AND bo.referencia = $2`, cid(c), ref).Scan(&v); err != nil {
+		var v, col string
+		if err := b.bd.QueryRow(b.ctx, `SELECT coalesce(k.despues #>> '{}', ''), coalesce(bo.cuenta_validacion, '') FROM mensajeria.boletas bo
+			JOIN auditoria.cambios k ON k.entidad = 'boleta' AND k.entidad_id = bo.id::text AND k.campo = 'cuenta_validacion' AND (k.antes IS NULL OR k.antes = 'null')
+			WHERE bo.conversacion_id = $1::bigint AND bo.referencia = $2`, cid(c), ref).Scan(&v, &col); err != nil {
 			t.Fatalf("marca de la boleta %s: %v", ref, err)
 		}
+		if v != col {
+			t.Fatalf("la marca de %s en la fila (%q) y en la auditoría (%q) no coinciden", ref, col, v)
+		}
 		return v
+	}
+	fila := func(ref string) (estado, detalle, validacion string) {
+		if err := b.bd.QueryRow(b.ctx, `SELECT estado, coalesce(detalle, ''), coalesce(cuenta_validacion, '') FROM mensajeria.boletas
+			WHERE conversacion_id = $1::bigint AND referencia = $2`, cid(c), ref).Scan(&estado, &detalle, &validacion); err != nil {
+			t.Fatalf("boleta %s: %v", ref, err)
+		}
+		return
 	}
 	falla := func(err error) {
 		b.argos.mu.Lock()
 		b.argos.errCuentas = err
 		b.argos.mu.Unlock()
 	}
+	enviados := func() int64 {
+		b.argos.mu.Lock()
+		defer b.argos.mu.Unlock()
+		return b.argos.comprobante
+	}
 	// Argos responde un error que no es una caída (403): no se registra.
 	falla(&conector.ErrorRemoto{Status: http.StatusForbidden})
 	if r := b.api(b.agente, http.MethodPost, ruta+"/boletas", boleta(3)); r.status/100 == 2 || boletas() != 0 {
 		t.Fatalf("con un rechazo de Argos al leer las cuentas no se registra: %d %v", r.status, r.cuerpo)
 	}
+	falla(nil)
+	// M1. Argos responde 200 pero cambió un tipo ("activa":"true"): respuesta ilegible. No es una
+	// caída: 502 y ninguna boleta (si no, todas pasarían sin validar con solo un aviso en el log).
+	b.argos.mu.Lock()
+	b.argos.cuentasExtra = `,{"id":11,"empresa_id":1,"banco_id":1,"banco_nombre":"Banco Industrial","numero":"1","alias":"Tipo cambiado","moneda":"GTQ","activa":"true"}`
+	b.argos.mu.Unlock()
+	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/boletas", boleta(3)), http.StatusBadGateway, "type", "urn:iris:problema:argos_respuesta_ilegible")
+	b.exigir(b.api(b.agente, http.MethodGet, "/conversaciones/cuentas-bancarias", nil), http.StatusBadGateway, "type", "urn:iris:problema:argos_respuesta_ilegible")
+	if boletas() != 0 {
+		t.Fatal("con una respuesta ilegible de Argos no se registra la boleta")
+	}
+	b.argos.mu.Lock()
+	b.argos.cuentasExtra = cuentasQueNoSon
+	b.argos.mu.Unlock()
 	// Argos caído (regla 4): la boleta se registra igual y sigue su camino de reintentos; queda
-	// marcada en la auditoría como sin validar. Ni siquiera la cuenta ajena se puede descartar aquí:
-	// la rechaza Argos en POST /comprobantes.
+	// marcada (fila y auditoría) como sin validar. Aquí no se puede descartar ni la cuenta ajena.
 	falla(&conector.ErrorRemoto{Status: 0})
 	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/boletas", boleta(3)), http.StatusCreated, "estado", "por_enviar")
 	falla(&conector.ErrorRemoto{Status: http.StatusBadGateway})
 	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/boletas", boleta(8)), http.StatusCreated, "estado", "por_enviar")
-	if boletas() != 2 || marca("CU-3") != "sin_validar_argos_no_disponible" || marca("CU-8") != "sin_validar_argos_no_disponible" {
-		t.Fatalf("con Argos caído la boleta se registra sin validar: %d %q %q", boletas(), marca("CU-3"), marca("CU-8"))
+	// S1. Con Argos en 429 y una cuenta inactiva de la misma empresa: también se registra sin validar.
+	falla(&conector.ErrorRemoto{Status: http.StatusTooManyRequests})
+	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/boletas", boleta(10)), http.StatusCreated, "estado", "por_enviar")
+	for _, ref := range []string{"CU-3", "CU-8", "CU-10"} {
+		if m := marca(ref); m != "sin_validar_argos_no_disponible" {
+			t.Fatalf("con Argos caído %s se registra sin validar: %q", ref, m)
+		}
 	}
 	// Conector con Argos apagado: Iris sigue trabajando; la boleta queda por enviar con su marca.
 	falla(conector.ConectorApagado("Argos"))
-	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/boletas", boleta(10)), http.StatusCreated, "estado", "por_enviar")
-	if boletas() != 3 || marca("CU-10") != "sin_validar_conector_apagado" {
-		t.Fatalf("con el conector apagado la boleta se registra sin validar: %d %q", boletas(), marca("CU-10"))
+	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/boletas", boleta(4)), http.StatusCreated, "estado", "por_enviar")
+	if boletas() != 4 || marca("CU-4") != "sin_validar_conector_apagado" {
+		t.Fatalf("con el conector apagado la boleta se registra sin validar: %d %q", boletas(), marca("CU-4"))
+	}
+	// El despacho con Argos todavía sin responder: no manda ningún comprobante y sigue el reintento.
+	falla(&conector.ErrorRemoto{Status: http.StatusTooManyRequests})
+	antes := enviados()
+	if err := b.m.DespacharBoletas(b.ctx, b.bd); err != nil {
+		t.Fatal(err)
+	}
+	if e, _, v := fila("CU-10"); e != "por_enviar" || v != "sin_validar_argos_no_disponible" || enviados() != antes {
+		t.Fatalf("con Argos sin responder la boleta sigue por enviar y sin POST: %s %s, comprobantes %d → %d", e, v, antes, enviados())
 	}
 	falla(nil)
 	// Con Argos arriba, la cuenta sin alias de la empresa se valida y se registra.
 	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/boletas", boleta(5)), http.StatusCreated, "estado", "por_enviar")
-	if boletas() != 4 || marca("CU-5") != "validada" {
+	if boletas() != 5 || marca("CU-5") != "validada" {
 		t.Fatalf("la boleta con una cuenta de la empresa se registra validada: %d %q", boletas(), marca("CU-5"))
 	}
 	// La lista por conversación: las cuentas de la empresa de esa conversación; una que no existe, 404.
@@ -151,12 +197,73 @@ func TestConvCuentasBancariasDeLaEmpresa(t *testing.T) {
 		t.Fatalf("cuentas de la conversación: %v", lc.cuerpo)
 	}
 	b.exigir(b.api(b.agente, http.MethodGet, "/conversaciones/cuentas-bancarias?conversacionId=999999999", nil), http.StatusNotFound)
-	// Se manda a Argos aquí mismo: no queda por enviar para el despacho de otra prueba.
+	// S1. El despacho con Argos arriba revalida las que quedaron sin validar antes del POST
+	// /comprobantes: la ajena (8), la inactiva (10) y la que está en dólares (4) quedan fallidas con
+	// su motivo y sin POST; la buena (3) se valida y se manda, igual que la ya validada (5).
+	if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.boletas SET proximo_intento = '2000-01-01' WHERE conversacion_id = $1::bigint`, cid(c)); err != nil {
+		t.Fatal(err)
+	}
+	antes = enviados()
 	if err := b.m.DespacharBoletas(b.ctx, b.bd); err != nil {
 		t.Fatal(err)
 	}
-	if n := b.contar(`SELECT count(*) FROM mensajeria.boletas WHERE conversacion_id = $1::bigint AND estado = 'por_enviar'`, cid(c)); n != 0 {
-		t.Fatalf("boletas sin despachar: %d", n)
+	for _, ref := range []string{"CU-8", "CU-10", "CU-4"} {
+		if e, d, _ := fila(ref); e != "fallida" || d != mensajeria.MotivoCuentaBoleta {
+			t.Fatalf("%s debía quedar fallida por la cuenta: %s %q", ref, e, d)
+		}
+	}
+	for _, ref := range []string{"CU-3", "CU-5"} {
+		if e, _, v := fila(ref); e != "registrada" || v != "validada" {
+			t.Fatalf("%s debía mandarse a Argos ya validada: %s %s", ref, e, v)
+		}
+	}
+	if enviados() != antes+2 {
+		t.Fatalf("solo las dos boletas con cuenta válida hacen POST /comprobantes: %d", enviados()-antes)
+	}
+	if n := b.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'boleta.fallida' AND payload->>'conversacion_id' = $1`, cid(c)); n != 3 {
+		t.Fatalf("boleta.fallida: %d", n)
+	}
+}
+
+// S2 y M1, la decisión sola: sin empresa (0) nunca se registra una boleta con cuenta bancaria, ni con
+// Argos caído ni con el conector apagado; una respuesta ilegible no es una caída.
+func TestDecidirCuentaBoleta(t *testing.T) {
+	var cs []argos.CuentaBancariaArgos
+	if err := json.Unmarshal([]byte(`[{"id":3,"empresa_id":1,"banco_nombre":"Banco Industrial","numero":"1","alias":"Monetaria","moneda":"GTQ","activa":true}]`), &cs); err != nil {
+		t.Fatal(err)
+	}
+	es422 := func(err error) bool {
+		var p *nucleo.Problema
+		return errors.As(err, &p) && p.Status == http.StatusUnprocessableEntity
+	}
+	caido, limite, mal := &conector.ErrorRemoto{Status: 0}, &conector.ErrorRemoto{Status: http.StatusTooManyRequests}, &conector.ErrorRemoto{Status: http.StatusInternalServerError}
+	ilegible := &conector.ErrorRemoto{Status: http.StatusBadGateway, Titulo: "Respuesta ilegible", Ilegible: true}
+	apagado := conector.ConectorApagado("Argos")
+	// Empresa 0: siempre 422, en todas las ramas.
+	for nombre, err := range map[string]error{"arriba": nil, "caido": caido, "429": limite, "500": mal, "apagado": apagado, "ilegible": ilegible} {
+		if m, e := mensajeria.DecidirCuenta(0, cs, err, 3); m != "" || !es422(e) {
+			t.Fatalf("sin empresa (%s) debía ser 422: %q %v", nombre, m, e)
+		}
+	}
+	// Con empresa: arriba valida; red, 429 y 5xx de Argos y conector apagado registran sin validar.
+	if m, e := mensajeria.DecidirCuenta(1, cs, nil, 3); m != mensajeria.CuentaValidada || e != nil {
+		t.Fatalf("cuenta de la empresa: %q %v", m, e)
+	}
+	if m, e := mensajeria.DecidirCuenta(2, cs, nil, 3); m != "" || !es422(e) {
+		t.Fatalf("cuenta de otra empresa: %q %v", m, e)
+	}
+	for _, err := range []error{caido, limite, mal} {
+		if m, e := mensajeria.DecidirCuenta(1, nil, err, 3); m != mensajeria.CuentaSinValidar || e != nil {
+			t.Fatalf("Argos sin responder (%v): %q %v", err, m, e)
+		}
+	}
+	if m, e := mensajeria.DecidirCuenta(1, nil, apagado, 3); m != mensajeria.CuentaSinConector || e != nil {
+		t.Fatalf("conector apagado: %q %v", m, e)
+	}
+	// Ilegible: 502 y no se registra.
+	var p *nucleo.Problema
+	if m, e := mensajeria.DecidirCuenta(1, nil, ilegible, 3); m != "" || !errors.As(e, &p) || p.Status != http.StatusBadGateway || p.Codigo() != "argos_respuesta_ilegible" {
+		t.Fatalf("respuesta ilegible: %q %v", m, e)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
@@ -85,7 +86,7 @@ type cuentasLeidas struct {
 	err     error
 }
 
-// Marca de auditoría de la boleta: si Argos validó la cuenta al registrarla.
+// Marca de la boleta (columna cuenta_validacion y auditoría): si Argos validó la cuenta al registrarla.
 const (
 	CuentaValidada   = "validada"
 	CuentaSinValidar = "sin_validar_argos_no_disponible"
@@ -114,40 +115,80 @@ func (m *Modulo) RegistrarBoleta(ctx context.Context, in EntradaBoleta) (Boleta,
 	return m.Conv.Boleta.Ejecutar(ctx, in)
 }
 
+// argosNoResponde: Argos no contestó de verdad esa lectura (red o plazo, 429 o 5xx suyos). Una
+// respuesta 200 que Iris no pudo decodificar no es una caída: es un desajuste de contrato.
+func argosNoResponde(err error) bool {
+	return conector.EsCaido(err) && !conector.EsIlegible(err)
+}
+
+// problemaCuentas es el error para la persona cuando no se pudieron leer las cuentas de Argos.
+func problemaCuentas(err error) error {
+	if conector.EsIlegible(err) {
+		return nucleo.NuevoProblema(http.StatusBadGateway, "argos_respuesta_ilegible", "Respuesta de Argos ilegible",
+			"Argos respondió las cuentas bancarias en una forma que Iris no pudo leer; avisa a soporte")
+	}
+	return argos.Problema(err)
+}
+
+// cuentaEnLista: la cuenta está entre las que la empresa ofrece para depósitos.
+func cuentaEnLista(cs []argos.CuentaBancariaArgos, empresa, cuenta int64) bool {
+	for _, k := range cs {
+		if k.ID == cuenta && cuentaParaBoleta(k, empresa) {
+			return true
+		}
+	}
+	return false
+}
+
+// decidirCuenta dice, con lo que respondió Argos al leer las cuentas, si la boleta se registra y con
+// qué marca. Sin empresa (0) nunca: no se registra una boleta con cuenta bancaria. Argos caído o el
+// conector apagado: se registra sin validar (el despacho la revalida). Una respuesta ilegible o un
+// rechazo de Argos: no se registra.
+func decidirCuenta(empresa int64, l cuentasLeidas, cuenta int64) (string, error) {
+	switch {
+	case empresa == 0:
+		return "", cuentaNoValida()
+	case l.err == nil:
+		if !cuentaEnLista(l.cuentas, empresa, cuenta) {
+			return "", cuentaNoValida()
+		}
+		return CuentaValidada, nil
+	case conectorApagado(l.err):
+		return CuentaSinConector, nil
+	case argosNoResponde(l.err):
+		return CuentaSinValidar, nil
+	}
+	return "", problemaCuentas(l.err)
+}
+
 // validarCuentaBoleta comprueba que la cuenta sea de la empresa de la conversación, esté activa y
-// reciba depósitos. Con las cuentas ya leídas (una persona) no llama a Argos; si Argos no respondió
-// esa lectura o el conector está apagado, la boleta sigue sin validar (marca CuentaSinValidar o
-// CuentaSinConector). Sin lectura previa (el asistente
-// de IA) lee aquí y falla cerrado: sin poder leer las cuentas no registra.
+// reciba depósitos. Con las cuentas ya leídas (una persona) no llama a Argos. Sin lectura previa (el
+// asistente de IA) lee aquí y falla cerrado: sin poder leer las cuentas no registra.
 func (m *Modulo) validarCuentaBoleta(ctx context.Context, a alcanceConv, c *mensajeriabd.MensajeriaConversacion, in EntradaBoleta) (string, error) {
 	empresa := empresaDeConv(*c)
+	if empresa == 0 {
+		return "", cuentaNoValida()
+	}
 	l := in.cuentas
 	if l == nil || a.asistente {
 		alc := a
 		alc.empresa = empresa
 		cs, err := m.cfg.Argos.CuentasBancarias(ctx, atencionDe(alc, c.ID))
 		if err != nil {
-			return "", argos.Problema(err)
+			return "", problemaCuentas(err)
 		}
 		l = &cuentasLeidas{cuentas: cs}
 	}
-	if l.err != nil {
-		if conector.EsCaido(l.err) {
-			slog.WarnContext(ctx, "boleta: la cuenta queda sin validar, Argos no disponible", "conversacion_id", c.ID, "cuenta_bancaria_id", in.CuentaBancariaID)
-			return CuentaSinValidar, nil
-		}
-		if conectorApagado(l.err) {
-			return CuentaSinConector, nil
-		}
-		return "", argos.Problema(l.err)
+	marca, err := decidirCuenta(empresa, *l, in.CuentaBancariaID)
+	if err == nil && marca != CuentaValidada {
+		slog.WarnContext(ctx, "boleta: la cuenta queda sin validar", "conversacion_id", c.ID, "cuenta_bancaria_id", in.CuentaBancariaID, "marca", marca)
 	}
-	for _, k := range l.cuentas {
-		if k.ID == in.CuentaBancariaID && cuentaParaBoleta(k, empresa) {
-			return CuentaValidada, nil
-		}
-	}
-	return "", cuentaNoValida()
+	return marca, err
 }
+
+// MotivoCuentaBoleta: el detalle de una boleta que falla en el despacho porque su cuenta, registrada
+// sin validar, no es una cuenta activa en quetzales de la empresa.
+const MotivoCuentaBoleta = "La cuenta bancaria no es una cuenta activa en quetzales de la empresa"
 
 // CuentasBancarias lista las cuentas activas en GTQ (Argos) de la empresa de la conversación o, sin
 // conversación, de la empresa activa.
@@ -165,7 +206,7 @@ func (m *Modulo) CuentasBancarias(ctx context.Context, in EntradaCuentasBancaria
 	}
 	cs, err := m.cfg.Argos.CuentasBancarias(ctx, at)
 	if err != nil {
-		return ListaCuentasBancarias{}, argos.Problema(err)
+		return ListaCuentasBancarias{}, problemaCuentas(err)
 	}
 	out := ListaCuentasBancarias{Data: []CuentaBancaria{}}
 	for _, c := range cs {
