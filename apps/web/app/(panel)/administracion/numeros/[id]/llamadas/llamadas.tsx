@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Schema } from "@iris/contratos";
 import { avisar, Aviso, Boton, Campo, CampoArea, CampoNumero, CampoSelector, cn, FormularioPagina, Interruptor, liberarProteccion, SeccionFormulario } from "@iris/ui";
-import { ArrowLeft, CircleAlert, CircleCheck, CircleHelp, CircleX, RefreshCw, RotateCw } from "lucide-react";
+import { ArrowLeft, CircleAlert, CircleCheck, CircleHelp, CircleX, PhoneIncoming, RefreshCw, RotateCw } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
@@ -26,7 +26,7 @@ import { idDeParametro } from "@/lib/parametros";
 import { useSesion } from "@/lib/sesion";
 import { entradaDeCanal, esquemaLlamadasCanal, motivoNoEncender, valoresDeCanal, type ValoresLlamadasCanal } from "@/lib/voz/ajustes";
 import { aplicarLlamadasCanal, comprobarLlamadasCanal, configurarLlamadasCanal, leerLlamadasCanal, sincronizarLlamadasCanal } from "@/lib/voz/api";
-import { textoRequisito } from "@/lib/voz/presentacion";
+import { textoRechazadasApagadas, textoRequisito } from "@/lib/voz/presentacion";
 import type { LlamadasCanal } from "@/lib/voz/tipos";
 
 /** Lo que hace falta del número para titular la pantalla. */
@@ -51,7 +51,7 @@ export function LlamadasDelNumero() {
         return numero ? { numero, llamadas, colas: colas.data ?? [], horarios: horarios.data ?? [] } : null;
     });
     useNombreEnMigas(lectura.estado === "listo" ? lectura.datos?.numero.nombre : null);
-    const { reemplazar } = lectura;
+    const { reemplazar, reintentar } = lectura;
     return (
         <CargaRegistro lectura={lectura} que="las llamadas del número" noEncontrado="Número no encontrado">
             {(d) =>
@@ -59,7 +59,7 @@ export function LlamadasDelNumero() {
                     <NumeroPorQr numero={d.numero} />
                 ) : (
                     // La versión remonta el formulario: tras comprobar o sincronizar se parte de lo nuevo.
-                    <Formulario key={d.llamadas.version} {...d} alCambiar={(llamadas) => reemplazar({ ...d, llamadas })} />
+                    <Formulario key={d.llamadas.version} {...d} alCambiar={(llamadas) => reemplazar({ ...d, llamadas })} alRecargar={reintentar} />
                 )
             }
         </CargaRegistro>
@@ -124,7 +124,7 @@ const ICONO_REQUISITO = { cumple: CircleCheck, falta: CircleX, aviso: CircleAler
 const CLASE_REQUISITO = { cumple: "text-success", falta: "text-error", aviso: "text-warning", sin_comprobar: "text-muted-foreground" } as const;
 const TEXTO_REQUISITO = { cumple: "Listo", falta: "Falta", aviso: "Recomendado", sin_comprobar: "Sin comprobar" } as const;
 
-function Formulario({ numero, llamadas, colas, horarios, alCambiar }: Datos & { alCambiar: (l: LlamadasCanal) => void }) {
+function Formulario({ numero, llamadas, colas, horarios, alCambiar, alRecargar }: Datos & { alCambiar: (l: LlamadasCanal) => void; alRecargar: () => void }) {
     const router = useRouter();
     const clave = useClaveIdempotencia();
     const [error, setError] = useState<unknown>(null);
@@ -187,7 +187,8 @@ function Formulario({ numero, llamadas, colas, horarios, alCambiar }: Datos & { 
         }
     }
 
-    const conflicto = error instanceof ErrorApi && error.estado === 409;
+    // Solo el conflicto de versión es «cambiaron mientras tanto»; otro 409 se dice con su propio texto.
+    const conflicto = error instanceof ErrorApi && error.codigo === "conflicto_version";
     const sinRequisitos = error instanceof ErrorApi && error.codigo === "requisitos_sin_cumplir";
     return (
         <FormularioPagina
@@ -197,12 +198,33 @@ function Formulario({ numero, llamadas, colas, horarios, alCambiar }: Datos & { 
             navegar={router.push}
             volverA="/administracion/numeros"
             sucio={sucio}
-            barra={{ textoGuardar: "Guardar", enviando: form.formState.isSubmitting, ...(conflicto ? { faltan: ["la versión nueva"], motivo: "Alguien más cambió las llamadas de este número: vuelve a abrirlo." } : {}) }}
+            barra={{ textoGuardar: "Guardar", enviando: form.formState.isSubmitting, ...(conflicto ? { faltan: ["la versión nueva"], motivo: "Los ajustes cambiaron mientras tanto: recarga para ver cómo quedaron." } : {}) }}
             error={
                 error ? (
-                    <Aviso tono="error" titulo={conflicto ? "Alguien más cambió las llamadas de este número" : sinRequisitos ? "Todavía no se pueden encender las llamadas" : "No se pudo guardar"}>
+                    <Aviso
+                        tono="error"
+                        titulo={conflicto ? "Los ajustes de este número cambiaron mientras tanto" : sinRequisitos ? "Todavía no se pueden encender las llamadas" : "No se pudo guardar"}
+                        {...(conflicto
+                            ? {
+                                  accion: (
+                                      // Otra persona los editó, o Iris volvió a comprobar con Meta: se lee lo nuevo y se intenta otra vez.
+                                      <Boton
+                                          type="button"
+                                          variante="secundario"
+                                          tamano="sm"
+                                          onClick={() => {
+                                              void liberarProteccion().then(alRecargar);
+                                          }}
+                                      >
+                                          <RotateCw />
+                                          Recargar
+                                      </Boton>
+                                  ),
+                              }
+                            : {})}
+                    >
                         {conflicto ? (
-                            "Vuelve a abrirlo desde la lista para ver el cambio."
+                            "Lo que cambiaste aquí no se guardó. Recarga para ver cómo quedó y vuelve a intentarlo."
                         ) : sinRequisitos && error instanceof ErrorApi && error.errores.length > 0 ? (
                             <ul className="grid list-disc gap-0.5 pl-4">
                                 {error.errores.map((x, i) => (
@@ -218,6 +240,34 @@ function Formulario({ numero, llamadas, colas, horarios, alCambiar }: Datos & { 
         >
             <FranjaEnPruebas />
             <EnWhatsApp llamadas={llamadas} ahora={ahora} ocupado={meta.accion !== null || sucio} aplicando={meta.accion === "aplicar"} alReintentar={() => void conMeta("aplicar")} />
+            {llamadas.rechazadasApagadas ? (
+                <Aviso
+                    tono="warning"
+                    titulo="Se están rechazando llamadas de clientes"
+                    data-slot="rechazadas-apagadas"
+                    {...(noEncender || v.llamadasActivas
+                        ? {}
+                        : {
+                              accion: (
+                                  <Boton
+                                      type="button"
+                                      variante="secundario"
+                                      tamano="sm"
+                                      onClick={() => {
+                                          form.setValue("llamadasActivas", true, { shouldDirty: true, shouldValidate: true });
+                                          form.setFocus("llamadasActivas");
+                                      }}
+                                  >
+                                      <PhoneIncoming />
+                                      Encender las llamadas
+                                  </Boton>
+                              ),
+                          })}
+                >
+                    {textoRechazadasApagadas(llamadas.rechazadasApagadas, ahora)}{" "}
+                    {noEncender ? "Para encenderlas, primero hay que cumplir los requisitos de Meta de abajo." : v.llamadasActivas ? "Quedan encendidas al guardar." : "Enciéndelas y guarda para empezar a recibirlas."}
+                </Aviso>
+            ) : null}
             <SeccionFormulario titulo="Requisitos de Meta" descripcion="Meta solo deja recibir llamadas en los números que cumplen esto.">
                 <ul className="grid gap-2" aria-label="Requisitos" data-slot="requisitos" data-cumple={llamadas.requisitos.cumple ? "si" : "no"}>
                     {requisitos.map((r) => {
