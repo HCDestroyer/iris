@@ -33,7 +33,10 @@ export type Franja = {
     estado: "atiende" | NonNullable<AtencionAsistente["motivo"]>;
     /** `marca`: todo bien, atiende el asistente. `aviso`: hace falta que alguien actúe. `neutro`: solo se informa. */
     tono: "marca" | "aviso" | "neutro";
+    /** Lo que se anuncia (región viva): no lleva tiempos relativos, que cambian solos. */
     texto: string;
+    /** «hace 5 min»: a la vista, fuera de la región viva. */
+    cuando?: string;
     /** Botones a la vista, en orden. */
     acciones: readonly ("pausar" | "reanudar" | "tomar")[];
     /** Texto del botón de reanudar («Reanudar» tras una pausa; «Que siga el asistente» en lo demás). */
@@ -48,12 +51,13 @@ export function franjaAtencion(conv: ConAtencion, ahora: number): Franja | null 
     if (a.atiende) return { ...base, estado: "atiende", tono: "marca", texto: "El asistente atiende esta conversación", acciones: ["pausar", "tomar"] };
     switch (a.motivo) {
         case "pausado": {
-            const quien = [a.pausa?.por?.nombre.split(" ")[0], a.pausa ? haceCuanto(a.pausa.en, ahora) : ""].filter(Boolean).join(", ");
             const motivo = textoMotivoPausa(a.pausa?.motivo);
+            const cuando = a.pausa ? haceCuanto(a.pausa.en, ahora) : "";
             return {
                 estado: "pausado",
                 tono: "neutro",
-                texto: ["Asistente en pausa", quien, motivo].filter(Boolean).join(" · "),
+                texto: ["Asistente en pausa", a.pausa?.por?.nombre.split(" ")[0], motivo].filter(Boolean).join(" · "),
+                ...(cuando ? { cuando } : {}),
                 acciones: a.reanudable ? ["reanudar"] : [],
                 textoReanudar: "Reanudar",
             };
@@ -93,6 +97,12 @@ export function accionDeMenu(conv: ConAtencion): "pausar" | "reanudar" | null {
     // Con la franja de «la pasó a una persona» a la vista, «Tomar» es lo principal; devolverla, aquí.
     if (a.motivo === "espera_persona" && a.reanudable) return "reanudar";
     return null;
+}
+
+/** ¿Sigue teniendo sentido devolvérsela al asistente? (para cerrar una pregunta abierta si la conversación cambió) */
+export function sePuedeReanudar(conv: ConAtencion): boolean {
+    const a = conv.atencionAsistente;
+    return Boolean(a && !a.atiende && a.reanudable && (a.motivo === "pausado" || a.motivo === "persona_presente" || a.motivo === "espera_persona"));
 }
 
 /** ¿Hay que avisar antes de devolverle la conversación al asistente? (el cliente pidió una persona) */

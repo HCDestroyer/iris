@@ -5,7 +5,7 @@ import { ChevronDown, CirclePause, CirclePlay, Sparkles, TriangleAlert, UserChec
 import { useState, type ReactNode } from "react";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { pausarAsistente, reanudarAsistente } from "@/lib/asistente/api";
-import { franjaAtencion, MOTIVOS_PAUSA, pideConfirmarReanudar, type MotivoPausa } from "@/lib/asistente/atencion";
+import { franjaAtencion, MOTIVOS_PAUSA, pideConfirmarReanudar, sePuedeReanudar, type MotivoPausa } from "@/lib/asistente/atencion";
 import { PERMISO_PAUSAR_ASISTENTE } from "@/lib/asistente/permisos";
 import type { Conversacion } from "@/lib/conversaciones/tipos";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
@@ -29,33 +29,45 @@ type Pausa = {
     dialogo: ReactNode;
 };
 
+/** El error de pausar o reanudar, en llano. `releer`: conviene volver a leer la conversación. */
+export function explicarErrorDePausa(e: unknown, que: "pausar" | "reanudar"): { texto: string; releer: boolean } {
+    if (e instanceof ErrorApi) {
+        // Solo `conflicto_version` es «la cambió otra persona»; otro 409 (p. ej. la misma acción aún en curso) no.
+        if (e.codigo === "conflicto_version") return { texto: TEXTO_CAMBIO, releer: true };
+        if (e.codigo === "conversacion_resuelta") return { texto: "La conversación ya está resuelta: el asistente no atiende conversaciones resueltas.", releer: true };
+        if (e.estado === 403) return { texto: `No tienes permiso para ${que === "pausar" ? "pausar" : "reanudar"} el asistente en esta conversación.`, releer: false };
+        if (e.estado === 404) return { texto: "Esta conversación ya no está disponible.", releer: true };
+    }
+    return { texto: `No se pudo ${que === "pausar" ? "pausar" : "reanudar"}: ${mensajeDeError(e).titulo}`, releer: false };
+}
+
 /** Pausar y reanudar el asistente en una conversación, con su aviso y sus errores en llano. */
 export function usePausaAsistente(conv: Conversacion, alHecho: (c: Conversacion) => void, recargar: () => Promise<void>): Pausa {
-    const clave = useClaveIdempotencia();
+    // Una clave por acción: un reintento de «pausar» nunca comparte clave con «reanudar».
+    const clavePausar = useClaveIdempotencia();
+    const claveReanudar = useClaveIdempotencia();
     const [ocupado, setOcupado] = useState<Pausa["ocupado"]>(null);
     const [error, setError] = useState<string | null>(null);
-    const [preguntando, setPreguntando] = useState(false);
+    // La pregunta abierta, con la `version` de cuando se preguntó: si la conversación cambia antes
+    // de confirmar (otra persona la tomó, el cliente acaba de pedir una persona), el servidor responde 409.
+    const [pregunta, setPregunta] = useState<{ version: number } | null>(null);
+    // …y si en la conversación de ahora ya no se puede reanudar, la pregunta se cierra sola.
+    if (pregunta && !sePuedeReanudar(conv)) setPregunta(null);
 
-    async function hacer(que: "pausar" | "reanudar", motivo?: Exclude<MotivoPausa, "manual">) {
+    async function hacer(que: "pausar" | "reanudar", motivo?: Exclude<MotivoPausa, "manual">, version = conv.version) {
+        const clave = que === "pausar" ? clavePausar : claveReanudar;
         setOcupado(que);
         setError(null);
         try {
-            const c = que === "pausar" ? await pausarAsistente(conv.id, conv.version, motivo, clave.actual()) : await reanudarAsistente(conv.id, conv.version, clave.actual());
+            const c = que === "pausar" ? await pausarAsistente(conv.id, version, motivo, clave.actual()) : await reanudarAsistente(conv.id, version, clave.actual());
             clave.renovar();
             alHecho(c);
             avisar({ titulo: que === "pausar" ? "Asistente en pausa en esta conversación" : "El asistente vuelve a atender" });
         } catch (e) {
             clave.trasError(e);
-            if (e instanceof ErrorApi && e.estado === 409) {
-                // Otra persona (o el asistente) la cambió: se relee y el siguiente intento lleva la versión nueva.
-                void recargar();
-                setError(TEXTO_CAMBIO);
-            } else if (e instanceof ErrorApi && e.codigo === "conversacion_resuelta") {
-                void recargar();
-                setError("La conversación ya está resuelta: el asistente no atiende conversaciones resueltas.");
-            } else {
-                setError(`No se pudo ${que === "pausar" ? "pausar" : "reanudar"}: ${mensajeDeError(e).titulo}`);
-            }
+            const explicacion = explicarErrorDePausa(e, que);
+            if (explicacion.releer) void recargar();
+            setError(explicacion.texto);
         } finally {
             setOcupado(null);
         }
@@ -63,20 +75,21 @@ export function usePausaAsistente(conv: Conversacion, alHecho: (c: Conversacion)
 
     return {
         pausar: (motivo) => void hacer("pausar", motivo),
-        reanudar: () => (pideConfirmarReanudar(conv) ? setPreguntando(true) : void hacer("reanudar")),
+        reanudar: () => (pideConfirmarReanudar(conv) ? setPregunta({ version: conv.version }) : void hacer("reanudar")),
         ocupado,
         error,
         dialogo: (
             <DialogoConfirmar
-                open={preguntando}
-                onOpenChange={setPreguntando}
+                open={pregunta !== null}
+                onOpenChange={(abierto) => !abierto && setPregunta(null)}
                 titulo="El cliente pidió hablar con una persona"
                 descripcion="¿Devolverle la conversación al asistente de todos modos? Queda registrado quién lo hizo."
                 textoCancelar="Dejarla como está"
                 textoConfirmar="Devolverla al asistente"
                 alConfirmar={() => {
-                    setPreguntando(false);
-                    void hacer("reanudar");
+                    const version = pregunta?.version;
+                    setPregunta(null);
+                    void hacer("reanudar", undefined, version);
                 }}
             />
         ),
@@ -116,7 +129,6 @@ export function FranjaAtencion({ conv, ahora, alHecho, recargar, bloqueada }: Pr
     const error = pausa.error ?? errorTomar;
     return (
         <div
-            role="status"
             data-slot="franja-asistente"
             data-estado={franja.estado === "atiende" ? "atendiendo" : franja.estado}
             data-tono={franja.tono}
@@ -124,7 +136,11 @@ export function FranjaAtencion({ conv, ahora, alHecho, recargar, bloqueada }: Pr
         >
             <span className={cn("flex min-w-0 flex-1 basis-56 items-start gap-2 text-[0.8125rem] font-medium", CLASE[franja.tono].texto)}>
                 <Icono aria-hidden className="mt-0.5 size-4 shrink-0" />
-                <span className="min-w-0 [overflow-wrap:anywhere]">{franja.texto}</span>
+                <span className="min-w-0 [overflow-wrap:anywhere]">
+                    {/* Región viva solo para el estado; el tiempo relativo cambia solo y queda fuera. */}
+                    <span role="status">{franja.texto}</span>
+                    {franja.cuando ? <span className="font-normal"> · {franja.cuando}</span> : null}
+                </span>
             </span>
             {acciones.length > 0 ? (
                 <span className="flex min-w-0 flex-wrap items-center gap-1.5">

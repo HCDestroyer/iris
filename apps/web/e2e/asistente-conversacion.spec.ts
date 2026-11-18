@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import type { Schema } from "@iris/contratos";
 import { ADMIN, CONSULTA, conSesion, simularApi } from "./api-falsa";
 import { esTelefono } from "./ayudas";
-import { AHORA_CONV, mensaje } from "./datos-conversaciones";
+import { AHORA_CONV, detalle, mensaje } from "./datos-conversaciones";
 import { buscarDesbordes, esperarSinDesbordes } from "./desbordes";
 
 /*
@@ -99,7 +99,10 @@ test.describe("asistente por conversación › quién atiende, pausar y reanudar
             page,
             con({ atiende: false, motivo: "pausado", reanudable: true, pausa: { en: hace(5), motivo: "cliente_lo_pidio", por: { id: 2, nombre: "Andrea Castillo" } } }, { asignado: null, asistente: { estado: "detenido", motivoPaso: "cliente_lo_pidio" } as never }),
         );
-        await expect(franja(page)).toContainText("Asistente en pausa · Andrea, hace 5 min · lo pidió el cliente");
+        await expect(franja(page)).toContainText("Asistente en pausa · Andrea · lo pidió el cliente · hace 5 min");
+        // Solo el estado es región viva: el tiempo relativo (que cambia solo) queda fuera y no se re-anuncia.
+        await expect(franja(page).getByRole("status")).toHaveText("Asistente en pausa · Andrea · lo pidió el cliente");
+        expect(await franja(page).getAttribute("role")).toBeNull();
         await franja(page).getByRole("button", { name: /^Reanudar/ }).click();
         const aviso = page.getByRole("alertdialog").or(page.getByRole("dialog")).filter({ hasText: "El cliente pidió hablar con una persona" });
         await expect(aviso).toContainText("¿Devolverle la conversación al asistente de todos modos?");
@@ -178,24 +181,66 @@ test.describe("asistente por conversación › quién atiende, pausar y reanudar
         await expect(franja(page).getByRole("button")).toHaveCount(0);
     });
 
-    test("otra persona la cambió mientras tanto (409): se dice y se relee, sin perder la franja", async ({ page }) => {
+    test("otra persona la cambió mientras tanto (409): se dice, se relee y el segundo intento lleva la versión del servidor", async ({ page }) => {
         const api = await abrir(page, con({ atiende: true, motivo: null, reanudable: false }, { asignado: null }));
         await expect(franja(page)).toBeVisible();
         // Cambia la versión en el servidor sin que el panel se entere.
         const c = api.conversaciones.conversaciones.find((x) => x.id === 41);
-        if (c) c.version += 5;
+        const vista = c?.version ?? 0;
+        if (c) c.version = vista + 5;
+        const lecturas = () => api.peticiones.filter((p) => p.metodo === "GET" && p.ruta === "/api/v1/mensajeria/conversaciones/41").length;
+        const antes = lecturas();
         await franja(page).getByRole("button", { name: /^Pausar el asistente/ }).click();
-        await expect(franja(page).getByRole("alert")).toBeVisible();
-        // Con la versión releída, el segundo intento pasa.
-        await expect
-            .poll(async () => {
-                if ((await franja(page).getAttribute("data-estado")) === "pausado") return "pausado";
-                await franja(page).getByRole("button", { name: /^Pausar el asistente/ }).click({ timeout: 1_000 }).catch(() => undefined);
-                return franja(page).getAttribute("data-estado");
-            })
-            .toBe("pausado");
-        // El segundo intento llevó la versión releída.
-        expect(pedidos(api, "/41/asistente/pausar").map((e) => (e.cuerpo as { version: number }).version)).toHaveLength(2);
+        await expect(franja(page).getByRole("alert")).toHaveText("Alguien la cambió; inténtalo de nuevo");
+        await expect(franja(page)).toHaveAttribute("data-estado", "atendiendo");
+        await expect.poll(lecturas).toBeGreaterThan(antes);
+        await franja(page).getByRole("button", { name: /^Pausar el asistente/ }).click();
+        await expect(franja(page)).toHaveAttribute("data-estado", "pausado");
+        expect(pedidos(api, "/41/asistente/pausar").map((e) => (e.cuerpo as { version: number }).version)).toEqual([vista, vista + 5]);
+    });
+
+    test("con una pregunta abierta, si la conversación cambia (otra persona la tomó) la pregunta se cierra sola y no se reanuda", async ({ page }) => {
+        test.setTimeout(90_000);
+        const api = await abrir(page, con({ atiende: false, motivo: "persona_asignada", reanudable: false }));
+        await conv(page).getByRole("button", { name: /^Asignada a / }).click();
+        await page.getByRole("menuitem", { name: "Quitar asignación" }).click();
+        const pregunta = page.getByRole("alertdialog").or(page.getByRole("dialog")).filter({ hasText: "¿Que la siga atendiendo el asistente?" });
+        await expect(pregunta).toBeVisible();
+        // Mientras tanto otra persona la toma: llega por el flujo.
+        const c = api.conversaciones.conversaciones.find((x) => x.id === 41);
+        if (c) Object.assign(c, { asignado: { id: 3, nombre: "Laura Méndez" }, atencionAsistente: { atiende: false, motivo: "persona_asignada", reanudable: false }, version: c.version + 1 });
+        api.conversaciones.mensajeDelCliente(41, "¿Siguen ahí?");
+        await expect(pregunta).toHaveCount(0, { timeout: 60_000 });
+        await expect(franja(page)).toHaveCount(0);
+        expect(pedidos(api, "/41/asistente/reanudar")).toHaveLength(0);
+    });
+
+    test("si cambió sin que el panel se enterara, confirmar manda la versión de cuando se preguntó: 409 y no se reanuda", async ({ page }) => {
+        const api = await abrir(page, con({ atiende: false, motivo: "persona_asignada", reanudable: false }));
+        await conv(page).getByRole("button", { name: /^Asignada a / }).click();
+        await page.getByRole("menuitem", { name: "Quitar asignación" }).click();
+        const pregunta = page.getByRole("alertdialog").or(page.getByRole("dialog")).filter({ hasText: "¿Que la siga atendiendo el asistente?" });
+        await expect(pregunta).toBeVisible();
+        const c = api.conversaciones.conversaciones.find((x) => x.id === 41);
+        const alPreguntar = c?.version ?? 0;
+        // El cliente acaba de pedir una persona; el aviso todavía no llegó a este navegador.
+        if (c) Object.assign(c, { version: alPreguntar + 1, asistente: { estado: "detenido", motivoPaso: "cliente_lo_pidio" } });
+        await pregunta.getByRole("button", { name: "Sí, que siga" }).click();
+        await expect(pregunta).toHaveCount(0);
+        await expect.poll(() => pedidos(api, "/41/asistente/reanudar").length).toBe(1);
+        expect((pedidos(api, "/41/asistente/reanudar")[0]?.cuerpo as { version: number }).version).toBe(alPreguntar);
+        // No se reanudó: sigue sin que el asistente atienda.
+        await expect(franja(page)).not.toHaveAttribute("data-estado", "atendiendo");
+        expect(c?.atencionAsistente?.atiende).toBe(false);
+    });
+
+    test("reanudar con alguien asignado no pone al asistente a atender (se queda apartado)", async ({ page }) => {
+        const api = await abrir(page, con({ atiende: false, motivo: "pausado", reanudable: true, pausa: { en: hace(3), motivo: "manual", por: { id: 1, nombre: "Ana López" } } }));
+        await franja(page).getByRole("button", { name: /^Reanudar/ }).click();
+        await expect(page.getByText("El asistente vuelve a atender")).toBeVisible();
+        // Con una persona asignada no hay franja (ya se ve quién la tiene) y el asistente no atiende.
+        await expect(franja(page)).toHaveCount(0);
+        expect(api.conversaciones.conversaciones.find((x) => x.id === 41)?.atencionAsistente).toMatchObject({ atiende: false, motivo: "persona_asignada" });
     });
 });
 
@@ -259,6 +304,64 @@ test.describe("asistente por conversación › resumen guardado en la ficha", ()
         await resumen.getByRole("button", { name: "Resumir", exact: true }).click();
         await expect(resumen).toContainText("Cliente sin internet desde la mañana");
         await expect(resumen.locator('[data-slot="resumen-pie"]')).toContainText(/Generado por Ana · .+ · qwen3:32b/);
+    });
+});
+
+test.describe("asistente por conversación › relectura de fondo del detalle", () => {
+    const conResumen: Opciones = { conversaciones: { asistente: { inicial: null, resumenGuardado: {} } } };
+    const RUTA = "**/api/v1/mensajeria/conversaciones/41";
+    // El flujo falso se cierra tras cada entrega y el panel espera antes de reabrirlo: los avisos pueden tardar.
+    test.setTimeout(120_000);
+
+    test("si la relectura de fondo falla, el panel y el compositor siguen (con lo escrito) y no aparece ningún error", async ({ page }) => {
+        const api = await abrir(page, con({ atiende: true, motivo: null, reanudable: false }, { asignado: null }), conResumen);
+        const caja = conv(page).locator('[data-slot="compositor"]').getByRole("textbox");
+        await caja.fill("Un mensaje a medio escribir");
+        // Desde ahora, leer el detalle falla.
+        let fallos = 0;
+        await page.route(RUTA, (route) => {
+            if (route.request().method() !== "GET") return route.fallback();
+            fallos++;
+            return route.fulfill({ status: 500, contentType: "application/problem+json", body: JSON.stringify({ type: "urn:iris:problema:error_interno", title: "Error interno", status: 500 }) });
+        });
+        // Llega un mensaje habiendo resumen: se relee el detalle de fondo.
+        api.conversaciones.mensajeDelCliente(41, "Sigo sin internet");
+        await expect(conv(page).getByRole("log", { name: "Mensajes" }).getByText("Sigo sin internet")).toBeVisible({ timeout: 60_000 });
+        await expect.poll(() => fallos).toBeGreaterThan(0);
+        // Nada se desmontó ni se cambió por un error.
+        await expect(caja).toHaveValue("Un mensaje a medio escribir");
+        await expect(franja(page)).toHaveAttribute("data-estado", "atendiendo");
+        await expect(page.getByText(/No se pudo leer la conversación|No se pudieron leer/)).toHaveCount(0);
+        await expect(conv(page).getByRole("button", { name: "Reintentar" })).toHaveCount(0);
+    });
+
+    test("una respuesta vieja de la relectura que llega tarde no pisa lo que ya trajo una acción", async ({ page }) => {
+        const api = await abrir(page, con({ atiende: true, motivo: null, reanudable: false }, { asignado: null }), conResumen);
+        await expect(franja(page)).toHaveAttribute("data-estado", "atendiendo");
+        // La relectura de fondo se queda esperando con la foto de ANTES de pausar.
+        let soltar: (() => void) | null = null;
+        let retenidas = 0;
+        await page.route(RUTA, async (route) => {
+            if (route.request().method() !== "GET" || retenidas > 0) return route.fallback();
+            retenidas++;
+            const c = api.conversaciones.conversaciones.find((x) => x.id === 41);
+            const vieja = JSON.stringify(detalle(structuredClone(c) as never));
+            await new Promise<void>((r) => (soltar = r));
+            await route.fulfill({ status: 200, contentType: "application/json", body: vieja });
+        });
+        api.conversaciones.mensajeDelCliente(41, "Hola");
+        await expect(conv(page).getByRole("log", { name: "Mensajes" }).getByText("Hola", { exact: true })).toBeVisible({ timeout: 60_000 });
+        await expect.poll(() => retenidas, { timeout: 60_000 }).toBe(1);
+        // Mientras tanto se pausa: el panel ya tiene una versión más nueva.
+        await franja(page).getByRole("button", { name: /^Pausar el asistente/ }).click();
+        await expect(franja(page)).toHaveAttribute("data-estado", "pausado");
+        // Llega la respuesta vieja («el asistente atiende»): no debe volver atrás.
+        (soltar as (() => void) | null)?.();
+        await page.waitForTimeout(800);
+        await expect(franja(page)).toHaveAttribute("data-estado", "pausado");
+        // Y la acción siguiente no da 409 por una versión atrasada.
+        await franja(page).getByRole("button", { name: /^Reanudar/ }).click();
+        await expect(franja(page)).toHaveAttribute("data-estado", "atendiendo");
     });
 });
 

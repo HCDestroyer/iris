@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { textoEvento } from "../conversaciones/presentacion";
-import { accionDeMenu, franjaAtencion, ofrecerQueSigaElAsistente, pideConfirmarReanudar, puntoAtencion, textoEventoAsistente, textoMotivoPausa, type AtencionAsistente } from "./atencion";
+import { accionDeMenu, franjaAtencion, ofrecerQueSigaElAsistente, sePuedeReanudar, pideConfirmarReanudar, puntoAtencion, textoEventoAsistente, textoMotivoPausa, type AtencionAsistente } from "./atencion";
 
 const AHORA = Date.parse("2026-11-18T16:00:00Z");
 const con = (a: Partial<AtencionAsistente>, extra: object = {}) => ({ atencionAsistente: { atiende: false, motivo: null, reanudable: false, ...a } as AtencionAsistente, ...extra });
@@ -16,13 +16,19 @@ describe("quién atiende la conversación (franja)", () => {
         expect(franjaAtencion(con({ atiende: true }), AHORA)).toMatchObject({ estado: "atiende", tono: "marca", texto: "El asistente atiende esta conversación", acciones: ["pausar", "tomar"] });
     });
 
-    it("en pausa: quién, hace cuánto y por qué (si no fue manual), con «Reanudar»", () => {
+    it("en pausa: quién y por qué (si no fue manual) en el texto; el «hace cuánto», aparte (no se anuncia)", () => {
         const pausa = { en: "2026-11-18T15:55:00Z", motivo: "manual" as const, por: { id: 2, nombre: "Andrea Castillo" } };
-        expect(franjaAtencion(con({ motivo: "pausado", reanudable: true, pausa }), AHORA)).toMatchObject({ estado: "pausado", tono: "neutro", texto: "Asistente en pausa · Andrea, hace 5 min", acciones: ["reanudar"], textoReanudar: "Reanudar" });
-        expect(franjaAtencion(con({ motivo: "pausado", reanudable: true, pausa: { ...pausa, motivo: "caso_delicado" } }), AHORA)?.texto).toBe("Asistente en pausa · Andrea, hace 5 min · caso delicado");
+        expect(franjaAtencion(con({ motivo: "pausado", reanudable: true, pausa }), AHORA)).toMatchObject({ estado: "pausado", tono: "neutro", texto: "Asistente en pausa · Andrea", cuando: "hace 5 min", acciones: ["reanudar"], textoReanudar: "Reanudar" });
+        expect(franjaAtencion(con({ motivo: "pausado", reanudable: true, pausa: { ...pausa, motivo: "caso_delicado" } }), AHORA)?.texto).toBe("Asistente en pausa · Andrea · caso delicado");
+        // El texto que se anuncia no cambia con el reloj.
+        const despues = franjaAtencion(con({ motivo: "pausado", reanudable: true, pausa }), AHORA + 600_000);
+        expect(despues?.texto).toBe("Asistente en pausa · Andrea");
+        expect(despues?.cuando).toBe("hace 15 min");
         // Quien la pausó ya no existe: sin nombre, sin romperse.
-        expect(franjaAtencion(con({ motivo: "pausado", reanudable: false, pausa: { en: pausa.en, motivo: "respuesta_incorrecta" } }), AHORA)).toMatchObject({ texto: "Asistente en pausa · hace 5 min · respondió mal", acciones: [] });
-        expect(franjaAtencion(con({ motivo: "pausado" }), AHORA)?.texto).toBe("Asistente en pausa");
+        expect(franjaAtencion(con({ motivo: "pausado", reanudable: false, pausa: { en: pausa.en, motivo: "respuesta_incorrecta" } }), AHORA)).toMatchObject({ texto: "Asistente en pausa · respondió mal", cuando: "hace 5 min", acciones: [] });
+        const sinPausa = franjaAtencion(con({ motivo: "pausado" }), AHORA);
+        expect(sinPausa?.texto).toBe("Asistente en pausa");
+        expect(sinPausa?.cuando).toBeUndefined();
     });
 
     it("una persona asignada: nada en la franja; «Pausar» queda en el menú", () => {
@@ -96,6 +102,19 @@ describe("al quitar la asignación", () => {
     it("si el cliente pidió una persona no se ofrece", () => {
         expect(ofrecerQueSigaElAsistente(antes, { ...despues, asistente: { motivoPaso: "cliente_lo_pidio" } })).toBe(false);
         expect(ofrecerQueSigaElAsistente(antes, { ...despues, asistente: { motivoPaso: "enojo" } })).toBe(false);
+    });
+});
+
+describe("una pregunta de reanudar abierta", () => {
+    it("sigue teniendo sentido solo mientras el asistente está apartado y puede retomarla", () => {
+        expect(sePuedeReanudar(con({ motivo: "pausado", reanudable: true }))).toBe(true);
+        expect(sePuedeReanudar(con({ motivo: "persona_presente", reanudable: true }))).toBe(true);
+        expect(sePuedeReanudar(con({ motivo: "espera_persona", reanudable: true }))).toBe(true);
+        // Otra persona la tomó, el asistente ya atiende, no es reanudable o ya no viene el campo.
+        expect(sePuedeReanudar(con({ motivo: "persona_asignada", reanudable: false }))).toBe(false);
+        expect(sePuedeReanudar(con({ atiende: true }))).toBe(false);
+        expect(sePuedeReanudar(con({ motivo: "pausado", reanudable: false }))).toBe(false);
+        expect(sePuedeReanudar({})).toBe(false);
     });
 });
 

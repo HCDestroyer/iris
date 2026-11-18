@@ -45,6 +45,10 @@ type Props = {
     detenido: "sin_sesion" | "sin_permiso" | "sesion_cambiada" | null;
 };
 
+/** Relectura de fondo del detalle por avisos del flujo: pausa para juntarlos y tope en una ráfaga. */
+const RELECTURA_PAUSA_MS = 600;
+const RELECTURA_MAX_MS = 3_000;
+
 /** Ancho a partir del cual la ficha va al lado (si no, en una hoja). */
 const ANCHO_FICHA = 1100;
 const CLAVE_FICHA = "iris-bandeja-ficha";
@@ -145,7 +149,16 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
         },
         [alActualizar, detalle, id, reemplazarDetalle],
     );
+    const vivo = useRef(true);
+    useEffect(() => {
+        vivo.current = true;
+        return () => {
+            vivo.current = false;
+            clearTimeout(relectura.current);
+        };
+    }, []);
     const relectura = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const relecturaDesde = useRef<number | null>(null);
     const conResumenRef = useRef(false);
     useEffect(() => {
         conResumenRef.current = Boolean(conv?.resumen);
@@ -258,14 +271,30 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                 // El resumen guardado solo viene en el detalle (§16.4): cuando la conversación cambia
                 // sin mensaje (alguien generó uno nuevo) o llega un mensaje habiendo resumen (queda
                 // desactualizado), se relee el detalle, con una pausa corta para juntar varios avisos.
+                // Es una relectura **de fondo**: si falla, lo que hay en pantalla se queda (nunca se
+                // cambia el panel por un error ni se desmonta el compositor), y una respuesta más
+                // vieja que lo que ya trajo una acción o el flujo no pisa nada.
                 if ((e.tipo === "conversacion_actualizada" && !e.mensaje) || (e.mensaje && conResumenRef.current)) {
+                    const ahoraMs = Date.now();
+                    relecturaDesde.current ??= ahoraMs;
+                    // En una ráfaga no se pospone sin fin: como mucho `RELECTURA_MAX_MS` desde el primer aviso.
+                    const espera = Math.max(0, Math.min(RELECTURA_PAUSA_MS, RELECTURA_MAX_MS - (ahoraMs - relecturaDesde.current)));
                     clearTimeout(relectura.current);
-                    relectura.current = setTimeout(() => void refrescarDetalle(), 600);
+                    relectura.current = setTimeout(() => {
+                        relecturaDesde.current = null;
+                        leerDetalle(id).then(
+                            (datos) => {
+                                const actual = vista.current;
+                                if (vivo.current && actual && actual.id === datos.id && datos.version >= actual.version) reemplazarDetalle(datos);
+                            },
+                            () => undefined,
+                        );
+                    }, espera);
                 }
             }),
-        [id, suscribir, refrescarDetalle],
+        [id, suscribir, refrescarDetalle, reemplazarDetalle],
     );
-    useEffect(() => () => clearTimeout(relectura.current), []);
+
 
     // Leer: avanza la lectura hasta el último mensaje del cliente que se ve (nunca retrocede).
     const ultimoEntrante = [...mensajes].reverse().find((m) => m.direccion === "entrante")?.id;

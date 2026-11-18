@@ -1,7 +1,7 @@
 "use client";
 
 import { pausarAsistente, reanudarAsistente } from "@/lib/asistente/api";
-import { accionDeMenu, ofrecerQueSigaElAsistente, pideConfirmarReanudar } from "@/lib/asistente/atencion";
+import { accionDeMenu, ofrecerQueSigaElAsistente, pideConfirmarReanudar, sePuedeReanudar } from "@/lib/asistente/atencion";
 import { PERMISO_PAUSAR_ASISTENTE } from "@/lib/asistente/permisos";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -124,7 +124,10 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
             async (clave) => {
                 const c = await resolver(api().POST(`${BASE}/asignar`, { params: ruta(conv, clave), body: { version: conv.version, usuarioId: null } }));
                 // El asistente la atendía antes de que una persona la tomara: se pregunta si sigue él.
-                if (puede([PERMISO_PAUSAR_ASISTENTE]) && ofrecerQueSigaElAsistente(conv, c)) setDialogo("seguir-asistente");
+                if (puede([PERMISO_PAUSAR_ASISTENTE]) && ofrecerQueSigaElAsistente(conv, c)) {
+                    setVersionPregunta(c.version);
+                    setDialogo("seguir-asistente");
+                }
                 return c;
             },
             () => ({ titulo: `${conv.titulo}: sin asignar` }),
@@ -151,12 +154,20 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
             async (clave) => await pausarAsistente(conv.id, conv.version, undefined, clave),
             () => ({ titulo: "Asistente en pausa en esta conversación" }),
         );
-    const reanudarAsistenteAqui = () =>
+    // Las preguntas de reanudar guardan la `version` de cuando se preguntó: si la conversación
+    // cambia antes de confirmar (otra persona la tomó, el cliente pidió una persona), 409 y se relee.
+    const [versionPregunta, setVersionPregunta] = useState<number | null>(null);
+    const reanudarAsistenteAqui = (version = conv.version) =>
         rapida(
             "reanudar-asistente",
-            async (clave) => await reanudarAsistente(conv.id, conv.version, clave),
+            async (clave) => await reanudarAsistente(conv.id, version, clave),
             () => ({ titulo: "El asistente vuelve a atender" }),
         );
+
+    // La conversación cambió con una de esas preguntas abierta y ya no aplica (otra persona la tomó,
+    // el asistente ya atiende, el cliente acaba de pedir una persona): la pregunta se cierra sola.
+    if (dialogo === "seguir-asistente" && !(conv.atencionAsistente?.motivo === "persona_presente" && conv.atencionAsistente.reanudable && !pideConfirmarReanudar(conv))) setDialogo(null);
+    if (dialogo === "reanudar" && !sePuedeReanudar(conv)) setDialogo(null);
 
     // §15.3: préstamo revocado o pasada a otra empresa: no hay acciones (el servidor responde 422).
     if (conv.soloLectura) {
@@ -288,7 +299,12 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
                                 </MenuDesplegableElemento>
                             ) : null}
                             {accionAsistente === "reanudar" ? (
-                                <MenuDesplegableElemento icono={CirclePlay} onSelect={() => (pideConfirmarReanudar(conv) ? setDialogo("reanudar") : void reanudarAsistenteAqui())}>
+                                <MenuDesplegableElemento icono={CirclePlay} onSelect={() => {
+                                        if (!pideConfirmarReanudar(conv)) return void reanudarAsistenteAqui();
+                                        setVersionPregunta(conv.version);
+                                        setDialogo("reanudar");
+                                    }}
+                                >
                                     Que siga el asistente
                                 </MenuDesplegableElemento>
                             ) : null}
@@ -321,7 +337,7 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
                 textoCancelar="Dejarla como está"
                 textoConfirmar="Devolverla al asistente"
                 alConfirmar={async () => {
-                    await reanudarAsistenteAqui();
+                    await reanudarAsistenteAqui(versionPregunta ?? conv.version);
                     setDialogo(null);
                 }}
             />
@@ -333,7 +349,7 @@ export function AccionesConversacion({ conv, estrecho, alActualizar, recargar, a
                 textoCancelar="No, queda en cola"
                 textoConfirmar="Sí, que siga"
                 alConfirmar={async () => {
-                    await reanudarAsistenteAqui();
+                    await reanudarAsistenteAqui(versionPregunta ?? conv.version);
                     setDialogo(null);
                 }}
             />

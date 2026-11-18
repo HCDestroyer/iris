@@ -409,7 +409,10 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                     c.atencionAsistente =
                         accion === "asistente/pausar"
                             ? { atiende: false, motivo: "pausado", reanudable: true, pausa: { en: new Date().toISOString(), motivo: (cuerpo.motivo as "manual" | undefined) ?? "manual", por: { id: yo, nombre: a?.nombre ?? "Yo" } } }
-                            : { atiende: true, motivo: null, reanudable: false };
+                            : // §17.11: con una persona asignada el asistente no vuelve a atender; se queda apartado.
+                              c.asignado
+                              ? { atiende: false, motivo: "persona_asignada", reanudable: false }
+                              : { atiende: true, motivo: null, reanudable: false };
                     // Al pausar una persona, la bandeja deja de decir que el asistente contestó.
                     if (accion === "asistente/pausar") delete (c as { actividadAsistente?: unknown }).actividadAsistente;
                 });
