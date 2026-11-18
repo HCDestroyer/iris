@@ -89,6 +89,9 @@ const (
 	TurnoDescarto  = "descartado"
 )
 
+// TurnoPausado: motivo de un turno descartado porque pausaron el asistente en la conversación (§17.11).
+const TurnoPausado = "pausado"
+
 // MensajePasoAPersona es lo que el asistente le dice al cliente al pasarlo con una persona.
 const MensajePasoAPersona = "Te paso con una persona de nuestro equipo. En cuanto esté disponible te responde por aquí."
 
@@ -539,7 +542,18 @@ func nuevoPrepararTurno(m *Modulo) *auditoria.Caso[entradaTurno, turnoPreparado]
 			if err := soloSistema(ctx); err != nil {
 				return turnoPreparado{}, err
 			}
-			return m.prepararTurno(ctx, t, in)
+			p, err := m.prepararTurno(ctx, t, in)
+			if err != nil {
+				return p, err
+			}
+			// No le toca y no hay nada que esperar: un turno pendiente con el arriendo vencido (el que
+			// deja «reanudar», §17.11) se cierra aquí, para que el mantenimiento no lo reencole sin fin.
+			if p.TurnoID == nil && p.Espera == 0 && !p.clasificar {
+				ahora := m.ahora()
+				err = mensajeriabd.New(t).DescartarTurnosSueltos(ctx, mensajeriabd.DescartarTurnosSueltosParams{ConversacionID: in.ConversacionID,
+					Ahora: &ahora, Antes: ahora.Add(-m.arriendoTurno())})
+			}
+			return p, err
 		},
 	})
 }
@@ -560,8 +574,13 @@ func (m *Modulo) prepararTurno(ctx context.Context, t *auditoria.Tx, in entradaT
 	atendia := c.AsistenteEstado != nil && *c.AsistenteEstado == AsistenteAtendiendo
 	// Resuelta, con una persona asignada, o detenido / en espera de una persona: no es su turno. Un
 	// turno que quedó en curso ahí se cierra como descartado (ya no lo va a terminar nadie).
-	if c.Estado == EstadoConvResuelta || c.AsignadoA != nil || (c.AsistenteEstado != nil && !atendia) {
-		return nada, q.DescartarTurnosEnCurso(ctx, mensajeriabd.DescartarTurnosEnCursoParams{ConversacionID: c.ID, Ahora: ptrTiempo(m.ahora())})
+	// Tampoco si alguien lo pausó en esta conversación (§17.11).
+	if c.Estado == EstadoConvResuelta || c.AsignadoA != nil || c.AsistentePausadoEn != nil || (c.AsistenteEstado != nil && !atendia) {
+		motivo := PasoPersonaPresente
+		if c.AsistentePausadoEn != nil {
+			motivo = TurnoPausado
+		}
+		return nada, q.DescartarTurnosEnCurso(ctx, mensajeriabd.DescartarTurnosEnCursoParams{ConversacionID: c.ID, Motivo: &motivo, Ahora: ptrTiempo(m.ahora())})
 	}
 	// El bot ya tomó esta conversación (menú pendiente o ya contestó): el asistente no se mete (§17.3).
 	if !atendia && botAtendiendo(c) {
@@ -573,6 +592,12 @@ func (m *Modulo) prepararTurno(ctx context.Context, t *auditoria.Tx, in entradaT
 	}
 	if err != nil {
 		return nada, err
+	}
+	// El último mensaje del cliente es de un periodo anterior (la conversación se resolvió después y un
+	// agente la reabrió a mano): no es de esta atención y el asistente no lo contesta, tampoco si el job
+	// corre por un reintento, el mantenimiento o «reanudar» (§17.11).
+	if !atendia && ultimo.CreadoEn.Before(inicioEntrantes(c)) {
+		return nada, nil
 	}
 	sinTexto := ultimo.Texto == nil || strings.TrimSpace(*ultimo.Texto) == ""
 	// Idempotencia por turno (conversación + mensaje): un job duplicado o un reintento no repite nada.
@@ -731,8 +756,14 @@ func (m *Modulo) prepararTurno(ctx context.Context, t *auditoria.Tx, in entradaT
 	}
 	desde := inicioPeriodo(c)
 	if !atendia {
-		// Una persona ya escribió en este periodo (desde Iris o desde el teléfono): no se mete.
-		if escribio, err := q.PersonaEscribioDesde(ctx, mensajeriabd.PersonaEscribioDesdeParams{ConversacionID: c.ID, Desde: desde}); err != nil || escribio {
+		// Una persona ya escribió en este periodo (desde Iris o desde el teléfono): no se mete, salvo que
+		// después alguien le haya devuelto la conversación («reanudar», §17.11).
+		if escribio, err := q.PersonaEscribioDesde(ctx, mensajeriabd.PersonaEscribioDesdeParams{ConversacionID: c.ID, Desde: desdePersona(c)}); err != nil || escribio {
+			return nada, err
+		}
+		// Reanudada, pero ese mensaje del cliente ya lo contestó una persona: el asistente no lo contesta
+		// otra vez (podría contradecirla o repetir un ticket o una boleta). Espera al siguiente.
+		if respondio, err := q.PersonaRespondioDespues(ctx, mensajeriabd.PersonaRespondioDespuesParams{ConversacionID: c.ID, MensajeID: ultimo.ID}); err != nil || respondio {
 			return nada, err
 		}
 		// sin_nadie: fuera de horario o sin agentes disponibles actúa enseguida; con agentes en línea
@@ -753,8 +784,10 @@ func (m *Modulo) prepararTurno(ctx context.Context, t *auditoria.Tx, in entradaT
 			}
 		}
 	}
-	// Límites de pedidos: por conversación, por número sin cliente asociado y por empresa.
-	if !hayPrevio {
+	// Límites de pedidos: por conversación, por número sin cliente asociado y por empresa. Un turno
+	// reabierto al reanudar (§17.11) pasa por ellos igual: pausar y reanudar en bucle no los salta.
+	sinLimites := hayPrevio && previo.Reaperturas == 0
+	if !sinLimites {
 		n, err := q.TurnosRecientesConv(ctx, mensajeriabd.TurnosRecientesConvParams{ConversacionID: c.ID, Desde: ahora.Add(-time.Hour)})
 		if err != nil {
 			return nada, err
@@ -781,7 +814,7 @@ func (m *Modulo) prepararTurno(ctx context.Context, t *auditoria.Tx, in entradaT
 	// maxTurnos cuenta todos los turnos del periodo, también los descartados (gastaron igual).
 	if turnos, err := q.TurnosDelPeriodo(ctx, mensajeriabd.TurnosDelPeriodoParams{ConversacionID: c.ID, Desde: desde}); err != nil {
 		return nada, err
-	} else if !hayPrevio && (turnos >= int64(aj.MaxTurnos) || c.AsistenteTurnos >= aj.MaxTurnos) {
+	} else if !sinLimites && (turnos >= int64(aj.MaxTurnos) || c.AsistenteTurnos >= aj.MaxTurnos) {
 		return pasar(PasoMaxTurnos)
 	}
 	texto := ""
@@ -1227,7 +1260,9 @@ func (m *Modulo) terminarTurno(ctx context.Context, t *auditoria.Tx, empresa int
 	}
 	// Los tokens gastados se cuentan siempre, también si otro job ya cerró el turno (arriendo perdido).
 	contar := func() error {
-		if derefEmpresa(turno.EmpresaID) != empresaDeConv(c) || empresaDeConv(c) != empresa || in.TokensEntrada+in.TokensSalida == 0 {
+		// Se cuentan a la empresa que hizo la llamada (la del turno y del actor), aunque la conversación
+		// haya pasado a otra empresa mientras corría.
+		if derefEmpresa(turno.EmpresaID) != empresa || in.TokensEntrada+in.TokensSalida == 0 {
 			return nil
 		}
 		if err := m.sumarUso(ctx, t, empresa, UsoIA{Entrada: in.TokensEntrada, Salida: in.TokensSalida}, 0, 0); err != nil {
@@ -1254,20 +1289,29 @@ func (m *Modulo) terminarTurno(ctx context.Context, t *auditoria.Tx, empresa int
 			TokensEntrada: in.TokensEntrada, TokensSalida: in.TokensSalida, Ahora: ptrTiempo(m.ahora())})
 		return err
 	}
-	// La conversación pasó a otra empresa (préstamo) mientras corría: no se cobra ni se hace nada.
-	if derefEmpresa(turno.EmpresaID) != empresaDeConv(c) || empresaDeConv(c) != empresa {
-		return cerrar(TurnoDescarto, PasoPersonaPresente)
-	}
 	if err := contar(); err != nil {
 		return err
+	}
+	// La conversación pasó a otra empresa (préstamo) mientras corría: los tokens ya quedaron contados a
+	// la que hizo la llamada; no se envía ni se hace nada más.
+	if derefEmpresa(turno.EmpresaID) != empresaDeConv(c) || empresaDeConv(c) != empresa {
+		return cerrar(TurnoDescarto, PasoPersonaPresente)
 	}
 	pasoAPersona := func(motivo string) error {
 		return t.Emitir("asistente.paso_a_persona", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID, "motivo": motivo,
 			"cola_id": c.ColaID, "turnos": c.AsistenteTurnos})
 	}
 	// Una persona la tomó o escribió, o se resolvió, mientras el turno corría: no se envía nada.
-	atiende := c.AsignadoA == nil && c.Estado != EstadoConvResuelta && c.AsistenteEstado != nil && *c.AsistenteEstado == AsistenteAtendiendo
+	atiende := c.AsignadoA == nil && c.Estado != EstadoConvResuelta && c.AsistentePausadoEn == nil &&
+		c.AsistenteEstado != nil && *c.AsistenteEstado == AsistenteAtendiendo
 	if !atiende || in.Paso == PasoPersonaPresente {
+		// §17.11: lo pausaron y lo reanudaron mientras este turno corría. Lo que se generó no se envía
+		// (se armó antes de la pausa), pero el mensaje del cliente no se queda sin respuesta: el turno
+		// sigue pendiente, con el arriendo suelto, y la vuelta siguiente del job lo corre de nuevo.
+		if c.AsignadoA == nil && c.Estado != EstadoConvResuelta && c.AsistentePausadoEn == nil && c.AsistenteEstado == nil &&
+			c.AsistenteReanudadoEn != nil && !c.AsistenteReanudadoEn.Before(turno.CreadoEn) && in.Paso != PasoPersonaPresente {
+			return q.LiberarArriendoTurno(ctx, turno.ID)
+		}
 		if err := pasoAPersona(PasoPersonaPresente); err != nil {
 			return err
 		}
