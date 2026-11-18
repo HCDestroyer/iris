@@ -288,50 +288,50 @@ func detalleCanalRechazado(e *ErrorCanal) string {
 // marcarCanalRechazado deja el canal como «token rechazado» o «sin permiso» cuando Meta rechaza un
 // envío por eso, y lo avisa con el mismo evento que «Probar». Una sola vez por cambio de estado: mil
 // mensajes rechazados no son mil eventos.
-func (m *Modulo) marcarCanalRechazado(ctx context.Context, t *auditoria.Tx, canalID int64, e *ErrorCanal) error {
+func (m *Modulo) marcarCanalRechazado(ctx context.Context, t *auditoria.Tx, canalID int64, e *ErrorCanal) (bool, error) {
 	if e == nil || e.EstadoCanal == "" || canalID == 0 {
-		return nil
+		return false, nil
 	}
 	q := mensajeriabd.New(t)
 	f, err := q.CanalPorIDParaActualizar(ctx, canalID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	igual := f.UltimoEstado != nil && *f.UltimoEstado == e.EstadoCanal
 	if igual && f.RechazadoPorEnvio {
-		return nil
+		return false, nil
 	}
 	ahora, detalle := m.ahora(), detalleCanalRechazado(e)
 	if err := q.MarcarCanalRechazadoPorEnvio(ctx, mensajeriabd.MarcarCanalRechazadoPorEnvioParams{ID: canalID, Ahora: &ahora, Estado: &e.EstadoCanal, Detalle: &detalle}); err != nil {
-		return err
+		return false, err
 	}
 	if igual {
 		// «Probar» ya lo había dicho: no es un cambio de estado, no hay evento.
-		return nil
+		return false, nil
 	}
 	t.Anotar(map[string]any{"canal_id": canalID, "canal_estado": e.EstadoCanal, "status": e.Status, "codigo": e.Codigo})
-	return t.Emitir("canal_mensajeria.probado", map[string]any{"canal_id": canalID, "empresa_id": f.EmpresaID, "estado": e.EstadoCanal, "origen": "envio"})
+	return true, t.Emitir("canal_mensajeria.probado", map[string]any{"canal_id": canalID, "empresa_id": f.EmpresaID, "estado": e.EstadoCanal, "origen": "envio"})
 }
 
 // limpiarRechazoCanal: Meta aceptó un envío. Si el número estaba marcado por un envío rechazado,
 // vuelve a conectado y se avisa una vez (los siguientes envíos ya no encuentran nada que limpiar).
-func (m *Modulo) limpiarRechazoCanal(ctx context.Context, t *auditoria.Tx, canalID int64) error {
+func (m *Modulo) limpiarRechazoCanal(ctx context.Context, t *auditoria.Tx, canalID int64) (bool, error) {
 	if canalID == 0 {
-		return nil
+		return false, nil
 	}
 	ahora := m.ahora()
 	empresa, err := mensajeriabd.New(t).LimpiarRechazoPorEnvio(ctx, mensajeriabd.LimpiarRechazoPorEnvioParams{ID: canalID, Ahora: &ahora})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	t.Anotar(map[string]any{"canal_id": canalID, "canal_estado": PruebaConectado})
-	return t.Emitir("canal_mensajeria.probado", map[string]any{"canal_id": canalID, "empresa_id": empresa, "estado": PruebaConectado, "origen": "envio"})
+	return true, t.Emitir("canal_mensajeria.probado", map[string]any{"canal_id": canalID, "empresa_id": empresa, "estado": PruebaConectado, "origen": "envio"})
 }
 
 // FirmaMetaValida compara X-Hub-Signature-256 (sha256=<hex(HMAC-SHA256(app_secret, cuerpo))>) en

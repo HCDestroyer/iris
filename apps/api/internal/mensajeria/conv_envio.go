@@ -676,7 +676,9 @@ func (m *Modulo) fallarMensajeCon(ctx context.Context, t *auditoria.Tx, f mensaj
 
 func nuevoRegistrarMensaje(m *Modulo) *auditoria.Caso[entradaRegistrarMensaje, registrado] {
 	return auditoria.Nuevo(auditoria.Caso[entradaRegistrarMensaje, registrado]{
-		Accion: "mensajeria.registrar_mensaje", Acceso: auditoria.Autenticado, AuditarExito: func(registrado) bool { return false },
+		Accion: "mensajeria.registrar_mensaje", Acceso: auditoria.Autenticado,
+		// Un envío normal no deja fila (son muchos); el que cambia el estado del número, sí.
+		AuditarExito: func(r registrado) bool { return r.CanalCambio },
 		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaRegistrarMensaje) (registrado, error) {
 			q := mensajeriabd.New(t)
 			f, err := q.MensajeConversacionParaActualizar(ctx, in.MensajeID)
@@ -702,10 +704,11 @@ func nuevoRegistrarMensaje(m *Modulo) *auditoria.Caso[entradaRegistrarMensaje, r
 				if _, err := q.MarcarEnvioMensaje(ctx, p); err != nil {
 					return registrado{}, err
 				}
-				if err := m.limpiarRechazoCanal(ctx, t, c.CanalID); err != nil {
+				limpio, err := m.limpiarRechazoCanal(ctx, t, c.CanalID)
+				if err != nil {
 					return registrado{}, err
 				}
-				return registrado{Cambio: true}, m.emitirEventoConv(ctx, t, c, EventoConvMensajeActualizad, &f.ID, nil)
+				return registrado{Cambio: true, CanalCambio: limpio}, m.emitirEventoConv(ctx, t, c, EventoConvMensajeActualizad, &f.ID, nil)
 			case e != nil && e.Pausar:
 				hasta := ahora.Add(time.Hour)
 				if err := q.PausarCanal(ctx, mensajeriabd.PausarCanalParams{ID: c.CanalID, PausadoHasta: &hasta}); err != nil {
@@ -719,10 +722,11 @@ func nuevoRegistrarMensaje(m *Modulo) *auditoria.Caso[entradaRegistrarMensaje, r
 				return registrado{Reintentar: true}, nil
 			case e != nil:
 				// Meta rechazó el token o el permiso del número: el canal lo dice ya, sin esperar a «Probar».
-				if err := m.marcarCanalRechazado(ctx, t, c.CanalID, e); err != nil {
+				marcado, err := m.marcarCanalRechazado(ctx, t, c.CanalID, e)
+				if err != nil {
 					return registrado{}, err
 				}
-				return registrado{Cambio: true}, m.fallarMensajeCon(ctx, t, f, c, e.Motivo, e.Detalle, e)
+				return registrado{Cambio: true, CanalCambio: marcado}, m.fallarMensajeCon(ctx, t, f, c, e.Motivo, e.Detalle, e)
 			}
 			return registrado{}, nil
 		},

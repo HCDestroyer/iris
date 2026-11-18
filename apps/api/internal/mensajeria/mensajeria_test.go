@@ -962,6 +962,38 @@ func TestWhatsAppCloud(t *testing.T) {
 	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'canal_mensajeria.probado' AND payload->>'canal_id' = $1 AND payload->>'origen' = 'envio'`, fmt.Sprint(canal.ID)); n != 1 {
 		t.Fatalf("canal_mensajeria.probado por el envío: %d", n)
 	}
+
+	// El rechazo también puede llegar después, por webhook (failed con 190 o con un código de
+	// permiso): hacia Argos sale igualmente con un motivo de su contrato (§6.6), nunca los propios.
+	for i, codigo := range []int{190, 200} {
+		cn := e.cliente(2, fmt.Sprintf("5512-78%02d", i))
+		e.pedir(http.MethodPost, "/api/v1/mensajeria/consentimientos", e.otro, fmt.Sprintf("argos:consentimiento:2:%d:whatsapp:a", cn),
+			map[string]any{"empresa_id": 2, "cliente_id": cn, "canal": "whatsapp", "estado": "acepta", "origen": "argos_panel", "ocurrido_en": cuando})
+		cuerpoN := avisoPorVencer(cn, "2026-11-10")
+		cuerpoN["empresa_id"] = 2
+		rn := e.pedir(http.MethodPost, "/api/v1/mensajeria/avisos", e.otro, fmt.Sprintf("argos:aviso:factura_por_vencer:%d", cn), cuerpoN)
+		idN := rn.cuerpo["aviso_id"].(string)
+		e.enviar(idN)
+		var wamidN string
+		if err := e.bd.QueryRow(e.ctx, `SELECT proveedor_id FROM mensajeria.avisos WHERE id = $1`, idN).Scan(&wamidN); err != nil {
+			t.Fatal(err)
+		}
+		fallo := fmt.Sprintf(`{"object":"whatsapp_business_account","entry":[{"changes":[{"field":"messages","value":{"metadata":{"phone_number_id":%q},"statuses":[{"id":%q,"status":"failed","timestamp":"%d","errors":[{"code":%d,"title":"TEXTO-LIBRE-DE-META"}]}]}}]}]}`,
+			numero, wamidN, e.reloj.Unix(), codigo)
+		if code := meta(fallo, mensajeria.FirmarMeta("app-secret-0123456789", []byte(fallo))); code != http.StatusOK {
+			t.Fatalf("webhook failed %d: %d", codigo, code)
+		}
+		procesar()
+		e.exigir(e.pedir(http.MethodGet, "/api/v1/mensajeria/avisos/"+idN, e.otro, "", nil), http.StatusOK, "estado", "fallido", "motivo", "rechazado_por_canal")
+		e.publicar()
+		wf := e.receptor.de("aviso.fallido", "aviso_id", idN)
+		if len(wf) != 1 || wf[0].Cuerpo["payload"].(map[string]any)["motivo"] != "rechazado_por_canal" {
+			t.Fatalf("aviso.fallido hacia Argos con failed %d: %v", codigo, wf)
+		}
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'aviso.fallido' AND payload->>'motivo' NOT IN ('vencido', 'numero_invalido', 'rechazado_por_canal', 'agotado')`); n != 0 {
+		t.Fatalf("aviso.fallido con un motivo fuera del contrato con Argos: %d", n)
+	}
 }
 
 func TestWebhooksSoloContrato060(t *testing.T) {

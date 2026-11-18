@@ -145,12 +145,14 @@ func TestRechazoDeMetaAlEnviar(t *testing.T) {
 				}
 			}
 			for _, sql := range []string{
-				`SELECT count(*) FROM integracion.outbox WHERE payload::text LIKE '%' || $1 || '%'`,
-				`SELECT count(*) FROM auditoria.acciones WHERE coalesce(entrada::text, '') || coalesce(resultado::text, '') LIKE '%' || $1 || '%'`,
-				`SELECT count(*) FROM mensajeria.canales WHERE coalesce(ultimo_detalle, '') LIKE '%' || $1 || '%'`,
+				// Solo lo de este número y esta conversación: la base la comparten otras pruebas.
+				`SELECT count(*) FROM integracion.outbox WHERE payload::text LIKE '%' || $1 || '%' AND (payload->>'conversacion_id' = $2 OR payload->>'canal_id' = $3)`,
+				`SELECT count(*) FROM auditoria.acciones WHERE coalesce(entrada::text, '') || coalesce(error::text, '') LIKE '%' || $1 || '%'
+					AND (entrada->'auditoria'->>'canal_id' = $3 OR entidad_id = $2)`,
+				`SELECT count(*) FROM mensajeria.canales WHERE coalesce(ultimo_detalle, '') LIKE '%' || $1 || '%' AND id::text = $3 AND $2 <> ''`,
 			} {
 				for _, secreto := range []string{textoMeta, tokenCanal} {
-					if n := b.contar(sql, secreto); n != 0 {
+					if n := b.contar(sql, secreto, conv, fmt.Sprint(b.canal.ID)); n != 0 {
 						t.Fatalf("%q quedó fuera de detalle_falla (%s)", secreto, sql)
 					}
 				}
@@ -280,6 +282,20 @@ func TestRechazoDeMetaSeLimpiaConUnEnvioAceptado(t *testing.T) {
 	}
 	if n := b.contar(`SELECT count(*) FROM mensajeria.canales WHERE id = $1 AND ultimo_detalle IS NULL AND NOT rechazado_por_envio`, b.canal.ID); n != 1 {
 		t.Fatal("la marca debía quedar limpia")
+	}
+	// Auditoría (regla 9): los dos cambios de estado del número dejan fila, con el estado y el
+	// código en números; los otros tres envíos (uno rechazado igual, dos aceptados), no.
+	auditadas := func(estado string) int {
+		return b.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'mensajeria.registrar_mensaje' AND resultado = 'ok'
+			AND entrada->'auditoria'->>'canal_id' = $1 AND entrada->'auditoria'->>'canal_estado' = $2`, fmt.Sprint(b.canal.ID), estado)
+	}
+	if auditadas("token_invalido") != 1 || auditadas("conectado") != 1 {
+		t.Fatalf("auditoría del cambio de estado del número: %d rechazo, %d limpieza", auditadas("token_invalido"), auditadas("conectado"))
+	}
+	if n := b.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'mensajeria.registrar_mensaje' AND entrada->'auditoria'->>'canal_id' = $1
+		AND entrada->'auditoria'->>'canal_estado' = 'token_invalido' AND entrada->'auditoria'->>'status' = '401' AND entrada->'auditoria'->>'codigo' = '190'
+		AND entrada::text NOT LIKE '%TEXTO-LIBRE%' AND entrada::text NOT LIKE '%token-de-meta%'`, fmt.Sprint(b.canal.ID)); n != 1 {
+		t.Fatal("la fila del rechazo lleva el status y el código, sin texto de Meta ni token")
 	}
 
 	// Lo que puso «Probar» (aquí, a mano: sin_permiso al leer el número) no lo limpia un envío.

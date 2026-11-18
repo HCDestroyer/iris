@@ -140,6 +140,11 @@ guardado (mismo host y tiempos que los envíos; 15 s) y responde 200 `PruebaCana
     y emite `canal_mensajeria.probado` (`estado: conectado`, `origen: "envio"`) una vez. Solo se
     limpia la marca que puso un envío (`canales.rechazado_por_envio`): lo que dijo «Probar» no lo
     pisa un envío. También se limpia con «Probar» o al cambiar el token.
+  - **Auditoría:** el envío que marca o limpia el número deja su fila en `auditoria.acciones`
+    (`mensajeria.registrar_mensaje` o `mensajeria.registrar_envio`) con `canal_id`, `canal_estado`
+    y, en el rechazo, el status y el código de Meta. Los demás envíos de la bandeja no dejan fila.
+  - **Avisos (Argos):** el motivo de `aviso.fallido` es siempre uno del §6.6; un rechazo por token
+    o permiso, llegue en la respuesta o después por webhook, sale como `rechazado_por_canal`.
 - 404 si el número no existe o es de otra empresa; 422 `cifrado_no_disponible` sin `IRIS_CLAVE_CIFRADO`.
 
 ## 2. Colas, etiquetas y respuestas rápidas

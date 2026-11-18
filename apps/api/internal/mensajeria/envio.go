@@ -56,6 +56,19 @@ type entradaRegistrar struct {
 type registrado struct {
 	Reintentar bool `json:"reintentar"`
 	Cambio     bool `json:"cambio"`
+	// CanalCambio: el envío cambió el estado del número (Meta rechazó el token o el permiso, o
+	// aceptó un envío y se limpió la marca). Se audita siempre.
+	CanalCambio bool `json:"canalCambio,omitempty"`
+}
+
+// motivoAvisoArgos: el motivo de un aviso fallido tal como lo conoce el contrato con Argos (§6.6:
+// vencido, numero_invalido, rechazado_por_canal, agotado). Los motivos propios de la bandeja
+// (token rechazado, sin permiso) salen como rechazado_por_canal.
+func motivoAvisoArgos(motivo string) string {
+	if motivo == MotivoTokenInvalido || motivo == MotivoSinPermisoMeta {
+		return MotivoRechazado
+	}
+	return motivo
 }
 
 // Tope de la espera de un envío en curso que no terminó (el proceso cayó a mitad).
@@ -149,7 +162,7 @@ func nuevoRegistrarEnvio(m *Modulo) *auditoria.Caso[entradaRegistrar, registrado
 					return registrado{}, err
 				}
 				if f.CanalID != nil {
-					if err := m.limpiarRechazoCanal(ctx, t, *f.CanalID); err != nil {
+					if _, err := m.limpiarRechazoCanal(ctx, t, *f.CanalID); err != nil {
 						return registrado{}, err
 					}
 				}
@@ -170,18 +183,14 @@ func nuevoRegistrarEnvio(m *Modulo) *auditoria.Caso[entradaRegistrar, registrado
 				}
 				return registrado{Reintentar: true}, q.ContarIntento(ctx, a.ID)
 			case e != nil:
-				motivo := e.Motivo
-				if e.EstadoCanal != "" {
-					// El token o el permiso del número: el canal queda marcado. Hacia Argos el motivo
-					// sigue siendo el del contrato (§6.6), que no conoce estos.
-					if a.CanalID != nil {
-						if err := m.marcarCanalRechazado(ctx, t, *a.CanalID, e); err != nil {
-							return registrado{}, err
-						}
+				if e.EstadoCanal != "" && a.CanalID != nil {
+					// El token o el permiso del número: el canal queda marcado.
+					if _, err := m.marcarCanalRechazado(ctx, t, *a.CanalID, e); err != nil {
+						return registrado{}, err
 					}
-					motivo = MotivoRechazado
 				}
-				return registrado{Cambio: true}, m.fallar(ctx, t, a, motivo, &e.Detalle)
+				// Hacia Argos el motivo es siempre uno de su contrato (§6.6).
+				return registrado{Cambio: true}, m.fallar(ctx, t, a, motivoAvisoArgos(e.Motivo), &e.Detalle)
 			}
 			return registrado{}, nil
 		},
