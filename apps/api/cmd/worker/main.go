@@ -244,7 +244,7 @@ func correr() error {
 	if err := cliente.Start(ctx); err != nil {
 		return err
 	}
-	go integracion.EscucharOutbox(ctx, pool, cliente, log)
+	go integracion.EscucharOutbox(ctx, pool, cliente, migraciones.EsquemaRiver, log)
 	log.Info("worker en marcha", "version", version)
 
 	<-ctx.Done()

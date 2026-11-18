@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
 	integracionbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/bd"
@@ -77,16 +78,47 @@ type Relay struct {
 	// MaxIntentos: tras este número de entregas fallidas el evento queda fallido (fallido_en)
 	// y no se reintenta más; se registra como error en el log. 20 por defecto.
 	MaxIntentos int32
+
+	// Solo pruebas: alVaciar corre tras el último barrido vacío, con el candado tomado;
+	// alTerminar, al terminar Ejecutar (candado suelto y segunda mirada hecha).
+	alVaciar, alTerminar func()
 }
 
 // Ejecutar corre el relay hasta vaciar lo pendiente. Si otro relay tiene el candado, sale sin
-// hacer nada. Devuelve cuántos eventos publicó.
+// hacer nada: quien lo tiene vuelve a mirar al soltarlo. Devuelve cuántos eventos publicó.
+//
+// Tras vaciar y soltar el candado mira otra vez (sin candado) si hay algo pendiente: un evento
+// confirmado entre el último barrido vacío y la liberación del candado no lo ve este barrido, y
+// el relay que encoló su NOTIFY pudo salir por encontrar el candado tomado. Sin esta segunda
+// mirada ese evento esperaba a la corrida periódica.
+//
+// La segunda mirada salta, como el barrido, las filas que otra transacción tiene bloqueadas: si
+// no, una fila bloqueada la haría girar sin tomar nada.
 func (r *Relay) Ejecutar(ctx context.Context) (int, error) {
 	ctx = nucleo.ConBD(ctx, r.BD)
-	base := ctx // sin transacción: cada evento y cada suscriptor abren la suya
 	publicados := 0
-	err := nucleo.EnTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
-		tomado, err := integracionbd.New(tx).TomarCandadoRelay(ctx, candadoRelay)
+	if r.alTerminar != nil {
+		defer r.alTerminar()
+	}
+	for {
+		n, tomado, err := r.vaciar(ctx)
+		publicados += n
+		if err != nil || !tomado || ctx.Err() != nil {
+			return publicados, err
+		}
+		hay, err := integracionbd.New(r.BD).HayEventoPendiente(ctx)
+		if err != nil || !hay {
+			return publicados, err
+		}
+	}
+}
+
+// vaciar toma el candado y entrega todo lo pendiente; tomado es false si otro relay lo tenía.
+func (r *Relay) vaciar(ctx context.Context) (publicados int, tomado bool, err error) {
+	base := ctx // sin transacción: cada evento y cada suscriptor abren la suya
+	err = nucleo.EnTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		tomado, err = integracionbd.New(tx).TomarCandadoRelay(ctx, candadoRelay)
 		if err != nil || !tomado {
 			return err
 		}
@@ -96,12 +128,15 @@ func (r *Relay) Ejecutar(ctx context.Context) (int, error) {
 				publicados++
 			}
 			if err != nil || !hubo {
+				if err == nil && r.alVaciar != nil {
+					r.alVaciar()
+				}
 				return err
 			}
 		}
 		return nil
 	})
-	return publicados, err
+	return publicados, tomado, err
 }
 
 // uno toma un evento pendiente, lo entrega y registra el resultado en su propia transacción.
@@ -190,17 +225,25 @@ type ArgsRelay struct{}
 // Kind implementa river.JobArgs.
 func (ArgsRelay) Kind() string { return "integracion.relay_outbox" }
 
-// InsertOpts: único por segundo (River) y, dentro, el advisory lock del relay.
+// InsertOpts: cola propia y sin unicidad de River. La unicidad (por periodo o por estado)
+// descarta el job de un NOTIFY cuando ya hay uno del mismo segundo terminado o en curso (River
+// exige incluir running), aunque ese job ya hizo su último barrido antes del COMMIT: el evento
+// esperaba a la corrida periódica. Lo acotan la cola ColaRelay (un worker por proceso), el
+// advisory lock (un relay a la vez entre réplicas) y EscucharOutbox, que no encola si ya hay un
+// relay disponible sin empezar.
 func (ArgsRelay) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{
-		Queue:       ColaIntegracion,
+		Queue:       ColaRelay,
 		MaxAttempts: 3,
-		UniqueOpts:  river.UniqueOpts{ByPeriod: time.Second},
 	}
 }
 
-// ColaIntegracion es la cola de River de este módulo.
+// ColaIntegracion es la cola de River de los jobs de este módulo (Argos, Horus, pendientes…).
 const ColaIntegracion = "integracion"
+
+// ColaRelay es la cola del relay del outbox, aparte para que una ráfaga de commits no retrase
+// los jobs de ColaIntegracion.
+const ColaRelay = "relay"
 
 // TrabajadorRelay es el worker de River del relay.
 type TrabajadorRelay struct {
@@ -218,9 +261,18 @@ func (t *TrabajadorRelay) Work(ctx context.Context, _ *river.Job[ArgsRelay]) err
 func (t *TrabajadorRelay) Timeout(*river.Job[ArgsRelay]) time.Duration { return 5 * time.Minute }
 
 // TrabajoPeriodicoRelay corre el relay cada intervalo aunque no llegue un NOTIFY (River solo lo
-// agenda desde el líder: una instancia).
-func TrabajoPeriodicoRelay(intervalo time.Duration) *river.PeriodicJob {
+// agenda desde el líder: una instancia). No encola si ya hay un relay disponible sin empezar
+// (si una entrega se atasca hasta el timeout del job, no se juntan jobs cada intervalo); si la
+// comprobación falla, encola igual.
+func TrabajoPeriodicoRelay(intervalo time.Duration, pool *pgxpool.Pool, esquema string) *river.PeriodicJob {
 	return river.NewPeriodicJob(river.PeriodicInterval(intervalo),
-		func() (river.JobArgs, *river.InsertOpts) { return ArgsRelay{}, nil },
+		func() (river.JobArgs, *river.InsertOpts) {
+			ctx, cancelar := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancelar()
+			if hay, err := hayRelayDisponible(ctx, pool, esquema); err == nil && hay {
+				return nil, nil // River no inserta nada en esta vuelta
+			}
+			return ArgsRelay{}, nil
+		},
 		&river.PeriodicJobOpts{RunOnStart: true})
 }
