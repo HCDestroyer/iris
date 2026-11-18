@@ -5,13 +5,24 @@
 -- reanudar o cuando la conversación se resuelve.
 -- asistente_reanudado_en: desde cuándo cuenta «una persona ya escribió» después de que alguien le
 -- devolvió la conversación al asistente.
+-- Las restricciones nacen sin validar (NOT VALID): así el ALTER no recorre la tabla con su candado
+-- ACCESS EXCLUSIVE. Valen desde ya para cada fila que se escriba, y las valida la migración
+-- …_asistente_pausa_validar, fuera de una transacción.
 ALTER TABLE mensajeria.conversaciones
     ADD COLUMN asistente_pausado_en timestamptz,
-    ADD COLUMN asistente_pausado_por bigint REFERENCES nucleo.usuarios (id),
-    ADD COLUMN asistente_pausa_motivo text CHECK (asistente_pausa_motivo IS NULL OR asistente_pausa_motivo IN
-        ('manual', 'caso_delicado', 'respuesta_incorrecta', 'cliente_lo_pidio')),
-    ADD COLUMN asistente_reanudado_en timestamptz,
-    ADD CONSTRAINT conversaciones_asistente_pausa_ck CHECK ((asistente_pausado_en IS NULL) = (asistente_pausa_motivo IS NULL));
+    ADD COLUMN asistente_pausado_por bigint,
+    ADD COLUMN asistente_pausa_motivo text,
+    ADD COLUMN asistente_reanudado_en timestamptz;
+ALTER TABLE mensajeria.conversaciones
+    ADD CONSTRAINT conversaciones_asistente_pausado_por_fk FOREIGN KEY (asistente_pausado_por) REFERENCES nucleo.usuarios (id) NOT VALID,
+    ADD CONSTRAINT conversaciones_asistente_pausa_motivo_ck CHECK (asistente_pausa_motivo IS NULL OR asistente_pausa_motivo IN
+        ('manual', 'caso_delicado', 'respuesta_incorrecta', 'cliente_lo_pidio')) NOT VALID,
+    ADD CONSTRAINT conversaciones_asistente_pausa_ck CHECK ((asistente_pausado_en IS NULL) = (asistente_pausa_motivo IS NULL)) NOT VALID;
+
+-- Un turno del asistente que se descartó por una pausa (o porque una persona la tomó) se puede
+-- reabrir al reanudar, pero una sola vez: reaperturas lo cuenta. Un turno reabierto pasa otra vez
+-- por los límites por hora y por maxTurnos (pausar y reanudar en bucle no los salta).
+ALTER TABLE mensajeria.asistente_turnos ADD COLUMN reaperturas smallint NOT NULL DEFAULT 0;
 
 -- El estado del asistente, por cualquier camino. Lo nuevo:
 --   * al resolverse o cambiar de empresa se quitan la pausa y la reanudación (son del periodo);
@@ -87,6 +98,9 @@ BEGIN
     RETURN NEW;
 END $$;
 -- +goose StatementEnd
+ALTER TABLE mensajeria.asistente_turnos DROP COLUMN reaperturas;
 ALTER TABLE mensajeria.conversaciones
     DROP CONSTRAINT conversaciones_asistente_pausa_ck,
+    DROP CONSTRAINT conversaciones_asistente_pausa_motivo_ck,
+    DROP CONSTRAINT conversaciones_asistente_pausado_por_fk,
     DROP COLUMN asistente_pausado_en, DROP COLUMN asistente_pausado_por, DROP COLUMN asistente_pausa_motivo, DROP COLUMN asistente_reanudado_en;

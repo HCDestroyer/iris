@@ -1613,6 +1613,9 @@ func nuevoResumirConversacion(m *Modulo) *ResumirConversacion {
 					TokensEntrada: in.TokensEntrada, TokensSalida: in.TokensSalida, GeneradoEn: ahora}); err != nil {
 					return ResumenConversacion{}, err
 				}
+				if err := q.PurgarResumenesAnteriores(ctx, c.ID); err != nil {
+					return ResumenConversacion{}, err
+				}
 				t.Anotar(map[string]any{"resumen_id": id, "hasta_mensaje_id": in.hastaID})
 				if err := t.Emitir("conversacion.resumen_guardado", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID, "resumen_id": id,
 					"usuario_id": in.usuario, "proveedor": in.proveedor, "modelo": in.modelo, "hasta_mensaje_id": in.hastaID,

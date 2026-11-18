@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
@@ -175,7 +176,8 @@ func nuevoPausarAsistente(m *Modulo) *auditoria.Caso[EntradaPausarAsistente, Con
 					return err
 				}
 				// El turno que estuviera corriendo ya no envía nada.
-				if err := q.DescartarTurnosEnCurso(ctx, mensajeriabd.DescartarTurnosEnCursoParams{ConversacionID: c.ID, Ahora: &ahora}); err != nil {
+				pausado := TurnoPausado
+				if err := q.DescartarTurnosEnCurso(ctx, mensajeriabd.DescartarTurnosEnCursoParams{ConversacionID: c.ID, Motivo: &pausado, Ahora: &ahora}); err != nil {
 					return err
 				}
 				t.RegistrarCambios("conversacion", c.ID, map[string]any{"asistente_pausado": false}, map[string]any{"asistente_pausado": true, "asistente_pausa_motivo": motivo})
@@ -216,6 +218,8 @@ func nuevoReanudarAsistente(m *Modulo) *auditoria.Caso[EntradaAccionConv, Conver
 					}
 					de = NoAtiendePersonaPresente
 				}
+				// Lo que había antes de reanudar (ReanudarAsistenteConv y el trigger lo borran).
+				motivoPaso, pausaMotivo := c.AsistenteMotivoPaso, c.AsistentePausaMotivo
 				ahora := m.ahora()
 				if err := q.ReanudarAsistenteConv(ctx, mensajeriabd.ReanudarAsistenteConvParams{ID: c.ID, Ahora: &ahora}); err != nil {
 					return err
@@ -224,34 +228,54 @@ func nuevoReanudarAsistente(m *Modulo) *auditoria.Caso[EntradaAccionConv, Conver
 				if err := limpiarEspera(ctx, q, c); err != nil {
 					return err
 				}
-				// Si el cliente está esperando y nadie la tiene, el asistente contesta ese mensaje ahora (el
-				// turno que se descartó por la persona vuelve a quedar pendiente).
+				// Si el cliente está esperando una respuesta y nadie la tiene, el asistente contesta ese mensaje
+				// ahora. Solo si lo último que se dijeron es un mensaje del cliente de este periodo: si una
+				// persona ya le contestó (o el asistente), reanudar no contesta nada y espera al siguiente.
+				contesta := false
 				if c.AsignadoA == nil && c.Estado == EstadoConvAbierta {
-					ultimo, err := q.UltimoEntranteConv(ctx, c.ID)
+					ultimo, err := q.UltimoMensajeAtencion(ctx, c.ID)
 					if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 						return err
 					}
-					if err == nil {
-						if _, err := q.ReabrirTurnoDescartado(ctx, mensajeriabd.ReabrirTurnoDescartadoParams{ConversacionID: c.ID, MensajeID: ultimo.ID}); err != nil {
-							return err
-						}
-						aj, err := leerAjustesAsistente(ctx, q, empresaDeConv(*c))
+					aj, errAj := leerAjustesAsistente(ctx, q, empresaDeConv(*c))
+					if errAj != nil {
+						return errAj
+					}
+					if err == nil && ultimo.Direccion == DirEntrante && !ultimo.CreadoEn.Before(inicioEntrantes(*c)) && aj != nil && aj.Activo {
+						// El turno de ese mensaje que se descartó por la pausa o por la persona vuelve a quedar
+						// pendiente (una sola vez por turno); si el mensaje no tuvo turno, se crea uno pendiente.
+						// Con el arriendo suelto: si el job de abajo no se encola porque ya corre otro para esta
+						// conversación (es único), el mantenimiento lo reencola. Un turno que ya se reabrió una
+						// vez no revive: ese mensaje lo contesta una persona.
+						reabiertos, err := q.ReabrirTurnoDescartado(ctx, mensajeriabd.ReabrirTurnoDescartadoParams{ConversacionID: c.ID, MensajeID: ultimo.ID,
+							Empresa: empresaDeConv(*c), Desde: inicioPeriodo(*c)})
 						if err != nil {
 							return err
 						}
-						if aj != nil && aj.Activo {
-							if err := m.encolar(ctx, t.Tx, ArgsAsistenteSugerir{ConversacionID: c.ID}); err != nil {
-								return err
-							}
+						id, err := uuid.NewV7()
+						if err != nil {
+							return err
+						}
+						nuevos, err := q.InsertarTurnoPendiente(ctx, mensajeriabd.InsertarTurnoPendienteParams{ID: id, EmpresaID: c.EmpresaID, ConversacionID: c.ID,
+							MensajeID: ultimo.ID, Numero: c.AsistenteTurnos + 1, Ahora: ahora})
+						if err != nil {
+							return err
+						}
+						contesta = reabiertos+nuevos > 0
+						if err := m.encolar(ctx, t.Tx, ArgsAsistenteSugerir{ConversacionID: c.ID}); err != nil {
+							return err
 						}
 					}
 				}
+				// Qué se pasó por alto al reanudar (p. ej. que el cliente había pedido una persona): queda en
+				// la auditoría y en el evento.
+				t.Anotar(map[string]any{"de": de, "motivo_paso": motivoPaso, "pausa_motivo_anterior": pausaMotivo, "turno_pendiente": contesta})
 				t.RegistrarCambios("conversacion", c.ID, map[string]any{"asistente": de}, map[string]any{"asistente": "reanudado"})
 				if err := m.sistema(ctx, t, c, EventoSistema{Tipo: "asistente_reanudado", ActorNombre: actorNombre(ctx, q, a.usuario), Detalle: &de}); err != nil {
 					return err
 				}
 				return t.Emitir("conversacion.asistente_reanudado", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID, "actor_id": a.usuario,
-					"de": de, "asignado_a": c.AsignadoA})
+					"de": de, "motivo_paso": motivoPaso, "pausa_motivo_anterior": pausaMotivo, "asignado_a": c.AsignadoA})
 			})
 		},
 	})

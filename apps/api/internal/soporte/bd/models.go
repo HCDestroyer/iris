@@ -1120,6 +1120,7 @@ type MensajeriaAsistenteTurno struct {
 	TomadoEn       time.Time
 	CreadoEn       time.Time
 	TerminadoEn    *time.Time
+	Reaperturas    int16
 }
 
 type MensajeriaAsistenteUso struct {

@@ -50335,7 +50335,7 @@
     },
     "/api/v1/mensajeria/conversaciones/{id}/asistente/reanudar": {
       "post": {
-        "description": "Permiso: `conversaciones.pausar_asistente`. Quita la pausa y, si el asistente quedó detenido porque una persona la tomó o le escribió al cliente (o él mismo la pasó a una persona), vuelve a poder atender. Si el cliente está esperando y nadie la tiene asignada, contesta ese mensaje enseguida; con una persona asignada espera a que la suelte. Sin nada que reanudar es 200 sin cambios. 422 `conversacion_resuelta`. Evento `conversacion.asistente_reanudado`.",
+        "description": "Permiso: `conversaciones.pausar_asistente`. Quita la pausa y, si el asistente quedó detenido porque una persona la tomó o le escribió al cliente (o él mismo la pasó a una persona), vuelve a poder atender. Si lo último del hilo es un mensaje del cliente de este periodo sin respuesta y nadie la tiene asignada, lo contesta enseguida; si una persona ya contestó, espera al siguiente mensaje; con una persona asignada espera a que la suelte. Un turno se reabre una sola vez y pasa por los límites. Sin nada que reanudar es 200 sin cambios. 422 `conversacion_resuelta`. Evento `conversacion.asistente_reanudado`.",
         "operationId": "reanudarAsistenteConversacion",
         "parameters": [
           {

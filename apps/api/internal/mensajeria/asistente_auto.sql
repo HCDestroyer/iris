@@ -94,8 +94,34 @@ WHERE id = @id;
 -- name: ReabrirTurnoDescartado :execrows
 -- Al reanudar: el turno del último mensaje del cliente que se descartó porque había una persona
 -- vuelve a estar pendiente (con el arriendo vencido), para que el asistente conteste ese mensaje.
-UPDATE mensajeria.asistente_turnos SET estado = 'en_curso', motivo = NULL, terminado_en = NULL, tomado_en = 'epoch'
-WHERE conversacion_id = @conversacion_id AND mensaje_id = @mensaje_id AND estado = 'descartado' AND motivo = 'persona_presente';
+-- Como mucho una vez por turno (reaperturas), solo si es de la empresa que hoy tiene la conversación
+-- y de este periodo: un turno de otra empresa (número prestado) o de antes de resolverse no revive.
+UPDATE mensajeria.asistente_turnos SET estado = 'en_curso', motivo = NULL, terminado_en = NULL, tomado_en = 'epoch', reaperturas = reaperturas + 1
+WHERE conversacion_id = @conversacion_id AND mensaje_id = @mensaje_id AND estado = 'descartado' AND motivo IN ('pausado', 'persona_presente')
+  AND reaperturas = 0 AND coalesce(empresa_id, 0) = @empresa::bigint AND creado_en >= @desde;
+
+-- name: InsertarTurnoPendiente :execrows
+-- Al reanudar: el mensaje del cliente que todavía no tuvo turno queda con uno pendiente (arriendo
+-- suelto) que ya cuenta como reabierto: pasa por los límites y no se reabre otra vez.
+INSERT INTO mensajeria.asistente_turnos (id, empresa_id, conversacion_id, mensaje_id, numero, estado, tomado_en, creado_en, reaperturas)
+VALUES (@id, sqlc.narg('empresa_id'), @conversacion_id, @mensaje_id, @numero, 'en_curso', 'epoch', @ahora, 1)
+ON CONFLICT (conversacion_id, mensaje_id) DO NOTHING;
+
+-- name: UltimoMensajeAtencion :one
+-- Lo último que se dijeron el cliente y quien lo atiende: un mensaje del cliente, de una persona o del
+-- asistente (el saludo del bot y la respuesta de fuera de horario no son una respuesta).
+SELECT id, direccion, creado_en FROM mensajeria.conversacion_mensajes
+WHERE conversacion_id = @conversacion_id
+  AND (direccion = 'entrante' OR (direccion = 'saliente' AND (automatico IS NULL OR automatico = 'asistente')))
+ORDER BY seq DESC LIMIT 1;
+
+-- name: PersonaRespondioDespues :one
+-- ¿Una persona ya le contestó al cliente después de ese mensaje suyo?
+SELECT EXISTS (
+    SELECT 1 FROM mensajeria.conversacion_mensajes m
+    WHERE m.conversacion_id = @conversacion_id AND m.direccion = 'saliente' AND m.automatico IS NULL
+      AND m.seq > (SELECT e.seq FROM mensajeria.conversacion_mensajes e WHERE e.id = @mensaje_id)
+)::boolean;
 
 -- name: BotRespondioDesde :one
 -- ¿El bot le mandó algo al cliente en esta espera? (saludo o menú)
@@ -216,6 +242,13 @@ ORDER BY seq DESC LIMIT 3;
 -- El dato de identidad que escribió el cliente no se guarda (contrato con Argos §7.5): queda ***.
 UPDATE mensajeria.conversacion_mensajes SET texto = @texto WHERE id = @id AND direccion = 'entrante';
 
+-- name: DescartarTurnosSueltos :exec
+-- §17.11: un turno que quedó pendiente al reanudar (arriendo suelto) y al que al final no le toca al
+-- asistente (categoría en «sugiere», tope, el bot…) se cierra: si no, el mantenimiento lo reencolaría
+-- sin fin.
+UPDATE mensajeria.asistente_turnos SET estado = 'descartado', motivo = 'no_aplica', terminado_en = @ahora
+WHERE conversacion_id = @conversacion_id AND estado = 'en_curso' AND tomado_en < @antes;
+
 -- name: LiberarArriendoTurno :exec
 -- El cierre del turno falló: el arriendo se suelta para que el reintento lo tome enseguida.
 UPDATE mensajeria.asistente_turnos SET tomado_en = 'epoch' WHERE id = @id AND estado = 'en_curso';
@@ -269,7 +302,8 @@ SELECT count(*)::bigint FROM mensajeria.asistente_turnos
 WHERE conversacion_id = @conversacion_id AND creado_en >= @desde AND estado IN ('respondio', 'descartado');
 
 -- name: DescartarTurnosEnCurso :exec
-UPDATE mensajeria.asistente_turnos SET estado = 'descartado', motivo = 'persona_presente', terminado_en = @ahora
+-- motivo: persona_presente (la tomó o escribió una persona, o se resolvió) o pausado (§17.11).
+UPDATE mensajeria.asistente_turnos SET estado = 'descartado', motivo = @motivo, terminado_en = @ahora
 WHERE conversacion_id = @conversacion_id AND estado = 'en_curso';
 
 -- name: TicketsAsistenteRecientes :one

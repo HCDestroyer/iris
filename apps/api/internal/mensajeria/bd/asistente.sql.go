@@ -994,6 +994,20 @@ func (q *Queries) PurgarPedidosAsistente(ctx context.Context, antes time.Time) e
 	return err
 }
 
+const purgarResumenesAnteriores = `-- name: PurgarResumenesAnteriores :exec
+DELETE FROM mensajeria.conversacion_resumenes r
+WHERE r.conversacion_id = $1 AND NOT r.vigente AND r.id NOT IN (
+    SELECT a.id FROM mensajeria.conversacion_resumenes a
+    WHERE a.conversacion_id = $1 AND NOT a.vigente
+    ORDER BY a.generado_en DESC, a.id DESC LIMIT 5)
+`
+
+// Retención: además del vigente se conservan, como mucho, los 5 anteriores de la conversación.
+func (q *Queries) PurgarResumenesAnteriores(ctx context.Context, conversacionID int64) error {
+	_, err := q.db.Exec(ctx, purgarResumenesAnteriores, conversacionID)
+	return err
+}
+
 const quitarResumenVigente = `-- name: QuitarResumenVigente :exec
 UPDATE mensajeria.conversacion_resumenes SET vigente = false WHERE conversacion_id = $1 AND vigente
 `

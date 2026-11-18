@@ -80,6 +80,16 @@ func TestResumenQuedaGuardado(t *testing.T) {
 	if n := x.contar(`SELECT count(*) FILTER (WHERE vigente) * 10 + count(*) FROM mensajeria.conversacion_resumenes WHERE conversacion_id = $1`, conv); n != 12 {
 		t.Fatalf("un vigente de dos guardados: %d", n)
 	}
+	// Retención: el vigente y, como mucho, los 5 anteriores.
+	for i := range 7 {
+		*x.reloj = x.reloj.Add(7 * time.Second)
+		x.ia.decir("- Resumen de relleno.")
+		x.exigir(x.api(x.supervisor, http.MethodPost, ruta, nil), http.StatusOK)
+		_ = i
+	}
+	if n := x.contar(`SELECT count(*) FILTER (WHERE vigente) * 100 + count(*) FROM mensajeria.conversacion_resumenes WHERE conversacion_id = $1`, conv); n != 106 {
+		t.Fatalf("retención de resúmenes (1 vigente de 6): %d", n)
+	}
 	// El texto vive solo en la tabla de resúmenes: nunca en eventos, auditoría ni idempotencia.
 	for _, donde := range []string{
 		`SELECT count(*) FROM integracion.outbox WHERE payload::text LIKE '%' || $1 || '%'`,
@@ -91,7 +101,7 @@ func TestResumenQuedaGuardado(t *testing.T) {
 		}
 	}
 	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'conversacion.resumen_guardado' AND payload->>'conversacion_id' = $1
-		AND payload->>'modelo' = 'llama3.1:8b' AND payload ? 'resumen_id' AND payload ? 'hasta_mensaje_id' AND NOT payload ? 'texto'`, conv); n != 2 {
+		AND payload->>'modelo' = 'llama3.1:8b' AND payload ? 'resumen_id' AND payload ? 'hasta_mensaje_id' AND NOT payload ? 'texto'`, conv); n != 9 {
 		t.Fatalf("conversacion.resumen_guardado: %d", n)
 	}
 	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'conversaciones.resumen' AND entidad = 'conversacion' AND entidad_id = $1`, conv); n < 2 {

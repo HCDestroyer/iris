@@ -305,17 +305,38 @@ func (q *Queries) ContarIntentoReconexion(ctx context.Context, id uuid.UUID) err
 }
 
 const descartarTurnosEnCurso = `-- name: DescartarTurnosEnCurso :exec
-UPDATE mensajeria.asistente_turnos SET estado = 'descartado', motivo = 'persona_presente', terminado_en = $1
-WHERE conversacion_id = $2 AND estado = 'en_curso'
+UPDATE mensajeria.asistente_turnos SET estado = 'descartado', motivo = $1, terminado_en = $2
+WHERE conversacion_id = $3 AND estado = 'en_curso'
 `
 
 type DescartarTurnosEnCursoParams struct {
+	Motivo         *string
 	Ahora          *time.Time
 	ConversacionID int64
 }
 
+// motivo: persona_presente (la tomó o escribió una persona, o se resolvió) o pausado (§17.11).
 func (q *Queries) DescartarTurnosEnCurso(ctx context.Context, arg DescartarTurnosEnCursoParams) error {
-	_, err := q.db.Exec(ctx, descartarTurnosEnCurso, arg.Ahora, arg.ConversacionID)
+	_, err := q.db.Exec(ctx, descartarTurnosEnCurso, arg.Motivo, arg.Ahora, arg.ConversacionID)
+	return err
+}
+
+const descartarTurnosSueltos = `-- name: DescartarTurnosSueltos :exec
+UPDATE mensajeria.asistente_turnos SET estado = 'descartado', motivo = 'no_aplica', terminado_en = $1
+WHERE conversacion_id = $2 AND estado = 'en_curso' AND tomado_en < $3
+`
+
+type DescartarTurnosSueltosParams struct {
+	Ahora          *time.Time
+	ConversacionID int64
+	Antes          time.Time
+}
+
+// §17.11: un turno que quedó pendiente al reanudar (arriendo suelto) y al que al final no le toca al
+// asistente (categoría en «sugiere», tope, el bot…) se cierra: si no, el mantenimiento lo reencolaría
+// sin fin.
+func (q *Queries) DescartarTurnosSueltos(ctx context.Context, arg DescartarTurnosSueltosParams) error {
+	_, err := q.db.Exec(ctx, descartarTurnosSueltos, arg.Ahora, arg.ConversacionID, arg.Antes)
 	return err
 }
 
@@ -713,7 +734,7 @@ const insertarTurno = `-- name: InsertarTurno :one
 INSERT INTO mensajeria.asistente_turnos (id, empresa_id, conversacion_id, mensaje_id, numero, estado, tomado_en, creado_en)
 VALUES ($1, $2, $3, $4, $5, 'en_curso', $6, $6)
 ON CONFLICT (conversacion_id, mensaje_id) DO NOTHING
-RETURNING id, empresa_id, conversacion_id, mensaje_id, numero, estado, motivo, herramientas, tokens_entrada, tokens_salida, tomado_en, creado_en, terminado_en
+RETURNING id, empresa_id, conversacion_id, mensaje_id, numero, estado, motivo, herramientas, tokens_entrada, tokens_salida, tomado_en, creado_en, terminado_en, reaperturas
 `
 
 type InsertarTurnoParams struct {
@@ -749,8 +770,41 @@ func (q *Queries) InsertarTurno(ctx context.Context, arg InsertarTurnoParams) (M
 		&i.TomadoEn,
 		&i.CreadoEn,
 		&i.TerminadoEn,
+		&i.Reaperturas,
 	)
 	return i, err
+}
+
+const insertarTurnoPendiente = `-- name: InsertarTurnoPendiente :execrows
+INSERT INTO mensajeria.asistente_turnos (id, empresa_id, conversacion_id, mensaje_id, numero, estado, tomado_en, creado_en, reaperturas)
+VALUES ($1, $2, $3, $4, $5, 'en_curso', 'epoch', $6, 1)
+ON CONFLICT (conversacion_id, mensaje_id) DO NOTHING
+`
+
+type InsertarTurnoPendienteParams struct {
+	ID             uuid.UUID
+	EmpresaID      *int64
+	ConversacionID int64
+	MensajeID      uuid.UUID
+	Numero         int32
+	Ahora          time.Time
+}
+
+// Al reanudar: el mensaje del cliente que todavía no tuvo turno queda con uno pendiente (arriendo
+// suelto) que ya cuenta como reabierto: pasa por los límites y no se reabre otra vez.
+func (q *Queries) InsertarTurnoPendiente(ctx context.Context, arg InsertarTurnoPendienteParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertarTurnoPendiente,
+		arg.ID,
+		arg.EmpresaID,
+		arg.ConversacionID,
+		arg.MensajeID,
+		arg.Numero,
+		arg.Ahora,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const liberarArriendoTurno = `-- name: LiberarArriendoTurno :exec
@@ -853,6 +907,27 @@ func (q *Queries) PersonaEscribioDesde(ctx context.Context, arg PersonaEscribioD
 	return column_1, err
 }
 
+const personaRespondioDespues = `-- name: PersonaRespondioDespues :one
+SELECT EXISTS (
+    SELECT 1 FROM mensajeria.conversacion_mensajes m
+    WHERE m.conversacion_id = $1 AND m.direccion = 'saliente' AND m.automatico IS NULL
+      AND m.seq > (SELECT e.seq FROM mensajeria.conversacion_mensajes e WHERE e.id = $2)
+)::boolean
+`
+
+type PersonaRespondioDespuesParams struct {
+	ConversacionID int64
+	MensajeID      uuid.UUID
+}
+
+// ¿Una persona ya le contestó al cliente después de ese mensaje suyo?
+func (q *Queries) PersonaRespondioDespues(ctx context.Context, arg PersonaRespondioDespuesParams) (bool, error) {
+	row := q.db.QueryRow(ctx, personaRespondioDespues, arg.ConversacionID, arg.MensajeID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const promesaPorIDConv = `-- name: PromesaPorIDConv :one
 SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, vence_el, estado, promesa_argos_id, monto, regla, motivo, idempotency_key, hash_peticion, solicitada_por, created_at FROM mensajeria.promesas WHERE id = $1 AND conversacion_id = $2
 `
@@ -904,19 +979,29 @@ func (q *Queries) PurgarTurnosAsistente(ctx context.Context, antes time.Time) er
 }
 
 const reabrirTurnoDescartado = `-- name: ReabrirTurnoDescartado :execrows
-UPDATE mensajeria.asistente_turnos SET estado = 'en_curso', motivo = NULL, terminado_en = NULL, tomado_en = 'epoch'
-WHERE conversacion_id = $1 AND mensaje_id = $2 AND estado = 'descartado' AND motivo = 'persona_presente'
+UPDATE mensajeria.asistente_turnos SET estado = 'en_curso', motivo = NULL, terminado_en = NULL, tomado_en = 'epoch', reaperturas = reaperturas + 1
+WHERE conversacion_id = $1 AND mensaje_id = $2 AND estado = 'descartado' AND motivo IN ('pausado', 'persona_presente')
+  AND reaperturas = 0 AND coalesce(empresa_id, 0) = $3::bigint AND creado_en >= $4
 `
 
 type ReabrirTurnoDescartadoParams struct {
 	ConversacionID int64
 	MensajeID      uuid.UUID
+	Empresa        int64
+	Desde          time.Time
 }
 
 // Al reanudar: el turno del último mensaje del cliente que se descartó porque había una persona
 // vuelve a estar pendiente (con el arriendo vencido), para que el asistente conteste ese mensaje.
+// Como mucho una vez por turno (reaperturas), solo si es de la empresa que hoy tiene la conversación
+// y de este periodo: un turno de otra empresa (número prestado) o de antes de resolverse no revive.
 func (q *Queries) ReabrirTurnoDescartado(ctx context.Context, arg ReabrirTurnoDescartadoParams) (int64, error) {
-	result, err := q.db.Exec(ctx, reabrirTurnoDescartado, arg.ConversacionID, arg.MensajeID)
+	result, err := q.db.Exec(ctx, reabrirTurnoDescartado,
+		arg.ConversacionID,
+		arg.MensajeID,
+		arg.Empresa,
+		arg.Desde,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -1249,7 +1334,7 @@ UPDATE mensajeria.asistente_turnos
 SET estado = $1, motivo = $2, herramientas = $3, tokens_entrada = $4, tokens_salida = $5,
     terminado_en = $6
 WHERE id = $7 AND estado = 'en_curso'
-RETURNING id, empresa_id, conversacion_id, mensaje_id, numero, estado, motivo, herramientas, tokens_entrada, tokens_salida, tomado_en, creado_en, terminado_en
+RETURNING id, empresa_id, conversacion_id, mensaje_id, numero, estado, motivo, herramientas, tokens_entrada, tokens_salida, tomado_en, creado_en, terminado_en, reaperturas
 `
 
 type TerminarTurnoParams struct {
@@ -1287,6 +1372,7 @@ func (q *Queries) TerminarTurno(ctx context.Context, arg TerminarTurnoParams) (M
 		&i.TomadoEn,
 		&i.CreadoEn,
 		&i.TerminadoEn,
+		&i.Reaperturas,
 	)
 	return i, err
 }
@@ -1354,7 +1440,7 @@ func (q *Queries) TomarTurno(ctx context.Context, arg TomarTurnoParams) error {
 }
 
 const turnoParaActualizar = `-- name: TurnoParaActualizar :one
-SELECT id, empresa_id, conversacion_id, mensaje_id, numero, estado, motivo, herramientas, tokens_entrada, tokens_salida, tomado_en, creado_en, terminado_en FROM mensajeria.asistente_turnos WHERE id = $1 FOR UPDATE
+SELECT id, empresa_id, conversacion_id, mensaje_id, numero, estado, motivo, herramientas, tokens_entrada, tokens_salida, tomado_en, creado_en, terminado_en, reaperturas FROM mensajeria.asistente_turnos WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) TurnoParaActualizar(ctx context.Context, id uuid.UUID) (MensajeriaAsistenteTurno, error) {
@@ -1374,12 +1460,13 @@ func (q *Queries) TurnoParaActualizar(ctx context.Context, id uuid.UUID) (Mensaj
 		&i.TomadoEn,
 		&i.CreadoEn,
 		&i.TerminadoEn,
+		&i.Reaperturas,
 	)
 	return i, err
 }
 
 const turnoPorID = `-- name: TurnoPorID :one
-SELECT id, empresa_id, conversacion_id, mensaje_id, numero, estado, motivo, herramientas, tokens_entrada, tokens_salida, tomado_en, creado_en, terminado_en FROM mensajeria.asistente_turnos WHERE id = $1
+SELECT id, empresa_id, conversacion_id, mensaje_id, numero, estado, motivo, herramientas, tokens_entrada, tokens_salida, tomado_en, creado_en, terminado_en, reaperturas FROM mensajeria.asistente_turnos WHERE id = $1
 `
 
 func (q *Queries) TurnoPorID(ctx context.Context, id uuid.UUID) (MensajeriaAsistenteTurno, error) {
@@ -1399,13 +1486,14 @@ func (q *Queries) TurnoPorID(ctx context.Context, id uuid.UUID) (MensajeriaAsist
 		&i.TomadoEn,
 		&i.CreadoEn,
 		&i.TerminadoEn,
+		&i.Reaperturas,
 	)
 	return i, err
 }
 
 const turnoPorMensaje = `-- name: TurnoPorMensaje :one
 
-SELECT id, empresa_id, conversacion_id, mensaje_id, numero, estado, motivo, herramientas, tokens_entrada, tokens_salida, tomado_en, creado_en, terminado_en FROM mensajeria.asistente_turnos WHERE conversacion_id = $1 AND mensaje_id = $2 FOR UPDATE
+SELECT id, empresa_id, conversacion_id, mensaje_id, numero, estado, motivo, herramientas, tokens_entrada, tokens_salida, tomado_en, creado_en, terminado_en, reaperturas FROM mensajeria.asistente_turnos WHERE conversacion_id = $1 AND mensaje_id = $2 FOR UPDATE
 `
 
 type TurnoPorMensajeParams struct {
@@ -1432,6 +1520,7 @@ func (q *Queries) TurnoPorMensaje(ctx context.Context, arg TurnoPorMensajeParams
 		&i.TomadoEn,
 		&i.CreadoEn,
 		&i.TerminadoEn,
+		&i.Reaperturas,
 	)
 	return i, err
 }
@@ -1601,6 +1690,28 @@ func (q *Queries) UltimoAdjuntoEntrante(ctx context.Context, arg UltimoAdjuntoEn
 		&i.Tipo,
 		&i.CreadoEn,
 	)
+	return i, err
+}
+
+const ultimoMensajeAtencion = `-- name: UltimoMensajeAtencion :one
+SELECT id, direccion, creado_en FROM mensajeria.conversacion_mensajes
+WHERE conversacion_id = $1
+  AND (direccion = 'entrante' OR (direccion = 'saliente' AND (automatico IS NULL OR automatico = 'asistente')))
+ORDER BY seq DESC LIMIT 1
+`
+
+type UltimoMensajeAtencionRow struct {
+	ID        uuid.UUID
+	Direccion string
+	CreadoEn  time.Time
+}
+
+// Lo último que se dijeron el cliente y quien lo atiende: un mensaje del cliente, de una persona o del
+// asistente (el saludo del bot y la respuesta de fuera de horario no son una respuesta).
+func (q *Queries) UltimoMensajeAtencion(ctx context.Context, conversacionID int64) (UltimoMensajeAtencionRow, error) {
+	row := q.db.QueryRow(ctx, ultimoMensajeAtencion, conversacionID)
+	var i UltimoMensajeAtencionRow
+	err := row.Scan(&i.ID, &i.Direccion, &i.CreadoEn)
 	return i, err
 }
 

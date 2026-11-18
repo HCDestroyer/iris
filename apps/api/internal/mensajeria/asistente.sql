@@ -217,6 +217,14 @@ ORDER BY seq DESC LIMIT 1;
 -- name: QuitarResumenVigente :exec
 UPDATE mensajeria.conversacion_resumenes SET vigente = false WHERE conversacion_id = @conversacion_id AND vigente;
 
+-- name: PurgarResumenesAnteriores :exec
+-- Retención: además del vigente se conservan, como mucho, los 5 anteriores de la conversación.
+DELETE FROM mensajeria.conversacion_resumenes r
+WHERE r.conversacion_id = @conversacion_id AND NOT r.vigente AND r.id NOT IN (
+    SELECT a.id FROM mensajeria.conversacion_resumenes a
+    WHERE a.conversacion_id = @conversacion_id AND NOT a.vigente
+    ORDER BY a.generado_en DESC, a.id DESC LIMIT 5);
+
 -- name: InsertarResumenConversacion :one
 INSERT INTO mensajeria.conversacion_resumenes (id, empresa_id, conversacion_id, texto, pedido_por, proveedor, modelo, hasta_mensaje_id, hasta_seq,
     tokens_entrada, tokens_salida, generado_en)

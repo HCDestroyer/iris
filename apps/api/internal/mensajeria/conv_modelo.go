@@ -538,7 +538,7 @@ func convDelAsistente(ctx context.Context, q *mensajeriabd.Queries, a alcanceCon
 	if err != nil {
 		return c, err
 	}
-	if empresaDeConv(c) != a.empresa || c.AsignadoA != nil || c.Estado == EstadoConvResuelta ||
+	if empresaDeConv(c) != a.empresa || c.AsignadoA != nil || c.Estado == EstadoConvResuelta || c.AsistentePausadoEn != nil ||
 		c.AsistenteEstado == nil || *c.AsistenteEstado != AsistenteAtendiendo {
 		return mensajeriabd.MensajeriaConversacion{}, conversacionClienteNoEncontrada()
 	}

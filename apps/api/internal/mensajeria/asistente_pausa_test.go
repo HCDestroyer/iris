@@ -290,6 +290,254 @@ func TestAsistenteAtencionMotivos(t *testing.T) {
 	}
 }
 
+// Pausar y reanudar en segundos, mientras el turno del asistente sigue corriendo: lo que se estaba
+// generando no se envía, pero el mensaje del cliente no se queda sin respuesta (el mismo job corre el
+// turno otra vez). Y un turno que «reanudar» dejó pendiente se cierra si al final no le toca al
+// asistente: no queda en curso para siempre.
+func TestAsistentePausaYReanudaAMitadDeTurno(t *testing.T) {
+	x := nuevaBandejaIA(t)
+	x.autonomo("siempre_primero", nil)
+	num := numeroCliente()
+	conv := x.llega(num, "wamid.y1", "¿Tienen fibra?", "Planes y precios")
+	x.guion(dice("Escrita antes de la pausa: no debería salir"), dice("Sí, tenemos fibra."))
+	var una sync.Once
+	x.ia.mu.Lock()
+	x.ia.alAutonomo = func(int) {
+		una.Do(func() {
+			x.exigir(x.accionAsistente(x.agente, conv, "pausar", map[string]any{"version": ver(x.conv(num))}), http.StatusOK)
+			x.exigir(x.accionAsistente(x.agente, conv, "reanudar", map[string]any{"version": ver(x.conv(num))}), http.StatusOK)
+		})
+	}
+	x.ia.mu.Unlock()
+	x.correr(conv)
+	x.ia.mu.Lock()
+	x.ia.alAutonomo = nil
+	x.ia.mu.Unlock()
+	c := x.conv(num)
+	ms := x.delAsistente(conv)
+	if len(ms) != 1 || !strings.HasSuffix(textoDe(ms[0]), "Sí, tenemos fibra.") || estadoAsistente(c) != "atendiendo/1" || atencion(c) != "true" {
+		t.Fatalf("pausado y reanudado a mitad del turno: el mensaje quedó sin respuesta: %v %v %v", ms, c["asistente"], c["atencionAsistente"])
+	}
+	enCurso := func(conv string) int {
+		return x.contar(`SELECT count(*) FROM mensajeria.asistente_turnos WHERE conversacion_id = $1 AND estado = 'en_curso'`, conv)
+	}
+	if enCurso(conv) != 0 {
+		t.Fatal("quedó un turno en curso")
+	}
+
+	// Reanudar con el cliente esperando deja un turno pendiente con el arriendo suelto (si el job no se
+	// pudiera encolar porque ya corre otro, el mantenimiento lo reencola)…
+	n2 := numeroCliente()
+	conv2 := x.llega(n2, "wamid.y2", "Quiero cambiar de plan", "Cambio de plan")
+	x.exigir(x.accionAsistente(x.agente, conv2, "pausar", map[string]any{"version": ver(x.conv(n2))}), http.StatusOK)
+	x.exigir(x.accionAsistente(x.agente, conv2, "reanudar", map[string]any{"version": ver(x.conv(n2))}), http.StatusOK)
+	if n := x.contar(`SELECT count(*) FROM mensajeria.asistente_turnos WHERE conversacion_id = $1 AND estado = 'en_curso' AND tomado_en = 'epoch'`, conv2); n != 1 {
+		t.Fatalf("turno pendiente al reanudar: %d", n)
+	}
+	// …y si al final no le toca al asistente (categoría en «sugiere»), ese turno se cierra: no envía
+	// nada y no queda en curso para que el mantenimiento lo reencole sin fin.
+	x.guion(dice("No debería salir"))
+	x.correr(conv2)
+	if len(x.delAsistente(conv2)) != 0 || enCurso(conv2) != 0 {
+		t.Fatalf("turno pendiente que no aplica: %d mensajes, %d en curso", len(x.delAsistente(conv2)), enCurso(conv2))
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.asistente_turnos WHERE conversacion_id = $1 AND estado = 'descartado' AND motivo = 'no_aplica'`, conv2); n != 1 {
+		t.Fatalf("turno cerrado como no_aplica: %d", n)
+	}
+}
+
+// Revisión de seguridad (1): «reanudar» nunca hace que el asistente conteste un mensaje que una
+// persona ya contestó, ni uno de un periodo anterior.
+func TestAsistenteReanudarNoContestaLoYaContestado(t *testing.T) {
+	x := nuevaBandejaIA(t)
+	x.autonomo("siempre_primero", nil)
+	turnos := func(conv string) int {
+		return x.contar(`SELECT count(*) FROM mensajeria.asistente_turnos WHERE conversacion_id = $1`, conv)
+	}
+	// El cliente pide algo; el agente la toma, contesta y la suelta; alguien reanuda.
+	num := numeroCliente()
+	x.texto(num, "wamid.w1", "Quiero pagar, ¿me registran la boleta?")
+	conv := cid(x.conv(num))
+	x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv+"/tomar", map[string]any{"version": ver(x.conv(num))}), http.StatusOK)
+	x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+conv+"/mensajes", map[string]any{"id": nuevoID(), "texto": "Listo, ya la registré."}), http.StatusCreated)
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/conversaciones/"+conv+"/asignar", map[string]any{"version": ver(x.conv(num)), "usuarioId": nil}), http.StatusOK)
+	*x.reloj = x.reloj.Add(30 * time.Second)
+	antes, tAntes := x.autonomos(), turnos(conv)
+	x.exigir(x.accionAsistente(x.agente, conv, "reanudar", map[string]any{"version": ver(x.conv(num))}), http.StatusOK)
+	x.ia.decir(`{"categoria": "Planes y precios", "confianza": 0.95}`)
+	x.guion(dice("No debería salir"))
+	x.correr(conv)
+	if x.autonomos() != antes || len(x.delAsistente(conv)) != 0 || turnos(conv) != tAntes {
+		t.Fatalf("reanudar contestó un mensaje que una persona ya había contestado: %d mensajes, %d turnos", len(x.delAsistente(conv)), turnos(conv))
+	}
+	// Aunque la conversación quede «abierta» (el agente la reabre a mano), ese mensaje ya tiene respuesta
+	// de una persona: tampoco.
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/conversaciones/"+conv+"/resolver", map[string]any{"version": ver(x.conv(num))}), http.StatusOK)
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/conversaciones/"+conv+"/reabrir", map[string]any{"version": ver(x.conv(num))}), http.StatusOK)
+	// …y en el periodo nuevo el último mensaje del cliente es del periodo anterior: pausar y reanudar no
+	// lo resucita.
+	c := x.conv(num)
+	if c["estado"] != "abierta" {
+		t.Fatalf("reabierta a mano: %v", c["estado"])
+	}
+	x.exigir(x.accionAsistente(x.agente, conv, "pausar", map[string]any{"version": ver(c)}), http.StatusOK)
+	x.exigir(x.accionAsistente(x.agente, conv, "reanudar", map[string]any{"version": ver(x.conv(num))}), http.StatusOK)
+	x.correr(conv)
+	if x.autonomos() != antes || len(x.delAsistente(conv)) != 0 || turnos(conv) != tAntes {
+		t.Fatalf("reanudar contestó un mensaje de un periodo anterior: %d mensajes, %d turnos", len(x.delAsistente(conv)), turnos(conv))
+	}
+	// Un periodo anterior sin respuesta de nadie: el cliente escribió, se resolvió sin contestar y un
+	// agente la reabre. Ese mensaje es del periodo anterior.
+	n2 := numeroCliente()
+	x.texto(n2, "wamid.w2", "¿Tienen fibra?")
+	conv2 := cid(x.conv(n2))
+	x.exigir(x.accionAsistente(x.agente, conv2, "pausar", map[string]any{"version": ver(x.conv(n2))}), http.StatusOK)
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/conversaciones/"+conv2+"/resolver", map[string]any{"version": ver(x.conv(n2))}), http.StatusOK)
+	*x.reloj = x.reloj.Add(time.Hour)
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/conversaciones/"+conv2+"/reabrir", map[string]any{"version": ver(x.conv(n2))}), http.StatusOK)
+	x.exigir(x.accionAsistente(x.agente, conv2, "pausar", map[string]any{"version": ver(x.conv(n2))}), http.StatusOK)
+	x.exigir(x.accionAsistente(x.agente, conv2, "reanudar", map[string]any{"version": ver(x.conv(n2))}), http.StatusOK)
+	if turnos(conv2) != 0 {
+		t.Fatalf("reanudar programó un turno para un mensaje de un periodo anterior: %d", turnos(conv2))
+	}
+}
+
+// Revisión de seguridad (2 y 4): pausar y reanudar en bucle no salta los límites (un turno se reabre
+// una sola vez), y al reanudar queda auditado qué se pasó por alto.
+func TestAsistentePausarReanudarEnBucle(t *testing.T) {
+	x := nuevaBandejaIA(t)
+	x.autonomo("siempre_primero", nil)
+	num := numeroCliente()
+	conv := x.llega(num, "wamid.k1", "¿Tienen fibra?", "Planes y precios")
+	// Cada vez que el modelo empieza a contestar, lo pausan.
+	pausar := func(int) {
+		x.exigir(x.accionAsistente(x.agente, conv, "pausar", map[string]any{"version": ver(x.conv(num)), "motivo": "respuesta_incorrecta"}), http.StatusOK)
+	}
+	x.ia.mu.Lock()
+	x.ia.alAutonomo = pausar
+	x.ia.mu.Unlock()
+	x.guion(dice("No debería salir"), dice("No debería salir"), dice("No debería salir"), dice("No debería salir"))
+	x.correr(conv)
+	if x.autonomos() != 1 {
+		t.Fatalf("primer turno: %d llamadas", x.autonomos())
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.asistente_turnos WHERE conversacion_id = $1 AND estado = 'descartado' AND motivo = 'pausado'`, conv); n != 1 {
+		t.Fatalf("la pausa descarta el turno con su motivo: %d", n)
+	}
+	// Primera reanudación: el turno se reabre y el modelo se llama otra vez (y lo vuelven a pausar).
+	x.exigir(x.accionAsistente(x.agente, conv, "reanudar", map[string]any{"version": ver(x.conv(num))}), http.StatusOK)
+	x.correr(conv)
+	if x.autonomos() != 2 {
+		t.Fatalf("primera reanudación: %d llamadas", x.autonomos())
+	}
+	// Desde la segunda: el mismo turno no se reabre más. Cero llamadas al modelo.
+	for i := range 4 {
+		x.exigir(x.accionAsistente(x.agente, conv, "reanudar", map[string]any{"version": ver(x.conv(num))}), http.StatusOK)
+		x.correr(conv)
+		if x.autonomos() != 2 {
+			t.Fatalf("reanudación %d: el bucle volvió a llamar al modelo (%d)", i+2, x.autonomos())
+		}
+		x.exigir(x.accionAsistente(x.agente, conv, "pausar", map[string]any{"version": ver(x.conv(num))}), http.StatusOK)
+	}
+	x.ia.mu.Lock()
+	x.ia.alAutonomo = nil
+	x.ia.mu.Unlock()
+	if len(x.delAsistente(conv)) != 0 {
+		t.Fatal("en pausa a mitad del turno, pero el asistente envió")
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.asistente_turnos WHERE conversacion_id = $1`, conv); n != 1 {
+		t.Fatalf("un solo turno para ese mensaje: %d", n)
+	}
+	// Un turno reabierto pasa por maxTurnos: con el máximo ya gastado no llama al modelo, pasa a una persona.
+	n2 := numeroCliente()
+	x.turno(n2, "wamid.k2", "¿Tienen fibra?", "Planes y precios", dice("Sí."))
+	x.turno(n2, "wamid.k2b", "¿En mi zona?", "Planes y precios", dice("También."))
+	conv2 := x.llega(n2, "wamid.k3", "¿Y cuánto cuesta?", "Planes y precios")
+	x.exigir(x.accionAsistente(x.agente, conv2, "pausar", map[string]any{"version": ver(x.conv(n2))}), http.StatusOK)
+	x.autonomo("siempre_primero", map[string]any{"maxTurnos": 2})
+	x.exigir(x.accionAsistente(x.agente, conv2, "reanudar", map[string]any{"version": ver(x.conv(n2))}), http.StatusOK)
+	llamadas := x.autonomos()
+	x.guion(dice("No debería salir"))
+	x.correr(conv2)
+	c := x.conv(n2)
+	if x.autonomos() != llamadas || len(x.delAsistente(conv2)) != 3 || !strings.HasPrefix(estadoAsistente(c), "espera_persona/") || x.pasos(conv2, "max_turnos") != 1 {
+		t.Fatalf("turno pendiente por reanudar: debía respetar maxTurnos: %v (%d llamadas)", c["asistente"], x.autonomos()-llamadas)
+	}
+
+	// (4) Reanudar pasando por alto que el cliente pidió una persona, o una pausa con motivo: queda en
+	// el evento y en la auditoría.
+	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'conversacion.asistente_reanudado' AND payload->>'conversacion_id' = $1
+		AND payload->>'pausa_motivo_anterior' = 'respuesta_incorrecta' AND payload->>'de' = 'pausado'`, conv); n != 2 {
+		t.Fatalf("el evento dice el motivo de la pausa que se levantó: %d", n)
+	}
+	n3 := numeroCliente()
+	x.turno(n3, "wamid.k4", "¿Tienen fibra?", "Planes y precios", dice("Sí."))
+	c = x.turno(n3, "wamid.k5", "Quiero hablar con una persona", "Planes y precios", dice("No debería salir"))
+	conv3 := cid(c)
+	x.exigirPaso(c, "cliente_lo_pidio")
+	x.exigir(x.accionAsistente(x.agente, conv3, "reanudar", map[string]any{"version": ver(c)}), http.StatusOK)
+	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'conversacion.asistente_reanudado' AND payload->>'conversacion_id' = $1
+		AND payload->>'motivo_paso' = 'cliente_lo_pidio' AND payload->>'de' = 'espera_persona' AND (payload->>'actor_id')::bigint = $2`, conv3, x.agente.id); n != 1 {
+		t.Fatalf("el evento dice que el cliente había pedido una persona: %d", n)
+	}
+	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'conversaciones.reanudar_asistente' AND entidad_id = $1 AND actor_id = $2
+		AND entrada->'auditoria'->>'motivo_paso' = 'cliente_lo_pidio'`, conv3, x.agente.id); n != 1 {
+		t.Fatalf("la auditoría dice que el cliente había pedido una persona: %d", n)
+	}
+	// Ese mensaje ya tuvo su turno (pasó a una persona): reanudar no lo contesta.
+	x.correr(conv3)
+	if len(x.delAsistente(conv3)) != 2 {
+		t.Fatalf("reanudar después de «quiero una persona» contestó ese mensaje: %d", len(x.delAsistente(conv3)))
+	}
+}
+
+// Revisión de seguridad (3): si la conversación cambia de empresa a mitad de un turno, los tokens se
+// cuentan a la empresa que hizo la llamada, y «reanudar» no revive un turno de otra empresa.
+func TestAsistenteTurnoDeOtraEmpresa(t *testing.T) {
+	x := nuevaBandejaIA(t)
+	x.autonomo("siempre_primero", nil)
+	uso := func() int {
+		return x.contar(`SELECT coalesce(sum(tokens_entrada + tokens_salida), 0) FROM mensajeria.asistente_uso WHERE empresa_id = 1`)
+	}
+	n2 := numeroCliente()
+	conv2 := x.llega(n2, "wamid.e2", "¿Tienen fibra?", "Planes y precios")
+	x.guion(dice("No debería salir"))
+	var una sync.Once
+	x.ia.mu.Lock()
+	x.ia.alAutonomo = func(int) {
+		una.Do(func() {
+			if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.conversaciones SET empresa_id = 2, categoria_id = NULL WHERE id = $1`, conv2); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	x.ia.mu.Unlock()
+	antes, llamadas := uso(), x.autonomos()
+	x.correr(conv2)
+	x.ia.mu.Lock()
+	x.ia.alAutonomo = nil
+	x.ia.mu.Unlock()
+	if x.autonomos() != llamadas+1 || uso() <= antes {
+		t.Fatalf("los tokens del turno no se contaron a la empresa que llamó: %d → %d (%d llamadas)", antes, uso(), x.autonomos()-llamadas)
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND automatico = 'asistente'`, conv2); n != 0 {
+		t.Fatal("el turno envió a una conversación que ya era de otra empresa")
+	}
+	// De vuelta en la empresa 1, con el turno marcado como de otra empresa y descartado por una pausa:
+	// reanudar no lo reabre.
+	if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.conversaciones SET empresa_id = 1 WHERE id = $1`, conv2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.asistente_turnos SET empresa_id = 2, estado = 'descartado', motivo = 'pausado' WHERE conversacion_id = $1`, conv2); err != nil {
+		t.Fatal(err)
+	}
+	x.exigir(x.accionAsistente(x.agente, conv2, "pausar", map[string]any{"version": ver(x.conv(n2))}), http.StatusOK)
+	x.exigir(x.accionAsistente(x.agente, conv2, "reanudar", map[string]any{"version": ver(x.conv(n2))}), http.StatusOK)
+	if n := x.contar(`SELECT count(*) FROM mensajeria.asistente_turnos WHERE conversacion_id = $1 AND estado = 'en_curso'`, conv2); n != 0 {
+		t.Fatalf("reanudar revivió un turno de otra empresa: %d", n)
+	}
+}
+
 // El hilo no dice «contestó el bot» si el bot no le pudo mandar nada al cliente (BAJA o ventana de
 // 24 h cerrada): dice que no pudo.
 func TestBotSinRespuestaNoDiceQueContesto(t *testing.T) {
