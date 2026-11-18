@@ -44,6 +44,7 @@ SET nombre = @nombre, numero = @numero, phone_number_id = @phone_number_id, waba
     ultimo_estado = CASE WHEN @limpiar_prueba::boolean THEN NULL ELSE ultimo_estado END,
     ultimo_detalle = CASE WHEN @limpiar_prueba::boolean THEN NULL ELSE ultimo_detalle END,
     ultima_prueba_en = CASE WHEN @limpiar_prueba::boolean THEN NULL ELSE ultima_prueba_en END,
+    rechazado_por_envio = CASE WHEN @limpiar_prueba::boolean THEN false ELSE rechazado_por_envio END,
     version = version + 1, updated_at = now()
 WHERE id = @id
 RETURNING *;
@@ -56,9 +57,23 @@ RETURNING *;
 -- name: RegistrarPruebaCanal :one
 -- Resultado de POST /canales/{id}/probar (no sube version: no es una edición).
 UPDATE mensajeria.canales
-SET ultima_prueba_en = @probado_en, ultimo_estado = @estado, ultimo_detalle = sqlc.narg('detalle')
+SET ultima_prueba_en = @probado_en, ultimo_estado = @estado, ultimo_detalle = sqlc.narg('detalle'), rechazado_por_envio = false
 WHERE id = @id
 RETURNING *;
+
+-- name: MarcarCanalRechazadoPorEnvio :exec
+-- Meta rechazó un envío por el token o los permisos: el número queda marcado sin esperar a «Probar».
+UPDATE mensajeria.canales
+SET ultima_prueba_en = @ahora, ultimo_estado = @estado, ultimo_detalle = @detalle, rechazado_por_envio = true
+WHERE id = @id;
+
+-- name: LimpiarRechazoPorEnvio :one
+-- Meta aceptó un envío: si la marca la puso un envío rechazado, el número vuelve a conectado. No
+-- toca lo que dijo «Probar». Sin fila: no había nada que limpiar.
+UPDATE mensajeria.canales
+SET ultima_prueba_en = @ahora, ultimo_estado = 'conectado', ultimo_detalle = NULL, rechazado_por_envio = false
+WHERE id = @id AND rechazado_por_envio
+RETURNING empresa_id;
 
 -- name: MarcarWebhookVerificado :exec
 UPDATE mensajeria.canales SET webhook_verificado_en = @verificado_en WHERE id = @id;

@@ -400,7 +400,8 @@ func (m *Modulo) estadoMensajeConv(ctx context.Context, t *auditoria.Tx, q *mens
 		actual = *f.EstadoEntrega
 	}
 	cuando := instanteMeta(s.Timestamp, ahora)
-	p := mensajeriabd.MarcarEnvioMensajeParams{ID: f.ID, MotivoFalla: f.MotivoFalla, DetalleFalla: f.DetalleFalla}
+	p := mensajeriabd.MarcarEnvioMensajeParams{ID: f.ID, MotivoFalla: f.MotivoFalla, DetalleFalla: f.DetalleFalla,
+		FallaStatus: f.FallaStatus, FallaCodigo: f.FallaCodigo, FallaSubcodigo: f.FallaSubcodigo}
 	switch s.Status {
 	case "sent":
 		p.EstadoEntrega = EntregaEnviado
@@ -417,6 +418,12 @@ func (m *Modulo) estadoMensajeConv(ctx context.Context, t *auditoria.Tx, q *mens
 		}
 		motivo, detalle := motivoFallaMeta(s)
 		p.EstadoEntrega, p.MotivoFalla, p.DetalleFalla = EntregaFallido, &motivo, &detalle
+		// El código numérico con el que Meta dio por fallido el mensaje (llega por webhook: sin status HTTP).
+		p.FallaStatus, p.FallaCodigo, p.FallaSubcodigo = nil, nil, nil
+		if len(s.Errors) > 0 && s.Errors[0].Code != 0 {
+			codigo := int32(s.Errors[0].Code) //nolint:gosec // código de error de Meta
+			p.FallaCodigo = &codigo
+		}
 	default:
 		return true, nil
 	}

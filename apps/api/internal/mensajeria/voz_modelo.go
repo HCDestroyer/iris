@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/netip"
 	"regexp"
@@ -304,8 +305,28 @@ func (g graphHTTP) Ajustes(ctx context.Context, canal CanalGraph) (AjustesMetaLl
 			a.LimiteMensajeria, a.LimiteLeido = limite, true
 			break
 		}
+		if nivel != "" {
+			// Meta cambió el formato (o añadió un nivel): que se note. El literal va acotado, por si acaso.
+			slog.WarnContext(ctx, "voz: Meta devolvió un límite de mensajería que Iris no reconoce; el requisito queda sin comprobar",
+				"campo", campo, "valor", literalAcotado(nivel))
+		}
 	}
 	return a, nil
+}
+
+// literalAcotado deja de un valor de Meta solo letras, dígitos y guion bajo, y como mucho 40
+// caracteres: lo justo para reconocerlo en un registro sin copiar texto arbitrario.
+func literalAcotado(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if b.Len() >= 40 {
+			break
+		}
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // LimiteIlimitado: el valor de LimiteMensajeria para un portafolio sin límite.
