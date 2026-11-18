@@ -483,10 +483,30 @@ func nuevoGuardarComprobacion(m *Modulo) *auditoria.Caso[entradaComprobado, Llam
 				return LlamadasCanal{}, err
 			}
 			leido := api && !in.fallo
+			// El límite de mensajería (del portafolio de negocio). Tres casos distintos:
+			//   - no se pudo leer (Meta no devolvió el campo, o un literal que Iris no conoce): «sin
+			//     comprobar», como webhook_calls. No se afirma que falta sobre un dato no leído, y no
+			//     impide encender ni apaga las llamadas.
+			//   - leído y por debajo, pero Meta ya tiene las llamadas habilitadas en el número (los
+			//     números de prueba y las cuentas sandbox están exentos): aviso, no bloquea.
+			//   - leído y por debajo, sin llamadas habilitadas en Meta: falta de verdad.
+			limite := RequisitoLlamadas{Codigo: "limite_mensajeria", Detalle: sinMeta}
+			switch {
+			case !leido:
+			case !in.meta.LimiteLeido:
+				limite.Aviso, limite.SinComprobar = true, true
+				limite.Detalle = "Iris no pudo leer el límite de mensajería de este negocio en Meta. Revísalo en WhatsApp Manager > Herramientas de la cuenta > Límites de mensajes: WhatsApp pide 2 000 destinatarios por día o más"
+			case in.meta.LimiteMensajeria >= 2000:
+				limite.Cumple, limite.Detalle = true, "El límite de mensajería del negocio alcanza"
+			case in.meta.Habilitadas:
+				limite.Aviso = true
+				limite.Detalle = "El negocio todavía no llega a 2 000 destinatarios por día, pero WhatsApp ya tiene las llamadas habilitadas en este número (los números de prueba están exentos)"
+			default:
+				limite.Detalle = "WhatsApp exige que el negocio pueda escribirle a 2 000 personas por día o más (se consigue verificando el negocio)"
+			}
 			reqs := []RequisitoLlamadas{
 				{Codigo: "conexion_api", Cumple: api, Detalle: si(api, "El número está conectado por API", "El número está conectado por QR: las llamadas no están disponibles")},
-				{Codigo: "limite_mensajeria", Cumple: leido && in.meta.LimiteMensajeria >= 2000, Detalle: si(leido,
-					si(in.meta.LimiteMensajeria >= 2000, "El límite de mensajería del número alcanza", "WhatsApp exige un límite de al menos 2 000 destinatarios por día"), sinMeta)},
+				limite,
 				// La suscripción al campo calls no se puede leer con el token del número: solo se da por
 				// cumplida si ya llegó alguna llamada a este número; si no, queda «sin comprobar» (aviso).
 				{Codigo: "webhook_calls", Cumple: recibio, Aviso: !recibio, SinComprobar: !recibio, Detalle: si(recibio, "La app recibe los avisos de llamadas",
@@ -550,7 +570,18 @@ func (m *Modulo) ConfigurarLlamadas(ctx context.Context, in EntradaLlamadasCanal
 				nucleo.ErrorCampo{Field: "plantillaPermiso", Message: motivo, Rule: "plantilla_permiso_invalida"})
 		}
 	}
-	return m.Voz.ConfigCanal.Ejecutar(ctx, in)
+	out, err := m.Voz.ConfigCanal.Ejecutar(ctx, in)
+	// Encender se decide con lo que dice Meta AHORA, no con una comprobación guardada que pudo quedar
+	// vieja (p. ej. de una versión de Iris que leía mal un requisito): si la guardada no cumple, se
+	// vuelve a comprobar y, si ahora cumple, se enciende sin más pasos.
+	if p, _ := nucleo.AProblema(err); p != nil && p.Codigo() == "requisitos_sin_cumplir" && in.LlamadasActivas {
+		// (Si sigue sin cumplir, el segundo intento responde con los requisitos de ahora.)
+		if fresco, errC := m.ComprobarLlamadas(ctx, in.ID, false); errC == nil {
+			in.Version = fresco.Version
+			return m.Voz.ConfigCanal.Ejecutar(ctx, in)
+		}
+	}
+	return out, err
 }
 
 // ComprobarLlamadas pregunta a Meta si el número cumple los requisitos y guarda el resultado.

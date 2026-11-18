@@ -860,7 +860,8 @@ Un supervisor puede **oír** una llamada en curso sin participar.
   `llamadas_no_disponibles_qr`**. Encender exige `requisitos.cumple`.
 - `POST /canales/{id}/llamadas/comprobar` (`llamadas.configurar`) →
   `{ cumple, requisitos: [{ codigo, cumple, detalle, aviso, sinComprobar? }] }` con `conexion_api`,
-  `limite_mensajeria` (≥ 2 000 destinatarios/día), `webhook_calls` (campo `calls` suscrito; Iris no
+  `limite_mensajeria` (≥ 2 000 destinatarios/día del negocio; `sinComprobar` si Meta no lo devuelve
+  o no se reconoce el valor, y entonces no impide encender: §10.1-1), `webhook_calls` (campo `calls` suscrito; Iris no
   lo puede leer: `sinComprobar` hasta que llega la primera llamada),
   `calling_habilitado`, `plantilla_permiso` (solo aviso: sin ella no hay solicitud fuera de ventana).
   Mismo trato de errores que `probar` del número: nunca el mensaje crudo de Meta.
@@ -2467,6 +2468,28 @@ un TURN.
 
 1. Requisitos: número en Cloud API, límite de mensajería ≥ 2 000 destinatarios/día, campo de webhook
    `calls` suscrito y Calling habilitado en el número. En coexistencia (QR), llamadas no soportadas.
+   **Resuelto el 2026-11-17 (primera prueba contra Meta real):**
+   - El límite es **del portafolio de negocio** (lo comparten todos sus números) y se lee con
+     `GET /{phone_number_id}?fields=whatsapp_business_manager_messaging_limit`. El campo
+     `messaging_limit_tier` está **deprecado**: Iris lo pide solo de respaldo, en una segunda
+     consulta, si el vigente no viene. Niveles: 250, 2 000, 10 000, 100 000 e ilimitado. La
+     documentación de Meta solo muestra el literal `TIER_250`; Iris lee el número del propio literal
+     (`TIER_<n>`, `TIER_<n>K`, `TIER_UNLIMITED`) y **lo que no reconoce no lo interpreta**.
+   - Los números de prueba y las cuentas sandbox **no** necesitan los 2 000.
+   - Regla de Iris: solo bloquea (y solo apaga las llamadas al comprobar) un «no cumple» que **Meta
+     afirma**. Si el límite no se pudo leer o el literal es desconocido, el requisito queda «sin
+     comprobar» (`sinComprobar: true`, `aviso: true`), como `webhook_calls`: no impide encender ni
+     apaga nada. Si se leyó y es menor que 2 000 pero Meta ya tiene las llamadas habilitadas en el
+     número, es un aviso. Solo «falta» con el límite leído por debajo **y** las llamadas sin
+     habilitar en Meta.
+   - Al encender, si la comprobación guardada no cumple, Iris vuelve a comprobar con Meta en ese
+     momento (una comprobación vieja no bloquea).
+   - Pendiente (no implementado): el webhook `business_capability_update` trae
+     `max_daily_conversations_per_business` cuando Meta sube el límite; serviría para refrescar el
+     requisito sin pulsar «Comprobar».
+   - Pendiente (no implementado): una entrante que llega con las llamadas apagadas en Iris se
+     rechaza sin registro y solo deja una línea WARN; falta un aviso visible en la pantalla de
+     llamadas del número («llegó una llamada y se rechazó porque las llamadas están apagadas»).
 2. Entrante: webhook `connect` con oferta SDP; respuesta con `POST /<PHONE_NUMBER_ID>/calls` y
    `action` `pre_accept` | `accept` | `reject` | `terminate`; entre 30 y 60 s para contestar;
    webhook `terminate` con `status`, `start_time`, `end_time`, `duration`.
