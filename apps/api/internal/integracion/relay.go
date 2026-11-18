@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
 	integracionbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/bd"
@@ -260,9 +261,18 @@ func (t *TrabajadorRelay) Work(ctx context.Context, _ *river.Job[ArgsRelay]) err
 func (t *TrabajadorRelay) Timeout(*river.Job[ArgsRelay]) time.Duration { return 5 * time.Minute }
 
 // TrabajoPeriodicoRelay corre el relay cada intervalo aunque no llegue un NOTIFY (River solo lo
-// agenda desde el líder: una instancia).
-func TrabajoPeriodicoRelay(intervalo time.Duration) *river.PeriodicJob {
+// agenda desde el líder: una instancia). No encola si ya hay un relay disponible sin empezar
+// (si una entrega se atasca hasta el timeout del job, no se juntan jobs cada intervalo); si la
+// comprobación falla, encola igual.
+func TrabajoPeriodicoRelay(intervalo time.Duration, pool *pgxpool.Pool, esquema string) *river.PeriodicJob {
 	return river.NewPeriodicJob(river.PeriodicInterval(intervalo),
-		func() (river.JobArgs, *river.InsertOpts) { return ArgsRelay{}, nil },
+		func() (river.JobArgs, *river.InsertOpts) {
+			ctx, cancelar := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancelar()
+			if hay, err := hayRelayDisponible(ctx, pool, esquema); err == nil && hay {
+				return nil, nil // River no inserta nada en esta vuelta
+			}
+			return ArgsRelay{}, nil
+		},
 		&river.PeriodicJobOpts{RunOnStart: true})
 }

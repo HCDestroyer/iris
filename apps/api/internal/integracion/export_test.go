@@ -23,6 +23,16 @@ type GanchosEscucha struct {
 }
 
 // EscucharOutboxConGanchos es EscucharOutbox con ganchos de prueba.
-func EscucharOutboxConGanchos(ctx context.Context, pool *pgxpool.Pool, cliente *river.Client[pgx.Tx], log *slog.Logger, g GanchosEscucha) {
-	escucharOutbox(ctx, pool, cliente, log, ganchosEscucha{listo: g.Listo, antesDeReconectar: g.AntesDeReconectar})
+func EscucharOutboxConGanchos(ctx context.Context, pool *pgxpool.Pool, cliente *river.Client[pgx.Tx], esquema string, log *slog.Logger, g GanchosEscucha) {
+	escucharOutbox(ctx, pool, cliente, esquema, log, ganchosEscucha{listo: g.Listo, antesDeReconectar: g.AntesDeReconectar})
+}
+
+// EncolarRelay expone el encolado del listener.
+func EncolarRelay(ctx context.Context, pool *pgxpool.Pool, cliente *river.Client[pgx.Tx], esquema string) error {
+	return encolarRelay(ctx, pool, cliente, esquema, slog.Default())
+}
+
+// HayRelayDisponible expone la comprobación del listener y del periódico.
+func HayRelayDisponible(ctx context.Context, pool *pgxpool.Pool, esquema string) (bool, error) {
+	return hayRelayDisponible(ctx, pool, esquema)
 }

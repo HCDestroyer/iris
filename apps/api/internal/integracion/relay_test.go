@@ -190,7 +190,9 @@ func (o *rio) ganchos() (func(), func(time.Duration)) {
 
 // arrancarRiver arranca River y el listener con los suscriptores que agrega suscribir; devuelve
 // cuando el listener escucha y ya terminaron el relay periódico de arranque (RunOnStart) y el
-// barrido del listener: lo que se emita después solo llega por su NOTIFY.
+// barrido del listener: lo que se emita después solo llega por su NOTIFY. El listener arranca
+// cuando ya terminó el periódico: si su barrido quedara disponible antes, el periódico de
+// arranque no se encolaría y no habría forma de saber que ya pasó.
 func arrancarRiver(t *testing.T, pool *pgxpool.Pool, suscribir func(*integracion.Bus)) *rio {
 	t.Helper()
 	o := &rio{listos: make(chan uint32, 8)}
@@ -210,6 +212,11 @@ func arrancarRiver(t *testing.T, pool *pgxpool.Pool, suscribir func(*integracion
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Un relay disponible que dejó otra prueba haría que el periódico de arranque no se encole.
+	if _, err := pool.Exec(context.Background(),
+		`DELETE FROM river.river_job WHERE kind = $1 AND state = 'available'`, integracion.ArgsRelay{}.Kind()); err != nil {
+		t.Fatal(err)
+	}
 	antes := ultimoJob(t, pool)
 	ctx, cancelar := context.WithCancel(context.Background())
 	if err := o.cliente.Start(ctx); err != nil {
@@ -217,9 +224,17 @@ func arrancarRiver(t *testing.T, pool *pgxpool.Pool, suscribir func(*integracion
 		t.Fatal(err)
 	}
 	termino := make(chan struct{})
+	t.Cleanup(func() {
+		cancelar()
+		<-termino
+		parar, c := context.WithTimeout(context.Background(), 10*time.Second)
+		defer c()
+		_ = o.cliente.Stop(parar)
+	})
+	esperarRelaysTerminados(t, pool, antes)
 	go func() {
 		defer close(termino)
-		integracion.EscucharOutboxConGanchos(ctx, pool, o.cliente, nil, integracion.GanchosEscucha{
+		integracion.EscucharOutboxConGanchos(ctx, pool, o.cliente, migraciones.EsquemaRiver, nil, integracion.GanchosEscucha{
 			Listo: func(pid uint32) { o.listos <- pid },
 			AntesDeReconectar: func(espera time.Duration) {
 				if _, f := o.ganchos(); f != nil {
@@ -228,13 +243,6 @@ func arrancarRiver(t *testing.T, pool *pgxpool.Pool, suscribir func(*integracion
 			},
 		})
 	}()
-	t.Cleanup(func() {
-		cancelar()
-		<-termino
-		parar, c := context.WithTimeout(context.Background(), 10*time.Second)
-		defer c()
-		_ = o.cliente.Stop(parar)
-	})
 	o.pid = esperarListo(t, o)
 	esperarRelaysTerminados(t, pool, antes)
 	return o
@@ -430,6 +438,96 @@ func TestRelayRafagaAcotaJobs(t *testing.T) {
 	// avisos que el listener procesó cuando ese ya corría. Sin las dos medidas: hasta uno por aviso.
 	if todos, _, abiertos := relaysDesde(t, pool, antes); todos > 4 || abiertos != 0 {
 		t.Fatalf("la ráfaga de %d commits creó %d jobs del relay (abiertos=%d); se esperaban 4 o menos", n, todos, abiertos)
+	}
+}
+
+// El periódico no encola mientras ya hay un relay disponible: con una entrega atascada no se
+// juntan jobs cada intervalo.
+func TestRelayPeriodicoNoAcumula(t *testing.T) {
+	pool := pruebas.Pool(t)
+	entro := make(chan struct{}, 1)
+	soltar := make(chan struct{})
+	var soltarUna sync.Once
+	liberar := func() { soltarUna.Do(func() { close(soltar) }) }
+	defer liberar()
+	bus := integracion.NuevoBus()
+	bus.Suscribir("atascado", "prueba.atascado", func(context.Context, integracion.Evento) error {
+		select {
+		case entro <- struct{}{}:
+		default:
+		}
+		<-soltar
+		return nil
+	})
+	relay := &integracion.Relay{BD: pool, Bus: bus}
+	cliente, err := integracion.NuevoClienteRiver(pool, relay, integracion.OpcionesWorker{
+		Esquema: migraciones.EsquemaRiver, RelayIntervalo: 100 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(),
+		`DELETE FROM river.river_job WHERE kind = $1 AND state = 'available'`, integracion.ArgsRelay{}.Kind()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := emitir.Ejecutar(pruebas.ContextoSistema(pool), "prueba.atascado"); err != nil {
+		t.Fatal(err)
+	}
+	antes := ultimoJob(t, pool)
+	ctx, cancelar := context.WithCancel(context.Background())
+	defer cancelar()
+	if err := cliente.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		liberar()
+		parar, c := context.WithTimeout(context.Background(), 10*time.Second)
+		defer c()
+		_ = cliente.Stop(parar)
+	}()
+	select {
+	case <-entro:
+	case <-time.After(15 * time.Second):
+		t.Fatal("el relay de arranque no tomó el evento")
+	}
+	// Con el relay atascado (la cola tiene un worker), el primer tic deja uno disponible y los
+	// siguientes no encolan. Se espera a que haya uno disponible y luego unos 15 intervalos.
+	limite := time.Now().Add(15 * time.Second)
+	for {
+		hay, err := integracion.HayRelayDisponible(context.Background(), pool, migraciones.EsquemaRiver)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if hay {
+			break
+		}
+		if time.Now().After(limite) {
+			t.Fatal("el periódico no encoló ningún relay")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	time.Sleep(1500 * time.Millisecond)
+	if todos, _, _ := relaysDesde(t, pool, antes); todos != 2 {
+		t.Fatalf("con un relay atascado y otro disponible el periódico creó %d jobs; debían ser 2", todos)
+	}
+}
+
+// Si la comprobación de «ya hay uno disponible» falla, el listener encola igual.
+func TestRelayEncolaSiFallaLaComprobacion(t *testing.T) {
+	pool := pruebas.Pool(t)
+	cliente, err := integracion.NuevoClienteInsercion(pool, migraciones.EsquemaRiver, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := integracion.HayRelayDisponible(context.Background(), pool, "no_existe"); err == nil {
+		t.Fatal("la comprobación con un esquema inexistente debía fallar")
+	}
+	antes := ultimoJob(t, pool)
+	if err := integracion.EncolarRelay(context.Background(), pool, cliente, "no_existe"); err != nil {
+		t.Fatal(err)
+	}
+	if todos, _, _ := relaysDesde(t, pool, antes); todos != 1 {
+		t.Fatalf("debía encolar un relay aunque fallara la comprobación: %d", todos)
 	}
 }
 

@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
-	"github.com/riverqueue/river/rivertype"
 )
 
 // OpcionesWorker configura el cliente de River del worker.
@@ -42,7 +41,7 @@ func NuevoClienteRiver(pool *pgxpool.Pool, relay *Relay, op OpcionesWorker) (*ri
 			ColaRelay:          {MaxWorkers: 1}, // el advisory lock ya deja correr uno a la vez
 		},
 		Workers:      workers,
-		PeriodicJobs: append([]*river.PeriodicJob{TrabajoPeriodicoRelay(op.RelayIntervalo)}, op.Periodicos...),
+		PeriodicJobs: append([]*river.PeriodicJob{TrabajoPeriodicoRelay(op.RelayIntervalo, pool, op.Esquema)}, op.Periodicos...),
 	})
 }
 
@@ -68,11 +67,11 @@ func Encolar(cliente *river.Client[pgx.Tx]) func(ctx context.Context, tx pgx.Tx,
 // eso, tras cada LISTEN encola un relay que barre lo que quedó pendiente.
 //
 // No encola si ya hay un relay disponible (available) en la cola: aún no empezó, así que su
-// barrido es posterior al COMMIT avisado. La consulta va a river_job y no a un indicador en
-// memoria para que valga también con el relay encolado por otra réplica. Un relay en curso no
-// cuenta: pudo hacer ya su último barrido.
-func EscucharOutbox(ctx context.Context, pool *pgxpool.Pool, cliente *river.Client[pgx.Tx], log *slog.Logger) {
-	escucharOutbox(ctx, pool, cliente, log, ganchosEscucha{})
+// barrido es posterior al COMMIT avisado. La consulta va a river_job (esquema de River) y no a
+// un indicador en memoria para que valga también con el relay encolado por otra réplica. Un
+// relay en curso no cuenta: pudo hacer ya su último barrido.
+func EscucharOutbox(ctx context.Context, pool *pgxpool.Pool, cliente *river.Client[pgx.Tx], esquema string, log *slog.Logger) {
+	escucharOutbox(ctx, pool, cliente, esquema, log, ganchosEscucha{})
 }
 
 // ganchosEscucha son avisos para las pruebas: listo tras cada LISTEN y su barrido (con el pid
@@ -82,13 +81,13 @@ type ganchosEscucha struct {
 	antesDeReconectar func(espera time.Duration)
 }
 
-func escucharOutbox(ctx context.Context, pool *pgxpool.Pool, cliente *river.Client[pgx.Tx], log *slog.Logger, g ganchosEscucha) {
+func escucharOutbox(ctx context.Context, pool *pgxpool.Pool, cliente *river.Client[pgx.Tx], esquema string, log *slog.Logger, g ganchosEscucha) {
 	if log == nil {
 		log = slog.Default()
 	}
 	espera := time.Second
 	for ctx.Err() == nil {
-		escucho, err := escuchar(ctx, pool, cliente, g.listo)
+		escucho, err := escuchar(ctx, pool, cliente, esquema, log, g.listo)
 		if ctx.Err() != nil {
 			return
 		}
@@ -110,7 +109,9 @@ func escucharOutbox(ctx context.Context, pool *pgxpool.Pool, cliente *river.Clie
 
 // escuchar hace LISTEN y encola un relay por aviso hasta perder la conexión. escucho es true
 // si el LISTEN llegó a hacerse.
-func escuchar(ctx context.Context, pool *pgxpool.Pool, cliente *river.Client[pgx.Tx], listo func(pid uint32)) (escucho bool, err error) {
+func escuchar(ctx context.Context, pool *pgxpool.Pool, cliente *river.Client[pgx.Tx], esquema string, log *slog.Logger,
+	listo func(pid uint32),
+) (escucho bool, err error) {
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		return false, err
@@ -142,7 +143,7 @@ func escuchar(ctx context.Context, pool *pgxpool.Pool, cliente *river.Client[pgx
 				return
 			case <-aviso:
 			}
-			if err := encolarRelay(ectx, cliente); err != nil {
+			if err := encolarRelay(ectx, pool, cliente, esquema, log); err != nil {
 				errEncolar <- err
 				cancelar()
 				return
@@ -170,16 +171,27 @@ func escuchar(ctx context.Context, pool *pgxpool.Pool, cliente *river.Client[pgx
 	}
 }
 
-// encolarRelay encola un relay salvo que ya haya uno disponible sin empezar en su cola.
-func encolarRelay(ctx context.Context, cliente *river.Client[pgx.Tx]) error {
-	hay, err := cliente.JobList(ctx, river.NewJobListParams().
-		Kinds(ArgsRelay{}.Kind()).Queues(ColaRelay).States(rivertype.JobStateAvailable).First(1))
+// encolarRelay encola un relay salvo que ya haya uno disponible sin empezar en su cola. Si la
+// comprobación falla, encola igual (un job de más es inofensivo); solo el error del Insert corta
+// el LISTEN.
+func encolarRelay(ctx context.Context, pool *pgxpool.Pool, cliente *river.Client[pgx.Tx], esquema string, log *slog.Logger) error {
+	hay, err := hayRelayDisponible(ctx, pool, esquema)
 	if err != nil {
-		return err
-	}
-	if len(hay.Jobs) > 0 {
+		log.WarnContext(ctx, "outbox: no se pudo ver si hay un relay disponible; se encola igual", "err", err)
+	} else if hay {
 		return nil
 	}
 	_, err = cliente.Insert(ctx, ArgsRelay{}, nil)
 	return err
+}
+
+// hayRelayDisponible dice si hay un relay en estado available en ColaRelay. Consulta propia (no
+// JobList de River): JobList ordena por id con parámetros ANY, y con plan genérico recorre la PK
+// de river_job entera (76 ms con 500 000 filas completed); esta usa el índice por estado y cola.
+// river_job no está en las migraciones goose, así que no pasa por sqlc.
+func hayRelayDisponible(ctx context.Context, pool *pgxpool.Pool, esquema string) (bool, error) {
+	var hay bool
+	err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM `+pgx.Identifier{esquema, "river_job"}.Sanitize()+`
+		WHERE state = 'available' AND queue = '`+ColaRelay+`' AND kind = $1)`, ArgsRelay{}.Kind()).Scan(&hay)
+	return hay, err
 }
