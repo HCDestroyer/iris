@@ -329,6 +329,15 @@ Diseño aprobado por el PM («compactar menús, mejor integración y que nada se
       ni repetir eventos. El indicador aparece tras dos intentos fallidos seguidos o 9 s sin poder
       conectar (primer reintento a 1 s; luego 3, 6, 12… hasta 30 s). Vale igual para el aviso de
       llamadas (usa el mismo `iniciarFeed`).
+      Excepción: si el flujo abre y se corta de golpe en menos de 3 s dos veces seguidas, sí se
+      avisa, y el aviso se queda hasta que un flujo dure.
+    - **Revisión de la PR (adjuntos):** el comentario se toma una vez al pulsar «Enviar» (la caja
+      queda vacía; lo que se escriba mientras suben es otro mensaje) y va con el primer archivo
+      junto con la respuesta rápida y la sugerencia; si la subida falla, vuelve a la caja. Con
+      archivos por enviar, cambiar de conversación pregunta («Seguir aquí» / «Salir») y al salir
+      el envío se corta. Soltar un archivo fuera de la conversación no hace nada (el navegador
+      no lo abre). Pegar texto con imagen (Excel, Word) pega el texto. Ante un 409 de la subida
+      se sigue desde el `Upload-Offset` del servidor.
 - **Pruebas de «nada cortado»:** `e2e/desbordes.ts` (`esperarSinDesbordes`) falla si la página
   se desplaza a lo ancho, si algo queda fuera de la ventana o si un texto se sale de su caja sin
   elipsis.

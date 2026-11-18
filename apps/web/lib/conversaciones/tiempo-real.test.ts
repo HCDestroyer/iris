@@ -396,6 +396,45 @@ describe("feed de la bandeja", () => {
         expect(estados).not.toContain("sin_conexion");
     });
 
+    it("un flujo que abre y se corta de golpe al poco, una y otra vez: avisa desde el segundo corte y lo quita cuando uno dura", async () => {
+        let intentos = 0;
+        const vistos: EstadoFeed[][] = [];
+        const { opciones, estados } = base({
+            abrirFlujo: async (_c, s) => {
+                intentos++;
+                vistos.push([...estados]);
+                // Tres que se cortan a los 3 ms; el cuarto se sostiene.
+                return intentos <= 3 ? flujoCortado([": latido\n\n"]) : flujoSSE([": latido\n\n"], s);
+            },
+            plazos: { ...plazos, flujoMinimo: 60 },
+        });
+        const cerrar = iniciarFeed(opciones);
+        await hasta(() => intentos >= 4);
+        // Tras el primer corte no se había dicho nada; tras el segundo, sí.
+        expect(vistos[1]).not.toContain("sin_conexion");
+        expect(vistos[2]).toContain("sin_conexion");
+        // El cuarto abre, pero no se da por bueno hasta que dura.
+        expect(estados.at(-1)).toBe("sin_conexion");
+        await hasta(() => estados.at(-1) === "en_vivo");
+        cerrar();
+        // No parpadeó entre corte y corte.
+        expect(estados.filter((e) => e === "sin_conexion")).toHaveLength(1);
+    });
+
+    it("los cierres limpios al poco de abrir (el servidor cierra bien) siguen sin avisar", async () => {
+        let intentos = 0;
+        const { opciones, estados } = base({
+            abrirFlujo: async (_c, s) => {
+                intentos++;
+                return flujoSSE([": latido\n\n"], s, true);
+            },
+        });
+        const cerrar = iniciarFeed(opciones);
+        await hasta(() => intentos >= 4);
+        cerrar();
+        expect(estados).not.toContain("sin_conexion");
+    });
+
     it("un error con estado en la lectura de la cabeza se trata igual (403 detiene)", async () => {
         let motivo = "";
         const { opciones } = base({

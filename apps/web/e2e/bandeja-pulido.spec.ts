@@ -504,6 +504,106 @@ test.describe("bandeja › adjuntar archivos con vista previa", () => {
     });
 });
 
+test.describe("bandeja › adjuntos: revisión de la PR", () => {
+    test("lo que se escribe mientras suben los archivos no sale como pie de foto; el comentario, la respuesta rápida van solo con el primero", async ({ page }) => {
+        const { api, adjuntos } = await abrir(page, undefined, {}, { demoraParteMs: 500 });
+        await compositor(page).locator('input[data-archivos="fotos"]').setInputFiles([foto("uno.png"), foto("dos.png")]);
+        // Comentario desde una respuesta rápida (lleva su id).
+        await compositor(page).getByRole("button", { name: "Visita hoy 13:30–15:00" }).click();
+        const comentario = await caja(page).inputValue();
+        expect(comentario).toContain("te enviamos un técnico hoy");
+        await compositor(page).getByRole("button", { name: /^Enviar/ }).click();
+        // La caja queda vacía al momento, y lo que se escriba ahora es otro mensaje.
+        await expect(caja(page)).toHaveValue("");
+        await caja(page).fill("Esto todavía lo estoy escribiendo");
+        await expect(vista(page)).toHaveCount(0, { timeout: 15_000 });
+        await expect.poll(() => mensajesEnviados(api).length).toBe(2);
+        const [primero, segundo] = api.conversaciones.enviados.filter((e) => e.ruta.endsWith("/41/mensajes")).map((e) => e.cuerpo as { texto?: string; adjuntoId?: string; respuestaRapidaId?: number });
+        expect(primero).toMatchObject({ adjuntoId: adjuntos.altas[0]?.id, texto: comentario, respuestaRapidaId: 1 });
+        expect(segundo?.adjuntoId).toBe(adjuntos.altas[1]?.id);
+        expect(segundo?.texto).toBeUndefined();
+        expect(segundo?.respuestaRapidaId).toBeUndefined();
+        // Lo escrito a medias sigue en la caja, sin enviar.
+        await expect(caja(page)).toHaveValue("Esto todavía lo estoy escribiendo");
+        await expect(hilo(page).getByText("Esto todavía lo estoy escribiendo")).toHaveCount(0);
+    });
+
+    test("si la subida falla, el comentario vuelve a la caja", async ({ page }) => {
+        await abrir(page, undefined, {}, { fallarPartes: 1 });
+        await compositor(page).locator('input[data-archivos="fotos"]').setInputFiles([foto("uno.png")]);
+        await caja(page).fill("Foto del poste");
+        await compositor(page).getByRole("button", { name: /^Enviar/ }).click();
+        await expect(vista(page).locator("[data-archivo]")).toHaveAttribute("data-estado", "error");
+        await expect(caja(page)).toHaveValue("Foto del poste");
+    });
+
+    test("soltar un archivo fuera de la conversación no abre el archivo (el navegador no se va del panel)", async ({ page }) => {
+        await abrir(page);
+        await expect(hilo(page)).toBeVisible();
+        const prevenidos = await page.evaluate(() => {
+            const dt = new DataTransfer();
+            dt.items.add(new File(["x"], "foto.png", { type: "image/png" }));
+            const destino = document.querySelector("header") ?? document.body;
+            return ["dragover", "drop"].map((tipo) => {
+                const e = new DragEvent(tipo, { dataTransfer: dt, bubbles: true, cancelable: true });
+                destino.dispatchEvent(e);
+                return e.defaultPrevented;
+            });
+        });
+        expect(prevenidos).toEqual([true, true]);
+        // Arrastrar texto (no archivos) sigue como siempre.
+        expect(
+            await page.evaluate(() => {
+                const dt = new DataTransfer();
+                dt.setData("text/plain", "hola");
+                const e = new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true });
+                document.body.dispatchEvent(e);
+                return e.defaultPrevented;
+            }),
+        ).toBe(false);
+        await expect(vista(page)).toHaveCount(0);
+        await expect(page).toHaveURL(/\/conversaciones\?c=41/);
+    });
+
+    test("con archivos por enviar, cambiar de conversación pregunta antes: «Seguir aquí» se queda y «Salir» sale sin enviar nada", async ({ page }) => {
+        const { api, adjuntos } = await abrir(page);
+        await compositor(page).locator('input[data-archivos="fotos"]').setInputFiles([foto("uno.png")]);
+        await expect(vista(page).locator("[data-archivo]")).toHaveCount(1);
+        const irAOtra = async () => {
+            if (esTelefono(page)) await page.getByRole("link", { name: "Volver a las conversaciones" }).click();
+            else await page.locator('[data-conversacion="42"]').click();
+        };
+        await irAOtra();
+        const pregunta = page.getByRole("alertdialog").or(page.getByRole("dialog")).filter({ hasText: "Hay archivos sin enviar" });
+        await expect(pregunta).toBeVisible();
+        await pregunta.getByRole("button", { name: "Seguir aquí" }).click();
+        await expect(pregunta).toHaveCount(0);
+        await expect(vista(page).locator("[data-archivo]")).toHaveCount(1);
+        await expect(page).toHaveURL(/c=41/);
+        await irAOtra();
+        await pregunta.getByRole("button", { name: "Salir" }).click();
+        await expect(page).not.toHaveURL(/c=41/);
+        expect(adjuntos.altas).toHaveLength(0);
+        expect(mensajesEnviados(api)).toHaveLength(0);
+    });
+
+    test("pegar desde Excel o Word (texto e imagen a la vez) pega el texto y no adjunta la imagen", async ({ page }) => {
+        await abrir(page);
+        const bytes = [...png(24, 24)];
+        const prevenido = await caja(page).evaluate((el, datos) => {
+            const dt = new DataTransfer();
+            dt.setData("text/plain", "Plan\tPrecio\nFibra 100\tQ250");
+            dt.items.add(new File([new Uint8Array(datos)], "image.png", { type: "image/png" }));
+            const e = new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true });
+            el.dispatchEvent(e);
+            return e.defaultPrevented;
+        }, bytes);
+        // No se intercepta: el navegador pega el texto.
+        expect(prevenido).toBe(false);
+        await expect(vista(page)).toHaveCount(0);
+    });
+});
+
 test.describe("bandeja › un corte breve del tiempo real no es «Sin conexión»", () => {
     /** Anota en la página si «Sin conexión» llegó a pintarse alguna vez. */
     const vigilar = (page: Page) =>
@@ -587,8 +687,9 @@ test.describe("bandeja › boleta y promesa contra Argos", () => {
                 if (route.request().method() !== "POST") return route.fallback();
                 claves.push(await route.request().headerValue("idempotency-key"));
                 const estado = respuestas[claves.length - 1] ?? 409;
-                const codigo = estado === 503 ? "argos_no_disponible" : "cliente_cambiado";
-                await route.fulfill({ status: estado, contentType: "application/problem+json", body: JSON.stringify({ type: `urn:iris:problema:${codigo}`, title: "No se pudo", status: estado }) });
+                const codigo = estado === 503 ? "argos_no_disponible" : "promesa_ya_enviada";
+                const detail = estado === 503 ? undefined : "Esta promesa ya se había enviado a Argos con otros datos. Revísala en Argos antes de pedirla otra vez.";
+                await route.fulfill({ status: estado, contentType: "application/problem+json", body: JSON.stringify({ type: `urn:iris:problema:${codigo}`, title: "No se pudo", status: estado, detail }) });
             });
         });
         if (esTelefono(page)) await conv(page).getByRole("button", { name: "Ver la ficha del cliente" }).click();
@@ -602,6 +703,8 @@ test.describe("bandeja › boleta y promesa contra Argos", () => {
             await expect.poll(() => claves.length).toBe(n);
             await expect(dialogo.getByRole("alert").or(dialogo.locator('[data-slot="aviso"]')).first()).toBeVisible();
         }
+        // El 409 `promesa_ya_enviada` se explica con el texto del servidor.
+        await expect(dialogo).toContainText("Esta promesa ya se había enviado a Argos con otros datos.");
         expect(claves.every((c) => c && c.length > 8)).toBe(true);
         // 503 → misma clave; 503 → misma; 409 → otra.
         expect(claves[1]).toBe(claves[0]);

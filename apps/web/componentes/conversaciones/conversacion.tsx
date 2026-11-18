@@ -337,8 +337,8 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
 
     const tono = tonoDeCanal(conv.canal);
     const traeArchivos = (e: DragEvent<HTMLElement>) => e.dataTransfer.types.includes("Files");
-    const arrastre =
-        responde && textoVentana(conv.ventana, ahora) !== null
+    const aceptaArchivos = responde && textoVentana(conv.ventana, ahora) !== null;
+    const arrastre = aceptaArchivos
             ? {
                   onDragEnter: (e: DragEvent<HTMLElement>) => {
                       if (!traeArchivos(e)) return;
@@ -384,7 +384,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
     );
     return (
         <>
-            <section ref={refSeccion} aria-label={`Conversación con ${conv.titulo}`} className="@container/conv relative flex min-h-0 min-w-0 flex-col" {...arrastre}>
+            <section ref={refSeccion} aria-label={`Conversación con ${conv.titulo}`} className="@container/conv relative flex min-h-0 min-w-0 flex-col" data-zona-soltar={aceptaArchivos ? "" : undefined} {...arrastre}>
                 {soltando ? (
                     <div data-slot="soltar-archivos" className="pointer-events-none absolute inset-2 z-20 flex flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-primary bg-background/90 p-4 text-center text-sm font-semibold text-primary">
                         <Paperclip aria-hidden className="size-6" />

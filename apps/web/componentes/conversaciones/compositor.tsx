@@ -1,8 +1,9 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AreaTexto, Boton, CampoBusqueda, Casilla, cn, GrupoSegmentado, MenuArchivos, PanelEmergente, VistaPreviaArchivos, type ArchivoEnVista, type OpcionArchivo } from "@iris/ui";
+import { AreaTexto, Boton, CampoBusqueda, Casilla, cn, DialogoConfirmar, GrupoSegmentado, MenuArchivos, PanelEmergente, useProteccionSalida, VistaPreviaArchivos, type ArchivoEnVista, type OpcionArchivo } from "@iris/ui";
 import { AtSign, BookOpen, Camera, Clock, FileText, Image as IconoImagen, Send, Smile, X, Zap } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ClipboardEvent, type KeyboardEvent, type ReactNode } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
@@ -105,6 +106,13 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
     const [enviandoArchivos, setEnviandoArchivos] = useState(false);
     const enviandoAhora = useRef(false);
     const tactil = useTactil();
+    const router = useRouter();
+    // Con archivos por enviar o subiendo, cambiar de conversación (o salir) pregunta antes: al
+    // salir, el envío se corta y lo que quede no sale.
+    const proteccion = useProteccionSalida(
+        elegidos.some((x) => x.estado !== "invalido"),
+        (ruta) => router.push(ruta, { scroll: false }),
+    );
     const campo = useRef<HTMLTextAreaElement | null>(null);
     const ventana = textoVentana(conv.ventana, ahora);
     const cerrada = ventana === null;
@@ -263,13 +271,15 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
         if (url) URL.revokeObjectURL(url);
         cambiarElegidos((l) => l.filter((x) => x.id !== id));
     }
-    // Al cerrar la conversación se liberan las vistas previas que quedaron.
-    useEffect(
-        () => () => {
+    // Al cerrar la conversación se corta el envío en curso y se liberan las vistas previas que quedaron.
+    const montado = useRef(true);
+    useEffect(() => {
+        montado.current = true;
+        return () => {
+            montado.current = false;
             for (const x of elegidosAhora.current) if (x.url) URL.revokeObjectURL(x.url);
-        },
-        [],
-    );
+        };
+    }, []);
 
     /** Del menú, del portapapeles o soltados sobre el hilo: a la vista previa, sin subir nada todavía. */
     function agregarArchivos(archivos: File[]) {
@@ -300,29 +310,58 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
         enviandoAhora.current = true;
         setEnviandoArchivos(true);
         setError(null);
+        // El comentario se toma UNA vez, al empezar, y la caja queda vacía: lo que se escriba mientras
+        // suben los archivos es otro mensaje y nunca sale como pie de una foto. Va solo con el primer
+        // archivo, con la respuesta rápida y la sugerencia del asistente que traía.
+        let pie: { texto: string; respuestaRapidaId: number | null; sugerenciaId: string | null } | null = {
+            texto: form.getValues("texto").trim(),
+            respuestaRapidaId: respuestaId,
+            sugerenciaId,
+        };
+        form.reset({ texto: "" });
+        guardarBorrador(identidad, conv.id, "responder", "");
+        setRespuestaId(null);
+        setSugerenciaId(null);
+        /** Si se detiene antes de usarlo, el comentario vuelve a la caja (delante de lo que haya). */
+        const devolverPie = () => {
+            if (!pie || !montado.current) return;
+            const escrito = form.getValues("texto");
+            if (pie.texto) form.setValue("texto", escrito.trim() ? `${pie.texto}\n\n${escrito}` : pie.texto, { shouldDirty: true });
+            setRespuestaId(pie.respuestaRapidaId);
+            setSugerenciaId(pie.sugerenciaId);
+            pie = null;
+        };
         try {
             await verificarSesion(identidad);
             for (const id of elegidosAhora.current.filter((x) => x.estado !== "invalido").map((x) => x.id)) {
+                // Se salió de la conversación a mitad: no se sube ni se envía nada más.
+                if (!montado.current) return;
                 const actual = elegidosAhora.current.find((x) => x.id === id);
                 if (!actual) continue;
                 actualizarElegido(id, { estado: "subiendo", mensaje: undefined });
                 let adjuntoId: string;
                 try {
-                    adjuntoId = await subirAdjunto(actual.archivo, conv.id, { avance: actual.avance, alAvanzar: (progreso) => actualizarElegido(id, { progreso }) });
+                    adjuntoId = await subirAdjunto(actual.archivo, conv.id, { avance: actual.avance, alAvanzar: (progreso) => actualizarElegido(id, { progreso }), seguir: () => montado.current });
                 } catch (err) {
+                    if (!montado.current) return;
                     actualizarElegido(id, { estado: "error", mensaje: esSesionCambiada(err) ? "La sesión de este navegador cambió: no se subió." : `No se pudo subir: ${mensajeDeError(err).titulo}` });
+                    devolverPie();
                     return;
                 }
+                if (!montado.current) return;
                 actualizarElegido(id, { estado: "enviando", progreso: 1 });
-                const comentario = form.getValues("texto").trim();
-                const e: Envio = { id: nuevoIdMensaje(), modo: "responder", texto: comentario, menciones: [], respuestaRapidaId: null, adjuntoId, nombreArchivo: actual.archivo.name };
+                const e: Envio = {
+                    id: nuevoIdMensaje(),
+                    modo: "responder",
+                    texto: pie?.texto ?? "",
+                    menciones: [],
+                    respuestaRapidaId: pie?.respuestaRapidaId ?? null,
+                    adjuntoId,
+                    sugerenciaId: pie?.sugerenciaId ?? null,
+                    nombreArchivo: actual.archivo.name,
+                };
+                pie = null;
                 envios.current.set(e.id, e);
-                if (comentario) {
-                    form.reset({ texto: "" });
-                    guardarBorrador(identidad, conv.id, "responder", "");
-                    setRespuestaId(null);
-                    setSugerenciaId(null);
-                }
                 const enviado = await mandar(e);
                 // Ya está en el hilo (enviado, o pendiente con su «Reintentar»).
                 quitarElegido(id);
@@ -332,18 +371,25 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                 }
             }
         } catch (err) {
+            if (!montado.current) return;
             setError(esSesionCambiada(err) ? "La sesión de este navegador cambió: no se subió nada." : `No se pudo enviar: ${mensajeDeError(err).titulo}`);
             cambiarElegidos((l) => l.map((x) => (x.estado === "subiendo" || x.estado === "enviando" ? { ...x, estado: "listo" } : x)));
+            devolverPie();
         } finally {
             enviandoAhora.current = false;
-            setEnviandoArchivos(false);
+            if (montado.current) setEnviandoArchivos(false);
         }
     }
 
-    /** Pegar una imagen (o un archivo) del portapapeles: a la vista previa. El texto se pega como siempre. */
+    /**
+     * Pegar una imagen (o un archivo) del portapapeles: a la vista previa. Si el portapapeles trae
+     * también texto (Excel y Word copian las celdas como texto **y** como imagen), se pega el texto
+     * como siempre y la imagen no se adjunta.
+     */
     function alPegar(e: ClipboardEvent<HTMLTextAreaElement>) {
         const archivos = [...e.clipboardData.files];
         if (archivos.length === 0) return;
+        if (e.clipboardData.types.includes("text/plain") && e.clipboardData.getData("text/plain").trim() !== "") return;
         e.preventDefault();
         agregarArchivos(archivos);
     }
@@ -386,6 +432,16 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
 
     return (
         <div className="shrink-0 px-3 pt-2 pb-3 @min-[700px]/conv:px-3.5" data-slot="compositor">
+            <DialogoConfirmar
+                open={proteccion.pendiente !== null}
+                onOpenChange={(abierto) => !abierto && proteccion.seguir()}
+                titulo={enviandoArchivos ? "Todavía se están enviando archivos" : "Hay archivos sin enviar"}
+                descripcion={enviandoArchivos ? "Si sales ahora, el envío se corta: lo que no haya salido no se envía." : "Si sales ahora, los archivos que elegiste no se envían."}
+                textoCancelar="Seguir aquí"
+                textoConfirmar="Salir"
+                peligro
+                alConfirmar={proteccion.confirmar}
+            />
             {modo === "responder" && !cerrada && deLaCola.length > 0 ? (
                 <div
                     role="group"

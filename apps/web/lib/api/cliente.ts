@@ -203,8 +203,10 @@ export function claveTrasError(error: unknown, actual: string): string {
 
 /**
  * Lo mismo, para acciones que pasan por Argos: un 503 `argos_no_disponible` dice que Argos no
- * contestó y que no quedó nada a medias, así que el reintento va con la misma clave (si el primer
- * intento sí llegó, Argos no lo duplica). Con cualquier otra respuesta (un 409, p. ej.), clave nueva.
+ * contestó a tiempo, y eso incluye un tiempo agotado en el que la operación **pudo** llegar a Argos.
+ * Por eso el reintento va con la misma clave: si el primer intento sí llegó, Argos no la duplica (y
+ * si entre medias se cambió algún dato, responde 409 `promesa_ya_enviada` con su explicación). Con
+ * cualquier otra respuesta (un 409, p. ej.), clave nueva.
  */
 export function claveTrasErrorDeArgos(error: unknown, actual: string): string {
     return error instanceof ErrorApi && error.estado === 503 && error.codigo === "argos_no_disponible" ? actual : claveTrasError(error, actual);

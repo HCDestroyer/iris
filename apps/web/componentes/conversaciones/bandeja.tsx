@@ -142,6 +142,23 @@ export function Bandeja() {
         navegarRef.current = navegar;
     });
 
+    // Soltar un archivo fuera de la conversación (la lista, la ficha, una conversación con la ventana
+    // cerrada) haría que el navegador lo abriera y sacara a la persona del panel: aquí no pasa nada.
+    useEffect(() => {
+        const sinAbrir = (e: DragEvent) => {
+            if (!e.dataTransfer?.types.includes("Files")) return;
+            e.preventDefault();
+            // Fuera de la zona de soltar (que ya puso «copiar»), el cursor dice que ahí no se puede.
+            if (e.type === "dragover" && !(e.target instanceof Element && e.target.closest("[data-zona-soltar]"))) e.dataTransfer.dropEffect = "none";
+        };
+        window.addEventListener("dragover", sinAbrir);
+        window.addEventListener("drop", sinAbrir);
+        return () => {
+            window.removeEventListener("dragover", sinAbrir);
+            window.removeEventListener("drop", sinAbrir);
+        };
+    }, []);
+
     useEffect(() => {
         let primera = true;
         // Un solo flujo por pestaña: la voz (llamadas entrantes) escucha este mismo feed.

@@ -882,7 +882,7 @@ function DialogoPromesa({ conv, cerrar }: { conv: ConversacionDetalle; cerrar: (
                             avisar({ titulo: r.estado === "activa" ? "Promesa registrada en Argos" : r.estado === "pendiente_aprobacion" ? "Promesa enviada: espera aprobación en Argos" : "Argos rechazó la promesa" });
                             cerrar();
                         } catch (e) {
-                            // Argos no contestó (503): el reintento lleva la misma clave para no pedirla dos veces.
+                            // Argos no contestó a tiempo (503; pudo llegarle): el reintento lleva la misma clave para no pedirla dos veces.
                             clave.trasErrorDeArgos(e);
                             if (!erroresACampos(e, ["servicioId", "venceEl"], form.setError)) setError(e);
                         }
@@ -905,7 +905,7 @@ function DialogoPromesa({ conv, cerrar }: { conv: ConversacionDetalle; cerrar: (
                     {error ? (
                         <Aviso tono="error" titulo={error instanceof ErrorApi && error.codigo === "argos_no_disponible" ? "Argos no responde" : error instanceof ErrorApi && error.codigo === "cliente_cambiado" ? "El cliente cambió mientras Argos respondía" : "No se pudo"}>
                             {error instanceof ErrorApi && error.codigo === "argos_no_disponible"
-                                ? "No quedó nada a medias. Vuelve a intentarlo en un momento."
+                                ? "Vuelve a intentarlo en un momento: si ya había llegado a Argos, no se registra dos veces."
                                 : error instanceof ErrorApi && error.codigo === "cliente_cambiado"
                                   ? "Revisa en Argos si la promesa quedó registrada antes de volver a pedirla."
                                   : error instanceof ErrorApi && error.codigo === "cliente_sin_confirmar"

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { claseDeArchivo, MAX_ADJUNTO, motivoArchivoInvalido, nuevaSubida, PARTE, subirAdjunto, tipoLegible } from "./adjuntar";
+import { claseDeArchivo, MAX_ADJUNTO, motivoArchivoInvalido, nuevaSubida, offsetValido, PARTE, SubidaCortada, subirAdjunto, tipoLegible } from "./adjuntar";
 
 const archivo = (nombre: string, tipo: string, tamano: number) => new File([new Uint8Array(tamano)], nombre, { type: tipo });
 
@@ -41,7 +41,8 @@ describe("subida por partes", () => {
 
     // El cliente de la API se crea una vez y se queda con `fetch`: un solo doble para todo el archivo.
     let llamadas: Llamada[] = [];
-    let fallar: (n: number, l: Llamada) => number | null = () => null;
+    type Fallo = number | { estado: number; offset?: string } | null;
+    let fallar: (n: number, l: Llamada) => Fallo = () => null;
     beforeAll(() => {
         vi.stubGlobal("fetch", async (entrada: Request | string | URL, inicio?: RequestInit) => {
             const peticion = entrada instanceof Request ? entrada : new Request(String(entrada), inicio);
@@ -55,15 +56,24 @@ describe("subida por partes", () => {
                 cuerpo: esAlta ? JSON.parse(new TextDecoder().decode(datos)) : null,
             };
             llamadas.push(l);
-            const estado = fallar(llamadas.length, l);
-            if (estado) return new Response(JSON.stringify({ type: "urn:iris:problema:x", title: "Falló", status: estado }), { status: estado, headers: { "Content-Type": "application/problem+json" } });
+            const fallo = fallar(llamadas.length, l);
+            const estado = typeof fallo === "number" ? fallo : (fallo?.estado ?? null);
+            const offset = typeof fallo === "object" && fallo ? fallo.offset : undefined;
+            // HEAD: por dónde va el servidor (sin cuerpo).
+            if (peticion.method === "HEAD") return new Response(null, { status: estado ?? 200, headers: offset === undefined ? {} : { "Upload-Offset": offset } });
+            if (estado) {
+                return new Response(JSON.stringify({ type: "urn:iris:problema:x", title: "Falló", status: estado }), {
+                    status: estado,
+                    headers: { "Content-Type": "application/problem+json", ...(offset === undefined ? {} : { "Upload-Offset": offset }) },
+                });
+            }
             return esAlta ? new Response(JSON.stringify({ id: "x" }), { status: 201, headers: { "Content-Type": "application/json" } }) : new Response(null, { status: 204 });
         });
     });
     afterAll(() => vi.unstubAllGlobals());
 
     /** API falsa: anota las llamadas; `fallo` decide el estado de cada una (por orden). */
-    function conApi(fallo: (n: number, l: Llamada) => number | null = () => null) {
+    function conApi(fallo: (n: number, l: Llamada) => Fallo = () => null) {
         llamadas = [];
         fallar = fallo;
         return llamadas;
@@ -107,16 +117,61 @@ describe("subida por partes", () => {
         expect(llamadas.filter((l) => l.metodo === "PATCH").map((l) => l.offset)).toEqual(["0", String(PARTE), String(PARTE), String(PARTE * 2)]);
     });
 
-    it("409 (el servidor va por otro lado): empieza de cero con un id nuevo, una sola vez", async () => {
-        const llamadas = conApi((n) => (n === 2 ? 409 : null));
+    it("409 con `Upload-Offset`: sigue desde donde dice el servidor, sin registrar otro adjunto", async () => {
+        // La 1.ª parte llegó pero su respuesta se perdió: el panel reintenta desde 0 y el servidor dice «voy por PARTE».
+        const llamadas = conApi((n) => (n === 2 ? { estado: 409, offset: String(PARTE) } : null));
         const avance = nuevaSubida();
         const primero = avance.id;
+        const id = await subirAdjunto(archivo("plano.png", "image/png", PARTE * 2 + 100), 41, { avance });
+        expect(id).toBe(primero);
+        expect(llamadas.filter((l) => l.metodo === "POST")).toHaveLength(1);
+        expect(llamadas.filter((l) => l.metodo === "PATCH").map((l) => [l.offset, l.bytes])).toEqual([
+            ["0", PARTE],
+            [String(PARTE), PARTE],
+            [String(PARTE * 2), 100],
+        ]);
+    });
+
+    it("409 sin cabecera: pregunta con HEAD y sigue desde ahí; si ya estaba completo, termina", async () => {
+        const llamadas = conApi((n, l) => (l.metodo === "HEAD" ? { estado: 200, offset: "300" } : n === 2 ? 409 : null));
+        const avance = nuevaSubida();
         const id = await subirAdjunto(archivo("foto.png", "image/png", 300), 41, { avance });
-        expect(id).not.toBe(primero);
-        expect(llamadas.map((l) => l.metodo)).toEqual(["POST", "PATCH", "POST", "PATCH"]);
-        expect((llamadas[2]?.cuerpo as { id: string }).id).toBe(id);
-        // Si vuelve a pasar, se rinde (no entra en bucle).
-        conApi((n) => (n % 2 === 0 ? 409 : null));
+        expect(id).toBe(avance.id);
+        expect(llamadas.map((l) => l.metodo)).toEqual(["POST", "PATCH", "HEAD"]);
+        expect(avance.enviado).toBe(300);
+    });
+
+    it("409 con un offset que no sirve (mayor que el archivo, negativo, texto) y sin HEAD: adjunto nuevo de cero, una sola vez", async () => {
+        for (const offset of ["999999", "-1", "abc"]) {
+            const llamadas = conApi((n, l) => (l.metodo === "HEAD" ? 404 : n === 2 ? { estado: 409, offset } : null));
+            const avance = nuevaSubida();
+            const primero = avance.id;
+            const id = await subirAdjunto(archivo("foto.png", "image/png", 300), 41, { avance });
+            expect(id).not.toBe(primero);
+            expect(llamadas.map((l) => l.metodo)).toEqual(["POST", "PATCH", "HEAD", "POST", "PATCH"]);
+            expect((llamadas[3]?.cuerpo as { id: string }).id).toBe(id);
+        }
+        // Si no hay forma de avanzar, se rinde (no entra en bucle).
+        conApi((_n, l) => (l.metodo === "PATCH" ? 409 : l.metodo === "HEAD" ? 404 : null));
         await expect(subirAdjunto(archivo("foto.png", "image/png", 300), 41)).rejects.toMatchObject({ estado: 409 });
+    });
+
+    it("un servidor que siempre responde 409 con el mismo offset no deja la subida en bucle", async () => {
+        const llamadas = conApi((_n, l) => (l.metodo === "PATCH" ? { estado: 409, offset: "0" } : l.metodo === "HEAD" ? 404 : null));
+        await expect(subirAdjunto(archivo("foto.png", "image/png", 300), 41)).rejects.toMatchObject({ estado: 409 });
+        expect(llamadas.length).toBeLessThan(12);
+    });
+
+    it("`offsetValido`: solo enteros entre 0 y el tamaño", () => {
+        expect(offsetValido("0", 10)).toBe(0);
+        expect(offsetValido("10", 10)).toBe(10);
+        for (const malo of [null, "", "11", "-1", "1.5", "1e3", "abc", "0x10"]) expect(offsetValido(malo, 10)).toBeNull();
+    });
+
+    it("`seguir` en falso corta antes de mandar la siguiente parte", async () => {
+        const llamadas = conApi();
+        let partes = 0;
+        await expect(subirAdjunto(archivo("plano.png", "image/png", PARTE * 3), 41, { seguir: () => partes++ < 1 })).rejects.toBeInstanceOf(SubidaCortada);
+        expect(llamadas.filter((l) => l.metodo === "PATCH")).toHaveLength(1);
     });
 });

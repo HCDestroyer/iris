@@ -1,5 +1,5 @@
 import { api, resolver } from "../api/cliente";
-import { ErrorApi } from "../api/errores";
+import { errorDesdeRespuesta, errorSinConexion } from "../api/errores";
 import { nuevoIdMensaje } from "./api";
 
 /*
@@ -65,14 +65,32 @@ type OpcionesSubida = {
     avance?: AvanceSubida;
     /** Fracción subida, de 0 a 1. */
     alAvanzar?: (fraccion: number) => void;
+    /** Se pregunta antes de cada parte: `false` corta la subida (quien la pidió ya no está). */
+    seguir?: () => boolean;
 };
+
+/** La subida se cortó porque quien la pidió ya no la quiere (`seguir` devolvió `false`). */
+export class SubidaCortada extends Error {}
+
+/** `Upload-Offset` de una respuesta, si es un entero entre 0 y `tamano`. */
+export function offsetValido(cabecera: string | null, tamano: number): number | null {
+    if (cabecera === null || !/^\d{1,15}$/.test(cabecera.trim())) return null;
+    const n = Number(cabecera.trim());
+    return n <= tamano ? n : null;
+}
+
+/** Tope de veces que se le pregunta al servidor por dónde va (para no entrar en bucle). */
+const MAX_REANUDACIONES = 3;
 
 /**
  * Registra y sube el archivo por partes; devuelve el id del adjunto ya completo. Si falla, `avance`
  * queda con lo que el servidor ya recibió: llamarla otra vez con el mismo `avance` sigue desde ahí.
- * Si el servidor dice que va por otro lado (409), se empieza de cero con un id nuevo, una vez.
+ *
+ * 409 `offset_distinto` (una parte llegó y su respuesta no): se sigue desde el `Upload-Offset` que
+ * dice el servidor (el de la respuesta o, si no viene, el de `HEAD`), validado entre 0 y el tamaño.
+ * Solo si no se puede saber se registra un adjunto nuevo y se empieza de cero, una vez.
  */
-export async function subirAdjunto(archivo: File, conversacionId: number, { avance = nuevaSubida(), alAvanzar }: OpcionesSubida = {}): Promise<string> {
+export async function subirAdjunto(archivo: File, conversacionId: number, { avance = nuevaSubida(), alAvanzar, seguir }: OpcionesSubida = {}): Promise<string> {
     const datos = await archivo.arrayBuffer();
     const registrar = async () => {
         const sha256 = await sha256Hex(datos);
@@ -92,24 +110,41 @@ export async function subirAdjunto(archivo: File, conversacionId: number, { avan
         avance.registrado = true;
         avance.enviado = 0;
     };
+    /** Por dónde va el servidor: la cabecera del 409 o, si no la trae, `HEAD`. */
+    const offsetDelServidor = async (respuesta: Response): Promise<number | null> => {
+        const directo = offsetValido(respuesta.headers.get("Upload-Offset"), datos.byteLength);
+        if (directo !== null) return directo;
+        try {
+            const { response } = await api().HEAD("/api/v1/adjuntos/{id}/subida", { params: { path: { id: avance.id }, header: { "Tus-Resumable": "1.0.0" } } });
+            return response.ok ? offsetValido(response.headers.get("Upload-Offset"), datos.byteLength) : null;
+        } catch {
+            return null;
+        }
+    };
     if (!avance.registrado) await registrar();
     alAvanzar?.(datos.byteLength ? avance.enviado / datos.byteLength : 0);
+    let reanudaciones = 0;
     let reinicios = 0;
     while (avance.enviado < datos.byteLength) {
+        if (seguir && !seguir()) throw new SubidaCortada("Subida cortada");
         const parte = datos.slice(avance.enviado, Math.min(avance.enviado + PARTE, datos.byteLength));
+        let resultado: Awaited<ReturnType<typeof enviarParte>>;
         try {
-            await resolver(
-                api().PATCH("/api/v1/adjuntos/{id}/subida", {
-                    params: { path: { id: avance.id }, header: { "Tus-Resumable": "1.0.0", "Upload-Offset": avance.enviado } },
-                    // El OpenAPI declara el cuerpo como texto binario: van los bytes tal cual (como packages/sync).
-                    body: "",
-                    bodySerializer: () => parte,
-                    headers: { "Content-Type": "application/offset+octet-stream" },
-                }),
-            );
-        } catch (error) {
-            // El servidor va por otro lado (una parte llegó y su respuesta no): se vuelve a empezar, una vez.
-            if (error instanceof ErrorApi && error.estado === 409 && reinicios === 0) {
+            resultado = await enviarParte(avance.id, avance.enviado, parte);
+        } catch (causa) {
+            throw errorSinConexion(causa);
+        }
+        const { response, error } = resultado;
+        if (response.status === 409) {
+            const offset = reanudaciones < MAX_REANUDACIONES ? await offsetDelServidor(response) : null;
+            if (offset !== null) {
+                reanudaciones++;
+                avance.enviado = offset;
+                alAvanzar?.(datos.byteLength ? offset / datos.byteLength : 1);
+                continue;
+            }
+            // No se sabe por dónde va: un adjunto nuevo, de cero, una sola vez.
+            if (reinicios === 0) {
                 reinicios++;
                 avance.id = nuevoIdMensaje();
                 avance.registrado = false;
@@ -117,10 +152,20 @@ export async function subirAdjunto(archivo: File, conversacionId: number, { avan
                 alAvanzar?.(0);
                 continue;
             }
-            throw error;
         }
+        if (!response.ok) throw errorDesdeRespuesta(response, error);
         avance.enviado += parte.byteLength;
         alAvanzar?.(avance.enviado / datos.byteLength);
     }
     return avance.id;
+}
+
+function enviarParte(id: string, offset: number, parte: ArrayBuffer) {
+    return api().PATCH("/api/v1/adjuntos/{id}/subida", {
+        params: { path: { id }, header: { "Tus-Resumable": "1.0.0", "Upload-Offset": offset } },
+        // El OpenAPI declara el cuerpo como texto binario: van los bytes tal cual (como packages/sync).
+        body: "",
+        bodySerializer: () => parte,
+        headers: { "Content-Type": "application/offset+octet-stream" },
+    });
 }
