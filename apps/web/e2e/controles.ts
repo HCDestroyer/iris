@@ -127,12 +127,17 @@ export async function cerrarOpciones(page: Page): Promise<void> {
 
 /** Abre la lista de un `Autocompletar` si está cerrada (flecha abajo) y la devuelve. */
 export async function abrirSugerencias(campo: Locator): Promise<Locator> {
+    // La lista se da por abierta cuando el campo ya dice cuál es (`aria-controls`): React Aria lo
+    // pone un instante después de `aria-expanded`, y leerlo antes devolvía un localizador vacío
+    // (`[id=""]`) que no encuentra nada aunque la lista esté a la vista.
+    let idLista = "";
     await expect(async () => {
         if ((await campo.getAttribute("aria-expanded")) !== "true") await campo.press("ArrowDown");
         expect(await campo.getAttribute("aria-expanded")).toBe("true");
+        idLista = (await campo.getAttribute("aria-controls")) ?? "";
+        expect(idLista).not.toBe("");
     }).toPass({ intervals: [100, 200, 400] });
-    const idLista = await campo.getAttribute("aria-controls");
-    return campo.page().locator(`[id="${idLista ?? ""}"]`);
+    return campo.page().locator(`[id="${idLista}"]`);
 }
 
 /** Escribe en un `Autocompletar` y deja su lista abierta (con los resultados que lleguen). */
