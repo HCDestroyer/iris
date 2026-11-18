@@ -4,7 +4,7 @@ import type { Schema } from "@iris/contratos";
 import { avisar, Aviso, Boton, cn, Esqueleto, EstadoVacio, Tarjeta } from "@iris/ui";
 import { BookOpen, Building2, CalendarClock, Cloud, Code, Eye, History, KeyRound, MessageCircle, Phone, Plus, Power, QrCode, Share2, SlidersHorizontal, Smartphone } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { EstadoConexion } from "@/componentes/numeros/estado-conexion";
@@ -51,6 +51,9 @@ const AREAS_SIN_CONEXION = cn(
  * API, y sus credenciales; con `canales.configurar`, «Configurar» y «Compartir» con otras empresas
  * (contrato §15.3). Un número prestado por otra empresa dice de quién es y solo se ve su detalle.
  */
+/** Lo mínimo entre dos relecturas de fondo de la lista (al volver a la pestaña). */
+const RELECTURA_MIN_MS = 20_000;
+
 export function ListaNumeros() {
     const { yo, puede } = useSesion();
     const credenciales = puede(["mensajeria.configurar"]);
@@ -93,16 +96,18 @@ export function ListaNumeros() {
     // Un envío rechazado marca el número («Token vencido», «Sin permiso en Meta») y el primero que
     // Meta acepta lo devuelve a «Conectado», sin pulsar «Probar» (§1.1): al volver a esta pestaña se
     // relee la lista, para no quedarse con un estado viejo. En silencio: si falla, queda lo que había.
-    const { reemplazar } = lectura;
-    const listo = lectura.estado === "listo";
+    const { refrescar } = lectura;
+    const ultimaRelectura = useRef(0);
     useEffect(() => {
-        if (!listo) return;
         const alVerse = () => {
-            if (document.visibilityState === "visible") leer().then(reemplazar, () => undefined);
+            // Como mucho una cada `RELECTURA_MIN_MS`, y nunca dos a la vez (lo cuida `refrescar`).
+            if (document.visibilityState !== "visible" || Date.now() - ultimaRelectura.current < RELECTURA_MIN_MS) return;
+            ultimaRelectura.current = Date.now();
+            void refrescar({ silencioso: true });
         };
         document.addEventListener("visibilitychange", alVerse);
         return () => document.removeEventListener("visibilitychange", alVerse);
-    }, [leer, reemplazar, listo]);
+    }, [refrescar]);
 
     async function activar(f: Fila) {
         setErrorAccion(null);

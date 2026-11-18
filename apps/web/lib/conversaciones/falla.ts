@@ -7,7 +7,8 @@ import type { Schema } from "@iris/contratos";
  */
 
 type CodigoFalla = Schema<"CodigoFalla">;
-type MensajeFallido = { estadoEntrega?: string | null | undefined; motivoFalla?: string | null | undefined; codigoFalla?: CodigoFalla | undefined };
+/** Lo que hace falta del mensaje, con los tipos del contrato (`motivoFalla` es un texto abierto en el OpenAPI). */
+type MensajeFallido = Pick<Schema<"MensajeConversacion">, "estadoEntrega" | "motivoFalla" | "codigoFalla">;
 
 export type ExplicacionFalla = {
     texto: string;
@@ -34,7 +35,9 @@ export function textoCodigoFalla(c: CodigoFalla | null | undefined): string | nu
  */
 export function explicarFalla(m: MensajeFallido, administra: boolean): ExplicacionFalla | null {
     if (m.estadoEntrega !== "fallido") return null;
-    const codigo = textoCodigoFalla(m.codigoFalla);
+    // El código es solo para quien administra los números. El servidor ya no se lo manda a los
+    // demás; aquí tampoco se pinta aunque llegara.
+    const codigo = administra ? textoCodigoFalla(m.codigoFalla) : null;
     switch (m.motivoFalla) {
         case "token_invalido":
             return {

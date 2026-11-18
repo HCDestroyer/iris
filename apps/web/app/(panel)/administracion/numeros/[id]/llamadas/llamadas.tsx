@@ -187,7 +187,8 @@ function Formulario({ numero, llamadas, colas, horarios, alCambiar, alRecargar }
         }
     }
 
-    const conflicto = error instanceof ErrorApi && error.estado === 409;
+    // Solo el conflicto de versión es «cambiaron mientras tanto»; otro 409 se dice con su propio texto.
+    const conflicto = error instanceof ErrorApi && error.codigo === "conflicto_version";
     const sinRequisitos = error instanceof ErrorApi && error.codigo === "requisitos_sin_cumplir";
     return (
         <FormularioPagina

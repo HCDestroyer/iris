@@ -3,7 +3,7 @@ import { explicarFalla, textoCodigoFalla } from "./falla";
 import { textoRechazadasApagadas } from "../voz/presentacion";
 import { motivoFalla, textoEntrega } from "./presentacion";
 
-const fallido = (motivo: string | null, codigoFalla?: { status: number | null; codigo: number | null; subcodigo: number | null }) => ({ estadoEntrega: "fallido", motivoFalla: motivo, ...(codigoFalla ? { codigoFalla } : {}) });
+const fallido = (motivo: string | null, codigoFalla?: { status: number | null; codigo: number | null; subcodigo: number | null }) => ({ estadoEntrega: "fallido" as const, motivoFalla: motivo, ...(codigoFalla ? { codigoFalla } : {}) });
 
 describe("por qué no se envió un mensaje", () => {
     it("token rechazado: al agente, que avise; a quien administra, a dónde ir", () => {
@@ -43,7 +43,20 @@ describe("por qué no se envió un mensaje", () => {
     it("el pie de la burbuja ya no dice «token invalido» ni «sin permiso meta»", () => {
         expect(motivoFalla("token_invalido")).toBe("WhatsApp rechazó la conexión del número");
         expect(motivoFalla("sin_permiso_meta")).toBe("falta un permiso en WhatsApp");
-        expect(textoEntrega({ estadoEntrega: "fallido", motivoFalla: "token_invalido" })).toBe("no se envió (WhatsApp rechazó la conexión del número)");
+    });
+
+    it("el pie no repite lo que ya se explica debajo; los demás motivos siguen en el pie", () => {
+        for (const motivo of ["token_invalido", "sin_permiso_meta", "rechazado_por_canal"]) expect(textoEntrega({ estadoEntrega: "fallido", motivoFalla: motivo })).toBe("no se envió");
+        expect(textoEntrega({ estadoEntrega: "fallido", motivoFalla: "numero_invalido" })).toBe("no se envió (número inválido)");
+        expect(textoEntrega({ estadoEntrega: "fallido", motivoFalla: null })).toBe("no se envió");
+    });
+
+    it("el código nunca se pinta a quien no administra los números, aunque llegara", () => {
+        const c = { status: 401, codigo: 190, subcodigo: 463 };
+        expect(explicarFalla(fallido("token_invalido", c), false)?.codigo).toBeNull();
+        expect(explicarFalla(fallido("rechazado_por_canal", c), false)).toEqual({ texto: "WhatsApp no aceptó el mensaje.", revisarNumero: false, codigo: null });
+        // Otro motivo, sin permiso: no hay nada que añadir.
+        expect(explicarFalla(fallido("agotado", c), false)).toBeNull();
     });
 });
 

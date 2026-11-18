@@ -58,8 +58,9 @@ test.describe("rechazo de Meta › por qué no se envió un mensaje", () => {
         await expect(otro).toContainText("WhatsApp no aceptó el mensaje.");
         await expect(otro.locator('[data-slot="codigo-falla"]')).toHaveText("Código de WhatsApp: 131031 (HTTP 403)");
         await expect(otro.getByRole("link")).toHaveCount(0);
-        // El pie de la burbuja ya no dice «token invalido».
-        await expect(hilo).not.toContainText(/token invalido|sin permiso meta/);
+        // El motivo se dice una sola vez (debajo): el pie queda en «no se envió».
+        await expect(hilo).not.toContainText(/token invalido|sin permiso meta|WhatsApp lo rechazó|rechazó la conexión del número\)/);
+        await expect(hilo.locator('[data-mensaje]').filter({ hasText: "Le confirmo la visita de mañana." })).not.toContainText("no se envió (");
         await otro.scrollIntoViewIfNeeded();
         await sinDesbordes(page);
         await captura(page, "hilo-fallidos-administrador");
@@ -91,16 +92,20 @@ test.describe("rechazo de Meta › por qué no se envió un mensaje", () => {
 
 test.describe("rechazo de Meta › el número queda marcado y vuelve solo", () => {
     test("un envío rechazado marca el número sin pulsar «Probar»; el primero que Meta acepta lo devuelve a «Conectado»", async ({ page }) => {
+        await page.clock.install();
         const api: Api = await simularApi(page);
         await conSesion(page.context(), test.info().project.use.baseURL ?? "", ADMIN.correo);
         await page.goto("/administracion/numeros");
         const fila = page.locator('[data-numero="3"]');
         await expect(fila.locator("[data-conexion]")).toHaveAttribute("data-conexion", "conectado");
         await expect(fila.locator('[data-slot="consecuencia-conexion"]')).toHaveCount(0);
-        const volverALaPestana = () =>
-            page.evaluate(() => {
+        // Entre una vuelta a la pestaña y la siguiente pasa más del intervalo mínimo de relectura.
+        const volverALaPestana = async () => {
+            await page.clock.fastForward(21_000);
+            await page.evaluate(() => {
                 document.dispatchEvent(new Event("visibilitychange"));
             });
+        };
 
         // Meta rechaza el token al enviar: al volver a la pestaña, la lista ya lo dice.
         api.numeros.marcarPorEnvio(3, "token_invalido");
@@ -124,12 +129,77 @@ test.describe("rechazo de Meta › el número queda marcado y vuelve solo", () =
         await expect(fila.locator('[data-slot="consecuencia-conexion"]')).toHaveCount(0);
     });
 
+    test("volver a la pestaña varias veces seguidas no lanza una relectura por vez (una en curso, y un mínimo entre dos)", async ({ page }) => {
+        await page.clock.install();
+        const api = await simularApi(page);
+        await conSesion(page.context(), test.info().project.use.baseURL ?? "", ADMIN.correo);
+        await page.goto("/administracion/numeros");
+        await expect(page.locator('[data-numero="3"]')).toBeVisible();
+        const lecturas = () => api.peticiones.filter((p) => p.metodo === "GET" && p.ruta === "/api/v1/mensajeria/canales").length;
+        const antes = lecturas();
+        const volver = () =>
+            page.evaluate(() => {
+                for (let i = 0; i < 5; i++) document.dispatchEvent(new Event("visibilitychange"));
+            });
+        await page.clock.fastForward(21_000);
+        await volver();
+        await expect.poll(lecturas).toBe(antes + 1);
+        // Enseguida otra vez: no ha pasado el mínimo.
+        await page.clock.fastForward(2_000);
+        await volver();
+        await page.waitForTimeout(300);
+        expect(lecturas()).toBe(antes + 1);
+        // Pasado el mínimo, sí.
+        await page.clock.fastForward(21_000);
+        await volver();
+        await expect.poll(lecturas).toBe(antes + 2);
+    });
+
+    test("una relectura de fondo que llega tarde no pisa lo que trajo una acción («Activar»)", async ({ page }) => {
+        await page.clock.install();
+        await simularApi(page, { numeros: { conInactivo: true } });
+        await conSesion(page.context(), test.info().project.use.baseURL ?? "", ADMIN.correo);
+        await page.goto("/administracion/numeros");
+        const fila = page.locator('[data-numero="6"]');
+        await expect(fila.getByRole("button", { name: /^Activar / })).toBeVisible();
+        // La relectura de fondo se queda esperando con la lista de ANTES de activar.
+        let soltar: (() => void) | null = null;
+        let retenidas = 0;
+        const RUTA = "**/api/v1/mensajeria/canales";
+        // La respuesta vieja (el 6 todavía inactivo) se pide ya y se entrega más tarde.
+        let cuerpoViejo = "";
+        await page.route(RUTA, async (route) => {
+            if (route.request().method() !== "GET" || retenidas > 0) return route.fallback();
+            retenidas++;
+            cuerpoViejo = await page.evaluate(async () => (await fetch("/api/v1/mensajeria/canales", { headers: { "X-Prueba": "vieja" } })).text());
+            await new Promise<void>((r) => (soltar = r));
+            await route.fulfill({ status: 200, contentType: "application/json", body: cuerpoViejo });
+        });
+        await page.clock.fastForward(21_000);
+        await page.evaluate(() => {
+            document.dispatchEvent(new Event("visibilitychange"));
+        });
+        await expect.poll(() => retenidas).toBe(1);
+        await expect.poll(() => cuerpoViejo.length).toBeGreaterThan(0);
+        // Mientras tanto se activa el número: la lista se lee de nuevo y ya sale activo.
+        await fila.getByRole("button", { name: /^Activar / }).click();
+        await expect(fila.getByRole("button", { name: /^Activar / })).toHaveCount(0);
+        // Llega la relectura vieja (con el 6 inactivo): se descarta.
+        (soltar as (() => void) | null)?.();
+        await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+        await page.waitForTimeout(300);
+        await expect(fila.getByRole("button", { name: /^Activar / })).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Reintentar" })).toHaveCount(0);
+    });
+
     test("si releer la lista falla al volver a la pestaña, lo que había se queda (sin error en pantalla)", async ({ page }) => {
+        await page.clock.install();
         await simularApi(page);
         await conSesion(page.context(), test.info().project.use.baseURL ?? "", ADMIN.correo);
         await page.goto("/administracion/numeros");
         const fila = page.locator('[data-numero="3"]');
         await expect(fila).toBeVisible();
+        await page.clock.fastForward(21_000);
         let fallos = 0;
         await page.route("**/api/v1/mensajeria/canales", (route) => {
             if (route.request().method() !== "GET") return route.fallback();
