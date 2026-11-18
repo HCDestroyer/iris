@@ -511,14 +511,16 @@ func (m *Modulo) registrarConversaciones(api huma.API) {
 		in.Body.ID = in.ID
 		return responder(m.RegistrarBoleta(ctx, in.Body))
 	})
-	huma.Register(api, op("simularPromesaConversacion", http.MethodPost, base+"/{id}/promesas/simular", "Política de Argos para una promesa (sin crear nada)",
-		nucleo.PermConversacionesRegistrarPromesa, http.StatusOK, http.StatusNotFound),
+	sim := op("simularPromesaConversacion", http.MethodPost, base+"/{id}/promesas/simular", "Política de Argos para una promesa (sin crear nada)",
+		nucleo.PermConversacionesRegistrarPromesa, http.StatusOK, http.StatusNotFound)
+	sim.Description += " Los rechazos de Argos salen en llano, como al pedirla: 409 `promesa_abierta`; 422 `servicio_retirado`, `sin_plantilla_facturacion`, `servicio_sin_instalar`, `promesa_fecha_invalida`, `promesa_no_permitida`; 502 `argos_promesa_integracion`."
+	huma.Register(api, sim,
 		func(ctx context.Context, in *idCuerpoHTTP[EntradaSimularPromesa]) (*cuerpo[SimulacionPromesaConv], error) {
 			in.Body.ID = in.ID
 			return responder(k.Promesas.Simular(ctx, in.Body))
 		})
 	pro := creada("registrarPromesaConversacion", "promesas", "Pedir a Argos una promesa de pago", nucleo.PermConversacionesRegistrarPromesa)
-	pro.Description += " Argos decide (activa, rechazada o pendiente_aprobacion) y la respuesta lo dice. 409 `promesa_abierta`; 503 si Argos no responde (nada queda a medias)."
+	pro.Description += " Argos decide (activa, rechazada o pendiente_aprobacion) y la respuesta lo dice. 409 `promesa_abierta`, `idempotencia_en_curso`, `promesa_ya_enviada`; 422 `servicio_retirado`, `sin_plantilla_facturacion`, `servicio_sin_instalar`, `promesa_fecha_invalida`, `promesa_no_permitida`; 502 `argos_promesa_integracion`; 503 si Argos no responde (nada queda a medias)."
 	huma.Register(api, pro, func(ctx context.Context, in *idCuerpoHTTP[EntradaPromesa]) (*cuerpo[PromesaConv], error) {
 		in.Body.ID, in.Body.Clave = in.ID, in.IdempotencyKey
 		return responder(k.Promesas.Crear(ctx, in.Body))
