@@ -127,6 +127,24 @@ guardado (mismo host y tiempos que los envíos; 15 s) y responde 200 `PruebaCana
 - El resultado queda en el número (`ultimoEstado`, `ultimoDetalle`, `ultimaPruebaEn`), con su fila de
   auditoría (`mensajeria.probar_canal`, sin credenciales) y el evento `canal_mensajeria.probado`
   `{ canal_id, empresa_id, estado }`. Un número inactivo también se puede probar.
+- **Sin esperar a «Probar».** Si al **enviar** (un mensaje de la bandeja o un aviso) Meta rechaza el
+  token (401 o código 190, con cualquier subcódigo) o los permisos (**solo** los códigos 10 y
+  200–299), el número queda con `ultimoEstado` `token_invalido` / `sin_permiso` en ese momento y
+  `conexion` lo refleja en la siguiente lectura. `ultimoDetalle` solo lleva números (status y
+  código de Meta). Se emite `canal_mensajeria.probado` con `origen: "envio"`, una sola vez por
+  cambio de estado (no una por mensaje rechazado).
+  - Un **403 con otro código** (130497 país restringido para la cuenta, 131031 cuenta bloqueada…)
+    depende del destinatario o de la cuenta, no del token: el mensaje falla `rechazado_por_canal`
+    y el número **no** se marca. (Al enviar manda el código; «Probar» sigue como estaba.)
+  - **Se limpia sola:** el primer envío que Meta acepta después devuelve el número a `conectado`
+    y emite `canal_mensajeria.probado` (`estado: conectado`, `origen: "envio"`) una vez. Solo se
+    limpia la marca que puso un envío (`canales.rechazado_por_envio`): lo que dijo «Probar» no lo
+    pisa un envío. También se limpia con «Probar» o al cambiar el token.
+  - **Auditoría:** el envío que marca o limpia el número deja su fila en `auditoria.acciones`
+    (`mensajeria.registrar_mensaje` o `mensajeria.registrar_envio`) con `canal_id`, `canal_estado`
+    y, en el rechazo, el status y el código de Meta. Los demás envíos de la bandeja no dejan fila.
+  - **Avisos (Argos):** el motivo de `aviso.fallido` es siempre uno del §6.6; un rechazo por token
+    o permiso, llegue en la respuesta o después por webhook, sale como `rechazado_por_canal`.
 - 404 si el número no existe o es de otra empresa; 422 `cifrado_no_disponible` sin `IRIS_CLAVE_CIFRADO`.
 
 ## 2. Colas, etiquetas y respuestas rápidas
@@ -225,6 +243,13 @@ Las notas internas y los mensajes de sistema no cambian el estado.
   "autor": { "id": 7, "nombre": "Andrea" },    // saliente y nota; null en entrante y sistema
   "estadoEntrega": "leido",           // saliente: en_cola | enviado | entregado | leido | fallido
   "motivoFalla": null,                // con fallido: numero_invalido | rechazado_por_canal | fuera_de_ventana | agotado | sin_permiso
+                                      //   | token_invalido (Meta rechazó el token del número: 401 / 190)
+                                      //   | sin_permiso_meta (al token le falta permiso: códigos 10 / 200–299)
+  "codigoFalla": { "status": 401, "codigo": 190, "subcodigo": 463 },
+                                      // SOLO para quien tiene `mensajeria.configurar` (administra los números);
+                                      // ausente para los demás y si Meta no dio código. Cada campo puede ser null
+                                      // (`status` es null si el rechazo llegó después, por webhook). Son solo
+                                      // números: nunca el texto de Meta ni nada del token (eso queda en la base).
   "menciones": [{ "id": 9, "nombre": "Laura Méndez" }],   // nota
   "evento": { "tipo": "ticket_creado", "referencia": "TK-004812", "entidadId": 4812, "actorNombre": "Andrea" }, // sistema
   "creadoEn": "…", "enviadoEn": "…", "entregadoEn": "…", "leidoEn": "…" }

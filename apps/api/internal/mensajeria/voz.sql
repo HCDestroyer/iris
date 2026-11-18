@@ -498,3 +498,19 @@ RETURNING *;
 
 -- name: DevolucionPendiente :one
 SELECT * FROM mensajeria.llamada_devoluciones WHERE id = @id AND conversacion_id = @conversacion_id AND estado = 'pendiente';
+
+-- name: RegistrarRechazadaApagada :exec
+-- Una entrante rechazada porque el número tiene las llamadas apagadas en Iris. Acotado a 500 por
+-- día y número: una ráfaga no llena la tabla.
+INSERT INTO mensajeria.llamadas_rechazadas_apagadas (canal_id, ocurrido_en)
+SELECT @canal_id::bigint, @ahora::timestamptz
+WHERE (SELECT count(*) FROM mensajeria.llamadas_rechazadas_apagadas r WHERE r.canal_id = @canal_id::bigint AND r.ocurrido_en >= @hoy::timestamptz) < 500;
+
+-- name: BorrarRechazadasApagadasViejas :exec
+DELETE FROM mensajeria.llamadas_rechazadas_apagadas r WHERE r.canal_id = @canal_id AND r.ocurrido_en < @antes::timestamptz;
+
+-- name: RechazadasApagadas :one
+-- La última de los últimos 7 días y cuántas van hoy.
+SELECT coalesce(max(r.ocurrido_en), 'epoch'::timestamptz)::timestamptz AS ultima_en,
+    (count(*) FILTER (WHERE r.ocurrido_en >= @hoy::timestamptz))::integer AS hoy, count(*)::integer AS total
+FROM mensajeria.llamadas_rechazadas_apagadas r WHERE r.canal_id = @canal_id AND r.ocurrido_en >= @desde::timestamptz;

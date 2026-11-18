@@ -146,6 +146,20 @@ func (q *Queries) BorrarReceptoresSobrantes(ctx context.Context, arg BorrarRecep
 	return err
 }
 
+const borrarRechazadasApagadasViejas = `-- name: BorrarRechazadasApagadasViejas :exec
+DELETE FROM mensajeria.llamadas_rechazadas_apagadas r WHERE r.canal_id = $1 AND r.ocurrido_en < $2::timestamptz
+`
+
+type BorrarRechazadasApagadasViejasParams struct {
+	CanalID int64
+	Antes   time.Time
+}
+
+func (q *Queries) BorrarRechazadasApagadasViejas(ctx context.Context, arg BorrarRechazadasApagadasViejasParams) error {
+	_, err := q.db.Exec(ctx, borrarRechazadasApagadasViejas, arg.CanalID, arg.Antes)
+	return err
+}
+
 const canalRecibioLlamadas = `-- name: CanalRecibioLlamadas :one
 SELECT EXISTS (SELECT 1 FROM mensajeria.llamadas WHERE canal_id = $1)::boolean
 `
@@ -2461,6 +2475,32 @@ func (q *Queries) ReceptoresParaLlamada(ctx context.Context, arg ReceptoresParaL
 	return items, nil
 }
 
+const rechazadasApagadas = `-- name: RechazadasApagadas :one
+SELECT coalesce(max(r.ocurrido_en), 'epoch'::timestamptz)::timestamptz AS ultima_en,
+    (count(*) FILTER (WHERE r.ocurrido_en >= $1::timestamptz))::integer AS hoy, count(*)::integer AS total
+FROM mensajeria.llamadas_rechazadas_apagadas r WHERE r.canal_id = $2 AND r.ocurrido_en >= $3::timestamptz
+`
+
+type RechazadasApagadasParams struct {
+	Hoy     time.Time
+	CanalID int64
+	Desde   time.Time
+}
+
+type RechazadasApagadasRow struct {
+	UltimaEn time.Time
+	Hoy      int32
+	Total    int32
+}
+
+// La última de los últimos 7 días y cuántas van hoy.
+func (q *Queries) RechazadasApagadas(ctx context.Context, arg RechazadasApagadasParams) (RechazadasApagadasRow, error) {
+	row := q.db.QueryRow(ctx, rechazadasApagadas, arg.Hoy, arg.CanalID, arg.Desde)
+	var i RechazadasApagadasRow
+	err := row.Scan(&i.UltimaEn, &i.Hoy, &i.Total)
+	return i, err
+}
+
 const reclamarLlamada = `-- name: ReclamarLlamada :one
 UPDATE mensajeria.llamadas l
 SET estado = 'conectando', reclamada_por = $1, reclamada_hasta = $2, reclamada_navegador = $3::text, updated_at = now()
@@ -2575,6 +2615,25 @@ type RegistrarHuerfanaParams struct {
 
 func (q *Queries) RegistrarHuerfana(ctx context.Context, arg RegistrarHuerfanaParams) error {
 	_, err := q.db.Exec(ctx, registrarHuerfana, arg.CanalID, arg.CallID, arg.ProximoEn)
+	return err
+}
+
+const registrarRechazadaApagada = `-- name: RegistrarRechazadaApagada :exec
+INSERT INTO mensajeria.llamadas_rechazadas_apagadas (canal_id, ocurrido_en)
+SELECT $1::bigint, $2::timestamptz
+WHERE (SELECT count(*) FROM mensajeria.llamadas_rechazadas_apagadas r WHERE r.canal_id = $1::bigint AND r.ocurrido_en >= $3::timestamptz) < 500
+`
+
+type RegistrarRechazadaApagadaParams struct {
+	CanalID int64
+	Ahora   time.Time
+	Hoy     time.Time
+}
+
+// Una entrante rechazada porque el número tiene las llamadas apagadas en Iris. Acotado a 500 por
+// día y número: una ráfaga no llena la tabla.
+func (q *Queries) RegistrarRechazadaApagada(ctx context.Context, arg RegistrarRechazadaApagadaParams) error {
+	_, err := q.db.Exec(ctx, registrarRechazadaApagada, arg.CanalID, arg.Ahora, arg.Hoy)
 	return err
 }
 

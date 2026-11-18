@@ -27,6 +27,14 @@ import (
 // MotivoFueraDeVentana: Meta rechazó el texto porque pasaron 24 h (o el cliente nunca escribió).
 const MotivoFueraDeVentana = "fuera_de_ventana"
 
+// Motivos de un mensaje que Meta rechazó por el número, no por el mensaje (el canal queda marcado).
+const (
+	// MotivoTokenInvalido: Meta rechazó el token del número (401 / código 190).
+	MotivoTokenInvalido = "token_invalido"
+	// MotivoSinPermisoMeta: el token no tiene permiso sobre el número o su cuenta (403 / 10 / 200–299).
+	MotivoSinPermisoMeta = "sin_permiso_meta"
+)
+
 // MaxAdjuntoSaliente: bytes de un adjunto que se manda por WhatsApp (16 MB de Meta para medios).
 const MaxAdjuntoSaliente = 16 << 20
 
@@ -623,9 +631,30 @@ func nuevoPrepararMensaje(m *Modulo) *auditoria.Caso[uuid.UUID, mensajePreparado
 
 // fallarMensaje deja el mensaje fallido (con su motivo) y emite conversacion.mensaje_fallido.
 func (m *Modulo) fallarMensaje(ctx context.Context, t *auditoria.Tx, f mensajeriabd.MensajeriaConversacionMensaje, c mensajeriabd.MensajeriaConversacion, motivo, detalle string) error {
+	return m.fallarMensajeCon(ctx, t, f, c, motivo, detalle, nil)
+}
+
+// codigosFalla: los números del rechazo del proveedor, para guardar junto al mensaje (nil si no hubo).
+func codigosFalla(e *ErrorCanal) (status, codigo, subcodigo *int32) {
+	if e == nil {
+		return nil, nil, nil
+	}
+	p := func(v int) *int32 {
+		if v == 0 {
+			return nil
+		}
+		x := int32(v) //nolint:gosec // códigos HTTP y de Meta: caben de sobra
+		return &x
+	}
+	return p(e.Status), p(e.Codigo), p(e.Subcodigo)
+}
+
+// fallarMensajeCon es fallarMensaje con el rechazo del proveedor (sus códigos numéricos se guardan).
+func (m *Modulo) fallarMensajeCon(ctx context.Context, t *auditoria.Tx, f mensajeriabd.MensajeriaConversacionMensaje, c mensajeriabd.MensajeriaConversacion, motivo, detalle string, e *ErrorCanal) error {
 	d := recortar(detalle, 300)
-	g, err := mensajeriabd.New(t).MarcarEnvioMensaje(ctx, mensajeriabd.MarcarEnvioMensajeParams{ID: f.ID, EstadoEntrega: EntregaFallido,
-		MotivoFalla: &motivo, DetalleFalla: &d, Intento: 1})
+	p := mensajeriabd.MarcarEnvioMensajeParams{ID: f.ID, EstadoEntrega: EntregaFallido, MotivoFalla: &motivo, DetalleFalla: &d, Intento: 1}
+	p.FallaStatus, p.FallaCodigo, p.FallaSubcodigo = codigosFalla(e)
+	g, err := mensajeriabd.New(t).MarcarEnvioMensaje(ctx, p)
 	if err != nil {
 		return err
 	}
@@ -647,7 +676,9 @@ func (m *Modulo) fallarMensaje(ctx context.Context, t *auditoria.Tx, f mensajeri
 
 func nuevoRegistrarMensaje(m *Modulo) *auditoria.Caso[entradaRegistrarMensaje, registrado] {
 	return auditoria.Nuevo(auditoria.Caso[entradaRegistrarMensaje, registrado]{
-		Accion: "mensajeria.registrar_mensaje", Acceso: auditoria.Autenticado, AuditarExito: func(registrado) bool { return false },
+		Accion: "mensajeria.registrar_mensaje", Acceso: auditoria.Autenticado,
+		// Un envío normal no deja fila (son muchos); el que cambia el estado del número, sí.
+		AuditarExito: func(r registrado) bool { return r.CanalCambio },
 		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaRegistrarMensaje) (registrado, error) {
 			q := mensajeriabd.New(t)
 			f, err := q.MensajeConversacionParaActualizar(ctx, in.MensajeID)
@@ -673,7 +704,11 @@ func nuevoRegistrarMensaje(m *Modulo) *auditoria.Caso[entradaRegistrarMensaje, r
 				if _, err := q.MarcarEnvioMensaje(ctx, p); err != nil {
 					return registrado{}, err
 				}
-				return registrado{Cambio: true}, m.emitirEventoConv(ctx, t, c, EventoConvMensajeActualizad, &f.ID, nil)
+				limpio, err := m.limpiarRechazoCanal(ctx, t, c.CanalID)
+				if err != nil {
+					return registrado{}, err
+				}
+				return registrado{Cambio: true, CanalCambio: limpio}, m.emitirEventoConv(ctx, t, c, EventoConvMensajeActualizad, &f.ID, nil)
 			case e != nil && e.Pausar:
 				hasta := ahora.Add(time.Hour)
 				if err := q.PausarCanal(ctx, mensajeriabd.PausarCanalParams{ID: c.CanalID, PausadoHasta: &hasta}); err != nil {
@@ -682,11 +717,16 @@ func nuevoRegistrarMensaje(m *Modulo) *auditoria.Caso[entradaRegistrarMensaje, r
 				fallthrough
 			case e != nil && e.Temporal:
 				if in.Ultimo {
-					return registrado{Cambio: true}, m.fallarMensaje(ctx, t, f, c, MotivoAgotado, e.Detalle)
+					return registrado{Cambio: true}, m.fallarMensajeCon(ctx, t, f, c, MotivoAgotado, e.Detalle, e)
 				}
 				return registrado{Reintentar: true}, nil
 			case e != nil:
-				return registrado{Cambio: true}, m.fallarMensaje(ctx, t, f, c, e.Motivo, e.Detalle)
+				// Meta rechazó el token o el permiso del número: el canal lo dice ya, sin esperar a «Probar».
+				marcado, err := m.marcarCanalRechazado(ctx, t, c.CanalID, e)
+				if err != nil {
+					return registrado{}, err
+				}
+				return registrado{Cambio: true, CanalCambio: marcado}, m.fallarMensajeCon(ctx, t, f, c, e.Motivo, e.Detalle, e)
 			}
 			return registrado{}, nil
 		},

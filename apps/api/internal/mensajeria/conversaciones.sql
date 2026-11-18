@@ -424,6 +424,7 @@ UPDATE mensajeria.conversacion_mensajes
 SET estado_entrega = @estado_entrega::text, proveedor_id = coalesce(sqlc.narg('proveedor_id'), proveedor_id),
     enviado_en = coalesce(sqlc.narg('enviado_en'), enviado_en), entregado_en = coalesce(sqlc.narg('entregado_en'), entregado_en),
     leido_en = coalesce(sqlc.narg('leido_en'), leido_en), motivo_falla = sqlc.narg('motivo_falla'), detalle_falla = sqlc.narg('detalle_falla'),
+    falla_status = sqlc.narg('falla_status'), falla_codigo = sqlc.narg('falla_codigo'), falla_subcodigo = sqlc.narg('falla_subcodigo'),
     intentos = intentos + @intento::integer, updated_at = now()
 WHERE id = @id
 RETURNING *;

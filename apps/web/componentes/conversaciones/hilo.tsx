@@ -12,6 +12,7 @@ import { esEventoBot } from "@/lib/conversaciones/atencion";
 import { rutaDescargaAdjunto } from "@/lib/ordenes/adjuntos";
 import { diaLocal } from "@/lib/conversaciones/presentacion";
 import { LlamadaEnHilo } from "../voz/en-hilo";
+import { FallaMensaje } from "./falla-mensaje";
 
 type Props = {
     mensajes: readonly Mensaje[];
@@ -348,6 +349,7 @@ function Burbuja({ m }: { m: Mensaje }) {
                     <span className="text-xs text-muted-foreground [overflow-wrap:anywhere]">Para {(m.menciones ?? []).map((u) => `@${u.nombre}`).join(", ")}</span>
                 ) : null}
                 <span className={cn("self-end text-[0.71875rem] text-muted-foreground", m.estadoEntrega === "fallido" && "text-error")}>{pie}</span>
+                {propia ? <FallaMensaje m={m} /> : null}
             </div>
         </>
     );

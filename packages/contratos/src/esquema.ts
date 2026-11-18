@@ -9452,6 +9452,20 @@ export interface components {
             routers: components["schemas"]["RouterCobertura"][] | null;
             umbrales: components["schemas"]["Umbrales"];
         };
+        CodigoFalla: {
+            /**
+             * Format: int32
+             * @description Código de error de Meta (p. ej. 190 = token; 10 y 200–299 = permisos; 131047 = fuera de la ventana de 24 h)
+             */
+            codigo: number | null;
+            /**
+             * Format: int32
+             * @description Status HTTP de la respuesta de Meta (null si el rechazo llegó después, por webhook)
+             */
+            status: number | null;
+            /** Format: int32 */
+            subcodigo: number | null;
+        };
         CoincidenciaCliente: {
             /** Format: int64 */
             clienteId: number;
@@ -14384,6 +14398,8 @@ export interface components {
             mensajePerdida: components["schemas"]["MensajePerdida"];
             plantillaPermiso?: string;
             plantillaPermisoIdioma?: string;
+            /** @description Solo con llamadasActivas = false: llegaron llamadas a este número (en WhatsApp sí están encendidas) y se rechazaron porque en Iris están apagadas. Ausente si no hubo ninguna en los últimos 7 días */
+            rechazadasApagadas?: components["schemas"]["RechazadasApagadas"];
             requisitos: components["schemas"]["RequisitosLlamadas"];
             /** Format: int32 */
             segundosSonando: number;
@@ -14582,6 +14598,8 @@ export interface components {
             autorTipo?: "cliente" | "persona" | "asistente_ia" | "sistema";
             /** @description Un audio que es el recado del buzón de voz de una llamada fuera de horario */
             buzonDeVoz?: boolean;
+            /** @description Solo para quien administra los números (mensajeria.configurar) y solo si Meta respondió con un error: el status HTTP y su código numérico. Nunca el texto de Meta ni nada del token */
+            codigoFalla?: components["schemas"]["CodigoFalla"];
             /** Format: int64 */
             conversacionId: number;
             /** Format: date-time */
@@ -14601,6 +14619,7 @@ export interface components {
             /** @description Con tipo llamada: la llamada de WhatsApp (contratos/voz.md §3.2) */
             llamada?: components["schemas"]["LlamadaEnMensaje"];
             menciones: components["schemas"]["UsuarioRef"][];
+            /** @description Con fallido: numero_invalido, rechazado_por_canal, fuera_de_ventana, agotado, sin_permiso, token_invalido (Meta rechazó el token del número) o sin_permiso_meta (el token no tiene permiso sobre el número) */
             motivoFalla: string | null;
             /**
              * @description No salió de Iris: telefono (mandado desde la app WhatsApp Business, «Desde el teléfono») o historial (traído de la app). Ausente = Iris (§15.2)
@@ -16725,6 +16744,18 @@ export interface components {
         Reautenticado: {
             /** Format: date-time */
             validaHasta: string;
+        };
+        RechazadasApagadas: {
+            /**
+             * Format: int32
+             * @description Cuántas se rechazaron hoy (día de Guatemala)
+             */
+            hoy: number;
+            /**
+             * Format: date-time
+             * @description Cuándo se rechazó la última
+             */
+            ultimaEn: string;
         };
         RecibirLlamadas: {
             /**

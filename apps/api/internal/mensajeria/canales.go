@@ -57,6 +57,14 @@ type ErrorCanal struct {
 	Detalle  string
 	Temporal bool
 	Pausar   bool
+	// Status, Codigo y Subcodigo: con qué respondió el proveedor (HTTP y código numérico de su
+	// error; 0 = no hubo). Solo números: nunca texto del proveedor ni nada del token.
+	Status    int
+	Codigo    int
+	Subcodigo int
+	// EstadoCanal: si no está vacío, el rechazo es del número y no del mensaje (token rechazado o sin
+	// permiso): el canal queda con ese estado (los de «Probar») sin esperar a que alguien lo pruebe.
+	EstadoCanal string
 }
 
 func (e *ErrorCanal) Error() string { return "canal: " + e.Motivo + ": " + e.Detalle }

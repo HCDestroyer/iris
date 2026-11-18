@@ -1,6 +1,8 @@
 package mensajeria_test
 
 import (
+	"bytes"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
@@ -163,5 +165,75 @@ func TestLlamadasLimiteDeMensajeriaContraMeta(t *testing.T) {
 	g = x.exigir(x.api(x.supervisor, http.MethodGet, x.rutaCanal("/llamadas"), nil), http.StatusOK)
 	if r := x.exigir(x.configurar(version(g), nil), http.StatusUnprocessableEntity); !strings.Contains(crudo(r), "requisitos_sin_cumplir") || !strings.Contains(crudo(r), "calling_habilitado") {
 		t.Fatalf("encender sin cumplir de verdad: %s", crudo(r))
+	}
+}
+
+// Meta devuelve un literal que Iris no entiende: queda un WARN con el literal acotado (solo letras,
+// dígitos y guion bajo, 40 como mucho), para enterarnos si cambia el formato.
+func TestLlamadasLimiteDesconocidoDejaRastro(t *testing.T) {
+	x := &bandejaVoz{bandeja: nuevaBandeja(t, nil)}
+	var registro bytes.Buffer
+	anterior := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&registro, nil)))
+	t.Cleanup(func() { slog.SetDefault(anterior) })
+	x.meta.mu.Lock()
+	x.meta.llamadasHabilitadas, x.meta.nivel = true, `NIVEL_<script>alert(1)</script> "x" `+strings.Repeat("A", 200)
+	x.meta.mu.Unlock()
+	c := x.exigir(x.api(x.supervisor, http.MethodPost, x.rutaCanal("/llamadas/comprobar"), nil), http.StatusOK)
+	if requisito(t, c, "limite_mensajeria")["sinComprobar"] != true {
+		t.Fatalf("debía quedar sin comprobar: %s", crudo(c))
+	}
+	salida := registro.String()
+	quiero := "NIVEL_scriptalert1scriptx" + strings.Repeat("A", 15) // 40 caracteres
+	if !strings.Contains(salida, "level=WARN") || !strings.Contains(salida, "valor="+quiero+" ") && !strings.HasSuffix(strings.TrimSpace(salida), "valor="+quiero) {
+		t.Fatalf("WARN con el literal acotado (%s): %s", quiero, salida)
+	}
+	if strings.Contains(salida, "<script>") || strings.Contains(salida, strings.Repeat("A", 41)) {
+		t.Fatalf("el literal no quedó acotado: %s", salida)
+	}
+	// Un literal conocido no deja nada.
+	registro.Reset()
+	x.meta.mu.Lock()
+	x.meta.nivel = "TIER_2K"
+	x.meta.mu.Unlock()
+	x.exigir(x.api(x.supervisor, http.MethodPost, x.rutaCanal("/llamadas/comprobar"), nil), http.StatusOK)
+	if strings.Contains(registro.String(), "no reconoce") {
+		t.Fatalf("un literal conocido no debía avisar: %s", registro.String())
+	}
+}
+
+// Encender con una comprobación guardada que no cumple vuelve a comprobar y reintenta, pero si otra
+// persona guardó los ajustes entre los dos intentos no se pisa su cambio: 409.
+func TestLlamadasEncenderNoPisaOtroCambio(t *testing.T) {
+	x := &bandejaVoz{bandeja: nuevaBandeja(t, nil)}
+	x.meta.mu.Lock()
+	x.meta.llamadasHabilitadas, x.meta.nivel = false, "TIER_250"
+	x.meta.mu.Unlock()
+	c := x.exigir(x.api(x.supervisor, http.MethodPost, x.rutaCanal("/llamadas/comprobar"), nil), http.StatusOK)
+	version := int(c.cuerpo["version"].(float64))
+	// Meta ya cumple, pero lo guardado dice que no. Mientras Iris vuelve a comprobar, otra persona
+	// guarda los ajustes del número.
+	x.meta.mu.Lock()
+	x.meta.llamadasHabilitadas, x.meta.nivel = true, "TIER_2K"
+	x.meta.alLeerAjustes = func() {
+		x.sql(`UPDATE mensajeria.voz_ajustes_canal SET segundos_sonando = 40, version = version + 1 WHERE canal_id = $1`, x.canal.ID)
+	}
+	x.meta.mu.Unlock()
+	r := x.exigir(x.configurar(version, nil), http.StatusConflict)
+	if !strings.Contains(crudo(r), "conflicto_version") {
+		t.Fatalf("debía responder el conflicto de versión: %s", crudo(r))
+	}
+	g := x.exigir(x.api(x.supervisor, http.MethodGet, x.rutaCanal("/llamadas"), nil), http.StatusOK)
+	if g.cuerpo["llamadasActivas"] != false || g.cuerpo["segundosSonando"] != float64(40) {
+		t.Fatalf("el cambio de la otra persona debía quedar intacto y las llamadas sin encender: %s", crudo(g))
+	}
+	// Sin nadie en medio, el mismo camino enciende.
+	x.meta.mu.Lock()
+	x.meta.alLeerAjustes = nil
+	x.meta.mu.Unlock()
+	x.sql(`UPDATE mensajeria.voz_ajustes_canal SET requisitos = jsonb_set(requisitos, '{cumple}', 'false') WHERE canal_id = $1`, x.canal.ID)
+	g = x.exigir(x.api(x.supervisor, http.MethodGet, x.rutaCanal("/llamadas"), nil), http.StatusOK)
+	if r := x.exigir(x.configurar(int(g.cuerpo["version"].(float64)), nil), http.StatusOK); r.cuerpo["llamadasActivas"] != true {
+		t.Fatalf("sin nadie en medio debía encender: %s", crudo(r))
 	}
 }

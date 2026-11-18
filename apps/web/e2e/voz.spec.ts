@@ -1457,7 +1457,7 @@ test.describe("voz › ajustes", () => {
         // Otra persona lo cambió: 409.
         canal.version += 1;
         await f.getByRole("button", { name: "Guardar" }).click();
-        await expect(f).toContainText("Alguien más cambió las llamadas de este número");
+        await expect(f).toContainText("Los ajustes de este número cambiaron mientras tanto");
         await sinDesbordes(page);
 
         // Al reabrir, «Leer ajustes de Meta» trae lo que hay allá (el botón de llamar, apagado).

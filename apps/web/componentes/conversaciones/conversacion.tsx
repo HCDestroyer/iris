@@ -1,5 +1,6 @@
 "use client";
 
+import { ProveedorCanal } from "./falla-mensaje";
 import { EtiquetasEnvueltas } from "./etiquetas";
 import { Aviso, Boton, cn, Esqueleto, Hoja, HojaContenido } from "@iris/ui";
 import { ArrowLeft, PanelRight, RotateCw, Paperclip } from "lucide-react";
@@ -509,16 +510,18 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                         <ErrorLectura error={estadoMensajes} reintentar={() => setIntento((n) => n + 1)} que="los mensajes" />
                     </div>
                 ) : (
-                    <Hilo
-                        mensajes={mensajes}
-                        pendientes={visiblesPendientes}
-                        ahora={ahora}
-                        hayAnteriores={cursorAnteriores !== null}
-                        cargandoAnteriores={cargandoAnteriores}
-                        errorAnteriores={errorAnteriores}
-                        cargarAnteriores={cargarAnteriores}
-                        reintentarPendiente={(p) => reintentar.current?.(p)}
-                    />
+                    <ProveedorCanal value={conv.canal.id}>
+                        <Hilo
+                            mensajes={mensajes}
+                            pendientes={visiblesPendientes}
+                            ahora={ahora}
+                            hayAnteriores={cursorAnteriores !== null}
+                            cargandoAnteriores={cargandoAnteriores}
+                            errorAnteriores={errorAnteriores}
+                            cargarAnteriores={cargarAnteriores}
+                            reintentarPendiente={(p) => reintentar.current?.(p)}
+                        />
+                    </ProveedorCanal>
                 )}
                 {responde && textoVentana(conv.ventana, ahora) !== null ? (
                     <>
