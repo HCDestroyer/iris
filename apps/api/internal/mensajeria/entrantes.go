@@ -360,7 +360,7 @@ func (m *Modulo) aplicarEstado(ctx context.Context, t *auditoria.Tx, q *mensajer
 		return t.Emitir("aviso.leido", map[string]any{"aviso_id": f.ID, "leido_en": f.LeidoEn, "origen": f.Origen})
 	case s.Status == "failed" && a.Estado == EstadoEnCola:
 		motivo, detalle := motivoFallaMeta(s)
-		return m.fallar(ctx, t, a, motivo, &detalle)
+		return m.fallar(ctx, t, a, motivoAvisoArgos(motivo), &detalle)
 	}
 	return nil
 }

@@ -3922,6 +3922,40 @@
         ],
         "type": "object"
       },
+      "CodigoFalla": {
+        "additionalProperties": false,
+        "properties": {
+          "codigo": {
+            "description": "Código de error de Meta (p. ej. 190 = token; 10 y 200–299 = permisos; 131047 = fuera de la ventana de 24 h)",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "status": {
+            "description": "Status HTTP de la respuesta de Meta (null si el rechazo llegó después, por webhook)",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "subcodigo": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "codigo",
+          "subcodigo"
+        ],
+        "type": "object"
+      },
       "CoincidenciaCliente": {
         "additionalProperties": false,
         "properties": {
@@ -17685,6 +17719,10 @@
           "plantillaPermisoIdioma": {
             "type": "string"
           },
+          "rechazadasApagadas": {
+            "$ref": "#/components/schemas/RechazadasApagadas",
+            "description": "Solo con llamadasActivas = false: llegaron llamadas a este número (en WhatsApp sí están encendidas) y se rechazaron porque en Iris están apagadas. Ausente si no hubo ninguna en los últimos 7 días"
+          },
           "requisitos": {
             "$ref": "#/components/schemas/RequisitosLlamadas"
           },
@@ -18267,6 +18305,10 @@
             "description": "Un audio que es el recado del buzón de voz de una llamada fuera de horario",
             "type": "boolean"
           },
+          "codigoFalla": {
+            "$ref": "#/components/schemas/CodigoFalla",
+            "description": "Solo para quien administra los números (mensajeria.configurar) y solo si Meta respondió con un error: el status HTTP y su código numérico. Nunca el texto de Meta ni nada del token"
+          },
           "conversacionId": {
             "format": "int64",
             "type": "integer"
@@ -18335,6 +18377,7 @@
             "type": "array"
           },
           "motivoFalla": {
+            "description": "Con fallido: numero_invalido, rechazado_por_canal, fuera_de_ventana, agotado, sin_permiso, token_invalido (Meta rechazó el token del número) o sin_permiso_meta (el token no tiene permiso sobre el número)",
             "type": [
               "string",
               "null"
@@ -25144,6 +25187,26 @@
         },
         "required": [
           "validaHasta"
+        ],
+        "type": "object"
+      },
+      "RechazadasApagadas": {
+        "additionalProperties": false,
+        "properties": {
+          "hoy": {
+            "description": "Cuántas se rechazaron hoy (día de Guatemala)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "ultimaEn": {
+            "description": "Cuándo se rechazó la última",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ultimaEn",
+          "hoy"
         ],
         "type": "object"
       },

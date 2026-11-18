@@ -857,7 +857,13 @@ Un supervisor puede **oír** una llamada en curso sin participar.
 - `GET /canales/{id}/llamadas`, `POST /canales/{id}/llamadas/configurar { version, llamadasActivas,
   colaId, horarioId, segundosSonando, fueraDeHorario, iconoVisible, devolucion, mensajePerdida }`
   (`llamadas.configurar`). Encender en un número `tipoConexion: "qr"` → **422
-  `llamadas_no_disponibles_qr`**. Encender exige `requisitos.cumple`.
+  `llamadas_no_disponibles_qr`**. Encender exige `requisitos.cumple`; si la comprobación guardada
+  no cumple, Iris comprueba de nuevo con Meta y reintenta **solo si nadie más editó los ajustes
+  entre medias** (la versión fresca es la enviada + 1); si no, 409 `conflicto_version`.
+- `GET /canales/{id}/llamadas` añade `rechazadasApagadas: { ultimaEn, hoy }` **solo** con
+  `llamadasActivas: false` en un número por API al que llegaron llamadas en los últimos 7 días (en
+  WhatsApp están encendidas y en Iris no: al cliente le suena y se corta). `hoy` cuenta desde las
+  00:00 de Guatemala. Ausente si no hubo ninguna. No trae nada de quien llamó.
 - `POST /canales/{id}/llamadas/comprobar` (`llamadas.configurar`) →
   `{ cumple, requisitos: [{ codigo, cumple, detalle, aviso, sinComprobar? }] }` con `conexion_api`,
   `limite_mensajeria` (≥ 2 000 destinatarios/día del negocio; `sinComprobar` si Meta no lo devuelve
@@ -2487,9 +2493,12 @@ un TURN.
    - Pendiente (no implementado): el webhook `business_capability_update` trae
      `max_daily_conversations_per_business` cuando Meta sube el límite; serviría para refrescar el
      requisito sin pulsar «Comprobar».
-   - Pendiente (no implementado): una entrante que llega con las llamadas apagadas en Iris se
-     rechaza sin registro y solo deja una línea WARN; falta un aviso visible en la pantalla de
-     llamadas del número («llegó una llamada y se rechazó porque las llamadas están apagadas»).
+   - Un literal que Iris no reconoce deja un WARN con el literal acotado (solo `[A-Za-z0-9_]`, 40
+     caracteres como mucho), para saber qué empezó a mandar Meta.
+   - Una entrante que llega con las llamadas apagadas en Iris se rechaza sin registro, deja una
+     línea WARN y se anota **solo cuándo** (`mensajeria.llamadas_rechazadas_apagadas`: `canal_id`,
+     `ocurrido_en`; sin número ni id de llamada; 500 por día y número como mucho, 30 días). La
+     lectura `GET /canales/{id}/llamadas` lo muestra en `rechazadasApagadas`.
 2. Entrante: webhook `connect` con oferta SDP; respuesta con `POST /<PHONE_NUMBER_ID>/calls` y
    `action` `pre_accept` | `accept` | `reject` | `terminate`; entre 30 y 60 s para contestar;
    webhook `terminate` con `status`, `start_time`, `end_time`, `duration`.

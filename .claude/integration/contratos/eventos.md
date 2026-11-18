@@ -212,7 +212,7 @@ Argos; `iris`: cualquier otro). Fechas en UTC (RFC 3339).
 | `canal_mensajeria.actualizado` | `canal_id`, `empresa_id`, `campos[]` (las credenciales cambiadas van como `credenciales`, nunca el valor) | `POST /mensajeria/canales/{id}/actualizar`. |
 | `canal_mensajeria.activado` / `canal_mensajeria.desactivado` | `canal_id`, `empresa_id` | `POST /mensajeria/canales/{id}/activar` / `desactivar`. |
 | `canal_mensajeria.calidad` | `canal_id`, `evento` (de Meta: `FLAGGED`, `UNFLAGGED`, `DOWNGRADE`, `UPGRADE`), `pausado_hasta` (o null) | Meta cambia la calidad del número: se pausa 24 h o se libera (§6.5). |
-| `canal_mensajeria.probado` | `canal_id`, `empresa_id` (o null), `estado` (`conectado`, `token_invalido`, `numero_no_coincide`, `sin_permiso`, `error_meta`) | `POST /mensajeria/canales/{id}/probar` (contratos/conversaciones.md §1.1). Nunca credenciales ni el detalle de Meta. |
+| `canal_mensajeria.probado` | `canal_id`, `empresa_id` (o null), `estado` (`conectado`, `token_invalido`, `numero_no_coincide`, `sin_permiso`, `error_meta`), `origen` (`envio`; ausente = la prueba) | `POST /mensajeria/canales/{id}/probar` (contratos/conversaciones.md §1.1). Con `origen: envio`: Meta rechazó el token o los permisos al enviar y el número quedó marcado, o aceptó un envío después y volvió a `conectado` (una vez por cambio de estado). Nunca credenciales ni el detalle de Meta. |
 
 **Webhooks hacia Argos (§6.6, 0.6.1).** El suscriptor `mensajeria.webhooks` del relay toma
 `aviso.entregado`, `aviso.fallido` (solo `origen = argos`) y `contacto.baja`, y los entrega como
@@ -288,7 +288,7 @@ El tiempo real del panel va por el feed propio (`mensajeria.conv_eventos`, SSE y
 | `conversacion.creada` | `conversacion_id`, `empresa_id` (o null), `canal_id`, `cola_id` (o null), `cliente_id` (o null), `asociacion` (`automatica` o null) | Primer mensaje de un número a un número de la empresa. |
 | `conversacion.mensaje_recibido` | `conversacion_id`, `mensaje_id`, `empresa_id`, `canal_id`, `tipo`, `cliente_id`, `asignado_a`, `cola_id` | Cada mensaje nuevo del cliente (el mismo wamid dos veces no emite). |
 | `conversacion.mensaje_enviado` | `conversacion_id`, `mensaje_id`, `empresa_id`, `autor_id`, `tipo`, `plantilla` (o null), `respuesta_rapida_id` (o null) | Un agente respondió (queda en cola hacia WhatsApp). Un reenvío del mismo id no emite. |
-| `conversacion.mensaje_fallido` | `conversacion_id`, `mensaje_id`, `empresa_id`, `motivo` (`numero_invalido`, `rechazado_por_canal`, `fuera_de_ventana`, `agotado`), `autor_id` | WhatsApp no lo entregó. |
+| `conversacion.mensaje_fallido` | `conversacion_id`, `mensaje_id`, `empresa_id`, `motivo` (`numero_invalido`, `rechazado_por_canal`, `fuera_de_ventana`, `agotado`, `token_invalido`, `sin_permiso_meta`), `autor_id` | WhatsApp no lo entregó. Nunca el código ni el texto de Meta. |
 | `conversacion.nota_agregada` | `conversacion_id`, `mensaje_id`, `empresa_id`, `autor_id`, `menciones[]` | Nota interna. |
 | `conversacion.mencion` | `conversacion_id`, `mensaje_id`, `empresa_id`, `usuario_id`, `autor_id` | Uno por mencionado (para el futuro push). |
 | `conversacion.asignada` | `conversacion_id`, `empresa_id`, `usuario_id` (o null), `anterior_id` (o null), `origen` (`tomar`, `asignar`, `responder`), `actor_id` | Tomar, asignar o responder una sin asignar. |
