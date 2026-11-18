@@ -46,6 +46,10 @@ type Props = {
     detenido: "sin_sesion" | "sin_permiso" | "sesion_cambiada" | null;
 };
 
+/** Relectura de fondo del detalle por avisos del flujo: pausa para juntarlos y tope en una ráfaga. */
+const RELECTURA_PAUSA_MS = 600;
+const RELECTURA_MAX_MS = 3_000;
+
 /** Ancho a partir del cual la ficha va al lado (si no, en una hoja). */
 const ANCHO_FICHA = 1100;
 const CLAVE_FICHA = "iris-bandeja-ficha";
@@ -146,6 +150,20 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
         },
         [alActualizar, detalle, id, reemplazarDetalle],
     );
+    const vivo = useRef(true);
+    useEffect(() => {
+        vivo.current = true;
+        return () => {
+            vivo.current = false;
+            clearTimeout(relectura.current);
+        };
+    }, []);
+    const relectura = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const relecturaDesde = useRef<number | null>(null);
+    const conResumenRef = useRef(false);
+    useEffect(() => {
+        conResumenRef.current = Boolean(conv?.resumen);
+    }, [conv?.resumen]);
     const aplicarRef = useRef(aplicarConversacion);
     useEffect(() => {
         aplicarRef.current = aplicarConversacion;
@@ -232,11 +250,28 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
         };
     }, [identidadVigente, venceEn, id, reemplazarDetalle]);
 
+    /**
+     * Relee el detalle **de fondo** (un aviso del flujo, un mensaje de sistema, «recargar»): si
+     * falla, lo que hay en pantalla se queda —nunca se cambia el panel por un error ni se desmonta
+     * el compositor— y una respuesta más vieja que lo que ya trajo una acción o el flujo no pisa
+     * nada. `refrescarDetalle` queda para «Reintentar» y las recargas tras un 409, que sí deben
+     * decir si fallaron.
+     */
+    const releerDeFondo = useCallback(() => {
+        leerDetalle(id).then(
+            (datos) => {
+                const actual = vista.current;
+                if (vivo.current && actual && actual.id === datos.id && datos.version >= actual.version) reemplazarDetalle(datos);
+            },
+            () => undefined,
+        );
+    }, [id, reemplazarDetalle]);
+
     useEffect(
         () =>
             suscribir((s) => {
                 if (s.tipo === "recargar") {
-                    void refrescarDetalle();
+                    releerDeFondo();
                     setIntento((n) => n + 1);
                     return;
                 }
@@ -247,12 +282,29 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                     setMensajes((actual) => fusionarMensajes(actual, [m]));
                     setPendientes((p) => p.filter((x) => x.id !== m.id));
                     // Un evento de sistema puede traer un vínculo nuevo (ticket, orden…).
-                    if (m.direccion === "sistema") void refrescarDetalle();
+                    if (m.direccion === "sistema") releerDeFondo();
                     if (m.direccion === "sistema" && (m.evento?.tipo ?? "").startsWith("boleta_")) setSenalBoletas((n) => n + 1);
                 }
                 if (e.conversacion && e.conversacion.id === id) aplicarRef.current(e.conversacion);
+                // El resumen guardado solo viene en el detalle (§16.4): cuando la conversación cambia
+                // sin mensaje (alguien generó uno nuevo) o llega un mensaje habiendo resumen (queda
+                // desactualizado), se relee el detalle, con una pausa corta para juntar varios avisos.
+                // Es una relectura **de fondo**: si falla, lo que hay en pantalla se queda (nunca se
+                // cambia el panel por un error ni se desmonta el compositor), y una respuesta más
+                // vieja que lo que ya trajo una acción o el flujo no pisa nada.
+                if ((e.tipo === "conversacion_actualizada" && !e.mensaje) || (e.mensaje && conResumenRef.current)) {
+                    const ahoraMs = Date.now();
+                    relecturaDesde.current ??= ahoraMs;
+                    // En una ráfaga no se pospone sin fin: como mucho `RELECTURA_MAX_MS` desde el primer aviso.
+                    const espera = Math.max(0, Math.min(RELECTURA_PAUSA_MS, RELECTURA_MAX_MS - (ahoraMs - relecturaDesde.current)));
+                    clearTimeout(relectura.current);
+                    relectura.current = setTimeout(() => {
+                        relecturaDesde.current = null;
+                        releerDeFondo();
+                    }, espera);
+                }
             }),
-        [id, suscribir, refrescarDetalle],
+        [id, suscribir, releerDeFondo],
     );
 
     // Leer: avanza la lectura hasta el último mensaje del cliente que se ve (nunca retrocede).
@@ -427,7 +479,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                     </Boton>
                 </header>
                 <EtiquetasEnvueltas etiquetas={conv.etiquetas ?? []} slot="etiquetas-cabecera" className="max-h-[4.5rem] shrink-0 overflow-y-auto border-b border-border bg-card px-3 py-1.5 @min-[700px]/conv:px-3.5" />
-                <BarraCategoria conv={conv} alActualizar={aplicarConversacion} recargar={refrescarDetalle} bloqueada={detenido !== null} asistenteActivo={asistente.estado?.activo === true} />
+                <BarraCategoria conv={conv} alActualizar={aplicarConversacion} recargar={refrescarDetalle} bloqueada={detenido !== null} asistenteActivo={asistente.estado?.activo === true} ahora={ahora} />
                 {pideAtencion(conv) && !detenido ? (
                     <div className="shrink-0 px-3 pt-3 @min-[700px]/conv:px-4">
                         <AvisoAtencion conv={conv} ahora={ahora} alHecho={aplicarConversacion} />

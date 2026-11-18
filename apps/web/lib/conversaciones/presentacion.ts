@@ -1,4 +1,5 @@
 import { ZONA } from "../fechas";
+import { textoEventoAsistente } from "../asistente/atencion";
 import { textoIdentidad, textoReconexion } from "../asistente/fase3b";
 import { textoEventoBot } from "./atencion";
 import type { CanalRef, Conversacion, EventoSistema, Mensaje } from "./tipos";
@@ -138,7 +139,7 @@ export function textoVentana(ventana: Conversacion["ventana"], ahora: number): {
 /** Texto de un evento de sistema («Andrea creó TK-004812»). */
 export function textoEvento(e: EventoSistema): string {
     // Fase 1.1: bot, aviso sin atender, menú, pasada e iniciada.
-    const nuevo = textoEventoBot(e);
+    const nuevo = textoEventoBot(e) ?? textoEventoAsistente(e);
     if (nuevo) return nuevo;
     const actor = e.actorNombre ?? "Iris";
     const ref = e.referencia ?? "";

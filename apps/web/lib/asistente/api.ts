@@ -34,5 +34,16 @@ export const calificarSugerencia = (id: string, util: boolean, clave: string) =>
     resolver(api().POST(`${M}/sugerencias/{id}/calificar`, { params: { path: { id }, header: cabeceraIdem(clave) }, body: { util } }));
 
 // §16.4 Resumen.
+/** El resumen guardado (no llama al modelo ni gasta tokens). 404 `sin_resumen` si no hay uno vigente. */
+export const verResumen = (conversacionId: number) => resolver(api().GET(`${M}/conversaciones/{id}/resumen`, { params: { path: { id: conversacionId } } }));
+
+/** Pausa el asistente en esta conversación (§17.11). Devuelve el detalle. */
+export const pausarAsistente = (conversacionId: number, version: number, motivo: Schema<"EntradaPausarAsistente">["motivo"], clave: string) =>
+    resolver(api().POST(`${M}/conversaciones/{id}/asistente/pausar`, { params: { path: { id: conversacionId }, header: cabeceraIdem(clave) }, body: { version, ...(motivo ? { motivo } : {}) } }));
+
+/** Le devuelve la conversación al asistente. Devuelve el detalle. */
+export const reanudarAsistente = (conversacionId: number, version: number, clave: string) =>
+    resolver(api().POST(`${M}/conversaciones/{id}/asistente/reanudar`, { params: { path: { id: conversacionId }, header: cabeceraIdem(clave) }, body: { version } }));
+
 export const resumirConversacion = (conversacionId: number, clave: string) =>
     resolver(api().POST(`${M}/conversaciones/{id}/resumen`, { params: { path: { id: conversacionId }, header: cabeceraIdem(clave) } }));
