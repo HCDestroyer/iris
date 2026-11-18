@@ -49,6 +49,11 @@ export type ApiNumeros = {
 };
 
 const AHORA = () => new Date().toISOString();
+// «Hace 8 minutos», pero nunca antes de la medianoche de Guatemala (UTC−6, sin horario de verano):
+// el panel dice «hoy a las HH:MM» y la prueba corre a cualquier hora, también a las 00:03.
+const DIA_MS = 86_400_000;
+const GT_MS = 6 * 3_600_000;
+const HACE_POCO_HOY = (ahora: number = Date.now()) => new Date(Math.max(ahora - 8 * 60_000, Math.floor((ahora - GT_MS) / DIA_MS) * DIA_MS + GT_MS)).toISOString();
 const ORIGEN = "https://iris.redsur.com.gt";
 const P = (codigo: string, status: number, title: string, extra: Partial<Problema> = {}): Problema => ({ type: `urn:iris:problema:${codigo}`, title, status, ...extra });
 const problema = (route: Route, p: Problema) => route.fulfill({ status: p.status, contentType: "application/problem+json", body: JSON.stringify(p) });
@@ -209,7 +214,7 @@ export function apiNumeros(canales: Numero[], opciones: OpcionesNumeros = {}): A
             e.ultimoEstado = r.estado;
             e.ultimaPruebaEn = ahora;
             e.webhookVerificado = r.webhookVerificado;
-            e.webhookVerificadoEn = r.webhookVerificado ? (e.webhookVerificadoEn ?? new Date(Date.now() - 8 * 60_000).toISOString()) : null;
+            e.webhookVerificadoEn = r.webhookVerificado ? (e.webhookVerificadoEn ?? HACE_POCO_HOY()) : null;
             const detalles: Record<EstadoPrueba, string | null> = {
                 conectado: null,
                 token_invalido: "Meta rechazó el token (401).",
