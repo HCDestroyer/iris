@@ -25,6 +25,13 @@ type Almacen interface {
 	Borrar(ctx context.Context, clave string) error
 }
 
+// AbridorInicio lo implementa un almacenamiento que puede leer solo el comienzo de un objeto (S3 con
+// `Range`): para la cabecera de una imagen sin bajar el archivo entero.
+type AbridorInicio interface {
+	// AbrirInicio devuelve a lo sumo los primeros n bytes del objeto. ErrNoExiste si no está.
+	AbrirInicio(ctx context.Context, clave string, n int64) (io.ReadCloser, error)
+}
+
 // ErrNoExiste: el objeto no está en el almacenamiento.
 var ErrNoExiste = errors.New("adjuntos: el objeto no existe en el almacenamiento")
 

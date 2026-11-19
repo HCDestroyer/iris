@@ -260,6 +260,8 @@ type AdjuntoMensaje struct {
 	Mime        string    `json:"mime"`
 	Tamano      int64     `json:"tamano"`
 	URLDescarga string    `json:"urlDescarga"`
+	Ancho       *int32    `json:"ancho" nullable:"true" required:"false" doc:"Imagen: ancho en píxeles como se ve (orientación EXIF aplicada), leído de la cabecera. null = sin medidas (documento, WebP, mensaje anterior o cabecera ilegible): el panel reserva 4:3"`
+	Alto        *int32    `json:"alto" nullable:"true" required:"false" doc:"Imagen: alto en píxeles como se ve; null junto con ancho"`
 }
 
 // PlantillaMensaje es la plantilla aprobada de un mensaje saliente.
@@ -1026,7 +1028,7 @@ func aMensajeConv(f mensajeriabd.MensajeriaConversacionMensaje, nombres map[int6
 		m.Menciones = append(m.Menciones, UsuarioRef{ID: u, Nombre: nombres[u]})
 	}
 	if id := uuidDe(f.AdjuntoID); id != nil {
-		a := &AdjuntoMensaje{ID: *id, Estado: adjuntos.EstadoPendiente, URLDescarga: adjuntos.RutaDescarga(*id)}
+		a := &AdjuntoMensaje{ID: *id, Estado: adjuntos.EstadoPendiente, URLDescarga: adjuntos.RutaDescarga(*id), Ancho: f.AdjuntoAncho, Alto: f.AdjuntoAlto}
 		if e, ok := estados[*id]; ok {
 			a.Estado, a.Mime, a.Tamano = e.Estado, e.Mime, e.Tamano
 		}
@@ -1075,6 +1077,8 @@ type nuevoMensaje struct {
 	automatico    *string
 	// origen: telefono (eco) o historial (§15.2).
 	origen *string
+	// medidas de la imagen adjunta (null si no es imagen o no se leyeron).
+	medidas medidas
 }
 
 // agregarMensaje asigna el seq (la conversación debe estar bloqueada), lo guarda y lo pone en el
@@ -1113,7 +1117,7 @@ func (m *Modulo) agregarMensaje(ctx context.Context, t *auditoria.Tx, c *mensaje
 		Seq: seq, Direccion: n.direccion, Tipo: n.tipo, Texto: n.texto, AdjuntoID: pgUUID(n.adjunto), MedioID: n.medio, Lat: n.lat, Lon: n.lon,
 		Plantilla: n.plantilla, Variables: n.variables, AutorID: n.autor, Menciones: n.menciones, Evento: evento, RespuestaRapidaID: n.respuesta,
 		EstadoEntrega: n.estadoEntrega, ProveedorID: n.proveedor, HashContenido: n.hash, IdempotencyKey: n.clave, CreadoEn: n.creadoEn, Automatico: n.automatico,
-		Origen: n.origen})
+		Origen: n.origen, AdjuntoAncho: n.medidas.ancho, AdjuntoAlto: n.medidas.alto})
 	if err != nil {
 		return f, err
 	}

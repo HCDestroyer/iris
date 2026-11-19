@@ -334,3 +334,10 @@ func ValidarVariablesPlantilla(codigo string, v map[string]string) error {
 	p, _ := PlantillaPorCodigo(codigo)
 	return p.validarVariables(v)
 }
+
+// FijarPlazoMedidas cambia el plazo para leer la cabecera de una foto al enviarla (pruebas).
+func FijarPlazoMedidas(d time.Duration) func() {
+	antes := plazoMedidas
+	plazoMedidas = d
+	return func() { plazoMedidas = antes }
+}
