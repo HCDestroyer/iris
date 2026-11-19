@@ -350,14 +350,12 @@ func (m *Modulo) transmitirConv(ctx context.Context, w http.ResponseWriter, f fl
 	defer fin.Stop()
 	desde := f.desde
 	q := mensajeriabd.New(bd)
-	for {
-		a, ok := m.revalidarConv(ctx, bd)
-		if !ok {
-			return
-		}
-		// Este flujo es el «panel abierto» de quien recibe llamadas (contratos/voz.md §3.4).
-		// Con su navegador, el latido es solo de ese navegador: otra pestaña u otro equipo de la misma
-		// persona no lo mantiene vivo (ni su «Recibir llamadas» ni la saliente que hizo desde él).
+	// Este flujo es el «panel abierto» de quien recibe llamadas (contratos/voz.md §3.4): toca sus
+	// filas al abrirse y en cada latido, siempre con un alcance recién autorizado (el de apertura o el
+	// de la revalidación del latido). Con su navegador, el latido es solo de ese navegador: otra
+	// pestaña u otro equipo de la misma persona no lo mantiene vivo (ni su «Recibir llamadas» ni la
+	// saliente que hizo desde él).
+	tocar := func(a alcanceConv) {
 		toque := mensajeriabd.TocarReceptoresParams{Empresa: a.empresa, UsuarioID: a.usuario, Ahora: m.ahora()}
 		if f.navegador != "" {
 			toque.Navegador = &f.navegador
@@ -367,13 +365,19 @@ func (m *Modulo) transmitirConv(ctx context.Context, w http.ResponseWriter, f fl
 		if f.pestana != "" {
 			_ = q.TocarPestanaDeLlamada(ctx, mensajeriabd.TocarPestanaDeLlamadaParams{UsuarioID: &a.usuario, Pestana: f.pestana, Ahora: ptrT(m.ahora())})
 		}
+	}
+	// Mismas reglas que el chat (ver transmitir): sin revalidar arriba, a es el alcance de la última
+	// autorización (apertura, revalidación posterior a la lectura o latido).
+	a := f.alcance
+	tocar(a)
+	for {
 		relecturas := 0
 		for {
 			if m.antesDeLeerFlujo != nil {
 				m.antesDeLeerFlujo(a.usuario)
 			}
 			plazo()
-			// Revalida otra vez después de leer y antes de entregar (como el chat, ver transmitir).
+			// Revalida después de leer y antes de entregar o de avanzar el cursor.
 			evs, hayMas, siguiente, ahora, vale, err := m.leerPaginaFlujoConv(ctx, bd, q, a, desde)
 			if err != nil {
 				if ctx.Err() == nil {
@@ -387,6 +391,7 @@ func (m *Modulo) transmitirConv(ctx context.Context, w http.ResponseWriter, f fl
 			if ahora != a {
 				// Otro alcance: se relee sin mover el cursor, hasta maxRelecturasFlujo veces seguidas.
 				if relecturas++; relecturas > maxRelecturasFlujo {
+					cerrarPorRelecturas(ctx, "conversaciones", a.usuario)
 					return
 				}
 				a = ahora
@@ -414,9 +419,14 @@ func (m *Modulo) transmitirConv(ctx context.Context, w http.ResponseWriter, f fl
 			return
 		case <-sub.c:
 		case <-latido.C:
-			if _, ok := m.revalidarConv(ctx, bd); !ok {
+			// La única revalidación del latido: su alcance toca los receptores y lee lo que sigue.
+			m.contarRevalidacion(a.usuario, revalidaLatido)
+			ahora, ok := m.revalidarConv(ctx, bd)
+			if !ok {
 				return
 			}
+			a = ahora
+			tocar(a)
 			plazo()
 			_, _ = fmt.Fprintf(bw, ": latido\n\n")
 			if !enviar() {
@@ -440,6 +450,7 @@ func (m *Modulo) leerPaginaFlujoConv(ctx context.Context, bd nucleo.BD, q *mensa
 	if err != nil || (len(evs) == 0 && siguiente == desde) {
 		return evs, hayMas, siguiente, a, err == nil, err
 	}
+	m.contarRevalidacion(a.usuario, revalidaPagina)
 	ahora, vale = m.revalidarConv(ctx, bd)
 	return evs, hayMas, siguiente, ahora, vale, nil
 }
