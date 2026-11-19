@@ -215,16 +215,24 @@ type AsociarCliente struct {
 	final  *auditoria.Caso[EntradaAsociarCliente, ConversacionClienteDetalle]
 }
 
-// clienteEnEmpresa valida el cliente (y el servicio) contra la instantánea de la empresa.
-func clienteEnEmpresa(ctx context.Context, q *mensajeriabd.Queries, empresa, cliente int64, servicio *int64) error {
+// clienteEnEmpresa valida el cliente (y el servicio) contra la instantánea de la empresa, con la
+// misma regla que la ficha y AsegurarInstantanea (argos.ValidarClienteEnEmpresa): el cliente es de
+// la empresa si alguno de sus servicios lo es o si Argos confirmó que no tiene servicios
+// (sin_servicios; empresa_id 0 y empresas vacío). conArgos: hay conector con Argos y ya se pidió
+// la instantánea (AsegurarInstantanea); si aun así no está, Argos no respondió o no se le pudo
+// preguntar: 503 con «Reintentar», nunca «fuera de la empresa».
+func clienteEnEmpresa(ctx context.Context, q *mensajeriabd.Queries, empresa, cliente int64, servicio *int64, conArgos bool) error {
 	c, err := q.ClienteInstantanea(ctx, cliente)
 	if errors.Is(err, pgx.ErrNoRows) {
+		if conArgos {
+			return clienteSinLeerDeArgos()
+		}
 		return clienteFueraDeEmpresaConv()
 	}
 	if err != nil {
 		return err
 	}
-	if empresa != 0 && c.EmpresaID != empresa && !slices.Contains(c.Empresas, empresa) {
+	if empresa != 0 && c.EmpresaID != empresa && !slices.Contains(c.Empresas, empresa) && !c.SinServicios {
 		return clienteFueraDeEmpresaConv()
 	}
 	if servicio == nil {
@@ -248,13 +256,18 @@ func clienteFueraDeEmpresaConv() *nucleo.Problema {
 		nucleo.ErrorCampo{Field: "clienteId", Message: "No es un cliente de la empresa", Rule: "empresa"})
 }
 
+func clienteSinLeerDeArgos() *nucleo.Problema {
+	return nucleo.NuevoProblema(503, "argos_no_disponible", "Argos no disponible",
+		"No se pudo leer el cliente en Argos para comprobar su empresa. Vuelve a intentarlo en un momento.")
+}
+
 func nuevoAsociarCliente(m *Modulo) *AsociarCliente {
 	k := &AsociarCliente{m: m, previo: nuevoLeerConvPara("conversaciones.asociar", nucleo.PermConversacionesAsociar)}
 	k.final = auditoria.Nuevo(auditoria.Caso[EntradaAsociarCliente, ConversacionClienteDetalle]{
 		Accion: "conversaciones.asociar", Permiso: nucleo.PermConversacionesAsociar,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaAsociarCliente) (ConversacionClienteDetalle, error) {
 			return m.accionConv(ctx, t, in.ID, in.Version, func(a alcanceConv, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
-				if err := clienteEnEmpresa(ctx, q, empresaDeConv(*c), in.ClienteID, in.ServicioID); err != nil {
+				if err := clienteEnEmpresa(ctx, q, empresaDeConv(*c), in.ClienteID, in.ServicioID, m.cfg.Argos != nil); err != nil {
 					return err
 				}
 				c.ClienteID, c.ServicioID, c.Asociacion = &in.ClienteID, in.ServicioID, nombrePtr("manual")
@@ -545,7 +558,7 @@ func nuevoUnirContacto(m *Modulo) *UnirContacto {
 				return ContactoIris{}, err
 			}
 			q := mensajeriabd.New(t)
-			if err := clienteEnEmpresa(ctx, q, a.empresa, in.ClienteID, nil); err != nil {
+			if err := clienteEnEmpresa(ctx, q, a.empresa, in.ClienteID, nil, m.cfg.Argos != nil); err != nil {
 				return ContactoIris{}, err
 			}
 			ahora := m.ahora()

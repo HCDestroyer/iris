@@ -376,7 +376,7 @@ func nuevoRegistrarBoleta(m *Modulo) *auditoria.Caso[EntradaBoleta, Boleta] {
 				if in.ServicioID != nil {
 					servicio = in.ServicioID
 				}
-				if err := clienteEnEmpresa(ctx, q, empresaDeConv(*c), *c.ClienteID, servicio); err != nil {
+				if err := clienteEnEmpresa(ctx, q, empresaDeConv(*c), *c.ClienteID, servicio, false); err != nil {
 					return err
 				}
 				// La cuenta es de la empresa de la conversación y está activa (Argos también lo valida).
@@ -865,7 +865,7 @@ func (k *Promesas) Simular(ctx context.Context, in EntradaSimularPromesa) (Simul
 	if err := k.m.cfg.Argos.AsegurarInstantanea(ctx, *l.conv.ClienteID, &in.ServicioID); err != nil {
 		return SimulacionPromesaConv{}, err
 	}
-	if err := clienteEnEmpresa(ctx, mensajeriabd.New(nucleo.BDDe(ctx)), l.alcance.empresa, *l.conv.ClienteID, &in.ServicioID); err != nil {
+	if err := clienteEnEmpresa(ctx, mensajeriabd.New(nucleo.BDDe(ctx)), l.alcance.empresa, *l.conv.ClienteID, &in.ServicioID, false); err != nil {
 		return SimulacionPromesaConv{}, err
 	}
 	var vence *time.Time
@@ -906,7 +906,7 @@ func (k *Promesas) Crear(ctx context.Context, in EntradaPromesa) (PromesaConv, e
 			return PromesaConv{}, err
 		}
 	}
-	if err := clienteEnEmpresa(ctx, mensajeriabd.New(nucleo.BDDe(ctx)), pre.a.empresa, *pre.conv.ClienteID, &in.ServicioID); err != nil {
+	if err := clienteEnEmpresa(ctx, mensajeriabd.New(nucleo.BDDe(ctx)), pre.a.empresa, *pre.conv.ClienteID, &in.ServicioID, false); err != nil {
 		return PromesaConv{}, err
 	}
 	// Con la misma Idempotency-Key, el mismo id (y la misma clave hacia Argos) en cada reintento.
