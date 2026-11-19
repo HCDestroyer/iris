@@ -99,6 +99,7 @@ export function serviciosDe(clienteId: number): Schema<"Servicio">[] {
         empresaId: cliente.empresaId,
         clienteId,
         codigo: `SV-${clienteId}`,
+        numero: 1,
         planId: 3,
         planNombre: "Fibra 100 Mb/s",
         routerId: 7,
@@ -107,9 +108,11 @@ export function serviciosDe(clienteId: number): Schema<"Servicio">[] {
         zonaNombre: "Zona norte",
         ip: clienteId === 503 ? "10.20.30.53" : "10.20.30.40",
         direccion: `Instalación: ${cliente.direccion}`,
-        lat: cliente.lat,
-        lon: cliente.lon,
+        ...(cliente.lat !== null ? { lat: cliente.lat } : {}),
+        ...(cliente.lon !== null ? { lon: cliente.lon } : {}),
         estado: "activo",
+        precioMensual: "250.00",
+        moneda: "GTQ",
         userPpp: `cliente${clienteId}`,
         tipoConexion: "pppoe",
         sincronizadoEn: "2026-10-27T20:15:00Z",
@@ -119,7 +122,7 @@ export function serviciosDe(clienteId: number): Schema<"Servicio">[] {
     if (clienteId !== 503) return [base];
     return [
         base,
-        { ...base, id: 5031, codigo: "SV-503-B", planNombre: "Radio 10 Mb/s", ip: "10.20.31.9", direccion: "Bodega, 2a avenida 8-10, zona 4", userPpp: "cliente503b", estado: "suspendido" },
+        { ...base, id: 5031, numero: 2, codigo: "SV-503-B", planNombre: "Radio 10 Mb/s", ip: "10.20.31.9", direccion: "Bodega, 2a avenida 8-10, zona 4", userPpp: "cliente503b", estado: "suspendido" },
     ];
 }
 
