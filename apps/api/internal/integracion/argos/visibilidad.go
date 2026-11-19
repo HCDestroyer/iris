@@ -127,7 +127,9 @@ func (v Visibilidad) puede(a alcanceDato, servicioID int64, zonaID *int64) bool 
 
 // Red indica si el actor ve los datos de red del servicio (zonaID: la zona del servicio, nil si no
 // se sabe).
-func (v Visibilidad) Red(servicioID int64, zonaID *int64) bool { return v.puede(v.red, servicioID, zonaID) }
+func (v Visibilidad) Red(servicioID int64, zonaID *int64) bool {
+	return v.puede(v.red, servicioID, zonaID)
+}
 
 // Ubicacion indica si el actor ve la dirección y la ubicación del servicio.
 func (v Visibilidad) Ubicacion(servicioID int64, zonaID *int64) bool {

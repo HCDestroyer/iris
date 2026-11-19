@@ -570,7 +570,7 @@ func TestAsistenteSugerenciaConFuentesYRedaccion(t *testing.T) {
 			t.Fatalf("el modelo vio %q: %s", prohibido, pedido)
 		}
 	}
-	for _, debe := range []string{"***", "Fibra 50 Mbps", "Sin internet (FTTH)", "un equipo de red de Zona 4", "Servicio 1 · Fibra 50 Mbps · Zona 4", "\\u003cconversacion\\u003e"} {
+	for _, debe := range []string{"***", "Fibra 50 Mbps", "Sin internet (FTTH)", "un equipo de red de Zona 4", "Servicio 1 · «Fibra 50 Mbps» · «Zona 4»", "\\u003cconversacion\\u003e"} {
 		if !strings.Contains(pedido, debe) {
 			t.Fatalf("el modelo no vio %q: %s", debe, pedido)
 		}

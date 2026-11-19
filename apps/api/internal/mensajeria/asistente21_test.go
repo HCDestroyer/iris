@@ -186,7 +186,7 @@ func TestAsistenteCuentaAtadaAlCliente(t *testing.T) {
 	if s["estado"] != "lista" || strings.Join(etiquetasArgos(s), ",") != "Servicio cortado, plan Fibra 99 Mbps · Argos" {
 		t.Fatalf("la cuenta de otro cliente no se usa: %v", s)
 	}
-	if pedido, _, _ := x.ia.ultimo(); strings.Contains(pedido, "saldo vencido") || !strings.Contains(pedido, "Servicio 1 · Fibra 99 Mbps") {
+	if pedido, _, _ := x.ia.ultimo(); strings.Contains(pedido, "saldo vencido") || !strings.Contains(pedido, "Servicio 1 · «Fibra 99 Mbps»") {
 		t.Fatalf("el modelo vio el estado de cuenta de otro cliente: %s", pedido)
 	}
 

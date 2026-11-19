@@ -36,10 +36,10 @@ func (ArgsPreciosPlan) InsertOpts() river.InsertOpts {
 
 // ResultadoPreciosPlan dice cuántos servicios cambiaron.
 type ResultadoPreciosPlan struct {
-	Servicios  int `json:"servicios"`
-	Cambiados  int `json:"cambiados"`
-	Invalidos  int `json:"invalidos"`
-	Releidos   int `json:"releidos"`
+	Servicios  int  `json:"servicios"`
+	Cambiados  int  `json:"cambiados"`
+	Invalidos  int  `json:"invalidos"`
+	Releidos   int  `json:"releidos"`
 	SinLocales bool `json:"sin_locales"`
 }
 
@@ -128,9 +128,14 @@ type trabajadorPreciosPlan struct {
 func (w *trabajadorPreciosPlan) Work(ctx context.Context, job *river.Job[ArgsPreciosPlan]) error {
 	ctx = nucleo.ConBD(contexto.Sistema(ctx, contexto.CanalWorker), w.bd)
 	_, err := w.m.RefrescarPreciosPlan.Ejecutar(ctx, job.Args)
+	return errorDePrecios(err)
+}
+
+// errorDePrecios: «lista demasiado larga» es definitivo (reintentar lee las mismas páginas otra
+// vez); los precios se refrescan al abrir cada ficha (más de 24 h) o con servicio.config_cambiada.
+// Lo demás (Argos caído) se reintenta con la espera de River.
+func errorDePrecios(err error) error {
 	if errors.Is(err, conector.ErrListaDemasiadoLarga) {
-		// Definitivo: reintentar lee las mismas páginas otra vez. Los precios se refrescan al abrir
-		// cada ficha (más de 24 h) o con servicio.config_cambiada.
 		return river.JobCancel(err)
 	}
 	return err

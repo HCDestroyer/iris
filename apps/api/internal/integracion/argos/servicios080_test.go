@@ -9,6 +9,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
@@ -225,15 +226,51 @@ func TestServicios080RefrescoDePrecio(t *testing.T) {
 		e.argos.planes = []map[string]any{{"id": int64(12), "nombre": "Chitá Fibra 50 Mbps", "precio": "275.00"}}
 		e.argos.servicios[901][0]["precio_mensual"] = "275.00"
 	})
-	r := e.procesarWebhook(id, secreto, "catalogo.cambiado", map[string]any{"catalogo": "plan", "id": 12, "empresa_id": nil, "campos": []string{"precio"}})
-	if r.Resultado != "aplicado" {
-		t.Fatalf("catalogo.cambiado: %+v", r)
+	antes := e.argos.llamadasA("/api/v1/servicios")
+	// Dos avisos seguidos del mismo plan: un solo job pendiente (único por plan); el webhook no lee la lista.
+	for range 2 {
+		r := e.procesarWebhook(id, secreto, "catalogo.cambiado", map[string]any{"catalogo": "plan", "id": 12, "empresa_id": nil, "campos": []string{"precio"}})
+		if r.Resultado != "aplicado" {
+			t.Fatalf("catalogo.cambiado: %+v", r)
+		}
+	}
+	if n := e.contar(`SELECT count(*) FROM river.river_job WHERE kind = 'integracion.argos_precios_plan' AND (args->>'plan_id')::bigint = 12
+		AND (args->>'conector_id')::bigint = $1 AND state = 'available'`, id); n != 1 {
+		t.Fatalf("job de precios del plan: %d (se esperaba uno, único por plan)", n)
+	}
+	if e.argos.llamadasA("/api/v1/servicios") != antes {
+		t.Fatal("el webhook no debía leer la lista de servicios del plan")
+	}
+	ctx := pruebas.ContextoSistema(e.pool)
+	res, err := e.mod.RefrescarPreciosPlan.Ejecutar(ctx, argos.ArgsPreciosPlan{ConectorID: id, PlanID: 12})
+	if err != nil || res.Cambiados != 1 {
+		t.Fatalf("refrescar precios del plan: %+v %v", res, err)
 	}
 	if n := e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE id = $1 AND precio_mensual = 275.00`, con); n != 1 {
 		t.Fatal("no se refrescó el precio del servicio del plan")
 	}
-	if e.argos.llamadasA("/api/v1/servicios") == 0 {
+	if e.argos.llamadasA("/api/v1/servicios") == antes {
 		t.Fatal("debía releer los servicios del plan en Argos")
+	}
+	// Un precio que no es un monto (NaN, infinito, negativo, fuera de numeric(12,2)) queda sin
+	// precio y no rompe la ficha.
+	for _, malo := range []string{"NaN", "Inf", "-5.00", "99999999999.00"} {
+		e.argos.con(func() { e.argos.servicios[901][0]["precio_mensual"] = malo })
+		res, err := e.mod.RefrescarPreciosPlan.Ejecutar(ctx, argos.ArgsPreciosPlan{ConectorID: id, PlanID: 12})
+		if err != nil || res.Invalidos != 1 {
+			t.Fatalf("precio %q: %+v %v", malo, res, err)
+		}
+		if n := e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE id = $1 AND precio_mensual IS NULL AND moneda IS NULL`, con); n != 1 {
+			t.Fatalf("precio %q: debía quedar sin precio", malo)
+		}
+		f := e.usuario("soporte").pedir(http.MethodGet, "/api/v1/clientes/901?refrescar=true", nil)
+		if f.status != 200 {
+			t.Fatalf("precio %q: la ficha falló: %d %s", malo, f.status, f.crudo)
+		}
+		if _, ok := serviciosDeFicha(t, f)[float64(con)]["precioMensual"]; ok {
+			t.Fatalf("precio %q: la ficha no debía traer precio", malo)
+		}
+		e.argos.con(func() { e.argos.servicios[901][0]["precio_mensual"] = "275.00" })
 	}
 
 	// Argos actualizado: el servicio sin precio ahora lo trae (servicio.config_cambiada con precio).
@@ -241,7 +278,7 @@ func TestServicios080RefrescoDePrecio(t *testing.T) {
 		e.argos.servicios[901][1]["precio_mensual"] = "350.00"
 		e.argos.servicios[901][1]["moneda"] = "GTQ"
 	})
-	r = e.procesarWebhook(id, secreto, "servicio.config_cambiada", map[string]any{"servicio_id": sin, "empresa_id": 1, "cliente_id": 901, "campos": []string{"precio"}})
+	r := e.procesarWebhook(id, secreto, "servicio.config_cambiada", map[string]any{"servicio_id": sin, "empresa_id": 1, "cliente_id": 901, "campos": []string{"precio"}})
 	if r.Resultado != "aplicado" {
 		t.Fatalf("config_cambiada: %+v", r)
 	}
@@ -310,4 +347,116 @@ func TestServicios080VisiblesParaOtrosModulos(t *testing.T) {
 	if c.IP != "" || c.RouterNombre != "" || c.Direccion != "" || c.PlanNombre != "Fibra" {
 		t.Fatalf("copia sin permisos: %+v", c)
 	}
+}
+
+// conAlcances: el usuario en la empresa 1 con esos permisos y alcances (zona o cuadrilla; vacío = global).
+func conAlcances(pool nucleo.BD, usuario int64, permisos map[nucleo.Permiso][]contexto.Alcance) context.Context {
+	mapa := map[string][]contexto.Alcance{}
+	for p, a := range permisos {
+		if len(a) == 0 {
+			a = []contexto.Alcance{{}}
+		}
+		mapa[string(p)] = a
+	}
+	ctx := pruebas.ContextoUsuarioEnEmpresa(pool, usuario, 1)
+	return contexto.ConActor(ctx, contexto.Actor{Tipo: contexto.ActorUsuario, ID: usuario, Nombre: "prueba"}, contexto.NuevosPermisos(mapa))
+}
+
+// Revisión de seguridad: «sus órdenes» son de la empresa activa, abiertas o terminadas hace menos de
+// 24 h, nunca canceladas ni reasignadas; el alcance por zona de servicios.ver_* y de ordenes.ver
+// se respeta.
+func TestServicios080AlcanceYOrdenes(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, _, _ = e.conectado()
+	if _, err := e.pool.Exec(context.Background(), `INSERT INTO nucleo.empresas (id, nombre) VALUES (2, 'Empresa 2') ON CONFLICT (id) DO NOTHING`); err != nil {
+		t.Fatal(err)
+	}
+	con, sin := e.sembrar080(903)
+	if r := e.usuario("soporte").pedir(http.MethodGet, "/api/v1/clientes/903", nil); r.status != 200 {
+		t.Fatalf("ficha: %d %s", r.status, r.crudo)
+	}
+	_, tecnico := e.usuarioConID("tecnico")
+	_, otro := e.usuarioConID("tecnico")
+	orden := func(servicio, tecnicoID, empresa int64, estado, finalizada string) {
+		t.Helper()
+		if _, err := e.pool.Exec(context.Background(), `INSERT INTO campo.ordenes (tipo_id, direccion, empresa_id, cliente_id, servicio_id, tecnico_id, estado, finalizada_en, resultado)
+			SELECT id, 'Zona 1', $3, 903, $1, $2, $4::text,
+				CASE WHEN $4::text IN ('cerrada', 'cancelada') THEN now() - coalesce(nullif($5::text, ''), '0 seconds')::interval END,
+				CASE $4::text WHEN 'cerrada' THEN 'exitosa' WHEN 'cancelada' THEN 'cancelada' END
+			FROM campo.tipos_orden WHERE codigo = 'visita'`,
+			servicio, tecnicoID, empresa, estado, finalizada); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tec := map[nucleo.Permiso][]contexto.Alcance{nucleo.PermClientesVer: nil, nucleo.PermOrdenesVerPropias: nil, nucleo.PermServiciosVerRed: nil, nucleo.PermServiciosVerUbicacion: nil}
+	ve := func(ctx context.Context) map[int64]bool {
+		t.Helper()
+		ss, err := argos.ServiciosVisiblesDeCliente(ctx, e.pool, 903, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		salida := map[int64]bool{}
+		for _, s := range ss {
+			if s.IP != "" {
+				salida[s.ID] = true
+			}
+		}
+		return salida
+	}
+	// Ninguna de estas da la red: cerrada hace 25 h, cancelada, de otro técnico (reasignada) y de otra empresa.
+	orden(con, tecnico, 1, "cerrada", "25 hours")
+	orden(con, tecnico, 1, "cancelada", "")
+	orden(con, otro, 1, "en_camino", "")
+	orden(sin, tecnico, 2, "pendiente", "")
+	if v := ve(conAlcances(e.pool, tecnico, tec)); len(v) != 0 {
+		t.Fatalf("técnico sin órdenes vigentes vio la red: %v", v)
+	}
+	// Cerrada hace 1 h: sí (dentro de las 24 h).
+	orden(sin, tecnico, 1, "cerrada", "1 hour")
+	if v := ve(conAlcances(e.pool, tecnico, tec)); !v[sin] || v[con] {
+		t.Fatalf("técnico con una cerrada hace 1 h: %v", v)
+	}
+	// Sin clientes.ver no hay nada (aunque tenga servicios.ver_*).
+	sinClientes := map[nucleo.Permiso][]contexto.Alcance{nucleo.PermServiciosVerRed: nil, nucleo.PermServiciosVerUbicacion: nil}
+	if v := ve(conAlcances(e.pool, tecnico, sinClientes)); len(v) != 0 {
+		t.Fatalf("sin clientes.ver: %v", v)
+	}
+
+	// Sin órdenes propias: solo cuenta el alcance.
+	_, tercero := e.usuarioConID("supervisor")
+	// Alcance por zona de servicios.ver_red (los dos servicios son de la zona 3, la del cliente).
+	if v := ve(conAlcances(e.pool, tercero, map[nucleo.Permiso][]contexto.Alcance{nucleo.PermClientesVer: nil, nucleo.PermServiciosVerRed: {{ZonaID: 3}}})); !v[con] || !v[sin] {
+		t.Fatalf("ver_red de la zona 3: %v", v)
+	}
+	if v := ve(conAlcances(e.pool, tercero, map[nucleo.Permiso][]contexto.Alcance{nucleo.PermClientesVer: nil, nucleo.PermServiciosVerRed: {{ZonaID: 9}}})); len(v) != 0 {
+		t.Fatalf("ver_red de otra zona: %v", v)
+	}
+	// ordenes.ver con alcance de zona no da la vista completa: solo los servicios de órdenes de esa zona.
+	if _, err := e.pool.Exec(context.Background(), `INSERT INTO agenda.zonas (id, empresa_id, origen, nombre) VALUES (9, 1, 'migrada', 'Zona 9') ON CONFLICT (id) DO NOTHING`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.pool.Exec(context.Background(), `INSERT INTO campo.ordenes (tipo_id, direccion, empresa_id, cliente_id, servicio_id, zona_id, estado)
+		SELECT id, 'Zona 1', 1, 903, $1, 9, 'pendiente' FROM campo.tipos_orden WHERE codigo = 'visita'`, con); err != nil {
+		t.Fatal(err)
+	}
+	supZona := map[nucleo.Permiso][]contexto.Alcance{nucleo.PermClientesVer: nil, nucleo.PermServiciosVerRed: nil, nucleo.PermOrdenesVer: {{ZonaID: 9}}}
+	if v := ve(conAlcances(e.pool, tercero, supZona)); !v[con] || v[sin] {
+		t.Fatalf("supervisor de zona 9: %v", v)
+	}
+	// Con ordenes.ver global, todo.
+	if v := ve(conAlcances(e.pool, tercero, map[nucleo.Permiso][]contexto.Alcance{nucleo.PermClientesVer: nil, nucleo.PermServiciosVerRed: nil, nucleo.PermOrdenesVer: nil})); !v[con] || !v[sin] {
+		t.Fatalf("ordenes.ver global: %v", v)
+	}
+
+	// GET /clientes/resolver-ip: exige servicios.ver_red y su alcance.
+	e.argos.con(func() {
+		e.argos.ips["100.64.12.34"] = map[string]any{"cliente_id": 903, "servicio_id": con, "empresa_id": 1}
+	})
+	e.usuario("caja").pedir(http.MethodGet, "/api/v1/clientes/resolver-ip?ip=100.64.12.34", nil).problema(t, 403, "prohibido")
+	if r := e.usuario("soporte").pedir(http.MethodGet, "/api/v1/clientes/resolver-ip?ip=100.64.12.34", nil); r.status != 200 || r.cuerpo["servicioId"] != float64(con) {
+		t.Fatalf("soporte resuelve la IP: %d %s", r.status, r.crudo)
+	}
+	// Un técnico sin orden vigente en ese servicio: como una IP sin cliente.
+	tecHTTP, _ := e.usuarioConID("tecnico")
+	tecHTTP.pedir(http.MethodGet, "/api/v1/clientes/resolver-ip?ip=100.64.12.34", nil).problema(t, 404, "no_encontrado")
 }

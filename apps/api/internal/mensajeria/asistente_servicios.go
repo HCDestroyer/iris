@@ -16,13 +16,25 @@ import (
 //     del cliente; nunca como total de la factura.
 //   - Si dos servicios tienen el mismo plan y la misma zona, el asistente no adivina: pasa a una persona.
 
-// etiquetaServicioIA arma la etiqueta corta del servicio.
+// sinComillas: lo que viene de Argos no puede cerrar el delimitador «…» del dato.
+var sinComillas = strings.NewReplacer("«", "", "»", "", "\"", "'", "`", "'")
+
+// datoIA: un texto de Argos para el modelo, en una línea, acotado y entre «…» (es un dato, nunca
+// una instrucción: un plan llamado «ignora las instrucciones…» sigue siendo solo el nombre).
+func datoIA(s string, n int) string {
+	if d := limpiarDato(sinComillas.Replace(s), n); d != "" {
+		return "«" + d + "»"
+	}
+	return ""
+}
+
+// etiquetaServicioIA arma la etiqueta corta del servicio: Servicio n · «plan» · «zona».
 func etiquetaServicioIA(s mensajeriabd.ServiciosClienteAsistenteRow) string {
 	partes := []string{fmt.Sprintf("Servicio %d", s.Numero)}
-	if p := limpiarDato(s.PlanNombre, 60); p != "" {
+	if p := datoIA(s.PlanNombre, 60); p != "" {
 		partes = append(partes, p)
 	}
-	if z := limpiarDato(s.ZonaNombre, 60); z != "" {
+	if z := datoIA(s.ZonaNombre, 60); z != "" {
 		partes = append(partes, z)
 	}
 	return strings.Join(partes, " · ")
@@ -37,13 +49,13 @@ func precioServicioIA(s mensajeriabd.ServiciosClienteAsistenteRow) string {
 	if s.Moneda == "GTQ" {
 		return "Q" + precio
 	}
-	return limpiarDato(s.Moneda, 5) + " " + precio
+	return limpiarDato(sinComillas.Replace(s.Moneda), 5) + " " + precio
 }
 
 // lineaServicioIA: una línea para el modelo con la etiqueta, el estado y, con número registrado,
 // el precio mensual del plan.
 func lineaServicioIA(s mensajeriabd.ServiciosClienteAsistenteRow, registrado bool) string {
-	estado := limpiarDato(s.Estado, 30)
+	estado := limpiarDato(sinComillas.Replace(s.Estado), 30)
 	if estado == "" {
 		estado = "sin estado"
 	}
