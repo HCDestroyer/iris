@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.29.0](https://github.com/HCDestroyer/iris/compare/v0.28.2...v0.29.0) (2026-11-18)
+
+
+### Funcionalidades
+
+* **web:** bandeja pulida (adjuntos con vista previa, hilo al final, etiquetas y tiempo real) ([#209](https://github.com/HCDestroyer/iris/issues/209)) ([bf748d4](https://github.com/HCDestroyer/iris/commit/bf748d48ea6e7a27316f1bc76aa21cc2464696d4))
+* **web:** el asistente en la conversación (quién atiende, pausar y reanudar, resumen guardado) ([#212](https://github.com/HCDestroyer/iris/issues/212)) ([2d3225e](https://github.com/HCDestroyer/iris/commit/2d3225e65f0f563c551bea00e557030b9001e456))
+* **web:** el rechazo de Meta a la vista (por qué no se envió, número marcado y llamadas rechazadas) ([#214](https://github.com/HCDestroyer/iris/issues/214)) ([b84b66f](https://github.com/HCDestroyer/iris/commit/b84b66f1c88c60f4a76b280e740b94e4662ffb81))
+
+
+### Correcciones
+
+* **integracion:** el relay no pierde eventos confirmados tras su último barrido ([#213](https://github.com/HCDestroyer/iris/issues/213)) ([7fc5b0c](https://github.com/HCDestroyer/iris/commit/7fc5b0c843dc50959f6fb643212f5b67b9667928))
+* **mensajeria:** decir por qué Meta rechazó un envío y avisar de llamadas rechazadas con las llamadas apagadas ([#201](https://github.com/HCDestroyer/iris/issues/201)) ([1bf7bb1](https://github.com/HCDestroyer/iris/commit/1bf7bb1f1b3901cf72ee966c098c2a619069705e))
+* **mensajeria:** el asistente no dice que contestó cuando no lo hizo; pausar por conversación y resumen guardado ([#202](https://github.com/HCDestroyer/iris/issues/202)) ([4e0f70d](https://github.com/HCDestroyer/iris/commit/4e0f70dbe4678fc2b2cd11c835857b7877ee605f))
+
 ## [0.28.2](https://github.com/HCDestroyer/iris/compare/v0.28.1...v0.28.2) (2026-11-18)
 
 
